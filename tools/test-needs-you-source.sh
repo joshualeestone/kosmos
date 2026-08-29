@@ -276,6 +276,19 @@ out="$(run "$T/rare")"; rc=$?
 [ "$rc" -eq 0 ] && ok "arm 9: and the real hook does not trigger it (exit 0)" \
   || bad "arm 9: the refusal fires against the real hook, exit $rc"
 
+# --- 🔑 ARM 9b: AN UNVERIFIED MARKER IS NOT A MISMATCH, END TO END. Arm 8
+#     checks hookPrefixIsLive returns null for an unreadable hook; nothing drove
+#     that through main(), so the DECISION -- unverified still prints a verdict,
+#     mismatched refuses -- was untested. Those two must not converge.
+out="$(KOSMOS_HOOK_SOURCE="$T/no-such-hook.sh" node tools/needs-you-source.js --dir "$T/rare" 2>&1)"; rc=$?
+case "$out" in
+  *"MISMATCH"*) bad "arm 9b: an unreadable hook was reported as a MISMATCH" ;;
+  *"UNVERIFIED"*) ok "arm 9b: an unreadable hook reads UNVERIFIED, not mismatched" ;;
+  *) bad "arm 9b: no marker line at all for an unreadable hook"; printf '%s\n' "$out" | head -4 ;;
+esac
+[ "$rc" -eq 0 ] && ok "arm 9b: and it still prints a verdict (exit 0), unlike a drifted marker" \
+  || bad "arm 9b: an UNVERIFIED marker refused (exit $rc) -- it has converged with MISMATCH"
+
 # --- 🔑 ARM 10: THE SUCCESS PATH EXITS 0. Codes 1 and 2 are asserted above;
 #     0 was not, and this script runs without `set -e` while run() discards
 #     status -- so a regression making the good path exit non-zero would leave

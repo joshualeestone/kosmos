@@ -16,7 +16,8 @@
  * Read-only. It parses the append-only record and writes nothing.
  * Exit codes, because `tools/test-needs-you-source.sh` gates on them:
  *   0  a record was read and a verdict printed
- *   1  the record is missing, empty, or unreadable -- a NON-RESULT, not a no
+ *   1  a NON-RESULT rather than a no: the record is missing, empty or
+ *      unreadable, OR the hook marker has drifted so the split would be wrong
  *   2  the arguments were wrong, so nothing was read at all
  * Refusals go to stderr; only a real reading goes to stdout.
  *
@@ -106,6 +107,18 @@ const HOOK_SOURCE = process.env.KOSMOS_HOOK_SOURCE || path.join(REPO, 'install',
    purpose: the numbers live in `status.js` rule 3, once, beside the
    instruction not to trust them. */
 const FIXTURE_PREFIX = 'walk-';
+/* ⚠️ AND THIS PREFIX IS NARROWER THAN THE CLASS IT NAMES, WHICH IS A REAL
+   LIMIT AND NOT A HYPOTHETICAL. The live record already holds synthetic agents
+   that do NOT match it (`angeltest1315`, `angelcreate1329`, `quiet-quill`,
+   `quiet-reed`, `scoutlive`, `msgcodex`). None has typed `needs_you`, so the
+   verdict is unaffected today -- but a future fixture named outside `walk-`
+   lands in `typedReal` and flips the verdict toward "agents ARE reporting",
+   which is the exact failure this constant exists to prevent, in the direction
+   that tells a reader correct documentation is stale.
+   ✅ Mitigated rather than solved: the verdict below NAMES the working agents
+   it counted, so a reader can see at a glance whether a flip came from a
+   colleague or from something synthetic. Enumerating fixtures by name would be
+   guessing at which of those six are tests. */
 
 const RED = 'needs_you';
 /* A state name no writer can produce: `selfreport.js` STATES is a closed list,
@@ -113,12 +126,14 @@ const RED = 'needs_you';
    means this tool is counting something other than what it says it is. */
 const IMPOSSIBLE = 'zzz_no_such_state';
 
-/* 🔑 THE VERDICT DOES NOT REST ON THE SHARE, AND THAT IS DELIBERATE. 77% of the
-   record is `working` heartbeats, so a share-only threshold gets harder to trip
-   every day for reasons that have nothing to do with whether agents use the
-   verb -- the same real adoption rate would need several times as many typed
-   reports a month from now. DISTINCT NON-FIXTURE AGENTS does not drift: it is
-   one if one agent has ever typed it, whatever the heartbeat volume. */
+/* 🔑 THE VERDICT DOES NOT REST ON THE SHARE, AND THAT IS DELIBERATE. Most of
+   the record is `working` heartbeats -- the tool prints the exact proportion
+   every run, so no number is quoted here -- and a share-only threshold
+   therefore gets harder to trip every day for reasons that have nothing to do
+   with whether agents use the verb: the same real adoption rate would need
+   several times as many typed reports a month from now. DISTINCT NON-FIXTURE
+   AGENTS does not drift: it is one if one agent has ever typed it, whatever
+   the heartbeat volume. */
 const SHARE_CUTOFF = 0.001;   // 0.1% of all records
 const TYPERS_CUTOFF = 2;      // distinct non-fixture agents that have ever typed it
 
@@ -278,7 +293,12 @@ function main() {
 
   console.log('CONTROLS, so a zero below means something');
   console.log('  ' + pad(s.byState.get(IMPOSSIBLE) || 0) + '  a state no writer can produce (' + IMPOSSIBLE + ')  <- must be 0');
-  console.log('  ' + pad(states[0][1]) + '  the most common state (' + states[0][0] + ')  <- must be > 0');
+  /* ⚠️ NOT LABELLED A CONTROL, BECAUSE IT CANNOT FAIL. `total === 0` is
+     already refused above, so the maximum of a non-empty tally is positive by
+     construction. It is informative (it names which state dominates) and this
+     file's own standard is that a check whose two outcomes are
+     indistinguishable is decoration, so it does not get to wear the word. */
+  console.log('  ' + pad(states[0][1]) + '  for scale, the most common state (' + states[0][0] + ')');
   const live = hookPrefixIsLive(HOOK_SOURCE);
   if (live === true) {
     console.log('       ok  the hook still writes "' + HOOK_PREFIX.trim() + '" (checked in ' + path.relative(REPO, HOOK_SOURCE) + ')');
@@ -328,7 +348,10 @@ function main() {
   console.log('  cutoffs, printed so the boundary is not mine to explain:');
   console.log('    working-agent-typed share of all records   under ' + (SHARE_CUTOFF * 100).toFixed(1) + '%');
   console.log('    distinct working agents that have typed it  at most ' + TYPERS_CUTOFF);
-  console.log('    observed: ' + (share * 100).toFixed(4) + '% and ' + s.typersReal.size + ' agent(s)');
+  console.log('    observed: ' + (share * 100).toFixed(4) + '% and ' + s.typersReal.size + ' agent(s)'
+    + (s.typersReal.size ? ': ' + [...s.typersReal].sort().join(', ') : ''));
+  console.log('    (the fixture prefix is "' + FIXTURE_PREFIX + '" and nothing else -- if a name above'
+    + ' looks synthetic, the verdict is counting a test as a colleague)');
   console.log('');
   if (s.typedReal.length === 0) {
     console.log('  No working agent has EVER typed ' + RED + ' in this record.');

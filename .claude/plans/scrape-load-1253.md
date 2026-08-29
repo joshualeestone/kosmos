@@ -155,6 +155,42 @@ points at it and tells the reader not to trust its own numbers.
 - **The tool header no longer carries derived counts**, which were a second
   copy of numbers the plan says live in exactly one place.
 
+### Amended at iteration 4
+
+- 🛑 **The delivery clause named the FIX as part of the problem.** I wrote that
+  #1255 and #1296 both landed inside the old heading. #1296's own title is
+  *"the two board verbs move to a section existing agents are actually
+  offered"* -- it is the fix. The two that landed inside the old heading are
+  **#1255 and #1292**. And the mechanism is not "never re-offered": #1296 moved
+  the verbs into a NEW heading that `missingFrom` DOES offer, so it is
+  **offered and not yet applied on this machine**, which is one refresh away
+  rather than hopeless. Different fact, different remedy.
+- **The control is now the interesting half**, and it is the reviewer's, not
+  mine: 2 of 17 files carry the old heading, both carry `kosmos msg`, neither
+  carries `kosmos report`. That is #1255's mechanism visible in the data rather
+  than inferred. 0 of 17 carry the new heading.
+- **`FIXTURE_PREFIX` is narrower than the class it names, and that is a real
+  limit rather than a hypothetical:** the live record already holds
+  `angeltest1315`, `angelcreate1329`, `quiet-quill`, `quiet-reed`, `scoutlive`
+  and `msgcodex`. None has typed the verb, so the verdict is unaffected today.
+  Mitigated rather than solved: the verdict now NAMES the working agents it
+  counted, so a reader sees whether a flip came from a colleague or a test.
+- **The exit-code table omitted the drift refusal**, which also exits 1 and is
+  none of the three causes listed. A caller branching on 1 would have concluded
+  the record was absent when the instrument was drifted.
+- **The "most common state" line no longer calls itself a control.** With the
+  empty record already refused, the maximum of a non-empty tally is positive by
+  construction, so its two outcomes are indistinguishable. It is informative;
+  it does not get to wear the word.
+- **The last undated derived number is gone** ("77% of the record is
+  heartbeats"). The tool prints the proportion every run.
+- **Arm 9b** drives the UNVERIFIED path through `main()`, so the decision that
+  an unverified marker still prints while a drifted one refuses is tested
+  rather than assumed. Perturbed: making them converge turns it red.
+- **`defaults.js` quotes 22 of 21,500 for the same split**, an older
+  denominator with no snapshot time. Both were true when written; `status.js`
+  now says so and says which to prefer.
+
 ## What this deliberately does NOT do
 
 - **No behaviour change.** Comments, one read-only tool, one test, one line of

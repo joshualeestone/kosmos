@@ -3601,17 +3601,28 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
  *      2026-08-27 CDT -- so the only time a working agent ever used the verb
  *      was BEFORE anybody told it to, and nothing has been typed since.
  *      🛑 DO NOT READ THAT AS "THE INSTRUCTION DID NOT PERSUADE ANYBODY". IT
- *      WAS NEVER DELIVERED. `defaults.js`'s own version log records that #1255
- *      and #1296 both landed inside a heading every existing agent already
- *      held, so `missingFrom` never re-offered either; measured here
- *      2026-08-28, 0 of 17 worker instruction files carry
- *      `kosmos report needs_you` while 17 of 17 mention `kosmos` (the
- *      control). ⇒ The flat count is evidence of NON-DELIVERY, not evidence
- *      about the copy, and this rule's conclusion is unaffected either way:
- *      the scrape is load-bearing today whatever the reason the other path is
- *      empty. Said out loud because the sibling comment in `defaults.js` says
- *      exactly this, and two engine files disagreeing about one number is how
- *      a reader ends up trusting neither. The
+ *      IS NOT ON ANY AGENT HERE. Two separate reasons, and an earlier version
+ *      of this paragraph merged them and named the FIX as part of the problem:
+ *        #1255 and #1292 landed INSIDE `### Telling people what is happening`,
+ *            a heading every existing agent already holds, so `missingFrom`
+ *            never re-offered either (`defaults.js` version log, items 4-6).
+ *        #1296 is the FIX: it moved the two verbs into `### You do not stop`,
+ *            a NEW heading, which `missingFrom` DOES offer to existing agents.
+ *            So that one is OFFERED AND NOT YET APPLIED on this machine, which
+ *            is one refresh away rather than hopeless.
+ *      Measured here 2026-08-28, and the control is the interesting half:
+ *          0 of 17 worker files carry `kosmos report needs_you`
+ *          2 of 17 carry the OLD heading at all, and BOTH of those carry
+ *            `kosmos msg` and NEITHER carries `kosmos report`
+ *            <- that is #1255's mechanism visible in the data, not inferred
+ *          0 of 17 carry the NEW heading, so #1296 has not landed here yet
+ *      ⇒ The flat count is evidence of NON-DELIVERY, not evidence about the
+ *      copy, and this rule's conclusion is unaffected either way: the scrape
+ *      is load-bearing today whatever the reason the other path is empty.
+ *      📌 `defaults.js`'s version log quotes 22 of 21,500 for the same split.
+ *      Same numerator, older denominator, no snapshot time. The record is
+ *      append-only, so both were true when written; this paragraph carries a
+ *      clock time and that is the one to prefer. The
  *      tool also says plainly if working agents have started reporting it, in
  *      which case this paragraph is stale and rule 3 wants re-arguing rather
  *      than repeating.
