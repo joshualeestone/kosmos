@@ -135,11 +135,26 @@ const oaiStub = require('node:http').createServer((q, r) => {
   chk(!!pick && pick.shown, '#1373: choosing OpenAI reveals which sign-in it will run on', JSON.stringify(pick));
   chk(!!pick && pick.opts.length === 2, '#1373: both sign-ins on this computer are offered', JSON.stringify(pick && pick.opts));
   chk(!!pick && !!pick.value, '#1373: one is preselected, so pressing Switch without opening it still works', JSON.stringify(pick && pick.value));
+  /* The picker, on screen, with the menu open. Written only when SHOT_1373 names a
+     path, so the release gate never pays for it and a PR can still get the picture
+     the worker rules ask for. Taken HERE because the negative arm below hides the
+     control again, and a screenshot of the hidden state proves the wrong thing. */
+  if (process.env.SHOT_1373) {
+    await page.screenshot({ path: process.env.SHOT_1373 });
+    console.log('NOTE  wrote #1373 screenshot to ' + process.env.SHOT_1373);
+  }
   /* 🔑 THE ARM THAT MAKES THE THREE ABOVE MEAN ANYTHING. A control that is
      always visible would pass every one of them. Switching BACK to Anthropic
      has no OpenAI sign-in to choose, so it must go away again. */
   await page.selectOption('#d-provider', 'anthropic');
   await page.waitForTimeout(400);
+  /* The BEFORE state, for judging the layout change rather than guessing at it: the
+     same row with the picker hidden is exactly what this section looked like before
+     the card. */
+  if (process.env.SHOT_1373_BEFORE) {
+    await page.screenshot({ path: process.env.SHOT_1373_BEFORE });
+    console.log('NOTE  wrote #1373 BEFORE screenshot to ' + process.env.SHOT_1373_BEFORE);
+  }
   const gone = await page.evaluate(() => document.getElementById('d-provider-account').hidden);
   chk(gone === true, '#1373: switching back to Anthropic offers no OpenAI sign-in to pick', String(gone));
   /* NOTE, and it belongs to the `selectOption('anthropic')` two lines up rather
