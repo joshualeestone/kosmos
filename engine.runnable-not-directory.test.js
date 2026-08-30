@@ -396,7 +396,16 @@ test('becomeStuck assigns canRunClaude EXACTLY ONCE, and that one assignment del
   const src = fs.readFileSync(path.join(ENGINE, 'connect.js'), 'utf8');
   const anchor = src.indexOf('let canRunClaude = false;');
   assert.ok(anchor > 0, 'canRunClaude was renamed or removed; re-aim this guard');
-  const region = src.slice(anchor + 'let canRunClaude = false;'.length, anchor + 600);
+  /* 🛑 BOUNDED BY STRUCTURE, NOT BY A CHARACTER COUNT. A reviewer measured the
+     char-count version: anchor + 600 ran 14 source lines past the end of
+     becomeStuck and into the next function, so a decoy placed in a DIFFERENT
+     function satisfied it. A constant chosen by eye means whatever the comment
+     density happens to make it mean, and it drifts every time somebody edits a
+     comment nearby. The catch arm is the real end of this construct. */
+  const catchAt = src.indexOf('} catch', anchor);
+  assert.ok(catchAt > anchor && catchAt - anchor < 800,
+    'canRunClaude is no longer followed by a catch arm within a plausible distance; re-aim this guard');
+  const region = src.slice(anchor + 'let canRunClaude = false;'.length, src.indexOf('}', catchAt + 7) + 1);
 
   const assignments = region.match(/canRunClaude\s*=\s*[^;\n]+/g) || [];
   assert.strictEqual(
@@ -407,13 +416,38 @@ test('becomeStuck assigns canRunClaude EXACTLY ONCE, and that one assignment del
       '\nAn EXTRA one is how both pass-9 defeats worked: the real line was repointed to a ' +
       'weaker check and the isRunnable token was re-added nearby, in a comment or in dead code.'
   );
+  /* 🛑 ANCHORED AT BOTH ENDS, AND A PREFIX MATCH IS WHY. This arm shipped for one
+     hour matching only the START of the assignment, and a reviewer defeated it in
+     one line: `= require('./runners').isRunnable(x) || fs.existsSync(x)` matched
+     the prefix perfectly and answers TRUE for a directory, because isRunnable says
+     no and existsSync says yes. The delegation must be the WHOLE answer, not the
+     first half of it. */
+  /* 📌 TWO CHECKS RATHER THAN ONE CLEVER REGEX, AND I TRIED THE CLEVER ONE FIRST.
+     `\(([^)]*)\)$` cannot cross the nested `)` in `claudeBinPath()`, so it went
+     RED ON CORRECT CODE. That is the exact `[^)]*` hazard this file's own
+     WEAK_CALL docblock warns about, committed here by the person who wrote that
+     warning. And a greedy `\(.*\)$` lets the disjunction straight back in,
+     because `isRunnable(x) || existsSync(x)` also ends in `)`. So: match the
+     delegation, then separately refuse anything that could widen it. */
   assert.match(
     assignments[0],
-    /=\s*require\(['"]\.\/runners['"]\)\.isRunnable\s*\(/,
-    'becomeStuck\'s canRunClaude no longer delegates to runners.isRunnable; it is ' +
-      '`' + assignments[0].trim() + '`. If it was repointed to existsSync or another ' +
-      'presence-only check, a DIRECTORY reads as runnable and the stuck screen offers a ' +
-      'hatch that cannot work. publicView serves this field to the page (#1595).'
+    /^canRunClaude\s*=\s*require\(['"]\.\/runners['"]\)\.isRunnable\s*\(/,
+    'becomeStuck\'s canRunClaude is not EXACTLY a delegation to runners.isRunnable; it is ' +
+      '`' + assignments[0].trim() + '`. Anything ADDED to the delegation can undo it: a ' +
+      '`|| fs.existsSync(p)` answers true for a DIRECTORY because isRunnable says no and ' +
+      'existsSync says yes. If it was repointed or widened, a directory reads as runnable ' +
+      'and the stuck screen offers a hatch that cannot work. publicView serves this field ' +
+      'to the page (#1595).'
+  );
+
+  const widened = assignments[0].match(/\|\||&&|\?|\bor\b/);
+  assert.strictEqual(
+    widened, null,
+    'becomeStuck\'s canRunClaude delegates to runners.isRunnable and then WIDENS the answer ' +
+      'with `' + (widened && widened[0]) + '`: `' + assignments[0].trim() + '`. A ' +
+      '`|| fs.existsSync(p)` answers true for a DIRECTORY, because isRunnable says no and ' +
+      'existsSync says yes, so the delegation is decorative. The delegation must be the ' +
+      'whole answer. publicView serves this field to the page (#1595).'
   );
 });
 
