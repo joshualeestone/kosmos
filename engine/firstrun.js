@@ -183,7 +183,7 @@ async function state() {
   /* ⚠️ THE CATCH IS BELT AND BRACES, AND IT IS CURRENTLY UNREACHABLE. Say that
      plainly rather than describing a live fail-open path, because `willInstall()`
      catches on every route it has: the bin resolution sits in one try (a throw
-     there returns true), the runnability check cannot throw (runners.isRunnable
+     there returns true), the runnability check sits in that same try, so even a throwing require resolves safely (runners.isRunnable
      catches internally and returns a boolean), the probe sits in another try,
      and nothing after those can throw. So it does not reject and this `.catch`
      cannot fire today.

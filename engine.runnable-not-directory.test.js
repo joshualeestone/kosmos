@@ -57,6 +57,12 @@ const REPO = __dirname;
  * ⭐ Disclosing only one gap, as an earlier version did, is worse than
  * disclosing none: a reader takes the single caveat as the complete list.
  */
+/* ⚠️ BOTH ALTERNATIVES ARE LOAD-BEARING, and a review flagged the second as
+   redundant. Measured before rejecting that: `access` alone does NOT match
+   `fs.accessSync(bin, X_OK)`, because after `access` comes `Sync` rather than
+   the `\s*\(` this pattern requires. Dropping either branch loses a real form.
+     sync form      accessOnly=false  syncOnly=true
+     async form     accessOnly=true   syncOnly=false */
 const WEAK_CALL = /(accessSync|access)\s*\(.*X_OK/;
 const RUNNERS = path.join(ENGINE, 'runners.js');
 
@@ -96,6 +102,22 @@ function walkJs(dir, base = dir, out = []) {
  *                                  being blanked at all and the sweep went RED
  *                                  ON CORRECT PROSE in 4 files.
  *
+ * 🛑 AND LINE-INITIAL IS NOT SAFE EITHER, WHICH IS THE THIRD TIME A STRING HAS
+ * IMITATED A COMMENT OPENER HERE. A TEMPLATE LITERAL can put a `/*` at the start
+ * of a line. Reproduced: a template containing `/* card styling` with no closer,
+ * followed by a live weak call, left all seven tests GREEN while six lines of
+ * live code were blanked. Narrowing from mid-line to line-initial shrank the
+ * door; it did not close it.
+ *
+ * ✅ So this tracks unescaped-backtick parity and, while inside a template
+ * literal, refuses to treat a line-initial `/*` or `//` as a comment. Refusing
+ * to strip is the SAFE direction: an un-blanked real comment gives a false FAIL
+ * somebody investigates.
+ *
+ * ⚠️ Backtick parity is itself approximate: a backtick inside a normal string or
+ * a comment is counted. That error can only make it strip LESS, which is the
+ * direction we want to be wrong in.
+ *
  * ⇒ Both were over-strippers, and `test-support/code-only.js` in this repo
  * already states the rule I broke twice: **the two failure directions are NOT
  * symmetric. Under-stripping gives a false FAIL somebody investigates;
@@ -115,6 +137,7 @@ function walkJs(dir, base = dir, out = []) {
  */
 function codeOnly(src) {
   let inBlock = false;
+  let backticks = 0;
   return src.split('\n').map((line) => {
     if (inBlock) {
       const end = line.indexOf('*/');
@@ -122,12 +145,17 @@ function codeOnly(src) {
       inBlock = false;
       return ' '.repeat(end + 2) + line.slice(end + 2);
     }
-    if (/^\s*\/\//.test(line)) return '';
-    if (/^\s*\/\*/.test(line)) {
+    const openInTemplate = backticks % 2 === 1;
+    // count unescaped backticks on this line before deciding anything about it
+    const ticks = (line.match(/(^|[^\\])`/g) || []).length;
+    if (/^\s*\/\//.test(line) && !openInTemplate) { backticks += ticks; return ''; }
+    if (/^\s*\/\*/.test(line) && !openInTemplate) {
       const end = line.indexOf('*/');
+      backticks += ticks;
       if (end === -1) { inBlock = true; return ''; }
       return ' '.repeat(end + 2) + line.slice(end + 2);
     }
+    backticks += ticks;
     return line;
   }).join('\n');
 }
@@ -147,13 +175,21 @@ function codeOnly(src) {
  * count no longer matches and the list says so instead of quietly exempting
  * nothing.
  *
- * ⚠️ It does NOT verify that the call at that line is still the guarded one.
- * Swapping the guarded call for an unguarded one at the same count passes.
- * Stated because this list has already been claimed to be un-foolable once, and
- * it was not.
+ * 🛑 THE COUNT ALONE WAS NOT ENOUGH, MEASURED. Deleting engine/machine.js's
+ * `if (!st.isFile())` line while LEAVING the bare accessSync behind it keeps the
+ * count at 1, and every test passed. That is the LIKELIER regression than adding
+ * a call: somebody removes a guard that looks redundant. So each entry now also
+ * carries the guard token it is exempt FOR, and that token must still appear
+ * within `within` lines above the counted call.
+ *
+ * ⚠️ Still not verified: that the guard applies to the SAME path as the call.
+ * A regex cannot answer that, which is what put this list here in the first
+ * place. Stated because this list has been claimed un-foolable once already,
+ * and it was not.
  */
 const SELF_GUARDED = new Map([
-  ['engine/machine.js', { count: 1, why: 'stats the same path and checks st.isFile() two lines above, and says why' }],
+  ['engine/machine.js', { count: 1, guard: /isFile\s*\(/, within: 6,
+    why: 'stats the same path and checks st.isFile() two lines above, and says why' }],
 ]);
 
 test('no file in the repo asks the weak runnable question: accessSync(X_OK) without isFile', () => {
@@ -180,8 +216,19 @@ test('no file in the repo asks the weak runnable question: accessSync(X_OK) with
       if (!WEAK_CALL.test(line)) return;
       // runners.js is the definition of the question, so it is allowed to ask it.
       if (full === RUNNERS) return;
-      const rel = f.split(path.sep).join('/');
-      if (SELF_GUARDED.has(rel)) { allowedSeen.set(rel, (allowedSeen.get(rel) || 0) + 1); return; }
+      const key = f.split(path.sep).join('/');
+      const spec = SELF_GUARDED.get(key);
+      if (spec) {
+        /* Exempt only if the guard this entry exists FOR is still there. The
+           count alone let somebody delete the isFile() and keep the call. */
+        const above = lines.slice(Math.max(0, i - spec.within), i).join('\n');
+        if (spec.guard.test(above)) {
+          allowedSeen.set(key, (allowedSeen.get(key) || 0) + 1);
+          return;
+        }
+        weak.push(`${f}:${i + 1}: EXEMPT FILE LOST ITS GUARD: ${line.trim()}`);
+        return;
+      }
       weak.push(`${f}:${i + 1}: ${line.trim()}`);
     });
   }
@@ -300,7 +347,14 @@ test('a repointed site cannot be silently overridden by a later unconditional as
 
      ⭐ So this asserts the ABSENCE of the override rather than the presence of
      the fix. Presence proves the call is written; only absence proves nothing
-     undoes it. */
+     undoes it.
+
+     ⚠️ GAP, DISCLOSED BECAUSE THE OTHER LISTS IN THIS FILE ARE: the matcher is
+     anchored to the start of a line, so `if (x) canRunClaude = true;` and a
+     compound assignment are both invisible to it. The planted control below
+     exercises only the spelling it can see, which is the "control aimed at the
+     arm that already worked" problem this same file names above. Neither form
+     exists here today. */
   const src = codeOnly(fs.readFileSync(path.join(__dirname, 'engine', 'connect.js'), 'utf8'));
   const overridden = src.match(/^\s*canRunClaude\s*=\s*(true|false)\s*;/gm) || [];
   assert.deepStrictEqual(
