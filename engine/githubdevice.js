@@ -107,21 +107,53 @@ function setClientId(id) {
    candidates; the gh DOOR stays the authority on the gh road itself. */
 /* Where gh lives when nothing overrides it. Hoisted out of ghPresent and made
    settable ONLY so a test can point the candidate branch at a temp directory:
-   with the paths inline, that branch could not be exercised at all, and a
-   review measured it silently accepting a FOLDER at /opt/homebrew/bin/gh while
-   every arm stayed green (#1592). The env-override branch was covered; this one
-   was not, and both call the same lambda, so covering one proved nothing about
-   the other. Same shape as the two test seams below. */
-const GH_CANDIDATES = ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'];
-let ghCandidates = null;
-function setGhCandidatesForTests(list) { ghCandidates = Array.isArray(list) ? list : null; }
+   with the paths inline, that branch could not be exercised at all, and a review
+   measured it silently accepting a FOLDER at /opt/homebrew/bin/gh while every arm
+   stayed green (#1592).
+
+   🛑 ONE VARIABLE, NO FALLBACK EXPRESSION, AND THAT IS THE WHOLE POINT OF THE
+   SHAPE. The first version of this seam read `(ghCandidates || GH_CANDIDATES)`,
+   which is two paths, and a reviewer defeated it by weakening only the one the
+   test does not drive:
+
+     return ghCandidates ? ghCandidates.some(runnable)
+                         : GH_CANDIDATES.some((p) => fs.existsSync(p));   // 12 pass
+
+   The seam path stayed correct, production was defective, and no arm could see
+   it. A SUBSTITUTING SEAM IS SAFE ONLY WHILE EXACTLY ONE CALL SITE CONSUMES BOTH
+   THE SEAM AND THE DEFAULT, and nothing enforced that.
+
+   ✅ So there is no fallback expression: `ghCandidates` IS the list, seeded with
+   the real paths, and the setter restores that seeding rather than clearing a
+   flag. Production and the test drive the same scan because there is only one.
+   That is the property devicedoor already had for free, where `candidates` is a
+   real parameter production callers pass.
+
+   ⚠️ THIS MAKES THE DIVERGENCE UNNATURAL, NOT IMPOSSIBLE, AND I CHECKED RATHER
+   THAN ASSUMED. Comparing against the default reintroduces two paths:
+
+     return ghCandidates !== GH_CANDIDATES_DEFAULT ? ghCandidates.some(runnable)
+                                                   : GH_CANDIDATES_DEFAULT.some(weak);
+
+   Measured: still 12 pass / 0 fail. What the reshape buys is that the form a
+   REFACTOR would naturally produce, a `||` fallback, is gone; what remains needs
+   a deliberate identity check against the default, which nobody writes by
+   accident. No behavioural arm can ever see this, because the defective path is
+   the one nothing drives. The single-scan-site assertion in
+   engine.runnable-not-directory.test.js is the only instrument that can, and it
+   is a source check, with everything that implies. */
+const GH_CANDIDATES_DEFAULT = Object.freeze(['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh']);
+let ghCandidates = GH_CANDIDATES_DEFAULT;
+function setGhCandidatesForTests(list) {
+  ghCandidates = Array.isArray(list) ? list : GH_CANDIDATES_DEFAULT;
+}
 
 function ghPresent() {
   // #1592: the byte-identical twin of devicedoor.js's lambda, which is why
   // fixing one file would not have found the other. Both now ask runners.
   const runnable = (p) => require('./runners').isRunnable(p);
   if (process.env.AGENT_WORKFORCE_GH_BIN) return runnable(process.env.AGENT_WORKFORCE_GH_BIN);
-  return (ghCandidates || GH_CANDIDATES).some(runnable);
+  return ghCandidates.some(runnable);
 }
 
 async function http(url, opts) {
