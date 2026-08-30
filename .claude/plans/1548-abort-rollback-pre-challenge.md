@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: 1548-abort-rollback
-diff_hash: 4c0d0bbb0283af73f5314fe3e2df3fac0ce649068a3936632a2b011e8cecaab7
+diff_hash: 404d894153d57185fbb1ddea7472f147d5ed334b1ade95257d8b365b20d7b215
 validation: passed
 subdir_audit: passed
 timestamp: 2026-08-30T12:47:44Z
