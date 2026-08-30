@@ -555,6 +555,14 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
     'the #1573 slice extends past its end anchor and into the report, so this guard is reading '
     + 'far more of the file than it should and its assertions no longer mean what they say');
 
+  /* 🛑 HOISTED, BECAUSE THE CREATE ASSERTION BELOW USED TO READ `block` AND A
+     COMMENT SATISFIED IT. A line like `# ... > "$sb_ok/fake-claude"` made the guard
+     green while the real creation was renamed away. The comment three lines below it
+     claimed it "matches the WRITE and not the reference to it" - true of the redirect
+     shape, false about which SOURCE it read. Use versus mention, a third time, and this
+     time the mention was in my own prose. */
+  const code = block.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+
   /* ⚠️ PIN THE RULE, NOT THE SPELLING. An earlier version of this asserted the heredoc
      MARKERS (`<<'STUBOK'`) and the exact string `AGENT_WORKFORCE_CODEX_BIN="$_sb/fake-codex"`.
      Both are spellings: renaming the stub file, or switching the heredoc to a printf,
@@ -570,7 +578,11 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
   for (const [varName, label] of LAUNCHERS) {
     const m = block.match(new RegExp(`AGENT_WORKFORCE_${varName}_BIN="([^"]+)"`));
     assert.ok(m, `the exempt boards no longer pin AGENT_WORKFORCE_${varName}_BIN, so ${label} `
-      + 'resolves to whatever is on the machine; dry-run never gated that path either');
+      + 'resolves through the resolver; dry-run never gated that path either. MEASURED, and it '
+      + 'differs by provider: with no pin and a sandboxed AGENT_WORKFORCE_HOME, claude resolves '
+      + 'to a sandbox path with present:false, but OPENAI RESOLVES TO /opt/homebrew/bin/codex '
+      + 'WITH present:TRUE. So the codex half of this pin is load-bearing and the claude half '
+      + 'is belt-and-braces.');
     const target = m[1];
     assert.match(target, /^\$_sb\//,
       `the ${label} launcher is ${target}, which is not rooted in the board's own sandbox`);
@@ -587,9 +599,12 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
          paths, so a bare path match was satisfied by the chmod even after the creation
          was deleted, and the guard stayed green. Requiring `> "$board/base"` matches the
          WRITE and not the reference to it. Use versus mention, one more time. */
-      assert.match(block, new RegExp(`>\\s*"\\$${board}/${base}"`),
+      assert.match(code, new RegExp(`>\\s*"\\$${board}/${base}"`),
         `${board} does not create ${base}, so its AGENT_WORKFORCE_${varName}_BIN names a file `
-        + 'that may not exist and the resolver would fall through to a real binary');
+        + 'that does not exist. NOTE: an env pin is AUTHORITATIVE (runners.js:267 returns it with '
+        + 'overridden:true and present:false), so this does NOT fall through to a real binary - '
+        + 'measured. What it does is leave the board asserting against a launcher that is not '
+        + 'there, which makes the check meaningless rather than dangerous.');
     }
   }
 
@@ -601,7 +616,7 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
      within minutes of the guard existing: a comment explaining WHY codex is pinned
      mentions /opt/homebrew, and the suite went red for describing the danger correctly.
      Use versus mention, again. */
-  const code = block.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+
 
   /* 🛑 AN ALLOWLIST ON THE STUB BODIES, BECAUSE THE DENYLIST BELOW CANNOT SEE A PATH
      LOOKUP. The forbidden patterns are all path-shaped, so `exec ~/.local/bin/claude`

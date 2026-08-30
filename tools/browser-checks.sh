@@ -823,7 +823,13 @@ fi
 #     create.js:239   `if (DRY_RUN) return { ok: true, stdout: '', dryRun: true }` returns
 #                     BEFORE execFile, so on the six dry-run boards print-disabled and
 #                     list DO NOT EXECUTE AT ALL. They are NEW on this pair.
-#     machine.js      zero AGENT_WORKFORCE_DRY_RUN references (control: create.js has 25),
+#     machine.js      zero AGENT_WORKFORCE_DRY_RUN references. CONTROL, and note the
+#                     control must count the SAME STRING as the subject or it proves
+#                     nothing: create.js has 2 AGENT_WORKFORCE_DRY_RUN and 25 bare
+#                     DRY_RUN. An earlier version of this line read "create.js has 25"
+#                     while labelling it AGENT_WORKFORCE_DRY_RUN - the number was right
+#                     for the OTHER string, so it compared 0 of one thing against 25 of
+#                     another and read as overwhelming evidence.
 #                     so the /api/machine three genuinely ARE equal across every board.
 # ⇒ The /api/machine three are not a regression. The two launchctl reads ARE newly
 # executing here, and they are acceptable because they are READ-ONLY AND FAIL-SOFT, not
@@ -865,6 +871,9 @@ sb_ok="$(new_sandbox)"; sb_bad="$(new_sandbox)"
 # The shape below is copied from that stub, which captured it from the real
 # command, per this repo's rule that a fixture is a capture and not a guess.
 cat > "$sb_ok/fake-claude" <<'STUBOK'
+# 1573-pair stub. This marker exists so a block-scoped mutation can anchor here:
+# the sb4 stub earlier in this file is byte-identical without it, and two blind
+# reviewers independently anchored on the shared text and mutated the wrong one.
 #!/bin/sh
 [ "$1" = --version ] && { echo "claude 0.0.0-fake"; exit 0; }
 [ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
@@ -874,6 +883,9 @@ STUBOK
 # card's whole point is a launcher that EXISTS and does not RUN, so the file is
 # executable and the version probe is what fails.
 cat > "$sb_bad/fake-claude" <<'STUBBAD'
+# 1573-pair stub. This marker exists so a block-scoped mutation can anchor here:
+# the sb4 stub earlier in this file is byte-identical without it, and two blind
+# reviewers independently anchored on the shared text and mutated the wrong one.
 #!/bin/sh
 [ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
 exit 1
@@ -885,6 +897,10 @@ mkdir -p "$sb_ok/home" "$sb_bad/home"   # sb4 does this; AGENT_WORKFORCE_HOME is
 write_fleet "$sb_ok"; write_fleet "$sb_bad"
 for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
   _sb="${_pair%%:*}"; _port="${_pair##*:}"
+  # the sibling boards at :208 and :246 create this; without it the fake tmux
+  # answers list-panes from a file that is not there, which is an empty board by
+  # accident rather than by intent.
+  : > "$_sb/panes.txt"
   AGENT_WORKFORCE_DATA="$_sb/data" AGENT_WORKFORCE_WORKERS="$_sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$_sb/launch" AGENT_WORKFORCE_PROJECTS="$_sb/projects" \
     AGENT_WORKFORCE_CONFIG_ROOT="$_sb/config" AGENT_WORKFORCE_HOME="$_sb/home" \
@@ -896,6 +912,11 @@ for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
     AGENT_WORKFORCE_GH_BIN="/nonexistent/gh" AGENT_WORKFORCE_VERCEL_BIN="/nonexistent/vercel" \
     AGENT_WORKFORCE_GH_CONFIG_DIR="$_sb/gh-config" \
     AGENT_WORKFORCE_OPENAI_MODELS_URL="http://127.0.0.1:9/models" \
+    AGENT_WORKFORCE_GITHUB_DEVICE_URL="http://127.0.0.1:9/device" \
+    AGENT_WORKFORCE_GITHUB_TOKEN_URL="http://127.0.0.1:9/token" \
+    AGENT_WORKFORCE_GITHUB_VERIFY_URL="http://127.0.0.1:9/user" \
+    AGENT_WORKFORCE_CLOUDFLARE_VERIFY_URL="http://127.0.0.1:9/verify" \
+    AGENT_WORKFORCE_OPENAI_WALK_KEY="sk-not-a-real-key-1573" \
     PORT="$_port" node ./server.js > "$_sb/server.log" 2>&1 &
   SERVER_PIDS+=("$!")
   wait_up "$_port" "$_sb/server.log" || true

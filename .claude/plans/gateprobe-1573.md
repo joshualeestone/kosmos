@@ -162,7 +162,7 @@ now bounded to the block guard 3 reads.
 read-only check. Found: it counted comment lines, so documenting the rule in the runner
 would have reddened the gate; and it printed joined-array indices as source line numbers.
 Both fixed. 🛑 THEN A FIFTH BLIND REVIEW FOUND THREE MORE, and the first was not exotic:
-**the URL held in a variable is this file's DOMINANT style**, written verbatim at 594-596
+**the URL held in a variable is this file's DOMINANT style**, written verbatim at line 608
 as `B8="http://127.0.0.1:$P8"` for fourteen checks. The others were invoking the check
 without `run_one`, and chaining a second onto the same continuation so the line count
 stayed at 1. All three now counted: one level of assignment is resolved into aliases, any
