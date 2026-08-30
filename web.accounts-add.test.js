@@ -137,3 +137,22 @@ test('#770: reopening onto a sign-in already in flight lands focus on that step,
   assert.match(openFn, /\} else \{\s*\n\s*sel\.focus\(\);/,
     'opening fresh (nothing in flight) no longer focuses the provider dropdown');
 });
+
+test('#1492: a signed-out account the agent runs on surfaces the move (or reauth) at the picker', () => {
+  /* Josh's sister: an agent stranded on a signed-out account showed no reason and
+     no path. The move UI is right here, so say why it will not run and point at the
+     move (when a signed-in target is offered) or at signing the account back in. */
+  const CODE = codeOnly(PAGE);
+  const at = CODE.indexOf('async function paintAccountPicker');
+  assert.ok(at > -1, 'paintAccountPicker moved or was renamed');
+  const fn = CODE.slice(at, at + 5000);
+  assert.match(fn, /ACCOUNTS\.find\(\(x\) => x\.dir === acct\.dir\)/,
+    'the picker no longer cross-references the agent account against the live list, so it cannot tell it is signed out (a launch-file read would not know)');
+  assert.match(fn, /state !== 'connected'/, 'no signed-out detection');
+  assert.match(fn, /signed out, so it cannot run\. Pick a signed-in account above/,
+    'no directive to move when a signed-in target is offered');
+  assert.match(fn, /signed out, so it cannot run\. Sign it in again/,
+    'no reauth fallback when no move target is offered');
+  assert.match(fn, /else if \(msg && !msg\.textContent && signedOut\)/,
+    'the prompt is not gated on signedOut, so it could fire on a connected account');
+});

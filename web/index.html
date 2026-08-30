@@ -21835,6 +21835,14 @@ async function paintAccountPicker(a) {
      and says why; the picker does not offer them at all, because an option that
      always fails is worse than an option that is not there. */
   const movable = ACCOUNTS.filter((x) => x.memoryShared);
+  /* #1492: the account this agent runs on can be SIGNED OUT (the stale-file
+     duplicate Josh's sister hit), and then the agent cannot run while the move
+     UI right here is the way onto a signed-in account. Cross-reference the
+     agent's account against the live list to know, and whether a signed-in
+     target is on offer. Fails to no-prompt if the dir matches no row. */
+  const acctLive = acct && ACCOUNTS.find((x) => x.dir === acct.dir);
+  const signedOut = !!(acctLive && acctLive.connection && acctLive.connection.state !== 'connected');
+  const signedInTarget = movable.some((x) => x.connection && x.connection.state === 'connected' && (!acct || x.dir !== acct.dir));
   /* Josh, 2026-08-23 19:56: the dropdown shows the account it is on (the
      email), not a Move-to placeholder; picking a DIFFERENT one is what
      arms Move. The current account is the empty-value option, so Move
@@ -21862,6 +21870,13 @@ async function paintAccountPicker(a) {
   go.disabled = !ours || !sel.value;
   if (msg && !msg.textContent && !ours) {
     msg.textContent = 'We cannot tell which account this one uses, so it cannot be moved from here.';
+  } else if (msg && !msg.textContent && signedOut) {
+    /* #1492: surface the fix at the point of pain. A signed-out account is why a
+       stranded agent will not run, and the move above is the way off it (or sign
+       the account back in). Directive, and honest about which path is on offer. */
+    msg.textContent = signedInTarget
+      ? 'The account this agent runs on is signed out, so it cannot run. Pick a signed-in account above and press Move.'
+      : 'The account this agent runs on is signed out, so it cannot run. Sign it in again from Settings, AI Models.';
   }
 }
 
