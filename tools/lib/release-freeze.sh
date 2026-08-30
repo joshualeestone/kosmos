@@ -274,17 +274,18 @@ EOS
 # tarball pair whose name is cache-immutable (cut 5 of 0.5.24 refused to
 # republish over the pair cut 4 left behind). A stray site deploy in that state
 # would publish a latest.json pointing at a version that does not exist.
-#   release_site_restore <site> <version> <pair-existed-before: 0|1>
+#   release_site_restore <site> <version> <pair-existed: 0|1> [ptr-existed: 0|1] [backup-root]
 # puts the two tracked files back to their committed bytes and removes the
 # versioned pair when this cut created it. versions.html is NOT touched: its
 # entry is hand-written and the re-cut needs it. Prints what it did. 0 always
 # (it runs from a trap; a failure here must not mask the cut's own reason).
 release_site_restore() {
-  # had_ptr defaults to 1 so a 3-arg caller (before #1548) is a no-op on the pointer:
-  # no .precut means the restore arm is skipped, and had_ptr=1 means the remove arm is
-  # skipped, leaving the served pointer exactly as it was. Only a 4-arg caller that
-  # passes had_ptr=0 (a fresh clone) reaches the remove arm.
-  local site="$1" v="$2" had="$3" had_ptr="${4:-1}" f rel _u
+  # had_ptr defaults to 1 and bak_root to empty, so a 3-arg caller (before #1548) is a
+  # no-op on the pointer: an empty bak_root skips the restore arm, and had_ptr=1 skips
+  # the remove arm, leaving the served pointer exactly as it was. Only a caller passing
+  # had_ptr=0 (a fresh clone) reaches the remove arm, and only one passing a bak_root
+  # holding precut/<file> reaches the restore arm.
+  local site="$1" v="$2" had="$3" had_ptr="${4:-1}" bak_root="${5:-}" f rel _u
   [ -n "$site" ] && [ -n "$v" ] && [ -d "$site" ] || { echo "release_site_restore: site and version are required" >&2; return 0; }
   for f in dist/latest.json setup.sha256; do
     if git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
@@ -320,15 +321,17 @@ release_site_restore() {
   fi
   # #1548: the UNVERSIONED pointer (kosmos-arm64.tar.gz + .sha256) is not a versioned
   # artifact but a pointer that must keep pointing at the SERVED version. release.sh
-  # overwrites it before the deploy and backs the pre-cut copy up as .precut. Restore
-  # that copy here; if none was backed up AND the pointer did not pre-exist (had_ptr!=1,
-  # a fresh site clone), remove the one this cut created, so no later deploy publishes
-  # an abandoned build against the stale committed latest.json. A missing .precut with
+  # overwrites it before the deploy and backs the pre-cut copy up under bak_root
+  # (BUILD_ROOT), NOT beside the served file, so it never sits untracked in the shared
+  # site checkout where a stray `git add -A` could stage it into a deploy. Restore that
+  # copy here; if none was backed up AND the pointer did not pre-exist (had_ptr!=1, a
+  # fresh site clone), remove the one this cut created, so no later deploy publishes an
+  # abandoned build against the stale committed latest.json. A missing backup with
   # had_ptr=1 means the overwrite never happened (aborted before it) OR the backup
   # failed -- either way leaving the served pointer in place is the safe answer.
   for _u in kosmos-arm64.tar.gz kosmos-arm64.tar.gz.sha256; do
-    if [ -f "$site/dist/$_u.precut" ]; then
-      mv -f "$site/dist/$_u.precut" "$site/dist/$_u" \
+    if [ -n "$bak_root" ] && [ -f "$bak_root/precut/$_u" ]; then
+      mv -f "$bak_root/precut/$_u" "$site/dist/$_u" \
         && echo "   put back: dist/$_u (the served pointer; the site no longer offers the aborted build)"
     elif [ "$had_ptr" != 1 ] && [ -f "$site/dist/$_u" ]; then
       rm -f "$site/dist/$_u" \
