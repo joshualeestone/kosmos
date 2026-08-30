@@ -40,7 +40,9 @@ process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'LaunchAgents');
  *
  * 📌 `AGENT_WORKFORCE_HOME` was set here and did NOTHING: create.js's `homeDir()`
  * is raw `os.homedir()` and the module never reads that variable (measured, 0
- * occurrences, against 2 for AGENT_WORKFORCE_WORKERS). It has been removed rather
+ * occurrences; the control figure that used to sit here was taken before a sibling
+ * line in the same diff changed it, so it is stated as a bare zero rather than as
+ * a ratio that decays). It has been removed rather
  * than left to read as protection it never provided.
  */
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
@@ -141,7 +143,7 @@ test('#1539: a sandbox that redirects HOME is still a sandbox', () => {
   });
 });
 
-test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', async () => {
+test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', () => {
   /**
    * The configuration that started three real agents: redirected LAUNCH, no
    * injected runner, not dry-run. The assertion is the launchd domain itself,
@@ -168,6 +170,24 @@ test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', asy
      rather than described as handled. */
   delete require.cache[require.resolve('./create')];
   const live = require('./create');
+
+  /**
+   * 🛑 THE PRECONDITION THIS TEST WAS MISSING, AND IT IS THE ONLY TEST THAT CAN
+   * REGISTER A REAL JOB. Tests 4, 8 and 9 all open by asserting the guard is
+   * armed; this one did not, and the file header claimed the predicate was
+   * "asserted FIRST on all four arms" - true of the predicate tests, which run
+   * inside withOnlyLaunch() and therefore certify a LAUNCH-only environment, not
+   * the four-knob environment this test runs in.
+   *
+   * ⚠️ If the guard ever regresses, this test bootstraps a real
+   * com.kosmos.agent.sandboxprobe* into gui/501, and the sandbox tmpdir is removed
+   * at process exit - deleting the plist out from under a live registration. That
+   * is the 18-minute incident, produced by the test whose job is to prevent it.
+   */
+  assert.equal(live.launchIsSandboxed(), true,
+    'precondition: the guard must be armed before this test is allowed to call '
+    + 'installJob with no runner and no dry-run');
+
   const before = countKosmosJobs();
   const name = `sandboxprobe${Math.random().toString(36).slice(2, 8)}`;
   fs.mkdirSync(nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, name), { recursive: true });
@@ -192,6 +212,19 @@ test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', asy
     'a sandboxed installJob claimed it had STARTED the agent');
   assert.match(String(res.because || ''), /could not start it just now/,
     'the caller is not told the agent was left unstarted');
+
+  /**
+   * ✅ CLEAN UP IF THE GUARD FAILED. If `after !== before` a real job was
+   * registered, and the assertion above has already thrown. This runs regardless
+   * so the machine is not left holding it - the previous version had no bootout
+   * anywhere in the file, which is exactly how one ran for 18 minutes.
+   */
+  if (after !== before) {
+    const { spawnSync } = require('node:child_process');
+    spawnSync('/bin/launchctl',
+      ['bootout', `gui/${process.getuid()}/com.kosmos.agent.${name}`],
+      { encoding: 'utf8' });
+  }
 });
 
 test('#1539 CONTROL: READS are not blocked, so a sandboxed test can still ask what is running', () => {
@@ -318,38 +351,6 @@ test('#1539 CONTROL: an injected runner still wins, so existing tests are unaffe
 });
 
 
-test('#1539: FORGETTING to redirect LAUNCH is a sandbox too', () => {
-  /**
-   * 🛑 THE COMMONER MISTAKE, AND THE ONE A LAUNCH-KEYED PREDICATE CANNOT SEE.
-   * A test that sandboxes DATA, PROJECTS and WORKERS but forgets LAUNCH writes a
-   * REAL plist into the operator's real ~/Library/LaunchAgents and registers a
-   * real job. Keying only on "has LAUNCH moved" stands down on exactly that.
-   *
-   * `engine/sandbox.js` already calls this state `partial` and refuses to start a
-   * board in it (#634: a board is sandboxed whole or not at all). Consulting it
-   * here means this module does not become a second, disagreeing definition of
-   * "am I sandboxed".
-   */
-  withOnlyLaunch(() => {
-    delete process.env.AGENT_WORKFORCE_LAUNCH;
-    assert.equal(create.launchIsSandboxed(), false,
-      'precondition: with NOTHING sandboxed this must be production');
-
-    process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'w2data');
-    assert.equal(create.launchIsSandboxed(), true,
-      'DATA was sandboxed and LAUNCH forgotten, which writes a REAL plist, and '
-      + 'the predicate called it production');
-  });
-
-  /* CONTROL: back to nothing set, it must return false again, so the assertion
-     above cannot be passing because the predicate is stuck on true. */
-  withOnlyLaunch(() => {
-    delete process.env.AGENT_WORKFORCE_LAUNCH;
-    assert.equal(create.launchIsSandboxed(), false,
-      'CONTROL: the predicate can still say production, so true above means something');
-  });
-});
-
 test('#1539: the BARE launchctl spelling is refused too, not just /bin/launchctl', () => {
   /**
    * 🛑 THIS ARM EXISTED NOWHERE UNTIL I AUDITED MY OWN COMMIT. I changed the
@@ -429,45 +430,6 @@ test('#1539: a non-array args FAILS CLOSED, it does not fall through to exec', (
 });
 
 
-test('#1539: a non-default KOSMOS_HOME install is NOT refused (the escape hatch is honoured)', () => {
-  /**
-   * 🛑 THE PRODUCTION PATH AN EARLIER VERSION OF THIS GUARD BROKE, SILENTLY AND
-   * FOREVER. `install/setup.sh` exports DATA, PROJECTS and WORKERS for a
-   * non-default KOSMOS_HOME (:2635-2637), DELIBERATELY leaves LAUNCH unset so
-   * plists go to the REAL LaunchAgents, and exports
-   * AGENT_WORKFORCE_HALF_SANDBOX_OK=1 (:2662) as sandbox.js's own named escape
-   * hatch for exactly that shape. All four are written into the board plist's
-   * EnvironmentVariables (:2782), so the server carries them at EVERY LOGIN.
-   *
-   * With the guard keyed on `audit().set`, that env refused the registration,
-   * `installJob` reported started:false, and `createAgentInner` rolled the whole
-   * creation back. Nothing in the release gate would have caught it:
-   * tools/test-install.sh always pins AGENT_WORKFORCE_LAUNCH.
-   */
-  withOnlyLaunch(() => {
-    delete process.env.AGENT_WORKFORCE_LAUNCH;
-    const savedOk = process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
-    process.env.AGENT_WORKFORCE_DATA = '/tmp/kh-1539/data';
-    process.env.AGENT_WORKFORCE_PROJECTS = '/tmp/kh-1539/projects';
-    process.env.AGENT_WORKFORCE_WORKERS = '/tmp/kh-1539/workers';
-    try {
-      process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = '1';
-      assert.equal(create.launchIsSandboxed(), false,
-        'a deliberate half-sandbox (setup.sh non-default KOSMOS_HOME) was treated as '
-        + 'a sandbox, which refuses registration and rolls back every agent creation');
-
-      /* CONTROL: the SAME env without the escape hatch must be refused, so the
-         assertion above cannot be passing because the predicate is stuck false. */
-      delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
-      assert.equal(create.launchIsSandboxed(), true,
-        'CONTROL: an UNDELIBERATE half-sandbox must still be caught');
-    } finally {
-      if (savedOk === undefined) delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
-      else process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = savedOk;
-    }
-  });
-});
-
 test('#1539: the guard refuses in DRY_RUN order too, and fails closed with no passwd entry', () => {
   /**
    * Two branches the file named and did not assert, both found by review:
@@ -508,37 +470,37 @@ test('#1539: the guard refuses in DRY_RUN order too, and fails closed with no pa
 });
 
 
-test('#1539: a PARTIAL other-sandbox is caught even WITH the hatch set', () => {
+test('#1539: sandboxing OTHER knobs does not refuse a REAL plist destination', () => {
   /**
-   * 🛑 THIS REPLACES A PIN THAT WAS TOO WIDE, AND THE ERROR WAS MINE. The old
-   * RESIDUAL test asserted the guard stands down whenever the hatch is set, and
-   * justified it as "undecidable from the environment". That was true of the state
-   * the comment DESCRIBED (all three sandboxed, hatch set) and FALSE of the state
-   * its BODY asserted (DATA alone, hatch set). A claim wider than its own
-   * measurement, which is the defect this whole card keeps producing.
+   * 🛑 THIS IS THE CORRECTION FROM REVIEW SIX, AND IT REPLACES FOUR TESTS. An
+   * earlier arm returned "sandboxed" whenever DATA/PROJECTS/WORKERS was set, on
+   * the theory that somebody who sandboxed those meant to sandbox LAUNCH and
+   * forgot. It returned BEFORE the path comparison, so it refused registrations
+   * for plists genuinely going to the REAL LaunchAgents, and
+   * `createAgentInner` rolled the whole creation back.
    *
-   * The narrower state IS decidable, because production never presents it:
-   * `setup.sh` derives all three whenever it derives any. So the hatch now excuses
-   * only a COMPLETE other-sandbox, and this asserts the difference.
+   * `AGENT_WORKFORCE_HALF_SANDBOX_OK` is a DOCUMENTED user-facing override
+   * (`sandbox.js:19`), so that was reachable by following the documentation.
    */
   withOnlyLaunch(() => {
-    delete process.env.AGENT_WORKFORCE_LAUNCH;
     const saved = process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
     try {
-      process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = '1';
-      process.env.AGENT_WORKFORCE_DATA = '/tmp/partial-1539/data';
-      assert.equal(create.launchIsSandboxed(), true,
-        'a PARTIAL other-sandbox with the hatch set stood the guard down, which '
-        + 'lets a test write a real plist into the operator LaunchAgents');
-
-      /* CONTROL, and it is the production shape: with ALL of them set the hatch is
-         honoured and the guard stands down. If this goes true, every
-         non-default-KOSMOS_HOME install starts rolling back agent creation. */
-      process.env.AGENT_WORKFORCE_PROJECTS = '/tmp/partial-1539/projects';
-      process.env.AGENT_WORKFORCE_WORKERS = '/tmp/partial-1539/workers';
+      delete process.env.AGENT_WORKFORCE_LAUNCH;
+      process.env.AGENT_WORKFORCE_DATA = '/tmp/otherknobs-1539/data';
       assert.equal(create.launchIsSandboxed(), false,
-        'CONTROL: a COMPLETE other-sandbox with the hatch is the setup.sh '
-        + 'production shape and must NOT be refused');
+        'a sandboxed DATA with LAUNCH pointing at the REAL directory was refused; '
+        + 'the plist is going somewhere real, so the registration must be real too');
+
+      process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = '1';
+      assert.equal(create.launchIsSandboxed(), false,
+        'the documented half-sandbox override was refused');
+
+      /* CONTROL: redirect LAUNCH and it must be caught, so the two assertions
+         above are about the plist DESTINATION and not about the guard being
+         inert. */
+      process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'LaunchAgents');
+      assert.equal(create.launchIsSandboxed(), true,
+        'CONTROL: a redirected plist destination must still be refused');
     } finally {
       if (saved === undefined) delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
       else process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = saved;
@@ -546,40 +508,36 @@ test('#1539: a PARTIAL other-sandbox is caught even WITH the hatch set', () => {
   });
 });
 
-test('#1539 RESIDUAL: the COMPLETE hatched shape is undecidable and stays open', () => {
+test('#1539 KNOWN GAP: a test that FORGETS to redirect LAUNCH is not covered', () => {
   /**
-   * 🛑 WHAT ACTUALLY REMAINS OPEN, stated narrowly this time. A test that
-   * sandboxes ALL THREE, sets the hatch and forgets LAUNCH is byte-identical in
-   * environment to a legitimate non-default-KOSMOS_HOME install. No predicate can
-   * separate them, and refusing the install is iteration 3's blocker: every agent
-   * creation rolls back, silently, forever.
+   * 🛑 PINNED SO THE BOUNDARY IS VISIBLE RATHER THAN ACCIDENTAL. A test that
+   * sandboxes everything except LAUNCH writes a REAL plist and registers a REAL
+   * job, and this guard does not stop it.
    *
-   * ✅ The real fix is #1598: fail closed and require an explicit live opt-in, so
-   * nothing infers intent from the environment. If that lands and create.js adopts
-   * it, THIS TEST SHOULD FAIL. Delete it then - its failure is the signal the class
-   * closed, not a regression.
+   * ⚠️ IT CANNOT. That test is byte-identical in environment to a real install:
+   * both write a real plist and both want a real registration. The arm that used
+   * to catch it was inferring INTENT from the environment, and the environment
+   * does not carry intent - which is the argument this card made for #1598, so
+   * applying it here means removing the arm rather than defending it.
+   *
+   * ✅ The hazard belongs to #1598's explicit live opt-in, where a caller STATES
+   * its intent. If that lands and create.js adopts it, THIS TEST SHOULD FAIL.
+   * Delete it then; its failure is the signal the class closed.
    */
   withOnlyLaunch(() => {
     delete process.env.AGENT_WORKFORCE_LAUNCH;
-    const saved = process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
-    process.env.AGENT_WORKFORCE_DATA = '/tmp/residual-1539/data';
-    process.env.AGENT_WORKFORCE_PROJECTS = '/tmp/residual-1539/projects';
-    process.env.AGENT_WORKFORCE_WORKERS = '/tmp/residual-1539/workers';
-    try {
-      process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = '1';
-      assert.equal(create.launchIsSandboxed(), false,
-        'KNOWN RESIDUAL: the complete hatched shape stands the guard down. If this '
-        + 'now reads true, #1598 or an equivalent has landed: delete this test.');
+    process.env.AGENT_WORKFORCE_DATA = '/tmp/gap-1539/data';
+    process.env.AGENT_WORKFORCE_PROJECTS = '/tmp/gap-1539/projects';
+    process.env.AGENT_WORKFORCE_WORKERS = '/tmp/gap-1539/workers';
+    assert.equal(create.launchIsSandboxed(), false,
+      'KNOWN GAP: everything sandboxed but LAUNCH forgotten is NOT caught. If this '
+      + 'now reads true, #1598 or an equivalent has landed: delete this test.');
 
-      /* CONTROL: the same complete shape WITHOUT the hatch must be caught, so the
-         assertion above is about the hatch, not about the state being benign. */
-      delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
-      assert.equal(create.launchIsSandboxed(), true,
-        'CONTROL: without the hatch a complete other-sandbox must be refused');
-    } finally {
-      if (saved === undefined) delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
-      else process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = saved;
-    }
+    /* CONTROL: the same shape with LAUNCH redirected IS caught, so the gap is
+       about the forgotten variable and not about the guard being dead. */
+    process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'LaunchAgents');
+    assert.equal(create.launchIsSandboxed(), true,
+      'CONTROL: with LAUNCH redirected the same shape must be refused');
   });
 });
 
