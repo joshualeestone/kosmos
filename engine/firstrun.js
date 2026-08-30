@@ -173,10 +173,19 @@ async function state() {
    */
   const path_ = !here.known ? 'unknown' : (here.count > 0 ? 'adopt' : 'create');
 
-  /* ⚠️ FAILS OPEN. A null here is not a boolean, so the reader's
-     `typeof st.willInstall === 'boolean'` test is false and it asks, which is
-     the pre-#1556 behaviour. An unknown must never become a confident "no
-     install needed": that answer costs an unannounced 281MB download. */
+  /* ⚠️ THE CATCH IS BELT AND BRACES, AND IT IS CURRENTLY UNREACHABLE. Say that
+     plainly rather than describing a live fail-open path, because `willInstall()`
+     catches on every route it has: the bin resolution and the accessSync sit in
+     one try, the probe sits in another, and nothing after those can throw. So it
+     does not reject and this `.catch` cannot fire today.
+
+     It stays because the property it defends is the one that matters (an unknown
+     must never become a confident "no install needed", which costs an unannounced
+     281MB download), and because a future edit inside `willInstall` could make it
+     reachable. What it must NOT do is read as a guarantee the code is providing
+     right now. This repo names that trap itself, at web/index.html:30776: saying a
+     function can return null when it cannot is how a dead branch gets pinned by a
+     test that can never fail for the reason it states. */
   const willInstall = await willInstallSoon;
 
   return {

@@ -46,13 +46,14 @@ function fakeClaude(name, body) {
 test('#1556: no binary means an install IS needed, decided without a probe', () => {
   delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   connect.resetForTests();
-  const started = Date.now();
   return connect.willInstall().then((w) => {
     assert.equal(w, true, 'a machine with no Claude was told no install is needed');
-    /* The cheap half must answer alone. A 15s probe timeout here would mean the
-       accessSync gate is not gating, and every status poll would pay for it. */
-    assert.ok(Date.now() - started < 2000,
-      'the missing-binary case took long enough to have spawned a probe');
+    /* 📌 A "this finished fast, so the accessSync gate must be gating" assertion used
+       to sit here. It could NOT fail for the reason it stated: `run()` on a
+       nonexistent path fails with ENOENT in milliseconds rather than at the timeout,
+       so the arm stayed green whether or not the gate existed. Removed rather than
+       retuned, for the same reason the cache arm below counts probes instead of
+       timing them. The `w === true` assertion is what carries this test. */
   });
 });
 
@@ -148,4 +149,55 @@ test('#1556 "never throws" covers the RESOLVER too, not just a missing file', as
     runners.resolveBin = orig;
     connect.resetForTests();
   }
+});
+
+test('#1556 the cache is keyed on the BINARY, not just on time', async () => {
+  /* ⚠️ NOTHING PINNED THIS. Every other arm calls resetForTests() before changing
+     the fixture, so no test ever presented a cached verdict for a DIFFERENT path,
+     and dropping `probeCache.bin === bin` would have gone unnoticed.
+
+     The failure it guards is the harmful one: a machine whose resolved launcher
+     path CHANGES would keep serving the old path's verdict, and the old verdict
+     can be `false` while the new path has nothing runnable on it.
+
+     One runner for both arms, deciding from the path it is handed, and NO reset
+     between them: the keying is the only thing that can produce the right answer. */
+  const good = fakeClaude('claude-keyed-good', 'exit 0');
+  const bad = fakeClaude('claude-keyed-bad', 'exit 1');
+  connect.resetForTests();
+  connect.setRunner(async (file) => ({ ok: file.endsWith('claude-keyed-good'), stdout: '' }));
+
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = good;
+  assert.equal(await connect.willInstall(), false, 'the working launcher was misread');
+
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = bad;   // deliberately no reset
+  assert.equal(await connect.willInstall(), true,
+    'a DIFFERENT launcher was served the previous path\'s cached verdict');
+});
+
+test('#1556 a probe already in flight must NOT land in the cache after a reset', async () => {
+  /* 🛑 THE HOLE THE GENERATION COUNTER CLOSES, AND IT HAD NO TEST UNTIL I PERTURBED
+     IT AND WATCHED IT SURVIVE. resetForTests() clears the cache, but a probe that
+     was ALREADY RUNNING still resolves afterwards and would write its verdict in.
+     The reset seam's own comment argues a partial reset is worse than none, because
+     the verdict it carries into the next arm can be the harmful `false`. This is
+     that window, so it needed an arm rather than an argument. */
+  const good = fakeClaude('claude-gen', 'exit 0');
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = good;
+  connect.resetForTests();
+  let probes = 0;
+  connect.setRunner(async () => {
+    probes += 1;
+    await new Promise((r) => setTimeout(r, 40));
+    return { ok: true, stdout: '' };
+  });
+
+  const inFlight = connect.willInstall();   // starts under generation N
+  connect.resetForTests();                  // bumps to N+1 while it is still running
+  await inFlight;
+
+  const before = probes;
+  await connect.willInstall();
+  assert.equal(probes, before + 1,
+    'the pre-reset probe wrote its verdict into the cache, so the next call was served stale');
 });

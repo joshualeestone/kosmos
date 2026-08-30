@@ -140,12 +140,20 @@ let runner = null;
 function setRunner(fn) {
   runner = fn || null;
   if (!runner) DRY_RUN = true;
+  /* Changing what a probe RETURNS must not leave the previous answer cached. */
+  probeGeneration += 1;
+  probeCache = null;
+  probeInFlight = null;
 }
 function setDryRun(on) {
   if (!on && !runner) {
     throw new Error('refusing to leave dry-run with no injected runner: this would run real programs');
   }
   DRY_RUN = Boolean(on);
+  /* Same reason as setRunner: dry-run changes the verdict, so the cache is void. */
+  probeGeneration += 1;
+  probeCache = null;
+  probeInFlight = null;
 }
 
 /** async execFile, promisified by hand so the seam stays one function. */
@@ -364,6 +372,17 @@ function state() {
  * definite one.
  */
 let probeCache = null;
+/* ⚠️ BUMPED BY EVERY RESET AND EVERY SEAM CHANGE, and a probe writes the cache only
+   if the generation it started in is still current. Without it two holes stay open,
+   both in the harmful direction:
+
+     resetForTests() while a probe is in flight -> that probe still lands afterwards
+     setRunner()/setDryRun() -> the PREVIOUS runner's verdict is served to the next arm
+
+   The comment on the reset seam argues a partial reset is worse than none, because
+   the stale verdict it carries can be the harmful `false`. That argument applies to
+   these two windows exactly, so it should not be left as an argument. */
+let probeGeneration = 0;
 /* ⚠️ COALESCED, BECAUSE A CACHE WRITTEN AFTER AN AWAIT IS NOT A CACHE YET.
    Every caller arriving while the first probe is still running would miss
    `probeCache` and start its own `claude --version`. That is not hypothetical
@@ -391,11 +410,19 @@ async function willInstall() {
   /* Keyed on `bin` so a changed path starts a fresh probe rather than joining a
      probe of the old one. */
   if (probeInFlight && probeInFlight.bin === bin) return !(await probeInFlight.promise);
+  const startedIn = probeGeneration;
   const probing = (async () => {
     let ok = false;
     try {
-      const probe = await run(bin, ['--version'], { timeout: 15000 });
-    /* 🛑 A DRY-RUN RESULT IS NOT A PASS, AND MY UNIT TESTS COULD NOT SEE THIS.
+      /* ⚠️ 5s, NOT the 15s `start()` uses. That number is right there because a
+         person just clicked Install and is watching; this probe runs on a PAGE
+         LOAD, on the route that decides whether the onboarding overlay opens. A
+         `--version` that has not answered in five seconds is not going to, and a
+         HANGING launcher is precisely the broken-binary class this card exists to
+         catch, so it is the case that would pay the 15s. Timing out gives
+         `ok: false`, which resolves to "an install is needed": the safe direction. */
+      const probe = await run(bin, ['--version'], { timeout: 5000 });
+      /* 🛑 A DRY-RUN RESULT IS NOT A PASS, AND MY UNIT TESTS COULD NOT SEE THIS.
        `run()` returns `{ ok: true, dryRun: true }` WITHOUT EXECUTING ANYTHING when
        dry-run is on (this file, in `run` itself), so a probe that never ran reported
        success and a broken launcher came back "installed" through the real route.
@@ -421,7 +448,7 @@ async function willInstall() {
     } catch { ok = false; }
     /* Stamped at COMPLETION, not at start, so a slow probe does not hand back a
        result that is already most of the way through its own TTL. */
-    probeCache = { bin, ok, at: Date.now() };
+    if (startedIn === probeGeneration) probeCache = { bin, ok, at: Date.now() };
     return ok;
   })();
   probeInFlight = { bin, promise: probing };
@@ -1794,7 +1821,9 @@ function resetForTests() {
   mem = { phase: PHASE.IDLE };
   /* ⚠️ The probe cache belongs to the ONE documented reset seam, not to a second
      one beside it. A partial reset is worse than none: the stale verdict it would
-     carry into the next arm can be the harmful `false`, and the arm would pass. */
+     carry into the next arm can be the harmful `false`, and the arm would pass.
+     The generation bump is what stops an IN-FLIGHT probe landing after this. */
+  probeGeneration += 1;
   probeCache = null;
   probeInFlight = null;
 }
