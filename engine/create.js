@@ -274,8 +274,18 @@ function launchIsSandboxed() {
    */
 
   /**
-   * 🛑 A HALF-SANDBOX NOBODY DECLARED IS A SANDBOX. `sandbox.js` computes exactly
-   * this and calls it `partial`: some knobs redirected, others live, and no
+   * 🛑 A HALF-SANDBOX NOBODY DECLARED IS A SANDBOX. This is a NARROWER predicate
+   * DERIVED FROM `sandbox.DIRS`, not a call to `sandbox.audit().partial`, and an
+   * earlier version of this comment said it "computes exactly this". It does not,
+   * and the difference is measurable: with DATA sandboxed and LAUNCH pointed at the
+   * REAL directory, `partial` is TRUE and this returns FALSE. `partial` folds tmux
+   * in and ignores where LAUNCH points.
+   *
+   * 📌 The one-directional claim below IS sound and is what matters: condition (a)
+   * IMPLIES `partial`, so `server.js:133` refusing to start on `partial` makes this
+   * branch unreachable inside a running board. Implication, not equivalence.
+   *
+   * For reference, what `partial` says about the shapes below: some knobs redirected, others live, and no
    * `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` saying that was deliberate.
    *
    * ⚠️ THIS IS NOT THE ARM REMOVED IN REVIEW SIX, AND THE DIFFERENCE IS THE WHOLE
