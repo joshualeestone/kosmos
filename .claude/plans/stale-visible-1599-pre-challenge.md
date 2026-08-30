@@ -34,22 +34,22 @@ weakness rather than fixed here.
 
 ## Findings, all mine, all found and fixed inside this branch
 
-- **[BLOCKER, mine] My change falsified a comment in `changeProviderNow`.** It documented
+- **[BLOCKER]** (mine) My change falsified a comment in `changeProviderNow`. It documented
   that blanking `SWITCH_ACCT_SAID` SUPPRESSES the next `if (appearing)` announcement. With
   the gate gone that sentence is false, and a false comment is the defect this feature's own
   comments keep warning about --> FIXED, restated to say the cost is removed and why.
-- **[WARNING, mine] My first control retired itself at merge.** It followed the repo's
+- **[WARNING]** (mine) My first control retired itself at merge. It followed the repo's
   `git show origin/main:web/index.html` idiom, whose skip-guard fires once origin/main
   carries the fix, going green-forever. For a card whose whole subject is a guard aimed at
   the wrong question, a control that stops running is the wrong shape --> FIXED, rebuilt to
   reconstruct the pre-fix gate by surgery on the shipped page, and to FAIL rather than skip
   if the region moves.
-- **[WARNING, mine] My test hand-built an agent card.** `fixture-discipline.test.js` caught
+- **[WARNING]** (mine) My test hand-built an agent card. `fixture-discipline.test.js` caught
   it, not me. The rule is right: a stand-in carries fields the producer never emits --> FIXED,
   now uses `test-support/fleet`.
-- **[CONVENTION, mine] My comment describing that lint tripped that lint.** It spelled the
+- **[CONVENTION]** (mine) My comment describing that lint tripped that lint. It spelled the
   key pattern out, so the detector matched its own description --> FIXED, worded around it.
-- **[NIT, mine] I wrote a mojibake character into a comment** with a bad escape, then damaged
+- **[NIT]** (mine) I wrote a mojibake character into a comment with a bad escape, then damaged
   a line repairing it --> FIXED, verified by reading the block back.
 
 ## The verification that carries the claim
