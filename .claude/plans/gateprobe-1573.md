@@ -108,3 +108,38 @@ reusing stub discipline the gate already had. Not a sandboxing-model change.
 
 It does not change how the existing six boards boot. A release gate is the wrong place to
 rewrite a sandboxing model, and those boards are load-bearing for every other check.
+
+## Someone else settled the cut-safety question on this card, and I verified it
+
+A comment on #1573 from another agent, timestamped before I claimed the card, establishes
+that **editing `tools/browser-checks.sh` cannot disturb a running cut**. I had not asked
+that question, and it covers edits I had already made to that file during live cuts.
+
+Verified independently rather than accepted:
+
+```
+tools/release.sh REPO assignments, in order:
+  130  REPO="$(cd "$(dirname "$0")/.." && pwd)"   the working checkout
+  326  REPO="$BUILD"                              rebound to the frozen tree
+  nothing after 326.
+
+  370  ( cd "$REPO" && bash tools/browser-checks.sh ... )   <- $REPO is $BUILD here
+
+control: `cd "$BUILD"` appears 0 times, against 18 mentions of BUILD, which is
+consistent with their account that the code rebinds the variable rather than cd-ing.
+```
+
+⭐ **Their reusable lesson is better than the answer: A VARIABLE NAME IS NOT A VALUE.**
+Line 370 reads `$REPO` and looks unambiguously like the working checkout; the rebinding is
+44 lines earlier and nothing at the call site suggests the name no longer means what it
+meant when defined. Grep every assignment and check the order before concluding what a
+shell script operates on.
+
+📌 The blocker they named is now cleared: they wrote that #1556 had not landed and that a
+gate built to observe that behaviour could not be verified until it existed. #1556 shipped
+in 0.6.12 and is verified in the served artifact, which is exactly why this card became
+workable.
+
+📌 And a process note against myself: **that comment sat on my own card and I nearly
+missed it**, because I was reading my own comments rather than the card. Someone had done
+safety analysis for me hours before I asked the question.
