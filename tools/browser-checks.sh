@@ -846,7 +846,9 @@ cat > "$sb_bad/fake-claude" <<'STUBBAD'
 [ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
 exit 1
 STUBBAD
-chmod +x "$sb_ok/fake-claude" "$sb_bad/fake-claude"
+printf '#!/bin/sh\nexit 0\n' > "$sb_ok/fake-codex"
+printf '#!/bin/sh\nexit 0\n' > "$sb_bad/fake-codex"
+chmod +x "$sb_ok/fake-claude" "$sb_bad/fake-claude" "$sb_ok/fake-codex" "$sb_bad/fake-codex"
 write_fleet "$sb_ok"; write_fleet "$sb_bad"
 for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
   _sb="${_pair%%:*}"; _port="${_pair##*:}"
@@ -856,6 +858,7 @@ for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$_sb/panes.txt" \
     AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" \
     AGENT_WORKFORCE_CLAUDE_BIN="$_sb/fake-claude" \
+    AGENT_WORKFORCE_CODEX_BIN="$_sb/fake-codex" \
     PORT="$_port" node ./server.js > "$_sb/server.log" 2>&1 &
   SERVER_PIDS+=("$!")
   wait_up "$_port" "$_sb/server.log" || true

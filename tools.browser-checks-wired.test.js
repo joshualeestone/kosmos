@@ -348,8 +348,13 @@ test('#1575: every `node ./server.js` boot sets AGENT_WORKFORCE_DRY_RUN, or is a
   /* ⚠️ A PATTERN, NOT A NAME, and the difference matters. This matches the
      stub-launcher assignment itself, so a third boot that copies that exact env line
      would also be exempted. That is narrow in practice (it takes a deliberate copy)
-     and it has a property a name would not: DELETING THE STUB FROM THE EXEMPT PAIR
-     TAKES THIS TEST RED, because the exemption expires with its own justification. */
+     ⚠️ AN EARLIER COMMENT HERE CLAIMED "deleting the stub takes this test red, because
+     the exemption expires with its own justification". THAT WAS FALSE, AND FALSE IN THE
+     REASSURING DIRECTION: the marker is the env ASSIGNMENT, so deleting the stub file,
+     or replacing its body with `exec "$HOME/.local/bin/claude" "$@"`, left this green.
+     A board that omits dry-run AND points at the operator's real Claude was exempt.
+
+     ⇒ The property is now asserted rather than claimed, by the arm below. */
   const EXEMPT_MARKER = 'AGENT_WORKFORCE_CLAUDE_BIN="$_sb/fake-claude"';
   const missing = boots.filter(({ n }) => {
     let j = n - 1;
@@ -399,14 +404,20 @@ test('#1573: exactly one check runs against the non-dry-run boards, and it is th
      demanding both finds ZERO and this assertion fails on a clean tree. It did
      exactly that on the first attempt, and the red baseline made the perturbation
      that followed prove nothing. */
+  /* ⚠️ CARRY THE REAL SOURCE LINE THROUGH THE JOIN. An earlier version numbered the
+     JOINED array, so a failure pointed at index 823 for a run_one that is at source line
+     865, a 42-line offset that grows with every continuation above it. On a red gate that
+     sends the reader to unrelated lines in an 880-line file. */
   const joined = [];
   let acc = '';
-  for (const line of src.split('\n')) {
+  let startLine = 1;
+  src.split('\n').forEach((line, idx) => {
+    if (acc === '') startLine = idx + 1;
     acc += line.replace(/\\\s*$/, ' ');
-    if (!/\\\s*$/.test(line)) { joined.push(acc); acc = ''; }
-  }
+    if (!/\\\s*$/.test(line)) { joined.push({ line: acc, n: startLine }); acc = ''; }
+  });
   const users = joined
-    .map((line, i) => ({ line, n: i + 1 }))
+    .filter(({ line }) => !/^\s*#/.test(line))    // prose about the rule is not a use of it
     .filter(({ line }) => /run_one/.test(line) && /\$P1[45]\b|\$\{P1[45]\}/.test(line));
 
   assert.equal(users.length, 1,
@@ -418,4 +429,41 @@ test('#1573: exactly one check runs against the non-dry-run boards, and it is th
   assert.match(users[0].line, /render-connect-skip/,
     'the single check against the non-dry-run boards is no longer render-connect-skip; '
     + 'whatever replaced it must be read-only, and this assertion must be updated deliberately');
+});
+
+/**
+ * #1573: the exempt boards' stubs must actually be STUBS.
+ *
+ * 🛑 WHY THIS EXISTS: I CLAIMED THIS PROPERTY AND DID NOT HAVE IT. The dry-run exemption
+ * keys on the env ASSIGNMENT (`AGENT_WORKFORCE_CLAUDE_BIN="$_sb/fake-claude"`), so the
+ * guard stayed GREEN when the stub file was deleted, and green when its body was replaced
+ * with `exec "$HOME/.local/bin/claude" "$@"`. A board that omits dry-run AND hands the
+ * probe to the operator's REAL Claude Code was exempt, which is the one case the
+ * exemption must never cover.
+ *
+ * ⇒ The exemption now expires with its justification because THIS asserts the
+ * justification, rather than a comment asserting that it does.
+ *
+ * ⚠️ Text-level, and that bound is worth stating: it cannot prove the stubs are harmless,
+ * only that they are self-contained and present. It catches deletion and the passthrough
+ * shapes, which are the ways this actually rots.
+ */
+test('#1573: the exempt boards ship self-contained stubs, not a passthrough to the real binaries', () => {
+  const src = fs.readFileSync(RUNNER, 'utf8');
+  const block = src.slice(src.indexOf('#1573: the ONE PAIR OF BOARDS'), src.indexOf('render-connect-skip (a server did not boot)'));
+  assert.ok(block.length > 500, 'the #1573 block moved or was renamed; this guard is reading nothing');
+
+  for (const stub of ['STUBOK', 'STUBBAD']) {
+    assert.match(block, new RegExp(`<<'${stub}'`), `${stub} heredoc is gone, so the exempt boards no longer define their own launcher`);
+  }
+  /* The passthrough shapes. A stub that execs, or reaches into the operator's HOME or
+     /opt, is not a stub, and the dry-run exemption must not cover a board using one. */
+  for (const bad of [/\bexec\s/, /\$HOME/, /\/opt\/homebrew/, /\.local\/bin/]) {
+    assert.doesNotMatch(block, bad,
+      `the #1573 stubs reach outside their sandbox (${bad}); the dry-run exemption must not cover that`);
+  }
+  /* Codex too: without this the OpenAI runner resolves to a real /opt/homebrew/bin/codex
+     that openaiaccounts.js spawnSyncs, and dry-run never gated that path anyway. */
+  assert.match(block, /AGENT_WORKFORCE_CODEX_BIN="\$_sb\/fake-codex"/,
+    'the exempt boards no longer pin AGENT_WORKFORCE_CODEX_BIN, so codex resolves to a real binary');
 });

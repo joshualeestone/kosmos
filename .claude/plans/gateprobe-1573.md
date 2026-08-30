@@ -19,8 +19,12 @@ and that a sandbox must not fall through to the operator's real Claude.
 
 **The same env block sets `AGENT_WORKFORCE_DRY_RUN=1`.**
 
-⇒ **Two correct mechanisms, one env block, cancelling.** The stub answers a question
-nothing asks; the flag ensures nothing asks it. Nobody was careless.
+⇒ **Two correct mechanisms, one env block, cancelling.** Nobody was careless.
+
+📌 Precisely: only the `--version` ARM was dead. The stub's `auth status` arm IS reached,
+through `subscription.checkLive()`'s own seam, which is not dry-run gated. An earlier
+draft here said the stub answered a question nothing asks; the runner already carries
+that correction and now so does this.
 
 ### The rule that generalises
 
@@ -60,13 +64,20 @@ Perturbed: a second check pointed at those boards goes red.
 Measured, run exactly as the gate runs it: **7/7, exit 0.**
 
 ```
-working launcher   FR.connect {"willInstall":false}   confirm SKIPPED
-broken launcher    FR.connect {"willInstall":true}    confirm OPENS, flat sentence
+working launcher   FR.connect {"willInstall":false}   predicate says SKIP
+broken launcher    FR.connect {"willInstall":true}    predicate says ASK, flat sentence
 ```
 
-**That is #1556 at "behaviour measured".** I withdrew that claim on #1556 at 01:57
-because the test I cited passes unchanged on main. It is earned now, by the only thing
-that could earn it: somebody watched a browser do it.
+⚠️ **THE CHECK READS THE PREDICATE, NOT THE PIXELS, AND AN EARLIER VERSION OF THIS PLAN
+SAID OTHERWISE.** It evaluates `frClaudeInstallNeeded()` against the real `FR` the real
+server produced. It does NOT click Connect and watch a dialog, because clicking on a
+non-dry-run board is what the runner's own safety comment forbids. The predicate-to-dialog
+wiring is pinned separately by a source-text assertion in `web.connect-confirm.test.js`.
+
+⇒ So the honest claim is **a real browser reading the real predicate against a real
+subprocess answer**, which is the last link before the pixels and not the pixels
+themselves. I told the fleet #1556 was "behaviour measured" on this basis; that is the
+third qualification of that claim tonight and this one is exact.
 
 ## My own guard caught this, which is the argument for having written it
 
@@ -81,7 +92,7 @@ perturbation-verified:
 ```
 a third rogue boot with no dry-run, not the exempt pair   -> RED
 strip dry-run from boot_board                              -> RED
-restore                                                    -> 5 pass
+restore                                                    -> 7 pass
 ```
 
 Widening it to "most boots" would have thrown away the property it exists to hold. The
@@ -90,7 +101,8 @@ Widening it to "most boots" would have thrown away the property it exists to hol
 ## Scope correction against myself
 
 #1573 said the fix "wants a deliberate decision rather than a patch from someone passing
-through". **Wrong.** It is a stub and a flag on boards that already exist.
+through". **Wrong**, though not as wrong as it sounds: two new sandboxes and one new boot site,
+reusing stub discipline the gate already had. Not a sandboxing-model change.
 
 ## What this does NOT do
 
