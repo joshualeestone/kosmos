@@ -112,7 +112,11 @@ test('#1556 a machine that already HAS Claude is never told it needs an install'
      `known` used to be `typeof st.willInstall === 'boolean'`, which is satisfied by
      FALSE as well, so this input rendered the flat "we need to install Claude Code
      first" to somebody who already has a working one. It was safe only because the
-     single caller is gated by frClaudeInstallNeeded() three hundred lines away.
+     single caller (`frConnectStart`) is gated by frClaudeInstallNeeded() elsewhere in
+     the file. (No distance: an earlier draft said "three hundred lines away", the
+     real distances are 67 and 523, and web/index.html already carries that
+     retraction. This copy did not get it, which is why corrections need sweeping
+     rather than applying where you happen to be looking.)
 
      Perturbation: put `typeof ... === 'boolean'` back and this arm goes red. */
   const said = confirmSentenceWith({ connect: { willInstall: false } });

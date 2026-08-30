@@ -5593,7 +5593,13 @@ test('the first-run routes answer, and the completion route reports what stuck',
   assert.ok('willInstall' in state.connect,
     'the screen reads FR.connect.willInstall and the route did not answer the field at all');
   /* null is accepted because firstrun.js keeps a defensive catch, not because that
-     path is reachable today. */
+     path is reachable today.
+
+     ⚠️ AND THIS FILE NEVER RESETS connect's PROBE CACHE, which is fine only because
+     these assertions are shape-only and the file pins AGENT_WORKFORCE_CLAUDE_BIN.
+     An arm here asserting a SPECIFIC willInstall value would silently read a
+     60s-cached verdict with no seam visible in this file; it would need
+     connect.resetForTests() first. */
   assert.ok(typeof state.connect.willInstall === 'boolean' || state.connect.willInstall === null,
     `the route answered ${JSON.stringify(state.connect.willInstall)}, which the screen has no branch for`);
 

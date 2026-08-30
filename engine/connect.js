@@ -334,6 +334,12 @@ function state() {
   return publicView(mem);
 }
 
+let PROBE_TTL_MS = 60000;
+/** Tests only: make the probe cache's expiry assertable. Without a seam a typo
+    turning 60000 into 600000 is invisible to the suite, because every arm either
+    hits a warm cache or resets it, and nothing ever waits for an entry to age out. */
+function setProbeTtlForTests(ms) { PROBE_TTL_MS = Number.isFinite(ms) && ms > 0 ? ms : 60000; }
+
 /**
  * Would connecting Claude have to DOWNLOAD it first? (#1556)
  *
@@ -414,11 +420,6 @@ function state() {
    overlap, and a cache written after an await is not a cache yet. Only the original
    justification was overtaken. Sharing the in-flight promise makes N callers
    cost exactly one probe, and changes no verdict. */
-let PROBE_TTL_MS = 60000;
-/** Tests only: make the probe cache's expiry assertable. Without a seam a typo
-    turning 60000 into 600000 is invisible to the suite, because every arm either
-    hits a warm cache or resets it, and nothing ever waits for an entry to age out. */
-function setProbeTtlForTests(ms) { PROBE_TTL_MS = Number.isFinite(ms) && ms > 0 ? ms : 60000; }
 
 async function willInstall() {
   /* ⚠️ `claudeBinPath()` IS INSIDE THE GUARD, and it was not. It calls into the
@@ -451,27 +452,27 @@ async function willInstall() {
          `ok: false`, which resolves to "an install is needed": the safe direction. */
       const probe = await run(bin, ['--version'], { timeout: 5000 });
       /* 🛑 A DRY-RUN RESULT IS NOT A PASS, AND MY UNIT TESTS COULD NOT SEE THIS.
-       `run()` returns `{ ok: true, dryRun: true }` WITHOUT EXECUTING ANYTHING when
-       dry-run is on (this file, in `run` itself), so a probe that never ran reported
-       success and a broken launcher came back "installed" through the real route.
+         `run()` returns `{ ok: true, dryRun: true }` WITHOUT EXECUTING ANYTHING when
+         dry-run is on (this file, in `run` itself), so a probe that never ran reported
+         success and a broken launcher came back "installed" through the real route.
 
-       📌 I first wrote `create.js:240` here. WRONG FILE: connect.js has its own
-       `run`, its own DRY_RUN and its own setDryRun, and never requires create.js.
-       The behaviour was measured; the cause I named for it was not. Corrected
-       rather than quietly dropped, because a wrong citation reads as checked.
+         📌 I first wrote `create.js:240` here. WRONG FILE: connect.js has its own
+         `run`, its own DRY_RUN and its own setDryRun, and never requires create.js.
+         The behaviour was measured; the cause I named for it was not. Corrected
+         rather than quietly dropped, because a wrong citation reads as checked.
 
-       ⇒ MEASURED, both arms, same broken binary: dry-run OFF gives willInstall
-       true, dry-run ON gave FALSE. That is the unannounced-download answer,
-       produced by the safety mechanism meant to make things safe.
+         ⇒ MEASURED, both arms, same broken binary: dry-run OFF gives willInstall
+         true, dry-run ON gave FALSE. That is the unannounced-download answer,
+         produced by the safety mechanism meant to make things safe.
 
-       ⭐ `dryRun` MEANS "WE DID NOT CHECK", WHICH IS UNKNOWN, NOT YES. Every other
-       unknown in this function resolves toward "an install is needed", because that
-       costs a confirm dialog and the other direction costs 281MB nobody asked for.
-       This one now does too.
+         ⭐ `dryRun` MEANS "WE DID NOT CHECK", WHICH IS UNKNOWN, NOT YES. Every other
+         unknown in this function resolves toward "an install is needed", because that
+         costs a confirm dialog and the other direction costs 281MB nobody asked for.
+         This one now does too.
 
-       📌 Found by querying the real route on three boards, not by the six unit
-       tests, which never set dry-run. The units and the route disagreed and the
-       route was right. */
+         📌 Found by querying the real route on three boards, not by the six unit
+         tests, which never set dry-run. The units and the route disagreed and the
+         route was right. */
       ok = !!(probe && probe.ok && !probe.dryRun);
     } catch { ok = false; }
     /* Stamped at COMPLETION, not at start, so a slow probe does not hand back a

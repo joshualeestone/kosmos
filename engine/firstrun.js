@@ -192,8 +192,8 @@ async function state() {
      reachable. What it must NOT do is read as a guarantee the code is providing
      right now. This repo names that trap itself, in `frClaudeDownloadBytes`'s doc block in
      web/index.html (named rather than line-numbered, because a line number in a
-     32k-line file drifts): saying a
-     function can return null when it cannot is how a dead branch gets pinned by a
+     32k-line file drifts):
+     saying a function can return null when it cannot is how a dead branch gets pinned by a
      test that can never fail for the reason it states. */
   const willInstall = await willInstallSoon;
 
@@ -234,7 +234,9 @@ async function state() {
      * one it means; the two probes above are overlapped for exactly that reason.
      *
      * `willInstallBytes` is deliberately absent: separate card, needs the
-     * manifest. Both readers of that field already handle its absence.
+     * manifest. its only reader (`frClaudeDownloadBytes`) already handles its absence. Named, not
+     * counted: an earlier draft here said "both readers" and there is exactly one,
+     * which is the same count-in-a-comment defect this branch corrects elsewhere.
      */
     connect: { willInstall },
   };

@@ -22,6 +22,18 @@
  * would report "installed" for a binary that cannot start, which is exactly the
  * harmful direction.
  */
+/**
+ * ⚠️ THE ARMS IN THIS FILE ARE ORDER-COUPLED, AND NOTHING ENFORCES IT.
+ * The first three (no binary / a launcher that runs / one that exists and does not)
+ * exercise the REAL `run()` only because they precede the first `connect.setRunner(...)`
+ * call further down. Once any arm injects a runner, every later arm runs against the
+ * seam, and `setRunner(null)` cannot restore "no runner, not dry" - it forces dry-run
+ * back on instead. That interlock is why the dry-run case lives in its own file.
+ *
+ * ⇒ A REORDER WOULD SILENTLY CONVERT THREE REAL-EXECUTION ARMS INTO SEAM ARMS and
+ * nothing would go red. If you add an arm, add it after the injected ones, or move it
+ * into its own file the way the dry-run arm is.
+ */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -85,13 +97,21 @@ test('#1556: the cache is ONE-SIDED, so a binary going missing is noticed at onc
     'a cached positive survived the binary being deleted, so we would download nothing and start nothing');
 });
 
-test('#1556: the probe result IS cached, so a status poll does not spawn one every time', async () => {
-  /* 📌 An earlier draft of this said 'the route calls this on every /api/connect GET'. That design
-  /* was abandoned: /api/connect is byte-identical to main and willInstall is referenced nowhere in
-  /* server.js. The only consumer is /api/first-run via firstrun.state(). The behaviour asserted
-  /* below is unchanged and still worth pinning; only the rationale was wrong. Without a cache that
-  /* is a
-     subprocess per poll, which is the #1560 mistake in a new place. */
+test('#1556: the probe result IS cached, so overlapping callers do not each spawn one', async () => {
+  /* 📌 TWO EARLIER DRAFTS OF THIS COMMENT WERE WRONG AND BOTH ARE RECORDED, because a
+     wrong rationale reads as checked. The first said "the route calls this on every
+     /api/connect GET": that design was abandoned, /api/connect is byte-identical to
+     main, and the only consumer is /api/first-run via firstrun.state(). The second
+     said "a subprocess per poll", and there is no poll on that route.
+
+     What is true: page boot and "Check again" can overlap, and a cache written after
+     an await is not a cache yet, so without this the overlapping callers each pay
+     their own subprocess.
+
+     ⚠️ The mangled version of this block was produced by my own comment-rewrapping
+     script, which prefixed every continuation line with `/*`. It PARSED, so
+     `node --check` was green and nothing caught it. A syntax check is not a
+     correctness check for prose. */
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = fakeClaude('claude-slow', 'sleep 0.3; exit 0');
   connect.resetForTests();
   /* ⭐ COUNTED, NOT TIMED. This asserted `warm < cold / 2` against a sleeping
