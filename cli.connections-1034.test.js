@@ -286,6 +286,34 @@ test('a RENDERED field that is not a string cannot print [object Object] at a pe
   });
 });
 
+test('a bad COUNT beside a good name is caught by the numbers guard, not the strings one', async () => {
+  /**
+   * 🛑 WHY THIS IS A SECOND TEST AND NOT MORE FIELDS ON THE ONE ABOVE. That test
+   * plants every field at once, so the strings guard `continue`s and the count
+   * arithmetic is never reached. Measured: with the numbers guard reverted to
+   * `!= null`, that test STILL PASSED, so the numbers guard was holding nothing.
+   *
+   * This is the reachable shape the numbers guard actually exists for: a board
+   * that names the provider correctly and gets a COUNT wrong. Only that shape
+   * reaches the arithmetic, and only this test can fail when the guard goes.
+   */
+  const p = P();
+  p.providers[0].howMany = {};
+  p.providers[0].howManyWorking = {};
+  p.providers[0].howManyReadable = {};
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    assert.equal(r.code, 0, `exited ${r.code}: ${r.err}`);
+    assert.doesNotMatch(r.out, /\[object /,
+      'a non-number count reached the screen as machine vocabulary');
+    /* The row itself must SURVIVE. The counts are an embellishment on a sentence
+       whose verdict is still knowable, so dropping the whole row over a bad count
+       would lose true information to protect formatting. */
+    assert.match(r.out, /Claude: connected/,
+      'the row was dropped over a bad count, losing a verdict we could still state');
+  });
+});
+
 test('a malformed element prints a sentence, never a stack trace', async () => {
   /**
    * 🛑 THE GUARD CHECKED THE CONTAINER, NOT THE ELEMENTS. `providers: [null]`
