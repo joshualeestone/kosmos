@@ -6,6 +6,36 @@
 The confirm dialog exists because a large download beginning with no warning is
 alarming, and it cannot warn about what it cannot see.
 
+## 🛑 CORRECTION, AFTER REVIEW: MY FIRST DESIGN SHIPPED NOTHING
+
+**The first version of this branch served `willInstall` on `/api/connect`. Nothing
+reads that.** `frClaudeInstallNeeded()` reads `FR.connect.willInstall`, and `FR` is
+assigned WHOLESALE from `/api/first-run` at both of its two assignment sites, so it
+never carried the route's reply at all.
+
+Verified independently, not taken on the reviewer's word:
+
+```
+frClaudeInstallNeeded()      reads FR.connect.willInstall        (web/index.html:30754)
+FR assigned at               30101, 32559 -- both from /api/first-run, wholesale
+FR.connect = ...             assigned NOWHERE
+firstrun.state() returns     {done, fleetKnown, fleetCount, path, subscription}
+'connect' in firstrun.js     2 mentions, both PROSE   (control: 'subscription' 7)
+```
+
+⇒ `typeof st.willInstall === 'boolean'` stayed false, so the screen kept asking
+everybody, exactly as before the change.
+
+⭐ **My verification was three boards querying the route, which is precisely the
+half that already worked.** This file's own producer says the rule I broke: *"a
+field nothing reads is a claim nothing checks."*
+
+**Fixed by moving the field to `/api/first-run`**, and `/api/connect` is now
+byte-identical to main. That also removed a second defect rather than trading it:
+`/api/connect` is polled every 1000ms, and an awaited 15s probe on a 1s poll stacks
+concurrent subprocesses. `/api/first-run` is fetched at two sites, neither in a
+timer, and already awaits `checkLive()`.
+
 ## Design, and the constraint that decided it
 
 I measured the shape before choosing, because the card's line references were
@@ -22,8 +52,9 @@ publicView()  314       SYNC     11 call sites
 there, and making it async disturbs eleven callers for one field.
 
 ⇒ **Do not touch `state()` or `publicView`.** `connect.willInstall()` is its own
-async function, merged into the route promise-style, failing open exactly as the
-route does today.
+async function that only COMPUTES the value; `firstrun.state()` is the producer
+that carries it to the page, and it fails open (a null is not a boolean, so the
+reader asks, which is the pre-#1556 behaviour).
 
 The cache is one-sided deliberately: the cheap `accessSync` runs every time and can
 only move the answer toward "will install". Only the probe result is cached, 60s.

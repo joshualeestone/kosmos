@@ -16,6 +16,7 @@ process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: tr
 
 const firstrun = require('./firstrun');
 const subscription = require('./subscription');
+const connect = require('./connect');
 const status = require('./status');
 const fleet = require('../test-support/fleet');
 
@@ -33,12 +34,23 @@ const pane = (name) => fleet.line({ session: name, claim: name, title: '✳ Clau
    `claude auth status` would depend on whoever runs it being signed in, and
    would be slow and flaky for the wrong reasons. `setRunner` is subscription's
    own seam for exactly this; `okRunner` mirrors what the real one returns. */
+/* 🛑 CONNECT'S RUNNER IS STUBBED FOR THE SAME REASON, AND IT IS A NEW ONE (#1556).
+   `state()` now also asks `connect.willInstall()`, which runs `claude --version`.
+   `claudeBinPath()` resolves the OPERATOR'S REAL LAUNCHER (measured:
+   /Users/agent1/.local/bin/claude, and X_OK passes), so without this stub every
+   test in this file would spawn a real subprocess against a real install. That is
+   the precise hazard the note above already names for `claude auth status`, and
+   adding a second one silently would have been the worse half of it. */
 test.beforeEach(() => {
   subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  connect.setRunner(async () => ({ ok: true, stdout: '' }));
+  connect.resetForTests();
 });
 
 test.afterEach(() => {
   subscription.setRunner(null);
+  connect.setRunner(null);
+  connect.resetForTests();
   status.setPaneSource(null);
   try { fs.rmSync(firstrun.FLAG, { force: true }); } catch { /* fine */ }
 });

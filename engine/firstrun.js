@@ -29,6 +29,7 @@ const path = require('node:path');
 const store = require('./store');
 const status = require('./status');
 const subscription = require('./subscription');
+const connect = require('./connect');
 
 const FLAG = path.join(store.ROOT, 'first-run.json');
 
@@ -164,6 +165,12 @@ async function state() {
    */
   const path_ = !here.known ? 'unknown' : (here.count > 0 ? 'adopt' : 'create');
 
+  /* ⚠️ FAILS OPEN. A null here is not a boolean, so the reader's
+     `typeof st.willInstall === 'boolean'` test is false and it asks, which is
+     the pre-#1556 behaviour. An unknown must never become a confident "no
+     install needed": that answer costs an unannounced 281MB download. */
+  const willInstall = await connect.willInstall().catch(() => null);
+
   return {
     done: flag.done,
     // Carried so the screen can say WHY it is not offering the fork, rather
@@ -176,6 +183,28 @@ async function state() {
     // checks.
     path: path_,
     subscription: sub,
+    /**
+     * 🛑 #1556: THIS SHAPE IS DICTATED BY THE READER, NOT CHOSEN.
+     * `frClaudeInstallNeeded()` reads `FR.connect.willInstall`, and `FR` is
+     * assigned WHOLESALE from this payload at both of its two assignment sites.
+     * So the key has to be `connect` and it has to be an object, or the reader
+     * sees `undefined` and fails open to asking everybody.
+     *
+     * ⚠️ I FIRST SHIPPED THIS FIELD ON `/api/connect`, WHERE NOTHING READS IT.
+     * The route answered correctly on three boards and the screen did not change
+     * by one character, because `FR` never carries `/api/connect`'s reply. This
+     * file's own line above says it: "a field nothing reads is a claim nothing
+     * checks." I verified the half that worked and called the card done.
+     *
+     * ⭐ IT BELONGS HERE FOR A SECOND REASON, NOT ONLY CORRECTNESS: `/api/connect`
+     * is polled every 1000ms during a live flow, and an awaited `--version` probe
+     * on a 1s poll stacks concurrent subprocesses. `/api/first-run` is fetched on
+     * demand at two sites, neither in a timer, and already awaits `checkLive()`.
+     *
+     * `willInstallBytes` is deliberately absent: separate card, needs the
+     * manifest. Both readers of that field already handle its absence.
+     */
+    connect: { willInstall },
   };
 }
 

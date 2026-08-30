@@ -25,16 +25,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
-const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-willinstall-1556-'));
+const { mkTemp } = require('../test-support/tmpdir.js');
+const SB = mkTemp('aw-willinstall-1556-');
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_HOME = SB;
 
 const connect = require('./connect');
 
-test.after(() => { fs.rmSync(SB, { recursive: true, force: true }); });
 
 /** A real executable, because the probe runs a real subprocess. */
 function fakeClaude(name, body) {
@@ -46,7 +45,7 @@ function fakeClaude(name, body) {
 
 test('#1556: no binary means an install IS needed, decided without a probe', () => {
   delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
-  connect.resetWillInstallCache();
+  connect.resetForTests();
   const started = Date.now();
   return connect.willInstall().then((w) => {
     assert.equal(w, true, 'a machine with no Claude was told no install is needed');
@@ -59,7 +58,7 @@ test('#1556: no binary means an install IS needed, decided without a probe', () 
 
 test('#1556: a binary that RUNS means no install is needed', async () => {
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = fakeClaude('claude-good', 'echo "1.2.3"; exit 0');
-  connect.resetWillInstallCache();
+  connect.resetForTests();
   assert.equal(await connect.willInstall(), false,
     'a working Claude was reported as needing a 281MB download');
 });
@@ -68,7 +67,7 @@ test('#1556 THE POINT: a binary that EXISTS and does NOT run still needs an inst
   /* X_OK passes on this file. Only the probe can tell. A fix that checked existence
      alone would say "installed" here and start an unannounced download. */
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = fakeClaude('claude-broken', 'exit 1');
-  connect.resetWillInstallCache();
+  connect.resetForTests();
   assert.equal(await connect.willInstall(), true,
     'a broken launcher was reported as installed, which is the unannounced-download case');
 });
@@ -78,7 +77,7 @@ test('#1556: the cache is ONE-SIDED, so a binary going missing is noticed at onc
      check must override it, because staying cached here is the harmful direction. */
   const bin = fakeClaude('claude-vanishing', 'exit 0');
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
-  connect.resetWillInstallCache();
+  connect.resetForTests();
   assert.equal(await connect.willInstall(), false, 'the fixture did not cache a positive');
   fs.rmSync(bin);
   assert.equal(await connect.willInstall(), true,
@@ -89,17 +88,45 @@ test('#1556: the probe result IS cached, so a status poll does not spawn one eve
   /* The route calls this on every /api/connect GET. Without a cache that is a
      subprocess per poll, which is the #1560 mistake in a new place. */
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = fakeClaude('claude-slow', 'sleep 0.3; exit 0');
-  connect.resetWillInstallCache();
-  const first = Date.now(); await connect.willInstall(); const cold = Date.now() - first;
-  const second = Date.now(); await connect.willInstall(); const warm = Date.now() - second;
-  assert.ok(cold >= 250, `the cold call did not run the probe: ${cold}ms`);
-  assert.ok(warm < cold / 2, `the second call re-probed: cold ${cold}ms, warm ${warm}ms`);
+  connect.resetForTests();
+  /* ⭐ COUNTED, NOT TIMED. This asserted `warm < cold / 2` against a sleeping
+     fixture, which is a proxy for the property and a flaky one: the box this runs
+     on already reports suite contention, and a stalled scheduler reds a correct
+     cache. Counting probes asserts the actual claim -- "the second call did not
+     re-probe" -- and cannot be moved by load. */
+  let probes = 0;
+  connect.setRunner(async () => { probes += 1; return { ok: true, stdout: '' }; });
+  await connect.willInstall();
+  assert.equal(probes, 1, 'the cold call did not run the probe');
+  await connect.willInstall();
+  assert.equal(probes, 1, `the second call re-probed: ${probes} probes for two calls`);
 });
 
+test('#1556 concurrent callers share ONE probe, they do not each start their own', async () => {
+  /* 🛑 THE CACHE IS WRITTEN AFTER AN AWAIT, so before coalescing every caller
+     arriving during a cold probe missed it and spawned its own `claude --version`.
+     That is not hypothetical for any caller on a timer, and with a 15s timeout it
+     is a pile of concurrent subprocesses rather than one.
+
+     ⚠️ NOTE WHAT THIS TEST WOULD HAVE DONE BEFORE THE FIX: it fails at 8, not 1.
+     Perturbation, measured: remove the in-flight guard and this goes red alone. */
+  const sb = fakeClaude('claude-concurrent', 'exit 0');
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = sb;
+  connect.resetForTests();
+  let probes = 0;
+  connect.setRunner(async () => {
+    probes += 1;
+    await new Promise((r) => setTimeout(r, 30));   // still in flight when the others arrive
+    return { ok: true, stdout: '' };
+  });
+  const answers = await Promise.all(Array.from({ length: 8 }, () => connect.willInstall()));
+  assert.equal(probes, 1, `8 concurrent callers started ${probes} probes`);
+  assert.deepEqual(answers, Array(8).fill(false), 'the shared probe did not reach every caller');
+});
 test('#1556: it never throws, whatever the binary does', async () => {
   /* A missing answer must never become a confident one. The route falls back to
      today's behaviour on a rejection, so a throw here would be a silent regression. */
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = path.join(SB, 'not-a-thing-at-all');
-  connect.resetWillInstallCache();
+  connect.resetForTests();
   assert.equal(await connect.willInstall(), true);
 });

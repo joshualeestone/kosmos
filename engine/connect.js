@@ -315,10 +315,16 @@ function state() {
  * Would connecting Claude have to DOWNLOAD it first? (#1556)
  *
  * 🛑 THE CLIENT ALREADY ASKS THIS AND THE SERVER NEVER ANSWERED.
- * `web/index.html`'s `frClaudeInstallNeeded()` reads `willInstall` and, finding
- * nothing, FAILS OPEN and assumes an install is needed. So the download prompt was
- * shown to everybody, including people who already have a working Claude Code. The
- * consumer was correct all along; this field is what was unbuilt.
+ * `web/index.html`'s `frClaudeInstallNeeded()` reads `FR.connect.willInstall` and,
+ * finding nothing, FAILS OPEN and assumes an install is needed. So the download
+ * prompt was shown to everybody, including people who already have a working Claude
+ * Code. The consumer was correct all along; this field is what was unbuilt.
+ *
+ * ⚠️ READ THAT PATH PRECISELY, BECAUSE I DID NOT. It is `FR.connect.willInstall`,
+ * and `FR` is assigned WHOLESALE from `/api/first-run`. I first served this field
+ * on `/api/connect`, verified it answered correctly on three boards, and shipped a
+ * screen that did not change by one character. The producer is `firstrun.state()`;
+ * this function only computes the value.
  *
  * ⭐ THE SAME TWO-STEP `start()` ALREADY USES, and it was here before either #1560
  * or this card: a cheap `accessSync` decides whether the expensive probe is worth
@@ -342,6 +348,13 @@ function state() {
  * definite one.
  */
 let probeCache = null;
+/* ⚠️ COALESCED, BECAUSE A CACHE WRITTEN AFTER AN AWAIT IS NOT A CACHE YET.
+   Every caller arriving while the first probe is still running would miss
+   `probeCache` and start its own `claude --version`. That is not hypothetical
+   for a caller on a timer, and with a 15s timeout it is a pile of concurrent
+   subprocesses rather than one. Sharing the in-flight promise makes N callers
+   cost exactly one probe, and changes no verdict. */
+let probeInFlight = null;
 const PROBE_TTL_MS = 60000;
 
 async function willInstall() {
@@ -349,12 +362,15 @@ async function willInstall() {
   /* The cheap half, every time. It cannot produce the harmful answer on its own:
      a missing or non-executable file means an install IS needed, full stop. */
   try { fs.accessSync(bin, fs.constants.X_OK); } catch { return true; }
-  const now = Date.now();
-  if (probeCache && probeCache.bin === bin && now - probeCache.at < PROBE_TTL_MS) {
+  if (probeCache && probeCache.bin === bin && Date.now() - probeCache.at < PROBE_TTL_MS) {
     return !probeCache.ok;
   }
-  let ok = false;
-  try {
+  /* Keyed on `bin` so a changed path starts a fresh probe rather than joining a
+     probe of the old one. */
+  if (probeInFlight && probeInFlight.bin === bin) return !(await probeInFlight.promise);
+  const probing = (async () => {
+    let ok = false;
+    try {
     const probe = await run(bin, ['--version'], { timeout: 15000 });
     /* 🛑 A DRY-RUN RESULT IS NOT A PASS, AND MY UNIT TESTS COULD NOT SEE THIS.
        `run()` returns `{ ok: true, dryRun: true }` WITHOUT EXECUTING ANYTHING when
@@ -379,13 +395,21 @@ async function willInstall() {
        tests, which never set dry-run. The units and the route disagreed and the
        route was right. */
     ok = !!(probe && probe.ok && !probe.dryRun);
-  } catch { ok = false; }
-  probeCache = { bin, ok, at: now };
-  return !ok;
+    } catch { ok = false; }
+    /* Stamped at COMPLETION, not at start, so a slow probe does not hand back a
+       result that is already most of the way through its own TTL. */
+    probeCache = { bin, ok, at: Date.now() };
+    return ok;
+  })();
+  probeInFlight = { bin, promise: probing };
+  try {
+    return !(await probing);
+  } finally {
+    /* Only clear if it is still OURS: a probe for a different bin may have
+       replaced it while this one was running. */
+    if (probeInFlight && probeInFlight.promise === probing) probeInFlight = null;
+  }
 }
-
-/** So a test can put the probe back to unknown between arms. */
-function resetWillInstallCache() { probeCache = null; }
 
 function publicView(s) {
   return {
@@ -1745,6 +1769,11 @@ function resetForTests() {
   activeRequest = null;
   activeChild = null; // a stale handle must not be killable by the next test's flow
   mem = { phase: PHASE.IDLE };
+  /* ⚠️ The probe cache belongs to the ONE documented reset seam, not to a second
+     one beside it. A partial reset is worse than none: the stale verdict it would
+     carry into the next arm can be the harmful `false`, and the arm would pass. */
+  probeCache = null;
+  probeInFlight = null;
 }
 
 module.exports = {
@@ -1753,4 +1782,6 @@ module.exports = {
   classifyPane, extractOauthUrl, tailOf, validCode, redirectDowngrades,
   download, platformKey,
   setRunner, setDryRun, setTickInterval, setUnknownGrace, setAbandonedSigninMs, setFreshnessForTests, resetForTests,
-  STATE_FILE, willInstall, resetWillInstallCache };
+  STATE_FILE,
+  willInstall,
+};

@@ -23,10 +23,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
-const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-wi-dry-1556-'));
+const { mkTemp } = require('../test-support/tmpdir.js');
+const SB = mkTemp('aw-wi-dry-1556-');
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_HOME = SB;
 const connect = require('./connect');
@@ -40,7 +40,7 @@ test('#1556 a dry-run result is NOT a passing probe: nothing was executed', asyn
   /* Exactly the shape `run()` returns under dry-run. The binary EXISTS and is
      executable, so accessSync passes and only the probe can decide. */
   connect.setRunner(() => ({ ok: true, stdout: '', dryRun: true }));
-  connect.resetWillInstallCache();
+  connect.resetForTests();
   assert.equal(await connect.willInstall(), true,
     'a probe that never executed was scored as a working install');
 });
@@ -50,9 +50,8 @@ test('#1556 control: the same seam CAN return the other answer', async () => {
   /* Same runner, same binary, dryRun flag absent. If this did not read false the
      test above would prove nothing - it would be green for any implementation. */
   connect.setRunner(() => ({ ok: true, stdout: '' }));
-  connect.resetWillInstallCache();
+  connect.resetForTests();
   assert.equal(await connect.willInstall(), false,
     'the control arm cannot reach the false answer, so the assertion above is vacuous');
 });
 
-process.on('exit', () => { try { fs.rmSync(SB, { recursive: true, force: true }); } catch {} });
