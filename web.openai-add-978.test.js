@@ -54,7 +54,7 @@ test('the name says it is optional in words, not only in a placeholder', () => {
    name: doing one and not the other is how a form ends up with two different
    answers about which button is the action. */
 test('the Claude flow\'s two actions carry the same weight', () => {
-  assert.match(PAGE, /<button class="btn uprime" id="acct-add" type="button">Start the sign-in<\/button>/,
+  assert.match(PAGE, /<button class="btn uprime" id="acct-add" type="button"[^>]*>Start the sign-in<\/button>/,
     'Start the sign-in is no longer the primary action of the Claude flow');
   assert.match(PAGE, /<button class="btn uprime" id="acct-code-go" type="button">Continue<\/button>/,
     'the code step\'s Continue is no longer the primary action');
