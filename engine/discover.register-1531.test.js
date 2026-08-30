@@ -31,6 +31,34 @@ process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'launch');
 
 const discover = require('./discover');
 const store = require('./store');
+const create = require('./create');
+
+/**
+ * 🛑 THE MAIN PATH INSTALLS A REAL LAUNCHD JOB, AND THIS TEST INSTALLED FOUR OF THEM
+ * ON THE OPERATOR'S MACHINE BEFORE THIS WAS ADDED.
+ *
+ * Any arm below that adopts a folder WITH an instructions file goes down `connect`'s
+ * main path, which calls `create.installJob`. Sandboxing `AGENT_WORKFORCE_LAUNCH`
+ * puts the PLIST in a temp directory and does NOT stop the `launchctl` registration
+ * (#1539), so `com.kosmos.agent.{basename-loser,basename-wins,typed-wins}` were
+ * bootstrapped into the real user domain every time this file ran.
+ *
+ * ⭐ THE MECHANISM FOR THIS ALREADY EXISTED AND I DID NOT USE IT. 22 test files
+ * inject a runner, and `create.setDryRun` even carries a guard reading "refusing to
+ * leave dry-run with no injected runner: this would create real agents". Somebody
+ * anticipated exactly this and I walked past it.
+ *
+ * ⚠️ INJECTED ONLY AROUND THE MAIN-PATH ARMS, NEVER GLOBALLY, AND THAT IS THE WHOLE
+ * CARE HERE. A file-wide dry-run would ALSO suppress the register path's job, which
+ * would make this file's "no launchd job is installed" arm PASS VACUOUSLY. Measured:
+ * under a global dry-run neither path writes a plist, so the assertion could not
+ * tell them apart. The register arms therefore run with NOTHING injected, which is
+ * what makes their negative real.
+ */
+function noRealCommands(fn) {
+  create.setRunner(async () => ({ ok: true, stdout: '', err: null }));
+  try { return fn(); } finally { create.setRunner(null); }
+}
 
 test.after(() => { fs.rmSync(SB, { recursive: true, force: true }); });
 
@@ -118,7 +146,7 @@ test('#1531 RULING 2(a): a typed name beats the folder basename when instruction
   const dir = path.join(SB, 'basename-loser');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# x\n\nYou are **Testy**, a tester.\n');
-  const r = discover.connect(dir, { name: 'typed-wins' });
+  const r = noRealCommands(() => discover.connect(dir, { name: 'typed-wins' }));
   assert.equal(r.ok, true, r.because);
   assert.equal(r.name, 'typed-wins', 'the folder basename beat the name the person typed');
   /* CONTROL: without a supplied name the basename is still the answer, so the arm
@@ -126,5 +154,5 @@ test('#1531 RULING 2(a): a typed name beats the folder basename when instruction
   const dir2 = path.join(SB, 'basename-wins');
   fs.mkdirSync(dir2, { recursive: true });
   fs.writeFileSync(path.join(dir2, 'CLAUDE.md'), '# x\n\nYou are **Testy Two**, a tester.\n');
-  assert.equal(discover.connect(dir2, {}).name, 'basename-wins');
+  assert.equal(noRealCommands(() => discover.connect(dir2, {})).name, 'basename-wins');
 });
