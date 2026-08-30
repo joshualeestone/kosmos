@@ -948,9 +948,13 @@ async function start(opts) {
      * This file records the identical hazard elsewhere ("this read
      * engine/firstrun.js:140 until #1556 inserted lines above that call").
      *
-     * The bare-`accessSync` sites remaining in this file are `willInstall`'s
-     * presence check and `canRunClaude`. Both are weak the same way: a directory
-     * passes them.
+     * There are NO bare-`accessSync` sites left in this file. `willInstall`'s
+     * presence check and `canRunClaude` were the last two, and both now ask
+     * `require('./runners').isRunnable`, which answers false for a directory.
+     *
+     * ⚠️ THIS PARAGRAPH USED TO NAME THOSE TWO AS STILL WEAK, AND IT WAS LEFT
+     * STANDING BY THE COMMIT THAT FIXED THEM. That is precisely the hazard the
+     * paragraph above warns about, committed two paragraphs below the warning.
      *
      * ⚠️ AND MY FIRST VERSION OF THIS PARAGRAPH ASSERTED SOMETHING FALSE ABOUT
      * `canRunClaude`. I wrote that it "decides whether the STUCK screen tells

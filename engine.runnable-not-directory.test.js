@@ -26,6 +26,30 @@ const path = require('node:path');
 const os = require('node:os');
 
 const ENGINE = path.join(__dirname, 'engine');
+const REPO = __dirname;
+
+/**
+ * The weak call, defined ONCE because the sweep and its control MUST use the
+ * same matcher.
+ *
+ * 🛑 `.*`, NOT `[^)]*`, AND THIS IS THE WHOLE BUG THIS GUARD ALMOST SHIPPED
+ * WITH. `[^)]*` cannot cross a nested `)`, so it is blind to any call whose
+ * first argument is itself a call. Measured at the merge base: it saw
+ * `fs.accessSync(bin, X_OK)` at connect.js:434 and MISSED
+ * `fs.accessSync(claudeBinPath(), fs.constants.X_OK)` at connect.js:2082,
+ * which is one of the sites this very branch fixes. Reverting that fix left
+ * every test in this file green.
+ *
+ * ⭐ The control below was equally blind, because it planted only the simple
+ * shape: it exercised the arm that already worked. A control aimed at the
+ * working arm is not a control, which is why both now come from this constant
+ * and why the control plants the nested shape too.
+ *
+ * ⚠️ STILL LINE-BASED: a call split across two lines is invisible to it. No
+ * such call exists today and the population floor below would not catch one.
+ * Stated rather than glossed.
+ */
+const WEAK_CALL = /accessSync\s*\(.*X_OK/;
 const RUNNERS = path.join(ENGINE, 'runners.js');
 
 /**
@@ -37,6 +61,17 @@ const RUNNERS = path.join(ENGINE, 'runners.js');
  * and named machine.js:191, which is unrelated code; the call is at 412. A
  * finding nobody can locate is barely a finding.
  */
+/** Every non-test .js file in the repo, relative to REPO. */
+function walkJs(dir, base = dir, out = []) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.name === 'node_modules' || e.name === '.git' || e.name === 'dist') continue;
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) walkJs(full, base, out);
+    else if (e.name.endsWith('.js') && !e.name.endsWith('.test.js')) out.push(path.relative(base, full));
+  }
+  return out;
+}
+
 function codeOnly(src) {
   return src
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
@@ -44,16 +79,26 @@ function codeOnly(src) {
 }
 
 test('no engine file asks the weak runnable question: accessSync(X_OK) without isFile', () => {
-  const files = fs.readdirSync(ENGINE).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'));
+  /* Repo-wide, not engine/ only. The name of this test claims a CLASS property
+     ("no file asks the weak question"), and a guard narrower than the claim it
+     makes is the failure it was written to prevent, arriving by a different
+     door. Measured when this was widened: 137 non-test .js files, 0 weak sites,
+     1 correctly cleared by machine.js's own isFile(). */
+  const files = walkJs(REPO);
   // A floor: if the scan stops finding files this passes while asserting nothing.
-  assert.ok(files.length > 10, `only ${files.length} engine files scanned; the sweep is broken`);
+  assert.ok(files.length > 100, `only ${files.length} files scanned; the sweep is broken`);
+  assert.ok(
+    files.some((f) => f.startsWith(`engine${path.sep}`)),
+    'the sweep is not reaching engine/, which is where the class lives'
+  );
 
   const weak = [];
-  for (const f of files) {
-    const full = path.join(ENGINE, f);
+  for (const rel of files) {
+    const full = path.join(REPO, rel);
+    const f = rel;
     const lines = codeOnly(fs.readFileSync(full, 'utf8')).split('\n');
     lines.forEach((line, i) => {
-      if (!/accessSync\s*\([^)]*X_OK/.test(line)) return;
+      if (!WEAK_CALL.test(line)) return;
       // runners.js is the definition of the question, so it is allowed to ask it.
       if (full === RUNNERS) return;
       /* A site that guards with isFile() itself is CORRECT, not defective: it is
@@ -78,7 +123,16 @@ test('the sweep can actually find a weak call, so an empty result means somethin
   // The control the assertion above is worthless without: plant the exact shape
   // and confirm the matcher sees it. Without this, a broken regex reads as clean.
   const planted = 'try { fs.accessSync(bin, fs.constants.X_OK); } catch {}';
-  assert.ok(/accessSync\s*\([^)]*X_OK/.test(planted), 'the matcher cannot see a weak call');
+  assert.ok(WEAK_CALL.test(planted), 'the matcher cannot see a weak call');
+  /* The shape that actually existed in this repo and that the first version of
+     this matcher was blind to. Planting only the simple form above tested the
+     arm that already worked. */
+  const nested = 'fs.accessSync(claudeBinPath(), fs.constants.X_OK);';
+  assert.ok(WEAK_CALL.test(nested), 'the matcher is blind to a nested-call argument');
+  const joined = "fs.accessSync(path.join(dir, 'claude'), fs.constants.X_OK);";
+  assert.ok(WEAK_CALL.test(joined), 'the matcher is blind to a path.join() argument');
+  // And it must still NOT fire on a different mode.
+  assert.ok(!WEAK_CALL.test('fs.accessSync(bin, fs.constants.R_OK)'), 'the matcher over-fires on R_OK');
   const commented = '// fs.accessSync(bin, fs.constants.X_OK) succeeds on a directory';
   assert.strictEqual(
     codeOnly(commented).trim(),
@@ -128,23 +182,19 @@ test('isRunnable rejects a directory and accepts a real executable', () => {
  * throw from the resolver, and it is a tempting refactor: reading the value out
  * first reads cleaner. So this asserts the SHAPE.
  */
-const { test: t2 } = require('node:test');
-const assert2 = require('node:assert');
-const fs2 = require('node:fs');
-const path2 = require('node:path');
 
-t2('canRunClaude resolves the bin INSIDE its try, so a throw still writes the stuck screen', () => {
-  const src = fs2.readFileSync(path2.join(__dirname, 'engine', 'connect.js'), 'utf8');
+test('canRunClaude resolves the bin INSIDE its try, so a throw still writes the stuck screen', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'engine', 'connect.js'), 'utf8');
   const anchor = src.indexOf('let canRunClaude = false;');
-  assert2.ok(anchor > 0, 'canRunClaude was renamed or removed; re-aim this guard');
+  assert.ok(anchor > 0, 'canRunClaude was renamed or removed; re-aim this guard');
 
   const region = src.slice(anchor, anchor + 600);
   const tryAt = region.indexOf('try {');
   const catchAt = region.indexOf('} catch');
-  assert2.ok(tryAt > -1 && catchAt > tryAt, 'canRunClaude is no longer wrapped in a try/catch');
+  assert.ok(tryAt > -1 && catchAt > tryAt, 'canRunClaude is no longer wrapped in a try/catch');
 
   const guarded = region.slice(tryAt, catchAt);
-  assert2.ok(
+  assert.ok(
     /claudeBinPath\s*\(|resolveBin\s*\(/.test(guarded),
     'the bin resolution has moved OUTSIDE canRunClaude\'s try. A throw from it now ' +
       'escapes becomeStuck and the stuck screen is never written, which breaks the ' +
