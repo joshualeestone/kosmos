@@ -279,6 +279,18 @@ test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', () 
   const label = `com.kosmos.agent.${name}`;
   try {
     const mine = spawnSync('/bin/launchctl', ['list'], { encoding: 'utf8' });
+    /**
+     * 🛑 A FLOOR, because otherwise this passes VACUOUSLY. If `launchctl list`
+     * fails (ENOENT, non-zero exit) `stdout` is '' and the assertion below succeeds
+     * WITHOUT HAVING LOOKED. Test 4 grew exactly this floor for exactly this shape:
+     * "the read ran and was allowed" and "there is no launchctl here" must not
+     * produce the same pass. This test had no equivalent.
+     */
+    assert.equal(mine.status, 0,
+      'launchctl list did not run, so this test cannot say whether anything was '
+      + `registered (status ${mine.status}, err ${mine.error && mine.error.code})`);
+    assert.ok(String(mine.stdout || '').length > 0,
+      'launchctl list returned nothing at all, so the check below is vacuous');
     assert.ok(!String(mine.stdout || '').includes(label),
       `a sandboxed installJob REGISTERED ${label} in the real launchd domain`);
   } finally {
@@ -446,6 +458,46 @@ test('#1539: the refusal says WHY, so a future test that trips it is not left gu
     assert.match(String(r.stderr || ''), /setDryRun\(true\)/,
       'the refusal must tell the reader how to proceed deliberately');
   } finally {
+    delete require.cache[require.resolve('./create')];
+  }
+});
+
+test('#1539: the refusal is written to stderr, because nothing else surfaces it', () => {
+  /**
+   * 🛑 THIS ARM EXISTS BECAUSE THE LINE IT TESTS WAS ADDED WITHOUT ONE, in the same
+   * round that fixed three other unpinned properties. Deleting the
+   * `process.stderr.write` left all 11 tests green.
+   *
+   * ⚠️ IT IS THE ONLY RUNTIME SIGNAL THAT THE GUARD REFUSED. All four mutating call
+   * sites discard the refusal object, `sandboxRefused` is read nowhere outside this
+   * file, and `createAgentInner` tells the person only "we could not start it just
+   * now". For the documented over-refusal cases - the firmlink alias, the lowercased
+   * spelling - this line is the only thing that would tell an operator WHY their
+   * real install rolled back.
+   *
+   * 📌 The interception technique was already in the repo
+   * (`engine.live-execution-1598.test.js`), available and unused.
+   */
+  delete require.cache[require.resolve('./create')];
+  const live = require('./create');
+  const original = process.stderr.write;
+  const seen = [];
+  process.stderr.write = (chunk, ...rest) => { seen.push(String(chunk)); return original.call(process.stderr, chunk, ...rest); };
+  try {
+    assert.equal(live.launchIsSandboxed(), true, 'precondition: the guard must be armed');
+    live.run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, '/tmp/none-1539.plist']);
+    assert.ok(seen.some((l) => l.includes('refusing to launchctl')),
+      'the guard refused and said nothing on stderr, so the refusal reaches no human '
+      + 'at any of the four call sites that discard it');
+
+    /* CONTROL: an ALLOWED read must NOT write a refusal, so the assertion above
+       cannot pass because the guard narrates everything it sees. */
+    seen.length = 0;
+    try { live.run('/bin/launchctl', ['list']); } catch { /* a real read may exit non-zero */ }
+    assert.ok(!seen.some((l) => l.includes('refusing to launchctl')),
+      'CONTROL: an allowed read wrote a refusal line');
+  } finally {
+    process.stderr.write = original;
     delete require.cache[require.resolve('./create')];
   }
 });

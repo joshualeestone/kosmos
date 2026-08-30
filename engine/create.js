@@ -524,12 +524,17 @@ function run(file, args) {
    * ⇒ REFUSING THE REGISTRATION IS NOT THE SAME AS LEAVING THE MACHINE UNTOUCHED,
    * and this guard only does the first.
    */
-  /* 🛑 BASENAME, NOT AN EXACT PATH. `engine/delete-leftover.js (its bare `run('launchctl', ...)` call)` already
+  /* 🛑 BASENAME, NOT AN EXACT PATH. `engine/delete-leftover.js` (its bare launchctl call) already
      calls `run('launchctl', ...)` bare, and `command -v launchctl` resolves it
      to /bin/launchctl, so exact-string equality on one spelling is already
      false at repo scope. */
-  if (path.basename(String(file || '')) === 'launchctl' && launchIsSandboxed()
-      && (!Array.isArray(args) || !LAUNCHCTL_READS.includes(args[0]))) {
+  /* ⚠️ ORDER IS DELIBERATE AND CHEAP-FIRST. `launchIsSandboxed()` costs two
+     `realpathSync` calls and a `require`, so the free verb test runs before it:
+     every allowed `print` / `list` / `print-disabled` used to pay that. Behaviour
+     is identical, since all three conjuncts must hold. */
+  if (path.basename(String(file || '')) === 'launchctl'
+      && (!Array.isArray(args) || !LAUNCHCTL_READS.includes(args[0]))
+      && launchIsSandboxed()) {
     const refusal = {
       ok: false,
       stdout: '',
