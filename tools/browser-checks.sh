@@ -871,10 +871,10 @@ sb_ok="$(new_sandbox)"; sb_bad="$(new_sandbox)"
 # The shape below is copied from that stub, which captured it from the real
 # command, per this repo's rule that a fixture is a capture and not a guess.
 cat > "$sb_ok/fake-claude" <<'STUBOK'
+#!/bin/sh
 # 1573-pair stub. This marker exists so a block-scoped mutation can anchor here:
 # the sb4 stub earlier in this file is byte-identical without it, and two blind
 # reviewers independently anchored on the shared text and mutated the wrong one.
-#!/bin/sh
 [ "$1" = --version ] && { echo "claude 0.0.0-fake"; exit 0; }
 [ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
 exit 0
@@ -883,10 +883,10 @@ STUBOK
 # card's whole point is a launcher that EXISTS and does not RUN, so the file is
 # executable and the version probe is what fails.
 cat > "$sb_bad/fake-claude" <<'STUBBAD'
+#!/bin/sh
 # 1573-pair stub. This marker exists so a block-scoped mutation can anchor here:
 # the sb4 stub earlier in this file is byte-identical without it, and two blind
 # reviewers independently anchored on the shared text and mutated the wrong one.
-#!/bin/sh
 [ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
 exit 1
 STUBBAD

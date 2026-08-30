@@ -468,6 +468,28 @@ test('#1573: exactly one check runs against the non-dry-run boards, and it is th
      hid the alias completely while `BOK=` first on the line was caught. */
   const aliases = new Set();
   const checkVars = new Set();
+  /* 🛑 TRANSITIVE, AND A `for` HEADER IS AN ASSIGNMENT TOO. The block's own loop reads
+     `for _pair in "$sb_ok:$P14" "$sb_bad:$P15"` and then `_port="${_pair##*:}"`, so a
+     check written inside the loop names `$_port` and NOTHING in a one-level, assignment-
+     only resolver connects that back to $P14. A button-pressing check inside the loop
+     therefore survived, which is exactly the hazard this guard exists to stop.
+     ⇒ Resolve to a FIXPOINT: a name is an alias if its value mentions a port OR any name
+     already known to be an alias. Iterating to convergence covers chains of any depth
+     rather than the two I happened to find. */
+  code.forEach(({ line }) => {
+    for (const m of line.matchAll(/\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+([^;]*)/g)) {
+      if (PORTS.test(m[2])) aliases.add(m[1]);
+    }
+  });
+  for (let pass = 0; pass < 8; pass += 1) {
+    const before = aliases.size;
+    code.forEach(({ line }) => {
+      for (const m of line.matchAll(/(?:^|;|&&|\|\||\s)([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|\S*)/g)) {
+        if ([...aliases].some((a) => new RegExp(`\\$\\{?${a}\\b`).test(m[2]))) aliases.add(m[1]);
+      }
+    });
+    if (aliases.size === before) break;
+  }
   code.forEach(({ line }) => {
     for (const m of line.matchAll(/(?:^|;|&&|\|\||\s)([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|\S*)/g)) {
       if (PORTS.test(m[2])) aliases.add(m[1]);
