@@ -412,8 +412,13 @@ function installedCheck(opts) {
       fs.accessSync(bin, fs.constants.X_OK);
       present[key] = true;
     } catch {
-      // Present means RUNNABLE here too: a file with no execute bit is not
-      // something Connect can skip installing.
+      // A file with no execute bit is not runnable, so it is not present here.
+      // ⚠️ BUT X_OK IS NOT RUNNABILITY (#1567). A truncated launcher left by a
+      // cancelled `claude install` passes X_OK and is NOT runnable; only
+      // connect.js's `--version` probe catches that, and Connect re-downloads on
+      // it. So `present: true` here means "the file is on this computer and
+      // executable", NOT "it runs". The copy below is worded to match that, and
+      // must not vouch for runnability the cheap check cannot see.
       present[key] = false;
       if (required) missing.push({ label, bin });
     }
@@ -423,8 +428,14 @@ function installedCheck(opts) {
     return {
       key: 'installed',
       state: STATE.OK,
-      // The pack's row, verbatim (first-run spec, screen 4 ruling).
-      title: 'Everything it needs is installed',
+      /* #1567: was "Everything it needs is installed" / "Nothing for you to go
+         and find", the pack's screen-4 row. This check confirms the files are
+         PRESENT (statSync + X_OK), not that they RUN, and a truncated launcher
+         passes X_OK, so the old line vouched for a binary Connect then
+         re-downloads. Softened to a presence claim, which is true in both cases;
+         Connect does the runnability check. Josh's screen-4 wording ruling: this
+         is a conservative honesty fix, the final phrasing is his to set live. */
+      title: 'Everything it needs is on this computer',
       detail: 'Nothing for you to go and find.',
       present,
     };
