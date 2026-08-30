@@ -210,7 +210,7 @@ test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', () 
    * `installJob` runs `launchctl enable` BEFORE the bootstrap. An earlier version
    * asserted `bootstrap` alone, so allowlisting `enable` left this test GREEN while
    * a real `launchctl enable` executed against the operator's launchd - and
-   * `countKosmosJobs()` cannot see it, because `enable` creates no `list` entry, so
+   * a job-count check cannot see it, because `enable` creates no `list` entry, so
    * the cleanup never fired either.
    */
   const name = `sandboxprobe${Math.random().toString(36).slice(2, 8)}`;
@@ -245,7 +245,6 @@ test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', () 
 
   const res = live.installJob(name, { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' });
 
-  const after = countKosmosJobs();
   /**
    * 🛑 try/finally, AND THE ORDER WAS THE WHOLE DEFECT. An earlier version put the
    * bootout AFTER this assertion, with a comment saying "this runs regardless". It
@@ -474,7 +473,7 @@ test('#1539: the BARE launchctl spelling is refused too, not just /bin/launchctl
    * green. A behaviour change with nothing that can fail on it is the same
    * defect this whole card is about.
    *
-   * ⚠️ IT IS NOT HYPOTHETICAL: `engine/delete-leftover.js:257` already calls
+   * ⚠️ IT IS NOT HYPOTHETICAL: `engine/delete-leftover.js (its bare launchctl call)` already calls
    * `run('launchctl', [...])` bare, and `command -v launchctl` resolves it to
    * /bin/launchctl, so it is a live call and not a typo that would fail.
    */
@@ -486,7 +485,7 @@ test('#1539: the BARE launchctl spelling is refused too, not just /bin/launchctl
 
     const bare = live.run('launchctl', ['bootstrap', `gui/${process.getuid()}`, '/tmp/none.plist']);
     assert.equal(bare && bare.sandboxRefused, true,
-      'the BARE spelling walked past the guard; delete-leftover.js:257 uses it');
+      'the BARE spelling walked past the guard; delete-leftover.js (its bare launchctl call) uses it');
 
     const full = live.run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, '/tmp/none.plist']);
     assert.equal(full && full.sandboxRefused, true,
@@ -637,7 +636,8 @@ test('#1539: a half-sandbox nobody DECLARED is treated as a sandbox', () => {
    *
    * ⚠️ THAT IS TRUE OF A TEST THAT **SETS THE HATCH**, and false of this shape.
    * `install/setup.sh` ALWAYS exports `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` alongside
-   * the three (:2635-2637 with :2662), so a real install is always hatched and a
+   * the three (the `[ -n "${AGENT_WORKFORCE_DATA:-}" ] || export` block, with the
+   * HALF_SANDBOX_OK export in the SAME `if`), so a real install is always hatched and a
    * forgetful test is not. `sandbox.js` already computes the difference and calls
    * it `partial`. I applied an absolute to the wrong shape and pinned it into a
    * permanent comment, which is what would have stopped the next person closing it.
@@ -671,8 +671,3 @@ test('#1539: a half-sandbox nobody DECLARED is treated as a sandbox', () => {
   });
 });
 
-function countKosmosJobs() {
-  const { spawnSync } = require('node:child_process');
-  const r = spawnSync('/bin/launchctl', ['list'], { encoding: 'utf8' });
-  return String(r.stdout || '').split('\n').filter((l) => l.includes('com.kosmos.agent')).length;
-}

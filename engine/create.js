@@ -292,7 +292,8 @@ function launchIsSandboxed() {
    * POINT. That one keyed on `audit().set`, which counts a variable as set
    * REGARDLESS of the hatch, so it refused real installs. `partial` honours the
    * hatch, and `install/setup.sh` ALWAYS exports it alongside the three
-   * (:2635-2637 with :2662). Measured:
+   * (the `[ -n "${AGENT_WORKFORCE_DATA:-}" ] || export` block, with the
+   * HALF_SANDBOX_OK export in the SAME `if`). Measured:
    *
    *   the gap: 3 knobs, LAUNCH forgotten, NO hatch   partial TRUE   -> refuse
    *   real non-default KOSMOS_HOME (always hatched)  partial FALSE  -> allow
@@ -491,8 +492,13 @@ function run(file, args) {
    * covers tmux and every other binary, where this covers `launchctl` alone.
    *
    * ⇒ This exists ONLY because `create.js` is not yet on the shared gate. WHEN IT
-   * ADOPTS `liveExecutionAllowed()`, DELETE THIS GUARD AND ITS TESTS rather than
-   * keeping both - two mechanisms answering one question is the
+   * ADOPTS `liveExecutionAllowed()`, DELETE THIS GUARD, ITS TESTS, AND THE `run`
+   * EXPORT BELOW rather than keeping any of them.
+   *
+   * ⚠️ THE EXPORT IS THE PIECE THAT OUTLIVES THE OTHER TWO, which is why it is
+   * named here. It exists only so the refusal MESSAGE can be asserted; once the
+   * shared gate covers this module the message goes with it, and what is left is a
+   * general command executor on the public surface of a module `server.js` loads - two mechanisms answering one question is the
    * two-copies-of-one-fact defect this file's header calls its worst habit.
    *
    * 📌 The adoption is Mona Lisa's by agreement, since she wrote the gate. This
@@ -518,13 +524,13 @@ function run(file, args) {
    * ⇒ REFUSING THE REGISTRATION IS NOT THE SAME AS LEAVING THE MACHINE UNTOUCHED,
    * and this guard only does the first.
    */
-  /* 🛑 BASENAME, NOT AN EXACT PATH. `engine/delete-leftover.js:257` already
+  /* 🛑 BASENAME, NOT AN EXACT PATH. `engine/delete-leftover.js (its bare `run('launchctl', ...)` call)` already
      calls `run('launchctl', ...)` bare, and `command -v launchctl` resolves it
      to /bin/launchctl, so exact-string equality on one spelling is already
      false at repo scope. */
   if (path.basename(String(file || '')) === 'launchctl' && launchIsSandboxed()
       && (!Array.isArray(args) || !LAUNCHCTL_READS.includes(args[0]))) {
-    return {
+    const refusal = {
       ok: false,
       stdout: '',
       /* ⚠️ NOT `args[0]`. This branch is deliberately reached with a NON-ARRAY
@@ -539,6 +545,21 @@ function run(file, args) {
         + 'call setDryRun(true) if this test meant to reach launchctl.',
       sandboxRefused: true,
     };
+    /**
+     * 🛑 SAY IT OUT LOUD. Every one of the four mutating call sites discards this
+     * object: two wrap the call in `try { run(...) } catch {}` and both `bootstrap`
+     * sites read only `ok`. So the sentence above reached NO HUMAN, and on the
+     * creation path `createAgentInner` treats `!started` as a full rollback and
+     * tells the person only "we could not start it just now".
+     *
+     * ⇒ A guard whose whole purpose is to TEACH the next test author was silent at
+     * the exact moment it fired. One line on stderr costs nothing and is the only
+     * thing that makes it teach.
+     */
+    try {
+      process.stderr.write(`[create.js] ${refusal.stderr}\n`);
+    } catch { /* stderr unavailable: the refusal still stands, it is just quiet. */ }
+    return refusal;
   }
   // ⚠️ `stdio` pipes stderr rather than inheriting it. Without this, the
   // `launchctl print` probe -- which fails for every FREE name, by design --
@@ -3203,7 +3224,7 @@ module.exports = {
      testing it end-to-end first requires knowing the predicate is right. */
   launchIsSandboxed,
   /* Test seam. `run` is exported so the #1539 refusal's MESSAGE can be asserted
-     directly. 
+     directly.
      🛑 IT HAS TO BE DIRECT BECAUSE NO CALLER SURFACES THE SENTENCE AT ALL. There
      are FOUR mutating call sites, not five, and an earlier version of this comment
      said five and claimed only two discarded the refusal. Measured: the `enable`

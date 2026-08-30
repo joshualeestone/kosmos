@@ -168,7 +168,7 @@ both ways: blocking `list` -> red; making the guard inert -> red.
   `load`/`unload` are the legacy spellings of the two verbs it did list, which is
   what every macOS doc shows. Default-is-dangerous, the same shape that caused
   this card.
-- **Basename, not an exact path.** `delete-leftover.js:257` already calls
+- **Basename, not an exact path.** `delete-leftover.js (its bare `run('launchctl', ...)` call)` already calls
   `run('launchctl', ...)` bare.
 - **The comment is scoped.** It claimed the invariant unconditionally while
   guarding one of three seams. Now states what it does not cover, and points at
@@ -193,7 +193,7 @@ returns at next login, a killed pane does not.
 
 # Verification, and this is the ONLY figure in this file kept current
 
-    suite                    3130 pass, 0 fail
+    suite                    3182 pass, 0 fail (the rebase onto #1598 moved it from 3130)
     ABSOLUTE kosmos jobs     0 before, 0 after   (not a delta, see the note above)
     tmux sessions            18 before, 18 after
 
@@ -216,8 +216,8 @@ sections rather than updated, and this is the one place a number lives.
 
 Keying the guard on `sandbox.audit().set` refused registration in a REAL install.
 `install/setup.sh` exports DATA, PROJECTS and WORKERS for a non-default
-`KOSMOS_HOME` (:2635-2637), DELIBERATELY leaves LAUNCH unset so plists go to the
-real LaunchAgents, and exports `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` (:2662) as
+`KOSMOS_HOME` ( (the export block)), DELIBERATELY leaves LAUNCH unset so plists go to the
+real LaunchAgents, and exports `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` (the hatch export in that same block) as
 sandbox.js's own named escape hatch for that shape. All four are written into the
 board plist's EnvironmentVariables (:2782), so the server carries them at every
 login.
