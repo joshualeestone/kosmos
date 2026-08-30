@@ -44,7 +44,11 @@ reason.
 
 ## Verification
 
-- full suite on the branch and on `origin/main`: 3051 pass, 0 fail each
+- full suite on `origin/main`: 3051 pass, 0 fail
+- full suite on the branch: 3067 pass, 0 fail (the branch ADDS tests, so the
+  two figures cannot match; an earlier version of this line reported the main
+  number for both, which is arithmetically impossible for a change that adds
+  a test file)
 - `engine/connect.install-997.test.js`: direct contract tests for the three
   return shapes, the hook guard, and the #458 predicate distinction, each arm
   perturbed and confirmed to go red independently

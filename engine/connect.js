@@ -847,6 +847,25 @@ async function start(opts) {
  *   { ok: false, message, detail }                 failed, caller reports it
  *   { ok: false, cancelled: true, message: ... }   THE PERSON STOPPED IT
  *
+ * 🛑 AND THERE IS A FOURTH OUTCOME THE LIST ABOVE DOES NOT NAME, WHICH IS THE
+ * ONE A REAL PERSON USUALLY PRODUCES. A cancel landing MID-DOWNLOAD does not
+ * reach the post-download check at all: the abort rejects the download, the
+ * catch block runs, and the result is the ORDINARY FAILURE SHAPE --
+ * `{ ok: false, message: 'we could not download Claude', detail: 'cancelled' }`
+ * with NO `cancelled` flag. The flagged shape only fires in the narrow window
+ * after the bytes have landed, so for a 281MB download the unflagged path is
+ * the common one.
+ *
+ * ⚠️ SO "CHECK `cancelled` FIRST" IS NECESSARY AND NOT SUFFICIENT, and a second
+ * caller following it verbatim will render "we could not download Claude" to
+ * somebody who pressed cancel. The current caller is accidentally safe because
+ * becomeStuck no-ops on `driver !== owner`, which is exactly the condition
+ * `cancelled()` reports. A second caller has no such accident.
+ *
+ * 📌 LEFT AS IS RATHER THAN FIXED HERE, DELIBERATELY. Making the catch return
+ * the cancelled shape would be a behaviour change, and this card's whole claim
+ * is that it is behaviour-neutral. Documented now, carded separately.
+ *
  * ⚠️ A caller that reads only `ok` and writes the obvious
  * `if (!res.ok) becomeStuck(owner, res.message, res.detail)` puts a failure
  * message on a flow somebody deliberately cancelled. CHECK `cancelled` FIRST.

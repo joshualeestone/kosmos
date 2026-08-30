@@ -140,11 +140,31 @@ async function withRelease(t, over = {}, opts = {}) {
 
 // ── the three return shapes ─────────────────────────────────────────────────
 
-test('a cancelled install returns the CANCELLED shape, not a failure', async (t) => {
+test('a cancelled install returns the CANCELLED shape AND never runs the installer', async (t) => {
+  /**
+   * 🛑 THE SHAPE ALONE DOES NOT PIN THIS BRANCH, AND ASSERTING ONLY THE SHAPE
+   * LET A REAL MUTATION THROUGH. Measured: replacing the post-download
+   * `if (hooks.cancelled())` with `if (false)` left all 16 tests here and all
+   * 49 in connect.test.js GREEN -- because the SECOND cancel site, after the
+   * install child has already run, returns the same `{ok:false,cancelled:true}`.
+   * So the flow emitted INSTALLING and EXECUTED THE INSTALLER for somebody who
+   * had cancelled, and every assertion still passed.
+   *
+   * ✅ What separates the two sites is observable side effects, not the result:
+   * the earlier branch must produce NO installing phase and NO install child.
+   */
   const c = cancelWhenDownloadCompletes();
-  const res = await withRelease(t, c.hooks);
+  const phases = [];
+  const ran = [];
+  const res = await withRelease(t, { ...c.hooks, onPhase: (p) => phases.push(p) }, {
+    runner: (file, args) => { if (args && args[0] === 'install') ran.push(file); return { ok: true, stdout: '' }; },
+  });
   assert.equal(res.ok, false);
   assert.equal(res.cancelled, true, 'a cancellation must be distinguishable from a failure');
+  assert.deepEqual(phases, [connect.PHASE.DOWNLOADING],
+    'a flow cancelled after the download must never announce INSTALLING');
+  assert.deepEqual(ran, [],
+    'a flow cancelled after the download must never execute the installer');
 });
 
 test('the cancelled shape carries a message, so a caller that ignores the flag cannot render undefined', async (t) => {
@@ -190,8 +210,11 @@ test('a failed install returns the FAILURE shape with a message, and is NOT mark
 
 test('a missing hook throws AT ENTRY, before any phase is written', async () => {
   for (const missing of ['cancelled', 'maySweepDownloads', 'wantsProgress', 'onPhase', 'onProgress']) {
-    const phases = [];
-    const hooks = stubs({ onPhase: (p) => phases.push(p) });
+    // ⚠️ A SHARED COUNTER, NOT THE onPhase RECORDER. When `missing` is
+    // 'onPhase' the recorder is the very hook being deleted, so an assertion on
+    // it is true by construction and that one iteration proves nothing.
+    let fired = 0;
+    const hooks = stubs({ onPhase: () => { fired += 1; }, onProgress: () => { fired += 1; } });
     delete hooks[missing];
     await assert.rejects(
       () => connect.installClaudeCode(hooks),
@@ -200,7 +223,7 @@ test('a missing hook throws AT ENTRY, before any phase is written', async () => 
     );
     // "AT ENTRY" is the half of the name that was previously aspirational:
     // without this, the guard could fire late and the test would not notice.
-    assert.deepEqual(phases, [], `omitting ${missing} must abort before any phase is written`);
+    assert.equal(fired, 0, `omitting ${missing} must abort before any hook fires`);
   }
 });
 
@@ -310,6 +333,28 @@ test('an install that reports success but leaves no runnable binary is caught', 
   assert.equal(res.ok, false);
   assert.ok(!res.cancelled);
   assert.match(res.message, /cannot find it where it should be/);
+  // ⚠️ AND THE 281MB GOES TOO. Measured: deleting the unlink from this catch
+  // survives every other test in the repo, stranding a binary per attempt --
+  // the exact failure connect.test.js:216 exists to prevent for the sibling
+  // !inst.ok path, with no guard on this one.
+  /**
+   * 🛑 THE 281MB CLEANUP ON THIS ARM IS NOT GUARDED, AND I AM SAYING SO RATHER
+   * THAN FAKING IT. A review measured that deleting `fs.unlinkSync` from this
+   * catch survives the whole suite, stranding a binary per attempt -- the exact
+   * failure `engine/connect.test.js:216` prevents for the sibling `!inst.ok`
+   * path.
+   *
+   * ⚠️ I WROTE AN ASSERTION FOR IT AND IT WAS VACUOUS. Measured with the
+   * mutation applied AND with it absent: the downloads directory reads empty
+   * BOTH times, so `deepEqual(downloadsMatching(...), [])` passed no matter
+   * what the code did. A check that cannot fail is worse than no check,
+   * because the next person reads it as coverage.
+   *
+   * 📌 UNRESOLVED: why the dest file is already gone at this point. Until that
+   * is understood, an assertion here would be decoration. Left unguarded and
+   * named, not papered over.
+   */
+
 });
 
 test('cancel landing WHILE THE INSTALL CHILD RUNS returns the cancelled shape', async (t) => {
@@ -340,6 +385,11 @@ test('cancel landing WHILE THE INSTALL CHILD RUNS returns the cancelled shape', 
  * `.part` survives. That is what makes the hook's ANSWER observable rather
  * than merely its being CONSULTED.
  */
+function downloadsMatching(re) {
+  const dir = nodePath.join(store.ROOT, 'downloads');
+  try { return fs.readdirSync(dir).filter((f) => re.test(f)); } catch { return []; }
+}
+
 function partialsIn() {
   const dir = nodePath.join(store.ROOT, 'downloads');
   try { return fs.readdirSync(dir).filter((f) => f.endsWith('.part')); } catch { return []; }
@@ -357,4 +407,26 @@ test('CONTROL: maySweepDownloads FALSE leaves that partial in place', async (t) 
   const res = await withRelease(t, { maySweepDownloads: () => false }, { dieMidStream: true });
   assert.equal(res.ok, false);
   assert.ok(partialsIn().length > 0, 'a false maySweepDownloads must suppress the sweep');
+});
+
+test('the cancel check runs BEFORE the wantsProgress gate, not behind it', async (t) => {
+  /**
+   * ⚠️ A LOAD-BEARING ORDERING WITH NO GUARD BEHIND IT UNTIL NOW. Measured:
+   * moving the cancel check behind the `wantsProgress` gate survives every
+   * other test in the repo. Under the real caller `wantsProgress` is
+   * `mem.phase === PHASE.DOWNLOADING` and `cancel()` writes `PHASE.IDLE`, so a
+   * cancelled download would stop self-aborting at chunk granularity and run
+   * to completion. It is also the ordering this file's own fixture comment
+   * depends on for being chunk-count independent.
+   *
+   * With wantsProgress FALSE, cancelled() must still be consulted every chunk.
+   * If the gate came first, it would never be consulted at all.
+   */
+  let cancelledCalls = 0;
+  await withRelease(t, {
+    wantsProgress: () => false,
+    cancelled: () => { cancelledCalls += 1; return false; },
+  }, { bytes: 512 * 1024 });
+  assert.ok(cancelledCalls > 2,
+    `cancelled() must be consulted per chunk even when progress is gated off (saw ${cancelledCalls})`);
 });
