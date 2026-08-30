@@ -483,6 +483,50 @@ test('with no runtime, a FAILED call still reports failure', async () => {
   });
 });
 
+test('the not-running and transport failure sentences exist and exit non-zero', async () => {
+  /**
+   * 🛑 NONE OF THE THREE FAILURE SENTENCES HAD A TEST, IN THE EXACT CODE WHERE A
+   * SHIPPED BUG ONCE MADE TWO OF THEM UNREACHABLE. The comment at install/kosmos
+   * records it: `body=$(curl ...); rc=$?` under `set -euo pipefail` exits at the
+   * assignment, so both error sentences below it were dead and a transport
+   * failure printed NOTHING while the happy path stayed green.
+   *
+   * The fix is held by nothing. That is the same shape as the bug: a defect on a
+   * path no test drives, with a green suite above it.
+   */
+
+  // ARM 1: nothing listening at all. The board is not running.
+  const dead = await new Promise((resolve) => {
+    const srv = http.createServer(() => {});
+    srv.listen(0, () => { const p = srv.address().port; srv.close(() => resolve(p)); });
+  });
+  const notRunning = await kosmos(dead);
+  assert.notEqual(notRunning.code, 0, 'a dead board exited 0');
+  assert.match(notRunning.out + notRunning.err, /not running/i,
+    'a dead board did not produce the not-running sentence');
+  assert.doesNotMatch(notRunning.out + notRunning.err, /curl:|Connection refused|ECONNREFUSED/,
+    'transport vocabulary reached a person in the verb whose job is refusing it');
+
+  // ARM 2: a board that accepts the connection and then drops it mid-answer.
+  const dropped = await new Promise((resolve) => {
+    const srv = http.createServer((q, r) => { r.socket.destroy(); });
+    srv.listen(0, () => resolve({ port: srv.address().port, srv }));
+  });
+  const cut = await kosmos(dropped.port);
+  dropped.srv.close();
+  assert.notEqual(cut.code, 0, 'a dropped connection exited 0');
+  assert.ok((cut.out + cut.err).trim().length > 0,
+    'a dropped connection printed NOTHING, which is the exact shipped bug this guards');
+
+  // CONTROL: the same helper against a WORKING board must succeed, or these
+  // assertions are satisfied by the CLI simply being broken.
+  await withBoard({ body: P() }, async (port) => {
+    const ok = await kosmos(port);
+    assert.equal(ok.code, 0, 'control: a healthy board now fails, so the arms above prove nothing');
+    assert.match(ok.out, /Claude: connected/, 'control: the healthy board printed no verdict');
+  });
+});
+
 test('a malformed element prints a sentence, never a stack trace', async () => {
   /**
    * 🛑 THE GUARD CHECKED THE CONTAINER, NOT THE ELEMENTS. `providers: [null]`

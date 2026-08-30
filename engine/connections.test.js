@@ -55,8 +55,10 @@ test('#1034: the connections paragraph is actually IN the block, and says the th
    * connected", left the whole suite green. Every other decision on this branch
    * was pinned by something; this one was pinned by nobody.
    *
-   * ⚠️ Pinned by PROPERTY, not by wording, so a rewrite of the prose does not go
-   * red for no reason. What must survive any rewrite is: it names the verb, it
+   * ⚠️ Pinned by property WHERE IT CAN BE. Two arms below pin literal wording
+   * (the three-state sentence and the withholding sentence) because those two
+   * sentences ARE the decision, not a way of expressing it. The claim used to be
+   * a flat "not by wording", which was stronger than what the assertions do. What must survive any rewrite is: it names the verb, it
    * refuses the two-state reading, and it refuses to hand over the credential.
    */
   const body = connections.blockBody();
@@ -166,7 +168,20 @@ test('#1034: it carries no CREDENTIAL and no PER-AGENT state', () => {
      pointing at the wrong file. */
   assert.doesNotMatch(body, /[\w.+-]+@[\w-]+\.[\w.]+/,
     'an email address reached a block that must carry no credential');
-  assert.doesNotMatch(body, /sk-|key tail/i, 'a key or key tail reached the block');
+  /* ⚠️ WORD-BOUNDARY ANCHORED. `/sk-/i` unanchored matches "ask-", and this block
+     contains "ask" TWELVE times: measured, /sk-|key tail/i against the body plus
+     the string " ask-first" returns TRUE. One rephrase to "ask-first" or
+     "task-based" and the guard goes red accusing the block of leaking an API key.
+     That is the same trap the comment above says it removed for the phrase
+     "is connected on this", reintroduced two lines below it. */
+  assert.doesNotMatch(body, /\bsk-[A-Za-z0-9]/i, 'an API key reached the block');
+  assert.doesNotMatch(body, /key tail/i, 'a key tail reached the block');
+  /* CONTROL: the key pattern must still catch a real one, or narrowing it has
+     quietly disarmed it. */
+  assert.match('sk-proj-ABC123', /\bsk-[A-Za-z0-9]/i,
+    'control: the narrowed key pattern no longer matches a real key');
+  assert.doesNotMatch('ask-first, then task-based', /\bsk-[A-Za-z0-9]/i,
+    'control: the narrowed pattern still fires on ordinary prose');
   // CONTROL: the body is real, so the absence assertions above are about content
   // rather than about an empty string.
   assert.ok(body.length > 500, 'control: blockBody returned almost nothing');
