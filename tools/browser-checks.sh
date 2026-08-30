@@ -235,7 +235,7 @@ write_fleet_rich() {
   local sb="$1"
   # 🛑 THREE RUNNING, AND THE COUNT IS LOAD-BEARING. With the two not-running
   # agents below this board holds FIVE agents, and render-org-chart asserts the
-  # drawing fills more than a third of its canvas — which is a function of how
+  # drawing fills more than a third of its canvas, which is a function of how
   # many nodes there are. MEASURED across sizes against this exact check:
   #     3 agents  fail        4 agents  59%  pass
   #     5 agents  59%  pass   6 agents  53%  FAIL
@@ -248,7 +248,7 @@ write_fleet_rich() {
   # ⚠️ TWO OF THEM, AND THE NAMES ARE NOT INTERCHANGEABLE. render-not-running
   # matches /ghosty/ and render-survival matches /brigitte/, each hardcoded in
   # the check. Seeding only one made render-survival fail IN THE RUNNER after
-  # passing on a board booted by hand — the exact fresh-board-versus-in-sequence
+  # passing on a board booted by hand: the exact fresh-board-versus-in-sequence
   # gap this whole card is about, reproduced in the fix for it.
   mkdir -p "$sb/data/AgentWorkforce/profiles" "$sb/workers/ghosty" "$sb/workers/brigitte"
   printf '%s\n' '{"role":"Copywriter","displayName":"Ghosty"}' \
@@ -347,7 +347,7 @@ run_one() {
   log "⚠️  $label failed once, retrying (flaky-timeout guard). A retried pass is reported, not hidden."
   RETRIED+=("$label")
   if HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@" 2>&1 | tee "$cap"; [ "${PIPESTATUS[0]}" -eq 0 ]; then
-    log "PASS  $label (on retry — treat repeated retries as a finding, not noise)"; rm -f "$cap"
+    log "PASS  $label (on retry: treat repeated retries as a finding, not noise)"; rm -f "$cap"
     return 0
   fi
   log "FAIL  $label (failed twice)"
@@ -558,24 +558,17 @@ else
 fi
 # #812: render-create-made presses the real Create button, so it refuses to
 # run without both a dry-run server (nothing is actually started or written)
-# and an explicit --yes-dry-run flag of its own -- neither is optional, and
-# it is why this check needed a dedicated board rather than joining B8.
+# and an explicit --yes-dry-run flag of its own -- neither is optional. It runs
+# on a dedicated board; why it was split out rather than joining B8 is not
+# recorded here.
 #
-# CORRECTED (#1575): this used to end "(which runs without
-# AGENT_WORKFORCE_DRY_RUN)". THAT IS FALSE AND IT ALREADY MISLED A REVIEW.
-# B8 is booted by boot_board (the `boot_board "$sb7" "$P8"` call below), and
-# boot_board sets AGENT_WORKFORCE_DRY_RUN=1 like every other board in this
-# script. Measured: six real server boots here, all under dry-run, none
-# without. Anyone designing around "the board that runs without dry-run" is
-# looking for one that does not exist.
-#
-# What IS different about the dedicated board, measured rather than assumed:
-# it omits three vars boot_board sets (TMUX_BIN, FAKE_PANES, CONFIG_ROOT),
-# for the reason the next paragraph gives. Whether that, or the fact that B8
-# is shared by eight other checks while this one presses a real Create
-# button, is the reason it was split out, I have not established and am not
-# asserting. The false clause is removed; the true rationale is whatever the
-# surrounding #812 notes say.
+# CORRECTED (#1575): the sentence above used to end "and it is why this check
+# needed a dedicated board rather than joining B8 (which runs without
+# AGENT_WORKFORCE_DRY_RUN)". B8 runs UNDER dry-run: it is booted by the
+# `boot_board "$sb7" "$P8"` call below, and boot_board sets
+# AGENT_WORKFORCE_DRY_RUN=1. Every `node ./server.js` boot site in this script
+# sets it. So the stated reason was false, and the causal clause resting on it
+# went with it rather than being left to assert a reason nobody has.
 #
 # Restated against 4bf7d95's real
 # ending by Ice Cream Kitty (#826) before this PR wired it in; proven

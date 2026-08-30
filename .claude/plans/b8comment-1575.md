@@ -47,7 +47,7 @@ unverified one would leave the file exactly as trustworthy as it was.
 ## Verification
 
 Comment-only; no behaviour changes. `bash -n` clean. All 19 test files that reference
-`browser-checks.sh` pass, including `tools.browser-checks-wired`,
+`browser-checks` pass (4 of them name the script file literally), including `tools.browser-checks-wired`,
 `browser-checks-indexed`, `browser-checks-selectors` and `server.test.js`.
 
 Found while working #1556. Card is #1575.
