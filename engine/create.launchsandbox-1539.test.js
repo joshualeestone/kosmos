@@ -7,11 +7,18 @@
  * three `claude --dangerously-skip-permissions` processes with cwd in $HOME, and
  * three loaded launchd jobs.
  *
- * 🛑 WHY THE END-TO-END ARM IS SAFE TO RUN, STATED BECAUSE IT WOULD NOT HAVE
- * BEEN BEFORE. `run()`'s guard is only reachable with NO injected runner and NO
+ * 🛑 WHY THE END-TO-END ARM IS SAFE TO RUN, AND THE FIRST VERSION OF THIS
+ * PARAGRAPH WAS WRONG ABOUT IT. `run()`'s guard is only reachable with NO injected runner and NO
  * dry-run, which is precisely the configuration that started those agents. The
- * predicate is therefore asserted FIRST, on all four arms, so a broken predicate
- * fails here rather than by registering something. If that ordering is ever
+ * predicate is asserted first on the PREDICATE tests - but those run inside
+ * `withOnlyLaunch()`, which certifies a LAUNCH-only environment, not the four-knob
+ * one the registering test runs in.
+ *
+ * ⇒ THAT IS NOT WHAT MAKES IT SAFE, and believing it was is what let an inert
+ * guard through: `false &&` on the guard leaves the predicate returning true. What
+ * makes it safe is the registering test's OWN precondition, which asks the guard to
+ * REFUSE every verb `installJob` issues. Do not remove that on the belief that the
+ * predicate tests cover it. If that ordering is ever
  * inverted, this file can start real agents again.
  */
 const { test } = require('node:test');
@@ -198,11 +205,22 @@ test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', () 
    */
   assert.equal(live.launchIsSandboxed(), true,
     'precondition: the predicate must read sandboxed');
-  assert.equal(
-    live.run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, '/tmp/nope-1539.plist']).sandboxRefused,
-    true,
-    'precondition: the GUARD must actually REFUSE a bootstrap before this test is '
-    + 'allowed to call installJob with no runner and no dry-run');
+  /**
+   * 🛑 EVERY VERB `installJob` ISSUES, NOT JUST THE ONE THAT REGISTERS.
+   * `installJob` runs `launchctl enable` BEFORE the bootstrap. An earlier version
+   * asserted `bootstrap` alone, so allowlisting `enable` left this test GREEN while
+   * a real `launchctl enable` executed against the operator's launchd - and
+   * `countKosmosJobs()` cannot see it, because `enable` creates no `list` entry, so
+   * the cleanup never fired either.
+   */
+  for (const verb of ['enable', 'bootstrap']) {
+    const argv = verb === 'enable'
+      ? ['enable', `gui/${process.getuid()}/com.kosmos.agent.nosuch1539`]
+      : ['bootstrap', `gui/${process.getuid()}`, '/tmp/nope-1539.plist'];
+    assert.equal(live.run('/bin/launchctl', argv).sandboxRefused, true,
+      `precondition: the GUARD must actually REFUSE '${verb}' before this test is `
+      + 'allowed to call installJob with no runner and no dry-run');
+  }
 
   const before = countKosmosJobs();
   const name = `sandboxprobe${Math.random().toString(36).slice(2, 8)}`;
@@ -223,16 +241,33 @@ test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', () 
    * FROM UNDER A LIVE REGISTRATION. That is the 18-minute incident, reproduced by
    * the test written to prevent it and disarmed by statement order.
    */
+  /**
+   * 🛑 ASSERT THE ABSOLUTE PRESENCE OF *THIS* LABEL, NOT A DELTA OF THE FLEET'S,
+   * AND RUN THE CLEANUP UNCONDITIONALLY. This card's own plan says "AFTER MUTATING
+   * A GUARD THAT PREVENTS AN ACTION, MEASURE THE ABSOLUTE, NOT THE DELTA" - and the
+   * first version of this cleanup gated on a delta of `com.kosmos.agent.*`, which
+   * is the LIVE FLEET's namespace, not this test's.
+   *
+   * ⇒ If the guard regressed AND any pre-existing agent job left `launchctl list`
+   * between the two counts - another pane running `kosmos remove`, a job crashing
+   * out, an operator booting one - then before == after, the assertion PASSES, and
+   * the `if` SKIPS THE BOOTOUT. A real registration survives, and the sandbox
+   * tmpdir is deleted out from under it. The 18-minute incident again, through the
+   * guard written to prevent it, using the exact reasoning that guard's own lesson
+   * forbids.
+   *
+   * 📌 The bootout is unconditional because it is a NO-OP on an absent label
+   * (launchctl answers 3), so gating it bought nothing and cost the whole cleanup.
+   */
+  const { spawnSync } = require('node:child_process');
+  const label = `com.kosmos.agent.${name}`;
   try {
-    assert.equal(after, before,
-      `a sandboxed installJob changed the real launchd domain: ${before} -> ${after}`);
+    const mine = spawnSync('/bin/launchctl', ['list'], { encoding: 'utf8' });
+    assert.ok(!String(mine.stdout || '').includes(label),
+      `a sandboxed installJob REGISTERED ${label} in the real launchd domain`);
   } finally {
-    if (after !== before) {
-      const { spawnSync } = require('node:child_process');
-      spawnSync('/bin/launchctl',
-        ['bootout', `gui/${process.getuid()}/com.kosmos.agent.${name}`],
-        { encoding: 'utf8' });
-    }
+    spawnSync('/bin/launchctl',
+      ['bootout', `gui/${process.getuid()}/${label}`], { encoding: 'utf8' });
   }
   /**
    * ⚠️ `ok: true` IS CORRECT HERE AND MY FIRST ASSERTION WAS WRONG ABOUT IT.
@@ -250,12 +285,6 @@ test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', () 
   assert.match(String(res.because || ''), /could not start it just now/,
     'the caller is not told the agent was left unstarted');
 
-  /**
-   * ✅ CLEAN UP IF THE GUARD FAILED. If `after !== before` a real job was
-   * registered, and the assertion above has already thrown. This runs regardless
-   * so the machine is not left holding it - the previous version had no bootout
-   * anywhere in the file, which is exactly how one ran for 18 minutes.
-   */
 });
 
 test('#1539 CONTROL: READS are not blocked, so a sandboxed test can still ask what is running', () => {
@@ -340,7 +369,21 @@ test('#1539 CONTROL: READS are not blocked, so a sandboxed test can still ask wh
      * These are pure `run()` calls against a label that does not exist, so a
      * refusal is asserted without registering or tearing down anything.
      */
+    /**
+     * 🛑 THE FIRST TWO PIN THE LIST'S *DIRECTION*, WHICH ITERATION 8 DID NOT.
+     * That round fixed verb COVERAGE inside this loop. It did not pin that the
+     * list is an ALLOWLIST at all: swapping it for a denylist of exactly the five
+     * verbs below left 11 of 11 GREEN, while `load`, `unload`, `remove`, `start`,
+     * `stop` and `submit` all reached execFileSync unrefused.
+     *
+     * ⇒ A verb NO plausible denylist would carry is what pins default-is-refuse.
+     * `load` is the legacy spelling every macOS doc shows, and the nonsense verb
+     * cannot be on anybody's list by accident.
+     */
     for (const argv of [
+      ['zzz-not-a-verb-1539'],
+      ['load', '/tmp/none-1539.plist'],
+      ['unload', '/tmp/none-1539.plist'],
       ['bootstrap', `gui/${process.getuid()}`, '/tmp/none-1539.plist'],
       ['enable', `gui/${process.getuid()}/com.kosmos.agent.nosuch1539`],
       ['bootout', `gui/${process.getuid()}/com.kosmos.agent.nosuch1539`],
