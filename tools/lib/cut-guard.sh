@@ -16,6 +16,16 @@
 # run. A pid ps cannot resolve (a probe's synthetic pid, or one that just
 # exited) is treated as NOT ours and left in the list -- an unresolvable match
 # is safer reported than silently dropped.
+# KNOWN RESIDUAL, deliberate: the walk reads a LIVE tree, so a nested descendant
+# whose intermediate ancestor exits mid-walk (reparented to pid 1) can miss
+# `root` and read as a separate run -- a self-inflicted false positive, the very
+# class that first disarmed this guard. It is bounded: in the real path the
+# matched subshells are DIRECT children of a live caller, so the walk hits `root`
+# on the first hop. A process-group test would survive reparenting but cannot
+# tell a sibling in the same group from a separate run (which the tests model as
+# exactly that), so the ancestry walk is kept and the residual is named, not
+# hidden. The direction is the safe one: it over-reports (refuses), never misses
+# a genuinely separate run.
 _kosmos_pid_is_self_or_descendant() {
   local pid="$1" root="$2" hops=0
   { [ -n "$pid" ] && [ -n "$root" ]; } || return 1
