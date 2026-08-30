@@ -167,6 +167,45 @@ test('#1373 route: the fixture really offers a choice, or nothing below means an
   }
 });
 
+test('#1373 route: the PARTIAL branch names the account in the future tense', async () => {
+  /* 🛑 THE ONLY ARM THAT EXECUTES THE PARTIAL SENTENCE. Every other route test here
+     seeds a fake whose `has-session` reports the window GONE, so all four land on the
+     OK branch and `runsOn('When it restarts it will run on')` was guarded by nothing
+     but a source regex in the sibling file. That is precisely the mutation this file
+     was created to catch on the OK branch (compute the sentence, forget to append it),
+     left open one branch over.
+     ⚠️ REACHED THE WAY THE FAKE'S OWN COMMENT SAYS IT IS REACHED: a `has-session`
+     answering ALIVE means the restart cannot prove the window closed, so the engine
+     refuses to claim a restart and the route answers `partial`. */
+  const alive = () => ({ ok: true, stdout: '' });
+  const name = born('route-1373-partial');
+  create.setRunner(alive);
+  require('./engine/remove').setRunner(alive);
+  let r;
+  try {
+    r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
+  } finally {
+    create.setRunner(fakeRun);
+    require('./engine/remove').setRunner(fakeRun);
+  }
+  assert.equal(r.status, 200, 'the route errored instead of answering partially: ' + JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'partial',
+    'the fixture did not reach the partial branch, so this test proves nothing about it: ' + JSON.stringify(r.body));
+
+  assert.match(r.body.because, /When it restarts it will run on/,
+    'the partial answer dropped its account sentence entirely: ' + r.body.because);
+  assert.match(r.body.because, /API key ending BETA/,
+    'the partial answer names no account, so the person is told less on the branch where something went wrong: ' + r.body.because);
+
+  /* 🛑 AND THE TENSE, WHICH IS THE WHOLE POINT OF THE BRANCH EXISTING. The sentence one
+     line up says it is still running as before; a present-tense "It runs on X" would
+     contradict it in the same paragraph. */
+  assert.doesNotMatch(r.body.because, /It runs on/,
+    'the partial answer claims present tense, contradicting "still running as before" in its own paragraph: ' + r.body.because);
+  assert.match(r.body.because, /still running as before until it restarts/,
+    'control: the partial branch no longer says what it used to, so the tense assertion above is not about the sentence it was written for: ' + r.body.because);
+});
+
 test('#1373 route: a PICKED account is named back, and the sentence says the person chose it', async () => {
   const name = born('route-1373-picked');
   const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });

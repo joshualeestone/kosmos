@@ -2992,10 +2992,9 @@ const server = http.createServer((req, res) => {
          section opening), paintAccountPicker (the agent panel picker),
          loadCreateExtras (a create-form role change), frPaintOpenai (the
          first-run wizard model step, which can re-fire on a back/forward pass),
-         and /api/agent/connections.
-       -- still a person walking a screen, not a timer, and the client holds a
-       supersession token so a
-       slow answer landing late cannot overwrite a newer state.
+         and /api/agent/connections. Every one of them is a person walking a
+         screen rather than a timer, which is the property that matters; the
+         list is here to show what that looks like, not to be kept complete.
        ⚠️ HEAD SKIPS THE LIVE CHECK. Nothing in web/index.html sends one
        today, but a HEAD is conventionally cheap/side-effect-light, and
        nothing about it needs a per-account subprocess/network call to

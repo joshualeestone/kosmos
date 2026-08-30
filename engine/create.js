@@ -997,6 +997,16 @@ function setProvider(name, provider, opts) {
     /* The account rides into the launch job as CODEX_HOME (#1313). `null` here
        meant the default home, which is the home the add path never writes. */
     fs.writeFileSync(plistPath(clean),
+      /* 📌 PRE-EXISTING ON MAIN, BUT #1373 MAKES IT REACHABLE ON PURPOSE FOR THE FIRST
+         TIME, so it is named here rather than left for whoever hits it. This writes
+         `openaiAccount.dir` for EVERY row including the default one, while
+         `createAgentInner` writes `acct.isDefault ? null : acct.dir` and lets codex
+         resolve its own default. So an agent SWITCHED onto the default row has that
+         home pinned into its launch job and stops following a later CODEX_HOME
+         change, whereas an agent CREATED on the same row keeps following it. Two
+         routes to one state that then behave differently. Not changed on this card:
+         the switch path is what #1373 is about and altering the create path's
+         contract here would widen a reviewed diff past what was reviewed. */
       plistFor(clean, runnerBin, job.tmux, null, openaiAccount ? openaiAccount.dir : null, runner), 'utf8');
   } catch {
     return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };

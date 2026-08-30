@@ -22043,7 +22043,16 @@ async function paintAccountPicker(a) {
          ⚠️ ONLY THE FAILURE WRITE IS GATED, deliberately. Gating the SUCCESS
          write too would let a newer fetch suppress the very list this picker
          needs, and an empty picker is a worse failure than a stale one. A
-         success always lands; a superseded failure is discarded. */
+         success always lands; a superseded failure is discarded.
+         📌 AND THE PRICE OF THAT, NAMED RATHER THAN LEFT FOR THE NEXT READER TO
+         FIND: the two sequencers cannot see each other, so an OLDER success can
+         land over a newer list. The realistic path is a `paintAccounts` fetch
+         that started before a removal and resolves after the picker has re-read.
+         The cost is a briefly stale row set, from which the dialog derives its
+         definitive sentence; the cost of the alternative is no list at all. That
+         is the trade, and it is a trade rather than an oversight -- one shared
+         sequencer across both callers would close it and is a wider change than
+         this card. */
       const got = await ACCT_PICKER_FETCH;
       if (got && got.ok) accountsRead(got.accounts);
       else if (mine === ACCT_PICKER_EPOCH) accountsUnreadable();
@@ -22397,11 +22406,19 @@ let SWITCH_ACCT_TOUCHED = false;
    Safe only because both call sites are deferred (an event listener, and the tail
    of an async function), so the temporal dead zone is never entered today. A future
    SYNCHRONOUS caller would throw a ReferenceError instead of showing the message.
-   Grouping them costs nothing and removes the hazard rather than documenting it. */
+   Grouping them costs nothing and removes the hazard rather than documenting it.
+   ⚠️ AND THE FIFTH ONE BELONGS HERE TOO, WHICH THIS COMMENT MISSED WHILE SAYING
+   "ALL FOUR". `SWITCH_ACCT_SAID` is written by `fillSwitchAccountsSafely` and by
+   `paintProviderPicker`, and it was `let`-declared BELOW both, so the very hazard
+   this block claims to have removed was still open for the one variable that is
+   REASSIGNED rather than read. A comment asserting a property the code does not
+   have is the defect this whole diff is about, and it had it. */
 const SWITCH_ACCT_HINT = 'Choose which OpenAI sign-in it runs on, or leave it as it is.';
 const SWITCH_ACCT_UNREADABLE = 'We could not read your OpenAI sign-ins, so there is nothing to choose from. Close this and open it again to retry.';
 const SWITCH_ACCT_STALE = 'This list may be out of date: we could not re-read your OpenAI sign-ins just now.';
 const SWITCH_ACCT_BROKEN = 'We could not show the OpenAI sign-in list just now.';
+/* Not a message: the last sentence WE wrote, so we only ever clear our own. */
+let SWITCH_ACCT_SAID = '';
 /* 🛑 ONE GUARDED CALL, USED AT BOTH SITES, BECAUSE THE UNGUARDED ONE WAS THE IMPORTANT ONE.
    A throw in `fillSwitchAccounts` leaves the picker absent, and absent is also the
    legitimate not-armed state, so it cannot announce itself. That argument was applied to
@@ -22436,7 +22453,6 @@ function fillSwitchAccountsSafely() {
    provider it does not apply to, which is the orphan-hint class this block exists to
    prevent. Remembering the exact string we last wrote handles a generated sentence and
    any future one, and it still cannot touch somebody else's status text. */
-let SWITCH_ACCT_SAID = '';
 function fillSwitchAccounts() {
   const sel = document.getElementById('d-provider-account');
   const prov = document.getElementById('d-provider');
@@ -22784,7 +22800,12 @@ async function changeProviderNow(say) {
          account list is stale; the second means the network is unwell, which is
          the worst possible moment to fire a live per-account re-read. */
       const refusal = new Error((out && (out.because || out.error)) || 'that did not work');
-      refusal.serverRefused = true;
+      /* 🛑 `!res.ok` ONLY, NOT `!out`. A 200 whose body will not parse means the server
+         answered and we could not read it, which tells us NOTHING about whether our
+         account list is stale -- and this flag's whole job, per the paragraph above, is
+         to decide whether to fire a live per-account subprocess re-read. Tagging the
+         garbled-200 case sent the expensive remedy after a symptom it cannot fix. */
+      refusal.serverRefused = !res.ok;
       throw refusal;
     }
     /* The route's sentence verbatim: it says what stayed, what did not

@@ -129,7 +129,7 @@ const oaiStub = require('node:http').createServer((q, r) => {
      was the card. Computed state only (hidden, option count), so headless is
      sound. */
   await page.selectOption('#d-provider', 'openai');
-/* ⏱ WAIT ON THE CONDITION, NOT ON A NUMBER. A fixed sleep encodes how fast this
+  /* ⏱ WAIT ON THE CONDITION, NOT ON A NUMBER. A fixed sleep encodes how fast this
    machine happened to be: on a loaded box (this fleet routinely runs many agents
    at once) it is the flake shape the rest of this file works to remove, and it
    fails in the reassuring direction, reading the PREVIOUS state and passing.

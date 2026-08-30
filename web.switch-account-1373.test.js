@@ -54,6 +54,18 @@ for (const [name, body, control] of [
   }
 }
 
+test('#1373 a garbled 200 is not tagged as a refusal', () => {
+  /* ⚠️ A SOURCE PIN, AND IT IS WEAKER THAN THE ROUTE TESTS NEXT DOOR -- this path is
+     browser-only and there is no server arm that can reach it. It catches a revert of
+     the fix, not a redesign around it, and it is recorded as that rather than as proof.
+     The fix: `serverRefused` gates a live per-account subprocess re-read, so it must
+     mean "the server said no", not "the server answered and we could not parse it". */
+  assert.match(PAGE, /refusal\.serverRefused = !res\.ok;/,
+    'serverRefused is no longer gated on the response status, so a garbled 200 fires the expensive account re-read again');
+  assert.doesNotMatch(PAGE, /refusal\.serverRefused = true;/,
+    'something tags every failure as a refusal again');
+});
+
 test('#1373: the reader works at all', () => {
   /* The control. Every assertion below is an existence test on a big file, and
      an existence test whose reader is broken reports the same thing as a
