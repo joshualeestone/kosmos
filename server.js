@@ -216,30 +216,65 @@ const inflight = require('./engine/inflight');
  * a confident `not connected` - and the `ask()` wrapper below exists precisely to
  * keep those two apart.
  */
-const readConnectionsShelf = inflight.collapse(() => {
-  const ask = (fn) => Promise.resolve().then(fn).then(
-    /* A held token whose service could not be reached is not "not connected":
-       the door says so in its own words, and the shelf must not say nothing. */
-    (st) => ({ connected: st && st.unreachable === true ? null : !!(st && st.connected === true), who: (st && (st.who || st.login)) || null }),
-    (err) => ({ connected: null, because: 'could not check: ' + (err && err.message) }),
-  );
-  const jobs = {
-    '/api/github': ask(async () => {
-      const st = await github.state();
-      if (st && st.connected) return st;
-      if (st && st.gh === 'missing') { const d = await githubdevice.state(); if (d && d.connected) return d; }
-      return st;
-    }),
-    '/api/vercel': ask(() => vercel.state()),
-    '/api/cloudflare': ask(() => cloudflare.state()),
-  };
-  for (const [name, route] of Object.entries(tokendoors.routes())) jobs[route] = ask(() => tokendoors.byName(name).state());
+const askDoor = (fn) => Promise.resolve().then(fn).then(
+  /* A held token whose service could not be reached is not "not connected":
+     the door says so in its own words, and the shelf must not say nothing. */
+  (st) => ({ connected: st && st.unreachable === true ? null : !!(st && st.connected === true), who: (st && (st.who || st.login)) || null }),
+  (err) => ({ connected: null, because: 'could not check: ' + (err && err.message) }),
+);
+
+const settleDoors = (jobs) => {
   const keys = Object.keys(jobs);
   return Promise.all(keys.map((k) => jobs[k])).then((vals) => {
     const doors = {};
     keys.forEach((k, i) => { doors[k] = vals[i]; });
     return doors;
   });
+};
+
+/**
+ * The three FIRST-PARTY doors, swept once however many callers ask at once.
+ *
+ * 🛑 WHY THIS IS ITS OWN COLLAPSED FUNCTION RATHER THAN PART OF THE SHELF.
+ * Two routes want these three doors and they want DIFFERENT SETS AROUND THEM:
+ * the board's shelf adds the metered token doors, and `/api/agent/connections`
+ * deliberately drops them (a money decision, argued at that route). Before
+ * #1618 shipped they were two hand-copied literals, which is how the agent
+ * route ended up running an UNCOLLAPSED sweep of the same three doors beside a
+ * collapsed one, on the route this branch tells every agent to poll. Textually
+ * the two never conflicted, so no merge and no test could see it.
+ *
+ * ⇒ Extracting it fixes both halves at once: the agent route now shares one
+ * in-flight sweep, and a behavioural change to the github/githubdevice fallback
+ * can no longer land on one caller and miss the other. The count-only guard in
+ * `server.agent-connections-1034.test.js` catches a door being ADDED to one and
+ * not the other; it cannot see the two drifting in BEHAVIOUR, and this can.
+ *
+ * 📌 It returns the RICH shape (`who`, `because`), and the agent route is not
+ * harmed by that: `engine/connectionverdict.js` allowlists every field it
+ * emits, so richer input is exactly the shape the boundary was built to take -
+ * "the rich inputs going in and nothing but verdicts coming out". The leak test
+ * plants a secret into every input field including `who`.
+ */
+const readFirstPartyDoors = inflight.collapse(() => settleDoors({
+  '/api/github': askDoor(async () => {
+    const st = await github.state();
+    if (st && st.connected) return st;
+    if (st && st.gh === 'missing') { const d = await githubdevice.state(); if (d && d.connected) return d; }
+    return st;
+  }),
+  '/api/vercel': askDoor(() => vercel.state()),
+  '/api/cloudflare': askDoor(() => cloudflare.state()),
+}));
+
+const readConnectionsShelf = inflight.collapse(() => {
+  const jobs = {};
+  for (const [name, route] of Object.entries(tokendoors.routes())) jobs[route] = askDoor(() => tokendoors.byName(name).state());
+  /* Nested collapse is deliberate and safe: the inner one shares the first-party
+     sweep with the agent route, the outer one shares this whole shelf with a
+     second board caller. Neither holds anything after it settles. */
+  return Promise.all([readFirstPartyDoors(), settleDoors(jobs)])
+    .then(([firstParty, tokens]) => Object.assign({}, firstParty, tokens));
 });
 
 const autoupdate = require('./engine/autoupdate');
@@ -3132,7 +3167,12 @@ const server = http.createServer((req, res) => {
          contradicted the agent route's own comment ("THE TOKEN DOORS ARE
          DELIBERATELY NOT SWEPT HERE"). Two comments in one file giving opposite
          answers about one route is the exact defect this branch exists to fix.
-         📌 The remaining first-party fan-out is carded as #1618.
+         📌 The remaining first-party fan-out was carded as #1618, and #1618 has
+         since SHIPPED as `engine/inflight.js`. Both routes now share one
+         in-flight sweep via `readFirstPartyDoors`, so this file no longer holds
+         two copies of it. Kept as a pointer rather than deleted, because the
+         paragraph above is a record of a stale comment and deleting the sentence
+         that went stale would take the evidence with it.
        ⚠️ HEAD SKIPS THE LIVE CHECK. Nothing in web/index.html sends one
        today, but a HEAD is conventionally cheap/side-effect-light, and
        nothing about it needs a per-account subprocess/network call to
@@ -3891,20 +3931,10 @@ const server = http.createServer((req, res) => {
        need not reflect the 500 the GET path can return. Answering it would mean
        paying for a live per-account subprocess sweep to produce no body. */
     if (req.method === 'HEAD') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(); return; }
-    const door = (fn) => Promise.resolve().then(fn).then(
-      (st) => ({ connected: st && st.unreachable === true ? null : !!(st && st.connected === true) }),
-      () => ({ connected: null }),
-    );
-    const doorJobs = {
-      '/api/github': door(async () => {
-        const st = await github.state();
-        if (st && st.connected) return st;
-        if (st && st.gh === 'missing') { const d = await githubdevice.state(); if (d && d.connected) return d; }
-        return st;
-      }),
-      '/api/vercel': door(() => vercel.state()),
-      '/api/cloudflare': door(() => cloudflare.state()),
-    };
+    /* Shared with the board's shelf via `readFirstPartyDoors`, so two agents
+       asking at once cost ONE sweep, and so a change to the github fallback
+       cannot land on one caller and miss the other. This route used to build
+       its own copy; see that function's header for why the copy was the bug. */
     /* The names the agent view is allowed to print, resolved HERE where the
        doors are known, so the boundary never has to derive a name from a key
        it was handed. `tokendoors.routes()` returns `/api/svc/<slug>`, which is
@@ -3937,24 +3967,26 @@ const server = http.createServer((req, res) => {
        was masked by the previous request's cached answer.
        ⇒ A cache converts `cannot tell` back into a confident `not connected` for the
        length of its window, which is the one thing this route exists to never do.
-       ⚠️ So the remaining cost is accepted DELIBERATELY: it is first-party and
-       unmetered (the money half was the token doors, closed above), and correctness
-       about readability outranks a subprocess sweep. A future cache must invalidate on
-       a readability CHANGE, not merely expire on a clock. FILED AS #1618, which
-       carries the measurement and two designs that do not have this problem (the
-       most promising being to collapse concurrent in-flight requests only, with no
-       time window at all, which removes the stampede and has no staleness). A card
-       number rather than prose, so the follow-up is findable from here. */
-    const doorKeys = Object.keys(doorJobs);
+       ⚠️ The money half was the token doors, closed above. What was left was
+       first-party and unmetered, and correctness about readability outranks a
+       subprocess sweep, so the remaining stampede was accepted and filed as #1618.
+       ✅ #1618 HAS SINCE SHIPPED, and the design it chose is the one this paragraph
+       named as most promising: collapse concurrent in-flight requests, with no time
+       window at all. It is `engine/inflight.js`, and this route now goes through
+       `readFirstPartyDoors` with the board's shelf rather than sweeping its own copy.
+       📌 So the conclusion above is unchanged and only its status moved: a CACHE is
+       still refused here, forever, for the reason given; the STAMPEDE is closed.
+       `engine/inflight.js`'s own header quotes this route's test name
+       (`'none' !== 'unknown'`) as why it holds no window either. */
     /* Every arm is already fail-soft, so one unreachable service degrades to
-       `cannot tell` for that door rather than failing the whole answer. */
+       `cannot tell` for that door rather than failing the whole answer.
+       `readFirstPartyDoors` is fail-soft per door in the same way, and it
+       cannot reject as a whole, so it needs no `.catch` of its own. */
     Promise.all([
       accounts.listLive().catch(() => null),
       openaiAccounts.listLive().catch(() => null),
-      Promise.all(doorKeys.map((k) => doorJobs[k])),
-    ]).then(([claudeRows, openaiRows, doorVals]) => {
-      const doors = {};
-      doorKeys.forEach((k, i) => { doors[k] = doorVals[i]; });
+      readFirstPartyDoors(),
+    ]).then(([claudeRows, openaiRows, doors]) => {
       /* A reader that threw is NOT an empty machine: null becomes no rows,
          which the module reports as `cannot tell` rather than `none`. */
       const rows = [
