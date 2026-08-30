@@ -46,6 +46,43 @@ test('#1034: it names only the two providers that can actually be connected toda
   assert.match(body, /coming soon and cannot be chosen yet/);
 });
 
+test('#1034: the connections paragraph is actually IN the block, and says the three things it must', () => {
+  /**
+   * 🛑 THE WIDEST-BLAST-RADIUS EDIT ON THIS BRANCH HAD NO GUARD AT ALL. This
+   * paragraph is spliced into EVERY agent's CLAUDE.md by `syncEveryone`, and the
+   * plan says so. Measured before this test: deleting the entire paragraph, or
+   * just the sentence telling agents that "could not check" is not "not
+   * connected", left the whole suite green. Every other decision on this branch
+   * was pinned by something; this one was pinned by nobody.
+   *
+   * ⚠️ Pinned by PROPERTY, not by wording, so a rewrite of the prose does not go
+   * red for no reason. What must survive any rewrite is: it names the verb, it
+   * refuses the two-state reading, and it refuses to hand over the credential.
+   */
+  const body = connections.blockBody();
+
+  // 1. It names the verb, using THIS machine's path rather than the bare command
+  //    the file's own opening comment calls a measured lie on a stock install.
+  assert.match(body, /connections`/, 'the block stopped naming the connections verb');
+  assert.doesNotMatch(body, /try `kosmos connections`/,
+    'the block sends agents to the bare command, which fails on a stock install');
+
+  // 2. It refuses the two-state reading. This is the sentence that stops an agent
+  //    reporting "not connected" about a machine it merely could not read.
+  assert.match(body, /could not check/i, 'the three-state vocabulary left the block');
+  assert.match(body, /never as "not connected"/i,
+    'the block no longer tells agents that could-not-check is not a settled no');
+
+  // 3. It refuses to hand over the credential-bearing half, and says why.
+  assert.match(body, /does NOT show you the sign-in link/i,
+    'the block stopped saying the sign-in link is withheld');
+
+  // CONTROL: every assertion above is doesNotMatch-able only because the body is
+  // real. Without this, an empty body would satisfy the negative assertion and the
+  // positives would be the only thing failing, which reads as a different defect.
+  assert.ok(body.length > 500, 'control: blockBody returned almost nothing');
+});
+
 test('#1034: it carries no CREDENTIAL and no PER-AGENT state', () => {
   /* 🛑 RENAMED AND REWRITTEN, BECAUSE THIS BRANCH OVERTURNED WHAT IT SAID. It
      used to be called "it carries NO machine state, the line between part one and
