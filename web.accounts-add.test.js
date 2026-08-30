@@ -107,6 +107,12 @@ test('#1587: the acct-add button gates the sign-in behind the install confirm, l
   // path all three exits call) resets the confirm on the way out.
   const closeFn = CODE.slice(CODE.indexOf('function closeAcctAdd'), CODE.indexOf('function closeAcctAdd') + 400);
   assert.match(closeFn, /acctAddConfirmReset\(\)/, 'closeAcctAdd does not reset the confirm, so a mid-confirm dismissal leaves a disabled button behind a stale panel on reopen');
+
+  // The reset runs on EVERY dismiss, so it must not re-enable Start while a
+  // sign-in flow owns its disabled state: doing so reopened a double-submit
+  // window (close mid-flow, reopen, click Start again). It consults #acct-flow.
+  const reset = CODE.slice(CODE.indexOf('function acctAddConfirmReset'), CODE.indexOf('function acctAddConfirmReset') + 600);
+  assert.match(reset, /flow\.hidden\)\s*btn\.disabled = false/, 'acctAddConfirmReset re-enables Start without gating on flow.hidden, reopening the double-submit window (close mid-flow, reopen, click Start again). If the guard was refactored, restate this pin against the new gate.');
 });
 
 test('the code row appears only when the flow awaits a code, and a reason empties it', () => {
