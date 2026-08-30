@@ -318,11 +318,18 @@ BUILD="$(release_freeze "$MAIN_REPO" "$SHA" "$BUILD_ROOT")" || { rm -rf "$BUILD_
 # The versioned pair's presence BEFORE this cut, so a failure removes only what
 # this cut created (a pair from an earlier, served cut is not ours to touch).
 _pair_had=0; [ -f "$SITE/dist/kosmos-$V-arm64.tar.gz" ] && _pair_had=1
+# #1548: whether the UNVERSIONED pointer (kosmos-arm64.tar.gz) existed before this
+# cut. Unlike the versioned pair, the pointer is overwritten just before the deploy and
+# must keep pointing at the SERVED version, so a failure restores the pre-cut copy
+# (backed up under BUILD_ROOT, not in the site checkout, just before the overwrite)
+# rather than removing it.
+# had_ptr=0 means a fresh site clone: then the pointer this cut created is removed.
+_ptr_had=0; [ -f "$SITE/dist/kosmos-arm64.tar.gz" ] && _ptr_had=1
 DEPLOYED=0
 # On any exit before step 8 finished, the site checkout stops claiming $V
 # (#609 review, Splinter 23:05: a failed cut left latest.json and setup.sha256
 # uncommitted at the new version, and the pair that made cut 5 refuse).
-trap '_rc=$?; cut_record_done "$_rc"; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
+trap '_rc=$?; cut_record_done "$_rc"; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD"
 
@@ -538,6 +545,17 @@ else
   [ "${PKG_PUBLISHED:-0}" = 1 ] && echo "   (3c already put a rebuilt Kosmos.pkg triple in $SITE/dist; a site deploy before the next cut would carry it; verify-served.sh is the check that applies)"
   exit 1
 fi
+# #1548: this overwrites the served unversioned pointer. Back the pre-cut copy up
+# FIRST -- under BUILD_ROOT, NOT beside the served file -- so an abort before step 8
+# restores it (release_site_restore) instead of leaving the abandoned build for the
+# next deploy to publish against the stale committed latest.json, exactly how 0.6.06
+# shipped mislabelled (#1565). The backup lives under BUILD_ROOT, which the EXIT trap
+# removes on every path, so it never sits untracked in the SHARED site checkout where
+# a stray `git add -A` by another agent could stage it into a deploy.
+mkdir -p "$BUILD_ROOT/precut"
+for _u in kosmos-arm64.tar.gz kosmos-arm64.tar.gz.sha256; do
+  [ -f "$SITE/dist/$_u" ] && cp -p "$SITE/dist/$_u" "$BUILD_ROOT/precut/$_u"
+done
 cp "$REPO/dist/kosmos-arm64.tar.gz" "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/"
 # The release manifest (#776) rides beside the versioned tarball, TRACKED: a
 # few KB per release that says what produced the served bytes. The tarballs
@@ -701,6 +719,9 @@ fi
 ( cd "$_site_export" && vercel deploy --prod --yes )
 
 DEPLOYED=1   # step 8 finished: the site checkout now claims what is served, so the trap leaves it
+# #1548: the pre-cut pointer backup lives under BUILD_ROOT, which the EXIT trap removes
+# on every path, so there is nothing to clean up in the site checkout here. (On a
+# failure before this line, the trap's release_site_restore reads it first.)
 step "== 9. verify what is SERVED, from the code that fetches it =="
 # ⚠️ Retried, because a deploy is live before every edge has it, and a single
 # read cannot tell "not published" from "not yet".
