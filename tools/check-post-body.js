@@ -26,6 +26,16 @@
  *   node tools/check-post-body.js body.md && gh pr create --body-file body.md
  *
  * Exit 0 clean, 1 if anything would reach Josh wrong, 2 on usage error.
+ *
+ * 🛑 SCOPE: THIS IS FOR BODIES, NOT FOR SOURCE FILES. A body is Josh-facing in
+ * its entirety, so every character in it counts. A source file is not: an em
+ * dash in a code comment is developer prose he never reads.
+ *
+ * ⚠️ Pointed at source it produces FALSE POSITIVES, measured rather than
+ * guessed: run over `engine/roles.js` it reports three, all inside the file's
+ * header comment block. The composed role text that actually reaches an agent
+ * has ZERO across all 34 roles, and `engine/create.test.js` already guards
+ * that correctly. Use this on the thing you are about to POST.
  */
 const fs = require('fs');
 
