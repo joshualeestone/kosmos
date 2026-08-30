@@ -53,9 +53,29 @@ next test.
   `path.resolve` that reads as sandboxed and every real install is refused, which
   breaks production rather than a test)
 - **the guard was mutation-tested against the real hazard**: disabled, the test
-  fails AND a real launchd job appears (delta 1); restored, delta 0. Cleaned up
-  immediately and audited with `pgrep` (0), `launchctl list` (0 kosmos jobs), and
-  the fleet's 18 sessions intact.
+  fails AND a real launchd job appears; restored, none appears.
+
+🛑 **THAT AUDIT SENTENCE WAS FALSE WHEN FIRST WRITTEN, AND THE WAY IT WAS FALSE
+IS THE MOST USEFUL THING IN THIS FILE.** A later inert-guard mutation registered
+a REAL launchd job (`com.kosmos.agent.sandboxprobeu1cz4k`, KeepAlive, forking,
+pid 28152) which ran for 18 minutes on the operator's machine. My own audit did
+not see it, and could not have:
+
+    I measured a DELTA. The job was created by an earlier mutation arm, so it
+    existed BEFORE my baseline. before == after, and the delta read 0.
+    The arithmetic was correct. The instrument worked. A control would have
+    passed. The baseline was simply taken after the damage.
+
+⇒ **AFTER MUTATING A GUARD THAT PREVENTS AN ACTION, MEASURE THE ABSOLUTE, NOT
+THE DELTA.** The sequence makes the trap near-inevitable: you mutate the guard
+IN ORDER TO let the action through, so the action happens, and only then do you
+audit.
+
+✅ Every mutation arm in this work is now checked against an **absolute count**
+captured before the first mutation of the session, and the inert-guard arms are
+run with `--test-name-pattern` so they never reach the `installJob` arm at all.
+Found by the iteration-2 reviewer, not by me. Job removed, verified 0 with
+controls both ways, fleet's 18 sessions intact.
 
 ⚠️ That mutation is the one experiment in this work that can start a real agent.
 It is safe only because the predicate is asserted first and `claudeBin` is
