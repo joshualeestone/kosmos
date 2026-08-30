@@ -3246,6 +3246,49 @@ const server = http.createServer((req, res) => {
   }
 
   /**
+   * "This isn't an agent": one folder, said no to once (#1531).
+   *
+   * 🛑 NOT `dismiss`, WHICH IS THE WHOLE BLOCK. Josh's word for that one was forever
+   * and it hides everything; this hides one folder. Conflating them would make a
+   * single decline switch off the entire offer, which is the opposite of what the
+   * person pressed.
+   *
+   * ⭐ IT PERSISTS BECAUSE THE COPY SAYS IT DOES. The screen says we will not ask
+   * about this folder again, and a session-only hide would make that sentence untrue
+   * on the next load. Behind the same cross-site guard as every other write.
+   */
+  if (pathname === '/api/found-agents/decline' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        let out;
+        try { out = discover.decline(body.dir); }
+        catch { out = { ok: false, because: 'we could not remember that' }; }
+        sendJson(res, out.ok ? 200 : 400, out);
+      })
+      .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
+
+  /* And back again, because the screen offers an Undo and it must do something. */
+  if (pathname === '/api/found-agents/undecline' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        let out;
+        try { out = discover.undecline(body.dir); }
+        catch { out = { ok: false, because: 'we could not remember that' }; }
+        sendJson(res, out.ok ? 200 : 400, out);
+      })
+      .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
+
+  /**
    * Bring one agent that already exists on this computer under Kosmos.
    *
    * ⚠️ POST, and behind the same cross-site guard as every other write: it
