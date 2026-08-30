@@ -22717,7 +22717,6 @@ function fillSwitchAccounts() {
      options with no boolean attribute, so they are unaffected either way. */
   if (sel.innerHTML !== html) sel.innerHTML = html;
   else if (sel.options.length) { sel.selectedIndex = Math.max(0, [...sel.options].findIndex((o) => o.defaultSelected)); }
-  const appearing = sel.hidden;
   sel.hidden = false;
   /* 🛑 RE-DERIVE THE DISABLED STATE HERE, OR AN IN-FLIGHT DISABLE OUTLIVES ITS REQUEST.
      `changeProviderNow` disables this select while a switch is in flight and re-enables it
@@ -22733,17 +22732,24 @@ function fillSwitchAccounts() {
      focus sits, and #d-provider-msg beside it is already an aria-live polite region.
      Not an AA failure on its own (the control is adjacent, focus is not moved), and
      this worker's bar is AA, so it gets the one line.
-     📌 Only on the transition, so repainting an already-visible menu does not
-     re-announce and turn a helpful line into noise.
-     🛑 AND THE COST OF THAT, STATED RATHER THAN LEFT TO BE DISCOVERED: the gate is
-     `appearing`, so these announcements cover APPEARS-WHILE-STALE and NOT
-     BECOMES-STALE-WHILE-VISIBLE. If the list were marked unauthoritative while the
-     picker is already on screen, nothing here would say so. No reachable path to that
-     was found: the failed-switch route appends its own line in `changeProviderNow`'s
-     catch, and the drop-then-refetch empties the list so the next paint takes the
-     hidden branch. It is recorded as an UNCOVERED CASE rather than a known bug, and
-     it is recorded because the paragraph above otherwise reads as covering both. */
-  if (appearing) {
+     📌 NOT RE-ANNOUNCED, AND THE DEDUPE IS ON THE SENTENCE RATHER THAN ON THE
+     TRANSITION. Repainting an already-visible menu writes nothing, because the write
+     below is skipped when the line we would say is the line already there.
+     🛑 #1599: THIS USED TO BE GATED ON `appearing` (sampled from `sel.hidden`
+     before the reveal), which covered APPEARS-WHILE-STALE and NOT
+     BECOMES-STALE-WHILE-VISIBLE: if the list were marked unauthoritative while the
+     picker was already on screen, the picker kept presenting rows the page had marked
+     non-authoritative and said nothing. `accountsUnreadable()` deliberately KEEPS
+     `ACCOUNTS` (a failed read invalidates the list's authority, not the list), so a
+     repaint in that state still finds a non-empty list and still takes this visible
+     branch - the branch that had no way to speak.
+     ✅ A CONTENT DEDUPE COVERS BOTH AND IS STRICTLY WIDER THAN THE TRANSITION ONE.
+     The transition gate asked "is this control new?"; the question the sentence
+     actually needs answered is "has what I would say changed?". It also closes a cost
+     `changeProviderNow` documents against itself: after its success path resets
+     `SWITCH_ACCT_SAID`, the next announcement used to be suppressed entirely because
+     the gate could not fire on an already-visible menu. */
+  {
     const pmsg = document.getElementById('d-provider-msg');
     /* NONE OF THESE MAY BE SILENT. This region is the only announcement a
        screen-reader user gets that a control appeared.
@@ -22790,7 +22796,19 @@ function fillSwitchAccounts() {
       const line = ACCOUNTS_UNREADABLE ? SWITCH_ACCT_STALE
         : (sel.options.length > 1 ? SWITCH_ACCT_HINT
           : (one ? 'It will run on ' + one + '.' : ''));
-      if (line) { pmsg.textContent = line; SWITCH_ACCT_SAID = line; }
+      /* ⚠️ COMPARED AGAINST THE REGION, NOT AGAINST `SWITCH_ACCT_SAID`, AND INSIDE THIS
+         GUARD THE TWO DIFFER IN EXACTLY ONE CASE THAT MATTERS. The guard above already
+         established the region is either EMPTY or holds our own last sentence, so for a
+         region holding ours this IS the `SWITCH_ACCT_SAID` dedupe. For an EMPTY region it
+         is not: the tracker can still name a sentence the region no longer contains (the
+         success path in `changeProviderNow` blanks the tracker; a route sentence can
+         replace the text), and dedupe against the tracker would then skip a write into a
+         region that is actually silent while our control is on screen. Comparing against
+         what is really there cannot make that mistake.
+         📌 An identical assignment is skipped rather than made harmless: writing the
+         same string back is still a mutation of an aria-live region, and this one exists
+         so a screen-reader user hears the sentence ONCE. */
+      if (line && line !== pmsg.textContent) { pmsg.textContent = line; SWITCH_ACCT_SAID = line; }
     }
   }
 }
@@ -22982,10 +23000,14 @@ async function changeProviderNow(say) {
     /* Symmetric with the failure path below, and for the same reason: the
        route's own sentence has replaced whatever we last wrote, so a tracker
        still naming our string describes text the region no longer contains.
-       The cost is not a clobber (a stale value can only equal text we wrote);
-       it is that the next `if (appearing)` announcement is SUPPRESSED, because
-       the equality test can no longer match. An asymmetry between two paths
-       that need the same reset is what goes wrong on the next edit. */
+       The cost is not a clobber (a stale value can only equal text we wrote).
+       ✅ #1599 REMOVED THE COST THIS COMMENT USED TO NAME, so it is restated rather
+       than left describing a gate that is gone: this reset used to SUPPRESS the next
+       announcement outright, because that announcement was gated on `appearing` and
+       could not fire on an already-visible menu. The announcement is now gated on the
+       sentence changing, and it compares against the REGION rather than this tracker,
+       so blanking the tracker here no longer silences it. An asymmetry between two
+       paths that need the same reset is still what goes wrong on the next edit. */
     SWITCH_ACCT_SAID = '';
     tell(out.because || 'Switched.', true);
     sel.value = '';
