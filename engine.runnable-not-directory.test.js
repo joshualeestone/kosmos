@@ -13,11 +13,24 @@
  * nothing about the next one somebody adds. This asserts the CLASS: no engine
  * file may ask the weak question at all.
  *
- * ⚠️ IT IGNORES COMMENTS ON PURPOSE. A string search cannot tell USE from
- * MENTION (#1570), and this very file's prose mentions `accessSync`. Sweeping
- * naively, the guard flags itself and every comment that explains it. That is
- * not hypothetical: while fixing #1592 I twice read my own explanatory comment
- * as an unfixed call site.
+ * 🛑 IT DOES NOT IGNORE COMMENTS. IT ACCOUNTS FOR THEM, AND THAT IS THE OPPOSITE
+ * DESIGN. An earlier version of this header said it ignored them on purpose, and
+ * that described four successive comment-strippers, all of which are gone: every
+ * one had a hole in the direction that HIDES a call, because telling USE from
+ * MENTION (#1570) by pattern is a parsing job and there is no parser here.
+ *
+ * ⇒ Nothing is stripped now. Every line in the repo matching the weak-call shape
+ * must appear in ACKNOWLEDGED_PROSE or SELF_GUARDED, and anything else fails.
+ *
+ * ⚠️ SO THE COST RUNS THE OTHER WAY, AND A READER WHO STOPS AT THIS HEADER MUST
+ * NOT TAKE AWAY THE OLD ONE: writing a NEW comment that mentions
+ * `accessSync(..., X_OK)` turns this test RED until the line is listed. That is
+ * deliberate and loud, it is a two-line fix, and it makes somebody documenting
+ * this defect notice they are documenting it. The reason this file's own prose
+ * does not trip it is that the walk excludes `*.test.js`, not comment-blindness.
+ *
+ * 📌 That the mention problem is real is not hypothetical: while fixing #1592 I
+ * twice read my own explanatory comment as an unfixed call site.
  */
 const { test } = require('node:test');
 const assert = require('node:assert');
@@ -51,6 +64,11 @@ const REPO = __dirname;
  *   - a call split across two lines (this is line-based)
  *   - `fs.accessSync(bin, X)` where `const X = fs.constants.X_OK`
  *   - `fs.accessSync(bin, 1)`, the numeric mode
+ *
+ * ⚠️ AND THE FILE SELECTION HAS ITS OWN GAPS, listed here because a caveat list
+ * that covers only the matcher reads as covering the sweep: `.js` only (no
+ * `.mjs` or `.cjs`; none exist today), `*.test.js` excluded, and any directory
+ * named `dist` at any depth skipped.
  * The async spellings `fs.access(...)` and `fs.promises.access(...)` ARE now
  * covered by the `access` alternation above.
  *
@@ -101,8 +119,9 @@ function walkJs(dir, base = dir, out = []) {
  * no parser available here (no acorn, espree, esprima or babel in this repo).
  *
  * ✅ SO STOP PARSING. The sweep does not need to strip a whole file; it needs to
- * judge the lines that actually match, and MEASURED, THERE ARE FOUR IN THE WHOLE
- * REPO. A list of four is auditable in one read, holds no state that can desync,
+ * judge the lines that actually match, and MEASURED, THERE ARE FOUR IN THE
+ * REPO'S NON-TEST `.js` FILES, which is what this sweep walks (across all `.js`
+ * there are 25, 16 of them in this file's own prose). A list of four is auditable in one read, holds no state that can desync,
  * and cannot hide a call because nothing is ever blanked.
  *
  * ⚠️ THE COST, STATED: writing a NEW comment that mentions accessSync(X_OK) turns
@@ -124,17 +143,29 @@ const ACKNOWLEDGED_PROSE = [
  * comment reading `// used to call st.isFile() here` satisfied the guard and the
  * call underneath it was reported as nothing.
  *
+ * 🛑 PINNED TO THE CALL, NOT THE FILE, AND THE FILE-SCOPED VERSION HAD A MEASURED
+ * HOLE. It exempted any matching line within N lines of the guard, so whether a
+ * planted call was caught depended on WHERE IN THE FILE it was planted: inside
+ * the window it passed, at the end of the file it failed. An exemption for one
+ * audited call had become an exemption for a region.
+ *
+ * ⇒ Each entry now names the exact call text it covers. A different call, even
+ * one line away, is not this exemption and is reported.
+ *
  * ⚠️ Still not verified: that the guard applies to the SAME path as the call.
  * A text search cannot answer that. Disclosed rather than papered over, and it is
  * the reason these are exemptions rather than a rule.
  */
 const SELF_GUARDED = new Map([
-  ['engine/machine.js', { guard: /if\s*\(\s*!\s*st\.isFile\s*\(/, within: 6,
+  ['engine/machine.js', {
+    call: 'fs.accessSync(bin, fs.constants.X_OK);',
+    guard: /if\s*\(\s*!\s*st\.isFile\s*\(/, within: 6,
     why: 'stats the same path and gates on st.isFile() two lines above' }],
-  ['engine/runners.js', { guard: /isFile\s*\(/, within: 20,
+  ['engine/runners.js', {
+    call: 'fs.accessSync(p, fs.constants.X_OK);',
+    guard: /if\s*\(\s*!\s*st\.isFile\s*\(/, within: 20,
     why: 'IS the definition of the question; isRunnable stats and checks isFile itself' }],
 ]);
-
 /** A line that is unambiguously prose: it opens with a comment marker. */
 function isProseLine(line) {
   return /^\s*(\/\/|\/\*|\*)/.test(line);
@@ -150,7 +181,24 @@ function isProseLine(line) {
  * with a mutation arm that proves it fires.
  */
 function noProse(src) {
-  return src.split('\n').map((l) => (isProseLine(l) ? '' : l)).join('\n');
+  return src
+    .split('\n')
+    .map((l) => {
+      /* 🛑 ORDER MATTERS AND GETTING IT WRONG COST AN ARM. Removing whole-line
+         prose FIRST discards `/* belt *\/ canRunClaude = true;` entirely,
+         because that line opens with a comment marker while carrying live code
+         after the closer. So: remove COMPLETE block comments and a trailing
+         line comment first, and only then decide whether what remains is prose.
+
+         ⚠️ Over-stripping here is the safe direction for these consumers, which
+         all assert a specific call is PRESENT: removing too much can only make
+         the pinned token harder to find, which fails loud. That is the opposite
+         of the sweep, where over-stripping hides a call, which is why the sweep
+         strips nothing at all. */
+      const bare = l.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*$/, '');
+      return bare.trim() === '' || /^\s*\*/.test(l) ? '' : bare;
+    })
+    .join('\n');
 }
 
 test('every line in the repo that looks like the weak call is accounted for', () => {
@@ -184,7 +232,7 @@ test('every line in the repo that looks like the weak call is accounted for', ()
       }
 
       const spec = SELF_GUARDED.get(key);
-      if (spec) {
+      if (spec && line.trim() === spec.call) {
         /* The guard must be on a line that is NOT prose. An earlier version
            searched stripped text, so `// used to call st.isFile() here`
            satisfied the guard while the call underneath was wholly unguarded. */
@@ -206,9 +254,13 @@ test('every line in the repo that looks like the weak call is accounted for', ()
   assert.deepStrictEqual(
     unaccounted,
     [],
-    'these look like accessSync(X_OK), which SUCCEEDS ON A DIRECTORY. If it is a real ' +
-      'call use require("./runners").isRunnable(p); if it is prose about the defect, add ' +
-      'it to ACKNOWLEDGED_PROSE:\n  ' + unaccounted.join('\n  ')
+    'these look like accessSync(X_OK), which SUCCEEDS ON A DIRECTORY.\n' +
+      '  a real call    -> use require("./runners").isRunnable(p)\n' +
+      '  a whole-line comment about the defect -> add it to ACKNOWLEDGED_PROSE\n' +
+      '  neither (a string, a template literal, a mid-line comment) -> it has no\n' +
+      '    bucket by design. Move it to its own line or reword it; the lists\n' +
+      '    deliberately only accept a real call or a whole-line comment.\n  ' +
+      unaccounted.join('\n  ')
   );
 
   // Stale entries: every listed exemption must still describe something real.
@@ -242,6 +294,12 @@ test('the sweep can actually find a weak call, so an empty result means somethin
   assert.ok(WEAK_CALL.test(joined), 'the matcher is blind to a path.join() argument');
   // And it must still NOT fire on a different mode.
   assert.ok(!WEAK_CALL.test('fs.accessSync(bin, fs.constants.R_OK)'), 'the matcher over-fires on R_OK');
+  // isProseLine needs BOTH arms: an always-true version would empty every guard
+  // window, and an always-false one would let prose satisfy a pinned token.
+  assert.strictEqual(isProseLine('  fs.accessSync(bin, fs.constants.X_OK);'), false,
+    'isProseLine calls real code prose, which would blank live lines');
+  assert.strictEqual(isProseLine('   * a comment about accessSync'), true,
+    'isProseLine does not recognise a continuation comment line');
   const commented = '// fs.accessSync(bin, fs.constants.X_OK) succeeds on a directory';
   assert.strictEqual(
     isProseLine(commented),
@@ -325,14 +383,22 @@ test('a repointed site cannot be silently overridden by a later unconditional as
      the fix. Presence proves the call is written; only absence proves nothing
      undoes it.
 
-     ⚠️ GAP, DISCLOSED BECAUSE THE OTHER LISTS IN THIS FILE ARE: the matcher is
-     anchored to the start of a line, so `if (x) canRunClaude = true;` and a
-     compound assignment are both invisible to it. The planted control below
-     exercises only the spelling it can see, which is the "control aimed at the
-     arm that already worked" problem this same file names above. Neither form
-     exists here today. */
+     ⚠️ GAP, DISCLOSED BECAUSE THE OTHER LISTS IN THIS FILE ARE: it matches at a
+     STATEMENT boundary (line start, `;` or `{`), which was widened from a
+     line-start anchor after that anchor was measured to miss
+     `/* belt *\/ canRunClaude = true;` and a same-line double assignment. Still
+     invisible: `if (x) canRunClaude = true;` and a compound assignment.
+     🛑 AND IT MATCHES `= true` ONLY, NARROWED ON EVIDENCE AFTER A FALSE RED.
+     Widening to a statement boundary while still matching `(true|false)` fired
+     on the legitimate `} catch { canRunClaude = false; }` at connect.js:2106.
+     The narrowing is by DIRECTION rather than by syntax: assigning FALSE can
+     never make a directory pass, so it is not the override this guard exists
+     for. Only `= true` defeats the check.
+     📌 Dropping the anchor entirely would also match `let canRunClaude = false;`.
+     Still invisible: `if (x) canRunClaude = true;` and compound assignment.
+     Neither exists today. */
   const src = noProse(fs.readFileSync(path.join(__dirname, 'engine', 'connect.js'), 'utf8'));
-  const overridden = src.match(/^\s*canRunClaude\s*=\s*(true|false)\s*;/gm) || [];
+  const overridden = src.match(/(^|[;{])\s*canRunClaude\s*=\s*true\s*;/gm) || [];
   assert.deepStrictEqual(
     overridden,
     [],
@@ -344,7 +410,7 @@ test('a repointed site cannot be silently overridden by a later unconditional as
   // is worthless. Same shape, planted.
   const planted = noProse('  canRunClaude = require("./runners").isRunnable(p);\n  canRunClaude = true;\n');
   assert.strictEqual(
-    (planted.match(/^\s*canRunClaude\s*=\s*(true|false)\s*;/gm) || []).length,
+    (planted.match(/(^|[;{])\s*canRunClaude\s*=\s*true\s*;/gm) || []).length,
     1,
     'the override matcher cannot see a planted override, so its empty result means nothing'
   );
@@ -366,7 +432,7 @@ test('the two lambda sites delegate to runners.isRunnable rather than re-impleme
     assert.ok(m, `${f}: no \`const runnable = ...\` lambda found; the site was renamed or removed`);
     assert.match(
       m[2],
-      /require\(['"]\.\/runners['"]\)\.isRunnable\s*\(/,
+      /(require\(['"]\.\/runners['"]\)\.isRunnable|(?<![.\w])isRunnable)\s*\(/,
       `${f}: the runnable lambda no longer delegates to runners.isRunnable, it is \`${m[2].trim()}\``
     );
   }
