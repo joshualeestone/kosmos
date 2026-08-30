@@ -356,7 +356,7 @@ function setProbeTtlForTests(ms) { PROBE_TTL_MS = Number.isFinite(ms) && ms > 0 
  * this function only computes the value.
  *
  * ⭐ THE SAME TWO-STEP `start()` ALREADY USES, and it was here before either #1560
- * or this card: a cheap `accessSync` decides whether the expensive probe is worth
+ * or this card: a cheap runnability check decides whether the expensive probe is worth
  * running. A truncated or half-written launcher passes `X_OK` forever, so "a file is
  * there" is not "it runs", and only `--version` can tell them apart.
  *
@@ -369,7 +369,7 @@ function setProbeTtlForTests(ms) { PROBE_TTL_MS = Number.isFinite(ms) && ms > 0 
  * step by name. So the cheap check runs EVERY time: if the binary has GONE, that is
  * known instantly and no probe runs. Only the expensive PROBE result is cached.
  *
- * ⚠️ AND HERE IS THE WINDOW THAT LEAVES, STATED RATHER THAN GLOSSED. `accessSync`
+ * ⚠️ AND HERE IS THE WINDOW THAT LEAVES, STATED RATHER THAN GLOSSED. The check
  * catches REMOVAL, not corruption in place. A launcher that was present and working,
  * cached `ok: true`, and is then overwritten with something broken AT THE SAME PATH
  * reads as installed for up to the TTL. That is the harmful direction, and no cheap
@@ -956,11 +956,21 @@ async function start(opts) {
      * STANDING BY THE COMMIT THAT FIXED THEM. That is precisely the hazard the
      * paragraph above warns about, committed two paragraphs below the warning.
      *
-     * ⚠️ AND MY FIRST VERSION OF THIS PARAGRAPH ASSERTED SOMETHING FALSE ABOUT
-     * `canRunClaude`. I wrote that it "decides whether the STUCK screen tells
-     * somebody to type `claude` in Terminal". It COMPUTES that, and `publicView`
-     * DROPS THE FIELD, so the page's read of `st.canRunClaude` is always
-     * undefined and that hatch has never rendered. Carded as #1595. Out of scope
+     * ⚠️ THIS PARAGRAPH HAS BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS, AND THE
+     * SECOND TIME IS THE INSTRUCTIVE ONE. It first said `canRunClaude` "decides
+     * whether the STUCK screen tells somebody to type `claude` in Terminal";
+     * it COMPUTES that. The correction then said `publicView` DROPS THE FIELD,
+     * so the hatch had never rendered and this repoint was dead code.
+     *
+     * 🛑 THAT CORRECTION IS ITSELF NOW FALSE. #1595 landed: `publicView` carries
+     * `canRunClaude` (line 511) and `engine.publicview-canrun-1595.test.js` on
+     * main pins it. So the field IS served, and repointing `becomeStuck` is a
+     * LIVE user-visible change: a directory at the bin path now correctly hides
+     * the "open Terminal, type claude" hatch instead of offering it.
+     *
+     * ⭐ A retraction can go stale exactly like the claim it retracted. This one
+     * understated the change rather than overstating it, which is why nobody
+     * caught it: an error in the modest direction reads as caution. Out of scope
      * here either way, but the reason is "it is not wired", not "it is wired and
      * weak" -- and this branch is what first routes a machine to that screen.
      */
@@ -1342,7 +1352,7 @@ async function installClaudeCode(hooks) {
    * AGENT_WORKFORCE_HOME sandbox seam. Without passing the same home to
    * the child, WHERE WE LOOK and WHERE THE VENDOR WRITES key on different
    * variables: under a sandbox the install would land in the operator's
-   * real home and the `accessSync` below would then report a SUCCESSFUL
+   * real home and the presence check below would then report a SUCCESSFUL
    * install as a failure, through the `fail()` at the end of this function.
    * 🛑 #1570: THIS COMMENT DELIBERATELY QUOTES NO PART OF THAT SENTENCE, and the
    * reason is worth the two lines. It used to PARAPHRASE the message inside

@@ -78,7 +78,7 @@ function codeOnly(src) {
     .replace(/^(\s*)\/\/.*$/gm, '$1');
 }
 
-test('no engine file asks the weak runnable question: accessSync(X_OK) without isFile', () => {
+test('no file in the repo asks the weak runnable question: accessSync(X_OK) without isFile', () => {
   /* Repo-wide, not engine/ only. The name of this test claims a CLASS property
      ("no file asks the weak question"), and a guard narrower than the claim it
      makes is the failure it was written to prevent, arriving by a different
@@ -102,12 +102,22 @@ test('no engine file asks the weak runnable question: accessSync(X_OK) without i
       // runners.js is the definition of the question, so it is allowed to ask it.
       if (full === RUNNERS) return;
       /* A site that guards with isFile() itself is CORRECT, not defective: it is
-         asking the same question the long way. engine/machine.js does this, and
-         says why in a comment above it. This sweep is aimed at checks that
-         ACCEPT A DIRECTORY, not at every spelling of a right answer, so a
-         guard within the preceding few lines clears the site. */
+         asking the same question the long way. engine/machine.js does this and
+         says why. This sweep is aimed at checks that ACCEPT A DIRECTORY, not at
+         every spelling of a right answer.
+
+         ⚠️ ANCHORED TO THE SAME ARGUMENT, not merely to proximity. The first
+         version cleared a site if ANY isFile() appeared in the six preceding
+         lines, with no link to the path being checked, so a weak
+         accessSync(p, X_OK) sitting below an unrelated `if (e.isFile())` in a
+         readdirSync loop would have been cleared silently. That is a false
+         negative in the reassuring direction, which is the one that ships. */
+      const arg = (line.match(/accessSync\s*\(\s*([A-Za-z_$][\w$.]*)/) || [])[1];
       const before = lines.slice(Math.max(0, i - 6), i).join('\n');
-      if (/isFile\s*\(\s*\)/.test(before)) return;
+      const guarded = arg
+        ? new RegExp(`${arg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]{0,80}?isFile\\s*\\(|isFile\\s*\\([\\s\\S]{0,80}?${arg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(before)
+        : /isFile\s*\(\s*\)/.test(before);
+      if (guarded) return;
       weak.push(`${f}:${i + 1}: ${line.trim()}`);
     });
   }
@@ -200,4 +210,58 @@ test('canRunClaude resolves the bin INSIDE its try, so a throw still writes the 
       'escapes becomeStuck and the stuck screen is never written, which breaks the ' +
       'docblock promise that any error answers false. Keep the resolution inside the try.'
   );
+});
+
+
+test('a repointed site cannot be silently overridden by a later unconditional assignment', () => {
+  /* 🛑 THE HOLE A SOURCE SWEEP CANNOT SEE, AND I NEARLY SHIPPED IT.
+     `canRunClaude = require('./runners').isRunnable(claudeBinPath());` followed
+     by a leftover `canRunClaude = true;` passes the sweep (no weak call remains)
+     AND passes the shape guard (the try/catch is intact), while the check is
+     dead and the value is always true. That is what happens when you replace one
+     line of a two-line pair and not the other, which is exactly the edit this
+     branch makes four times.
+
+     ⭐ So this asserts the ABSENCE of the override rather than the presence of
+     the fix. Presence proves the call is written; only absence proves nothing
+     undoes it. */
+  const src = codeOnly(fs.readFileSync(path.join(__dirname, 'engine', 'connect.js'), 'utf8'));
+  const overridden = src.match(/^\s*canRunClaude\s*=\s*(true|false)\s*;/gm) || [];
+  assert.deepStrictEqual(
+    overridden,
+    [],
+    'canRunClaude is assigned a literal, which would override the isRunnable check:\n  ' +
+      overridden.join('\n  ')
+  );
+
+  // Control: the matcher must be able to SEE such an assignment, or the [] above
+  // is worthless. Same shape, planted.
+  const planted = codeOnly('  canRunClaude = require("./runners").isRunnable(p);\n  canRunClaude = true;\n');
+  assert.strictEqual(
+    (planted.match(/^\s*canRunClaude\s*=\s*(true|false)\s*;/gm) || []).length,
+    1,
+    'the override matcher cannot see a planted override, so its empty result means nothing'
+  );
+});
+
+
+test('the two lambda sites delegate to runners.isRunnable rather than re-implementing it', () => {
+  /* The sweep catches a revert to accessSync(X_OK). It does NOT catch a revert
+     to some other weak spelling of the same question, and the repo already
+     contains one such spelling: engine/create.js gates on fs.existsSync, which
+     accepts a directory exactly as accessSync(X_OK) does. Carded separately.
+
+     So for the two sites whose fix is a one-line lambda, assert the delegation
+     positively. devicedoor and githubdevice were byte-identical twins before
+     this branch and are the easiest pair to silently diverge again. */
+  for (const f of ['devicedoor.js', 'githubdevice.js']) {
+    const src = codeOnly(fs.readFileSync(path.join(__dirname, 'engine', f), 'utf8'));
+    const m = src.match(/const\s+runnable\s*=\s*\(([^)]*)\)\s*=>\s*([^;\n]+)/);
+    assert.ok(m, `${f}: no \`const runnable = ...\` lambda found; the site was renamed or removed`);
+    assert.match(
+      m[2],
+      /require\(['"]\.\/runners['"]\)\.isRunnable/,
+      `${f}: the runnable lambda no longer delegates to runners.isRunnable, it is \`${m[2].trim()}\``
+    );
+  }
 });
