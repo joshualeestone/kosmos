@@ -121,3 +121,46 @@ night. I did not touch the guard - that is wider than this card.
   (green alone 250/250; the test body references none of connect, willInstall or
   `/api/connect`; whole file zero `/api/connect` against a control of 486 `/api/`;
   load 7.61 on 10 cores; the suite prints that exact guidance).
+
+## Deferred during review, each one carded rather than dropped
+
+Four review iterations produced findings I judged real but out of this card's scope.
+None was dropped silently.
+
+**#1573, the browser gate is blind to this change.** `tools/browser-checks.sh` boots
+every board with `AGENT_WORKFORCE_DRY_RUN=1`, and a dry-run probe is now correctly
+treated as "we did not check", so `willInstall` is unconditionally true there. The
+gate can therefore only observe pre-#1556 behaviour, and there is no rendered-DOM
+evidence for the confirm being skipped. Said plainly because I have already shipped a
+screen on this card that did not change by one character. The coverage that does
+exist executes the real page predicate, which is better than the source-text guard it
+replaced, and it is still not the DOM.
+
+**#1574, a board left open can skip the confirm on a stale answer.** The skip
+decision reads `FR`, refreshed only at page boot and on Check again, so a launcher
+broken after boot can still read as installed. Re-reading before the skip narrows the
+window and cannot close it, because the same race exists between that read and the
+download starting; the closure that works is server-side at `start()`. Mitigating: the
+download is visible and cancellable. **Weakest premise, mine: I am treating that as
+adequate, which is a product judgement rather than an engineering one.**
+
+**The 15s-versus-5s timeout** was taken, not deferred: 15s is right where a person
+just clicked and is watching, and wrong on a page load, and a hanging launcher is
+exactly the class this card detects.
+
+**The extra shell-out on `/api/first-run`** was deferred on a measurement rather than
+an argument: that route already shells out twice, `claude --version` is 7-9ms against
+`auth status` at 166ms, and the probe starts before that await, so the added
+wall-clock is 0ms.
+
+## Discharged during review
+
+Iteration 3 flagged that `willInstall()` and `start()` could disagree under dry-run,
+and I deferred it pointing at #1571. **Mona Lisa's #1572 landed and closed it**, and I
+rebased onto it and verified by content rather than assuming: both sites now carry the
+guard (mine at connect.js:447, hers at 936), and under the dry-run configuration the
+sandbox guard recommends, both now say an install is needed.
+
+Her fix also made #1568 dissolve rather than be patched: with the probe fixed, the
+guard's `DRY_RUN=1` recommendation is safe. My floor of "one test may lean on this"
+turned out to be the exact count, and she used the repair I suggested.
