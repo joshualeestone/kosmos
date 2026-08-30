@@ -68,6 +68,18 @@ const DISMISS_FILE = path.join(store.ROOT, 'found-agents-dismissed.json');
  * The failure that matters is a corrupt file hiding folders somebody never
  * declined, so the safe direction is to offer a folder twice rather than never.
  */
+/**
+ * Does this instruction file ADDRESS somebody, whether or not we can name them?
+ *
+ * 🔑 The whole discriminator for #1527, and it is deliberately crude. "You are ..."
+ * at the start of a line is what an agent's instruction file says and what a
+ * project's README does not. It cannot tell "You are lilnacho" from "You are an
+ * expert Python developer", and it does not try: the first is an agent we failed to
+ * name, the second is a template, and ONE CLICK separates them on a screen that
+ * asks rather than asserts.
+ */
+const INTRODUCES = /^[ \t]*(?:#+[ \t]*)?You are\s/mi;
+
 const DECLINED_FILE = path.join(store.ROOT, 'found-agents-declined.json');
 
 function declined() {
@@ -409,6 +421,8 @@ function found() {
      nothing about what the screen says changes: what a person should be told is
      the product question this card is parked on. These two are for us. */
   const declinedDirs = declined();
+  /* Folders whose instruction file addresses somebody but names nobody (#1527). */
+  const unnamedIntroDirs = new Set();
   const noInstructionsGoneDirs = new Set();
   const noInstructionsPresentDirs = new Set();
   /* One look at what is running, for every folder below (#362). An unreadable
@@ -477,6 +491,33 @@ function found() {
            them would put project folders in a list of people. A wrong list is
            used; an empty one is questioned. */
         if (!unreadableDirs.has(cwd)) { unreadableDirs.add(cwd); unreadable += 1; }
+        /* 🛑 A FILE THAT SAYS "YOU ARE ..." IS CLAIMING TO INTRODUCE SOMEBODY, EVEN
+           WHEN WE CANNOT READ THE NAME (#1527). Measured on a real machine: a
+           `CLAUDE.md` reading `You are lilnacho, a project manager.` names nobody,
+           because the prose arm needs a capital or bold markers. So her agent was
+           LESS discoverable than a folder with NO file at all, which is offered.
+
+           ⇒ Offered here instead, with an EMPTY name field, which is the design
+           Josh already ruled: never guess a name, ask for one. We saw the intent
+           and could not read the name, and that is exactly what the adoption
+           screen is for.
+
+           ⚠️ THE COMMENT ABOVE REJECTED WIDENING `identityFromText` AND IT WAS
+           RIGHT; THIS IS NOT THAT. Widening fabricates a NAME on the board, which
+           is an assertion. Offering fabricates a QUESTION, which costs one click
+           to decline and the decline persists.
+
+           ⚠️ THE COST, MEASURED RATHER THAN GUESSED, on 85 real instruction files
+           here: 18 are named, 63 contain no "You are" line and stay silent, and
+           THREE become offers that should not be. All three read "You are an
+           expert <language> developer", template repos rather than agents. So the
+           price is three declines against an agent being invisible.
+
+           📌 AND A TIGHTER TEST WAS TRIED AND FAILED. Distinguishing a NAME from a
+           NOUN PHRASE is what fabricated "a Project Manager" out of prose earlier
+           (#1527's first attempt), so the honest answer is to ask rather than to
+           be cleverer about guessing. */
+        if (INTRODUCES.test(text)) unnamedIntroDirs.add(cwd);
         continue;
       }
 
@@ -552,8 +593,13 @@ function found() {
      * 📌 The route needs no change: `/api/found-agents` spreads this return, so the
      * field reaches the board by existing here.
      */
-    /* Folders the person has already said no to are not offered again (#1531). */
-    adoptable: [...noInstructionsPresentDirs]
+    /* Folders the person has already said no to are not offered again (#1531).
+       ⭐ TWO SOURCES, ONE LIST (#1527): a folder with NO instruction file, and one
+       whose file says "You are ..." and names nobody. Both are "Claude ran here and
+       we cannot say who", both are answered by the same empty name field, and a
+       person cannot tell the two apart from the outside. A second list would be a
+       second screen for one question. */
+    adoptable: [...new Set([...noInstructionsPresentDirs, ...unnamedIntroDirs])]
       .filter((dir) => !declinedDirs.includes(dir))
       .map((dir) => ({ dir })),
     because: null,
