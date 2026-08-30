@@ -2122,6 +2122,45 @@ async function finishConnected(owner, sub) {
   writeState({ phase: PHASE.CONNECTED, plan: sub.plan || null, startedOnce: true });
 }
 
+/**
+ * Whether the stuck screen's one way out is actually available: is there a
+ * Claude binary on this Mac that we could run.
+ *
+ * 🛑 THIS IS A FUNCTION BECAUSE A REGION CANNOT BE GUARDED, AND THAT COST SIX
+ * ATTEMPTS TO ESTABLISH (#1592). It was four lines inline in `becomeStuck`, and
+ * the test guarding it had to bound a region of a mutable function. A region has
+ * two edges and each one was independently wrong:
+ *
+ *   anchor + 600 chars   TOO BIG    a decoy in the next function satisfied it
+ *   to the catch close   TOO SMALL  a fallback after the catch was invisible
+ *   to `writeState(`     WRONG BOTH WAYS AT ONCE: an earlier writeState( call
+ *                        truncates the region, and the widening that mattered
+ *                        was INSIDE writeState's own argument list, written with
+ *                        a COLON rather than an `=`, so no assignment check
+ *                        could ever match it however the region was bounded
+ *
+ * ⇒ Every fix moved one edge and exposed the other. As one expression in one
+ * function there is nothing to bound: the test asserts this call site exactly,
+ * and asserts the BEHAVIOUR of this function against a real directory. A
+ * behavioural arm is the only kind that has survived twelve review passes here.
+ *
+ * ⚠️ THE TRY IS LOAD-BEARING AND MUST STAY. `claudeBinPath()` calls the runner
+ * resolver, which can throw, and `becomeStuck`'s docblock promises any error
+ * answers FALSE. Hoisting the resolution out of the try lets the throw escape
+ * becomeStuck entirely, so `writeState` never runs and the person is left on no
+ * screen at all. Mona Lisa found that; two blind reviewers hit it on her branch.
+ *
+ * 📌 Asked through `isRunnable`, never through a raw execute-permission check,
+ * which SUCCEEDS ON A DIRECTORY and is the whole of #1592.
+ */
+function claudeHatchAvailable() {
+  try {
+    return require('./runners').isRunnable(claudeBinPath());
+  } catch {
+    return false;
+  }
+}
+
 function becomeStuck(owner, because, tail) {
   /**
    * ⚠️ ONLY THE OWNING FLOW MAY DECLARE ITSELF STUCK. Every path that lands
@@ -2164,12 +2203,7 @@ function becomeStuck(owner, because, tail) {
    * cannot work. A missing way out is a smaller harm than a way out that fails
    * in front of somebody already stuck.
    */
-  let canRunClaude = false;
-  try {
-    // #1592: isRunnable, because the raw X_OK check passes on a DIRECTORY.
-    canRunClaude = require('./runners').isRunnable(claudeBinPath());
-  } catch { canRunClaude = false; }
-  writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude });
+  writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable() });
 }
 
 /**
@@ -2290,5 +2324,5 @@ module.exports = {
   download, platformKey, installClaudeCode,
   setRunner, setDryRun, setTickInterval, setUnknownGrace, setAbandonedSigninMs, setFreshnessForTests, resetForTests,
   STATE_FILE,
-  willInstall, setProbeTtlForTests,
+  willInstall, setProbeTtlForTests, claudeHatchAvailable,
 };
