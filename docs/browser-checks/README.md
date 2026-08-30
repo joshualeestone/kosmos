@@ -85,6 +85,7 @@ one invented by somebody who did not write them.
 | `render-head-row.js` | Settings stays on the project header row, beside the title and the search (#1043) |
 | `render-fields.js` | The field and control invariants, measured in a real browser, in BOTH schemes |
 | `render-first-run.js` | Render every first-run state in a real browser and look at it |
+| `render-boot-no-flash.js` | The launch covers itself until the first-run gate resolves, so the agents view never flashes and then vanishes (#1553) |
 | `render-conn-url.js` | The sign-in fallback button does not overlap the line above it (#1209) |
 | `render-openai-step.js` | The OpenAI install step at parity with Claude's, with an honest indicator (#1205) |
 | `render-openai-key-step.js` | The OpenAI key step in its approved box, sizes matched, link not colliding (#1207) |
