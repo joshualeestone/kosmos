@@ -594,3 +594,30 @@ test('the reveal stays the async path\'s job, so the hide cannot strand the cont
   assert.match(fill, /sel\.hidden = false/, 'control: fillSwitchAccounts no longer reveals the picker');
   assert.match(fill, /sel\.hidden = true/, 'control: fillSwitchAccounts no longer hides it either');
 });
+
+test('the picker sequences its own writes and does not touch paintAccounts\' abort token', () => {
+  /**
+   * 🛑 THE REGRESSION THIS PINS WAS MINE, INTRODUCED FIXING A DIFFERENT RACE.
+   * `ACCT_EPOCH` is `paintAccounts`' ABORT token: it writes "Checking…" into the
+   * Settings panel and then RETURNS WITHOUT REPAINTING if superseded. So a
+   * picker fetch that bumped it aborted an in-flight Settings > Accounts read
+   * and left the panel stuck on "Checking…" until reopened -- and
+   * `/api/accounts` is a live per-account check, so that window is seconds wide.
+   *
+   * The picker needs to sequence its OWN failure writes. It has no business
+   * cancelling somebody else's paint.
+   */
+  const { lift, scriptOf } = require('./test-support/page');
+  const picker = lift(scriptOf(PAGE), 'paintAccountPicker');
+  assert.ok(picker.length > 400, `control: paintAccountPicker body implausibly short (${picker.length})`);
+
+  assert.match(picker, /\+\+ACCT_PICKER_EPOCH/,
+    'the picker no longer has its own supersession token');
+  assert.doesNotMatch(picker, /\+\+ACCT_EPOCH/,
+    'the picker is bumping paintAccounts\' abort token again, which strands the Settings panel on "Checking…"');
+
+  // control: paintAccounts must still own and bump ACCT_EPOCH, or the assertion
+  // above would pass simply because the counter had been deleted everywhere.
+  const settings = lift(scriptOf(PAGE), 'paintAccounts');
+  assert.match(settings, /\+\+ACCT_EPOCH/, 'control: paintAccounts no longer bumps ACCT_EPOCH at all');
+});

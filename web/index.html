@@ -13003,6 +13003,15 @@ async function paintSettings() {
  * somebody nowhere to go.
  */
 let ACCT_EPOCH = 0;
+/* 🛑 THE PICKER'S OWN TOKEN, AND IT MUST NOT BE ACCT_EPOCH. That one is
+   `paintAccounts`' ABORT token: it writes "Checking…" into the panel and then
+   returns without repainting if superseded. So a picker fetch bumping it aborts
+   an in-flight Settings > Accounts read and LEAVES THE PANEL STUCK ON
+   "Checking…" until somebody reopens it -- and `/api/accounts` is a live
+   per-account check by design, so that window is seconds wide, not theoretical.
+   The picker needs to sequence its OWN writes; it has no business cancelling
+   somebody else's paint. */
+let ACCT_PICKER_EPOCH = 0;
 /* The provider groups (kosmos#1393). Josh asked for the Claude Max 20x row to sit
    in a bounding box beneath Claude, and the section heading already promised it:
    "Your AI models, by provider".
@@ -22010,7 +22019,7 @@ async function paintAccountPicker(a) {
        the try is not in scope there -- a ReferenceError at exactly the moment
        something already went wrong. Caught before shipping; `new Function`
        parses it happily, because it is a scope error and not a syntax one. */
-    const mine = ++ACCT_EPOCH;
+    const mine = ++ACCT_PICKER_EPOCH;
     try {
       if (!ACCT_PICKER_FETCH) {
         /* Resolves to a VERDICT, not a list, so the caller applies one transition. The
@@ -22026,7 +22035,7 @@ async function paintAccountPicker(a) {
       /* 🛑 A STALE FAILURE MUST NOT UNDO A FRESH SUCCESS. This continuation and
          `paintAccounts` now write the SAME three globals from two independent
          `/api/accounts` fetches, and only `paintAccounts` sequences its writes
-         (ACCT_EPOCH). So a picker fetch that started earlier and fails LATER
+         (its own ACCT_EPOCH). So a picker fetch that started earlier and fails LATER
          could flip a good, freshly-read list to unreadable -- and the confirm
          dialog would then hedge ("we could not read the list just now") about a
          list that was read perfectly. That is the wrong sentence on the last
@@ -22037,8 +22046,8 @@ async function paintAccountPicker(a) {
          success always lands; a superseded failure is discarded. */
       const got = await ACCT_PICKER_FETCH;
       if (got && got.ok) accountsRead(got.accounts);
-      else if (mine === ACCT_EPOCH) accountsUnreadable();
-    } catch { if (mine === ACCT_EPOCH) accountsUnreadable(); /* the control stays empty and disabled, which is honest */ }
+      else if (mine === ACCT_PICKER_EPOCH) accountsUnreadable();
+    } catch { if (mine === ACCT_PICKER_EPOCH) accountsUnreadable(); /* the control stays empty and disabled, which is honest */ }
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     if (msg) msg.textContent = '';
   }
