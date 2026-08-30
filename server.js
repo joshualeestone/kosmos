@@ -3776,6 +3776,28 @@ const server = http.createServer((req, res) => {
    * the failure mode itself: a correction does not sweep by itself.
    */
   if (pathname === '/api/agent/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* The cost paragraphs below reason about AGENTS polling this route, and an
+       agent is not the only caller that can reach it. Any page the person
+       visits can `fetch('http://127.0.0.1:PORT/api/agent/connections')` in a
+       loop: CORS makes the response opaque and the Host guard closes DNS
+       rebinding, so it learns nothing -- but the SIDE EFFECTS still run, and
+       they are the expensive half. One `claude auth status` subprocess per
+       Claude account, one authenticated `GET api.openai.com/v1/models`
+       carrying the person's real key per OpenAI account, plus the Cloudflare
+       and GitHub calls. A drive-by page cannot read the answer and can still
+       burn the person's third-party quota.
+
+       `crossSiteRead` is this file's existing answer to exactly that, and it
+       refuses ONLY on an explicit browser signal: a `sec-fetch-site` that is
+       not same-origin/none, or a `referer` from a foreign host. The CLI sends
+       neither (`grep -c 'referer\|sec-fetch' install/kosmos` = 0, against a
+       control of 7 for headers it does set), so the agent path is untouched.
+
+       Placed before the HEAD short-circuit deliberately: a cross-site caller
+       should not learn the route exists either, and a 403 is as cheap as the
+       200 it replaces. */
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
     /* Intentionally short-circuits before any work, unlike the sibling
        `/api/connections`: HEAD here is a route-is-there probe, so it cannot and
        need not reflect the 500 the GET path can return. Answering it would mean

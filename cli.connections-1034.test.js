@@ -625,3 +625,44 @@ test('a row we could not read is not counted against the person', async () => {
       'the unreadable row vanished entirely instead of being named');
   });
 });
+
+test("the CLI's spoken vocabulary stays in step with subscription.STATE", () => {
+  /**
+   * The renderer hard-codes the wire vocabulary twice -- `SAY` maps each state
+   * to a sentence, and one branch compares `signedIn` to a bare string -- and
+   * nothing tied either to `engine/subscription`, which OWNS those values
+   * (`grep -ic subscription install/kosmos` = 0).
+   *
+   * 🛑 WHY THAT MATTERS AND WHY NO EXISTING TEST CATCHES IT. If a
+   * `subscription.STATE` value is ever renamed, `engine/connectionverdict.test.js`
+   * STAYS GREEN, because it asserts through the constants rather than through
+   * their values. The CLI is the only layer holding the literals, so it would
+   * silently render "could not check" for every provider and stop suppressing a
+   * stale stuck line, with the whole suite passing.
+   *
+   * ⚠️ It fails toward `could not check`, which is the SAFE direction of the
+   * card's three-state rule, so this is a guard against silent degradation, not
+   * against a leak.
+   *
+   * ⭐ THE POINT OF THE SHAPE: neither side of the comparison is written here.
+   * One side is read from `engine/subscription`, the other is extracted from the
+   * CLI source. A test that spelled the expected values out would be a copy of
+   * the thing it verifies, which is the defect this branch has already fixed
+   * twice elsewhere and cannot fail by construction.
+   */
+  const { STATE } = require('./engine/subscription');
+  const src = fs.readFileSync(CLI, 'utf8');
+
+  const sayLine = src.match(/var SAY = \{([^}]*)\}/);
+  assert.ok(sayLine, 'could not find the SAY map in install/kosmos -- it was renamed or reshaped, and this guard just went blind');
+  const sayKeys = [...sayLine[1].matchAll(/(\w+)\s*:/g)].map((m) => m[1]).sort();
+  assert.ok(sayKeys.length > 0, 'extracted zero keys from SAY: the guard would pass vacuously');
+
+  assert.deepEqual(sayKeys, [...Object.values(STATE)].sort(),
+    'the CLI speaks a different set of states than subscription.STATE defines');
+
+  const cmp = src.match(/signedIn === "([^"]+)"/);
+  assert.ok(cmp, 'could not find the signedIn comparison in install/kosmos -- this guard just went blind');
+  assert.equal(cmp[1], STATE.CONNECTED,
+    'the CLI compares signedIn against a literal that is no longer STATE.CONNECTED');
+});
