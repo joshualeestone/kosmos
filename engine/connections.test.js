@@ -71,6 +71,21 @@ test('#1034: the block lands in an agent file and is idempotent', () => {
   assert.equal(again, text, 'a second sync rewrote the file');
 });
 
+test('#1552: the connect block names GPT, the word the screen uses, alongside OpenAI and Codex', () => {
+  agentFile('helper', '# Helper\n\nYou are Helper.\n');
+  connections.tellAgent('helper', [tied('helper')]);
+  const text = fs.readFileSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'helper', 'CLAUDE.md'), 'utf8');
+  // The screen's provider rows read Claude, GPT, Gemini (web.connect-confirm.test.js),
+  // so the agent's own script must use GPT too, or it answers a "can I connect GPT"
+  // question in a different word from the screen (#1034). Before #1552 the block said
+  // GPT zero times while the screen said it ten.
+  assert.match(text, /\bGPT\b/, 'the connect block never says GPT while the screen says it ten times (#1552)');
+  // Control: the connect section actually rendered, so a missing GPT would be a real
+  // absence rather than a section that never landed (which would make the check vacuous).
+  assert.match(text, /\bOpenAI\b/, 'the connect section did not render; the GPT assertion above is vacuous');
+  assert.match(text, /\bCodex\b/, 'Codex, the terminal agent we install for OpenAI, is missing');
+});
+
 test('#1034: an untied name is refused, the same gate every instruction write keeps', () => {
   /* The real untied row, from the fixture, not a literal asserting what I
      believe one looks like -- the rule fixture-discipline.test.js enforces. */
