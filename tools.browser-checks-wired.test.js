@@ -356,9 +356,15 @@ test('#1575: every `node ./server.js` boot sets AGENT_WORKFORCE_DRY_RUN, or is a
     let seen = false;
     for (let k = 0; k < 12 && j >= 0; k += 1, j -= 1) {
       const l = lines[j];
-      if (l.includes(EXEMPT_MARKER)) { seen = true; break; }   // the #1573 pair, by name
+      /* ⚠️ THE CONTINUATION BREAK COMES FIRST, AND THE ORDER IS THE WHOLE FIX. With the
+         marker checks above it, the first non-continuation line was still scanned, so a
+         COMMENT mentioning either marker exempted a bare boot underneath it, and this
+         file contains exactly that kind of prose. Measured both ways: with the checks
+         first, a bare boot under a comment naming either marker was NOT reported; with
+         the break first, it is. */
+      if (j < n - 1 && !/\\\s*$/.test(l)) break;             // the command started above here
+      if (l.includes(EXEMPT_MARKER)) { seen = true; break; }   // the #1573 stub boards
       if (l.includes('AGENT_WORKFORCE_DRY_RUN=1')) { seen = true; break; }
-      if (j < n - 1 && !/\\\s*$/.test(lines[j])) break;   // command started above here
     }
     return !seen;
   });
@@ -366,4 +372,50 @@ test('#1575: every `node ./server.js` boot sets AGENT_WORKFORCE_DRY_RUN, or is a
   assert.deepEqual(missing.map((m) => m.n), [],
     'a `node ./server.js` boot site neither sets AGENT_WORKFORCE_DRY_RUN=1 nor carries the #1573 '
     + 'stub-launcher marker, so the comment in browser-checks.sh describing that split is now false');
+});
+
+/**
+ * #1573: only ONE check may run against the two non-dry-run boards, and it is the
+ * read-only one.
+ *
+ * 🛑 THE RESTRICTION THAT CONTAINS THE HAZARD WAS PROSE WITH NO RUNNER. Those boards
+ * omit AGENT_WORKFORCE_DRY_RUN, so `engine/create.js`'s run() no longer short-circuits
+ * and a check that PRESSES A BUTTON there would really execute `launchctl bootstrap`
+ * against the operator's own login session. The plist path is sandboxed; the launchd
+ * registration is not (#1539).
+ *
+ * ⇒ A paragraph asking people not to do that is exactly the construction this file's
+ * sibling test exists to replace. `$P14`/`$P15` are ordinary shell variables and
+ * nothing went red if a second `run_one` was pointed at them. Now something does.
+ *
+ * ⚠️ This asserts the COUNT and the LABEL, not the content of the check. It cannot tell
+ * whether `render-connect-skip` starts clicking things later; what it stops is the
+ * cheap and likely mistake, which is someone reusing a conveniently-booted board.
+ */
+test('#1573: exactly one check runs against the non-dry-run boards, and it is the read-only one', () => {
+  const src = fs.readFileSync(RUNNER, 'utf8');
+  /* ⚠️ JOIN CONTINUATIONS FIRST. The invocation is written across two lines, with
+     run_one on the first and the board URLs on the second, so a per-line filter
+     demanding both finds ZERO and this assertion fails on a clean tree. It did
+     exactly that on the first attempt, and the red baseline made the perturbation
+     that followed prove nothing. */
+  const joined = [];
+  let acc = '';
+  for (const line of src.split('\n')) {
+    acc += line.replace(/\\\s*$/, ' ');
+    if (!/\\\s*$/.test(line)) { joined.push(acc); acc = ''; }
+  }
+  const users = joined
+    .map((line, i) => ({ line, n: i + 1 }))
+    .filter(({ line }) => /run_one/.test(line) && /\$P1[45]\b|\$\{P1[45]\}/.test(line));
+
+  assert.equal(users.length, 1,
+    `expected exactly one run_one against $P14/$P15, found ${users.length}: `
+    + `${users.map((u) => u.n).join(', ')}. Those boards omit AGENT_WORKFORCE_DRY_RUN, so a `
+    + `check that presses a button there mutates the operator's real launchd (#1539). `
+    + `Anything that clicks belongs on a dry-run board.`);
+
+  assert.match(users[0].line, /render-connect-skip/,
+    'the single check against the non-dry-run boards is no longer render-connect-skip; '
+    + 'whatever replaced it must be read-only, and this assertion must be updated deliberately');
 });

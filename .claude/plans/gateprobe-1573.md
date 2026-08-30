@@ -2,7 +2,9 @@
 
 ## The defect, and it is smaller and stranger than I filed it
 
-Every board `tools/browser-checks.sh` boots sets `AGENT_WORKFORCE_DRY_RUN=1`. A dry-run
+Every other `node ./server.js` boot site in `tools/browser-checks.sh` sets
+`AGENT_WORKFORCE_DRY_RUN=1` (`boot_thread_server` boots a different script and is not
+one of them). A dry-run
 probe returns `{ok:true, dryRun:true}` **without executing**, and #1556 correctly scores
 that as "we did not check", so `willInstall` is unconditionally true on a dry-run board.
 
@@ -34,11 +36,28 @@ board, however good the check is.
 - `docs/browser-checks/render-connect-skip.js`, **two arms**. A skip-only assertion would
   pass on a build where the confirm can never open at all, which is the pre-#1556 defect
   inverted, so the broken-launcher arm is not optional.
-- Two boards that omit `AGENT_WORKFORCE_DRY_RUN` and use stub launchers instead. Nothing
-  else about them is special: same sandbox shape, same fake tmux, no launchd, no network.
+- Two boards that omit `AGENT_WORKFORCE_DRY_RUN` and use stub launchers instead.
   `pick_ports` raised from 13 to 15.
 
-Measured, run exactly as the gate runs it: **6/6, exit 0.**
+🛑 **THOSE BOARDS ARE READ-ONLY, AND THAT MEANS NO MUTATION, NOT "NOTHING REAL RUNS".**
+An earlier draft here listed launchd and the network among the things these boards do
+not touch, and the script's matching sentence
+was removed as a hazard. Both halves were wrong:
+
+- **Real launchd READS happen with nothing clicked.** `/api/status` calls
+  `create.disabledJobs()` and `runningJobs()`, which run `launchctl print-disabled` and
+  `launchctl list` against the operator's real session, and `wait_up` curls that route
+  before any check starts. Non-mutating and fail-soft, which is why the pair is fine.
+- **A check that PRESSES A BUTTON would mutate it**: `create.js`'s `run()` no longer
+  short-circuits, so `launchctl bootstrap` and `enable` hit the real login session. The
+  plist path is sandboxed; the registration is not, which is #1539.
+
+⇒ That restriction is no longer prose. `tools.browser-checks-wired.test.js` asserts
+exactly ONE `run_one` targets `$P14`/`$P15` and that it is `render-connect-skip`.
+Perturbed: a second check pointed at those boards goes red.
+  `pick_ports` raised from 13 to 15.
+
+Measured, run exactly as the gate runs it: **7/7, exit 0.**
 
 ```
 working launcher   FR.connect {"willInstall":false}   confirm SKIPPED

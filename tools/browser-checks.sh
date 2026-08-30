@@ -789,7 +789,9 @@ fi
 # not check", so `willInstall` is unconditionally true on a dry-run board and the
 # confirm-skip path is unreachable BY CONSTRUCTION.
 #
-# ⭐ THE STUB WAS ALREADY HERE AND COULD NOT BE REACHED. sb4 boots with a `fake-claude`
+# ⭐ THE STUB'S --version ARM WAS ALREADY HERE AND COULD NOT BE REACHED. (Its `auth
+# status` arm IS reached, through subscription.checkLive's own seam, which is not
+# dry-run gated. Only the probe arm was dead.) sb4 boots with a `fake-claude`
 # whose --version exits 0, written deliberately for this, in an env block that also sets
 # AGENT_WORKFORCE_DRY_RUN=1. Two correct mechanisms cancelling: the stub answers a
 # question nothing asks, the flag ensures nothing asks it.
@@ -803,8 +805,17 @@ fi
 # short-circuits, so a create action here would really execute `launchctl bootstrap`
 # and `launchctl enable` against the OPERATOR'S REAL LOGIN SESSION. The plist PATH is
 # sandboxed by AGENT_WORKFORCE_LAUNCH; the launchd REGISTRATION is not, which is #1539.
-# `render-connect-skip` only reads, so it is safe here; a future check that clicks is
-# not, and the sandbox roots below will not save it.
+#
+# ⚠️ AND BE PRECISE ABOUT WHAT "READ-ONLY" BUYS, BECAUSE AN EARLIER VERSION OF THIS
+# COMMENT OVERSTATED IT. REAL launchctl READS HAPPEN ON THESE BOARDS WITH NOTHING
+# CLICKED: `/api/status` calls create.disabledJobs() and runningJobs(), which run
+# `/bin/launchctl print-disabled gui/<uid>` and `/bin/launchctl list` against the
+# operator's real session, and `wait_up` curls that route before any check starts.
+# Those are non-mutating and fail-soft, which is why this pair is acceptable.
+#
+# ⇒ SO THE GUARANTEE IS "NO MUTATION", NOT "NOTHING REAL EXECUTES". Do not read the
+# first as the second: `render-connect-skip` only reads, and a future check that
+# clicks would mutate the operator's launchd, which the sandbox roots will not stop.
 #
 # ⇒ #634's argument, pointed at these boards: a half-sandboxed board is more dangerous
 # than an obviously live one, because it looks ordinary.

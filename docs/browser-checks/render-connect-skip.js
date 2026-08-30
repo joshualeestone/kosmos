@@ -19,6 +19,17 @@
  * skipped, alone, passes on any build where the confirm never opens at all. The broken
  * launcher arm is what proves the screen can still ask.
  *
+ * 📌 WHAT THIS OBSERVES, STATED EXACTLY, BECAUSE THE LABELS CLAIM SLIGHTLY MORE.
+ * It reads `frClaudeInstallNeeded()`, the predicate `frConnectStart` gates the confirm
+ * on, against the real `FR` the real server produced. It does NOT click Connect and
+ * watch a dialog: clicking on a non-dry-run board is exactly what the safety comment in
+ * the runner forbids, because `create.js`'s `run()` would then really mutate the
+ * operator's launchd. The predicate-to-dialog wiring is separately pinned by a
+ * source-text assertion in `web.connect-confirm.test.js`.
+ *
+ * ⇒ So "SKIPPED" and "OPENS" in the labels below mean "the gate that decides it says
+ * so", one link short of the pixels. That link is one line long and guarded elsewhere.
+ *
  * Takes two base URLs: a board whose stub Claude RUNS, and one whose stub EXISTS and
  * exits non-zero.
  *
