@@ -22,34 +22,86 @@ binding constraint, under the standing ruling that zero outstanding BLOCKERs is 
 ⇒ **Expect a ninth round to find something.** On this branch's record that is the base rate,
 not a worry.
 
-### BLOCKERs found and closed
+### Final Ledger
 
-- **stub bodies checked by first token only** so `[ "$1" = --version ] && claude --version`
-  passed. Now every command position is checked. Four spellings perturbed RED.
-- **the guard read heredocs only** while its own comment blessed switching to `printf`, so
-  that correct change made it read ZERO stubs and stay green with `curl | sh` as a body.
-  Two of four stubs had never been read at all.
-- **my anchor fix broke the stubs.** Marker comments went above `#!/bin/sh`, so execFile
-  answered ENOEXEC and both boards reported `willInstall TRUE`, becoming indistinguishable,
-  which is the defect this card exists to CATCH. **The full suite passed 3111/3111
-  throughout**, because nothing in `npm test` executes those stubs.
-- **the shebang was outside every guard by construction**, since all of them skip lines
-  starting with `#`. Deleting it stayed green. Now asserted.
-- **guard 2 pinned to `$P14`/`$P15`** while the block's own loop assigns `_port`
-  transitively. Alias resolution is now a fixpoint and a `for` header counts as an
-  assignment.
-- **counting branches mutually exclusive**, so a bare check chained onto a `run_one` line
-  counted 1. Now per-fragment and additive.
+Eight blind rounds. Rounds five through eight each returned a BLOCKER, all in guards I had
+written, all green in the dangerous direction.
 
-### WARNINGs closed
+#### Iteration 5
 
-A guard that **redded a correct change** (a bare `&` split a redirect). A **hardcoded board
-list**, so a third board's missing stub was never sought. A **fixed-size slice** that failed
-in the alarming direction. **Two floors replaced by equalities**, because a minimum cannot
-see a defect that inflates the population. A **control that counted a different string than
-its subject** (0 of one thing against 25 of another). A **false "not a regression" clause**.
-A **safety enumeration naming one module of four** while claiming completeness, omitting the
-one whose `bootout` stops a running agent.
+[BLOCKER] tools.browser-checks-wired.test.js - stub bodies were checked by FIRST TOKEN only,
+so `[ "$1" = --version ] && claude --version` passed while the docblock claimed it was
+refused. Four spellings measured green. Fixed: every command position is checked. RESOLVED,
+four arms perturbed RED.
+
+[WARNING] the body loop keyed on heredocs while its own comment blessed switching to
+`printf` as a correct change, so making that change made it read ZERO stubs and stay green
+with `curl | sh` as a body. Two of four stubs had never been read. RESOLVED, bodies
+collected by any creation form, count asserted by equality against a derived expectation.
+
+[WARNING] the denylist omitted `/usr/local/bin`, a live path in this codebase. RESOLVED.
+
+#### Iteration 6
+
+[BLOCKER] the alias resolver read only the FIRST assignment on a line, and two assignments
+on one line is this block's own idiom. RESOLVED, matchAll.
+
+[BLOCKER] a check held in a path variable counted as ZERO invocations while the comment
+claimed any invocation counted. RESOLVED, counts the directory so constructed and quoted
+paths count.
+
+[BLOCKER] `node "./server.js"` was invisible to the boot matcher, so an eighth board
+pointing at a real binary held the count at 7 and the equality passed while the board was
+never examined. A floor failure wearing an equality. RESOLVED.
+
+[WARNING] the command-position split missed a single `&`. RESOLVED.
+
+[WARNING] the create assertion read a source INCLUDING COMMENTS, so a comment mentioning
+the redirect satisfied it. RESOLVED.
+
+[WARNING] a cited control counted a DIFFERENT STRING than its subject: 0 of one against 25
+of another, which reads as overwhelming evidence. RESOLVED, both numbers stated.
+
+[WARNING] two guard messages asserted a fall-through that cannot occur. Measured: an env pin
+is authoritative. RESOLVED.
+
+[WARNING] the pin set omitted endpoints defaulting to real services. RESOLVED.
+
+#### Iteration 7
+
+[BLOCKER] MY OWN ANCHOR FIX BROKE THE STUBS. Marker comments went above `#!/bin/sh`, so
+execFile answered ENOEXEC, both boards reported willInstall TRUE and became
+indistinguishable, which is the defect this card exists to CATCH. The full suite passed
+3111/3111 throughout. RESOLVED, shebang restored and now asserted.
+
+[BLOCKER] guard 2 pinned to `$P14`/`$P15` while the block's loop assigns `_port`
+transitively. RESOLVED, alias resolution to a fixpoint plus `for` headers.
+
+[WARNING] NO GUARD COULD SEE THE SHEBANG, because every check skips lines starting with `#`.
+Deleting it stayed green. RESOLVED and perturbed both ways.
+
+[WARNING] the guard REDDED A CORRECT CHANGE: a bare `&` also split a redirect. RESOLVED.
+
+[WARNING] a third board appended to the for-list survived a hardcoded board list. RESOLVED,
+BOARDS parsed from the list.
+
+[WARNING] the safety enumeration named ONE module of FOUR while claiming completeness,
+omitting the one whose `bootout` stops a running agent. RESOLVED.
+
+#### Iteration 8
+
+[BLOCKER] the counting branches were MUTUALLY EXCLUSIVE, so a bare check chained onto a
+`run_one` line counted 1 and the chained invocation was discarded. Measured green with a
+check that presses the real Create button. My comment claimed this variant was already
+closed. RESOLVED, per-fragment and additive; the false claim corrected in all three places
+it appeared.
+
+[NIT] reported: connect.js 6 and chat.js 10. NOT TAKEN. Re-measured on this worktree:
+connect 7, chat 9, exactly as published. I do not change correct numbers on a report I
+cannot reproduce.
+
+[STRENGTH] the boot equality fires in both directions; the shebang guard catches the exact
+defect that shipped one commit earlier; the allowlist refuses a `curl | sh` body.
 
 ### 🛑 SCOPE, stated because it is easy to read this as more than it is
 
