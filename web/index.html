@@ -22781,9 +22781,21 @@ async function changeProviderNow(say) {
        at a person whose server-side list is perfectly intact. ⚠️ This is the same defect
        arriving through the sibling path, in the half of the remedy that was not copied
        across when the first half was fixed. */
-    accountsDropped();
-    try { await paintAccountPicker(CURRENT); }
-    catch { /* the sentence above is the answer; a failed refresh must not replace it */ }
+    /* ⚠️ ONLY WHEN THE TARGET WAS OPENAI. The remedy exists for the ghost-account
+       refusal ("that sign-in is not on this computer any more, pick one from the
+       list"), which can only arise on a switch TO OpenAI. Firing it on every
+       failure also fired it on a switch to Anthropic, on a transient network
+       error, and on the "already runs on OpenAI" refusal a double-click reaches
+       -- each one re-running `/api/accounts`, which is a LIVE per-account check.
+       🛑 That amplification lands exactly when the server or network is already
+       unhealthy, because the thing that failed the switch is the thing about to
+       be asked again, and a person retrying repeats it. Narrowed to the case the
+       remedy is for; the whole remedy is kept. */
+    if (want === 'openai') {
+      accountsDropped();
+      try { await paintAccountPicker(CURRENT); }
+      catch { /* the sentence above is the answer; a failed refresh must not replace it */ }
+    }
     /* 🛑 IF THE REPAINT FAILED TOO, THE REFUSAL'S REMEDY IS NOW DEAD AND SAYS SO TO NOBODY.
        The refusal says "pick one from the list and try again", and this is the same
        `#d-provider-msg` the picker's own fault line writes into, so that line is suppressed
@@ -22908,6 +22920,11 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
                 this is a statement of fact rather than a hedge. With accounts present but
                 all of them dead (live check `none`), the filtered list is also empty but
                 the engine does NOT refuse, so that case keeps the sentence below. */
+             /* 📌 THE ALL-DEAD CASE IS FILED AS kosmos#1561, not merely noted here.
+                Accounts present but every live check `none`: this page's filter empties
+                the list, the engine's `openai.list()` does not filter on liveness, so it
+                states a default onto a dead account rather than refusing. Pre-existing,
+                out of scope for #1373, and a comment is not a record. */
              if (ACCOUNTS_LOADED && !ACCOUNTS.some((x) => x.provider === 'openai')) {
                return 'and it needs an OpenAI sign-in on this computer. There is not one yet, so the switch will stop and ask you to add one.';
              }

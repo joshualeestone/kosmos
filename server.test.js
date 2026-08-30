@@ -175,7 +175,6 @@ require('./engine/remove').setRunner(null);
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-
 const { start, server, pathOf, decodeSegment, resetHeardBudgetForTests } = require('./server');
 const fleet = require('./test-support/fleet');
 

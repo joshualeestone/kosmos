@@ -193,15 +193,20 @@ test('#1373: the picker is not offered where it can do nothing', () => {
    `body.account` in server.js left every test in the repo green while the feature
    silently reverted to the stated default: the exact silent-wrong-account failure
    this card exists to end.
-   ⚠️ AND AN HTTP-LEVEL TEST CANNOT CLOSE IT TODAY, which is worth knowing rather
-   than rediscovering. The route calls `remove.restart()`, which runs
-   `launchctl bootstrap` and would register REAL launchd services on the developer's
-   machine (I did that by accident earlier on this branch and had to boot three
-   out). That call is guarded by AGENT_WORKFORCE_DRY_RUN, and DRY_RUN ALSO disables
-   the whole account block in setProvider, so the only setting that makes the route
-   safe to drive is the setting that makes the feature inert.
-   ⇒ Source-pinned here deliberately. The coupling is filed as kosmos#1465;
-      when it is fixed, replace this with a real request through the route. */
+   ✅ AND IT IS CLOSED, BY `server.switch-account-1373.test.js` ON THIS BRANCH. That
+   file drives the route over real HTTP with the feature LIVE. The seam is
+   `create.setRunner()` (engine/create.js): `run()` consults the runner FIRST, so a
+   fake runner intercepts `launchctl` while `setProvider`'s account block still
+   executes. `engine/remove` keeps its own runner and needs the same treatment, or
+   the restart shells out for real and every switch answers on the partial branch.
+   🛑 THIS COMMENT PREVIOUSLY SAID AN HTTP-LEVEL TEST *COULD NOT* EXIST, on the
+   reasoning that DRY_RUN is the only safe setting and DRY_RUN makes the feature
+   inert. That was refuted, and the refutation is what produced the file above. It
+   is corrected rather than deleted because a stale impossibility claim is worse
+   than no comment: a reader who trusts it concludes the executed test cannot
+   exist, and may delete it or decline to extend it.
+   ⇒ The source-level pins below stay as cheap belt-and-braces, not as the only
+      coverage. */
 test('#1373: the page-to-route key is pinned on BOTH sides, so a rename cannot pass', () => {
   /* 📌 KEY NAMES STAY TIGHT, EXPRESSIONS DO NOT. This test's job is that a RENAME
      cannot pass, so `accountDir`, `body.account`, `pickedByPerson` and `body.picked`

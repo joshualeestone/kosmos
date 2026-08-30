@@ -53,7 +53,12 @@ keeps catching, and three of these came out of review rather than design:**
   the ghost, and the button stayed greyed out.
 - **The page-to-route key is pinned on both sides.** Renaming `body.account` had left
   every test in the repo green while the feature silently reverted to the stated default.
-  An HTTP-level test cannot close this today; the coupling is filed as kosmos#1465.
+  ✅ **CLOSED on this branch by `server.switch-account-1373.test.js`**, which drives the
+  route over real HTTP with the feature live via the `create.setRunner()` seam.
+  ⚠️ This line previously said an HTTP-level test could not close it, citing kosmos#1465.
+  **That premise was refuted and I went on citing it for hours**, which is why the
+  correction is left visible: a deferral gets re-stated rather than re-derived, so it can
+  outlive its own reason with nothing announcing the change.
 - **WHICH account and WHETHER a person chose it were split into two fields**, and this
   was a **wrong-account** bug rather than a wording one. Re-selecting the option a
   `<select>` already holds fires no `change`, and with exactly one working account it can
