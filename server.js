@@ -216,11 +216,17 @@ const inflight = require('./engine/inflight');
  * a confident `not connected` - and the `ask()` wrapper below exists precisely to
  * keep those two apart.
  */
+/* Frozen because the result is SHARED: one in-flight sweep hands the same
+   per-door object to the board shelf and to `/api/agent/connections`. The
+   header on `readFirstPartyDoors` states that contract in prose; this is what
+   makes it mechanical. A caller that annotates a door in place now fails in
+   its own stack rather than corrupting an unrelated response, and only when
+   two requests overlap - the shape that otherwise gets dismissed as a flake. */
 const askDoor = (fn) => Promise.resolve().then(fn).then(
   /* A held token whose service could not be reached is not "not connected":
      the door says so in its own words, and the shelf must not say nothing. */
-  (st) => ({ connected: st && st.unreachable === true ? null : !!(st && st.connected === true), who: (st && (st.who || st.login)) || null }),
-  (err) => ({ connected: null, because: 'could not check: ' + (err && err.message) }),
+  (st) => Object.freeze({ connected: st && st.unreachable === true ? null : !!(st && st.connected === true), who: (st && (st.who || st.login)) || null }),
+  (err) => Object.freeze({ connected: null, because: 'could not check: ' + (err && err.message) }),
 );
 
 const settleDoors = (jobs) => {
@@ -3986,8 +3992,26 @@ const server = http.createServer((req, res) => {
        `readFirstPartyDoors` with the board's shelf rather than sweeping its own copy.
        📌 So the conclusion above is unchanged and only its status moved: a CACHE is
        still refused here, forever, for the reason given; the STAMPEDE is closed.
-       `engine/inflight.js`'s own header quotes this route's test name
-       (`'none' !== 'unknown'`) as why it holds no window either. */
+       🛑 WHAT `collapse` DOES NOT BOUND, DECIDED RATHER THAN LEFT OPEN. It shares
+       CONCURRENT callers. It does nothing about a SERIAL poll: ten calls one after
+       another are ten sweeps, and this same branch splices "run `<cli> connections`"
+       into every agent's instructions, taking this route from zero callers to
+       eighteen. So the ceiling is worth stating rather than discovering.
+       ✅ THE DECISION: no rate limit, because there is no loop to bound. The verb is
+       DEMAND-PACED - an agent runs it when a person asks what is connected - and
+       nothing in this branch or the instruction copy schedules it. A person asking
+       twice is not a stampede.
+       ⚠️ AND A RATE LIMIT WOULD COST MORE THAN IT SAVES HERE, WHICH IS THE PART THAT
+       DECIDED IT. A refusal has to render as something, and the only honest
+       rendering is `cannot tell`. That would MANUFACTURE uncertainty about a machine
+       we could read perfectly well - the same collapse as the TTL, arriving from the
+       other direction. A cache lies by holding an answer too long; a limiter lies by
+       refusing to look. This route exists to keep those two apart from the truth.
+       📌 WHAT WOULD CHANGE MY MIND, so the next person re-decides rather than
+       re-derives: any TIMER-DRIVEN caller (a dashboard refresh, a supervisor tick, an
+       agent instructed to poll), or a measurement showing agents calling it in a loop
+       rather than on a person's question. Either makes it machine-paced, and a
+       machine-paced ceiling is a real one. Neither is true today. */
     /* Every arm is already fail-soft, so one unreachable service degrades to
        `cannot tell` for that door rather than failing the whole answer.
        `readFirstPartyDoors` is fail-soft per door in the same way, and it
@@ -3999,9 +4023,22 @@ const server = http.createServer((req, res) => {
     ]).then(([claudeRows, openaiRows, doors]) => {
       /* A reader that threw is NOT an empty machine: null becomes no rows,
          which the module reports as `cannot tell` rather than `none`. */
+      /* 🛑 BOTH SIDES ARE STAMPED HERE, AND THE ASYMMETRY THIS REPLACES WAS NOT
+         COSMETIC. The Claude rows were stamped at the route while the OpenAI
+         rows were spread verbatim, relying on `openaiaccounts.rowFor` setting
+         `provider` for them. Nothing guarded that coupling, and its failure is
+         the worst-shaped one this card has: a row whose provider key drifts
+         does not error and does not read as `cannot tell`, it reads as
+         `signedIn: none`, `howMany: 0`, "this computer has no working sign-in
+         for it" - A CONFIDENT NEGATIVE ABOUT A PROVIDER WE COULD READ PERFECTLY
+         WELL. That is the exact collapse the three-state rule exists to refuse,
+         arriving through an unstamped field rather than through a sentence.
+         ⇒ The route now says which provider it asked for, rather than believing
+         what came back. `listLive` on each module answers for one provider, so
+         stamping is a statement of the question, not an override of an answer. */
       const rows = [
         ...(claudeRows || []).map((a) => ({ ...a, provider: 'anthropic' })),
-        ...(openaiRows || []),
+        ...(openaiRows || []).map((a) => ({ ...a, provider: 'openai' })),
       ];
       const unreadable = { anthropic: claudeRows === null, openai: openaiRows === null };
       let runnerStatus = {};
@@ -4011,7 +4048,16 @@ const server = http.createServer((req, res) => {
       sendJson(res, 200, connectionverdict.forAgent({
         connect: signin, accounts: rows, runners: runnerStatus, doors, doorNames, unreadable,
       }));
-    }).catch(() => sendJson(res, 500, { error: 'we could not read this computer\'s connections' }));
+    }).catch(() => {
+      /* ⚠️ CHAINED AFTER THE SUCCESS SEND, SO IT ALSO CATCHES THAT SEND.
+         If the 200 throws (client hung up, headers already out) this arm
+         would send a SECOND response on a dead socket, and that throw
+         becomes an unhandled rejection - a crash reported nowhere near
+         its cause. `headersSent` is the cheap discriminator between "the
+         work failed" and "the answer already left". */
+      if (res.headersSent) return;
+      sendJson(res, 500, { error: 'we could not read this computer\'s connections' });
+    });
     return;
   }
   if (pathname === '/api/connections' && (req.method === 'GET' || req.method === 'HEAD')) {

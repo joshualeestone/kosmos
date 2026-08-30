@@ -68,9 +68,12 @@ function withBoard(payload, run) {
   });
 }
 
-function kosmos(port) {
+function kosmos(port, extraEnv = {}) {
+  /* `extraEnv` exists for ONE caller: the rc-28 timeout arm, which needs a
+     shorter deadline than the hard-coded 40s to be driveable at all. Defaulted
+     so every existing call site is unchanged. */
   return new Promise((resolve) => {
-    execFile('bash', [CLI, 'connections'], { env: { ...process.env, KOSMOS_PORT: String(port), KOSMOS_HOME: FAKE_HOME } },
+    execFile('bash', [CLI, 'connections'], { env: { ...process.env, KOSMOS_PORT: String(port), KOSMOS_HOME: FAKE_HOME, ...extraEnv } },
       (err, stdout, stderr) => resolve({ code: err ? err.code : 0, out: String(stdout), err: String(stderr) }));
   });
 }
@@ -665,4 +668,47 @@ test("the CLI's spoken vocabulary stays in step with subscription.STATE", () => 
   assert.ok(cmp, 'could not find the signedIn comparison in install/kosmos -- this guard just went blind');
   assert.equal(cmp[1], STATE.CONNECTED,
     'the CLI compares signedIn against a literal that is no longer STATE.CONNECTED');
+});
+
+test('a board that accepts the connection and never answers gets the TIMEOUT sentence, not the dead-board one', async () => {
+  /**
+   * The rc-28 arm was the one failure sentence in `cmd_connections` with no
+   * test, flagged by two independent reviews. It was undriveable because the
+   * curl deadline was hard-coded at 40 seconds; `KOSMOS_CONN_TIMEOUT` exists
+   * only so this test can shorten it.
+   *
+   * 🛑 WHY AN UNTESTED SENTENCE HERE IS NOT A NIT. This file's own header
+   * records that two of the three failure sentences in this same function once
+   * shipped UNREACHABLE under `set -euo pipefail`, with the whole suite green
+   * above them. An arm nothing drives is an arm nobody has seen run.
+   *
+   * ⚠️ The distinction it protects is not cosmetic either. Saying "Kosmos did
+   * not answer" for a CLIENT-side deadline blames the board for our impatience
+   * and sends the reader to the wrong place: the board is fine and still
+   * running, which is what the timeout sentence says and the dead-board
+   * sentence denies.
+   */
+  /* ⚠️ THE BOARD MUST BE HEALTHY AND HANG ONLY ON THE AGENT ROUTE. A server that
+     hangs on everything never reaches this arm at all: `cmd_connections` probes
+     `/` for liveness first and short-circuits to the "Kosmos is not running"
+     sentence, which is a DIFFERENT arm that is already covered. My first version
+     hung on both and asserted the timeout sentence against the dead-board one. */
+  const server = http.createServer((req, res) => {
+    if (req.url.startsWith('/api/agent/connections')) return; // accept, never answer
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<title>Kosmos</title>Agent Workforce');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const r = await kosmos(server.address().port, { KOSMOS_CONN_TIMEOUT: '1' });
+    assert.match(r.out, /took longer than we waited/,
+      'a hanging board did not produce the timeout sentence');
+    assert.doesNotMatch(r.out, /Kosmos did not answer/,
+      'a client-side deadline was reported as the board being dead, which sends the reader to the wrong place');
+    assert.match(r.out, /The board is running/,
+      'the timeout sentence dropped the half that tells the person their board is fine');
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
