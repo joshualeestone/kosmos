@@ -201,3 +201,29 @@ test('#1556 a probe already in flight must NOT land in the cache after a reset',
   assert.equal(probes, before + 1,
     'the pre-reset probe wrote its verdict into the cache, so the next call was served stale');
 });
+
+test('#1556 the cached verdict EXPIRES, and nothing proved that before', async () => {
+  /* ⚠️ THE TTL HAD NO SEAM AND NO TEST. Every other arm either hits a warm cache or
+     resets it, so nothing ever waited for an entry to age out, and a typo turning
+     60000 into 600000 would have been invisible to the whole suite.
+
+     The direction that matters: an expired entry is how a person who INSTALLS Claude
+     while the board is open stops being told they need to install it. Without expiry
+     that correction never arrives. */
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = fakeClaude('claude-ttl', 'exit 0');
+  connect.resetForTests();
+  let probes = 0;
+  connect.setRunner(async () => { probes += 1; return { ok: true, stdout: '' }; });
+  try {
+    connect.setProbeTtlForTests(20);
+    await connect.willInstall();
+    assert.equal(probes, 1, 'the cold call did not probe');
+    await connect.willInstall();
+    assert.equal(probes, 1, 'the warm call re-probed inside the TTL');
+    await new Promise((r) => setTimeout(r, 40));   // past the 20ms TTL
+    await connect.willInstall();
+    assert.equal(probes, 2, 'the entry never expired, so a launcher installed later is never noticed');
+  } finally {
+    connect.setProbeTtlForTests();   // back to the real 60s
+  }
+});

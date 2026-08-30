@@ -153,6 +153,13 @@ an argument: that route already shells out twice, `claude --version` is 7-9ms ag
 `auth status` at 166ms, and the probe starts before that await, so the added
 wall-clock is 0ms.
 
+⚠️ **That 0ms is the TYPICAL case and not the worst one, and it should not be read as
+a bound.** It was measured on a launcher that answers fast. A HANGING launcher, which
+is exactly the class this card exists to detect, stalls the route for the probe's full
+timeout. That is why the timeout here is 5s rather than the 15s `start()` uses, why
+the result is cached for 60s, and why every failure resolves toward "install needed".
+Bounded and safe, but not free.
+
 ## Discharged during review
 
 Iteration 3 flagged that `willInstall()` and `start()` could disagree under dry-run,

@@ -137,6 +137,15 @@ const PANE_TARGET = '=' + SESSION + ':'; // pane-targeted commands
 let DRY_RUN = process.env.AGENT_WORKFORCE_DRY_RUN === '1';
 let runner = null;
 
+/* ⚠️ DECLARED HERE, BESIDE THE SEAMS THAT WRITE THEM, NOT BESIDE THE FUNCTION THAT
+   READS THEM. `setRunner` and `setDryRun` are a few lines below and both clear this
+   cache; with the declarations 230 lines further down, a future module-level call to
+   either would hit a TDZ ReferenceError rather than a readable failure. The comments
+   explaining WHY each exists stay with `willInstall`, which is where they are read. */
+let probeCache = null;
+let probeInFlight = null;
+let probeGeneration = 0;
+
 function setRunner(fn) {
   runner = fn || null;
   if (!runner) DRY_RUN = true;
@@ -371,7 +380,6 @@ function state() {
  * today's behaviour, because the whole defect was a missing answer being read as a
  * definite one.
  */
-let probeCache = null;
 /* ⚠️ BUMPED BY EVERY RESET AND EVERY SEAM CHANGE, and a probe writes the cache only
    if the generation it started in is still current. Without it two holes stay open,
    both in the harmful direction:
@@ -381,16 +389,25 @@ let probeCache = null;
 
    The comment on the reset seam argues a partial reset is worse than none, because
    the stale verdict it carries can be the harmful `false`. That argument applies to
-   these two windows exactly, so it should not be left as an argument. */
-let probeGeneration = 0;
+   these two windows exactly, so it should not be left as an argument.
+
+   📌 A THIRD, NARROWER WINDOW IS LEFT OPEN ON PURPOSE, named here so the "two holes"
+   above is not read as "all of them": a caller that JOINED an in-flight probe before
+   a seam change still receives the pre-change verdict. It asked before the change, so
+   answering it with the answer in flight at the time is defensible, and closing it
+   would mean either rejecting that caller or re-probing on its behalf. It is also
+   unreachable in production, since setRunner and setDryRun are test-only. */
 /* ⚠️ COALESCED, BECAUSE A CACHE WRITTEN AFTER AN AWAIT IS NOT A CACHE YET.
    Every caller arriving while the first probe is still running would miss
    `probeCache` and start its own `claude --version`. That is not hypothetical
    for a caller on a timer, and with a 15s timeout it is a pile of concurrent
    subprocesses rather than one. Sharing the in-flight promise makes N callers
    cost exactly one probe, and changes no verdict. */
-let probeInFlight = null;
-const PROBE_TTL_MS = 60000;
+let PROBE_TTL_MS = 60000;
+/** Tests only: make the probe cache's expiry assertable. Without a seam a typo
+    turning 60000 into 600000 is invisible to the suite, because every arm either
+    hits a warm cache or resets it, and nothing ever waits for an entry to age out. */
+function setProbeTtlForTests(ms) { PROBE_TTL_MS = typeof ms === 'number' ? ms : 60000; }
 
 async function willInstall() {
   /* ⚠️ `claudeBinPath()` IS INSIDE THE GUARD, and it was not. It calls into the
@@ -1835,5 +1852,5 @@ module.exports = {
   download, platformKey,
   setRunner, setDryRun, setTickInterval, setUnknownGrace, setAbandonedSigninMs, setFreshnessForTests, resetForTests,
   STATE_FILE,
-  willInstall,
+  willInstall, setProbeTtlForTests,
 };

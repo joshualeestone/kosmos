@@ -17,6 +17,20 @@
  * none and covers the branch that changed.
  *
  * The three cases are the three states a user is actually in.
+ *
+ * 🛑 READ THIS BEFORE CITING THE FILE AS THIS BRANCH'S GUARD, BECAUSE I DID EXACTLY
+ * THAT AND WAS WRONG. Every assertion here passes UNCHANGED against main. Measured:
+ * 5 pass, 0 fail on main's page. The branch adds a PRODUCER; the reader it guards was
+ * already correct, which is the card's own premise.
+ *
+ * ⇒ Both of these are true and they measure different things:
+ *     revert the READER      -> RED.        This file guards it.
+ *     remove MY PRODUCER     -> GREEN 5/5.  This file is blind to it.
+ *
+ * The guards that fail without the branch are `firstrun.willinstall-wiring-1556` and
+ * the wire contract in `server.test.js`. This file's value is that it EXECUTES the
+ * real predicate instead of matching source text, which the previous guard did.
+ * "Revert it and it goes red" means nothing unless you revert your OWN change.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');

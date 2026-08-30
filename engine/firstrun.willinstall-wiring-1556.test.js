@@ -48,6 +48,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_BIN = STUB_BIN;
 
 const firstrun = require('./firstrun');
 const subscription = require('./subscription');
+const status = require('./status');
 const connect = require('./connect');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, '..', 'web', 'index.html'), 'utf8');
@@ -66,10 +67,20 @@ function readerPath() {
 
 test.beforeEach(() => {
   subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  /* ⚠️ TMUX PINNED FOR THE SAME REASON AS THE LAUNCHER, one dependency over, and I
+     missed it the first time. `firstrun.state()` calls `fleet()` -> `paneRoster()`
+     -> `listPanes()`, so with no pane source this file SHELLS OUT TO THE REAL TMUX
+     and reads the operator's live fleet. The assertions do not depend on it, because
+     `fleet()` catches, so it is not flaky today. It is still the hazard `server.test.js`
+     records as #332, and this file spends a paragraph on exactly this class about the
+     BINARY while leaving the fleet unpinned. The sibling `firstrun.test.js` sets a
+     pane source in every single test. */
+  status.setPaneSource(() => '');
   connect.resetForTests();
 });
 test.afterEach(() => {
   subscription.setRunner(null);
+  status.setPaneSource(null);
   connect.setRunner(null);
   connect.resetForTests();
 });
