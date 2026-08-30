@@ -22006,6 +22006,11 @@ async function paintAccountPicker(a) {
        a second caller awaits the SAME fetch instead of starting a new
        one. */
     if (msg) msg.textContent = 'Checking…';
+    /* Declared OUTSIDE the try: the catch below reads it, and a `const` inside
+       the try is not in scope there -- a ReferenceError at exactly the moment
+       something already went wrong. Caught before shipping; `new Function`
+       parses it happily, because it is a scope error and not a syntax one. */
+    const mine = ++ACCT_EPOCH;
     try {
       if (!ACCT_PICKER_FETCH) {
         /* Resolves to a VERDICT, not a list, so the caller applies one transition. The
@@ -22018,9 +22023,22 @@ async function paintAccountPicker(a) {
           .catch(() => ({ ok: false, accounts: [] }))
           .finally(() => { ACCT_PICKER_FETCH = null; });
       }
+      /* 🛑 A STALE FAILURE MUST NOT UNDO A FRESH SUCCESS. This continuation and
+         `paintAccounts` now write the SAME three globals from two independent
+         `/api/accounts` fetches, and only `paintAccounts` sequences its writes
+         (ACCT_EPOCH). So a picker fetch that started earlier and fails LATER
+         could flip a good, freshly-read list to unreadable -- and the confirm
+         dialog would then hedge ("we could not read the list just now") about a
+         list that was read perfectly. That is the wrong sentence on the last
+         screen before a restart, which is the class this whole branch guards.
+         ⚠️ ONLY THE FAILURE WRITE IS GATED, deliberately. Gating the SUCCESS
+         write too would let a newer fetch suppress the very list this picker
+         needs, and an empty picker is a worse failure than a stale one. A
+         success always lands; a superseded failure is discarded. */
       const got = await ACCT_PICKER_FETCH;
-      if (got && got.ok) accountsRead(got.accounts); else accountsUnreadable();
-    } catch { accountsUnreadable(); /* the control stays empty and disabled, which is honest */ }
+      if (got && got.ok) accountsRead(got.accounts);
+      else if (mine === ACCT_EPOCH) accountsUnreadable();
+    } catch { if (mine === ACCT_EPOCH) accountsUnreadable(); /* the control stays empty and disabled, which is honest */ }
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     if (msg) msg.textContent = '';
   }
@@ -22744,7 +22762,15 @@ async function changeProviderNow(say) {
     });
     const out = await res.json().catch(() => null);
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
-    if (!res.ok || !out) throw new Error((out && (out.because || out.error)) || 'that did not work');
+    if (!res.ok || !out) {
+      /* Tagged so the catch can tell a REFUSAL (the server answered, and said no)
+         from a transport failure (it never answered). Only the first can mean our
+         account list is stale; the second means the network is unwell, which is
+         the worst possible moment to fire a live per-account re-read. */
+      const refusal = new Error((out && (out.because || out.error)) || 'that did not work');
+      refusal.serverRefused = true;
+      throw refusal;
+    }
     /* The route's sentence verbatim: it says what stayed, what did not
        cross, and that the agent will look idle until spoken to. */
     msg.textContent = out.because || 'Switched.';
@@ -22787,17 +22813,25 @@ async function changeProviderNow(say) {
        at a person whose server-side list is perfectly intact. ⚠️ This is the same defect
        arriving through the sibling path, in the half of the remedy that was not copied
        across when the first half was fixed. */
-    /* ⚠️ ONLY WHEN THE TARGET WAS OPENAI. The remedy exists for the ghost-account
-       refusal ("that sign-in is not on this computer any more, pick one from the
-       list"), which can only arise on a switch TO OpenAI. Firing it on every
-       failure also fired it on a switch to Anthropic, on a transient network
-       error, and on the "already runs on OpenAI" refusal a double-click reaches
-       -- each one re-running `/api/accounts`, which is a LIVE per-account check.
-       🛑 That amplification lands exactly when the server or network is already
-       unhealthy, because the thing that failed the switch is the thing about to
-       be asked again, and a person retrying repeats it. Narrowed to the case the
-       remedy is for; the whole remedy is kept. */
-    if (want === 'openai') {
+    /* ⚠️ TWO CONDITIONS, AND AN EARLIER VERSION OF THIS COMMENT CLAIMED THREE
+       EXCLUSIONS WHILE THE CODE MADE ONE. Stated precisely now.
+       The remedy exists for the ghost-account refusal ("that sign-in is not on
+       this computer any more, pick one from the list"): re-read the list so the
+       stale row goes away. It costs a LIVE per-account check, so it must not
+       fire where it cannot help.
+       EXCLUDED BY `want === 'openai'`: a switch to Anthropic, which never
+       consults this list.
+       EXCLUDED BY `serverRefused`: a transport failure. 🛑 This is the one that
+       mattered and the one the previous narrowing missed -- a fetch that never
+       got an answer means the network is unwell, and re-reading every account is
+       exactly the wrong thing to do then, repeated on every retry.
+       📌 STILL FIRES, named rather than hidden: the "already runs on OpenAI"
+       refusal a double-click reaches. It is a genuine server refusal on an
+       OpenAI switch, so neither condition excludes it. Accepted: one re-read on
+       a deliberate double-press is not a storm, and excluding it would mean
+       matching the refusal's wording, a fragile coupling to a sentence the
+       engine owns. */
+    if (want === 'openai' && err && err.serverRefused === true) {
       accountsDropped();
       try { await paintAccountPicker(CURRENT); }
       catch { /* the sentence above is the answer; a failed refresh must not replace it */ }

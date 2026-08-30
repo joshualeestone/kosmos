@@ -234,7 +234,21 @@ test('#1373: the page-to-route key is pinned on BOTH sides, so a rename cannot p
 test('#1373: the four fail-quiet fixes are pinned, because each one reverts green', () => {
   /* 1. A FAILED READ IS NOT AN EMPTY LIST. Collapsing this back to
      `res.ok ? res.json() : null` makes a 500 arrive as "you have no accounts". */
-  assert.match(PAGE, /if \(got && got\.ok\) accountsRead\(got\.accounts\); else accountsUnreadable\(\);/,
+  /* ⭐ LOOSENED ONTO THE PROPERTY, FOR THE SECOND TIME IN THIS TEST AND FOR THE
+     SAME REASON THE NOTE BELOW GIVES. This pinned the two calls as ONE LINE
+     (`... accountsRead(x); else accountsUnreadable();`) and went red when a
+     supersession guard split the else onto its own line. The guard was right to
+     fire and the axis was wrong again: what matters is that a FAILED read calls
+     `accountsUnreadable`, not that the two calls share a line. */
+  assert.match(PAGE, /if \(got && got\.ok\) accountsRead\(got\.accounts\);/,
+    'a successful read no longer fills the cache');
+  /* 🛑 THE `else` IS THE SUBJECT, and a looser form of this matched the CATCH
+     block's identical call instead -- so a mutation collapsing the else to
+     `accountsDropped()` passed. Pinning the else keyword is what makes the
+     match be about the failed-read branch and not about a neighbour that
+     happens to say the same words. Optional guard allowed between them, so a
+     supersession check can be added without re-breaking this. */
+  assert.match(PAGE, /else\s*(?:if \([^)]*\)\s*)?accountsUnreadable\(\);/,
     'the accounts fetch no longer records that it FAILED, so a server error is indistinguishable from having no accounts');
   /* 2. AND THE FLAG HAS TO BE READ, NOT JUST WRITTEN. Setting it and never consulting
      it is the same silence with extra steps. */
