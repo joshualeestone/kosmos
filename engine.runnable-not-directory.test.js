@@ -419,171 +419,111 @@ test('willInstall rejects a DIRECTORY without ever reaching the version probe', 
   }
 });
 
-/**
- * Mona Lisa's finding, carried from her parallel #1592 branch. TWO BLIND
- * REVIEWERS HIT THIS ON HER VERSION.
- *
- * `canRunClaude` exists so the stuck screen can say whether the binary is
- * runnable, and its docblock promises "any error answers FALSE". That holds
- * only while the BIN RESOLUTION is inside the try: `claudeBinPath()` can throw,
- * and hoisting it above the try lets the throw escape `becomeStuck`, so
- * `writeState` never runs and the person is left on no screen at all.
- *
- * ⚠️ INVISIBLE TO A BEHAVIOURAL TEST that does not force a throw from the
- * resolver, and it is a tempting refactor. So this asserts the SHAPE, and it is
- * the one source-reading arm kept in this file. It is kept because it guards a
- * DIFFERENT defect (an escaping throw) that no behavioural arm here reaches,
- * and because what it asserts is a structural relationship rather than a
- * judgement about whether a call is correct.
- */
-test('canRunClaude resolves the bin INSIDE its try, so a throw still writes the stuck screen', () => {
+test('claudeHatchAvailable answers NO for a directory, which is what the stuck screen is gated on', () => {
+  /* 🛑 THIS ARM REPLACES SIX ATTEMPTS AT BOUNDING A REGION, AND THE HISTORY IS
+     THE ARGUMENT FOR IT. becomeStuck used to compute this inline, so the guard
+     had to bound a region of a mutable function. A region has two edges and each
+     was independently wrong:
+
+       anchor + 600 chars   TOO BIG    a decoy in the next function satisfied it
+       to the catch close   TOO SMALL  a fallback after the catch was invisible
+       to `writeState(`     WRONG BOTH WAYS: an earlier writeState( truncates the
+                            region, AND the widening that mattered lived inside
+                            writeState's own argument list written with a COLON,
+                            so no assignment check could match it at any boundary
+
+     Every fix moved one edge and exposed the other. The logic is one exported
+     function now, so there is nothing to bound and this arm can simply RUN IT.
+
+     📌 No new test seam and no export of becomeStuck: claudeBinPath() already
+     honours AGENT_WORKFORCE_CLAUDE_BIN, the same override the willInstall arm
+     uses. */
+  const connect = require('./engine/connect.js');
+  const f = fixture('claude');
+  const before = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  try {
+    process.env.AGENT_WORKFORCE_CLAUDE_BIN = f.asDirectory;
+    assert.strictEqual(connect.claudeHatchAvailable(), false,
+      'a DIRECTORY at the claude bin path reads as a runnable hatch. The stuck screen would ' +
+      'offer "open Terminal and type claude" pointing at a folder (#1595 gates the hatch on ' +
+      'this value, and publicView serves it).');
+    process.env.AGENT_WORKFORCE_CLAUDE_BIN = f.realBin;
+    assert.strictEqual(connect.claudeHatchAvailable(), true,
+      'a real executable reads as unavailable, so the arm above proves nothing');
+  } finally {
+    if (before === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    else process.env.AGENT_WORKFORCE_CLAUDE_BIN = before;
+    f.cleanup();
+  }
+});
+
+test('claudeHatchAvailable resolves the bin INSIDE its try, so a throw still writes the stuck screen', () => {
+  /* Mona Lisa's finding, and I DELETED THE GUARD FOR IT while collapsing the
+     region, then caught that with my own perturbation. Third time today that
+     simplifying a guard silently dropped coverage.
+
+     `claudeBinPath()` calls the runner resolver, which can throw, and
+     becomeStuck's docblock promises any error answers FALSE. Hoisting the
+     resolution into a bare `const` above the try lets the throw escape
+     becomeStuck entirely, so writeState never runs and the person is left on NO
+     SCREEN AT ALL. Two blind reviewers hit this on her branch.
+
+     ⚠️ IT IS A SOURCE CHECK AND I WOULD RATHER IT WERE NOT. Forcing the resolver
+     to throw needs a seam that does not exist, so the behavioural consequence
+     stays untested; that is a known gap, not a covered one. What makes this one
+     tolerable where the old region check was not: the surface is a SEVEN-LINE
+     FUNCTION with its own braces, not a region of a mutable function, so there is
+     no boundary to get wrong in either direction. */
   const src = fs.readFileSync(path.join(ENGINE, 'connect.js'), 'utf8');
-  const anchor = src.indexOf('let canRunClaude = false;');
-  assert.ok(anchor > 0, 'canRunClaude was renamed or removed; re-aim this guard');
-  assert.strictEqual(src.indexOf('let canRunClaude = false;', anchor + 1), -1,
-    'the anchor appears more than once, so the region below is ambiguous');
+  const at = src.indexOf('function claudeHatchAvailable()');
+  assert.ok(at > 0, 'claudeHatchAvailable was renamed or removed; re-aim this guard');
+  const body = src.slice(at, src.indexOf('\n}', at) + 2);
+  assert.ok(body.length < 400, 'claudeHatchAvailable has grown; it is meant to be one expression in a try');
 
-  const region = src.slice(anchor, anchor + 600);
-  const tryAt = region.indexOf('try {');
-  const catchAt = region.indexOf('} catch');
-  assert.ok(tryAt > -1 && catchAt > tryAt, 'canRunClaude is no longer wrapped in a try/catch');
-
-  const guarded = region.slice(tryAt, catchAt);
+  const tryAt = body.indexOf('try {');
+  const resolveAt = body.search(/claudeBinPath\s*\(|resolveBin\s*\(/);
+  assert.ok(tryAt > -1, 'claudeHatchAvailable is no longer wrapped in a try/catch');
+  assert.ok(resolveAt > -1, 'claudeHatchAvailable no longer resolves a bin path at all');
   assert.ok(
-    /claudeBinPath\s*\(|resolveBin\s*\(/.test(guarded),
-    'the bin resolution has moved OUTSIDE canRunClaude\'s try. A throw from it now escapes ' +
-      'becomeStuck and the stuck screen is never written, breaking the docblock promise that ' +
-      'any error answers false. Keep the resolution inside the try.'
+    resolveAt > tryAt,
+    'the bin resolution has moved OUTSIDE claudeHatchAvailable\'s try. A throw from the runner ' +
+      'resolver now escapes becomeStuck, so writeState never runs and the person is left on no ' +
+      'screen at all, which breaks the docblock promise that any error answers false.'
   );
 });
 
-test('every write to canRunClaude before writeState delegates or is the catch arm', () => {
-  /* 🛑 THE ONE SITE WITH NO BEHAVIOURAL ARM, AND WHY. `becomeStuck` is not
-     exported and early-returns unless the module-internal `driver` matches the
-     caller, so it cannot be called from a test. Reaching it needs a full
-     `start()` flow driven to failure, which no test in this repo does today.
-     Carded separately. Until then this site is defended by SOURCE, which this
-     file otherwise refuses to do, so it is written to survive the three shapes
-     that have actually defeated a source arm here.
+test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing else', () => {
+  /* The behavioural arm above proves the FUNCTION is right. This proves the call
+     site still uses it, which is the other half and is one expression rather than
+     a region: no boundary, no count, no distance judgement.
 
-     ⭐ IT COUNTS ASSIGNMENTS RATHER THAN LOOKING FOR A TOKEN, which is what makes
-     it different from the two arms that fell on pass 9. Both defeats worked by
-     ADDING the token somewhere the region could see:
+     🛑 IT MATCHES THE WHOLE PROPERTY VALUE UP TO THE COMMA OR BRACE, WHICH IS
+     WHAT MUTATION F NEEDED. That defeat widened at the point of use with a COLON,
+     `canRunClaude: canRunClaude || fs.existsSync(...)`, which is not an
+     assignment and which every assignment-shaped check missed at every boundary.
+     Anything appended here changes this string.
 
-       comment decoy   canRunClaude = fs.existsSync(...); /* canRunClaude =
-                       require('./runners').isRunnable(     <- unclosed opener
-       dead code       canRunClaude = fs.existsSync(...);
-                       if (0) canRunClaude = require('./runners').isRunnable(...)
-
-     Both leave TWO assignments where the correct code has one, so requiring
-     exactly one and checking THAT ONE closes both without judging whether any
-     given line is a comment. A straight revert with no decoy leaves one
-     assignment that does not delegate, which fails the second half.
-
-     ⚠️ NAMED WEAKNESS, because this is the weakest arm in the file: a decoy that
-     REPLACES the real assignment rather than adding to it still leaves one
-     assignment, and if that one delegates while something later undoes it, the
-     override arm below is what catches it. Two arms, neither sufficient alone. */
+     ⚠️ Mona Lisa's finding is now guarded by the function's own try rather than
+     by a shape assertion here: claudeBinPath() can throw, and becomeStuck's
+     docblock promises any error answers false. Its behavioural consequence is
+     untested (forcing the resolver to throw needs a seam that does not exist),
+     and that is a known gap rather than a covered one. */
   const src = fs.readFileSync(path.join(ENGINE, 'connect.js'), 'utf8');
-  const anchor = src.indexOf('let canRunClaude = false;');
-  assert.ok(anchor > 0, 'canRunClaude was renamed or removed; re-aim this guard');
-  /* 🛑 BOUNDED BY THE CONSUMER, AND BOTH EARLIER BOUNDARIES WERE WRONG IN
-     OPPOSITE DIRECTIONS. This is the third boundary this arm has had.
-
-       anchor + 600 chars   TOO BIG. Ran 14 source lines past becomeStuck into
-                            the next function, so a decoy in submitCode satisfied it.
-       to the catch close   TOO SMALL, and I introduced that regression myself
-                            while fixing the first one. It left the gap between the
-                            catch and writeState unguarded, which is the most
-                            natural place in the function to write a fallback:
-                              } catch { canRunClaude = false; }
-                              if (!canRunClaude) canRunClaude = fs.existsSync(...);
-                            Measured: 12 pass / 0 fail with a DIRECTORY reading true.
-                            The char-count region had been covering that BY ACCIDENT.
-
-     ⭐ `writeState(` is the correct boundary because it is what READS the
-     variable. Anything that can change the answer must sit before it, so the
-     region cannot be too small; nothing after it can matter, so it cannot be too
-     big. A boundary derived from the consumer needs no constant and no judgement.
-
-     ⚠️ And it is the same lesson as the rest of this branch, arriving through the
-     door I opened: simplifying a guard can lose coverage silently, because the
-     thing it stopped catching does not announce itself. I did that twice today. */
-  const end = src.indexOf('writeState(', anchor);
-  assert.ok(end > anchor && end - anchor < 2000,
-    'becomeStuck no longer calls writeState() after computing canRunClaude, so this guard has ' +
-      'no boundary to work from. Re-aim it at whatever consumes the value now.');
-  const region = src.slice(anchor + 'let canRunClaude = false;'.length, end);
-
-  const assignments = region.match(/canRunClaude\s*=\s*[^;\n]+/g) || [];
-  /* No fixed count. "First delegates, every other is `= false`" is strictly
-     stronger and needs no arbitrary number: an extra `= false` is harmless, and
-     anything else is refused below. The old `=== 2` was itself a number chosen
-     by eye, and a reviewer freed a slot by deleting the redundant catch arm. */
-  assert.ok(
-    assignments.length >= 1,
-    'no assignment to canRunClaude between its declaration and the writeState that reads it. ' +
-      'The value the stuck screen is gated on is never computed.'
-  );
-  /* 🛑 ANCHORED AT BOTH ENDS, AND A PREFIX MATCH IS WHY. This arm shipped for one
-     hour matching only the START of the assignment, and a reviewer defeated it in
-     one line: `= require('./runners').isRunnable(x) || fs.existsSync(x)` matched
-     the prefix perfectly and answers TRUE for a directory, because isRunnable says
-     no and existsSync says yes. The delegation must be the WHOLE answer, not the
-     first half of it. */
-  /* 📌 TWO CHECKS RATHER THAN ONE CLEVER REGEX, AND I TRIED THE CLEVER ONE FIRST.
-     `\(([^)]*)\)$` cannot cross the nested `)` in `claudeBinPath()`, so it went
-     RED ON CORRECT CODE. That is the exact `[^)]*` hazard this file's own
-     WEAK_CALL docblock warns about, committed here by the person who wrote that
-     warning. And a greedy `\(.*\)$` lets the disjunction straight back in,
-     because `isRunnable(x) || existsSync(x)` also ends in `)`. So: match the
-     delegation, then separately refuse anything that could widen it. */
-  assert.match(
-    assignments[0],
-    /^canRunClaude\s*=\s*require\(['"]\.\/runners['"]\)\.isRunnable\s*\(/,
-    'becomeStuck\'s canRunClaude is not EXACTLY a delegation to runners.isRunnable; it is ' +
-      '`' + assignments[0].trim() + '`. Anything ADDED to the delegation can undo it: a ' +
-      '`|| fs.existsSync(p)` answers true for a DIRECTORY because isRunnable says no and ' +
-      'existsSync says yes. If it was repointed or widened, a directory reads as runnable ' +
-      'and the stuck screen offers a hatch that cannot work. publicView serves this field ' +
-      'to the page (#1595).'
-  );
-
-  /* 🛑 EVERY ASSIGNMENT, NOT JUST THE FIRST, AND A REVIEWER TOOK THE SLOT I LEFT.
-     The count above expects two: the delegation and the catch arm's `= false`.
-     But the catch arm is REDUNDANT (the variable is initialised false one line
-     up), so it can be deleted and its slot reused:
-
-       canRunClaude = require('./runners').isRunnable(claudeBinPath());
-       if (!canRunClaude) canRunClaude = fs.existsSync(claudeBinPath());
-       } catch { }
-
-     Count still 2. First assignment still delegates. No truthy literal. No
-     accessSync for the sweep. Measured: 10 pass / 0 fail with a DIRECTORY
-     reading TRUE. It also defeats the `||` refusal below, because the weakener
-     is a SEPARATE statement rather than an operator on the first one.
-     ⇒ Checking only `assignments[0]` means every other slot is unexamined.
-     Every assignment after the first must be exactly `= false`, which admits the
-     real catch arm and refuses anything that can raise the answer. */
-  for (const extra of assignments.slice(1)) {
-    assert.match(
-      extra.trim(), /^canRunClaude\s*=\s*false$/,
-      'becomeStuck assigns canRunClaude something other than the catch arm\'s `= false`: `' +
-        extra.trim() + '`. Any later assignment can undo the delegation, and one that only ' +
-        'RAISES the answer (a presence-check fallback) turns a DIRECTORY back into true ' +
-        'while the first assignment still looks correct.'
-    );
-  }
-
-  const widened = assignments[0].match(/\|\||&&|\?|\bor\b/);
-  assert.strictEqual(
-    widened, null,
-    'becomeStuck\'s canRunClaude delegates to runners.isRunnable and then WIDENS the answer ' +
-      'with `' + (widened && widened[0]) + '`: `' + assignments[0].trim() + '`. A ' +
-      '`|| fs.existsSync(p)` answers true for a DIRECTORY, because isRunnable says no and ' +
-      'existsSync says yes, so the delegation is decorative. The delegation must be the ' +
-      'whole answer. publicView serves this field to the page (#1595).'
-  );
+  /* Only the writeState call. publicView legitimately carries its own
+     `canRunClaude: s.canRunClaude || false` serving default (#1595), which reads
+     a value already computed rather than computing one, so it is not a second
+     writer. Matching every `canRunClaude:` in the file would red on that. */
+  const writes = (src.match(/writeState\(\{[^}]*canRunClaude[^}]*\}/g) || []);
+  assert.strictEqual(writes.length, 1,
+    'expected exactly one writeState call carrying canRunClaude, found ' + writes.length +
+      ':\n  ' + writes.join('\n  ') + '\nA second writer is a path no arm drives.');
+  const hits = writes[0].match(/canRunClaude\s*:\s*[^,}]+/g) || [];
+  assert.strictEqual(hits.length, 1, 'the writeState call carries canRunClaude ' + hits.length + ' times');
+  assert.strictEqual(hits[0].trim(), 'canRunClaude: claudeHatchAvailable()',
+    'becomeStuck no longer writes canRunClaude straight from claudeHatchAvailable(); it writes ' +
+      '`' + hits[0].trim() + '`. Anything added here can widen the answer AFTER the check: a ' +
+      '`|| fs.existsSync(p)` turns a DIRECTORY back into true, and it is not an assignment so ' +
+      'no assignment guard can see it.');
 });
 
 test('nothing unconditionally forces canRunClaude true, which would dead-code the check', () => {
