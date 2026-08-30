@@ -321,7 +321,8 @@ _pair_had=0; [ -f "$SITE/dist/kosmos-$V-arm64.tar.gz" ] && _pair_had=1
 # #1548: whether the UNVERSIONED pointer (kosmos-arm64.tar.gz) existed before this
 # cut. Unlike the versioned pair, the pointer is overwritten just before the deploy and
 # must keep pointing at the SERVED version, so a failure restores the pre-cut copy
-# (backed up beside it as .precut just before the overwrite) rather than removing it.
+# (backed up under BUILD_ROOT, not in the site checkout, just before the overwrite)
+# rather than removing it.
 # had_ptr=0 means a fresh site clone: then the pointer this cut created is removed.
 _ptr_had=0; [ -f "$SITE/dist/kosmos-arm64.tar.gz" ] && _ptr_had=1
 DEPLOYED=0
