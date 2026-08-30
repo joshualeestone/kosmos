@@ -2979,8 +2979,10 @@ const server = http.createServer((req, res) => {
        (this route and /api/agent/connections), and the second is called by
        AGENTS, not by a hand on a screen. The same over-narrow claim was fixed in
        engine/accounts.js and this copy four lines above the rewritten block was
-       missed, which is the drift this branch is about. (which still
-       calls the plain, fast list() elsewhere in this file, untouched).
+       missed, which is the drift this branch is about. The 5-second board-status
+       tick still calls the plain, fast list() elsewhere in this file, untouched.
+       (That trailing clause was left dangling by the rewrite above, attached to
+       nothing, which is the same half-edited-comment defect this branch names.)
          🛑 THE INVARIANT IS THE JUSTIFICATION, NOT A LIST. An earlier version of
          this comment made a caller enumeration NORMATIVE ("this list is the
          justification, so it has to stay complete") and shipped INCOMPLETE the

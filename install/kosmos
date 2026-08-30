@@ -742,6 +742,17 @@ cmd_connections() {
     # should cost formatting, not the answer, so the raw body goes out rather
     # than a locally-invented sentence. Same rule `whoami` states.
     printf '%s\n' "$body"
+    # 🛑 THE STATUS STILL HAS TO BE HONEST. Printing the raw body when we cannot
+    # format it is the stated trade above and stays. Reporting SUCCESS for a call
+    # that FAILED is not part of that trade, and this was doing both: a board
+    # answering {"error": ...} left here with exit 0, so anything branching on the
+    # status saw a healthy call. Measured: no-runtime on a 404 body printed the
+    # raw JSON and returned 0, while the formatted path returned 1 for the same
+    # board.
+    # ⚠️ Keyed on the error FIELD rather than parsed, because parsing is exactly
+    # what we do not have a runtime for. It is a narrower test than the renderer
+    # does and it is the honest one available here.
+    case "$body" in *'"error"'*) return 1 ;; esac
     return 0
   fi
   # The board composed every sentence; this prints them rather than inventing

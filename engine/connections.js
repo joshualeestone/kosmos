@@ -103,8 +103,10 @@ function cliAdvice(cli) {
     : 'Kosmos could not work out where its own command lives when your file was written, so that may not be on your path.';
   return [
     first,
-    'If it says Kosmos is not running, or prints a list of commands instead of',
-    'answering, the copy on this computer is older than these instructions.',
+    'If it says Kosmos is not running, that is the whole problem: it needs to be',
+    'started, and the command itself tells you how.',
+    'If it prints a list of commands instead of answering, the copy on this',
+    'computer is older than these instructions.',
     'In any of those cases, do not guess at another path and do not conclude the',
     'feature is gone: tell them what you saw, and ask them to open Kosmos, which',
     'shows the same thing on its own screen.',
@@ -114,16 +116,12 @@ function cliAdvice(cli) {
 
 function blockBody() {
   const cli = kosmosCliShown();
-  /* A path or the bare fallback. Keyed on the separator rather than on a second
-     call into clipath, so the sentence below and the command above can never
-     describe different resolutions. */
-  const cliIsPath = cli.indexOf('/') >= 0;
   return [
     '## How connecting a provider works',
     '',
     'The person you work for may ask you to help them connect a provider. You',
     'can, and this is what you need to know. **You cannot see their screen**, so',
-    'the last paragraph matters as much as the rest.',
+    'the part about asking rather than describing matters as much as the rest.',
     '',
     '**What a provider is here.** Kosmos runs each agent using a terminal agent',
     'from a provider. Anthropic agents run on Claude Code. OpenAI agents run on',
@@ -160,14 +158,19 @@ function blockBody() {
     'being the one who confidently describes the wrong screen.',
     '',
     'One thing you CAN check for yourself, rather than asking: run',
-    '`' + cli + ' connections`.',
-    ...cliAdvice(cli),
-    'It tells you which providers are',
+    '`' + cli + ' connections`. It tells you which providers are',
     'connected on this computer, and whether a CLAUDE sign-in is part way through',
     '(pasting a GPT key is not a sign-in flow and will not show there). It answers',
     'in three states, and **could not check** is one of them: treat that as',
     'unknown, never as "not connected".',
     '',
+    /* 🛑 THE TROUBLESHOOTING GOES AFTER THE DESCRIPTION, NOT BETWEEN THE COMMAND
+       AND IT. Spliced in the middle, the description opened with "It tells you
+       which providers are connected", and the nearest antecedent for "It" was
+       Kosmos or the screen from the last troubleshooting sentence, not the verb.
+       Order matters in prose an agent acts on: what it is, then what it does,
+       then what to do when it does not work. */
+    ...cliAdvice(cli),
     'It deliberately does NOT show you the sign-in link or the terminal output,',
     'and you should not go looking for them anywhere else either.',
     'Those are the parts that would let somebody sign in as them, so they are not',

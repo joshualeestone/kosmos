@@ -75,6 +75,20 @@ function kosmos(port) {
   });
 }
 
+/**
+ * The SAME invocation with no bundled runtime, so the degraded path is reachable.
+ * `install/kosmos` resolves node as `$KOSMOS_HOME/runtime/bin/node`; pointing
+ * KOSMOS_HOME at an empty dir makes that miss, which is the real shape on a
+ * layout where the runtime is absent.
+ */
+function kosmosNoRuntime(port) {
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-noruntime-'));
+  return new Promise((resolve) => {
+    execFile('bash', [CLI, 'connections'], { env: { ...process.env, KOSMOS_PORT: String(port), KOSMOS_HOME: bare } },
+      (err, stdout, stderr) => resolve({ code: err ? err.code : 0, out: String(stdout), err: String(stderr) }));
+  });
+}
+
 const P = (over = {}) => ({
   providers: [
     { id: 'anthropic', name: 'Claude', installed: true, signedIn: 'connected', howMany: 1, howManyWorking: 1, because: 'this computer has a working sign-in for it' },
@@ -436,6 +450,36 @@ test('an UNRESOLVED sign-in provider is not attributed to Claude', async () => {
        assertion above and would lose a real thing the person needs to know. */
     assert.match(r.out, /An earlier sign-in got stuck/,
       'the stuck sentence vanished entirely, losing a signal rather than un-attributing it');
+  });
+});
+
+test('with no runtime, a FAILED call still reports failure', async () => {
+  /**
+   * 🛑 IT PRINTED THE RAW BODY AND RETURNED 0. Losing the runtime is supposed to
+   * cost FORMATTING, not the answer, and that trade is deliberate and stays. But
+   * it was also costing the STATUS: a board answering {"error": ...} left the
+   * degraded path with exit 0, so anything branching on the code saw a healthy
+   * call, while the formatted path returned 1 for the same board.
+   *
+   * No test covered this path at all, which is how both halves stayed true.
+   */
+  await withBoard({ status: 404, body: { error: 'no such endpoint' } }, async (port) => {
+    const r = await kosmosNoRuntime(port);
+    assert.notEqual(r.code, 0,
+      'a failed call reported success because the runtime was missing');
+    /* CONTROL that the deliberate half survives: the raw body must STILL be
+       printed. A fix that started swallowing the answer would also satisfy the
+       assertion above, and would be the wrong trade. */
+    assert.match(r.out, /no such endpoint/,
+      'the raw body stopped being printed, which was the whole point of this path');
+  });
+
+  /* SECOND CONTROL: the same degraded path on a GOOD board must still exit 0, or
+     the first assertion is satisfied by simply always failing. */
+  await withBoard({ body: P() }, async (port) => {
+    const r = await kosmosNoRuntime(port);
+    assert.equal(r.code, 0,
+      'control: a healthy call now reports failure, so the check is not about the error');
   });
 });
 
