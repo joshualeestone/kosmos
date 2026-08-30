@@ -2990,9 +2990,9 @@ const server = http.createServer((req, res) => {
          That wording named `/api/agent/connections` among the person-paced
          callers. It is not one: `install/kosmos` reaches it with curl, so the
          caller is an AGENT. Worse, the route did not exist on main when that
-         comment landed -- it arrives with #1034, below -- so the comment listed
-         a caller that was not there and then described it wrongly. Both halves
-         are the defect this comment is about, committed inside it.
+         comment landed: it is added by THIS diff, below. So the comment listed a
+         caller that was not there and then described it wrongly. Both halves are
+         the defect this comment is about, committed inside it.
          📌 The callers as of #1034, illustrative and NOT a set to maintain:
          paintAccounts (Settings > Accounts), paintConnLive (the Connections
          section opening), paintAccountPicker (the agent panel picker),
