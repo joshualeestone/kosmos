@@ -82,6 +82,11 @@ const WROTE_WHY = 'Kosmos told it how connecting a provider works';
  * not the same thing as varying with the reader.
  */
 function blockBody() {
+  const cli = kosmosCliShown();
+  /* A path or the bare fallback. Keyed on the separator rather than on a second
+     call into clipath, so the sentence below and the command above can never
+     describe different resolutions. */
+  const cliIsPath = cli.indexOf('/') >= 0;
   return [
     '## How connecting a provider works',
     '',
@@ -124,10 +129,22 @@ function blockBody() {
     'being the one who confidently describes the wrong screen.',
     '',
     'One thing you CAN check for yourself, rather than asking: run',
-    '`' + kosmosCliShown() + ' connections`. If that path is not there, Kosmos has',
-    'moved since your file was written. Do not conclude the feature is gone and do',
-    'not guess at another path: tell them the command is not where you expected,',
-    'and ask them to open Kosmos, which shows the same thing on its own screen.',
+    '`' + cli + ' connections`.',
+    /* 🛑 TWO SENTENCES, BECAUSE clipath CAN RETURN A BARE `kosmos`. Both of its
+       probes can fail (clipath.js:40), and then the taught command is the bare
+       form this module's own header calls a measured lie on a stock install.
+       The path sentence would also be nonsense there: "if that path is not
+       there" describes nothing when there is no path. So the follow-up is
+       chosen by what was actually resolved, and the bare case says plainly that
+       we could not locate it rather than pretending we did. */
+    cliIsPath
+      ? 'If that path is not there, Kosmos has moved since your file was written.'
+      : 'Kosmos could not work out where its own command lives when your file was',
+    cliIsPath
+      ? 'Do not conclude the feature is gone and do not guess at another path:'
+      : 'written, so that may not be on your path. If it is not found:',
+    'tell them the command is not where you expected, and ask them to open',
+    'Kosmos, which shows the same thing on its own screen.',
     '',
     'It tells you which providers are',
     'connected on this computer, and whether a CLAUDE sign-in is part way through',

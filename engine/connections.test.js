@@ -64,8 +64,27 @@ test('#1034: the connections paragraph is actually IN the block, and says the th
   // 1. It names the verb, using THIS machine's path rather than the bare command
   //    the file's own opening comment calls a measured lie on a stock install.
   assert.match(body, /connections`/, 'the block stopped naming the connections verb');
-  assert.doesNotMatch(body, /try `kosmos connections`/,
-    'the block sends agents to the bare command, which fails on a stock install');
+  /* 🛑 THIS ARM USED TO READ doesNotMatch(body, /try `kosmos connections`/) AND
+     IT COULD NOT FAIL. Measured: `blockBody()` contains the string "try " ZERO
+     times (control: "run" appears 4 times), so it pinned a state the block
+     cannot reach, and the bare-command hazard it named would have passed
+     straight through it. A guard aimed at a phrase nobody emits is decoration.
+
+     What is actually true and worth pinning is a CONSISTENCY property that
+     holds on every machine: `clipath` returns either a path or the bare
+     fallback, and the follow-up sentence must describe whichever one was
+     resolved. A block that teaches a bare command while saying "if that path
+     is not there" is talking about a path it never gave. */
+  const teachesAPath = /`[^`]*\/[^`]*connections`/.test(body);
+  if (teachesAPath) {
+    assert.match(body, /that path is not there/,
+      'the block teaches a PATH but its follow-up does not describe one');
+  } else {
+    assert.doesNotMatch(body, /that path is not there/,
+      'the block teaches the bare command but says "that path", describing a path it never gave');
+    assert.match(body, /could not work out where its own command lives/,
+      'the bare fallback is taught without saying we could not locate it');
+  }
 
   // 2. It refuses the two-state reading. This is the sentence that stops an agent
   //    reporting "not connected" about a machine it merely could not read.
