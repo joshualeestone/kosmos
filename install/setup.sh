@@ -1403,9 +1403,178 @@ KOSMOS_SWEEP_LIST
   # Claim only what was observed: the plists were REMOVED (we removed them);
   # "stopped" would assert an outcome the best-effort bootout never checked.
   # And on a machine with no agents, say nothing about agents at all.
+  # 🛑 OUR OWN BOOKKEEPING GOES; THE PERSON'S DATA STAYS (#1547). The status
+  # engine writes a would-ping log into the data folder during normal running
+  # (#1494), and the uninstall left it there -- so somebody who removed Kosmos
+  # found our ping-logs sitting in their AgentWorkforce folder. Leave no trace
+  # applies to what WE generated, never to what they made.
+  #
+  # ⚠️ BY EXACT NAME, NOT A GLOB, and that is this file's own rule rather than
+  # caution for its own sake: every other rm here proves ownership first, and a
+  # pattern-swept data folder is precisely how an uninstaller deletes the thing
+  # it promised to keep. `wouldping/` is written by us and only by us; anything
+  # we cannot name that confidently is left alone and named, per the header.
+  #
+  # 🛑 `$_support`, NOT A SECOND DERIVATION. AGENT_WORKFORCE_DATA is the PARENT
+  # of the AgentWorkforce folder, not the folder itself (`engine/store.js:85`
+  # joins APP onto it), and a first version of this block re-derived the path and
+  # dropped that segment -- so it looked in `$AGENT_WORKFORCE_DATA/wouldping`
+  # while the log lives in `$AGENT_WORKFORCE_DATA/AgentWorkforce/wouldping` and
+  # the sweep silently did nothing. It only appeared to work on a fully default
+  # install, where the fallback happens to include the segment.
+  # ⚠️ AND `uninstall()` ITSELF EXPORTS THAT VARIABLE at the top of this function
+  # whenever KOSMOS_HOME is non-default, so every non-default install was missed.
+  # This file's own header states the rule that would have prevented it: two
+  # derivations of one string is how a sweep silently stops matching what the
+  # install wrote. `_support` is computed once, above, and is in scope here.
+  # 🛑 SIX DIRECTORIES, AND IF YOU ADD A SEVENTH CHANGE THE WORD "SIX". The number
+  # is here to make a missing member visible to a reader who is not looking for one,
+  # exactly as the remembered-answer block above does, and for the same reason: that
+  # block records that its fourth member shipped hours before it was listed there.
+  #
+  # 🛑 DERIVED BY SEARCH, NOT BY RECALL, AND THAT DISTINCTION IS THE WHOLE HISTORY OF
+  # THIS BLOCK. The first version swept ONE directory and the plan called it "the only
+  # litter I could name confidently" -- a sentence about my memory that reads as a fact
+  # about the codebase. A reviewer found a second. The sentence was then corrected and
+  # THE METHOD WAS NOT, so a second reviewer found four more. The list below comes from
+  # `grep -n "store\.ROOT"` across the engine, which is the command that should have
+  # been run first:
+  #
+  #   REMOVED, ours: we write it, we are the only writer, and it is rebuilt on next run
+  #     downloads    the provider binaries we downloaded. THE BIG ONE: connect.js
+  #                  records a stranded copy costing ~281MB, so leaving this behind
+  #                  while removing a JSONL ping log gets the priority exactly backwards
+  #     usage        a derived cache, recomputed from transcripts
+  #     sendertokens tokens WE mint (mode 0700); leaving agent credentials on disk
+  #                  after an uninstall is a residue question, not only tidiness
+  #     selfreports  agent state records we append
+  #     wouldping    the ping log this card was filed about
+  #     liveness     agent heartbeats
+  #
+  #   LEFT ALONE AND NAMED, per this plan's Scope rule. Not oversights:
+  #     chats, commitments      the person's, by `engine/forget.js:45` -- the "Forget my
+  #                             data" surface, whose own comment says adding a name
+  #                             there is the only way to widen it
+  #     projects.json, profiles, attachments, messages.jsonl, messages, avatars,
+  #     you.json, you-avatar     the person's work and their own profile
+  #     secrets                 THE PERSON'S CREDENTIALS. We wrote the files; the keys
+  #                             inside are theirs, and destroying them on an uninstall
+  #                             they may be reversing is not ours to decide
+  #     connect.json, removed.json, room-seen.json
+  #                             records of the PERSON'S DECISIONS. We write them, so
+  #                             they are arguably ours, and that is exactly why they
+  #                             are named rather than swept: "we wrote it" is not the
+  #                             test, "it is ours rather than theirs" is
+  #     created.jsonl, trust-writes.json, styles.json, ping.json, remote.json,
+  #     remote-status.json, github-app.json, autoupdate.json, engmode.json,
+  #     limits.json, notify.json, policy.json
+  #                             OURS BY THE SAME RULE AS THE SWEPT LIST, AND
+  #                             DELIBERATELY NOT SWEPT. See the note below.
+  #
+  # 🛑 ALREADY REMOVED ABOVE, SO DO NOT ADD THEM HERE: `first-run.json`,
+  # `seen-version.json`, `found-agents-dismissed.json` and `found-agents-declined.json`
+  # go at line 1397.
+  # 🛑 `remote/` IS DIFFERENT AND THIS ROW USED TO CALL IT SIMPLY HANDLED. It is
+  # removed at line 1186, but only inside FOUR nested conditions: KOSMOS_HOME exists, the
+  # ownership gate passes, `remote/mac_key` exists, AND the tunnel binary is executable.
+  # On a partial install, a second --uninstall, a bundle without the tunnel, or any run
+  # failing the ownership gate, `remote/` SURVIVES.
+  # ⚠️ AND IT IS THE ONE LEFTOVER THAT IS A CREDENTIAL: it holds this Mac's Plus
+  # key. The row that was wrong was the row holding an actual key, in a table whose
+  # justification for sweeping `sendertokens` is that leaving credentials behind is a
+  # residue question. Stated as a CONDITION rather than a fact, because a maintainer
+  # reads this table as a map of the folder.
+  # 📌 Distinct from the `remote.json` and `remote-status.json` FILES, which are
+  # left alone above; unsaid, the two files' row reads as covering the directory.
+  # 📌 `bin/` is removed at line 1367 ("removing the shared supervisor"), 140 up.
+  # put two contradictory rulings about the same four files in one function, and the
+  # newer one was wrong. A maintainer reading this table to decide whether a fifth
+  # decision-record is safe would have got the wrong answer.
+  #
+  # 🛑 WHY THE SWEEP STOPS AT SIX RATHER THAN TAKING THE TWELVE NAMED ABOVE AS OURS.
+  # This is a deliberate call, not an omission. Each round of widening this list has
+  # introduced a defect: adding `liveness` and `selfreports` silently falsified the
+  # closing sentence of the whole uninstall, because both are keyed PER AGENT and that
+  # sentence named their folder as untouched. The six swept are directories of pure
+  # machine output with no per-person content. The eleven are single files, several
+  # holding settings a person set (`engmode`, `limits`, `notify`, `policy`), and each
+  # would need its own reading of ours-versus-theirs. Naming them is free and cannot
+  # break anything. Deleting them cannot be undone. If a later card wants them, it
+  # should take them one at a time with that reading written down.
+  #
+  # 📌 AND THE LIST ABOVE WAS NOT DERIVED BY `grep store.ROOT` ALONE, BECAUSE THAT
+  # COMMAND IS BLIND: `engine/styles.js:20` and `engine/trust.js:393` write through an
+  # inline `require('./store').ROOT`, and `engine/create.js:1683` goes through a
+  # `supportDir()` helper. `grep -c 'store\.ROOT' engine/styles.js` returns ZERO for a
+  # file that writes there. Search for the WRITES (`path.join(` with a root-ish first
+  # argument) and read them, rather than for one spelling of the root.
+  # ⚠️ REMOVE FIRST, THEN CLAIM, which is this function's stated rule three lines up:
+  # "Claim only what was observed". Announcing before the attempt and swallowing the
+  # failure with `|| true` (required here, the file is `set -euo pipefail`) told the
+  # person records were removed when a permission error meant they were not. The
+  # neighbouring leftover-folder code at line 1350 already does it this way.
+  _swept=no
+  _swept_left=""
+  for _litter in downloads usage sendertokens selfreports wouldping liveness; do
+    if [ -d "$_support/$_litter" ]; then
+      rm -rf "$_support/$_litter" 2>/dev/null || true
+      if [ -d "$_support/$_litter" ]; then _swept_left="$_swept_left $_litter"; else _swept=yes; fi
+    fi
+  done
+  # 📌 ONE LINE, IN THE PERSON'S WORDS. An earlier version said "removing Kosmos's own
+  # wouldping records", printing a MODULE NAME to somebody uninstalling an app, once
+  # per directory, so six removals read as more happening than had. The neighbours are
+  # the model: "removing the shared supervisor", "stopping the board".
+  # 🛑 "LEFTOVER FILES", NOT "RECORDS ABOUT YOUR AGENTS". Three of the six are not
+  # records about agents at all: `downloads` is provider binaries, `usage` is a cache
+  # derived from the person's own transcripts, `sendertokens` are minted credentials.
+  # The biggest thing this removes was being announced as something it is not.
+  # ⚠️ AND IT MUST NOT MENTION AGENTS, because it fires on machines that have none:
+  # `downloads/` is written by the provider-connect flow and `usage/` from the person's
+  # own ~/.claude dirs, both before any agent exists. The rule is stated at setup.sh:1405
+  # -- on a machine with no agents, say nothing about agents at all.
+  if [ "$_swept" = yes ]; then
+    # ⚠️ NOT AN UNQUALIFIED PAST TENSE, AND DELIBERATELY NOT GATED ON
+    # `_swept_left` EITHER. The closing line below was fixed to require nothing left
+    # behind; the same fix here gives the opposite defect, six directories removed
+    # and the transcript saying nothing at all. The wording carries it instead.
+    info "removed Kosmos's own leftover files (your projects, conversations and sign-ins stay; see any notes below)"
+  fi
+  # ⚠️ NAMES WHAT SURVIVED AND WHERE, which this file's header (setup.sh:89) requires of
+  # every leave-behind: "on the rare machine where that leaves something behind, the
+  # sentence says what it is". Every sibling note in this function names a path; this
+  # was the only one that named nothing.
+  if [ -n "$_swept_left" ]; then
+    for _litter in $_swept_left; do
+      info "note: could not remove $_support/$_litter; it is Kosmos's own and safe to delete"
+    done
+  fi
   if [ "$_agents_stopped" = "yes" ]; then
-    printf '\n  Kosmos is removed. Your agents\047 background jobs were removed; their files were left alone\n'
-    printf '  (in your Library/Application Support/AgentWorkforce folder and their own folders).\n\n'
+    # 🛑 THIS SENTENCE WAS TRUE UNTIL THE SWEEP ABOVE EXISTED, AND THE SWEEP IS WHAT
+    # FALSIFIED IT. It named the AgentWorkforce folder as a place agents' files were
+    # left alone; `liveness/` and `selfreports/` are keyed PER AGENT in that folder
+    # (`liveness/angel.json`, `selfreports/angel.jsonl`) and the sweep removes them.
+    # A closing line on an uninstall exists to say truthfully what survived, so it
+    # names the split rather than the folder.
+    # 🛑 THE SECOND CLAUSE IS CONDITIONAL AND MUST STAY THAT WAY. Written flat, it
+    # asserted the leftover files were removed even when the sweep had just FAILED and
+    # said so four lines above, and even when there was nothing to sweep and no line was
+    # printed at all. A closing sentence that contradicts a note in its own transcript is
+    # worse than no closing sentence.
+    # ⚠️ BOTH CONDITIONS. `_swept` is yes when ANY directory went, so with five removed
+    # and one stuck it was still making the unqualified claim while a note above named
+    # the survivor. The unqualified sentence needs nothing left behind, not something
+    # taken. Caught by the failure-path test rather than by reading.
+    if [ "$_swept" = yes ] && [ -z "$_swept_left" ]; then
+      printf '\n  Kosmos is removed. Your agents\047 background jobs were removed, and so were\n'
+      printf '  Kosmos\047s own leftover files. Your agents\047 own folders, and your projects,\n'
+      printf '  conversations and sign-ins, were left alone in\n'
+      printf '  %s\n\n' "$_support"
+    else
+      printf '\n  Kosmos is removed. Your agents\047 background jobs were removed; your projects,\n'
+      printf '  conversations and sign-ins were left alone in\n'
+      printf '  %s\n\n' "$_support"
+    fi
   else
     printf '\n  Kosmos is removed.\n\n'
   fi
