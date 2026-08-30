@@ -152,10 +152,24 @@ function workingCount(rows) {
   return rows.filter((r) => r && r.connection && r.connection.state === subscription.STATE.CONNECTED).length;
 }
 
+/* 🛑 AN ALLOWLIST, LIKE EVERY OTHER CLASSIFIER IN THIS FILE. This was a DENYLIST
+   (`state !== UNKNOWN`), which made it disagree with `stateOf` twelve lines up about
+   the same row: `stateOf` treats an unrecognised state as `sawUnknown`, and this
+   counted it as READABLE. One file, one row, opposite answers.
+   ⚠️ The disagreement is invisible while `stateOf` returns UNKNOWN, because that nulls
+   the counts. Mix one CONNECTED row with one malformed row and it surfaces: the
+   malformed row lands in the denominator as known-broken, which is exactly the
+   rendering the comment below and the CLI test "a row we could not read is not counted
+   against the person" both promise cannot happen.
+   📌 Not reachable today: `subscription.js` emits only these three values, and both
+   account readers set UNKNOWN in their catch arms. It is the shape that goes live the
+   day a fourth state is added upstream, which is precisely when nobody is looking at
+   this function. */
 function readableCount(rows) {
   if (!Array.isArray(rows)) return 0;
   return rows.filter((r) => r && r.connection
-    && r.connection.state !== subscription.STATE.UNKNOWN).length;
+    && (r.connection.state === subscription.STATE.CONNECTED
+      || r.connection.state === subscription.STATE.NONE)).length;
 }
 
 /**

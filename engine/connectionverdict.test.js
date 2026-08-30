@@ -353,3 +353,38 @@ test('a door NAME is passed through verbatim, and that is the documented excepti
   const dropped = verdict.forAgent({ doors: { '/api/svc/y': { connected: true } }, doorNames: {} });
   assert.deepStrictEqual(dropped.services, [], 'the allowlist gate stopped working');
 });
+
+test('#1034: an unrecognised state is NOT counted as readable, and the three counts agree', () => {
+  /* 🛑 THIS FUNCTION HAD NO TEST AT ALL. Measured before writing this: `howManyReadable`
+     occurred 0 times in this file, against a sibling control of 2 for `howManyWorking`.
+     A mutation replacing its whole body with `return 0` left all 39 tests across the
+     three new files green.
+     ⚠️ AND THE PROPERTY IT GUARDS IS A SENTENCE ABOUT A PERSON: an unreadable row must
+     not land in the denominator, or the CLI tells somebody a sign-in is broken when the
+     truth is we could not check it. */
+  /* Row shape read off the module rather than assumed: `provider` is what routes a
+     row to a provider, and the id is `anthropic`, not `claude`. A first draft of this
+     test guessed both and asserted against a fixture the module never accepted. */
+  const rows = [
+    { provider: 'anthropic', connection: { state: subscription.STATE.CONNECTED } },
+    { provider: 'anthropic', connection: { state: 'a-state-this-module-does-not-know' } },
+    { provider: 'anthropic' },
+  ];
+  const v = verdict.forAgent({ accounts: rows, doors: {}, doorNames: {} });
+  const claude = v.providers.find((p) => p.id === 'anthropic');
+
+  assert.equal(claude.howMany, 3, 'the total should count every row it was given');
+  assert.equal(claude.howManyReadable, 1,
+    'an unrecognised state was counted as readable, so an unreadable row is being held against the person');
+  assert.ok(claude.howManyWorking <= claude.howManyReadable,
+    `working (${claude.howManyWorking}) exceeds readable (${claude.howManyReadable}), so the two classifiers disagree about the same row`);
+
+  /* control: the arm CAN move, so the 1 above is a value the code chose. */
+  const allGood = verdict.forAgent({
+    accounts: [{ provider: 'anthropic', connection: { state: subscription.STATE.CONNECTED } },
+               { provider: 'anthropic', connection: { state: subscription.STATE.CONNECTED } }],
+    doors: {}, doorNames: {},
+  });
+  const cg = allGood.providers.find((p) => p.id === 'anthropic');
+  assert.equal(cg.howManyReadable, 2, 'control: two readable rows did not count as two');
+});

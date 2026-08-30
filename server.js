@@ -3739,10 +3739,24 @@ const server = http.createServer((req, res) => {
        it was handed. `tokendoors.routes()` returns `/api/svc/<slug>`, which is
        why a strip-the-prefix rule printed `svc/discord` at a person. */
     const doorNames = { '/api/github': 'GitHub', '/api/vercel': 'Vercel', '/api/cloudflare': 'Cloudflare' };
-    for (const [name, route] of Object.entries(tokendoors.routes())) {
-      doorJobs[route] = door(() => tokendoors.byName(name).state());
-      doorNames[route] = name;
-    }
+    /* 🛑 THE TOKEN DOORS ARE DELIBERATELY NOT SWEPT HERE, AND THIS IS A MONEY DECISION
+       RATHER THAN A PERFORMANCE ONE. `tokendoor.state()` has no cache: when a token is
+       held it makes a LIVE AUTHENTICATED `verify()` REQUEST on every call. Several of
+       those doors are METERED THIRD-PARTY SEARCH APIS the person pays for (Brave Search,
+       Exa, Tavily, Serper). The board's copy of this sweep is reached only when somebody
+       opens the Connect section, which is rare and person-paced.
+       ⚠️ THIS ROUTE IS NOT. It is called by AGENTS, and this branch splices
+       "run `<cli> connections`" into every agent's instructions, so the polling loop the
+       original comment said to add a cache "if" is the loop this same diff recruits for.
+       An earlier version named that hazard precisely and then shipped no mitigation.
+       ⭐ AND THE DECIDING POINT IS THAT THE COST BUYS NOTHING THIS CARD NEEDS: the card
+       exists so an agent can help somebody connect Claude or GPT. The token doors are
+       incidental to that, so the whole third-party bill was being paid for data the
+       feature does not use. A person who has connected their search keys would have hit
+       it, and NOTHING ON THEIR MACHINE WOULD SHOW THEM WHY THE BILL MOVED.
+       📌 The three above stay: they are first-party and not metered per auth check. If a
+       later card genuinely needs the token doors here, it needs a TTL first, not a
+       reviewer's benefit of the doubt. */
     const doorKeys = Object.keys(doorJobs);
     /* Every arm is already fail-soft, so one unreachable service degrades to
        `cannot tell` for that door rather than failing the whole answer. */

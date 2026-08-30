@@ -747,7 +747,13 @@ cmd_connections() {
         }
         process.exit(1);
       }
-      if (!v || !Array.isArray(v.providers)) {
+      /* 🛑 THE ELEMENTS, NOT ONLY THE CONTAINER. `[null]` passed this guard and
+         then threw on `.signedIn`, printing a TypeError and a full stack with absolute
+         paths at somebody who asked what was connected -- the most machine-vocabulary
+         output this verb can produce, in the verb whose whole job is refusing it, and
+         AFTER the header had already reached stdout. */
+      if (!v || !Array.isArray(v.providers)
+          || v.providers.some(function (p) { return !p || typeof p !== "object"; })) {
         console.log("Kosmos answered something we could not read, so we cannot say what is connected.");
         process.exit(1);
       }
@@ -815,9 +821,17 @@ cmd_connections() {
          added to prevent, surviving one layer further out. */
       var whoRow = v.providers.filter(function (p) { return p.id === who; })[0];
       var whoName = (whoRow && whoRow.name) || "Claude";
-      var anyConnected = v.providers.some(function (p) {
-        return p.id === who && p.signedIn === "connected";
-      });
+      /* 🛑 ONE RESOLVED ROW DRIVES BOTH, BECAUSE TWO FALLBACKS FOR ONE VALUE
+         DISAGREED. `whoName` fell back to "Claude" on an unrecognised provider while
+         this stayed false, so a board answering an unknown provider printed BOTH
+         "Claude: connected" AND "An earlier Claude sign-in got stuck" -- the
+         two-accounts-of-one-computer contradiction the comment above says this block
+         exists to prevent, produced by the fallback meant to prevent it.
+         ⚠️ Not reachable from this board, whose signinView hard-codes the
+         provider. It matters because the CLI updates independently of the running
+         board and the test in this file commits to tolerating a board it does not
+         control. */
+      var anyConnected = !!(whoRow && whoRow.signedIn === "connected");
       /* 🛑 THREE ANSWERS, NEVER TWO, AND THIS SECTION COLLAPSED TO TWO. An
          `unknown` phase fell through both branches and printed NOTHING, which is
          byte-identical to `idle`. So "no sign-in is going on" and "we could not
@@ -848,7 +862,14 @@ cmd_connections() {
       if (Array.isArray(v.services) && v.services.length) {
         console.log("");
         console.log("Other services:");
-        for (const s of v.services) console.log("  " + s.name + ": " + s.because);
+        /* ⚠️ STRINGS ONLY. A service row whose name or reason is an object
+           rendered as "[object Object]: [object Object]" at a person. The boundary
+           allowlists these, so this is the CLI refusing to trust a board it does not
+           control, which is the same reason the guard above checks elements. */
+        for (const s of v.services) {
+          if (!s || typeof s.name !== "string" || typeof s.because !== "string") continue;
+          console.log("  " + s.name + ": " + s.because);
+        }
       }
       console.log("");
       console.log("You cannot see their screen. Ask what it says rather than guessing.");

@@ -82,7 +82,19 @@ signals the difference.
   the agent view.** Extracting a shared builder is the right fix and is deliberately not
   done inside a privacy change: it would edit the route the board's own screen depends on.
   Recorded here so the next person finds it rather than rediscovering it.
-- The GPT wording gap, which is content and owned elsewhere. Still open: `GPT` 0 in
+🛑 **A MEASUREMENT HERE WAS FALSE WHEN IT WAS TAKEN, AND ITS CONTROL MADE IT LOOK
+VERIFIED.** This line read: *"Still open: `GPT` 0 in `engine/connections.js`, control
+`provider` 9."* Re-measured at this branch's merge-base `7c936c55`: **`GPT` is 2**, and
+the control is 9, matching the original to the digit.
+
+⇒ **The control agreeing exactly proves it is the same file at the same moment, so the
+GPT count was never 0.** A passing control next to a wrong subject is not verification;
+it is the thing that stops anybody re-running the subject. On HEAD it is 3, and
+`engine/connections.test.js` already carries a merged `#1552: the connect block names
+GPT`, so the gap this line called "still open" had been closed before this branch started.
+
+📌 Same class the rest of this branch is about, arriving in the plan file rather than the
+code, which is where nothing executes it.
   `engine/connections.js`, control `provider` 9.
 
 ## 🛑 THIS IS NOT A PRIVILEGE BOUNDARY, AND NOTHING HERE MAY IMPLY IT IS

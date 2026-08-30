@@ -254,6 +254,46 @@ test('a hostile or unknown wire value cannot print machine internals at a person
   });
 });
 
+test('a malformed element prints a sentence, never a stack trace', async () => {
+  /**
+   * 🛑 THE GUARD CHECKED THE CONTAINER, NOT THE ELEMENTS. `providers: [null]`
+   * passed `Array.isArray` and then threw on `.signedIn`, printing a TypeError and a
+   * full stack with absolute paths, AFTER the header had already reached stdout. That
+   * is the most machine-vocabulary output this verb can produce, in the verb whose job
+   * is refusing it.
+   * ⚠️ The sibling hostile-value test covers `signedIn` and `phase`, which are
+   * both READ. These two paths RENDER a board-supplied value verbatim, and they were
+   * exactly the two it did not reach.
+   */
+  const p = P();
+  p.providers = [null];
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    assert.doesNotMatch(r.out + r.err, /TypeError|at Socket|\/Users\//,
+      'a stack trace or an absolute path reached the person: ' + (r.out + r.err).slice(0, 300));
+    assert.match(r.out, /could not read/,
+      'a malformed answer should say so in a sentence');
+  });
+});
+
+test('a service row that is not strings is skipped rather than rendered as [object Object]', async () => {
+  /**
+   * ⚠️ The boundary allowlists these, so this is the CLI declining to trust a
+   * board it does not control, for the same reason as the element check above: the CLI
+   * updates independently of the running board, which is why the no-such-endpoint arm
+   * exists at all.
+   */
+  const p = P();
+  p.services = [{ name: {}, because: {} }, { name: 'GitHub', because: 'connected' }];
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    assert.doesNotMatch(r.out, /\[object Object\]/,
+      'an object was rendered at a person: ' + r.out.slice(0, 200));
+    assert.match(r.out, /GitHub: connected/,
+      'control: the well-formed row beside it was dropped too, so the filter is too wide');
+  });
+});
+
 test('every sign-in sentence names WHOSE sign-in it is', async () => {
   /**
    * 🛑 `who` WAS COMPUTED AND NEVER PRINTED. The sentence sat unqualified beside

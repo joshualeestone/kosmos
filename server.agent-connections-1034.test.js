@@ -213,22 +213,34 @@ test('the served door names are human names, never route fragments', async () =>
     'the first-party doors lost their human names');
 });
 
-test('the agent view carries every door the board view carries', async () => {
+test('the agent view carries the first-party doors and NOT the metered ones', async () => {
   /**
-   * 🛑 A RECORDED HAZARD IS NOT A GUARD. The plan says plainly that the door
-   * sweep is re-implemented inline here rather than shared, so "a fourth
-   * first-party door added to /api/connections would silently never appear in
-   * the agent view". That was written down and nothing checked it.
+   * 🛑 THIS TEST USED TO ASSERT PARITY WITH THE BOARD, AND PARITY WAS THE DEFECT.
+   * The board sweeps every token door; each `state()` makes a LIVE AUTHENTICATED
+   * request with no cache, and several of those doors are METERED SEARCH APIS the
+   * person pays for. The board's sweep is fired by somebody opening the Connect
+   * section. THIS route is called by agents, and this branch tells every agent the
+   * verb exists, so parity meant an agent poll loop spending somebody's allowance
+   * on data this card does not use.
+   * ⚠️ So the old assertion pinned the money bug in place: the correct fix
+   * turned it red. That is the same shape as a guard cementing a defect, and it
+   * happened in a test I wrote to catch drift.
    *
-   * This compares the two routes' door counts. It does not require the sweeps to
-   * be shared, only that they stay in step, which is the property that actually
-   * matters to a person asking an agent what is connected.
+   * The invariant now: the agent view carries the FIRST-PARTY doors, and must NOT
+   * grow the token doors back. Both directions fail, which parity could not do.
    */
   const board = await (await fetch(base + '/api/connections')).json();
   const agent = await (await fetch(base + '/api/agent/connections')).json();
   const boardDoors = Object.keys(board.doors || {});
-  assert.ok(boardDoors.length > 0, 'control: the board route returned no doors, so this proves nothing');
-  assert.equal(agent.services.length, boardDoors.length,
-    `the agent view has ${agent.services.length} doors and the board has ${boardDoors.length}: `
-    + 'one route gained a door the other did not, which is the drift the plan predicted');
+  assert.ok(boardDoors.length > 3,
+    'control: the board is not sweeping token doors, so this test cannot tell the two sets apart');
+
+  const names = (agent.services || []).map((s) => s.name).sort();
+  assert.deepEqual(names, ['Cloudflare', 'GitHub', 'Vercel'],
+    'the agent view no longer carries exactly the three first-party doors: ' + JSON.stringify(names));
+
+  /* 🛑 THE ARM THAT COSTS MONEY IF IT EVER GOES GREEN WRONGLY. A token door
+     reappearing here is not a cosmetic drift, it is a live billed request per call. */
+  assert.ok(agent.services.length < boardDoors.length,
+    'the agent view is sweeping as many doors as the board again, which bills the person per call');
 });
