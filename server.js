@@ -7221,6 +7221,13 @@ function start(port = PORT) {
  * guard below already exists to prevent.
  */
 if (require.main === module) {
+  /* #1598: authorize live launchctl/tmux for the real board process ONLY. The
+     guarded modules (engine/remove.js, engine/delete-leftover.js) fail closed
+     until this runs, so a stray removal dry-runs loudly rather than stopping a
+     real agent. It is here, not at module load, for the same reason as the port
+     bind below: the routing tests require this module, and a load-time opt-in
+     would arm live execution in every one of them. */
+  require('./engine/live-execution').allowLiveExecution();
   /* 🛑 PINNED TO $HOME, NOT AT IMPORT, ONLY WHEN THIS IS THE REAL BOARD
      PROCESS (#923). Nothing anywhere in this file or engine/ ever calls
      process.chdir(), so this process's own cwd is whatever directory
