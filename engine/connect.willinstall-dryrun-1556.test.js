@@ -1,3 +1,5 @@
+'use strict';
+
 /**
  * #1556: A PROBE THAT DID NOT RUN IS NOT A PASS.
  *
@@ -54,4 +56,3 @@ test('#1556 control: the same seam CAN return the other answer', async () => {
   assert.equal(await connect.willInstall(), false,
     'the control arm cannot reach the false answer, so the assertion above is vacuous');
 });
-

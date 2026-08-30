@@ -5575,13 +5575,18 @@ test('the first-run routes answer, and the completion route reports what stuck',
   const got = await req('/api/first-run');
   assert.match(got.type, /application\/json/);
   const state = JSON.parse(got.body);
-  for (const field of ['done', 'fleetKnown', 'path', 'subscription']) {
+  for (const field of ['done', 'fleetKnown', 'path', 'subscription', 'connect']) {
     assert.ok(field in state, `/api/first-run stopped answering ${field}, which the screen reads`);
   }
   assert.ok(['adopt', 'create', 'unknown'].includes(state.path),
     `the screen has no branch for path "${state.path}"`);
   assert.ok(['connected', 'none', 'unknown'].includes(state.subscription.state),
     `the screen has no branch for subscription "${state.subscription.state}"`);
+  /* #1556: the wiring test asserts firstrun.state() directly, so this is the only
+     place that proves the field survives serialization to the client. `undefined`
+     would vanish silently through JSON.stringify and the screen would fail open. */
+  assert.equal(typeof state.connect.willInstall, 'boolean',
+    'the screen reads FR.connect.willInstall and the route did not answer a boolean');
 
   /**
    * ⚠️ A GET MUST NOT WRITE THE FLAG, and the first version of this could not

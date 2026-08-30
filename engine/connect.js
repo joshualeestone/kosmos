@@ -337,11 +337,21 @@ function state() {
  *   we say willInstall FALSE and it was true   -> AN UNANNOUNCED 281MB DOWNLOAD
  *
  * The second is the harm this card exists to prevent, and Josh asked for the confirm
- * step by name. So the cheap check runs EVERY time and can only ever move the answer
- * toward "yes, we will install": if the binary has gone, that is known instantly and
- * no probe runs. Only the expensive PROBE result is cached, and only briefly, so a
- * person who installs Claude while the board is open is not told for at most a
- * minute, in the harmless direction.
+ * step by name. So the cheap check runs EVERY time: if the binary has GONE, that is
+ * known instantly and no probe runs. Only the expensive PROBE result is cached.
+ *
+ * ⚠️ AND HERE IS THE WINDOW THAT LEAVES, STATED RATHER THAN GLOSSED. `accessSync`
+ * catches REMOVAL, not corruption in place. A launcher that was present and working,
+ * cached `ok: true`, and is then overwritten with something broken AT THE SAME PATH
+ * reads as installed for up to the TTL. That is the harmful direction, and no cheap
+ * check can see it: telling a good binary from a broken one is exactly what costs a
+ * subprocess. The TTL is the bound on it.
+ *
+ * 📌 An earlier draft of this block said the cheap check "can only ever move the
+ * answer toward yes" and offered the newly-INSTALLED case as the stale one. Both
+ * were wrong: the install case never reaches the cache at all (the missing-binary
+ * path returns before it), and the real stale window is the one above, which points
+ * the other way. Corrected rather than dropped.
  *
  * ⚠️ AND IT NEVER THROWS. A failure here must leave the caller free to fall back to
  * today's behaviour, because the whole defect was a missing answer being read as a

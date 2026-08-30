@@ -138,6 +138,14 @@ async function state() {
 
      ⭐ And it is what makes "Check again" mean anything. Before this, that button
      re-read the same file and returned the same wrong answer, confidently. */
+  /* ⚠️ STARTED HERE, AWAITED LATER, SO THE TWO PROBES OVERLAP.
+     This route already shells out twice (`claude auth status`, then tmux), and
+     #1556 adds a third. Serial, that is roughly double the worst-case latency on
+     a route that gates whether the onboarding overlay opens. Kicking the promise
+     off before the first await costs nothing and reorders nothing else. The
+     `.catch` is attached AT CREATION, so a rejection can never be unhandled while
+     it sits here unawaited. */
+  const willInstallSoon = connect.willInstall().catch(() => null);
   const live = await subscription.checkLive();
   /* ⚠️ THE PLAN NAME STILL COMES FROM THE FILE, AND ONLY WHEN THE LIVE CHECK
      SAID YES. `checkLive()` returns `plan: null` on purpose: `claude auth
@@ -169,7 +177,7 @@ async function state() {
      `typeof st.willInstall === 'boolean'` test is false and it asks, which is
      the pre-#1556 behaviour. An unknown must never become a confident "no
      install needed": that answer costs an unannounced 281MB download. */
-  const willInstall = await connect.willInstall().catch(() => null);
+  const willInstall = await willInstallSoon;
 
   return {
     done: flag.done,
@@ -197,9 +205,15 @@ async function state() {
      * checks." I verified the half that worked and called the card done.
      *
      * ⭐ IT BELONGS HERE FOR A SECOND REASON, NOT ONLY CORRECTNESS: `/api/connect`
-     * is polled every 1000ms during a live flow, and an awaited `--version` probe
-     * on a 1s poll stacks concurrent subprocesses. `/api/first-run` is fetched on
-     * demand at two sites, neither in a timer, and already awaits `checkLive()`.
+     * is on a 1000ms TIMER during a live flow (`setInterval`, web/index.html), and
+     * an awaited probe there stacks concurrent subprocesses. This route is not on a
+     * timer: its two callers are a button (`frRecheck`) and page boot
+     * (`firstRunBoot`), and it already awaits `checkLive()`.
+     *
+     * 📌 `server.js` calls this route "polled", meaning user-driven repeats: every
+     * Check again, every repaint of the setup flow. That is a real cost note and it
+     * is NOT the timer sense used above. Both are true, so this comment names which
+     * one it means; the two probes above are overlapped for exactly that reason.
      *
      * `willInstallBytes` is deliberately absent: separate card, needs the
      * manifest. Both readers of that field already handle its absence.

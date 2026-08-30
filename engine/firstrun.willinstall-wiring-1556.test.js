@@ -33,6 +33,19 @@ process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
 
+/* 🛑 PIN THE LAUNCHER BEFORE REQUIRING, OR THIS TEST READS THE OPERATOR'S MACHINE.
+   `willInstall()` gates on `fs.accessSync(claudeBinPath(), X_OK)` BEFORE it reaches
+   any injected runner, and `claudeBinPath()` resolves the real `~/.local/bin/claude`.
+   So on a box with no runnable launcher this file fails at the first assertion, and
+   on this box it passed for a reason that has nothing to do with the code under test.
+
+   ⚠️ THIS IS THE HAZARD I DOCUMENTED IN `firstrun.test.js` ONE FILE OVER AND THEN
+   REPRODUCED HERE. Writing the warning did not make me apply it. */
+const STUB_BIN = nodePath.join(SANDBOX, 'claude-stub');
+fs.writeFileSync(STUB_BIN, '#!/bin/sh\nexit 0\n');
+fs.chmodSync(STUB_BIN, 0o755);
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = STUB_BIN;
+
 const firstrun = require('./firstrun');
 const subscription = require('./subscription');
 const connect = require('./connect');
