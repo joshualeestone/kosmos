@@ -324,7 +324,7 @@ release_site_restore() {
   # that copy here; if none was backed up AND the pointer did not pre-exist (had_ptr!=1,
   # a fresh site clone), remove the one this cut created, so no later deploy publishes
   # an abandoned build against the stale committed latest.json. A missing .precut with
-  # had_ptr=1 means the overwrite never happened (aborted before step 5) OR the backup
+  # had_ptr=1 means the overwrite never happened (aborted before it) OR the backup
   # failed -- either way leaving the served pointer in place is the safe answer.
   for _u in kosmos-arm64.tar.gz kosmos-arm64.tar.gz.sha256; do
     if [ -f "$site/dist/$_u.precut" ]; then

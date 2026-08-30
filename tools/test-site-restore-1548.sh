@@ -42,11 +42,7 @@ release_site_restore "$S" 0.6.06 0 1 >/dev/null
 ok "ARM3 served pointer left intact (no false remove)"  "$(cat "$S/dist/kosmos-arm64.tar.gz")" "SERVED-BYTES"
 rm -rf "$S"
 
-# ARM 4 (control that CAN fail): a build with NO fix would leave the aborted bytes.
-# Prove the check can see the dangerous answer: run the OLD behaviour by skipping the restore loop.
-S="$(newsite)"; echo "UNFIXED-ABORTED-BYTES" > "$S/dist/kosmos-arm64.tar.gz"
-# (no restore call) -> the pointer still holds the aborted bytes, which is the bug this fixes
-ok "ARM4 control: without restore the aborted bytes remain (bug reproduces)"  "$(cat "$S/dist/kosmos-arm64.tar.gz")" "UNFIXED-ABORTED-BYTES"
-rm -rf "$S"
+# ARM 1 is itself the control that can return the dangerous answer: if the restore
+# loop were broken (or absent) it would leave "NEW-ABORTED-BYTES" and ARM1 goes red.
 
 echo "---"; echo "pass=$pass fail=$fail"; [ "$fail" = 0 ]
