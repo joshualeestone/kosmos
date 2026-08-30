@@ -827,21 +827,48 @@ async function start(opts) {
  *                          `null` arm is load-bearing (#458) -- see the comment
  *                          at the sweep. A caller that collapses these two into
  *                          one predicate reintroduces that bug.
+ *   wantsProgress()        was `mem.phase === PHASE.DOWNLOADING`, the guard on
+ *                          the progress callback.
  *   onPhase / onProgress   were writeState calls; the 250ms throttle moved to
  *                          the caller because it is about the STATE FILE, not
  *                          about installing.
- *   trackRequest           was the per-flow request handle. Do not make it
- *                          module-global again; the comment inside says why.
  *
- * Returns `{ ok: true }`, or `{ ok: false, message, detail }` so the caller
- * decides how a failure is reported. It never calls becomeStuck itself.
+ * 📌 The per-flow request handle is NOT a hook. It is internal (`myReq`/`track`
+ * below) and deliberately so: making it module-global again reintroduces the
+ * successor-flow abort the comment inside describes.
+ *
+ * 🛑 THERE ARE THREE RETURN SHAPES, NOT TWO, AND THE THIRD IS THE DANGEROUS ONE:
+ *   { ok: true }                                   installed
+ *   { ok: false, message, detail }                 failed, caller reports it
+ *   { ok: false, cancelled: true, message: ... }   THE PERSON STOPPED IT
+ *
+ * ⚠️ A caller that reads only `ok` and writes the obvious
+ * `if (!res.ok) becomeStuck(owner, res.message, res.detail)` puts a failure
+ * message on a flow somebody deliberately cancelled. CHECK `cancelled` FIRST.
+ * The cancelled shape carries a `message` anyway, so a caller that ignores the
+ * flag still cannot render `undefined` as a stuck reason.
+ *
+ * It never calls becomeStuck itself.
  */
 async function installClaudeCode(hooks) {
+  /**
+   * 🛑 CHECKED HERE, LOUDLY, BECAUSE THE ALTERNATIVE IS A SILENT PROCESS DEATH.
+   * `cancelled()` and `wantsProgress()` are called from inside a `res.on('data')`
+   * listener, and this file's own comment below says what an exception there
+   * does: it does NOT reject the promise, it kills the process. So a caller who
+   * misspells one hook would take the whole board down mid-download, with no
+   * stack pointing here. Failing at entry turns that into an immediate,
+   * attributable error before any state is written.
+   */
+  for (const name of ['cancelled', 'maySweepDownloads', 'wantsProgress', 'onPhase', 'onProgress']) {
+    if (typeof (hooks && hooks[name]) !== 'function') {
+      throw new TypeError(`installClaudeCode: hooks.${name} must be a function`);
+    }
+  }
   const fail = (message, detail) => ({ ok: false, message, detail });
   hooks.onPhase(PHASE.DOWNLOADING);
   let downloaded;
   try {
-    let lastProgressWrite = 0;
     /**
      * ⚠️ THE FLOW HOLDS ITS OWN REQUEST HANDLE. The module-global
      * `activeRequest` carries no identity, and a first version of the
@@ -912,7 +939,7 @@ async function installClaudeCode(hooks) {
     // after that rename costs the successor an honest re-download, never
     // silent corruption.)
     try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
-    return { ok: false, cancelled: true };
+    return { ok: false, cancelled: true, message: 'the sign-in was stopped' };
   }
 
   hooks.onPhase(PHASE.INSTALLING);
@@ -940,7 +967,7 @@ async function installClaudeCode(hooks) {
   });
   if (hooks.cancelled()) {
     try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
-    return { ok: false, cancelled: true };
+    return { ok: false, cancelled: true, message: 'the sign-in was stopped' };
   }
   if (!inst.ok) {
     // ⚠️ The binary goes too: a stuck install otherwise strands 281MB per
@@ -995,7 +1022,6 @@ async function runFlow(owner, haveBinary) {
     // on installing. Found by reading the extracted control flow, not by a test.
     if (res.cancelled) return;
     if (!res.ok) { becomeStuck(owner, res.message, res.detail); return; }
-    if (driver !== owner) return;
   }
   if (driver !== owner) return;
   await launchSignin(owner);
