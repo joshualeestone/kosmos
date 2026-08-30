@@ -563,8 +563,16 @@ test('#1449: the cut completion line can never omit its step', () => {
   assert.match(s, /cut_record_done\(\)/,
     'no cut_record_done in release.sh, so this test is asserting against a file it did not find');
 
-  const line = (s.match(/printf '[^']*completed[^']*'[^\n]*/) || [])[0];
+  /* ⚠️ FOLLOWS BACKSLASH CONTINUATIONS. This extraction was single-line
+     (`[^\n]*`), and #1388 wrapped the completion printf across four lines to add
+     the outcome/signal fields. The `${_STEP:-unknown}` default moved past the
+     first newline, so the assertion below reported the default GONE while it sat
+     two lines down, untouched. The property is what matters; the layout is not.
+     Continuations are consumed explicitly rather than by widening to [\s\S],
+     which would run on into the rest of the file. */
+  const line = (s.match(/printf '[^']*completed[^']*'(?:[^\n\\]*\\\n)*[^\n]*/) || [])[0];
   assert.ok(line, 'the completion line is gone, so nothing records a cut ending at all');
+  assert.ok(line.length > 60, `control: the extracted completion line is implausibly short (${line.length})`);
 
   // 1. The FORMAT carries the field. Without it there is no step= to parse.
   assert.match(line, /step=%s/,
