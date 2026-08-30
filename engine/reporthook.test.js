@@ -165,7 +165,11 @@ test('#1582 fail-soft: a null/undefined settingsPath does not throw (the module 
   assert.doesNotThrow(() => reporthook.ensureWired(undefined, dead));
 });
 
-test('#1582 control: a non-temp (installed) script into a durable settings file is NOT refused as temp-rooted', () => {
+test('#1582 control: a non-temp (installed) script is never refused as temp-rooted', () => {
+  // scriptEphemeral is false for a non-temp path, so the refusal cannot fire
+  // regardless of the settings file's durability. (The durable-settings arm is
+  // exercised by the raw+resolved test above and the refinement test below; this
+  // control proves only that the guard does not over-fire on a normal path.)
   const installed = path.join(os.homedir(), '.local', 'share', 'kosmos', 'bin', 'kosmos-report-hook.sh');
   const got = reporthook.ensureWired(fresh(), installed);
   assert.equal(got.wired, true, 'a non-temp script must wire, proving the temp guard does not over-fire');
