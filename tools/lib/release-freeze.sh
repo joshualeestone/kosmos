@@ -280,7 +280,11 @@ EOS
 # entry is hand-written and the re-cut needs it. Prints what it did. 0 always
 # (it runs from a trap; a failure here must not mask the cut's own reason).
 release_site_restore() {
-  local site="$1" v="$2" had="$3" f rel
+  # had_ptr defaults to 1 so a 3-arg caller (before #1548) is a no-op on the pointer:
+  # no .precut means the restore arm is skipped, and had_ptr=1 means the remove arm is
+  # skipped, leaving the served pointer exactly as it was. Only a 4-arg caller that
+  # passes had_ptr=0 (a fresh clone) reaches the remove arm.
+  local site="$1" v="$2" had="$3" had_ptr="${4:-1}" f rel _u
   [ -n "$site" ] && [ -n "$v" ] && [ -d "$site" ] || { echo "release_site_restore: site and version are required" >&2; return 0; }
   for f in dist/latest.json setup.sha256; do
     if git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
@@ -314,5 +318,22 @@ release_site_restore() {
       rm -f "$f" && echo "   removed: $rel (this cut created it and never served it; the name is cache-immutable, so it must not linger)"
     done
   fi
+  # #1548: the UNVERSIONED pointer (kosmos-arm64.tar.gz + .sha256) is not a versioned
+  # artifact but a pointer that must keep pointing at the SERVED version. release.sh
+  # overwrites it before the deploy and backs the pre-cut copy up as .precut. Restore
+  # that copy here; if none was backed up AND the pointer did not pre-exist (had_ptr!=1,
+  # a fresh site clone), remove the one this cut created, so no later deploy publishes
+  # an abandoned build against the stale committed latest.json. A missing .precut with
+  # had_ptr=1 means the overwrite never happened (aborted before step 5) OR the backup
+  # failed -- either way leaving the served pointer in place is the safe answer.
+  for _u in kosmos-arm64.tar.gz kosmos-arm64.tar.gz.sha256; do
+    if [ -f "$site/dist/$_u.precut" ]; then
+      mv -f "$site/dist/$_u.precut" "$site/dist/$_u" \
+        && echo "   put back: dist/$_u (the served pointer; the site no longer offers the aborted build)"
+    elif [ "$had_ptr" != 1 ] && [ -f "$site/dist/$_u" ]; then
+      rm -f "$site/dist/$_u" \
+        && echo "   removed: dist/$_u (this cut created the pointer on a fresh clone and never served it)"
+    fi
+  done
   return 0
 }
