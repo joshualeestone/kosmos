@@ -287,7 +287,6 @@ test('the agent view carries the first-party doors and NOT the metered ones', as
    * grow the token doors back. Both directions fail, which parity could not do.
    */
   const board = await (await fetch(base + '/api/connections')).json();
-  console.error('PROBE board keys:', JSON.stringify(Object.keys(board)), 'raw:', JSON.stringify(board).slice(0,300));
   const agent = await (await fetch(base + '/api/agent/connections')).json();
   const boardDoors = Object.keys(board.doors || {});
   assert.ok(boardDoors.length > 3,

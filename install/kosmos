@@ -837,7 +837,15 @@ cmd_connections() {
          That is the two-accounts-of-what-to-do failure the provider field was
          added to prevent, surviving one layer further out. */
       var whoRow = v.providers.filter(function (p) { return p.id === who; })[0];
-      var whoName = (whoRow && whoRow.name) || "Claude";
+      /* ⚠️ typeof, NOT truthiness, and the difference is a whole class of output.
+         The strings guard added to the provider loop above is a `continue` INSIDE
+         that loop; `whoName` is computed OUT here from the same unvalidated field,
+         so the guard never covered it. Measured against a board answering
+         `providers[0].name = {}` with a stuck phase, the three sentences below
+         printed "An earlier [object Object] sign-in got stuck and did not finish."
+         A non-string name is truthy, so `||` accepted it and the fallback never
+         fired -- the fallback was there and simply did not apply. */
+      var whoName = (whoRow && typeof whoRow.name === "string" && whoRow.name) || "Claude";
       /* 🛑 ONE RESOLVED ROW DRIVES BOTH, BECAUSE TWO FALLBACKS FOR ONE VALUE
          DISAGREED. `whoName` fell back to "Claude" on an unrecognised provider while
          this stayed false, so a board answering an unknown provider printed BOTH

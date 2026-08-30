@@ -314,6 +314,38 @@ test('a bad COUNT beside a good name is caught by the numbers guard, not the str
   });
 });
 
+test('a non-string name cannot reach the SIGN-IN sentences either', async () => {
+  /**
+   * 🛑 THE GUARD ON THE PROVIDER LOOP DID NOT COVER THIS, AND THE TEST ABOVE
+   * COULD NOT HAVE FOUND IT. That guard is a `continue` INSIDE the loop, so it
+   * protects the per-provider rows. `whoName` is computed OUT of the loop from
+   * the same unvalidated field and feeds all three sign-in sentences.
+   *
+   * The sibling test pairs a non-string name with `phase: idle`, so it never
+   * reaches these lines. This one pairs it with `stuck`. Measured before the fix:
+   *
+   *   An earlier [object Object] sign-in got stuck and did not finish.
+   *
+   * ⚠️ `||` did not save it because a non-string name is TRUTHY, so the fallback
+   * was present and simply never applied. That is why the fix is `typeof` rather
+   * than another fallback.
+   */
+  const p = P();
+  p.providers[0].name = {};
+  p.signin = { provider: 'anthropic', phase: 'stuck', busy: false };
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    assert.equal(r.code, 0, `exited ${r.code}: ${r.err}`);
+    assert.doesNotMatch(r.out, /\[object /,
+      'a non-string name reached a sign-in sentence');
+    /* CONTROL. The assertion above also passes if the stuck sentence never printed
+       at all, which is the outcome it is least able to tell apart from success.
+       The sentence must be THERE, and naming the fallback. */
+    assert.match(r.out, /An earlier Claude sign-in got stuck/,
+      'the stuck sentence did not print, so the assertion above proved nothing');
+  });
+});
+
 test('a malformed element prints a sentence, never a stack trace', async () => {
   /**
    * 🛑 THE GUARD CHECKED THE CONTAINER, NOT THE ELEMENTS. `providers: [null]`
