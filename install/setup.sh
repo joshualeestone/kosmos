@@ -1455,36 +1455,79 @@ KOSMOS_SWEEP_LIST
   #     chats, commitments      the person's, by `engine/forget.js:45` -- the "Forget my
   #                             data" surface, whose own comment says adding a name
   #                             there is the only way to widen it
-  #     projects.json, profiles, attachments, messages.jsonl, messages, avatars
-  #                             the person's work
+  #     projects.json, profiles, attachments, messages.jsonl, messages, avatars,
+  #     you.json, you-avatar     the person's work and their own profile
   #     secrets                 THE PERSON'S CREDENTIALS. We wrote the files; the keys
   #                             inside are theirs, and destroying them on an uninstall
   #                             they may be reversing is not ours to decide
-  #     connect.json, removed.json, found-agents-dismissed.json,
-  #     found-agents-declined.json, room-seen.json, first-run.json, seen-version.json
-  #                             records of the PERSON'S DECISIONS (what they dismissed,
-  #                             declined, removed, have seen). We write them, so they
-  #                             are arguably ours, and that is exactly why they are
-  #                             named here rather than swept: "we wrote it" is not the
+  #     connect.json, removed.json, room-seen.json
+  #                             records of the PERSON'S DECISIONS. We write them, so
+  #                             they are arguably ours, and that is exactly why they
+  #                             are named rather than swept: "we wrote it" is not the
   #                             test, "it is ours rather than theirs" is
+  #     created.jsonl, trust-writes.json, styles.json, ping.json, remote.json,
+  #     remote-status.json, github-app.json, autoupdate.json, engmode.json,
+  #     limits.json, notify.json
+  #                             OURS BY THE SAME RULE AS THE SWEPT LIST, AND
+  #                             DELIBERATELY NOT SWEPT. See the note below.
+  #
+  # 🛑 ALREADY REMOVED ABOVE, SO DO NOT ADD THEM HERE: `first-run.json`,
+  # `seen-version.json`, `found-agents-dismissed.json` and `found-agents-declined.json`
+  # go at line 1397. An earlier version of this table listed them as LEFT ALONE, which
+  # put two contradictory rulings about the same four files in one function, and the
+  # newer one was wrong. A maintainer reading this table to decide whether a fifth
+  # decision-record is safe would have got the wrong answer.
+  #
+  # 🛑 WHY THE SWEEP STOPS AT SIX RATHER THAN TAKING THE ELEVEN NAMED ABOVE AS OURS.
+  # This is a deliberate call, not an omission. Each round of widening this list has
+  # introduced a defect: adding `liveness` and `selfreports` silently falsified the
+  # closing sentence of the whole uninstall, because both are keyed PER AGENT and that
+  # sentence named their folder as untouched. The six swept are directories of pure
+  # machine output with no per-person content. The eleven are single files, several
+  # holding settings a person set (`engmode`, `limits`, `notify`, `policy`), and each
+  # would need its own reading of ours-versus-theirs. Naming them is free and cannot
+  # break anything. Deleting them cannot be undone. If a later card wants them, it
+  # should take them one at a time with that reading written down.
+  #
+  # 📌 AND THE LIST ABOVE WAS NOT DERIVED BY `grep store.ROOT` ALONE, BECAUSE THAT
+  # COMMAND IS BLIND: `engine/styles.js:20` and `engine/trust.js:393` write through an
+  # inline `require('./store').ROOT`, and `engine/create.js:1683` goes through a
+  # `supportDir()` helper. `grep -c 'store\.ROOT' engine/styles.js` returns ZERO for a
+  # file that writes there. Search for the WRITES (`path.join(` with a root-ish first
+  # argument) and read them, rather than for one spelling of the root.
+  # ⚠️ REMOVE FIRST, THEN CLAIM, which is this function's stated rule three lines up:
+  # "Claim only what was observed". Announcing before the attempt and swallowing the
+  # failure with `|| true` (required here, the file is `set -euo pipefail`) told the
+  # person records were removed when a permission error meant they were not. The
+  # neighbouring leftover-folder code at line 1350 already does it this way.
   _swept=no
+  _swept_failed=no
   for _litter in downloads usage sendertokens selfreports wouldping liveness; do
     if [ -d "$_support/$_litter" ]; then
-      # ⚠️ ANNOUNCE ONCE, IN THE PERSON'S WORDS. An earlier version said "removing
-      # Kosmos's own wouldping records", which prints a MODULE NAME to somebody who
-      # is uninstalling an app, and printed one line per directory so six removals
-      # read as more happening than has. The neighbouring strings in this function
-      # are the model: "removing the shared supervisor", "stopping the board".
-      if [ "$_swept" = no ]; then
-        info "removing Kosmos's own activity records (your agents' files stay)"
-        _swept=yes
-      fi
       rm -rf "$_support/$_litter" 2>/dev/null || true
+      if [ -d "$_support/$_litter" ]; then _swept_failed=yes; else _swept=yes; fi
     fi
   done
+  # 📌 ONE LINE, IN THE PERSON'S WORDS. An earlier version said "removing Kosmos's own
+  # wouldping records", printing a MODULE NAME to somebody uninstalling an app, once
+  # per directory, so six removals read as more happening than had. The neighbours are
+  # the model: "removing the shared supervisor", "stopping the board".
+  if [ "$_swept" = yes ]; then
+    info "removed the records Kosmos kept about your agents (their own folders stay)"
+  fi
+  if [ "$_swept_failed" = yes ]; then
+    info "note: some of Kosmos's own records could not be removed and are still in your data folder"
+  fi
   if [ "$_agents_stopped" = "yes" ]; then
-    printf '\n  Kosmos is removed. Your agents\047 background jobs were removed; their files were left alone\n'
-    printf '  (in your Library/Application Support/AgentWorkforce folder and their own folders).\n\n'
+    # 🛑 THIS SENTENCE WAS TRUE UNTIL THE SWEEP ABOVE EXISTED, AND THE SWEEP IS WHAT
+    # FALSIFIED IT. It named the AgentWorkforce folder as a place agents' files were
+    # left alone; `liveness/` and `selfreports/` are keyed PER AGENT in that folder
+    # (`liveness/angel.json`, `selfreports/angel.jsonl`) and the sweep removes them.
+    # A closing line on an uninstall exists to say truthfully what survived, so it
+    # names the split rather than the folder.
+    printf '\n  Kosmos is removed. Your agents\047 background jobs were removed, and so were the\n'
+    printf '  records Kosmos kept about them. Their own folders, and your projects, conversations\n'
+    printf '  and sign-ins, were left alone.\n\n'
   else
     printf '\n  Kosmos is removed.\n\n'
   fi

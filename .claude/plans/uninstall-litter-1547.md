@@ -8,7 +8,7 @@ folder, and everything they made is still there, byte for byte.
 
 ## The fix
 `engine/wouldping.js` writes `wouldping/needs-you.jsonl` into the data folder during
-normal running (#1494); the uninstall left it. It is now removed, **by exact name**.
+normal running (#1494); the uninstall left it. The six are now removed, **by exact name**.
 
 🛑 **Named, not globbed, and that is this file's own rule.** Every other `rm` in
 `install/setup.sh` proves ownership first. A pattern-swept data folder is exactly how an
@@ -23,7 +23,7 @@ removing the sweep reds it, and over-deleting the data root reds it too.
 ## Scope
 **In:** `install/setup.sh`'s uninstall, plus its test.
 **Out:** any other app-written file. The card says "and any similar app-written files";
-I removed only the one that can be named with certainty. Anything we cannot prove we
+The sweep takes only directories that can be named with certainty as ours, and everything else in the folder is named in a table in setup.sh with a reason. Anything we cannot prove we
 wrote is left alone and named, per the file's header rule.
 
 ## Weakest premise
@@ -46,8 +46,24 @@ covered") when four more members existed at that moment, including `downloads/`,
 removing a JSONL ping log and leaving the largest object in the folder.
 
 ⭐ **The reusable form: correcting the wording of an unverified claim produces a
-better-worded unverified claim.** The fix is the command, and it is one line:
-`find . -name '*.js' | tr '\n' '\0' | xargs -0 grep -n "store\.ROOT"`.
+better-worded unverified claim.**
+
+🛑 **AND THE THIRD ROUND MADE THE SAME MISTAKE A THIRD WAY, SO IT IS WORTH THE SPACE.**
+This section previously bolded a command as "the fix":
+`grep -n "store\.ROOT"`. **That command is blind.** `engine/styles.js:20` and
+`engine/trust.js:393` write through an inline `require('./store').ROOT`, and
+`engine/create.js:1683` goes through a `supportDir()` helper. Measured:
+`grep -c 'store\.ROOT' engine/styles.js` returns **0** for a file that writes there,
+against a control of 2 on `engine/wouldping.js`.
+
+⇒ **Round 1 was an unverified claim. Round 2 was better wording for the same unverified
+claim. Round 3 pinned a COMMAND that cannot produce the list it was credited with.** The
+defect survived two corrections because each correction was aimed at the previous
+sentence rather than at the question.
+
+✅ **What actually works: search for the WRITES, not for one spelling of the root.**
+`path.join(` with a root-ish first argument, then read each hit. A grep for an
+identifier cannot see an identifier that is constructed.
 
 **What is genuinely weak now, and it is smaller:** the sweep names six directories,
 derived by that search, and a SEVENTH added later under a new name is not covered. The
@@ -56,5 +72,5 @@ but nothing fails when a member is never added. A guard that watched `store.ROOT
 for unswept names would close it; that is a wider change than this card.
 
 **Out of scope, named rather than silently skipped:** the person's own files in that same
-folder (projects, profiles, accounts), which is why this removes two named children and
+folder (projects, profiles, accounts), which is why this removes six named children and
 never the folder itself.

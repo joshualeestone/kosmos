@@ -42,6 +42,18 @@ function sandbox() {
      the bug. */
   const data = path.join(dataParent, 'AgentWorkforce');
   fs.mkdirSync(path.join(home, 'app'), { recursive: true });
+  /* 🛑 SEEDS AN AGENT PLIST SO THE `_agents_stopped=yes` CLOSING BRANCH IS REACHED.
+     Without one the uninstall takes the short "Kosmos is removed." line, and every
+     assertion about the long closing sentence passes or fails for the wrong reason:
+     a doesNotMatch against text that branch never prints is vacuous. The plist must
+     name THIS install's supervisor (setup.sh:1067) or the loop skips it as another
+     install's job, which is itself the check that makes this fixture honest. */
+  const launch = path.join(root, 'launch');
+  fs.mkdirSync(launch, { recursive: true });
+  fs.writeFileSync(path.join(launch, 'com.kosmos.agent.angel.plist'),
+    '<plist><dict><key>ProgramArguments</key><array><string>'
+    + path.join(dataParent, 'AgentWorkforce', 'bin', 'agent-supervisor.sh')
+    + '</string></array></dict></plist>\n');
   for (const d of ['wouldping', 'liveness', 'downloads', 'usage', 'sendertokens', 'selfreports']) {
     fs.mkdirSync(path.join(data, d), { recursive: true });
     fs.writeFileSync(path.join(data, d, 'ours.bin'), 'kosmos\n');
@@ -118,11 +130,23 @@ test('the ping log goes and the person\'s files stay', () => {
        sibling test's `doesNotMatch` passes just as happily when the script died
        before reaching the sweep. Nothing asserted the person is ever TOLD what
        was removed, which is the reversibility contract this file's header owes. */
-    assert.match(out, /removing Kosmos's own activity records/,
+    assert.match(out, /removed the records Kosmos kept about your agents/,
       'the uninstall removed our records without telling the person');
-    assert.doesNotMatch(out, /wouldping|liveness|sendertokens|selfreports/,
+
+    /* 🛑 THE ARM FOR THE BLOCKER THIS SWEEP CREATED AND THEN HAD TO UNDO. The closing
+       sentence used to say agents' files were left alone IN THIS FOLDER. `liveness/`
+       and `selfreports/` are keyed per agent inside it (`liveness/angel.json`), so the
+       moment the sweep took them the sentence became false, and nothing failed. An
+       uninstall's last line exists to say truthfully what survived. */
+    assert.doesNotMatch(out, /their files were left alone/,
+      'the closing line claims agents files were left alone while per-agent records were removed');
+    assert.match(out, /records Kosmos kept about them/,
+      'the closing line no longer says the records went, so it under-reports what was removed');
+    assert.match(out, /Their own folders, and your projects, conversations\s+and sign-ins, were left alone/,
+      'the closing line no longer names what actually survived');
+    assert.doesNotMatch(out, /wouldping|liveness|sendertokens|selfreports|_litter/,
       'a module name reached the person uninstalling the app: ' + out);
-    assert.equal((out.match(/removing Kosmos's own activity records/g) || []).length, 1,
+    assert.equal((out.match(/removed the records Kosmos kept about your agents/g) || []).length, 1,
       'the removal is announced once per directory, so six removals read as more than happened');
 
     // 🛑 THE ARM THAT STOPS THE FIX BECOMING THE DISASTER. Deleting the whole
@@ -154,7 +178,7 @@ test('a data folder with no ping log is left entirely alone', () => {
     assert.match(out, /Kosmos is removed/,
       'control: the uninstall never ran to completion, so announcing nothing proves nothing');
 
-    assert.doesNotMatch(out, /removing Kosmos's own \w+ records/,
+    assert.doesNotMatch(out, /removed the records Kosmos kept/,
       'the uninstall announced removing records that were never there');
     assert.ok(fs.existsSync(path.join(sb.data, 'projects.json')),
       'the person\'s data did not survive an uninstall with no litter to sweep');
@@ -163,7 +187,7 @@ test('a data folder with no ping log is left entirely alone', () => {
   }
 });
 
-test('the sweep names one folder rather than pattern-matching the data root', () => {
+test('the sweep names its folders rather than pattern-matching the data root', () => {
   /**
    * ⚠️ A PROPERTY OF THE SOURCE, deliberately. The behavioural arms above
    * cannot tell "removed wouldping/" from "removed everything matching a
@@ -182,7 +206,7 @@ test('the sweep names one folder rather than pattern-matching the data root', ()
   /* ⚠️ THE COUNT AND THE LIST MUST AGREE, which is the discipline the remembered-answer
      block 40 lines up already carries. This is a spelling pin and is admitted as one:
      it catches a member silently dropped, not a member never added. */
-  const listed = (src.match(/for _litter in ([a-z ]+); do/) || [])[1] || '';
+  const listed = (src.match(/for _litter in ([a-z0-9 _-]+); do/) || [])[1] || '';
   assert.equal(listed.trim().split(/\s+/).length, 6,
     'the swept list is no longer six members; update the SIX in the comment above it too: ' + listed);
   assert.match(src, /SIX DIRECTORIES, AND IF YOU ADD A SEVENTH/,
