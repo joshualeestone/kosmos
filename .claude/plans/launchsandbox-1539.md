@@ -50,9 +50,13 @@ next test.
 
 - full suite: see the figure at the END of this file, which is the only one kept current
 - the predicate on four arms: unset -> false, redirected -> true, the real dir ->
-  false, and the real dir **with a trailing slash** -> false (without
-  `path.resolve` that reads as sandboxed and every real install is refused, which
-  breaks production rather than a test)
+  false, and the real dir **with a trailing slash** -> false
+
+⚠️ **THAT ARM CREDITS THE WRONG HALF OF `canon`, MEASURED.** The parenthetical used
+to say `path.resolve` is what normalises the trailing slash. On this machine
+`realpathSync` is what does it, and replacing the whole of `canon` with
+`path.resolve` leaves all tests green - which is exactly why `create.js` labels
+that fallback UNTESTED. The arm is real; the mechanism I credited for it was not.
 - **the guard was mutation-tested against the real hazard**: disabled, the test
   fails AND a real launchd job appears; restored, none appears.
 
@@ -165,7 +169,7 @@ returns at next login, a killed pane does not.
 
 # Verification, and this is the ONLY figure in this file kept current
 
-    suite                    3131 pass, 0 fail
+    suite                    3132 pass, 0 fail
     ABSOLUTE kosmos jobs     0 before, 0 after   (not a delta, see the note above)
     tmux sessions            18 before, 18 after
 

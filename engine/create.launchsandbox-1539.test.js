@@ -271,14 +271,17 @@ test('#1539 CONTROL: READS are not blocked, so a sandboxed test can still ask wh
 
 test('#1539: the refusal says WHY, so a future test that trips it is not left guessing', () => {
   /**
-   * ⚠️ The refusal is currently INVISIBLE at two of the five mutating call sites:
+   * ⚠️ THE REFUSAL REACHES NO HUMAN AT ANY OF THE FOUR MUTATING CALL SITES, and an
+   * earlier version of this said "two of the five", wrong twice: there are FOUR,
+   * and NONE surfaces it. Both `bootstrap` sites read only `ok` and discard the
+   * object;
    * the `enable` in `installJob` and the `bootout` in `rollBack` both wrap the
    * call in `try { run(...) } catch {}` and never read the return value, and
    * `sandboxRefused` is read nowhere in the repo. So the diagnostic sentence can
    * reach no human at those sites.
    *
    * ⇒ This asserts the message EXISTS and names the sandbox path and the fix.
-   * That does not make it visible at 1700/2290; making it visible is a behaviour
+   * That does not make it visible at any of them; making it visible is a behaviour
    * change to two callers and is out of this card's scope. Asserting it here at
    * least means the sentence cannot silently rot.
    */
@@ -505,42 +508,74 @@ test('#1539: the guard refuses in DRY_RUN order too, and fails closed with no pa
 });
 
 
-test('#1539 RESIDUAL: the escape hatch disarms the guard, and that is known and undecidable', () => {
+test('#1539: a PARTIAL other-sandbox is caught even WITH the hatch set', () => {
   /**
-   * 🛑 THIS TEST PINS A HOLE, DELIBERATELY. It asserts the guard STANDS DOWN in a
-   * state where the #1539 harm is still possible, so the boundary is intentional
-   * and visible rather than accidental.
+   * 🛑 THIS REPLACES A PIN THAT WAS TOO WIDE, AND THE ERROR WAS MINE. The old
+   * RESIDUAL test asserted the guard stands down whenever the hatch is set, and
+   * justified it as "undecidable from the environment". That was true of the state
+   * the comment DESCRIBED (all three sandboxed, hatch set) and FALSE of the state
+   * its BODY asserted (DATA alone, hatch set). A claim wider than its own
+   * measurement, which is the defect this whole card keeps producing.
    *
-   * The state: the other three sandboxed, `HALF_SANDBOX_OK=1`, LAUNCH forgotten.
-   * A test in that state writes a real plist and registers a real job. The hatch
-   * is exactly what sandbox.js tells you to set when a board refuses to start
-   * half-sandboxed, so it is reachable by the most likely next author.
+   * The narrower state IS decidable, because production never presents it:
+   * `setup.sh` derives all three whenever it derives any. So the hatch now excuses
+   * only a COMPLETE other-sandbox, and this asserts the difference.
+   */
+  withOnlyLaunch(() => {
+    delete process.env.AGENT_WORKFORCE_LAUNCH;
+    const saved = process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
+    try {
+      process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = '1';
+      process.env.AGENT_WORKFORCE_DATA = '/tmp/partial-1539/data';
+      assert.equal(create.launchIsSandboxed(), true,
+        'a PARTIAL other-sandbox with the hatch set stood the guard down, which '
+        + 'lets a test write a real plist into the operator LaunchAgents');
+
+      /* CONTROL, and it is the production shape: with ALL of them set the hatch is
+         honoured and the guard stands down. If this goes true, every
+         non-default-KOSMOS_HOME install starts rolling back agent creation. */
+      process.env.AGENT_WORKFORCE_PROJECTS = '/tmp/partial-1539/projects';
+      process.env.AGENT_WORKFORCE_WORKERS = '/tmp/partial-1539/workers';
+      assert.equal(create.launchIsSandboxed(), false,
+        'CONTROL: a COMPLETE other-sandbox with the hatch is the setup.sh '
+        + 'production shape and must NOT be refused');
+    } finally {
+      if (saved === undefined) delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
+      else process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = saved;
+    }
+  });
+});
+
+test('#1539 RESIDUAL: the COMPLETE hatched shape is undecidable and stays open', () => {
+  /**
+   * 🛑 WHAT ACTUALLY REMAINS OPEN, stated narrowly this time. A test that
+   * sandboxes ALL THREE, sets the hatch and forgets LAUNCH is byte-identical in
+   * environment to a legitimate non-default-KOSMOS_HOME install. No predicate can
+   * separate them, and refusing the install is iteration 3's blocker: every agent
+   * creation rolls back, silently, forever.
    *
-   * ⚠️ IT CANNOT BE CLOSED HERE. Measured: a legitimate non-default-KOSMOS_HOME
-   * install and a test that sets the hatch present an IDENTICAL environment. Any
-   * predicate refusing one refuses the other, and refusing the real install rolls
-   * back every agent creation on it.
-   *
-   * ✅ The real fix is #1598: fail closed and require an explicit live opt-in at
-   * the one production caller, so nothing has to infer intent from the
-   * environment. If that lands, THIS TEST SHOULD FAIL and be deleted, which is
-   * the point of pinning it.
+   * ✅ The real fix is #1598: fail closed and require an explicit live opt-in, so
+   * nothing infers intent from the environment. If that lands and create.js adopts
+   * it, THIS TEST SHOULD FAIL. Delete it then - its failure is the signal the class
+   * closed, not a regression.
    */
   withOnlyLaunch(() => {
     delete process.env.AGENT_WORKFORCE_LAUNCH;
     const saved = process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
     process.env.AGENT_WORKFORCE_DATA = '/tmp/residual-1539/data';
+    process.env.AGENT_WORKFORCE_PROJECTS = '/tmp/residual-1539/projects';
+    process.env.AGENT_WORKFORCE_WORKERS = '/tmp/residual-1539/workers';
     try {
       process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = '1';
       assert.equal(create.launchIsSandboxed(), false,
-        'KNOWN RESIDUAL: with the hatch set the guard stands down. If this now '
-        + 'reads true, #1598 or an equivalent has landed: delete this test.');
+        'KNOWN RESIDUAL: the complete hatched shape stands the guard down. If this '
+        + 'now reads true, #1598 or an equivalent has landed: delete this test.');
 
-      /* CONTROL: without the hatch the SAME state is caught, so the assertion
-         above is about the hatch and not about the state being harmless. */
+      /* CONTROL: the same complete shape WITHOUT the hatch must be caught, so the
+         assertion above is about the hatch, not about the state being benign. */
       delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
       assert.equal(create.launchIsSandboxed(), true,
-        'CONTROL: without the hatch this state must still be refused');
+        'CONTROL: without the hatch a complete other-sandbox must be refused');
     } finally {
       if (saved === undefined) delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
       else process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = saved;
