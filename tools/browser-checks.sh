@@ -817,10 +817,21 @@ fi
 #     /usr/bin/pmset -g custom
 #     /bin/launchctl print gui/<uid>            and once per label
 #     /usr/bin/defaults read <SystemExtensions>/Info   once per .appex
-# All read-only, and all equally true of the six dry-run boards, so this is not a
-# regression. It is listed because an enumeration that stops at two is the same shape as
-# the sentence #1575 removed from this file: complete-looking and incomplete.
-# Those are non-mutating and fail-soft, which is why this pair is acceptable.
+# 🛑 AN EARLIER CLOSING CLAUSE HERE READ "all equally true of the six dry-run boards, so
+# this is not a regression". THAT WAS FALSE FOR THE TWO ITEMS THIS PARAGRAPH LEADS WITH,
+# and the closing clause is the part a reader carries away. Measured at both seams:
+#     create.js:239   `if (DRY_RUN) return { ok: true, stdout: '', dryRun: true }` returns
+#                     BEFORE execFile, so on the six dry-run boards print-disabled and
+#                     list DO NOT EXECUTE AT ALL. They are NEW on this pair.
+#     machine.js      zero AGENT_WORKFORCE_DRY_RUN references (control: create.js has 25),
+#                     so the /api/machine three genuinely ARE equal across every board.
+# ⇒ The /api/machine three are not a regression. The two launchctl reads ARE newly
+# executing here, and they are acceptable because they are READ-ONLY AND FAIL-SOFT, not
+# because they were already happening. Those are different reasons and only one is true.
+# 📌 `launchctl print gui/<uid>` is listed as "once per label", but a sandboxed
+# AGENT_WORKFORCE_LAUNCH holds no plists, so that clause OVER-states what runs here.
+# The enumeration is kept complete anyway: one that stops early is the same shape as the
+# sentence #1575 removed from this file, complete-looking and incomplete.
 #
 # ⚠️ THE DOWNLOAD BASE IS BLACKHOLED TOO, AND THAT MATTERS MORE THAN THE STUBS.
 # `connect.download()` is NOT dry-run gated at all, so the vendor fetch already happens on
@@ -882,6 +893,9 @@ for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
     AGENT_WORKFORCE_CLAUDE_BIN="$_sb/fake-claude" \
     AGENT_WORKFORCE_CODEX_BIN="$_sb/fake-codex" \
     AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE="http://127.0.0.1:9/" \
+    AGENT_WORKFORCE_GH_BIN="/nonexistent/gh" AGENT_WORKFORCE_VERCEL_BIN="/nonexistent/vercel" \
+    AGENT_WORKFORCE_GH_CONFIG_DIR="$_sb/gh-config" \
+    AGENT_WORKFORCE_OPENAI_MODELS_URL="http://127.0.0.1:9/models" \
     PORT="$_port" node ./server.js > "$_sb/server.log" 2>&1 &
   SERVER_PIDS+=("$!")
   wait_up "$_port" "$_sb/server.log" || true

