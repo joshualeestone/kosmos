@@ -13,11 +13,11 @@ converged: false
 ## [CHALLENGE-LOOP] Summary
 
 **Iterations:** 2
-**Converged:** No. Stopped at user request after iteration 2, with iteration 3 in flight
-and abandoned unread. The operator directed a clean stop ahead of an account flip:
+**Converged:** No. Stopped at user request after iteration 2. Iteration 3 returned late,
+was read, and its findings are recorded below UNFIXED. The operator directed a clean stop ahead of an account flip:
 *"GET TO A CLEAN STOPPING PLACE NOW ... do not start another iteration."*
-**Total findings:** 14 (0 BLOCKERs, 6 WARNINGs, 1 CONVENTION, 7 NITs)
-**Fixed:** 14 | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 23 (0 BLOCKERs, 11 WARNINGs, 1 CONVENTION, 11 NITs)
+**Fixed:** 14 | **Open (iteration 3, unfixed):** 9 | **Deferred:** 0 | **Asked:** 0
 
 ⚠️ This branch also had **nine earlier blind review rounds** run manually before this
 skill was invoked. Those are recorded in the commit messages on the branch and on
@@ -59,8 +59,39 @@ returned zero BLOCKERs, which is why this stop is a clean one rather than an aba
 - [NIT] the `others` filter is unreachable by construction --> noted, harmless
 
 #### Iteration 3
-**Spawned and abandoned unread** on the operator's stop instruction. Its findings are
-unknown and this proof does not account for them.
+**Returned after the stop, read, and NOT acted on.** An earlier version of this proof
+said "abandoned unread"; it finished late and I read it. Correcting that rather than
+leaving a false statement in the record.
+
+**New findings:** 0 BLOCKERs, 5 WARNINGs, 4 NITs. None fixed - fixing is another
+iteration and the operator's stop was explicit. They are recorded here so the next
+person inherits them rather than rediscovering them:
+
+- [WARNING] the guard stops the REGISTRATION but not the PLIST. In the exact shape
+  branch (a) exists for, `agentsDir()` is the operator's real LaunchAgents,
+  `installJob` writes the plist BEFORE the guarded calls and deliberately keeps it
+  ("THE JOB STAYS EITHER WAY"), so a real plist with RunAtLoad sits there and launchd
+  loads it at next login. `createAgent` rolls back; the adopt/register/connect paths
+  do not. **The comment claims this branch closes that case and it does not.**
+- [WARNING] branch (a) contradicts the predicate's own stated invariant: the docstring
+  asks "IS THE PLIST GOING SOMEWHERE REAL?" and branch (a) returns true precisely when
+  it is.
+- [WARNING] the HOME asymmetry over-refuses wherever `$HOME` legitimately differs from
+  the passwd entry (`sudo -E`, a launchd job setting HOME, a relocated home). More
+  reachable than the two over-refusals the comment does name.
+- [WARNING] **the recorded DELETE-THIS-GUARD instruction is unsafe as written.** The
+  shared gate refuses with `ok: true, dryRun: true`; this guard with `ok: false`; and
+  `installJob` computes `started = Boolean(r && r.ok !== false)`. An adopter following
+  the note literally turns an honest `started: false` into a silent `started: true`.
+  Warned the adopter directly and left a handoff at
+  `~/.cache/claude-handoffs/renet-polarity-trap.md`.
+- [WARNING] a second narrower mechanism for a question the shared gate answers, and its
+  `refuseOrWarn()` already throws in a test process, which is what this card works
+  around with a bespoke stderr write.
+- [NIT] two read controls lack the vacuous-pass floor test 4 grew; the plan's figure is
+  stale by one (3182 vs 3183); `live-execution.js` describes a version of this guard
+  that no longer exists; the `catch` around `require('./sandbox')` has no untested label
+  while its two siblings do.
 
 ### Final Ledger
 
