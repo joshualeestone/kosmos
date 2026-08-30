@@ -453,17 +453,47 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
   const block = src.slice(src.indexOf('#1573: the ONE PAIR OF BOARDS'), src.indexOf('render-connect-skip (a server did not boot)'));
   assert.ok(block.length > 500, 'the #1573 block moved or was renamed; this guard is reading nothing');
 
-  for (const stub of ['STUBOK', 'STUBBAD']) {
-    assert.match(block, new RegExp(`<<'${stub}'`), `${stub} heredoc is gone, so the exempt boards no longer define their own launcher`);
+  /* ⚠️ PIN THE RULE, NOT THE SPELLING. An earlier version of this asserted the heredoc
+     MARKERS (`<<'STUBOK'`) and the exact string `AGENT_WORKFORCE_CODEX_BIN="$_sb/fake-codex"`.
+     Both are spellings: renaming the stub file, or switching the heredoc to a printf,
+     is a CORRECT change that would have turned this test red and told the author they
+     had broken something. A pin on a spelling cements whatever the spelling currently
+     is, including a wrong one.
+
+     ⇒ The rule these boards must satisfy is: EACH LAUNCHER THE BOARD USES IS ROOTED IN
+     ITS OWN SANDBOX, AND THIS BLOCK CREATES IT. That is what the assertions below read,
+     by extracting whatever paths the env actually names. */
+  for (const [varName, label] of [['CLAUDE', 'claude'], ['CODEX', 'codex']]) {
+    const m = block.match(new RegExp(`AGENT_WORKFORCE_${varName}_BIN="([^"]+)"`));
+    assert.ok(m, `the exempt boards no longer pin AGENT_WORKFORCE_${varName}_BIN, so ${label} `
+      + 'resolves to whatever is on the machine; dry-run never gated that path either');
+    const target = m[1];
+    assert.match(target, /^\$_sb\//,
+      `the ${label} launcher is ${target}, which is not rooted in the board's own sandbox`);
+    /* ...and the block must actually CREATE that file, by any mechanism. This is the
+       half that catches deletion: a pinned env var naming a file nobody writes leaves
+       the resolver to find a real binary. */
+    const base = target.replace('$_sb/', '');
+    /* ⚠️ BOTH BOARDS, NOT EITHER. An earlier version matched `$sb_ok|$sb_bad|$_sb`, so
+       deleting ONE board's stub creation left the other satisfying the assertion and the
+       guard stayed GREEN. Measured: sb_ok's codex stub deleted -> green, which is a board
+       whose env names a launcher nothing creates, leaving the resolver to find a real one. */
+    for (const board of ['sb_ok', 'sb_bad']) {
+      /* ⚠️ A REDIRECT TARGET, NOT A MENTION. The `chmod +x` line names all four stub
+         paths, so a bare path match was satisfied by the chmod even after the creation
+         was deleted, and the guard stayed green. Requiring `> "$board/base"` matches the
+         WRITE and not the reference to it. Use versus mention, one more time. */
+      assert.match(block, new RegExp(`>\\s*"\\$${board}/${base}"`),
+        `${board} does not create ${base}, so its AGENT_WORKFORCE_${varName}_BIN names a file `
+        + 'that may not exist and the resolver would fall through to a real binary');
+    }
   }
-  /* The passthrough shapes. A stub that execs, or reaches into the operator's HOME or
-     /opt, is not a stub, and the dry-run exemption must not cover a board using one. */
+
+  /* The one genuinely rule-shaped assertion from the start, and it stays: a stub that
+     execs, or reaches into HOME or the machine's bin dirs, is not a stub, and the
+     dry-run exemption must never cover a board using one. */
   for (const bad of [/\bexec\s/, /\$HOME/, /\/opt\/homebrew/, /\.local\/bin/]) {
     assert.doesNotMatch(block, bad,
       `the #1573 stubs reach outside their sandbox (${bad}); the dry-run exemption must not cover that`);
   }
-  /* Codex too: without this the OpenAI runner resolves to a real /opt/homebrew/bin/codex
-     that openaiaccounts.js spawnSyncs, and dry-run never gated that path anyway. */
-  assert.match(block, /AGENT_WORKFORCE_CODEX_BIN="\$_sb\/fake-codex"/,
-    'the exempt boards no longer pin AGENT_WORKFORCE_CODEX_BIN, so codex resolves to a real binary');
 });
