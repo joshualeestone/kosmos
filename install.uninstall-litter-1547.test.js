@@ -42,8 +42,17 @@ function sandbox() {
      the bug. */
   const data = path.join(dataParent, 'AgentWorkforce');
   fs.mkdirSync(path.join(home, 'app'), { recursive: true });
-  fs.mkdirSync(path.join(data, 'wouldping'), { recursive: true });
-  fs.mkdirSync(path.join(data, 'liveness'), { recursive: true });
+  for (const d of ['wouldping', 'liveness', 'downloads', 'usage', 'sendertokens', 'selfreports']) {
+    fs.mkdirSync(path.join(data, d), { recursive: true });
+    fs.writeFileSync(path.join(data, d, 'ours.bin'), 'kosmos\n');
+  }
+  /* The person's, one from each class named in setup.sh's table. `secrets` is the
+     one that would hurt most: we wrote the files, the keys inside are theirs. */
+  fs.mkdirSync(path.join(data, 'chats'), { recursive: true });
+  fs.mkdirSync(path.join(data, 'secrets'), { recursive: true });
+  fs.writeFileSync(path.join(data, 'chats', 'a.json'), '{"theirs":1}\n');
+  fs.writeFileSync(path.join(data, 'secrets', 'key.env'), 'THEIR_KEY=1\n');
+  fs.writeFileSync(path.join(data, 'connect.json'), '{"decided":1}\n');
   fs.mkdirSync(path.join(data, 'profiles'), { recursive: true });
   fs.writeFileSync(path.join(data, 'wouldping', 'needs-you.jsonl'), '{"seen":1}\n');
   fs.writeFileSync(path.join(data, 'liveness', 'angel.json'), '{"beat":1}\n');
@@ -80,24 +89,41 @@ test('the ping log goes and the person\'s files stay', () => {
     assert.ok(fs.existsSync(path.join(sb.data, 'projects.json')),
       'control: the user file was never seeded');
 
-    assert.ok(fs.existsSync(path.join(sb.data, 'liveness', 'angel.json')),
-      'control: the liveness records were never seeded');
+    for (const d of ['wouldping', 'liveness', 'downloads', 'usage', 'sendertokens', 'selfreports']) {
+      assert.ok(fs.existsSync(path.join(sb.data, d, 'ours.bin')),
+        'control: ' + d + ' was never seeded, so its assertion below is vacuous');
+    }
 
     const out = runUninstall(sb);
 
-    assert.ok(!fs.existsSync(path.join(sb.data, 'wouldping')),
-      'our own ping log survived the uninstall, so Kosmos left its bookkeeping behind');
-    assert.ok(!fs.existsSync(path.join(sb.data, 'liveness')),
-      'our own liveness records survived the uninstall');
+    /* 🛑 ALL SIX, NOT THE ONE THE CARD NAMED. The card was filed about wouldping;
+       sweeping only what the report named is how a class ships half-fixed, and
+       `downloads` is the member that actually costs the person space (~281MB). */
+    for (const d of ['wouldping', 'liveness', 'downloads', 'usage', 'sendertokens', 'selfreports']) {
+      assert.ok(!fs.existsSync(path.join(sb.data, d)),
+        'our own ' + d + ' survived the uninstall, so Kosmos left its bookkeeping behind');
+    }
+
+    /* 🛑 AND THE OTHER DIRECTION, WHICH IS THE ONE THAT COULD RUIN SOMEBODY'S DAY.
+       secrets/ is written BY US and holds THEIR keys, which is exactly the case a
+       "we wrote it, so it is ours" rule gets wrong. */
+    assert.equal(fs.readFileSync(path.join(sb.data, 'secrets', 'key.env'), 'utf8'), 'THEIR_KEY=1\n',
+      'the uninstall destroyed the person\'s credentials');
+    assert.equal(fs.readFileSync(path.join(sb.data, 'chats', 'a.json'), 'utf8'), '{"theirs":1}\n',
+      'the uninstall reached into the person\'s conversations');
+    assert.ok(fs.existsSync(path.join(sb.data, 'connect.json')),
+      'the uninstall removed a record of the person\'s own decisions');
 
     /* ⚠️ THE POSITIVE HALF. Every other assertion here is an ABSENCE, and the
        sibling test's `doesNotMatch` passes just as happily when the script died
        before reaching the sweep. Nothing asserted the person is ever TOLD what
        was removed, which is the reversibility contract this file's header owes. */
-    assert.match(out, /removing Kosmos's own wouldping records/,
-      'the uninstall removed the ping log without telling the person');
-    assert.match(out, /removing Kosmos's own liveness records/,
-      'the uninstall removed the liveness records without telling the person');
+    assert.match(out, /removing Kosmos's own activity records/,
+      'the uninstall removed our records without telling the person');
+    assert.doesNotMatch(out, /wouldping|liveness|sendertokens|selfreports/,
+      'a module name reached the person uninstalling the app: ' + out);
+    assert.equal((out.match(/removing Kosmos's own activity records/g) || []).length, 1,
+      'the removal is announced once per directory, so six removals read as more than happened');
 
     // 🛑 THE ARM THAT STOPS THE FIX BECOMING THE DISASTER. Deleting the whole
     // data folder would satisfy the assertion above and destroy the person's work.
@@ -114,8 +140,11 @@ test('a data folder with no ping log is left entirely alone', () => {
   /* The sweep must be conditional: a machine that never logged a would-ping
      should see no removal message and lose nothing. */
   const sb = sandbox();
-  fs.rmSync(path.join(sb.data, 'wouldping'), { recursive: true, force: true });
-  fs.rmSync(path.join(sb.data, 'liveness'), { recursive: true, force: true });
+  /* ⚠️ ALL SIX, OR THIS TEST IS ABOUT A FOLDER THAT STILL HAS LITTER IN IT. It caught
+     exactly that when the swept list grew from two to six and this line did not. */
+  for (const d of ['wouldping', 'liveness', 'downloads', 'usage', 'sendertokens', 'selfreports']) {
+    fs.rmSync(path.join(sb.data, d), { recursive: true, force: true });
+  }
   try {
     const out = runUninstall(sb);
 
@@ -150,8 +179,18 @@ test('the sweep names one folder rather than pattern-matching the data root', ()
      cemented the defect it was written to prevent. */
   assert.match(src, /rm -rf "\$_support\/\$_litter"/,
     'the litter sweep is gone, or no longer uses the single existing derivation');
-  assert.match(src, /for _litter in wouldping liveness; do/,
-    'the swept list changed; both are Kosmos-owned dirs under store.ROOT');
+  /* ⚠️ THE COUNT AND THE LIST MUST AGREE, which is the discipline the remembered-answer
+     block 40 lines up already carries. This is a spelling pin and is admitted as one:
+     it catches a member silently dropped, not a member never added. */
+  const listed = (src.match(/for _litter in ([a-z ]+); do/) || [])[1] || '';
+  assert.equal(listed.trim().split(/\s+/).length, 6,
+    'the swept list is no longer six members; update the SIX in the comment above it too: ' + listed);
+  assert.match(src, /SIX DIRECTORIES, AND IF YOU ADD A SEVENTH/,
+    'the count discipline was removed from the comment');
+  /* ⚠️ NARROWER THAN ITS MESSAGE, SAID PLAINLY: this catches one spelling of a whole-
+     folder delete, not the class. `rm -rf "${_support}"` and a bare `$_support` both
+     pass it. The behavioural arm above is what actually protects the person's files;
+     this only catches an obvious revert. */
   assert.doesNotMatch(src, /rm -rf "\$_support"[^/]/,
-    'something removes the whole data folder, which is the person\'s own data');
+    'the exact spelling `rm -rf "$_support"` appeared, which removes the whole data folder');
 });

@@ -1427,19 +1427,58 @@ KOSMOS_SWEEP_LIST
   # This file's own header states the rule that would have prevented it: two
   # derivations of one string is how a sweep silently stops matching what the
   # install wrote. `_support` is computed once, above, and is in scope here.
-  # 📌 BOTH of these, and the test names the rule rather than the list: a folder
-  # goes here only when it is Kosmos's OWN bookkeeping under `store.ROOT`, written
-  # by us and regenerated on next run -- `engine/wouldping.js` and
-  # `engine/liveness.js` both `path.join(store.ROOT, ...)`. The person's own files
-  # (projects, profiles, accounts) sit in that same folder and MUST survive, which
-  # is why this removes two named children and never the folder itself.
-  # ⚠️ An earlier plan for this card called wouldping "the only litter I could name
-  # confidently". That was false -- liveness is nameable with exactly the same
-  # confidence, and a reviewer found it. Sweeping one and silently knowing about
-  # the other is worse than sweeping neither, because it reads as complete.
-  for _litter in wouldping liveness; do
+  # 🛑 SIX DIRECTORIES, AND IF YOU ADD A SEVENTH CHANGE THE WORD "SIX". The number
+  # is here to make a missing member visible to a reader who is not looking for one,
+  # exactly as the remembered-answer block above does, and for the same reason: that
+  # block records that its fourth member shipped hours before it was listed there.
+  #
+  # 🛑 DERIVED BY SEARCH, NOT BY RECALL, AND THAT DISTINCTION IS THE WHOLE HISTORY OF
+  # THIS BLOCK. The first version swept ONE directory and the plan called it "the only
+  # litter I could name confidently" -- a sentence about my memory that reads as a fact
+  # about the codebase. A reviewer found a second. The sentence was then corrected and
+  # THE METHOD WAS NOT, so a second reviewer found four more. The list below comes from
+  # `grep -n "store\.ROOT"` across the engine, which is the command that should have
+  # been run first:
+  #
+  #   REMOVED, ours: we write it, we are the only writer, and it is rebuilt on next run
+  #     downloads    the provider binaries we downloaded. THE BIG ONE: connect.js
+  #                  records a stranded copy costing ~281MB, so leaving this behind
+  #                  while removing a JSONL ping log gets the priority exactly backwards
+  #     usage        a derived cache, recomputed from transcripts
+  #     sendertokens tokens WE mint (mode 0700); leaving agent credentials on disk
+  #                  after an uninstall is a residue question, not only tidiness
+  #     selfreports  agent state records we append
+  #     wouldping    the ping log this card was filed about
+  #     liveness     agent heartbeats
+  #
+  #   LEFT ALONE AND NAMED, per this plan's Scope rule. Not oversights:
+  #     chats, commitments      the person's, by `engine/forget.js:45` -- the "Forget my
+  #                             data" surface, whose own comment says adding a name
+  #                             there is the only way to widen it
+  #     projects.json, profiles, attachments, messages.jsonl, messages, avatars
+  #                             the person's work
+  #     secrets                 THE PERSON'S CREDENTIALS. We wrote the files; the keys
+  #                             inside are theirs, and destroying them on an uninstall
+  #                             they may be reversing is not ours to decide
+  #     connect.json, removed.json, found-agents-dismissed.json,
+  #     found-agents-declined.json, room-seen.json, first-run.json, seen-version.json
+  #                             records of the PERSON'S DECISIONS (what they dismissed,
+  #                             declined, removed, have seen). We write them, so they
+  #                             are arguably ours, and that is exactly why they are
+  #                             named here rather than swept: "we wrote it" is not the
+  #                             test, "it is ours rather than theirs" is
+  _swept=no
+  for _litter in downloads usage sendertokens selfreports wouldping liveness; do
     if [ -d "$_support/$_litter" ]; then
-      info "removing Kosmos's own $_litter records from the data folder (your agents' files stay)"
+      # ⚠️ ANNOUNCE ONCE, IN THE PERSON'S WORDS. An earlier version said "removing
+      # Kosmos's own wouldping records", which prints a MODULE NAME to somebody who
+      # is uninstalling an app, and printed one line per directory so six removals
+      # read as more happening than has. The neighbouring strings in this function
+      # are the model: "removing the shared supervisor", "stopping the board".
+      if [ "$_swept" = no ]; then
+        info "removing Kosmos's own activity records (your agents' files stay)"
+        _swept=yes
+      fi
       rm -rf "$_support/$_litter" 2>/dev/null || true
     fi
   done

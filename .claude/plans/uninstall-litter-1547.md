@@ -37,12 +37,23 @@ claiming a search was exhaustive was written without running the search.** "The 
 I could name" describes my recall, and it reads to anyone else as a property of the
 codebase.
 
-**What is genuinely weak now, stated as a rule rather than a list:** the sweep names two
-directories, and a THIRD added later under a new name is not covered. The test pins the
-rule the list encodes (Kosmos's own bookkeeping under `store.ROOT`, regenerated on next
-run) so a future reader can decide correctly, but nothing FAILS when a new one appears.
-A guard that watched `store.ROOT` writers for unswept names would close it; that is a
-larger change than this card and is not attempted here.
+🛑 **AND THE CORRECTION ABOVE WAS APPLIED TO THE SENTENCE AND NOT TO THE METHOD, WHICH
+IS WHY A SECOND REVIEWER FOUND FOUR MORE.** After being told a claim of exhaustiveness had
+been written without running a search, I rewrote the claim and STILL DID NOT RUN THE
+SEARCH. The next version said the gap was prospective ("a THIRD added later is not
+covered") when four more members existed at that moment, including `downloads/`, which
+`engine/connect.js` records as costing ~281MB when stranded. So the uninstaller was
+removing a JSONL ping log and leaving the largest object in the folder.
+
+⭐ **The reusable form: correcting the wording of an unverified claim produces a
+better-worded unverified claim.** The fix is the command, and it is one line:
+`find . -name '*.js' | tr '\n' '\0' | xargs -0 grep -n "store\.ROOT"`.
+
+**What is genuinely weak now, and it is smaller:** the sweep names six directories,
+derived by that search, and a SEVENTH added later under a new name is not covered. The
+count is pinned in both the comment and the test so a member silently dropped is visible,
+but nothing fails when a member is never added. A guard that watched `store.ROOT` writers
+for unswept names would close it; that is a wider change than this card.
 
 **Out of scope, named rather than silently skipped:** the person's own files in that same
 folder (projects, profiles, accounts), which is why this removes two named children and
