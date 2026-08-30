@@ -407,7 +407,7 @@ let PROBE_TTL_MS = 60000;
 /** Tests only: make the probe cache's expiry assertable. Without a seam a typo
     turning 60000 into 600000 is invisible to the suite, because every arm either
     hits a warm cache or resets it, and nothing ever waits for an entry to age out. */
-function setProbeTtlForTests(ms) { PROBE_TTL_MS = typeof ms === 'number' ? ms : 60000; }
+function setProbeTtlForTests(ms) { PROBE_TTL_MS = Number.isFinite(ms) && ms > 0 ? ms : 60000; }
 
 async function willInstall() {
   /* ⚠️ `claudeBinPath()` IS INSIDE THE GUARD, and it was not. It calls into the

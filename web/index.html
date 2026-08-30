@@ -30764,8 +30764,8 @@ document.getElementById('fr-pane-1').addEventListener('click', async (e) => {
  *
  * ✅ THE FIELD LANDED (#1556) AND THIS IS NOW A READ OF IT. `firstrun.state()`
  * produces `connect.willInstall` and it is served on `/api/first-run`, which is
- * where `FR` comes from. Nothing else about this function changed, exactly as the
- * paragraph above predicted.
+ * where `FR` comes from. Nothing else about this function changed: the body below is
+ * the same read it always was, and only the answer it gets is new.
  *
  * 🛑 DO NOT RE-DERIVE A PRODUCER. This block used to end "TODAY THE PAGE CANNOT
  * TELL" and "until that field exists", and it still said so for a while AFTER the
@@ -30850,7 +30850,14 @@ function frClaudeConfirmSentence() {
   const bytes = frClaudeDownloadBytes();
   const size = bytes === null ? 'a large download' : 'a large download, about ' + frRoughMB(bytes);
   const st = (FR && FR.connect) || null;
-  const known = st && typeof st.willInstall === 'boolean';
+  /* ⚠️ `=== true`, NOT `typeof ... === 'boolean'`. The flat arm below states that an
+     install IS needed, and a boolean test is satisfied by `false` too, so a machine
+     that already HAS a working Claude Code would be told the opposite. It is safe
+     today only because the single caller is gated behind `frClaudeInstallNeeded()`
+     three hundred lines away, and #1556 is what made this arm reachable at all. A
+     sentence that cannot contradict itself is better than one that relies on a
+     distant caller to stay honest. */
+  const known = st && st.willInstall === true;
   return known
     ? 'In order to connect to Claude, we need to install Claude Code first. It is ' + size + '.'
     : 'Connecting to Claude needs Claude Code on this computer. If it is not here already we will install it, ' + size + '.';

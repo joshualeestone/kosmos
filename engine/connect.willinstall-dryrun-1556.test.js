@@ -39,9 +39,19 @@ fs.chmodSync(bin, 0o755);
 
 test('#1556 a dry-run result is NOT a passing probe: nothing was executed', async () => {
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
-  /* Exactly the shape `run()` returns under dry-run. The binary EXISTS and is
-     executable, so accessSync passes and only the probe can decide. */
-  connect.setRunner(() => ({ ok: true, stdout: '', dryRun: true }));
+  /* 🛑 `setRunner(null)`, NOT a hand-rolled object, AND THAT IS THE WHOLE POINT OF
+     THIS FILE. Clearing the runner is what forces `DRY_RUN` back on, so `run()` takes
+     its REAL dry-run branch and produces the marker itself.
+
+     An earlier version injected `{ok:true, dryRun:true}` by hand. That asserted the
+     shape I had TYPED rather than the shape `run()` PRODUCES, so if `run()` ever
+     renamed or dropped the marker, `willInstall()` would score an unexecuted probe as
+     a pass, return the harmful `false`, and this file would stay green while the
+     defect it exists to prevent came back.
+
+     ⇒ The isolation this file was built for is exactly what makes the honest version
+     free, and I built it and then did not use it. */
+  connect.setRunner(null);
   connect.resetForTests();
   assert.equal(await connect.willInstall(), true,
     'a probe that never executed was scored as a working install');
@@ -49,8 +59,10 @@ test('#1556 a dry-run result is NOT a passing probe: nothing was executed', asyn
 
 test('#1556 control: the same seam CAN return the other answer', async () => {
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
-  /* Same runner, same binary, dryRun flag absent. If this did not read false the
-     test above would prove nothing - it would be green for any implementation. */
+  /* Same binary, a probe that DID run and succeeded: `ok` true, no dryRun marker.
+     If this did not read false the arm above would prove nothing, because it would
+     be green for any implementation. This one has to inject, because the point is a
+     result that is NOT dry-run. */
   connect.setRunner(() => ({ ok: true, stdout: '' }));
   connect.resetForTests();
   assert.equal(await connect.willInstall(), false,

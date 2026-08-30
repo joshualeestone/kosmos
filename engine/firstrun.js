@@ -136,6 +136,13 @@ async function state() {
      a poll, and the cost note at `server.js:3211` is about `/api/found-agents`,
      not about this.
 
+     🛑 CORRECTED (#1556): that last clause was wrong and it is fixed here rather
+     than left to contradict the newer note below. `server.js:3211` explains why
+     `/api/found-agents` is NOT folded into `/api/first-run`, and its "That route is
+     polled" refers back to `/api/first-run`, which is THIS route. So the cost note
+     IS about this one. See the block further down for which sense of "polled" it
+     means: user-driven repeats, not a timer.
+
      ⭐ And it is what makes "Check again" mean anything. Before this, that button
      re-read the same file and returned the same wrong answer, confidently. */
   /* ⚠️ STARTED HERE, AWAITED LATER, SO THE TWO PROBES OVERLAP.

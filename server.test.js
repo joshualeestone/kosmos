@@ -5592,9 +5592,8 @@ test('the first-run routes answer, and the completion route reports what stuck',
      serialization problem, which is not where the cause is. */
   assert.ok('willInstall' in state.connect,
     'the screen reads FR.connect.willInstall and the route did not answer the field at all');
-  /* null is accepted because firstrun.js keeps a defensive catch, NOT because that
-     path is reachable today: willInstall() catches on every route it has. The
-     assertion that earns its keep is the presence check above. */
+  /* null is accepted because firstrun.js keeps a defensive catch, not because that
+     path is reachable today. */
   assert.ok(typeof state.connect.willInstall === 'boolean' || state.connect.willInstall === null,
     `the route answered ${JSON.stringify(state.connect.willInstall)}, which the screen has no branch for`);
 

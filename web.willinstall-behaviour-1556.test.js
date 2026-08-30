@@ -96,3 +96,16 @@ test('#1556 an unknown answer keeps the hedge, which is the honest one', () => {
   assert.match(said, /If it is not here already/,
     'we asserted certainty we do not have');
 });
+
+test('#1556 a machine that already HAS Claude is never told it needs an install', () => {
+  /* 🛑 THE ARM THAT WAS MISSING, AND IT IS THE CASE THE SENTENCE GOT WRONG.
+     `known` used to be `typeof st.willInstall === 'boolean'`, which is satisfied by
+     FALSE as well, so this input rendered the flat "we need to install Claude Code
+     first" to somebody who already has a working one. It was safe only because the
+     single caller is gated by frClaudeInstallNeeded() three hundred lines away.
+
+     Perturbation: put `typeof ... === 'boolean'` back and this arm goes red. */
+  const said = confirmSentenceWith({ connect: { willInstall: false } });
+  assert.doesNotMatch(said, /we need to install Claude Code first/,
+    'a machine with Claude already installed was told an install is needed');
+});

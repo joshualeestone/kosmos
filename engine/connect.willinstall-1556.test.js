@@ -86,7 +86,7 @@ test('#1556: the cache is ONE-SIDED, so a binary going missing is noticed at onc
 });
 
 test('#1556: the probe result IS cached, so a status poll does not spawn one every time', async () => {
-  /* The route calls this on every /api/connect GET. Without a cache that is a
+  /* 📌 An earlier draft of this said 'the route calls this on every /api/connect GET'. That design was abandoned: /api/connect is byte-identical to main and willInstall is referenced nowhere in server.js. The only consumer is /api/first-run via firstrun.state(). The behaviour asserted below is unchanged and still worth pinning; only the rationale was wrong. Without a cache that is a
      subprocess per poll, which is the #1560 mistake in a new place. */
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = fakeClaude('claude-slow', 'sleep 0.3; exit 0');
   connect.resetForTests();
