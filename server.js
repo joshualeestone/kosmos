@@ -160,6 +160,7 @@ const accounts = require('./engine/accounts');
    derivation as the fallback for an agent it cannot see. */
 const runningas = require('./engine/runningas');
 const openaiAccounts = require('./engine/openaiaccounts');
+const codexupdate = require('./engine/codexupdate');
 const runners = require('./engine/runners');
 const github = require('./engine/github');
 const vercel = require('./engine/vercel');
@@ -3003,7 +3004,25 @@ const server = http.createServer((req, res) => {
     Promise.all([accounts.listLive(), openaiAccounts.listLive()])
       .then(([claudeRows, openaiRows]) => {
         const claude = claudeRows.map((a) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', ...a }));
-        sendJson(res, 200, { accounts: [...claude, ...openaiRows] });
+        /* 🛑 `offerable` TRAVELS WITH THE ROW, for the same reason `memoryShared` does
+           (#1488). When AGENT_WORKFORCE_CODEX_HOME names a home, engine/create.js
+           collapses the OpenAI accounts to that ONE home and refuses every other. The
+           page had no way to ask, so its picker offered all of them and the engine
+           could only refuse each one - and its own rule, two functions above that
+           picker, is that an option which always fails is worse than an option that is
+           not there.
+           ⚠️ THE PREDICATE IS CALLED, NOT RESTATED. `codexupdate.homeIsNamed()` is the
+           same function create.js asks, so the two cannot drift; a second copy of this
+           rule is precisely the disagreement #1488 reports. Same discipline as
+           `defaultHome()` itself (#1337).
+           📌 Claude rows are untouched: this override collapses codex homes only. */
+        const named = codexupdate.homeIsNamed();
+        const onlyDir = named ? path.resolve(openaiAccounts.defaultDir()) : null;
+        const openai = openaiRows.map((a) => ({
+          ...a,
+          offerable: !named || path.resolve(String(a.dir || '')) === onlyDir,
+        }));
+        sendJson(res, 200, { accounts: [...claude, ...openai] });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
