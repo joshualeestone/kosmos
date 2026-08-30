@@ -213,17 +213,34 @@ test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', () 
    * `countKosmosJobs()` cannot see it, because `enable` creates no `list` entry, so
    * the cleanup never fired either.
    */
-  for (const verb of ['enable', 'bootstrap']) {
-    const argv = verb === 'enable'
-      ? ['enable', `gui/${process.getuid()}/com.kosmos.agent.nosuch1539`]
-      : ['bootstrap', `gui/${process.getuid()}`, '/tmp/nope-1539.plist'];
+  const name = `sandboxprobe${Math.random().toString(36).slice(2, 8)}`;
+
+  /**
+   * 🛑 THE PRECONDITION MUST USE THE ARGUMENTS `installJob` ACTUALLY PASSES, NOT
+   * FABRICATED ONES. An earlier version asserted refusal on
+   * `gui/501/com.kosmos.agent.nosuch1539` and `/tmp/nope-1539.plist` - right on the
+   * VERB axis, wrong on the ARGUMENT axis.
+   *
+   * ⇒ Measured: a guard gaining the most plausible "improvement" there is - "the
+   * plist is inside the sandbox, so bootstrapping it is safe" - passed ALL THREE
+   * preconditions and let the real bootstrap through to execFileSync. That is not
+   * an exotic mutation; "sandboxed plist means safe to register" is precisely the
+   * wrong intuition this card exists to correct, so it is the likeliest thing a
+   * future reader writes.
+   *
+   * Built from the same exported functions `installJob` uses, so the precondition
+   * and the guarded call are argument-identical BY CONSTRUCTION and this class
+   * cannot reopen.
+   */
+  for (const argv of [
+    ['enable', `gui/${process.getuid()}/${live.serviceLabel(name)}`],
+    ['bootstrap', `gui/${process.getuid()}`, live.plistPath(name)],
+  ]) {
     assert.equal(live.run('/bin/launchctl', argv).sandboxRefused, true,
-      `precondition: the GUARD must actually REFUSE '${verb}' before this test is `
-      + 'allowed to call installJob with no runner and no dry-run');
+      `precondition: the GUARD must REFUSE the exact '${argv[0]}' call installJob `
+      + 'will make, before this test may run with no runner and no dry-run');
   }
 
-  const before = countKosmosJobs();
-  const name = `sandboxprobe${Math.random().toString(36).slice(2, 8)}`;
   fs.mkdirSync(nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, name), { recursive: true });
 
   const res = live.installJob(name, { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' });

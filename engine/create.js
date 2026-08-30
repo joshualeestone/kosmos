@@ -470,11 +470,33 @@ function run(file, args) {
    * three in use would break sandboxed tests that legitimately enumerate.
    *
    * 🛑 SCOPE, STATED SO THE COMMENT DOES NOT CLAIM MORE THAN THE CODE DOES.
-   * THIS GUARDS `create.js`'s `run()` AND NOTHING ELSE. `engine/remove.js` has a
-   * structurally identical seam with six mutating call sites, and
-   * `engine/delete-leftover.js:257` has a seventh with no DRY_RUN at all. Both
-   * remain reachable live on a fresh require. Tracked as #1598; do not read this
-   * guard as restoring the invariant repo-wide, because it does not.
+   * 🛑 THIS GUARDS `create.js`'s `run()` AND NOTHING ELSE, AND IT IS AN INTERIM
+   * MITIGATION THAT SHOULD BE DELETED. Read this before extending it.
+   *
+   * #1598 HAS LANDED ON MAIN. `engine/live-execution.js` fails closed on ANY
+   * binary and ANY verb unless production has explicitly opted in via
+   * `allowLiveExecution()`. `remove.js` and `delete-leftover.js` both call
+   * `liveExecutionAllowed()`; `create.js` does not, which makes it the only one of
+   * the three still on a narrower mechanism.
+   *
+   * ⚠️ AN EARLIER VERSION OF THIS NOTE SAID BOTH SIBLINGS "remain reachable live on
+   * a fresh require" AND CITED #1598 AS OPEN. Measured: #1598 is CLOSED, 311567ae
+   * is on main, and both siblings are gated. It was true when written and would
+   * have shipped false.
+   *
+   * 🛑 THE DELIBERATE DECISION, RECORDED SO A FUTURE READER DOES NOT HAVE TO MAKE
+   * IT: THAT GATE IS STRICTLY STRONGER THAN THIS GUARD. It keys on an EXPLICIT
+   * DECLARATION of intent; this keys on INFERRING intent from the environment,
+   * which is the argument this card itself made for why #1598 was needed. It also
+   * covers tmux and every other binary, where this covers `launchctl` alone.
+   *
+   * ⇒ This exists ONLY because `create.js` is not yet on the shared gate. WHEN IT
+   * ADOPTS `liveExecutionAllowed()`, DELETE THIS GUARD AND ITS TESTS rather than
+   * keeping both - two mechanisms answering one question is the
+   * two-copies-of-one-fact defect this file's header calls its worst habit.
+   *
+   * 📌 The adoption is Mona Lisa's by agreement, since she wrote the gate. This
+   * lands first so create.js is not the one unguarded module meanwhile.
    *
    * 🛑 AND A THIRD RESIDUAL, INSIDE THIS FILE AND ABOVE THE LINE THIS GUARDS.
    * `createAgentInner` calls `require('./trust').trustFolder(...)` BEFORE the
