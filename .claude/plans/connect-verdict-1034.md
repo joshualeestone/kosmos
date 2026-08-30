@@ -52,6 +52,29 @@ when it is merely blind, because *"a confident None ends the search at exactly t
 moment a person is trying to find their agents."* A connection verdict inherits that:
 **cannot tell** is a real answer and is never collapsed into **not connected**.
 
+## The one asymmetry this plan owes a reader
+
+**The boundary refuses to hand an agent a filesystem path. The instruction block writes
+one into every agent's file.** Both are deliberate and they are not in conflict, but the
+plan named neither, and a reader who finds them separately will think one is a bug.
+
+- `connectionverdict` lists `dir` and `bin` among the unsafe inputs, and both leak proofs
+  assert `/Users/` never appears in the agent view.
+- `blockBody()` embeds `kosmosCliShown()`, an absolute path under the person's home, into
+  the instructions eighteen agents boot from.
+
+⇒ **The rule is not "paths are secret". It is that a path is not a CREDENTIAL, while a
+sign-in URL is.** The boundary's job is refusing bearer material and refusing to leak the
+machine's shape through a ROUTE an agent can poll. The block's job is telling an agent a
+command it can actually run, and the branch already measured what happens without the
+path: bare `kosmos` fails on a stock install, which is the defect the path exists to fix.
+
+⚠️ **What the trade actually costs, stated so nobody has to rediscover it:** the block's
+path propagates into messages, commits and handoffs, which is exactly the surface this
+plan says the card is about. That is accepted because the alternative is an instruction
+that does not work, and because a home directory name is not a credential. **If that ever
+stops being true for a machine, the fix is `clipath`, not the boundary.**
+
 ## Scope
 
 **In:** the boundary module, one read route, one CLI verb, tests, **and the agent-facing

@@ -692,7 +692,10 @@ cmd_connections() {
     # terminal usually has it working; an agent following instructions does not.
     # The siblings are reached by a person and are left alone on purpose:
     # changing them is a separate card, not a drive-by in a privacy change.
-    say "Kosmos is not running, so it cannot tell you what is connected. Start it with: $SELF start"
+    # ⚠️ QUOTED in the printed line. An install path with a space yields advice a
+    # person cannot paste, and clipath.js goes to real trouble to quote exactly
+    # this class for the block while the CLI's own advice did not.
+    say "Kosmos is not running, so it cannot tell you what is connected. Start it with: \"$SELF\" start"
     exit 1
   fi
   local body
@@ -762,7 +765,7 @@ cmd_connections() {
   # script text: that is a single-quoted shell string, and a path with an
   # apostrophe in it would end the script (which is what the apostrophe guard
   # test in this file exists to catch).
-  printf '%s\n' "$body" | KOSMOS_RESTART_CMD="$SELF restart" "$NODE" -e '
+  printf '%s\n' "$body" | KOSMOS_RESTART_CMD="\"$SELF\" restart" "$NODE" -e '
     let raw = ""; process.stdin.on("data", (d) => { raw += d; });
     process.stdin.on("end", () => {
       let v = null;

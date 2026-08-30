@@ -217,7 +217,11 @@ test('a board that does not know the route yet gets a next step, not developer v
        an agent that was handed an absolute path, so the recovery it prints has
        to be resolvable too. Before this, the line said bare `kosmos restart` and
        nothing held it: measured, ZERO tests touched this path. */
-    assert.match(r.out, /\/[^\s]*kosmos restart/,
+    /* The path may be QUOTED (an install path can contain a space), so the
+       assertion is about the path being RESOLVED, not about the exact spelling
+       around it. It was written against the unquoted form and broke the moment
+       the quoting was added, which is the pin-the-wording trap. */
+    assert.match(r.out, /\/[^\s"]*kosmos"? restart/,
       'the restart advice is the bare command, which fails on a stock install');
   });
 });
@@ -507,16 +511,29 @@ test('the not-running and transport failure sentences exist and exit non-zero', 
   assert.doesNotMatch(notRunning.out + notRunning.err, /curl:|Connection refused|ECONNREFUSED/,
     'transport vocabulary reached a person in the verb whose job is refusing it');
 
-  // ARM 2: a board that accepts the connection and then drops it mid-answer.
-  const dropped = await new Promise((resolve) => {
-    const srv = http.createServer((q, r) => { r.socket.destroy(); });
+  /* ARM 2: the TRANSPORT-FAILURE sentence, which is a different branch entirely.
+     ⚠️ MY FIRST VERSION OF THIS ARM PROVED NOTHING. It simply dropped the
+     connection, which fails `healthy()` (a curl of `/` looking for "Kosmos"), so
+     it produced the NOT-RUNNING sentence and exercised the same branch as ARM 1.
+     Measured: silencing the "did not answer" sentence left all 21 tests green.
+     To reach it the board must PASS the health probe and then fail on the route. */
+  const halfDead = await new Promise((resolve) => {
+    const srv = http.createServer((q, r) => {
+      if (q.url === '/') { r.writeHead(200, { 'content-type': 'text/html' }); r.end('<title>Kosmos</title>'); return; }
+      r.socket.destroy();
+    });
     srv.listen(0, () => resolve({ port: srv.address().port, srv }));
   });
-  const cut = await kosmos(dropped.port);
-  dropped.srv.close();
-  assert.notEqual(cut.code, 0, 'a dropped connection exited 0');
+  const cut = await kosmos(halfDead.port);
+  halfDead.srv.close();
+  assert.notEqual(cut.code, 0, 'a board that died mid-answer exited 0');
+  assert.doesNotMatch(cut.out + cut.err, /not running/i,
+    'the health probe passed, so this must NOT be the not-running sentence: this arm '
+    + 'is reaching the same branch as ARM 1 and proving nothing');
   assert.ok((cut.out + cut.err).trim().length > 0,
-    'a dropped connection printed NOTHING, which is the exact shipped bug this guards');
+    'a board that died mid-answer printed NOTHING, which is the exact shipped bug this guards');
+  assert.doesNotMatch(cut.out + cut.err, /curl:|\(52\)|\(56\)|Empty reply/,
+    'raw transport vocabulary reached a person');
 
   // CONTROL: the same helper against a WORKING board must succeed, or these
   // assertions are satisfied by the CLI simply being broken.
