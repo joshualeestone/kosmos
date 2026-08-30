@@ -106,7 +106,9 @@ function setClientId(id) {
    the field keeps its name on this road too). Mirrors github.js's spec
    candidates; the gh DOOR stays the authority on the gh road itself. */
 function ghPresent() {
-  const runnable = (p) => { try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } };
+  // #1592: the byte-identical twin of devicedoor.js's lambda, which is why
+  // fixing one file would not have found the other. Both now ask runners.
+  const runnable = (p) => require('./runners').isRunnable(p);
   if (process.env.AGENT_WORKFORCE_GH_BIN) return runnable(process.env.AGENT_WORKFORCE_GH_BIN);
   return ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'].some(runnable);
 }

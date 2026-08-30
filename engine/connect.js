@@ -431,7 +431,9 @@ async function willInstall() {
     bin = claudeBinPath();
     /* The cheap half, every time. It cannot produce the harmful answer on its own:
        a missing or non-executable file means an install IS needed, full stop. */
-    fs.accessSync(bin, fs.constants.X_OK);
+    /* #1592: asked through runners.isRunnable, because the raw X_OK check
+       SUCCEEDS ON A DIRECTORY, so a folder at the bin path read as installed. */
+    if (!require('./runners').isRunnable(bin)) return true;
   } catch { return true; }
   if (probeCache && probeCache.bin === bin && Date.now() - probeCache.at < PROBE_TTL_MS) {
     return !probeCache.ok;
@@ -2144,8 +2146,8 @@ function becomeStuck(owner, because, tail) {
    */
   let canRunClaude = false;
   try {
-    fs.accessSync(claudeBinPath(), fs.constants.X_OK);
-    canRunClaude = true;
+    // #1592: isRunnable, because the raw X_OK check passes on a DIRECTORY.
+    canRunClaude = require('./runners').isRunnable(claudeBinPath());
   } catch { canRunClaude = false; }
   writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude });
 }
