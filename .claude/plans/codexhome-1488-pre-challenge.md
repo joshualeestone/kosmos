@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: codexhome-1488
-diff_hash: d94a6a0fd1c1bea95623baf43e9059b1476cc5a1dd0773c9dd0f58911d1a8301
+diff_hash: 41dd3c6fcd9e616b136f6ace17679f8e167dee787679ffc883c052ea3738dd46
 subdir_audit: passed
 converged: false
 timestamp: 2026-08-30T19:06:05Z
@@ -49,6 +49,11 @@ slice holds the body.
 [WARNING] The absence assertions could have passed on an empty read, because
 `assert.doesNotMatch('', /x/)` passes. RESOLVED: a population floor at module scope, plus a
 control asserting the expression IS findable in the file that owns it.
+
+[WARNING] TWO TEST NAMES ASSERTED MORE THAN THEIR BODIES CHECKED. One denied that the
+filter drops non-openai and dead-connection rows; the other said the route COMPUTES the
+field when the body only checks two strings co-occur in a slice. A name that over-claims
+answers a coverage question it has not earned. RESOLVED, renamed, limits recorded.
 
 [NIT] `delete-leftover.js` and `remove.js` differ in why they are default-live. Not this
 card's; recorded on #1598, where it was acted on.
