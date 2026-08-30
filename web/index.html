@@ -6950,7 +6950,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         </div>
       </div>
       <div id="acct-flow" hidden style="margin:10px 0 0;">
-        <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" style="margin:0;"></p>
+        <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" tabindex="-1" style="margin:0;"></p>
         <div class="frow" id="acct-code-row" hidden style="margin:8px 0 0;">
           <input type="text" id="acct-code" inputmode="numeric" autocomplete="one-time-code"
                aria-label="The code from your email" placeholder="The code from your email">
@@ -13508,13 +13508,21 @@ async function acctAddStart() {
     if (!res.ok) {
       btn.disabled = false;
       note.textContent = (out && (out.because || out.error)) || 'We could not start the sign-in.';
+      note.focus();
       return;
     }
     acctFlowPaint(out && out.phase ? out : { phase: 'signin-launching' });
     acctFlowWatch();
+    /* Focus follows the news onto the flow's own status line, which sits before
+       #acct-add-note in the DOM and is what aria-live announces next. The
+       Confirm handler put focus on #acct-add-note first to bridge the await
+       without dropping to <body>; this moves it onto the story once it exists. */
+    const say = document.getElementById('acct-flow-say');
+    if (say) say.focus();
   } catch {
     btn.disabled = false;
     note.textContent = 'We could not reach Kosmos to start the sign-in.';
+    note.focus();
   }
 }
 
@@ -13527,7 +13535,14 @@ function acctAddConfirmReset() {
   const box = document.getElementById('acct-add-confirm');
   if (box) box.hidden = true;
   const btn = document.getElementById('acct-add');
-  if (btn) { btn.disabled = false; btn.setAttribute('aria-expanded', 'false'); }
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+  /* Re-enable Start ONLY when no sign-in flow owns its disabled state. Once a
+     flow is in flight acctFlowPaint disables this button and dedups its repaints
+     on ACCT_FLOW_LAST, so re-enabling it here (this runs on every modal dismiss)
+     would leave it clickable and fire a second /api/connect/start. The confirm
+     gate is the only OTHER reason it is disabled, and #acct-flow is hidden then. */
+  const flow = document.getElementById('acct-flow');
+  if (btn && flow && flow.hidden) btn.disabled = false;
 }
 function acctAddConfirmClose() {
   acctAddConfirmReset();
