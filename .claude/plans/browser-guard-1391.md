@@ -59,6 +59,6 @@ ready for a focused follow-up.
 
 ## Verification
 - `tools/test-browser-run-guard.sh` default + `KOSMOS_BC_REALPATH=1`: all pass.
-- `tools/test-cut-guard.sh`: 7/7 pass (cut guard unbroken).
+- `tools/test-cut-guard.sh`: 10/10 pass, 0 failures (cut guard unbroken).
 - `tools.release-gate.test.js`: 22/22 pass.
 - The original reproduction against the fixed guard now returns 0 (no false positive).

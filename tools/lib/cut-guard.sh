@@ -134,9 +134,12 @@ kosmos_refuse_if_browser_run_live() {
   # descendants in the list and the gate refused its own page layer while nothing
   # else ran. See _kosmos_drop_self_subtree above for the mechanism.
   if [ -n "$out" ] && [ -n "$self" ]; then
-    # || true for parity with the single-pid path above: _kosmos_drop_self_subtree's
-    # while-loop exits non-zero on its final read EOF, which would surface under
-    # `set -o pipefail` in a future caller.
+    # || true for parity with the single-pid `grep -v` path above. The function
+    # returns 0 today (a while-loop's status is its last executed body command,
+    # printf/continue here, not the read that hits EOF), so this is defensive
+    # rather than load-bearing: it keeps the assignment 0 under `set -o pipefail`
+    # should the function ever be changed to return non-zero, and it matches the
+    # sibling path.
     out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
   fi
   if [ "$rc" -ge 2 ]; then
