@@ -194,8 +194,8 @@ function isRunnable(p) {
     // X_OK, not `mode & 0o111`: the mode bits answer "can SOMEBODY execute
     // this", and a root-owned 0o700 binary passes that while failing at
     // launch for us. accessSync asks the only question that matters -- can
-    // THIS process run it -- which is the same question engine/connect.js
-    // asks of the same binary at its presence probe, its post-install gate
+    // THIS process run it -- which engine/connect.js asked separately of the
+    // same binary at its presence probe, its post-install gate
     // and its stuck-state check. (Not at the launch itself, which checks
     // nothing -- so this is the question asked BEFORE a launch, three times
     // over there and once here.)
