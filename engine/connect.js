@@ -773,7 +773,17 @@ async function start(opts) {
    */
   if (haveBinary) {
     const probe = await run(bin, ['--version'], { timeout: 15000 });
-    if (!probe.ok) haveBinary = false;
+    /* 🛑 A DRY-RUN PROBE SCORES A BINARY IT NEVER INVOKED (#1568/#1571). Under
+       AGENT_WORKFORCE_DRY_RUN=1 with no injected runner, run() returns
+       { ok: true, dryRun: true } WITHOUT executing, so this would trust a
+       launcher that may not run and skip the re-download the comment above
+       exists for. The sandbox guard (engine/sandbox.js) NAMES that flag as a
+       remedy for a live tmux, so a person testing a board the way the product
+       instructs got the harmful answer from a path that looked exercised.
+       An injected runner is a deliberate test control and its result IS
+       trusted (run() returns runner() before it ever consults DRY_RUN); only
+       the un-executed dry-run fake is refused. Mirrors willInstall's guard. */
+    if (!probe.ok || probe.dryRun) haveBinary = false;
   }
 
   // ⚠️ The probe was an AWAIT between the top guard and the claim below: two
