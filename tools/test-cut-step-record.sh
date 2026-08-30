@@ -27,6 +27,13 @@ run() {   # $1 = script body appended after the block, $2 = exit code to record
   # and would be replaced by the next call's, so the removal is explicit below.
   local T; T="$(mktemp -d)"; mkdir -p "$T/.claude/logs"
   HOME="$T" V=9.9.9 _CUT_DONE_WRITTEN=0 bash -c "
+    # 🛑 THE SAME SHELL OPTIONS release.sh RUNS UNDER (tools/release.sh:17), OR THIS
+    # GUARD IS BLIND TO THE MOST LIKELY REGRESSION IN THE CODE IT GUARDS. Measured: an
+    # errexit-unsafe refactor of the decode (the classic assign-then-read-status shape,
+    # where the assignment exits first) passes this harness with ZERO failures, while
+    # under real errexit it exits 1 and writes NO COMPLETION ROW AT ALL. A guard whose
+    # whole job is protecting that row reported green on a change that deletes it.
+    set -euo pipefail
     _CUT_DONE_WRITTEN=0
     V=9.9.9
     $blk
@@ -59,5 +66,117 @@ esac
 out="$(run 'step "== 9. done =="' 0)"
 has "$out" 'exit=0' && has "$out" 'step=' && pass "a successful cut records its last step too" || fail "no step on success: $out"
 
+
+# ---------------------------------------------------------------------------
+# #1388: a KILLED step and a FAILED step must be DIFFERENT ROWS.
+#
+# ⭐ WHY: a browser gate SIGTERM'd by a second cut killed release.sh with exit
+# 143. The log wrote a bare `exit=143` and it read as a red, so the response was
+# to hunt a product defect on a cut that had nothing wrong with it. The card's
+# own tell: `suite_exit=0` was already in the log and the summary line overrode
+# it. A step line that contradicts its own detail line is worse than one that
+# omits it.
+# ---------------------------------------------------------------------------
+
+out="$(run 'step "== 3b. the page layer =="' 143)"
+has "$out" 'outcome=killed' && has "$out" 'signal=SIGTERM' \
+  && pass "exit 143 records as KILLED with its signal, not as a failure" \
+  || fail "a SIGTERM kill is not distinguishable from a failure: $out"
+
+out="$(run 'step "== 3b. the page layer =="' 137)"
+has "$out" 'outcome=killed' && has "$out" 'signal=SIGKILL' \
+  && pass "exit 137 records as KILLED with SIGKILL" \
+  || fail "SIGKILL not decoded: $out"
+
+# 🛑 THE CONTROL, AND IT IS THE POINT OF THE CARD. A real failure must NOT be
+# labelled killed, or the new field is as uninformative as the bare exit code
+# it replaced.
+out="$(run 'step "== 3b. the page layer =="' 1)"
+has "$out" 'outcome=failed' && ! has "$out" 'outcome=killed' && ! has "$out" 'signal=' \
+  && pass "a real failure stays FAILED and carries no signal" \
+  || fail "a genuine failure was labelled killed or carried a signal: $out"
+
+# And the two rows must not be identical, which is the defect stated directly.
+killed="$(run 'step "== 3b. the page layer =="' 143)"
+failed="$(run 'step "== 3b. the page layer =="' 1)"
+kstep="${killed#*step=}"; fstep="${failed#*step=}"
+# 🛑 COMPARE THE OUTCOME, NOT THE WHOLE ROW. A "the rows differ" assertion
+# CANNOT FAIL against the pre-#1388 code, and that is checkable by construction
+# rather than by anecdote: those rows always differed on `exit=143` versus
+# `exit=1`, which is precisely the field the card says is insufficient.
+# ⚠️ An earlier version of this comment cited a measurement against a local
+# edit that is not in git history. That is the same uncheckable-claim habit
+# this file retracts thirty lines below, committed in the retraction's own
+# neighbourhood. The reason above needs no measurement: read the two rows.
+# ⚠️ ASSERT THE FIELD EXISTS BEFORE EXTRACTING IT. When `outcome=` is absent --
+# which is exactly the pre-change regression this arm guards -- `${row#*outcome=}`
+# returns the row unchanged and `%% *` yields the TIMESTAMP, so the failure
+# message pointed a reader at the wrong field while correctly failing.
+# 🛑 A SENTINEL, NOT A BARE EXTRACTION, AND THIS ARM PROVED IT NEEDED ONE. `fail`
+# records and CONTINUES, so the lines below ran anyway on a row with no `outcome=`. There
+# `${row#*outcome=}` returns the row unchanged and `%% *` yields the TIMESTAMP, so this
+# arm was comparing two TIMESTAMPS: equal within one second (fails correctly, which is
+# why it looked solid) and DIFFERENT across a second boundary, where it PASSED against
+# the unfixed code and printed two timestamps while calling them outcomes.
+# ⚠️ A race that fails in the reassuring direction, in the one arm this card
+# rewrote SO THAT IT COULD FAIL. Both sides now collapse to one sentinel when the field
+# is absent, so they compare EQUAL and the arm fails on the code it exists to catch.
+if has "$killed" 'outcome=' && has "$failed" 'outcome='; then
+  kout="${killed#*outcome=}"; kout="${kout%% *}"
+  fout="${failed#*outcome=}"; fout="${fout%% *}"
+else
+  fail "no outcome= field at all, so a killed cut and a failed cut are still one row shape"
+  kout='<absent>'; fout='<absent>'
+fi
+[ "$kstep" = "$fstep" ] \
+  && { [ "$kout" != "$fout" ] \
+       && pass "same step, but the OUTCOME field separates a kill from a failure ($kout vs $fout)" \
+       || fail "a killed cut and a failed cut carry the same outcome: $kout"; } \
+  || fail "control: the two runs did not even reach the same step, so this proves nothing"
+
+# The non-signal range above 128, which the first decode fabricated names for.
+out="$(run 'step "== 3b. the page layer =="' 255)"
+has "$out" 'outcome=failed' && ! has "$out" 'signal=' \
+  && pass "exit 255 is a FAILURE, not a fabricated SIG127" \
+  || fail "a non-signal status above 128 was reported as a kill: $out"
+
+out="$(run 'step "== 3b. the page layer =="' 160)"
+has "$out" 'outcome=failed' && ! has "$out" 'signal=' \
+  && pass "exit 160 is a FAILURE, not a fabricated SIG32" \
+  || fail "a non-signal status above 128 was reported as a kill: $out"
+
+# The boundary itself: 128 is not 128+0.
+out="$(run 'step "== 3b. the page layer =="' 128)"
+has "$out" 'outcome=failed' && pass "exit 128 is a failure, not a signal-0 kill" \
+  || fail "the 128 boundary was misread: $out"
+
+# 🛑 129 IS THE AMBIGUOUS ONE THE CODE'S OWN COMMENT SINGLES OUT: git exits 129
+# for any usage error, so this row can mean a real SIGHUP or a git mistake.
+# Pinned because the documented behaviour was unasserted, and a future edit that
+# special-cased it would have silently contradicted the comment.
+out="$(run 'step "== 3b. the page layer =="' 129)"
+has "$out" 'outcome=killed' && has "$out" 'signal=SIGHUP' && has "$out" 'basis=exit-status' \
+  && pass "129 decodes as SIGHUP AND says the kill was inferred, not observed" \
+  || fail "the ambiguous 129 row does not carry its hedge: $out"
+
+# Every killed row must say the kill was inferred; a bare signal= asserts that
+# something signalled the cut, which the status alone cannot establish.
+out="$(run 'step "== 3b. the page layer =="' 143)"
+has "$out" 'basis=exit-status' \
+  && pass "a killed row states that the kill was inferred from the status" \
+  || fail "a killed row asserts a signal with no hedge: $out"
+
+out="$(run 'step "== 3b. the page layer =="' 0)"
+has "$out" 'outcome=ok' && pass "a clean cut records ok" || fail "a clean cut is not ok: $out"
+
+# 🛑 THE SUMMARY STAYS ADJACENT TO THE EXIT IT REPORTS. Append new arms ABOVE
+# this line, never below it: a run that prints "cut step record: 0 failures" and
+# then a FAIL under it hands a hurried reader the wrong verdict, and the closing
+# line is the one people take away.
+# ⚠️ An earlier version of this comment said the summary "used to sit mid-file".
+# It did not: on origin/main it was already the second-to-last line. What sat
+# mid-file was MY OWN half-finished edit, which is not file history and is not
+# checkable by anyone reading git log. The rule is right; the anecdote was an
+# intermediate state of my editing session described as though it had shipped.
 echo "cut step record: $fails failures"
 exit $((fails > 0))
