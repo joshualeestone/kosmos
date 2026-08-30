@@ -1,11 +1,11 @@
-# #1391 — re-arm the concurrent-page-layer guard, correctly
+# #1391: re-arm the concurrent-page-layer guard, correctly
 
 ## The card
 `kosmos_refuse_if_browser_run_live` (in `tools/lib/cut-guard.sh`) refuses a page
 layer when another browser-checks run is already live, so two concurrent
 Playwright runs cannot starve each other and kill a cut. It was **disarmed** on
-2026-08-27 because, when armed, it threw a false positive — reporting "1 live"
-while nothing else ran — which cost a cut. The disarm note asked whoever re-arms
+2026-08-27 because, when armed, it threw a false positive (reporting "1 live"
+while nothing else ran) which cost a cut. The disarm note asked whoever re-arms
 it to **reproduce the false positive first**. The note guessed the cause was
 "`$$` does not change inside a subshell"; it flagged that guess as unconfirmed.
 
@@ -22,14 +22,14 @@ guard -> "another browser-checks run is already live (1 live; first: 14094 ...)"
 ## Root cause (the named cause was wrong)
 Two interacting facts:
 1. **macOS `pgrep -f` never lists its own ancestor.** The guard runs *inside*
-   browser-checks.sh, so pgrep cannot see the browser-checks.sh process — the
+   browser-checks.sh, so pgrep cannot see the browser-checks.sh process. The
    `$$` self-exclusion targeted a line pgrep never returned (dead code).
 2. **A run forks bash subshells that inherit its argv with fresh pids.** Any
    `( a; b )` / background job / `$( )` that does not immediately exec keeps the
    parent's command line under a new pid. Those are the caller's own descendants,
    matched by pgrep, and a single-pid exclusion cannot drop them.
 
-⇒ The guard conflated the cut's OWN page-layer subtree with a second run.
+The guard conflated the cut's OWN page-layer subtree with a second run.
 
 ## The fix
 Exclude the caller's whole **subtree** (self + descendants), not one pid
@@ -40,12 +40,14 @@ it in `browser-checks.sh`, mirroring how release.sh arms the cut guard
 (`KOSMOS_HARNESS_IGNORE_CUT=1` overrides).
 
 ## Tests
-- Two default (non-opt-in, no browser process — safe on a shared Mac) seam+real-pid
+- Two default (non-opt-in, no browser process, safe on a shared Mac) seam+real-pid
   arms: a candidate that is the caller's descendant is excluded (#1391); the same
   shape from an unrelated caller still refuses (mirror).
 - The opt-in real-path control reworked to a **delta** (`theirs - mine == 1`)
   robust to a colleague's concurrent run: a real decoy adds one for an unrelated
   caller and zero for its own ancestor.
+- A static assertion that `browser-checks.sh` actually calls the arm, so a
+  re-disarm turns a test red (the arm/disarm history is why this matters).
 - All existing seam arms unchanged and passing.
 
 ## Scope

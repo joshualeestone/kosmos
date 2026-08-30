@@ -124,7 +124,10 @@ kosmos_refuse_if_browser_run_live() {
   # descendants in the list and the gate refused its own page layer while nothing
   # else ran. See _kosmos_drop_self_subtree above for the mechanism.
   if [ -n "$out" ] && [ -n "$self" ]; then
-    out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self")"
+    # || true for parity with the single-pid path above: _kosmos_drop_self_subtree's
+    # while-loop exits non-zero on its final read EOF, which would surface under
+    # `set -o pipefail` in a future caller.
+    out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
   fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether another browser run is live (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2

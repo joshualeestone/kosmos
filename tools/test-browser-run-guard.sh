@@ -60,6 +60,19 @@ out="$(KOSMOS_BC_PROBE="$T/probe-kid2" KOSMOS_BC_SELF_PID=$unrel kosmos_refuse_i
 kill "$kid" "$unrel" 2>/dev/null; wait "$kid" "$unrel" 2>/dev/null
 if [ "$rc" -eq 1 ]; then pass "a candidate OUTSIDE the caller's subtree still refuses (#1391 mirror)"; else fail "#1391 mirror: out-of-subtree not refused (rc=$rc): $out"; fi
 
+# #1391: THE GUARD MUST STAY ARMED IN browser-checks.sh. Every test above drives
+# the guard FUNCTION; none of them would go red if the arm call were removed from
+# the shipped runner -- which is exactly how this guard reached the disarmed state
+# it was in (a false positive cost a cut, the arming was deleted, and nothing said
+# so). Assert the runner actually CALLS the arm, on a non-comment line, so a
+# re-disarm or an accidental deletion turns this test red.
+BC="$HERE/browser-checks.sh"
+if [ -f "$BC" ] && grep -vE '^[[:space:]]*#' "$BC" | grep -q 'kosmos_refuse_if_browser_run_live'; then
+  pass "browser-checks.sh ARMS the concurrent-page-layer guard (guards against re-disarm)"
+else
+  fail "browser-checks.sh does NOT call kosmos_refuse_if_browser_run_live -- the guard is disarmed"
+fi
+
 # ⚠️ THE REAL pgrep PATH, NOT ONLY THE SEAM. Every check above drives the probe
 # seam, so all of them would still pass if the real pgrep expression matched
 # nothing at all. A decoy process with the true command line proves the shipped
