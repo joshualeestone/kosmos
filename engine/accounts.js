@@ -39,6 +39,7 @@ const path = require('node:path');
 /* Safe to require from here: reporthook has zero engine dependencies, on
    purpose, because THIS module is one of its two callers (#561). */
 const reporthook = require('./reporthook');
+const inflight = require('./inflight');
 
 /* 🛑 A FUNCTION, NOT A CONST (#1419). Frozen at require time this read straight
    past the sandbox seam: a caller that set `AGENT_WORKFORCE_HOME` AFTER
@@ -265,7 +266,7 @@ function list() {
  * Parallel, not serial: one account's live check taking the full timeout
  * must not make every other account's row wait behind it.
  */
-async function listLive() {
+async function listLiveNow() {
   // Lazy require, matching subscription.js's own `require('./accounts')`
   // inside check() -- these two modules require each other, and a
   // top-level require on either side would deadlock on load order.
@@ -439,6 +440,16 @@ function nextWorkDir() {
      loop forever. */
   return null;
 }
+
+/* #1618: concurrent callers share ONE sweep. Not a cache - the slot holds the
+   promise only while it is unsettled, so nobody is ever handed an answer from a
+   moment that has passed, and a failed sweep is cleared like a successful one.
+   A TTL cache was tried on #1618 and the suite killed it in one run, because a
+   window converts `cannot tell` back into a confident `not connected`, which is
+   the one thing this sweep exists never to do.
+   ⚠️ `inflight.collapse`, not the `share` exported below: that one is about two
+   accounts sharing MEMORY and the collision of names would be a nasty one. */
+const listLive = inflight.collapse(listLiveNow);
 
 module.exports = { list, listLive, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };

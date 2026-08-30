@@ -50,6 +50,26 @@ function defaultHome() {
 }
 
 /**
+ * Whether an operator has NAMED a codex home, which collapses every OpenAI account
+ * to that one home.
+ *
+ * 🛑 ONE DERIVATION, CALLED RATHER THAN RESTATED, for the same reason `defaultHome()`
+ * is (#1337): a second copy of this rule can disagree with the first, and #1488 is
+ * exactly that disagreement - `engine/create.js` collapsed to the override while the
+ * page built its picker from the unfiltered list, so every other row was an offer the
+ * engine could only refuse.
+ *
+ * ⚠️ NOT the same question as `defaultHome()`. That one always answers; this one asks
+ * whether the answer came from AGENT_WORKFORCE_CODEX_HOME specifically. Plain
+ * `CODEX_HOME` does NOT collapse the list, which is why this cannot be written as
+ * "did defaultHome differ from the fallback".
+ */
+function homeIsNamed() {
+  return typeof process.env.AGENT_WORKFORCE_CODEX_HOME === 'string'
+    && process.env.AGENT_WORKFORCE_CODEX_HOME !== '';
+}
+
+/**
  * Mark the current version as dismissed, so the notice renders as a banner
  * rather than a prompt. Returns whether anything changed.
  */
@@ -67,4 +87,4 @@ function dismissUpdateNotice(home) {
   return true;
 }
 
-module.exports = { dismissUpdateNotice, defaultHome };
+module.exports = { dismissUpdateNotice, defaultHome, homeIsNamed };

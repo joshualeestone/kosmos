@@ -35,11 +35,27 @@ function pageFnSource(name) {
 
 test('the holding place has NO controls, and the flow starts hidden (no dead buttons)', () => {
   assert.ok(at > 0 && end > at, 'the Plus section moved; re-anchor');
-  const holding = SEC.slice(SEC.indexOf('id="plus-holding"'), SEC.indexOf('id="plus-flow"'));
+  /* 🛑 SCOPED TO STATE 1 (#1615), AND THE NARROWING IS THE FINDING RATHER THAN A
+     LOOSENING. This read "no controls in the pane before the flow", encoding a real
+     principle: do not ship a working-looking button the service cannot honour. Josh
+     INVERTED that on 2026-08-30: "i dont care if the app side is ready yet ... i want to
+     see all the design implemented". design/plus-flow.html draws state 2 with an email
+     field and a Send me a code button, unwired, deliberately.
+     ⇒ The rule no longer holds for state 2 and STILL HOLDS for state 1, which is
+     marketing plus a link and has no reason to grow a control. Scoping keeps the
+     protection exactly where it is still true rather than deleting it wholesale. */
+  const holding = SEC.slice(SEC.indexOf('id="plus-state1"'), SEC.indexOf('id="plus-state2"'));
+  assert.ok(holding.length > 200,
+    'the state 1 slice is empty or tiny; re-anchor before trusting the assertion below');
   assert.doesNotMatch(holding, /<button|<input|<select/,
-    'the holding place grew a control, which is a working-looking button the service cannot honour yet');
+    'state 1 grew a control. It is marketing and a link; the sign-in belongs in state 2');
   assert.match(SEC, /id="plus-flow" hidden/, 'the flow does not start hidden');
-  assert.match(holding, /Sign-up is not open yet/, 'the holding place stopped saying the honest sentence');
+  /* #1615 re-anchored `plus-holding` -> `plus-state1` when the pane became three states.
+     THE ASSERTION IS UNCHANGED AND DELIBERATELY SO: signup is still not open (Stripe is in
+     SANDBOX as of 2026-08-30), so the sentence is still true and must still be said. Only
+     the id moved. If signup opens, this sentence becomes false and the guard should be the
+     thing that makes somebody notice. */
+  assert.match(holding, /Sign-up is not open yet/, 'state 1 stopped saying the honest sentence');
 });
 
 test('no hostname or price appears in the Plus copy: the domain is temporary and the price is not ruled', () => {
@@ -55,8 +71,24 @@ test('the flow gates on configured, and the section paints on arrival', () => {
   assert.ok(pStart > -1 && pEnd > pStart, 'the paintPlus region moved; re-anchor (an open-ended slice would pass against the whole script)');
   const paint = SCRIPT.slice(pStart, pEnd);
   assert.match(paint, /configured !== true/, 'the flow no longer gates on the machine being configured');
-  assert.match(paint, /holding\.hidden = false;\s*\n\s*flow\.hidden = true;/,
-    'the unconfigured state does not rest on the holding place');
+  /* #1615: the pane is three states now, so this asserts the RULE across all three
+     rather than the two-line shape it used to pin. An unconfigured machine shows state 1
+     and hides BOTH the sign-in and the connected flow; a configured one shows only the
+     flow. Pinning the old literal would have cemented a spelling that the design
+     deliberately replaced. */
+  /* 🛑 THIS PINNED `state2.hidden = true` IN BOTH BRANCHES, WHICH CEMENTED THE DEFECT.
+     State 2 is unreachable today because nothing tells the app somebody has paid. Asserting
+     that in both branches encoded "state 2 is never shown" as the RULE, so the very edit
+     that wires it up would have gone red - a guard standing in the way of the intended next
+     step, which is worse than no guard.
+     ⇒ Assert what must NOT regress and leave state 2 free: an unconfigured machine shows
+     state 1 and NOT the connected flow; a configured one shows the flow and NOT state 1.
+     Whether state 2 is visible is the thing that will legitimately change. */
+  assert.match(paint, /state1\.hidden = false;/, 'the unconfigured state no longer shows state 1');
+  assert.match(paint, /state1\.hidden = false;[\s\S]{0,120}flow\.hidden = true;/,
+    'the unconfigured state no longer hides the connected flow');
+  assert.match(paint, /state1\.hidden = true;[\s\S]{0,120}flow\.hidden = false;/,
+    'the configured state no longer shows the flow with state 1 hidden');
   assert.match(SCRIPT, /if \(section === 'plus'\) paintPlus\(\);/,
     'the tab no longer paints on arrival');
 });
@@ -99,7 +131,8 @@ test('#743: a slower poll cannot revert a faster user click (or vice versa)', ()
   // FIRST (the exact inversion a naive "last resolved wins" would get
   // wrong), and assert the state left on screen is the second call's.
   const els = {
-    'plus-holding': { hidden: false },
+    'plus-state1': { hidden: false },
+    'plus-state2': { hidden: true },
     'plus-flow': { hidden: true },
     'plus-switch': { textContent: '' },
     'plus-status': { textContent: '' },

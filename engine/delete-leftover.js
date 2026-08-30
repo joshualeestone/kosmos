@@ -41,6 +41,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const create = require('./create');
 const remove = require('./remove');
+const liveExec = require('./live-execution');
 const sendertoken = require('./sendertoken');
 const status = require('./status');
 
@@ -59,9 +60,27 @@ const WALK_CAP = 20000;
 /* Test seam for the one thing this runs: `launchctl bootout` before the job
    file goes, so launchd does not keep a job whose file has vanished. */
 let runner = null;
-function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; }
+/* #1598: honor AGENT_WORKFORCE_DRY_RUN, symmetric with remove.js. Without this,
+   an operator who set the env on the opted-in board got asymmetric behaviour,
+   remove dry-runs while this executes live. Read at load (the board reads env at
+   startup); a test controls it through resetForTests. */
+let DRY_RUN = process.env.AGENT_WORKFORCE_DRY_RUN === '1';
+function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; if (!runner) DRY_RUN = true; }
+/* Test seam (#1598): back to fail-closed (no runner, dry-run flag off) so a test
+   can exercise the live-execution gate directly. */
+function resetForTests() { runner = null; DRY_RUN = false; }
 function run(file, args) {
   if (runner) return runner(file, args);
+  if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
+  /* #1598: fail closed, the same gate as remove.js. This module had NO dry-run
+     default of its own, so before the fix a fresh require went straight to live
+     launchctl/tmux (its one call spells `launchctl` bare and also boots jobs).
+     Live only when production has opted in; otherwise refuseOrWarn throws in a
+     test (refusing to fake success) or warns loudly and we dry-run in prod. */
+  if (!liveExec.liveExecutionAllowed()) {
+    liveExec.refuseOrWarn('engine/delete-leftover.js', file, args);
+    return { ok: true, stdout: '', dryRun: true };
+  }
   try {
     return { ok: true, stdout: execFileSync(file, args, { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] }) };
   } catch (err) {
@@ -297,4 +316,4 @@ function del(name, opts) {
   };
 }
 
-module.exports = { OUTCOME, plan, del, setRunner, measure, TRASH };
+module.exports = { OUTCOME, plan, del, setRunner, resetForTests, run, measure, TRASH };

@@ -9508,7 +9508,37 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <h2>Plus Account</h2>
     <p class="fhint">Use your Kosmos from anywhere.</p>
 
-    <div id="plus-holding">
+    <!-- #1615, design/plus-flow.html section 5: this pane is THREE states, not one.
+         Today's single state described a signup that does not happen here, which is
+         kosmos#1115's finding restated as a design decision.
+
+         🛑 SHIPPED UNWIRED ON PURPOSE. Josh, 2026-08-30 12:54: "i dont care if the app
+         side is ready yet for it to be fully working, i want to see all the design
+         implemented and then we make the product work based on the design." So state 2
+         is drawn even though nothing yet tells this Mac whether the person has paid.
+         The design says the same and gives the reason: "If it is wrong, it is wrong in
+         the product where he can see it and say so, which costs him less than a fourth
+         message asking him to imagine it."
+         ⚠️ This INVERTS the older rule in Josh-Brain's design gap list ("the shipped app
+         may not show a control that does not work"). Josh's instruction is newer and
+         directly on point, so it governs here. Named so a reader of that document does
+         not correct this back.
+
+         📌 NO PRICE, AND THAT IS NOT AN OVERSIGHT. The design's state 1 shows a monthly
+         figure. `web.plus-tab.test.js` forbids a price anywhere in this section because
+         pricing is not ruled; the markup below already records a price sentence going
+         false that way once; and Splinter's 2026-08-30 ruling is that the number is
+         Josh's alone. Three reasons against one mock detail. The site publishes the
+         price and this pane sends people there. -->
+    <!-- ⚠️ THE MOCK SAYS "this Mac" AND THIS SAYS "this computer", DELIBERATELY.
+         `engine/machine.test.js` forbids "this Mac" in every speaking file because Kosmos
+         does not only run on a Mac, and the rest of this page says "this computer" 112
+         times. The design's wording is the older assumption, not a decision to preserve.
+         ⇒ Design leads on FLOW and STRUCTURE; it does not get to reintroduce a
+         platform assumption a shipped guard exists to keep out. Raised on kosmos#1615 so
+         the mock can be corrected rather than this drifting from it silently. -->
+    <div id="plus-state1">
+      <h3>Reach this computer from anywhere</h3>
       <p>Plus connects this computer to your phone and your other computers:
       open your board from anywhere, get a notification when an agent
       posts or needs you, and everything you have stays on this computer. The
@@ -9544,7 +9574,43 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            still passes UNCHANGED, which is the point: the rule did not move to
            accommodate the feature. -->
       <p><a id="plus-site-link" href="#" target="_blank" rel="noreferrer noopener"
-      >Read about Kosmos Plus on the website</a></p>
+      >See Kosmos+</a></p>
+    </div>
+
+    <!-- #1615 state 2, design section 5: "paid, not set up here". The design settled an
+         open question here rather than asking a fourth time, and the reason is mechanical
+         rather than a preference: the app is a board bound to localhost and the site is a
+         different origin, so there is no session for the app to pick up, and this Mac
+         needs a credential of its own before the coordinator will give it an address.
+         ⇒ A sign-in has to live in this pane.
+         ⚠️ NOT WIRED. Nothing currently tells the app that somebody has paid, so this
+         state is reachable by the design's intent and not yet by a signal. That is the
+         requested state rather than an omission. -->
+    <div id="plus-state2" hidden>
+      <h3>Sign in to give this computer its address</h3>
+      <p>You have Kosmos+. Signing in here is what connects this computer.</p>
+      <div class="setrow">
+        <!-- ⚠️ `plus-signin-*`, NOT `plus-email`/`plus-code`. Those ids are ALREADY TAKEN by the
+     enrol step inside the connected flow below, and a duplicate id makes getElementById
+     return whichever comes first, so both controls would have driven the wrong one.
+     Caught by the page's own id-uniqueness guard, not by review.
+     📌 The two are genuinely different moments and the names now say so: this is signing
+     in to the Kosmos+ ACCOUNT before this computer is configured at all; the enrol pair
+     below is pairing a device once it already is. -->
+        <!-- ⚠️ `tk-inp` INSIDE `.field`, NOT `.cinput`. `.cinput` is the COMPOSER input class:
+     it sets `border: 0; background: none;` and takes its border from a `.composerbox`
+     ancestor. Every other `.cinput` in this file has one; this has none, and `.setrow`
+     supplies no field styling, so it would have rendered borderless and transparent.
+     This pane's own convention forty lines below is `tk-inp` in a `.field`, and the
+     design draws a bordered field. On a card whose premise is seeing the design
+     rendered, that is the difference that matters. -->
+        <div class="field">
+          <input type="email" id="plus-signin-email" class="tk-inp" autocomplete="email"
+            placeholder="you@example.com" aria-label="The email on your Kosmos+ account">
+        </div>
+        <button class="btn" type="button" id="plus-signin-code">Send me a code</button>
+      </div>
+      <p class="fhint" id="plus-signin-msg" role="status" aria-live="polite"></p>
     </div>
 
     <div id="plus-flow" hidden>
@@ -21592,23 +21658,53 @@ let PLUS_EPOCH = 0;
 const KOSMOS_SITE = 'https://installkosmos.com';
 
 async function paintPlus() {
-  const holding = document.getElementById('plus-holding');
+  /* #1615: three states, per design/plus-flow.html section 5. `state1` is the pane a
+     person with no Plus sees; `state2` is the sign-in for somebody who has paid but has
+     not connected this Mac; `flow` is the connected state and is unchanged.
+     🛑 STATE 2 HAS NO SIGNAL YET, AND THAT IS THE SHIPPED BEHAVIOUR ON PURPOSE. Nothing
+     tells this Mac whether the person has paid, so it cannot be chosen automatically and
+     state 1 is the honest default: we do not know that you have Plus. When the
+     coordinator can answer that question, this is the ONE place that has to change. */
+  const state1 = document.getElementById('plus-state1');
+  const state2 = document.getElementById('plus-state2');
   const flow = document.getElementById('plus-flow');
-  if (!holding || !flow) return;
+  if (!state1 || !state2 || !flow) return;
   /* Set before the fetch below, so the route is there whether or not the
      machine is configured and whichever way that call goes. */
   const site = document.getElementById('plus-site-link');
+  /* #1615, design/plus-flow.html: "Both entry points land on /+ ... The app links to
+     /+?from=app". One page, one parameter, so the site can tell an arrival from the app
+     apart from one off the homepage.
+     ⚠️ THE /+ ROUTE DOES NOT EXIST ON THE SITE YET - measured, `vercel.json` has no rewrite
+     for it and only `plus.html` is served. That half is Angel's, who owns the site repo,
+     and it is raised on kosmos#1615 rather than worked around here. Pointing at the
+     designed target is the instruction; quietly keeping the old path would hide the
+     dependency. */
+  /* #1615: the design says the app links to `/+?from=app` ("one page, one parameter").
+     🛑 THAT ROUTE DOES NOT EXIST AND I SHIPPED IT BROKEN ONCE. Measured live, with a
+     negative control:
+         /plus           200, 10305 bytes   (what plus.html serves today)
+         /+?from=app     404,  8498 bytes
+         a nonsense path 404,  8498 bytes   <- BYTE-IDENTICAL, so /+ is the generic 404
+     The rule for this card is that an inert control is fine and a page that MISLEADS is
+     not. A link labelled "See Kosmos+" opening a new tab onto a 404 is the second, and it
+     sits two lines under a paragraph saying the website is where this happens.
+     ⇒ Pointing at the designed target bought a DEVELOPER-visible signal and paid with a
+     USER-visible break. The dependency belongs in a card, not a dead door. The `/+`
+     rewrite is Angel's in chaoskosmos-site; reverted until it serves. */
   if (site) site.href = KOSMOS_SITE + '/plus';
   const epoch = (PLUS_EPOCH += 1);
   let r = null;
   try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
   if (epoch !== PLUS_EPOCH) return;
   if (!r || r.configured !== true) {
-    holding.hidden = false;
+    state1.hidden = false;
+    state2.hidden = true;
     flow.hidden = true;
     return;
   }
-  holding.hidden = true;
+  state1.hidden = true;
+  state2.hidden = true;
   flow.hidden = false;
   const sw = document.getElementById('plus-switch');
   sw.textContent = r.on ? 'Turn off' : 'Turn on';
@@ -22415,6 +22511,28 @@ let SWITCH_ACCT_TOUCHED = false;
    have is the defect this whole diff is about, and it had it. */
 const SWITCH_ACCT_HINT = 'Choose which OpenAI sign-in it runs on, or leave it as it is.';
 const SWITCH_ACCT_UNREADABLE = 'We could not read your OpenAI sign-ins, so there is nothing to choose from. Close this and open it again to retry.';
+/* #1561: accounts exist but every one is signed out (connection.state 'none').
+   Distinct from UNREADABLE above, which is "we could not read the list at all"
+   and must NOT collapse into this: an unreadable list means we do not know, a
+   dead list means we checked and none works. */
+const SWITCH_ACCT_ALLDEAD = 'None of your OpenAI sign-ins are working right now, so there is nothing to switch onto. Sign in to OpenAI again, then switch.';
+/* #1561: the "every OpenAI sign-in is dead" decision, extracted so
+   fillSwitchAccounts and changeProviderNow ask it the same way and it can be
+   tested directly. Keeps THREE states apart, which is the whole point:
+     zero OpenAI accounts   -> false (the .length check); the engine refuses with
+                               its own "add an account" remedy, unchanged.
+     accounts, all dead     -> true; we say so and refuse the switch, rather than
+                               submit account:null and let the engine default onto
+                               a dead one (openai.list() has no liveness filter).
+     list unreadable        -> false (the `unreadable` guard); "we could not read
+                               it" is not "we checked and none works", and must
+                               not fire the refusal on a machine that is fine. */
+function openaiAllDead(accounts, unreadable) {
+  if (unreadable) return false;
+  const openai = (accounts || []).filter((x) => x && x.provider === 'openai');
+  if (!openai.length) return false;
+  return !openai.some((x) => !x.connection || x.connection.state !== 'none');
+}
 const SWITCH_ACCT_STALE = 'This list may be out of date: we could not re-read your OpenAI sign-ins just now.';
 const SWITCH_ACCT_BROKEN = 'We could not show the OpenAI sign-in list just now.';
 /* Not a message: the last sentence WE wrote, so we only ever clear our own. */
@@ -22467,14 +22585,32 @@ function fillSwitchAccounts() {
      there" rule this file keeps, and the sibling #d-account is disabled for the
      same agent for the same reason. */
   const armed = !!CURRENT && prov.value !== providerOf(CURRENT);
+  /* #1488: AND OFFERABLE. When AGENT_WORKFORCE_CODEX_HOME names a home,
+     engine/create.js collapses the OpenAI accounts to that ONE home and refuses every
+     other, so without this line the menu offered rows the engine could only refuse -
+     the exact rule quoted four lines above, broken by the picker that quotes it.
+     ⚠️ `!== false`, not `=== true`: a row from a server that does not send the field
+     stays offerable, which is today's behaviour. `=== true` would empty this menu
+     against any server without the field, turning a narrow fix into a dead control.
+     📌 The field is computed by the SAME predicate create.js asks
+     (`codexupdate.homeIsNamed()`), called rather than restated, so the page and the
+     engine cannot drift - which is what this card reports them doing. */
   const list = ACCOUNTS.filter((x) => x.provider === 'openai'
-    && (!x.connection || x.connection.state !== 'none'));
+    && (!x.connection || x.connection.state !== 'none')
+    && x.offerable !== false);
   /* Hidden for THREE reasons, and the condition below names all of them because a
      comment that names one is how a reader concludes the others are bugs:
        not OpenAI    switching back to Anthropic has no OpenAI account to pick
        not armed     the agent already runs on OpenAI, so nothing can be switched
-       empty list    no usable account HERE, and the two sub-cases END
+       empty list    no usable account HERE, and the sub-cases END
                      DIFFERENTLY, so do not read this line as a guarantee.
+                     #1488 adds a THIRD sub-case and it is the well-behaved one:
+                     with an override home named, every row but that home is
+                     dropped, and if the named home itself has no identity the
+                     list is empty and this hides the menu - which is correct,
+                     because the engine's refusal for that case names the
+                     SETTING rather than a menu row, and a dropdown cannot say
+                     that.
                      With NO OpenAI account at all the engine refuses with a
                      remedy, and an empty dropdown would say less than that
                      sentence does. But this filter ALSO drops dead
@@ -22514,6 +22650,18 @@ function fillSwitchAccounts() {
     if (openai && armed && ACCOUNTS_UNREADABLE && pmsg0 && !pmsg0.textContent) {
       pmsg0.textContent = SWITCH_ACCT_UNREADABLE;
       SWITCH_ACCT_SAID = SWITCH_ACCT_UNREADABLE;
+    } else if (openai && armed && openaiAllDead(ACCOUNTS, ACCOUNTS_UNREADABLE)
+               && pmsg0 && !pmsg0.textContent) {
+      /* #1561: OpenAI accounts exist but the live filter above dropped every one
+         (each connection.state is 'none'). openai.list() in the engine carries
+         no such filter, so on account:null it would state a default onto a dead
+         account instead of refusing. Say so here, and changeProviderNow refuses
+         the submit, rather than land on a dead sign-in. Guarded on
+         !ACCOUNTS_UNREADABLE so the third state, "we could not read the list",
+         keeps its own sentence above and never collapses into this one: an
+         unreadable list means we do not know, a dead list means we checked. */
+      pmsg0.textContent = SWITCH_ACCT_ALLDEAD;
+      SWITCH_ACCT_SAID = SWITCH_ACCT_ALLDEAD;
     }
     return;
   }
@@ -22569,7 +22717,6 @@ function fillSwitchAccounts() {
      options with no boolean attribute, so they are unaffected either way. */
   if (sel.innerHTML !== html) sel.innerHTML = html;
   else if (sel.options.length) { sel.selectedIndex = Math.max(0, [...sel.options].findIndex((o) => o.defaultSelected)); }
-  const appearing = sel.hidden;
   sel.hidden = false;
   /* 🛑 RE-DERIVE THE DISABLED STATE HERE, OR AN IN-FLIGHT DISABLE OUTLIVES ITS REQUEST.
      `changeProviderNow` disables this select while a switch is in flight and re-enables it
@@ -22585,17 +22732,24 @@ function fillSwitchAccounts() {
      focus sits, and #d-provider-msg beside it is already an aria-live polite region.
      Not an AA failure on its own (the control is adjacent, focus is not moved), and
      this worker's bar is AA, so it gets the one line.
-     📌 Only on the transition, so repainting an already-visible menu does not
-     re-announce and turn a helpful line into noise.
-     🛑 AND THE COST OF THAT, STATED RATHER THAN LEFT TO BE DISCOVERED: the gate is
-     `appearing`, so these announcements cover APPEARS-WHILE-STALE and NOT
-     BECOMES-STALE-WHILE-VISIBLE. If the list were marked unauthoritative while the
-     picker is already on screen, nothing here would say so. No reachable path to that
-     was found: the failed-switch route appends its own line in `changeProviderNow`'s
-     catch, and the drop-then-refetch empties the list so the next paint takes the
-     hidden branch. It is recorded as an UNCOVERED CASE rather than a known bug, and
-     it is recorded because the paragraph above otherwise reads as covering both. */
-  if (appearing) {
+     📌 NOT RE-ANNOUNCED, AND THE DEDUPE IS ON THE SENTENCE RATHER THAN ON THE
+     TRANSITION. Repainting an already-visible menu writes nothing, because the write
+     below is skipped when the line we would say is the line already there.
+     🛑 #1599: THIS USED TO BE GATED ON `appearing` (sampled from `sel.hidden`
+     before the reveal), which covered APPEARS-WHILE-STALE and NOT
+     BECOMES-STALE-WHILE-VISIBLE: if the list were marked unauthoritative while the
+     picker was already on screen, the picker kept presenting rows the page had marked
+     non-authoritative and said nothing. `accountsUnreadable()` deliberately KEEPS
+     `ACCOUNTS` (a failed read invalidates the list's authority, not the list), so a
+     repaint in that state still finds a non-empty list and still takes this visible
+     branch - the branch that had no way to speak.
+     ✅ A CONTENT DEDUPE COVERS BOTH AND IS STRICTLY WIDER THAN THE TRANSITION ONE.
+     The transition gate asked "is this control new?"; the question the sentence
+     actually needs answered is "has what I would say changed?". It also closes a cost
+     `changeProviderNow` documents against itself: after its success path resets
+     `SWITCH_ACCT_SAID`, the next announcement used to be suppressed entirely because
+     the gate could not fire on an already-visible menu. */
+  {
     const pmsg = document.getElementById('d-provider-msg');
     /* NONE OF THESE MAY BE SILENT. This region is the only announcement a
        screen-reader user gets that a control appeared.
@@ -22642,7 +22796,19 @@ function fillSwitchAccounts() {
       const line = ACCOUNTS_UNREADABLE ? SWITCH_ACCT_STALE
         : (sel.options.length > 1 ? SWITCH_ACCT_HINT
           : (one ? 'It will run on ' + one + '.' : ''));
-      if (line) { pmsg.textContent = line; SWITCH_ACCT_SAID = line; }
+      /* ⚠️ COMPARED AGAINST THE REGION, NOT AGAINST `SWITCH_ACCT_SAID`, AND INSIDE THIS
+         GUARD THE TWO DIFFER IN EXACTLY ONE CASE THAT MATTERS. The guard above already
+         established the region is either EMPTY or holds our own last sentence, so for a
+         region holding ours this IS the `SWITCH_ACCT_SAID` dedupe. For an EMPTY region it
+         is not: the tracker can still name a sentence the region no longer contains (the
+         success path in `changeProviderNow` blanks the tracker; a route sentence can
+         replace the text), and dedupe against the tracker would then skip a write into a
+         region that is actually silent while our control is on screen. Comparing against
+         what is really there cannot make that mistake.
+         📌 An identical assignment is skipped rather than made harmless: writing the
+         same string back is still a mutation of an aria-live region, and this one exists
+         so a screen-reader user hears the sentence ONCE. */
+      if (line && line !== pmsg.textContent) { pmsg.textContent = line; SWITCH_ACCT_SAID = line; }
     }
   }
 }
@@ -22769,6 +22935,18 @@ async function changeProviderNow(say) {
   const acctSel = document.getElementById('d-provider-account');
   const want = sel.value;
   if (!want) return;
+  /* #1561: refuse to switch onto OpenAI when every OpenAI sign-in is dead, rather
+     than submit account:null and let the engine default onto a dead account (its
+     openai.list() has no liveness filter, so it would not refuse). Only when we
+     actually read the list (ACCOUNTS_UNREADABLE is the separate third state and
+     must not fire this) and at least one OpenAI account exists but none is live.
+     Mirrors the picker's own filter (connection.state !== 'none'). This is the
+     real refusal; fillSwitchAccounts only shows the sentence. */
+  if (want === 'openai' && openaiAllDead(ACCOUNTS, ACCOUNTS_UNREADABLE)) {
+    if (msg) { msg.textContent = SWITCH_ACCT_ALLDEAD; SWITCH_ACCT_SAID = SWITCH_ACCT_ALLDEAD; }
+    tell(SWITCH_ACCT_ALLDEAD, false);
+    return;
+  }
   const forAgent = CURRENT.sessionName;
   go.disabled = true;
   sel.disabled = true;
@@ -22822,10 +23000,14 @@ async function changeProviderNow(say) {
     /* Symmetric with the failure path below, and for the same reason: the
        route's own sentence has replaced whatever we last wrote, so a tracker
        still naming our string describes text the region no longer contains.
-       The cost is not a clobber (a stale value can only equal text we wrote);
-       it is that the next `if (appearing)` announcement is SUPPRESSED, because
-       the equality test can no longer match. An asymmetry between two paths
-       that need the same reset is what goes wrong on the next edit. */
+       The cost is not a clobber (a stale value can only equal text we wrote).
+       ✅ #1599 REMOVED THE COST THIS COMMENT USED TO NAME, so it is restated rather
+       than left describing a gate that is gone: this reset used to SUPPRESS the next
+       announcement outright, because that announcement was gated on `appearing` and
+       could not fire on an already-visible menu. The announcement is now gated on the
+       sentence changing, and it compares against the REGION rather than this tracker,
+       so blanking the tracker here no longer silences it. An asymmetry between two
+       paths that need the same reset is still what goes wrong on the next edit. */
     SWITCH_ACCT_SAID = '';
     tell(out.because || 'Switched.', true);
     sel.value = '';

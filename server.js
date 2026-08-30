@@ -160,6 +160,7 @@ const accounts = require('./engine/accounts');
    derivation as the fallback for an agent it cannot see. */
 const runningas = require('./engine/runningas');
 const openaiAccounts = require('./engine/openaiaccounts');
+const codexupdate = require('./engine/codexupdate');
 const runners = require('./engine/runners');
 const github = require('./engine/github');
 const vercel = require('./engine/vercel');
@@ -180,6 +181,67 @@ const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
 const styles = require('./engine/styles');
+const inflight = require('./engine/inflight');
+
+/**
+ * The Connections shelf, read once however many callers ask at once (#1618).
+ *
+ * Each door's `state()` is a live check: `engine/github.js` and
+ * `engine/vercel.js` are built by `makeDoor` with `statusArgs: ['auth',
+ * 'status', ...]`, so each is a subprocess, and `cloudflare.state()` plus every
+ * token door make an authenticated request. Two callers arriving together paid
+ * all of it twice.
+ *
+ * 🛑 COLLAPSED ON THE READ PATH ONLY, AND THAT BOUNDARY IS LOAD-BEARING RATHER
+ * THAN TIDINESS. `connect()` and `forget()` on both door shapes END by calling
+ * their own `state()` to answer with what they just did:
+ *
+ *     tokendoor.js:  return state();          // after storing the token
+ *     cloudflare.js: same shape
+ *
+ * If those shared an in-flight read that started BEFORE the write, a person who
+ * had just connected would be answered with the state from before they
+ * connected - told "not connected" by the very request that connected them.
+ * ⇒ So the mutators keep calling the bare `state()`, which is why this wraps the
+ * SHELF rather than wrapping `state()` inside the doors.
+ *
+ * 📌 Sharing a read is safe in a way sharing a mutator's confirmation is not: an
+ * in-flight-only share can never hand back an answer older than one request's
+ * duration, which is a property any single request already has. A mutator needs
+ * to observe its OWN write, which is a different requirement.
+ *
+ * 🛑 NOT A CACHE. There is no window: `engine/inflight.js` holds the promise only
+ * while it is unsettled. #1618 records a 5s TTL being killed by the suite in one
+ * run with `'none' !== 'unknown'`, because a window turns `could not check` into
+ * a confident `not connected` - and the `ask()` wrapper below exists precisely to
+ * keep those two apart.
+ */
+const readConnectionsShelf = inflight.collapse(() => {
+  const ask = (fn) => Promise.resolve().then(fn).then(
+    /* A held token whose service could not be reached is not "not connected":
+       the door says so in its own words, and the shelf must not say nothing. */
+    (st) => ({ connected: st && st.unreachable === true ? null : !!(st && st.connected === true), who: (st && (st.who || st.login)) || null }),
+    (err) => ({ connected: null, because: 'could not check: ' + (err && err.message) }),
+  );
+  const jobs = {
+    '/api/github': ask(async () => {
+      const st = await github.state();
+      if (st && st.connected) return st;
+      if (st && st.gh === 'missing') { const d = await githubdevice.state(); if (d && d.connected) return d; }
+      return st;
+    }),
+    '/api/vercel': ask(() => vercel.state()),
+    '/api/cloudflare': ask(() => cloudflare.state()),
+  };
+  for (const [name, route] of Object.entries(tokendoors.routes())) jobs[route] = ask(() => tokendoors.byName(name).state());
+  const keys = Object.keys(jobs);
+  return Promise.all(keys.map((k) => jobs[k])).then((vals) => {
+    const doors = {};
+    keys.forEach((k, i) => { doors[k] = vals[i]; });
+    return doors;
+  });
+});
+
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
@@ -3076,10 +3138,36 @@ const server = http.createServer((req, res) => {
        nothing about it needs a per-account subprocess/network call to
        answer -- it only asks whether the route is there. */
     if (req.method === 'HEAD') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(); return; }
+    /* #1618: BOTH SWEEPS ARE COLLAPSED IN THEIR ENGINES, so two callers arriving
+       together cost one sweep rather than two. `engine/inflight.js` holds the
+       promise only while it is unsettled and clears it on both arms.
+       🛑 IT IS NOT A CACHE AND MUST NOT BECOME ONE HERE. #1618 records a 5s TTL
+       being built and killed by the suite in one run: `'none' !== 'unknown'`. A
+       window converts `cannot tell` back into a confident `not connected`, which
+       is the one answer this route exists never to give. If this route ever needs
+       to be cheaper still, make the sweep cheaper - do not add a window. */
     Promise.all([accounts.listLive(), openaiAccounts.listLive()])
       .then(([claudeRows, openaiRows]) => {
         const claude = claudeRows.map((a) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', ...a }));
-        sendJson(res, 200, { accounts: [...claude, ...openaiRows] });
+        /* 🛑 `offerable` TRAVELS WITH THE ROW, for the same reason `memoryShared` does
+           (#1488). When AGENT_WORKFORCE_CODEX_HOME names a home, engine/create.js
+           collapses the OpenAI accounts to that ONE home and refuses every other. The
+           page had no way to ask, so its picker offered all of them and the engine
+           could only refuse each one - and its own rule, two functions above that
+           picker, is that an option which always fails is worse than an option that is
+           not there.
+           ⚠️ THE PREDICATE IS CALLED, NOT RESTATED. `codexupdate.homeIsNamed()` is the
+           same function create.js asks, so the two cannot drift; a second copy of this
+           rule is precisely the disagreement #1488 reports. Same discipline as
+           `defaultHome()` itself (#1337).
+           📌 Claude rows are untouched: this override collapses codex homes only. */
+        const named = codexupdate.homeIsNamed();
+        const onlyDir = named ? path.resolve(openaiAccounts.defaultDir()) : null;
+        const openai = openaiRows.map((a) => ({
+          ...a,
+          offerable: !named || path.resolve(String(a.dir || '')) === onlyDir,
+        }));
+        sendJson(res, 200, { accounts: [...claude, ...openai] });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
@@ -3885,29 +3973,9 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (pathname === '/api/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
-    const ask = (fn) => Promise.resolve().then(fn).then(
-      /* A held token whose service could not be reached is not "not connected":
-         the door says so in its own words, and the shelf must not say nothing. */
-      (st) => ({ connected: st && st.unreachable === true ? null : !!(st && st.connected === true), who: (st && (st.who || st.login)) || null }),
-      (err) => ({ connected: null, because: 'could not check: ' + (err && err.message) }),
-    );
-    const jobs = {
-      '/api/github': ask(async () => {
-        const st = await github.state();
-        if (st && st.connected) return st;
-        if (st && st.gh === 'missing') { const d = await githubdevice.state(); if (d && d.connected) return d; }
-        return st;
-      }),
-      '/api/vercel': ask(() => vercel.state()),
-      '/api/cloudflare': ask(() => cloudflare.state()),
-    };
-    for (const [name, route] of Object.entries(tokendoors.routes())) jobs[route] = ask(() => tokendoors.byName(name).state());
-    const keys = Object.keys(jobs);
-    Promise.all(keys.map((k) => jobs[k])).then((vals) => {
-      const doors = {};
-      keys.forEach((k, i) => { doors[k] = vals[i]; });
-      sendJson(res, 200, { doors });
-    });
+    /* #1618: one shelf read shared by every caller asking at once. The sweep and
+       the reason it is shared on the read path only are at readConnectionsShelf. */
+    readConnectionsShelf().then((doors) => { sendJson(res, 200, { doors }); });
     return;
   }
   {
@@ -7439,6 +7507,13 @@ function start(port = PORT) {
  * guard below already exists to prevent.
  */
 if (require.main === module) {
+  /* #1598: authorize live launchctl/tmux for the real board process ONLY. The
+     guarded modules (engine/remove.js, engine/delete-leftover.js) fail closed
+     until this runs, so a stray removal dry-runs loudly rather than stopping a
+     real agent. It is here, not at module load, for the same reason as the port
+     bind below: the routing tests require this module, and a load-time opt-in
+     would arm live execution in every one of them. */
+  require('./engine/live-execution').allowLiveExecution();
   /* 🛑 PINNED TO $HOME, NOT AT IMPORT, ONLY WHEN THIS IS THE REAL BOARD
      PROCESS (#923). Nothing anywhere in this file or engine/ ever calls
      process.chdir(), so this process's own cwd is whatever directory

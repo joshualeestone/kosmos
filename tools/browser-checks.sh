@@ -372,15 +372,15 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 13 ]; do
+  while [ "${#picked[@]}" -lt 15 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 (chosen by the OS, #633)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -563,7 +563,10 @@ fi
 #
 # B8 also runs under dry-run: it is booted by the `boot_board "$sb7" "$P8"`
 # call further down, and boot_board sets AGENT_WORKFORCE_DRY_RUN=1, as does
-# every `node ./server.js` boot site in this script. An earlier version of this
+# every `node ./server.js` boot site in this script EXCEPT the two #1573 boards
+# at the end, which omit it deliberately so a real subprocess probe is
+# observable. `tools.browser-checks-wired.test.js` asserts exactly that split,
+# so this sentence cannot rot silently the way its predecessor did. An earlier version of this
 # comment stated the opposite and misled the review of #1573; corrected under
 # #1575. The only reason ever recorded for the split was that false one, so no
 # TRUE reason is recorded here or in this file's git history, which is as far as
@@ -776,9 +779,178 @@ else
 fi
 
 # --- report -----------------------------------------------------------------
+# ── #1573: the ONE PAIR OF BOARDS THAT DO NOT SET AGENT_WORKFORCE_DRY_RUN ────────
+#
+# 🛑 EVERY OTHER `node ./server.js` BOOT SITE IN THIS FILE SETS IT, AND THAT IS WHY
+# THE GATE COULD NOT SEE THE ONE USER-VISIBLE THING #1556 SHIPPED. (Scoped to that
+# invocation deliberately: `boot_thread_server` boots a different script and sets no
+# dry-run, so the looser "every board" would be false.) A dry-run probe returns
+# {ok:true, dryRun:true} WITHOUT EXECUTING, and #1556 correctly scores that as "we did
+# not check", so `willInstall` is unconditionally true on a dry-run board and the
+# confirm-skip path is unreachable BY CONSTRUCTION.
+#
+# ⭐ THE STUB'S --version ARM WAS ALREADY HERE AND COULD NOT BE REACHED. (Its `auth
+# status` arm IS reached, through subscription.checkLive's own seam, which is not
+# dry-run gated. Only the probe arm was dead.) sb4 boots with a `fake-claude`
+# whose --version exits 0, written deliberately for this, in an env block that also sets
+# AGENT_WORKFORCE_DRY_RUN=1. Two correct mechanisms cancelling: the stub answers a
+# question nothing asks, the flag ensures nothing asks it.
+#
+# ⇒ DRY-RUN NEUTRALISES A SUBPROCESS BY FAKING SUCCESS, WHICH IS EXACTLY WHAT MAKES A
+# PROBE UNOBSERVABLE. A stub neutralises it by being HARMLESS, costs the same, and
+# leaves the probe visible.
+#
+# 🛑 THESE TWO BOARDS ARE FOR READ-ONLY CHECKS. ANYTHING THAT PRESSES A BUTTON BELONGS
+# ON A DRY-RUN BOARD. Without dry-run, `engine/create.js`'s `run()` no longer
+# short-circuits, so a create action here would really execute `launchctl bootstrap`
+# and `launchctl enable` against the OPERATOR'S REAL LOGIN SESSION. The plist PATH is
+# sandboxed by AGENT_WORKFORCE_LAUNCH; the launchd REGISTRATION is not, which is #1539.
+#
+# ⚠️ AND BE PRECISE ABOUT WHAT "READ-ONLY" BUYS, BECAUSE AN EARLIER VERSION OF THIS
+# COMMENT OVERSTATED IT. REAL launchctl READS HAPPEN ON THESE BOARDS WITH NOTHING
+# CLICKED: `/api/status` calls create.disabledJobs() and runningJobs(), which run
+# `/bin/launchctl print-disabled gui/<uid>` and `/bin/launchctl list` against the
+# operator's real session, and `wait_up` curls that route before any check starts.
+# ⚠️ AND THAT LIST WAS TWO OF SIX. `/api/machine` runs more, and THE CHECK ITSELF
+# TRIGGERS IT: page.goto on a fresh sandbox answers done:false, so firstRunBoot opens
+# the flow and frPaintReturn fetches /api/machine, whose own run() has NO dry-run seam:
+#     /usr/bin/pmset -g custom
+#     /bin/launchctl print gui/<uid>            and once per label
+#     /usr/bin/defaults read <SystemExtensions>/Info   once per .appex
+# 🛑 AN EARLIER CLOSING CLAUSE HERE READ "all equally true of the six dry-run boards, so
+# this is not a regression". THAT WAS FALSE FOR THE TWO ITEMS THIS PARAGRAPH LEADS WITH,
+# and the closing clause is the part a reader carries away. Measured at both seams:
+#     create.js:239   `if (DRY_RUN) return { ok: true, stdout: '', dryRun: true }` returns
+#                     BEFORE execFile, so on the six dry-run boards print-disabled and
+#                     list DO NOT EXECUTE AT ALL. They are NEW on this pair.
+#     machine.js      zero AGENT_WORKFORCE_DRY_RUN references. CONTROL, and note the
+#                     control must count the SAME STRING as the subject or it proves
+#                     nothing: create.js has 2 AGENT_WORKFORCE_DRY_RUN and 25 bare
+#                     DRY_RUN. An earlier version of this line read "create.js has 25"
+#                     while labelling it AGENT_WORKFORCE_DRY_RUN - the number was right
+#                     for the OTHER string, so it compared 0 of one thing against 25 of
+#                     another and read as overwhelming evidence.
+#                     so the /api/machine three genuinely ARE equal across every board.
+# ⇒ The /api/machine three are not a regression. The two launchctl reads ARE newly
+# executing here, and they are acceptable because they are READ-ONLY AND FAIL-SOFT, not
+# because they were already happening. Those are different reasons and only one is true.
+# 📌 `launchctl print gui/<uid>` is listed as "once per label", but a sandboxed
+# AGENT_WORKFORCE_LAUNCH holds no plists, so that clause OVER-states what runs here.
+# The enumeration is kept complete anyway: one that stops early is the same shape as the
+# sentence #1575 removed from this file, complete-looking and incomplete.
+#
+# 🛑 AND THE ENUMERATION ABOVE NAMED ONE MODULE OF FOUR. Measured: every engine module
+# holding an env-derived DRY_RUN seam, with its bare-DRY_RUN count.
+#     create.js   25   named above
+#     connect.js   7   NOT named
+#     remove.js   14   NOT named   <- the one that matters
+#     chat.js      9   NOT named
+# ⇒ `remove.js:97` is `if (DRY_RUN) return ...` and then a bare `execFileSync`, so on
+# THESE boards it is un-gated like every other seam. Its own doc block names
+# `bootout gui/<uid>/com.kosmos.agent.<NAME>`, which STOPS A RUNNING AGENT on the
+# operator's real session - a strictly worse verb than the `bootstrap`/`enable` the
+# paragraph above names, and it was not in the list.
+# ✅ LATENT, NOT LIVE, and the reason is structural rather than lucky: the wired guard
+# holds this pair to ONE read-only check, so nothing here presses a button that reaches
+# remove.js. That is a property somebody must keep true, which is why it is asserted in
+# `tools.browser-checks-wired.test.js` rather than promised here.
+# ⚠️ An enumeration that stops early is the shape #1575 removed from this file. This one
+# stopped at one of four while claiming to be complete, in the same paragraph that says so.
+#
+# ⚠️ THE DOWNLOAD BASE IS BLACKHOLED TOO, AND THAT MATTERS MORE THAN THE STUBS.
+# `connect.download()` is NOT dry-run gated at all, so the vendor fetch already happens on
+# every board including the six dry-run ones. What dry-run WAS preventing here is the next
+# line: `run(downloaded.path, ['install'])` really EXECUTES the freshly downloaded binary.
+# Connect is the exact button these boards exist to reason about, so it is the likeliest
+# thing a future author clicks. A dead port costs nothing (willInstall never touches it)
+# and removes both the egress and the thing that would be executed. sb5/sb6 pin theirs.
+#
+# ⚠️ AND CODEX IS PINNED FOR A REASON DRY-RUN NEVER COVERED: without it `runners.js`
+# resolves a REAL /opt/homebrew/bin/codex, which `openaiaccounts.js` spawnSyncs on an
+# add-account click with no dry-run gate at all. sb4 pins it; these boards now do too.
+#
+# ⇒ SO THE GUARANTEE IS "NO MUTATION", NOT "NOTHING REAL EXECUTES". Do not read the
+# first as the second: `render-connect-skip` only reads, and a future check that
+# clicks would mutate the operator's launchd, which the sandbox roots will not stop.
+#
+# ⇒ #634's argument, pointed at these boards: a half-sandboxed board is more dangerous
+# than an obviously live one, because it looks ordinary.
+#
+# ⚠️ TWO BOARDS, NOT ONE. A check that only asserts the confirm is SKIPPED would pass
+# on a build where the confirm can never open at all. The second board's launcher exists
+# and exits non-zero, which is the case a file-presence test gets wrong.
+sb_ok="$(new_sandbox)"; sb_bad="$(new_sandbox)"
+# ⚠️ TWO ARMS EACH, NOT ONE, AND THE SECOND IS NOT DECORATION. `/api/first-run`
+# also awaits `subscription.checkLive()`, which execFiles this same binary with
+# `auth status --json`. A stub that answers only `--version` falls through with
+# empty stdout, and checkLive's `!parsed` branch yields UNKNOWN: the ambiguous
+# verdict sb4's stub was explicitly written to avoid, in a comment saying an empty
+# answer makes the sandbox's verdict depend on how the parser treats silence.
+# The shape below is copied from that stub, which captured it from the real
+# command, per this repo's rule that a fixture is a capture and not a guess.
+cat > "$sb_ok/fake-claude" <<'STUBOK'
+#!/bin/sh
+# 1573-pair stub. This marker exists so a block-scoped mutation can anchor here:
+# the sb4 stub earlier in this file is byte-identical without it, and two blind
+# reviewers independently anchored on the shared text and mutated the wrong one.
+[ "$1" = --version ] && { echo "claude 0.0.0-fake"; exit 0; }
+[ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
+exit 0
+STUBOK
+# ⚠️ THIS ONE MUST FAIL `--version` AND STILL ANSWER `auth status` HONESTLY. The
+# card's whole point is a launcher that EXISTS and does not RUN, so the file is
+# executable and the version probe is what fails.
+cat > "$sb_bad/fake-claude" <<'STUBBAD'
+#!/bin/sh
+# 1573-pair stub. This marker exists so a block-scoped mutation can anchor here:
+# the sb4 stub earlier in this file is byte-identical without it, and two blind
+# reviewers independently anchored on the shared text and mutated the wrong one.
+[ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
+exit 1
+STUBBAD
+printf '#!/bin/sh\nexit 0\n' > "$sb_ok/fake-codex"
+printf '#!/bin/sh\nexit 0\n' > "$sb_bad/fake-codex"
+chmod +x "$sb_ok/fake-claude" "$sb_bad/fake-claude" "$sb_ok/fake-codex" "$sb_bad/fake-codex"
+mkdir -p "$sb_ok/home" "$sb_bad/home"   # sb4 does this; AGENT_WORKFORCE_HOME is set below
+write_fleet "$sb_ok"; write_fleet "$sb_bad"
+for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
+  _sb="${_pair%%:*}"; _port="${_pair##*:}"
+  # the sibling boards at :208 and :246 create this; without it the fake tmux
+  # answers list-panes from a file that is not there, which is an empty board by
+  # accident rather than by intent.
+  : > "$_sb/panes.txt"
+  AGENT_WORKFORCE_DATA="$_sb/data" AGENT_WORKFORCE_WORKERS="$_sb/workers" \
+    AGENT_WORKFORCE_LAUNCH="$_sb/launch" AGENT_WORKFORCE_PROJECTS="$_sb/projects" \
+    AGENT_WORKFORCE_CONFIG_ROOT="$_sb/config" AGENT_WORKFORCE_HOME="$_sb/home" \
+    AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$_sb/panes.txt" \
+    AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" \
+    AGENT_WORKFORCE_CLAUDE_BIN="$_sb/fake-claude" \
+    AGENT_WORKFORCE_CODEX_BIN="$_sb/fake-codex" \
+    AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE="http://127.0.0.1:9/" \
+    AGENT_WORKFORCE_GH_BIN="/nonexistent/gh" AGENT_WORKFORCE_VERCEL_BIN="/nonexistent/vercel" \
+    AGENT_WORKFORCE_GH_CONFIG_DIR="$_sb/gh-config" \
+    AGENT_WORKFORCE_OPENAI_MODELS_URL="http://127.0.0.1:9/models" \
+    AGENT_WORKFORCE_GITHUB_DEVICE_URL="http://127.0.0.1:9/device" \
+    AGENT_WORKFORCE_GITHUB_TOKEN_URL="http://127.0.0.1:9/token" \
+    AGENT_WORKFORCE_GITHUB_VERIFY_URL="http://127.0.0.1:9/user" \
+    AGENT_WORKFORCE_CLOUDFLARE_VERIFY_URL="http://127.0.0.1:9/verify" \
+    AGENT_WORKFORCE_OPENAI_WALK_KEY="sk-not-a-real-key-1573" \
+    PORT="$_port" node ./server.js > "$_sb/server.log" 2>&1 &
+  SERVER_PIDS+=("$!")
+  wait_up "$_port" "$_sb/server.log" || true
+done
+if curl -sf "http://127.0.0.1:$P14/api/first-run" -o /dev/null 2>/dev/null \
+   && curl -sf "http://127.0.0.1:$P15/api/first-run" -o /dev/null 2>/dev/null; then
+  run_one "render-connect-skip" node docs/browser-checks/render-connect-skip.js \
+    "http://127.0.0.1:$P14" "http://127.0.0.1:$P15"
+else
+  FAILED+=("render-connect-skip (a server did not boot)")
+fi
+
 sec "browser checks summary"
 log "ran:     ${RAN[*]:-none}"
 [ "${#RETRIED[@]}" -gt 0 ] && log "retried: ${RETRIED[*]}  (repeated retries are a flake to fix, not to accept)"
+
 if [ "${#FAILED[@]}" -gt 0 ]; then
   log "FAILED:  ${FAILED[*]}"
   log "why, from each check's own output (the full log has the rest):"
