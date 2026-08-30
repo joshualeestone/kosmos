@@ -1,6 +1,7 @@
 ---
 pre_challenge: true
 method: pre-challenge
+explicit_override: true
 branch: stale-visible-1599
 diff_hash: 3b07696eef3d3d0a555dc6ba8f361e01826d51d93994b8a1cf29bd363c87908f
 subdir_audit: passed
@@ -9,6 +10,18 @@ converged: true
 ---
 
 ## [PRE-CHALLENGE] Self-review, stated as what it is
+
+**`explicit_override: true`, set by me, and here is the reasoning rather than just the
+flag.** The gate's default is `/challenge-loop`, and it offers two ways past: relabel this
+`method: challenge-loop`, or record a deliberate single-pass. **Relabelling would be false**
+- I ran no blind rounds - and a proof file that misstates how hard the work was reviewed is
+exactly the defect this branch is about. A challenge loop needs blind reviewers, which I
+cannot spawn in this session.
+
+⇒ So the honest option is the override, with the method left saying `pre-challenge` and the
+scrutiny stated plainly below. **This is one pair of eyes and the flag should be read as
+"reviewed once, by its author", not as "the gate was satisfied".** A second reader is
+welcome; I have asked Splinter for one and the PR says so.
 
 **This was a SELF-review, not a blind multi-agent challenge loop.** Recorded plainly
 because a proof file is read later as evidence of how hard the work was looked at, and
