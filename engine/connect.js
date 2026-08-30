@@ -860,6 +860,14 @@ async function start(opts) {
  * flag still cannot render `undefined` as a stuck reason.
  *
  * It never calls becomeStuck itself.
+ *
+ * 🛑 SINGLE-FLIGHT PER PROCESS. This is not re-entrant and must not run
+ * concurrently with itself. Two in-flight calls share the module-global
+ * `activeRequest` and the single `store.ROOT/downloads` directory, whose
+ * pre-download sweep unlinks every `claude-*` file that is not the current
+ * version's target -- so a second call on a different version deletes the
+ * first's in-flight `.part`. The existing caller is serialised by the driver
+ * claim; a second caller has to serialise itself.
  */
 async function installClaudeCode(hooks) {
   /**
@@ -907,11 +915,19 @@ async function installClaudeCode(hooks) {
         return;
       }
       if (!hooks.wantsProgress()) return;
-      // ⚠️ Throttled: this fires per network chunk, and writeState is a
-      // synchronous write+rename. Unthrottled that is thousands of disk
-      // writes for one 281MB file, to persist a number the UI polls once a
-      // second. The final size still lands: the phase change to INSTALLING
-      // writes, and the poll reads the in-memory copy anyway.
+      /**
+       * ⚠️ NOT THROTTLED HERE, AND A CALLER MUST NOT ASSUME IT IS. This fires
+       * once per network chunk. The 250ms throttle that used to sit on this
+       * line moved to the CALLER with the extraction, because it is a policy
+       * about the STATE FILE rather than about installing: an unthrottled
+       * writeState is thousands of synchronous write+renames for one 281MB
+       * file, to persist a number the UI polls once a second.
+       *
+       * 🔑 A SECOND CALLER THAT WRITES TO DISK IN onProgress NEEDS ITS OWN
+       * THROTTLE. This comment previously opened "Throttled:" and travelled
+       * here verbatim with the code, so it told exactly the reader this
+       * function exists for that the throttling was already handled.
+       */
       hooks.onProgress(got, total);
     }, track);
   } catch (err) {

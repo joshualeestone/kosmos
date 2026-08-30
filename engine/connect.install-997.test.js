@@ -39,8 +39,9 @@ const SANDBOX = mkTemp('install997-');
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 
 const connect = require('./connect');
+const store = require('./store');
 
-function serveRelease(t, { version, binary, checksum }) {
+function serveRelease(t, { version, binary, checksum }, opts = {}) {
   const paths = {
     '/latest': () => version,
     [`/${version}/manifest.json`]: () => JSON.stringify({
@@ -48,7 +49,17 @@ function serveRelease(t, { version, binary, checksum }) {
     }),
     [`/${version}/${connect.platformKey()}/claude`]: () => binary,
   };
+  if (opts.missingBinary) delete paths[`/${version}/${connect.platformKey()}/claude`];
   const server = http.createServer((req, res) => {
+    if (opts.dieMidStream && req.url === `/${version}/${connect.platformKey()}/claude`) {
+      // Promise a megabyte, deliver 64KB, then kill the socket. This is the only
+      // way to leave a `.part` on disk for the catch-block sweep to act on: a
+      // 404 never creates one, and a checksum refusal unlinks its own.
+      res.writeHead(200, { 'content-length': 1024 * 1024 });
+      res.write(Buffer.alloc(64 * 1024, 7));
+      setTimeout(() => { try { res.destroy(); } catch { /* already gone */ } }, 30);
+      return;
+    }
     const answer = paths[req.url];
     if (!answer) { res.writeHead(404); res.end(); return; }
     const body = Buffer.isBuffer(answer()) ? answer() : Buffer.from(answer());
@@ -82,10 +93,10 @@ const stubs = (over = {}) => ({
  * are, and is reliably true at the post-download check.
  */
 function cancelWhenDownloadCompletes() {
-  const st = { done: false, cancelledCalls: 0 };
+  const st = { done: false, cancelledCalls: 0, chunks: 0 };
   st.hooks = {
     cancelled: () => { st.cancelledCalls += 1; return st.done; },
-    onProgress: (got, total) => { if (total && got >= total) st.done = true; },
+    onProgress: (got, total) => { st.chunks += 1; if (total && got >= total) st.done = true; },
   };
   return st;
 }
@@ -96,7 +107,8 @@ async function withRelease(t, over = {}, opts = {}) {
     ? crypto.createHash('sha256').update('not the binary').digest('hex')
     : crypto.createHash('sha256').update(binary).digest('hex');
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE =
-    await serveRelease(t, { version: '9.9.5', binary, checksum });
+    await serveRelease(t, { version: '9.9.5', binary, checksum },
+      { missingBinary: opts.missingBinary, dieMidStream: opts.dieMidStream });
   const binPath = nodePath.join(SANDBOX, `claude-bin-${crypto.randomBytes(4).toString('hex')}`);
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = binPath;
   // setRunner BEFORE setDryRun: the module refuses to leave dry-run with no
@@ -113,6 +125,9 @@ async function withRelease(t, over = {}, opts = {}) {
     }
     return { ok: true, stdout: '' };
   }));
+  // 📌 INERT ONCE A RUNNER IS INJECTED: run() returns runner(...) before it ever
+  // consults DRY_RUN. Kept because the guard it trips is worth exercising, not
+  // because this call changes what the sequence does.
   connect.setDryRun(false);
   t.after(() => {
     connect.setRunner(null);
@@ -148,7 +163,15 @@ test('the cancelled shape survives a MULTI-CHUNK download, not just a one-chunk 
   // several data events, so a chunk-counting fixture would take the wrong branch.
   const c = cancelWhenDownloadCompletes();
   const res = await withRelease(t, c.hooks, { bytes: 512 * 1024 });
-  assert.ok(c.cancelledCalls > 1, 'this arm must actually span multiple chunks');
+  /**
+   * 🛑 COUNT PROGRESS CALLS, NOT CANCEL CALLS, AND THE DIFFERENCE IS THE WHOLE
+   * POINT OF THIS ARM. `cancelled()` fires once per chunk PLUS once at the
+   * post-download check, so N chunks give N+1 calls and `cancelledCalls > 1` is
+   * satisfied by a SINGLE-CHUNK download -- the exact delivery this test exists
+   * to rule out. Measured: 32KB -> 1 chunk, cancelledCalls 2, guard passes.
+   * `onProgress` fires exactly once per chunk, so it is the honest counter.
+   */
+  assert.ok(c.chunks > 1, `this arm must actually span multiple chunks (saw ${c.chunks})`);
   assert.equal(res.cancelled, true, 'cancellation must not depend on chunk count');
 });
 
@@ -239,9 +262,16 @@ test('#458: maySweepDownloads is consulted on the download-failure path EVEN WHE
     maySweepDownloads: () => { seen.sweep += 1; return true; },
   }, { bytes: 512 * 1024 });
 
-  assert.ok(seen.cancelled > 1, 'this arm must span multiple chunks to cancel mid-download');
+  /**
+   * 🛑 THE COUNTS CANNOT PROVE THIS WENT MID-DOWNLOAD, AND AN EARLIER VERSION OF
+   * THIS ASSERTION PRETENDED THEY COULD. Cancelling after the first chunk aborts
+   * the stream, so only one progress event ever fires -- identical counts to a
+   * single-chunk download cancelled afterwards. THE SWEEP IS THE DISCRIMINATOR:
+   * it is reached only from the download-failure catch, so seeing it consulted
+   * is what proves the abort happened in flight.
+   */
   assert.ok(seen.sweep > 0, 'maySweepDownloads() must be consulted on a CANCELLED flow (#458)');
-  assert.equal(res.ok, false);
+  assert.ok(!res.ok);
 });
 
 test('CONTROL: the sweep hook is NOT consulted when the download succeeds', async (t) => {
@@ -253,4 +283,78 @@ test('CONTROL: the sweep hook is NOT consulted when the download succeeds', asyn
   });
   assert.equal(res.ok, true, 'this arm must be the SUCCESS case or it proves nothing');
   assert.equal(seen.sweep, 0, 'the sweep belongs to the failure path only');
+});
+
+// ── arms the suite never drove before ───────────────────────────────────────
+
+test('a download whose checksum does not match is a FAILURE, not a cancellation', async (t) => {
+  // Also the only user of withRelease's badChecksum branch, which was
+  // implemented and then orphaned when the #458 test stopped needing it.
+  const res = await withRelease(t, {}, { badChecksum: true });
+  assert.equal(res.ok, false);
+  assert.ok(!res.cancelled, 'a refused checksum is a failure');
+  assert.match(res.message, /could not download/);
+});
+
+test('an install that reports success but leaves no runnable binary is caught', async (t) => {
+  /**
+   * The `accessSync` arm. Verified untested before this: its message string
+   * matched 0 test files, against 2 for its sibling 'did not finish setting
+   * itself up'. It is the case where the vendor installer exits 0 and puts the
+   * binary somewhere we do not expect, which is indistinguishable from success
+   * unless something checks the disk.
+   */
+  const res = await withRelease(t, {}, {
+    runner: () => ({ ok: true, stdout: '' }),   // reports success, creates nothing
+  });
+  assert.equal(res.ok, false);
+  assert.ok(!res.cancelled);
+  assert.match(res.message, /cannot find it where it should be/);
+});
+
+test('cancel landing WHILE THE INSTALL CHILD RUNS returns the cancelled shape', async (t) => {
+  // The second cancelled site, distinct from the post-download one: the person
+  // clicks cancel after the download finished and while the installer is
+  // executing. No test in the suite drove this path.
+  let installStarted = false;
+  const res = await withRelease(t, {
+    cancelled: () => installStarted,
+  }, {
+    runner: (file, args) => { if (args && args[0] === 'install') installStarted = true; return { ok: true, stdout: '' }; },
+  });
+  assert.equal(res.ok, false);
+  assert.equal(res.cancelled, true, 'a cancel during install is a cancellation, not a failure');
+});
+
+/**
+ * ⚠️ TWO WRONG VEHICLES FOR TESTING THE SWEEP, BOTH TRIED, BOTH RECORDED.
+ *
+ * 1. A CHECKSUM REFUSAL: `download()` unlinks its own `.part` at
+ *    connect.js:530 before throwing, so nothing is left and both arms match.
+ * 2. A PLANTED STALE PARTIAL FROM ANOTHER VERSION: `download()` has its own
+ *    PRE-download sweep that is NOT gated by the hook, so it clears the
+ *    planted file before the failure happens. Measured: both arms empty.
+ *
+ * ✅ Only a genuine MID-STREAM DEATH leaves a `.part` at the moment the catch
+ * block runs. Measured, both arms: true -> directory empty, false -> the
+ * `.part` survives. That is what makes the hook's ANSWER observable rather
+ * than merely its being CONSULTED.
+ */
+function partialsIn() {
+  const dir = nodePath.join(store.ROOT, 'downloads');
+  try { return fs.readdirSync(dir).filter((f) => f.endsWith('.part')); } catch { return []; }
+}
+
+test('maySweepDownloads TRUE clears the partial left by a mid-stream death', async (t) => {
+  const res = await withRelease(t, { maySweepDownloads: () => true }, { dieMidStream: true });
+  assert.equal(res.ok, false, 'this arm needs the download to fail so the sweep is reached');
+  assert.deepEqual(partialsIn(), [], 'a true maySweepDownloads must clear the partial');
+});
+
+test('CONTROL: maySweepDownloads FALSE leaves that partial in place', async (t) => {
+  // Without this arm the pair pins only that the hook is CONSULTED. A mutation
+  // that called the hook and then swept unconditionally would stay green.
+  const res = await withRelease(t, { maySweepDownloads: () => false }, { dieMidStream: true });
+  assert.equal(res.ok, false);
+  assert.ok(partialsIn().length > 0, 'a false maySweepDownloads must suppress the sweep');
 });
