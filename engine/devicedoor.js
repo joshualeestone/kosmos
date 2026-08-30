@@ -31,7 +31,10 @@ const PHASE = Object.freeze({
 });
 
 
-const runnable = (p) => { try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } };
+// #1592: accessSync(X_OK) SUCCEEDS ON A DIRECTORY, so this used to accept a
+// folder as an executable. runners.isRunnable adds the one line that matters,
+// statSync(p).isFile(), and is the single definition of the question.
+const runnable = (p) => require('./runners').isRunnable(p);
 
 /**
  * One service's door, from its spec. A spec says where the tool lives, how

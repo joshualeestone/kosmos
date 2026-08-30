@@ -1033,4 +1033,4 @@ function installVendor(provider, m, o, existing) {
 /** Test-only: forget every job receipt (the same shape connect.js ships). */
 function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 
-module.exports = { MANIFEST, managedRoot, resolveBin, homeDir, status, install, download, resetForTests };
+module.exports = { MANIFEST, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, resetForTests };
