@@ -816,8 +816,13 @@ async function start(opts) {
  * The sequence was correct and was not a function: it was woven through the
  * sign-in state machine with ownership checks between every step, throttled
  * progress writes, and `becomeStuck` on each failure. There was nothing a
- * second caller could call, so the runner-install path assembled an equivalent
- * and reintroduced three defects this code had already found and fixed.
+ * second caller could call.
+ *
+ * 📌 HISTORY, NOT A CLAIM ABOUT THIS TREE: the motivation recorded on #997 is
+ * that a separate runner-install path assembled an equivalent sequence and
+ * reintroduced three defects this code had already fixed. Nothing in this repo
+ * shows that today (`installClaudeCode` has exactly one caller), so read it as
+ * the reason the card exists rather than as something you can go and find.
  *
  * ⚠️ EVERY WOVEN CONCERN IS NOW AN INJECTED HOOK, and the comments below are
  * the originals. They record what each guard is for, and several of them are
@@ -845,6 +850,12 @@ async function start(opts) {
  * ⚠️ A caller that reads only `ok` and writes the obvious
  * `if (!res.ok) becomeStuck(owner, res.message, res.detail)` puts a failure
  * message on a flow somebody deliberately cancelled. CHECK `cancelled` FIRST.
+ *
+ * 📌 NOT A LIVE BUG TODAY, SO DO NOT GO HUNTING ONE: the single current caller
+ * is safe twice over, because it checks `cancelled` first AND because
+ * `becomeStuck` returns early on `driver !== owner`, which is exactly what
+ * `cancelled()` means here. This is a warning for the SECOND caller, which is
+ * the whole reason the function was extracted.
  * The cancelled shape carries a `message` anyway, so a caller that ignores the
  * flag still cannot render `undefined` as a stuck reason.
  *
@@ -999,6 +1010,12 @@ async function runFlow(owner, haveBinary) {
       // load-bearing (#458) and collapsing the two reintroduces that bug.
       maySweepDownloads: () => driver === owner || driver === null,
       wantsProgress: () => mem.phase === PHASE.DOWNLOADING,
+      /**
+       * Receives exactly two phases, in this order, once each:
+       * DOWNLOADING then INSTALLING. DOWNLOADING carries a zeroed progress
+       * because `writeState` REPLACES rather than merges, so omitting it would
+       * leave a previous flow's numbers on screen under a fresh download.
+       */
       onPhase: (phase) => {
         if (phase === PHASE.DOWNLOADING) writeState({ phase, progress: { got: 0, total: null }, startedOnce: true });
         else writeState({ phase, startedOnce: true });
