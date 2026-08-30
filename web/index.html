@@ -30301,6 +30301,20 @@ async function frConnectStartConfirmed() {
   msg.textContent = '';
   const next = document.getElementById('fr-next');
   next.disabled = true;   // one press, one flow; re-enabled by the repaint
+  /* #1550: immediate, phase-general feedback. Confirm hides the confirm box and
+     the flow speaks in #fr-sub, but nothing is here until the first phase paints,
+     so a start that dies before then is a silent screen -- Josh: "I hit Confirm
+     and nothing happened", a failure that looks identical to a start about to
+     begin, for minutes. A download-only bar would show nothing on a machine that
+     already has Claude Code, where runFlow SKIPS the download, which is exactly
+     the stuck case. So this is an indeterminate "Starting..." that is honest for
+     any branch (download, install, sign-in, or a phase we cannot yet name). It is
+     replaced by frPaintConnect on the first phase (FR_CONN_LAST is nulled below,
+     so that repaint always fires) and cleared by the catch on a start failure. */
+  const sub = document.getElementById('fr-sub');
+  if (sub) sub.innerHTML = '<div class="fr-progress fr-indet" role="progressbar" '
+    + 'aria-label="Starting the connection"><i></i></div>'
+    + '<p class="dhint" role="status" aria-live="polite" style="margin:8px 0 0;">Starting…</p>';
   try {
     const res = await fetch('/api/connect/start', { method: 'POST' });
     const st = await res.json();
@@ -30309,11 +30323,12 @@ async function frConnectStartConfirmed() {
     // Invalidate any in-flight resume/poll answer: the click's own view of
     // the flow is newer than anything requested before it.
     FR_CONN_SEQ += 1;
-    if (st.phase === 'connected') { frConnSettle(); return; }
+    if (st.phase === 'connected') { if (sub) sub.innerHTML = ''; frConnSettle(); return; }
     FR_CONN_LAST = null;
     frPaintConnect(st);
     frConnWatch();
   } catch (err) {
+    if (sub) sub.innerHTML = '';   // #1550: drop the placeholder; the error line speaks
     next.disabled = false;
     msg.textContent = 'We could not start connecting (' + err.message + ').';
   }
