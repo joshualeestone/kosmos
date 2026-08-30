@@ -166,10 +166,35 @@ test('a sign-in in progress is described in words, and an unknown phase prints n
 });
 
 test('a board that does not know the route yet gets a next step, not developer vocabulary', async () => {
-  await withBoard({ status: 404, body: { error: 'no such endpoint' } }, async (port) => {
+  /* 🛑 BOTH SIDES ARE READ FROM SOURCE, AND NEITHER IS TYPED HERE. Supplying the
+     literal myself made this a check containing a copy of the thing it verifies:
+     reword the server and the CLI silently degrades to printing developer
+     vocabulary at a person, while this test stays green.
+     ⚠️ My first attempt extracted "the 404 message" from server.js and matched a
+     DIFFERENT 404 ("that is not a name we can read"), because there are several.
+     So the assertion is not about one line number: it is that the CLI's pattern
+     corresponds to SOMETHING the server actually emits. That survives the 404s
+     being reordered, and fails if either side is reworded independently. */
+  const serverSrc = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const cliSrc = fs.readFileSync(CLI, 'utf8');
+
+  const cliPat = cliSrc.match(/\/([^/\n]+)\/i\.test\(v\.error\)/);
+  assert.ok(cliPat, 'install/kosmos no longer branches on the board error text');
+  const cliRe = new RegExp(cliPat[1], 'i');
+
+  const server404s = [...serverSrc.matchAll(/sendJson\(res, 404, \{ error: '([^']+)' \}\)/g)].map((m) => m[1]);
+  assert.ok(server404s.length > 0, 'control: found no 404 sentences in server.js at all');
+
+  const SERVER_404 = server404s.find((t) => cliRe.test(t));
+  assert.ok(SERVER_404,
+    `install/kosmos matches ${cliRe} but server.js emits none of ${JSON.stringify(server404s)}. `
+    + 'One side was reworded without the other, so a version-skewed board will print '
+    + 'developer vocabulary at a person.');
+
+  await withBoard({ status: 404, body: { error: SERVER_404 } }, async (port) => {
     const r = await kosmos(port);
     assert.notEqual(r.code, 0, 'a 404 exited 0');
-    assert.doesNotMatch(r.out, /no such endpoint/,
+    assert.doesNotMatch(r.out, new RegExp(SERVER_404.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
       'the raw server error string was printed at a person, with no next step');
     assert.match(r.out, /restart/i, 'no actionable next step was offered');
   });
@@ -332,6 +357,12 @@ test('a non-string name cannot reach the SIGN-IN sentences either', async () => 
    */
   const p = P();
   p.providers[0].name = {};
+  /* NOT connected, and that is required rather than incidental: the stuck branch
+     is deliberately suppressed while the provider reads connected (a persisted
+     stuck from a previous board process must not contradict a live connection).
+     My first version of this test left it connected, so the branch was never
+     reached and the CONTROL below caught it rather than the assertion. */
+  p.providers[0].signedIn = 'none';
   p.signin = { provider: 'anthropic', phase: 'stuck', busy: false };
   await withBoard({ body: p }, async (port) => {
     const r = await kosmos(port);
