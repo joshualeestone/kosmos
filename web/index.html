@@ -22467,14 +22467,32 @@ function fillSwitchAccounts() {
      there" rule this file keeps, and the sibling #d-account is disabled for the
      same agent for the same reason. */
   const armed = !!CURRENT && prov.value !== providerOf(CURRENT);
+  /* #1488: AND OFFERABLE. When AGENT_WORKFORCE_CODEX_HOME names a home,
+     engine/create.js collapses the OpenAI accounts to that ONE home and refuses every
+     other, so without this line the menu offered rows the engine could only refuse -
+     the exact rule quoted four lines above, broken by the picker that quotes it.
+     ⚠️ `!== false`, not `=== true`: a row from a server that does not send the field
+     stays offerable, which is today's behaviour. `=== true` would empty this menu
+     against any server without the field, turning a narrow fix into a dead control.
+     📌 The field is computed by the SAME predicate create.js asks
+     (`codexupdate.homeIsNamed()`), called rather than restated, so the page and the
+     engine cannot drift - which is what this card reports them doing. */
   const list = ACCOUNTS.filter((x) => x.provider === 'openai'
-    && (!x.connection || x.connection.state !== 'none'));
+    && (!x.connection || x.connection.state !== 'none')
+    && x.offerable !== false);
   /* Hidden for THREE reasons, and the condition below names all of them because a
      comment that names one is how a reader concludes the others are bugs:
        not OpenAI    switching back to Anthropic has no OpenAI account to pick
        not armed     the agent already runs on OpenAI, so nothing can be switched
-       empty list    no usable account HERE, and the two sub-cases END
+       empty list    no usable account HERE, and the sub-cases END
                      DIFFERENTLY, so do not read this line as a guarantee.
+                     #1488 adds a THIRD sub-case and it is the well-behaved one:
+                     with an override home named, every row but that home is
+                     dropped, and if the named home itself has no identity the
+                     list is empty and this hides the menu - which is correct,
+                     because the engine's refusal for that case names the
+                     SETTING rather than a menu row, and a dropdown cannot say
+                     that.
                      With NO OpenAI account at all the engine refuses with a
                      remedy, and an empty dropdown would say less than that
                      sentence does. But this filter ALSO drops dead

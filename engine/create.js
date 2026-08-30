@@ -834,8 +834,12 @@ function setProvider(name, provider, opts) {
        keeps its assertion rather than being widened to accommodate the fix.
        ⇒ The list is consulted only when no home has been named, which is every
        ordinary machine including the one Josh reported from. */
-    const named = typeof process.env.AGENT_WORKFORCE_CODEX_HOME === 'string'
-      && process.env.AGENT_WORKFORCE_CODEX_HOME !== '';
+    /* 🛑 CALLED, NOT RESTATED (#1488). This was written inline here and the page had
+       no way to ask the same question, so the picker offered rows this branch could
+       only refuse. The predicate now lives once, beside `defaultHome()` in
+       codexupdate.js, and the accounts route asks the SAME function - which is the
+       whole point: a second copy is what #1488 IS. */
+    const named = codexupdate.homeIsNamed();
     const accounts = named
       /* ⚠️ RESOLVED, LIKE `wantDir` BELOW, OR THE TWO BRANCHES COMPARE DIFFERENT NORMAL
          FORMS. The full reasoning is on `wantDir`; what is specific HERE is that this
