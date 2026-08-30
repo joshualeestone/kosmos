@@ -63,7 +63,20 @@ test('the link is actually pointed somewhere at paint time', () => {
      which is a route to nowhere that looks exactly like a route. */
   const paint = page.lift(SCRIPT, 'paintPlus');
   assert.match(paint, /plus-site-link/, 'paintPlus never reaches for the link');
-  assert.match(paint, /KOSMOS_SITE \+ '\/plus'/, 'the link is not pointed at the Plus page');
+  /* #1615: the target moved from `/plus` to `/+?from=app`, per design/plus-flow.html:
+     "Both entry points land on /+ ... The app links to /+?from=app". One page, one
+     parameter, so the site can tell an arrival from the app apart from one off the
+     homepage.
+     ⚠️ THE `/+` ROUTE DOES NOT EXIST ON THE SITE YET - measured, `vercel.json` carries no
+     rewrite for it and only `plus.html` is served. That half is Angel's. Pointing at the
+     designed target is the instruction; keeping the old path would have hidden the
+     dependency behind a link that happens to work.
+     The RULE this protects is unchanged and is the reason the test exists: the href must
+     be built from KOSMOS_SITE and must not stay "#", a route to nowhere that looks
+     exactly like a route. */
+  assert.match(paint, /KOSMOS_SITE \+ '\/\+\?from=app'/,
+    'the link is not pointed at the designed Plus entry point');
+  assert.doesNotMatch(paint, /site\.href = '#'/, 'the link was left pointing at nothing');
 });
 
 test('KOSMOS_SITE is the ONLY site address in the page: no literal disagrees with it', () => {
