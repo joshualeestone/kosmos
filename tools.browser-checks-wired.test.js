@@ -327,7 +327,12 @@ test('#1575: every `node ./server.js` boot sets AGENT_WORKFORCE_DRY_RUN, or is a
        measured by the fifth blind review, and it is the exact mistake the runner's own
        comment at 211-220 warns about. A guard you can evade by respelling the thing it
        looks for is pinned to a spelling, not to the rule. */
-    if (!/node\s+\.?\/?server\.js/.test(line)) return;
+    /* ⚠️ AND QUOTED TOO. `node \"./server.js\"` was INVISIBLE here, so an eighth
+       board pointing at a REAL binary held boots.length at 7 and the equality was
+       satisfied while the board was never examined. The assertion message
+       anticipated the count DROPPING and not a new invisible boot holding it
+       steady, which is a floor failure wearing an equality. */
+    if (!/node\s+["']?\.?\/?server\.js/.test(line)) return;
     if (/^\s*#/.test(line)) return;                 // prose about the boots, not a boot
     boots.push({ n: i + 1, line });
   });
@@ -457,10 +462,19 @@ test('#1573: exactly one check runs against the non-dry-run boards, and it is th
      these boards too. */
   const PORTS = /\$P1[45]\b|\$\{P1[45]\}/;
   const code = joined.filter(({ line }) => !/^\s*#/.test(line));
+  /* 🛑 EVERY ASSIGNMENT ON THE LINE, NOT THE FIRST. `line.match` without /g reads one,
+     and TWO ASSIGNMENTS ON ONE LINE IS THIS BLOCK'S OWN IDIOM - it opens with
+     `sb_ok="$(new_sandbox)"; sb_bad="$(new_sandbox)"`. So `_junk=1; BOK="...$P14"`
+     hid the alias completely while `BOK=` first on the line was caught. */
   const aliases = new Set();
+  const checkVars = new Set();
   code.forEach(({ line }) => {
-    const m = line.match(/(^|;|&&|\s)([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|\S*)/);
-    if (m && PORTS.test(m[3])) aliases.add(m[2]);
+    for (const m of line.matchAll(/(?:^|;|&&|\|\||\s)([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|\S*)/g)) {
+      if (PORTS.test(m[2])) aliases.add(m[1]);
+      /* ⚠️ AND A CHECK HELD IN A PATH VARIABLE. `CHK="docs/browser-checks/render-create-made"`
+         then `node "$CHK.js"` was counted as ZERO invocations. */
+      if (/docs\/browser-checks\//.test(m[2])) checkVars.add(m[1]);
+    }
   });
   const namesBoard = (line) => PORTS.test(line)
     || [...aliases].some((a) => new RegExp(`\\$\\{?${a}\\b`).test(line));
@@ -473,9 +487,22 @@ test('#1573: exactly one check runs against the non-dry-run boards, and it is th
   const users = [];
   code.forEach(({ line, n }) => {
     if (!namesBoard(line)) return;
-    const hits = /run_one/.test(line)
-      ? (line.match(/run_one/g) || []).length
-      : (line.match(/docs\/browser-checks\/[A-Za-z0-9._-]+\.js/g) || []).length;
+    /* An invocation needs a RUNNER on the line, which is what separates
+       `CHK="docs/browser-checks/x"` (an assignment, invokes nothing) from
+       `node "$CHK.js"` (an invocation). */
+    if (!/(^|[;&|]|\s)(node|run_one)\b/.test(line)) return;
+    let hits = 0;
+    if (/run_one/.test(line)) {
+      hits = (line.match(/run_one/g) || []).length;
+    } else {
+      /* the DIRECTORY, not a literal filename: this counts a constructed path
+         (`node "docs/browser-checks/$n.js"`) and a quoted one, which a `.js`-anchored
+         pattern could not. */
+      hits = (line.match(/docs\/browser-checks\//g) || []).length;
+      for (const v of checkVars) {
+        hits += (line.match(new RegExp(`\\$\\{?${v}\\b`, 'g')) || []).length;
+      }
+    }
     for (let i = 0; i < hits; i += 1) users.push({ line, n });
   });
 
@@ -599,7 +626,10 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
     const flat = line
       .replace(/\$\(([^()]*)\)/g, (_, x) => { inner.push(x); return ' '; })
       .replace(/`([^`]*)`/g, (_, x) => { inner.push(x); return ' '; });
-    return flat.split(/&&|\|\||[;|]/).concat(inner)
+    /* ⚠️ A SINGLE `&` BACKGROUNDS AND SEPARATES. `exit 0 & claude --version` ran the
+       second command, and the fragment starting `exit` passed CMD_OK. Proven in a
+       real shell, with the no-& control confirming `exit 0` otherwise stops. */
+    return flat.split(/&&|\|\||[;|&]/).concat(inner)
       .map((x) => x.replace(/[{}()]/g, ' ').trim())
       .filter(Boolean);
   };
