@@ -341,9 +341,36 @@ $loginOk = New-KosmosShortcut -RelPath 'Microsoft\Windows\Start Menu\Programs\St
 # never passes through cmd's parser at all and no encoding of the .cmd can
 # damage it. Written UTF8 because it is data, not a batch script.
 if ($DataDir) {
-  try { Set-Content -LiteralPath (Join-Path $Install 'datadir.txt') -Value $DataDir -Encoding UTF8 } catch { }
+  # 🛑 OEM, NOT UTF8, AND THIS MACHINE CANNOT SEE WHY. On Windows PowerShell 5.1
+  # -- which is what runs this, never pwsh -- `-Encoding UTF8` is
+  # UTF8Encoding($true), i.e. WITH A BOM, and `set /p` does not skip a BOM. So
+  # EVERY install would have printed a BOM in front of the path, plus mojibake
+  # for a non-ASCII profile.
+  # ⚠️ MEASURED, AND IT IS A TRAP: pwsh 7 here writes NO BOM (first bytes
+  # 43 3a 5c 55), so any local check returns the REASSURING answer. The defect
+  # is invisible from this machine by construction.
+  # ⇒ OEM matches what `set /p` and `echo` actually use. Not ASCII: that was the
+  # previous iteration of this same defect, which turned a u-umlaut into "?".
+  try { Set-Content -LiteralPath (Join-Path $Install 'datadir.txt') -Value $DataDir -Encoding OEM }
+  catch { Write-Host "     could not record the data folder; the uninstaller will not name it" -ForegroundColor Yellow }
 }
-$uninstall = @"
+# 🛑 A LITERAL HERE-STRING, @'...'@, AND THIS IS A CLASS FIX RATHER THAN A
+# THIRD PATCH. Inside an INTERPOLATING here-string, PROSE IS CODE, and this one
+# string produced four separate defects from comments alone: a markdown backtick
+# became a carriage return and ate a letter; an env-variable reference in a
+# sentence broke the parse; the reworded version quoted the offending text and
+# broke it again; and five accidental $-expansions ($args, $null, $here) shipped
+# MANGLED COMMENTS into the generated .cmd.
+#
+# ⚠️ AND $args WAS AN INJECTION CHANNEL. It is whatever the caller passes,
+# interpolated verbatim into a batch file that is then executed. Benign today
+# only because Install Kosmos.cmd passes nothing.
+#
+# ✅ Nothing here is deliberately interpolated -- the data path moved to
+# datadir.txt -- so a literal string loses nothing and closes the whole class.
+# Verified with the render tool: this string expanded $args,$args,$null,$args,$here
+# and every one was accidental.
+$uninstall = @'
 @echo off
 REM Remove Kosmos. Leaves your DATA alone on purpose: that is your projects,
 REM not the program.
@@ -402,9 +429,9 @@ echo Stopping Kosmos...
 REM 🛑 THE PATH COMES THROUGH THE ENVIRONMENT, NOT AS AN ARGUMENT AND NOT
 REM INTERPOLATED. All three of the obvious ways are wrong and I tried two:
 REM
-REM   interpolated into a single-quoted string -> an apostrophe in the profile
+REM   interpolated into a single-quoted string produces an apostrophe in the profile
 REM     path terminates it. O'Brien, D'Angelo, O'Neill are legal usernames.
-REM   passed after -Command as an argument     -> MEASURED: `powershell
+REM   passed after -Command as an argument: MEASURED, powershell
 REM     -Command "<script>" "<path>"` gives $args.Count = 0. The path is
 REM     APPENDED TO THE COMMAND TEXT instead, so $args[0] is $null.
 REM
@@ -419,13 +446,13 @@ REM ⇒ cmd exports KOSMOS_DIR to the child, so the environment read below needs
 REM no quoting, no interpolation and no argument parsing anywhere in the chain.
 REM
 REM ⚠️ AND THE PROSE ABOVE HAD TO BE REWORDED, WHICH IS THE THIRD TIME A COMMENT
-REM IN THIS HERE-STRING BECAME CODE. It said "`$env: reads it", and inside an
+REM IN THIS HERE-STRING BECAME CODE. It said "$env: reads it", and inside an
 REM interpolating here-string that is a VARIABLE REFERENCE whose colon is not
 REM followed by a valid name character. Parse error, in a REM line, in a comment
 REM explaining a fix. A backtick did the same thing here earlier today.
 REM ⇒ Inside this string, prose is code. Write about $-things carefully or not
 REM at all.
-powershell -NoProfile -Command "`$here = (`$env:KOSMOS_DIR + '\').ToLower(); Get-Process node -EA SilentlyContinue | Where-Object { `$_.Path -and `$_.Path.ToLower().StartsWith(`$here) } | Stop-Process -Force" >nul 2>&1
+powershell -NoProfile -Command "$here = ($env:KOSMOS_DIR + '\').ToLower(); Get-Process node -EA SilentlyContinue | Where-Object { $_.Path -and $_.Path.ToLower().StartsWith($here) } | Stop-Process -Force" >nul 2>&1
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Kosmos.lnk" >nul 2>&1
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Kosmos.lnk" >nul 2>&1
 echo Removing "%KOSMOS_DIR%"...
@@ -449,7 +476,7 @@ REM the person sees on a SUCCESSFUL uninstall. The (goto) idiom below is the
 REM standard self-delete: it releases the file first, so nothing is read after.
 pause
 (goto) 2>nul & del "%~f0"
-"@
+'@
 # ⚠️ WRAPPED, and it was the ONE post-copy statement that was not, directly
 # contradicting this file's own claim that everything after the copy is. An IO
 # failure here threw raw .NET AFTER a successful copy, so Start-Process and
