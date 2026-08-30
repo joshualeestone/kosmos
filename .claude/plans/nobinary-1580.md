@@ -20,8 +20,8 @@ awaited `--version` probe on a 15 second timeout; putting that in front of the
 fast path would make every already-connected `start()` pay for it.
 
 🛑 **A binary that exists and does not run still reports connected here, and
-NOTHING corrects it.** This verdict is terminal: `start()` returns at `:990` and
-the `--version` probe is at `:1006`, unreachable from this arm. Earlier versions
+NOTHING corrects it.** This verdict is terminal: `start()` returns before `runFlow`'s `--version` probe is ever reached, so
+the probe cannot correct it. Earlier versions
 of this plan and of the code comment claimed the probe corrected it. That was
 false, and it is deleted rather than annotated, because a wrong sentence left
 standing is read before its retraction.
@@ -123,7 +123,8 @@ verdict here is terminal rather than corrected later.
 measured the probe working on the path where it IS reached (no short-circuit),
 which is a different arm.
 
-**Also not fixed here:** `connect.js:2010`'s `canRunClaude` is a bare
-`accessSync`, so a directory passes it, and it decides whether the STUCK screen
-tells somebody to type `claude` in Terminal. Weak and final, like this one was.
-Named rather than changed, to keep this diff to one behaviour.
+**Also not fixed here:** `canRunClaude` is a bare `accessSync`, so a directory
+passes it. I first wrote that it decides what the STUCK screen offers; it does
+not reach the page at all, because `publicView` drops the field. Carded as
+#1595. Named by symbol rather than line, since this plan's own code comment
+retired line numbers after a commit on this branch moved four of them.

@@ -940,11 +940,16 @@ async function start(opts) {
      * engine/firstrun.js:140 until #1556 inserted lines above that call").
      *
      * The bare-`accessSync` sites remaining in this file are `willInstall`'s
-     * presence check and `canRunClaude`. The latter is also weak AND final: a
-     * directory passes it, and it decides whether the STUCK screen tells
-     * somebody to type `claude` in Terminal, which is the one screen where a
-     * way out that cannot work costs most. Out of scope here, named so it is
-     * findable by grep rather than by line.
+     * presence check and `canRunClaude`. Both are weak the same way: a directory
+     * passes them.
+     *
+     * ⚠️ AND MY FIRST VERSION OF THIS PARAGRAPH ASSERTED SOMETHING FALSE ABOUT
+     * `canRunClaude`. I wrote that it "decides whether the STUCK screen tells
+     * somebody to type `claude` in Terminal". It COMPUTES that, and `publicView`
+     * DROPS THE FIELD, so the page's read of `st.canRunClaude` is always
+     * undefined and that hatch has never rendered. Carded as #1595. Out of scope
+     * here either way, but the reason is "it is not wired", not "it is wired and
+     * weak" -- and this branch is what first routes a machine to that screen.
      */
     const binaryOnDisk = require('./runners').resolveBin('claude').present;
 
@@ -1011,17 +1016,24 @@ async function start(opts) {
 
   const bin = claudeBinPath();
   /**
-   * 🛑 THE SAME RESOLVER AS THE SHORT-CIRCUIT ABOVE, OR THE TWO DISAGREE AND THE
-   * PERSON GETS NEITHER OUTCOME. Measured while adding the directory arm to the
-   * #1580 tests: with this left as a bare `accessSync`, a DIRECTORY at the
-   * binary path made `binaryOnDisk` false (so the flow correctly refused to
-   * report connected) and `haveBinary` TRUE (so `runFlow` skipped the install),
-   * landing on a sign-in for a machine with nothing to run.
+   * 🛑 THE SAME RESOLVER AS THE SHORT-CIRCUIT ABOVE, SO THE TWO CANNOT ANSWER
+   * DIFFERENTLY. With this left as a bare `accessSync`, a DIRECTORY at the
+   * binary path made `binaryOnDisk` false and `haveBinary` TRUE, which is a
+   * contradiction inside one function about one path.
    *
-   * ⇒ Falling through and then skipping the install is not a smaller version of
-   * the bug, it is a different one. Both checks now ask
-   * `runners.resolveBin('claude').present`, which is `statSync().isFile()` plus
-   * `accessSync(X_OK)`, so they cannot answer differently.
+   * ⚠️ AND MY FIRST JUSTIFICATION FOR IT MEASURED MY OWN TEST HARNESS. I wrote
+   * that the disagreement made `runFlow` skip the install and land on a sign-in
+   * "for a machine with nothing to run". In PRODUCTION it does not: spawning a
+   * directory returns EACCES (measured; control, spawning /bin/echo, returns 0),
+   * so the `--version` probe below already flips `haveBinary` to false. My stub
+   * runner answered ok to everything, which is the only reason the harm
+   * appeared. That is the same defect this branch was already caught on: a
+   * rationale whose measurement is aimed at a case the mechanism cannot reach.
+   *
+   * ⇒ THE HONEST REASON THIS CHANGE STAYS: consistency, not a live harm. Two
+   * checks in one function disagreeing about one path is a trap for the next
+   * edit, and the probe that currently rescues it is an implementation detail
+   * of a different concern.
    */
   let haveBinary = require('./runners').resolveBin('claude').present;
   /**
@@ -1310,7 +1322,7 @@ async function installClaudeCode(hooks) {
   try { if (!require('./runners').resolveBin('claude').present) throw new Error('not runnable'); }
   catch {
     try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
-    return fail('Claude said it set itself up, but we cannot find it where it should be', `expected it at ${claudeBinPath()}`);
+    return fail('Claude said it set itself up, but we cannot find anything runnable where it should be', `expected a program we can run at ${claudeBinPath()}`);
   }
   // The verified download did its job; the installed launcher is what runs
   // from here. The official install script deletes its download too, and

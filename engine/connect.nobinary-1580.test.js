@@ -148,7 +148,7 @@ test('#1580 CONTROL: signed in WITH a binary still short-circuits to connected',
   assert.equal(phase, connect.PHASE.CONNECTED);
 });
 
-test('#1560 MUST NOT RETURN: signed OUT with a stale paid-plan file still reaches sign-in', async (t) => {
+test('#1580: signed OUT with a stale paid-plan file reaches SIGN-IN rather than short-circuiting to connected', async (t) => {
   /**
    * 🛑 THIS GUARDS A REGRESSION I ACTUALLY SHIPPED INTO THE WORKING TREE. The
    * first version of #1580's fix added a post-install connected check that read
@@ -176,7 +176,7 @@ test('#1580 CONTROL: signed out with a CLEAN file also reaches sign-in', async (
  * It drives the flow to completion rather than reading `start()`'s first answer,
  * because the defect is in what happens AFTER the download.
  */
-test('#1560 MUST NOT RETURN VIA THE INSTALL PATH: no binary, signed out, stale paid file', async (t) => {
+test('#1580: no binary, signed out, stale paid file reaches SIGN-IN rather than short-circuiting', async (t) => {
   const binary = crypto.randomBytes(16 * 1024);
   const checksum = crypto.createHash('sha256').update(binary).digest('hex');
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, binary, checksum);
@@ -388,6 +388,9 @@ test('#1580: a DIRECTORY at the binary path is not "something to run"', async (t
    * ⇒ This file states that rule 240 lines above and the newest test broke it,
    * which is precisely what hid the gap.
    */
-  assert.notEqual(await settled(9000), connect.PHASE.CONNECTED,
-    'a directory at the binary path ended up reported as connected anyway');
+  /* An EQUALITY, per this file's own rule twelve tests up: `stuck` is what a
+     directory settles to, and saying so distinguishes it from any other
+     non-connected outcome. */
+  assert.equal(await settled(9000), connect.PHASE.STUCK,
+    'a directory at the binary path should end stuck, not connected and not signing in');
 });

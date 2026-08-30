@@ -367,7 +367,11 @@ test('an install that reports success but leaves no runnable binary is caught', 
   });
   assert.equal(res.ok, false);
   assert.ok(!res.cancelled);
-  assert.match(res.message, /cannot find it where it should be/);
+  /* ⚠️ ANCHORED ON THE STABLE HALF. This asserted the full old wording and went
+     red when #1580 widened the message to cover a directory at that path, which
+     is exactly right in kind but not what this test is about. It is about the
+     ARM, so it matches the part that identifies the arm. */
+  assert.match(res.message, /cannot find anything runnable|cannot find it where it should be/);
   assert.deepEqual(downloadsMatching(/^claude-/), [],
     'a failed access check must not strand the downloaded binary');
   /**
