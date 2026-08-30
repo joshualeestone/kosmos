@@ -5738,6 +5738,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 
 :root[data-theme="dark"] #firstrun { --label-2: #4a4f57; --separator: #e3e1dc; }
 /* ===== END GENERATED ===== */
+
+/* #1553: an opaque cover shown from the first frame so no view paints before the
+   first-run gate resolves. Removed by revealBoot() once firstRunBoot decides (or
+   a timeout fallback fires), so the board is never shown and then retracted, which
+   read as data loss. z-index above .fr-back (60) so the hand-off from cover to the
+   first-run overlay is seamless, never a flash of the board between them. */
+#boot-cover { position: fixed; inset: 0; z-index: 70; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; }
+#boot-cover[hidden] { display: none; }
+#boot-cover .boot-spin { width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid var(--separator, #e3e1dc); border-top-color: var(--label-2, #4a4f57);
+  animation: boot-spin 0.8s linear infinite; }
+@keyframes boot-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { #boot-cover .boot-spin { animation: none; } }
 </style>
 <!-- ⚠️ THE id HERE IS LOAD-BEARING, NOT DECORATION. Every page test in this
      repo lifts the app's source with a regex for an ATTRIBUTE-LESS script tag,
@@ -5769,6 +5783,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 </script>
 </head>
 <body>
+<!-- #1553: shown from the first frame, removed by revealBoot() only after the
+     first-run gate resolves, so no view is painted and then retracted. -->
+<div id="boot-cover"><div class="boot-spin" aria-hidden="true"></div></div>
 <!-- ⚠️ THE STICKY UNIT IS THE WHOLE BAR, header and tabs together, pulled to
      the page edges with negative margins that mirror the body padding exactly
      (the design pack's own warning: the pull-out must track the stage padding,
@@ -32543,24 +32560,38 @@ document.addEventListener('focusin', (e) => {
  * because one fetch failed is the same mistake `engine/firstrun.seen()` avoids
  * one layer down, arriving through the front door instead.
  */
+/* #1553: hide the boot cover. Idempotent: the finally in firstRunBoot and the
+   timeout fallback at the boot call both call it, and calling it twice is a no-op. */
+function revealBoot() {
+  const c = document.getElementById('boot-cover');
+  if (c) c.hidden = true;
+}
+
 async function firstRunBoot(force, step) {
-  let state;
   try {
-    const res = await fetch('/api/first-run', { cache: 'no-store' });
-    if (!res.ok) throw new Error('status ' + res.status);
-    state = await res.json();
-  } catch { return; }
-  // ⚠️ Inside the guard, not after it. A 200 whose body is `null` -- or anything
-  // that is not an object -- threw on `state.done` as an unhandled rejection.
-  // The net effect was still "no overlay", but by accident rather than by the
-  // rule three lines up, and an accident is not a fail-closed guarantee.
-  if (!state || typeof state !== 'object') return;
-  if (state.done && !force) return;
-  FR = state;
-  frOpen();
-  // ⚠️ Only after `frOpen` has painted step 1, so a forced deep link cannot
-  // land on a step whose buttons were never wired.
-  if (step > 1 && step <= FR_STEPS) frGo(step);
+    let state;
+    try {
+      const res = await fetch('/api/first-run', { cache: 'no-store' });
+      if (!res.ok) throw new Error('status ' + res.status);
+      state = await res.json();
+    } catch { return; }
+    // ⚠️ Inside the guard, not after it. A 200 whose body is `null` -- or anything
+    // that is not an object -- threw on `state.done` as an unhandled rejection.
+    // The net effect was still "no overlay", but by accident rather than by the
+    // rule three lines up, and an accident is not a fail-closed guarantee.
+    if (!state || typeof state !== 'object') return;
+    if (state.done && !force) return;
+    FR = state;
+    frOpen();
+    // ⚠️ Only after `frOpen` has painted step 1, so a forced deep link cannot
+    // land on a step whose buttons were never wired.
+    if (step > 1 && step <= FR_STEPS) frGo(step);
+  } finally {
+    /* #1553: reveal in EVERY path, and AFTER frOpen if first-run is needed, so the
+       hand-off is cover -> opaque overlay, never a flash of the board. On the
+       done/error paths the cover comes down onto the board, which is correct. */
+    revealBoot();
+  }
 }
 
 // Deep-link straight to one agent, so a page can be shared or bookmarked.
@@ -32612,6 +32643,12 @@ fetch('/api/roles').then((r) => (r.ok ? r.json() : null)).then((j) => {
  * these screens here, and this file already deep-links every other panel for
  * the same reason.
  */
+/* #1553: never leave the boot cover up if /api/first-run hangs. The board is
+   usable without the first-run answer (the overlay is opaque and lands when
+   ready), so a hung check must reveal the board rather than blank the app. This
+   is the concern the comment above records, now that the board starts hidden.
+   Idempotent with firstRunBoot's finally: whichever fires first wins. */
+setTimeout(revealBoot, 3000);
 firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1);
 
 /* 🔑 BEFORE THE FIRST POLL, not after it. The whole point of baking the version
