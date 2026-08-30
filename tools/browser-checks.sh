@@ -372,12 +372,12 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 13 ]; do
+  while [ "${#picked[@]}" -lt 15 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"
 }
 pick_ports
 log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 (chosen by the OS, #633)"
@@ -563,7 +563,10 @@ fi
 #
 # B8 also runs under dry-run: it is booted by the `boot_board "$sb7" "$P8"`
 # call further down, and boot_board sets AGENT_WORKFORCE_DRY_RUN=1, as does
-# every `node ./server.js` boot site in this script. An earlier version of this
+# every `node ./server.js` boot site in this script EXCEPT the two #1573 boards
+# at the end, which omit it deliberately so a real subprocess probe is
+# observable. `tools.browser-checks-wired.test.js` asserts exactly that split,
+# so this sentence cannot rot silently the way its predecessor did. An earlier version of this
 # comment stated the opposite and misled the review of #1573; corrected under
 # #1575. The only reason ever recorded for the split was that false one, so no
 # TRUE reason is recorded here or in this file's git history, which is as far as
@@ -779,6 +782,52 @@ fi
 sec "browser checks summary"
 log "ran:     ${RAN[*]:-none}"
 [ "${#RETRIED[@]}" -gt 0 ] && log "retried: ${RETRIED[*]}  (repeated retries are a flake to fix, not to accept)"
+# ── #1573: the ONE PAIR OF BOARDS THAT DO NOT SET AGENT_WORKFORCE_DRY_RUN ────────
+#
+# 🛑 EVERY OTHER BOARD IN THIS FILE SETS IT, AND THAT IS WHY THE GATE COULD NOT SEE
+# THE ONE USER-VISIBLE THING #1556 SHIPPED. A dry-run probe returns
+# {ok:true, dryRun:true} WITHOUT EXECUTING, and #1556 correctly scores that as "we did
+# not check", so `willInstall` is unconditionally true on a dry-run board and the
+# confirm-skip path is unreachable BY CONSTRUCTION.
+#
+# ⭐ THE STUB WAS ALREADY HERE AND COULD NOT BE REACHED. sb4 boots with a `fake-claude`
+# whose --version exits 0, written deliberately for this, in an env block that also sets
+# AGENT_WORKFORCE_DRY_RUN=1. Two correct mechanisms cancelling: the stub answers a
+# question nothing asks, the flag ensures nothing asks it.
+#
+# ⇒ DRY-RUN NEUTRALISES A SUBPROCESS BY FAKING SUCCESS, WHICH IS EXACTLY WHAT MAKES A
+# PROBE UNOBSERVABLE. A stub neutralises it by being HARMLESS, costs the same, and
+# leaves the probe visible. These two boards are that, and nothing else about them is
+# special: same sandbox shape, same fake tmux, no launchd, no network.
+#
+# ⚠️ TWO BOARDS, NOT ONE. A check that only asserts the confirm is SKIPPED would pass
+# on a build where the confirm can never open at all. The second board's launcher exists
+# and exits non-zero, which is the case a file-presence test gets wrong.
+sb_ok="$(new_sandbox)"; sb_bad="$(new_sandbox)"
+printf '#!/bin/sh\n[ "$1" = --version ] && { echo "claude 0.0.0-fake"; exit 0; }\nexit 0\n' > "$sb_ok/fake-claude"
+printf '#!/bin/sh\nexit 1\n' > "$sb_bad/fake-claude"
+chmod +x "$sb_ok/fake-claude" "$sb_bad/fake-claude"
+write_fleet "$sb_ok"; write_fleet "$sb_bad"
+for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
+  _sb="${_pair%%:*}"; _port="${_pair##*:}"
+  AGENT_WORKFORCE_DATA="$_sb/data" AGENT_WORKFORCE_WORKERS="$_sb/workers" \
+    AGENT_WORKFORCE_LAUNCH="$_sb/launch" AGENT_WORKFORCE_PROJECTS="$_sb/projects" \
+    AGENT_WORKFORCE_CONFIG_ROOT="$_sb/config" AGENT_WORKFORCE_HOME="$_sb/home" \
+    AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$_sb/panes.txt" \
+    AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" \
+    AGENT_WORKFORCE_CLAUDE_BIN="$_sb/fake-claude" \
+    PORT="$_port" node ./server.js > "$_sb/server.log" 2>&1 &
+  SERVER_PIDS+=("$!")
+  wait_up "$_port" "$_sb/server.log" || true
+done
+if curl -sf "http://127.0.0.1:$P14/api/first-run" -o /dev/null 2>/dev/null \
+   && curl -sf "http://127.0.0.1:$P15/api/first-run" -o /dev/null 2>/dev/null; then
+  run_one "render-connect-skip" node docs/browser-checks/render-connect-skip.js \
+    "http://127.0.0.1:$P14" "http://127.0.0.1:$P15"
+else
+  FAILED+=("render-connect-skip (a server did not boot)")
+fi
+
 if [ "${#FAILED[@]}" -gt 0 ]; then
   log "FAILED:  ${FAILED[*]}"
   log "why, from each check's own output (the full log has the rest):"

@@ -334,11 +334,23 @@ test('#1575: every `node ./server.js` boot in the runner sets AGENT_WORKFORCE_DR
 
   /* The env is a prefix spanning the lines above the invocation, so look back from
      each boot to the start of its command. */
+  /* 🛑 THE TWO #1573 BOARDS OMIT DRY-RUN DELIBERATELY, and this is a NAMED
+     exemption rather than a loosened assertion. The card's whole finding is that
+     dry-run neutralises a subprocess by FAKING SUCCESS, which is what made the
+     confirm-skip unobservable; those two boards neutralise it with a harmless stub
+     instead. Widening this test to "most boots" would have thrown away the property
+     it exists to hold.
+
+     ⚠️ THIS GUARD CAUGHT #1573 WITHIN HOURS OF BEING MERGED, which is the argument
+     for it: the sentence it protects would otherwise have gone false in silence, in
+     exactly the way the sentence it replaced did. */
+  const EXEMPT_MARKER = 'AGENT_WORKFORCE_CLAUDE_BIN="$_sb/fake-claude"';
   const missing = boots.filter(({ n }) => {
     let j = n - 1;
     let seen = false;
     for (let k = 0; k < 12 && j >= 0; k += 1, j -= 1) {
       const l = lines[j];
+      if (l.includes(EXEMPT_MARKER)) { seen = true; break; }   // the #1573 pair, by name
       if (l.includes('AGENT_WORKFORCE_DRY_RUN=1')) { seen = true; break; }
       if (j < n - 1 && !/\\\s*$/.test(lines[j])) break;   // command started above here
     }

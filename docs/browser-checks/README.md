@@ -91,6 +91,7 @@ one invented by somebody who did not write them.
 | `render-openai-key-step.js` | The OpenAI key step in its approved box, sizes matched, link not colliding (#1207) |
 | `render-found-board.js` | The board's panel for agents on this Mac that Kosmos is not looking after |
 | `render-found-undo.js` | Add and Undo on the found-agents row, pressed for real in a browser |
+| `render-connect-skip.js` | The 281MB confirm is SKIPPED when Claude already runs, and OPENS when the launcher does not. Needs TWO boards booted WITHOUT dry-run (#1573) |
 | `render-full-width.js` | The board, settings and create form at 1760px: one row lining up with another (#286, #287) |
 | `render-grid-card-width.js` | The projects grid card matches the agents board width, and a long title truncates rather than widening it (#1310) |
 | `render-list-row.js` | The not-running row in the list layout, measured cell by cell against a running one (#278) |
