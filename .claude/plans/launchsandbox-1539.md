@@ -52,13 +52,22 @@ next test.
 - the predicate on four arms: unset -> false, redirected -> true, the real dir ->
   false, and the real dir **with a trailing slash** -> false
 
-⚠️ **THAT ARM CREDITS THE WRONG HALF OF `canon`, MEASURED.** The parenthetical used
-to say `path.resolve` is what normalises the trailing slash. On this machine
-`realpathSync` is what does it, and replacing the whole of `canon` with
-`path.resolve` leaves all tests green - which is exactly why `create.js` labels
-that fallback UNTESTED. The arm is real; the mechanism I credited for it was not.
-- **the guard was mutation-tested against the real hazard**: disabled, the test
-  fails AND a real launchd job appears; restored, none appears.
+🛑 **A RETRACTION I MADE HERE WAS ITSELF FALSE, AND IT IS THE THIRD-ORDER VERSION
+OF THIS CARD'S DEFECT.** I wrote that the arm "credits the wrong half of `canon`,
+MEASURED" - claiming `realpathSync` normalises the trailing slash and
+`path.resolve` does not. Measured properly, with a control:
+
+    path.resolve(p + '/')    === path.resolve(p)     true
+    fs.realpathSync(p + '/') === fs.realpathSync(p)  true
+    CONTROL, the raw strings                          false
+
+**BOTH normalise it.** The original parenthetical was correct and I over-corrected
+it while labelling the over-correction as measured. The plan's own next sentence
+proves it: replacing `canon` with `path.resolve` leaves every test green, which is
+only possible if `path.resolve` normalises the slash.
+
+⭐ **A retraction reads as extra rigour and is audited least of all.** That is why
+this one survived: it looked like the careful thing to do.
 
 🛑 **THAT AUDIT SENTENCE WAS FALSE WHEN FIRST WRITTEN, AND THE WAY IT WAS FALSE
 IS THE MOST USEFUL THING IN THIS FILE.** A later inert-guard mutation registered

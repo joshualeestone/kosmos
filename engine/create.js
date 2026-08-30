@@ -340,6 +340,13 @@ function launchIsSandboxed() {
    * symlinked LaunchAgents) and falls back to the textual compare when a path does
    * not exist yet, which is normal on a first install.
    *
+   * ⚠️ NOR THE FIRMLINK ALIAS. `/System/Volumes/Data/<home>/Library/LaunchAgents`
+   * EXISTS on this machine and `realpathSync` returns it UNCHANGED, because an APFS
+   * firmlink is not a symlink. So that spelling reads as sandboxed and every real
+   * install through it is refused. Same class as the case arm below, named because
+   * the sentence above would otherwise invite a reader to believe the whole
+   * aliasing family is handled.
+   *
    * ⚠️ IT DOES NOT CLOSE THE CASE ARM, AND AN EARLIER VERSION OF THIS COMMENT
    * CLAIMED IT DID. Measured on this case-insensitive filesystem: both spellings
    * EXIST, `realpathSync` succeeds on both, and returns each UNCHANGED, so a

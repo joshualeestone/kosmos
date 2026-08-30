@@ -211,8 +211,29 @@ test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', () 
   const res = live.installJob(name, { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' });
 
   const after = countKosmosJobs();
-  assert.equal(after, before,
-    `a sandboxed installJob changed the real launchd domain: ${before} -> ${after}`);
+  /**
+   * 🛑 try/finally, AND THE ORDER WAS THE WHOLE DEFECT. An earlier version put the
+   * bootout AFTER this assertion, with a comment saying "this runs regardless". It
+   * does not: `assert.equal` THROWS, and the cleanup below it was never reached -
+   * dead in exactly the case it exists for. Measured, both arms: assert-then-if
+   * leaves the cleanup unrun; try/finally runs it.
+   *
+   * ⇒ Without this, a guard regression registers a real job, the assertion throws,
+   * the bootout never fires, and the sandbox TMPDIR is removed at process exit OUT
+   * FROM UNDER A LIVE REGISTRATION. That is the 18-minute incident, reproduced by
+   * the test written to prevent it and disarmed by statement order.
+   */
+  try {
+    assert.equal(after, before,
+      `a sandboxed installJob changed the real launchd domain: ${before} -> ${after}`);
+  } finally {
+    if (after !== before) {
+      const { spawnSync } = require('node:child_process');
+      spawnSync('/bin/launchctl',
+        ['bootout', `gui/${process.getuid()}/com.kosmos.agent.${name}`],
+        { encoding: 'utf8' });
+    }
+  }
   /**
    * ⚠️ `ok: true` IS CORRECT HERE AND MY FIRST ASSERTION WAS WRONG ABOUT IT.
    * installJob deliberately returns ok with `started: false` when a bootstrap
@@ -235,12 +256,6 @@ test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', () 
    * so the machine is not left holding it - the previous version had no bootout
    * anywhere in the file, which is exactly how one ran for 18 minutes.
    */
-  if (after !== before) {
-    const { spawnSync } = require('node:child_process');
-    spawnSync('/bin/launchctl',
-      ['bootout', `gui/${process.getuid()}/com.kosmos.agent.${name}`],
-      { encoding: 'utf8' });
-  }
 });
 
 test('#1539 CONTROL: READS are not blocked, so a sandboxed test can still ask what is running', () => {
@@ -308,11 +323,35 @@ test('#1539 CONTROL: READS are not blocked, so a sandboxed test can still ask wh
       + 'threw, which on a host without /bin/launchctl is indistinguishable from '
       + 'a pass');
 
-    /* CONTROL: the same call shape with a MUTATING verb must be refused, so the
-       three passes above cannot be passing because the guard is simply inert. */
-    const m = live.run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, '/tmp/none.plist']);
-    assert.equal(m && m.sandboxRefused, true,
-      'CONTROL: a mutating verb was NOT refused, so this test proves nothing');
+    /**
+     * CONTROL: the mutating verbs must be refused, so the passes above cannot be
+     * passing because the guard is inert.
+     *
+     * 🛑 EVERY MUTATING VERB THIS FILE ISSUES, NOT JUST `bootstrap`. An earlier
+     * version asserted `bootstrap` alone, and every assertion in the file used it -
+     * so adding `enable` and `bootout` to the allowlist left ALL TESTS GREEN while
+     * a real `launchctl enable` reached the operator's launchd. `installJob` issues
+     * `enable` before `bootstrap`, and `rollBack` issues `bootout`.
+     *
+     * ⇒ The plan claimed "BOTH DIRECTIONS ARE HARMFUL, WHICH IS WHY bootout IS ON
+     * THE LIST". Nothing failed if `bootout` left the list. A stated safety
+     * property with no arm behind it.
+     *
+     * These are pure `run()` calls against a label that does not exist, so a
+     * refusal is asserted without registering or tearing down anything.
+     */
+    for (const argv of [
+      ['bootstrap', `gui/${process.getuid()}`, '/tmp/none-1539.plist'],
+      ['enable', `gui/${process.getuid()}/com.kosmos.agent.nosuch1539`],
+      ['bootout', `gui/${process.getuid()}/com.kosmos.agent.nosuch1539`],
+      ['disable', `gui/${process.getuid()}/com.kosmos.agent.nosuch1539`],
+      ['kickstart', `gui/${process.getuid()}/com.kosmos.agent.nosuch1539`],
+    ]) {
+      const m = live.run('/bin/launchctl', argv);
+      assert.equal(m && m.sandboxRefused, true,
+        `CONTROL: the mutating verb '${argv[0]}' was NOT refused, so the guard is `
+        + 'inert for it and this test proves nothing');
+    }
   } finally {
     delete require.cache[require.resolve('./create')];
   }
@@ -446,7 +485,7 @@ test('#1539: a non-array args FAILS CLOSED, it does not fall through to exec', (
 });
 
 
-test('#1539: the guard refuses in DRY_RUN order too, and fails closed with no passwd entry', () => {
+test('#1539: the DRY_RUN short-circuit answers AHEAD of the guard', () => {
   /**
    * Two branches the file named and did not assert, both found by review:
    *
