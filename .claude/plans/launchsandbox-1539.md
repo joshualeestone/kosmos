@@ -40,14 +40,15 @@ enumerate.
 ## The card's open question, answered by measurement
 
 The card worried this guard "could break a legitimate sandboxed-install test that
-WANTS the registration". Measured: five test files call `installJob`, and **every
-one** sets an injected runner and/or DRY_RUN, so all five are already
-short-circuited before the guard. It breaks nothing that exists; it is for the
+WANTS the registration". Measured: **five PRE-EXISTING** test files call
+`installJob`, and every one sets an injected runner and/or DRY_RUN, so all five
+are short-circuited before the guard. (Six files call it now; the sixth is this
+card's own, which deliberately sets neither.) It breaks nothing that exists; it is for the
 next test.
 
 ## Verification
 
-- full suite **3123 pass, 0 fail**
+- full suite: see the figure at the END of this file, which is the only one kept current
 - the predicate on four arms: unset -> false, redirected -> true, the real dir ->
   false, and the real dir **with a trailing slash** -> false (without
   `path.resolve` that reads as sandboxed and every real install is refused, which
@@ -157,4 +158,46 @@ both ways: blocking `list` -> red; making the guard inert -> red.
 #1598 with measurements. The tmux half is the worse half: a booted launchd job
 returns at next login, a killed pane does not.
 
-Suite 3125 pass, 0 fail. launchd delta 0, tmux delta 0.
+
+
+
+---
+
+# Verification, and this is the ONLY figure in this file kept current
+
+    suite                    3130 pass, 0 fail
+    ABSOLUTE kosmos jobs     0 before, 0 after   (not a delta, see the note above)
+    tmux sessions            18 before, 18 after
+
+⚠️ Earlier sections of this file quoted 3123 and then 3125, in the same document,
+and both were stale by the time anyone could read them. A verification section
+that disagrees with itself is unciteable, so the figures were removed from those
+sections rather than updated, and this is the one place a number lives.
+
+# Iteration 3: a BLOCKER that would have broken production silently
+
+Keying the guard on `sandbox.audit().set` refused registration in a REAL install.
+`install/setup.sh` exports DATA, PROJECTS and WORKERS for a non-default
+`KOSMOS_HOME` (:2635-2637), DELIBERATELY leaves LAUNCH unset so plists go to the
+real LaunchAgents, and exports `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` (:2662) as
+sandbox.js's own named escape hatch for that shape. All four are written into the
+board plist's EnvironmentVariables (:2782), so the server carries them at every
+login.
+
+Measured: with that env `set.length` is 3 and `partial` is FALSE. Reading `.set`
+bypassed the escape hatch, `installJob` reported `started: false`, and
+`createAgentInner` rolled the whole creation back. Silently, on every
+non-default-KOSMOS_HOME install, forever.
+
+⚠️ Nothing in the release gate would have caught it: `tools/test-install.sh`
+always pins `AGENT_WORKFORCE_LAUNCH`.
+
+⚠️ And `.partial` alone was not the fix either, which I asserted without measuring
+and was wrong about: with only LAUNCH set, `partial` is TRUE, so pointing LAUNCH
+at the real directory would still have been refused. The condition actually wanted
+is "somebody sandboxed something OTHER than LAUNCH and did not say the
+half-sandbox was deliberate". LAUNCH's own value is judged by the path comparison,
+where it belongs.
+
+Both arms are now asserted, with the control being the same env minus the escape
+hatch.

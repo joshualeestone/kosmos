@@ -425,6 +425,85 @@ test('#1539: a non-array args FAILS CLOSED, it does not fall through to exec', (
   }
 });
 
+
+test('#1539: a non-default KOSMOS_HOME install is NOT refused (the escape hatch is honoured)', () => {
+  /**
+   * 🛑 THE PRODUCTION PATH AN EARLIER VERSION OF THIS GUARD BROKE, SILENTLY AND
+   * FOREVER. `install/setup.sh` exports DATA, PROJECTS and WORKERS for a
+   * non-default KOSMOS_HOME (:2635-2637), DELIBERATELY leaves LAUNCH unset so
+   * plists go to the REAL LaunchAgents, and exports
+   * AGENT_WORKFORCE_HALF_SANDBOX_OK=1 (:2662) as sandbox.js's own named escape
+   * hatch for exactly that shape. All four are written into the board plist's
+   * EnvironmentVariables (:2782), so the server carries them at EVERY LOGIN.
+   *
+   * With the guard keyed on `audit().set`, that env refused the registration,
+   * `installJob` reported started:false, and `createAgentInner` rolled the whole
+   * creation back. Nothing in the release gate would have caught it:
+   * tools/test-install.sh always pins AGENT_WORKFORCE_LAUNCH.
+   */
+  withOnlyLaunch(() => {
+    delete process.env.AGENT_WORKFORCE_LAUNCH;
+    const savedOk = process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
+    process.env.AGENT_WORKFORCE_DATA = '/tmp/kh-1539/data';
+    process.env.AGENT_WORKFORCE_PROJECTS = '/tmp/kh-1539/projects';
+    process.env.AGENT_WORKFORCE_WORKERS = '/tmp/kh-1539/workers';
+    try {
+      process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = '1';
+      assert.equal(create.launchIsSandboxed(), false,
+        'a deliberate half-sandbox (setup.sh non-default KOSMOS_HOME) was treated as '
+        + 'a sandbox, which refuses registration and rolls back every agent creation');
+
+      /* CONTROL: the SAME env without the escape hatch must be refused, so the
+         assertion above cannot be passing because the predicate is stuck false. */
+      delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
+      assert.equal(create.launchIsSandboxed(), true,
+        'CONTROL: an UNDELIBERATE half-sandbox must still be caught');
+    } finally {
+      if (savedOk === undefined) delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
+      else process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = savedOk;
+    }
+  });
+});
+
+test('#1539: the guard refuses in DRY_RUN order too, and fails closed with no passwd entry', () => {
+  /**
+   * Two branches the file named and did not assert, both found by review:
+   *
+   * 1. The guard sits AFTER `if (DRY_RUN)`. Test 6 covers the `if (runner)` half
+   *    of that ordering and nothing covered this half, so moving the guard above
+   *    DRY_RUN left every test green. Refusing under dry-run is the SAFE
+   *    direction, but an unasserted ordering is an ordering that drifts.
+   *
+   * 2. `launchIsSandboxed` fails CLOSED when `os.userInfo()` throws (no passwd
+   *    entry). ⚠️ THAT BRANCH IS NOT ASSERTED HERE AND I AM SAYING SO RATHER THAN
+   *    IMPLYING IT IS. `os.userInfo()` does not throw on any machine this suite
+   *    runs on, so the branch is unreachable without mocking a node builtin, and
+   *    flipping it to `return false` leaves every test green. It is a documented,
+   *    deliberate, UNTESTED decision. Anyone changing it gets no signal.
+   */
+  delete require.cache[require.resolve('./create')];
+  const live = require('./create');
+  try {
+    /**
+     * 🛑 NO RUNNER. An earlier version of this test set a runner AND dry-run, so
+     * `if (runner)` answered first and it silently duplicated test 6 instead of
+     * testing the DRY_RUN ordering it is named for. `setRunner(null)` forces
+     * DRY_RUN on with no runner, which is the only configuration that reaches
+     * the `if (DRY_RUN)` line with the guard still below it.
+     */
+    live.setRunner(null);
+    assert.equal(live.DRY_RUN, true, 'precondition: setRunner(null) must force dry-run');
+    const r = live.run('/bin/launchctl', ['bootstrap', 'gui/501', '/tmp/x.plist']);
+    assert.notEqual(r && r.sandboxRefused, true,
+      'the guard fired AHEAD of the DRY_RUN short-circuit, so every dry-run suite '
+      + 'would start seeing refusals instead of the dry-run answer');
+    assert.equal(r.dryRun, true, 'the DRY_RUN short-circuit must be the one answering');
+  } finally {
+    try { require('./create').setRunner(null); } catch { /* module reset below */ }
+    delete require.cache[require.resolve('./create')];
+  }
+});
+
 function countKosmosJobs() {
   const { spawnSync } = require('node:child_process');
   const r = spawnSync('/bin/launchctl', ['list'], { encoding: 'utf8' });
