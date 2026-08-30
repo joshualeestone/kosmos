@@ -180,6 +180,67 @@ const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
 const styles = require('./engine/styles');
+const inflight = require('./engine/inflight');
+
+/**
+ * The Connections shelf, read once however many callers ask at once (#1618).
+ *
+ * Each door's `state()` is a live check: `engine/github.js` and
+ * `engine/vercel.js` are built by `makeDoor` with `statusArgs: ['auth',
+ * 'status', ...]`, so each is a subprocess, and `cloudflare.state()` plus every
+ * token door make an authenticated request. Two callers arriving together paid
+ * all of it twice.
+ *
+ * 🛑 COLLAPSED ON THE READ PATH ONLY, AND THAT BOUNDARY IS LOAD-BEARING RATHER
+ * THAN TIDINESS. `connect()` and `forget()` on both door shapes END by calling
+ * their own `state()` to answer with what they just did:
+ *
+ *     tokendoor.js:  return state();          // after storing the token
+ *     cloudflare.js: same shape
+ *
+ * If those shared an in-flight read that started BEFORE the write, a person who
+ * had just connected would be answered with the state from before they
+ * connected - told "not connected" by the very request that connected them.
+ * ⇒ So the mutators keep calling the bare `state()`, which is why this wraps the
+ * SHELF rather than wrapping `state()` inside the doors.
+ *
+ * 📌 Sharing a read is safe in a way sharing a mutator's confirmation is not: an
+ * in-flight-only share can never hand back an answer older than one request's
+ * duration, which is a property any single request already has. A mutator needs
+ * to observe its OWN write, which is a different requirement.
+ *
+ * 🛑 NOT A CACHE. There is no window: `engine/inflight.js` holds the promise only
+ * while it is unsettled. #1618 records a 5s TTL being killed by the suite in one
+ * run with `'none' !== 'unknown'`, because a window turns `could not check` into
+ * a confident `not connected` - and the `ask()` wrapper below exists precisely to
+ * keep those two apart.
+ */
+const readConnectionsShelf = inflight.collapse(() => {
+  const ask = (fn) => Promise.resolve().then(fn).then(
+    /* A held token whose service could not be reached is not "not connected":
+       the door says so in its own words, and the shelf must not say nothing. */
+    (st) => ({ connected: st && st.unreachable === true ? null : !!(st && st.connected === true), who: (st && (st.who || st.login)) || null }),
+    (err) => ({ connected: null, because: 'could not check: ' + (err && err.message) }),
+  );
+  const jobs = {
+    '/api/github': ask(async () => {
+      const st = await github.state();
+      if (st && st.connected) return st;
+      if (st && st.gh === 'missing') { const d = await githubdevice.state(); if (d && d.connected) return d; }
+      return st;
+    }),
+    '/api/vercel': ask(() => vercel.state()),
+    '/api/cloudflare': ask(() => cloudflare.state()),
+  };
+  for (const [name, route] of Object.entries(tokendoors.routes())) jobs[route] = ask(() => tokendoors.byName(name).state());
+  const keys = Object.keys(jobs);
+  return Promise.all(keys.map((k) => jobs[k])).then((vals) => {
+    const doors = {};
+    keys.forEach((k, i) => { doors[k] = vals[i]; });
+    return doors;
+  });
+});
+
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
@@ -3708,29 +3769,9 @@ const server = http.createServer((req, res) => {
      connected:null, which the page says as could-not-check, never as
      nothing. GitHub is connected on either of its two roads (#620). */
   if (pathname === '/api/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
-    const ask = (fn) => Promise.resolve().then(fn).then(
-      /* A held token whose service could not be reached is not "not connected":
-         the door says so in its own words, and the shelf must not say nothing. */
-      (st) => ({ connected: st && st.unreachable === true ? null : !!(st && st.connected === true), who: (st && (st.who || st.login)) || null }),
-      (err) => ({ connected: null, because: 'could not check: ' + (err && err.message) }),
-    );
-    const jobs = {
-      '/api/github': ask(async () => {
-        const st = await github.state();
-        if (st && st.connected) return st;
-        if (st && st.gh === 'missing') { const d = await githubdevice.state(); if (d && d.connected) return d; }
-        return st;
-      }),
-      '/api/vercel': ask(() => vercel.state()),
-      '/api/cloudflare': ask(() => cloudflare.state()),
-    };
-    for (const [name, route] of Object.entries(tokendoors.routes())) jobs[route] = ask(() => tokendoors.byName(name).state());
-    const keys = Object.keys(jobs);
-    Promise.all(keys.map((k) => jobs[k])).then((vals) => {
-      const doors = {};
-      keys.forEach((k, i) => { doors[k] = vals[i]; });
-      sendJson(res, 200, { doors });
-    });
+    /* #1618: one shelf read shared by every caller asking at once. The sweep and
+       the reason it is shared on the read path only are at readConnectionsShelf. */
+    readConnectionsShelf().then((doors) => { sendJson(res, 200, { doors }); });
     return;
   }
   {
