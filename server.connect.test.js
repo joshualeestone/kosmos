@@ -358,6 +358,12 @@ test('#1585: a connected-looking FILE does not answer connected through the rout
   } finally {
     subscription.setRunner(null);
     fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+    // This is the only arm that reaches the fall-through and launches an
+    // un-awaited runFlow. Cancel it before teardown, matching the sibling
+    // fall-through tests (#1492); resetForTests alone would leave a small
+    // window. The two controls below hit the synchronous else branch and
+    // never launch a flow, so they need no cancel.
+    await post('/api/connect/cancel');
     connect.resetForTests();
   }
 });
