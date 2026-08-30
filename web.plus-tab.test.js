@@ -76,10 +76,19 @@ test('the flow gates on configured, and the section paints on arrival', () => {
      and hides BOTH the sign-in and the connected flow; a configured one shows only the
      flow. Pinning the old literal would have cemented a spelling that the design
      deliberately replaced. */
-  assert.match(paint, /state1\.hidden = false;\s*\n\s*state2\.hidden = true;\s*\n\s*flow\.hidden = true;/,
-    'the unconfigured state no longer rests on state 1 with both other states hidden');
-  assert.match(paint, /state1\.hidden = true;\s*\n\s*state2\.hidden = true;\s*\n\s*flow\.hidden = false;/,
-    'the configured state no longer shows the flow alone');
+  /* 🛑 THIS PINNED `state2.hidden = true` IN BOTH BRANCHES, WHICH CEMENTED THE DEFECT.
+     State 2 is unreachable today because nothing tells the app somebody has paid. Asserting
+     that in both branches encoded "state 2 is never shown" as the RULE, so the very edit
+     that wires it up would have gone red - a guard standing in the way of the intended next
+     step, which is worse than no guard.
+     ⇒ Assert what must NOT regress and leave state 2 free: an unconfigured machine shows
+     state 1 and NOT the connected flow; a configured one shows the flow and NOT state 1.
+     Whether state 2 is visible is the thing that will legitimately change. */
+  assert.match(paint, /state1\.hidden = false;/, 'the unconfigured state no longer shows state 1');
+  assert.match(paint, /state1\.hidden = false;[\s\S]{0,120}flow\.hidden = true;/,
+    'the unconfigured state no longer hides the connected flow');
+  assert.match(paint, /state1\.hidden = true;[\s\S]{0,120}flow\.hidden = false;/,
+    'the configured state no longer shows the flow with state 1 hidden');
   assert.match(SCRIPT, /if \(section === 'plus'\) paintPlus\(\);/,
     'the tab no longer paints on arrival');
 });

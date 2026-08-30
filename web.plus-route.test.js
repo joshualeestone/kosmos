@@ -63,19 +63,20 @@ test('the link is actually pointed somewhere at paint time', () => {
      which is a route to nowhere that looks exactly like a route. */
   const paint = page.lift(SCRIPT, 'paintPlus');
   assert.match(paint, /plus-site-link/, 'paintPlus never reaches for the link');
-  /* #1615: the target moved from `/plus` to `/+?from=app`, per design/plus-flow.html:
-     "Both entry points land on /+ ... The app links to /+?from=app". One page, one
-     parameter, so the site can tell an arrival from the app apart from one off the
-     homepage.
-     ⚠️ THE `/+` ROUTE DOES NOT EXIST ON THE SITE YET - measured, `vercel.json` carries no
-     rewrite for it and only `plus.html` is served. That half is Angel's. Pointing at the
-     designed target is the instruction; keeping the old path would have hidden the
-     dependency behind a link that happens to work.
-     The RULE this protects is unchanged and is the reason the test exists: the href must
-     be built from KOSMOS_SITE and must not stay "#", a route to nowhere that looks
-     exactly like a route. */
-  assert.match(paint, /KOSMOS_SITE \+ '\/\+\?from=app'/,
-    'the link is not pointed at the designed Plus entry point');
+  /* #1615: the design specifies `/+?from=app` ("one page, one parameter") and THAT ROUTE
+     DOES NOT SERVE YET. Measured live with a negative control: /plus -> 200 (10305 bytes),
+     /+?from=app -> 404 (8498), a nonsense path -> 404 (8498), byte-identical, so /+ is the
+     generic 404. A link labelled "See Kosmos+" landing there misleads, which is the one
+     thing this card's ship-it-unwired rule does NOT permit.
+     ⚠️ SO THIS ASSERTS `/plus` AND THAT IS TEMPORARY. It is pinned to the path that
+     currently SERVES, not to the path that is RIGHT. When the `/+` rewrite lands in
+     chaoskosmos-site (Angel's), this assertion and the page should move together, and this
+     comment is here so whoever does it knows the pin was deliberate rather than the
+     designed target having been forgotten.
+     The RULE underneath is unchanged and is why the test exists: the href is built from
+     KOSMOS_SITE and must not stay "#", a route to nowhere that looks exactly like a route. */
+  assert.match(paint, /KOSMOS_SITE \+ '\/plus'/,
+    'the link is not pointed at a path that serves');
   assert.doesNotMatch(paint, /site\.href = '#'/, 'the link was left pointing at nothing');
 });
 

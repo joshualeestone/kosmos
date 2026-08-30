@@ -9597,8 +9597,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      📌 The two are genuinely different moments and the names now say so: this is signing
      in to the Kosmos+ ACCOUNT before this computer is configured at all; the enrol pair
      below is pairing a device once it already is. -->
-        <input type="email" id="plus-signin-email" class="cinput" autocomplete="email"
-               placeholder="you@example.com" aria-label="The email on your Kosmos+ account">
+        <!-- ⚠️ `tk-inp` INSIDE `.field`, NOT `.cinput`. `.cinput` is the COMPOSER input class:
+     it sets `border: 0; background: none;` and takes its border from a `.composerbox`
+     ancestor. Every other `.cinput` in this file has one; this has none, and `.setrow`
+     supplies no field styling, so it would have rendered borderless and transparent.
+     This pane's own convention forty lines below is `tk-inp` in a `.field`, and the
+     design draws a bordered field. On a card whose premise is seeing the design
+     rendered, that is the difference that matters. -->
+        <div class="field">
+          <input type="email" id="plus-signin-email" class="tk-inp" autocomplete="email"
+            placeholder="you@example.com" aria-label="The email on your Kosmos+ account">
+        </div>
         <button class="btn" type="button" id="plus-signin-code">Send me a code</button>
       </div>
       <p class="fhint" id="plus-signin-msg" role="status" aria-live="polite"></p>
@@ -21671,7 +21680,19 @@ async function paintPlus() {
      and it is raised on kosmos#1615 rather than worked around here. Pointing at the
      designed target is the instruction; quietly keeping the old path would hide the
      dependency. */
-  if (site) site.href = KOSMOS_SITE + '/+?from=app';
+  /* #1615: the design says the app links to `/+?from=app` ("one page, one parameter").
+     🛑 THAT ROUTE DOES NOT EXIST AND I SHIPPED IT BROKEN ONCE. Measured live, with a
+     negative control:
+         /plus           200, 10305 bytes   (what plus.html serves today)
+         /+?from=app     404,  8498 bytes
+         a nonsense path 404,  8498 bytes   <- BYTE-IDENTICAL, so /+ is the generic 404
+     The rule for this card is that an inert control is fine and a page that MISLEADS is
+     not. A link labelled "See Kosmos+" opening a new tab onto a 404 is the second, and it
+     sits two lines under a paragraph saying the website is where this happens.
+     ⇒ Pointing at the designed target bought a DEVELOPER-visible signal and paid with a
+     USER-visible break. The dependency belongs in a card, not a dead door. The `/+`
+     rewrite is Angel's in chaoskosmos-site; reverted until it serves. */
+  if (site) site.href = KOSMOS_SITE + '/plus';
   const epoch = (PLUS_EPOCH += 1);
   let r = null;
   try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
