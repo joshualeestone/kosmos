@@ -627,6 +627,13 @@ test('start, poll, cancel: the flow is drivable through the routes alone', async
    * the poll sees it, cancel ends it.
    */
   connect.setTickInterval(15);
+  /* The binary-present branch must be reached on the probe's own merits, not on
+     the dry-run fake that #1568/#1571 taught start() to distrust. An injected
+     runner is a deliberate test control: run() returns it before it consults
+     DRY_RUN, so `claude --version` comes back a real ok and haveBinary stays
+     true. Every other subprocess is the same no-op the dry-run comment above
+     describes, so the flow still launches and sits at a blank pane. */
+  connect.setRunner((file, args) => ({ ok: true, stdout: '' }));
   try {
     const started = await post('/api/connect/start');
     assert.equal(started.status, 200, started.body);
@@ -641,6 +648,33 @@ test('start, poll, cancel: the flow is drivable through the routes alone', async
     assert.equal(json(cancelled).phase, 'idle');
     assert.equal(json(await req('/api/connect')).phase, 'idle',
       'cancel answered idle but the state route still shows a flow');
+  } finally {
+    await connect.cancel().catch(() => {});
+    connect.setTickInterval(700);
+    connect.setRunner(null);
+    connect.resetForTests();
+  }
+});
+
+test('a dry-run probe does not score the binary as working (#1568/#1571)', async () => {
+  /* The sandbox guard (engine/sandbox.js) names AGENT_WORKFORCE_DRY_RUN=1 as a
+     remedy for a live tmux, and under it run() returns { ok:true, dryRun:true }
+     WITHOUT executing. start() must NOT trust that un-run --version as a working
+     binary: with a bin present (/bin/echo passes X_OK) but no injected runner,
+     the probe comes back dry-run, so haveBinary is refused and the flow takes
+     the install path rather than skipping it on a launcher it never invoked.
+     Before the #1568 fix this went straight to a sign-in phase. */
+  connect.resetForTests();          // no injected runner: a genuine dry-run probe
+  connect.setTickInterval(15);
+  try {
+    await connect.start();
+    const phase = connect.state().phase;
+    assert.ok(
+      phase === connect.PHASE.DOWNLOADING || phase === connect.PHASE.INSTALLING || phase === connect.PHASE.STUCK,
+      `dry-run probe was trusted as a working binary (#1568): expected the install path, got ${phase}`,
+    );
+    assert.ok(!String(phase).startsWith('signin'),
+      `dry-run probe skipped the install and went to sign-in (#1568): ${phase}`);
   } finally {
     await connect.cancel().catch(() => {});
     connect.setTickInterval(700);
