@@ -138,9 +138,24 @@ function countOf(rows) {
   return Array.isArray(rows) ? rows.length : 0;
 }
 
+/**
+ * 🛑 AN UNREADABLE ROW IS NOT A FAILING ROW. Counting only CONNECTED put every
+ * `unknown` row in the denominator as NOT working, so two accounts of which one
+ * was merely unreadable rendered as "1 of 2 sign-ins working" -- a settled
+ * negative about a row nobody could read, which is the exact collapse the
+ * three-state rule and the null count elsewhere in this module refuse.
+ * Unreadable rows leave the comparison entirely: they are neither working nor
+ * known-broken, and pretending otherwise is the thing this card is about.
+ */
 function workingCount(rows) {
   if (!Array.isArray(rows)) return 0;
   return rows.filter((r) => r && r.connection && r.connection.state === subscription.STATE.CONNECTED).length;
+}
+
+function readableCount(rows) {
+  if (!Array.isArray(rows)) return 0;
+  return rows.filter((r) => r && r.connection
+    && r.connection.state !== subscription.STATE.UNKNOWN).length;
 }
 
 /**
@@ -169,6 +184,9 @@ function providerView(id, name, rows, runner, unreadable) {
        accounts of which ONE works was told they had three working. That is the
        over-confident direction this card exists to avoid. */
     howManyWorking: state === subscription.STATE.UNKNOWN ? null : workingCount(rows),
+    /* The denominator for "N of M working". Rows we could not read are excluded
+       from BOTH halves rather than counted against the person. */
+    howManyReadable: state === subscription.STATE.UNKNOWN ? null : readableCount(rows),
     because: saysFor(state, present),
   };
 }

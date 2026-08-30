@@ -131,8 +131,11 @@ test('a stuck sign-in speaks, in the past tense, and only for its own provider',
   p.signin = { provider: 'anthropic', phase: 'stuck', busy: false };
   await withBoard({ body: p }, async (port) => {
     const r = await kosmos(port);
-    assert.match(r.out, /An earlier sign-in got stuck/,
-      'a stuck sign-in was dropped silently, which is the moment an agent is most useful');
+    /* ⚠️ ASSERTS THE PROVIDER IS NAMED, which is stronger than the wording this
+       pinned before. An unqualified "a sign-in got stuck" beside a two-provider
+       list is read against the wrong provider. */
+    assert.match(r.out, /An earlier Claude sign-in got stuck/,
+      'a stuck sign-in was dropped, or no longer says WHOSE sign-in it was');
   });
 
   // CONTROL: with that provider CONNECTED, the stale stuck line is suppressed,
@@ -217,8 +220,8 @@ test('an unknown sign-in phase is a THIRD answer, not silence', async () => {
   p.providers[0].signedIn = 'none';
   await withBoard({ body: p }, async (port) => {
     const r = await kosmos(port);
-    assert.match(r.out, /could not tell whether a sign-in/i,
-      'an unknown phase printed nothing, which reads as "no sign-in is going on"');
+    assert.match(r.out, /could not tell whether a Claude sign-in/i,
+      'an unknown phase printed nothing, or no longer says WHOSE sign-in it was');
   });
 
   // control: idle must STAY silent, or the assertion above passes for everything
@@ -226,7 +229,7 @@ test('an unknown sign-in phase is a THIRD answer, not silence', async () => {
   q.providers[0].signedIn = 'none';
   await withBoard({ body: q }, async (port) => {
     const r = await kosmos(port);
-    assert.doesNotMatch(r.out, /could not tell whether a sign-in/i,
+    assert.doesNotMatch(r.out, /could not tell whether a/i,
       'an idle phase now claims we could not tell, which is the opposite error');
   });
 });
@@ -248,5 +251,47 @@ test('a hostile or unknown wire value cannot print machine internals at a person
       'a prototype member reached the screen');
     assert.match(r.out, /Claude: could not check/,
       'an unrecognised verdict should degrade to could-not-check, not to a blank');
+  });
+});
+
+test('every sign-in sentence names WHOSE sign-in it is', async () => {
+  /**
+   * 🛑 `who` WAS COMPUTED AND NEVER PRINTED. The sentence sat unqualified beside
+   * a two-provider list, so an agent helping somebody paste a GPT key read "a
+   * sign-in is going on right now" and attached it to GPT while the flow
+   * belonged to Claude. That is the two-accounts-of-what-to-do failure the
+   * provider field was added to prevent, surviving one layer further out.
+   */
+  const cases = [
+    ['signin-awaiting-code', true, /A Claude sign-in is going on/],
+    ['stuck', false, /An earlier Claude sign-in got stuck/],
+    ['unknown', false, /could not tell whether a Claude sign-in/],
+  ];
+  for (const [phase, busy, want] of cases) {
+    const p = P({ signin: { provider: 'anthropic', phase, busy } });
+    p.providers[0].signedIn = 'none';
+    // eslint-disable-next-line no-await-in-loop
+    await withBoard({ body: p }, async (port) => {
+      const r = await kosmos(port);
+      assert.match(r.out, want, `the ${phase} sentence does not name its provider`);
+    });
+  }
+});
+
+test('a row we could not read is not counted against the person', async () => {
+  /**
+   * `workingCount` filtered on CONNECTED, so an `unknown` row landed in the
+   * denominator as not-working: two accounts of which one was merely unreadable
+   * rendered "1 of 2 sign-ins working". That is a settled negative about a row
+   * nobody looked at, which is the collapse the three-state rule refuses.
+   */
+  const p = P();
+  p.providers[0].howMany = 2; p.providers[0].howManyWorking = 1; p.providers[0].howManyReadable = 1;
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    assert.doesNotMatch(r.out, /1 of 2 sign-ins working/,
+      'an unreadable row was counted as a failing one');
+    assert.match(r.out, /we could not check/,
+      'the unreadable row vanished entirely instead of being named');
   });
 });

@@ -5,10 +5,10 @@
    ~/.local/bin, which is not on a default macOS PATH, so a taught bare command
    failed with "command not found" in every agent's shell -- silently, because
    the engine is never reached and no refusal row can exist (see clipath.js).
-   ⚠️ Measured again while writing this block: bare `kosmos` on this machine
-   resolves to an OLDER installed bundle carrying neither `cmd_connections` nor
-   `cmd_whoami` (control: 23 other `cmd_`), so the taught command reaches a CLI
-   without the verb and answers with a usage line and exit 2. */
+   ⚠️ And an installed bundle can be OLDER than the engine teaching this block,
+   in which case a bare command reaches a CLI without the verb at all and answers
+   with a usage line and exit 2. (Observed on a developer box; the durable point
+   is the rule above, not that one machine's state.) */
 const { kosmosCliShown } = require('./clipath');
 
 /**
@@ -110,9 +110,10 @@ function blockBody() {
     '',
     'One thing you CAN check for yourself, rather than asking: run',
     '`' + kosmosCliShown() + ' connections`. It tells you which providers are',
-    'connected on this computer and whether a sign-in is going on right now. It',
-    'answers in three states, and **could not check** is one of them: treat that',
-    'as unknown, never as "not connected".',
+    'connected on this computer, and whether a CLAUDE sign-in is part way through',
+    '(pasting a GPT key is not a sign-in flow and will not show there). It answers',
+    'in three states, and **could not check** is one of them: treat that as',
+    'unknown, never as "not connected".',
     '',
     'It deliberately does NOT show you the sign-in link or the terminal output.',
     'Those are the parts that would let somebody sign in as them, so they are not',

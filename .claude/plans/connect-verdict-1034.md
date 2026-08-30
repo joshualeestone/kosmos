@@ -54,7 +54,19 @@ moment a person is trying to find their agents."* A connection verdict inherits 
 
 ## Scope
 
-**In:** the boundary module, one read route, one CLI verb, tests.
+**In:** the boundary module, one read route, one CLI verb, tests, **and the agent-facing
+instruction copy in `engine/connections.js`**.
+
+🛑 **That last one was missing from this list and is the widest-blast-radius edit on the
+branch.** `connections.blockBody()` is spliced into every agent's `CLAUDE.md` by
+`syncEveryone`, so it changes a file eighteen agents boot from. It belongs here because a
+scope list that omits the only delivery-affecting change is the kind of omission this plan
+spends its length arguing against.
+
+⚠️ **And its delivery is uneven, which the plan should say rather than the code alone:** a
+NEW or IMPORTED agent gets the paragraph immediately (`create.js`, `discover.js`); an agent
+ALREADY RUNNING gets it only when somebody next saves the About-you form, and nothing
+signals the difference.
 
 **Out, deliberately:**
 - Part (1) KNOWING. Merged as PR #1060; this card already records one duplicate-build

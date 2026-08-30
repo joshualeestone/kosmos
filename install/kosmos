@@ -772,9 +772,15 @@ cmd_connections() {
         var many = "";
         if (p.howMany != null) {
           var w = p.howManyWorking != null ? p.howManyWorking : p.howMany;
+          /* The denominator is the READABLE rows, not every row. A row whose
+             live check we could not read is neither working nor broken, and
+             counting it against the person is a settled negative about
+             something nobody looked at. */
+          var m = p.howManyReadable != null ? p.howManyReadable : p.howMany;
           if (p.howMany === 0) many = "";
-          else if (w === p.howMany) many = ", " + (w === 1 ? "1 sign-in" : w + " sign-ins");
-          else many = ", " + w + " of " + p.howMany + (p.howMany === 1 ? " sign-in working" : " sign-ins working");
+          else if (w === m) many = ", " + (w === 1 ? "1 sign-in" : w + " sign-ins");
+          else many = ", " + w + " of " + m + (m === 1 ? " sign-in working" : " sign-ins working");
+          if (p.howMany > m) many = many + ", " + (p.howMany - m) + " we could not check";
         }
         console.log("  " + p.name + ": " + verdict + " (" + p.because + many + ")");
       }
@@ -800,6 +806,15 @@ cmd_connections() {
          a single-quoted shell string, so one apostrophe ends the string and the
          file stops parsing. bash -n caught exactly that here. */
       var who = (v.signin && v.signin.provider) || "anthropic";
+      /* 🛑 NAME THE PROVIDER IN THE SENTENCE. `who` was computed and used only
+         for the suppression test, so the line read unqualified beside a
+         two-provider list: an agent helping with a GPT key read "a sign-in is
+         going on right now" and attached it to GPT, while the flow belonged to
+         Claude.
+         That is the two-accounts-of-what-to-do failure the provider field was
+         added to prevent, surviving one layer further out. */
+      var whoRow = v.providers.filter(function (p) { return p.id === who; })[0];
+      var whoName = (whoRow && whoRow.name) || "Claude";
       var anyConnected = v.providers.some(function (p) {
         return p.id === who && p.signedIn === "connected";
       });
@@ -810,10 +825,10 @@ cmd_connections() {
          exact collapse the null count one layer up exists to prevent. */
       if (v.signin && v.signin.phase === "unknown") {
         console.log("");
-        console.log("  We could not tell whether a sign-in is going on. Ask what is on their screen.");
+        console.log("  We could not tell whether a " + whoName + " sign-in is going on. Ask what is on their screen.");
       } else if (v.signin && own(STOPPED, v.signin.phase) && !anyConnected) {
         console.log("");
-        console.log("  " + own(STOPPED, v.signin.phase) + " Ask what is on their screen.");
+        console.log("  " + own(STOPPED, v.signin.phase).replace("A sign-in", "A " + whoName + " sign-in").replace("An earlier sign-in", "An earlier " + whoName + " sign-in") + " Ask what is on their screen.");
       } else if (v.signin && v.signin.busy) {
         // The phase is machine vocabulary too, exactly like the verdicts above.
         // An unmapped phase falls back to a sentence with no jargon in it
@@ -827,7 +842,7 @@ cmd_connections() {
           "signin-completing": "it is finishing the sign-in"
         };
         console.log("");
-        console.log("  A sign-in is going on right now: " + (own(STEP, v.signin.phase) || "it is part way through")
+        console.log("  A " + whoName + " sign-in is going on right now: " + (own(STEP, v.signin.phase) || "it is part way through")
           + ". Ask what is on their screen.");
       }
       if (Array.isArray(v.services) && v.services.length) {
