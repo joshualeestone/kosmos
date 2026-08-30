@@ -59,5 +59,54 @@ esac
 out="$(run 'step "== 9. done =="' 0)"
 has "$out" 'exit=0' && has "$out" 'step=' && pass "a successful cut records its last step too" || fail "no step on success: $out"
 
+
+# ---------------------------------------------------------------------------
+# #1388: a KILLED step and a FAILED step must be DIFFERENT ROWS.
+#
+# ⭐ WHY: a browser gate SIGTERM'd by a second cut killed release.sh with exit
+# 143. The log wrote a bare `exit=143` and it read as a red, so the response was
+# to hunt a product defect on a cut that had nothing wrong with it. The card's
+# own tell: `suite_exit=0` was already in the log and the summary line overrode
+# it. A step line that contradicts its own detail line is worse than one that
+# omits it.
+# ---------------------------------------------------------------------------
+
+out="$(run 'step "== 3b. the page layer =="' 143)"
+has "$out" 'outcome=killed' && has "$out" 'signal=SIGTERM' \
+  && pass "exit 143 records as KILLED with its signal, not as a failure" \
+  || fail "a SIGTERM kill is not distinguishable from a failure: $out"
+
+out="$(run 'step "== 3b. the page layer =="' 137)"
+has "$out" 'outcome=killed' && has "$out" 'signal=SIGKILL' \
+  && pass "exit 137 records as KILLED with SIGKILL" \
+  || fail "SIGKILL not decoded: $out"
+
+# 🛑 THE CONTROL, AND IT IS THE POINT OF THE CARD. A real failure must NOT be
+# labelled killed, or the new field is as uninformative as the bare exit code
+# it replaced.
+out="$(run 'step "== 3b. the page layer =="' 1)"
+has "$out" 'outcome=failed' && ! has "$out" 'outcome=killed' && ! has "$out" 'signal=' \
+  && pass "a real failure stays FAILED and carries no signal" \
+  || fail "a genuine failure was labelled killed or carried a signal: $out"
+
+# And the two rows must not be identical, which is the defect stated directly.
+killed="$(run 'step "== 3b. the page layer =="' 143)"
+failed="$(run 'step "== 3b. the page layer =="' 1)"
+kstep="${killed#*step=}"; fstep="${failed#*step=}"
+[ "$kstep" = "$fstep" ] \
+  && { [ "$killed" != "$failed" ] \
+       && pass "same step, same line shape, but the rows differ where it matters" \
+       || fail "a killed cut and a failed cut still render the identical row"; } \
+  || fail "control: the two runs did not even reach the same step, so this proves nothing"
+
+out="$(run 'step "== 3b. the page layer =="' 0)"
+has "$out" 'outcome=ok' && pass "a clean cut records ok" || fail "a clean cut is not ok: $out"
+
+# 🛑 THE SUMMARY GOES LAST. It used to sit mid-file, so after arms were appended
+# below it the run printed "cut step record: 0 failures" and then a FAIL line
+# under it. A closing line that contradicts the data above it is what a hurried
+# reader takes away, and it is the same self-flattering-tool defect this repo
+# has filed elsewhere. Keeping it adjacent to the exit means it cannot go stale
+# when somebody appends another arm.
 echo "cut step record: $fails failures"
 exit $((fails > 0))

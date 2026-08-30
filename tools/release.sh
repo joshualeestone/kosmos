@@ -47,7 +47,21 @@ step() { _STEP="$1"; echo "$1"; }
 cut_record_done() {
   [ "$_CUT_DONE_WRITTEN" = 1 ] && return 0
   _CUT_DONE_WRITTEN=1
-  printf '%s version=%s completed exit=%s served=%s step=%s\n' "$(date -u +%FT%TZ)" "$V" "$1" "${DEPLOYED:-0}" "$(printf '%s' "${_STEP:-unknown}" | tr -d '=' | tr ' ' '_')" >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
+  # #1388: decode the exit so a KILLED step is a different row from a FAILED one.
+  # A browser gate SIGTERM'd by another cut killed release.sh with exit 143, the
+  # trap logged a bare `exit=143`, and it read as a red, sending readers to hunt
+  # a product defect on a cut that had nothing wrong. Over 128 is 128+signal
+  # (a kill); 0 is ok; anything else is a real failure (an assertion, exit 1).
+  local _rc="$1" _outcome _sig=""
+  if [ "$_rc" -eq 0 ]; then _outcome=ok
+  elif [ "$_rc" -gt 128 ]; then _outcome=killed; _sig="$(kill -l "$((_rc - 128))" 2>/dev/null || echo "$((_rc - 128))")"
+  else _outcome=failed
+  fi
+  printf '%s version=%s completed exit=%s outcome=%s%s served=%s step=%s\n' \
+    "$(date -u +%FT%TZ)" "$V" "$_rc" "$_outcome" \
+    "$([ -n "$_sig" ] && printf ' signal=SIG%s' "$_sig")" \
+    "${DEPLOYED:-0}" "$(printf '%s' "${_STEP:-unknown}" | tr -d '=' | tr ' ' '_')" \
+    >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
 }
 # Installed HERE, before step 1 can refuse: the full trap below (site restore,
 # thaw) only exists after the freeze, so a death at step 1 or 2 would leave the
