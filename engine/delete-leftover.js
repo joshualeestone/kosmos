@@ -60,12 +60,18 @@ const WALK_CAP = 20000;
 /* Test seam for the one thing this runs: `launchctl bootout` before the job
    file goes, so launchd does not keep a job whose file has vanished. */
 let runner = null;
+/* #1598: honor AGENT_WORKFORCE_DRY_RUN, symmetric with remove.js. Without this,
+   an operator who set the env on the opted-in board got asymmetric behaviour,
+   remove dry-runs while this executes live. Read at load (the board reads env at
+   startup); a test controls it through resetForTests. */
+let DRY_RUN = process.env.AGENT_WORKFORCE_DRY_RUN === '1';
 function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; }
-/* Test seam (#1598): back to fail-closed (no runner) so a test can exercise the
-   live-execution gate directly. */
-function resetForTests() { runner = null; }
+/* Test seam (#1598): back to fail-closed (no runner, dry-run flag off) so a test
+   can exercise the live-execution gate directly. */
+function resetForTests() { runner = null; DRY_RUN = false; }
 function run(file, args) {
   if (runner) return runner(file, args);
+  if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
   /* #1598: fail closed, the same gate as remove.js. This module had NO dry-run
      default of its own, so before the fix a fresh require went straight to live
      launchctl/tmux (its one call spells `launchctl` bare and also boots jobs).
