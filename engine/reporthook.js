@@ -119,10 +119,24 @@ function ensureWired(settingsPath, scriptPath) {
     const rawTmp = os.tmpdir();
     let realTmp = rawTmp;
     try { realTmp = fs.realpathSync(rawTmp); } catch { /* keep the raw value */ }
-    const underRoot = (p, root) => p === root || p.startsWith(root + path.sep);
+    /* Type-safe on purpose: this module never throws for an expected shape,
+       and both callers fail soft. A non-string settingsPath must NOT throw
+       here -- it falls through to the read below, which answers with a
+       sentence. underRoot returns false for a non-string rather than calling
+       .startsWith on it (#1582 review). */
+    const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
     const scriptEphemeral = underRoot(scriptPath, rawTmp) || underRoot(scriptPath, realTmp);
-    const settingsEphemeral = underRoot(settingsPath, rawTmp) || underRoot(settingsPath, realTmp);
-    if (scriptEphemeral && !settingsEphemeral) {
+    /* Durable = a real settings path that is NOT under temp. A null/undefined
+       settingsPath is neither durable nor ephemeral here, so the refusal does
+       not fire and the downstream read handles the malformed input. */
+    const settingsDurable = typeof settingsPath === 'string'
+      && !underRoot(settingsPath, rawTmp) && !underRoot(settingsPath, realTmp);
+    /* Coupling this fix relies on, verified against the cut scripts (#1582
+       review): the sandbox is created with `mktemp -d` (test-install.sh:56)
+       and `${TMPDIR:-/tmp}/kosmos-release.XXXXXX` (release.sh:350), both under
+       $TMPDIR, and the setup Node process shares that $TMPDIR -- so os.tmpdir()
+       here names the same root the ephemeral script lives under. */
+    if (scriptEphemeral && settingsDurable) {
       return { wired: false, because: 'the hook script path is under the temp root, which is ephemeral, so it was not written into the durable settings file' };
     }
   }

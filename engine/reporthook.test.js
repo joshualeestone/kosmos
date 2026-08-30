@@ -141,11 +141,28 @@ const RESOLVED_TMP = (() => { try { return fs.realpathSync(os.tmpdir()); } catch
 // so nothing is created here.
 const DURABLE_SETTINGS = path.join(path.sep, 'nonexistent-durable-1582', 'settings.json');
 
-test('#1582: a temp-root (resolved) script into a durable settings file is refused, catching the macOS trap', () => {
-  const dead = path.join(RESOLVED_TMP, 'tmp.FAKE1582abc', 'home', 'app', 'bin', 'kosmos-report-hook.sh');
-  const got = reporthook.ensureWired(DURABLE_SETTINGS, dead);
-  assert.equal(got.wired, false);
-  assert.match(got.because, /temp root|ephemeral/);
+test('#1582: a temp-root script into a durable settings file is refused, in BOTH the raw and resolved forms', () => {
+  // Exercise both roots the guard checks. On macOS os.tmpdir() (/var/folders/...)
+  // and its realpath (/private/var/folders/...) DIFFER, so the resolved form
+  // catches a reintroduced raw-only comparison (the documented trap) and the raw
+  // form catches a resolved-only one. On Linux they coincide, so only one branch
+  // is distinct there, but both assertions still hold.
+  const forms = [
+    path.join(os.tmpdir(), 'tmp.FAKE1582raw', 'home', 'app', 'bin', 'kosmos-report-hook.sh'),
+    path.join(RESOLVED_TMP, 'tmp.FAKE1582res', 'home', 'app', 'bin', 'kosmos-report-hook.sh'),
+  ];
+  for (const dead of forms) {
+    const got = reporthook.ensureWired(DURABLE_SETTINGS, dead);
+    assert.equal(got.wired, false, dead);
+    assert.match(got.because, /temp root|ephemeral/);
+  }
+});
+
+test('#1582 fail-soft: a null/undefined settingsPath does not throw (the module never throws for an expected shape)', () => {
+  const dead = path.join(RESOLVED_TMP, 'tmp.FAKE1582null', 'home', 'app', 'bin', 'kosmos-report-hook.sh');
+  // Before the guard, underRoot(settingsPath) called .startsWith on null and threw.
+  assert.doesNotThrow(() => reporthook.ensureWired(null, dead));
+  assert.doesNotThrow(() => reporthook.ensureWired(undefined, dead));
 });
 
 test('#1582 control: a non-temp (installed) script into a durable settings file is NOT refused as temp-rooted', () => {
