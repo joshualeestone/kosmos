@@ -383,6 +383,28 @@ test('#1585 CONTROL: when the world agrees the file, the route still answers con
   }
 });
 
+test('#1585 CONTROL: an UNVERIFIABLE live check keeps connected rather than forcing a sign-in through the route', async () => {
+  // The third live state matters and is load-bearing (connect.js reads NONE,
+  // not "!== CONNECTED"). checkLive answers UNKNOWN when it cannot reach Claude
+  // Code at all, which is a statement about our instrument, not the person.
+  // Treating that as signed-out would push a genuinely connected customer into
+  // a sign-in every time the probe was flaky: this card's harm from the other
+  // side. So the route must still answer connected on an unverifiable check.
+  const subscription = require('./engine/subscription');
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  subscription.setRunner(async () => { throw new Error('claude is not reachable'); });
+  try {
+    const got = await post('/api/connect/start');
+    assert.equal(got.status, 200, got.body);
+    assert.equal(json(got).phase, 'connected',
+      'an unverifiable live check must not be read as positive evidence the file is wrong (was: ' + json(got).phase + ')');
+  } finally {
+    subscription.setRunner(null);
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+    connect.resetForTests();
+  }
+});
+
 test('#1492: start with accountDir signs in to an EXISTING account instead of making a second one', async () => {
   /* Josh's sister, first outside install: her Claude login expired, Settings
      correctly said not connected, and the ONLY affordance was "add a provider".
