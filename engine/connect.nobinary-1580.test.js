@@ -377,7 +377,17 @@ test('#1580: a DIRECTORY at the binary path is not "something to run"', async (t
   });
 
   const st = await connect.start();
-  assert.notEqual(st.phase, connect.PHASE.CONNECTED,
-    'a directory at the binary path was accepted as something that can run an agent');
   assert.equal(st.phase, connect.PHASE.DOWNLOADING);
+  /**
+   * 🛑 SETTLE IT. THE FIRST VERSION OF THIS TEST ASSERTED ONLY ON start()'s
+   * IMMEDIATE RETURN AND PASSED FOR THE WRONG REASON. Driven to a settled state
+   * the branch answered `connected` for a directory, IDENTICAL TO MAIN: the
+   * change had altered the route and not the outcome, because the post-install
+   * verification was a bare `accessSync` that a directory also passes.
+   *
+   * ⇒ This file states that rule 240 lines above and the newest test broke it,
+   * which is precisely what hid the gap.
+   */
+  assert.notEqual(await settled(9000), connect.PHASE.CONNECTED,
+    'a directory at the binary path ended up reported as connected anyway');
 });

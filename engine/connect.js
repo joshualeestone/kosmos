@@ -926,19 +926,25 @@ async function start(opts) {
      *
      * ⚠️ AND THE FIRST VERSION OF THIS BRANCH CLAIMED A FALLBACK THAT DOES NOT
      * EXIST, saying a broken binary "is corrected by the probe further down".
-     * It is not: `start()` returns at :990 and that probe is at :1006, sixteen
-     * lines below and unreachable from here. A wrong rationale reads as checked.
+     * It is not: `start()` returns before `runFlow`'s `--version` probe is ever
+     * reached, so this verdict is terminal. A wrong rationale reads as checked.
      *
      * ✅ `runners.isRunnable` already asks the right question, adding
      * `statSync().isFile()` for exactly this reason.
      *
-     * 📌 connect.js has FOUR other bare-`accessSync` sites (:434 `willInstall`,
-     * :996, :1268, :2010), not the three runners.js enumerates -- it omits
-     * `willInstall`. And this is not the only one that is both weak and final:
-     * :2010's `canRunClaude` decides whether the STUCK screen tells somebody to
-     * type `claude` in Terminal, so a directory passing it hands a person a way
-     * out that cannot work. Left alone here as out of scope, and named so it is
-     * findable.
+     * 📌 NAMED, NOT LINE-NUMBERED, AND THAT IS DELIBERATE. An earlier version of
+     * this block cited five line numbers; a later commit in the same branch
+     * moved four of them and DELETED one outright, so the comment pointed a
+     * reader at an unfixed weak site exactly where the fix had already landed.
+     * This file records the identical hazard elsewhere ("this read
+     * engine/firstrun.js:140 until #1556 inserted lines above that call").
+     *
+     * The bare-`accessSync` sites remaining in this file are `willInstall`'s
+     * presence check and `canRunClaude`. The latter is also weak AND final: a
+     * directory passes it, and it decides whether the STUCK screen tells
+     * somebody to type `claude` in Terminal, which is the one screen where a
+     * way out that cannot work costs most. Out of scope here, named so it is
+     * findable by grep rather than by line.
      */
     const binaryOnDisk = require('./runners').resolveBin('claude').present;
 
@@ -1289,7 +1295,19 @@ async function installClaudeCode(hooks) {
     try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
     return fail('Claude downloaded but did not finish setting itself up', tailOf(`${inst.stdout || ''}\n${inst.stderr || ''}`) || 'it stopped without saying why');
   }
-  try { fs.accessSync(claudeBinPath(), fs.constants.X_OK); }
+  /**
+   * 🛑 THE SAME RESOLVER AS THE PRESENCE CHECKS, OR THIS GATE UNDOES THEM. This
+   * is the post-install verification, and a bare `accessSync` PASSES A
+   * DIRECTORY. So with a folder sitting at the binary path the install was
+   * declared `{ok:true}`, the post-install block then reported CONNECTED, and
+   * the #1580 fix altered the ROUTE without altering the OUTCOME: settled, the
+   * branch answered `connected` exactly as before the change.
+   *
+   * ⚠️ That is the harm #1580 exists to stop, arriving one step later in the
+   * same flow. It cannot distinguish "the installer produced a binary" from "a
+   * directory is still sitting there", and no fixture can make it.
+   */
+  try { if (!require('./runners').resolveBin('claude').present) throw new Error('not runnable'); }
   catch {
     try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
     return fail('Claude said it set itself up, but we cannot find it where it should be', `expected it at ${claudeBinPath()}`);

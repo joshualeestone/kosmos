@@ -59,7 +59,7 @@ Both guards on part 2 are therefore load-bearing:
 
 ## Verification
 
-- full suite **3113 pass, 0 fail**
+- full suite **3114 pass, 0 fail**
 - cell 4 (auth, no binary): **CONNECTED -> DOWNLOADING**
 - journey (install then finish): **downloading -> connected**, binary on disk
 - cells 1, 2, 5, 5b unchanged
@@ -84,7 +84,7 @@ only shape that reaches it.
 Run on `origin/main`, without this branch's fix:
 
 ```
-engine/connect.nobinary-1580.test.js   8 tests   5 pass   3 FAIL
+engine/connect.nobinary-1580.test.js   9 tests   5 pass   4 FAIL
 ```
 
 The failures are the arms that describe the defect and the behaviour the fix
@@ -100,7 +100,16 @@ time.
 ⇒ What is actually true is smaller: it is *easy to forget to run*, and nobody
 does it by default once the bug is gone. That is an argument for writing the
 number down, not for calling it unrepeatable. The original figure in this section
-(4 pass, 1 fail) was also stale, from before the review added three arms.
+(4 pass, 1 fail) was also stale, and so was its replacement (8 tests, 5 pass,
+3 fail). **This section has now been stale three times by the same mechanism:**
+a review adds an arm, the number moves, and the prose does not. That is an
+argument for stating HOW to reproduce it rather than only the result:
+
+```
+git worktree add /tmp/vsmain origin/main
+cp engine/connect.nobinary-1580.test.js /tmp/vsmain/engine/
+cd /tmp/vsmain && node --test engine/connect.nobinary-1580.test.js
+```
 
 ## Deliberately not done
 
