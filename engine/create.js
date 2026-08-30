@@ -228,6 +228,34 @@ function launchIsSandboxed() {
    * with HOME=/tmp/spoofed, os.homedir() follows it and os.userInfo().homedir
    * does not).
    */
+  /**
+   * 🛑 ANY SANDBOX KNOB COUNTS, NOT JUST THIS ONE. The commoner mistake is not
+   * redirecting LAUNCH to the wrong place, it is FORGETTING to redirect it while
+   * sandboxing everything else. In that shape a test writes a real plist into the
+   * operator's real LaunchAgents and registers a real job, and a predicate keyed
+   * only on LAUNCH stands down.
+   *
+   * `engine/sandbox.js` already computes this and states the doctrine: a board is
+   * sandboxed WHOLE or not at all (#634). Consulting it here means this module
+   * does not become a SECOND definition of "am I sandboxed" that disagrees with
+   * the first, which is the two-copies-of-one-fact defect this file's own header
+   * names as its worst habit.
+   */
+  try {
+    /**
+     * ⚠️ EXCLUDE `AGENT_WORKFORCE_LAUNCH` FROM THIS CHECK, and the reason is not
+     * obvious. `audit().set` reports a variable as set regardless of WHERE it
+     * points, so counting LAUNCH here made "pointed at the real LaunchAgents"
+     * read as sandboxed, and every real install would be refused. The other
+     * three carry no such ambiguity: nothing in production sets them, so any
+     * value at all means somebody intended to sandbox. LAUNCH is judged below,
+     * by where it actually points.
+     */
+    const set = require('./sandbox').audit(process.env).set
+      .filter((k) => k !== 'AGENT_WORKFORCE_LAUNCH');
+    if (set.length > 0) return true;
+  } catch { /* sandbox.js unavailable: fall through to the path comparison. */ }
+
   let real;
   try {
     real = path.join(os.userInfo().homedir, 'Library', 'LaunchAgents');
@@ -237,7 +265,19 @@ function launchIsSandboxed() {
        rule out. */
     return true;
   }
-  return path.resolve(agentsDir()) !== path.resolve(real);
+
+  /**
+   * ⚠️ `path.resolve` normalises `.`, `..` and trailing slashes. It does NOT
+   * resolve symlinks and does NOT normalise case, so on this case-insensitive
+   * filesystem a lowercased spelling of the real directory, or `/private/var`
+   * against a `/var` home, compares as DIFFERENT and every real install is
+   * refused. That direction is the safe one, but it is not free: the caller gets
+   * `started: false` and `createAgentInner` rolls the whole creation back.
+   * `realpathSync` closes both, and falls back to the textual compare when either
+   * path does not exist yet (which is normal on a first install).
+   */
+  const canon = (d) => { try { return fs.realpathSync(d); } catch { return path.resolve(d); } };
+  return canon(agentsDir()) !== canon(real);
 }
 /**
  * Where the product keeps things it installs for itself, as opposed to things
@@ -343,11 +383,16 @@ function run(file, args) {
      to /bin/launchctl, so exact-string equality on one spelling is already
      false at repo scope. */
   if (path.basename(String(file || '')) === 'launchctl' && launchIsSandboxed()
-      && Array.isArray(args) && !LAUNCHCTL_READS.includes(args[0])) {
+      && (!Array.isArray(args) || !LAUNCHCTL_READS.includes(args[0]))) {
     return {
       ok: false,
       stdout: '',
-      stderr: `refusing to launchctl ${args[0]} the real user domain while the `
+      /* ⚠️ NOT `args[0]`. This branch is deliberately reached with a NON-ARRAY
+         `args` (that is the fail-closed case), and indexing it threw a TypeError
+         while building the refusal. It still failed closed, because nothing
+         executed, but as a crash rather than as an answer, and a caller reading
+         `ok` got an exception instead. */
+      stderr: `refusing to launchctl ${Array.isArray(args) ? args[0] : String(args)} the real user domain while the `
         + `plist directory is sandboxed to ${agentsDir()}. Sandboxing where the `
         + 'plist is WRITTEN does not sandbox the REGISTRATION, so this call would '
         + 'have reached the operator\'s own launchd (#1539). Inject a runner or '
@@ -3019,7 +3064,7 @@ module.exports = {
   launchIsSandboxed,
   /* Test seam. `run` is exported so the #1539 refusal's MESSAGE can be asserted
      directly. It has to be direct: the refusal is discarded by two of the five
-     mutating call sites (`:1700`, `:2290` both `try { run(...) } catch {}` and
+     mutating call sites (`:1750`, `:2340` both `try { run(...) } catch {}` and
      never read the result) and `sandboxRefused` is read nowhere in the repo, so
      there is no public path that surfaces the sentence. That is a real gap, not
      a testing inconvenience, and it is why the export is labelled rather than

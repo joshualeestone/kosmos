@@ -49,11 +49,40 @@ fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
 
 const create = require('./create');
 
-const REAL_LAUNCH = nodePath.join(os.homedir(), 'Library', 'LaunchAgents');
+/**
+ * 🛑 `os.userInfo().homedir`, NOT `os.homedir()`. The predicate deliberately uses
+ * the passwd entry because `os.homedir()` follows `$HOME`, so taking the expected
+ * value from `os.homedir()` makes these tests FAIL whenever the harness spoofs
+ * HOME. `tools/test-install.sh` does exactly that in several places, so this was
+ * a live false red, and a false red on a card about sandbox safety is precisely
+ * the kind people learn to re-run rather than read.
+ */
+const REAL_LAUNCH = nodePath.join(os.userInfo().homedir, 'Library', 'LaunchAgents');
+
+
+/**
+ * 🛑 THE PREDICATE TESTS MUST RUN WITH NO OTHER SANDBOX KNOB SET, because the
+ * predicate now answers TRUE if ANY of them is (see `launchIsSandboxed`). This
+ * file deliberately sets four, so without clearing them first the LAUNCH
+ * dimension cannot be isolated and both arms would read true regardless of what
+ * LAUNCH says. That is the predicate being CORRECT and the test being unable to
+ * see the axis it names.
+ */
+const SANDBOX_VARS = ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_PROJECTS',
+  'AGENT_WORKFORCE_WORKERS', 'AGENT_WORKFORCE_LAUNCH'];
+
+function withOnlyLaunch(fn) {
+  const saved = {};
+  for (const k of SANDBOX_VARS) { saved[k] = process.env[k]; delete process.env[k]; }
+  try { return fn(); } finally {
+    for (const k of SANDBOX_VARS) {
+      if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    }
+  }
+}
 
 test('#1539: the predicate says a redirected LAUNCH is sandboxed and the real one is not', () => {
-  const saved = process.env.AGENT_WORKFORCE_LAUNCH;
-  try {
+  withOnlyLaunch(() => {
     delete process.env.AGENT_WORKFORCE_LAUNCH;
     assert.equal(create.launchIsSandboxed(), false, 'unset must mean production');
     process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'LaunchAgents');
@@ -65,7 +94,7 @@ test('#1539: the predicate says a redirected LAUNCH is sandboxed and the real on
        direction that breaks production rather than a test. */
     process.env.AGENT_WORKFORCE_LAUNCH = `${REAL_LAUNCH}/`;
     assert.equal(create.launchIsSandboxed(), false, 'a trailing slash is the same path');
-  } finally { process.env.AGENT_WORKFORCE_LAUNCH = saved; }
+  });
 });
 
 test('#1539: a sandbox that redirects HOME is still a sandbox', () => {
@@ -85,9 +114,9 @@ test('#1539: a sandbox that redirects HOME is still a sandbox', () => {
    * together and reports production.
    */
   const savedHome = process.env.HOME;
-  const savedLaunch = process.env.AGENT_WORKFORCE_LAUNCH;
   const fakeHome = nodePath.join(SANDBOX, 'fakehome');
-  try {
+  withOnlyLaunch(() => {
+   try {
     process.env.HOME = fakeHome;
 
     delete process.env.AGENT_WORKFORCE_LAUNCH;
@@ -97,21 +126,19 @@ test('#1539: a sandbox that redirects HOME is still a sandbox', () => {
     process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(fakeHome, 'Library', 'LaunchAgents');
     assert.equal(create.launchIsSandboxed(), true,
       'a spoofed HOME cancelled against the variable and read as production');
-  } finally {
-    process.env.HOME = savedHome;
-    process.env.AGENT_WORKFORCE_LAUNCH = savedLaunch;
-  }
+   } finally { process.env.HOME = savedHome; }
+  });
 
-  /* CONTROL: with HOME restored, the same call must go back to false, so the two
-     assertions above cannot be passing because the predicate is simply stuck. */
+  /* Sanity, not the control: this file redirects LAUNCH, so with HOME restored
+     the answer is still true. The actual control is the REAL_LAUNCH block below,
+     which is the arm that must come back FALSE. */
   assert.equal(create.launchIsSandboxed(), true,
     'sanity: this file redirects LAUNCH, so the restored state is still sandboxed');
-  const savedLaunch2 = process.env.AGENT_WORKFORCE_LAUNCH;
-  try {
+  withOnlyLaunch(() => {
     process.env.AGENT_WORKFORCE_LAUNCH = REAL_LAUNCH;
     assert.equal(create.launchIsSandboxed(), false,
       'CONTROL: the predicate can still return false, so true above means something');
-  } finally { process.env.AGENT_WORKFORCE_LAUNCH = savedLaunch2; }
+  });
 });
 
 test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', async () => {
@@ -132,8 +159,13 @@ test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', asy
    * `installJob` call in a file that never touched the seams, because no
    * existing test needed to.
    */
-  /* The cache entry is restored in the finally below: leaving the fresh instance
-     cached would make tests 3-4 depend on which instance they happened to get. */
+  /* ⚠️ THIS LEAVES A LIVE-CONFIGURED INSTANCE IN require.cache (runner null,
+     DRY_RUN false) for the rest of the process, and an earlier version of this
+     comment claimed a `finally` that restores it. There is none. It is inert
+     today because node:test gives each file its own process and every later
+     consumer re-requires, but it is load-bearing on both of those facts, in a
+     file whose whole subject is not leaving live things behind. Said plainly
+     rather than described as handled. */
   delete require.cache[require.resolve('./create')];
   const live = require('./create');
   const before = countKosmosJobs();
@@ -191,9 +223,13 @@ test('#1539 CONTROL: READS are not blocked, so a sandboxed test can still ask wh
       'precondition: this file redirects LAUNCH, so the guard must be armed');
 
   /* Each read verb with the arguments the codebase actually passes it: `list`
-     takes none (create.js:1668), `print-disabled` takes the domain (:1645), and
-     `print` takes a service (:2075). Passing a domain to `list` makes launchctl
+     takes none (create.js `runningJobs`), `print-disabled` takes the domain
+     (`disabledJobs`), and `print` takes a service (`jobState`). Cited by SYMBOL
+     rather than line, because three line citations in this branch went stale in
+     its own next commit, all off by exactly the number of lines that commit
+     inserted. Passing a domain to `list` makes launchctl
      exit non-zero, which threw and looked like a test failure on the first run. */
+    let ran = 0;
     const READS = [
       ['list'],
       ['print-disabled', `gui/${process.getuid()}`],
@@ -205,11 +241,23 @@ test('#1539 CONTROL: READS are not blocked, so a sandboxed test can still ask wh
          above names a service that does not exist, deliberately). That is fine:
          execFileSync THROWS on a non-zero exit, whereas the guard RETURNS. So a
          throw is itself proof the call was not refused. */
-      try { r = live.run('/bin/launchctl', argv); } catch { r = { threw: true }; }
+      try { r = live.run('/bin/launchctl', argv); ran += 1; } catch { r = { threw: true }; }
       assert.notEqual(r && r.sandboxRefused, true,
         `the guard REFUSED the read verb '${argv[0]}', which would break every `
         + 'sandboxed test that legitimately enumerates');
     }
+
+    /**
+     * 🛑 AT LEAST ONE READ MUST ACTUALLY HAVE EXECUTED. Without this floor, a host
+     * with no /bin/launchctl throws on all three, `sandboxRefused` is undefined
+     * every time, and the test is GREEN while proving nothing about its named
+     * property. "The read ran and was allowed" and "there is no launchctl here"
+     * must not produce the same pass.
+     */
+    assert.ok(ran > 0,
+      'no read verb actually executed, so this test proves nothing: every call '
+      + 'threw, which on a host without /bin/launchctl is indistinguishable from '
+      + 'a pass');
 
     /* CONTROL: the same call shape with a MUTATING verb must be refused, so the
        three passes above cannot be passing because the guard is simply inert. */
@@ -224,8 +272,8 @@ test('#1539 CONTROL: READS are not blocked, so a sandboxed test can still ask wh
 test('#1539: the refusal says WHY, so a future test that trips it is not left guessing', () => {
   /**
    * ⚠️ The refusal is currently INVISIBLE at two of the five mutating call sites:
-   * `create.js:1700` (enable) and `:2290` (bootout in rollBack) both wrap the call
-   * in `try { run(...) } catch {}` and never read the return value, and
+   * the `enable` in `installJob` and the `bootout` in `rollBack` both wrap the
+   * call in `try { run(...) } catch {}` and never read the return value, and
    * `sandboxRefused` is read nowhere in the repo. So the diagnostic sentence can
    * reach no human at those sites.
    *
@@ -264,6 +312,117 @@ test('#1539 CONTROL: an injected runner still wins, so existing tests are unaffe
     assert.ok(seen.some((s) => s.includes('launchctl')),
       'the injected runner never saw a launchctl call, so the guard is short-circuiting it');
   } finally { create.setRunner(null); }
+});
+
+
+test('#1539: FORGETTING to redirect LAUNCH is a sandbox too', () => {
+  /**
+   * 🛑 THE COMMONER MISTAKE, AND THE ONE A LAUNCH-KEYED PREDICATE CANNOT SEE.
+   * A test that sandboxes DATA, PROJECTS and WORKERS but forgets LAUNCH writes a
+   * REAL plist into the operator's real ~/Library/LaunchAgents and registers a
+   * real job. Keying only on "has LAUNCH moved" stands down on exactly that.
+   *
+   * `engine/sandbox.js` already calls this state `partial` and refuses to start a
+   * board in it (#634: a board is sandboxed whole or not at all). Consulting it
+   * here means this module does not become a second, disagreeing definition of
+   * "am I sandboxed".
+   */
+  withOnlyLaunch(() => {
+    delete process.env.AGENT_WORKFORCE_LAUNCH;
+    assert.equal(create.launchIsSandboxed(), false,
+      'precondition: with NOTHING sandboxed this must be production');
+
+    process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'w2data');
+    assert.equal(create.launchIsSandboxed(), true,
+      'DATA was sandboxed and LAUNCH forgotten, which writes a REAL plist, and '
+      + 'the predicate called it production');
+  });
+
+  /* CONTROL: back to nothing set, it must return false again, so the assertion
+     above cannot be passing because the predicate is stuck on true. */
+  withOnlyLaunch(() => {
+    delete process.env.AGENT_WORKFORCE_LAUNCH;
+    assert.equal(create.launchIsSandboxed(), false,
+      'CONTROL: the predicate can still say production, so true above means something');
+  });
+});
+
+test('#1539: the BARE launchctl spelling is refused too, not just /bin/launchctl', () => {
+  /**
+   * 🛑 THIS ARM EXISTED NOWHERE UNTIL I AUDITED MY OWN COMMIT. I changed the
+   * match from `file === '/bin/launchctl'` to a basename comparison and wrote
+   * no assertion for it, so reverting that change would have left the suite
+   * green. A behaviour change with nothing that can fail on it is the same
+   * defect this whole card is about.
+   *
+   * ⚠️ IT IS NOT HYPOTHETICAL: `engine/delete-leftover.js:257` already calls
+   * `run('launchctl', [...])` bare, and `command -v launchctl` resolves it to
+   * /bin/launchctl, so it is a live call and not a typo that would fail.
+   */
+  delete require.cache[require.resolve('./create')];
+  const live = require('./create');
+  try {
+    assert.equal(live.launchIsSandboxed(), true,
+      'precondition: this file redirects LAUNCH, so the guard must be armed');
+
+    const bare = live.run('launchctl', ['bootstrap', `gui/${process.getuid()}`, '/tmp/none.plist']);
+    assert.equal(bare && bare.sandboxRefused, true,
+      'the BARE spelling walked past the guard; delete-leftover.js:257 uses it');
+
+    const full = live.run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, '/tmp/none.plist']);
+    assert.equal(full && full.sandboxRefused, true,
+      'the full path must still be refused');
+
+    /* CONTROL: a READ under the bare spelling must NOT be refused, so the two
+       assertions above cannot be passing because the guard refuses everything
+       it sees. */
+    let read;
+    try { read = live.run('launchctl', ['list']); } catch { read = { threw: true }; }
+    assert.notEqual(read && read.sandboxRefused, true,
+      'CONTROL: the guard refused a READ, so it is inert-refusing and the '
+      + 'assertions above prove nothing about the basename match');
+  } finally {
+    delete require.cache[require.resolve('./create')];
+  }
+});
+
+
+test('#1539: a non-array args FAILS CLOSED, it does not fall through to exec', () => {
+  /**
+   * 🛑 THE GUARD'S OWN COMMENT ARGUES THAT DEFAULT-IS-DANGEROUS IS THE BUG, AND
+   * AN EARLIER VERSION OF IT CONTAINED EXACTLY THAT SHAPE. The clause read
+   * `Array.isArray(args) && !READS.includes(args[0])`, so a NON-array `args`
+   * skipped the guard entirely and fell through to execFileSync. Not a verb
+   * defaulting open, a SHAPE defaulting open, one line below the paragraph
+   * warning about the former.
+   *
+   * ⚠️ It matters more now that `run` is exported: `create.run('/bin/launchctl')`
+   * is a supported call, and it executed instead of refusing.
+   *
+   * Empty array, wrong case, and a boxed String all already failed closed; only
+   * the non-array shape did not.
+   */
+  delete require.cache[require.resolve('./create')];
+  const live = require('./create');
+  try {
+    assert.equal(live.launchIsSandboxed(), true, 'precondition: guard must be armed');
+
+    for (const args of [undefined, null, 'bootstrap', 42, {}]) {
+      let r;
+      try { r = live.run('/bin/launchctl', args); } catch { r = { threw: true }; }
+      assert.equal(r && r.sandboxRefused, true,
+        `a non-array args (${String(args)}) fell through to exec instead of being refused`);
+    }
+
+    /* CONTROL: a real READ with a proper array must still NOT be refused, so the
+       assertions above cannot be passing because the guard refuses everything. */
+    let read;
+    try { read = live.run('/bin/launchctl', ['list']); } catch { read = { threw: true }; }
+    assert.notEqual(read && read.sandboxRefused, true,
+      'CONTROL: the guard refused a well-formed read, so it is inert-refusing');
+  } finally {
+    delete require.cache[require.resolve('./create')];
+  }
 });
 
 function countKosmosJobs() {
