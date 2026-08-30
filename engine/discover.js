@@ -522,9 +522,53 @@ function found() {
  * folder for an agent with no job is an agent the board believes in and launchd
  * has never heard of, so the record is rolled back if the job cannot be written.
  */
+/**
+ * Adopt a folder that holds no instructions file: record it, show it, start nothing.
+ *
+ * 🛑 THIS DELIBERATELY DOES LESS THAN `connect`'s MAIN PATH, and the omissions are the
+ * feature rather than an unfinished edge. No `installJob`, so no launchd job is
+ * written for somebody's home directory. No instruction-file write, so nothing of
+ * ours lands in a folder they wrote. No project splice, for the same reason.
+ *
+ * ⭐ IT STILL RUNS EVERY REFUSAL THE MAIN PATH RUNS, which is the half that matters:
+ * an unusable name, a name Kosmos already looks after, a name something is already
+ * running under, and a profile pointing somewhere else all refuse here exactly as
+ * they do there. Doing less work is not the same as doing less checking, and a
+ * shorter path that skipped the guards would be the actual danger.
+ */
+function registerOnly(given, name, { create, store }) {
+  if (!create.nameUsable(name)) {
+    return { ok: false, because: 'that name cannot be used as an agent name' };
+  }
+  if (create.hasJob(name)) {
+    return { ok: false, because: 'Kosmos already looks after an agent by that name' };
+  }
+  const running = runningUnderName(name);
+  if (running === undefined) {
+    return { ok: false, because: 'we could not check what is running on this computer, so we did not add it' };
+  }
+  if (running) {
+    return { ok: false, because: 'an agent is already running under that name, started some other way' };
+  }
+  let before = {};
+  try { before = store.readProfile(name); } catch { before = {}; }
+  if (before && before.dir && before.dir !== given) {
+    return { ok: false, because: 'an agent by that name is already connected to a different folder' };
+  }
+  /* The display name is the name they typed. There is no file to disagree with it,
+     which is the whole reason this path exists. */
+  try { store.writeProfile(name, { dir: given, displayName: name }); }
+  catch { return { ok: false, because: 'we could not record where that agent lives' }; }
+  return { ok: true, name, dir: given, displayName: name, registered: true, started: false };
+}
+
 function connect(dir, opts) {
   const create = require('./create');
   const store = require('./store');
+
+  /* Trimmed once, here, so every check below tests the same string the profile will
+     carry. A name that is only whitespace is no name at all. */
+  const supplied = opts && opts.name != null ? String(opts.name).trim() : '';
 
   const given = String(dir == null ? '' : dir);
   if (!given || !path.isAbsolute(given)) {
@@ -558,20 +602,54 @@ function connect(dir, opts) {
       break;
     } catch { /* try the next one */ }
   }
+  /**
+   * 🔑 A FOLDER WITH NO INSTRUCTIONS FILE IS STILL SOMEBODY'S AGENT (#1531).
+   * Josh's ruling, 2026-08-29: **adopt means REGISTER AND SHOW**, and **the typed
+   * name wins**.
+   *
+   * Discovery already offers these folders (`found().adoptable`): Claude has run
+   * there and no file says who. Refusing them here is what made the offer a lie, and
+   * it is the same defect this function's own #1159 comment records, a row LISTED on
+   * the setup screen and REFUSED when somebody clicked it.
+   *
+   * 🛑 NOTHING IS WRITTEN INTO THE PERSON'S FOLDER AND NO JOB IS INSTALLED. That is
+   * the ruling and it is not an implementation convenience. The adoptable folder on
+   * the machine that prompted this is a HOME DIRECTORY, so composing an instruction
+   * file there for our own bookkeeping would put Kosmos files in somebody's home and
+   * could collide with something of theirs. The name lives in OUR profile store,
+   * which is where the board already reads a card's name from.
+   *
+   * ⚠️ SO AN ADOPTED FOLDER IS A CARD, NOT A RUNNING AGENT, and that is honest
+   * rather than partial: nothing was running under our management before, and
+   * starting one would be inventing an agent rather than recognising one. The person
+   * can start it the same way they start any other.
+   */
   if (instructionsFile === null) {
-    return { ok: false, because: 'that folder has no instructions in it, so there is no agent to connect' };
+    if (!supplied) {
+      return { ok: false, because: 'that folder has no instructions in it, so there is no agent to connect' };
+    }
+    return registerOnly(given, supplied, { create, store });
   }
   const id = status.identityFromText(text);
   if (!id || !id.displayName) {
     return { ok: false, because: 'those instructions do not say who the agent is, so we cannot bring it in' };
   }
 
-  /* 🔑 THE FOLDER'S OWN NAME IS THE AGENT'S NAME, not the display name from the
-     file. It is what tmux and launchd will carry, it is already unique on this
-     machine by virtue of being a directory, and it is what its owner has been
-     calling it. A display name like "Casey Jones" is not a session name and
-     inventing a slug from it would give the same agent two names on day one. */
-  const name = path.basename(given);
+  /* 🔑 THE FOLDER'S OWN NAME IS THE AGENT'S NAME WHEN NOBODY SUPPLIES ONE, not the
+     display name from the file. It is what tmux and launchd will carry, it is
+     already unique on this machine by virtue of being a directory, and it is what
+     its owner has been calling it. A display name like "Casey Jones" is not a
+     session name and inventing a slug from it would give the same agent two names
+     on day one.
+
+     🛑 A SUPPLIED NAME NOW WINS (#1531, Josh's ruling 2(a)). The rule above is right
+     exactly when the folder IS the agent's own, which is the case it was written
+     for. It has no answer for a folder holding SEVERAL agents, or for a folder that
+     is a person rather than a project: `/Users/caseywinner` would name an agent
+     after its owner. When somebody types a name, that is a better answer than any
+     path, and it is still one name rather than two because it is the name the job
+     and the profile both take. */
+  const name = supplied || path.basename(given);
   if (!create.nameUsable(name)) {
     return { ok: false, because: 'that folder\u2019s name cannot be used as an agent name' };
   }
