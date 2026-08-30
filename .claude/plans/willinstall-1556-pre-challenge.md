@@ -149,3 +149,20 @@ whose CLAUDE.md forbids them. My own gate refused this file on that basis and I
 committed it anyway by not reading the refusal. Same shape as the memory-index
 template defect: a prescribed format that regenerates the violation every time it is
 followed.
+
+## 🛑 A guard fired and I did not read it
+
+Worth recording separately from the template defect, because it is the more general
+failure and it is mine.
+
+My em-dash gate **refused this proof file**. It printed `emit: nothing was posted`.
+I read that as ordinary output, committed the file anyway, and only found the five
+em dashes when I checked by hand a minute later.
+
+⇒ **A guard that FIRES and goes UNREAD is decoration**, and it is the same class as a
+check chained to the action it guards: in both cases the mechanism runs, produces the
+right answer, and does not stop anything. I committed one of those on #1411 earlier
+this week and quoted the lesson back at somebody the same day.
+
+✅ The repair is not more guards. It is reading the one that already exists, and
+preferring a refusal that is hard to walk past over a line of output that is easy to.
