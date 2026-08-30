@@ -300,6 +300,12 @@ function launchIsSandboxed() {
     } catch {
       /* sandbox.js unavailable: fall back to the known three rather than to
          "nothing is sandboxed", which is the fail-OPEN direction. */
+      /* ⚠️ THIS FALLBACK IS A COPY, so the "derived, sees a fifth knob
+         automatically" claim above holds on the NORMAL PATH ONLY. It is
+         unreachable in the product (server.js requires ./engine/sandbox at
+         startup and the bundle ships every engine/*.js, so a missing sandbox.js
+         means no board at all), but it is a copy and must not be read as one more
+         place the derivation protects you. */
       others = ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_PROJECTS', 'AGENT_WORKFORCE_WORKERS'];
     }
     /**
@@ -325,7 +331,29 @@ function launchIsSandboxed() {
      * opt-in at the one production caller. Tracked as #1598. This guard is a
      * mitigation for the file it is in, not a solution to the class.
      */
-    if (env.AGENT_WORKFORCE_HALF_SANDBOX_OK !== '1' && others.some((k) => env[k])) return true;
+    /**
+     * 🛑 THE HATCH ONLY EXCUSES A **COMPLETE** OTHER-SANDBOX, AND AN EARLIER
+     * VERSION LET IT EXCUSE ANY. It used to disarm this arm whenever it was set,
+     * so `{DATA only, hatch}` stood the guard down and a test in that shape wrote
+     * a real plist. Measured, and it IS decidable:
+     *
+     *   none set, no hatch             -> false   production, unchanged
+     *   all three + hatch (setup.sh)   -> false   production, unchanged
+     *   DATA only + hatch              -> TRUE    was false: the hole
+     *   any subset, no hatch           -> TRUE    unchanged
+     *
+     * ⇒ Production never presents partial-plus-hatch: `setup.sh` derives all three
+     * whenever it derives any. Requiring `every` closes the hole and touches
+     * neither production shape.
+     *
+     * ⚠️ THE TRADE, STATED RATHER THAN HIDDEN: this reads the hatch more strictly
+     * than `engine/sandbox.js` does, a mild version of the second-definition
+     * problem this function otherwise avoids. Taken deliberately: a hole that lets
+     * a test register real agents is worse than a stricter reading of a flag whose
+     * only production setter sets all three.
+     */
+    const hatched = env.AGENT_WORKFORCE_HALF_SANDBOX_OK === '1' && others.every((k) => env[k]);
+    if (!hatched && others.some((k) => env[k])) return true;
   }
 
   let real;
@@ -466,6 +494,17 @@ function run(file, args) {
    * `engine/delete-leftover.js:257` has a seventh with no DRY_RUN at all. Both
    * remain reachable live on a fresh require. Tracked as #1598; do not read this
    * guard as restoring the invariant repo-wide, because it does not.
+   *
+   * 🛑 AND A THIRD RESIDUAL, INSIDE THIS FILE AND ABOVE THE LINE THIS GUARDS.
+   * `createAgentInner` calls `require('./trust').trustFolder(...)` BEFORE the
+   * bootstrap, and `trust.js` resolves to
+   * `AGENT_WORKFORCE_CLAUDE_CONFIG || ~/.claude.json`. So a sandboxed test gets
+   * its registration refused AND STILL MERGES A `projects[]` ENTRY INTO THE
+   * OPERATOR'S REAL `~/.claude.json`, rewriting the file.
+   * `AGENT_WORKFORCE_CLAUDE_CONFIG` is not in `sandbox.DIRS`, so arm A cannot see
+   * a test that sandboxes it either.
+   * ⇒ REFUSING THE REGISTRATION IS NOT THE SAME AS LEAVING THE MACHINE UNTOUCHED,
+   * and this guard only does the first.
    */
   /* 🛑 BASENAME, NOT AN EXACT PATH. `engine/delete-leftover.js:257` already
      calls `run('launchctl', ...)` bare, and `command -v launchctl` resolves it
