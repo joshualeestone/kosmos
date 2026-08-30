@@ -332,6 +332,57 @@ test('start on an already-connected machine answers connected and runs nothing',
   }
 });
 
+/**
+ * #1585: THE ROUTE SUITE COULD NOT SEE THE #1560 GUARD. Measured before writing
+ * this: replacing connect.js's `live.state === NONE` branch with `if (false)`
+ * left every test in THIS file green, while it correctly reds
+ * engine/connect.test.js. The engine suite drives the guard through
+ * `subscription.setRunner`; the route suite never did, so a paid-plan file plus
+ * a signed-out world was never exercised at the /api/connect/start layer. These
+ * two tests are the route-layer mirror of the engine's #1560 pair. The seam is
+ * `subscription.setRunner` (the same one server.connect.test.js already uses at
+ * the tokendoors and openai tests below).
+ */
+test('#1585: a connected-looking FILE does not answer connected through the route when the world says signed out', async () => {
+  const subscription = require('./engine/subscription');
+  // The paid-plan file alone answers connected, proven by the test above.
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  // Force the LIVE check to report signed-out. The #1560 guard must then run
+  // the sign-in the person asked for rather than refusing it on the file alone.
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
+  try {
+    const got = await post('/api/connect/start');
+    assert.equal(got.status, 200, got.body);
+    assert.notEqual(json(got).phase, 'connected',
+      'the file said connected and the person is signed out: the route must run the sign-in, not answer connected (was: ' + json(got).phase + ')');
+  } finally {
+    subscription.setRunner(null);
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+    connect.resetForTests();
+  }
+});
+
+test('#1585 CONTROL: when the world agrees the file, the route still answers connected', async () => {
+  // Without this arm the test above is satisfied by a change that simply never
+  // reports connected, which would break every genuinely connected person. This
+  // is the arm that must stay green, so the guard is not free to answer "not
+  // connected" always.
+  const subscription = require('./engine/subscription');
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  try {
+    const got = await post('/api/connect/start');
+    assert.equal(got.status, 200, got.body);
+    assert.equal(json(got).phase, 'connected',
+      'the file and the live check both say connected: the route must answer connected');
+    assert.equal(json(got).plan, 'Claude Max 20x');
+  } finally {
+    subscription.setRunner(null);
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+    connect.resetForTests();
+  }
+});
+
 test('#1492: start with accountDir signs in to an EXISTING account instead of making a second one', async () => {
   /* Josh's sister, first outside install: her Claude login expired, Settings
      correctly said not connected, and the ONLY affordance was "add a provider".
