@@ -104,8 +104,14 @@ signals the difference.
   enumerated from `tokendoors.routes()` and stay in step. They are no longer enumerated
   in the agent view AT ALL, because iteration 8 dropped them as a money decision (they
   make a live authenticated request to metered search APIs the person pays for). The
-  drift left standing is the one that matters: **a fourth first-party door added to
-  `/api/connections` would silently never appear in the agent view.** Extracting a shared builder is the right fix and is deliberately not
+  drift left standing WAS: a fourth first-party door added to `/api/connections`
+  would silently never appear in the agent view.
+  ✅ **GUARDED SINCE, and the plan said otherwise for four iterations after it was
+  true.** `server.agent-connections-1034.test.js` compares the agent view's
+  first-party COUNT against the board's doors minus `tokendoors.routes()`, with
+  four controls including one asserting the subtraction is not a no-op. Proven by
+  adding a fourth door to the board route alone and watching only that test go
+  red. A reader of this plan would have concluded no guard exists. Extracting a shared builder is the right fix and is deliberately not
   done inside a privacy change: it would edit the route the board's own screen depends on.
   Recorded here so the next person finds it rather than rediscovering it.
 🛑 **A MEASUREMENT HERE WAS FALSE WHEN IT WAS TAKEN, AND ITS CONTROL MADE IT LOOK

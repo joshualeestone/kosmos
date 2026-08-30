@@ -3014,8 +3014,17 @@ const server = http.createServer((req, res) => {
          debounces it, and EACH CALL IS A LIVE `claude auth status` PER CLAUDE
          ACCOUNT, A LIVE AUTHENTICATED REQUEST TO api.openai.com PER OPENAI
          ACCOUNT, PLUS THREE FIRST-PARTY DOOR CHECKS.
-         🛑 THREE REQUESTS LEAVE THIS MACHINE PER CALL, NOT ONE, AND THIS
-         PARAGRAPH HAS UNDERSTATED IT TWICE. Iteration 13 added the OpenAI call
+         🛑 UP TO THREE REQUESTS LEAVE THIS MACHINE PER CALL, EACH ONLY WHEN A
+         CREDENTIAL IS HELD, PLUS A `gh auth status` SUBPROCESS WHEN gh IS
+         INSTALLED. This paragraph has now been wrong in BOTH directions: it
+         named one request when there are three, and then said three
+         unconditionally when all three are credential-gated. On a machine with
+         nothing connected, ZERO leave: `cloudflare.state()` returns at
+         engine/cloudflare.js:66 without a request when no token is held, the
+         github device fallback returns the same way, and `checkLive` returns
+         before `askModels` for an account with no key.
+         ⇒ The honest claim is a CEILING, not a count, and the ceiling is what
+         matters for a route an agent can poll. Iteration 13 added the OpenAI call
          and called it "the half that leaves the machine". Iteration 15 measured
          the other two: `cloudflare.state()` issues an uncached
          GET https://api.cloudflare.com/client/v4/user/tokens/verify with the
@@ -3027,7 +3036,10 @@ const server = http.createServer((req, res) => {
          ⇒ "first-party and not metered per auth check" is true about BILLING and
          was being read as "stays local". None of the three is billed, so the
          money decision to drop the token doors stands unchanged. What was wrong
-         is the accounting, in the paragraph whose only job is the accounting. `openaiAccounts.listLive()` ->
+         is the accounting, in the paragraph whose only job is the accounting.
+
+         THE OPENAI CALL, FOUND FIRST AND STILL THE LARGEST:
+         `openaiAccounts.listLive()` ->
          `checkLive` -> `askModels` issues an uncached
          `GET https://api.openai.com/v1/models` carrying the person's REAL KEY as
          a bearer token, once per apikey account, on every call. Measured: the
@@ -3041,7 +3053,9 @@ const server = http.createServer((req, res) => {
          the OpenAI rows are what the card is FOR (an agent helping somebody
          connect GPT), unlike the token doors which bought nothing. Carded at
          #1618 with the rest of the fan-out. (It said EVERY DOOR CHECK until the
-         token doors were removed from the agent route; see below.) It is still demand-paced rather than a tick, an
+         token doors were removed from the agent route; see below.)
+
+         It is still demand-paced rather than a tick, an
          agent asks to answer a question, but the phrase is doing more work than
          it did. If this route ever appears in a polling loop, THE CACHE BELONGS
          HERE, NOT IN THE CALLER.

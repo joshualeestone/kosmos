@@ -114,8 +114,8 @@ function cliAdvice(cli) {
     : 'Kosmos did not put a path in that line, so the command may not be on your path.';
   return [
     first,
-    'If it says Kosmos is not running, that is the whole problem: it needs to be',
-    'started, and the command itself tells you how.',
+    'If that command says Kosmos is not running, that is the whole problem: it',
+    'needs to be started, and the command itself tells you how.',
     'If it prints a list of commands instead of answering, the copy on this',
     'computer is older than these instructions.',
     'In any of those cases, do not guess at another path and do not conclude the',

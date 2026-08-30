@@ -253,7 +253,9 @@ function list() {
  * something. My first correction spliced the retraction into the MIDDLE of the
  * sentence, which left "opened deliberately, never ticked" dangling off a noun
  * that had been removed, and shipped "ON-DEMAND, DEMAND-PACED" as a redundant
- * pair. Editing half a comment, in the branch that names it.) Two routes call it today: `GET /api/accounts` (Settings >
+ * pair. Editing half a comment, in the branch that names it.)
+ *
+ * Two routes call it today: `GET /api/accounts` (Settings >
  * Accounts, the first-run wizard) and `GET /api/agent/connections` (#1034, an
  * agent answering "what is connected?", including via `kosmos connections`).
  * ⚠️ The RULE is the invariant, not the list: a second caller was added and this

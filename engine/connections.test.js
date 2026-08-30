@@ -84,9 +84,18 @@ test('#1034: the connections paragraph is actually IN the block, and says the th
   } else {
     assert.doesNotMatch(body, /that path is not there/,
       'the block teaches the bare command but says "that path", describing a path it never gave');
-    assert.match(body, /could not work out where its own command lives/,
-      'the bare fallback is taught without saying we could not locate it');
-  }
+        /* 🛑 THIS ASSERTED A SENTENCE THE CODE NO LONGER EMITS, AND ITS SIBLING AT
+       THE BOTTOM OF THIS FILE ASSERTS THE OPPOSITE. I corrected the cause-claim
+       in one test and did not sweep to this one, so the file held two guards
+       giving opposite answers about one string. It stayed green only because a
+       source checkout always resolves a path, so this branch never ran: the
+       exact unreachable-arm problem the cliAdvice seam exists to solve, in the
+       test that did not get the seam.
+       ⇒ Driven through cliAdvice so BOTH arms actually execute here too. */
+    assert.doesNotMatch(connections.cliAdvice('kosmos').join(' '), /could not work out where/,
+      'the bare arm asserts a cause it cannot know');
+    assert.match(connections.cliAdvice('kosmos').join(' '), /may not be on your path/,
+      'the bare arm dropped the remedy');  }
 
   // 2. It refuses the two-state reading. This is the sentence that stops an agent
   //    reporting "not connected" about a machine it merely could not read.
@@ -167,7 +176,12 @@ test('#1034: the paragraph ORDER is the invariant, and nothing guarded it', () =
   const body = connections.blockBody();
   const cmd = body.indexOf('connections`');
   const what = body.indexOf('It tells you which providers are');
-  const trouble = body.indexOf('If that path is not there');
+  /* ⚠️ ANCHORED ON A PHRASE BOTH ARMS SHARE. 'If that path is not there' exists
+     only in the PATH arm, so on a machine where clipath returns the bare word
+     this test went red reporting a MISSING paragraph while the paragraph was
+     present and merely worded for the other arm. The order property is
+     arm-independent; the anchor was not. */
+  const trouble = body.indexOf('list of commands');
   const withheld = body.indexOf('deliberately does NOT show you');
 
   for (const [name, at] of [['command', cmd], ['description', what], ['troubleshooting', trouble], ['withholding', withheld]]) {
