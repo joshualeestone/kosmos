@@ -241,20 +241,42 @@ function launchIsSandboxed() {
    * the first, which is the two-copies-of-one-fact defect this file's own header
    * names as its worst habit.
    */
-  try {
+  {
     /**
-     * ⚠️ EXCLUDE `AGENT_WORKFORCE_LAUNCH` FROM THIS CHECK, and the reason is not
-     * obvious. `audit().set` reports a variable as set regardless of WHERE it
-     * points, so counting LAUNCH here made "pointed at the real LaunchAgents"
-     * read as sandboxed, and every real install would be refused. The other
-     * three carry no such ambiguity: nothing in production sets them, so any
-     * value at all means somebody intended to sandbox. LAUNCH is judged below,
-     * by where it actually points.
+     * 🛑 HONOUR `AGENT_WORKFORCE_HALF_SANDBOX_OK`, WHICH `.set` DOES NOT. THIS IS A PRODUCTION PATH AND AN EARLIER VERSION
+     * OF THIS LINE BROKE IT. `install/setup.sh` exports DATA, PROJECTS and
+     * WORKERS for a non-default `KOSMOS_HOME` (:2635-2637), DELIBERATELY leaves
+     * `AGENT_WORKFORCE_LAUNCH` unset so plists go to the real LaunchAgents, and
+     * sets `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` (:2662) as sandbox.js's own named
+     * escape hatch for exactly that shape. It then writes all four into the board
+     * plist's EnvironmentVariables (:2782), so the server carries them at EVERY
+     * LOGIN.
+     *
+     * Measured: with that env, `set.length` is 3 and `partial` is FALSE. Reading
+     * `.set` refused the registration, `installJob` reported `started: false`,
+     * and `createAgentInner` rolled the whole creation back. Silently, forever,
+     * on every non-default-KOSMOS_HOME install.
+     *
+     * ⇒ `.partial` is the field that encodes "half-sandboxed AND nobody said that
+     * was deliberate". Reading anything else here makes this module a SECOND
+     * definition of "am I sandboxed" that disagrees with sandbox.js, which is the
+     * exact defect consulting sandbox.js was supposed to avoid.
+     *
+     * 🛑 AND `partial` ALONE IS NOT THE ANSWER EITHER, WHICH I ASSERTED WITHOUT
+     * MEASURING AND WAS WRONG ABOUT. With ONLY `AGENT_WORKFORCE_LAUNCH` set,
+     * `partial` is TRUE (set=[LAUNCH], the other three are live), so pointing
+     * LAUNCH at the real directory would have been refused. Measured.
+     *
+     * ⇒ The condition that is actually wanted: SOMEBODY SANDBOXED SOMETHING
+     * OTHER THAN LAUNCH, AND DID NOT SAY THE HALF-SANDBOX WAS DELIBERATE. That
+     * is the shape where a plist lands in the real LaunchAgents by accident.
+     * LAUNCH's own value is judged by the path comparison below, where it
+     * belongs.
      */
-    const set = require('./sandbox').audit(process.env).set
-      .filter((k) => k !== 'AGENT_WORKFORCE_LAUNCH');
-    if (set.length > 0) return true;
-  } catch { /* sandbox.js unavailable: fall through to the path comparison. */ }
+    const env = process.env;
+    const OTHERS = ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_PROJECTS', 'AGENT_WORKFORCE_WORKERS'];
+    if (env.AGENT_WORKFORCE_HALF_SANDBOX_OK !== '1' && OTHERS.some((k) => env[k])) return true;
+  }
 
   let real;
   try {
@@ -273,8 +295,18 @@ function launchIsSandboxed() {
    * against a `/var` home, compares as DIFFERENT and every real install is
    * refused. That direction is the safe one, but it is not free: the caller gets
    * `started: false` and `createAgentInner` rolls the whole creation back.
-   * `realpathSync` closes both, and falls back to the textual compare when either
-   * path does not exist yet (which is normal on a first install).
+   *
+   * `realpathSync` closes the SYMLINK arm (a `/var` vs `/private/var` home, or a
+   * symlinked LaunchAgents) and falls back to the textual compare when a path does
+   * not exist yet, which is normal on a first install.
+   *
+   * ⚠️ IT DOES NOT CLOSE THE CASE ARM, AND AN EARLIER VERSION OF THIS COMMENT
+   * CLAIMED IT DID. Measured on this case-insensitive filesystem: both spellings
+   * EXIST, `realpathSync` succeeds on both, and returns each UNCHANGED, so a
+   * lowercased spelling still compares as different and is refused. Stated rather
+   * than fixed because over-refusal is the safe direction and nothing in this
+   * codebase produces a lowercased spelling; a future reader trusting the old
+   * sentence would have been wrong about what the code does.
    */
   const canon = (d) => { try { return fs.realpathSync(d); } catch { return path.resolve(d); } };
   return canon(agentsDir()) !== canon(real);
