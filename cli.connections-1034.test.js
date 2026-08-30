@@ -377,6 +377,34 @@ test('a non-string name cannot reach the SIGN-IN sentences either', async () => 
   });
 });
 
+test('a section with nothing printable in it prints no header', async () => {
+  /**
+   * The services loop drops rows whose name or reason is not a string. The header
+   * was gated on the RAW array length, so a board answering only malformed rows
+   * printed "Other services:" with nothing underneath. An empty section reads as
+   * one that failed to load, which is a different claim from having nothing to say.
+   */
+  const p = P();
+  p.services = [{ name: {}, because: {} }, null];
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    assert.equal(r.code, 0, `exited ${r.code}: ${r.err}`);
+    assert.doesNotMatch(r.out, /Other services:/,
+      'a header printed over a section with nothing in it');
+    /* CONTROL, and it is the arm that matters: the SAME payload with one good row
+       must still print the header. Without this, deleting the section entirely
+       would also pass. */
+  });
+  const q = P();
+  q.services = [{ name: {}, because: {} }, { name: 'GitHub', because: 'connected' }];
+  await withBoard({ body: q }, async (port) => {
+    const r = await kosmos(port);
+    assert.match(r.out, /Other services:/,
+      'control: one good row no longer prints the header, so the assertion above proved nothing');
+    assert.match(r.out, /GitHub: connected/, 'control: the good row itself vanished');
+  });
+});
+
 test('a malformed element prints a sentence, never a stack trace', async () => {
   /**
    * 🛑 THE GUARD CHECKED THE CONTAINER, NOT THE ELEMENTS. `providers: [null]`

@@ -3769,8 +3769,11 @@ const server = http.createServer((req, res) => {
        ⚠️ So the remaining cost is accepted DELIBERATELY: it is first-party and
        unmetered (the money half was the token doors, closed above), and correctness
        about readability outranks a subprocess sweep. A future cache must invalidate on
-       a readability CHANGE, not merely expire on a clock, and that is its own card
-       rather than a line in a privacy change. */
+       a readability CHANGE, not merely expire on a clock. FILED AS #1618, which
+       carries the measurement and two designs that do not have this problem (the
+       most promising being to collapse concurrent in-flight requests only, with no
+       time window at all, which removes the stampede and has no staleness). A card
+       number rather than prose, so the follow-up is findable from here. */
     const doorKeys = Object.keys(doorJobs);
     /* Every arm is already fail-soft, so one unreachable service degrades to
        `cannot tell` for that door rather than failing the whole answer. */
