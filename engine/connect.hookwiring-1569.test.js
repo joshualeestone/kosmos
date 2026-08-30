@@ -159,9 +159,36 @@ test('DOWNLOADING carries a zeroed progress, because writeState REPLACES rather 
   const st = connect.state();
 
   assert.ok(st.progress, 'DOWNLOADING carries no progress object at all');
+  /* ⚠️ SCOPED TO WHAT ONE FLOW CAN SHOW. This pins that DOWNLOADING carries a
+     ZEROED progress. It does NOT construct a previous flow whose numbers survive: this
+     fixture runs one flow in a fresh process, and an earlier version of this message
+     claimed otherwise. Measured, under both realistic mutations (drop the field, or
+     merge instead of replace) it is the line ABOVE that fires, never this one. */
   assert.equal(st.progress.got, 0,
-    `DOWNLOADING did not zero its progress, so a previous flow's numbers survive: ${JSON.stringify(st.progress)}`);
-  // control: the field is genuinely part of the state shape, not absent for all phases
-  assert.ok(Object.prototype.hasOwnProperty.call(st, 'phase'), 'control: state() returned no phase');
+    `DOWNLOADING did not zero its progress: ${JSON.stringify(st.progress)}`);
+
+  /* 🛑 THE ASSERTION THIS FIXTURE WAS ACTUALLY BUILT FOR, AND WITHOUT IT THE
+     HELD-OPEN APPARATUS IS INERT. `onPhase(DOWNLOADING)` fires BEFORE the binary is
+     requested, so everything above is read before a single chunk can land: measured,
+     serving the body in one shot instead of parking it failed 0 times in 10, so the
+     hold, the release plumbing and the socket teardown existed to manage a hazard only
+     the unused apparatus created. This card's plan said `onProgress` could not be
+     pinned from outside the module. THAT WAS WRONG, and the harness disproving it was
+     already sitting in this file: `connect.state().progress` reports onProgress's
+     output verbatim while a download is parked mid-stream. */
+  await until(() => (connect.state().progress || {}).got > 0);
+  const mid = connect.state();
+  assert.equal(mid.progress.got, 1024,
+    `progress.got does not report bytes received while parked: ${JSON.stringify(mid.progress)}`);
+  assert.equal(mid.progress.total, binary.length,
+    `progress.total does not report content-length, so got and total may be swapped: ${JSON.stringify(mid.progress)}`);
+
+  /* ⚠️ AND THIS IS WHAT MAKES THE `got === 0` ABOVE MEAN ANYTHING. A field that
+     is always 0 satisfies it forever. Having watched the same field move 0 -> 1024 in
+     one flow, the zero at DOWNLOADING is a value the code chose rather than a constant.
+     The previous control was `hasOwnProperty(st, 'phase')`, which `publicView` makes
+     invariantly true: a control whose two outcomes cannot differ. */
+  assert.notEqual(mid.progress.got, st.progress.got,
+    'control: progress never changed, so the zero asserted above proves nothing');
   release();
 });
