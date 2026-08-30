@@ -67,15 +67,31 @@ foreach ($t in $strings) {
   # an author who believed backslash escapes. It is a CANDIDATE, not a verdict:
   # `C:\Program Files\$sub\bin` has the same shape and is entirely correct, so
   # this reports what will expand and leaves the judgement to a person.
+  # 🛑 EXTENT TEXT, NOT $n.Name, AND SUBEXPRESSIONS COUNTED SEPARATELY. This
+  # line's stated job is "which variables will this string actually expand", and
+  # the first version answered it wrongly in two ways, both measured:
+  #   $env:HOME was reported as $HOME and $script:secret as $secret -- .Name
+  #     DROPS THE SCOPE QUALIFIER, so it named a DIFFERENT VARIABLE.
+  #   a string whose whole content is $(Get-Date) reported NO expands= at all,
+  #     because NestedTokens is a FLAT STREAM in which `$(` is a plain Token --
+  #     making a string that runs a command indistinguishable from a literal.
+  # ⇒ Extent.Text preserves the qualifier, and subexpressions are named rather
+  # than silently dropped, because a subexpression expands too.
   $expanded = @()
+  $subexprs = 0
   if ($t.NestedTokens) {
     foreach ($n in $t.NestedTokens) {
-      if ($n.GetType().Name -match 'Variable') { $expanded += ('$' + $n.Name) }
+      $tn = $n.GetType().Name
+      if ($tn -match 'Variable') { $expanded += $n.Extent.Text }
+      elseif ($n.Kind -eq 'DollarParen' -or $n.Kind -eq 'AtParen') { $subexprs++ }
     }
   }
   $bs = ([regex]::Matches($val, '\\\$')).Count
 
-  $expl = if ($expanded.Count -gt 0) { " expands=" + ($expanded -join ",") } else { "" }
+  $expl = ""
+  if ($expanded.Count -gt 0) { $expl += " expands=" + ($expanded -join ",") }
+  if ($subexprs -gt 0)       { $expl += " subexpressions=$subexprs" }
+  if ($expanded.Count -eq 0 -and $subexprs -eq 0) { $expl = " expands=nothing" }
   Write-Output ("  [$i] line=$($t.Extent.StartLineNumber) lines=$($lines.Count) ctrl=$hits backslash-dollar=$bs$expl")
   if ($hits -gt 0) {
     Write-Output "      SUSPECT: a backtick is PowerShell's ESCAPE character, so a"
