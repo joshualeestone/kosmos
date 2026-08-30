@@ -40,8 +40,22 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const ROW = 'html[data-layout="consolidated"] body.consolidated .pj-row';
 
 test('the projects rail forces list-row layout regardless of the panel\'s stored asgrid/list sub-layout', () => {
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated #pj-list\.asgrid \{ display: flex; flex-direction: column; \}/,
+  /* 🛑 THE EFFECTIVE VALUE, NOT THE TEXT (#1476). This selector is declared TWICE
+     in this scope with IDENTICAL declarations, so the text pin sat on the FIRST
+     and the SECOND governs. Deleting the pinned rule changed nothing and turned
+     this red; breaking the winning one left it green.
+
+     ⚠️ AND THE SAME-VALUE CASE IS WHY IT WENT UNSEEN SO LONG. The #1476 guard
+     flagged only when the WINNING VALUE DIFFERED, and here both say `flex` and
+     `column`, so it stayed quiet on exactly the inversion it was written to
+     catch (Vivienne, 2026-08-29, who found the same shape on .pj-row .pjcount).
+     The guard now flags a later re-declaration regardless of value, which is
+     what surfaced this line. */
+  const RAIL = 'html[data-layout="consolidated"] body.consolidated #pj-list.asgrid';
+  assert.equal(effective(PAGE, RAIL, 'display'), 'flex',
     'the rail no longer neutralizes the tile-grid sub-layout, so a person who left the projects panel on asgrid gets tile rows in the narrow rail again');
+  assert.equal(effective(PAGE, RAIL, 'flex-direction'), 'column',
+    'the rail stacks its rows horizontally, so the projects panel reads as a grid in a column that cannot hold one');
 });
 
 test('the name and the status pill stack, rather than compete for one line', () => {
