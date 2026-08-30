@@ -254,6 +254,38 @@ test('a hostile or unknown wire value cannot print machine internals at a person
   });
 });
 
+test('a RENDERED field that is not a string cannot print [object Object] at a person', async () => {
+  /**
+   * 🛑 THE SIBLING TEST ABOVE PLANTS `signedIn`, WHICH IS AN INDEX INTO A LOOKUP
+   * TABLE, SO `own()` ALREADY HANDLED IT. `name`, `because` and the three counts
+   * are DIFFERENT: they are concatenated into the sentence directly, so nothing
+   * on their path had to tolerate a non-string. Measured before the guard, exit 0:
+   *
+   *   [object Object]: connected ([object Object], 1 of [object Object] sign-ins working)
+   *
+   * That is the exact output the services loop has a guard against, arriving
+   * through the provider row that did not have one. The services guard says it
+   * exists "for the same reason as the guard above"; there was no guard above.
+   */
+  const p = P();
+  p.providers[0].name = {};
+  p.providers[0].because = {};
+  p.providers[0].howMany = {};
+  p.providers[0].howManyWorking = {};
+  p.providers[0].howManyReadable = {};
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    assert.equal(r.code, 0, `exited ${r.code}: ${r.err}`);
+    assert.doesNotMatch(r.out, /\[object /,
+      'a non-string rendered field reached the screen as machine vocabulary');
+    /* POSITIVE CONTROL. Without this the assertion above also passes when the
+       renderer prints nothing at all, which is the failure it is least able to
+       tell apart from success. The UNPOISONED row must still be there. */
+    assert.match(r.out, /GPT: not connected/,
+      'the good row vanished, so the assertion above proved nothing');
+  });
+});
+
 test('a malformed element prints a sentence, never a stack trace', async () => {
   /**
    * 🛑 THE GUARD CHECKED THE CONTAINER, NOT THE ELEMENTS. `providers: [null]`
