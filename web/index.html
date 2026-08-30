@@ -22415,6 +22415,28 @@ let SWITCH_ACCT_TOUCHED = false;
    have is the defect this whole diff is about, and it had it. */
 const SWITCH_ACCT_HINT = 'Choose which OpenAI sign-in it runs on, or leave it as it is.';
 const SWITCH_ACCT_UNREADABLE = 'We could not read your OpenAI sign-ins, so there is nothing to choose from. Close this and open it again to retry.';
+/* #1561: accounts exist but every one is signed out (connection.state 'none').
+   Distinct from UNREADABLE above, which is "we could not read the list at all"
+   and must NOT collapse into this: an unreadable list means we do not know, a
+   dead list means we checked and none works. */
+const SWITCH_ACCT_ALLDEAD = 'None of your OpenAI sign-ins are working right now, so there is nothing to switch onto. Sign in to OpenAI again, then switch.';
+/* #1561: the "every OpenAI sign-in is dead" decision, extracted so
+   fillSwitchAccounts and changeProviderNow ask it the same way and it can be
+   tested directly. Keeps THREE states apart, which is the whole point:
+     zero OpenAI accounts   -> false (the .length check); the engine refuses with
+                               its own "add an account" remedy, unchanged.
+     accounts, all dead     -> true; we say so and refuse the switch, rather than
+                               submit account:null and let the engine default onto
+                               a dead one (openai.list() has no liveness filter).
+     list unreadable        -> false (the `unreadable` guard); "we could not read
+                               it" is not "we checked and none works", and must
+                               not fire the refusal on a machine that is fine. */
+function openaiAllDead(accounts, unreadable) {
+  if (unreadable) return false;
+  const openai = (accounts || []).filter((x) => x && x.provider === 'openai');
+  if (!openai.length) return false;
+  return !openai.some((x) => !x.connection || x.connection.state !== 'none');
+}
 const SWITCH_ACCT_STALE = 'This list may be out of date: we could not re-read your OpenAI sign-ins just now.';
 const SWITCH_ACCT_BROKEN = 'We could not show the OpenAI sign-in list just now.';
 /* Not a message: the last sentence WE wrote, so we only ever clear our own. */
@@ -22514,6 +22536,18 @@ function fillSwitchAccounts() {
     if (openai && armed && ACCOUNTS_UNREADABLE && pmsg0 && !pmsg0.textContent) {
       pmsg0.textContent = SWITCH_ACCT_UNREADABLE;
       SWITCH_ACCT_SAID = SWITCH_ACCT_UNREADABLE;
+    } else if (openai && armed && openaiAllDead(ACCOUNTS, ACCOUNTS_UNREADABLE)
+               && pmsg0 && !pmsg0.textContent) {
+      /* #1561: OpenAI accounts exist but the live filter above dropped every one
+         (each connection.state is 'none'). openai.list() in the engine carries
+         no such filter, so on account:null it would state a default onto a dead
+         account instead of refusing. Say so here, and changeProviderNow refuses
+         the submit, rather than land on a dead sign-in. Guarded on
+         !ACCOUNTS_UNREADABLE so the third state, "we could not read the list",
+         keeps its own sentence above and never collapses into this one: an
+         unreadable list means we do not know, a dead list means we checked. */
+      pmsg0.textContent = SWITCH_ACCT_ALLDEAD;
+      SWITCH_ACCT_SAID = SWITCH_ACCT_ALLDEAD;
     }
     return;
   }
@@ -22769,6 +22803,18 @@ async function changeProviderNow(say) {
   const acctSel = document.getElementById('d-provider-account');
   const want = sel.value;
   if (!want) return;
+  /* #1561: refuse to switch onto OpenAI when every OpenAI sign-in is dead, rather
+     than submit account:null and let the engine default onto a dead account (its
+     openai.list() has no liveness filter, so it would not refuse). Only when we
+     actually read the list (ACCOUNTS_UNREADABLE is the separate third state and
+     must not fire this) and at least one OpenAI account exists but none is live.
+     Mirrors the picker's own filter (connection.state !== 'none'). This is the
+     real refusal; fillSwitchAccounts only shows the sentence. */
+  if (want === 'openai' && openaiAllDead(ACCOUNTS, ACCOUNTS_UNREADABLE)) {
+    if (msg) { msg.textContent = SWITCH_ACCT_ALLDEAD; SWITCH_ACCT_SAID = SWITCH_ACCT_ALLDEAD; }
+    tell(SWITCH_ACCT_ALLDEAD, false);
+    return;
+  }
   const forAgent = CURRENT.sessionName;
   go.disabled = true;
   sel.disabled = true;
