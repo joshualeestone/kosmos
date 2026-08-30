@@ -105,12 +105,23 @@ function setClientId(id) {
 /* gh presence, so ONE writer can branch on this object alone (her ruling:
    the field keeps its name on this road too). Mirrors github.js's spec
    candidates; the gh DOOR stays the authority on the gh road itself. */
+/* Where gh lives when nothing overrides it. Hoisted out of ghPresent and made
+   settable ONLY so a test can point the candidate branch at a temp directory:
+   with the paths inline, that branch could not be exercised at all, and a
+   review measured it silently accepting a FOLDER at /opt/homebrew/bin/gh while
+   every arm stayed green (#1592). The env-override branch was covered; this one
+   was not, and both call the same lambda, so covering one proved nothing about
+   the other. Same shape as the two test seams below. */
+const GH_CANDIDATES = ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'];
+let ghCandidates = null;
+function setGhCandidatesForTests(list) { ghCandidates = Array.isArray(list) ? list : null; }
+
 function ghPresent() {
   // #1592: the byte-identical twin of devicedoor.js's lambda, which is why
   // fixing one file would not have found the other. Both now ask runners.
   const runnable = (p) => require('./runners').isRunnable(p);
   if (process.env.AGENT_WORKFORCE_GH_BIN) return runnable(process.env.AGENT_WORKFORCE_GH_BIN);
-  return ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'].some(runnable);
+  return (ghCandidates || GH_CANDIDATES).some(runnable);
 }
 
 async function http(url, opts) {
@@ -282,4 +293,4 @@ async function forget() {
   return state();
 }
 
-module.exports = { PHASE, state, start, cancel, forget, setClientId, clientId, setFetcher, FILE, DIR, APP_FILE, NO_APP };
+module.exports = { PHASE, state, start, cancel, forget, setClientId, clientId, setFetcher, setGhCandidatesForTests, FILE, DIR, APP_FILE, NO_APP };

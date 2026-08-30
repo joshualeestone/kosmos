@@ -255,6 +255,59 @@ test('devicedoor resolves a DIRECTORY at the bin override to nothing', () => {
   }
 });
 
+test('devicedoor rejects a DIRECTORY found by the CANDIDATE SCAN, not just the env override', () => {
+  /* 🛑 THE ARM ABOVE RAN REAL CODE DOWN THE WRONG BRANCH. `ghBin()` has two:
+     the env override, and the candidate scan a real Mac actually uses. The
+     override arm pinned `candidates: ['/nonexistent/never']`, so the scan never
+     executed. A reviewer reverted ONLY the two candidate scans and every arm
+     stayed green while a FOLDER at /opt/homebrew/bin/gh read as installed.
+     ⇒ A behavioural arm is only behavioural for the branch it reaches. */
+  const { makeDoor } = require('./engine/devicedoor.js');
+  const f = fixture('gh');
+  const before = process.env.ICK_1592_SCAN;
+  try {
+    delete process.env.ICK_1592_SCAN;
+    const onDir = makeDoor({ binEnv: 'ICK_1592_SCAN', candidates: [f.asDirectory] });
+    assert.strictEqual(onDir.ghBin(), null,
+      'the devicedoor CANDIDATE SCAN accepted a DIRECTORY. A folder at one of the standard ' +
+      'tool paths reads as installed. The env-override branch can be correct while this one ' +
+      'is not; they are separate call sites.');
+    const onFile = makeDoor({ binEnv: 'ICK_1592_SCAN', candidates: [f.realBin] });
+    assert.strictEqual(onFile.ghBin(), f.realBin,
+      'the candidate scan rejected a real executable, so the arm above proves nothing');
+  } finally {
+    if (before !== undefined) process.env.ICK_1592_SCAN = before;
+    f.cleanup();
+  }
+});
+
+test('githubdevice rejects a DIRECTORY found by the CANDIDATE SCAN, not just the env override', async () => {
+  /* The same second branch, at the twin site. Its candidate paths were inline
+     and therefore unreachable from a test, so `setGhCandidatesForTests` was
+     added for this arm alone, in keeping with the file's existing setClientId
+     and setFetcher seams. Without it this branch cannot be exercised at all,
+     which is how it went unguarded. */
+  const gd = require('./engine/githubdevice.js');
+  const f = fixture('gh');
+  const before = process.env.AGENT_WORKFORCE_GH_BIN;
+  try {
+    delete process.env.AGENT_WORKFORCE_GH_BIN;
+    gd.setGhCandidatesForTests([f.asDirectory]);
+    const onDir = await gd.state();
+    assert.strictEqual(onDir.gh, 'missing',
+      'the githubdevice CANDIDATE SCAN accepted a DIRECTORY. A folder at /opt/homebrew/bin/gh ' +
+      'reads as installed.');
+    gd.setGhCandidatesForTests([f.realBin]);
+    const onFile = await gd.state();
+    assert.strictEqual(onFile.gh, 'present',
+      'the candidate scan rejected a real executable, so the arm above proves nothing');
+  } finally {
+    gd.setGhCandidatesForTests(null);
+    if (before !== undefined) process.env.AGENT_WORKFORCE_GH_BIN = before;
+    f.cleanup();
+  }
+});
+
 test('githubdevice reports a DIRECTORY at the gh override as missing', async () => {
   /* The byte-identical twin of the devicedoor lambda, which is why fixing one
      file would not have found the other. `state()` is ASYNC: reading `.gh` off
@@ -440,6 +493,32 @@ test('becomeStuck assigns canRunClaude EXACTLY ONCE, and that one assignment del
       'to the page (#1595).'
   );
 
+  /* 🛑 EVERY ASSIGNMENT, NOT JUST THE FIRST, AND A REVIEWER TOOK THE SLOT I LEFT.
+     The count above expects two: the delegation and the catch arm's `= false`.
+     But the catch arm is REDUNDANT (the variable is initialised false one line
+     up), so it can be deleted and its slot reused:
+
+       canRunClaude = require('./runners').isRunnable(claudeBinPath());
+       if (!canRunClaude) canRunClaude = fs.existsSync(claudeBinPath());
+       } catch { }
+
+     Count still 2. First assignment still delegates. No truthy literal. No
+     accessSync for the sweep. Measured: 10 pass / 0 fail with a DIRECTORY
+     reading TRUE. It also defeats the `||` refusal below, because the weakener
+     is a SEPARATE statement rather than an operator on the first one.
+     ⇒ Checking only `assignments[0]` means every other slot is unexamined.
+     Every assignment after the first must be exactly `= false`, which admits the
+     real catch arm and refuses anything that can raise the answer. */
+  for (const extra of assignments.slice(1)) {
+    assert.match(
+      extra.trim(), /^canRunClaude\s*=\s*false$/,
+      'becomeStuck assigns canRunClaude something other than the catch arm\'s `= false`: `' +
+        extra.trim() + '`. Any later assignment can undo the delegation, and one that only ' +
+        'RAISES the answer (a presence-check fallback) turns a DIRECTORY back into true ' +
+        'while the first assignment still looks correct.'
+    );
+  }
+
   const widened = assignments[0].match(/\|\||&&|\?|\bor\b/);
   assert.strictEqual(
     widened, null,
@@ -465,7 +544,12 @@ test('nothing unconditionally forces canRunClaude true, which would dead-code th
      both and failing if EITHER matches is strictly stronger than either alone
      and costs nothing.
 
-     🛑 AND IT MATCHES ANY TRUTHY LITERAL, NOT THE WORD `true`. Pass 9 measured
+     🛑 AND IT MATCHES MORE THAN THE WORD `true`, THOUGH NOT "ANY TRUTHY
+     LITERAL", WHICH IS WHAT THIS SAID AND WAS FALSE. Measured by a reviewer:
+     `= 0.5`, `= !0`, `= []`, `= {}` and `= Boolean(1)` all slip past it, and no
+     regex can decide truthiness in general. What it DOES cover is the shapes
+     that have actually appeared: the literal true, a positive integer, and a
+     string. Pass 9 measured
      `canRunClaude = 1;` passing, and publicView serves `canRunClaude || false`,
      so a 1 reaches the page truthy and the check is just as dead. The
      justification was always directional; it is now written that way.
