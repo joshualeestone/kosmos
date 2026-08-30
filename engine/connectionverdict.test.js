@@ -28,7 +28,6 @@ const SECRETS = {
   bin: '/opt/planted9271/bin/claude',
   org: 'planted9271_org',
   doorkey: 'PLANTEDDOORKEY9271',
-  doorname: 'PLANTEDDOORNAME9271',
   keyTail: 'PLANTEDKEYTAIL9271',
 };
 
@@ -83,13 +82,8 @@ function richInput() {
          values, so this whole class was invisible to the proof the module rests on */
       [`/api/svc/${SECRETS.doorkey}`]: { connected: true },
     },
-    /* 🛑 A SECRET IN THE ONE CHANNEL THAT ACTUALLY TRAVELS. `services[].name` is
-       copied out of this map, so it is the only genuine pass-through in the
-       module -- and it was the only channel with nothing planted in it, which
-       made the leak proof a proof about the fixture rather than about the rule. */
     doorNames: {
       '/api/github': 'GitHub', '/api/vercel': 'Vercel', '/api/cloudflare': 'Cloudflare',
-      '/api/svc/leaky': SECRETS.doorname,
     },
   };
 }
@@ -114,7 +108,7 @@ test('NOTHING sensitive reaches the agent view, and the control proves the test 
   assert.doesNotMatch(outText, /\/Users\//);
 });
 
-test('every string the view emits comes from this module, not from its input', () => {
+test('every string the view emits comes from this module or the caller\'s door allowlist', () => {
   const out = verdict.forAgent(richInput());
   const allowed = new Set([
     ...Object.values(verdict.SAYS),
@@ -327,4 +321,35 @@ test('the provider names are the words the screen uses', () => {
   }
   // control: a name the screen genuinely does not use must fail this same test
   assert.ok(!page.includes('>GPT (OpenAI, through Codex)<'), 'control: that string should not be on the page');
+});
+
+test('a door NAME is passed through verbatim, and that is the documented exception', () => {
+  /**
+   * 🛑 THIS TEST ASSERTS THE HOLE, NOT ITS ABSENCE, AND THAT IS DELIBERATE.
+   *
+   * `services[].name` is copied out of the caller's `doorNames`. Resolving
+   * THROUGH an allowlist does not make the resolved value stop being input, so
+   * the module's "nothing is passed through" rule has exactly one exception and
+   * its safety lives at the CALL SITE (`server.js` builds that map from three
+   * literals plus `tokendoors.routes()`).
+   *
+   * ⚠️ An earlier version of this file planted a secret into `doorNames` and
+   * asserted it did NOT appear. It passed -- because the planted name was keyed
+   * to a route that was not among the doors, so the loop never reached it. A
+   * green that proved nothing, under a comment claiming it proved the channel
+   * was scrubbed. A future reader would have built `doorNames` from a request.
+   *
+   * ⇒ So this pins the REAL contract: the name travels. If someone later scrubs
+   * it, this test fails and they are told to update the module header too.
+   */
+  const out = verdict.forAgent({
+    doors: { '/api/svc/x': { connected: true } },
+    doorNames: { '/api/svc/x': 'CALLER-SUPPLIED-9271' },
+  });
+  assert.strictEqual(out.services.length, 1);
+  assert.strictEqual(out.services[0].name, 'CALLER-SUPPLIED-9271',
+    'door names are a documented pass-through; if this changed, update the module header');
+  // control: an UNRESOLVED door is still dropped, so the allowlist gate itself works
+  const dropped = verdict.forAgent({ doors: { '/api/svc/y': { connected: true } }, doorNames: {} });
+  assert.deepStrictEqual(dropped.services, [], 'the allowlist gate stopped working');
 });

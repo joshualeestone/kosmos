@@ -134,3 +134,50 @@ test('no sign-ins on this computer reads as none, not as a crash', async () => {
     assert.ok(p.because.length > 0);
   }
 });
+
+test('a reader that THROWS makes the route answer unknown, not a confident none', async () => {
+  /**
+   * 🛑 THE MODULE TEST PROVES THE FLAG WORKS. NOTHING PROVED THE ROUTE SETS IT.
+   * A regression dropping `unreadable` from the `forAgent(...)` payload, or
+   * changing `.catch(() => null)` to `.catch(() => [])`, leaves every other test
+   * green and produces "this computer has no working sign-in for it" for a
+   * machine we could not read. That is the exact failure the flag exists for.
+   */
+  const accounts = require('./engine/accounts');
+  const real = accounts.listLive;
+  accounts.listLive = () => Promise.reject(new Error('planted reader failure'));
+  try {
+    const body = await (await fetch(base + '/api/agent/connections')).json();
+    const claude = body.providers.find((p) => p.id === 'anthropic');
+    assert.equal(claude.signedIn, 'unknown',
+      'a throwing reader was reported as a settled answer');
+    assert.equal(claude.howMany, null, 'a count was printed for a machine we could not read');
+  } finally {
+    accounts.listLive = real;
+  }
+  // CONTROL: with the reader restored, the same provider reports a real verdict,
+  // so the assertion above is about the throw and not about the route being broken.
+  const after = await (await fetch(base + '/api/agent/connections')).json();
+  const claudeAfter = after.providers.find((p) => p.id === 'anthropic');
+  assert.notEqual(claudeAfter.signedIn, 'unknown',
+    'control: the route still answers unknown with the reader restored, so this test proves nothing');
+});
+
+test('the served door names are human names, never route fragments', async () => {
+  /**
+   * The module passes `doorNames` through verbatim by design, so its safety is
+   * this route's job. Nothing asserted that. This also guards the `svc/discord`
+   * shape the route comment describes: `tokendoors.routes()` returns
+   * `/api/svc/<slug>`, and a strip-the-prefix rule printed that at a person.
+   */
+  const body = await (await fetch(base + '/api/agent/connections')).json();
+  assert.ok(Array.isArray(body.services));
+  assert.ok(body.services.length > 0, 'control: no doors came back, so the assertions below are vacuous');
+  for (const s of body.services) {
+    assert.ok(!s.name.includes('/'), `a route fragment reached the screen: ${s.name}`);
+    assert.ok(!/^svc\b/.test(s.name), `an unstripped svc prefix reached the screen: ${s.name}`);
+    assert.ok(!s.name.startsWith('api'), `an unstripped api prefix reached the screen: ${s.name}`);
+  }
+  assert.ok(body.services.some((s) => s.name === 'GitHub'),
+    'the first-party doors lost their human names');
+});

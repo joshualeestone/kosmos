@@ -5509,10 +5509,18 @@ const server = http.createServer((req, res) => {
           // The reports-to block names the person in its default form (#336),
           // so a new name here has to reach it too. Same roster, same posture.
           try { reports.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
-          /* #1034: the connections block rides the same sweep. Its words never
-             change, so this is a no-op for an agent that already has it, and it
-             is the one write that gives it to every agent created before the
-             block existed. */
+          /* #1034: the connections block rides the same sweep.
+             🛑 ITS WORDS DO CHANGE, and this branch is the proof: it rewrote
+             `connections.blockBody()` to add the `kosmos connections` paragraph.
+             An earlier version of this comment said they never change and that
+             this was therefore a no-op for existing agents. Both halves were
+             wrong the moment the copy was edited.
+             ⚠️ WHERE THIS ACTUALLY FIRES, because it decides who learns the verb
+             exists: `connections.syncEveryone` runs here (POST /api/you, i.e. a
+             person saving the About-you form), in `create.js` when an agent is
+             made, and in `discover.js` on import. So a NEW or IMPORTED agent gets
+             the paragraph immediately; an agent ALREADY RUNNING gets it only when
+             somebody next saves that form, and nothing signals the difference. */
           try { connections.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
         }
         catch (err2) { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not tell the agents') }]; }

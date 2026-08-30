@@ -191,7 +191,12 @@ function serviceView(doors, allowed) {
    * `/api/svc/<slug>`, so the old strip printed `svc/discord` to a person.
    */
   const names = allowed && typeof allowed === 'object' ? allowed : {};
-  for (const route of Object.keys(doors).sort()) {
+  /* Sorted by the name a person READS, not by the route key. Key order looks
+     alphabetical and is not: `/api/cloudflare` and `/api/github` sort before
+     `/api/svc/*` while `/api/vercel` sorts after, so the screen read
+     Cloudflare, GitHub, Airtable, ... Vercel. */
+  const byName = (a, b) => String(names[a] || a).localeCompare(String(names[b] || b));
+  for (const route of Object.keys(doors).sort(byName)) {
     /* ⚠️ OWN PROPERTY, NOT A PLAIN LOOKUP. `names['constructor']` walks the
        prototype chain and answers a Function, which is truthy, so a door named
        after anything on Object.prototype sailed through the gate whose entire

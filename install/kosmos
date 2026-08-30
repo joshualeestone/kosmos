@@ -752,9 +752,17 @@ cmd_connections() {
       /* 🛑 STUCK AND INTERRUPTED ARE NOT BUSY, AND THEY ARE THE TWO MOMENTS AN
          AGENT IS MOST USEFUL. Printing only on `busy` dropped both silently, so
          a person whose sign-in is stuck got an agent that said nothing about it. */
-      var STOPPED = { stuck: "A sign-in got stuck and did not finish.",
-                      interrupted: "A sign-in was interrupted before it finished." };
-      if (v.signin && STOPPED[v.signin.phase]) {
+      var STOPPED = { stuck: "An earlier sign-in got stuck and did not finish.",
+                      interrupted: "An earlier sign-in was interrupted before it finished." };
+      /* 🛑 PAST TENSE, AND SUPPRESSED WHEN A PROVIDER IS ACTUALLY CONNECTED.
+         connect.state() returns a persisted stuck/connected from a PREVIOUS board
+         process with no freshness gate once startedOnce is false, which is the
+         state at every board boot. So after a restart this could print
+         "Claude: connected" and then "a sign-in got stuck", in the present tense,
+         about the same machine. Two accounts of one computer is the exact thing
+         this whole verb exists to avoid. */
+      var anyConnected = v.providers.some(function (p) { return p.signedIn === "connected"; });
+      if (v.signin && STOPPED[v.signin.phase] && !anyConnected) {
         console.log("");
         console.log("  " + STOPPED[v.signin.phase] + " Ask what is on their screen.");
       } else if (v.signin && v.signin.busy) {
@@ -982,7 +990,7 @@ case "${1:-}" in
   reply)   shift; cmd_reply "$@" ;;
   post)    shift; cmd_post "$@" ;;
   report)  shift; cmd_report "$@" ;;
-  connections) cmd_connections ;;
+  connections) shift; cmd_connections "$@" ;;
   whoami)  shift; cmd_whoami "$@" ;;
   room)    shift; cmd_room "$@" ;;
   *)
