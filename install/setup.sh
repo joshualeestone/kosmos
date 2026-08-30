@@ -1415,14 +1415,34 @@ KOSMOS_SWEEP_LIST
   # it promised to keep. `wouldping/` is written by us and only by us; anything
   # we cannot name that confidently is left alone and named, per the header.
   #
-  # 📌 The sandbox refusal earlier in this function already guarantees
-  # AGENT_WORKFORCE_DATA is this install's own data root, so this cannot reach
-  # a different install's folder.
-  _data_root="${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support/AgentWorkforce}"
-  if [ -d "$_data_root/wouldping" ]; then
-    info "removing Kosmos's own ping log from the data folder (your agents' files stay)"
-    rm -rf "$_data_root/wouldping" 2>/dev/null || true
-  fi
+  # 🛑 `$_support`, NOT A SECOND DERIVATION. AGENT_WORKFORCE_DATA is the PARENT
+  # of the AgentWorkforce folder, not the folder itself (`engine/store.js:85`
+  # joins APP onto it), and a first version of this block re-derived the path and
+  # dropped that segment -- so it looked in `$AGENT_WORKFORCE_DATA/wouldping`
+  # while the log lives in `$AGENT_WORKFORCE_DATA/AgentWorkforce/wouldping` and
+  # the sweep silently did nothing. It only appeared to work on a fully default
+  # install, where the fallback happens to include the segment.
+  # ⚠️ AND `uninstall()` ITSELF EXPORTS THAT VARIABLE at the top of this function
+  # whenever KOSMOS_HOME is non-default, so every non-default install was missed.
+  # This file's own header states the rule that would have prevented it: two
+  # derivations of one string is how a sweep silently stops matching what the
+  # install wrote. `_support` is computed once, above, and is in scope here.
+  # 📌 BOTH of these, and the test names the rule rather than the list: a folder
+  # goes here only when it is Kosmos's OWN bookkeeping under `store.ROOT`, written
+  # by us and regenerated on next run -- `engine/wouldping.js` and
+  # `engine/liveness.js` both `path.join(store.ROOT, ...)`. The person's own files
+  # (projects, profiles, accounts) sit in that same folder and MUST survive, which
+  # is why this removes two named children and never the folder itself.
+  # ⚠️ An earlier plan for this card called wouldping "the only litter I could name
+  # confidently". That was false -- liveness is nameable with exactly the same
+  # confidence, and a reviewer found it. Sweeping one and silently knowing about
+  # the other is worse than sweeping neither, because it reads as complete.
+  for _litter in wouldping liveness; do
+    if [ -d "$_support/$_litter" ]; then
+      info "removing Kosmos's own $_litter records from the data folder (your agents' files stay)"
+      rm -rf "$_support/$_litter" 2>/dev/null || true
+    fi
+  done
   if [ "$_agents_stopped" = "yes" ]; then
     printf '\n  Kosmos is removed. Your agents\047 background jobs were removed; their files were left alone\n'
     printf '  (in your Library/Application Support/AgentWorkforce folder and their own folders).\n\n'

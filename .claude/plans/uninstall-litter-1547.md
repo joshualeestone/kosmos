@@ -27,5 +27,23 @@ I removed only the one that can be named with certainty. Anything we cannot prov
 wrote is left alone and named, per the file's header rule.
 
 ## Weakest premise
-**`wouldping/` is the only litter I could name confidently.** There may be others; this
-does not sweep them, and a future one added under a new name will not be covered.
+🛑 **THE ORIGINAL PREMISE HERE WAS FALSE AND A REVIEWER CAUGHT IT.** It read
+"`wouldping/` is the only litter I could name confidently". `engine/liveness.js:32` is
+`path.join(store.ROOT, 'liveness')`, the same class, nameable with exactly the same
+confidence, and I had not looked. Both are now swept.
+
+⭐ **The correction worth keeping is not the second directory, it is that a sentence
+claiming a search was exhaustive was written without running the search.** "The only one
+I could name" describes my recall, and it reads to anyone else as a property of the
+codebase.
+
+**What is genuinely weak now, stated as a rule rather than a list:** the sweep names two
+directories, and a THIRD added later under a new name is not covered. The test pins the
+rule the list encodes (Kosmos's own bookkeeping under `store.ROOT`, regenerated on next
+run) so a future reader can decide correctly, but nothing FAILS when a new one appears.
+A guard that watched `store.ROOT` writers for unswept names would close it; that is a
+larger change than this card and is not attempted here.
+
+**Out of scope, named rather than silently skipped:** the person's own files in that same
+folder (projects, profiles, accounts), which is why this removes two named children and
+never the folder itself.
