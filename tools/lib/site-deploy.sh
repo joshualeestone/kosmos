@@ -145,7 +145,15 @@ _site_carry_allowed() {   # <site> <relative-path>
 # answer from a failing git status used to print "left behind: nothing", a
 # positive clean-tree claim made from a tool failure.
 _site_left_behind() {
-  local site="${1:?}" out="${2:?}" line path kind any=0 listf errf oldname
+  # 🛑 `entry`, NOT `path` (#1621/#1620). zsh TIES `path` to `PATH` as an array,
+  # so declaring a scalar `local path` DESTROYS PATH for this function's dynamic
+  # scope. Measured: `_site_left_behind:2: command not found: mktemp` on line 2 of
+  # this function, before any assignment, because THE DECLARATION ALONE IS ENOUGH.
+  # This file is normally EXECUTED under bash, where it is harmless; it bites the
+  # agent who sources it into zsh to reuse a helper, which is a reasonable thing
+  # to want. The failure reads as a broken machine rather than a broken script.
+  # The other three tied names are `cdpath`, `fpath` and `manpath`.
+  local site="${1:?}" out="${2:?}" line entry kind any=0 listf errf oldname
   listf="$(mktemp "$out.status.XXXXXX")" || return 1
   errf="$(mktemp "$out.status-err.XXXXXX")" || { rm -f "$listf"; return 1; }
   # -z: NUL-delimited, NEVER quoted. Porcelain v1 without -z C-quotes a name
@@ -164,26 +172,26 @@ _site_left_behind() {
     [ -n "$line" ] || continue
     # porcelain: two status columns, a space, the path (the first column can
     # itself be a space, so this is a cut by position, not by word).
-    kind="${line:0:2}"; path="${line:3}"
+    kind="${line:0:2}"; entry="${line:3}"
     # With -z a rename or copy is TWO records: "R  new" (index) or " R new"
     # (work tree, an intent-to-add), then the bare old name. The old name is consumed here, not re-parsed as a record (that
     # cut its first three characters off and printed a file that does not
     # exist, measured).
     oldname=""
     case "$kind" in R?|C?|?R|?C) IFS= read -r -d '' oldname || oldname="";; esac
-    case "$_SITE_CARRIED" in *"${_SITE_NL}${path}${_SITE_NL}"*) continue;; esac
-    case "$path" in
+    case "$_SITE_CARRIED" in *"${_SITE_NL}${entry}${_SITE_NL}"*) continue;; esac
+    case "$entry" in
       .vercel/|.vercel/*) continue;;
       node_modules/*|node_modules|__pycache__/*|*.pyc) continue;;
     esac
     [ "$any" = 1 ] || { echo "   left behind (in the working tree, not in this deploy):"; any=1; }
     case "$kind" in
-      '!!') echo "     ignored:   $path";;
-      '??') echo "     untracked: $path";;
-      A?)   echo "     staged, not committed: $path (does not deploy)";;
-      R?|C?|?R|?C) echo "     renamed, not committed: $oldname -> $path (deploys as committed, under the old name)";;
-      ?D|D?) echo "     deleted:   $path (deploys as committed)";;
-      *)    echo "     modified:  $path (deploys as committed)";;
+      '!!') echo "     ignored:   $entry";;
+      '??') echo "     untracked: $entry";;
+      A?)   echo "     staged, not committed: $entry (does not deploy)";;
+      R?|C?|?R|?C) echo "     renamed, not committed: $oldname -> $entry (deploys as committed, under the old name)";;
+      ?D|D?) echo "     deleted:   $entry (deploys as committed)";;
+      *)    echo "     modified:  $entry (deploys as committed)";;
     esac
   done < "$listf"
   rm -f "$listf"
