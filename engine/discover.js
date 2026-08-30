@@ -475,6 +475,29 @@ function found() {
       noInstructionsFolderGone: noInstructionsGoneDirs.size,
       noInstructionsFolderPresent: noInstructionsPresentDirs.size,
     },
+    /**
+     * The folders a person could ADOPT: Claude has run there, the directory is
+     * still on disk, and there is no instruction file naming anybody (#1531).
+     *
+     * 🛑 THE COUNT WAS ALREADY HERE AND THE COUNT IS NOT ENOUGH. `found()` computed
+     * exactly these paths in order to tally `noInstructionsFolderPresent` and then
+     * threw them away, so a screen could learn that ONE folder qualified and never
+     * which one. **You cannot offer a count for adoption.**
+     *
+     * ⭐ NO NAME IS GUESSED AND THAT IS DELIBERATE, not an omission. Extraction was
+     * measured on a real machine and no name is cleanly pullable from a transcript,
+     * so the screen asks rather than guesses, and this field carries nothing it
+     * would have to guess. `path.basename(dir)` was the obvious thing to add here
+     * and it is exactly the wrong thing: it looks like knowledge and is a guess.
+     *
+     * ⚠️ PRESENT ONLY, NEVER GONE. A folder whose directory has been deleted cannot
+     * be adopted, so offering it would be an action that must fail. The gone/present
+     * split exists precisely so this list can be the actionable half.
+     *
+     * 📌 The route needs no change: `/api/found-agents` spreads this return, so the
+     * field reaches the board by existing here.
+     */
+    adoptable: [...noInstructionsPresentDirs].map((dir) => ({ dir })),
     because: null,
   };
 }
