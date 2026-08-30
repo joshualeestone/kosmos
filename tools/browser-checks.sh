@@ -559,8 +559,25 @@ fi
 # #812: render-create-made presses the real Create button, so it refuses to
 # run without both a dry-run server (nothing is actually started or written)
 # and an explicit --yes-dry-run flag of its own -- neither is optional, and
-# it is why this check needed a dedicated board rather than joining B8 (which
-# runs without AGENT_WORKFORCE_DRY_RUN). Restated against 4bf7d95's real
+# it is why this check needed a dedicated board rather than joining B8.
+#
+# CORRECTED (#1575): this used to end "(which runs without
+# AGENT_WORKFORCE_DRY_RUN)". THAT IS FALSE AND IT ALREADY MISLED A REVIEW.
+# B8 is booted by boot_board (the `boot_board "$sb7" "$P8"` call below), and
+# boot_board sets AGENT_WORKFORCE_DRY_RUN=1 like every other board in this
+# script. Measured: six real server boots here, all under dry-run, none
+# without. Anyone designing around "the board that runs without dry-run" is
+# looking for one that does not exist.
+#
+# What IS different about the dedicated board, measured rather than assumed:
+# it omits three vars boot_board sets (TMUX_BIN, FAKE_PANES, CONFIG_ROOT),
+# for the reason the next paragraph gives. Whether that, or the fact that B8
+# is shared by eight other checks while this one presses a real Create
+# button, is the reason it was split out, I have not established and am not
+# asserting. The false clause is removed; the true rationale is whatever the
+# surrounding #812 notes say.
+#
+# Restated against 4bf7d95's real
 # ending by Ice Cream Kitty (#826) before this PR wired it in; proven
 # standalone (18/18) before this line was written, with exactly the env vars
 # below -- no tmux/fake-panes vars, because dry run never reaches tmux and
