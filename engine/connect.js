@@ -139,9 +139,15 @@ let runner = null;
 
 /* ⚠️ DECLARED HERE, BESIDE THE SEAMS THAT WRITE THEM, NOT BESIDE THE FUNCTION THAT
    READS THEM. `setRunner` and `setDryRun` are a few lines below and both clear this
-   cache; with the declarations 230 lines further down, a future module-level call to
-   either would hit a TDZ ReferenceError rather than a readable failure. The comments
-   explaining WHY each exists stay with `willInstall`, which is where they are read. */
+   cache. They used to be declared down beside `willInstall`, the function that READS
+   them, which put a few hundred lines between the writers and the declarations: a
+   future module-level call to either seam would then hit a TDZ ReferenceError rather
+   than a readable failure. The comments explaining WHY each exists stay with
+   `willInstall`; only the declarations moved.
+
+   📌 No line number here on purpose. An earlier draft said "230 lines further down"
+   and the real distance was 272, and it would have drifted again on the next edit.
+   Cite the FUNCTION, not the line. */
 let probeCache = null;
 let probeInFlight = null;
 let probeGeneration = 0;
@@ -867,8 +873,10 @@ async function start(opts) {
      * that would fix it is the one this branch declines to honour.
      *
      * ⚠️ THIS IS #874 ONE FILE OVER, AND THAT IS THE PART WORTH NOTICING.
-     * `engine/firstrun.js:140` already made exactly this swap, for exactly this
-     * reason, and wrote down why. `engine/accounts.js` already called the live
+     * `firstrun.state()`'s `checkLive()` call already made exactly this swap, for
+     * exactly this reason, and wrote down why. (Named rather than line-numbered: this
+     * read `engine/firstrun.js:140` until #1556 inserted lines above that call, after
+     * which the number silently pointed at an unrelated comment.) `engine/accounts.js` already called the live
      * check. Connect was the remaining path still trusting the file alone, so
      * the product had two answers and the louder one was the unverified one.
      *

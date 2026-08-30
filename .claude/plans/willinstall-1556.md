@@ -16,7 +16,7 @@ never carried the route's reply at all.
 Verified independently, not taken on the reviewer's word:
 
 ```
-frClaudeInstallNeeded()      reads FR.connect.willInstall        (web/index.html:30754)
+frClaudeInstallNeeded()      reads FR.connect.willInstall        (`frClaudeInstallNeeded` (web/index.html))
 FR assigned at               30101, 32559 -- both from /api/first-run, wholesale
 FR.connect = ...             assigned NOWHERE
 firstrun.state() returns     {done, fleetKnown, fleetCount, path, subscription}
@@ -165,7 +165,7 @@ Bounded and safe, but not free.
 Iteration 3 flagged that `willInstall()` and `start()` could disagree under dry-run,
 and I deferred it pointing at #1571. **Mona Lisa's #1572 landed and closed it**, and I
 rebased onto it and verified by content rather than assuming: both sites now carry the
-guard (mine at connect.js:447, hers at 936), and under the dry-run configuration the
+guard (mine at connect.js, in `willInstall`, hers at 936), and under the dry-run configuration the
 sandbox guard recommends, both now say an install is needed.
 
 Her fix also made #1568 dissolve rather than be patched: with the probe fixed, the

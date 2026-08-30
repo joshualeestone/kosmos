@@ -4,7 +4,7 @@
  * #1556: the confirm dialog must actually be SKIPPED, not merely skippable.
  *
  * 🛑 WHY THIS EXISTS. The only previous guard on this behaviour,
- * `web.connect-confirm.test.js:113`, matches the string `willInstall` in the
+ * `web.connect-confirm.test.js`'s source-text arm, matches the string `willInstall` in the
  * READER'S SOURCE. That passes whether or not the value is ever a boolean, and it
  * passed throughout the period when this branch served the field on a route the
  * page never reads. A source-text assertion cannot tell "asks the question" from
