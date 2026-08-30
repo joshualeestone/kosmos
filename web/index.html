@@ -9508,7 +9508,37 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <h2>Plus Account</h2>
     <p class="fhint">Use your Kosmos from anywhere.</p>
 
-    <div id="plus-holding">
+    <!-- #1615, design/plus-flow.html section 5: this pane is THREE states, not one.
+         Today's single state described a signup that does not happen here, which is
+         kosmos#1115's finding restated as a design decision.
+
+         🛑 SHIPPED UNWIRED ON PURPOSE. Josh, 2026-08-30 12:54: "i dont care if the app
+         side is ready yet for it to be fully working, i want to see all the design
+         implemented and then we make the product work based on the design." So state 2
+         is drawn even though nothing yet tells this Mac whether the person has paid.
+         The design says the same and gives the reason: "If it is wrong, it is wrong in
+         the product where he can see it and say so, which costs him less than a fourth
+         message asking him to imagine it."
+         ⚠️ This INVERTS the older rule in Josh-Brain's design gap list ("the shipped app
+         may not show a control that does not work"). Josh's instruction is newer and
+         directly on point, so it governs here. Named so a reader of that document does
+         not correct this back.
+
+         📌 NO PRICE, AND THAT IS NOT AN OVERSIGHT. The design's state 1 shows a monthly
+         figure. `web.plus-tab.test.js` forbids a price anywhere in this section because
+         pricing is not ruled; the markup below already records a price sentence going
+         false that way once; and Splinter's 2026-08-30 ruling is that the number is
+         Josh's alone. Three reasons against one mock detail. The site publishes the
+         price and this pane sends people there. -->
+    <!-- ⚠️ THE MOCK SAYS "this Mac" AND THIS SAYS "this computer", DELIBERATELY.
+         `engine/machine.test.js` forbids "this Mac" in every speaking file because Kosmos
+         does not only run on a Mac, and the rest of this page says "this computer" 112
+         times. The design's wording is the older assumption, not a decision to preserve.
+         ⇒ Design leads on FLOW and STRUCTURE; it does not get to reintroduce a
+         platform assumption a shipped guard exists to keep out. Raised on kosmos#1615 so
+         the mock can be corrected rather than this drifting from it silently. -->
+    <div id="plus-state1">
+      <h3>Reach this computer from anywhere</h3>
       <p>Plus connects this computer to your phone and your other computers:
       open your board from anywhere, get a notification when an agent
       posts or needs you, and everything you have stays on this computer. The
@@ -9544,7 +9574,43 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            still passes UNCHANGED, which is the point: the rule did not move to
            accommodate the feature. -->
       <p><a id="plus-site-link" href="#" target="_blank" rel="noreferrer noopener"
-      >Read about Kosmos Plus on the website</a></p>
+      >See Kosmos+</a></p>
+    </div>
+
+    <!-- #1615 state 2, design section 5: "paid, not set up here". The design settled an
+         open question here rather than asking a fourth time, and the reason is mechanical
+         rather than a preference: the app is a board bound to localhost and the site is a
+         different origin, so there is no session for the app to pick up, and this Mac
+         needs a credential of its own before the coordinator will give it an address.
+         ⇒ A sign-in has to live in this pane.
+         ⚠️ NOT WIRED. Nothing currently tells the app that somebody has paid, so this
+         state is reachable by the design's intent and not yet by a signal. That is the
+         requested state rather than an omission. -->
+    <div id="plus-state2" hidden>
+      <h3>Sign in to give this computer its address</h3>
+      <p>You have Kosmos+. Signing in here is what connects this computer.</p>
+      <div class="setrow">
+        <!-- ⚠️ `plus-signin-*`, NOT `plus-email`/`plus-code`. Those ids are ALREADY TAKEN by the
+     enrol step inside the connected flow below, and a duplicate id makes getElementById
+     return whichever comes first, so both controls would have driven the wrong one.
+     Caught by the page's own id-uniqueness guard, not by review.
+     📌 The two are genuinely different moments and the names now say so: this is signing
+     in to the Kosmos+ ACCOUNT before this computer is configured at all; the enrol pair
+     below is pairing a device once it already is. -->
+        <!-- ⚠️ `tk-inp` INSIDE `.field`, NOT `.cinput`. `.cinput` is the COMPOSER input class:
+     it sets `border: 0; background: none;` and takes its border from a `.composerbox`
+     ancestor. Every other `.cinput` in this file has one; this has none, and `.setrow`
+     supplies no field styling, so it would have rendered borderless and transparent.
+     This pane's own convention forty lines below is `tk-inp` in a `.field`, and the
+     design draws a bordered field. On a card whose premise is seeing the design
+     rendered, that is the difference that matters. -->
+        <div class="field">
+          <input type="email" id="plus-signin-email" class="tk-inp" autocomplete="email"
+            placeholder="you@example.com" aria-label="The email on your Kosmos+ account">
+        </div>
+        <button class="btn" type="button" id="plus-signin-code">Send me a code</button>
+      </div>
+      <p class="fhint" id="plus-signin-msg" role="status" aria-live="polite"></p>
     </div>
 
     <div id="plus-flow" hidden>
@@ -21592,23 +21658,53 @@ let PLUS_EPOCH = 0;
 const KOSMOS_SITE = 'https://installkosmos.com';
 
 async function paintPlus() {
-  const holding = document.getElementById('plus-holding');
+  /* #1615: three states, per design/plus-flow.html section 5. `state1` is the pane a
+     person with no Plus sees; `state2` is the sign-in for somebody who has paid but has
+     not connected this Mac; `flow` is the connected state and is unchanged.
+     🛑 STATE 2 HAS NO SIGNAL YET, AND THAT IS THE SHIPPED BEHAVIOUR ON PURPOSE. Nothing
+     tells this Mac whether the person has paid, so it cannot be chosen automatically and
+     state 1 is the honest default: we do not know that you have Plus. When the
+     coordinator can answer that question, this is the ONE place that has to change. */
+  const state1 = document.getElementById('plus-state1');
+  const state2 = document.getElementById('plus-state2');
   const flow = document.getElementById('plus-flow');
-  if (!holding || !flow) return;
+  if (!state1 || !state2 || !flow) return;
   /* Set before the fetch below, so the route is there whether or not the
      machine is configured and whichever way that call goes. */
   const site = document.getElementById('plus-site-link');
+  /* #1615, design/plus-flow.html: "Both entry points land on /+ ... The app links to
+     /+?from=app". One page, one parameter, so the site can tell an arrival from the app
+     apart from one off the homepage.
+     ⚠️ THE /+ ROUTE DOES NOT EXIST ON THE SITE YET - measured, `vercel.json` has no rewrite
+     for it and only `plus.html` is served. That half is Angel's, who owns the site repo,
+     and it is raised on kosmos#1615 rather than worked around here. Pointing at the
+     designed target is the instruction; quietly keeping the old path would hide the
+     dependency. */
+  /* #1615: the design says the app links to `/+?from=app` ("one page, one parameter").
+     🛑 THAT ROUTE DOES NOT EXIST AND I SHIPPED IT BROKEN ONCE. Measured live, with a
+     negative control:
+         /plus           200, 10305 bytes   (what plus.html serves today)
+         /+?from=app     404,  8498 bytes
+         a nonsense path 404,  8498 bytes   <- BYTE-IDENTICAL, so /+ is the generic 404
+     The rule for this card is that an inert control is fine and a page that MISLEADS is
+     not. A link labelled "See Kosmos+" opening a new tab onto a 404 is the second, and it
+     sits two lines under a paragraph saying the website is where this happens.
+     ⇒ Pointing at the designed target bought a DEVELOPER-visible signal and paid with a
+     USER-visible break. The dependency belongs in a card, not a dead door. The `/+`
+     rewrite is Angel's in chaoskosmos-site; reverted until it serves. */
   if (site) site.href = KOSMOS_SITE + '/plus';
   const epoch = (PLUS_EPOCH += 1);
   let r = null;
   try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
   if (epoch !== PLUS_EPOCH) return;
   if (!r || r.configured !== true) {
-    holding.hidden = false;
+    state1.hidden = false;
+    state2.hidden = true;
     flow.hidden = true;
     return;
   }
-  holding.hidden = true;
+  state1.hidden = true;
+  state2.hidden = true;
   flow.hidden = false;
   const sw = document.getElementById('plus-switch');
   sw.textContent = r.on ? 'Turn off' : 'Turn on';
