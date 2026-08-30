@@ -165,7 +165,7 @@ returns at next login, a killed pane does not.
 
 # Verification, and this is the ONLY figure in this file kept current
 
-    suite                    3130 pass, 0 fail
+    suite                    3131 pass, 0 fail
     ABSOLUTE kosmos jobs     0 before, 0 after   (not a delta, see the note above)
     tmux sessions            18 before, 18 after
 
@@ -189,8 +189,20 @@ bypassed the escape hatch, `installJob` reported `started: false`, and
 `createAgentInner` rolled the whole creation back. Silently, on every
 non-default-KOSMOS_HOME install, forever.
 
-⚠️ Nothing in the release gate would have caught it: `tools/test-install.sh`
-always pins `AGENT_WORKFORCE_LAUNCH`.
+🛑 **THAT SENTENCE WAS FALSE AND IT WAS PUBLICLY VERIFIED BEFORE IT WAS CAUGHT.**
+`tools/test-install.sh` does NOT always pin `AGENT_WORKFORCE_LAUNCH`: it
+deliberately unsets it at :1812 and :1867. A colleague checked my claim by
+counting 30 pins, which is correct and **cannot see an unset**.
+
+✅ **The conclusion survives on stronger ground.** `tools/test-install.sh:223`
+exports `AGENT_WORKFORCE_DRY_RUN=1` globally, and this guard sits BELOW the
+`if (DRY_RUN)` short-circuit, so it is inert for that entire harness regardless of
+what LAUNCH is doing. The gate genuinely could not have caught it, for a broader
+reason than the one I gave.
+
+⭐ **The reusable part: an outside check inherits the asker's framing.** I handed a
+colleague my EVIDENCE to verify rather than my CONCLUSION, so his check could only
+ever say "the evidence holds". It had no way to say "the question is wrong".
 
 ⚠️ And `.partial` alone was not the fix either, which I asserted without measuring
 and was wrong about: with only LAUNCH set, `partial` is TRUE, so pointing LAUNCH

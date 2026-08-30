@@ -504,6 +504,50 @@ test('#1539: the guard refuses in DRY_RUN order too, and fails closed with no pa
   }
 });
 
+
+test('#1539 RESIDUAL: the escape hatch disarms the guard, and that is known and undecidable', () => {
+  /**
+   * 🛑 THIS TEST PINS A HOLE, DELIBERATELY. It asserts the guard STANDS DOWN in a
+   * state where the #1539 harm is still possible, so the boundary is intentional
+   * and visible rather than accidental.
+   *
+   * The state: the other three sandboxed, `HALF_SANDBOX_OK=1`, LAUNCH forgotten.
+   * A test in that state writes a real plist and registers a real job. The hatch
+   * is exactly what sandbox.js tells you to set when a board refuses to start
+   * half-sandboxed, so it is reachable by the most likely next author.
+   *
+   * ⚠️ IT CANNOT BE CLOSED HERE. Measured: a legitimate non-default-KOSMOS_HOME
+   * install and a test that sets the hatch present an IDENTICAL environment. Any
+   * predicate refusing one refuses the other, and refusing the real install rolls
+   * back every agent creation on it.
+   *
+   * ✅ The real fix is #1598: fail closed and require an explicit live opt-in at
+   * the one production caller, so nothing has to infer intent from the
+   * environment. If that lands, THIS TEST SHOULD FAIL and be deleted, which is
+   * the point of pinning it.
+   */
+  withOnlyLaunch(() => {
+    delete process.env.AGENT_WORKFORCE_LAUNCH;
+    const saved = process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
+    process.env.AGENT_WORKFORCE_DATA = '/tmp/residual-1539/data';
+    try {
+      process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = '1';
+      assert.equal(create.launchIsSandboxed(), false,
+        'KNOWN RESIDUAL: with the hatch set the guard stands down. If this now '
+        + 'reads true, #1598 or an equivalent has landed: delete this test.');
+
+      /* CONTROL: without the hatch the SAME state is caught, so the assertion
+         above is about the hatch and not about the state being harmless. */
+      delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
+      assert.equal(create.launchIsSandboxed(), true,
+        'CONTROL: without the hatch this state must still be refused');
+    } finally {
+      if (saved === undefined) delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
+      else process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = saved;
+    }
+  });
+});
+
 function countKosmosJobs() {
   const { spawnSync } = require('node:child_process');
   const r = spawnSync('/bin/launchctl', ['list'], { encoding: 'utf8' });
