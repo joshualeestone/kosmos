@@ -61,7 +61,10 @@ test('the flow never sends a plain start (#248, the hazard the old disable preve
      itself is pinned separately below. */
   const at = PAGE.indexOf('async function acctAddStart');
   assert.ok(at > -1, 'the start worker moved; restate this pin');
-  const wiring = PAGE.slice(at, at + 900);
+  /* 1600, not 900: #1574 added the confirm flag to the request body and a comment
+     saying why, which pushed `another: true` and `accountDir` past the old window.
+     The #248 invariant below is unchanged and is what this still pins. */
+  const wiring = PAGE.slice(at, at + 1600);
   assert.match(wiring, /\/api\/connect\/start/, 'the button does not start the connect flow');
   assert.match(wiring, /another:\s*true/, 'the start request can no longer ask for ANOTHER account');
   assert.match(wiring, /accountDir/, 'the start request can no longer aim at an EXISTING account (#1492)');
@@ -79,7 +82,10 @@ test('#1587: the acct-add button gates the sign-in behind the install confirm, l
   const CODE = PAGE.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*/gm, '');
 
   // The POST lives in its own worker, separate from the click handler.
-  assert.match(CODE, /async function acctAddStart\(\)/, 'the acct-add start worker is gone; the gate has nothing to sit in front of');
+  /* #1574 gave the worker a parameter (did a PERSON confirm), so the pin follows
+     the name rather than the empty parameter list. The property is unchanged: the
+     POST lives in a worker the click handler cannot reach without gating first. */
+  assert.match(CODE, /async function acctAddStart\(/, 'the acct-add start worker is gone; the gate has nothing to sit in front of');
 
   // The click handler itself must NOT reach the download directly: no
   // /api/connect/start POST inside the listener. That POST is the thing gated.
@@ -96,7 +102,13 @@ test('#1587: the acct-add button gates the sign-in behind the install confirm, l
   // The one path from the confirm to the download is the Confirm button.
   const goAt = CODE.indexOf("getElementById('acct-add-confirm-go').addEventListener");
   assert.ok(goAt > -1, 'the acct-add Confirm handler is missing, so nothing carries a confirmed click to the sign-in');
-  assert.match(CODE.slice(goAt, goAt + 700), /acctAddStart\(\)/, 'the Confirm button no longer starts the sign-in');
+  /* 🛑 #1574: `acctAddStart(true)`, AND THE ARGUMENT IS THE POINT RATHER THAN NOISE.
+     The worker now reports to the server whether a PERSON pressed Confirm, and this
+     is the one call site allowed to say true. Asserting `true` specifically is
+     stronger than the old empty-parens pin: a future edit that wires this button to
+     `acctAddStart(false)` would silently make the Confirm button unable to confirm,
+     and the old assertion could not have seen that. */
+  assert.match(CODE.slice(goAt, goAt + 900), /acctAddStart\(true\)/, 'the Confirm button no longer starts the sign-in as a confirmed one');
 
   // Both choices exist in the accounts modal.
   assert.match(PAGE, /id="acct-add-confirm-go"/, 'the Confirm button is missing from the accounts modal');
