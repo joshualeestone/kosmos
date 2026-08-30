@@ -339,9 +339,9 @@ test('start on an already-connected machine answers connected and runs nothing',
  * engine/connect.test.js. The engine suite drives the guard through
  * `subscription.setRunner`; the route suite never did, so a paid-plan file plus
  * a signed-out world was never exercised at the /api/connect/start layer. These
- * two tests are the route-layer mirror of the engine's #1560 pair. The seam is
- * `subscription.setRunner` (the same seam the /api/accounts live tests below
- * use).
+ * three tests are the route-layer mirror of the engine's #1560 trio
+ * (NONE / CONNECTED-agree / UNKNOWN). The seam is `subscription.setRunner` (the
+ * same seam the /api/accounts live tests below use).
  */
 test('#1585: a connected-looking FILE does not answer connected through the route when the world says signed out', async () => {
   const subscription = require('./engine/subscription');
