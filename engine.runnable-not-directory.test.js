@@ -375,6 +375,9 @@ test('willInstall rejects a DIRECTORY without ever reaching the version probe', 
       'a real executable did not reach the version probe, so the probe count proves nothing');
   } finally {
     connect.setRunner(null);
+    // Restore the probe TTL too: a reviewer found this arm left it at 0 for
+    // whatever ran next, and it is the last arm to touch connect.
+    if (connect.setProbeTtlForTests) connect.setProbeTtlForTests(undefined);
     if (before === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
     else process.env.AGENT_WORKFORCE_CLAUDE_BIN = before;
     f.cleanup();
@@ -419,7 +422,7 @@ test('canRunClaude resolves the bin INSIDE its try, so a throw still writes the 
   );
 });
 
-test('becomeStuck assigns canRunClaude EXACTLY ONCE, and that one assignment delegates', () => {
+test('every write to canRunClaude before writeState delegates or is the catch arm', () => {
   /* 🛑 THE ONE SITE WITH NO BEHAVIOURAL ARM, AND WHY. `becomeStuck` is not
      exported and early-returns unless the module-internal `driver` matches the
      caller, so it cannot be called from a test. Reaching it needs a full
@@ -449,25 +452,43 @@ test('becomeStuck assigns canRunClaude EXACTLY ONCE, and that one assignment del
   const src = fs.readFileSync(path.join(ENGINE, 'connect.js'), 'utf8');
   const anchor = src.indexOf('let canRunClaude = false;');
   assert.ok(anchor > 0, 'canRunClaude was renamed or removed; re-aim this guard');
-  /* 🛑 BOUNDED BY STRUCTURE, NOT BY A CHARACTER COUNT. A reviewer measured the
-     char-count version: anchor + 600 ran 14 source lines past the end of
-     becomeStuck and into the next function, so a decoy placed in a DIFFERENT
-     function satisfied it. A constant chosen by eye means whatever the comment
-     density happens to make it mean, and it drifts every time somebody edits a
-     comment nearby. The catch arm is the real end of this construct. */
-  const catchAt = src.indexOf('} catch', anchor);
-  assert.ok(catchAt > anchor && catchAt - anchor < 800,
-    'canRunClaude is no longer followed by a catch arm within a plausible distance; re-aim this guard');
-  const region = src.slice(anchor + 'let canRunClaude = false;'.length, src.indexOf('}', catchAt + 7) + 1);
+  /* 🛑 BOUNDED BY THE CONSUMER, AND BOTH EARLIER BOUNDARIES WERE WRONG IN
+     OPPOSITE DIRECTIONS. This is the third boundary this arm has had.
+
+       anchor + 600 chars   TOO BIG. Ran 14 source lines past becomeStuck into
+                            the next function, so a decoy in submitCode satisfied it.
+       to the catch close   TOO SMALL, and I introduced that regression myself
+                            while fixing the first one. It left the gap between the
+                            catch and writeState unguarded, which is the most
+                            natural place in the function to write a fallback:
+                              } catch { canRunClaude = false; }
+                              if (!canRunClaude) canRunClaude = fs.existsSync(...);
+                            Measured: 12 pass / 0 fail with a DIRECTORY reading true.
+                            The char-count region had been covering that BY ACCIDENT.
+
+     ⭐ `writeState(` is the correct boundary because it is what READS the
+     variable. Anything that can change the answer must sit before it, so the
+     region cannot be too small; nothing after it can matter, so it cannot be too
+     big. A boundary derived from the consumer needs no constant and no judgement.
+
+     ⚠️ And it is the same lesson as the rest of this branch, arriving through the
+     door I opened: simplifying a guard can lose coverage silently, because the
+     thing it stopped catching does not announce itself. I did that twice today. */
+  const end = src.indexOf('writeState(', anchor);
+  assert.ok(end > anchor && end - anchor < 2000,
+    'becomeStuck no longer calls writeState() after computing canRunClaude, so this guard has ' +
+      'no boundary to work from. Re-aim it at whatever consumes the value now.');
+  const region = src.slice(anchor + 'let canRunClaude = false;'.length, end);
 
   const assignments = region.match(/canRunClaude\s*=\s*[^;\n]+/g) || [];
-  assert.strictEqual(
-    assignments.length, 2,
-    'becomeStuck no longer has exactly the two expected assignments to canRunClaude ' +
-      '(the isRunnable one and the catch-arm `= false`). Found ' + assignments.length + ':\n  ' +
-      assignments.join('\n  ') +
-      '\nAn EXTRA one is how both pass-9 defeats worked: the real line was repointed to a ' +
-      'weaker check and the isRunnable token was re-added nearby, in a comment or in dead code.'
+  /* No fixed count. "First delegates, every other is `= false`" is strictly
+     stronger and needs no arbitrary number: an extra `= false` is harmless, and
+     anything else is refused below. The old `=== 2` was itself a number chosen
+     by eye, and a reviewer freed a slot by deleting the redundant catch arm. */
+  assert.ok(
+    assignments.length >= 1,
+    'no assignment to canRunClaude between its declaration and the writeState that reads it. ' +
+      'The value the stuck screen is gated on is never computed.'
   );
   /* 🛑 ANCHORED AT BOTH ENDS, AND A PREFIX MATCH IS WHY. This arm shipped for one
      hour matching only the START of the assignment, and a reviewer defeated it in
