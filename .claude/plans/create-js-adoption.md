@@ -20,7 +20,7 @@ binary.
   the ordering Renet mutation-verified) with:
     if (!liveExec.liveExecutionAllowed()) {
       liveExec.refuseOrWarn('engine/create.js', file, args);
-      return { ok: false, stdout: '', dryRun: true, liveExecutionRefused: true };
+      return { ok: false, stdout: '', liveExecutionRefused: true };
     }
 - Retire everything that existed only for the #1539 guard: the guard, its test
   (engine/create.launchsandbox-1539.test.js), the launchIsSandboxed() predicate +
