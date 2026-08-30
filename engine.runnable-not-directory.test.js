@@ -487,37 +487,53 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      docblock promises any error answers false. Its behavioural consequence is
      untested (forcing the resolver to throw needs a seam that does not exist),
      and that is a known gap rather than a covered one. */
-  /* 🛑 THE PROPERTY, NOT THE CALL, AND THE REASON IS THE MOST EMBARRASSING LINE IN
-     THIS FILE. The first version matched `writeState\({[^}]*canRunClaude[^}]*}`,
-     which CANNOT CROSS A NESTED `}`. That is the identical hazard this file's own
-     WEAK_CALL docblock documents at length as `[^)]*`, re-committed as `[^}]*` by
-     the person who wrote that warning, in the arm that replaced the region.
+  /* 🛑 EVERY CODE LINE MENTIONING THE IDENTIFIER, PINNED. NOT A PROPERTY FORM,
+     AND THE HISTORY OF THIS ONE MATCHER IS THE WHOLE ARGUMENT.
 
-     Measured: a second writeState carrying a nested object went 13 pass / 0 fail
-     while writing canRunClaude from existsSync. The same second writer WITHOUT
-     the nested object was caught, which is what proves the matcher was the
-     defect rather than the idea.
+       writeState\({[^}]*canRunClaude[^}]*}   could not cross a NESTED `}`. That is
+                                             the identical hazard this file's own
+                                             WEAK_CALL docblock documents as
+                                             `[^)]*`, re-committed by its author.
+       canRunClaude\s*:\s*[^,}]+              keys on a COLON, so a SHORTHAND
+                                             property has none:
+                                                 writeState({ ..., canRunClaude })
+                                             13 pass / 0 fail. A bracket-notation
+                                             key is the same class.
 
-     ✅ Matching the PROPERTY has no delimiters to balance: `[^,}]+` stops at the
-     first comma or brace, and a nested object cannot hide a property from it.
-     Both sites in the file are pinned by their exact text, so a new one of any
-     shape shows up as a count change. */
+     ⭐⭐ AND THE SHORTHAND IS NOT AN EXOTIC FORM: IT IS EXACTLY WHAT THIS LINE
+     LOOKED LIKE ONE COMMIT AGO, before the extraction refactor. The matcher was
+     blind to its own immediate predecessor, which is the second time on this
+     branch that a guard could not see the shape the code had just had.
+     ⇒ A perturbation matrix should include the shape the code had ONE COMMIT AGO.
+
+     ✅ So this stops matching a FORM at all. Every non-comment line mentioning the
+     identifier is pinned by exact text. A colon, a shorthand, a bracket key, a
+     nested object and anything else all show up the same way: a line that is not
+     one of these two.
+
+     ⚠️ THE COST, STATED: it reds on reformatting either line. Same friction as
+     KNOWN_WEAK_LINES above, same two-line fix, and it is the price of being
+     independent of the syntax somebody chooses. */
   const src = fs.readFileSync(path.join(ENGINE, 'connect.js'), 'utf8');
-  const sites = (src.match(/canRunClaude\s*:\s*[^,}]+/g) || []).map((h) => h.trim());
+  const lines = src
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => /\bcanRunClaude\b/.test(l) && !l.startsWith('*') && !l.startsWith('//') && !l.startsWith('/*'));
   assert.deepStrictEqual(
-    sites,
+    lines,
     [
       // publicView's serving default. It READS an already-computed value rather
       // than computing one, so it is not a second writer; #1595 pins it separately.
-      'canRunClaude: s.canRunClaude || false',
+      'canRunClaude: s.canRunClaude || false,',
       // becomeStuck, the one writer.
-      'canRunClaude: claudeHatchAvailable()',
+      'writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable() });',
     ],
-    'the places connect.js writes or serves canRunClaude changed. The writer must be exactly ' +
-      '`canRunClaude: claudeHatchAvailable()`: anything appended widens the answer AFTER the ' +
-      'check (a `|| fs.existsSync(p)` turns a DIRECTORY back into true), and because it is a ' +
-      'property rather than an assignment no assignment-shaped guard can see it. A NEW entry ' +
-      'is a second writer, which is a path no arm drives.'
+    'the code lines mentioning canRunClaude in connect.js changed. The writer must pass ' +
+      'claudeHatchAvailable() straight through: anything else can widen the answer AFTER the ' +
+      'check, and a `|| fs.existsSync(p)` turns a DIRECTORY back into true. A THIRD line is a ' +
+      'second writer, which is a path no arm drives, and it need not use a colon at all: ' +
+      '`writeState({ ..., canRunClaude })` is shorthand and was this line\'s own previous shape. ' +
+      'If you only reformatted, update the two strings here; that is the intended friction.'
   );
 });
 
