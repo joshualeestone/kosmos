@@ -197,6 +197,14 @@ test('a board that does not know the route yet gets a next step, not developer v
     assert.doesNotMatch(r.out, new RegExp(SERVER_404.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
       'the raw server error string was printed at a person, with no next step');
     assert.match(r.out, /restart/i, 'no actionable next step was offered');
+    /* ⚠️ And the next step must name a command that WORKS. Bare `kosmos` is what
+       engine/connections.js:3 calls a measured lie on a stock install, because
+       ~/.local/bin is not on a default macOS PATH. This verb's primary caller is
+       an agent that was handed an absolute path, so the recovery it prints has
+       to be resolvable too. Before this, the line said bare `kosmos restart` and
+       nothing held it: measured, ZERO tests touched this path. */
+    assert.match(r.out, /\/[^\s]*kosmos restart/,
+      'the restart advice is the bare command, which fails on a stock install');
   });
 });
 

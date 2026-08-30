@@ -81,6 +81,37 @@ const WROTE_WHY = 'Kosmos told it how connecting a provider works';
  * handed the same words. That is what must not grow. Varying with the machine is
  * not the same thing as varying with the reader.
  */
+/**
+ * The two-or-three sentences that follow the taught command.
+ *
+ * 🛑 A PURE FUNCTION OF THE RESOLVED STRING, AND EXPORTED, BECAUSE THE BARE-
+ * FALLBACK ARM IS OTHERWISE UNREACHABLE IN EVERY ENVIRONMENT THE SUITE RUNS IN.
+ * `kosmosCliShown()` returns a path on a source checkout AND in a bundle, so the
+ * non-path branch never executes under test and a typo in it would ship unseen.
+ * `blockBody` deliberately takes no argument (a test asserts `length === 0`), so
+ * the seam goes here rather than there.
+ *
+ * ⚠️ THREE FAILURE MODES, NOT ONE. An earlier version covered only a missing
+ * path. The other two are measured facts of this codebase: the board may not be
+ * RUNNING (the CLI answers exit 1), and the installed copy may be OLDER than the
+ * verb (a usage line and exit 2, recorded in this file's own header). An agent
+ * hitting either got a non-zero exit and no next step.
+ */
+function cliAdvice(cli) {
+  const first = cli.indexOf('/') >= 0
+    ? 'If that path is not there, Kosmos has moved since your file was written.'
+    : 'Kosmos could not work out where its own command lives when your file was written, so that may not be on your path.';
+  return [
+    first,
+    'If it says Kosmos is not running, or prints a list of commands instead of',
+    'answering, the copy on this computer is older than these instructions.',
+    'In any of those cases, do not guess at another path and do not conclude the',
+    'feature is gone: tell them what you saw, and ask them to open Kosmos, which',
+    'shows the same thing on its own screen.',
+    '',
+  ];
+}
+
 function blockBody() {
   const cli = kosmosCliShown();
   /* A path or the bare fallback. Keyed on the separator rather than on a second
@@ -130,29 +161,15 @@ function blockBody() {
     '',
     'One thing you CAN check for yourself, rather than asking: run',
     '`' + cli + ' connections`.',
-    /* 🛑 TWO SENTENCES, BECAUSE clipath CAN RETURN A BARE `kosmos`. Both of its
-       probes can fail (clipath.js:40), and then the taught command is the bare
-       form this module's own header calls a measured lie on a stock install.
-       The path sentence would also be nonsense there: "if that path is not
-       there" describes nothing when there is no path. So the follow-up is
-       chosen by what was actually resolved, and the bare case says plainly that
-       we could not locate it rather than pretending we did. */
-    cliIsPath
-      ? 'If that path is not there, Kosmos has moved since your file was written.'
-      : 'Kosmos could not work out where its own command lives when your file was',
-    cliIsPath
-      ? 'Do not conclude the feature is gone and do not guess at another path:'
-      : 'written, so that may not be on your path. If it is not found:',
-    'tell them the command is not where you expected, and ask them to open',
-    'Kosmos, which shows the same thing on its own screen.',
-    '',
+    ...cliAdvice(cli),
     'It tells you which providers are',
     'connected on this computer, and whether a CLAUDE sign-in is part way through',
     '(pasting a GPT key is not a sign-in flow and will not show there). It answers',
     'in three states, and **could not check** is one of them: treat that as',
     'unknown, never as "not connected".',
     '',
-    'It deliberately does NOT show you the sign-in link or the terminal output.',
+    'It deliberately does NOT show you the sign-in link or the terminal output,',
+    'and you should not go looking for them anywhere else either.',
     'Those are the parts that would let somebody sign in as them, so they are not',
     'yours to hold. If you need to know what a screen says, that is still a',
     'question for the person.',
@@ -219,4 +236,4 @@ function syncEveryone(roster) {
   return told;
 }
 
-module.exports = { START, END, blockBody, tellAgent, syncEveryone };
+module.exports = { START, END, blockBody, cliAdvice, tellAgent, syncEveryone };

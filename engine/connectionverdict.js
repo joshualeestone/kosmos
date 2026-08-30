@@ -10,8 +10,15 @@
  *   connect.state()            carries `url`, a LIVE OAuth authorize URL, and
  *                              `tail`, 12 lines of raw terminal output from the
  *                              pane where the person pastes their sign-in code
- *   accounts/openaiaccounts    carry `email` and `dir`
+ *   accounts/openaiaccounts    carry `email`, `dir` and `keyTail`
  *   runners.status()           carries `bin`, a filesystem path
+ *
+ * ⚠️ `keyTail` WAS MISSING FROM THIS LIST UNTIL ITERATION 13, AND IT IS THE ONE
+ * THE PROOF ORIGINALLY MISSED. The leak test's first fixture had no keyTail, so
+ * it passed while saying nothing about that field; the fixture was corrected and
+ * this list, which is what a future reader consults, was not. The plan names its
+ * own weakest premise as "the allowlist is only as good as its list", so a
+ * sensitive field absent from the list is that premise failing quietly.
  *
  * A live sign-in URL is a BEARER CREDENTIAL for its window: an agent holding
  * one can complete a sign-in as the person. So the default is do not expose,

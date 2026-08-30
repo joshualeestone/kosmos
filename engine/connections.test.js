@@ -102,6 +102,42 @@ test('#1034: the connections paragraph is actually IN the block, and says the th
   assert.ok(body.length > 500, 'control: blockBody returned almost nothing');
 });
 
+test('#1034: BOTH advice arms render, including the one no machine here can reach', () => {
+  /**
+   * 🛑 THE BARE-FALLBACK ARM IS UNREACHABLE IN EVERY ENVIRONMENT THIS SUITE RUNS
+   * IN. `kosmosCliShown()` returns a path on a source checkout and in a bundle,
+   * so the non-path prose never rendered under test and a typo in it would have
+   * shipped unseen. That is why `cliAdvice` is a pure function of the resolved
+   * string: it is the seam that makes the unreachable arm reachable.
+   *
+   * `blockBody` deliberately keeps no argument (asserted below), so the seam
+   * could not go there.
+   */
+  const asPath = connections.cliAdvice('/opt/kosmos/bin/kosmos').join('\n');
+  const asBare = connections.cliAdvice('kosmos').join('\n');
+
+  // Each arm says the thing only it can say...
+  assert.match(asPath, /that path is not there/,
+    'the path arm stopped describing a path');
+  assert.doesNotMatch(asBare, /that path is not there/,
+    'the bare arm describes a path it never gave');
+  assert.match(asBare, /could not work out where its own command lives/,
+    'the bare arm does not admit we failed to locate the command');
+
+  // ...and BOTH cover the two failure modes that are not about the path at all,
+  // because an agent hitting either got a non-zero exit and no next step.
+  for (const [name, text] of [['path', asPath], ['bare', asBare]]) {
+    assert.match(text, /not running/, `${name} arm: no advice for a board that is not running`);
+    assert.match(text, /list of commands/, `${name} arm: no advice for an older installed copy`);
+    assert.match(text, /open Kosmos/, `${name} arm: no next step at all`);
+  }
+
+  // CONTROL: the two arms must actually DIFFER, or this test would pass with the
+  // chooser hard-wired to one branch, which is the defect it exists to prevent.
+  assert.notEqual(asPath, asBare,
+    'control: both arms rendered identically, so the chooser is not choosing');
+});
+
 test('#1034: it carries no CREDENTIAL and no PER-AGENT state', () => {
   /* 🛑 RENAMED AND REWRITTEN, BECAUSE THIS BRANCH OVERTURNED WHAT IT SAID. It
      used to be called "it carries NO machine state, the line between part one and

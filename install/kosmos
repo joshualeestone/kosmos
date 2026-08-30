@@ -684,12 +684,24 @@ cmd_whoami() {
 # trying to get connected.
 cmd_connections() {
   if ! healthy; then
-    say "Kosmos is not running, so it cannot tell you what is connected. Start it with: kosmos start"
+    # ⚠️ "$SELF start", NOT bare "kosmos start". Every sibling verb says the bare
+    # form and this deliberately does not match them, for one reason: THIS verb's
+    # primary caller is an AGENT that was handed an absolute path, and the bare
+    # form is what engine/connections.js:3 calls a measured lie on a stock
+    # install (~/.local/bin is not on a default macOS PATH). A person in a
+    # terminal usually has it working; an agent following instructions does not.
+    # The siblings are reached by a person and are left alone on purpose:
+    # changing them is a separate card, not a drive-by in a privacy change.
+    say "Kosmos is not running, so it cannot tell you what is connected. Start it with: $SELF start"
     exit 1
   fi
   local body
-  # ⏱ 40s, not 15. This route composes a LIVE per-account check (a `claude auth
-  # status` subprocess each) plus THREE first-party doors. (It used to be the
+  # ⏱ 40s, not 15. This route composes a LIVE per-account check for BOTH
+  # providers (a `claude auth status` subprocess per Claude account, and an
+  # authenticated request to api.openai.com per OpenAI account) plus THREE
+  # first-party doors. The OpenAI half was missing from this sentence too, and it
+  # is the one that depends on the network rather than on this machine, which is
+  # most of the reason 15s was not enough. (It used to be the
   # whole door sweep; the metered token doors were dropped from this route as a
   # money decision, so the budget is smaller than it was when 40s was chosen.
   # Left at 40 deliberately: the cost that set it was the per-account subprocess
@@ -734,7 +746,12 @@ cmd_connections() {
   fi
   # The board composed every sentence; this prints them rather than inventing
   # its own, the same rule `whoami` states.
-  printf '%s\n' "$body" | "$NODE" -e '
+  # The resolved restart command goes in through the ENVIRONMENT, the same shape
+  # line 433 already uses for KOSMOS_PKG. It cannot be interpolated into the
+  # script text: that is a single-quoted shell string, and a path with an
+  # apostrophe in it would end the script (which is what the apostrophe guard
+  # test in this file exists to catch).
+  printf '%s\n' "$body" | KOSMOS_RESTART_CMD="$SELF restart" "$NODE" -e '
     let raw = ""; process.stdin.on("data", (d) => { raw += d; });
     process.stdin.on("end", () => {
       let v = null;
@@ -751,7 +768,7 @@ cmd_connections() {
            single-quoted shell string and one apostrophe ends the file. */
         if (/no such endpoint/i.test(v.error)) {
           console.log("This copy of Kosmos does not know how to answer that yet.");
-          console.log("The board is running an older version. Restart it with: kosmos restart");
+          console.log("The board is running an older version. Restart it with: " + (process.env.KOSMOS_RESTART_CMD || "kosmos restart"));
         } else {
           console.log(v.error);
         }

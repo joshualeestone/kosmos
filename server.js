@@ -3009,9 +3009,25 @@ const server = http.createServer((req, res) => {
          THAN LEAVING FOR SOMEBODY TO DISCOVER. `/api/agent/connections` is called
          by AGENTS, and the instruction block tells every agent the verb exists.
          An agent is not a hand on a screen: nothing here rate-limits, caches or
-         debounces it, and EACH CALL IS A LIVE `claude auth status` PER ACCOUNT
-         PLUS THREE FIRST-PARTY DOOR CHECKS (it said EVERY DOOR CHECK until the
-         token doors were removed from the agent route; see below). It is still demand-paced rather than a tick, an
+         debounces it, and EACH CALL IS A LIVE `claude auth status` PER CLAUDE
+         ACCOUNT, A LIVE AUTHENTICATED REQUEST TO api.openai.com PER OPENAI
+         ACCOUNT, PLUS THREE FIRST-PARTY DOOR CHECKS.
+         🛑 THE OPENAI HALF WAS MISSING FROM THIS SENTENCE UNTIL ITERATION 13, AND
+         IT IS THE HALF THAT LEAVES THE MACHINE. `openaiAccounts.listLive()` ->
+         `checkLive` -> `askModels` issues an uncached
+         `GET https://api.openai.com/v1/models` carrying the person's REAL KEY as
+         a bearer token, once per apikey account, on every call. Measured: the
+         string `cache` appears ZERO times in engine/openaiaccounts.js (control:
+         `async` appears 5 times, so the grep works).
+         ⚠️ NOT the Brave/Exa/Tavily money case: /v1/models is not token-billed,
+         which is why it was not swept out with the token doors. It is still a
+         third-party authenticated round trip per agent call, and a paragraph
+         accounting for this route's cost that names only the local subprocess
+         understates what actually happens. Named rather than removed, because
+         the OpenAI rows are what the card is FOR (an agent helping somebody
+         connect GPT), unlike the token doors which bought nothing. Carded at
+         #1618 with the rest of the fan-out. (It said EVERY DOOR CHECK until the
+         token doors were removed from the agent route; see below.) It is still demand-paced rather than a tick, an
          agent asks to answer a question, but the phrase is doing more work than
          it did. If this route ever appears in a polling loop, THE CACHE BELONGS
          HERE, NOT IN THE CALLER.
