@@ -913,7 +913,11 @@ async function start(opts) {
     let binaryOnDisk = false;
     try { fs.accessSync(claudeBinPath(), fs.constants.X_OK); binaryOnDisk = true; } catch { /* nothing to run */ }
 
-    const live = await subscription.checkLive(configDir ? { configDir } : undefined);
+    /* With nothing on disk to run we fall through regardless, so do not spawn
+       `claude auth status` against a path that does not exist. */
+    const live = binaryOnDisk
+      ? await subscription.checkLive(configDir ? { configDir } : undefined)
+      : { state: subscription.STATE.UNKNOWN };
     if (!binaryOnDisk || live.state === subscription.STATE.NONE) {
       /**
        * ⚠️ TWO REASONS REACH HERE NOW, AND NEITHER IS AN ERROR TO SHOW SOMEBODY.
@@ -1340,7 +1344,7 @@ async function runFlow(owner, haveBinary) {
    *   `!haveBinary`  this is only about the case where installing was the
    *                  missing step. A flow that skipped the install has nothing
    *                  new to learn and must not re-decide.
-   *   `checkLive`    the file over-claims by design (#1555); the same standard
+   *   `checkLive`    the file over-claims by design (#1560); the same standard
    *                  start() applies must apply here, or the guard is decorative.
    * Caught by the #1562 matrix cells, not by the suite, which stayed green.
    */
@@ -1348,7 +1352,23 @@ async function runFlow(owner, haveBinary) {
     const already = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
     if (already.state === subscription.STATE.CONNECTED) {
       const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);
-      if (live.state !== subscription.STATE.NONE) {
+      /**
+       * 🛑 CONNECTED, NOT "NOT NONE", AND THE ASYMMETRY WITH start() IS
+       * DELIBERATE. `start()` treats UNKNOWN as "keep the old behaviour",
+       * because refusing there would push a genuinely connected customer into a
+       * sign-in every time the probe was flaky. That reasoning does not survive
+       * to this point: the person has ALREADY clicked Connect and already waited
+       * for a 281MB download, so a sign-in screen is not an imposition, it is
+       * the thing they asked for.
+       *
+       * ⚠️ AND THE PROBE IS AT ITS LEAST RELIABLE EXACTLY HERE. It runs against
+       * a binary that has never executed, seconds after install, and `checkLive`
+       * answers UNKNOWN on timeout, on ENOENT, or on any stdout that is not pure
+       * JSON -- one line of first-run chatter is enough. Reading UNKNOWN as
+       * connected would declare a SIGNED-OUT person connected off a stale file,
+       * which is #1560 again.
+       */
+      if (live.state === subscription.STATE.CONNECTED) {
         await finishConnected(owner, already);
         return;
       }

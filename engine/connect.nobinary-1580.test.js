@@ -55,6 +55,27 @@ async function cell(t, { binary, fileSaysPaid, liveLoggedIn }) {
   return st.phase;
 }
 
+/**
+ * 🛑 READ THE SETTLED PHASE, NOT `start()`'s IMMEDIATE RETURN. A review measured
+ * that one of these tests went red under a mutation for the wrong reason: it saw
+ * `idle` (the flow had not written a phase yet) rather than a lockout, because
+ * removing a guard inserted an `await` before `launchSignin`'s synchronous
+ * `writeState`. Settled, that mutation was behaviourally inert for the cell.
+ *
+ * ⇒ An assertion on the immediate return cannot tell "wrote the wrong phase"
+ * from "has not written one yet", so any future refactor that adds an unrelated
+ * await would redden these with a misleading message.
+ */
+async function settled(ms = 6000) {
+  const deadline = Date.now() + ms;
+  const moving = [connect.PHASE.DOWNLOADING, connect.PHASE.INSTALLING, connect.PHASE.IDLE];
+  while (Date.now() < deadline) {
+    if (!moving.includes(connect.state().phase)) break;
+    await new Promise((r) => setTimeout(r, 60));
+  }
+  return connect.state().phase;
+}
+
 test('#1580: signed in with NO binary is not reported connected, it is offered the install', async (t) => {
   const phase = await cell(t, { binary: false, fileSaysPaid: true, liveLoggedIn: true });
   assert.notEqual(phase, connect.PHASE.CONNECTED,
@@ -77,14 +98,14 @@ test('#1560 MUST NOT RETURN: signed OUT with a stale paid-plan file still reache
    * end of runFlow: #1560's lockout, re-entering through the back door of its
    * own fix. The full suite stayed green; only this cell caught it.
    */
-  const phase = await cell(t, { binary: true, fileSaysPaid: true, liveLoggedIn: false });
-  assert.equal(phase, connect.PHASE.SIGNIN_LAUNCHING,
+  await cell(t, { binary: true, fileSaysPaid: true, liveLoggedIn: false });
+  assert.equal(await settled(), connect.PHASE.SIGNIN_LAUNCHING,
     'a signed-out person with a stale paid-plan file was locked out again');
 });
 
 test('#1580 CONTROL: signed out with a CLEAN file also reaches sign-in', async (t) => {
-  const phase = await cell(t, { binary: true, fileSaysPaid: false, liveLoggedIn: false });
-  assert.equal(phase, connect.PHASE.SIGNIN_LAUNCHING);
+  await cell(t, { binary: true, fileSaysPaid: false, liveLoggedIn: false });
+  assert.equal(await settled(), connect.PHASE.SIGNIN_LAUNCHING);
 });
 
 /**
@@ -148,6 +169,87 @@ test('#1560 MUST NOT RETURN VIA THE INSTALL PATH: no binary, signed out, stale p
       && connect.state().phase !== connect.PHASE.INSTALLING) break;
     await new Promise((r) => setTimeout(r, 80));
   }
-  assert.notEqual(connect.state().phase, connect.PHASE.CONNECTED,
+  /* ⚠️ AN EQUALITY, NOT `notEqual(CONNECTED)`. A review sabotaged the install so
+     the flow reached STUCK, and the negative form still passed: it named the
+     #1560 path and was satisfied by an unrelated failure. */
+  assert.equal(connect.state().phase, connect.PHASE.SIGNIN_LAUNCHING,
     'installing the binary declared a SIGNED-OUT person connected: #1560 through the install path');
+});
+
+test('#1580 part 2: installing the missing binary FINISHES the job for a signed-in person', async (t) => {
+  /**
+   * 🛑 THE ONE BEHAVIOUR PART 2 EXISTS TO PRODUCE, AND IT HAD NO TEST. A review
+   * deleted the whole post-install block and ran 1671 tests green: every other
+   * assertion in this file is either about part 1 or is a NEGATIVE ("must not be
+   * connected"), so nothing detected part 2 never firing. Only over-firing was
+   * caught.
+   *
+   * ⇒ A guard's positive case needs an arm of its own. Measured with the block
+   * deleted: this cell settles at `signin-launching`, walking somebody who was
+   * already signed in through a sign-in they do not need.
+   */
+  const binary = crypto.randomBytes(16 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, binary, checksum);
+  const bin = nodePath.join(SANDBOX, `claude-p2-${Math.random().toString(36).slice(2, 8)}`);
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;                     // ABSENT
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(PAID_FILE));
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  connect.setRunner((file, args) => {
+    if (args && args[0] === 'install') { fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bin, 0o755); }
+    return { ok: true, stdout: '' };
+  });
+  connect.setDryRun(false);
+  connect.setTickInterval(60);
+  t.after(() => {
+    connect.setRunner(null); subscription.setRunner(null); connect.resetForTests();
+    delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+    delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  });
+
+  assert.equal(await connect.start().then((s) => s.phase), connect.PHASE.DOWNLOADING);
+  assert.equal(await settled(9000), connect.PHASE.CONNECTED,
+    'the binary was the only thing missing, so installing it should finish the job, not start a sign-in');
+  assert.equal(fs.existsSync(bin), true, 'the install did not actually produce a binary');
+});
+
+test('#1580 part 2: an UNANSWERABLE post-install probe must not declare a stale file connected', async (t) => {
+  /**
+   * 🛑 THE PROBE IS AT ITS LEAST RELIABLE EXACTLY HERE: it runs against a binary
+   * that has never executed, seconds after a 281MB install. `checkLive` answers
+   * UNKNOWN on a timeout, on ENOENT, or on any stdout that is not pure JSON, so
+   * one line of first-run chatter is enough.
+   *
+   * ⚠️ Reading UNKNOWN as connected declares somebody connected off a stale
+   * paid-plan file, which is #1560 again through the install path. `start()`
+   * treats UNKNOWN as "keep the old behaviour" for a good reason that does not
+   * survive to this point: here the person has already clicked Connect and
+   * already waited for the download, so a sign-in is what they asked for.
+   *
+   * Measured: without this arm, reverting the check to `!== NONE` left the whole
+   * file green.
+   */
+  const binary = crypto.randomBytes(16 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, binary, checksum);
+  const bin = nodePath.join(SANDBOX, `claude-unk-${Math.random().toString(36).slice(2, 8)}`);
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;                     // ABSENT
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(PAID_FILE));
+  // first-run chatter rather than JSON: checkLive cannot parse it, so UNKNOWN
+  subscription.setRunner(async () => ({ stdout: 'Welcome to Claude Code!\n{"loggedIn":true}', err: null }));
+  connect.setRunner((file, args) => {
+    if (args && args[0] === 'install') { fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bin, 0o755); }
+    return { ok: true, stdout: '' };
+  });
+  connect.setDryRun(false);
+  connect.setTickInterval(60);
+  t.after(() => {
+    connect.setRunner(null); subscription.setRunner(null); connect.resetForTests();
+    delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+    delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  });
+
+  await connect.start();
+  assert.equal(await settled(9000), connect.PHASE.SIGNIN_LAUNCHING,
+    'an unanswerable probe was read as connected, off a stale paid-plan file');
 });
