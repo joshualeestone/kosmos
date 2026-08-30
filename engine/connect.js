@@ -880,6 +880,17 @@ async function start(opts) {
  *
  * It never calls becomeStuck itself.
  *
+ * ⚠️ ONE TRUE EXCEPTION TO "BEHAVIOUR-NEUTRAL BY CONSTRUCTION", NAMED RATHER
+ * THAN GLOSSED. Every early return here is now separated from the caller's
+ * reaction by an AWAIT MICROTASK HOP that did not exist when this was inline:
+ * the sweep and unlink used to run in the same synchronous block as
+ * `becomeStuck`, and now the unlink happens in the callee and `becomeStuck` a
+ * microtask later. Only another microtask can interleave there, since a request
+ * handler is a macrotask, and the one interleaving that could matter is a
+ * `cancel()` -- which makes `becomeStuck` no-op, which is what cancel wants
+ * anyway. So it is harmless, and it is still a real difference from "identical
+ * by construction".
+ *
  * 🛑 SINGLE-FLIGHT PER PROCESS. This is not re-entrant and must not run
  * concurrently with itself. Two in-flight calls share the module-global
  * `activeRequest` and the single `store.ROOT/downloads` directory, whose

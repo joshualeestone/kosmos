@@ -143,8 +143,8 @@ test('a cancelled install returns the CANCELLED shape AND never runs the install
   /**
    * 🛑 THE SHAPE ALONE DOES NOT PIN THIS BRANCH, AND ASSERTING ONLY THE SHAPE
    * LET A REAL MUTATION THROUGH. Measured: replacing the post-download
-   * `if (hooks.cancelled())` with `if (false)` left all 16 tests here and all
-   * 49 in connect.test.js GREEN -- because the SECOND cancel site, after the
+   * `if (hooks.cancelled())` with `if (false)` left EVERY test here and in
+   * connect.test.js GREEN -- because the SECOND cancel site, after the
    * install child has already run, returns the same `{ok:false,cancelled:true}`.
    * So the flow emitted INSTALLING and EXECUTED THE INSTALLER for somebody who
    * had cancelled, and every assertion still passed.
@@ -355,8 +355,10 @@ test('a download whose checksum does not match is a FAILURE, not a cancellation'
 test('an install that reports success but leaves no runnable binary is caught', async (t) => {
   /**
    * The `accessSync` arm. Verified untested before this: its message string
-   * matched 0 test files, against 2 for its sibling 'did not finish setting
-   * itself up'. It is the case where the vendor installer exits 0 and puts the
+   * matched 0 test files against 1 for its sibling 'did not
+   * finish setting itself up' -- BOTH figures taken on `main`, so the contrast
+   * is within one tree. (On this branch they read 1 and 2, because this file
+   * adds one of each; quoting one figure from each tree is not a comparison.) It is the case where the vendor installer exits 0 and puts the
    * binary somewhere we do not expect, which is indistinguishable from success
    * unless something checks the disk.
    */
@@ -414,7 +416,7 @@ test('cancel landing WHILE THE INSTALL CHILD RUNS returns the cancelled shape', 
  * ⚠️ TWO WRONG VEHICLES FOR TESTING THE SWEEP, BOTH TRIED, BOTH RECORDED.
  *
  * 1. A CHECKSUM REFUSAL: `download()` unlinks its own `.part` at
- *    connect.js:532 before throwing, so nothing is left and both arms match.
+ *    connect.js:530 before throwing, so nothing is left and both arms match.
  * 2. A PLANTED STALE PARTIAL FROM ANOTHER VERSION: `download()` has its own
  *    PRE-download sweep that is NOT gated by the hook, so it clears the
  *    planted file before the failure happens. Measured: both arms empty.
