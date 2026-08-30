@@ -44,20 +44,36 @@ reason.
 
 ## Verification
 
-- full suite on `origin/main`: 3051 pass, 0 fail
-- full suite on the branch: 3067 pass, 0 fail (the branch ADDS tests, so the
-  two figures cannot match; an earlier version of this line reported the main
-  number for both, which is arithmetically impossible for a change that adds
-  a test file)
+- full suite on the branch, rebased onto current main: **3080 pass, 0 fail**
+  (the branch adds tests, so this figure and main's cannot match; an earlier
+  version of this line reported main's number for both, which is arithmetically
+  impossible for a change that adds a test file, and a later version was still
+  off by one against a clean run)
+- all FIVE `fs.unlinkSync(downloaded.path)` cleanups are now pinned: four by
+  assertions in the contract file, one by the pre-existing
+  `engine/connect.test.js:216`. Each verified red under its own mutation.
 - `engine/connect.install-997.test.js`: direct contract tests for the three
   return shapes, the hook guard, and the #458 predicate distinction, each arm
   perturbed and confirmed to go red independently
 - coverage is not vacuous: planting a throw in `installClaudeCode` turns
   existing tests red, so they do reach it
 
-## Known open item
+## Known open items
 
 An earlier suite run on this branch showed 3 failures that did not reproduce
 under higher load and are green in isolation. Carded separately as kosmos#1551
 with four dead candidate mechanisms. Not caused by this change: more load made
 it cleaner, which falsifies "the diff broke it".
+
+### The hook WIRING is not pinned, and that is carded rather than fixed here
+
+Measured: four of five hooks can be wired to a wrong implementation in `runFlow`
+with the full suite green (`cancelled: () => false`, `wantsProgress: () => true`,
+dropping the zeroed progress, dropping `startedOnce`, removing the throttle).
+Only `maySweepDownloads` is pinned.
+
+Scoped honestly: the equivalent mutation survives on `main` too for at least the
+`cancelled` case, so this change did not create the hole. It **relocated** it:
+inline conditions became a caller-supplied seam, and all 17 contract tests sit on
+the callee's side of it. Filed as kosmos#1569 with the measurements and the
+reason the obvious test for `cancelled` does not work.

@@ -49,7 +49,6 @@ function serveRelease(t, { version, binary, checksum }, opts = {}) {
     }),
     [`/${version}/${connect.platformKey()}/claude`]: () => binary,
   };
-  if (opts.missingBinary) delete paths[`/${version}/${connect.platformKey()}/claude`];
   const server = http.createServer((req, res) => {
     if (opts.dieMidStream && req.url === `/${version}/${connect.platformKey()}/claude`) {
       // Promise a megabyte, deliver 64KB, then kill the socket. This is the only
@@ -108,7 +107,7 @@ async function withRelease(t, over = {}, opts = {}) {
     : crypto.createHash('sha256').update(binary).digest('hex');
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE =
     await serveRelease(t, { version: '9.9.5', binary, checksum },
-      { missingBinary: opts.missingBinary, dieMidStream: opts.dieMidStream });
+      { dieMidStream: opts.dieMidStream });
   const binPath = nodePath.join(SANDBOX, `claude-bin-${crypto.randomBytes(4).toString('hex')}`);
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = binPath;
   // setRunner BEFORE setDryRun: the module refuses to leave dry-run with no
@@ -165,6 +164,8 @@ test('a cancelled install returns the CANCELLED shape AND never runs the install
     'a flow cancelled after the download must never announce INSTALLING');
   assert.deepEqual(ran, [],
     'a flow cancelled after the download must never execute the installer');
+  assert.deepEqual(downloadsMatching(/^claude-/), [],
+    'a cancelled flow must not strand the 281MB binary it had already fetched');
 });
 
 test('the cancelled shape carries a message, so a caller that ignores the flag cannot render undefined', async (t) => {
@@ -230,6 +231,9 @@ test('a missing hook throws AT ENTRY, before any phase is written', async () => 
 test('CONTROL: the full stub set gets past the entry guard and SUCCEEDS', async (t) => {
   const res = await withRelease(t, {});
   assert.equal(res.ok, true, 'a complete hook set must reach the success path');
+  // The success path deletes the downloaded artifact too, once it is installed.
+  assert.deepEqual(downloadsMatching(/^claude-/), [],
+    'a successful install must not leave the downloaded binary behind');
 });
 
 test('onPhase receives DOWNLOADING then INSTALLING, in that order, once each', async (t) => {
@@ -333,26 +337,34 @@ test('an install that reports success but leaves no runnable binary is caught', 
   assert.equal(res.ok, false);
   assert.ok(!res.cancelled);
   assert.match(res.message, /cannot find it where it should be/);
+  assert.deepEqual(downloadsMatching(/^claude-/), [],
+    'a failed access check must not strand the downloaded binary');
   // ⚠️ AND THE 281MB GOES TOO. Measured: deleting the unlink from this catch
   // survives every other test in the repo, stranding a binary per attempt --
   // the exact failure connect.test.js:216 exists to prevent for the sibling
   // !inst.ok path, with no guard on this one.
   /**
-   * 🛑 THE 281MB CLEANUP ON THIS ARM IS NOT GUARDED, AND I AM SAYING SO RATHER
-   * THAN FAKING IT. A review measured that deleting `fs.unlinkSync` from this
-   * catch survives the whole suite, stranding a binary per attempt -- the exact
-   * failure `engine/connect.test.js:216` prevents for the sibling `!inst.ok`
-   * path.
+   * ⚠️ AND THE 281MB GOES TOO. Measured, both arms: deleting the unlink from
+   * this catch leaves `claude-9.9.5-darwin-arm64` behind, stranding a binary
+   * per attempt -- the failure `engine/connect.test.js:216` prevents for the
+   * sibling `!inst.ok` path, which had no guard on this one.
    *
-   * ⚠️ I WROTE AN ASSERTION FOR IT AND IT WAS VACUOUS. Measured with the
-   * mutation applied AND with it absent: the downloads directory reads empty
-   * BOTH times, so `deepEqual(downloadsMatching(...), [])` passed no matter
-   * what the code did. A check that cannot fail is worse than no check,
-   * because the next person reads it as coverage.
+   * 📌 I PREVIOUSLY WROTE THAT THIS ASSERTION WAS IMPOSSIBLE. It is not, and
+   * the MEASURED cause is worth more than the line, because it was neither the
+   * reason I gave nor the reason offered when I was corrected.
    *
-   * 📌 UNRESOLVED: why the dest file is already gone at this point. Until that
-   * is understood, an assertion here would be decoration. Left unguarded and
-   * named, not papered over.
+   * 🛑 MY MUTATION WAS HITTING A DIFFERENT UNLINK. I located the branch by
+   * searching for its message text, and that string ALSO APPEARS IN A COMMENT
+   * two hundred lines earlier which quotes the wording. The backward search
+   * from that comment landed on the post-download CANCEL unlink, so I was
+   * deleting a line this test never reaches, seeing no change, and concluding
+   * the assertion could not work. Anchoring on `return fail('Claude said it...`
+   * instead turns it red immediately.
+   *
+   * ⭐ SEARCHING FOR A USER-FACING STRING FINDS THE COMMENT THAT QUOTES IT.
+   * Anchor a mutation on the CALL, never on the message. And a comment
+   * asserting a guard is impossible is worse than a missing guard, because
+   * nobody re-derives it.
    */
 
 });
@@ -369,6 +381,8 @@ test('cancel landing WHILE THE INSTALL CHILD RUNS returns the cancelled shape', 
   });
   assert.equal(res.ok, false);
   assert.equal(res.cancelled, true, 'a cancel during install is a cancellation, not a failure');
+  assert.deepEqual(downloadsMatching(/^claude-/), [],
+    'a cancel during install must not strand the downloaded binary either');
 });
 
 /**

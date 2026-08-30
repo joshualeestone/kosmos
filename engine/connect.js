@@ -1046,8 +1046,10 @@ async function runFlow(owner, haveBinary) {
       maySweepDownloads: () => driver === owner || driver === null,
       wantsProgress: () => mem.phase === PHASE.DOWNLOADING,
       /**
-       * Receives exactly two phases, in this order, once each:
-       * DOWNLOADING then INSTALLING. DOWNLOADING carries a zeroed progress
+       * Receives DOWNLOADING, then INSTALLING, once each -- ON THE PATH THAT
+       * GETS THAT FAR. A download failure or a post-download cancel emits
+       * DOWNLOADING alone and never INSTALLING, which is the whole point of the
+       * cancel assertions in the contract tests. DOWNLOADING carries a zeroed progress
        * because `writeState` REPLACES rather than merges, so omitting it would
        * leave a previous flow's numbers on screen under a fresh download.
        */
@@ -1072,6 +1074,22 @@ async function runFlow(owner, haveBinary) {
     // bare `return`s into a result the caller has to read, and MY FIRST
     // EXTRACTION SILENTLY DROPPED BOTH -- a cancelled flow would have carried
     // on installing. Found by reading the extracted control flow, not by a test.
+    /**
+     * 📌 DEFENSIVE, AND UNOBSERVABLE FROM OUTSIDE TODAY. Measured: deleting this
+     * line leaves every test in the repo green, and no test COULD catch it,
+     * because the next line's `becomeStuck` already returns early on
+     * `driver !== owner` -- which is exactly what `cancelled()` means here. So
+     * a test asserting "a cancelled flow does not land in STUCK" would pass
+     * with or without it, which makes it a guard that cannot fail rather than
+     * a guard.
+     *
+     * ⚠️ IT STAYS ANYWAY, AND NOT OUT OF CAUTION. It is load-bearing for the
+     * SECOND CALLER this function was extracted for, whose failure reporting
+     * has no such coincidental guard: without this line the obvious
+     * `if (!res.ok) report(res.message)` puts a failure message on a flow the
+     * person deliberately stopped. Recorded so nobody deletes it as dead code
+     * on the strength of a green suite.
+     */
     if (res.cancelled) return;
     if (!res.ok) { becomeStuck(owner, res.message, res.detail); return; }
   }
