@@ -2589,13 +2589,25 @@ const server = http.createServer((req, res) => {
         const whichAcct = acct
           ? (acct.email ? ` (${acct.email})` : acct.keyTail ? ` (API key ending ${acct.keyTail})` : '')
           : '';
-        /* The OK-branch sentence. (The partial branch has its own, further down,
-           in the future tense; this const is not used there.) */
-        const landedOn = acct
+        /**
+         * One place the account is named, two tenses.
+         *
+         * ⚠️ THE TENSE SPLIT IS THE POINT AND IS PRESERVED, not smoothed away: the
+         * OK branch says the agent RUNS on it, the partial branch says it WILL when
+         * it restarts, because there the plist already carries the chosen home but
+         * the agent has not moved to it yet and the sentence beside it says so.
+         * What was duplicated is the other axis -- picked-versus-default -- which
+         * was written out four times over the same `whichAcct`. Three separate
+         * reviews raised the repetition; the risk of consolidating was always that
+         * somebody would collapse the tenses too, so they are parameters here
+         * rather than an accident of copying.
+         */
+        const runsOn = (tense) => (acct
           ? (acct.chosen
-            ? ` It runs on the OpenAI sign-in you picked${whichAcct}.`
-            : ` It runs on your OpenAI sign-in${whichAcct}.`)
-          : '';
+            ? ` ${tense} the OpenAI sign-in you picked${whichAcct}.`
+            : ` ${tense} your OpenAI sign-in${whichAcct}.`)
+          : '');
+        const landedOn = runsOn('It runs on');
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           provider: wrote.provider,
@@ -2612,11 +2624,7 @@ const server = http.createServer((req, res) => {
                  as before. Reusing "It runs on X" would contradict that in the same
                  paragraph, and this is the branch where something already went wrong,
                  which is where a confident-sounding sentence costs most. */
-              + (acct
-                ? (acct.chosen
-                  ? ` When it restarts it will run on the OpenAI sign-in you picked${whichAcct}.`
-                  : ` When it restarts it will run on your OpenAI sign-in${whichAcct}.`)
-                : ''),
+              + runsOn('When it restarts it will run on'),
           steps: back.steps || [],
         });
       })

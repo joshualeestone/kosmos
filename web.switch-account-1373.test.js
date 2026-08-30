@@ -480,13 +480,22 @@ test('#1373: the dialog only echoes a pick that a person actually made', () => {
    where something already went wrong, which is where a confident-sounding sentence
    costs most. */
 test('#1373: the partial-restart answer names the account, in its own tense, on both arms', () => {
-  assert.match(SERVER, /When it restarts it will run on the OpenAI sign-in you picked/,
-    'the partial branch no longer names a chosen account');
-  assert.match(SERVER, /When it restarts it will run on your OpenAI sign-in/,
-    'the partial branch no longer names a stated default');
-  assert.match(SERVER,
-    /acct\.chosen[\s\S]{0,200}?When it restarts it will run on the OpenAI sign-in you picked[\s\S]{0,200}?When it restarts it will run on your OpenAI sign-in/,
-    'the two partial sentences are no longer the arms of the chosen conditional');
+  /* ⚠️ REWRITTEN WHEN THE FOUR SENTENCES BECAME ONE HELPER. The old version
+     pinned the partial branch's two LITERALS, and three reviews had flagged the
+     duplication those literals came from, so consolidating was right and broke
+     this guard. That is the "a change to rendered text leaves an existing check
+     asserting the old form" shape, arriving in the branch that keeps filing it.
+     ⇒ The PROPERTY is unchanged and is what is pinned now: the partial branch
+     still uses the FUTURE tense, and picked-versus-default is still the two arms
+     of one `acct.chosen` conditional rather than an unconditional claim. */
+  assert.match(SERVER, /runsOn\('When it restarts it will run on'\)/,
+    'the partial branch no longer names the account in the future tense');
+  assert.match(SERVER, /runsOn\('It runs on'\)/,
+    'the OK branch no longer names the account in the present tense');
+  // the tenses must DIFFER: reusing the present tense there is the contradiction
+  // the comment beside it forbids
+  assert.doesNotMatch(SERVER, /runsOn\('It runs on'\)[\s\S]{0,400}?could not start it again/,
+    'the partial branch is reusing the present-tense sentence');
 });
 
 /* 🛑 THE DIALOG'S FOUR ARMS WERE GUARDED BY NOTHING, and a reviewer measured it:
@@ -532,12 +541,13 @@ test('#1373: no arm of the dialog claims a pick unless a person picked', () => {
 
 test('#1373: the route says a different sentence for a pick than for a default', () => {
   assert.match(SERVER, /acct\.chosen/, 'the route no longer distinguishes a pick from a stated default');
-  assert.match(SERVER, /It runs on the OpenAI sign-in you picked/, 'the chosen-account sentence is gone');
-  assert.match(SERVER, /It runs on your OpenAI sign-in/, 'the stated-default sentence is gone');
+  assert.match(SERVER, /the OpenAI sign-in you picked/, 'the chosen-account wording is gone');
+  assert.match(SERVER, /your OpenAI sign-in/, 'the stated-default wording is gone');
   /* And they must be the two arms of ONE conditional, not two strings that
-     happen to exist: an unconditional "you picked" is the defect this guards. */
+     happen to exist: an unconditional "you picked" is the defect this guards.
+     Now checked inside the shared helper, since both tenses compose through it. */
   assert.match(SERVER,
-    /acct\.chosen[\s\S]{0,220}?It runs on the OpenAI sign-in you picked[\s\S]{0,220}?It runs on your OpenAI sign-in/,
+    /acct\.chosen[\s\S]{0,220}?the OpenAI sign-in you picked[\s\S]{0,220}?your OpenAI sign-in/,
     'the two sentences are no longer the arms of the chosen conditional');
 });
 

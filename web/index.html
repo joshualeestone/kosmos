@@ -22358,7 +22358,16 @@ function paintProviderPicker(a) {
 let SWITCH_ACCT_TOUCHED = false;
 /* One spelling, so the line that CLEARS the hint cannot drift from the line that
    writes it and leave an orphan on screen. */
+/* 🛑 ALL FOUR DECLARED TOGETHER, ABOVE EVERY READER. `fillSwitchAccountsSafely`
+   reads SWITCH_ACCT_BROKEN, and these were `const`-declared FIFTEEN LINES BELOW it.
+   Safe only because both call sites are deferred (an event listener, and the tail
+   of an async function), so the temporal dead zone is never entered today. A future
+   SYNCHRONOUS caller would throw a ReferenceError instead of showing the message.
+   Grouping them costs nothing and removes the hazard rather than documenting it. */
 const SWITCH_ACCT_HINT = 'Choose which OpenAI sign-in it runs on, or leave it as it is.';
+const SWITCH_ACCT_UNREADABLE = 'We could not read your OpenAI sign-ins, so there is nothing to choose from. Close this and open it again to retry.';
+const SWITCH_ACCT_STALE = 'This list may be out of date: we could not re-read your OpenAI sign-ins just now.';
+const SWITCH_ACCT_BROKEN = 'We could not show the OpenAI sign-in list just now.';
 /* 🛑 ONE GUARDED CALL, USED AT BOTH SITES, BECAUSE THE UNGUARDED ONE WAS THE IMPORTANT ONE.
    A throw in `fillSwitchAccounts` leaves the picker absent, and absent is also the
    legitimate not-armed state, so it cannot announce itself. That argument was applied to
@@ -22386,9 +22395,6 @@ function fillSwitchAccountsSafely() {
    to prevent, and it was committed in the string added next to them.
    ⇒ A single spelling is what makes the clear possible at all; an inline literal cannot
    be matched without repeating it. */
-const SWITCH_ACCT_UNREADABLE = 'We could not read your OpenAI sign-ins, so there is nothing to choose from. Close this and open it again to retry.';
-const SWITCH_ACCT_STALE = 'This list may be out of date: we could not re-read your OpenAI sign-ins just now.';
-const SWITCH_ACCT_BROKEN = 'We could not show the OpenAI sign-in list just now.';
 /* 🛑 WE CLEAR WHAT WE WROTE, NOT WHAT WE CAN NAME. The clear below used to compare the
    region against each of our constants by equality, which failed twice for the same
    reason: an APPENDED form matched neither, and a sentence naming an account cannot be a

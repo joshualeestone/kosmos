@@ -893,39 +893,26 @@ function setProvider(name, provider, opts) {
     let acct = accounts[0];
     if (wantDir) {
       const found = accounts.find((a) => a.dir === wantDir);
-      /* 🛑 FAILS CLOSED, and #1372 is exactly what makes this reachable. Now
-         that an OpenAI account can be REMOVED, a page that has not repainted
-         can hand us the directory of an account that is gone. Falling back to
-         accounts[0] would start the agent on an account the person did not
-         choose, and say nothing: the silent-wrong-account failure this card
-         exists to end. Refusing names a remedy the person can act on. */
-      /* 🛑 A REGRESSION THE #1373 CHANGE CAN CAUSE, AND THE FIX USES A DISTINCTION #1373
-         ALREADY CARRIES. Since the page began sending the visible row
-         on EVERY switch, an override machine could REFUSE a switch that used to
-         succeed: `list()` is collapsed to the override home here, the page builds
-         its menu from the unfiltered rows and drops any whose LIVE check said
-         `none`, so an override home with a revoked-but-parseable auth.json is
-         absent from the menu, the preselect is some other account, and a person
-         WHO TOUCHED NOTHING got a refusal.
-         ⇒ NOBODY CHOSE, SO THERE IS NOTHING TO REFUSE. An unpicked account is the
-         page telling us what it happened to be showing, not a request. Falling
-         back to the engine's own list restores exactly the pre-branch behaviour
-         for that person, and the refusal below now fires only on a REAL pick,
-         where "that account cannot be chosen here" is true and worth saying.
-         📌 AND THE CONFIRM DIALOG HAS ALREADY PROMISED THE SHOWN ROW ("it runs
-         on the sign-in shown above"), so with the menu showing and the picked row
-         absent from this list, the fallback can land on a DIFFERENT row than the
-         sentence the person confirmed. That gap is real and is accepted on
-         purpose: it is NOT silent, because the route names the account it
-         actually landed on, and the only alternative is refusing here, which IS
-         the regression the paragraph above exists to undo.
-         🛑 SO DO NOT "FIX" THIS BY RESTORING THE REFUSAL. */
-      /* 📌 ONLY A PICKED-AND-MISSING ACCOUNT REFUSES. An UNPICKED one that is not in the
-         list falls through this block untouched, keeping the `accounts[0]` its initialiser
-         already holds, which is the fallback that stops a person who touched nothing being
-         refused. Written as one condition rather than a fallback branch plus a refusal
-         branch, because the previous shape repeatedly stopped readers who had to work out
-         whether an assignment that changed nothing was doing something. */
+      /* 🛑 ONLY A PICKED-AND-MISSING ACCOUNT REFUSES. FAILING CLOSED IS SCOPED TO A
+         REAL PICK, and the two halves are not symmetrical.
+         PICKED: #1372 made this reachable -- an OpenAI account can now be REMOVED, so
+         a page that has not repainted can hand us a directory that is gone. Falling
+         back there would start the agent on an account the person did not choose and
+         say nothing, which is the silent-wrong-account failure this card exists to end.
+         UNPICKED: nobody chose, so there is nothing to refuse. Since the page began
+         sending the visible row on EVERY switch, refusing here would break a person who
+         touched nothing: on an override machine `list()` is collapsed to that one home,
+         while the page builds its menu from the unfiltered rows, so the preselect can be
+         a row this list does not contain. Such a row falls through untouched, keeping
+         the `accounts[0]` its initialiser already holds -- the pre-branch behaviour.
+         📌 ACCEPTED GAP, NOT AN OVERSIGHT: the dialog has already promised the shown row,
+         so an unpicked fallback can land on a DIFFERENT row than the sentence confirmed.
+         It is NOT silent -- the route names where it actually landed -- and the only
+         alternative is refusing, which is the regression this exists to undo.
+         🛑 SO DO NOT "FIX" THIS BY RESTORING THE REFUSAL.
+         (One condition rather than a fallback branch plus a refusal branch: the previous
+         shape stopped readers working out whether an assignment that changed nothing was
+         doing something.) */
       if (!found && (opts && opts.pickedByPerson === true)) {
         /* 🛑 TWO REASONS A NAMED ACCOUNT IS NOT IN THIS LIST, AND ONE SENTENCE
            CANNOT HONESTLY COVER BOTH. When AGENT_WORKFORCE_CODEX_HOME is set the
