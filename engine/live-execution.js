@@ -71,9 +71,9 @@ function refuseOrWarn(moduleName, file, args) {
   if (inTestProcess()) {
     throw new Error(
       moduleName + ' tried to execute "' + cmd + '" for real inside a test '
-      + 'process with no runner and no opt-in. Install a seam first: setRunner(fn), '
-      + 'or setDryRun(true) where available. Refusing rather than faking success, '
-      + "because this reaches the operator's live launchd and tmux.",
+      + 'process with no runner and no opt-in. Install a seam first: setRunner(fn) '
+      + '(both modules), or setDryRun(true) (remove.js). Refusing rather than faking '
+      + "success, because this reaches the operator's live launchd and tmux.",
     );
   }
   process.stderr.write(

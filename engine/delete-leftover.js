@@ -65,7 +65,7 @@ let runner = null;
    remove dry-runs while this executes live. Read at load (the board reads env at
    startup); a test controls it through resetForTests. */
 let DRY_RUN = process.env.AGENT_WORKFORCE_DRY_RUN === '1';
-function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; }
+function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; if (!runner) DRY_RUN = true; }
 /* Test seam (#1598): back to fail-closed (no runner, dry-run flag off) so a test
    can exercise the live-execution gate directly. */
 function resetForTests() { runner = null; DRY_RUN = false; }
