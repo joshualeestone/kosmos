@@ -123,8 +123,19 @@ test('#1034: BOTH advice arms render, including the one no machine here can reac
     'the path arm stopped describing a path');
   assert.doesNotMatch(asBare, /that path is not there/,
     'the bare arm describes a path it never gave');
-  assert.match(asBare, /could not work out where its own command lives/,
-    'the bare arm does not admit we failed to locate the command');
+  /* 🛑 THIS ARM USED TO REQUIRE THE BARE COPY TO SAY "could not work out where
+     its own command lives", AND THAT CLAIM IS FALSE IN ONE OF THE TWO CASES IT
+     COVERS. clipath returns the bare word either because both probes failed OR
+     because it resolved a path and DECLINED to print it (a path carrying
+     ["$`\!] or a newline). In the second, it worked the location out and
+     refused. So the test was pinning a wrong sentence into place, and the copy
+     fix had to break it to land. The invariant is the opposite: give the
+     REMEDY, assert no CAUSE. */
+  assert.doesNotMatch(asBare, /could not work out where/,
+    'the bare arm asserts a cause it cannot know: clipath also returns the bare '
+    + 'word for a path it resolved and refused to print');
+  assert.match(asBare, /may not be on your path/,
+    'the bare arm dropped the remedy, which is the half that is true either way');
 
   // ...and BOTH cover the two failure modes that are not about the path at all,
   // because an agent hitting either got a non-zero exit and no next step.
@@ -138,6 +149,38 @@ test('#1034: BOTH advice arms render, including the one no machine here can reac
   // chooser hard-wired to one branch, which is the defect it exists to prevent.
   assert.notEqual(asPath, asBare,
     'control: both arms rendered identically, so the chooser is not choosing');
+});
+
+test('#1034: the paragraph ORDER is the invariant, and nothing guarded it', () => {
+  /**
+   * 🛑 A RECORDED DEFECT WITH NO GUARD IS A DEFECT WITH A NOTE ATTACHED. The
+   * comment in engine/connections.js records that the troubleshooting must come
+   * AFTER the description, not between the command and it, because splicing it
+   * in the middle left "It tells you which providers are connected" with Kosmos
+   * as its nearest antecedent. The suite asserted the three sentences were
+   * PRESENT and never that they were in that order, so a future re-splice
+   * reproduces the exact defect silently.
+   *
+   * ⚠️ Order, not wording: each anchor is the shortest stable phrase in its
+   * paragraph, so a rewrite of the prose does not go red for nothing.
+   */
+  const body = connections.blockBody();
+  const cmd = body.indexOf('connections`');
+  const what = body.indexOf('It tells you which providers are');
+  const trouble = body.indexOf('If that path is not there');
+  const withheld = body.indexOf('deliberately does NOT show you');
+
+  for (const [name, at] of [['command', cmd], ['description', what], ['troubleshooting', trouble], ['withholding', withheld]]) {
+    assert.notEqual(at, -1, `control: the ${name} paragraph is not in the block at all`);
+  }
+
+  assert.ok(cmd < what,
+    'the description no longer follows the command it describes');
+  assert.ok(what < trouble,
+    'the troubleshooting is spliced between the command and its description again, '
+    + 'which is the recorded antecedent defect');
+  assert.ok(trouble < withheld,
+    'the withholding paragraph moved above the troubleshooting');
 });
 
 test('#1034: it carries no CREDENTIAL and no PER-AGENT state', () => {

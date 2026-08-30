@@ -3014,8 +3014,20 @@ const server = http.createServer((req, res) => {
          debounces it, and EACH CALL IS A LIVE `claude auth status` PER CLAUDE
          ACCOUNT, A LIVE AUTHENTICATED REQUEST TO api.openai.com PER OPENAI
          ACCOUNT, PLUS THREE FIRST-PARTY DOOR CHECKS.
-         🛑 THE OPENAI HALF WAS MISSING FROM THIS SENTENCE UNTIL ITERATION 13, AND
-         IT IS THE HALF THAT LEAVES THE MACHINE. `openaiAccounts.listLive()` ->
+         🛑 THREE REQUESTS LEAVE THIS MACHINE PER CALL, NOT ONE, AND THIS
+         PARAGRAPH HAS UNDERSTATED IT TWICE. Iteration 13 added the OpenAI call
+         and called it "the half that leaves the machine". Iteration 15 measured
+         the other two: `cloudflare.state()` issues an uncached
+         GET https://api.cloudflare.com/client/v4/user/tokens/verify with the
+         person's token (engine/cloudflare.js:22,37), and the github arm's
+         `gh === 'missing'` fallback reaches `githubdevice.state()` ->
+         `getUser(tok)` against https://api.github.com/user, also with their
+         token (engine/githubdevice.js:49,254). Measured: the string `cache`
+         appears ZERO times in either module (controls: `async` 6 and 7).
+         ⇒ "first-party and not metered per auth check" is true about BILLING and
+         was being read as "stays local". None of the three is billed, so the
+         money decision to drop the token doors stands unchanged. What was wrong
+         is the accounting, in the paragraph whose only job is the accounting. `openaiAccounts.listLive()` ->
          `checkLive` -> `askModels` issues an uncached
          `GET https://api.openai.com/v1/models` carrying the person's REAL KEY as
          a bearer token, once per apikey account, on every call. Measured: the

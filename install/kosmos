@@ -704,7 +704,11 @@ cmd_connections() {
   # authenticated request to api.openai.com per OpenAI account) plus THREE
   # first-party doors. The OpenAI half was missing from this sentence too, and it
   # is the one that depends on the network rather than on this machine, which is
-  # most of the reason 15s was not enough. (It used to be the
+  # most of the reason 15s was not enough.
+  # 🛑 CORRECTED AGAIN: THREE requests leave the machine, not one. Cloudflare and
+  # the github device fallback each make an uncached authenticated call too
+  # (measured: `cache` appears zero times in either module). None is billed, so
+  # the money decision is unchanged; the timeout budget is about all three. (It used to be the
   # whole door sweep; the metered token doors were dropped from this route as a
   # money decision, so the budget is smaller than it was when 40s was chosen.
   # Left at 40 deliberately: the cost that set it was the per-account subprocess
@@ -721,7 +725,10 @@ cmd_connections() {
   # looked fine. Every sibling verb (`cmd_msg`, `cmd_whoami`) uses this form.
   # ⚠️ And no `2>&1`: folding curl's stderr into $body swallowed its own message
   # as well, so a person got silence from both halves at once.
-  # ⭐ `2>/dev/null` is NOT the same mistake, and it is what the sibling verbs use.
+  # ⭐ `2>/dev/null` is NOT the same mistake. (It is what ONE sibling uses:
+  # `cmd_msg` at :475. `cmd_whoami` at :662 uses `2>&1`, which is the form the
+  # note above calls the mistake. "the sibling verbs use it" was true of one of
+  # the two this block names three lines up.)
   # `2>&1` redirects INTO the variable, which is what ate the message. This
   # DISCARDS it, so the reader gets our sentence instead of `curl: (28) Operation
   # timed out` printed above it. Keeping both means the verb whose stated job is

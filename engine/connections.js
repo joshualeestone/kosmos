@@ -100,7 +100,18 @@ const WROTE_WHY = 'Kosmos told it how connecting a provider works';
 function cliAdvice(cli) {
   const first = cli.indexOf('/') >= 0
     ? 'If that path is not there, Kosmos has moved since your file was written.'
-    : 'Kosmos could not work out where its own command lives when your file was written, so that may not be on your path.';
+    /* ⚠️ NO CAUSE ASSERTED, because there are TWO and they are opposite.
+       clipath returns the bare word either because both probes failed, OR
+       because it resolved a path and DECLINED to print it: a path carrying
+       ["$`\\!] or a newline falls back rather than teach a line that expands
+       inside the agent's shell. Measured, with a control: probeRoot
+       /tmp/rev/plain gives the full path from both kosmosCli and
+       kosmosCliShown; probeRoot /tmp/rev/we!rd resolves correctly in kosmosCli
+       and returns the bare word from kosmosCliShown. Saying "could not work out
+       where its own command lives" is false in that second arm: it worked it out
+       and refused. The REMEDY is identical either way, so the sentence gives the
+       remedy and does not guess at the cause. */
+    : 'Kosmos did not put a path in that line, so the command may not be on your path.';
   return [
     first,
     'If it says Kosmos is not running, that is the whole problem: it needs to be',
@@ -171,7 +182,15 @@ function blockBody() {
        Order matters in prose an agent acts on: what it is, then what it does,
        then what to do when it does not work. */
     ...cliAdvice(cli),
-    'It deliberately does NOT show you the sign-in link or the terminal output,',
+    /* 🛑 "THAT COMMAND", NOT "IT". The reordering one commit ago put this
+       paragraph directly after "ask them to open Kosmos, which shows the same
+       thing on its own screen", so the nearest antecedent for a bare "It" was
+       KOSMOS. Read that way the sentence is FALSE (the board's own screen does
+       show the sign-in link) and it contradicts the sentence immediately above
+       it. The comment above records the reordering as fixing an antecedent
+       defect; it moved one and created another a paragraph later. */
+    'That command deliberately does NOT show you the sign-in link or the',
+    'terminal output,',
     'and you should not go looking for them anywhere else either.',
     'Those are the parts that would let somebody sign in as them, so they are not',
     'yours to hold. If you need to know what a screen says, that is still a',

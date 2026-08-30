@@ -245,13 +245,15 @@ function list() {
  * tick (server.js) specifically because that poll cannot afford anything
  * heavier than a directory stat; layering a live subprocess call in there
  * would repeat the mistake `subscription.js`'s own file-cache header warns
- * against, worse. This function is for ON-DEMAND, DEMAND-PACED reads only --
- * (it said PERSON-PACED, which server.js retracted for exactly the caller named
- * below: an agent reaching it with curl is not a person pressing something. The
- * two files spelled one invariant with words that disagreed, and this held the
- * retracted one.) --
- * opened deliberately, never ticked -- where paying a real check's cost is the
- * entire point. Two routes call it today: `GET /api/accounts` (Settings >
+ * against, worse. This function is for DEMAND-PACED reads: asked for, never
+ * ticked, and worth a real check's cost because something is waiting on the
+ * answer.
+ * (It said PERSON-PACED. server.js retracted that word for exactly the caller
+ * named below, because an agent reaching this with curl is not a person pressing
+ * something. My first correction spliced the retraction into the MIDDLE of the
+ * sentence, which left "opened deliberately, never ticked" dangling off a noun
+ * that had been removed, and shipped "ON-DEMAND, DEMAND-PACED" as a redundant
+ * pair. Editing half a comment, in the branch that names it.) Two routes call it today: `GET /api/accounts` (Settings >
  * Accounts, the first-run wizard) and `GET /api/agent/connections` (#1034, an
  * agent answering "what is connected?", including via `kosmos connections`).
  * ⚠️ The RULE is the invariant, not the list: a second caller was added and this
