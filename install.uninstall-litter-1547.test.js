@@ -215,8 +215,16 @@ test('a data folder with no ping log is left entirely alone', () => {
     assert.match(out, /Kosmos is removed/,
       'control: the uninstall never ran to completion, so announcing nothing proves nothing');
 
-    assert.doesNotMatch(out, /removed the records Kosmos kept/,
-      'the uninstall announced removing records that were never there');
+    /* 🛑 PINS THE STRING THE CODE ACTUALLY PRINTS. This asserted the absence of
+       "removed the records Kosmos kept", which THIS BRANCH renamed to "Kosmos's own
+       leftover files" two commits earlier. So it was asserting the absence of a string
+       nothing could emit, and an unconditional announcement shipped green: proven by
+       mutation, `if [ "$_swept" = yes ]` -> `if true`, all four tests still passing.
+       ⚠️ That is a test that cannot fail, guarding the exact untrue-sentence class the
+       last three rounds of this card were about, created BY MY OWN RENAME. The rename
+       was celebrated in a comment forty lines up and this assertion was not swept for. */
+    assert.doesNotMatch(out, /removed Kosmos's own leftover files/,
+      'the uninstall announced removing leftover files on a folder that had none');
     assert.ok(fs.existsSync(path.join(sb.data, 'projects.json')),
       'the person\'s data did not survive an uninstall with no litter to sweep');
   } finally {

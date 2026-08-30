@@ -1473,10 +1473,20 @@ KOSMOS_SWEEP_LIST
   #
   # 🛑 ALREADY REMOVED ABOVE, SO DO NOT ADD THEM HERE: `first-run.json`,
   # `seen-version.json`, `found-agents-dismissed.json` and `found-agents-declined.json`
-  # go at line 1397, and the `remote/` DIRECTORY goes at line 1186 (distinct from the
-  # `remote.json` and `remote-status.json` FILES, which are left alone above -- a
-  # maintainer reading this table for `remote` needs that distinction spelled out or
-  # they will read the two files' row as covering the directory). An earlier version of this table listed them as LEFT ALONE, which
+  # go at line 1397.
+  # 🛑 `remote/` IS DIFFERENT AND THIS ROW USED TO CALL IT SIMPLY HANDLED. It is
+  # removed at line 1186, but only inside FOUR nested conditions: KOSMOS_HOME exists, the
+  # ownership gate passes, `remote/mac_key` exists, AND the tunnel binary is executable.
+  # On a partial install, a second --uninstall, a bundle without the tunnel, or any run
+  # failing the ownership gate, `remote/` SURVIVES.
+  # ⚠️ AND IT IS THE ONE LEFTOVER THAT IS A CREDENTIAL: it holds this Mac's Plus
+  # key. The row that was wrong was the row holding an actual key, in a table whose
+  # justification for sweeping `sendertokens` is that leaving credentials behind is a
+  # residue question. Stated as a CONDITION rather than a fact, because a maintainer
+  # reads this table as a map of the folder.
+  # 📌 Distinct from the `remote.json` and `remote-status.json` FILES, which are
+  # left alone above; unsaid, the two files' row reads as covering the directory.
+  # 📌 `bin/` is removed at line 1367 ("removing the shared supervisor"), 140 up.
   # put two contradictory rulings about the same four files in one function, and the
   # newer one was wrong. A maintainer reading this table to decide whether a fifth
   # decision-record is safe would have got the wrong answer.
@@ -1524,7 +1534,11 @@ KOSMOS_SWEEP_LIST
   # own ~/.claude dirs, both before any agent exists. The rule is stated at setup.sh:1405
   # -- on a machine with no agents, say nothing about agents at all.
   if [ "$_swept" = yes ]; then
-    info "removed Kosmos's own leftover files (your projects, conversations and sign-ins stay)"
+    # ⚠️ NOT AN UNQUALIFIED PAST TENSE, AND DELIBERATELY NOT GATED ON
+    # `_swept_left` EITHER. The closing line below was fixed to require nothing left
+    # behind; the same fix here gives the opposite defect, six directories removed
+    # and the transcript saying nothing at all. The wording carries it instead.
+    info "removed Kosmos's own leftover files (your projects, conversations and sign-ins stay; see any notes below)"
   fi
   # ⚠️ NAMES WHAT SURVIVED AND WHERE, which this file's header (setup.sh:89) requires of
   # every leave-behind: "on the rare machine where that leaves something behind, the
@@ -1554,10 +1568,12 @@ KOSMOS_SWEEP_LIST
     if [ "$_swept" = yes ] && [ -z "$_swept_left" ]; then
       printf '\n  Kosmos is removed. Your agents\047 background jobs were removed, and so were\n'
       printf '  Kosmos\047s own leftover files. Your agents\047 own folders, and your projects,\n'
-      printf '  conversations and sign-ins, were left alone.\n\n'
+      printf '  conversations and sign-ins, were left alone in\n'
+      printf '  %s\n\n' "$_support"
     else
       printf '\n  Kosmos is removed. Your agents\047 background jobs were removed; your projects,\n'
-      printf '  conversations and sign-ins were left alone.\n\n'
+      printf '  conversations and sign-ins were left alone in\n'
+      printf '  %s\n\n' "$_support"
     fi
   else
     printf '\n  Kosmos is removed.\n\n'
