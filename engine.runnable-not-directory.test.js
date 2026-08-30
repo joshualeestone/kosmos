@@ -111,3 +111,43 @@ test('isRunnable rejects a directory and accepts a real executable', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/**
+ * Mona Lisa's finding, carried over from her parallel #1592 branch before she
+ * stood down. TWO BLIND REVIEWERS HIT THIS ON HER VERSION, which is why it is
+ * pinned here rather than trusted to the next reader.
+ *
+ * `canRunClaude` exists so the stuck screen can say whether the binary is
+ * runnable, and its docblock promises "any error answers FALSE". That promise
+ * holds only while the BIN RESOLUTION is inside the try: `claudeBinPath()` can
+ * throw, and hoisting it into a bare `const` above the try lets the throw
+ * escape `becomeStuck` entirely, so `writeState` never runs and the person is
+ * left on no screen at all.
+ *
+ * ⚠️ THE FAILURE IS INVISIBLE TO A BEHAVIOURAL TEST that does not force a
+ * throw from the resolver, and it is a tempting refactor: reading the value out
+ * first reads cleaner. So this asserts the SHAPE.
+ */
+const { test: t2 } = require('node:test');
+const assert2 = require('node:assert');
+const fs2 = require('node:fs');
+const path2 = require('node:path');
+
+t2('canRunClaude resolves the bin INSIDE its try, so a throw still writes the stuck screen', () => {
+  const src = fs2.readFileSync(path2.join(__dirname, 'engine', 'connect.js'), 'utf8');
+  const anchor = src.indexOf('let canRunClaude = false;');
+  assert2.ok(anchor > 0, 'canRunClaude was renamed or removed; re-aim this guard');
+
+  const region = src.slice(anchor, anchor + 600);
+  const tryAt = region.indexOf('try {');
+  const catchAt = region.indexOf('} catch');
+  assert2.ok(tryAt > -1 && catchAt > tryAt, 'canRunClaude is no longer wrapped in a try/catch');
+
+  const guarded = region.slice(tryAt, catchAt);
+  assert2.ok(
+    /claudeBinPath\s*\(|resolveBin\s*\(/.test(guarded),
+    'the bin resolution has moved OUTSIDE canRunClaude\'s try. A throw from it now ' +
+      'escapes becomeStuck and the stuck screen is never written, which breaks the ' +
+      'docblock promise that any error answers false. Keep the resolution inside the try.'
+  );
+});
