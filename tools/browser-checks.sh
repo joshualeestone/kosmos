@@ -559,18 +559,15 @@ fi
 # #812: render-create-made presses the real Create button, so it refuses to
 # run without both a dry-run server (nothing is actually started or written)
 # and an explicit --yes-dry-run flag of its own -- neither is optional. It runs
-# on a dedicated board; why it was split out rather than joining B8 is not
-# recorded here.
+# on its own board below.
 #
-# CORRECTED (#1575): the sentence above used to end "and it is why this check
-# needed a dedicated board rather than joining B8 (which runs without
-# AGENT_WORKFORCE_DRY_RUN)". B8 runs UNDER dry-run: it is booted by the
-# `boot_board "$sb7" "$P8"` call below, and boot_board sets
-# AGENT_WORKFORCE_DRY_RUN=1. Every `node ./server.js` boot site in this script
-# sets it. So the stated reason was false, and the causal clause resting on it
-# went with it rather than being left to assert a reason nobody has.
+# B8 also runs under dry-run: it is booted by the `boot_board "$sb7" "$P8"`
+# call further down, and boot_board sets AGENT_WORKFORCE_DRY_RUN=1, as does
+# every `node ./server.js` boot site in this script. An earlier version of this
+# comment stated the opposite and misled a review (#1575). Why the board was
+# split out rather than joining B8 is not recorded anywhere I could find.
 #
-# Restated against 4bf7d95's real
+# render-create-made was restated against 4bf7d95's real
 # ending by Ice Cream Kitty (#826) before this PR wired it in; proven
 # standalone (18/18) before this line was written, with exactly the env vars
 # below -- no tmux/fake-panes vars, because dry run never reaches tmux and

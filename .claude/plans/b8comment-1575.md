@@ -46,7 +46,21 @@ unverified one would leave the file exactly as trustworthy as it was.
 
 ## Verification
 
-Comment-only; no behaviour changes. `bash -n` clean. All 19 test files that reference
+**Not quite comment-only, and the plan should say so exactly** on a card whose whole
+thesis is that unverified prose beside verified code misleads.
+
+Three em dashes were removed from this file. Two are in comments. **The third is not:
+it is inside a `log "PASS ..."` string that prints to whoever reads the gate output**,
+which is an emitting surface rather than a reviewing one, and Josh edits em dashes out
+of everything. That is the single executable line this diff changes.
+
+Checked before touching it: `tools/release.sh` is the only consumer, and it filters
+with an anchored `grep -E '^PASS |^FAIL |...'`. The line still begins `PASS `, and
+`on retry:` does not newly match the unanchored `retried:` alternative. Nothing asserts
+the wording; `treat repeated retries` appears nowhere else.
+
+Verified mechanically rather than by eye: stripping comment lines from this file and
+from `origin/main` and diffing leaves exactly that one line. `bash -n` clean. All 19 test files that reference
 `browser-checks` pass (4 of them name the script file literally), including `tools.browser-checks-wired`,
 `browser-checks-indexed`, `browser-checks-selectors` and `server.test.js`.
 
