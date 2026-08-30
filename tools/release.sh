@@ -50,15 +50,32 @@ cut_record_done() {
   # #1388: decode the exit so a KILLED step is a different row from a FAILED one.
   # A browser gate SIGTERM'd by another cut killed release.sh with exit 143, the
   # trap logged a bare `exit=143`, and it read as a red, sending readers to hunt
-  # a product defect on a cut that had nothing wrong. Over 128 is 128+signal
-  # (a kill); 0 is ok; anything else is a real failure (an assertion, exit 1).
-  local _rc="$1" _outcome _sig=""
-  if [ "$_rc" -eq 0 ]; then _outcome=ok
-  elif [ "$_rc" -gt 128 ]; then _outcome=killed; _sig="$(kill -l "$((_rc - 128))" 2>/dev/null || echo "$((_rc - 128))")"
-  else _outcome=failed
+  # a product defect on a cut that had nothing wrong.
+  #
+  # 🛑 THE SIGNAL NAME IS RESOLVED FIRST, AND `killed` IS ONLY CLAIMED IF IT
+  # RESOLVES. A first version treated every status over 128 as 128+signal
+  # unconditionally, which FABRICATED names: exit 255 became
+  # `outcome=killed signal=SIG127`, 192 became SIG64, 160 became SIG32, and this
+  # bash has no such signals (`kill -l 32` exits 1, control `kill -l 15` prints
+  # TERM). That is this card's own defect INVERTED and worse: a bare exit=143
+  # sent a reader hunting a defect that was not there, while a fabricated
+  # `signal=SIG127` tells a reader to STOP looking for one that IS.
+  #
+  # ⚠️ AND THE CLASSIFICATION IS A HEURISTIC EVEN WHEN IT RESOLVES, which the
+  # first version stated as a fact. 128+n is a CONVENTION, not a guarantee, and
+  # the ambiguity is live here: git exits 129 for any usage error (measured:
+  # `git commit --bogus` -> 129, control `git status` -> 0), and this script
+  # makes several unguarded git calls, so a genuine git usage error is logged as
+  # `outcome=killed signal=SIGHUP`. Nothing can separate those two from the
+  # status alone. A reader who sees SIGHUP should check whether anything
+  # actually signalled the cut.
+  local _crd_rc="$1" _outcome _sig=""
+  if [ "$_crd_rc" -eq 0 ]; then _outcome=ok
+  elif [ "$_crd_rc" -gt 128 ] && _sig="$(kill -l "$((_crd_rc - 128))" 2>/dev/null)"; then _outcome=killed
+  else _outcome=failed; _sig=""
   fi
   printf '%s version=%s completed exit=%s outcome=%s%s served=%s step=%s\n' \
-    "$(date -u +%FT%TZ)" "$V" "$_rc" "$_outcome" \
+    "$(date -u +%FT%TZ)" "$V" "$_crd_rc" "$_outcome" \
     "$([ -n "$_sig" ] && printf ' signal=SIG%s' "$_sig")" \
     "${DEPLOYED:-0}" "$(printf '%s' "${_STEP:-unknown}" | tr -d '=' | tr ' ' '_')" \
     >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
