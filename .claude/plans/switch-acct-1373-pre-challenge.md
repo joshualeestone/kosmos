@@ -73,18 +73,39 @@ supports. The counts below are the ones I can stand behind.
 
 None. No finding in this run was blocked on a decision I could not make.
 
-### 🛑 The weakest thing about this branch, named by me rather than found
+### ✅ The weakest thing about this branch, and it is now CLOSED
 
-**Every browser verification of #1373 is from a standalone run. The check has never run in
-the full harness with this code.** That matters here specifically: this week's geometry
-failure was a configuration story, failing in the full harness and never once standalone,
-so "passes standalone" is demonstrably not "passes in the harness" on this box, and my
-green runs are all in the arm that has historically been the forgiving one.
+**It was: every browser verification of #1373 came from a standalone run, and the check had
+never run in the full harness with this code.** That mattered specifically because this
+week's geometry failure was a configuration story, failing in the full harness and never
+once standalone, so "passes standalone" is demonstrably not "passes in the harness" on this
+box, and every green I had was in the arm that has historically been the forgiving one.
 
-**And there is no screenshot on this PR.** A live release cut owns the browser as I write
-this (3 `release.sh`, 4 headless shells, with both control arms behaving). The pair on disk
-is from before nine iterations of change, including a change to the control they show, so
-using it would be a claim with no date on its face. It must be captured before merge.
+**Closed 2026-08-30 10:00 CDT, after 0.6.16 SERVED released the browser.** The FULL
+harness, all 54 checks in sequence, not one check run alone:
+
+```
+  render-model-change   RAN (line 1230) and PASSED (line 1253)
+  whole harness         1034 PASS, 0 FAIL, "all page checks passed"
+  control               a check name that does not exist -> 0 hits
+```
+
+⚠️ **Run at `2f17ecac`, this branch's head, which is the PR's head.** A harness result at
+somebody else's sha is evidence about a different program.
+
+**And the screenshots are captured at that same sha**, by the harness itself rather than by
+hand, written from inside `render-model-change` at the moment it asserts the picker is
+visible. A stale pair was on disk from before nine iterations, including a change to the
+control they show; it was NOT used, because a screenshot is a claim with no date on its
+face.
+
+📌 **They honestly show the one thing no automated arm can judge, and it is a real
+trade-off Josh should see rather than discover:** with Claude selected the provider
+dropdown and **Switch & Restart** sit on one line; with OpenAI selected the account picker
+joins that row and the button WRAPS TO A SECOND LINE. The plan measured all three layout
+options and kept A on the evidence (option C does not fix the wrap and truncates the label;
+option B stretches the picker to 494px). The shift follows a deliberate click. It is
+recorded rather than contested, and it is the part of this diff that wants a human eye.
 
 ### Strengths recorded by the blind reviewers (across iterations)
 
