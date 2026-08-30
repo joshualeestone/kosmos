@@ -686,6 +686,49 @@ async function start(opts) {
   const sub = subscription.check(configDir ? { configDir } : undefined);
   if (sub.state === subscription.STATE.CONNECTED) {
     /**
+     * 🛑 THE FILE SAYING CONNECTED IS NOT ENOUGH TO REFUSE TO CONNECT (#1560).
+     * `check()` reads `oauthAccount.organizationType` out of a local file and
+     * returns CONNECTED whenever it names a paid plan. A LOGGED-OUT person
+     * still has that field, so this early exit told them they were already
+     * connected and never ran the flow -- while every screen that asks the
+     * world disagreed. There is no way out of that from the UI: the one button
+     * that would fix it is the one this branch declines to honour.
+     *
+     * ⚠️ THIS IS #874 ONE FILE OVER, AND THAT IS THE PART WORTH NOTICING.
+     * `engine/firstrun.js:140` already made exactly this swap, for exactly this
+     * reason, and wrote down why. `engine/accounts.js` already called the live
+     * check. Connect was the remaining path still trusting the file alone, so
+     * the product had two answers and the louder one was the unverified one.
+     *
+     * 📌 COST, WEIGHED RATHER THAN WAVED PAST. This adds one `claude auth
+     * status` and ONLY on the arm where the file already claims connected --
+     * the branch that is about to skip all the work anyway. A logged-out or
+     * never-connected person pays nothing, because `check()` short-circuits
+     * first. It is deliberately NOT applied to the three in-flow call sites:
+     * those run on a 700ms tick (`TICK_MS`), where a per-tick subprocess would
+     * be pathological, and they answer "did the login just land" rather than
+     * "may I refuse to start", which is the question that locks somebody out.
+     */
+    const live = await subscription.checkLive(configDir ? { configDir } : undefined);
+    if (live.state === subscription.STATE.NONE) {
+      /**
+       * ⚠️ FALL THROUGH ON DISAGREEMENT, DO NOT REPORT A FAILURE. The file and
+       * the world disagreeing is not an error to show somebody: it is the
+       * ordinary state of a person whose session expired, and the correct
+       * response is to run the sign-in they asked for. Everything below this
+       * block is that flow.
+       *
+       * 🛑 `NONE`, NOT `!== CONNECTED`, AND THE DIFFERENCE IS A THIRD STATE.
+       * `checkLive` answers UNKNOWN when it cannot reach Claude Code at all,
+       * which is a statement about our instrument rather than about the person.
+       * Treating that as "not signed in" would push a genuinely connected
+       * customer into a sign-in flow every time the probe was flaky, which is
+       * the same harm this card is about, arriving from the other side. So the
+       * old behaviour is kept for UNKNOWN: change what we do only where there
+       * is POSITIVE evidence the file is wrong.
+       */
+    } else {
+    /**
      * ⚠️ KILL ANY LEFTOVER SIGN-IN SESSION FIRST. A mid-sign-in server death
      * followed by the person finishing the login in their browser lands
      * exactly here on "Start again" -- and without this kill, "connected" is
@@ -705,7 +748,16 @@ async function start(opts) {
        flowDir, because this verdict is about THIS call's account. */
     if (driver) return state();
     flowDir = configDir;
+    /* ⚠️ THE PLAN NAME STILL COMES FROM THE FILE, and only on the arm the live
+       check just confirmed. `checkLive()` returns `plan: null` on purpose,
+       because `claude auth status` says "max" where `check()` says "claude_max"
+       and that module declined to assert the two vocabularies map 1:1. Taking
+       the live answer alone would downgrade every paying customer's plan name
+       to nothing. Same split as firstrun.js: WHETHER you are signed in is a
+       claim about the world and is verified; WHICH plan the file names is a
+       description, shown only where the world already said yes. */
     return publicView(writeState({ phase: PHASE.CONNECTED, plan: sub.plan, startedOnce: true }));
+    }
   }
 
   const bin = claudeBinPath();
