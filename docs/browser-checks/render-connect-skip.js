@@ -3,8 +3,9 @@
  * and OPENS on one that does not. Observed in a browser, which nothing did before.
  *
  * 🛑 WHY THIS CHECK COULD NOT EXIST UNTIL NOW, AND IT IS THE WHOLE POINT OF #1573.
- * Every board this gate boots sets `AGENT_WORKFORCE_DRY_RUN=1`, and a dry-run probe
- * returns `{ok:true, dryRun:true}` WITHOUT EXECUTING. #1556 correctly scores that as
+ * Every OTHER `node ./server.js` board this gate boots sets `AGENT_WORKFORCE_DRY_RUN=1`
+ * (these two are the exception, which is why they exist), and a dry-run probe returns
+ * `{ok:true, dryRun:true}` WITHOUT EXECUTING. #1556 correctly scores that as
  * "we did not check", so `willInstall` is unconditionally true on a dry-run board and
  * the skip path is unreachable by construction. The gate could not see the one
  * user-visible thing #1556 delivered.
@@ -62,7 +63,9 @@ async function readBoard(browser, url) {
     process.exit(1);
   }
   for (const engine of ENGINES) {
-    const browser = await playwright[engine].launch();
+    /* `run_one` exports HEADED=0; honour it so a standalone HEADED=1 run behaves like
+       its siblings rather than silently staying headless. */
+    const browser = await playwright[engine].launch({ headless: process.env.HEADED !== '1' });
 
     const works = await readBoard(browser, WORKS);
     check(`[${engine}] a working Claude is reported as needing no install`,
@@ -84,6 +87,8 @@ async function readBoard(browser, url) {
     check(`[${engine}] and the confirm OPENS for it`,
       broken.seen.installNeeded === true,
       `frClaudeInstallNeeded() = ${broken.seen.installNeeded}`);
+    check(`[${engine}] no page errors on the broken board either`,
+      broken.errors.length === 0, broken.errors.join(' | ').slice(0, 160));
     check(`[${engine}] and it says so flatly, not with the hedge`,
       typeof broken.seen.sentence === 'string'
         && /we need to install Claude Code first/.test(broken.seen.sentence)

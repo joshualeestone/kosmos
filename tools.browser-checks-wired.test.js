@@ -300,7 +300,8 @@ test('#1387: a file exempted as a library is actually required by a check', () =
 });
 
 /**
- * #1575: every `node ./server.js` boot site in the runner sets AGENT_WORKFORCE_DRY_RUN.
+ * #1575: every `node ./server.js` boot site sets AGENT_WORKFORCE_DRY_RUN, EXCEPT the
+ * two #1573 boards, which carry a stub launcher instead.
  *
  * 🛑 WHY THIS EXISTS, AND IT IS THE POINT OF THE CARD IT COMES FROM. A comment in
  * `tools/browser-checks.sh` claimed B8 ran WITHOUT dry-run. It was false, nothing
@@ -316,7 +317,7 @@ test('#1387: a file exempted as a library is actually required by a check', () =
  * "every server boot" would be false. That scoping is the difference between a true
  * statement and the one this card removed.
  */
-test('#1575: every `node ./server.js` boot in the runner sets AGENT_WORKFORCE_DRY_RUN', () => {
+test('#1575: every `node ./server.js` boot sets AGENT_WORKFORCE_DRY_RUN, or is a #1573 stub board', () => {
   const src = fs.readFileSync(RUNNER, 'utf8');
   const lines = src.split('\n');
   const boots = [];
@@ -344,6 +345,11 @@ test('#1575: every `node ./server.js` boot in the runner sets AGENT_WORKFORCE_DR
      ⚠️ THIS GUARD CAUGHT #1573 WITHIN HOURS OF BEING MERGED, which is the argument
      for it: the sentence it protects would otherwise have gone false in silence, in
      exactly the way the sentence it replaced did. */
+  /* ⚠️ A PATTERN, NOT A NAME, and the difference matters. This matches the
+     stub-launcher assignment itself, so a third boot that copies that exact env line
+     would also be exempted. That is narrow in practice (it takes a deliberate copy)
+     and it has a property a name would not: DELETING THE STUB FROM THE EXEMPT PAIR
+     TAKES THIS TEST RED, because the exemption expires with its own justification. */
   const EXEMPT_MARKER = 'AGENT_WORKFORCE_CLAUDE_BIN="$_sb/fake-claude"';
   const missing = boots.filter(({ n }) => {
     let j = n - 1;
@@ -358,6 +364,6 @@ test('#1575: every `node ./server.js` boot in the runner sets AGENT_WORKFORCE_DR
   });
 
   assert.deepEqual(missing.map((m) => m.n), [],
-    'a `node ./server.js` boot site does not set AGENT_WORKFORCE_DRY_RUN=1, so the comment in '
-    + 'browser-checks.sh that says every one of them does is now false');
+    'a `node ./server.js` boot site neither sets AGENT_WORKFORCE_DRY_RUN=1 nor carries the #1573 '
+    + 'stub-launcher marker, so the comment in browser-checks.sh describing that split is now false');
 });

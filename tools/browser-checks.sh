@@ -380,7 +380,7 @@ pick_ports() {
   P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 (chosen by the OS, #633)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -779,13 +779,12 @@ else
 fi
 
 # --- report -----------------------------------------------------------------
-sec "browser checks summary"
-log "ran:     ${RAN[*]:-none}"
-[ "${#RETRIED[@]}" -gt 0 ] && log "retried: ${RETRIED[*]}  (repeated retries are a flake to fix, not to accept)"
 # ── #1573: the ONE PAIR OF BOARDS THAT DO NOT SET AGENT_WORKFORCE_DRY_RUN ────────
 #
-# 🛑 EVERY OTHER BOARD IN THIS FILE SETS IT, AND THAT IS WHY THE GATE COULD NOT SEE
-# THE ONE USER-VISIBLE THING #1556 SHIPPED. A dry-run probe returns
+# 🛑 EVERY OTHER `node ./server.js` BOOT SITE IN THIS FILE SETS IT, AND THAT IS WHY
+# THE GATE COULD NOT SEE THE ONE USER-VISIBLE THING #1556 SHIPPED. (Scoped to that
+# invocation deliberately: `boot_thread_server` boots a different script and sets no
+# dry-run, so the looser "every board" would be false.) A dry-run probe returns
 # {ok:true, dryRun:true} WITHOUT EXECUTING, and #1556 correctly scores that as "we did
 # not check", so `willInstall` is unconditionally true on a dry-run board and the
 # confirm-skip path is unreachable BY CONSTRUCTION.
@@ -797,15 +796,45 @@ log "ran:     ${RAN[*]:-none}"
 #
 # ⇒ DRY-RUN NEUTRALISES A SUBPROCESS BY FAKING SUCCESS, WHICH IS EXACTLY WHAT MAKES A
 # PROBE UNOBSERVABLE. A stub neutralises it by being HARMLESS, costs the same, and
-# leaves the probe visible. These two boards are that, and nothing else about them is
-# special: same sandbox shape, same fake tmux, no launchd, no network.
+# leaves the probe visible.
+#
+# 🛑 THESE TWO BOARDS ARE FOR READ-ONLY CHECKS. ANYTHING THAT PRESSES A BUTTON BELONGS
+# ON A DRY-RUN BOARD. Without dry-run, `engine/create.js`'s `run()` no longer
+# short-circuits, so a create action here would really execute `launchctl bootstrap`
+# and `launchctl enable` against the OPERATOR'S REAL LOGIN SESSION. The plist PATH is
+# sandboxed by AGENT_WORKFORCE_LAUNCH; the launchd REGISTRATION is not, which is #1539.
+# `render-connect-skip` only reads, so it is safe here; a future check that clicks is
+# not, and the sandbox roots below will not save it.
+#
+# ⇒ #634's argument, pointed at these boards: a half-sandboxed board is more dangerous
+# than an obviously live one, because it looks ordinary.
 #
 # ⚠️ TWO BOARDS, NOT ONE. A check that only asserts the confirm is SKIPPED would pass
 # on a build where the confirm can never open at all. The second board's launcher exists
 # and exits non-zero, which is the case a file-presence test gets wrong.
 sb_ok="$(new_sandbox)"; sb_bad="$(new_sandbox)"
-printf '#!/bin/sh\n[ "$1" = --version ] && { echo "claude 0.0.0-fake"; exit 0; }\nexit 0\n' > "$sb_ok/fake-claude"
-printf '#!/bin/sh\nexit 1\n' > "$sb_bad/fake-claude"
+# ⚠️ TWO ARMS EACH, NOT ONE, AND THE SECOND IS NOT DECORATION. `/api/first-run`
+# also awaits `subscription.checkLive()`, which execFiles this same binary with
+# `auth status --json`. A stub that answers only `--version` falls through with
+# empty stdout, and checkLive's `!parsed` branch yields UNKNOWN: the ambiguous
+# verdict sb4's stub was explicitly written to avoid, in a comment saying an empty
+# answer makes the sandbox's verdict depend on how the parser treats silence.
+# The shape below is copied from that stub, which captured it from the real
+# command, per this repo's rule that a fixture is a capture and not a guess.
+cat > "$sb_ok/fake-claude" <<'STUBOK'
+#!/bin/sh
+[ "$1" = --version ] && { echo "claude 0.0.0-fake"; exit 0; }
+[ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
+exit 0
+STUBOK
+# ⚠️ THIS ONE MUST FAIL `--version` AND STILL ANSWER `auth status` HONESTLY. The
+# card's whole point is a launcher that EXISTS and does not RUN, so the file is
+# executable and the version probe is what fails.
+cat > "$sb_bad/fake-claude" <<'STUBBAD'
+#!/bin/sh
+[ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
+exit 1
+STUBBAD
 chmod +x "$sb_ok/fake-claude" "$sb_bad/fake-claude"
 write_fleet "$sb_ok"; write_fleet "$sb_bad"
 for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
@@ -827,6 +856,10 @@ if curl -sf "http://127.0.0.1:$P14/api/first-run" -o /dev/null 2>/dev/null \
 else
   FAILED+=("render-connect-skip (a server did not boot)")
 fi
+
+sec "browser checks summary"
+log "ran:     ${RAN[*]:-none}"
+[ "${#RETRIED[@]}" -gt 0 ] && log "retried: ${RETRIED[*]}  (repeated retries are a flake to fix, not to accept)"
 
 if [ "${#FAILED[@]}" -gt 0 ]; then
   log "FAILED:  ${FAILED[*]}"
