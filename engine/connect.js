@@ -809,140 +809,193 @@ async function start(opts) {
   return state();
 }
 
+/**
+ * Download, verify and install Claude Code. ONE FUNCTION, callable by anybody.
+ *
+ * 🛑 EXTRACTED VERBATIM FROM `runFlow`, BEHAVIOUR-NEUTRAL BY CONSTRUCTION (#997).
+ * The sequence was correct and was not a function: it was woven through the
+ * sign-in state machine with ownership checks between every step, throttled
+ * progress writes, and `becomeStuck` on each failure. There was nothing a
+ * second caller could call, so the runner-install path assembled an equivalent
+ * and reintroduced three defects this code had already found and fixed.
+ *
+ * ⚠️ EVERY WOVEN CONCERN IS NOW AN INJECTED HOOK, and the comments below are
+ * the originals. They record what each guard is for, and several of them are
+ * load-bearing for reasons that are not obvious:
+ *   cancelled()            was `driver !== owner`
+ *   maySweepDownloads()    was `driver === owner || driver === null`, and the
+ *                          `null` arm is load-bearing (#458) -- see the comment
+ *                          at the sweep. A caller that collapses these two into
+ *                          one predicate reintroduces that bug.
+ *   onPhase / onProgress   were writeState calls; the 250ms throttle moved to
+ *                          the caller because it is about the STATE FILE, not
+ *                          about installing.
+ *   trackRequest           was the per-flow request handle. Do not make it
+ *                          module-global again; the comment inside says why.
+ *
+ * Returns `{ ok: true }`, or `{ ok: false, message, detail }` so the caller
+ * decides how a failure is reported. It never calls becomeStuck itself.
+ */
+async function installClaudeCode(hooks) {
+  const fail = (message, detail) => ({ ok: false, message, detail });
+  hooks.onPhase(PHASE.DOWNLOADING);
+  let downloaded;
+  try {
+    let lastProgressWrite = 0;
+    /**
+     * ⚠️ THE FLOW HOLDS ITS OWN REQUEST HANDLE. The module-global
+     * `activeRequest` carries no identity, and a first version of the
+     * orphan-abort below destroyed "the active request" -- which, after a
+     * cancel-then-restart, was the SUCCESSOR flow's request. Each flow
+     * tracks its own handle and only ever destroys that.
+     */
+    const myReq = { current: null };
+    const track = (req) => { myReq.current = req; };
+    downloaded = await download((got, total) => {
+      /**
+       * ⚠️ A CANCELLED FLOW'S DOWNLOAD ABORTS ITSELF AT THE NEXT CHUNK.
+       * Cancel can land in the momentary gaps where no request handle is
+       * registered globally; without this, the orphaned download ran to
+       * completion and its path-based renames could collide with a
+       * successor flow's in-progress file. Destroying from inside the
+       * progress callback (never throwing -- an exception in a 'data'
+       * listener does not reject the promise, it kills the process)
+       * closes the window at chunk granularity, and destroying OUR OWN
+       * handle can never hit anybody else's. Residual, documented as
+       * accepted: the chunkless milliseconds between the metadata GETs.
+       */
+      if (hooks.cancelled()) {
+        if (myReq.current) { try { myReq.current.destroy(new Error('cancelled')); } catch { /* ending anyway */ } }
+        return;
+      }
+      if (!hooks.wantsProgress()) return;
+      // ⚠️ Throttled: this fires per network chunk, and writeState is a
+      // synchronous write+rename. Unthrottled that is thousands of disk
+      // writes for one 281MB file, to persist a number the UI polls once a
+      // second. The final size still lands: the phase change to INSTALLING
+      // writes, and the poll reads the in-memory copy anyway.
+      hooks.onProgress(got, total);
+    }, track);
+  } catch (err) {
+    // A death mid-stream leaves a .part behind, and a retry only sweeps the
+    // SAME version's partial -- a version bump between attempts would
+    // strand up to ~281MB that nothing else ever cleans. Sweep them all.
+    // ⚠️ ONLY IF NO SUCCESSOR OWNS THE DIR: a stale flow's late network
+    // rejection must not delete the .part a successor flow is mid-writing
+    // -- the same guard cancel's own sweep carries, for the same reason.
+    // (This sweep shipped one iteration without the guard: the fix for the
+    // stranded-partial NIT introduced the race, found on the next pass.)
+    // ⚠️ `driver === null` sweeps too, and it is load-bearing (#458): a
+    // CANCELLED flow's rejection arrives here after cancel's own sweep
+    // already ran, and since fetchFile rejects only once its write stream
+    // has closed, this is the first point where a .part created by a
+    // thread-pool-delayed open is guaranteed observable. With driver null
+    // there is no successor to protect, and the read of `driver` and the
+    // unlinks share one synchronous block, so none can appear mid-sweep.
+    if (hooks.maySweepDownloads()) {
+      try {
+        const dir = path.join(store.ROOT, 'downloads');
+        for (const f of fs.readdirSync(dir)) {
+          if (f.endsWith('.part')) fs.unlinkSync(path.join(dir, f));
+        }
+      } catch { /* nothing partial to clean */ }
+    }
+    return fail('we could not download Claude', String((err && err.message) || err));
+  }
+  if (hooks.cancelled()) {
+    // Cancelled (or replaced), but the download had already finished: a
+    // verified 281MB binary is on disk for a flow nobody wants. Cancel's
+    // contract is "own nothing half-claimed", and this is the window its
+    // cleanup cannot see. (Residual, documented as accepted like cancel's
+    // killSession: this unlinks BY PATH, and a successor downloading the
+    // same version renames to the identical path -- a stale unlink landing
+    // after that rename costs the successor an honest re-download, never
+    // silent corruption.)
+    try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
+    return { ok: false, cancelled: true };
+  }
+
+  hooks.onPhase(PHASE.INSTALLING);
+  /**
+   * ⚠️ HOME IS PASSED, and it is not cosmetic. `claudeBinPath()` now
+   * resolves through `runners.resolveBin('claude')`, which honours the
+   * AGENT_WORKFORCE_HOME sandbox seam. Without passing the same home to
+   * the child, WHERE WE LOOK and WHERE THE VENDOR WRITES key on different
+   * variables: under a sandbox the install would land in the operator's
+   * real home and the `accessSync` below would then report a SUCCESSFUL
+   * install as "we cannot find it where it should be". Production is
+   * unchanged, and the REASON is checkable rather than remembered: there
+   * was no `HOME` constant at this call site. The old call passed only
+   * `{ TERM: 'dumb' }`, and `run()` merges `{ ...process.env, ...opts.env }`,
+   * so the child inherited `process.env.HOME` -- which the board's launchd
+   * plist sets (install/setup.sh), and which `os.homedir()` prefers. With
+   * AGENT_WORKFORCE_HOME unset, `homeDir()` returns that same value. An
+   * earlier version of this comment said "exactly as the old bare HOME
+   * constant did", which described code that was not there.
+   */
+  const inst = await run(downloaded.path, ['install'], {
+    timeout: 180000,
+    env: { TERM: 'dumb', HOME: require('./runners').homeDir() },
+    cancellable: true,
+  });
+  if (hooks.cancelled()) {
+    try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
+    return { ok: false, cancelled: true };
+  }
+  if (!inst.ok) {
+    // ⚠️ The binary goes too: a stuck install otherwise strands 281MB per
+    // attempted version in app data, which is exactly what the deletion on
+    // the success path below exists to prevent. A retry re-downloads in
+    // seconds; the disk does not get the file back on its own.
+    try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
+    return fail('Claude downloaded but did not finish setting itself up', tailOf(`${inst.stdout || ''}\n${inst.stderr || ''}`) || 'it stopped without saying why');
+  }
+  try { fs.accessSync(claudeBinPath(), fs.constants.X_OK); }
+  catch {
+    try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
+    return fail('Claude said it set itself up, but we cannot find it where it should be', `expected it at ${claudeBinPath()}`);
+  }
+  // The verified download did its job; the installed launcher is what runs
+  // from here. The official install script deletes its download too, and
+  // keeping ours means ~281MB per version quietly accumulating in app data.
+  try { fs.unlinkSync(downloaded.path); } catch { /* disk hygiene, not correctness */ }
+
+  return { ok: true };
+}
+
 async function runFlow(owner, haveBinary) {
   if (!haveBinary) {
-    writeState({ phase: PHASE.DOWNLOADING, progress: { got: 0, total: null }, startedOnce: true });
-    let downloaded;
-    try {
-      let lastProgressWrite = 0;
-      /**
-       * ⚠️ THE FLOW HOLDS ITS OWN REQUEST HANDLE. The module-global
-       * `activeRequest` carries no identity, and a first version of the
-       * orphan-abort below destroyed "the active request" -- which, after a
-       * cancel-then-restart, was the SUCCESSOR flow's request. Each flow
-       * tracks its own handle and only ever destroys that.
-       */
-      const myReq = { current: null };
-      const track = (req) => { myReq.current = req; };
-      downloaded = await download((got, total) => {
-        /**
-         * ⚠️ A CANCELLED FLOW'S DOWNLOAD ABORTS ITSELF AT THE NEXT CHUNK.
-         * Cancel can land in the momentary gaps where no request handle is
-         * registered globally; without this, the orphaned download ran to
-         * completion and its path-based renames could collide with a
-         * successor flow's in-progress file. Destroying from inside the
-         * progress callback (never throwing -- an exception in a 'data'
-         * listener does not reject the promise, it kills the process)
-         * closes the window at chunk granularity, and destroying OUR OWN
-         * handle can never hit anybody else's. Residual, documented as
-         * accepted: the chunkless milliseconds between the metadata GETs.
-         */
-        if (driver !== owner) {
-          if (myReq.current) { try { myReq.current.destroy(new Error('cancelled')); } catch { /* ending anyway */ } }
-          return;
-        }
-        if (mem.phase !== PHASE.DOWNLOADING) return;
-        // ⚠️ Throttled: this fires per network chunk, and writeState is a
-        // synchronous write+rename. Unthrottled that is thousands of disk
-        // writes for one 281MB file, to persist a number the UI polls once a
-        // second. The final size still lands: the phase change to INSTALLING
-        // writes, and the poll reads the in-memory copy anyway.
+    let lastProgressWrite = 0;
+    const res = await installClaudeCode({
+      cancelled: () => driver !== owner,
+      // ⚠️ NOT the same predicate as cancelled(). The `driver === null` arm is
+      // load-bearing (#458) and collapsing the two reintroduces that bug.
+      maySweepDownloads: () => driver === owner || driver === null,
+      wantsProgress: () => mem.phase === PHASE.DOWNLOADING,
+      onPhase: (phase) => {
+        if (phase === PHASE.DOWNLOADING) writeState({ phase, progress: { got: 0, total: null }, startedOnce: true });
+        else writeState({ phase, startedOnce: true });
+      },
+      // The 250ms throttle lives here because it is about the STATE FILE, not
+      // about installing: writeState is a synchronous write+rename and this
+      // fires per network chunk.
+      onProgress: (got, total) => {
         const now = Date.now();
-        if (now - lastProgressWrite < 250) {
-          mem.progress = { got, total };
-          return;
-        }
+        if (now - lastProgressWrite < 250) { mem.progress = { got, total }; return; }
         lastProgressWrite = now;
         writeState({ ...mem, progress: { got, total } });
-      }, track);
-    } catch (err) {
-      // A death mid-stream leaves a .part behind, and a retry only sweeps the
-      // SAME version's partial -- a version bump between attempts would
-      // strand up to ~281MB that nothing else ever cleans. Sweep them all.
-      // ⚠️ ONLY IF NO SUCCESSOR OWNS THE DIR: a stale flow's late network
-      // rejection must not delete the .part a successor flow is mid-writing
-      // -- the same guard cancel's own sweep carries, for the same reason.
-      // (This sweep shipped one iteration without the guard: the fix for the
-      // stranded-partial NIT introduced the race, found on the next pass.)
-      // ⚠️ `driver === null` sweeps too, and it is load-bearing (#458): a
-      // CANCELLED flow's rejection arrives here after cancel's own sweep
-      // already ran, and since fetchFile rejects only once its write stream
-      // has closed, this is the first point where a .part created by a
-      // thread-pool-delayed open is guaranteed observable. With driver null
-      // there is no successor to protect, and the read of `driver` and the
-      // unlinks share one synchronous block, so none can appear mid-sweep.
-      if (driver === owner || driver === null) {
-        try {
-          const dir = path.join(store.ROOT, 'downloads');
-          for (const f of fs.readdirSync(dir)) {
-            if (f.endsWith('.part')) fs.unlinkSync(path.join(dir, f));
-          }
-        } catch { /* nothing partial to clean */ }
-      }
-      becomeStuck(owner, 'we could not download Claude', String((err && err.message) || err));
-      return;
-    }
-    if (driver !== owner) {
-      // Cancelled (or replaced), but the download had already finished: a
-      // verified 281MB binary is on disk for a flow nobody wants. Cancel's
-      // contract is "own nothing half-claimed", and this is the window its
-      // cleanup cannot see. (Residual, documented as accepted like cancel's
-      // killSession: this unlinks BY PATH, and a successor downloading the
-      // same version renames to the identical path -- a stale unlink landing
-      // after that rename costs the successor an honest re-download, never
-      // silent corruption.)
-      try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
-      return;
-    }
-
-    writeState({ phase: PHASE.INSTALLING, startedOnce: true });
-    /**
-     * ⚠️ HOME IS PASSED, and it is not cosmetic. `claudeBinPath()` now
-     * resolves through `runners.resolveBin('claude')`, which honours the
-     * AGENT_WORKFORCE_HOME sandbox seam. Without passing the same home to
-     * the child, WHERE WE LOOK and WHERE THE VENDOR WRITES key on different
-     * variables: under a sandbox the install would land in the operator's
-     * real home and the `accessSync` below would then report a SUCCESSFUL
-     * install as "we cannot find it where it should be". Production is
-     * unchanged, and the REASON is checkable rather than remembered: there
-     * was no `HOME` constant at this call site. The old call passed only
-     * `{ TERM: 'dumb' }`, and `run()` merges `{ ...process.env, ...opts.env }`,
-     * so the child inherited `process.env.HOME` -- which the board's launchd
-     * plist sets (install/setup.sh), and which `os.homedir()` prefers. With
-     * AGENT_WORKFORCE_HOME unset, `homeDir()` returns that same value. An
-     * earlier version of this comment said "exactly as the old bare HOME
-     * constant did", which described code that was not there.
-     */
-    const inst = await run(downloaded.path, ['install'], {
-      timeout: 180000,
-      env: { TERM: 'dumb', HOME: require('./runners').homeDir() },
-      cancellable: true,
+      },
     });
-    if (driver !== owner) {
-      try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
-      return;
-    }
-    if (!inst.ok) {
-      // ⚠️ The binary goes too: a stuck install otherwise strands 281MB per
-      // attempted version in app data, which is exactly what the deletion on
-      // the success path below exists to prevent. A retry re-downloads in
-      // seconds; the disk does not get the file back on its own.
-      try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
-      becomeStuck(owner, 'Claude downloaded but did not finish setting itself up',
-        tailOf(`${inst.stdout || ''}\n${inst.stderr || ''}`) || 'it stopped without saying why');
-      return;
-    }
-    try { fs.accessSync(claudeBinPath(), fs.constants.X_OK); }
-    catch {
-      try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
-      becomeStuck(owner, 'Claude said it set itself up, but we cannot find it where it should be',
-        `expected it at ${claudeBinPath()}`);
-      return;
-    }
-    // The verified download did its job; the installed launcher is what runs
-    // from here. The official install script deletes its download too, and
-    // keeping ours means ~281MB per version quietly accumulating in app data.
-    try { fs.unlinkSync(downloaded.path); } catch { /* disk hygiene, not correctness */ }
+    // 🛑 CANCELLED IS NOT FAILED. Both are `ok: false`, and reporting a
+    // cancellation through becomeStuck would put a scary message on a flow the
+    // person deliberately stopped. The original expressed this by returning
+    // from runFlow at two points; extracting the sequence turned those two
+    // bare `return`s into a result the caller has to read, and MY FIRST
+    // EXTRACTION SILENTLY DROPPED BOTH -- a cancelled flow would have carried
+    // on installing. Found by reading the extracted control flow, not by a test.
+    if (res.cancelled) return;
+    if (!res.ok) { becomeStuck(owner, res.message, res.detail); return; }
+    if (driver !== owner) return;
   }
   if (driver !== owner) return;
   await launchSignin(owner);
@@ -1675,7 +1728,7 @@ module.exports = {
   PHASE, SESSION, ACTIVE_PHASES,
   state, start, submitCode, cancel,
   classifyPane, extractOauthUrl, tailOf, validCode, redirectDowngrades,
-  download, platformKey,
+  download, platformKey, installClaudeCode,
   setRunner, setDryRun, setTickInterval, setUnknownGrace, setAbandonedSigninMs, setFreshnessForTests, resetForTests,
   STATE_FILE,
 };
