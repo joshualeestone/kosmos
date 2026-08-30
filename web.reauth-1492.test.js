@@ -113,24 +113,39 @@ test('one button, two requests, and never a plain start', () => {
      this pin follows it there. */
   const at = SCRIPT.indexOf('async function acctAddStart');
   assert.ok(at > -1, 'the start worker moved; restate this pin');
-  const m = SCRIPT.slice(at, at + 1200).match(/body: JSON\.stringify\((.+?)\),\n/s);
+  /* 1800, not 1200: #1574 added the confirm flag and its comment to the body. */
+  const m = SCRIPT.slice(at, at + 1800).match(/body: JSON\.stringify\((.+?)\),\n/s);
   assert.ok(m, 'the start request no longer builds a body this test can read');
-  const build = new Function('ACCT_REAUTH_DIR', 'return ' + m[1] + ';');
+  /* 🛑 #1574 GAVE THE BODY A SECOND INPUT, so the harness has to supply it or the
+     expression throws. Both are passed here for the same reason the ternary is
+     evaluated rather than matched: a source match cannot tell which arm is
+     reachable, and it cannot tell what the flag resolves to either. */
+  const build = new Function('ACCT_REAUTH_DIR', 'installConfirmed', 'return ' + m[1] + ';');
 
-  const reauth = build('/Users/x/.claude-account-b');
-  assert.deepEqual(reauth, { accountDir: '/Users/x/.claude-account-b' },
+  const reauth = build('/Users/x/.claude-account-b', true);
+  assert.deepEqual(reauth, { accountDir: '/Users/x/.claude-account-b', installConfirmed: true },
     'an aimed sign-in does not ask for that account');
 
-  const fresh = build(null);
-  assert.deepEqual(fresh, { another: true },
+  const fresh = build(null, true);
+  assert.deepEqual(fresh, { another: true, installConfirmed: true },
     'an unaimed sign-in does not ask for ANOTHER account');
+
+  /* 🛑 #1574: THE FLAG MUST TRAVEL, NOT BE PINNED TRUE. A body that hardcoded
+     `installConfirmed: true` would satisfy the two assertions above and would be
+     the defect this card exists to close: the page asserting a consent nobody
+     gave. Building it with `false` is what tells those two apart. */
+  const unconfirmed = build(null, false);
+  assert.equal(unconfirmed.installConfirmed, false,
+    'the request says a person confirmed even when nobody did, which is exactly the #1574 defect');
 
   /* 🛑 THE ROUTE REFUSES BOTH TOGETHER, so neither shape may carry both, and a
      plain start would sign into the DEFAULT config and could log the person's
      main account out. That hazard is what kept this button disabled for a day. */
-  for (const [name, body] of [['aimed', reauth], ['fresh', fresh]]) {
+  for (const [name, body] of [['aimed', reauth], ['fresh', fresh], ['unconfirmed', unconfirmed]]) {
     assert.ok(!('accountDir' in body && 'another' in body), name + ' asks for a new account and an existing one at once');
-    assert.ok(Object.keys(body).length > 0, name + ' sends a plain start');
+    /* The confirm flag alone is not an ask: a body carrying only `installConfirmed`
+       is still the plain start #248 is about. */
+    assert.ok(('accountDir' in body) || ('another' in body), name + ' sends a plain start');
   }
 });
 

@@ -3891,6 +3891,19 @@ const server = http.createServer((req, res) => {
         if (typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return null; }
         if ('another' in body && typeof body.another !== 'boolean') { sendJson(res, 400, { error: 'another must be true or false' }); return null; }
         if ('accountDir' in body && typeof body.accountDir !== 'string') { sendJson(res, 400, { error: 'accountDir must be the folder of an account on this computer' }); return null; }
+        /* #1574: the 281MB confirm. Validated like its siblings so a mangled value
+           is a 400 rather than a silent falsy, and then passed to `connect.start`,
+           which decides in the SAME call that would begin the download.
+           🛑 THE PAGE IS NOT THE AUTHORITY HERE AND MUST NOT BE. It decided from a
+           boot-time snapshot, so a board left open whose launcher broke after boot
+           skipped the confirm entirely. This flag says only "a person pressed
+           Confirm"; whether an install is actually about to happen is answered by a
+           live probe inside `start()`. A client that sends `installConfirmed: true`
+           without asking anybody is lying, and the engine cannot detect that - but a
+           client that simply has a STALE view now gets refused, which is the case
+           this card is about. */
+        if ('installConfirmed' in body && typeof body.installConfirmed !== 'boolean') { sendJson(res, 400, { error: 'installConfirmed must be true or false' }); return null; }
+        const installConfirmed = body.installConfirmed === true;
         /* 🛑 SIGNING IN AGAIN TO AN ACCOUNT THAT ALREADY EXISTS (#1492). Without
            this the only two shapes were "the default account" and `another:true`,
            which picks a FREE spot and makes a NEW record. So a person whose login
@@ -3921,7 +3934,7 @@ const server = http.createServer((req, res) => {
             sendJson(res, 400, { error: 'we do not know that account on this computer' });
             return null;
           }
-          return connect.start({ configDir: known.dir });
+          return connect.start({ configDir: known.dir, requireInstallConfirm: true, installConfirmed });
         }
         /* { another: true } asks for a SECOND account (#248/#324): pick the
            first free work spot, prepare it (idempotent; the shared-memory
@@ -3947,9 +3960,9 @@ const server = http.createServer((req, res) => {
             sendJson(res, 500, { error: 'we could not set up the new account to share this computer\'s memory, so we did not start the sign-in' });
             return null;
           }
-          return connect.start({ configDir: prep.dir });
+          return connect.start({ configDir: prep.dir, requireInstallConfirm: true, installConfirmed });
         }
-        return connect.start();
+        return connect.start({ requireInstallConfirm: true, installConfirmed });
       })
       .then((st) => { if (st) sendJson(res, 200, st); })
       .catch((err) => sendJson(res, 500, {
