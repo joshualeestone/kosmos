@@ -111,9 +111,26 @@ signals the difference.
   first-party COUNT against the board's doors minus `tokendoors.routes()`, with
   four controls including one asserting the subtraction is not a no-op. Proven by
   adding a fourth door to the board route alone and watching only that test go
-  red. A reader of this plan would have concluded no guard exists. Extracting a shared builder is the right fix and is deliberately not
-  done inside a privacy change: it would edit the route the board's own screen depends on.
-  Recorded here so the next person finds it rather than rediscovering it.
+  red. A reader of this plan would have concluded no guard exists.
+  🛑 **AND THIS PARAGRAPH THEN WENT STALE ITSELF, WHICH ON THIS BRANCH IS THE JOKE
+  WRITING ITSELF.** It said: *"Extracting a shared builder is the right fix and is
+  deliberately not done inside a privacy change: it would edit the route the board's
+  own screen depends on."* **The branch now does exactly that** (`askDoor`,
+  `settleDoors`, `readFirstPartyDoors` in `server.js`), so the plan was the stale
+  document on a branch whose entire subject is text that stops matching its code.
+  ✅ **WHAT CHANGED, because the reversal is not a change of mind.** #1618 SHIPPED on
+  `main` mid-branch, collapsing the board's shelf through a new `engine/inflight.js`.
+  That converted the duplication from a tidiness question into a live defect: merged,
+  the file held a collapsed sweep AND an uncollapsed hand-copy of the same three doors,
+  on the route this branch tells every agent to poll. The merge was textually clean and
+  both suites were green, so nothing could see it.
+  ⇒ **The old reasoning was right while the copy was merely duplicated and wrong once
+  one copy became the collapsed one.** Deferring would have shipped the stampede the
+  route's own comments spend forty lines arguing against.
+  📌 **And it closes the drift above structurally rather than by count.** The count
+  guard catches a fourth door ADDED to one route and not the other; it is blind to the
+  two drifting in BEHAVIOUR, which is the shape that actually occurred. One shared
+  builder cannot drift from itself.
 🛑 **A MEASUREMENT HERE WAS FALSE WHEN IT WAS TAKEN, AND ITS CONTROL MADE IT LOOK
 VERIFIED.** This line read: *"Still open: `GPT` 0 in `engine/connections.js`, control
 `provider` 9."* Re-measured at this branch's merge-base `7c936c55`: **`GPT` is 2**, and

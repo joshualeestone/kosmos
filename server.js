@@ -255,6 +255,16 @@ const settleDoors = (jobs) => {
  * emits, so richer input is exactly the shape the boundary was built to take -
  * "the rich inputs going in and nothing but verdicts coming out". The leak test
  * plants a secret into every input field including `who`.
+ *
+ * ⚠️ READ-ONLY CONTRACT, STATED BECAUSE SHARING MAKES IT LOAD-BEARING. Every
+ * caller of one in-flight sweep receives THE SAME per-door objects, not copies.
+ * `readConnectionsShelf` copies the top level, so adding a door is safe; the
+ * `{connected, who}` values underneath are shared by reference between the
+ * board's shelf and `/api/agent/connections`. Nothing mutates them today.
+ * ⇒ A future caller that annotates a door IN PLACE would corrupt an unrelated
+ * response, and it would do so only when the two requests overlap - the
+ * timing-dependent shape that is hardest to debug and easiest to dismiss as a
+ * flake. Treat what comes back as frozen; if you need to annotate, copy first.
  */
 const readFirstPartyDoors = inflight.collapse(() => settleDoors({
   '/api/github': askDoor(async () => {
