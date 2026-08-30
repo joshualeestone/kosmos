@@ -356,7 +356,22 @@ test('#1575: every `node ./server.js` boot sets AGENT_WORKFORCE_DRY_RUN, or is a
 
      ⇒ The property is now asserted rather than claimed, by the arm below. */
   const EXEMPT_MARKER = 'AGENT_WORKFORCE_CLAUDE_BIN="$_sb/fake-claude"';
+  /* 🛑 THE EXEMPTION IS BOUNDED TO THE #1573 BLOCK, AND IT WAS NOT. Guard 3 asserts the
+     stubs are real, but it only READS that block, while this guard exempted on the marker
+     appearing ANYWHERE in the file. Measured: a boot placed outside the block, with no
+     dry-run, no stub, and only the marker line copied into its env, was exempted here and
+     never seen by guard 3. All seven green.
+
+     ⇒ Two guards that disagree about WHICH BOOT they discuss leave a gap exactly the size
+     of that disagreement. Bounding this one makes them talk about the same boots. */
+  const blockStart = src.indexOf('#1573: the ONE PAIR OF BOARDS');
+  const blockEnd = src.indexOf('render-connect-skip (a server did not boot)');
+  assert.ok(blockStart > -1 && blockEnd > blockStart, 'the #1573 anchors moved; this guard reads nothing');
+  const lineAt = (idx) => src.slice(0, idx).split('\n').length;
+  const exemptFrom = lineAt(blockStart);
+  const exemptTo = lineAt(blockEnd);
   const missing = boots.filter(({ n }) => {
+    const insideExemptBlock = n >= exemptFrom && n <= exemptTo;
     let j = n - 1;
     let seen = false;
     for (let k = 0; k < 12 && j >= 0; k += 1, j -= 1) {
@@ -368,7 +383,7 @@ test('#1575: every `node ./server.js` boot sets AGENT_WORKFORCE_DRY_RUN, or is a
          first, a bare boot under a comment naming either marker was NOT reported; with
          the break first, it is. */
       if (j < n - 1 && !/\\\s*$/.test(l)) break;             // the command started above here
-      if (l.includes(EXEMPT_MARKER)) { seen = true; break; }   // the #1573 stub boards
+      if (insideExemptBlock && l.includes(EXEMPT_MARKER)) { seen = true; break; }  // #1573 boards only
       if (l.includes('AGENT_WORKFORCE_DRY_RUN=1')) { seen = true; break; }
     }
     return !seen;
@@ -451,7 +466,23 @@ test('#1573: exactly one check runs against the non-dry-run boards, and it is th
 test('#1573: the exempt boards ship self-contained stubs, not a passthrough to the real binaries', () => {
   const src = fs.readFileSync(RUNNER, 'utf8');
   const block = src.slice(src.indexOf('#1573: the ONE PAIR OF BOARDS'), src.indexOf('render-connect-skip (a server did not boot)'));
-  assert.ok(block.length > 500, 'the #1573 block moved or was renamed; this guard is reading nothing');
+  /* ⚠️ BOTH ANCHORS ASSERTED, NOT JUST THE START. The end anchor is a user-visible
+     failure string, so renaming it left this slice running to EOF while the suite stayed
+     green: the guard silently widened instead of failing. An anchor that can vanish
+     without a red is not an anchor. */
+  assert.ok(src.indexOf('#1573: the ONE PAIR OF BOARDS') > -1, 'the #1573 start anchor is gone');
+  assert.ok(src.indexOf('render-connect-skip (a server did not boot)') > -1,
+    'the #1573 end anchor is gone, so this guard would read to end of file and pass vacuously');
+  /* ⚠️ STRUCTURAL, NOT A CHARACTER COUNT. I first bounded this with `< 6000`, and my own
+     comment additions pushed the block to 7137 within minutes: a magic number that goes
+     stale as the file legitimately grows, which is the spelling-pin problem in another
+     hat. The real question is "did the end anchor vanish so this slice ran to EOF", and
+     that is answerable by content: the summary banner FOLLOWS the block, so seeing it
+     here means the slice overran. */
+  assert.ok(block.length > 500, 'the #1573 block is too short; the start anchor moved');
+  assert.doesNotMatch(block, /sec "browser checks summary"/,
+    'the #1573 slice extends past its end anchor and into the report, so this guard is reading '
+    + 'far more of the file than it should and its assertions no longer mean what they say');
 
   /* ⚠️ PIN THE RULE, NOT THE SPELLING. An earlier version of this asserted the heredoc
      MARKERS (`<<'STUBOK'`) and the exact string `AGENT_WORKFORCE_CODEX_BIN="$_sb/fake-codex"`.
@@ -492,8 +523,35 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
   /* The one genuinely rule-shaped assertion from the start, and it stays: a stub that
      execs, or reaches into HOME or the machine's bin dirs, is not a stub, and the
      dry-run exemption must never cover a board using one. */
+  /* ⚠️ CODE ONLY. Matching these against the whole block means an accurate COMMENT
+     about the hazard reds the release gate, and this block is mostly prose. It happened
+     within minutes of the guard existing: a comment explaining WHY codex is pinned
+     mentions /opt/homebrew, and the suite went red for describing the danger correctly.
+     Use versus mention, again. */
+  const code = block.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+
+  /* 🛑 AN ALLOWLIST ON THE STUB BODIES, BECAUSE THE DENYLIST BELOW CANNOT SEE A PATH
+     LOOKUP. The forbidden patterns are all path-shaped, so `exec ~/.local/bin/claude`
+     is caught and a bare `claude "$@"` is NOT: it resolves through the board's
+     inherited PATH to whatever is installed, plausibly the operator's real Claude Code,
+     on a board with dry-run off. That is the exact case this guard exists to refuse, and
+     a denylist of spellings could never have covered it.
+
+     ⇒ So the stub bodies are checked POSITIVELY: a stub may only test, print or exit.
+     Anything that invokes something is not a stub, whatever it is spelled. */
+  for (const m of code.matchAll(/<<'(STUB[A-Z]+)'\n([\s\S]*?)\n\1\n/g)) {
+    for (const line of m[2].split('\n')) {
+      const t = line.trim();
+      if (!t || t.startsWith('#!') || t.startsWith('#')) continue;
+      assert.match(t, /^(\[|echo\b|printf\b|exit\b)/,
+        `stub ${m[1]} contains a line that is not a test, a print or an exit: ${t.slice(0, 70)}. `
+        + 'A stub that invokes anything may reach a real binary through PATH, and the dry-run '
+        + 'exemption must not cover a board using one.');
+    }
+  }
+
   for (const bad of [/\bexec\s/, /\$HOME/, /\/opt\/homebrew/, /\.local\/bin/]) {
-    assert.doesNotMatch(block, bad,
+    assert.doesNotMatch(code, bad,
       `the #1573 stubs reach outside their sandbox (${bad}); the dry-run exemption must not cover that`);
   }
 });

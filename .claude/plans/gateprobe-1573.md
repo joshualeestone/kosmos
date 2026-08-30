@@ -143,3 +143,47 @@ workable.
 📌 And a process note against myself: **that comment sat on my own card and I nearly
 missed it**, because I was reading my own comments rather than the card. Someone had done
 safety analysis for me hours before I asked the question.
+
+## The three guards, and what each was found to be missing
+
+The plan previously described two and was silent on the third, which existed precisely
+because a property I claimed turned out to be false. A reader of the plan alone came away
+believing the named exemption held something it did not.
+
+**Guard 1, the dry-run split.** Every `node ./server.js` boot sets dry-run, or is one of
+the #1573 boards. Found: the continuation break ran after the marker checks, so a COMMENT
+naming a marker exempted a bare boot beneath it; and the exemption keyed on the marker
+ANYWHERE in the file while guard 3 only inspected the block, so a marker-carrying boot
+outside the block was exempt with no stub assertion at all. Both closed; the exemption is
+now bounded to the block guard 3 reads.
+
+**Guard 2, one consumer.** Exactly one `run_one` targets the new boards, and it is the
+read-only check. Found: it counted comment lines, so documenting the rule in the runner
+would have reddened the gate; and it printed joined-array indices as source line numbers.
+Both fixed. Known evasions, stated rather than claimed closed: an indirected port variable,
+and a bare `curl -X POST` at those boards, since it keys on `run_one`.
+
+**Guard 3, stub integrity.** The stubs must be real stubs. Found: it pinned SPELLINGS (the
+heredoc markers and an exact path), so a correct rename or refactor would have redded it;
+it matched a MENTION rather than a write, so the `chmod` line satisfied it after a creation
+was deleted; its denylist was path-shaped and could not see a bare `claude "$@"` PATH
+lookup; it matched forbidden patterns against prose, so an accurate comment reds the gate;
+and its end anchor was a user-visible string whose rename silently extended the slice to
+EOF. All closed, and the bodies are now checked POSITIVELY: a stub may only test, print or
+exit.
+
+⇒ **Every one of those was green in the dangerous direction.** A guard that is wrong is
+usually wrong toward permitting, because the case it fails to see is by construction the
+case nobody thought about.
+
+## What is pinned on these boards, and why each
+
+```
+CLAUDE_BIN            stub, or the probe reaches the operator's real Claude
+CODEX_BIN             stub, or runners.js resolves a real /opt/homebrew/bin/codex that
+                      openaiaccounts.js spawns on a click, which DRY-RUN NEVER GATED
+CLAUDE_DOWNLOAD_BASE  dead port, because connect.download() is not dry-run gated either
+                      and the line after it EXECUTES what it downloaded
+TMUX_BIN, FAKE_PANES  fake tmux
+DATA/WORKERS/LAUNCH/PROJECTS/CONFIG_ROOT/HOME   sandbox roots, and HOME is now mkdir'd
+```

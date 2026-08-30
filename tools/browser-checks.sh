@@ -811,7 +811,28 @@ fi
 # CLICKED: `/api/status` calls create.disabledJobs() and runningJobs(), which run
 # `/bin/launchctl print-disabled gui/<uid>` and `/bin/launchctl list` against the
 # operator's real session, and `wait_up` curls that route before any check starts.
+# ⚠️ AND THAT LIST WAS TWO OF SIX. `/api/machine` runs more, and THE CHECK ITSELF
+# TRIGGERS IT: page.goto on a fresh sandbox answers done:false, so firstRunBoot opens
+# the flow and frPaintReturn fetches /api/machine, whose own run() has NO dry-run seam:
+#     /usr/bin/pmset -g custom
+#     /bin/launchctl print gui/<uid>            and once per label
+#     /usr/bin/defaults read <SystemExtensions>/Info   once per .appex
+# All read-only, and all equally true of the six dry-run boards, so this is not a
+# regression. It is listed because an enumeration that stops at two is the same shape as
+# the sentence #1575 removed from this file: complete-looking and incomplete.
 # Those are non-mutating and fail-soft, which is why this pair is acceptable.
+#
+# ⚠️ THE DOWNLOAD BASE IS BLACKHOLED TOO, AND THAT MATTERS MORE THAN THE STUBS.
+# `connect.download()` is NOT dry-run gated at all, so the vendor fetch already happens on
+# every board including the six dry-run ones. What dry-run WAS preventing here is the next
+# line: `run(downloaded.path, ['install'])` really EXECUTES the freshly downloaded binary.
+# Connect is the exact button these boards exist to reason about, so it is the likeliest
+# thing a future author clicks. A dead port costs nothing (willInstall never touches it)
+# and removes both the egress and the thing that would be executed. sb5/sb6 pin theirs.
+#
+# ⚠️ AND CODEX IS PINNED FOR A REASON DRY-RUN NEVER COVERED: without it `runners.js`
+# resolves a REAL /opt/homebrew/bin/codex, which `openaiaccounts.js` spawnSyncs on an
+# add-account click with no dry-run gate at all. sb4 pins it; these boards now do too.
 #
 # ⇒ SO THE GUARANTEE IS "NO MUTATION", NOT "NOTHING REAL EXECUTES". Do not read the
 # first as the second: `render-connect-skip` only reads, and a future check that
@@ -849,6 +870,7 @@ STUBBAD
 printf '#!/bin/sh\nexit 0\n' > "$sb_ok/fake-codex"
 printf '#!/bin/sh\nexit 0\n' > "$sb_bad/fake-codex"
 chmod +x "$sb_ok/fake-claude" "$sb_bad/fake-claude" "$sb_ok/fake-codex" "$sb_bad/fake-codex"
+mkdir -p "$sb_ok/home" "$sb_bad/home"   # sb4 does this; AGENT_WORKFORCE_HOME is set below
 write_fleet "$sb_ok"; write_fleet "$sb_bad"
 for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
   _sb="${_pair%%:*}"; _port="${_pair##*:}"
@@ -859,6 +881,7 @@ for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
     AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" \
     AGENT_WORKFORCE_CLAUDE_BIN="$_sb/fake-claude" \
     AGENT_WORKFORCE_CODEX_BIN="$_sb/fake-codex" \
+    AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE="http://127.0.0.1:9/" \
     PORT="$_port" node ./server.js > "$_sb/server.log" 2>&1 &
   SERVER_PIDS+=("$!")
   wait_up "$_port" "$_sb/server.log" || true
