@@ -8,7 +8,13 @@ Ice Cream Kitty's #826 restated `render-create-made.js` against the real 4bf7d95
 
 ## What changed
 
-`render-create-made.js` presses the REAL Create button, so it refuses to run at all without `AGENT_WORKFORCE_DRY_RUN=1` on the server AND its own explicit `--yes-dry-run` argument -- both checked by the script itself, per its own header comment. That means it can't join B8 (which boots without dry-run) or the self-contained loop (which boots plain, no dry-run either); it needs its own dedicated board, the same shape `render-github-door` already has.
+`render-create-made.js` presses the REAL Create button, so it refuses to run at all without `AGENT_WORKFORCE_DRY_RUN=1` on the server AND its own explicit `--yes-dry-run` argument -- both checked by the script itself, per its own header comment. That means it needs its own dedicated board, the same shape `render-github-door` already has.
+
+**CORRECTED (#1575).** This sentence used to justify that by saying B8 and the self-contained
+loop both boot without dry-run. Both halves are false, and this is the ORIGIN of a claim that
+later misled a review of #1573. B8 is booted by `boot_board`, which sets
+`AGENT_WORKFORCE_DRY_RUN=1`; the self-contained loop's members set it themselves. Why the
+dedicated board is actually needed is not recorded anywhere I found.
 
 Added a new block after `render-github-door`'s: a dedicated sandboxed server (all four `AGENT_WORKFORCE_DATA/WORKERS/PROJECTS/LAUNCH` roots, `DRY_RUN=1`, first-run completed), on a newly-picked OS-chosen port (`free_port`, not one of the pre-picked `P1`-`P9`). No tmux/fake-panes env vars -- the standalone proof ran clean without them (dry run never reaches tmux), so the wiring matches exactly what was tested rather than adding untested "just in case" setup.
 

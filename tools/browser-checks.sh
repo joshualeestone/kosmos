@@ -235,7 +235,7 @@ write_fleet_rich() {
   local sb="$1"
   # 🛑 THREE RUNNING, AND THE COUNT IS LOAD-BEARING. With the two not-running
   # agents below this board holds FIVE agents, and render-org-chart asserts the
-  # drawing fills more than a third of its canvas — which is a function of how
+  # drawing fills more than a third of its canvas, which is a function of how
   # many nodes there are. MEASURED across sizes against this exact check:
   #     3 agents  fail        4 agents  59%  pass
   #     5 agents  59%  pass   6 agents  53%  FAIL
@@ -248,7 +248,7 @@ write_fleet_rich() {
   # ⚠️ TWO OF THEM, AND THE NAMES ARE NOT INTERCHANGEABLE. render-not-running
   # matches /ghosty/ and render-survival matches /brigitte/, each hardcoded in
   # the check. Seeding only one made render-survival fail IN THE RUNNER after
-  # passing on a board booted by hand — the exact fresh-board-versus-in-sequence
+  # passing on a board booted by hand: the exact fresh-board-versus-in-sequence
   # gap this whole card is about, reproduced in the fix for it.
   mkdir -p "$sb/data/AgentWorkforce/profiles" "$sb/workers/ghosty" "$sb/workers/brigitte"
   printf '%s\n' '{"role":"Copywriter","displayName":"Ghosty"}' \
@@ -347,7 +347,7 @@ run_one() {
   log "⚠️  $label failed once, retrying (flaky-timeout guard). A retried pass is reported, not hidden."
   RETRIED+=("$label")
   if HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@" 2>&1 | tee "$cap"; [ "${PIPESTATUS[0]}" -eq 0 ]; then
-    log "PASS  $label (on retry — treat repeated retries as a finding, not noise)"; rm -f "$cap"
+    log "PASS  $label (on retry: treat repeated retries as a finding, not noise)"; rm -f "$cap"
     return 0
   fi
   log "FAIL  $label (failed twice)"
@@ -558,11 +558,20 @@ else
 fi
 # #812: render-create-made presses the real Create button, so it refuses to
 # run without both a dry-run server (nothing is actually started or written)
-# and an explicit --yes-dry-run flag of its own -- neither is optional, and
-# it is why this check needed a dedicated board rather than joining B8 (which
-# runs without AGENT_WORKFORCE_DRY_RUN). Restated against 4bf7d95's real
-# ending by Ice Cream Kitty (#826) before this PR wired it in; proven
-# standalone (18/18) before this line was written, with exactly the env vars
+# and an explicit --yes-dry-run flag of its own -- neither is optional. It runs
+# on its own board below.
+#
+# B8 also runs under dry-run: it is booted by the `boot_board "$sb7" "$P8"`
+# call further down, and boot_board sets AGENT_WORKFORCE_DRY_RUN=1, as does
+# every `node ./server.js` boot site in this script. An earlier version of this
+# comment stated the opposite and misled the review of #1573; corrected under
+# #1575. The only reason ever recorded for the split was that false one, so no
+# TRUE reason is recorded here or in this file's git history, which is as far as
+# #1575 looked.
+#
+# render-create-made was restated against 4bf7d95's real
+# ending by Ice Cream Kitty (#826) before #812's PR wired it in; proven
+# standalone (18/18) before the run_one line below was written, with exactly the env vars
 # below -- no tmux/fake-panes vars, because dry run never reaches tmux and
 # the standalone proof ran clean without them. P10 comes from pick_ports's
 # own dedup, not a standalone free_port() call: at this point in the script
