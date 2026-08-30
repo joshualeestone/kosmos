@@ -5575,13 +5575,33 @@ test('the first-run routes answer, and the completion route reports what stuck',
   const got = await req('/api/first-run');
   assert.match(got.type, /application\/json/);
   const state = JSON.parse(got.body);
-  for (const field of ['done', 'fleetKnown', 'path', 'subscription']) {
+  for (const field of ['done', 'fleetKnown', 'path', 'subscription', 'connect']) {
     assert.ok(field in state, `/api/first-run stopped answering ${field}, which the screen reads`);
   }
   assert.ok(['adopt', 'create', 'unknown'].includes(state.path),
     `the screen has no branch for path "${state.path}"`);
   assert.ok(['connected', 'none', 'unknown'].includes(state.subscription.state),
     `the screen has no branch for subscription "${state.subscription.state}"`);
+  /* #1556: the wiring test asserts firstrun.state() directly, so this is the only
+     place that proves the field survives serialization to the client. `undefined`
+     would vanish silently through JSON.stringify and the screen would fail open. */
+  /* The field must be PRESENT (undefined vanishes through JSON.stringify and the
+     screen would fail open with no sign), and it must be one of the two shapes
+     firstrun.js actually produces: a boolean, or null for "we could not tell".
+     Demanding a boolean here would red on a probe failure and report it as a
+     serialization problem, which is not where the cause is. */
+  assert.ok('willInstall' in state.connect,
+    'the screen reads FR.connect.willInstall and the route did not answer the field at all');
+  /* null is accepted because firstrun.js keeps a defensive catch, not because that
+     path is reachable today.
+
+     ⚠️ AND THIS FILE NEVER RESETS connect's PROBE CACHE, which is fine only because
+     these assertions are shape-only and the file pins AGENT_WORKFORCE_CLAUDE_BIN.
+     An arm here asserting a SPECIFIC willInstall value would silently read a
+     60s-cached verdict with no seam visible in this file; it would need
+     connect.resetForTests() first. */
+  assert.ok(typeof state.connect.willInstall === 'boolean' || state.connect.willInstall === null,
+    `the route answered ${JSON.stringify(state.connect.willInstall)}, which the screen has no branch for`);
 
   /**
    * ⚠️ A GET MUST NOT WRITE THE FLAG, and the first version of this could not

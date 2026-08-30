@@ -14,8 +14,25 @@ process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
+/* 🛑 PIN THE LAUNCHER TOO, NOT JUST THE RUNNER, AND THIS IS THE THIRD TIME THIS
+   HAZARD HAS BITTEN THIS BRANCH. The `connect.setRunner` stub below stops the
+   SUBPROCESS, but `willInstall()` does `fs.accessSync(claudeBinPath(), X_OK)` BEFORE
+   it ever reaches an injected runner. So without this line `state().connect.willInstall`
+   is false on a box that has a real ~/.local/bin/claude and true on one that does not,
+   and the sandbox is only partially isolating.
+
+   Nothing asserts on that field in this file today, so nothing is flaky yet. The point
+   is that the next assertion added here would be machine-dependent silently, and I
+   wrote the warning about exactly this hazard in this file and then reproduced it twice
+   more: once in the wiring test, and once here by fixing the runner and not the path. */
+const STUB_CLAUDE = nodePath.join(SANDBOX, 'claude-stub');
+fs.writeFileSync(STUB_CLAUDE, '#!/bin/sh\nexit 0\n');
+fs.chmodSync(STUB_CLAUDE, 0o755);
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = STUB_CLAUDE;
+
 const firstrun = require('./firstrun');
 const subscription = require('./subscription');
+const connect = require('./connect');
 const status = require('./status');
 const fleet = require('../test-support/fleet');
 
@@ -33,12 +50,23 @@ const pane = (name) => fleet.line({ session: name, claim: name, title: '✳ Clau
    `claude auth status` would depend on whoever runs it being signed in, and
    would be slow and flaky for the wrong reasons. `setRunner` is subscription's
    own seam for exactly this; `okRunner` mirrors what the real one returns. */
+/* 🛑 CONNECT'S RUNNER IS STUBBED FOR THE SAME REASON, AND IT IS A NEW ONE (#1556).
+   `state()` now also asks `connect.willInstall()`, which runs `claude --version`.
+   `claudeBinPath()` resolves the OPERATOR'S REAL LAUNCHER (measured:
+   /Users/agent1/.local/bin/claude, and X_OK passes), so without this stub every
+   test in this file would spawn a real subprocess against a real install. That is
+   the precise hazard the note above already names for `claude auth status`, and
+   adding a second one silently would have been the worse half of it. */
 test.beforeEach(() => {
   subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  connect.setRunner(async () => ({ ok: true, stdout: '' }));
+  connect.resetForTests();
 });
 
 test.afterEach(() => {
   subscription.setRunner(null);
+  connect.setRunner(null);
+  connect.resetForTests();
   status.setPaneSource(null);
   try { fs.rmSync(firstrun.FLAG, { force: true }); } catch { /* fine */ }
 });

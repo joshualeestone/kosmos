@@ -137,15 +137,38 @@ const PANE_TARGET = '=' + SESSION + ':'; // pane-targeted commands
 let DRY_RUN = process.env.AGENT_WORKFORCE_DRY_RUN === '1';
 let runner = null;
 
+/* ⚠️ DECLARED HERE, BESIDE THE SEAMS THAT WRITE THEM, NOT BESIDE THE FUNCTION THAT
+   READS THEM. `setRunner` and `setDryRun` are a few lines below and both clear this
+   cache. They used to be declared down beside `willInstall`, the function that READS
+   them, which put a few hundred lines between the writers and the declarations: a
+   future module-level call to either seam would then hit a TDZ ReferenceError rather
+   than a readable failure. The comments explaining WHY each exists stay with
+   `willInstall`; only the declarations moved.
+
+   📌 No line number here on purpose. An earlier draft said "230 lines further down"
+   and the real distance was 272, and it would have drifted again on the next edit.
+   Cite the FUNCTION, not the line. */
+let probeCache = null;
+let probeInFlight = null;
+let probeGeneration = 0;
+
 function setRunner(fn) {
   runner = fn || null;
   if (!runner) DRY_RUN = true;
+  /* Changing what a probe RETURNS must not leave the previous answer cached. */
+  probeGeneration += 1;
+  probeCache = null;
+  probeInFlight = null;
 }
 function setDryRun(on) {
   if (!on && !runner) {
     throw new Error('refusing to leave dry-run with no injected runner: this would run real programs');
   }
   DRY_RUN = Boolean(on);
+  /* Same reason as setRunner: dry-run changes the verdict, so the cache is void. */
+  probeGeneration += 1;
+  probeCache = null;
+  probeInFlight = null;
 }
 
 /** async execFile, promisified by hand so the seam stays one function. */
@@ -309,6 +332,162 @@ function state() {
     return publicView(disk);
   }
   return publicView(mem);
+}
+
+let PROBE_TTL_MS = 60000;
+/** Tests only: make the probe cache's expiry assertable. Without a seam a typo
+    turning 60000 into 600000 is invisible to the suite, because every arm either
+    hits a warm cache or resets it, and nothing ever waits for an entry to age out. */
+function setProbeTtlForTests(ms) { PROBE_TTL_MS = Number.isFinite(ms) && ms > 0 ? ms : 60000; }
+
+/**
+ * Would connecting Claude have to DOWNLOAD it first? (#1556)
+ *
+ * 🛑 THE CLIENT ALREADY ASKS THIS AND THE SERVER NEVER ANSWERED.
+ * `web/index.html`'s `frClaudeInstallNeeded()` reads `FR.connect.willInstall` and,
+ * finding nothing, FAILS OPEN and assumes an install is needed. So the download
+ * prompt was shown to everybody, including people who already have a working Claude
+ * Code. The consumer was correct all along; this field is what was unbuilt.
+ *
+ * ⚠️ READ THAT PATH PRECISELY, BECAUSE I DID NOT. It is `FR.connect.willInstall`,
+ * and `FR` is assigned WHOLESALE from `/api/first-run`. I first served this field
+ * on `/api/connect`, verified it answered correctly on three boards, and shipped a
+ * screen that did not change by one character. The producer is `firstrun.state()`;
+ * this function only computes the value.
+ *
+ * ⭐ THE SAME TWO-STEP `start()` ALREADY USES, and it was here before either #1560
+ * or this card: a cheap `accessSync` decides whether the expensive probe is worth
+ * running. A truncated or half-written launcher passes `X_OK` forever, so "a file is
+ * there" is not "it runs", and only `--version` can tell them apart.
+ *
+ * 🛑 THE CACHE IS DELIBERATELY ONE-SIDED, BECAUSE THE TWO ERRORS ARE NOT EQUAL:
+ *
+ *   we say willInstall TRUE  and it was false  -> one needless confirm dialog
+ *   we say willInstall FALSE and it was true   -> AN UNANNOUNCED 281MB DOWNLOAD
+ *
+ * The second is the harm this card exists to prevent, and Josh asked for the confirm
+ * step by name. So the cheap check runs EVERY time: if the binary has GONE, that is
+ * known instantly and no probe runs. Only the expensive PROBE result is cached.
+ *
+ * ⚠️ AND HERE IS THE WINDOW THAT LEAVES, STATED RATHER THAN GLOSSED. `accessSync`
+ * catches REMOVAL, not corruption in place. A launcher that was present and working,
+ * cached `ok: true`, and is then overwritten with something broken AT THE SAME PATH
+ * reads as installed for up to the TTL. That is the harmful direction, and no cheap
+ * check can see it: telling a good binary from a broken one is exactly what costs a
+ * subprocess. The TTL is the bound on it.
+ *
+ * 📌 AND THE TTL BOUNDS THE SERVER, NOT THE SCREEN. The client holds this answer in
+ * its `FR` snapshot, which is refreshed only at page boot and on Check again, so on
+ * a board left open the stale window is however long that page has been sitting
+ * there. Benign in the same way and for the same reason, and named for the same
+ * reason: the bound people will assume from "60s" is not the one they get.
+ *
+ * 📌 An earlier draft of this block said the cheap check "can only ever move the
+ * answer toward yes" and offered the newly-INSTALLED case as the stale one. Both
+ * were wrong: the install case never reaches the cache at all (the missing-binary
+ * path returns before it), and the real stale window is the one above, which points
+ * the other way. Corrected rather than dropped.
+ *
+ * ⚠️ AND IT NEVER THROWS. A failure here must leave the caller free to fall back to
+ * today's behaviour, because the whole defect was a missing answer being read as a
+ * definite one.
+ */
+/* ⚠️ BUMPED BY EVERY RESET AND EVERY SEAM CHANGE, and a probe writes the cache only
+   if the generation it started in is still current. Without it two holes stay open,
+   both in the harmful direction:
+
+     resetForTests() while a probe is in flight -> that probe still lands afterwards
+     setRunner()/setDryRun() -> the PREVIOUS runner's verdict is served to the next arm
+
+   The comment on the reset seam argues a partial reset is worse than none, because
+   the stale verdict it carries can be the harmful `false`. That argument applies to
+   these two windows exactly, so it should not be left as an argument.
+
+   📌 A THIRD, NARROWER WINDOW IS LEFT OPEN ON PURPOSE, named here so the "two holes"
+   above is not read as "all of them": a caller that JOINED an in-flight probe before
+   a seam change still receives the pre-change verdict. It asked before the change, so
+   answering it with the answer in flight at the time is defensible, and closing it
+   would mean either rejecting that caller or re-probing on its behalf. It is also
+   unreachable in production, since setRunner and setDryRun are test-only. */
+/* ⚠️ COALESCED, BECAUSE A CACHE WRITTEN AFTER AN AWAIT IS NOT A CACHE YET.
+   Every caller arriving while the first probe is still running would miss
+   `probeCache` and start its own `claude --version`. That mattered acutely when this
+   field was served on `/api/connect`, which IS on a 1000ms timer. It is now served on
+   `/api/first-run`, which is not, so the pile-of-subprocesses case is gone with that
+   design and the timeout is 5s rather than 15s.
+
+   ⇒ The coalescing still earns its place: page boot and "Check again" can genuinely
+   overlap, and a cache written after an await is not a cache yet. Only the original
+   justification was overtaken. Sharing the in-flight promise makes N callers
+   cost exactly one probe, and changes no verdict. */
+
+async function willInstall() {
+  /* ⚠️ `claudeBinPath()` IS INSIDE THE GUARD, and it was not. It calls into the
+     runner resolver, which can throw, and the doc block above promises this
+     function never does. A resolver failure is an unknown like any other here, so
+     it resolves the same way: an install is needed. */
+  let bin;
+  try {
+    bin = claudeBinPath();
+    /* The cheap half, every time. It cannot produce the harmful answer on its own:
+       a missing or non-executable file means an install IS needed, full stop. */
+    fs.accessSync(bin, fs.constants.X_OK);
+  } catch { return true; }
+  if (probeCache && probeCache.bin === bin && Date.now() - probeCache.at < PROBE_TTL_MS) {
+    return !probeCache.ok;
+  }
+  /* Keyed on `bin` so a changed path starts a fresh probe rather than joining a
+     probe of the old one. */
+  if (probeInFlight && probeInFlight.bin === bin) return !(await probeInFlight.promise);
+  const startedIn = probeGeneration;
+  const probing = (async () => {
+    let ok = false;
+    try {
+      /* ⚠️ 5s, NOT the 15s `start()` uses. That number is right there because a
+         person just clicked Install and is watching; this probe runs on a PAGE
+         LOAD, on the route that decides whether the onboarding overlay opens. A
+         `--version` that has not answered in five seconds is not going to, and a
+         HANGING launcher is precisely the broken-binary class this card exists to
+         catch, so it is the case that would pay the 15s. Timing out gives
+         `ok: false`, which resolves to "an install is needed": the safe direction. */
+      const probe = await run(bin, ['--version'], { timeout: 5000 });
+      /* 🛑 A DRY-RUN RESULT IS NOT A PASS, AND MY UNIT TESTS COULD NOT SEE THIS.
+         `run()` returns `{ ok: true, dryRun: true }` WITHOUT EXECUTING ANYTHING when
+         dry-run is on (this file, in `run` itself), so a probe that never ran reported
+         success and a broken launcher came back "installed" through the real route.
+
+         📌 I first wrote `create.js:240` here. WRONG FILE: connect.js has its own
+         `run`, its own DRY_RUN and its own setDryRun, and never requires create.js.
+         The behaviour was measured; the cause I named for it was not. Corrected
+         rather than quietly dropped, because a wrong citation reads as checked.
+
+         ⇒ MEASURED, both arms, same broken binary: dry-run OFF gives willInstall
+         true, dry-run ON gave FALSE. That is the unannounced-download answer,
+         produced by the safety mechanism meant to make things safe.
+
+         ⭐ `dryRun` MEANS "WE DID NOT CHECK", WHICH IS UNKNOWN, NOT YES. Every other
+         unknown in this function resolves toward "an install is needed", because that
+         costs a confirm dialog and the other direction costs 281MB nobody asked for.
+         This one now does too.
+
+         📌 Found by querying the real route on three boards, not by the six unit
+         tests, which never set dry-run. The units and the route disagreed and the
+         route was right. */
+      ok = !!(probe && probe.ok && !probe.dryRun);
+    } catch { ok = false; }
+    /* Stamped at COMPLETION, not at start, so a slow probe does not hand back a
+       result that is already most of the way through its own TTL. */
+    if (startedIn === probeGeneration) probeCache = { bin, ok, at: Date.now() };
+    return ok;
+  })();
+  probeInFlight = { bin, promise: probing };
+  try {
+    return !(await probing);
+  } finally {
+    /* Only clear if it is still OURS: a probe for a different bin may have
+       replaced it while this one was running. */
+    if (probeInFlight && probeInFlight.promise === probing) probeInFlight = null;
+  }
 }
 
 function publicView(s) {
@@ -695,8 +874,10 @@ async function start(opts) {
      * that would fix it is the one this branch declines to honour.
      *
      * ⚠️ THIS IS #874 ONE FILE OVER, AND THAT IS THE PART WORTH NOTICING.
-     * `engine/firstrun.js:140` already made exactly this swap, for exactly this
-     * reason, and wrote down why. `engine/accounts.js` already called the live
+     * `firstrun.state()`'s `checkLive()` call already made exactly this swap, for
+     * exactly this reason, and wrote down why. (Named rather than line-numbered: this
+     * read `engine/firstrun.js:140` until #1556 inserted lines above that call, after
+     * which the number silently pointed at an unrelated comment.) `engine/accounts.js` already called the live
      * check. Connect was the remaining path still trusting the file alone, so
      * the product had two answers and the louder one was the unverified one.
      *
@@ -1669,6 +1850,13 @@ function resetForTests() {
   activeRequest = null;
   activeChild = null; // a stale handle must not be killable by the next test's flow
   mem = { phase: PHASE.IDLE };
+  /* ⚠️ The probe cache belongs to the ONE documented reset seam, not to a second
+     one beside it. A partial reset is worse than none: the stale verdict it would
+     carry into the next arm can be the harmful `false`, and the arm would pass.
+     The generation bump is what stops an IN-FLIGHT probe landing after this. */
+  probeGeneration += 1;
+  probeCache = null;
+  probeInFlight = null;
 }
 
 module.exports = {
@@ -1678,4 +1866,5 @@ module.exports = {
   download, platformKey,
   setRunner, setDryRun, setTickInterval, setUnknownGrace, setAbandonedSigninMs, setFreshnessForTests, resetForTests,
   STATE_FILE,
+  willInstall, setProbeTtlForTests,
 };

@@ -30745,9 +30745,10 @@ document.getElementById('fr-pane-1').addEventListener('click', async (e) => {
 /**
  * Will pressing Connect on Claude actually DOWNLOAD something?
  *
- * 🛑 TODAY THE PAGE CANNOT TELL, AND THIS SAYS SO RATHER THAN PRETENDING.
- * An earlier version of this read `/api/machine` for a Claude Code row. That
- * was wrong twice over and shipped green:
+ * 📌 THE PAGE CAN TELL NOW (#1556). Kept because it records why the OBVIOUS
+ * producers were rejected, and both traps are still there for anyone tempted to
+ * read the machine row instead. An earlier version of this read `/api/machine`
+ * for a Claude Code row. That was wrong twice over and shipped green:
  *   1. it guessed the row shape (`name`/`label`/`[0]`); real rows carry
  *      `key`/`state`/`title`/`detail`, so the lookup never matched and the
  *      function could only ever return true;
@@ -30761,11 +30762,22 @@ document.getElementById('fr-pane-1').addEventListener('click', async (e) => {
  * ANSWER as its own engine field rather than leaving the page to assemble it
  * from ingredients, which is how a page and an engine end up disagreeing.
  *
- * Until that field exists the honest answer is "we do not know", and the
- * honest behaviour is to ASK: asking needlessly costs one click, and not
- * asking is the thing this whole panel exists to prevent.
+ * ✅ THE FIELD LANDED (#1556) AND THIS IS NOW A READ OF IT. `firstrun.state()`
+ * produces `connect.willInstall` and it is served on `/api/first-run`, which is
+ * where `FR` comes from. Nothing else about this function changed: the body below is
+ * the same read it always was, and only the answer it gets is new.
  *
- * 🔑 WHEN THE FIELD LANDS this becomes a read of it and nothing else changes.
+ * 🛑 DO NOT RE-DERIVE A PRODUCER. This block used to end "TODAY THE PAGE CANNOT
+ * TELL" and "until that field exists", and it still said so for a while AFTER the
+ * field existed. A reader would have concluded no producer was there and built a
+ * second one, which is the two-copies-of-one-fact defect this codebase keeps
+ * paying for. `engine/status.js` names the class: the sentence outlived the
+ * behaviour it described.
+ *
+ * The fallback below is unchanged and still correct: a non-boolean means we could
+ * not tell, and the honest behaviour is to ASK. Asking needlessly costs one click;
+ * not asking starts a 281MB download nobody agreed to, which is what this panel
+ * exists to prevent.
  */
 function frClaudeInstallNeeded() {
   const st = (FR && FR.connect) || null;
@@ -30820,7 +30832,11 @@ function frRoughMB(bytes) {
 
 /**
  * 🛑 THE SENTENCE MUST NOT ASSERT AN INSTALL WE CANNOT CONFIRM WILL HAPPEN.
- * While `frClaudeInstallNeeded` can only answer "we do not know", a flat "we
+ * ⚠️ THE PREMISE OF THIS PARAGRAPH CHANGED IN #1556 AND THE LOGIC BELOW DID NOT.
+ * `frClaudeInstallNeeded` can now answer definitively, so the flat arm is reachable
+ * in production for the first time. The `known ? flat : hedge` choice was already
+ * right and needs nothing; only this sentence was stale. Originally: while
+ * `frClaudeInstallNeeded` can only answer "we do not know", a flat "we
  * need to install Claude Code first" is FALSE on any Mac that already has it
  * -- including the working Claude Max machine the `unknown` verdict arm spends
  * three paragraphs protecting. Someone could decline a download that was never
@@ -30834,7 +30850,17 @@ function frClaudeConfirmSentence() {
   const bytes = frClaudeDownloadBytes();
   const size = bytes === null ? 'a large download' : 'a large download, about ' + frRoughMB(bytes);
   const st = (FR && FR.connect) || null;
-  const known = st && typeof st.willInstall === 'boolean';
+  /* ⚠️ `=== true`, NOT `typeof ... === 'boolean'`. The flat arm below states that an
+     install IS needed, and a boolean test is satisfied by `false` too, so a machine
+     that already HAS a working Claude Code would be told the opposite. It is safe
+     today only because the single caller (`frConnectStart`) is gated behind
+     `frClaudeInstallNeeded()` in a different part of the file, and #1556 is what made
+     this arm reachable at all. (An earlier draft said "three hundred lines away" and
+     the real distances are neither of the numbers it implied, so the claim is stated
+     without one.) A
+     sentence that cannot contradict itself is better than one that relies on a
+     distant caller to stay honest. */
+  const known = st && st.willInstall === true;
   return known
     ? 'In order to connect to Claude, we need to install Claude Code first. It is ' + size + '.'
     : 'Connecting to Claude needs Claude Code on this computer. If it is not here already we will install it, ' + size + '.';

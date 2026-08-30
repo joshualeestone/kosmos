@@ -34,6 +34,7 @@ const EXCUSED = {
   setUnknownGrace: 'test seam (connect pacing)',
   setAbandonedSigninMs: 'test seam (connect pacing, #727 item 4 abandoned-signin bound)',
   setFreshnessForTests: 'test seam',
+  setProbeTtlForTests: 'test seam: ages the willInstall probe cache instead of sleeping 60s (#1556)',
   setUnansweredAfterForTests: 'test seam (#185 unanswered constant)',
   setBase: 'test seam (update feed base url)',
   setInstallRunner: 'test seam (update installer)',

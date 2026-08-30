@@ -29,6 +29,7 @@ const path = require('node:path');
 const store = require('./store');
 const status = require('./status');
 const subscription = require('./subscription');
+const connect = require('./connect');
 
 const FLAG = path.join(store.ROOT, 'first-run.json');
 
@@ -135,8 +136,23 @@ async function state() {
      a poll, and the cost note at `server.js:3211` is about `/api/found-agents`,
      not about this.
 
+     🛑 CORRECTED (#1556): that last clause was wrong and it is fixed here rather
+     than left to contradict the newer note below. `server.js:3211` explains why
+     `/api/found-agents` is NOT folded into `/api/first-run`, and its "That route is
+     polled" refers back to `/api/first-run`, which is THIS route. So the cost note
+     IS about this one. See the block further down for which sense of "polled" it
+     means: user-driven repeats, not a timer.
+
      ⭐ And it is what makes "Check again" mean anything. Before this, that button
      re-read the same file and returned the same wrong answer, confidently. */
+  /* ⚠️ STARTED HERE, AWAITED LATER, SO THE TWO PROBES OVERLAP.
+     This route already shells out twice (`claude auth status`, then tmux), and
+     #1556 adds a third. Serial, that is roughly double the worst-case latency on
+     a route that gates whether the onboarding overlay opens. Kicking the promise
+     off before the first await costs nothing and reorders nothing else. The
+     `.catch` is attached AT CREATION, so a rejection can never be unhandled while
+     it sits here unawaited. */
+  const willInstallSoon = connect.willInstall().catch(() => null);
   const live = await subscription.checkLive();
   /* ⚠️ THE PLAN NAME STILL COMES FROM THE FILE, AND ONLY WHEN THE LIVE CHECK
      SAID YES. `checkLive()` returns `plan: null` on purpose: `claude auth
@@ -164,6 +180,23 @@ async function state() {
    */
   const path_ = !here.known ? 'unknown' : (here.count > 0 ? 'adopt' : 'create');
 
+  /* ⚠️ THE CATCH IS BELT AND BRACES, AND IT IS CURRENTLY UNREACHABLE. Say that
+     plainly rather than describing a live fail-open path, because `willInstall()`
+     catches on every route it has: the bin resolution and the accessSync sit in
+     one try, the probe sits in another, and nothing after those can throw. So it
+     does not reject and this `.catch` cannot fire today.
+
+     It stays because the property it defends is the one that matters (an unknown
+     must never become a confident "no install needed", which costs an unannounced
+     281MB download), and because a future edit inside `willInstall` could make it
+     reachable. What it must NOT do is read as a guarantee the code is providing
+     right now. This repo names that trap itself, in `frClaudeDownloadBytes`'s doc block in
+     web/index.html (named rather than line-numbered, because a line number in a
+     32k-line file drifts):
+     saying a function can return null when it cannot is how a dead branch gets pinned by a
+     test that can never fail for the reason it states. */
+  const willInstall = await willInstallSoon;
+
   return {
     done: flag.done,
     // Carried so the screen can say WHY it is not offering the fork, rather
@@ -176,6 +209,36 @@ async function state() {
     // checks.
     path: path_,
     subscription: sub,
+    /**
+     * 🛑 #1556: THIS SHAPE IS DICTATED BY THE READER, NOT CHOSEN.
+     * `frClaudeInstallNeeded()` reads `FR.connect.willInstall`, and `FR` is
+     * assigned WHOLESALE from this payload at both of its two assignment sites.
+     * So the key has to be `connect` and it has to be an object, or the reader
+     * sees `undefined` and fails open to asking everybody.
+     *
+     * ⚠️ I FIRST SHIPPED THIS FIELD ON `/api/connect`, WHERE NOTHING READS IT.
+     * The route answered correctly on three boards and the screen did not change
+     * by one character, because `FR` never carries `/api/connect`'s reply. This
+     * file's own line above says it: "a field nothing reads is a claim nothing
+     * checks." I verified the half that worked and called the card done.
+     *
+     * ⭐ IT BELONGS HERE FOR A SECOND REASON, NOT ONLY CORRECTNESS: `/api/connect`
+     * is on a 1000ms TIMER during a live flow (`setInterval`, web/index.html), and
+     * an awaited probe there stacks concurrent subprocesses. This route is not on a
+     * timer: its two callers are a button (`frRecheck`) and page boot
+     * (`firstRunBoot`), and it already awaits `checkLive()`.
+     *
+     * 📌 `server.js` calls this route "polled", meaning user-driven repeats: every
+     * Check again, every repaint of the setup flow. That is a real cost note and it
+     * is NOT the timer sense used above. Both are true, so this comment names which
+     * one it means; the two probes above are overlapped for exactly that reason.
+     *
+     * `willInstallBytes` is deliberately absent: separate card, needs the
+     * manifest. its only reader (`frClaudeDownloadBytes`) already handles its absence. Named, not
+     * counted: an earlier draft here said "both readers" and there is exactly one,
+     * which is the same count-in-a-comment defect this branch corrects elsewhere.
+     */
+    connect: { willInstall },
   };
 }
 
