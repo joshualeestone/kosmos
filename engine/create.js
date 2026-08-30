@@ -243,6 +243,24 @@ function launchIsSandboxed() {
    */
   {
     /**
+     * 🛑 THIS DOES NOT CALL `sandbox.audit()`, AND AN EARLIER VERSION OF THIS
+     * COMMENT SAID IT DID. It borrows sandbox.js's DIRECTORY LIST and its escape
+     * hatch, and asks a DIFFERENT QUESTION on purpose:
+     *
+     *   sandbox.audit().partial  "is this BOARD half-sandboxed?"   (includes tmux)
+     *   launchIsSandboxed()      "is the PLIST DESTINATION sandboxed?"
+     *
+     * They legitimately disagree, and the disagreement is not a defect. Measured:
+     * with all four directories sandboxed AND `AGENT_WORKFORCE_TMUX_BIN` set
+     * (which `install/kosmos:228` exports in every production board), `partial` is
+     * FALSE because nothing is left live, while the plist destination IS sandboxed
+     * and this must return TRUE.
+     *
+     * 📌 The list is DERIVED from `sandbox.DIRS`, not copied, so a fifth directory
+     * knob added there is seen here automatically. An earlier version hardcoded
+     * the three names, which is the two-copies-of-one-fact defect this file's
+     * header calls its worst habit, inside the paragraph claiming to avoid it.
+     *
      * 🛑 HONOUR `AGENT_WORKFORCE_HALF_SANDBOX_OK`, WHICH `.set` DOES NOT. THIS IS A PRODUCTION PATH AND AN EARLIER VERSION
      * OF THIS LINE BROKE IT. `install/setup.sh` exports DATA, PROJECTS and
      * WORKERS for a non-default `KOSMOS_HOME` (:2635-2637), DELIBERATELY leaves
@@ -274,8 +292,40 @@ function launchIsSandboxed() {
      * belongs.
      */
     const env = process.env;
-    const OTHERS = ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_PROJECTS', 'AGENT_WORKFORCE_WORKERS'];
-    if (env.AGENT_WORKFORCE_HALF_SANDBOX_OK !== '1' && OTHERS.some((k) => env[k])) return true;
+    let others;
+    try {
+      others = require('./sandbox').DIRS
+        .map(([k]) => k)
+        .filter((k) => k !== 'AGENT_WORKFORCE_LAUNCH');
+    } catch {
+      /* sandbox.js unavailable: fall back to the known three rather than to
+         "nothing is sandboxed", which is the fail-OPEN direction. */
+      others = ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_PROJECTS', 'AGENT_WORKFORCE_WORKERS'];
+    }
+    /**
+     * 🛑 KNOWN RESIDUAL, AND IT IS NOT FIXABLE HERE. Setting the hatch disarms
+     * this arm completely, so a TEST that sandboxes the other three, sets
+     * `HALF_SANDBOX_OK=1`, and forgets LAUNCH gets the guard switched off and
+     * writes a real plist. That is the #1539 shape verbatim, and the hatch is
+     * exactly what sandbox.js tells you to set when a board refuses to start.
+     *
+     * ⚠️ IT CANNOT BE DECIDED FROM THE ENVIRONMENT. Measured: a legitimate
+     * non-default-KOSMOS_HOME install (setup.sh) and a test that sets the hatch
+     * present an IDENTICAL environment - same three variables, same hatch, LAUNCH
+     * unset in both. Any predicate that refuses one refuses the other, and
+     * refusing the real install is the failure that rolls back every agent
+     * creation (see the block above, which is how that was found).
+     *
+     * ⇒ The residual protection in that state is arm B alone: if LAUNCH is
+     * redirected the path comparison still catches it. What is unprotected is
+     * hatch-set AND LAUNCH-unset AND actually a test.
+     *
+     * ✅ THE REAL FIX IS NOT A BETTER PREDICATE, IT IS NOT INFERRING INTENT FROM
+     * THE ENVIRONMENT AT ALL: fail closed by default and require an explicit live
+     * opt-in at the one production caller. Tracked as #1598. This guard is a
+     * mitigation for the file it is in, not a solution to the class.
+     */
+    if (env.AGENT_WORKFORCE_HALF_SANDBOX_OK !== '1' && others.some((k) => env[k])) return true;
   }
 
   let real;
@@ -308,6 +358,13 @@ function launchIsSandboxed() {
    * codebase produces a lowercased spelling; a future reader trusting the old
    * sentence would have been wrong about what the code does.
    */
+  /* ⚠️ UNTESTED, and labelled so rather than left to look covered. Replacing
+     `realpathSync` with `path.resolve` leaves all 11 tests green: with LAUNCH
+     unset both sides are the same string and take the same branch, and I could
+     not construct a realistic input where its presence changes the answer on this
+     machine. It is here for a symlinked home (`/var` vs `/private/var`), which
+     this machine does not have. Same state as the fail-closed branch above, and
+     the file's own standard says to say so. */
   const canon = (d) => { try { return fs.realpathSync(d); } catch { return path.resolve(d); } };
   return canon(agentsDir()) !== canon(real);
 }
@@ -3095,10 +3152,17 @@ module.exports = {
      testing it end-to-end first requires knowing the predicate is right. */
   launchIsSandboxed,
   /* Test seam. `run` is exported so the #1539 refusal's MESSAGE can be asserted
-     directly. It has to be direct: the refusal is discarded by two of the five
-     mutating call sites (`:1750`, `:2340` both `try { run(...) } catch {}` and
-     never read the result) and `sandboxRefused` is read nowhere in the repo, so
-     there is no public path that surfaces the sentence. That is a real gap, not
+     directly. 
+     🛑 IT HAS TO BE DIRECT BECAUSE NO CALLER SURFACES THE SENTENCE AT ALL. There
+     are FOUR mutating call sites, not five, and an earlier version of this comment
+     said five and claimed only two discarded the refusal. Measured: the `enable`
+     in `installJob` and the `bootout` in `rollBack` wrap the call in
+     `try { run(...) } catch {}` and never read the result; BOTH `bootstrap` sites
+     read only `ok` and throw the object away. `sandboxRefused` is read nowhere
+     outside the #1539 test.
+
+     Cited by SYMBOL, not line: the two lines this comment previously named had
+     already moved by 77 in this branch's own next commit. That is a real gap, not
      a testing inconvenience, and it is why the export is labelled rather than
      quietly added. */
   run,
