@@ -180,3 +180,23 @@ test('no screen claims every agent thinks with Claude', () => {
   assert.doesNotMatch(CODE, /Your agents think with Claude/,
     'a screen asserts that every agent thinks with Claude; a GPT agent runs on Codex, and this sentence is what taught Josh that Kosmos needs Claude Code');
 });
+
+test('#1550: the start shows immediate phase-general feedback before the fetch, and clears it on error', () => {
+  /* Josh: "I hit Confirm and nothing happened." The confirm box hides on
+     Confirm and the flow speaks in #fr-sub, but nothing is there until the
+     first phase paints, so a start that dies before then is a silent screen. A
+     download-only bar would show nothing on a machine that already has Claude
+     Code, where runFlow skips the download -- which is the stuck case -- so the
+     feedback must be phase-general and rendered BEFORE the fetch. */
+  const start = CODE.indexOf('async function frConnectStartConfirmed()');
+  assert.ok(start > 0, 'frConnectStartConfirmed moved or was renamed');
+  const body = CODE.slice(start, start + 1500);
+  const barAt = body.indexOf('fr-progress fr-indet');
+  const fetchAt = body.indexOf("fetch('/api/connect/start'");
+  assert.ok(barAt > 0, 'no indeterminate bar on start: a start that dies before the first phase is a silent screen');
+  assert.match(body, /Starting/, 'the immediate feedback has no phase-general "Starting" line');
+  assert.ok(fetchAt > 0 && barAt < fetchAt, 'the feedback is rendered after the fetch, so a slow or dead start still shows nothing');
+  const catchAt = body.indexOf('catch (err)');
+  assert.ok(catchAt > 0, 'the start error path moved');
+  assert.match(body.slice(catchAt), /sub\.innerHTML = ''/, 'the placeholder is not cleared on a start error, so it slides under the failure');
+});
