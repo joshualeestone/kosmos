@@ -422,39 +422,53 @@ test('claudeHatchAvailable answers NO for a directory, which is what the stuck s
   }
 });
 
-test('claudeHatchAvailable resolves the bin INSIDE its try, so a throw still writes the stuck screen', () => {
-  /* Mona Lisa's finding, and I DELETED THE GUARD FOR IT while collapsing the
-     region, then caught that with my own perturbation. Third time today that
-     simplifying a guard silently dropped coverage.
+test('claudeHatchAvailable answers false when the resolver THROWS, rather than letting it escape', () => {
+  /* Mona Lisa's finding, and this arm was a SOURCE check until a reviewer showed
+     the throw can simply be driven. `claudeBinPath()` does a LATE
+     `require('./runners').resolveBin(...)`, so the lookup happens at call time on
+     the cached module object, and that object is already the seam. No new
+     production surface.
 
-     `claudeBinPath()` calls the runner resolver, which can throw, and
-     becomeStuck's docblock promises any error answers FALSE. Hoisting the
-     resolution into a bare `const` above the try lets the throw escape
-     becomeStuck entirely, so writeState never runs and the person is left on NO
-     SCREEN AT ALL. Two blind reviewers hit this on her branch.
+     The defect: hoisting the resolution out of the try lets a resolver throw
+     escape becomeStuck entirely, so writeState never runs and the person is left
+     on NO SCREEN AT ALL, which breaks the docblock promise that any error answers
+     false. Two blind reviewers hit this on her branch.
 
-     ⚠️ IT IS A SOURCE CHECK AND I WOULD RATHER IT WERE NOT. Forcing the resolver
-     to throw needs a seam that does not exist, so the behavioural consequence
-     stays untested; that is a known gap, not a covered one. What makes this one
-     tolerable where the old region check was not: the surface is a SEVEN-LINE
-     FUNCTION with its own braces, not a region of a mutable function, so there is
-     no boundary to get wrong in either direction. */
-  const src = fs.readFileSync(path.join(ENGINE, 'connect.js'), 'utf8');
-  const at = src.indexOf('function claudeHatchAvailable()');
-  assert.ok(at > 0, 'claudeHatchAvailable was renamed or removed; re-aim this guard');
-  const body = src.slice(at, src.indexOf('\n}', at) + 2);
-  assert.ok(body.length < 400, 'claudeHatchAvailable has grown; it is meant to be one expression in a try');
+     ⭐ This asserts the CONSEQUENCE rather than the shape, so it survives refactors
+     a shape check would red on, and it fails on the one thing that matters.
 
-  const tryAt = body.indexOf('try {');
-  const resolveAt = body.search(/claudeBinPath\s*\(|resolveBin\s*\(/);
-  assert.ok(tryAt > -1, 'claudeHatchAvailable is no longer wrapped in a try/catch');
-  assert.ok(resolveAt > -1, 'claudeHatchAvailable no longer resolves a bin path at all');
-  assert.ok(
-    resolveAt > tryAt,
-    'the bin resolution has moved OUTSIDE claudeHatchAvailable\'s try. A throw from the runner ' +
-      'resolver now escapes becomeStuck, so writeState never runs and the person is left on no ' +
-      'screen at all, which breaks the docblock promise that any error answers false.'
-  );
+     ⚠️ ITS OWN DEPENDENCY, STATED: it works because `claudeBinPath` keeps the late
+     `require(...)`. Tidying that into a top-level destructured import would
+     silently unhook the seam and this arm would stop testing anything. */
+  const connect = require('./engine/connect.js');
+  const runners = require('./engine/runners.js');
+  const realResolve = runners.resolveBin;
+  try {
+    runners.resolveBin = () => { throw new Error('resolver failed'); };
+    let escaped = null;
+    let answer;
+    try { answer = connect.claudeHatchAvailable(); } catch (e) { escaped = e; }
+    assert.strictEqual(escaped, null,
+      'a throw from the runner resolver ESCAPED claudeHatchAvailable. It would escape becomeStuck ' +
+      'too, so writeState never runs and the person is left on no screen at all. Keep the bin ' +
+      'resolution INSIDE the try.');
+    assert.strictEqual(answer, false, 'a resolver failure must answer false, not undefined');
+  } finally {
+    runners.resolveBin = realResolve;
+  }
+  // Control: with the resolver restored, the function still answers for a real path,
+  // so the arm above is not passing because the function is inert.
+  const f = fixture('claude');
+  const before = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  try {
+    process.env.AGENT_WORKFORCE_CLAUDE_BIN = f.realBin;
+    assert.strictEqual(connect.claudeHatchAvailable(), true,
+      'the resolver was not restored, so every later arm is measuring a broken module');
+  } finally {
+    if (before === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    else process.env.AGENT_WORKFORCE_CLAUDE_BIN = before;
+    f.cleanup();
+  }
 });
 
 test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing else', () => {
@@ -473,22 +487,38 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      docblock promises any error answers false. Its behavioural consequence is
      untested (forcing the resolver to throw needs a seam that does not exist),
      and that is a known gap rather than a covered one. */
+  /* 🛑 THE PROPERTY, NOT THE CALL, AND THE REASON IS THE MOST EMBARRASSING LINE IN
+     THIS FILE. The first version matched `writeState\({[^}]*canRunClaude[^}]*}`,
+     which CANNOT CROSS A NESTED `}`. That is the identical hazard this file's own
+     WEAK_CALL docblock documents at length as `[^)]*`, re-committed as `[^}]*` by
+     the person who wrote that warning, in the arm that replaced the region.
+
+     Measured: a second writeState carrying a nested object went 13 pass / 0 fail
+     while writing canRunClaude from existsSync. The same second writer WITHOUT
+     the nested object was caught, which is what proves the matcher was the
+     defect rather than the idea.
+
+     ✅ Matching the PROPERTY has no delimiters to balance: `[^,}]+` stops at the
+     first comma or brace, and a nested object cannot hide a property from it.
+     Both sites in the file are pinned by their exact text, so a new one of any
+     shape shows up as a count change. */
   const src = fs.readFileSync(path.join(ENGINE, 'connect.js'), 'utf8');
-  /* Only the writeState call. publicView legitimately carries its own
-     `canRunClaude: s.canRunClaude || false` serving default (#1595), which reads
-     a value already computed rather than computing one, so it is not a second
-     writer. Matching every `canRunClaude:` in the file would red on that. */
-  const writes = (src.match(/writeState\(\{[^}]*canRunClaude[^}]*\}/g) || []);
-  assert.strictEqual(writes.length, 1,
-    'expected exactly one writeState call carrying canRunClaude, found ' + writes.length +
-      ':\n  ' + writes.join('\n  ') + '\nA second writer is a path no arm drives.');
-  const hits = writes[0].match(/canRunClaude\s*:\s*[^,}]+/g) || [];
-  assert.strictEqual(hits.length, 1, 'the writeState call carries canRunClaude ' + hits.length + ' times');
-  assert.strictEqual(hits[0].trim(), 'canRunClaude: claudeHatchAvailable()',
-    'becomeStuck no longer writes canRunClaude straight from claudeHatchAvailable(); it writes ' +
-      '`' + hits[0].trim() + '`. Anything added here can widen the answer AFTER the check: a ' +
-      '`|| fs.existsSync(p)` turns a DIRECTORY back into true, and it is not an assignment so ' +
-      'no assignment guard can see it.');
+  const sites = (src.match(/canRunClaude\s*:\s*[^,}]+/g) || []).map((h) => h.trim());
+  assert.deepStrictEqual(
+    sites,
+    [
+      // publicView's serving default. It READS an already-computed value rather
+      // than computing one, so it is not a second writer; #1595 pins it separately.
+      'canRunClaude: s.canRunClaude || false',
+      // becomeStuck, the one writer.
+      'canRunClaude: claudeHatchAvailable()',
+    ],
+    'the places connect.js writes or serves canRunClaude changed. The writer must be exactly ' +
+      '`canRunClaude: claudeHatchAvailable()`: anything appended widens the answer AFTER the ' +
+      'check (a `|| fs.existsSync(p)` turns a DIRECTORY back into true), and because it is a ' +
+      'property rather than an assignment no assignment-shaped guard can see it. A NEW entry ' +
+      'is a second writer, which is a path no arm drives.'
+  );
 });
 
 test('nothing unconditionally forces canRunClaude true, which would dead-code the check', () => {
