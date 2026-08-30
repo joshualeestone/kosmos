@@ -23,6 +23,7 @@ const path = require('node:path');
 const codexupdate = require('./codexupdate');
 const { spawnSync } = require('node:child_process');
 const subscription = require('./subscription');
+const inflight = require('./inflight');
 
 /* 🛑 A FUNCTION, NOT A CONST (#1337, found by Angel reviewing this branch).
    Frozen at require time, this made `list()` DISAGREE WITH ITSELF: the default
@@ -443,7 +444,7 @@ async function checkLive(dir) {
 /** Every OpenAI account, live-checked. One bad row's own failure cannot sink
     the others -- caught individually, falling back to UNKNOWN, never a
     false NONE. Mirrors accounts.listLive()'s exact contract. */
-async function listLive() {
+async function listLiveNow() {
   const rows = list();
   return Promise.all(rows.map(async (row) => {
     try {
@@ -465,6 +466,13 @@ async function listLive() {
     }
   }));
 }
+
+/* #1618: concurrent callers share ONE sweep, matching accounts.js. Not a cache:
+   the slot holds the promise only while it is unsettled, so no answer outlives
+   the moment it was true, and a failed sweep is cleared like a successful one.
+   The route asks both engines together, so collapsing each is what makes two
+   concurrent requests cost one sweep rather than two. */
+const listLive = inflight.collapse(listLiveNow);
 
 module.exports = {
   list, identityOf, addWithKey, nextWorkDir, defaultDir, forgetAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */

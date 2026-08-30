@@ -3001,6 +3001,14 @@ const server = http.createServer((req, res) => {
        nothing about it needs a per-account subprocess/network call to
        answer -- it only asks whether the route is there. */
     if (req.method === 'HEAD') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(); return; }
+    /* #1618: BOTH SWEEPS ARE COLLAPSED IN THEIR ENGINES, so two callers arriving
+       together cost one sweep rather than two. `engine/inflight.js` holds the
+       promise only while it is unsettled and clears it on both arms.
+       🛑 IT IS NOT A CACHE AND MUST NOT BECOME ONE HERE. #1618 records a 5s TTL
+       being built and killed by the suite in one run: `'none' !== 'unknown'`. A
+       window converts `cannot tell` back into a confident `not connected`, which
+       is the one answer this route exists never to give. If this route ever needs
+       to be cheaper still, make the sweep cheaper - do not add a window. */
     Promise.all([accounts.listLive(), openaiAccounts.listLive()])
       .then(([claudeRows, openaiRows]) => {
         const claude = claudeRows.map((a) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', ...a }));
