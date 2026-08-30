@@ -78,178 +78,154 @@ function walkJs(dir, base = dir, out = []) {
 }
 
 /**
- * Source with comments blanked, so prose cannot trip the sweep.
+ * Every line in the repo that LOOKS like the weak call must be accounted for
+ * here, as either acknowledged prose or an audited guarded call.
  *
- * ⚠️ BLANKED, NOT REMOVED. Deleting a comment SHIFTS EVERY LINE NUMBER BELOW
- * it, so the sweep reports a real defect at a line that does not contain it. An
- * early version did exactly that and named machine.js:191 for a call at 412.
+ * 🛑 WHY THIS IS A LIST AND NOT A COMMENT-STRIPPER, AFTER FOUR STRIPPERS FAILED.
+ * The sweep needs to tell a call from a comment. Four versions tried, each fixing
+ * the last and opening a new hole, every one of them in the direction that HIDES
+ * a defect:
  *
- * 🛑 LINE-BASED AND DELIBERATELY DUMB, AFTER TWO CLEVERER VERSIONS BOTH FAILED
- * IN THE DANGEROUS DIRECTION. Measured, on this repo:
+ *   1  regex over the file      a `/*` inside a STRING opened a comment.
+ *                               803 lines of live code across 10 files invisible.
+ *   2  character scanner        broke on REGEX LITERALS. 8 live lines blanked; a
+ *                               regex containing a quote desynced it permanently.
+ *   3  line-initial only        a TEMPLATE LITERAL puts `/*` at a line start.
+ *                               A planted weak call stayed green.
+ *   4  backtick parity          defeated by a regex CONTAINING a backtick, which
+ *                               is live at engine/create.js:1449. Parity inverts
+ *                               and stays inverted; 4 files are desynced today.
  *
- *   a regex over the whole file    treated `/*` INSIDE A STRING as a comment
- *                                  opener. engine/unfurl.js:309 holds the string
- *                                  'image' + '/' + '*', and 803 LINES OF LIVE
- *                                  CODE across 10 files went invisible.
+ * ⇒ Each fix was correct about the case it named and wrong about the next one.
+ * That is the signature of a heuristic applied to a parsing problem, and there is
+ * no parser available here (no acorn, espree, esprima or babel in this repo).
  *
- *   a character scanner            fixed that and broke on REGEX LITERALS. A
- *                                  regex ending in an escaped slash presents
- *                                  `//` and drove it into line-comment state,
- *                                  blanking 8 live lines in 6 files including
- *                                  engine/policy.js:91. A regex containing a
- *                                  quote desynced it into a string state it
- *                                  never left, after which comments stopped
- *                                  being blanked at all and the sweep went RED
- *                                  ON CORRECT PROSE in 4 files.
+ * ✅ SO STOP PARSING. The sweep does not need to strip a whole file; it needs to
+ * judge the lines that actually match, and MEASURED, THERE ARE FOUR IN THE WHOLE
+ * REPO. A list of four is auditable in one read, holds no state that can desync,
+ * and cannot hide a call because nothing is ever blanked.
  *
- * 🛑 AND LINE-INITIAL IS NOT SAFE EITHER, WHICH IS THE THIRD TIME A STRING HAS
- * IMITATED A COMMENT OPENER HERE. A TEMPLATE LITERAL can put a `/*` at the start
- * of a line. Reproduced: a template containing `/* card styling` with no closer,
- * followed by a live weak call, left all seven tests GREEN while six lines of
- * live code were blanked. Narrowing from mid-line to line-initial shrank the
- * door; it did not close it.
- *
- * ✅ So this tracks unescaped-backtick parity and, while inside a template
- * literal, refuses to treat a line-initial `/*` or `//` as a comment. Refusing
- * to strip is the SAFE direction: an un-blanked real comment gives a false FAIL
- * somebody investigates.
- *
- * ⚠️ Backtick parity is itself approximate: a backtick inside a normal string or
- * a comment is counted. That error can only make it strip LESS, which is the
- * direction we want to be wrong in.
- *
- * ⇒ Both were over-strippers, and `test-support/code-only.js` in this repo
- * already states the rule I broke twice: **the two failure directions are NOT
- * symmetric. Under-stripping gives a false FAIL somebody investigates;
- * over-stripping gives a false PASS nobody ever looks at. When in doubt, strip
- * less.** I wrote a cleverer stripper twice without reading the one already
- * here, whose docblock is the argument against doing that.
- *
- * ✅ SO THIS ONE ONLY BLANKS WHAT IT CAN IDENTIFY FROM THE START OF A LINE:
- * a whole-line `//`, and a block comment whose `/*` opens a line. A `/*` or
- * `//` appearing mid-line is left alone, because mid-line is exactly where a
- * string or a regex literal can imitate one. The cost is a false FAIL if
- * somebody writes a mid-line comment naming the weak call; that is the
- * direction we are choosing, and it is loud.
- *
- * 📌 Not shared with test-support/code-only.js because that one FILTERS lines
- * out and this one must preserve numbering. Same rule, different output shape.
+ * ⚠️ THE COST, STATED: writing a NEW comment that mentions accessSync(X_OK) turns
+ * this test red until the line is added below. That is deliberate and it is the
+ * safe direction: it is loud, it is a two-line fix, and it makes somebody
+ * documenting this defect notice they are documenting it.
  */
-function codeOnly(src) {
-  let inBlock = false;
-  let backticks = 0;
-  return src.split('\n').map((line) => {
-    if (inBlock) {
-      const end = line.indexOf('*/');
-      if (end === -1) return '';
-      inBlock = false;
-      return ' '.repeat(end + 2) + line.slice(end + 2);
-    }
-    const openInTemplate = backticks % 2 === 1;
-    // count unescaped backticks on this line before deciding anything about it
-    const ticks = (line.match(/(^|[^\\])`/g) || []).length;
-    if (/^\s*\/\//.test(line) && !openInTemplate) { backticks += ticks; return ''; }
-    if (/^\s*\/\*/.test(line) && !openInTemplate) {
-      const end = line.indexOf('*/');
-      backticks += ticks;
-      if (end === -1) { inBlock = true; return ''; }
-      return ' '.repeat(end + 2) + line.slice(end + 2);
-    }
-    backticks += ticks;
-    return line;
-  }).join('\n');
+const ACKNOWLEDGED_PROSE = [
+  { file: 'engine/connect.js', contains: 'SUCCEEDS ON A DIRECTORY, so a' },
+  { file: 'engine/devicedoor.js', contains: '#1592: accessSync(X_OK) SUCCEEDS ON A DIRECTORY' },
+];
+
+/**
+ * Real calls that are correct because they guard themselves, or because they ARE
+ * the definition of the question.
+ *
+ * Each entry pins the guard token it is exempt FOR, and that token must appear on
+ * a line that is NOT prose. An earlier version searched stripped text, so a
+ * comment reading `// used to call st.isFile() here` satisfied the guard and the
+ * call underneath it was reported as nothing.
+ *
+ * ⚠️ Still not verified: that the guard applies to the SAME path as the call.
+ * A text search cannot answer that. Disclosed rather than papered over, and it is
+ * the reason these are exemptions rather than a rule.
+ */
+const SELF_GUARDED = new Map([
+  ['engine/machine.js', { guard: /if\s*\(\s*!\s*st\.isFile\s*\(/, within: 6,
+    why: 'stats the same path and gates on st.isFile() two lines above' }],
+  ['engine/runners.js', { guard: /isFile\s*\(/, within: 20,
+    why: 'IS the definition of the question; isRunnable stats and checks isFile itself' }],
+]);
+
+/** A line that is unambiguously prose: it opens with a comment marker. */
+function isProseLine(line) {
+  return /^\s*(\/\/|\/\*|\*)/.test(line);
 }
 
 /**
- * Files permitted to ask the weak call, with the number of times each may ask.
+ * Drop whole-line prose, preserving line count so a reported number is real.
  *
- * 🛑 THE COUNT IS THE POINT, AND THE VERSION WITHOUT IT HAD A MEASURED HOLE.
- * An earlier allow-list cleared the whole FILE. Planting a brand-new, entirely
- * unguarded weak call at the end of engine/machine.js was then reported as
- * nothing at all, because the file was exempt. An exemption for one audited
- * line had silently become an exemption for every future line in that file.
- *
- * ✅ Pinning the count means a NEW weak call in a listed file changes 1 to 2 and
- * fires. It also catches the stale-entry case the list could not see before: if
- * the file is renamed, moved or deleted, or if its guarded call is removed, the
- * count no longer matches and the list says so instead of quietly exempting
- * nothing.
- *
- * 🛑 THE COUNT ALONE WAS NOT ENOUGH, MEASURED. Deleting engine/machine.js's
- * `if (!st.isFile())` line while LEAVING the bare accessSync behind it keeps the
- * count at 1, and every test passed. That is the LIKELIER regression than adding
- * a call: somebody removes a guard that looks redundant. So each entry now also
- * carries the guard token it is exempt FOR, and that token must still appear
- * within `within` lines above the counted call.
- *
- * ⚠️ Still not verified: that the guard applies to the SAME path as the call.
- * A regex cannot answer that, which is what put this list here in the first
- * place. Stated because this list has been claimed un-foolable once already,
- * and it was not.
+ * ⚠️ Deliberately weaker than a comment stripper: it does not try to find the
+ * END of a block, so a mid-line comment survives. That is the safe direction for
+ * these consumers, which assert the PRESENCE of a call: leftover prose can only
+ * make a positive assertion pass too easily, and every one of them is paired
+ * with a mutation arm that proves it fires.
  */
-const SELF_GUARDED = new Map([
-  ['engine/machine.js', { count: 1, guard: /isFile\s*\(/, within: 6,
-    why: 'stats the same path and checks st.isFile() two lines above, and says why' }],
-]);
+function noProse(src) {
+  return src.split('\n').map((l) => (isProseLine(l) ? '' : l)).join('\n');
+}
 
-test('no file in the repo asks the weak runnable question: accessSync(X_OK) without isFile', () => {
-  /* Repo-wide, not engine/ only. The name of this test claims a CLASS property
-     ("no file asks the weak question"), and a guard narrower than the claim it
-     makes is the failure it was written to prevent, arriving by a different
-     door. Measured when this was widened: 137 non-test .js files, 0 weak sites,
-     1 correctly cleared by machine.js's own isFile(). */
+test('every line in the repo that looks like the weak call is accounted for', () => {
+  /* Repo-wide. The name claims a CLASS property, and a guard narrower than the
+     claim it makes is the failure it was written to prevent, arriving by a
+     different door. Raw source: nothing is stripped, so nothing can be hidden. */
   const files = walkJs(REPO);
-  // A floor: if the scan stops finding files this passes while asserting nothing.
   assert.ok(files.length > 100, `only ${files.length} files scanned; the sweep is broken`);
   assert.ok(
     files.some((f) => f.startsWith(`engine${path.sep}`)),
     'the sweep is not reaching engine/, which is where the class lives'
   );
 
-  const weak = [];
-  const allowedSeen = new Map();
+  const unaccounted = [];
+  const proseSeen = new Set();
+  const guardedSeen = new Set();
+
   for (const rel of files) {
-    const full = path.join(REPO, rel);
-    const f = rel;
-    const lines = codeOnly(fs.readFileSync(full, 'utf8')).split('\n');
+    const key = rel.split(path.sep).join('/');
+    const lines = fs.readFileSync(path.join(REPO, rel), 'utf8').split('\n');
     lines.forEach((line, i) => {
       if (!WEAK_CALL.test(line)) return;
-      // runners.js is the definition of the question, so it is allowed to ask it.
-      if (full === RUNNERS) return;
-      const key = f.split(path.sep).join('/');
-      const spec = SELF_GUARDED.get(key);
-      if (spec) {
-        /* Exempt only if the guard this entry exists FOR is still there. The
-           count alone let somebody delete the isFile() and keep the call. */
-        const above = lines.slice(Math.max(0, i - spec.within), i).join('\n');
-        if (spec.guard.test(above)) {
-          allowedSeen.set(key, (allowedSeen.get(key) || 0) + 1);
-          return;
-        }
-        weak.push(`${f}:${i + 1}: EXEMPT FILE LOST ITS GUARD: ${line.trim()}`);
+
+      const prose = ACKNOWLEDGED_PROSE.find(
+        (e) => e.file === key && line.includes(e.contains)
+      );
+      if (prose) {
+        assert.ok(isProseLine(line), `${key}:${i + 1} is listed as prose but does not open with a comment marker`);
+        proseSeen.add(`${prose.file}|${prose.contains}`);
         return;
       }
-      weak.push(`${f}:${i + 1}: ${line.trim()}`);
+
+      const spec = SELF_GUARDED.get(key);
+      if (spec) {
+        /* The guard must be on a line that is NOT prose. An earlier version
+           searched stripped text, so `// used to call st.isFile() here`
+           satisfied the guard while the call underneath was wholly unguarded. */
+        const above = lines
+          .slice(Math.max(0, i - spec.within), i)
+          .filter((l) => !isProseLine(l));
+        if (spec.guard.test(above.join('\n'))) { guardedSeen.add(key); return; }
+        unaccounted.push(`${key}:${i + 1}: EXEMPT FILE LOST ITS GUARD (${spec.why}): ${line.trim()}`);
+        return;
+      }
+
+      unaccounted.push(`${key}:${i + 1}: ${line.trim()}`);
     });
   }
-  for (const [rel, spec] of SELF_GUARDED) {
-    const seen = allowedSeen.get(rel) || 0;
-    assert.strictEqual(
-      seen,
-      spec.count,
-      `SELF_GUARDED says ${rel} asks the weak call ${spec.count} time(s) and it asks ${seen}. ` +
-        (seen > spec.count
-          ? 'A NEW weak call was added to an exempt file; audit it and update the count deliberately.'
-          : 'The exemption is stale: the file moved, was renamed, or no longer asks it. Remove the entry.')
+
+  /* Assert the findings FIRST. An earlier version checked the exemption tallies
+     first, so losing a guard printed "the exemption is stale, remove the entry",
+     which is the opposite of the right action. */
+  assert.deepStrictEqual(
+    unaccounted,
+    [],
+    'these look like accessSync(X_OK), which SUCCEEDS ON A DIRECTORY. If it is a real ' +
+      'call use require("./runners").isRunnable(p); if it is prose about the defect, add ' +
+      'it to ACKNOWLEDGED_PROSE:\n  ' + unaccounted.join('\n  ')
+  );
+
+  // Stale entries: every listed exemption must still describe something real.
+  for (const e of ACKNOWLEDGED_PROSE) {
+    assert.ok(
+      proseSeen.has(`${e.file}|${e.contains}`),
+      `ACKNOWLEDGED_PROSE lists ${e.file} ("${e.contains}") and no such line matched. ` +
+        'The comment was reworded, moved or deleted. Remove the entry.'
     );
   }
-
-  assert.deepStrictEqual(
-    weak,
-    [],
-    'these ask accessSync(X_OK) directly, which SUCCEEDS ON A DIRECTORY. ' +
-      'Use require("./runners").isRunnable(p):\n  ' + weak.join('\n  ')
-  );
+  for (const [key, spec] of SELF_GUARDED) {
+    assert.ok(
+      guardedSeen.has(key),
+      `SELF_GUARDED lists ${key} (${spec.why}) and it no longer asks the weak call. ` +
+        'The exemption is stale. Remove the entry.'
+    );
+  }
 });
 
 test('the sweep can actually find a weak call, so an empty result means something', () => {
@@ -268,9 +244,9 @@ test('the sweep can actually find a weak call, so an empty result means somethin
   assert.ok(!WEAK_CALL.test('fs.accessSync(bin, fs.constants.R_OK)'), 'the matcher over-fires on R_OK');
   const commented = '// fs.accessSync(bin, fs.constants.X_OK) succeeds on a directory';
   assert.strictEqual(
-    codeOnly(commented).trim(),
-    '',
-    'a comment mentioning the call must not be read as the call (#1570)'
+    isProseLine(commented),
+    true,
+    'a comment mentioning the call must be recognisable as prose (#1570)'
   );
 });
 
@@ -317,7 +293,7 @@ test('isRunnable rejects a directory and accepts a real executable', () => {
  */
 
 test('canRunClaude resolves the bin INSIDE its try, so a throw still writes the stuck screen', () => {
-  const src = codeOnly(fs.readFileSync(path.join(__dirname, 'engine', 'connect.js'), 'utf8'));
+  const src = noProse(fs.readFileSync(path.join(__dirname, 'engine', 'connect.js'), 'utf8'));
   const anchor = src.indexOf('let canRunClaude = false;');
   assert.ok(anchor > 0, 'canRunClaude was renamed or removed; re-aim this guard');
 
@@ -355,7 +331,7 @@ test('a repointed site cannot be silently overridden by a later unconditional as
      exercises only the spelling it can see, which is the "control aimed at the
      arm that already worked" problem this same file names above. Neither form
      exists here today. */
-  const src = codeOnly(fs.readFileSync(path.join(__dirname, 'engine', 'connect.js'), 'utf8'));
+  const src = noProse(fs.readFileSync(path.join(__dirname, 'engine', 'connect.js'), 'utf8'));
   const overridden = src.match(/^\s*canRunClaude\s*=\s*(true|false)\s*;/gm) || [];
   assert.deepStrictEqual(
     overridden,
@@ -366,7 +342,7 @@ test('a repointed site cannot be silently overridden by a later unconditional as
 
   // Control: the matcher must be able to SEE such an assignment, or the [] above
   // is worthless. Same shape, planted.
-  const planted = codeOnly('  canRunClaude = require("./runners").isRunnable(p);\n  canRunClaude = true;\n');
+  const planted = noProse('  canRunClaude = require("./runners").isRunnable(p);\n  canRunClaude = true;\n');
   assert.strictEqual(
     (planted.match(/^\s*canRunClaude\s*=\s*(true|false)\s*;/gm) || []).length,
     1,
@@ -385,7 +361,7 @@ test('the two lambda sites delegate to runners.isRunnable rather than re-impleme
      positively. devicedoor and githubdevice were byte-identical twins before
      this branch and are the easiest pair to silently diverge again. */
   for (const f of ['devicedoor.js', 'githubdevice.js']) {
-    const src = codeOnly(fs.readFileSync(path.join(__dirname, 'engine', f), 'utf8'));
+    const src = noProse(fs.readFileSync(path.join(__dirname, 'engine', f), 'utf8'));
     const m = src.match(/const\s+runnable\s*=\s*\(([^)]*)\)\s*=>\s*([^;\n]+)/);
     assert.ok(m, `${f}: no \`const runnable = ...\` lambda found; the site was renamed or removed`);
     assert.match(
@@ -412,7 +388,7 @@ test('the two connect.js sites delegate to runners.isRunnable, positively assert
      ⚠️ Absence-based guards cannot cover this. Only a POSITIVE assertion that the
      right call is present can, which is why this is a separate arm rather than
      another thing the sweep looks for. */
-  const src = codeOnly(fs.readFileSync(path.join(__dirname, 'engine', 'connect.js'), 'utf8'));
+  const src = noProse(fs.readFileSync(path.join(__dirname, 'engine', 'connect.js'), 'utf8'));
   const sites = [
     { what: "willInstall's presence check", re: /if\s*\(\s*!\s*require\(['"]\.\/runners['"]\)\.isRunnable\s*\(/ },
     { what: 'becomeStuck canRunClaude',     re: /canRunClaude\s*=\s*require\(['"]\.\/runners['"]\)\.isRunnable\s*\(/ },
