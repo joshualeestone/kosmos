@@ -93,12 +93,20 @@ has "$out" 'outcome=failed' && ! has "$out" 'outcome=killed' && ! has "$out" 'si
 killed="$(run 'step "== 3b. the page layer =="' 143)"
 failed="$(run 'step "== 3b. the page layer =="' 1)"
 kstep="${killed#*step=}"; fstep="${failed#*step=}"
-# 🛑 COMPARE THE OUTCOME, NOT THE WHOLE ROW. A first version asserted the two
-# rows merely DIFFERED, which passes against the pre-#1388 code: they always
-# differed on `exit=143` versus `exit=1`, and that is precisely the field the
-# card says is insufficient. Measured: that arm passed against the genuine
-# unfixed release.sh while four sibling arms correctly went red. So it asserted
-# the thing that was already true and claimed credit for the fix.
+# 🛑 COMPARE THE OUTCOME, NOT THE WHOLE ROW. A "the rows differ" assertion
+# CANNOT FAIL against the pre-#1388 code, and that is checkable by construction
+# rather than by anecdote: those rows always differed on `exit=143` versus
+# `exit=1`, which is precisely the field the card says is insufficient.
+# ⚠️ An earlier version of this comment cited a measurement against a local
+# edit that is not in git history. That is the same uncheckable-claim habit
+# this file retracts thirty lines below, committed in the retraction's own
+# neighbourhood. The reason above needs no measurement: read the two rows.
+# ⚠️ ASSERT THE FIELD EXISTS BEFORE EXTRACTING IT. When `outcome=` is absent --
+# which is exactly the pre-change regression this arm guards -- `${row#*outcome=}`
+# returns the row unchanged and `%% *` yields the TIMESTAMP, so the failure
+# message pointed a reader at the wrong field while correctly failing.
+has "$killed" 'outcome=' && has "$failed" 'outcome=' \
+  || fail "no outcome= field at all, so a killed cut and a failed cut are still one row shape"
 kout="${killed#*outcome=}"; kout="${kout%% *}"
 fout="${failed#*outcome=}"; fout="${fout%% *}"
 [ "$kstep" = "$fstep" ] \
@@ -122,6 +130,22 @@ has "$out" 'outcome=failed' && ! has "$out" 'signal=' \
 out="$(run 'step "== 3b. the page layer =="' 128)"
 has "$out" 'outcome=failed' && pass "exit 128 is a failure, not a signal-0 kill" \
   || fail "the 128 boundary was misread: $out"
+
+# 🛑 129 IS THE AMBIGUOUS ONE THE CODE'S OWN COMMENT SINGLES OUT: git exits 129
+# for any usage error, so this row can mean a real SIGHUP or a git mistake.
+# Pinned because the documented behaviour was unasserted, and a future edit that
+# special-cased it would have silently contradicted the comment.
+out="$(run 'step "== 3b. the page layer =="' 129)"
+has "$out" 'outcome=killed' && has "$out" 'signal=SIGHUP' && has "$out" 'basis=exit-status' \
+  && pass "129 decodes as SIGHUP AND says the kill was inferred, not observed" \
+  || fail "the ambiguous 129 row does not carry its hedge: $out"
+
+# Every killed row must say the kill was inferred; a bare signal= asserts that
+# something signalled the cut, which the status alone cannot establish.
+out="$(run 'step "== 3b. the page layer =="' 143)"
+has "$out" 'basis=exit-status' \
+  && pass "a killed row states that the kill was inferred from the status" \
+  || fail "a killed row asserts a signal with no hedge: $out"
 
 out="$(run 'step "== 3b. the page layer =="' 0)"
 has "$out" 'outcome=ok' && pass "a clean cut records ok" || fail "a clean cut is not ok: $out"

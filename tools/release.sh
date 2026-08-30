@@ -65,18 +65,21 @@ cut_record_done() {
   # first version stated as a fact. 128+n is a CONVENTION, not a guarantee, and
   # the ambiguity is live here: git exits 129 for any usage error (measured:
   # `git commit --bogus` -> 129, control `git status` -> 0), and this script
-  # makes several unguarded git calls, so a genuine git usage error is logged as
-  # `outcome=killed signal=SIGHUP`. Nothing can separate those two from the
-  # status alone. A reader who sees SIGHUP should check whether anything
-  # actually signalled the cut.
+  # makes several unguarded git calls, so a genuine git usage error decodes as
+  # SIGHUP. Nothing can separate those two from the status alone.
+  #
+  # 🛑 SO THE HEDGE IS IN THE ROW, NOT ONLY HERE. `basis=exit-status` says the
+  # kill was INFERRED from the status rather than observed, which is the whole
+  # truth available. A comment cannot help the person reading the log, and
+  # `signal=SIGHUP` alone positively asserts that something signalled the cut.
   local _crd_rc="$1" _outcome _sig=""
   if [ "$_crd_rc" -eq 0 ]; then _outcome=ok
   elif [ "$_crd_rc" -gt 128 ] && _sig="$(kill -l "$((_crd_rc - 128))" 2>/dev/null)"; then _outcome=killed
-  else _outcome=failed; _sig=""
+  else _outcome=failed
   fi
   printf '%s version=%s completed exit=%s outcome=%s%s served=%s step=%s\n' \
     "$(date -u +%FT%TZ)" "$V" "$_crd_rc" "$_outcome" \
-    "$([ -n "$_sig" ] && printf ' signal=SIG%s' "$_sig")" \
+    "$([ -n "$_sig" ] && printf ' signal=SIG%s basis=exit-status' "$_sig")" \
     "${DEPLOYED:-0}" "$(printf '%s' "${_STEP:-unknown}" | tr -d '=' | tr ' ' '_')" \
     >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
 }
