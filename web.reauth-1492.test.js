@@ -107,9 +107,12 @@ test('🛑 the stock door CLEARS the aim, so + Add a provider can never quietly 
 
 test('one button, two requests, and never a plain start', () => {
   /* Evaluated rather than matched: the body is a ternary, and a source match
-     cannot tell which arm is reachable. */
-  const at = SCRIPT.indexOf("getElementById('acct-add').addEventListener");
-  assert.ok(at > -1, 'the button wiring moved; restate this pin');
+     cannot tell which arm is reachable.
+     🛑 #1587 moved the POST out of the click handler into `acctAddStart` so the
+     install-confirm gate can run first; the either-arm body moved with it, and
+     this pin follows it there. */
+  const at = SCRIPT.indexOf('async function acctAddStart');
+  assert.ok(at > -1, 'the start worker moved; restate this pin');
   const m = SCRIPT.slice(at, at + 1200).match(/body: JSON\.stringify\((.+?)\),\n/s);
   assert.ok(m, 'the start request no longer builds a body this test can read');
   const build = new Function('ACCT_REAUTH_DIR', 'return ' + m[1] + ';');

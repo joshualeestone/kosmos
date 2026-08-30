@@ -6938,6 +6938,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            is exactly as able to skip the step. -->
       <p class="dwarn" id="acct-claude-warn" style="margin:0 0 8px;"><span class="dwarn-m" aria-hidden="true">&#9888;</span><b>First, sign in to the other Claude account in your browser.</b> Kosmos never sees your password, and the accounts above stay connected.</p>
       <div class="frow"><button class="btn uprime" id="acct-add" type="button">Start the sign-in</button></div>
+      <!-- #1587: the SAME install-confirm the first-run flow shows (#fr-claude-confirm),
+           because this button is a second entry into /api/connect/start and starting
+           the sign-in here can begin a large Claude Code download. Hidden until the
+           handler learns an install may happen. -->
+      <div id="acct-add-confirm" class="fr-confirm" role="group" aria-labelledby="acct-add-confirm-t" hidden style="margin:10px 0 0;">
+        <p class="fr-confirm-t" id="acct-add-confirm-t"></p>
+        <div class="frow">
+          <button class="btn uprime" type="button" id="acct-add-confirm-go" aria-describedby="acct-add-confirm-t">Confirm</button>
+          <button class="btn" type="button" id="acct-add-confirm-no">Not now</button>
+        </div>
+      </div>
       <div id="acct-flow" hidden style="margin:10px 0 0;">
         <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" style="margin:0;"></p>
         <div class="frow" id="acct-code-row" hidden style="margin:8px 0 0;">
@@ -13469,7 +13480,16 @@ function acctFlowWatch() {
     } catch { /* next tick */ }
   }, 1000);
 }
-document.getElementById('acct-add').addEventListener('click', async () => {
+/* #1587: the acct-add button is a SECOND entry into /api/connect/start, and it
+   used to POST with no confirm, so an accounts click could begin a large Claude
+   Code install (~231MB) unannounced, the same download the first-run flow
+   already gates behind a confirm. Gate this one the same way: learn willInstall
+   (the field #1556 made real, read from /api/first-run, the same source the
+   first-run confirm uses) and, if an install may happen, show the confirm before
+   the POST. Errs toward asking: anything other than a definite
+   `willInstall === false` shows the confirm, so a silent download is impossible
+   even when the field cannot be read. */
+async function acctAddStart() {
   const btn = document.getElementById('acct-add');
   const note = document.getElementById('acct-add-note');
   btn.disabled = true;
@@ -13496,6 +13516,60 @@ document.getElementById('acct-add').addEventListener('click', async () => {
     btn.disabled = false;
     note.textContent = 'We could not reach Kosmos to start the sign-in.';
   }
+}
+
+function acctAddConfirmClose() {
+  const box = document.getElementById('acct-add-confirm');
+  if (box) box.hidden = true;
+  const btn = document.getElementById('acct-add');
+  if (btn) { btn.disabled = false; btn.focus(); }
+}
+
+document.getElementById('acct-add').addEventListener('click', async () => {
+  const btn = document.getElementById('acct-add');
+  const note = document.getElementById('acct-add-note');
+  /* Learn whether starting the sign-in will install Claude Code BEFORE the POST,
+     so a large download cannot begin unannounced. A value we cannot read counts
+     as "ask", never as "no", the same fail-safe as frClaudeInstallNeeded. */
+  btn.disabled = true;
+  note.textContent = '';
+  let conn = null;
+  try {
+    const fr = await (await fetch('/api/first-run', { cache: 'no-store' })).json();
+    conn = (fr && fr.connect) || null;
+  } catch { conn = null; }
+  const willInstall = conn && typeof conn.willInstall === 'boolean' ? conn.willInstall : true;
+  if (willInstall !== false) {
+    const box = document.getElementById('acct-add-confirm');
+    const t = document.getElementById('acct-add-confirm-t');
+    const go = document.getElementById('acct-add-confirm-go');
+    if (t) t.textContent = frClaudeConfirmSentence(conn);
+    if (box) box.hidden = false;
+    /* Focus moves INTO the panel, same as the first-run confirm: a reveal that
+       leaves focus on the trigger is invisible to a screen reader. The acct-add
+       button stays disabled while the confirm is open; acctAddConfirmClose (Not
+       now) or acctAddStart (Confirm) takes it from here. */
+    if (go) { go.disabled = false; go.focus(); }
+    return;
+  }
+  acctAddStart();
+});
+
+document.getElementById('acct-add-confirm-go').addEventListener('click', (e) => {
+  /* One-press guard: the box hides immediately, but a rapid second click before
+     it does would POST twice. */
+  const go = e.currentTarget;
+  go.disabled = true;
+  const box = document.getElementById('acct-add-confirm');
+  if (box) box.hidden = true;
+  /* The acct-add button is already disabled from the gating click; acctAddStart
+     manages it from here (re-enables on error, leaves it disabled while the
+     sign-in runs). */
+  acctAddStart();
+});
+
+document.getElementById('acct-add-confirm-no').addEventListener('click', () => {
+  acctAddConfirmClose();
 });
 /* #540: add an OpenAI account from a pasted key. */
 /* #727: one provider at a time. The choice shows its form and hides the
@@ -30807,8 +30881,8 @@ function frClaudeInstallNeeded() {
  * a function can return null when it cannot is how a dead branch gets pinned by
  * a test that can never fail for the reason it states.
  */
-function frClaudeDownloadBytes() {
-  const st = (FR && FR.connect) || null;
+function frClaudeDownloadBytes(conn) {
+  const st = conn || (FR && FR.connect) || null;
   const n = st && st.willInstallBytes;
   if (Number.isFinite(n) && n > 0) return n;
   /* ⚠️ ARM64 ONLY. engine/connect.js picks arm64 or x64 from os.arch(), and the
@@ -30846,10 +30920,10 @@ function frRoughMB(bytes) {
  * approved wording is the flat form; this is the same sentence with the one
  * clause honesty requires until the answer exists.
  */
-function frClaudeConfirmSentence() {
-  const bytes = frClaudeDownloadBytes();
+function frClaudeConfirmSentence(conn) {
+  const bytes = frClaudeDownloadBytes(conn);
   const size = bytes === null ? 'a large download' : 'a large download, about ' + frRoughMB(bytes);
-  const st = (FR && FR.connect) || null;
+  const st = conn || (FR && FR.connect) || null;
   /* ⚠️ `=== true`, NOT `typeof ... === 'boolean'`. The flat arm below states that an
      install IS needed, and a boolean test is satisfied by `false` too, so a machine
      that already HAS a working Claude Code would be told the opposite. It is safe
