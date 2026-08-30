@@ -347,6 +347,12 @@ function state() {
  * check can see it: telling a good binary from a broken one is exactly what costs a
  * subprocess. The TTL is the bound on it.
  *
+ * 📌 AND THE TTL BOUNDS THE SERVER, NOT THE SCREEN. The client holds this answer in
+ * its `FR` snapshot, which is refreshed only at page boot and on Check again, so on
+ * a board left open the stale window is however long that page has been sitting
+ * there. Benign in the same way and for the same reason, and named for the same
+ * reason: the bound people will assume from "60s" is not the one they get.
+ *
  * 📌 An earlier draft of this block said the cheap check "can only ever move the
  * answer toward yes" and offered the newly-INSTALLED case as the stale one. Both
  * were wrong: the install case never reaches the cache at all (the missing-binary
@@ -368,10 +374,17 @@ let probeInFlight = null;
 const PROBE_TTL_MS = 60000;
 
 async function willInstall() {
-  const bin = claudeBinPath();
-  /* The cheap half, every time. It cannot produce the harmful answer on its own:
-     a missing or non-executable file means an install IS needed, full stop. */
-  try { fs.accessSync(bin, fs.constants.X_OK); } catch { return true; }
+  /* ⚠️ `claudeBinPath()` IS INSIDE THE GUARD, and it was not. It calls into the
+     runner resolver, which can throw, and the doc block above promises this
+     function never does. A resolver failure is an unknown like any other here, so
+     it resolves the same way: an install is needed. */
+  let bin;
+  try {
+    bin = claudeBinPath();
+    /* The cheap half, every time. It cannot produce the harmful answer on its own:
+       a missing or non-executable file means an install IS needed, full stop. */
+    fs.accessSync(bin, fs.constants.X_OK);
+  } catch { return true; }
   if (probeCache && probeCache.bin === bin && Date.now() - probeCache.at < PROBE_TTL_MS) {
     return !probeCache.ok;
   }
@@ -381,7 +394,7 @@ async function willInstall() {
   const probing = (async () => {
     let ok = false;
     try {
-    const probe = await run(bin, ['--version'], { timeout: 15000 });
+      const probe = await run(bin, ['--version'], { timeout: 15000 });
     /* 🛑 A DRY-RUN RESULT IS NOT A PASS, AND MY UNIT TESTS COULD NOT SEE THIS.
        `run()` returns `{ ok: true, dryRun: true }` WITHOUT EXECUTING ANYTHING when
        dry-run is on (this file, in `run` itself), so a probe that never ran reported
@@ -404,7 +417,7 @@ async function willInstall() {
        📌 Found by querying the real route on three boards, not by the six unit
        tests, which never set dry-run. The units and the route disagreed and the
        route was right. */
-    ok = !!(probe && probe.ok && !probe.dryRun);
+      ok = !!(probe && probe.ok && !probe.dryRun);
     } catch { ok = false; }
     /* Stamped at COMPLETION, not at start, so a slow probe does not hand back a
        result that is already most of the way through its own TTL. */

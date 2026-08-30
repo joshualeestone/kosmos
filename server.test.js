@@ -5585,8 +5585,15 @@ test('the first-run routes answer, and the completion route reports what stuck',
   /* #1556: the wiring test asserts firstrun.state() directly, so this is the only
      place that proves the field survives serialization to the client. `undefined`
      would vanish silently through JSON.stringify and the screen would fail open. */
-  assert.equal(typeof state.connect.willInstall, 'boolean',
-    'the screen reads FR.connect.willInstall and the route did not answer a boolean');
+  /* The field must be PRESENT (undefined vanishes through JSON.stringify and the
+     screen would fail open with no sign), and it must be one of the two shapes
+     firstrun.js actually produces: a boolean, or null for "we could not tell".
+     Demanding a boolean here would red on a probe failure and report it as a
+     serialization problem, which is not where the cause is. */
+  assert.ok('willInstall' in state.connect,
+    'the screen reads FR.connect.willInstall and the route did not answer the field at all');
+  assert.ok(typeof state.connect.willInstall === 'boolean' || state.connect.willInstall === null,
+    `the route answered ${JSON.stringify(state.connect.willInstall)}, which the screen has no branch for`);
 
   /**
    * ⚠️ A GET MUST NOT WRITE THE FLAG, and the first version of this could not

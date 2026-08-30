@@ -54,3 +54,31 @@ test('#1556 an unknown answer still asks, in all three of its shapes', () => {
     assert.equal(installNeededWith(FR), true, `${label}: an unknown answer did not fall back to asking`);
   }
 });
+
+/**
+ * The sentence the confirm box shows. Its FLAT arm ("we need to install Claude Code
+ * first") was unreachable in production before this branch, because `known` could
+ * never be true: nothing ever produced a boolean. Making the field real makes that
+ * arm reachable for the first time, and the only guard on it matches BOTH strings
+ * in source text, so it cannot tell which one a given value produces.
+ */
+function confirmSentenceWith(FR) {
+  const fns = ['frRoughMB', 'frClaudeDownloadBytes', 'frClaudeConfirmSentence']
+    .map((n) => page.lift(SCRIPT, n)).join('\n');
+  // eslint-disable-next-line no-new-func
+  return new Function('FR', fns + '\nreturn frClaudeConfirmSentence();')(FR);
+}
+
+test('#1556 a known answer gives the flat sentence, not the hedge', () => {
+  const said = confirmSentenceWith({ connect: { willInstall: true } });
+  assert.match(said, /we need to install Claude Code first/,
+    'a machine we KNOW needs the download still gets the "if it is not here already" hedge');
+  assert.doesNotMatch(said, /If it is not here already/,
+    'both arms rendered, so the sentence is not actually choosing');
+});
+
+test('#1556 an unknown answer keeps the hedge, which is the honest one', () => {
+  const said = confirmSentenceWith({ connect: {} });
+  assert.match(said, /If it is not here already/,
+    'we asserted certainty we do not have');
+});
