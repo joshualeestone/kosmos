@@ -56,14 +56,57 @@ test('no test pins a CSS declaration that a later rule in the same scope overrid
     const src = unescape(fs.readFileSync(f, 'utf8'));
     for (const [selector, decls] of dup) {
       for (let i = 0; i < decls.length - 1; i += 1) {
-        if (!src.includes(`${selector} { ${decls[i]} }`)) continue;
+        /* 🛑 BRACE-OPTIONAL, BECAUSE REQUIRING IT TOOK EIGHT FILES OUT OF REACH
+           (Vivienne, 2026-08-29). #1430 loosens these assertions to drop the
+           closing brace, and this matcher required it, so the match simply
+           disappeared. MEASURED, both arms: on `main` the guard saw 3 such
+           assertions in the 8 files her branch touches; on her branch it saw 0.
+           A guard that stops matching looks exactly like a guard with nothing to
+           catch, and the 3 is the control that makes the 0 mean something. */
+        /* 🛑 BRACE-OPTIONAL BUT NOT PREFIX-LOOSE, AND THE SECOND HALF COST ME TWO
+           FALSE POSITIVES BEFORE I MEASURED IT. Simply dropping the `}` turns
+           this into a PREFIX match, so an assertion pinning a LONGER declaration
+           list matches a shorter `decls[i]` that happens to start it. My first
+           attempt flagged `display: flex` on a selector that never declares
+           `display`, twice, which is a guard crying wolf and worse than one that
+           is quiet.
+
+           ⇒ The end of the pinned text has to be a BOUNDARY: the closing brace,
+           or the end of the string literal the assertion wrote it in. That keeps
+           #1430's braceless form in reach without matching a prefix. */
+        const lit = `${selector} { ${decls[i]}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (!new RegExp(lit + '\\s*(?:\\}|["\'`])').test(src)) continue;
         /* Pinning an earlier rule is only WRONG when a property it names is
            actually overridden. A later rule that sets different properties
            leaves the pin governing, and flagging that would be noise. */
         for (const [prop, value] of declaredProps(decls[i])) {
+          /* 🛑 A LATER RE-DECLARATION KILLS THE PIN EVEN WHEN THE VALUE IS THE
+             SAME, and the value test alone could not see that (Vivienne again).
+             `.pj-row .pjcount` declares `margin-left: 0` at 2850 and AGAIN at
+             2893; the second governs, both say 0, so `wins !== value` was false
+             and the guard stayed quiet on exactly the defect it exists to catch.
+             She measured both arms: deleting the PINNED rule changed nothing and
+             turned the assertion RED, breaking the WINNING rule moved the margin
+             to 8px and left it GREEN.
+
+             ⭐ THE RIGHT QUESTION IS NOT "does the winning value differ" BUT "is
+             the declaration I pinned the one that governs". Source order decides
+             inside one selector-and-scope group, which is what `duplicatedSelectors`
+             keys on, so a later member re-declaring the property is decisive
+             regardless of what it sets it to. */
+          const shadowed = decls.slice(i + 1)
+            .some((later) => declaredProps(later).some(([p]) => p === prop));
           const wins = effective(PAGE, selector, prop);
-          if (wins !== null && wins !== value) {
-            findings.push(`${f}: pins "${prop}: ${value}" on "${selector}", but "${prop}: ${wins}" governs`);
+          const valueDiffers = wins !== null && wins !== value;
+          /* Both, as a union: `shadowed` catches a same-value re-declaration in
+             this group, `valueDiffers` still catches an override arriving from a
+             DIFFERENT selector that this group cannot see. Neither subsumes the
+             other and dropping either loses real findings. */
+          if (shadowed || valueDiffers) {
+            const because = shadowed
+              ? `a later "${selector}" rule re-declares "${prop}", so this pin is on a dead rule`
+              : `"${prop}: ${wins}" governs`;
+            findings.push(`${f}: pins "${prop}: ${value}" on "${selector}", but ${because}`);
           }
         }
       }
