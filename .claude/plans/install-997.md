@@ -44,7 +44,7 @@ reason.
 
 ## Verification
 
-- full suite on the branch, rebased onto current main: **3080 pass, 0 fail**
+- full suite on the branch, rebased onto current main: **3081 pass, 0 fail**
   (the branch adds tests, so this figure and main's cannot match; an earlier
   version of this line reported main's number for both, which is arithmetically
   impossible for a change that adds a test file, and a later version was still
