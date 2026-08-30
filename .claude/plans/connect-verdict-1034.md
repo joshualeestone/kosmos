@@ -67,6 +67,35 @@ moment a person is trying to find their agents."* A connection verdict inherits 
 - The GPT wording gap, which is content and owned elsewhere. Still open: `GPT` 0 in
   `engine/connections.js`, control `provider` 9.
 
+## 🛑 THIS IS NOT A PRIVILEGE BOUNDARY, AND NOTHING HERE MAY IMPLY IT IS
+
+Found by me and independently by review, which is why it is stated at this length.
+
+**The board binds `127.0.0.1` with no auth**, and an agent is a program running as this
+user. It can already:
+
+- `curl` the ungated `/api/accounts`, which returns **account emails**
+- `curl` the ungated `/api/connect`, which returns the **live OAuth URL and terminal tail**
+- read the config directories directly, with no HTTP at all
+
+⇒ **`/api/agent/connections` is a safe OPTION an agent can choose, not a constraint on
+it.** Any sentence of the form "an agent cannot learn a sign-in URL" is false at the
+machine level and must be scoped to this route.
+
+### What it actually buys, stated precisely
+
+**It keeps a bearer credential out of the agent's context window by default.**
+
+A sign-in URL that lands in an agent's context does not stay there: it propagates into
+channel messages, commit bodies, handoff files, logs and other agents' transcripts. On
+this fleet that is the normal flow of a working day, not a hypothetical. **The exposure
+this addresses is propagation, not access.** An agent asking the ordinary question gets
+an answer that cannot leak; an agent that goes looking was always able to find it.
+
+⚠️ **None of this is a regression. The exposure predates the branch**, and narrowing
+`/api/connect` is a different change with a different blast radius: the board's own
+screen consumes it.
+
 ## Weakest premise, named by me
 
 **The allowlist is only as good as its list.** If a future field is added to a source

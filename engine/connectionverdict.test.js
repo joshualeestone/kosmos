@@ -27,6 +27,7 @@ const SECRETS = {
   dir: '/Users/planted9271/Library/Application Support/PlantedDir',
   bin: '/opt/planted9271/bin/claude',
   org: 'planted9271_org',
+  doorkey: 'PLANTEDDOORKEY9271',
 };
 
 function richInput() {
@@ -55,14 +56,25 @@ function richInput() {
         connection: { state: subscription.STATE.NONE, because: 'nope' },
       },
     ],
+    /* 🛑 KEYED THE WAY `runners.status()` ACTUALLY KEYS IT (`claude`, not
+       `anthropic`). The first version of this fixture was hand-rolled from what
+       its author believed the shape to be, and it hid a real defect: the module
+       read `runners.anthropic`, got undefined forever, and could never say the
+       runner was missing. A fixture that encodes a belief tests the belief. */
     runners: {
-      anthropic: { name: 'Claude Code', present: true, bin: SECRETS.bin },
+      claude: { name: 'Claude Code', present: true, bin: SECRETS.bin },
       openai: { name: 'Codex', present: false, bin: SECRETS.bin },
     },
     doors: {
       '/api/github': { connected: true, who: SECRETS.email },
       '/api/vercel': { connected: false, who: null },
       '/api/cloudflare': { connected: null, because: `could not check: ${SECRETS.org}` },
+      /* a door whose KEY carries a secret: the leak test planted only into
+         values, so this whole class was invisible to the proof the module rests on */
+      [`/api/svc/${SECRETS.doorkey}`]: { connected: true },
+    },
+    doorNames: {
+      '/api/github': 'GitHub', '/api/vercel': 'Vercel', '/api/cloudflare': 'Cloudflare',
     },
   };
 }
@@ -93,7 +105,7 @@ test('every string the view emits comes from this module, not from its input', (
     ...Object.values(verdict.SAYS),
     ...verdict.PHASES, 'unknown',
     'anthropic', 'openai', 'Claude Code', 'GPT (OpenAI, through Codex)',
-    'github', 'vercel', 'cloudflare',
+    'GitHub', 'Vercel', 'Cloudflare',
     subscription.STATE.CONNECTED, subscription.STATE.NONE, subscription.STATE.UNKNOWN,
   ]);
   const strings = [];
@@ -109,7 +121,7 @@ test('every string the view emits comes from this module, not from its input', (
 test('cannot-tell is a real answer and never collapses into not-connected', () => {
   const out = verdict.forAgent({
     accounts: [{ provider: 'anthropic', connection: { state: subscription.STATE.UNKNOWN } }],
-    runners: { anthropic: { present: true } },
+    runners: { claude: { present: true } },
   });
   const claude = out.providers.find((p) => p.id === 'anthropic');
   assert.strictEqual(claude.signedIn, subscription.STATE.UNKNOWN);
@@ -158,10 +170,12 @@ test('a sign-in in progress is reported as busy', () => {
 test('service doors keep their three states and lose their login', () => {
   const out = verdict.forAgent(richInput());
   const byName = Object.fromEntries(out.services.map((s) => [s.name, s]));
-  assert.strictEqual(byName.github.connected, true);
-  assert.strictEqual(byName.vercel.connected, false);
-  assert.strictEqual(byName.cloudflare.connected, null);
-  assert.ok(!('who' in byName.github), 'the door login must not travel');
+  assert.strictEqual(byName.GitHub.connected, true);
+  assert.strictEqual(byName.Vercel.connected, false);
+  assert.strictEqual(byName.Cloudflare.connected, null);
+  assert.ok(!('who' in byName.GitHub), 'the door login must not travel');
+  /* A door with no resolved name is DROPPED rather than named from its key. */
+  assert.ok(!out.services.some((x) => /PLANTED/.test(x.name)), 'an unresolved door was named from its key');
 });
 
 test('rubbish input does not throw and does not invent a connection', () => {
@@ -175,13 +189,74 @@ test('rubbish input does not throw and does not invent a connection', () => {
 
 test('a reader that threw is UNKNOWN, never a confident "no sign-in"', () => {
   const out = verdict.forAgent({
-    accounts: [], runners: { anthropic: { present: true } }, unreadable: { anthropic: true },
+    accounts: [], runners: { claude: { present: true } }, unreadable: { anthropic: true },
   });
   const claude = out.providers.find((p) => p.id === 'anthropic');
   assert.strictEqual(claude.signedIn, subscription.STATE.UNKNOWN);
   assert.strictEqual(claude.because, verdict.SAYS.CANNOT_TELL);
   // control: the SAME empty rows without the blind flag are honestly NONE,
   // so this test is about the flag and not about emptiness.
-  const seeing = verdict.forAgent({ accounts: [], runners: { anthropic: { present: true } } });
+  const seeing = verdict.forAgent({ accounts: [], runners: { claude: { present: true } } });
   assert.strictEqual(seeing.providers.find((p) => p.id === 'anthropic').signedIn, subscription.STATE.NONE);
+});
+
+test('the runner keys this module maps to are the keys runners.status() really uses', () => {
+  /**
+   * 🛑 THE GUARD FOR THE DEFECT A HAND-ROLLED FIXTURE HID. An account row says
+   * `anthropic`; runners.status() says `claude`. Nothing in either module makes
+   * the two agree, so this asserts it against the REAL call rather than against
+   * a shape somebody typed.
+   */
+  const real = require('./runners').status();
+  const keys = Object.keys(real);
+  assert.ok(keys.length > 0, 'control: runners.status() returned nothing to check against');
+  for (const [provider, runnerKey] of Object.entries(verdict.RUNNER_KEY)) {
+    assert.ok(keys.includes(runnerKey),
+      `RUNNER_KEY maps ${provider} to '${runnerKey}', which runners.status() does not have (it has: ${keys.join(', ')})`);
+  }
+  // control: a key that must NOT be there, proving the assertion can fail
+  assert.ok(!keys.includes('anthropic'),
+    'runners.status() now has an `anthropic` key, so RUNNER_KEY may be unnecessary; re-read it rather than deleting this test');
+});
+
+test('installed is a real answer for BOTH providers against a real runners.status()', () => {
+  const out = verdict.forAgent({ runners: require('./runners').status(), accounts: [] });
+  for (const p of out.providers) {
+    assert.notStrictEqual(p.installed, null,
+      `${p.id} reports installed=null against a real runner status, which is the key-mismatch defect`);
+  }
+});
+
+test('the phase lists stay in step with the engine that produces them', () => {
+  /**
+   * These are a hand-copied THIRD copy of connect.js's own lists (the page
+   * carries the second, and connect.js documents that hazard for it). A phase
+   * added upstream and not here would make the CLI go quiet during exactly the
+   * sign-in step somebody needs help with.
+   */
+  const connect = require('./connect');
+  assert.deepStrictEqual([...verdict.PHASES].sort(), [...Object.values(connect.PHASE)].sort(),
+    'PHASES has drifted from connect.PHASE');
+  assert.deepStrictEqual([...verdict.BUSY_PHASES].sort(), [...connect.ACTIVE_PHASES].sort(),
+    'BUSY_PHASES has drifted from connect.ACTIVE_PHASES');
+  assert.ok(verdict.PHASES.length > 5, `control: PHASES implausibly short (${verdict.PHASES.length})`);
+});
+
+test('a door whose KEY carries a secret cannot put it in the output', () => {
+  const out = JSON.stringify(verdict.forAgent(richInput()));
+  assert.ok(!out.includes(SECRETS.doorkey), 'a door key reached the agent view');
+  // control: the planted key really is in the input
+  assert.ok(JSON.stringify(richInput()).includes(SECRETS.doorkey), 'control: the door key was never planted');
+});
+
+test('a count is withheld rather than guessed when we could not check', () => {
+  const out = verdict.forAgent({
+    accounts: [], runners: { claude: { present: true } }, unreadable: { anthropic: true },
+  });
+  const claude = out.providers.find((p) => p.id === 'anthropic');
+  assert.strictEqual(claude.signedIn, subscription.STATE.UNKNOWN);
+  assert.strictEqual(claude.howMany, null, 'a 0 beside "cannot tell" reads as a settled none');
+  // control: a provider we COULD read still reports a real count
+  const seen = verdict.forAgent({ accounts: [{ provider: 'openai', connection: { state: subscription.STATE.CONNECTED } }] });
+  assert.strictEqual(seen.providers.find((p) => p.id === 'openai').howMany, 1);
 });

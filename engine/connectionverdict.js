@@ -18,6 +18,15 @@
  * and the asymmetry is the whole argument -- verdict-only widens in a commit,
  * a leaked URL cannot be un-leaked.
  *
+ * 🛑 SCOPE, BECAUSE THE SENTENCE ABOVE READS STRONGER THAN IT IS. This is a safe
+ * OPTION, not a boundary that constrains anybody. The board binds loopback with
+ * no auth, so any local process -- an agent's own shell included -- can read
+ * `/api/connect` directly and get the URL and the tail. What this buys is that a
+ * bearer credential stays OUT OF AN AGENT'S CONTEXT BY DEFAULT, and context
+ * propagates into messages, commits, handoffs and other agents' transcripts.
+ * The exposure addressed here is PROPAGATION, not ACCESS. Do not cite this as
+ * protection against a hostile agent; three other reads walk around it.
+ *
  * 🔑 THE RULE, chosen because it is provable rather than reviewable:
  *
  *   NOTHING IS PASSED THROUGH. Every string this module emits is either an
@@ -36,6 +45,18 @@
  */
 
 const subscription = require('./subscription');
+
+/**
+ * 🛑 TWO VOCABULARIES, AND THEY DO NOT MATCH. An account row's `provider` is
+ * `anthropic`; `runners.status()` keys the SAME provider as `claude`. Reading
+ * `runners.anthropic` therefore returns undefined forever, which reports
+ * `installed: null` for the primary provider and makes the "not installed yet"
+ * sentence unreachable -- so an agent helping somebody install Claude Code is
+ * told there is no sign-in instead. Mapped here, once, and asserted against a
+ * real `runners.status()` in the test rather than against a fixture that
+ * encodes what its author believed the shape to be.
+ */
+const RUNNER_KEY = { anthropic: 'claude', openai: 'openai' };
 
 /* Every sentence this module can emit. Nothing else may be said. */
 const SAYS = {
@@ -113,7 +134,10 @@ function providerView(id, name, rows, runner, unreadable) {
     name,
     installed: present,
     signedIn: state,
-    howMany: countOf(rows),
+    /* ⚠️ NULL, NOT 0, WHEN WE COULD NOT LOOK. A count printed beside
+       `unknown` reads as a settled "you have none", which is the exact
+       collapse the three-state rule exists to prevent. */
+    howMany: state === subscription.STATE.UNKNOWN ? null : countOf(rows),
     because: saysFor(state, present),
   };
 }
@@ -123,14 +147,26 @@ function providerView(id, name, rows, runner, unreadable) {
  * false or null), so they are composed rather than rebuilt. Their `who` is a
  * login and is dropped here; that field is for the operator's own screen.
  */
-function serviceView(doors) {
+function serviceView(doors, allowed) {
   const out = [];
   if (!doors || typeof doors !== 'object') return out;
+  /**
+   * 🛑 THE NAME IS RESOLVED, NOT DERIVED FROM THE KEY. Stripping `/api/` off the
+   * input key put the caller's string straight into the output, which breaks
+   * this module's one rule and is invisible to a leak test that plants into
+   * door VALUES only. Keys are ours today; the rule is that nothing from the
+   * input travels, and a key is input.
+   * ⚠️ It also fixes a second thing: `tokendoors.routes()` returns
+   * `/api/svc/<slug>`, so the old strip printed `svc/discord` to a person.
+   */
+  const names = allowed && typeof allowed === 'object' ? allowed : {};
   for (const route of Object.keys(doors).sort()) {
+    const name = names[route];
+    if (!name) continue;
     const d = doors[route] || {};
     const connected = d.connected === true ? true : (d.connected === false ? false : null);
     out.push({
-      name: String(route).replace(/^\/api\//, ''),
+      name,
       connected,
       because: connected === true ? SAYS.SERVICE_ON
         : (connected === false ? SAYS.SERVICE_OFF : SAYS.SERVICE_UNSURE),
@@ -157,12 +193,12 @@ function forAgent(raw) {
   const blind = src.unreadable && typeof src.unreadable === 'object' ? src.unreadable : {};
   return {
     providers: [
-      providerView('anthropic', 'Claude Code', byProvider('anthropic'), runners.anthropic, blind.anthropic === true),
-      providerView('openai', 'GPT (OpenAI, through Codex)', byProvider('openai'), runners.openai, blind.openai === true),
+      providerView('anthropic', 'Claude Code', byProvider('anthropic'), runners[RUNNER_KEY.anthropic], blind.anthropic === true),
+      providerView('openai', 'GPT (OpenAI, through Codex)', byProvider('openai'), runners[RUNNER_KEY.openai], blind.openai === true),
     ],
     signin: signinView(src.connect),
-    services: serviceView(src.doors),
+    services: serviceView(src.doors, src.doorNames),
   };
 }
 
-module.exports = { forAgent, SAYS, PHASES, BUSY_PHASES };
+module.exports = { forAgent, SAYS, PHASES, BUSY_PHASES, RUNNER_KEY };

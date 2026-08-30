@@ -641,58 +641,6 @@ cmd_post() {
 # 🔑 THE SENTENCE IS COMPOSED BY THE BOARD, not here and not by the agent. If
 # every agent phrases this itself, three agents give three answers, which is
 # the defect this verb exists to remove.
-# ---- kosmos connections
-# What is connected on this computer (#1034 part 2). VERDICT ONLY, on purpose:
-# the board's own /api/connect answer carries a live sign-in URL and raw
-# terminal output, which is a bearer credential to hand an agent. This reads
-# /api/agent/connections, which is constructed rather than filtered.
-#
-# 🛑 Three answers, never two. "could not check" is a real answer and is not
-# collapsed into "not connected" -- the same rule cmd_agents states, for the
-# same reason: a confident negative ends the search at the moment somebody is
-# trying to get connected.
-cmd_connections() {
-  if ! healthy; then
-    say "Kosmos is not running, so it cannot tell you what is connected. Start it with: kosmos start"
-    exit 1
-  fi
-  local body
-  body=$(curl -sS -m 15 "$URL/api/agent/connections" 2>&1) || {
-    say "Kosmos did not answer, so we cannot tell you what is connected on this computer."
-    exit 1
-  }
-  # The board composed every sentence; this prints them rather than inventing
-  # its own, the same rule `whoami` states.
-  printf '%s\n' "$body" | "$NODE" -e '
-    let raw = ""; process.stdin.on("data", (d) => { raw += d; });
-    process.stdin.on("end", () => {
-      let v = null;
-      try { v = JSON.parse(raw); } catch { v = null; }
-      if (!v || !Array.isArray(v.providers)) {
-        console.log("Kosmos answered something we could not read, so we cannot say what is connected.");
-        process.exit(1);
-      }
-      console.log("What this computer is connected to:");
-      console.log("");
-      for (const p of v.providers) {
-        const many = p.howMany === 1 ? "1 sign-in" : p.howMany + " sign-ins";
-        console.log("  " + p.name + ": " + p.signedIn + " (" + p.because + ", " + many + ")");
-      }
-      if (v.signin && v.signin.busy) {
-        console.log("");
-        console.log("  A sign-in is going on right now (" + v.signin.phase + "). Ask what is on their screen.");
-      }
-      if (Array.isArray(v.services) && v.services.length) {
-        console.log("");
-        console.log("Other services:");
-        for (const s of v.services) console.log("  " + s.name + ": " + s.because);
-      }
-      console.log("");
-      console.log("You cannot see their screen. Ask what it says rather than guessing.");
-    });
-  '
-}
-
 cmd_whoami() {
   if ! healthy; then
     say "Kosmos is not running, so it cannot tell you which account you are on. Start it with: kosmos start"
@@ -722,6 +670,94 @@ cmd_whoami() {
     *'"because"'*) printf '%s\n' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p' ;;
     *) printf '%s\n' "$body" ;;
   esac
+}
+
+# ---- kosmos connections
+# What is connected on this computer (#1034 part 2). VERDICT ONLY, on purpose:
+# the board's own /api/connect answer carries a live sign-in URL and raw
+# terminal output, which is a bearer credential to hand an agent. This reads
+# /api/agent/connections, which is constructed rather than filtered.
+#
+# 🛑 Three answers, never two. "could not check" is a real answer and is not
+# collapsed into "not connected" -- the same rule cmd_agents states, for the
+# same reason: a confident negative ends the search at the moment somebody is
+# trying to get connected.
+cmd_connections() {
+  if ! healthy; then
+    say "Kosmos is not running, so it cannot tell you what is connected. Start it with: kosmos start"
+    exit 1
+  fi
+  local body rc
+  # ⏱ 40s, not 15. This route composes a LIVE per-account check (a `claude auth
+  # status` subprocess each) plus the whole door sweep. The arms run in
+  # parallel so the real cost is bounded near the slowest one, but 15s left no
+  # margin on a machine with several accounts and a slow network door.
+  body=$(curl -sS -m 40 "$URL/api/agent/connections" 2>&1); rc=$?
+  if [ "$rc" -ne 0 ]; then
+    # 28 is curl's own timeout. Saying "Kosmos did not answer" for a client-side
+    # timeout blames the board for our deadline, and sends whoever reads it to
+    # the wrong place.
+    if [ "$rc" -eq 28 ]; then
+      say "Checking what is connected took longer than we waited. The board is running; try again, or open it at $URL"
+    else
+      say "Kosmos did not answer, so we cannot tell you what is connected on this computer."
+    fi
+    exit 1
+  fi
+  if [ ! -x "$NODE" ]; then
+    # The runtime is how we PRINT the answer, not how we get it. Losing it
+    # should cost formatting, not the answer, so the raw body goes out rather
+    # than a locally-invented sentence. Same rule `whoami` states.
+    printf '%s\n' "$body"
+    return 0
+  fi
+  # The board composed every sentence; this prints them rather than inventing
+  # its own, the same rule `whoami` states.
+  printf '%s\n' "$body" | "$NODE" -e '
+    let raw = ""; process.stdin.on("data", (d) => { raw += d; });
+    process.stdin.on("end", () => {
+      let v = null;
+      try { v = JSON.parse(raw); } catch { v = null; }
+      if (!v || !Array.isArray(v.providers)) {
+        console.log("Kosmos answered something we could not read, so we cannot say what is connected.");
+        process.exit(1);
+      }
+      console.log("What this computer is connected to:");
+      console.log("");
+      var SAY = { connected: "connected", none: "not connected", unknown: "could not check" };
+      for (const p of v.providers) {
+        // `none` and `unknown` are machine vocabulary. A person reads this.
+        var verdict = SAY[p.signedIn] || p.signedIn;
+        // No count beside "could not check": a number there reads as settled.
+        var many = p.howMany === null ? ""
+          : ", " + (p.howMany === 1 ? "1 sign-in" : p.howMany + " sign-ins");
+        console.log("  " + p.name + ": " + verdict + " (" + p.because + many + ")");
+      }
+      if (v.signin && v.signin.busy) {
+        // The phase is machine vocabulary too, exactly like the verdicts above.
+        // An unmapped phase falls back to a sentence with no jargon in it
+        // rather than printing the raw token at somebody.
+        var STEP = {
+          "downloading": "it is downloading the program it needs",
+          "installing": "it is installing the program it needs",
+          "signin-launching": "it is opening the sign-in",
+          "signin-browser-open": "the sign-in is open in their browser",
+          "signin-awaiting-code": "it is waiting for them to paste the code",
+          "signin-completing": "it is finishing the sign-in"
+        };
+        console.log("");
+        console.log("  A sign-in is going on right now: " + (STEP[v.signin.phase] || "it is part way through")
+          + ". Ask what is on their screen.");
+      }
+      if (Array.isArray(v.services) && v.services.length) {
+        console.log("");
+        console.log("Other services:");
+        for (const s of v.services) console.log("  " + s.name + ": " + s.because);
+      }
+      console.log("");
+      console.log("You cannot see their screen. Ask what it says rather than guessing.");
+    });
+  '
 }
 
 # ---- kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [words…]

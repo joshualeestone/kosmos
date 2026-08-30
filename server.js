@@ -3696,6 +3696,10 @@ const server = http.createServer((req, res) => {
    * never the 5-second tick.
    */
   if (pathname === '/api/agent/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* Intentionally short-circuits before any work, unlike the sibling
+       `/api/connections`: HEAD here is a route-is-there probe, so it cannot and
+       need not reflect the 500 the GET path can return. Answering it would mean
+       paying for a live per-account subprocess sweep to produce no body. */
     if (req.method === 'HEAD') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(); return; }
     const door = (fn) => Promise.resolve().then(fn).then(
       (st) => ({ connected: st && st.unreachable === true ? null : !!(st && st.connected === true) }),
@@ -3711,7 +3715,15 @@ const server = http.createServer((req, res) => {
       '/api/vercel': door(() => vercel.state()),
       '/api/cloudflare': door(() => cloudflare.state()),
     };
-    for (const [name, route] of Object.entries(tokendoors.routes())) doorJobs[route] = door(() => tokendoors.byName(name).state());
+    /* The names the agent view is allowed to print, resolved HERE where the
+       doors are known, so the boundary never has to derive a name from a key
+       it was handed. `tokendoors.routes()` returns `/api/svc/<slug>`, which is
+       why a strip-the-prefix rule printed `svc/discord` at a person. */
+    const doorNames = { '/api/github': 'GitHub', '/api/vercel': 'Vercel', '/api/cloudflare': 'Cloudflare' };
+    for (const [name, route] of Object.entries(tokendoors.routes())) {
+      doorJobs[route] = door(() => tokendoors.byName(name).state());
+      doorNames[route] = name;
+    }
     const doorKeys = Object.keys(doorJobs);
     /* Every arm is already fail-soft, so one unreachable service degrades to
        `cannot tell` for that door rather than failing the whole answer. */
@@ -3734,7 +3746,7 @@ const server = http.createServer((req, res) => {
       let signin = null;
       try { signin = connect.state(); } catch { signin = null; }
       sendJson(res, 200, connectionverdict.forAgent({
-        connect: signin, accounts: rows, runners: runnerStatus, doors, unreadable,
+        connect: signin, accounts: rows, runners: runnerStatus, doors, doorNames, unreadable,
       }));
     }).catch(() => sendJson(res, 500, { error: 'we could not read this computer\'s connections' }));
     return;
