@@ -54,14 +54,53 @@ test('the flow never sends a plain start (#248, the hazard the old disable preve
      still in the source -- a check asserting a superseded promise, passing.
      ⚠️ The either-arm invariant is pinned by RUNNING the expression in
      web.reauth-1492.test.js. This one stays a source pin on purpose: it is the
-     #248 hazard, and it should still fail loudly if a plain start reappears. */
-  const at = PAGE.indexOf("getElementById('acct-add').addEventListener");
-  assert.ok(at > -1, 'the button wiring moved; restate this pin');
+     #248 hazard, and it should still fail loudly if a plain start reappears.
+     🛑 #1587 MOVED THE POST out of the click handler into `acctAddStart`, so the
+     gate (learn willInstall, confirm) can run first. The #248 invariant is
+     unchanged and now lives in the worker; this pin follows it there. The gate
+     itself is pinned separately below. */
+  const at = PAGE.indexOf('async function acctAddStart');
+  assert.ok(at > -1, 'the start worker moved; restate this pin');
   const wiring = PAGE.slice(at, at + 900);
   assert.match(wiring, /\/api\/connect\/start/, 'the button does not start the connect flow');
   assert.match(wiring, /another:\s*true/, 'the start request can no longer ask for ANOTHER account');
   assert.match(wiring, /accountDir/, 'the start request can no longer aim at an EXISTING account (#1492)');
   assert.doesNotMatch(wiring, /JSON\.stringify\(\{\}\)/, 'the button can send a plain start, which is the #248 hazard');
+});
+
+test('#1587: the acct-add button gates the sign-in behind the install confirm, like the first-run flow', () => {
+  /* Settings > Accounts is a SECOND entry into /api/connect/start. Ungated, an
+     accounts click could begin a ~231MB Claude Code install with no warning,
+     the download the first-run flow already gates behind #fr-claude-confirm.
+     The property: the click cannot reach the POST without first learning
+     willInstall and, unless it is a definite false, showing the confirm.
+     Comments are stripped (CODE), so a comment naming a call cannot satisfy
+     these, the same discipline web.connect-confirm.test.js uses. */
+  const CODE = PAGE.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*/gm, '');
+
+  // The POST lives in its own worker, separate from the click handler.
+  assert.match(CODE, /async function acctAddStart\(\)/, 'the acct-add start worker is gone; the gate has nothing to sit in front of');
+
+  // The click handler itself must NOT reach the download directly: no
+  // /api/connect/start POST inside the listener. That POST is the thing gated.
+  const clickAt = CODE.indexOf("getElementById('acct-add').addEventListener");
+  assert.ok(clickAt > -1, 'the acct-add click handler moved; restate this pin');
+  const click = CODE.slice(clickAt, clickAt + 1100);
+  assert.doesNotMatch(click, /\/api\/connect\/start/, 'the acct-add click POSTs the download directly, skipping the confirm (the #1587 defect)');
+
+  // It gates: learns willInstall from /api/first-run and shows the confirm.
+  assert.match(click, /\/api\/first-run/, 'the acct-add click no longer learns whether an install will happen');
+  assert.match(click, /willInstall/, 'the acct-add click no longer checks willInstall before starting');
+  assert.match(click, /acct-add-confirm/, 'the acct-add click no longer shows the confirm before the download');
+
+  // The one path from the confirm to the download is the Confirm button.
+  const goAt = CODE.indexOf("getElementById('acct-add-confirm-go').addEventListener");
+  assert.ok(goAt > -1, 'the acct-add Confirm handler is missing, so nothing carries a confirmed click to the sign-in');
+  assert.match(CODE.slice(goAt, goAt + 400), /acctAddStart\(\)/, 'the Confirm button no longer starts the sign-in');
+
+  // Both choices exist in the accounts modal.
+  assert.match(PAGE, /id="acct-add-confirm-go"/, 'the Confirm button is missing from the accounts modal');
+  assert.match(PAGE, /id="acct-add-confirm-no"/, 'the Not now button is missing from the accounts modal');
 });
 
 test('the code row appears only when the flow awaits a code, and a reason empties it', () => {
