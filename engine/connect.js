@@ -890,9 +890,82 @@ async function start(opts) {
      * be pathological, and they answer "did the login just land" rather than
      * "may I refuse to start", which is the question that locks somebody out.
      */
-    const live = await subscription.checkLive(configDir ? { configDir } : undefined);
-    if (live.state === subscription.STATE.NONE) {
+    /**
+     * 🛑 SIGNED IN IS NOT THE SAME AS READY, AND THIS BRANCH USED TO CONFLATE
+     * THEM (#1580). The CONNECTED short-circuit below returns five lines before
+     * `haveBinary` is computed, so a machine with valid auth and NO Claude Code
+     * binary was told it was connected and never offered the install. Plausible
+     * after a machine migration or a partial uninstall, and it fails in the
+     * reassuring direction: nothing to click, no error, and the failure surfaces
+     * later as an agent that will not start, by which time this screen has
+     * already said everything is fine.
+     *
+     * ⚠️ THE CHEAP HALF ONLY, DELIBERATELY. `haveBinary` below refines this with
+     * an AWAITED `--version` probe carrying a 15 second timeout, and putting
+     * that in front of the fast path would make every already-connected start()
+     * pay for it. `accessSync` is synchronous and answers the question this
+     * branch actually needs: is there anything on disk to run at all.
+     *
+     * 🛑 A BINARY THAT EXISTS AND DOES NOT RUN STILL REPORTS CONNECTED HERE, AND
+     * NOTHING CORRECTS IT. This branch's verdict is TERMINAL: `start()` returns
+     * before the `--version` probe, so that probe never sees this arm. An
+     * earlier version of this comment claimed the probe corrected it, which was
+     * false and is deleted rather than annotated, because a wrong sentence left
+     * above its own retraction is read first.
+     *
+     * ⇒ `resolveBin().present` narrows it to what is checkable synchronously: a
+     * regular file this process can execute. A file that runs and misbehaves is
+     * out of reach here and is not this card's subject.
+     */
+    /**
+     * 🛑 `resolveBin().present`, NOT A BARE accessSync, AND THE DIFFERENCE IS A
+     * DIRECTORY. `fs.accessSync(path, X_OK)` SUCCEEDS ON A DIRECTORY, so a
+     * folder sitting at the binary path passed the first version of this check
+     * and this branch reported CONNECTED. That is precisely the machine this
+     * card is about: nothing on it can run an agent.
+     *
+     * ⚠️ AND THE FIRST VERSION OF THIS BRANCH CLAIMED A FALLBACK THAT DOES NOT
+     * EXIST, saying a broken binary "is corrected by the probe further down".
+     * It is not: `start()` returns before `runFlow`'s `--version` probe is ever
+     * reached, so this verdict is terminal. A wrong rationale reads as checked.
+     *
+     * ✅ `runners.isRunnable` already asks the right question, adding
+     * `statSync().isFile()` for exactly this reason.
+     *
+     * 📌 NAMED, NOT LINE-NUMBERED, AND THAT IS DELIBERATE. An earlier version of
+     * this block cited five line numbers; a later commit in the same branch
+     * moved four of them and DELETED one outright, so the comment pointed a
+     * reader at an unfixed weak site exactly where the fix had already landed.
+     * This file records the identical hazard elsewhere ("this read
+     * engine/firstrun.js:140 until #1556 inserted lines above that call").
+     *
+     * The bare-`accessSync` sites remaining in this file are `willInstall`'s
+     * presence check and `canRunClaude`. Both are weak the same way: a directory
+     * passes them.
+     *
+     * ⚠️ AND MY FIRST VERSION OF THIS PARAGRAPH ASSERTED SOMETHING FALSE ABOUT
+     * `canRunClaude`. I wrote that it "decides whether the STUCK screen tells
+     * somebody to type `claude` in Terminal". It COMPUTES that, and `publicView`
+     * DROPS THE FIELD, so the page's read of `st.canRunClaude` is always
+     * undefined and that hatch has never rendered. Carded as #1595. Out of scope
+     * here either way, but the reason is "it is not wired", not "it is wired and
+     * weak" -- and this branch is what first routes a machine to that screen.
+     */
+    const binaryOnDisk = require('./runners').resolveBin('claude').present;
+
+    /* With nothing on disk to run we fall through regardless, so do not spawn
+       `claude auth status` against a path that does not exist. */
+    const live = binaryOnDisk
+      ? await subscription.checkLive(configDir ? { configDir } : undefined)
+      : { state: subscription.STATE.UNKNOWN };
+    if (!binaryOnDisk || live.state === subscription.STATE.NONE) {
       /**
+       * ⚠️ TWO REASONS REACH HERE NOW, AND NEITHER IS AN ERROR TO SHOW SOMEBODY.
+       * Either there is nothing on disk to run (#1580) or the file and the world
+       * disagree about the sign-in (#1560). In both cases the honest response is
+       * to run the flow the person asked for, which installs what is missing and
+       * signs in if that is what is missing.
+       *
        * ⚠️ FALL THROUGH ON DISAGREEMENT, DO NOT REPORT A FAILURE. The file and
        * the world disagreeing is not an error to show somebody: it is the
        * ordinary state of a person whose session expired, and the correct
@@ -942,8 +1015,27 @@ async function start(opts) {
   }
 
   const bin = claudeBinPath();
-  let haveBinary = false;
-  try { fs.accessSync(bin, fs.constants.X_OK); haveBinary = true; } catch { /* not installed yet */ }
+  /**
+   * 🛑 THE SAME RESOLVER AS THE SHORT-CIRCUIT ABOVE, SO THE TWO CANNOT ANSWER
+   * DIFFERENTLY. With this left as a bare `accessSync`, a DIRECTORY at the
+   * binary path made `binaryOnDisk` false and `haveBinary` TRUE, which is a
+   * contradiction inside one function about one path.
+   *
+   * ⚠️ AND MY FIRST JUSTIFICATION FOR IT MEASURED MY OWN TEST HARNESS. I wrote
+   * that the disagreement made `runFlow` skip the install and land on a sign-in
+   * "for a machine with nothing to run". In PRODUCTION it does not: spawning a
+   * directory returns EACCES (measured; control, spawning /bin/echo, returns 0),
+   * so the `--version` probe below already flips `haveBinary` to false. My stub
+   * runner answered ok to everything, which is the only reason the harm
+   * appeared. That is the same defect this branch was already caught on: a
+   * rationale whose measurement is aimed at a case the mechanism cannot reach.
+   *
+   * ⇒ THE HONEST REASON THIS CHANGE STAYS: consistency, not a live harm. Two
+   * checks in one function disagreeing about one path is a trap for the next
+   * edit, and the probe that currently rescues it is an implementation detail
+   * of a different concern.
+   */
+  let haveBinary = require('./runners').resolveBin('claude').present;
   /**
    * ⚠️ EXECUTABLE IS NOT WORKING. A cancel or crash mid-`claude install` can
    * leave a truncated launcher that passes X_OK forever -- and trusting it
@@ -1215,10 +1307,22 @@ async function installClaudeCode(hooks) {
     try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
     return fail('Claude downloaded but did not finish setting itself up', tailOf(`${inst.stdout || ''}\n${inst.stderr || ''}`) || 'it stopped without saying why');
   }
-  try { fs.accessSync(claudeBinPath(), fs.constants.X_OK); }
+  /**
+   * 🛑 THE SAME RESOLVER AS THE PRESENCE CHECKS, OR THIS GATE UNDOES THEM. This
+   * is the post-install verification, and a bare `accessSync` PASSES A
+   * DIRECTORY. So with a folder sitting at the binary path the install was
+   * declared `{ok:true}`, the post-install block then reported CONNECTED, and
+   * the #1580 fix altered the ROUTE without altering the OUTCOME: settled, the
+   * branch answered `connected` exactly as before the change.
+   *
+   * ⚠️ That is the harm #1580 exists to stop, arriving one step later in the
+   * same flow. It cannot distinguish "the installer produced a binary" from "a
+   * directory is still sitting there", and no fixture can make it.
+   */
+  try { if (!require('./runners').resolveBin('claude').present) throw new Error('not runnable'); }
   catch {
     try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
-    return fail('Claude said it set itself up, but we cannot find it where it should be', `expected it at ${claudeBinPath()}`);
+    return fail('Claude said it set itself up, but we cannot find anything runnable where it should be', `expected a program we can run at ${claudeBinPath()}`);
   }
   // The verified download did its job; the installed launcher is what runs
   // from here. The official install script deletes its download too, and
@@ -1286,6 +1390,72 @@ async function runFlow(owner, haveBinary) {
     if (!res.ok) { becomeStuck(owner, res.message, res.detail); return; }
   }
   if (driver !== owner) return;
+  /**
+   * 🛑 IF THE ONLY THING MISSING WAS THE BINARY, INSTALLING IT FINISHED THE JOB
+   * (#1580). A signed-in person whose Claude Code was gone now falls through to
+   * this flow to get the install; without this check they would then be walked
+   * through a sign-in they do not need, which trades one wrong screen for
+   * another.
+   *
+   * ⚠️ ASKED AGAIN RATHER THAN REMEMBERED. `start()` read the subscription
+   * BEFORE the install ran; this reads it after, because installing is exactly
+   * the kind of thing that can change the answer. It is the same reader the
+   * flow already trusts at its own connected-detection sites.
+   *
+   * 🛑 MY FIRST JUSTIFICATION FOR THIS WAS FACTUALLY WRONG AND ITS MEASUREMENT
+   * COULD NOT HAVE PRODUCED THE OTHER ANSWER. I wrote that the pane-based
+   * detection "cannot cover this: it fires only once a pane classifies as
+   * browser-open or awaiting-code". There are THREE pane-driven finishConnected
+   * sites, not one, and `launchSignin` runs bare `claude`, which for a
+   * signed-in person shows a REPL and classifies as `repl` -- which finishes.
+   * My "measured" evidence used a capture-pane fixture returning '', which
+   * classifies as `blank`, a shape NO finish path acts on. I aimed the
+   * measurement at a case the mechanism cannot reach.
+   *
+   * ✅ THE REAL ARGUMENT, WHICH IS NARROWER AND SURVIVES: without this, the
+   * person is shown a sign-in screen and then taken off it once a pane
+   * classifies, so it removes a screen they never needed rather than being
+   * their only route out. And it is STRICTER than the `repl` site, which reads
+   * the FILE alone and is exactly the #1560 over-claim; this asks the world.
+   *
+   * 🛑 TWO GUARDS, AND I ADDED BOTH ONLY AFTER MY FIRST VERSION REINTRODUCED
+   * #1560. Written without them, this read the FILE and ran for EVERY flow, so
+   * a signed-out person with a stale paid-plan file was declared connected right
+   * here at the end of runFlow: the exact lockout #1560 exists to prevent,
+   * re-entering through the back door of its own fix.
+   *   `!haveBinary`  this is only about the case where installing was the
+   *                  missing step. A flow that skipped the install has nothing
+   *                  new to learn and must not re-decide.
+   *   `checkLive`    the file over-claims by design (#1560); the same standard
+   *                  start() applies must apply here, or the guard is decorative.
+   * Caught by the #1562 matrix cells, not by the suite, which stayed green.
+   */
+  if (!haveBinary) {
+    const already = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
+    if (already.state === subscription.STATE.CONNECTED) {
+      const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);
+      /**
+       * 🛑 CONNECTED, NOT "NOT NONE", AND THE ASYMMETRY WITH start() IS
+       * DELIBERATE. `start()` treats UNKNOWN as "keep the old behaviour",
+       * because refusing there would push a genuinely connected customer into a
+       * sign-in every time the probe was flaky. That reasoning does not survive
+       * to this point: the person has ALREADY clicked Connect and already waited
+       * for a 281MB download, so a sign-in screen is not an imposition, it is
+       * the thing they asked for.
+       *
+       * ⚠️ AND THE PROBE IS AT ITS LEAST RELIABLE EXACTLY HERE. It runs against
+       * a binary that has never executed, seconds after install, and `checkLive`
+       * answers UNKNOWN on timeout, on ENOENT, or on any stdout that is not pure
+       * JSON -- one line of first-run chatter is enough. Reading UNKNOWN as
+       * connected would declare a SIGNED-OUT person connected off a stale file,
+       * which is #1560 again.
+       */
+      if (live.state === subscription.STATE.CONNECTED) {
+        await finishConnected(owner, already);
+        return;
+      }
+    }
+  }
   await launchSignin(owner);
 }
 
