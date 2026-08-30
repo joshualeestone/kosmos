@@ -68,7 +68,7 @@ const REPO = path.join(__dirname, '..');
  */
 test('create reaches the same resolver store built ROOT from', () => {
   assert.equal(create.supportDir(), store.ROOT,
-    'with env unchanged since require, the lazy and frozen forms must agree');
+    'create.supportDir() and store.ROOT must agree; if they do not, one of the two resolvers has been changed without the other');
 });
 
 /**
@@ -216,9 +216,13 @@ test('supportDir EQUALS the resolver across every platform and environment', () 
       }
     }
   }
-  // A floor: an empty matrix would pass by checking nothing at all.
-  assert.equal(checked, ENVS.length * PLATFORMS.length,
-    'the matrix did not run every combination, so a green here proves less than it looks');
+  // 🛑 AN ABSOLUTE BOUND, NOT A DERIVED ONE. This said
+  // `assert.equal(checked, ENVS.length * PLATFORMS.length)`, where BOTH SIDES
+  // COME FROM THE SAME ARRAYS -- so `ENVS = []` gave 8 pass, 0 fail. The one
+  // thing its own comment claimed to prevent was the one thing it could not
+  // detect, and a reader saw a floor. Measured.
+  assert.ok(checked >= 16,
+    `the matrix ran only ${checked} combinations; a green here proves less than it looks`);
 });
 
 
@@ -226,7 +230,9 @@ test('supportDir EQUALS the resolver across every platform and environment', () 
  * ✅ THE ONE THAT EXERCISES WHAT ACTUALLY SHIPS, AND NOTHING ELSE DID.
  *
  * 🛑 EVERY PRODUCTION CALL SITE IS `supportDir()` WITH NO ARGUMENT
- * (create.js 1003, 1180, 1712, 1715, plus the export). The matrix below only
+ * (four inside create.js, plus the export -- `grep -n 'supportDir()' engine/create.js`
+ * rather than a line list, which was stale in the commit that introduced it).
+ * The matrix below only
  * ever calls it WITH one, so the DEFAULT EXPRESSION was the single part of this
  * function that ships and the single part nothing tested.
  *
@@ -250,6 +256,75 @@ test('supportDir EQUALS the resolver across every platform and environment', () 
  * env too. A `LOCALAPPDATA`-conditional was invisible, and Roaming-vs-Local is
  * an OPEN QUESTION on this very card, so that is the likeliest future edit.
  */
+/**
+ * ✅ THE CLOSED RULE, WHICH REPLACES ENUMERATING DECOYS.
+ *
+ * 🛑 EVERY OTHER GUARD HERE COMPARES supportDir AGAINST dataRootFor USING THE
+ * SAME `process.env`, so a branch keyed on a variable the harness neither sets
+ * nor clears is UNREACHABLE. Measured, each planted into supportDir's body with
+ * the whole file at 8 pass / 0 fail:
+ *
+ *     process.env.OS === 'Windows_NT'            fires on EVERY real Windows box
+ *     platform === 'win32' && ProgramData        every real Windows box
+ *     platform === 'darwin' && XDG_DATA_HOME     MOVES THE macOS ROOT
+ *     HOMESHARE                                  Windows domain users
+ *
+ * ⚠️ AND TWO OF THOSE ARE INVITED BY OUR OWN DOCS. `store.js` says Linux "is
+ * KNOWINGLY UNHANDLED... That is wrong (XDG says $XDG_DATA_HOME)", so the next
+ * person fixing Linux writes exactly that branch.
+ *
+ * 🛑 MY PREVIOUS FIX MOVED THE BLINDNESS RATHER THAN REMOVING IT. I wrote that
+ * deleting LOCALAPPDATA without setting it "does not merely fail to cover it,
+ * it GUARANTEES blindness" -- and then set XDG_DATA_HOME in the child test and
+ * faked win32, so a non-win32 conditional can never see it. Same sentence, one
+ * key over.
+ *
+ * ⇒ SO STOP ENUMERATING. `dataRootFor` reads exactly TWO variables. Everything
+ * else is foreign, and a foreign variable MUST NOT CHANGE THE ANSWER. That is a
+ * closed invariant rather than a list somebody has to keep up to date.
+ */
+test('foreign environment variables cannot change the answer', () => {
+  // The two the resolver genuinely reads, plus HOME, which feeds `os.homedir()`
+  // and therefore the home argument.
+  // ⚠️ MY FIRST VERSION LISTED `HOME` AS A DECOY AND THE TEST WENT RED ON A
+  // CLEAN TREE. Measured, one variable at a time with a control: on this
+  // platform HOME MOVES os.homedir() and none of the others do. So HOME is a
+  // genuine INPUT, and calling it foreign was a wrong premise, not a wrong test.
+  // The test was right and I was not.
+  const READ_BY_RESOLVER = ['AGENT_WORKFORCE_DATA', 'APPDATA', 'HOME'];
+  const DECOYS = {
+    OS: 'Windows_NT', ProgramData: 'C:\\ProgramData', HOMESHARE: '\\\\srv\\home',
+    XDG_DATA_HOME: '/S/xdg', USERPROFILE: 'D:\\U', HOMEDRIVE: 'D:', HOMEPATH: '\\U',
+    LOCALAPPDATA: 'D:\\Local',
+  };
+  const PLATFORMS = ['darwin', 'win32', 'linux', 'freebsd'];
+  const BASES = [{}, { APPDATA: 'D:\\Roaming' }, { AGENT_WORKFORCE_DATA: '/tmp/inv' }];
+  const ALL = [...READ_BY_RESOLVER, ...Object.keys(DECOYS)];
+  let checked = 0;
+
+  for (const base of BASES) {
+    const saved = {};
+    // HOME is preserved rather than deleted: clearing it changes os.homedir()
+    // for the clean arm too, which would compare two moved values and pass.
+    for (const k of ALL) { if (k !== 'HOME') { saved[k] = process.env[k]; delete process.env[k]; } }
+    try {
+      Object.assign(process.env, base);
+      const clean = PLATFORMS.map((pl) => create.supportDir(pl));
+      Object.assign(process.env, DECOYS);
+      const dirty = PLATFORMS.map((pl) => create.supportDir(pl));
+      assert.deepEqual(dirty, clean,
+        `a foreign environment variable changed the answer under ${JSON.stringify(base)}`);
+      checked += PLATFORMS.length;
+    } finally {
+      for (const k of ALL) {
+        if (k === 'HOME') continue;
+        if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+      }
+    }
+  }
+  assert.ok(checked >= 12, `only ${checked} comparisons ran`);
+});
+
 test('supportDir() with NO ARGUMENT is right on a faked Windows, under a hostile env', () => {
   const env = {
     ...process.env,

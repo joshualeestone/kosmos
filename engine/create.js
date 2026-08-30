@@ -2814,7 +2814,9 @@ module.exports = {
      guard, in a file whose whole subject is two definitions of one fact.
      Measured: adding an AGENT_WORKFORCE_HOME seam here (the #1432 pattern
      already applied to workersDir, agentsDir and supportDir) turned two tests
-     red on CORRECT code. */
+     red on CORRECT code. ⚠️ ONE test, not two, and only with the variable
+     SET; I overstated my own measurement. Three arms: seam+set -> 1 fail,
+     seam+unset -> pass, no-seam+set -> pass. */
   homeDir,
   /* 🛑 A FUNCTION, NOT A `get SUPPORT_DIR()` GETTER, AND THE NAME MATTERS.
      `create.SUPPORT_DIR` is named at `tools/check-frozen-roots.js:25` as one of
@@ -2827,8 +2829,15 @@ module.exports = {
      WERE COVERAGE. Line 25 is prose inside that tool's rationale block, and the
      tool scans `const NAME =` DECLARATIONS -- it cannot see exports at all.
      Measured: with `get SUPPORT_DIR()` added back, `check-frozen-roots.js engine`
-     returns rc 0 and reports nothing, while the control (`store.js:ROOT`) still
-     appears. ⇒ `create.dataroot-570.test.js` is the ONLY thing that catches a
+     returns rc 0 and reports nothing.
+     🛑 AND MY ORIGINAL SENTENCE HERE NAMED A CONTROL THAT CANNOT EXIST: it said
+     "while the control (store.js:ROOT) still appears". It cannot -- that tool's
+     KNOWN map is `new Map([])` and its own comment says the entry "IS GONE
+     (#1443, fixed)", a fact I cite CORRECTLY forty lines away in the test file.
+     Without a control, "rc 0 and reports nothing" is exactly what a DEAD
+     CHECKER looks like.
+     ✅ The control that does work: plant `const FROZEN_PROBE = os.homedir();`
+     and the tool reports it at rc 1. ⇒ `create.dataroot-570.test.js` is the ONLY thing that catches a
      getter coming back, and it does (measured RED).
 
      ⚠️ Its two siblings above are getters and carry the same hazard; they are
