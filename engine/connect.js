@@ -500,6 +500,13 @@ function publicView(s) {
     plan: s.plan || null,
     because: s.because || null,
     tail: s.tail || null,
+    /* #1595: the STUCK screen's one way out ("open Terminal, type claude, follow
+       its sign-in") is gated on this flag in web/index.html. becomeStuck computes
+       and writes it, but it was never in this serving contract, so the page read
+       `undefined` and the hatch never rendered. It is only meaningful on the STUCK
+       phase (the only writer and the only reader); false everywhere else is
+       correct. Same class as `tail` (#1585) and the #1556 missing-field bug. */
+    canRunClaude: s.canRunClaude || false,
   };
 }
 
@@ -2191,7 +2198,7 @@ function resetForTests() {
 
 module.exports = {
   PHASE, SESSION, ACTIVE_PHASES,
-  state, start, submitCode, cancel,
+  state, publicView, start, submitCode, cancel,
   classifyPane, extractOauthUrl, tailOf, validCode, redirectDowngrades,
   download, platformKey, installClaudeCode,
   setRunner, setDryRun, setTickInterval, setUnknownGrace, setAbandonedSigninMs, setFreshnessForTests, resetForTests,
