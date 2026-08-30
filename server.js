@@ -2540,7 +2540,17 @@ const server = http.createServer((req, res) => {
       .then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
-        const wrote = create.setProvider(name, body && body.provider);
+        /* #1373: the account the person picked rides through. Absent, the
+           engine states a default and names it, exactly as before. */
+        const wrote = create.setProvider(name, body && body.provider, {
+          accountDir: body && typeof body.account === 'string' ? body.account : null,
+          /* WHETHER A PERSON CHOSE, sent separately from WHICH. The account is
+             honoured whenever the page shows the menu; only this decides whether
+             the answer says "you picked" rather than "we picked and are telling
+             you". Defaults false, so a caller that says nothing gets the modest
+             sentence rather than the flattering one. */
+          pickedByPerson: !!(body && body.picked === true),
+        });
         if (wrote.outcome === create.OUTCOME.REFUSED) {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
           return;
@@ -2561,18 +2571,43 @@ const server = http.createServer((req, res) => {
         /* WHICH OpenAI sign-in it landed on (#1211). Josh switched an agent,
            read "API key ending WWUA" elsewhere on the screen, and could not
            tell whether that was the account his agent was now using: the
-           switch carries no account, so it always lands on this computer's
-           default OpenAI sign-in, and until now nothing said which that was.
+           switch USED to carry no account, so it always landed on this
+           computer's default OpenAI sign-in, and nothing said which that was.
+           🛑 BOTH HALVES ARE DIFFERENT NOW: a person can choose, and the
+           sentence below says whether they did. The reason the sentence exists
+           at all is still the original complaint above.
            ⚠️ Said only when the engine actually looked. `openaiAccount` is
            null on a switch back to Claude and under dry-run, and naming an
            account nobody read would be the invention this route already
            refuses elsewhere. */
         const acct = wrote.openaiAccount;
-        const landedOn = acct
-          ? ' It runs on your OpenAI sign-in'
-            + (acct.email ? ` (${acct.email})` : acct.keyTail ? ` (API key ending ${acct.keyTail})` : '')
-            + '.'
+        /* #1373: "you picked this" and "we picked this and are telling you"
+           are different promises, so they get different sentences. Saying
+           "the one you picked" when nobody picked would be the invention this
+           route refuses elsewhere; saying nothing when they DID pick loses the
+           confirmation that their choice was honoured. */
+        const whichAcct = acct
+          ? (acct.email ? ` (${acct.email})` : acct.keyTail ? ` (API key ending ${acct.keyTail})` : '')
           : '';
+        /**
+         * One place the account is named, two tenses.
+         *
+         * ⚠️ THE TENSE SPLIT IS THE POINT AND IS PRESERVED, not smoothed away: the
+         * OK branch says the agent RUNS on it, the partial branch says it WILL when
+         * it restarts, because there the plist already carries the chosen home but
+         * the agent has not moved to it yet and the sentence beside it says so.
+         * What was duplicated is the other axis -- picked-versus-default -- which
+         * was written out four times over the same `whichAcct`. Three separate
+         * reviews raised the repetition; the risk of consolidating was always that
+         * somebody would collapse the tenses too, so they are parameters here
+         * rather than an accident of copying.
+         */
+        const runsOn = (tense) => (acct
+          ? (acct.chosen
+            ? ` ${tense} the OpenAI sign-in you picked${whichAcct}.`
+            : ` ${tense} your OpenAI sign-in${whichAcct}.`)
+          : '');
+        const landedOn = runsOn('It runs on');
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           provider: wrote.provider,
@@ -2582,7 +2617,14 @@ const server = http.createServer((req, res) => {
               + 'It is starting again now, and it will look idle until you say something to it.'
               + landedOn
             : `We saved the switch to ${label}, but could not start it again: ${back.because} `
-              + 'It is still running as before until it restarts.',
+              + 'It is still running as before until it restarts.'
+              /* ⚠️ FUTURE TENSE HERE, NOT `landedOn`'S PRESENT. The plist already
+                 carries the chosen home, so the account IS decided, but the agent has
+                 NOT moved to it yet: the sentence one line up says it is still running
+                 as before. Reusing "It runs on X" would contradict that in the same
+                 paragraph, and this is the branch where something already went wrong,
+                 which is where a confident-sounding sentence costs most. */
+              + runsOn('When it restarts it will run on'),
           steps: back.steps || [],
         });
       })
@@ -2933,11 +2975,26 @@ const server = http.createServer((req, res) => {
        per-account check is safe to pay for -- its callers are deliberate,
        person-paced moments, never the 5-second status tick (which still
        calls the plain, fast list() elsewhere in this file, untouched).
-       Two callers today: a Settings > Accounts open, and the first-run
-       wizard's model step entering (frPaintOpenai), which can re-fire on a
-       back/forward pass through the wizard -- still a person walking a
-       screen, not a timer, and the client holds a supersession token so a
-       slow answer landing late cannot overwrite a newer state.
+         🛑 THE INVARIANT IS THE JUSTIFICATION, NOT A LIST. An earlier version of
+         this comment made a caller enumeration NORMATIVE ("this list is the
+         justification, so it has to stay complete") and shipped INCOMPLETE the
+         same day: it omitted `paintConnLive` and `loadCreateExtras`, both of
+         which already called this route. A list that must stay complete is a
+         promise nobody can keep and it goes false silently, which is the
+         "claims more than the code does" defect this diff spends its length
+         closing, arriving inside a comment the same diff rewrote.
+         ⇒ WHAT MUST HOLD: every caller is A PERSON PRESSING SOMETHING. A new
+         caller of that kind is fine and needs no edit here; a TIMER is not,
+         whatever the count. That property is checkable at each call site on its
+         own, without knowing the others.
+         📌 The callers as of #1373, illustrative and NOT a set to maintain:
+         paintAccounts (Settings > Accounts), paintConnLive (the Connections
+         section opening), paintAccountPicker (the agent panel picker),
+         loadCreateExtras (a create-form role change), frPaintOpenai (the
+         first-run wizard model step, which can re-fire on a back/forward pass),
+         and /api/agent/connections. Every one of them is a person walking a
+         screen rather than a timer, which is the property that matters; the
+         list is here to show what that looks like, not to be kept complete.
        ⚠️ HEAD SKIPS THE LIVE CHECK. Nothing in web/index.html sends one
        today, but a HEAD is conventionally cheap/side-effect-light, and
        nothing about it needs a per-account subprocess/network call to

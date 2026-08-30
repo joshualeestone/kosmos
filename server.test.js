@@ -174,6 +174,7 @@ require('./engine/remove').setRunner(null);
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+
 const { start, server, pathOf, decodeSegment, resetHeardBudgetForTests } = require('./server');
 const fleet = require('./test-support/fleet');
 
@@ -3119,7 +3120,16 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
   const od = script.slice(script.indexOf('function openDetail('), script.indexOf('function openDetail(') + 4200);
   assert.ok(/getElementById\('d-account-msg'\)[\s\S]{0,60}?\.textContent = ''/.test(od),
     'openDetail no longer clears the account message on a switch');
-  const pap = script.slice(script.indexOf('async function paintAccountPicker('), script.indexOf('async function paintAccountPicker(') + 2400);
+  /* 📌 ASK THE SOURCE WHERE THE FUNCTION ENDS, rather than guessing a byte count.
+     A `slice(start, start + N)` is coupled to the size of whatever sits at
+     `start`, so it fails in both directions as the file moves: too small and it
+     stops short of the guard it names, too large and it satisfies the assertion
+     from the NEIGHBOUR's identical guard. Both were live here: the number had
+     already been raised once, and `moveAccountNow` carries the same recheck.
+     Brace matching has neither failure mode and needs no number. */
+  const pap = require('./test-support/page').lift(script, 'paintAccountPicker');
+  assert.ok(!/async function moveAccountNow\(/.test(pap),
+    'the located body reaches into moveAccountNow, so the assertion below could pass on its guard rather than paintAccountPicker\'s');
   assert.ok(/!CURRENT \|\| CURRENT\.sessionName !== forAgent/.test(pap),
     'the accounts-fetch continuation lost its capture-and-recheck');
 });

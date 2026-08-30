@@ -782,7 +782,12 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    select directly above it -- two adjacent controls doing the same job at two
    different widths, which reads as one of them being broken. The list is the
    rule; a new member joins it. */
-#create-model, #create-account, #create-reports, #d-reports, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
+/* ⚠️ `#d-provider-account`'s membership is HORIZONTAL, unlike the others. The
+   comment above justifies membership by matching the field ABOVE; this one
+   sits beside `#d-provider` in the same .frow, and that sibling is NOT in this
+   rule and sizes intrinsically. It is here so an account name does not render
+   as a stub next to it, and the known cost is that the row wraps. */
+#create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
 .btn { font: var(--text-body) var(--font-ui); padding: var(--space-4) var(--space-5);
        border-radius: var(--radius-control); border: 0.5px solid var(--border-strong);
        background: var(--bg); color: var(--label); cursor: pointer; }
@@ -6254,6 +6259,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
           <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
           <option value="mistral" disabled>Mistral &middot; coming soon</option>
         </select>
+        <!-- #1373: WHICH OpenAI sign-in. Creation has always let you pick and the
+             switch stated a default, and that asymmetry was the whole card. Hidden
+             until OpenAI is the chosen provider, because for a switch back to
+             Anthropic there is nothing to pick. -->
+        <select id="d-provider-account" aria-label="OpenAI sign-in to run on" hidden></select>
         <button class="btn" type="button" id="d-provider-go" disabled>Switch &amp; Restart</button>
       </div>
       <p class="dhint" id="d-provider-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
@@ -12993,6 +13003,15 @@ async function paintSettings() {
  * somebody nowhere to go.
  */
 let ACCT_EPOCH = 0;
+/* 🛑 THE PICKER'S OWN TOKEN, AND IT MUST NOT BE ACCT_EPOCH. That one is
+   `paintAccounts`' ABORT token: it writes "Checking…" into the panel and then
+   returns without repainting if superseded. So a picker fetch bumping it aborts
+   an in-flight Settings > Accounts read and LEAVES THE PANEL STUCK ON
+   "Checking…" until somebody reopens it -- and `/api/accounts` is a live
+   per-account check by design, so that window is seconds wide, not theoretical.
+   The picker needs to sequence its OWN writes; it has no business cancelling
+   somebody else's paint. */
+let ACCT_PICKER_EPOCH = 0;
 /* The provider groups (kosmos#1393). Josh asked for the Claude Max 20x row to sit
    in a bounding box beneath Claude, and the section heading already promised it:
    "Your AI models, by provider".
@@ -13174,9 +13193,12 @@ async function paintAccounts() {
     if (msg) msg.textContent = '';
     // ⚠️ Never "one account": a failed read must not shrink the list.
     box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">We could not read the accounts on this computer.</p>';
+    /* This branch used to leave the flags untouched, so a failure here could not be told
+       apart from never having asked, and a stale LOADED from an earlier read outlived it. */
+    accountsUnreadable();
     return;
   }
-  ACCOUNTS = list;
+  accountsRead(list);
   if (msg) msg.textContent = '';
   /* 🔑 GROUPED BY PROVIDER (kosmos#1393). Josh, twice on 2026-08-28: the Claude
      Max 20x line "is still not in that bounding box that it's supposed to be in,
@@ -21902,13 +21924,78 @@ function paintReportsTo(a) {
   if (sel.innerHTML !== html) sel.innerHTML = html;
 }
 let ACCOUNTS = [];
+/* 🛑 A FAILED READ AND AN EMPTY LIST ARE DIFFERENT FACTS AND THE FETCH USED TO
+   COLLAPSE THEM. `res.ok ? res.json() : null` then `|| []` made a 500 arrive as "you
+   have no accounts", which hides the switch picker and silently reverts the switch to
+   the stated default with nothing on screen. Hidden is the SAFE state, which is exactly
+   why the failure could not announce itself. This flag keeps the two apart so the one
+   that is a fault can say so. */
+let ACCOUNTS_UNREADABLE = false;
+/* 🛑 AND "EMPTY" IS STILL NOT ONE FACT, EVEN WITH THE FLAG ABOVE. A page-side cache can
+   be empty because we READ an empty list, or because another flow DELIBERATELY EMPTIED IT
+   and nothing has refilled it yet. Only the first licenses a definitive sentence about
+   what this computer has. `moveAccountNow` clears the cache on a successful move and the
+   open panel does not repaint, so the second state is reachable and lasts as long as the
+   panel stays open. This was reachable once the zero-account
+   arm shipped reading the cache directly and would have told a person the switch was going
+   to stop while the server list was untouched and the switch went ahead. */
+let ACCOUNTS_LOADED = false;
+/* 🛑 THREE NAMED TRANSITIONS, AND NOTHING ELSE MAY WRITE THESE THREE VARIABLES.
+   The account cache is really ONE fact in three states, and it was being kept as three
+   independent assignments across five call sites, and THREE DIFFERENT SITES were each
+   found updating one and not the others:
+     a site emptied the list and left LOADED true      -> a false "add a sign-in first"
+     a filling site set LOADED and left UNREADABLE true -> a fault claim over a good read
+     a failing site set UNREADABLE and left LOADED true -> the same false sentence again
+   ⭐ Each was fixed individually and the next pass found the next one, which is the signal
+   that the shape was wrong rather than that three people were careless. A site cannot now
+   update one without the others, because there is no longer a way to write just one.
+   ⇒ The three states are DISTINCT and the middle one is the one that kept being lost:
+     read        we asked and got an answer. Only this licenses a claim about what exists.
+     unreadable  we asked and failed. An empty list here is OUR fault, not the person's.
+     dropped     we threw it away on purpose and have not re-asked yet. Claim nothing. */
+function accountsRead(list) {
+  ACCOUNTS = Array.isArray(list) ? list : [];
+  ACCOUNTS_LOADED = true;
+  ACCOUNTS_UNREADABLE = false;
+}
+function accountsUnreadable() {
+  /* 🛑 DELIBERATELY DOES NOT TOUCH `ACCOUNTS`, AND THAT IS NOT AN OVERSIGHT. A failed read
+     invalidates the list's AUTHORITY, not the list. `paintAccounts` states the rule two
+     lines above its own call site: "Never 'one account': a failed read must not shrink the
+     list." Emptying the cache here would do exactly what that comment forbids, and this
+     function is called from precisely that branch.
+     ⇒ Both callers are correct under this shape: the picker's first-open fetch only runs
+     when the list is ALREADY empty, so keeping it changes nothing there, while the
+     Accounts page keeps the rows it last read and merely stops claiming they are current.
+     `ACCOUNTS_LOADED = false` is what stops a stale list licensing a claim, which is the
+     job the emptying was wrongly doing. */
+  ACCOUNTS_LOADED = false;
+  ACCOUNTS_UNREADABLE = true;
+}
+function accountsDropped() {
+  ACCOUNTS = [];
+  ACCOUNTS_LOADED = false;
+  ACCOUNTS_UNREADABLE = false;
+}
 let ACCT_PICKER_FETCH = null; // #881: the one in-flight GET /api/accounts, so a second caller shares it
 async function paintAccountPicker(a) {
   const sel = document.getElementById('d-account');
   const go = document.getElementById('d-account-go');
   const msg = document.getElementById('d-account-msg');
+  /* ⚠️ THIS EARLY RETURN ALSO SKIPS THE SWITCH PICKER'S REFILL AT THE TAIL, which couples a
+     #1373 control to the MOVE picker's elements existing. Unintended and left alone rather
+     than restructured: the switch picker's PRIMARY refill is the #d-provider change
+     listener, which is unaffected, so the feature degrades rather than dies. Named so the
+     coupling is known rather than rediscovered. */
   if (!sel || !go) return;
-  if (!ACCOUNTS.length) {
+  /* 🛑 `ACCOUNTS_UNREADABLE` HAS TO BE A RE-FETCH TRIGGER, NOT JUST A FLAG. A failed read
+     deliberately does not shrink the list, so the cache can be NON-EMPTY and known-stale at
+     the same time. Gating the re-read on emptiness alone meant that state never refreshed:
+     the fault line says "Close this and open it again to retry" and reopening did not
+     retry, and a machine that genuinely has zero OpenAI accounts kept blaming a read
+     failure for an absence it had actually read successfully. */
+  if (!ACCOUNTS.length || ACCOUNTS_UNREADABLE) {
     /* The same capture-and-recheck as moveAccountNow: an agent switch
        while this fetch is in flight must not let the OLD agent's
        continuation paint its sentence onto the NEW agent's panel,
@@ -21928,15 +22015,48 @@ async function paintAccountPicker(a) {
        a second caller awaits the SAME fetch instead of starting a new
        one. */
     if (msg) msg.textContent = 'Checking…';
+    /* Declared OUTSIDE the try: the catch below reads it, and a `const` inside
+       the try is not in scope there -- a ReferenceError at exactly the moment
+       something already went wrong. Caught before shipping; `new Function`
+       parses it happily, because it is a scope error and not a syntax one. */
+    const mine = ++ACCT_PICKER_EPOCH;
     try {
       if (!ACCT_PICKER_FETCH) {
+        /* Resolves to a VERDICT, not a list, so the caller applies one transition. The
+           previous shape set a flag inside `.then` and the list after the await, which is
+           two writes a concurrent caller could interleave. */
         ACCT_PICKER_FETCH = fetch('/api/accounts', { cache: 'no-store' })
-          .then((res) => (res.ok ? res.json() : null))
-          .then((body) => (body || {}).accounts || [])
+          .then((res) => (res.ok
+            ? res.json().then((body) => ({ ok: true, accounts: (body || {}).accounts || [] }))
+            : { ok: false, accounts: [] }))
+          .catch(() => ({ ok: false, accounts: [] }))
           .finally(() => { ACCT_PICKER_FETCH = null; });
       }
-      ACCOUNTS = await ACCT_PICKER_FETCH;
-    } catch { /* the control stays empty and disabled, which is honest */ }
+      /* 🛑 A STALE FAILURE MUST NOT UNDO A FRESH SUCCESS. This continuation and
+         `paintAccounts` now write the SAME three globals from two independent
+         `/api/accounts` fetches, and only `paintAccounts` sequences its writes
+         (its own ACCT_EPOCH). So a picker fetch that started earlier and fails LATER
+         could flip a good, freshly-read list to unreadable -- and the confirm
+         dialog would then hedge ("we could not read the list just now") about a
+         list that was read perfectly. That is the wrong sentence on the last
+         screen before a restart, which is the class this whole branch guards.
+         ⚠️ ONLY THE FAILURE WRITE IS GATED, deliberately. Gating the SUCCESS
+         write too would let a newer fetch suppress the very list this picker
+         needs, and an empty picker is a worse failure than a stale one. A
+         success always lands; a superseded failure is discarded.
+         📌 AND THE PRICE OF THAT, NAMED RATHER THAN LEFT FOR THE NEXT READER TO
+         FIND: the two sequencers cannot see each other, so an OLDER success can
+         land over a newer list. The realistic path is a `paintAccounts` fetch
+         that started before a removal and resolves after the picker has re-read.
+         The cost is a briefly stale row set, from which the dialog derives its
+         definitive sentence; the cost of the alternative is no list at all. That
+         is the trade, and it is a trade rather than an oversight -- one shared
+         sequencer across both callers would close it and is a wider change than
+         this card. */
+      const got = await ACCT_PICKER_FETCH;
+      if (got && got.ok) accountsRead(got.accounts);
+      else if (mine === ACCT_PICKER_EPOCH) accountsUnreadable();
+    } catch { if (mine === ACCT_PICKER_EPOCH) accountsUnreadable(); /* the control stays empty and disabled, which is honest */ }
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     if (msg) msg.textContent = '';
   }
@@ -22007,6 +22127,27 @@ async function paintAccountPicker(a) {
       ? 'The account this agent runs on is signed out, so it cannot run. Pick a signed-in account above and press Move.'
       : 'The account this agent runs on is signed out, so it cannot run. Sign it in again from Settings, AI Models.';
   }
+  /* #1373: ACCOUNTS is the switch picker's source too, and it is filled here.
+     Without this call the picker stays hidden until the provider dropdown is
+     touched a second time, because the first change fired before the fetch
+     landed. Hidden is a SAFE state (the engine states its default, exactly as
+     before the card), which is precisely why the gap would not have announced
+     itself. */
+  /* Additive: never break the move picker for the switch picker. But not
+     SILENT, because hidden is also the legitimate not-armed state, so a throw
+     here would be indistinguishable from working correctly. */
+  /* 🛑 SAY IT WHERE THE PERSON IS, NOT IN DEVTOOLS. A throw here means the picker
+     did not render, so the failure is announced beside the control that is
+     missing. A `console.warn` would satisfy "not silent" against an audience of
+     nobody: this page ships to people who do not have devtools open.
+     ⚠️ RESIDUAL, AND THE SENTENCE ABOVE OVERSTATED IT UNTIL THIS LINE EXISTED:
+     the write is gated on the region being EMPTY, so when it already holds
+     something (an engine refusal, most likely) the throw IS announced to nobody.
+     Refusing to clobber a more specific sentence is still the right call; what
+     was wrong was claiming the announcement is unconditional. The sibling
+     announcement block documents its own equivalent residual, and this one did
+     not. */
+  fillSwitchAccountsSafely();
 }
 
 document.getElementById('d-account').addEventListener('change', (e) => {
@@ -22042,7 +22183,47 @@ async function moveAccountNow(say) {
     msg.textContent = out.because || 'Moved.';
     if (say) say(out.because || 'Moved.', true);
     sel.value = '';
-    ACCOUNTS = [];   // the move can change nothing about the list, but a stale one outlives a connect
+    /* 🛑 HOLD THE ENGINE'S SENTENCE ACROSS THE REPAINT. `paintAccountPicker` writes the SAME
+       `#d-account-msg`: it sets 'Checking…' and then clears it when the fetch lands, so
+       refreshing the list here silently deleted the outcome written four lines above. The
+       catch below already states the rule ("the move's own sentence is the answer; a failed
+       refresh must not replace it") and the SUCCESS path was the one breaking it. */
+    /* 📌 THIS REPAINT ALSO CLEARS `SWITCH_ACCT_TOUCHED`, via fillSwitchAccounts, so a person
+       who staged an OpenAI sign-in pick and then performed a Move in the same panel loses
+       the pick CLAIM. Deliberately left: the visible row still travels, so there is no
+       wrong-account risk, and the flag degrades toward claiming LESS than is true, which is
+       the conservative direction. Recorded here because the coupling is invisible from
+       either end. */
+    const saidAfterMove = msg ? msg.textContent : '';
+    accountsDropped();   // the move can change nothing about the list, but a stale one outlives a connect
+    /* 🛑 AND REFILL IT, BECAUSE `tick()` DOES NOT. `openDetail` is gated on `!CURRENT`, so
+       with this panel open the poll repaints the cards and never the panel, and nothing
+       else on this path calls `fillSwitchAccounts` or `paintAccountPicker`. The cache
+       therefore stayed empty for the whole life of the open panel: choose OpenAI after a
+       move and the sign-in picker was simply absent, with no line saying why, because an
+       empty list is the ordinary not-armed state. Same shape and same remedy as the failed
+       switch below, which genuinely is the same remedy. ⚠️ THE SYMMETRY IS LOAD-BEARING AND
+       EASY TO HALF-BREAK: that site must clear the cache AND the flag. Both halves are
+       present; do not remove one and leave this line asserting a symmetry that then only
+       half exists. */
+    try { await paintAccountPicker(CURRENT); }
+    catch { /* the move's own sentence is the answer; a failed refresh must not replace it */ }
+    /* 🛑 ITS OWN RECHECK, NOT SOMEBODY ELSE'S INTERNALS. The await above is a second
+       suspension point, and this line writes into a panel that may now belong to a
+       DIFFERENT agent. It is unreachable today only because `paintAccountPicker`'s early
+       return leaves 'Checking…' in the element, so the emptiness test below is false. That
+       is safety by accident: one edit clearing the message before that return turns this
+       into a sentence about the wrong agent. Every other await on this path carries this
+       guard, and so does this one now.
+       ⚠️ SCOPED TO THE WRITE, NOT USED AS AN EARLY RETURN, and that distinction is the
+       whole of it. As a `return` this guard also skipped the `await tick()` below, which
+       had always run unconditionally after a successful move: an agent switch mid-move
+       would silently lose the board refresh. A guard added for one reason had quietly
+       changed something else, which is the shape this branch keeps finding in other
+       people's code. The refresh is wanted either way; only the panel WRITE is
+       agent-specific. */
+    if (CURRENT && CURRENT.sessionName === forAgent
+      && msg && saidAfterMove && !msg.textContent) msg.textContent = saidAfterMove;
     await tick();
   } catch (err) {
     msg.textContent = String((err && err.message) || 'that did not work');
@@ -22142,7 +22323,26 @@ function paintProviderPicker(a) {
   const go = document.getElementById('d-provider-go');
   const msg = document.getElementById('d-provider-msg');
   if (!sel || !go) return;
-  if (msg) msg.textContent = '';
+  /* Clear the tracker with the region, or it holds a string the DOM no longer contains. */
+  if (msg) { msg.textContent = ''; SWITCH_ACCT_SAID = ''; }
+  /* 🛑 SYNCHRONOUSLY, and this is the only reset in this function that exists
+     for a TIMING reason rather than a correctness one. Revealing the picker is
+     fillSwitchAccounts's job, but HIDING it cannot wait for it: that call sits
+     behind an awaited /api/accounts, which this file documents as a real,
+     visible span (one live subprocess check per account). Opening agent B
+     while that fetch is in flight otherwise leaves agent A's sign-in rows on
+     screen -- on the one control whose entire purpose is naming which sign-in
+     you get. No wrong switch could be submitted (`go.disabled` is set just
+     below and the change listener re-derives from CURRENT), so this is a
+     panel making a promise about the wrong agent rather than a wrong action.
+     ⚠️ Safe to hide unconditionally ONLY because every reveal path is a later
+     paint: the one early return that can skip the tail call
+     (`CURRENT.sessionName !== forAgent`) is the supersession guard, which by
+     definition fires when a NEWER agent is being painted, and that paint runs
+     this pair again. A reveal gated on anything else would strand the
+     control. */
+  const acctSel0 = document.getElementById('d-provider-account');
+  if (acctSel0) acctSel0.hidden = true;
   const current = providerOf(a);
   /* kosmos#990: the row states what the agent IS on. The two real providers
      are both selectable -- the current one has to be, or it could not be
@@ -22175,14 +22375,385 @@ function paintProviderPicker(a) {
     const dmr = document.getElementById('d-model-row');
     if (dmr) dmr.hidden = true;
     const dmm = document.getElementById('d-model-msg');
-    if (dmm && !dmm.textContent) dmm.textContent = 'OpenAI picks its own model, and this agent runs on this computer’s OpenAI sign-in. Switch it back to Anthropic to choose these again.';
+    /* ⚠️ THE SIGN-IN CLAUSE IS GONE, NOT REWORDED (#1373). It said "this agent runs
+         on this computer's OpenAI sign-in", which was true while there was only one,
+         and this is the panel a person lands on immediately after choosing between
+         several. Saying it now contradicts what they just did. It is also not this
+         message's job: the message exists to explain why the MODEL menu is parked,
+         and it does that without naming an account it would have to look up. */
+    if (dmm && !dmm.textContent) dmm.textContent = 'OpenAI picks its own model. Switch it back to Anthropic to choose these again.';
+  }
+}
+
+/* #1373: WHICH OpenAI sign-in the agent lands on. Creation has offered this
+   since #540 and the switch stated a default instead; the asymmetry was the
+   card. The engine still states a default when nothing is named, so this
+   control ADDS a choice rather than making one mandatory.
+   📌 Same source and same exclusion rule as the create form, deliberately: an
+   account confirmed NOT signed in is left out, because "an option that always
+   fails is worse than an option that is not there" (this file's own rule).
+   An UNKNOWN check is KEPT and labelled, because dropping it would be the
+   false-negative half of the same asymmetry mistake. */
+/* 🔑 DID A PERSON ACTUALLY PICK, or is this just the option we preselected?
+   The two are different promises and the route says a different sentence for
+   each, so the page must not report the second as the first. Reset whenever the
+   menu is rebuilt, set only by the person's own change event. */
+let SWITCH_ACCT_TOUCHED = false;
+/* One spelling, so the line that CLEARS the hint cannot drift from the line that
+   writes it and leave an orphan on screen. */
+/* 🛑 ALL FIVE DECLARED TOGETHER, ABOVE EVERY READER. `fillSwitchAccountsSafely`
+   reads SWITCH_ACCT_BROKEN, and these were `const`-declared FIFTEEN LINES BELOW it.
+   Safe only because both call sites are deferred (an event listener, and the tail
+   of an async function), so the temporal dead zone is never entered today. A future
+   SYNCHRONOUS caller would throw a ReferenceError instead of showing the message.
+   Grouping them costs nothing and removes the hazard rather than documenting it.
+   ⚠️ AND THE FIFTH ONE BELONGS HERE TOO, WHICH THIS COMMENT MISSED WHILE SAYING
+   "ALL FOUR". `SWITCH_ACCT_SAID` is written by `fillSwitchAccountsSafely` and by
+   `paintProviderPicker`, and it was `let`-declared BELOW both, so the very hazard
+   this block claims to have removed was still open for the one variable that is
+   REASSIGNED rather than read. A comment asserting a property the code does not
+   have is the defect this whole diff is about, and it had it. */
+const SWITCH_ACCT_HINT = 'Choose which OpenAI sign-in it runs on, or leave it as it is.';
+const SWITCH_ACCT_UNREADABLE = 'We could not read your OpenAI sign-ins, so there is nothing to choose from. Close this and open it again to retry.';
+const SWITCH_ACCT_STALE = 'This list may be out of date: we could not re-read your OpenAI sign-ins just now.';
+const SWITCH_ACCT_BROKEN = 'We could not show the OpenAI sign-in list just now.';
+/* Not a message: the last sentence WE wrote, so we only ever clear our own. */
+let SWITCH_ACCT_SAID = '';
+/* 🛑 ONE GUARDED CALL, USED AT BOTH SITES, BECAUSE THE UNGUARDED ONE WAS THE IMPORTANT ONE.
+   A throw in `fillSwitchAccounts` leaves the picker absent, and absent is also the
+   legitimate not-armed state, so it cannot announce itself. That argument was applied to
+   the SECONDARY call (the refill after accounts arrive late) and not to the PRIMARY one:
+   the `#d-provider` change listener, which runs on every switch and is what makes the
+   control appear at all. The feature's own test calls that call site the entire feature.
+   ⇒ Guarding the rare path and leaving the common one bare is the wrong way round, and two
+   spellings of the same recovery is how they drift. */
+function fillSwitchAccountsSafely() {
+  try {
+    fillSwitchAccounts();
+  } catch {
+    const pmsgX = document.getElementById('d-provider-msg');
+    if (pmsgX && !pmsgX.textContent) {
+      pmsgX.textContent = SWITCH_ACCT_BROKEN;
+      SWITCH_ACCT_SAID = SWITCH_ACCT_BROKEN;
+    }
+  }
+}
+/* 🛑 NAMED FOR THE SAME REASON ITS SIBLING IS, AND CLEARED ON THE SAME CONDITION. This
+   was added as an inline literal beside the hint-clearing code whose ENTIRE purpose is
+   that a sentence about a control must not outlive the control. Two clicks reach it
+   (OpenAI, then Anthropic) and it survived them, sitting in a live status region under a
+   provider it does not apply to. ⚠️ This is the defect class the neighbouring lines exist
+   to prevent, and it was committed in the string added next to them.
+   ⇒ A single spelling is what makes the clear possible at all; an inline literal cannot
+   be matched without repeating it. */
+/* 🛑 WE CLEAR WHAT WE WROTE, NOT WHAT WE CAN NAME. The clear below used to compare the
+   region against each of our constants by equality, which failed twice for the same
+   reason: an APPENDED form matched neither, and a sentence naming an account cannot be a
+   constant at all. Both times our line outlived the control it described, under a
+   provider it does not apply to, which is the orphan-hint class this block exists to
+   prevent. Remembering the exact string we last wrote handles a generated sentence and
+   any future one, and it still cannot touch somebody else's status text. */
+function fillSwitchAccounts() {
+  const sel = document.getElementById('d-provider-account');
+  const prov = document.getElementById('d-provider');
+  if (!sel || !prov) return;
+  SWITCH_ACCT_TOUCHED = false;
+  const openai = prov.value === 'openai';
+  /* ⚠️ ONLY WHEN THE SWITCH IS ACTUALLY ARMED. paintProviderPicker sets
+     #d-provider to the agent's CURRENT provider, so on an agent already running
+     on OpenAI this menu would render live and enabled while Switch stays
+     disabled and the engine would refuse anyway ("already runs on OpenAI").
+     That is the "an option that always fails is worse than an option that is not
+     there" rule this file keeps, and the sibling #d-account is disabled for the
+     same agent for the same reason. */
+  const armed = !!CURRENT && prov.value !== providerOf(CURRENT);
+  const list = ACCOUNTS.filter((x) => x.provider === 'openai'
+    && (!x.connection || x.connection.state !== 'none'));
+  /* Hidden for THREE reasons, and the condition below names all of them because a
+     comment that names one is how a reader concludes the others are bugs:
+       not OpenAI    switching back to Anthropic has no OpenAI account to pick
+       not armed     the agent already runs on OpenAI, so nothing can be switched
+       empty list    no usable account HERE, and the two sub-cases END
+                     DIFFERENTLY, so do not read this line as a guarantee.
+                     With NO OpenAI account at all the engine refuses with a
+                     remedy, and an empty dropdown would say less than that
+                     sentence does. But this filter ALSO drops dead
+                     connections (state 'none') and `openai.list()` carries no
+                     such filter, so on a machine whose every OpenAI account is
+                     dead the engine sees a NON-empty list, does not refuse,
+                     and states a default onto a dead account. That behaviour
+                     is pre-existing and not this card's; it is named here
+                     because the sentence this replaces read as a gate. */
+  if (!openai || !armed || !list.length) {
+    sel.hidden = true;
+    sel.innerHTML = '';
+    /* ⚠️ AND TAKE THE HINT WITH IT. The line written when the picker appears names
+       a control, so leaving it up after the control is gone is an instruction
+       pointing at nothing, in a live status region, under a provider it does not
+       apply to. Two clicks reach it: pick OpenAI, then pick Anthropic.
+       📌 Only our own sentence is cleared, never somebody else's status text. */
+    const pmsg0 = document.getElementById('d-provider-msg');
+    /* ⚠️ AND THE APPENDED FORM TOO. The failed-switch path appends our sentence to the
+       engine's refusal, so the region then holds neither constant and an equality check
+       could not clear it: our line outlived its control under a provider it does not apply
+       to, which is the orphan-hint class this whole block exists to prevent and is exactly
+       what naming the string was supposed to make fixable.
+       ⇒ Strip OUR half and leave the engine's, which is the more specific sentence and not
+       ours to delete. */
+    if (pmsg0 && SWITCH_ACCT_SAID && pmsg0.textContent === SWITCH_ACCT_SAID) { pmsg0.textContent = ''; SWITCH_ACCT_SAID = ''; }
+    else if (pmsg0 && pmsg0.textContent.endsWith(' ' + SWITCH_ACCT_UNREADABLE)) {
+      pmsg0.textContent = pmsg0.textContent.slice(0, -(SWITCH_ACCT_UNREADABLE.length + 1));
+      SWITCH_ACCT_SAID = '';  /* same reset as the sibling branch; an asymmetry here is what goes wrong on the next edit */
+    }
+    /* ✅ AND IF THE LIST IS EMPTY BECAUSE WE COULD NOT READ IT, SAY SO. Only when the
+       person is actually trying to switch TO OpenAI, because that is the only state where
+       a missing picker changes what happens to them. Everywhere else an empty list is
+       ordinary and a fault line would be noise.
+       📌 It writes only into our own region and only when that region is empty, so it
+       cannot overwrite somebody else's status text. */
+    if (openai && armed && ACCOUNTS_UNREADABLE && pmsg0 && !pmsg0.textContent) {
+      pmsg0.textContent = SWITCH_ACCT_UNREADABLE;
+      SWITCH_ACCT_SAID = SWITCH_ACCT_UNREADABLE;
+    }
+    return;
+  }
+  /* 📌 A SECOND COPY OF THE CREATE FORM'S NAMING RULE, and the differences are
+     deliberate but were undocumented, which is how two surfaces drift into naming
+     one account two ways. Against `fillCreateAccounts`:
+       - the provider check is dropped, because this list is already OpenAI-only
+       - an `i === 0` fallback is added when no row is isDefault, because this menu
+         must always open on something and the create form may legitimately open on
+         a placeholder
+     Not extracted to a shared helper here: that touches the create form, which is
+     not this card's subject, and a shared helper with two callers and two behaviours
+     is worse than two honest copies. Worth doing when somebody owns both. */
+  const nameOf = (x) => x.email || (x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir;
+  const labelOf = (x) => (x.connection && x.connection.state === 'unknown'
+    ? esc(nameOf(x)) + ' (could not check just now)'
+    : esc(nameOf(x)));
+  /* 🔑 THE VISIBLE ROW IS ALWAYS THE ROW SENT, and the preselect is therefore
+     load-bearing rather than cosmetic. Gating the send on a touched flag instead
+     would make the row ON SCREEN differ from the row used, because re-selecting
+     an option a <select> already holds fires no `change` at all, and with a
+     single account it can never fire.
+     ⚠️ SO THE PRESELECT IS A PROMISE NOW. This page filters on live connection
+     state and `openai.list()` does not, so the row preselected here can differ
+     from the engine's own first account. That divergence is why sending it is
+     RIGHT: a person who touches nothing gets the sign-in they were shown, not a
+     different one the page had already judged unusable.
+     📌 What travels separately is the CLAIM: `picked` stays false unless somebody
+     actually chose, so the route says "your OpenAI sign-in" rather than "the one
+     you picked". Which account, and who chose it, are two facts. */
+  const hasDefault = list.some((y) => y.isDefault);
+  const html = list.map((x, i) => '<option value="' + esc(x.dir) + '"'
+    + ((x.isDefault || (i === 0 && !hasDefault)) ? ' selected' : '')
+    + '>' + labelOf(x) + '</option>').join('');
+  /* ⚠️ THE FLAG AND THE VISIBLE SELECTION MUST NOT BE ABLE TO DISAGREE. The guard
+     below WOULD preserve the DOM if the option set ever compared equal, and 📌 FOR
+     THIS SELECT IT ALMOST CERTAINLY NEVER DOES, so do not read that as a live
+     mechanism: the note below this block has the serialization reason. Meanwhile
+     the flag above is cleared unconditionally, so a future caller that rebuilt an
+     identical still-visible menu would downgrade a real pick to "no pick": the
+     person's account stays on screen, the request sends null, and the engine takes
+     its own first account, which this file's own comment says can be a different
+     row. Not reachable today (every caller either hides the menu or resets
+     #d-provider first), and re-applying the preselect makes it unreachable by
+     construction rather than by call-graph luck. */
+  /* 📌 THE `else` PROBABLY NEVER RUNS, and the honest thing is to say so rather
+     than describe a path as load-bearing. The generated `html` writes a bare
+     `selected` attribute and browsers serialize `innerHTML` back as `selected=""`,
+     so this comparison is unlikely ever to be equal for THIS select. Kept anyway:
+     it costs one line, it is correct if the serialization ever matches, and the
+     invariant it protects (the flag and the visible selection cannot disagree) is
+     worth holding by construction. The four sibling uses of this pattern build
+     options with no boolean attribute, so they are unaffected either way. */
+  if (sel.innerHTML !== html) sel.innerHTML = html;
+  else if (sel.options.length) { sel.selectedIndex = Math.max(0, [...sel.options].findIndex((o) => o.defaultSelected)); }
+  const appearing = sel.hidden;
+  sel.hidden = false;
+  /* 🛑 RE-DERIVE THE DISABLED STATE HERE, OR AN IN-FLIGHT DISABLE OUTLIVES ITS REQUEST.
+     `changeProviderNow` disables this select while a switch is in flight and re-enables it
+     in a `finally` GUARDED on the agent not having changed. Its two siblings survive that
+     because `paintProviderPicker` re-derives their disabled state on every panel open;
+     nothing re-derived this one, so a switch whose guard failed left the picker visible,
+     populated and permanently uninteractive, with nothing said. It failed into a state that
+     looks fine: the visible row is still sent, so only the CHOICE this card exists to add
+     was lost. Painting it is what makes the in-flight disable self-healing. */
+  sel.disabled = false;
+  /* ⚠️ A CONTROL THAT APPEARS SILENTLY IS ANNOUNCED TO NOBODY WHO IS NOT LOOKING AT
+     IT. This one is revealed by choosing a provider, several controls away from where
+     focus sits, and #d-provider-msg beside it is already an aria-live polite region.
+     Not an AA failure on its own (the control is adjacent, focus is not moved), and
+     this worker's bar is AA, so it gets the one line.
+     📌 Only on the transition, so repainting an already-visible menu does not
+     re-announce and turn a helpful line into noise.
+     🛑 AND THE COST OF THAT, STATED RATHER THAN LEFT TO BE DISCOVERED: the gate is
+     `appearing`, so these announcements cover APPEARS-WHILE-STALE and NOT
+     BECOMES-STALE-WHILE-VISIBLE. If the list were marked unauthoritative while the
+     picker is already on screen, nothing here would say so. No reachable path to that
+     was found: the failed-switch route appends its own line in `changeProviderNow`'s
+     catch, and the drop-then-refetch empties the list so the next paint takes the
+     hidden branch. It is recorded as an UNCOVERED CASE rather than a known bug, and
+     it is recorded because the paragraph above otherwise reads as covering both. */
+  if (appearing) {
+    const pmsg = document.getElementById('d-provider-msg');
+    /* NONE OF THESE MAY BE SILENT. This region is the only announcement a
+       screen-reader user gets that a control appeared.
+       ⚠️ THE STALE CASE IS THE ONE THIS PATH USED TO MISS ENTIRELY. Because a failed read
+       keeps the cached list rather than shrinking it, the picker can render rows the page
+       has ALREADY marked non-authoritative, and the fault line was written only on the
+       hidden branch. So the one surface presenting a list we know we could not re-read
+       said nothing about it.
+       ⚠️ AND THE ONE-ROW CASE WAS SILENT FOR A DIFFERENT REASON: "Choose which sign-in" is
+       impossible with one option, since a one-option select can never fire `change`, so the
+       hint was suppressed and nothing replaced it. The control still appears, still sends
+       its row, and the dialog still promises it, so a screen-reader user got a promise
+       about a control they were never told about. It gets a sentence that is true of one
+       row instead.
+       ⚠️ AND ONE CASE IS STILL SILENT, INHERITED RATHER THAN CHOSEN, recorded here
+       because it sits directly under a heading that says none of them may be. A single
+       account whose ONLY label is a filesystem path is announced as nothing: `one` is
+       emptied for a path (the dialog does the same, deliberately, so a machine path is
+       never read out as a person's account) and `if (line)` then suppresses the whole
+       sentence. The dialog documents that suppression for itself; the announcement
+       inherits it without saying so. A generic "It will run on the sign-in shown" would
+       close it, and that is a copy decision rather than a code one. */
+    /* ⚠️ OURS MAY BE REPLACED, SOMEBODY ELSE'S MAY NOT. Gating purely on the region being
+       EMPTY meant that when it already held one of our own earlier sentences (a refusal,
+       say) the picker could appear with no announcement at all, which is the one signal a
+       screen-reader user gets that a new control exists. Reachable on the failed-switch,
+       drop-cache, refetch-succeeds path. Replacing a sentence we wrote is safe; replacing
+       one we did not is the thing the never-overwrite rule exists to prevent.
+       🛑 KNOWN RESIDUAL, RECORDED RATHER THAN HIDDEN: when the region holds a sentence we
+       did NOT write (an engine refusal is the likely one), the announcement is dropped
+       entirely, so a screen-reader user is told a control appeared in every case except
+       the one where they are most likely to be re-picking. Keeping the more specific
+       sentence is still the right call, and the honest fix is a SECOND polite region
+       rather than a clobber, which is a change to the panel's markup and belongs on its
+       own card rather than inside a provider-switch change. */
+    if (pmsg && (!pmsg.textContent || pmsg.textContent === SWITCH_ACCT_SAID)) {
+      /* ⚠️ SAME NORMALISATIONS THE SPOKEN SENTENCE GETS, because this line IS a spoken
+         sentence and its only audience is a screen reader. `switchAcctShown` refuses a
+         label that is a raw filesystem path and strips the menu-only "(could not check
+         just now)" aside; both are reachable here, so reusing the raw label read the
+         screen-reader user exactly the sentence the sighted dialog is written to avoid. */
+      const rawOne = sel.options.length === 1 ? (sel.options[0].textContent || '').trim() : '';
+      const one = rawOne.startsWith('/') ? '' : rawOne.replace(/\s*\(could not check just now\)$/, '');
+      const line = ACCOUNTS_UNREADABLE ? SWITCH_ACCT_STALE
+        : (sel.options.length > 1 ? SWITCH_ACCT_HINT
+          : (one ? 'It will run on ' + one + '.' : ''));
+      if (line) { pmsg.textContent = line; SWITCH_ACCT_SAID = line; }
+    }
   }
 }
 
 document.getElementById('d-provider').addEventListener('change', (e) => {
   const go = document.getElementById('d-provider-go');
   if (go) go.disabled = !e.target.value || !CURRENT || e.target.value === providerOf(CURRENT);
+  fillSwitchAccountsSafely();
 });
+/* The ONLY thing that makes a pick a pick.
+   ⚠️ Null-checked like its sibling in fillSwitchAccounts: if this id ever moves the
+   page must degrade to the previous behaviour rather than die at load, because that
+   fallback is what the whole design rests on. */
+const switchAcctSel = document.getElementById('d-provider-account');
+if (switchAcctSel) {
+  switchAcctSel.addEventListener('change', () => {
+    SWITCH_ACCT_TOUCHED = true;
+    /* 🛑 AND RE-ARM SWITCH, OR THE REFUSAL'S REMEDY STILL CANNOT BE CARRIED OUT.
+       The `finally` block disables Switch after every attempt, and until now the
+       ONLY thing that re-enabled it was a change on #d-provider. So "Pick one
+       from the list and try again" left the button greyed out: the person did
+       exactly what they were told and nothing happened, and the way back was to
+       select Anthropic and then OpenAI again, which also throws away the pick
+       they just made.
+       ⚠️ REFRESHING THE STALE LIST ONE LAYER UP IS NOT ENOUGH ON ITS OWN. Doing that
+       while leaving the button dead makes the remedy readable and still impossible. Same condition as the provider listener, so a pick can
+       never arm a switch the provider menu would refuse. */
+    const go = document.getElementById('d-provider-go');
+    const prov = document.getElementById('d-provider');
+    /* ⚠️ `|| prov.disabled` HOLDS THE IN-FLIGHT INVARIANT BY CONSTRUCTION.
+       changeProviderNow disables both controls for the duration of the request and
+       only its `finally` re-enables them. Without this clause, a pick made while a
+       switch is in flight would re-arm the button from here, so "Switch is disabled
+       while a switch is running" would be enforced in one place and quietly
+       overridable from another. Unreachable today because the confirm modal is up,
+       which is a reason to make it structural rather than to leave it. */
+    if (go && prov) {
+      go.disabled = prov.disabled || !prov.value || !CURRENT || prov.value === providerOf(CURRENT);
+    }
+  });
+}
+
+/* 🛑 IS THERE ACTUALLY A CHOICE TO MAKE? The dialog used to say "close this to
+   choose one" unconditionally, and there are three states where that instruction
+   cannot be followed: no OpenAI accounts at all (the picker is hidden, but OpenAI
+   is still selectable as a provider), exactly one usable account (a one-option
+   select can never fire `change`, so a pick is unreachable no matter what the
+   person does), and the picker not showing for any other reason.
+   ⇒ Naming an exit that leads nowhere is the dead end this whole card exists to
+   close, on the last screen before a restart. */
+function switchAcctChoosable() {
+  const sel = document.getElementById('d-provider-account');
+  return !!(sel && !sel.hidden && sel.options.length > 1);
+}
+/* 🛑 A DIFFERENT QUESTION FROM `switchAcctChoosable`, AND CONFLATING THEM PUT A
+   FALSE SENTENCE ON THE LAST SCREEN BEFORE A RESTART. "Is a specific row being
+   sent" is not "is there more than one to choose between". With the menu SHOWING
+   and exactly one usable row, changeProviderNow sends that row's directory while
+   the choosable test is false, so the dialog fell through to "this computer's
+   OpenAI sign-in", which is untrue of that state.
+   ⇒ Reachable whenever this page's live-connection filter reduces a multi-account
+   machine to one visible row, which is the page-versus-engine divergence this file
+   documents elsewhere. */
+function switchAcctSending() {
+  const sel = document.getElementById('d-provider-account');
+  return !!(sel && !sel.hidden && sel.options.length > 0);
+}
+
+/* What the confirmation dialog echoes back. THREE ways this stays silent, and only
+   the first is the honesty gate:
+     not picked      a preselect is not a choice, so we do not claim one
+     no option       nothing to name
+     the label is a PATH  suppressed on purpose, because a filesystem path reads
+                     wrong inside a sentence on the last screen before a restart
+   ⚠️ THE THIRD IS USER-VISIBLE AND WORTH KNOWING: a person who genuinely picks an
+   account that has no email and no key tail gets NO echo, even though they chose.
+   That is deliberate (a bad sentence is worse than a missing one) and it means
+   "only when a person picked" is necessary, not sufficient. */
+function switchAcctShown() {
+  const sel = document.getElementById('d-provider-account');
+  if (!sel || sel.hidden || !SWITCH_ACCT_TOUCHED) return '';
+  const o = sel.options[sel.selectedIndex];
+  if (!o) return '';
+  /* ⚠️ NEVER A RAW PATH IN A SENTENCE. The option label falls back through
+     email, key tail, label and finally `dir`, and the first three read fine in
+     prose while a filesystem path does not: "and it will run on
+     /Users/x/.codex-work1." is a different register from the rest of this
+     dialog. The dropdown can show it (the create form does); the last screen
+     before a restart should not. */
+  if (o.textContent.trim().startsWith('/')) return '';
+  /* The option label carries a menu-only parenthetical for an account whose live
+     check came back unknown ("name (could not check just now)"). That reads fine
+     in a dropdown and badly inside a sentence: "it will run on name (could not
+     check just now)." The dialog wants the account, not the menu's aside. */
+  return o.textContent.trim().replace(/\s*\(could not check just now\)$/, '');
+}
+
+/* 🛑 PICKED IS NOT THE SAME QUESTION AS NAMEABLE, AND THE DIALOG NEEDS BOTH.
+   `switchAcctShown()` deliberately returns '' for an account whose only label is a
+   filesystem path, because a raw path does not belong in a sentence on the last screen
+   before a restart. But '' was then indistinguishable from NOT PICKED, so a person who
+   really had chosen a row fell through to the hedged arms below and was told the switch
+   might land somewhere else. ⚠️ THAT HEDGE IS FALSE FOR A PICK: a picked account the
+   engine cannot use is REFUSED, never replaced. Reachable through the default `~/.codex` home in chatgpt mode whose `id_token` is
+   missing or unparseable, which leaves `rowFor` with a null label and `nameOf` falling
+   all the way through to `dir`. */
+function switchAcctPicked() {
+  const sel = document.getElementById('d-provider-account');
+  if (!sel || sel.hidden || !SWITCH_ACCT_TOUCHED) return false;
+  return !!sel.options[sel.selectedIndex];
+}
 
 async function changeProviderNow(say) {
   /* ⚠️ `say` IS THE MODAL'S ONLY EXIT (#1313). The four sibling actions all
@@ -22195,34 +22766,154 @@ async function changeProviderNow(say) {
   const sel = document.getElementById('d-provider');
   const go = document.getElementById('d-provider-go');
   const msg = document.getElementById('d-provider-msg');
+  const acctSel = document.getElementById('d-provider-account');
   const want = sel.value;
   if (!want) return;
   const forAgent = CURRENT.sessionName;
   go.disabled = true;
   sel.disabled = true;
+  /* The picker is part of this row's in-flight state too, and was the one control of three
+     left live: a person could change the visible sign-in mid-request, so the row on screen
+     stopped being the row sent. Not silent (the route names where it landed) and the change
+     listener already refuses to re-arm the button while `sel.disabled`, so the window was
+     one confusing second. Disabled here and re-enabled in the same guarded `finally` as its
+     two siblings, so the in-flight state is one fact rather than three. */
+  if (acctSel) acctSel.disabled = true;
   msg.textContent = 'Switching…';
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/provider', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: want }),
+      /* 🛑 TWO SEPARATE FACTS, AND CONFLATING THEM WAS A WRONG-ACCOUNT BUG, NOT A
+         WORDING ONE. `account` is WHICH sign-in; `picked` is WHETHER a person
+         chose it. Sending the account only when the flag was set meant that a
+         person who deliberately clicked the highlighted row sent NOTHING, because
+         re-selecting the option a <select> already holds fires no `change` (and
+         with exactly one working account it can never fire at all). The engine
+         then fell back to ITS first account, which this page's own filter can make
+         a DIFFERENT sign-in from the one on screen.
+         ⇒ Now: what you SEE is what is sent, always, whenever the menu is showing.
+         The claim about who chose it travels separately and stays conservative. */
+      body: JSON.stringify({
+        provider: want,
+        account: (acctSel && !acctSel.hidden) ? acctSel.value : null,
+        picked: !!(acctSel && !acctSel.hidden && SWITCH_ACCT_TOUCHED),
+      }),
     });
     const out = await res.json().catch(() => null);
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
-    if (!res.ok || !out) throw new Error((out && (out.because || out.error)) || 'that did not work');
+    if (!res.ok || !out) {
+      /* Tagged so the catch can tell a REFUSAL (the server answered, and said no)
+         from a transport failure (it never answered). Only the first can mean our
+         account list is stale; the second means the network is unwell, which is
+         the worst possible moment to fire a live per-account re-read. */
+      const refusal = new Error((out && (out.because || out.error)) || 'that did not work');
+      /* 🛑 `!res.ok` ONLY, NOT `!out`. A 200 whose body will not parse means the server
+         answered and we could not read it, which tells us NOTHING about whether our
+         account list is stale -- and this flag's whole job, per the paragraph above, is
+         to decide whether to fire a live per-account subprocess re-read. Tagging the
+         garbled-200 case sent the expensive remedy after a symptom it cannot fix. */
+      refusal.serverRefused = !res.ok;
+      throw refusal;
+    }
     /* The route's sentence verbatim: it says what stayed, what did not
        cross, and that the agent will look idle until spoken to. */
     msg.textContent = out.because || 'Switched.';
+    /* Symmetric with the failure path below, and for the same reason: the
+       route's own sentence has replaced whatever we last wrote, so a tracker
+       still naming our string describes text the region no longer contains.
+       The cost is not a clobber (a stale value can only equal text we wrote);
+       it is that the next `if (appearing)` announcement is SUPPRESSED, because
+       the equality test can no longer match. An asymmetry between two paths
+       that need the same reset is what goes wrong on the next edit. */
+    SWITCH_ACCT_SAID = '';
     tell(out.because || 'Switched.', true);
     sel.value = '';
+    /* ⚠️ A PROGRAMMATIC `value =` FIRES NO `change` EVENT, so nothing rebuilt the
+       sign-in picker and it sat visible and populated under a now-blank provider
+       menu, with the touched flag still set. Harmless today (Switch is disabled
+       and `want` is empty on a re-press) and still wrong: this feature's own rule
+       is that the picker is hidden unless OpenAI is the chosen provider. */
+    fillSwitchAccountsSafely();
   } catch (err) {
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     msg.textContent = String((err && err.message) || 'That did not work.');
     tell(String((err && err.message) || 'That did not work.'), false);
+    /* 🛑 THE REFUSAL'S OWN REMEDY HAS TO WORK, OR IT IS THE DEAD END THIS CARD
+       EXISTS TO CLOSE. The engine refuses an account that is gone and says "Pick
+       one from the list and try again" -- and the list it means is the one this
+       page is still holding, which is the stale copy that produced the ghost in
+       the first place. Re-offering the same dead row makes the named remedy fail
+       every time until somebody reloads. Drop the cache and repaint, so the list
+       the sentence points at is a fresh one.
+       📌 THIS RUNS ON EVERY FAILED SWITCH, not only the ghost-account one, and
+       that is deliberate rather than sloppy: the page cannot tell which refusal
+       it got without parsing the sentence, and a stale list is worth re-reading
+       after any failure. The cost is a live re-check per account, which server.js
+       documents as safe only at person-paced moments. A failed switch IS one. */
+    /* 🛑 AND MARK IT UNREAD, NOT MERELY EMPTY. If this repaint's own fetch fails too,
+       which is the SAME server hiccup that just failed the switch, the cache is left
+       empty while `ACCOUNTS_LOADED` still says a real read happened. The `finally` below
+       re-arms Switch, so the next press opens the dialog and fires the zero-account arm
+       at a person whose server-side list is perfectly intact. ⚠️ This is the same defect
+       arriving through the sibling path, in the half of the remedy that was not copied
+       across when the first half was fixed. */
+    /* ⚠️ TWO CONDITIONS, AND AN EARLIER VERSION OF THIS COMMENT CLAIMED THREE
+       EXCLUSIONS WHILE THE CODE MADE ONE. Stated precisely now.
+       The remedy exists for the ghost-account refusal ("that sign-in is not on
+       this computer any more, pick one from the list"): re-read the list so the
+       stale row goes away. It costs a LIVE per-account check, so it must not
+       fire where it cannot help.
+       EXCLUDED BY `want === 'openai'`: a switch to Anthropic, which never
+       consults this list.
+       EXCLUDED BY `serverRefused`: a transport failure. 🛑 This is the one that
+       mattered and the one the previous narrowing missed -- a fetch that never
+       got an answer means the network is unwell, and re-reading every account is
+       exactly the wrong thing to do then, repeated on every retry.
+       📌 STILL FIRES, named rather than hidden: the "already runs on OpenAI"
+       refusal a double-click reaches. It is a genuine server refusal on an
+       OpenAI switch, so neither condition excludes it. Accepted: one re-read on
+       a deliberate double-press is not a storm, and excluding it would mean
+       matching the refusal's wording, a fragile coupling to a sentence the
+       engine owns. */
+    if (want === 'openai' && err && err.serverRefused === true) {
+      accountsDropped();
+      try { await paintAccountPicker(CURRENT); }
+      catch { /* the sentence above is the answer; a failed refresh must not replace it */ }
+    }
+    /* 🛑 IF THE REPAINT FAILED TOO, THE REFUSAL'S REMEDY IS NOW DEAD AND SAYS SO TO NOBODY.
+       The refusal says "pick one from the list and try again", and this is the same
+       `#d-provider-msg` the picker's own fault line writes into, so that line is suppressed
+       by its own "never overwrite existing text" guard. The person is left pointing at a
+       list that has just vanished with nothing explaining it.
+       ⇒ APPENDED, NOT REPLACED. Both facts matter and they are different: why the switch
+       failed, and why the remedy it names is currently unavailable. Replacing would throw
+       away the engine's own sentence, which is the more specific of the two. */
+    /* Its own recheck, for the same reason the sibling in `moveAccountNow` carries one:
+       today this is saved only by the truthiness test below, which is the accidental
+       safety that comment rejects. */
+    if (!CURRENT || CURRENT.sessionName !== forAgent) return;
+    /* The route's own sentence has replaced whatever we last wrote, so the tracker no
+       longer describes the region. A tracker that outlives what it tracks is the drift it
+       was introduced to prevent. */
+    SWITCH_ACCT_SAID = '';
+    if (ACCOUNTS_UNREADABLE && msg && msg.textContent && msg.textContent.indexOf(SWITCH_ACCT_UNREADABLE) === -1) {
+      msg.textContent = msg.textContent + ' ' + SWITCH_ACCT_UNREADABLE;
+    }
   } finally {
     if (CURRENT && CURRENT.sessionName === forAgent) {
       sel.disabled = false;
-      go.disabled = true;
+      if (acctSel) acctSel.disabled = false;
+      /* 🛑 THE SAME DEAD END, A THIRD LAYER DOWN. Hard-coding `true` here undid both
+         earlier fixes in the common case: re-selecting the option a <select> already
+         has selected fires NO `change`, so after a refusal drops the ghost row a
+         person who does exactly what the message says ("pick one from the list and
+         try again") and picks the highlighted row gets nothing. Same if only one row
+         remains, which is the likeliest state after a removal.
+         ⇒ Derived from the same expression the two change listeners use, so it is
+         still disabled on the success path (`sel.value` was cleared) and armed when
+         a real switch is genuinely available. */
+      go.disabled = !sel.value || !CURRENT || sel.value === providerOf(CURRENT);
     }
   }
 }
@@ -22241,7 +22932,109 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
     small: agentShown() + ' keeps its name, its face, its instructions, its files, and everything it has done; its past stays readable. '
       + 'It restarts, so this conversation ends, as it does on any restart. '
       + (toOpenai
-        ? 'Its Claude model and account choices do not cross: OpenAI picks its own model, on this computer’s OpenAI sign-in.'
+        /* 🛑 EACH ARM STATES WHAT IS ACTUALLY TRUE OF ITS OWN CASE. This is the LAST
+           SCREEN BEFORE A RESTART, so a sentence that is merely nearly right is the
+           expensive kind.
+           ⚠️ NO COUNT HERE, DELIBERATELY, AND THE REASON IS THAT TWO COMMENTS ON THIS
+           BRANCH GAVE THIS EXPRESSION A NUMBER, GAVE IT DIFFERENT NUMBERS, AND BOTH
+           WERE WRONG (this said three over four labels; the browser check said six).
+           A count in a comment is a second source of truth that nothing updates, and
+           the invariant below is what a reader actually needs. The cases named are
+           illustrative of the rule, not a set to keep complete.
+             picked         name the account back. Confirming without being told what
+                            you chose is confirming something else.
+             showing, MANY  name THE ROW SHOWN and the way to change it.
+             showing, ONE   name THE ROW SHOWN, with no remedy, because there is
+                            nothing to change it to. ⚠️ THIS ARM WAS MISSING and
+                            fell through to the next one, which says the computer
+                            chooses while the code is sending that row. Reachable
+                            whenever this page's live filter reduces a multi-account
+                            machine to one visible row.
+             no menu        say this computer's sign-in. The state where the
+                            engine really does state its own default.
+                            ⚠️ WITH ONE EXCEPTION, AND IT IS THE ARM THIS
+                            ENUMERATION USED TO MISS: on a machine with ZERO
+                            OpenAI accounts, paintProviderPicker enables both
+                            real providers unconditionally, so OpenAI is still
+                            offered, Switch arms, this dialog opens,
+                            `!list.length` hides the picker, all three helpers
+                            read false, and this sentence promises a sign-in
+                            that does not exist. setProvider then REFUSES
+                            rather than stating any default. The copy is
+                            inherited and is not a regression; the ENUMERATION
+                            is new, which is why the arm is named here rather
+                            than the claim quietly widened.
+           ⚠️ TWO PLAUSIBLE WORDINGS ARE BOTH WRONG HERE, in opposite directions, and both
+           have been shipped before. One claimed the untouched arm "makes no sign-in claim
+           at all", which the string below it contradicted. One said "it picks its own
+           sign-in", which reads as OPENAI choosing the account and is false in every
+           reachable state: when the menu shows, the page sends the visible row; when
+           it is hidden, the COMPUTER's default applies, not the provider's. */
+         ? 'Its Claude model and account choices do not cross: OpenAI picks its own model, '
+           + ((() => {
+             const on = switchAcctShown();
+             if (on) return 'and it will run on ' + on + '.';
+             /* ✅ PICKED BUT UNNAMEABLE. Same promise, minus the name we will not print,
+                and deliberately WITHOUT the hedge the two arms below carry: a pick that
+                the engine cannot honour is refused, so this sentence always holds.
+                📌 The wording deliberately avoids claiming the choice in words. An existing
+                guard counts that phrasing to zero across these arms, because an earlier
+                version asserted a choice without consulting the touched flag. This
+                predicate DOES consult it, so the guard's intent is met, and rewording was
+                still the right fix: a guard written against a real past defect should not
+                be loosened to let new prose through.
+                ⚠️ And note the guard counts the PHRASE, comments included, so this note
+                cannot quote the words it is about. That is a real limitation of the guard
+                and it is cheaper to write around than to weaken. */
+             if (switchAcctPicked()) return 'and it will run on the sign-in shown above.';
+             /* 🛑 THE TWO UNPICKED ARMS HEDGE AND THE PICKED ARM DOES NOT, WHICH IS NOT AN
+                INCONSISTENCY. The engine can land on a row other than the one shown: the
+                preselect may be absent from `openai.list()` because the account was
+                removed since this page painted, or because an override home collapsed the
+                list. Unpicked, that falls back to the engine's first account rather than
+                refusing, deliberately, because refusing a person who touched nothing was
+                the regression the fallback exists to undo.
+                ⇒ So the sentence promising the visible row has to admit it might not be
+                kept. ✅ The PICKED arm above needs no hedge and must not get one: a picked
+                account that is missing is REFUSED, not replaced, so that promise always
+                holds. Hedging it would teach people to distrust a sentence that is true. */
+             if (switchAcctChoosable()) return 'and it runs on the sign-in shown above, or if that one has gone, the one Kosmos names when it restarts. To use a different one, close this first.';
+             if (switchAcctSending()) return 'and it runs on the sign-in shown above, or if that one has gone, the one Kosmos names when it restarts.';
+             /* 🛑 THE ZERO-ACCOUNT ARM SAYS WHAT WILL HAPPEN, IT DOES NOT PROMISE A
+                SIGN-IN THAT IS NOT THERE. ⚠️ DOCUMENTING THIS ARM IN THE COMMENT ABOVE IS NOT
+                A FIX AND WAS TRIED: it leaves the false sentence on screen, which is why the
+                WORDING is what changed here. A comment naming a
+                defect is not a fix, and this is the last screen before a restart.
+                ⚠️ The page CAN tell the two hidden-picker cases apart, which is the only
+                reason an honest sentence is possible here. With NO OpenAI account at all,
+                `openai.list()` is empty, `setProvider` REFUSES, and nothing changes, so
+                this is a statement of fact rather than a hedge. With accounts present but
+                all of them dead (live check `none`), the filtered list is also empty but
+                the engine does NOT refuse, so that case keeps the sentence below. */
+             /* 📌 THE ALL-DEAD CASE IS FILED AS kosmos#1561, not merely noted here.
+                Accounts present but every live check `none`: this page's filter empties
+                the list, the engine's `openai.list()` does not filter on liveness, so it
+                states a default onto a dead account rather than refusing. Pre-existing,
+                out of scope for #1373, and a comment is not a record. */
+             if (ACCOUNTS_LOADED && !ACCOUNTS.some((x) => x.provider === 'openai')) {
+               return 'and it needs an OpenAI sign-in on this computer. There is not one yet, so the switch will stop and ask you to add one.';
+             }
+             /* 🛑 AND AN UNREADABLE LIST IS NOT A ZERO-ACCOUNT MACHINE. The flag that
+                separates "we read an empty list" from "we could not read" was wired to the
+                arm above and not to this one, so a failed read still produced an
+                unqualified claim about a sign-in nothing had verified, on the last screen
+                before a restart. Same flag, same reason, the arm it was not applied to. */
+             if (ACCOUNTS_UNREADABLE) return 'and it will run on this computer’s OpenAI sign-in, though we could not read the list just now to tell you which.';
+             /* 🛑 THE THIRD CACHE STATE, WHICH NOTHING HERE ENUMERATED. `accountsDropped()`
+                leaves the list empty with BOTH flags false: not read, and not a failed read.
+                It is reachable at first paint before the accounts fetch resolves, and for the
+                whole duration of the refetch after a move or a failed switch. Falling through
+                to the unqualified sentence below promised a sign-in on a machine that may
+                have none, which is the exact claim the not-empty arm above exists to prevent.
+                ⇒ THE DEFINITIVE SENTENCE IS NOW SPOKEN ONLY FROM A LIST WE ACTUALLY READ. */
+             if (!ACCOUNTS_LOADED) return 'and it will run on this computer’s OpenAI sign-in, if one is set up.';
+             return 'and it runs on this computer’s OpenAI sign-in.';
+           })())
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
     go: 'Switch and restart',
     run: (say) => changeProviderNow(say),

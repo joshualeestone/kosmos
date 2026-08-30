@@ -236,6 +236,14 @@ function setDryRun(on) {
 }
 
 function run(file, args) {
+  /* 🔑 `runner` IS CHECKED FIRST, AND THAT IS THE SEAM TO REACH FOR IN A TEST (kosmos#1465).
+     Reaching for `AGENT_WORKFORCE_DRY_RUN` instead gives you a GREEN test that measured
+     nothing: it makes this function inert AND disables the account block below, so the
+     feature never runs. `setRunner(fake)` intercepts every external call while DRY_RUN
+     stays false, so the machine is safe and the feature is live at the same time.
+     ⇒ `server.switch-account-1373.test.js` and `engine/remove.test.js` both drive real
+     behaviour through this seam. ⚠️ `engine/remove` keeps its OWN runner: intercepting
+     this one alone leaves the restart path shelling out for real. */
   if (runner) return runner(file, args);
   if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
   // ⚠️ `stdio` pipes stderr rather than inheriting it. Without this, the
@@ -680,7 +688,7 @@ function setAccount(name, dir) {
     // Accounts here are Claude accounts (CLAUDE_CONFIG_DIR), which mean
     // nothing to codex; writing one anyway would claim an account change
     // that changes nothing (#245 v1).
-    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on OpenAI, on this computer's OpenAI sign-in, so there is no Claude account to change` };
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on OpenAI, so there is no Claude account to change` };
   }
   try {
     fs.writeFileSync(plistPath(clean),
@@ -782,11 +790,17 @@ function setProvider(name, provider, opts) {
    * always did. On one where it is not, the switch succeeds, says so, and
    * leaves a dead agent. Nothing on screen distinguishes the two.
    *
-   * ⚠️ THE SWITCH CARRIES NO ACCOUNT, so the home is always the DEFAULT one.
-   * That is the existing v1 boundary (a Claude account means nothing to codex)
-   * and is not changed here; what changes is that the default home is now
-   * checked before an agent is handed to it, and named in the answer so a
-   * person knows which sign-in their agent landed on.
+   * 🛑 THIS PARAGRAPH SAID "THE SWITCH CARRIES NO ACCOUNT" AND #1373 MADE THAT
+   * FALSE, about a hundred lines below in this same function. It is the block a
+   * reader hits first, and its siblings in server.js and the page were corrected
+   * while this one was missed.
+   * ⇒ WHAT #1211 ESTABLISHED AND STILL HOLDS: the home is checked before an agent
+   * is handed to it, and named in the answer, so a person knows which sign-in
+   * their agent landed on.
+   * ⇒ WHAT #1373 CHANGED: the caller can now name the account (`opts.accountDir`),
+   * and can separately say whether a PERSON chose it (`opts.pickedByPerson`).
+   * With neither, the behaviour is exactly what this paragraph originally
+   * described.
    *
    * 📌 The check is `identityOf`, the same read `list()` and the create path's
    * account lookup already use, rather than a second opinion about what
@@ -823,7 +837,12 @@ function setProvider(name, provider, opts) {
     const named = typeof process.env.AGENT_WORKFORCE_CODEX_HOME === 'string'
       && process.env.AGENT_WORKFORCE_CODEX_HOME !== '';
     const accounts = named
-      ? [openai.defaultDir()]
+      /* ⚠️ RESOLVED, LIKE `wantDir` BELOW, OR THE TWO BRANCHES COMPARE DIFFERENT NORMAL
+         FORMS. The full reasoning is on `wantDir`; what is specific HERE is that this
+         branch does not go through `list()` at all, so nothing else would normalise it,
+         and a person picking THE VERY ACCOUNT THE OVERRIDE NAMES would be told it cannot
+         be chosen. */
+      ? [path.resolve(openai.defaultDir())]
         .map((dir) => {
           const who = openai.identityOf(dir);
           return who ? { dir, email: who.email, keyTail: who.keyTail, authMode: who.authMode, isDefault: true } : null;
@@ -838,21 +857,127 @@ function setProvider(name, provider, opts) {
           + 'Add an OpenAI account first, then switch it.',
       };
     }
-    /* ⚠️ A STATED DEFAULT, NOT A CHOICE, AND THE DIFFERENCE IS THAT IT IS SAID
-       OUT LOUD (#1373). With several accounts this takes the first and the
-       route's answer NAMES it, so a person can see which one they got. It is
-       not a picker and must not be described as one; creation offers a choice
-       and the switch does not, which is #1373's whole subject.
-       🛑 Refusing instead was the alternative and it could not be written
-       honestly: there is NO WAY TO REMOVE AN OPENAI ACCOUNT (#1372), so the
-       refusal's remedy would have been a Terminal command. A dead-end message
-       is the class we spent today closing, and shipping one on purpose is worse
-       than a default that announces itself. */
-    const acct = accounts[0];
+    /* 📌 THIS COMMENT DESCRIBED A STATED DEFAULT AND #1373 REPLACED IT WITH A
+       CHOICE. Kept in corrected form rather than deleted, because the reasoning
+       under it is still load-bearing and someone will ask why the shape is what
+       it is.
+       ⇒ WHAT IS STILL TRUE: with nothing named, this takes the first account and
+       the route NAMES it, so a person always sees which one they got. That path
+       is unchanged and is what a caller passing no account still gets.
+       ⇒ WHAT CHANGED: a caller can now name one, so the switch offers the choice
+       creation always did. That asymmetry was the card.
+       ⭐ AND THE OLD REASONING RESOLVED ITSELF. The alternative in #1373 was to
+       REFUSE a multi-account switch, and that sentence could not be written
+       honestly while there was no way to remove an OpenAI account: its only
+       remedy would have been a Terminal command. #1372 shipped removal, so the
+       dead end is gone either way, and the picker is the better half of the two
+       because removing an account to influence a picker is a workaround, not a
+       choice. */
+    /* Resolved before comparing, because `list()` stores `path.resolve(dir)`.
+       Without it an equivalent-but-unnormalised path (a trailing slash, a `..`
+       segment) is refused as a ghost account, which is a confusing refusal
+       rather than a wrong one. Fail-closed is unaffected: this normalises the
+       value, it does not widen what counts as a match.
+       📌 THE CREATION PATH ONCE HAD THE SAME DEFECT AND NO LONGER DOES (#1486,
+       landed on main while this branch was in review). It was recorded here rather
+       than fixed here, because creation is not this card's subject and widening a
+       switch card into the create path is how a reviewed diff stops being
+       reviewable. Carding it is what got it fixed by somebody whose lane it was.
+       ⚠️ Its fix guards BOTH create sites, and it needs to: guarding only one leaves the
+       suite GREEN when the other is reverted. Hence an arm per site, both asserting an
+       unknown account is still REFUSED:
+       resolving must normalise the value, never widen what counts as a match. */
+    const wantDir = opts && typeof opts.accountDir === 'string' && opts.accountDir !== ''
+      ? path.resolve(opts.accountDir)
+      : null;
+    let acct = accounts[0];
+    if (wantDir) {
+      const found = accounts.find((a) => a.dir === wantDir);
+      /* 🛑 ONLY A PICKED-AND-MISSING ACCOUNT REFUSES. FAILING CLOSED IS SCOPED TO A
+         REAL PICK, and the two halves are not symmetrical.
+         PICKED: #1372 made this reachable -- an OpenAI account can now be REMOVED, so
+         a page that has not repainted can hand us a directory that is gone. Falling
+         back there would start the agent on an account the person did not choose and
+         say nothing, which is the silent-wrong-account failure this card exists to end.
+         UNPICKED: nobody chose, so there is nothing to refuse. Since the page began
+         sending the visible row on EVERY switch, refusing here would break a person who
+         touched nothing: on an override machine `list()` is collapsed to that one home,
+         while the page builds its menu from the unfiltered rows, so the preselect can be
+         a row this list does not contain. Such a row falls through untouched, keeping
+         the `accounts[0]` its initialiser already holds -- the pre-branch behaviour.
+         📌 ACCEPTED GAP, NOT AN OVERSIGHT: the dialog has already promised the shown row,
+         so an unpicked fallback can land on a DIFFERENT row than the sentence confirmed.
+         It is NOT silent -- the route names where it actually landed -- and the only
+         alternative is refusing, which is the regression this exists to undo.
+         🛑 SO DO NOT "FIX" THIS BY RESTORING THE REFUSAL.
+         (One condition rather than a fallback branch plus a refusal branch: the previous
+         shape stopped readers working out whether an assignment that changed nothing was
+         doing something.) */
+      if (!found && (opts && opts.pickedByPerson === true)) {
+        /* 🛑 TWO REASONS A NAMED ACCOUNT IS NOT IN THIS LIST, AND ONE SENTENCE
+           CANNOT HONESTLY COVER BOTH. When AGENT_WORKFORCE_CODEX_HOME is set the
+           branch above reduces `accounts` to that one home, while the page builds
+           its picker from the unfiltered list and offers every account. Saying
+           "not on this computer any more" there is FALSE: the account exists and
+           was excluded by an override. Worse, its remedy ("pick one from the
+           list") cannot work, and a refusal whose named remedy fails is the dead
+           end this whole card came from. */
+        return {
+          outcome: OUTCOME.REFUSED,
+          because: named
+            /* 🛑 THE REMEDY NAMES THE HOME, NOT A MENU ROW, AND THAT MATTERS.
+               "Pick the one already selected" assumed the override home is what the
+               picker preselects. It need not be there at all: the page drops rows
+               whose LIVE check returned `none`, while this branch keeps the row
+               because it reads `identityOf` off disk. So an override pointing at a
+               home whose key has been revoked but whose auth.json still parses is
+               ABSENT from the menu, and that sentence told the person to pick a row
+               that is not on screen. Naming the setting instead is true in every
+               case, and it is the thing they would actually have to change. */
+            ? 'this computer is set to use one particular OpenAI sign-in, so the one you picked cannot be used and nothing was changed. '
+              + 'Whoever set this computer up chose that sign-in for it.'
+            : 'that OpenAI account is not on this computer any more, so nothing was changed. '
+              + 'Pick one from the list and try again.',
+        };
+      }
+      /* ⚠️ ONLY WHEN THERE IS ONE. The unpicked-fallback branch above has
+         already set `acct`, so assigning unconditionally here would replace a
+         good value with `undefined` and throw two lines down. The regression
+         test beside the fallback is what holds this. */
+      if (found) acct = found;
+    }
     openaiAccount = {
       dir: acct.dir, email: acct.email, keyTail: acct.keyTail,
       authMode: acct.authMode, isDefault: acct.isDefault === true,
       choiceOf: accounts.length,
+      /* Whether a PERSON chose, which the route renders as "you picked this"
+         rather than "we picked this and are telling you".
+         🛑 THIS FIELD IS CLIENT-SUPPLIED AND THE SERVER CANNOT CORROBORATE IT. Any local
+         caller can POST `picked: true` for a row nobody touched and be told "the sign-in
+         you picked". That is downgraded to a WORDING problem, and here is the PRECONDITION
+         that downgrade rests on, named rather than assumed:
+           the ACCOUNT is still matched against `openai.list()` a few lines above, so a
+           false claim can only ever be attached to an account the engine itself produced.
+         ⇒ IF THAT MATCH IS EVER LOOSENED, THIS STOPS BEING COSMETIC and becomes a
+         wrong-account claim. Whoever changes the account resolution owns this line too.
+         🔑 THIS IS NO LONGER `wantDir !== null`, and the change is the point: the
+         page now sends the visible account WHENEVER the menu is showing, so a
+         named directory no longer implies anybody chose it. Conflating the two
+         meant a person clicking the highlighted row sent nothing at all.
+         ⚠️ THE NAME CLAIMS MORE THAN THE ENGINE CAN KNOW, and that is worth stating
+         rather than hiding behind a nicer word. All the engine sees is that a
+         directory arrived; whether a PERSON chose it is decided by one browser-side
+         boolean (SWITCH_ACCT_TOUCHED), and any other caller of POST /provider gets
+         the "you picked" sentence for free by sending the field.
+         ⇒ Acceptable as designed, because the only caller is our own page and the
+         alternative (an engine that second-guesses its caller) is worse. Recorded so
+         nobody later reads this flag as evidence about a human. */
+      /* ⚠️ CONJOINED WITH wantDir ON PURPOSE. `pickedByPerson` alone would let a
+         caller send {provider, picked:true} with NO account and be told "the OpenAI
+         sign-in you picked" about a stated default. Unreachable from our own page
+         (both fields are gated on the menu being visible), and closing it by
+         construction costs nothing. */
+      chosen: wantDir !== null && !!(opts && opts.pickedByPerson === true),
     };
     /* ⚠️ THE TRUST WRITE NEEDS THE SAME homeDir(). `trustCodexFolder(dir, home)`
        falls back to `codexHomeDir()`, which is the default home again, so
@@ -872,6 +997,16 @@ function setProvider(name, provider, opts) {
     /* The account rides into the launch job as CODEX_HOME (#1313). `null` here
        meant the default home, which is the home the add path never writes. */
     fs.writeFileSync(plistPath(clean),
+      /* 📌 PRE-EXISTING ON MAIN, BUT #1373 MAKES IT REACHABLE ON PURPOSE FOR THE FIRST
+         TIME, so it is named here rather than left for whoever hits it. This writes
+         `openaiAccount.dir` for EVERY row including the default one, while
+         `createAgentInner` writes `acct.isDefault ? null : acct.dir` and lets codex
+         resolve its own default. So an agent SWITCHED onto the default row has that
+         home pinned into its launch job and stops following a later CODEX_HOME
+         change, whereas an agent CREATED on the same row keeps following it. Two
+         routes to one state that then behave differently. Not changed on this card:
+         the switch path is what #1373 is about and altering the create path's
+         contract here would widen a reviewed diff past what was reviewed. */
       plistFor(clean, runnerBin, job.tmux, null, openaiAccount ? openaiAccount.dir : null, runner), 'utf8');
   } catch {
     return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
@@ -1768,9 +1903,13 @@ function createAgentInner(opts) {
   if (provider === 'openai') {
     /* v1 boundaries, refused in words rather than silently ignored: the
        model is codex's own default (its catalogue is not ours to mirror
-       yet), and the account is this computer's OpenAI sign-in (Claude
+       yet). The ACCOUNT is not a boundary and is not refused here: createAgentInner
+       honours opts.account, and this clause used to claim otherwise (Claude
        account selection is CLAUDE_CONFIG_DIR, which means nothing to
-       codex). Both lift when phase 2 gives them real mechanisms. */
+       codex). ⚠️ SO "BOTH" NO LONGER HAS TWO REFERENTS: the same edit that
+       removed the account from this list left the model as the only boundary,
+       and the clause below refuses `opts.model` ALONE. It lifts when phase 2
+       gives codex's catalogue a real mechanism. */
     if (opts && opts.model !== undefined) {
       return { outcome: OUTCOME.REFUSED, because: 'an OpenAI agent picks its own model for now, so leave the model unchosen', steps };
     }
