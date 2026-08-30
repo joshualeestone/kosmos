@@ -175,7 +175,7 @@ const oaiStub = require('node:http').createServer((q, r) => {
     console.log('NOTE  wrote #1373 screenshot to ' + process.env.SHOT_1373);
   }
   /* 🛑 THE CONFIRM SENTENCE ITSELF, RENDERED. Everything above this pins the CONTROL; the
-     six-arm sentence the dialog builds from it was pinned only by source regexes, which is
+     per-case sentence the dialog builds from it was pinned only by source regexes, which is
      exactly the argument that justified giving the route its own executed test: a regex
      inspects the expression and never its use. This is the last screen before a restart, so
      it is the worst place to have no arm that runs.

@@ -22,7 +22,7 @@ a choice.**
 ## What changed
 
 - `setProvider` takes an optional `accountDir` and uses it instead of `accounts[0]`.
-- **It fails closed on an account that is not in the list**, and #1372 is what makes that
+- **It fails closed on a PICKED account that is not in the list**, and #1372 is what makes that
   reachable: a page that has not repainted can now name a directory that has been
   removed. Falling back would start the agent on a sign-in the person did not choose,
   silently.
@@ -85,7 +85,17 @@ keeps catching, and three of these came out of review rather than design:**
   account, **and sending the visible one is the point** rather than a regression. What a
   person who touches nothing gets is what they were shown, and the route calls it
   "your OpenAI sign-in" rather than a pick.
-- A named account that no longer exists is refused, not silently replaced.
+- A PICKED account that no longer exists is refused, not silently replaced.
+  🛑 **THE WORD "PICKED" IS LOAD-BEARING AND WAS MISSING FROM THIS BULLET AND FROM THE
+  ONE IN What changed, WHILE THE BRANCH SHIPPED A TEST ASSERTING THE OPPOSITE BY NAME**
+  (`an unpicked account the engine cannot use falls back instead of refusing`). An
+  UNPICKED named account that no longer exists falls through to the first row rather
+  than refusing, and that is deliberate: the page now sends the visible row on every
+  switch, so refusing an unpicked one would break a switch that previously worked for
+  somebody who touched nothing. Nobody chose, so there is nothing to refuse.
+  ⚠️ Two other bullets in this list were amended when that design changed and these two
+  were not, which is the same claims-more-than-the-code defect the branch spends its
+  length closing, sitting in the document that states the acceptance criteria.
 - The picker is **seen in a real browser**, per my standing rule that no frontend change
   merges without being seen on screen.
 

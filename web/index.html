@@ -22401,7 +22401,7 @@ function paintProviderPicker(a) {
 let SWITCH_ACCT_TOUCHED = false;
 /* One spelling, so the line that CLEARS the hint cannot drift from the line that
    writes it and leave an orphan on screen. */
-/* 🛑 ALL FOUR DECLARED TOGETHER, ABOVE EVERY READER. `fillSwitchAccountsSafely`
+/* 🛑 ALL FIVE DECLARED TOGETHER, ABOVE EVERY READER. `fillSwitchAccountsSafely`
    reads SWITCH_ACCT_BROKEN, and these were `const`-declared FIFTEEN LINES BELOW it.
    Safe only because both call sites are deferred (an event listener, and the tail
    of an async function), so the temporal dead zone is never entered today. A future
@@ -22586,10 +22586,18 @@ function fillSwitchAccounts() {
      Not an AA failure on its own (the control is adjacent, focus is not moved), and
      this worker's bar is AA, so it gets the one line.
      📌 Only on the transition, so repainting an already-visible menu does not
-     re-announce and turn a helpful line into noise. */
+     re-announce and turn a helpful line into noise.
+     🛑 AND THE COST OF THAT, STATED RATHER THAN LEFT TO BE DISCOVERED: the gate is
+     `appearing`, so these announcements cover APPEARS-WHILE-STALE and NOT
+     BECOMES-STALE-WHILE-VISIBLE. If the list were marked unauthoritative while the
+     picker is already on screen, nothing here would say so. No reachable path to that
+     was found: the failed-switch route appends its own line in `changeProviderNow`'s
+     catch, and the drop-then-refetch empties the list so the next paint takes the
+     hidden branch. It is recorded as an UNCOVERED CASE rather than a known bug, and
+     it is recorded because the paragraph above otherwise reads as covering both. */
   if (appearing) {
     const pmsg = document.getElementById('d-provider-msg');
-    /* THREE CASES, AND NONE OF THEM MAY BE SILENT. This region is the only announcement a
+    /* NONE OF THESE MAY BE SILENT. This region is the only announcement a
        screen-reader user gets that a control appeared.
        ⚠️ THE STALE CASE IS THE ONE THIS PATH USED TO MISS ENTIRELY. Because a failed read
        keeps the cached list rather than shrinking it, the picker can render rows the page
@@ -22924,9 +22932,15 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
     small: agentShown() + ' keeps its name, its face, its instructions, its files, and everything it has done; its past stays readable. '
       + 'It restarts, so this conversation ends, as it does on any restart. '
       + (toOpenai
-        /* 🛑 THREE ARMS, AND EACH STATES WHAT IS ACTUALLY TRUE OF ITS OWN CASE. This
-           is the LAST SCREEN BEFORE A RESTART, so a sentence that is merely nearly
-           right is the expensive kind.
+        /* 🛑 EACH ARM STATES WHAT IS ACTUALLY TRUE OF ITS OWN CASE. This is the LAST
+           SCREEN BEFORE A RESTART, so a sentence that is merely nearly right is the
+           expensive kind.
+           ⚠️ NO COUNT HERE, DELIBERATELY, AND THE REASON IS THAT TWO COMMENTS ON THIS
+           BRANCH GAVE THIS EXPRESSION A NUMBER, GAVE IT DIFFERENT NUMBERS, AND BOTH
+           WERE WRONG (this said three over four labels; the browser check said six).
+           A count in a comment is a second source of truth that nothing updates, and
+           the invariant below is what a reader actually needs. The cases named are
+           illustrative of the rule, not a set to keep complete.
              picked         name the account back. Confirming without being told what
                             you chose is confirming something else.
              showing, MANY  name THE ROW SHOWN and the way to change it.
