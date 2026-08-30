@@ -213,6 +213,63 @@ test('the served door names are human names, never route fragments', async () =>
     'the first-party doors lost their human names');
 });
 
+test('the agent first-party set is DERIVED from the board, not pinned to a literal', async () => {
+  /**
+   * 🛑 THE SIBLING TEST BELOW PINS THE AGENT VIEW TO A LITERAL LIST, AND THAT
+   * GUARDS THE WRONG DIRECTION. It goes red when the AGENT route gains a door,
+   * which nobody is worried about, and stays green when `/api/connections` gains
+   * one, which is precisely the drift the plan records:
+   *
+   *   "a fourth first-party door added to /api/connections would silently never
+   *    appear in the agent view"
+   *
+   * The sweep is duplicated inline in both routes and the shared builder was
+   * deliberately deferred out of a privacy change. A deferral with no guard is a
+   * defect with a note attached, so this is the guard.
+   *
+   * ⚠️ COMPARED BY COUNT, NOT BY NAME, AND THE REASON IS THE FEATURE ITSELF. The
+   * board answers `doors` keyed by ROUTE (`/api/github`); the agent view answers
+   * `services` carrying human NAMES and deliberately no route fragment, which is
+   * the privacy decision this card exists for. So the two cannot be compared by
+   * identity without re-deriving the name map the boundary refuses to expose.
+   * The COUNT of first-party doors is the thing that drifts, and it is comparable.
+   * (My first version of this test asserted `board.services`, a shape the board
+   * does not return. Its control caught it rather than the comparison, which is
+   * the only reason it did not pass vacuously.)
+   */
+  const tokendoors = require('./engine/tokendoors');
+  const metered = new Set(Object.values(tokendoors.routes()));
+
+  const board = await (await fetch(base + '/api/connections')).json();
+  const agent = await (await fetch(base + '/api/agent/connections')).json();
+
+  const boardRoutes = Object.keys(board.doors || {});
+  const agentNames = (agent.services || []).map((s) => s.name);
+  const boardFirstParty = boardRoutes.filter((r) => !metered.has(r));
+
+  // CONTROLS. Without these the comparison passes when both sides are empty,
+  // which is the outcome it is least able to tell apart from agreement.
+  assert.ok(boardRoutes.length > 0, 'control: the board returned no doors at all');
+  assert.ok(agentNames.length > 0, 'control: the agent view returned no doors at all');
+  assert.ok(metered.size > 0, 'control: no token doors defined, so the subtraction is a no-op');
+  assert.ok(boardFirstParty.length < boardRoutes.length,
+    'control: nothing was subtracted, so this would pass even if the agent swept metered doors');
+
+  assert.equal(agentNames.length, boardFirstParty.length,
+    `the agent view has ${agentNames.length} first-party doors and the board has `
+    + `${boardFirstParty.length} (${boardFirstParty.join(', ')}). A door added to one `
+    + 'route and not the other is the drift the plan predicted, and the two sweeps '
+    + 'are still separate inline copies.');
+
+  /* The other half, asserted separately so a failure says WHICH way it broke: no
+     metered door may reach the agent view. Checked by route on the board side and
+     by name on the agent side, because those are the vocabularies each one has. */
+  const meteredNames = new Set(Object.keys(tokendoors.routes()));
+  for (const n of agentNames) {
+    assert.ok(!meteredNames.has(n), `a metered door reached the agent view: ${n}`);
+  }
+});
+
 test('the agent view carries the first-party doors and NOT the metered ones', async () => {
   /**
    * 🛑 THIS TEST USED TO ASSERT PARITY WITH THE BOARD, AND PARITY WAS THE DEFECT.
@@ -230,6 +287,7 @@ test('the agent view carries the first-party doors and NOT the metered ones', as
    * grow the token doors back. Both directions fail, which parity could not do.
    */
   const board = await (await fetch(base + '/api/connections')).json();
+  console.error('PROBE board keys:', JSON.stringify(Object.keys(board)), 'raw:', JSON.stringify(board).slice(0,300));
   const agent = await (await fetch(base + '/api/agent/connections')).json();
   const boardDoors = Object.keys(board.doors || {});
   assert.ok(boardDoors.length > 3,
