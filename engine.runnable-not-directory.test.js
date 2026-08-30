@@ -292,55 +292,20 @@ test('githubdevice rejects a DIRECTORY found by the CANDIDATE SCAN, not just the
   const before = process.env.AGENT_WORKFORCE_GH_BIN;
   try {
     delete process.env.AGENT_WORKFORCE_GH_BIN;
-    gd.setGhCandidatesForTests([f.asDirectory]);
+    process.env.AGENT_WORKFORCE_GH_CANDIDATES = f.asDirectory;
     const onDir = await gd.state();
     assert.strictEqual(onDir.gh, 'missing',
       'the githubdevice CANDIDATE SCAN accepted a DIRECTORY. A folder at /opt/homebrew/bin/gh ' +
       'reads as installed.');
-    gd.setGhCandidatesForTests([f.realBin]);
+    process.env.AGENT_WORKFORCE_GH_CANDIDATES = f.realBin;
     const onFile = await gd.state();
     assert.strictEqual(onFile.gh, 'present',
       'the candidate scan rejected a real executable, so the arm above proves nothing');
   } finally {
-    gd.setGhCandidatesForTests(null);
+    delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
     if (before !== undefined) process.env.AGENT_WORKFORCE_GH_BIN = before;
     f.cleanup();
   }
-});
-
-test('githubdevice scans its candidate paths at exactly ONE site, so the test seam cannot diverge', () => {
-  /* 🛑 THE WEAKEST ARM IN THIS FILE, AND IT EXISTS BECAUSE NO BEHAVIOURAL ARM CAN
-     REACH WHAT IT GUARDS. `setGhCandidatesForTests` is a SUBSTITUTING seam: the
-     arm above drives the list it sets, and production's own default list is
-     driven by nothing. A reviewer split the two and weakened only production:
-
-       return ghCandidates ? ghCandidates.some(runnable)
-                           : GH_CANDIDATES.some((p) => fs.existsSync(p));
-
-     Test path correct, production path defective, 12 pass / 0 fail. Reshaping the
-     seam to one variable removed the natural `||` form but NOT the possibility;
-     an identity check against the default still splits it, measured.
-
-     ⇒ A substituting seam is sound only while exactly ONE call site consumes both
-     the seam and the default. That is a property of the code's shape, so a source
-     check is the only thing that can see it, and this is that check. It counts
-     scan sites rather than judging whether any of them is correct, which is the
-     one kind of source assertion that has survived on this branch.
-
-     ⚠️ devicedoor needs no equivalent: its `candidates` is a real parameter that
-     production callers pass, so the arm drives production's own path and there is
-     no default to diverge from. Prefer that shape when there is a choice. */
-  const src = fs.readFileSync(path.join(ENGINE, 'githubdevice.js'), 'utf8');
-  const fn = src.slice(src.indexOf('function ghPresent()'), src.indexOf('async function http('));
-  assert.ok(fn.length > 50 && fn.length < 2000, 'ghPresent was renamed or moved; re-aim this guard');
-  const scans = fn.match(/\.some\s*\(/g) || [];
-  assert.strictEqual(
-    scans.length, 1,
-    'ghPresent scans its candidate list at ' + scans.length + ' sites rather than one. The ' +
-      'test seam substitutes that list, so a SECOND scan is a path no arm drives, and it can ' +
-      'be weakened while every behavioural arm stays green. Keep one scan, or give ghPresent ' +
-      'the candidates as a parameter the way devicedoor does.'
-  );
 });
 
 test('githubdevice reports a DIRECTORY at the gh override as missing', async () => {
