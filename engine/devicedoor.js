@@ -19,7 +19,6 @@
  * and offers nothing to press; the card asked for instructions, not an
  * installer, and an install nobody asked for is the thing #548 was about.
  */
-const fs = require('node:fs');
 const { spawn, execFile } = require('node:child_process');
 
 const PHASE = Object.freeze({
