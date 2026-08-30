@@ -61,6 +61,26 @@ because the post-install path is unreachable in any cell that has a binary; the
 new arm has no binary AND a stale file over a signed-out account, which is the
 only shape that reaches it.
 
+## The test file verified against the UNFIXED tree, which cannot be redone later
+
+Run on `origin/main`, without this branch's fix:
+
+```
+engine/connect.nobinary-1580.test.js   5 tests   4 pass   1 FAIL
+  FAIL: "#1580: signed in with NO binary is not reported connected,
+         it is offered the install"
+```
+
+**That red is the file's strongest property and it has a shelf life.** It shows
+the cells detect the real defect, on the real tree, in the state that actually
+shipped. Once this lands, that demonstration can never be produced again: the
+bug is gone and the test passes for the ordinary reason.
+
+The other 4 arms pass on main because they guard behaviour that already works
+(#1560, and the two controls). So the file is not merely "tests that pass with my
+change" - it is 1 arm that fails without the fix and 4 that hold the surrounding
+behaviour still.
+
 ## Deliberately not done
 
 No change to the broken-binary path. A binary that exists and does not run still
