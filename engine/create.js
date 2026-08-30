@@ -54,6 +54,7 @@ const path = require('node:path');
 const codexupdate = require('./codexupdate');
 const { execFileSync } = require('node:child_process');
 const roles = require('./roles');
+const liveExec = require('./live-execution');
 
 /**
  * The models an agent can be created on.
@@ -189,194 +190,6 @@ function workersDir() { return process.env.AGENT_WORKFORCE_WORKERS || path.join(
 function agentsDir() { return process.env.AGENT_WORKFORCE_LAUNCH || path.join(homeDir(), 'Library', 'LaunchAgents'); }
 
 /**
- * 🛑 IS THE PLIST GOING SOMEWHERE REAL? (#1539)
- *
- * `AGENT_WORKFORCE_LAUNCH` sandboxes where a plist is WRITTEN. It does not
- * sandbox the `launchctl` REGISTRATION, and nothing about the variable's name
- * says so. A test that redirected it, believing itself sandboxed, bootstrapped
- * three real agents into the operator's own user domain: three tmux sessions,
- * three `claude --dangerously-skip-permissions` processes with cwd in $HOME, and
- * three loaded launchd jobs.
- *
- * ⇒ THE INVARIANT THIS RESTORES, FOR THIS MODULE'S `run()` ONLY: if the plist is
- * being written somewhere other than the real LaunchAgents directory, the
- * registration must not be real either. Those two are one decision, and the
- * variable only ever moved half of it. See the scope note on `run()`: two sibling
- * modules hold the same seam unguarded (#1598).
- *
- * ⚠️ WHY THIS IS NOT REDUNDANT WITH THE EXISTING GUARDS. `run()` already
- * short-circuits on an injected runner or on DRY_RUN, and every test that calls
- * `installJob` today sets one or both (measured: 5 files, all covered). So this
- * changes nothing that exists. It is for the NEXT test, which is exactly how
- * this was found: the author added one `installJob` call to prove an assertion
- * could fail, and no existing guard was in the path.
- */
-function launchIsSandboxed() {
-  /**
-   * 🛑 COMPARE `agentsDir()`, NOT THE ENV VAR. The invariant above is a claim
-   * about WHERE THE PLIST IS WRITTEN, and that is `agentsDir()`, which has TWO
-   * inputs: the variable AND `homeDir()`. An earlier version of this function
-   * read only the variable, so a sandbox that redirected `HOME` moved the plist
-   * and the predicate did not follow: it returned false and the guard stood
-   * down while the plist was already sandboxed. Measured; 17 test files in this
-   * repo set `process.env.HOME`, 13 of them alongside AGENT_WORKFORCE_LAUNCH.
-   *
-   * 🛑 AND THE REFERENCE POINT MUST NOT MOVE WITH THE SANDBOX EITHER. `homeDir()`
-   * is `os.homedir()`, which honours `$HOME`, so comparing against it let a
-   * spoofed HOME satisfy BOTH sides and cancel out. `os.userInfo().homedir`
-   * reads the passwd entry and is not spoofable by the environment (measured:
-   * with HOME=/tmp/spoofed, os.homedir() follows it and os.userInfo().homedir
-   * does not).
-   */
-  /**
-   * 🛑 ANY SANDBOX KNOB COUNTS, NOT JUST THIS ONE. The commoner mistake is not
-   * redirecting LAUNCH to the wrong place, it is FORGETTING to redirect it while
-   * sandboxing everything else. In that shape a test writes a real plist into the
-   * operator's real LaunchAgents and registers a real job, and a predicate keyed
-   * only on LAUNCH stands down.
-   *
-   * `engine/sandbox.js` already computes this and states the doctrine: a board is
-   * sandboxed WHOLE or not at all (#634). Consulting it here means this module
-   * does not become a SECOND definition of "am I sandboxed" that disagrees with
-   * the first, which is the two-copies-of-one-fact defect this file's own header
-   * names as its worst habit.
-   */
-  /**
-   * 🛑 THERE IS NO SECOND ARM, AND REMOVING IT IS THE MAIN CORRECTION OF THIS
-   * CARD'S SIXTH REVIEW. An earlier version returned TRUE whenever any of
-   * DATA/PROJECTS/WORKERS was sandboxed, on the theory that somebody who
-   * sandboxed those probably meant to sandbox LAUNCH too and forgot.
-   *
-   * ⇒ THAT ARM VIOLATED THIS FUNCTION'S OWN INVARIANT. It returned before the
-   * path comparison ran, so it refused registrations for plists that were
-   * genuinely going to the REAL LaunchAgents. Measured, three shapes, all with
-   * the plist directory REAL and the guard refusing:
-   *
-   *   DATA only + hatch, LAUNCH unset              refused
-   *   DATA + hatch, LAUNCH = the real directory    refused
-   *   all four set, LAUNCH = the real directory    refused
-   *
-   * In each, `createAgentInner` rolls the whole creation back and the person is
-   * told we took the agent back off their computer. `AGENT_WORKFORCE_HALF_SANDBOX_OK`
-   * is a DOCUMENTED user-facing override (`sandbox.js:19`,
-   * `docs/browser-checks/README.md:221`), not merely a setup.sh output, so this
-   * was reachable by anybody following the documentation.
-   *
-   * 🛑 AND IT COULD NOT HAVE WORKED IN PRINCIPLE. The case it existed for is a
-   * TEST that forgot to sandbox LAUNCH. That test writes a real plist and wants a
-   * real registration - which is byte-identical to a real install doing the same.
-   * The arm was inferring INTENT from the environment, and the environment does
-   * not carry it. That is the same argument this card made for #1598, applied to
-   * its own code.
-   *
-   * ⇒ The forgot-LAUNCH hazard is real and belongs to #1598's explicit live
-   * opt-in, where a caller STATES its intent, rather than to a heuristic here.
-   */
-
-  /**
-   * 🛑 A HALF-SANDBOX NOBODY DECLARED IS A SANDBOX. This is a NARROWER predicate
-   * DERIVED FROM `sandbox.DIRS`, not a call to `sandbox.audit().partial`, and an
-   * earlier version of this comment said it "computes exactly this". It does not,
-   * and the difference is measurable: with DATA sandboxed and LAUNCH pointed at the
-   * REAL directory, `partial` is TRUE and this returns FALSE. `partial` folds tmux
-   * in and ignores where LAUNCH points.
-   *
-   * 📌 The one-directional claim below IS sound and is what matters: condition (a)
-   * IMPLIES `partial`, so `server.js:133` refusing to start on `partial` makes this
-   * branch unreachable inside a running board. Implication, not equivalence.
-   *
-   * For reference, what `partial` says about the shapes below: some knobs redirected, others live, and no
-   * `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` saying that was deliberate.
-   *
-   * ⚠️ THIS IS NOT THE ARM REMOVED IN REVIEW SIX, AND THE DIFFERENCE IS THE WHOLE
-   * POINT. That one keyed on `audit().set`, which counts a variable as set
-   * REGARDLESS of the hatch, so it refused real installs. `partial` honours the
-   * hatch, and `install/setup.sh` ALWAYS exports it alongside the three
-   * (the `[ -n "${AGENT_WORKFORCE_DATA:-}" ] || export` block, with the
-   * HALF_SANDBOX_OK export in the SAME `if`). Measured:
-   *
-   *   the gap: 3 knobs, LAUNCH forgotten, NO hatch   partial TRUE   -> refuse
-   *   real non-default KOSMOS_HOME (always hatched)  partial FALSE  -> allow
-   *   default install, nothing set                   partial FALSE  -> allow
-   *
-   * ⇒ Every shape review six was protecting stays allowed. An earlier comment here
-   * claimed this "CANNOT be decided from the environment". That is true of a test
-   * that SETS the hatch, which really is identical to a real install, and FALSE of
-   * the shape this closes. I applied an absolute to the wrong shape.
-   *
-   * 📌 Production risk is nil by construction: `server.js:133` refuses to start a
-   * board at all when `partial`, so this branch is unreachable inside a running
-   * board.
-   */
-  try {
-    /**
-     * ⚠️ `partial` ALONE IS NOT THE CONDITION, AND I GOT THIS WRONG TWICE. With
-     * ONLY `AGENT_WORKFORCE_LAUNCH` set it is TRUE, because the other three are
-     * live - so pointing LAUNCH at the real directory would be refused, which is
-     * the production break review six removed an arm for.
-     *
-     * The shape actually wanted is narrower: a NON-LAUNCH knob is sandboxed, LAUNCH
-     * is NOT, and nobody declared the half-sandbox. That is the only combination
-     * where a plist lands in the real LaunchAgents BY ACCIDENT. LAUNCH's own value
-     * is judged by the path comparison below, where it belongs.
-     */
-    const env = process.env;
-    const others = require('./sandbox').DIRS
-      .map(([k]) => k)
-      .filter((k) => k !== 'AGENT_WORKFORCE_LAUNCH');
-    if (!env.AGENT_WORKFORCE_LAUNCH
-        && env.AGENT_WORKFORCE_HALF_SANDBOX_OK !== '1'
-        && others.some((k) => env[k])) return true;
-  } catch { /* sandbox.js unavailable: fall through to the path comparison. */ }
-
-  let real;
-  try {
-    real = path.join(os.userInfo().homedir, 'Library', 'LaunchAgents');
-  } catch {
-    /* No passwd entry, so the reference point is unknowable. FAIL CLOSED: treat
-       it as sandboxed and refuse, rather than mutating a real domain we cannot
-       rule out. */
-    return true;
-  }
-
-  /**
-   * ⚠️ `path.resolve` normalises `.`, `..` and trailing slashes. It does NOT
-   * resolve symlinks and does NOT normalise case, so on this case-insensitive
-   * filesystem a lowercased spelling of the real directory, or `/private/var`
-   * against a `/var` home, compares as DIFFERENT and every real install is
-   * refused. That direction is the safe one, but it is not free: the caller gets
-   * `started: false` and `createAgentInner` rolls the whole creation back.
-   *
-   * `realpathSync` closes the SYMLINK arm (a `/var` vs `/private/var` home, or a
-   * symlinked LaunchAgents) and falls back to the textual compare when a path does
-   * not exist yet, which is normal on a first install.
-   *
-   * ⚠️ NOR THE FIRMLINK ALIAS. `/System/Volumes/Data/<home>/Library/LaunchAgents`
-   * EXISTS on this machine and `realpathSync` returns it UNCHANGED, because an APFS
-   * firmlink is not a symlink. So that spelling reads as sandboxed and every real
-   * install through it is refused. Same class as the case arm below, named because
-   * the sentence above would otherwise invite a reader to believe the whole
-   * aliasing family is handled.
-   *
-   * ⚠️ IT DOES NOT CLOSE THE CASE ARM, AND AN EARLIER VERSION OF THIS COMMENT
-   * CLAIMED IT DID. Measured on this case-insensitive filesystem: both spellings
-   * EXIST, `realpathSync` succeeds on both, and returns each UNCHANGED, so a
-   * lowercased spelling still compares as different and is refused. Stated rather
-   * than fixed because over-refusal is the safe direction and nothing in this
-   * codebase produces a lowercased spelling; a future reader trusting the old
-   * sentence would have been wrong about what the code does.
-   */
-  /* ⚠️ UNTESTED, and labelled so rather than left to look covered. Replacing
-     `realpathSync` with `path.resolve` leaves all 11 tests green: with LAUNCH
-     unset both sides are the same string and take the same branch, and I could
-     not construct a realistic input where its presence changes the answer on this
-     machine. It is here for a symlinked home (`/var` vs `/private/var`), which
-     this machine does not have. Same state as the fail-closed branch above, and
-     the file's own standard says to say so. */
-  const canon = (d) => { try { return fs.realpathSync(d); } catch { return path.resolve(d); } };
-  return canon(agentsDir()) !== canon(real);
-}
-/**
  * Where the product keeps things it installs for itself, as opposed to things
  * that belong to an agent.
  *
@@ -440,7 +253,6 @@ function setDryRun(on) {
  *
  * 📌 The allowlist is also strictly smaller: the codebase uses exactly three.
  */
-const LAUNCHCTL_READS = ['print', 'print-disabled', 'list'];
 
 function run(file, args) {
   /* 🔑 `runner` IS CHECKED FIRST, AND THAT IS THE SEAM TO REACH FOR IN A TEST (kosmos#1465).
@@ -453,123 +265,30 @@ function run(file, args) {
      this one alone leaves the restart path shelling out for real. */
   if (runner) return runner(file, args);
   if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
-  /**
-   * 🛑 A SANDBOXED PLIST PATH MEANS A SANDBOXED REGISTRATION (#1539). Refuse to
-   * MUTATE the real launchd domain while `AGENT_WORKFORCE_LAUNCH` points
-   * somewhere other than the operator's own LaunchAgents.
-   *
-   * ⚠️ BOTH DIRECTIONS ARE HARMFUL, WHICH IS WHY `bootout` IS ON THE LIST.
-   * A test that believes it is sandboxed can START real agents (that is how this
-   * was found: three claude processes in the operator's home) and can equally
-   * TEAR DOWN a real one, which would take a live agent off the fleet with no
-   * trace in the test's own output.
-   *
-   * 📌 Reads are allowlisted above: `print`, `print-disabled` and `list` are THE
-   * THREE THIS CODEBASE USES. Any other read verb (`blame`, `getenv`, `plist`,
-   * `procinfo`, `hostinfo`, `version`, and a dozen more) is REFUSED, which is the
-   * safe direction but is not what "reads are allowed" would suggest. Blocking the
-   * three in use would break sandboxed tests that legitimately enumerate.
-   *
-   * 🛑 SCOPE, STATED SO THE COMMENT DOES NOT CLAIM MORE THAN THE CODE DOES.
-   * 🛑 THIS GUARDS `create.js`'s `run()` AND NOTHING ELSE, AND IT IS AN INTERIM
-   * MITIGATION THAT SHOULD BE DELETED. Read this before extending it.
-   *
-   * #1598 HAS LANDED ON MAIN. `engine/live-execution.js` fails closed on ANY
-   * binary and ANY verb unless production has explicitly opted in via
-   * `allowLiveExecution()`. `remove.js` and `delete-leftover.js` both call
-   * `liveExecutionAllowed()`; `create.js` does not, which makes it the only one of
-   * the three still on a narrower mechanism.
-   *
-   * ⚠️ AN EARLIER VERSION OF THIS NOTE SAID BOTH SIBLINGS "remain reachable live on
-   * a fresh require" AND CITED #1598 AS OPEN. Measured: #1598 is CLOSED, 311567ae
-   * is on main, and both siblings are gated. It was true when written and would
-   * have shipped false.
-   *
-   * 🛑 THE DELIBERATE DECISION, RECORDED SO A FUTURE READER DOES NOT HAVE TO MAKE
-   * IT: THAT GATE IS STRICTLY STRONGER THAN THIS GUARD. It keys on an EXPLICIT
-   * DECLARATION of intent; this keys on INFERRING intent from the environment,
-   * which is the argument this card itself made for why #1598 was needed. It also
-   * covers tmux and every other binary, where this covers `launchctl` alone.
-   *
-   * ⇒ This exists ONLY because `create.js` is not yet on the shared gate. WHEN IT
-   * ADOPTS `liveExecutionAllowed()`, DELETE THIS GUARD, ITS TESTS, AND THE `run`
-   * EXPORT BELOW rather than keeping any of them.
-   *
-   * ⚠️ THE EXPORT IS THE PIECE THAT OUTLIVES THE OTHER TWO, which is why it is
-   * named here. It exists only so the refusal MESSAGE can be asserted; once the
-   * shared gate covers this module the message goes with it, and what is left is a
-   * general command executor on the public surface of a module `server.js` loads - two mechanisms answering one question is the
-   * two-copies-of-one-fact defect this file's header calls its worst habit.
-   *
-   * 📌 The adoption is Mona Lisa's by agreement, since she wrote the gate. This
-   * lands first so create.js is not the one unguarded module meanwhile.
-   *
-   * 🛑 AND A THIRD RESIDUAL, INSIDE THIS FILE AND ABOVE THE LINE THIS GUARDS.
-   * `createAgentInner` calls `require('./trust').trustFolder(...)` BEFORE the
-   * bootstrap, and `trust.js` resolves to
-   * `AGENT_WORKFORCE_CLAUDE_CONFIG || ~/.claude.json`. So a sandboxed test gets
-   * its registration refused AND STILL WRITES THE OPERATOR'S REAL
-   * `~/.claude.json`.
-   *
-   * ⚠️ PRECISE, BECAUSE AN EARLIER VERSION OF THIS SENTENCE OVERSTATED IT IN THE
-   * ALARMING DIRECTION: the entry does NOT normally persist. `createAgentInner`'s
-   * `if (!started)` branch calls `trust.forgetFolder(...)`, which restores the
-   * displaced value or removes the entry it created. What is true is that the real
-   * file is READ AND REWRITTEN TWICE on a path that refused the registration, and
-   * the entry DOES persist in two cases: `forgetFolder` refusing (a symlink,
-   * unreadable, or malformed file), and a live Claude Code session having
-   * rewritten the key in between.
-   * `AGENT_WORKFORCE_CLAUDE_CONFIG` is not a knob this guard consults at all, so a
-   * test that sandboxes it is invisible here.
-   * ⇒ REFUSING THE REGISTRATION IS NOT THE SAME AS LEAVING THE MACHINE UNTOUCHED,
-   * and this guard only does the first.
-   */
-  /* 🛑 BASENAME, NOT AN EXACT PATH. `engine/delete-leftover.js` (its bare launchctl call) already
-     calls `run('launchctl', ...)` bare, and `command -v launchctl` resolves it
-     to /bin/launchctl, so exact-string equality on one spelling is already
-     false at repo scope. */
-  /* ⚠️ ORDER IS DELIBERATE AND CHEAP-FIRST. `launchIsSandboxed()` costs two
-     `realpathSync` calls and a `require`, so the free verb test runs before it:
-     every allowed `print` / `list` / `print-disabled` used to pay that. Behaviour
-     is identical, since all three conjuncts must hold. */
-  if (path.basename(String(file || '')) === 'launchctl'
-      && (!Array.isArray(args) || !LAUNCHCTL_READS.includes(args[0]))
-      && launchIsSandboxed()) {
-    const refusal = {
-      ok: false,
-      stdout: '',
-      /* ⚠️ NOT `args[0]`. This branch is deliberately reached with a NON-ARRAY
-         `args` (that is the fail-closed case), and indexing it threw a TypeError
-         while building the refusal. It still failed closed, because nothing
-         executed, but as a crash rather than as an answer, and a caller reading
-         `ok` got an exception instead. */
-      stderr: `refusing to launchctl ${Array.isArray(args) ? args[0] : String(args)} the real user domain while the `
-        + `plist directory is sandboxed to ${agentsDir()}. Sandboxing where the `
-        + 'plist is WRITTEN does not sandbox the REGISTRATION, so this call would '
-        + 'have reached the operator\'s own launchd (#1539). Inject a runner or '
-        + 'call setDryRun(true) if this test meant to reach launchctl.',
-      sandboxRefused: true,
-    };
-    /**
-     * 🛑 SAY IT OUT LOUD. Every one of the four mutating call sites discards this
-     * object: two wrap the call in `try { run(...) } catch {}` and both `bootstrap`
-     * sites read only `ok`. So the sentence above reached NO HUMAN, and on the
-     * creation path `createAgentInner` treats `!started` as a full rollback and
-     * tells the person only "we could not start it just now".
-     *
-     * ⇒ A guard whose whole purpose is to TEACH the next test author was silent at
-     * the exact moment it fired. One line on stderr costs nothing and is the only
-     * thing that makes it teach.
-     */
-    try {
-      process.stderr.write(`[create.js] ${refusal.stderr}\n`);
-    } catch { /* stderr unavailable: the refusal still stands, it is just quiet. */ }
-    return refusal;
+  /* #1598: create.js uses the shared fail-closed live-execution gate here,
+     replacing the narrower #1539 launchctl-sandbox guard (removed with its
+     test, its launchIsSandboxed predicate, and the run export that only existed
+     to assert its refusal message). The gate keys on an EXPLICIT production
+     opt-in (server.js calls allowLiveExecution() on its real-start path), not on
+     inferring intent from the environment, and it covers every binary rather
+     than launchctl alone. remove.js and delete-leftover.js already use it. */
+  if (!liveExec.liveExecutionAllowed()) {
+    /* In a test process refuseOrWarn THROWS, refusing to fake success past a
+       missing seam; in production it WARNS loudly and we fall through to a
+       fail-closed result rather than stopping the board.
+       ok:FALSE is deliberate and is the ONE place create.js must diverge from
+       remove.js's {ok:true,dryRun:true}. installJob reads
+       started = Boolean(r && r.ok !== false); returning ok:true here would turn
+       an honest not-started into a silent started:true on the unauthorized path,
+       so the caller would report an agent started when nothing registered it.
+       ok:false keeps installJob honest with no change at that site. */
+    liveExec.refuseOrWarn('engine/create.js', file, args);
+    return { ok: false, stdout: '', dryRun: true, liveExecutionRefused: true };
   }
-  // ⚠️ `stdio` pipes stderr rather than inheriting it. Without this, the
-  // `launchctl print` probe -- which fails for every FREE name, by design --
-  // printed "Could not find service" to the operator's console immediately
-  // before the board reported a successful creation.
+  // stdio pipes stderr rather than inheriting it. Without this, the launchctl
+  // print probe -- which fails for every FREE name, by design -- printed
+  // "Could not find service" to the operator's console immediately before the
+  // board reported a successful creation.
   return {
     ok: true,
     stdout: execFileSync(file, args, { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] }),
@@ -3223,26 +2942,7 @@ module.exports = {
   modelFor,
   SELF_STARTS,
   createdLog, createdLogFile, disabledJobs, runningJobs,
-  /* #1539: exported so the sandbox predicate can be tested directly. The guard
-     it feeds sits inside `run()`, which is only reachable with NO injected
-     runner -- the exact configuration that started three real agents -- so
-     testing it end-to-end first requires knowing the predicate is right. */
-  launchIsSandboxed,
-  /* Test seam. `run` is exported so the #1539 refusal's MESSAGE can be asserted
-     directly.
-     🛑 IT HAS TO BE DIRECT BECAUSE NO CALLER SURFACES THE SENTENCE AT ALL. There
-     are FOUR mutating call sites, not five, and an earlier version of this comment
-     said five and claimed only two discarded the refusal. Measured: the `enable`
-     in `installJob` and the `bootout` in `rollBack` wrap the call in
-     `try { run(...) } catch {}` and never read the result; BOTH `bootstrap` sites
-     read only `ok` and throw the object away. `sandboxRefused` is read nowhere
-     outside the #1539 test.
 
-     Cited by SYMBOL, not line: the two lines this comment previously named had
-     already moved by 77 in this branch's own next commit. That is a real gap, not
-     a testing inconvenience, and it is why the export is labelled rather than
-     quietly added. */
-  run,
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` only lowercases — it
      is a converter, not a gate — so anything asking "is this a name we can
      act on" has to reach this, or it grows a weaker second copy. */
