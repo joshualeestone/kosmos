@@ -63,8 +63,17 @@ const END = projects.CONNECTIONS_END;
 const WROTE_WHY = 'Kosmos told it how connecting a provider works';
 
 /**
- * The block. Constant by design: see the note above about why this takes no
- * argument and must not grow one.
+ * The block. Takes no argument and must not grow one: see the note above.
+ *
+ * 🛑 NOT "constant", and the word was wrong rather than imprecise. The body
+ * embeds `kosmosCliShown()`, which is derived from this machine's install
+ * layout, so the text DOES vary. `server.js` already carries the corrected
+ * mirror of this claim ("🛑 ITS WORDS DO CHANGE") and the two files contradicted
+ * each other about the same function.
+ * ⭐ The argument the old wording wanted to make survives intact and is the one
+ * that matters: no PER-AGENT argument and no PER-AGENT state, so every agent is
+ * handed the same words. That is what must not grow. Varying with the machine is
+ * not the same thing as varying with the reader.
  */
 function blockBody() {
   return [

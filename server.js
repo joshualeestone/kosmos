@@ -3756,7 +3756,21 @@ const server = http.createServer((req, res) => {
        it, and NOTHING ON THEIR MACHINE WOULD SHOW THEM WHY THE BILL MOVED.
        📌 The three above stay: they are first-party and not metered per auth check. If a
        later card genuinely needs the token doors here, it needs a TTL first, not a
-       reviewer's benefit of the doubt. */
+       reviewer's benefit of the doubt.
+       🛑 A TTL CACHE WAS BUILT HERE AND PULLED OUT AGAIN. WRITTEN DOWN SO THE NEXT
+       PERSON DOES NOT RE-DERIVE IT. A 5s cache over the sweep (job cached rather than
+       result, so a cold stampede shares one sweep) is easy and closes the remaining
+       fan-out. It also BREAKS THIS CARD'S CENTRAL INVARIANT, and the existing suite
+       caught it immediately: `a reader that THROWS makes the route answer unknown, not
+       a confident none` went red with `none !== unknown`, because the throwing reader
+       was masked by the previous request's cached answer.
+       ⇒ A cache converts `cannot tell` back into a confident `not connected` for the
+       length of its window, which is the one thing this route exists to never do.
+       ⚠️ So the remaining cost is accepted DELIBERATELY: it is first-party and
+       unmetered (the money half was the token doors, closed above), and correctness
+       about readability outranks a subprocess sweep. A future cache must invalidate on
+       a readability CHANGE, not merely expire on a clock, and that is its own card
+       rather than a line in a privacy change. */
     const doorKeys = Object.keys(doorJobs);
     /* Every arm is already fail-soft, so one unreachable service degrades to
        `cannot tell` for that door rather than failing the whole answer. */

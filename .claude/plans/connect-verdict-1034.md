@@ -77,9 +77,12 @@ signals the difference.
 - `GET /api/connections` (service doors) is **already** verdict-only and three-state.
   ⚠️ **Corrected: the SHAPE is reused, the SWEEP is not.** The route re-implements the
   door sweep inline, including the `github` -> `githubdevice` fallback, so "composed"
-  overstated it. Token doors are enumerated from `tokendoors.routes()` and stay in step;
-  **a fourth first-party door added to `/api/connections` would silently never appear in
-  the agent view.** Extracting a shared builder is the right fix and is deliberately not
+  overstated it. **Corrected again, iteration 9:** this used to say token doors are
+  enumerated from `tokendoors.routes()` and stay in step. They are no longer enumerated
+  in the agent view AT ALL, because iteration 8 dropped them as a money decision (they
+  make a live authenticated request to metered search APIs the person pays for). The
+  drift left standing is the one that matters: **a fourth first-party door added to
+  `/api/connections` would silently never appear in the agent view.** Extracting a shared builder is the right fix and is deliberately not
   done inside a privacy change: it would edit the route the board's own screen depends on.
   Recorded here so the next person finds it rather than rediscovering it.
 🛑 **A MEASUREMENT HERE WAS FALSE WHEN IT WAS TAKEN, AND ITS CONTROL MADE IT LOOK

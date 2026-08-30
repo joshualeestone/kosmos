@@ -702,8 +702,14 @@ cmd_connections() {
   # looked fine. Every sibling verb (`cmd_msg`, `cmd_whoami`) uses this form.
   # ⚠️ And no `2>&1`: folding curl's stderr into $body swallowed its own message
   # as well, so a person got silence from both halves at once.
+  # ⭐ `2>/dev/null` is NOT the same mistake, and it is what the sibling verbs use.
+  # `2>&1` redirects INTO the variable, which is what ate the message. This
+  # DISCARDS it, so the reader gets our sentence instead of `curl: (28) Operation
+  # timed out` printed above it. Keeping both means the verb whose stated job is
+  # refusing machine vocabulary prints machine vocabulary first. The exit status
+  # is what we branch on, and a redirect does not touch it.
   local rc
-  body=$(curl -sS -m 40 "$URL/api/agent/connections") || {
+  body=$(curl -sS -m 40 "$URL/api/agent/connections" 2>/dev/null) || {
     rc=$?
     # 28 is curl's own timeout. Saying "Kosmos did not answer" for a client-side
     # deadline blames the board for our impatience and sends the reader to the

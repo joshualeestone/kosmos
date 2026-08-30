@@ -36,9 +36,13 @@
  * THIS FILE: `services[].name` is copied out of the `doorNames` map the caller
  * supplies. Resolving THROUGH an allowlist does not make the resolved value
  * stop being input, and an earlier comment here implied it did. It is safe
- * because `server.js` builds that map from three literals plus
- * `tokendoors.routes()`, whose names come from a hard-coded list -- so the
- * guarantee lives at the call site. **Anyone passing a `doorNames` built from
+ * because `server.js` builds that map from THREE LITERALS AND NOTHING ELSE --
+ * so the guarantee lives at the call site. (It used to add
+ * `tokendoors.routes()`; the token doors were dropped from the agent view as a
+ * money decision, and this sentence outlived them by one iteration. The map is
+ * now NARROWER than the comment claimed, so the drift was in the safe direction
+ * -- which is exactly why nothing caught it, and why it is worth fixing in a
+ * branch whose subject is comments that stop matching their code.) **Anyone passing a `doorNames` built from
  * anything a person or a request can influence breaks this module's rule**, and
  * no assertion in here can catch them.
  *
