@@ -169,9 +169,19 @@ returns at next login, a killed pane does not.
 
 # Verification, and this is the ONLY figure in this file kept current
 
-    suite                    3132 pass, 0 fail
+    suite                    3130 pass, 0 fail
     ABSOLUTE kosmos jobs     0 before, 0 after   (not a delta, see the note above)
     tmux sessions            18 before, 18 after
+
+🛑 **AND `--test-name-pattern` CANNOT EXPRESS AN EXCLUSION, WHICH THIS FILE
+PREVIOUSLY NAMED AS ITS SAFETY MECHANISM.** Measured on node v25.6.1: the pattern
+`^(?!.*NOTHING).*$` ran **all 11 tests including the one it was meant to exclude**.
+node treats the FILE as a parent test node, the lookahead matches the filename, and
+a matching parent runs every descendant. It fails in the dangerous direction: you
+believe the registering test is excluded, run a guard-inert arm, and register a
+real job.
+
+✅ **Use a POSITIVE alternation and verify the count**, never a lookahead.
 
 ⚠️ Earlier sections of this file quoted 3123 and then 3125, in the same document,
 and both were stale by the time anyone could read them. A verification section
