@@ -6937,7 +6937,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            nothing at all to the person reading this in a screen reader -- who
            is exactly as able to skip the step. -->
       <p class="dwarn" id="acct-claude-warn" style="margin:0 0 8px;"><span class="dwarn-m" aria-hidden="true">&#9888;</span><b>First, sign in to the other Claude account in your browser.</b> Kosmos never sees your password, and the accounts above stay connected.</p>
-      <div class="frow"><button class="btn uprime" id="acct-add" type="button">Start the sign-in</button></div>
+      <div class="frow"><button class="btn uprime" id="acct-add" type="button" aria-expanded="false" aria-controls="acct-add-confirm">Start the sign-in</button></div>
       <!-- #1587: the SAME install-confirm the first-run flow shows (#fr-claude-confirm),
            because this button is a second entry into /api/connect/start and starting
            the sign-in here can begin a large Claude Code download. Hidden until the
@@ -6962,7 +6962,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              grey link text). -->
         <div class="frow" style="margin:8px 0 0;"><button class="btn" id="acct-cancel" type="button">Stop this sign-in</button></div>
       </div>
-      <p class="dhint" id="acct-add-note" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+      <p class="dhint" id="acct-add-note" role="status" aria-live="polite" tabindex="-1" style="margin:8px 0 0;"></p>
     </div>
     <!-- #540: an OpenAI account is a directory and one pasted key. No
          terminal, no browser. The key goes to codex's own login on stdin
@@ -13518,11 +13518,21 @@ async function acctAddStart() {
   }
 }
 
-function acctAddConfirmClose() {
+/* Put the confirm back to its resting state: panel hidden, button live and
+   collapsed. Used when the person declines (acctAddConfirmClose adds the focus
+   return) and, crucially, when the accounts modal is reopened, so a dismissal
+   mid-confirm (Close, Escape, backdrop) cannot leave a greyed-out button behind
+   a stale panel on the next open (#1587). */
+function acctAddConfirmReset() {
   const box = document.getElementById('acct-add-confirm');
   if (box) box.hidden = true;
   const btn = document.getElementById('acct-add');
-  if (btn) { btn.disabled = false; btn.focus(); }
+  if (btn) { btn.disabled = false; btn.setAttribute('aria-expanded', 'false'); }
+}
+function acctAddConfirmClose() {
+  acctAddConfirmReset();
+  const btn = document.getElementById('acct-add');
+  if (btn) btn.focus();
 }
 
 document.getElementById('acct-add').addEventListener('click', async () => {
@@ -13545,6 +13555,7 @@ document.getElementById('acct-add').addEventListener('click', async () => {
     const go = document.getElementById('acct-add-confirm-go');
     if (t) t.textContent = frClaudeConfirmSentence(conn);
     if (box) box.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
     /* Focus moves INTO the panel, same as the first-run confirm: a reveal that
        leaves focus on the trigger is invisible to a screen reader. The acct-add
        button stays disabled while the confirm is open; acctAddConfirmClose (Not
@@ -13562,6 +13573,14 @@ document.getElementById('acct-add-confirm-go').addEventListener('click', (e) => 
   go.disabled = true;
   const box = document.getElementById('acct-add-confirm');
   if (box) box.hidden = true;
+  const trigger = document.getElementById('acct-add');
+  if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  /* ⚠️ FOCUS MUST GO SOMEWHERE. Hiding the panel while the Confirm button holds
+     focus drops it to <body>, the same defect the first-run confirm guards
+     against. The status line is visible now and is where the flow speaks next,
+     so focus follows the story there rather than vanishing. */
+  const note = document.getElementById('acct-add-note');
+  if (note) note.focus();
   /* The acct-add button is already disabled from the gating click; acctAddStart
      manages it from here (re-enables on error, leaves it disabled while the
      sign-in runs). */
@@ -13755,6 +13774,10 @@ function openAcctAdd() {
   }
 }
 function closeAcctAdd() {
+  /* Dismissing mid-confirm (this button, the backdrop, Escape) must not leave a
+     disabled Start button behind a stale confirm panel for the next open, so
+     the confirm is reset on the way out (#1587 review). */
+  acctAddConfirmReset();
   document.getElementById('acct-add-modal').hidden = true;
   document.getElementById('acct-add-open').focus();
 }

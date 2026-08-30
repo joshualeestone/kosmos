@@ -96,11 +96,17 @@ test('#1587: the acct-add button gates the sign-in behind the install confirm, l
   // The one path from the confirm to the download is the Confirm button.
   const goAt = CODE.indexOf("getElementById('acct-add-confirm-go').addEventListener");
   assert.ok(goAt > -1, 'the acct-add Confirm handler is missing, so nothing carries a confirmed click to the sign-in');
-  assert.match(CODE.slice(goAt, goAt + 400), /acctAddStart\(\)/, 'the Confirm button no longer starts the sign-in');
+  assert.match(CODE.slice(goAt, goAt + 700), /acctAddStart\(\)/, 'the Confirm button no longer starts the sign-in');
 
   // Both choices exist in the accounts modal.
   assert.match(PAGE, /id="acct-add-confirm-go"/, 'the Confirm button is missing from the accounts modal');
   assert.match(PAGE, /id="acct-add-confirm-no"/, 'the Not now button is missing from the accounts modal');
+
+  // A dismissal mid-confirm (Close, Escape, backdrop) must not leave a
+  // greyed-out button behind a stale panel: closeAcctAdd (the single dismiss
+  // path all three exits call) resets the confirm on the way out.
+  const closeFn = CODE.slice(CODE.indexOf('function closeAcctAdd'), CODE.indexOf('function closeAcctAdd') + 400);
+  assert.match(closeFn, /acctAddConfirmReset\(\)/, 'closeAcctAdd does not reset the confirm, so a mid-confirm dismissal leaves a disabled button behind a stale panel on reopen');
 });
 
 test('the code row appears only when the flow awaits a code, and a reason empties it', () => {
