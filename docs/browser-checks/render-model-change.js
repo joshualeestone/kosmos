@@ -129,7 +129,16 @@ const oaiStub = require('node:http').createServer((q, r) => {
      was the card. Computed state only (hidden, option count), so headless is
      sound. */
   await page.selectOption('#d-provider', 'openai');
-  await page.waitForTimeout(500);
+/* ⏱ WAIT ON THE CONDITION, NOT ON A NUMBER. A fixed sleep encodes how fast this
+   machine happened to be: on a loaded box (this fleet routinely runs many agents
+   at once) it is the flake shape the rest of this file works to remove, and it
+   fails in the reassuring direction, reading the PREVIOUS state and passing.
+   Every wait below names the thing it is waiting for, so a timeout is a loud
+   failure rather than a quiet wrong answer. */
+  await page.waitForFunction(() => {
+    const s = document.getElementById('d-provider-account');
+    return !!s && !s.hidden && s.options.length > 0;
+  }, { timeout: 8000 });
   const pick = await page.evaluate(() => {
     const s = document.getElementById('d-provider-account');
     if (!s) return null;
@@ -174,19 +183,30 @@ const oaiStub = require('node:http').createServer((q, r) => {
      UNPICKED must hedge, and a REAL pick must name the account. Both open the dialog and
      close it with "Keep it as it is", so nothing is switched and the checks below are
      undisturbed. */
-  await page.click('#d-provider-go'); await page.waitForTimeout(300);
+  await page.click('#d-provider-go');
+  await page.waitForFunction(() => {
+    const m = document.getElementById('chg-modal');
+    const e = document.getElementById('chg-small');
+    return !!m && !m.hidden && !!e && e.textContent.trim().length > 0;
+  }, { timeout: 8000 });
   const untouched = await page.$eval('#chg-small', (e) => e.textContent);
   chk(/sign-in shown above/.test(untouched) && /if that one has gone/.test(untouched),
     '#1373: with the menu showing and untouched, the dialog hedges instead of promising a row',
     untouched.slice(-90));
   chk(!/you picked/.test(untouched),
     '#1373: an untouched menu must not claim the person chose', untouched.slice(-90));
-  await page.click('#chg-keep'); await page.waitForTimeout(200);
+  await page.click('#chg-keep');
+  await page.waitForFunction(() => document.getElementById('chg-modal').hidden, { timeout: 8000 });
 
   /* Now a REAL pick: selecting an option fires `change`, which is what sets the flag. */
   const second = await page.$eval('#d-provider-account', (s2) => s2.options[1].value);
   await page.selectOption('#d-provider-account', second);
-  await page.click('#d-provider-go'); await page.waitForTimeout(300);
+  await page.click('#d-provider-go');
+  await page.waitForFunction(() => {
+    const m = document.getElementById('chg-modal');
+    const e = document.getElementById('chg-small');
+    return !!m && !m.hidden && !!e && e.textContent.trim().length > 0;
+  }, { timeout: 8000 });
   const picked = await page.$eval('#chg-small', (e) => e.textContent);
   chk(/it will run on /.test(picked) && /BETA|ALFA/.test(picked),
     '#1373: a real pick is named back in the sentence, not hedged',
@@ -194,7 +214,8 @@ const oaiStub = require('node:http').createServer((q, r) => {
   chk(!/if that one has gone/.test(picked),
     '#1373: a real pick must not be hedged, because a picked account the engine cannot use is REFUSED rather than replaced',
     picked.slice(-90));
-  await page.click('#chg-keep'); await page.waitForTimeout(200);
+  await page.click('#chg-keep');
+  await page.waitForFunction(() => document.getElementById('chg-modal').hidden, { timeout: 8000 });
 
   /* 🔑 THE ARM THAT MAKES THE THREE ABOVE MEAN ANYTHING. A control that is
      always visible would pass every one of them, and this shows the picker can
@@ -207,7 +228,10 @@ const oaiStub = require('node:http').createServer((q, r) => {
      web.switch-account-1373.test.js instead. A second fixture already on OpenAI
      is what would make this arm say what its name says. */
   await page.selectOption('#d-provider', 'anthropic');
-  await page.waitForTimeout(400);
+  await page.waitForFunction(() => {
+    const s = document.getElementById('d-provider-account');
+    return !!s && s.hidden;
+  }, { timeout: 8000 });
   /* The BEFORE state, for judging the layout change rather than guessing at it: the
      same row with the picker hidden is exactly what this section looked like before
      the card. */

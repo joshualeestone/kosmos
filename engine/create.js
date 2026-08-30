@@ -953,10 +953,10 @@ function setProvider(name, provider, opts) {
               + 'Pick one from the list and try again.',
         };
       }
-      /* ⚠️ ONLY WHEN THERE IS ONE. The fallback branch above already set `acct`,
-         and an unconditional assignment here overwrote it with `undefined`,
-         which threw two lines later. The regression test beside the fallback is what
-         catches it. */
+      /* ⚠️ ONLY WHEN THERE IS ONE. The unpicked-fallback branch above has
+         already set `acct`, so assigning unconditionally here would replace a
+         good value with `undefined` and throw two lines down. The regression
+         test beside the fallback is what holds this. */
       if (found) acct = found;
     }
     openaiAccount = {

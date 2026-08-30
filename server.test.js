@@ -174,6 +174,27 @@ require('./engine/remove').setRunner(null);
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+
+/**
+ * The body of a function, located by brace matching rather than a byte window.
+ * A fixed-size slice is wrong as soon as the function grows or shrinks, and it
+ * is wrong SILENTLY: an over-long window can satisfy an assertion from the next
+ * function down and report a guard that has moved.
+ */
+function fnBody(src, signature) {
+  const start = src.indexOf(signature);
+  assert.ok(start !== -1, `control: ${signature} is not in the source at all`);
+  let depth = 0; let started = false;
+  for (let i = start; i < src.length; i++) {
+    if (src[i] === '{') { depth++; started = true; } else if (src[i] === '}') {
+      depth--;
+      if (started && depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  assert.fail(`control: braces never balanced for ${signature}`);
+  return '';
+}
+
 const { start, server, pathOf, decodeSegment, resetHeardBudgetForTests } = require('./server');
 const fleet = require('./test-support/fleet');
 
@@ -3119,19 +3140,16 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
   const od = script.slice(script.indexOf('function openDetail('), script.indexOf('function openDetail(') + 4200);
   assert.ok(/getElementById\('d-account-msg'\)[\s\S]{0,60}?\.textContent = ''/.test(od),
     'openDetail no longer clears the account message on a switch');
-  /* 📌 4200, MEASURED. 2400 was sized to this function's body at the time and went red the
-     moment #1373 documented why an unreadable cache must also trigger a re-fetch: the
-     recheck moved to offset 2889. A window sized to today's shortest body is a check that
-     punishes the next person for explaining themselves, so this one carries headroom and
-     says where the number came from. */
-  const pap = script.slice(script.indexOf('async function paintAccountPicker('), script.indexOf('async function paintAccountPicker(') + 4200);
-  /* 📌 BOUND THE WINDOW, not just widen it. `moveAccountNow` carries the IDENTICAL guard,
-     so a slice with headroom could one day satisfy this assertion from the neighbour and
-     report a guard that is no longer where it is named. Measured today: the neighbour
-     starts well past the window and the match sits early in it, so this is insurance
-     against movement rather than a live defect. */
+  /* 📌 ASK THE SOURCE WHERE THE FUNCTION ENDS, rather than guessing a byte count.
+     A `slice(start, start + N)` is coupled to the size of whatever sits at
+     `start`, so it fails in both directions as the file moves: too small and it
+     stops short of the guard it names, too large and it satisfies the assertion
+     from the NEIGHBOUR's identical guard. Both were live here: the number had
+     already been raised once, and `moveAccountNow` carries the same recheck.
+     Brace matching has neither failure mode and needs no number. */
+  const pap = fnBody(script, 'async function paintAccountPicker(');
   assert.ok(!/async function moveAccountNow\(/.test(pap),
-    'the slice now reaches into moveAccountNow, so the assertion below could pass on its guard rather than paintAccountPicker\'s');
+    'the located body reaches into moveAccountNow, so the assertion below could pass on its guard rather than paintAccountPicker\'s');
   assert.ok(/!CURRENT \|\| CURRENT\.sessionName !== forAgent/.test(pap),
     'the accounts-fetch continuation lost its capture-and-recheck');
 });

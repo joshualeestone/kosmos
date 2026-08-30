@@ -86,15 +86,30 @@ keeps catching, and three of these came out of review rather than design:**
 
 ## Proof before the write
 
-- `engine/create.switch-account-1373.test.js`: **5 tests** (three came after the first
+🛑 **THE PER-FILE COUNTS BELOW ARE FLOORS, NOT COUNTS, AND THAT IS DELIBERATE.**
+An exact number here went stale twice and was filed as plan drift both times, which
+is the number's fault rather than the author's: a count of a file that is still
+being added to is wrong the moment the next test lands, so restating it just
+re-arms the trap. A floor stays true as tests are added and still fails loudly if
+a file is gutted, which is the only direction anyone actually needs to catch.
+
+**Re-measure rather than trust any figure here:**
+
+```
+grep -cE '^test\(' server.switch-account-1373.test.js engine/create.switch-account-1373.test.js web.switch-account-1373.test.js
+yarn test | grep -E '^\xe2\x84\xb9 (tests|pass|fail)'
+```
+
+
+- `engine/create.switch-account-1373.test.js`: **at least 5 tests** (three came after the first
   draft: the override-home refusal, with a control proving the same call succeeds once
   the override is gone, and the unpicked-account fallback that iteration 11 turned out
   to need), pass, and **repeatable** (3 consecutive runs exit 0, which is the
   arm that caught the launchctl defect below).
-- `web.switch-account-1373.test.js`: **20 tests**, pass. Source-level by construction and
+- `web.switch-account-1373.test.js`: **at least 20 tests**, pass. Source-level by construction and
   it says so in its own header: it can see that a guard is present and what it is keyed
   on, and it cannot see the rendered page.
-- `server.switch-account-1373.test.js`: **4 tests**, pass. NEW, and it closes the one seam
+- `server.switch-account-1373.test.js`: **at least 4 tests**, pass. NEW, and it closes the one seam
   that had no executed arm: the route was pinned only by regexes matching `server.js`
   against itself. ⭐ **Proven by the mutation a review used to expose the gap:** deleting
   `+ landedOn` from the OK-branch sentence leaves every source-level assertion GREEN and

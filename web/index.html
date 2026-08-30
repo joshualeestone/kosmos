@@ -22100,11 +22100,10 @@ async function paintAccountPicker(a) {
   /* Additive: never break the move picker for the switch picker. But not
      SILENT, because hidden is also the legitimate not-armed state, so a throw
      here would be indistinguishable from working correctly. */
-  /* 🛑 SAY IT WHERE THE PERSON IS, NOT IN DEVTOOLS. This was a `console.warn`, added so a
-     throw here would not be silent, and it was the ONLY console call in this file. The
-     intent was right and the delivery was not: nobody has devtools open, so "not silent"
-     was true of a place with no audience. A throw here means the picker did not render, and
-     the honest thing is to say so beside the control that is missing. */
+  /* 🛑 SAY IT WHERE THE PERSON IS, NOT IN DEVTOOLS. A throw here means the picker
+     did not render, so the failure is announced beside the control that is
+     missing. A `console.warn` would satisfy "not silent" against an audience of
+     nobody: this page ships to people who do not have devtools open. */
   fillSwitchAccountsSafely();
 }
 
@@ -22283,6 +22282,24 @@ function paintProviderPicker(a) {
   if (!sel || !go) return;
   /* Clear the tracker with the region, or it holds a string the DOM no longer contains. */
   if (msg) { msg.textContent = ''; SWITCH_ACCT_SAID = ''; }
+  /* 🛑 SYNCHRONOUSLY, and this is the only reset in this function that exists
+     for a TIMING reason rather than a correctness one. Revealing the picker is
+     fillSwitchAccounts's job, but HIDING it cannot wait for it: that call sits
+     behind an awaited /api/accounts, which this file documents as a real,
+     visible span (one live subprocess check per account). Opening agent B
+     while that fetch is in flight otherwise leaves agent A's sign-in rows on
+     screen -- on the one control whose entire purpose is naming which sign-in
+     you get. No wrong switch could be submitted (`go.disabled` is set just
+     below and the change listener re-derives from CURRENT), so this is a
+     panel making a promise about the wrong agent rather than a wrong action.
+     ⚠️ Safe to hide unconditionally ONLY because every reveal path is a later
+     paint: the one early return that can skip the tail call
+     (`CURRENT.sessionName !== forAgent`) is the supersession guard, which by
+     definition fires when a NEWER agent is being painted, and that paint runs
+     this pair again. A reveal gated on anything else would strand the
+     control. */
+  const acctSel0 = document.getElementById('d-provider-account');
+  if (acctSel0) acctSel0.hidden = true;
   const current = providerOf(a);
   /* kosmos#990: the row states what the agent IS on. The two real providers
      are both selectable -- the current one has to be, or it could not be
@@ -22459,10 +22476,10 @@ function fillSwitchAccounts() {
     ? esc(nameOf(x)) + ' (could not check just now)'
     : esc(nameOf(x)));
   /* 🔑 THE VISIBLE ROW IS ALWAYS THE ROW SENT, and the preselect is therefore
-     load-bearing rather than cosmetic. This is the opposite of what an earlier
-     revision of this comment said, and the change was deliberate: gating the send
-     on the touched flag meant the row ON SCREEN was not the row used, because
-     re-selecting an option a <select> already holds fires no `change`.
+     load-bearing rather than cosmetic. Gating the send on a touched flag instead
+     would make the row ON SCREEN differ from the row used, because re-selecting
+     an option a <select> already holds fires no `change` at all, and with a
+     single account it can never fire.
      ⚠️ SO THE PRESELECT IS A PROMISE NOW. This page filters on live connection
      state and `openai.list()` does not, so the row preselected here can differ
      from the engine's own first account. That divergence is why sending it is
@@ -22534,7 +22551,14 @@ function fillSwitchAccounts() {
        say) the picker could appear with no announcement at all, which is the one signal a
        screen-reader user gets that a new control exists. Reachable on the failed-switch,
        drop-cache, refetch-succeeds path. Replacing a sentence we wrote is safe; replacing
-       one we did not is the thing the never-overwrite rule exists to prevent. */
+       one we did not is the thing the never-overwrite rule exists to prevent.
+       🛑 KNOWN RESIDUAL, RECORDED RATHER THAN HIDDEN: when the region holds a sentence we
+       did NOT write (an engine refusal is the likely one), the announcement is dropped
+       entirely, so a screen-reader user is told a control appeared in every case except
+       the one where they are most likely to be re-picking. Keeping the more specific
+       sentence is still the right call, and the honest fix is a SECOND polite region
+       rather than a clobber, which is a change to the panel's markup and belongs on its
+       own card rather than inside a provider-switch change. */
     if (pmsg && (!pmsg.textContent || pmsg.textContent === SWITCH_ACCT_SAID)) {
       /* ⚠️ SAME NORMALISATIONS THE SPOKEN SENTENCE GETS, because this line IS a spoken
          sentence and its only audience is a screen reader. `switchAcctShown` refuses a
