@@ -641,6 +641,58 @@ cmd_post() {
 # 🔑 THE SENTENCE IS COMPOSED BY THE BOARD, not here and not by the agent. If
 # every agent phrases this itself, three agents give three answers, which is
 # the defect this verb exists to remove.
+# ---- kosmos connections
+# What is connected on this computer (#1034 part 2). VERDICT ONLY, on purpose:
+# the board's own /api/connect answer carries a live sign-in URL and raw
+# terminal output, which is a bearer credential to hand an agent. This reads
+# /api/agent/connections, which is constructed rather than filtered.
+#
+# 🛑 Three answers, never two. "could not check" is a real answer and is not
+# collapsed into "not connected" -- the same rule cmd_agents states, for the
+# same reason: a confident negative ends the search at the moment somebody is
+# trying to get connected.
+cmd_connections() {
+  if ! healthy; then
+    say "Kosmos is not running, so it cannot tell you what is connected. Start it with: kosmos start"
+    exit 1
+  fi
+  local body
+  body=$(curl -sS -m 15 "$URL/api/agent/connections" 2>&1) || {
+    say "Kosmos did not answer, so we cannot tell you what is connected on this computer."
+    exit 1
+  }
+  # The board composed every sentence; this prints them rather than inventing
+  # its own, the same rule `whoami` states.
+  printf '%s\n' "$body" | "$NODE" -e '
+    let raw = ""; process.stdin.on("data", (d) => { raw += d; });
+    process.stdin.on("end", () => {
+      let v = null;
+      try { v = JSON.parse(raw); } catch { v = null; }
+      if (!v || !Array.isArray(v.providers)) {
+        console.log("Kosmos answered something we could not read, so we cannot say what is connected.");
+        process.exit(1);
+      }
+      console.log("What this computer is connected to:");
+      console.log("");
+      for (const p of v.providers) {
+        const many = p.howMany === 1 ? "1 sign-in" : p.howMany + " sign-ins";
+        console.log("  " + p.name + ": " + p.signedIn + " (" + p.because + ", " + many + ")");
+      }
+      if (v.signin && v.signin.busy) {
+        console.log("");
+        console.log("  A sign-in is going on right now (" + v.signin.phase + "). Ask what is on their screen.");
+      }
+      if (Array.isArray(v.services) && v.services.length) {
+        console.log("");
+        console.log("Other services:");
+        for (const s of v.services) console.log("  " + s.name + ": " + s.because);
+      }
+      console.log("");
+      console.log("You cannot see their screen. Ask what it says rather than guessing.");
+    });
+  '
+}
+
 cmd_whoami() {
   if ! healthy; then
     say "Kosmos is not running, so it cannot tell you which account you are on. Start it with: kosmos start"
@@ -870,10 +922,11 @@ case "${1:-}" in
   reply)   shift; cmd_reply "$@" ;;
   post)    shift; cmd_post "$@" ;;
   report)  shift; cmd_report "$@" ;;
+  connections) cmd_connections ;;
   whoami)  shift; cmd_whoami "$@" ;;
   room)    shift; cmd_room "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | whoami\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | connections | version | msg | post | reply | report | room | whoami\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;

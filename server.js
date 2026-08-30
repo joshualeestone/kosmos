@@ -165,6 +165,7 @@ const github = require('./engine/github');
 const vercel = require('./engine/vercel');
 const cloudflare = require('./engine/cloudflare');
 const tokendoors = require('./engine/tokendoors');
+const connectionverdict = require('./engine/connectionverdict');
 /* #553: this process's boot identity, for the update overlay to tell "the
    board went away and came back" from a client-side fetch failure. */
 const BOOTED_AT = new Date().toISOString();
@@ -3680,6 +3681,64 @@ const server = http.createServer((req, res) => {
      is what the page holds (SVC_BUILT). A door whose check threw answers
      connected:null, which the page says as could-not-check, never as
      nothing. GitHub is connected on either of its two roads (#620). */
+  /**
+   * What an AGENT may see about this computer's connections (#1034 part 2).
+   *
+   * 🔑 Deliberately NOT `/api/connect`, and not a filter bolted onto it. That
+   * route answers `connect.state()` verbatim, which carries a LIVE OAuth
+   * authorize URL and 12 lines of raw terminal output -- correct for the
+   * board's own screen on the person's own machine, and a bearer credential
+   * to hand an agent. The safe view is CONSTRUCTED by engine/connectionverdict,
+   * which passes nothing through; see that module for the rule and the reason.
+   *
+   * listLive() rather than list(), the same trade `/api/accounts` documents:
+   * this is a person-paced moment (an agent answering "what is connected?"),
+   * never the 5-second tick.
+   */
+  if (pathname === '/api/agent/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (req.method === 'HEAD') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(); return; }
+    const door = (fn) => Promise.resolve().then(fn).then(
+      (st) => ({ connected: st && st.unreachable === true ? null : !!(st && st.connected === true) }),
+      () => ({ connected: null }),
+    );
+    const doorJobs = {
+      '/api/github': door(async () => {
+        const st = await github.state();
+        if (st && st.connected) return st;
+        if (st && st.gh === 'missing') { const d = await githubdevice.state(); if (d && d.connected) return d; }
+        return st;
+      }),
+      '/api/vercel': door(() => vercel.state()),
+      '/api/cloudflare': door(() => cloudflare.state()),
+    };
+    for (const [name, route] of Object.entries(tokendoors.routes())) doorJobs[route] = door(() => tokendoors.byName(name).state());
+    const doorKeys = Object.keys(doorJobs);
+    /* Every arm is already fail-soft, so one unreachable service degrades to
+       `cannot tell` for that door rather than failing the whole answer. */
+    Promise.all([
+      accounts.listLive().catch(() => null),
+      openaiAccounts.listLive().catch(() => null),
+      Promise.all(doorKeys.map((k) => doorJobs[k])),
+    ]).then(([claudeRows, openaiRows, doorVals]) => {
+      const doors = {};
+      doorKeys.forEach((k, i) => { doors[k] = doorVals[i]; });
+      /* A reader that threw is NOT an empty machine: null becomes no rows,
+         which the module reports as `cannot tell` rather than `none`. */
+      const rows = [
+        ...(claudeRows || []).map((a) => ({ ...a, provider: 'anthropic' })),
+        ...(openaiRows || []),
+      ];
+      const unreadable = { anthropic: claudeRows === null, openai: openaiRows === null };
+      let runnerStatus = {};
+      try { runnerStatus = runners.status(); } catch { runnerStatus = {}; }
+      let signin = null;
+      try { signin = connect.state(); } catch { signin = null; }
+      sendJson(res, 200, connectionverdict.forAgent({
+        connect: signin, accounts: rows, runners: runnerStatus, doors, unreadable,
+      }));
+    }).catch(() => sendJson(res, 500, { error: 'we could not read this computer\'s connections' }));
+    return;
+  }
   if (pathname === '/api/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
     const ask = (fn) => Promise.resolve().then(fn).then(
       /* A held token whose service could not be reached is not "not connected":
