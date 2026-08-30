@@ -192,6 +192,7 @@ test('#1560 MUST NOT RETURN VIA THE INSTALL PATH: no binary, signed out, stale p
   connect.setTickInterval(60);
   t.after(() => {
     connect.setRunner(null); subscription.setRunner(null); connect.resetForTests();
+    connect.setDryRun(true); connect.setTickInterval(700);
     delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
     delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   });
@@ -237,6 +238,7 @@ test('#1580 part 2: installing the missing binary FINISHES the job for a signed-
   connect.setTickInterval(60);
   t.after(() => {
     connect.setRunner(null); subscription.setRunner(null); connect.resetForTests();
+    connect.setDryRun(true); connect.setTickInterval(700);
     delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
     delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   });
@@ -279,6 +281,7 @@ test('#1580 part 2: an UNANSWERABLE post-install probe must not declare a stale 
   connect.setTickInterval(60);
   t.after(() => {
     connect.setRunner(null); subscription.setRunner(null); connect.resetForTests();
+    connect.setDryRun(true); connect.setTickInterval(700);
     delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
     delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   });
@@ -304,6 +307,13 @@ test('#1580: the !haveBinary guard stops a flow that ALREADY had a binary from r
    * would then declare connected for a flow that installed nothing, skipping the
    * sign-in the person is in the middle of.
    */
+  /* ⚠️ A LOCAL BASE EVEN THOUGH THIS CELL HAS A BINARY. Safe today only because
+     the binary is present, which is a property of the fixture and not a guard:
+     delete those two lines and this reaches downloads.claude.ai, because the
+     previous test's t.after has already removed the base it set. */
+  const fixture8 = crypto.randomBytes(8 * 1024);
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(
+    t, fixture8, crypto.createHash('sha256').update(fixture8).digest('hex'));
   const bin = nodePath.join(SANDBOX, `claude-flip-${Math.random().toString(36).slice(2, 8)}`);
   fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bin, 0o755);   // PRESENT
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
@@ -319,10 +329,55 @@ test('#1580: the !haveBinary guard stops a flow that ALREADY had a binary from r
   connect.setTickInterval(60);
   t.after(() => {
     connect.setRunner(null); subscription.setRunner(null); connect.resetForTests();
+    connect.setDryRun(true); connect.setTickInterval(700);
+    delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
     delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   });
 
   await connect.start();
   assert.equal(await settled(), connect.PHASE.SIGNIN_LAUNCHING,
     'a flow that installed nothing re-decided at the tail and skipped the sign-in in progress');
+});
+
+test('#1580: a DIRECTORY at the binary path is not "something to run"', async (t) => {
+  /**
+   * 🛑 THE THIRD INSTANCE OF THE SAME GAP ON THIS BRANCH: a guard whose positive
+   * case had no arm. The longest comment in this change argues for
+   * `resolveBin().present` over a bare `accessSync` because **accessSync
+   * SUCCEEDS ON A DIRECTORY**. Nothing tested that. Measured by a review:
+   * weakening the check back to `accessSync` left the entire suite green at
+   * 3113 pass, while a directory at the binary path reported CONNECTED.
+   *
+   * ⇒ The argument was right and unpinned, which is the state this branch has
+   * now been in three times: part 2's positive case, the !haveBinary guard, and
+   * this. Each time the reasoning was in a comment and the demonstration was
+   * missing.
+   */
+  const dir = nodePath.join(SANDBOX, `claude-as-a-dir-${Math.random().toString(36).slice(2, 8)}`);
+  fs.mkdirSync(dir, { recursive: true });
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = dir;
+  // a control on the premise itself, so this test states why it exists
+  let accessSyncSaysYes = false;
+  try { fs.accessSync(dir, fs.constants.X_OK); accessSyncSaysYes = true; } catch { /* no */ }
+  assert.equal(accessSyncSaysYes, true,
+    'the premise of this test is that accessSync passes a directory; it did not');
+
+  const fixture = crypto.randomBytes(8 * 1024);
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(
+    t, fixture, crypto.createHash('sha256').update(fixture).digest('hex'));
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(PAID_FILE));
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  connect.setRunner(() => ({ ok: true, stdout: '' }));
+  connect.setDryRun(false);
+  t.after(() => {
+    connect.setRunner(null); subscription.setRunner(null); connect.resetForTests();
+    connect.setDryRun(true); connect.setTickInterval(700);
+    delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+  });
+
+  const st = await connect.start();
+  assert.notEqual(st.phase, connect.PHASE.CONNECTED,
+    'a directory at the binary path was accepted as something that can run an agent');
+  assert.equal(st.phase, connect.PHASE.DOWNLOADING);
 });

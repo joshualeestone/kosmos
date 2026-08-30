@@ -906,9 +906,16 @@ async function start(opts) {
      * pay for it. `accessSync` is synchronous and answers the question this
      * branch actually needs: is there anything on disk to run at all.
      *
-     * ⇒ A person whose binary exists but is BROKEN still reports connected here
-     * and is corrected by the probe further down, which is the pre-existing
-     * behaviour and not this card's subject.
+     * 🛑 A BINARY THAT EXISTS AND DOES NOT RUN STILL REPORTS CONNECTED HERE, AND
+     * NOTHING CORRECTS IT. This branch's verdict is TERMINAL: `start()` returns
+     * before the `--version` probe, so that probe never sees this arm. An
+     * earlier version of this comment claimed the probe corrected it, which was
+     * false and is deleted rather than annotated, because a wrong sentence left
+     * above its own retraction is read first.
+     *
+     * ⇒ `resolveBin().present` narrows it to what is checkable synchronously: a
+     * regular file this process can execute. A file that runs and misbehaves is
+     * out of reach here and is not this card's subject.
      */
     /**
      * 🛑 `resolveBin().present`, NOT A BARE accessSync, AND THE DIFFERENCE IS A
@@ -917,16 +924,21 @@ async function start(opts) {
      * and this branch reported CONNECTED. That is precisely the machine this
      * card is about: nothing on it can run an agent.
      *
-     * ⚠️ AND THE COMMENT I WROTE HERE CLAIMED A FALLBACK THAT DOES NOT EXIST.
-     * It said a broken binary "is corrected by the probe further down". It is
-     * not: on this arm `start()` RETURNS five lines above that probe, so the
-     * verdict is terminal. A wrong rationale reads as checked, which is worse
-     * than no rationale.
+     * ⚠️ AND THE FIRST VERSION OF THIS BRANCH CLAIMED A FALLBACK THAT DOES NOT
+     * EXIST, saying a broken binary "is corrected by the probe further down".
+     * It is not: `start()` returns at :990 and that probe is at :1006, sixteen
+     * lines below and unreachable from here. A wrong rationale reads as checked.
      *
      * ✅ `runners.isRunnable` already asks the right question, adding
-     * `statSync().isFile()` for exactly this reason, and its own comment
-     * enumerates connect.js's three other sites that ask it. This is the fourth
-     * and it was the only one whose answer was both weaker and final.
+     * `statSync().isFile()` for exactly this reason.
+     *
+     * 📌 connect.js has FOUR other bare-`accessSync` sites (:434 `willInstall`,
+     * :996, :1268, :2010), not the three runners.js enumerates -- it omits
+     * `willInstall`. And this is not the only one that is both weak and final:
+     * :2010's `canRunClaude` decides whether the STUCK screen tells somebody to
+     * type `claude` in Terminal, so a directory passing it hands a person a way
+     * out that cannot work. Left alone here as out of scope, and named so it is
+     * findable.
      */
     const binaryOnDisk = require('./runners').resolveBin('claude').present;
 
@@ -992,8 +1004,20 @@ async function start(opts) {
   }
 
   const bin = claudeBinPath();
-  let haveBinary = false;
-  try { fs.accessSync(bin, fs.constants.X_OK); haveBinary = true; } catch { /* not installed yet */ }
+  /**
+   * 🛑 THE SAME RESOLVER AS THE SHORT-CIRCUIT ABOVE, OR THE TWO DISAGREE AND THE
+   * PERSON GETS NEITHER OUTCOME. Measured while adding the directory arm to the
+   * #1580 tests: with this left as a bare `accessSync`, a DIRECTORY at the
+   * binary path made `binaryOnDisk` false (so the flow correctly refused to
+   * report connected) and `haveBinary` TRUE (so `runFlow` skipped the install),
+   * landing on a sign-in for a machine with nothing to run.
+   *
+   * ⇒ Falling through and then skipping the install is not a smaller version of
+   * the bug, it is a different one. Both checks now ask
+   * `runners.resolveBin('claude').present`, which is `statSync().isFile()` plus
+   * `accessSync(X_OK)`, so they cannot answer differently.
+   */
+  let haveBinary = require('./runners').resolveBin('claude').present;
   /**
    * ⚠️ EXECUTABLE IS NOT WORKING. A cancel or crash mid-`claude install` can
    * leave a truncated launcher that passes X_OK forever -- and trusting it
@@ -1348,10 +1372,21 @@ async function runFlow(owner, haveBinary) {
    * the kind of thing that can change the answer. It is the same reader the
    * flow already trusts at its own connected-detection sites.
    *
-   * 📌 The pane-based detection further down cannot cover this: it fires only
-   * once a pane classifies as `browser-open` or `awaiting-code`, and somebody
-   * who never needed a sign-in never produces either. Measured before adding
-   * this: the journey ended at `signin-launching` and stayed there.
+   * 🛑 MY FIRST JUSTIFICATION FOR THIS WAS FACTUALLY WRONG AND ITS MEASUREMENT
+   * COULD NOT HAVE PRODUCED THE OTHER ANSWER. I wrote that the pane-based
+   * detection "cannot cover this: it fires only once a pane classifies as
+   * browser-open or awaiting-code". There are THREE pane-driven finishConnected
+   * sites, not one, and `launchSignin` runs bare `claude`, which for a
+   * signed-in person shows a REPL and classifies as `repl` -- which finishes.
+   * My "measured" evidence used a capture-pane fixture returning '', which
+   * classifies as `blank`, a shape NO finish path acts on. I aimed the
+   * measurement at a case the mechanism cannot reach.
+   *
+   * ✅ THE REAL ARGUMENT, WHICH IS NARROWER AND SURVIVES: without this, the
+   * person is shown a sign-in screen and then taken off it once a pane
+   * classifies, so it removes a screen they never needed rather than being
+   * their only route out. And it is STRICTER than the `repl` site, which reads
+   * the FILE alone and is exactly the #1560 over-claim; this asks the world.
    *
    * 🛑 TWO GUARDS, AND I ADDED BOTH ONLY AFTER MY FIRST VERSION REINTRODUCED
    * #1560. Written without them, this read the FILE and ran for EVERY flow, so

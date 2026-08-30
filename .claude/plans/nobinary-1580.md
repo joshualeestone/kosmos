@@ -14,12 +14,22 @@ Found by RUNNING cell 4 of the #1562 QA matrix, not by reading the code.
 
 ## The fix, in two parts
 
-**1. A cheap synchronous `accessSync` before the CONNECTED short-circuit.**
-Deliberately not the full `haveBinary`, which refines it with an awaited
-`--version` probe on a 15 second timeout. Putting that in front of the fast path
-would make every already-connected `start()` pay for it. A binary that exists but
-is broken still reports connected here and is corrected by the probe further
-down; that is pre-existing behaviour and not this card's subject.
+**1. A synchronous `resolveBin('claude').present` before the CONNECTED
+short-circuit.** Deliberately not the full `haveBinary`, which refines it with an
+awaited `--version` probe on a 15 second timeout; putting that in front of the
+fast path would make every already-connected `start()` pay for it.
+
+🛑 **A binary that exists and does not run still reports connected here, and
+NOTHING corrects it.** This verdict is terminal: `start()` returns at `:990` and
+the `--version` probe is at `:1006`, unreachable from this arm. Earlier versions
+of this plan and of the code comment claimed the probe corrected it. That was
+false, and it is deleted rather than annotated, because a wrong sentence left
+standing is read before its retraction.
+
+`accessSync` alone was also wrong: **it succeeds on a directory**, so a folder at
+the binary path reported connected. `resolveBin().present` adds
+`statSync().isFile()`, which is what makes the check mean "something this process
+can execute" rather than "something is there".
 
 **2. A post-install connected check.** Falling through alone was worse than it
 looked: measured, the journey ran `downloading -> signin-launching` and stayed
@@ -49,7 +59,7 @@ Both guards on part 2 are therefore load-bearing:
 
 ## Verification
 
-- full suite **3110 pass, 0 fail**
+- full suite **3113 pass, 0 fail**
 - cell 4 (auth, no binary): **CONNECTED -> DOWNLOADING**
 - journey (install then finish): **downloading -> connected**, binary on disk
 - cells 1, 2, 5, 5b unchanged
@@ -94,6 +104,17 @@ number down, not for calling it unrepeatable. The original figure in this sectio
 
 ## Deliberately not done
 
-No change to the broken-binary path. A binary that exists and does not run still
-reports connected at this branch and is corrected by the `--version` probe, which
-is what #1562 cell 2 measured as already working.
+**No change to the binary-that-runs-and-misbehaves case.** `resolveBin().present`
+answers what is checkable synchronously: a regular file this process can execute.
+A file that executes and then fails is out of reach at this branch, and its
+verdict here is terminal rather than corrected later.
+
+⚠️ An earlier version of this section said that case "is corrected by the
+`--version` probe". It is not, for the same reason as above. #1562 cell 2
+measured the probe working on the path where it IS reached (no short-circuit),
+which is a different arm.
+
+**Also not fixed here:** `connect.js:2010`'s `canRunClaude` is a bare
+`accessSync`, so a directory passes it, and it decides whether the STUCK screen
+tells somebody to type `claude` in Terminal. Weak and final, like this one was.
+Named rather than changed, to keep this diff to one behaviour.
