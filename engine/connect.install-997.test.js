@@ -205,6 +205,13 @@ test('a failed install returns the FAILURE shape with a message, and is NOT mark
   assert.equal(res.ok, false);
   assert.ok(!res.cancelled, 'a real failure must not be mistaken for a cancellation');
   assert.match(res.message, /did not finish setting itself up/);
+  // ⚠️ `detail` IS PART OF THE DOCUMENTED CONTRACT and nothing asserted it.
+  // Measured: `fail = (message, detail) => ({ ok: false, message })` was green
+  // across the whole suite. It is what becomeStuck renders as the stuck
+  // screen's `tail`, which is the field that turned out to carry the real
+  // cause in kosmos#1551, so a second caller that drops it loses the diagnosis.
+  assert.match(res.detail, /install exploded/,
+    'the failure detail must carry the installer output, not be dropped');
 });
 
 // ── the hook contract ───────────────────────────────────────────────────────
@@ -236,13 +243,35 @@ test('CONTROL: the full stub set gets past the entry guard and SUCCEEDS', async 
     'a successful install must not leave the downloaded binary behind');
 });
 
-test('onPhase receives DOWNLOADING then INSTALLING, in that order, once each', async (t) => {
-  // The phase sequence is exactly what a Windows runner has to reimplement, so
-  // it belongs in the contract file rather than only in the runFlow tests.
-  const phases = [];
-  const res = await withRelease(t, { onPhase: (p) => phases.push(p) });
+test('onPhase announces INSTALLING BEFORE the installer runs, not after', async (t) => {
+  /**
+   * 🛑 THE SEQUENCE ALONE IS HALF THE CONTRACT, AND THE MISSING HALF IS THE ONE
+   * A PERSON SEES. Measured: moving `hooks.onPhase(PHASE.INSTALLING)` to AFTER
+   * the `run(..., ['install'])` call leaves the WHOLE SUITE GREEN while
+   * asserting the sequence, because the order of the two phase events is
+   * unchanged. Under the real caller the board would then sit on DOWNLOADING
+   * for the entire three-minute install and flip to INSTALLING for a
+   * microsecond at the end.
+   *
+   * ✅ ONE ORDERED LOG, not two lists. Interleaving phase events with runner
+   * calls is what makes "before" assertable at all; two separate arrays can
+   * only ever show sequence within each.
+   */
+  const log = [];
+  const res = await withRelease(t, { onPhase: (p) => log.push(`phase:${p}`) }, {
+    runner: (file, args) => {
+      if (args && args[0] === 'install') log.push('run:install');
+      fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_BIN, '#!/bin/sh\nexit 0\n');
+      fs.chmodSync(process.env.AGENT_WORKFORCE_CLAUDE_BIN, 0o755);
+      return { ok: true, stdout: '' };
+    },
+  });
   assert.equal(res.ok, true);
-  assert.deepEqual(phases, [connect.PHASE.DOWNLOADING, connect.PHASE.INSTALLING]);
+  assert.deepEqual(log, [
+    `phase:${connect.PHASE.DOWNLOADING}`,
+    `phase:${connect.PHASE.INSTALLING}`,
+    'run:install',
+  ], 'INSTALLING must be announced before the installer executes, not after');
 });
 
 test('wantsProgress() gates onProgress()', async (t) => {
@@ -339,10 +368,6 @@ test('an install that reports success but leaves no runnable binary is caught', 
   assert.match(res.message, /cannot find it where it should be/);
   assert.deepEqual(downloadsMatching(/^claude-/), [],
     'a failed access check must not strand the downloaded binary');
-  // ⚠️ AND THE 281MB GOES TOO. Measured: deleting the unlink from this catch
-  // survives every other test in the repo, stranding a binary per attempt --
-  // the exact failure connect.test.js:216 exists to prevent for the sibling
-  // !inst.ok path, with no guard on this one.
   /**
    * ⚠️ AND THE 281MB GOES TOO. Measured, both arms: deleting the unlink from
    * this catch leaves `claude-9.9.5-darwin-arm64` behind, stranding a binary
@@ -389,7 +414,7 @@ test('cancel landing WHILE THE INSTALL CHILD RUNS returns the cancelled shape', 
  * ⚠️ TWO WRONG VEHICLES FOR TESTING THE SWEEP, BOTH TRIED, BOTH RECORDED.
  *
  * 1. A CHECKSUM REFUSAL: `download()` unlinks its own `.part` at
- *    connect.js:530 before throwing, so nothing is left and both arms match.
+ *    connect.js:532 before throwing, so nothing is left and both arms match.
  * 2. A PLANTED STALE PARTIAL FROM ANOTHER VERSION: `download()` has its own
  *    PRE-download sweep that is NOT gated by the hook, so it clears the
  *    planted file before the failure happens. Measured: both arms empty.
