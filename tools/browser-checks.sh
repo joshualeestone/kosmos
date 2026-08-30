@@ -611,6 +611,9 @@ if boot_board "$sb7" "$P8"; then
   # control, but it hardcoded port 4399 so it could never take the runner's
   # kernel-chosen one. It is the path every new person walks; it now runs here.
   run_one "render-first-run"    env KOSMOS_URL="$B8" node docs/browser-checks/render-first-run.js "$sb7/shots-firstrun"
+  # #1553: the launch must not flash the agents view before the first-run gate
+  # resolves. Proven green + fails-without-the-cover before wiring (the #812 rule).
+  run_one "render-boot-no-flash" env KOSMOS_URL="$B8" node docs/browser-checks/render-boot-no-flash.js
   run_one "render-theme-toggle"  env KOSMOS_URL="$B8" node docs/browser-checks/render-theme-toggle.js "$sb7/shots-toggle"
   # #812: 15 checks were green on a clean main but never asked. render-full-width
   # first (#778 restated it, Ice Cream Kitty, #814; ready now); more join in
