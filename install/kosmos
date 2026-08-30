@@ -687,23 +687,34 @@ cmd_connections() {
     say "Kosmos is not running, so it cannot tell you what is connected. Start it with: kosmos start"
     exit 1
   fi
-  local body rc
+  local body
   # ⏱ 40s, not 15. This route composes a LIVE per-account check (a `claude auth
   # status` subprocess each) plus the whole door sweep. The arms run in
   # parallel so the real cost is bounded near the slowest one, but 15s left no
   # margin on a machine with several accounts and a slow network door.
-  body=$(curl -sS -m 40 "$URL/api/agent/connections" 2>&1); rc=$?
-  if [ "$rc" -ne 0 ]; then
+  # 🛑 `|| { ... }`, NOT `; rc=$?`. This script runs under `set -euo pipefail`
+  # (line 24), and a failing command substitution in a plain assignment is a
+  # simple command: the shell EXITS THERE. An earlier version of this block wrote
+  # `body=$(curl ...); rc=$?`, which made BOTH sentences below unreachable --
+  # measured, with both arms: under `set -e` it printed nothing and exited with
+  # curl's raw code (7, 28, ...), and the same function with `set -e` removed
+  # printed the sentence. The success path still reached `rc=0`, which is why it
+  # looked fine. Every sibling verb (`cmd_msg`, `cmd_whoami`) uses this form.
+  # ⚠️ And no `2>&1`: folding curl's stderr into $body swallowed its own message
+  # as well, so a person got silence from both halves at once.
+  local rc
+  body=$(curl -sS -m 40 "$URL/api/agent/connections") || {
+    rc=$?
     # 28 is curl's own timeout. Saying "Kosmos did not answer" for a client-side
-    # timeout blames the board for our deadline, and sends whoever reads it to
-    # the wrong place.
+    # deadline blames the board for our impatience and sends the reader to the
+    # wrong place.
     if [ "$rc" -eq 28 ]; then
       say "Checking what is connected took longer than we waited. The board is running; try again, or open it at $URL"
     else
       say "Kosmos did not answer, so we cannot tell you what is connected on this computer."
     fi
     exit 1
-  fi
+  }
   if [ ! -x "$NODE" ]; then
     # The runtime is how we PRINT the answer, not how we get it. Losing it
     # should cost formatting, not the answer, so the raw body goes out rather
@@ -761,7 +772,19 @@ cmd_connections() {
          "Claude: connected" and then "a sign-in got stuck", in the present tense,
          about the same machine. Two accounts of one computer is the exact thing
          this whole verb exists to avoid. */
-      var anyConnected = v.providers.some(function (p) { return p.signedIn === "connected"; });
+      /* SCOPED TO THE PROVIDER THE FLOW BELONGS TO. v.signin covers the Claude
+         download-and-sign-in flow only. Suppressing on ANY connected provider
+         meant a machine with GPT connected and Claude genuinely stuck RIGHT NOW
+         printed nothing at all, which is the same silence the block above exists
+         to remove. The staleness argument only ever justified suppressing on a
+         connected CLAUDE.
+         NOTE: no apostrophes anywhere in this embedded script. It is wrapped in
+         a single-quoted shell string, so one apostrophe ends the string and the
+         file stops parsing. bash -n caught exactly that here. */
+      var who = (v.signin && v.signin.provider) || "anthropic";
+      var anyConnected = v.providers.some(function (p) {
+        return p.id === who && p.signedIn === "connected";
+      });
       if (v.signin && STOPPED[v.signin.phase] && !anyConnected) {
         console.log("");
         console.log("  " + STOPPED[v.signin.phase] + " Ask what is on their screen.");

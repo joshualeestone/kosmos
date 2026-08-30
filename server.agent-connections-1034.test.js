@@ -120,14 +120,45 @@ test('a LIVE sign-in carrying a bearer URL is visible to the board and NOT to an
   fs.rmSync(stateFile, { force: true });
 });
 
-test('HEAD is a cheap route-is-there probe, like its sibling read routes', async () => {
+test('HEAD answers 200 without paying for the live per-account sweep', async () => {
+  /**
+   * 🛑 THE OBVIOUS ASSERTION HERE CANNOT FAIL. An earlier version checked that
+   * the HEAD body was empty. Measured: a server that DELIBERATELY writes a full
+   * JSON body on HEAD still yields "" from `res.text()` (control: the same
+   * server's GET returns it), because the HTTP client discards it. So deleting
+   * the short-circuit at server.js would have left that test green while every
+   * HEAD paid a live `claude auth status` per account plus every door call.
+   *
+   * ⇒ Cheapness is a TIMING property, so it is timed. The short-circuit returns
+   * before any subprocess; the GET does not. The threshold is deliberately loose
+   * (a multiple, not a millisecond count) because this runs on a contended box.
+   */
+  const t0 = Date.now();
   const res = await fetch(base + '/api/agent/connections', { method: 'HEAD' });
+  const headMs = Date.now() - t0;
   assert.equal(res.status, 200);
-  assert.equal(await res.text(), '');
+
+  const t1 = Date.now();
+  const g = await fetch(base + '/api/agent/connections');
+  await g.text();
+  const getMs = Date.now() - t1;
+
+  // control: the GET must actually be doing work, or the comparison is vacuous
+  assert.ok(getMs > 5, `control: the GET took ${getMs}ms, too fast to be doing the sweep`);
+  assert.ok(headMs * 4 < getMs || headMs < 5,
+    `HEAD (${headMs}ms) is not materially cheaper than GET (${getMs}ms), so it is paying for the sweep`);
 });
 
-test('no sign-ins on this computer reads as none, not as a crash', async () => {
+test('every provider answers with the three-state vocabulary and a real sentence', async () => {
+  /**
+   * ⚠️ RENAMED TO WHAT IT CHECKS. It used to be called "no sign-ins reads as
+   * none", which it never asserted: it would pass with BOTH providers reading
+   * `unknown`, the opposite of the claim, and so could not detect a regression
+   * that made the sandbox read blind. The vocabulary check is worth having; the
+   * name was writing a cheque the assertions did not cover.
+   */
   const body = await (await fetch(base + '/api/agent/connections')).json();
+  assert.ok(body.providers.length > 0, 'control: no providers came back at all');
   for (const p of body.providers) {
     assert.ok(['connected', 'none', 'unknown'].includes(p.signedIn), `bad verdict ${p.signedIn}`);
     assert.equal(typeof p.because, 'string');
@@ -180,4 +211,24 @@ test('the served door names are human names, never route fragments', async () =>
   }
   assert.ok(body.services.some((s) => s.name === 'GitHub'),
     'the first-party doors lost their human names');
+});
+
+test('the agent view carries every door the board view carries', async () => {
+  /**
+   * 🛑 A RECORDED HAZARD IS NOT A GUARD. The plan says plainly that the door
+   * sweep is re-implemented inline here rather than shared, so "a fourth
+   * first-party door added to /api/connections would silently never appear in
+   * the agent view". That was written down and nothing checked it.
+   *
+   * This compares the two routes' door counts. It does not require the sweeps to
+   * be shared, only that they stay in step, which is the property that actually
+   * matters to a person asking an agent what is connected.
+   */
+  const board = await (await fetch(base + '/api/connections')).json();
+  const agent = await (await fetch(base + '/api/agent/connections')).json();
+  const boardDoors = Object.keys(board.doors || {});
+  assert.ok(boardDoors.length > 0, 'control: the board route returned no doors, so this proves nothing');
+  assert.equal(agent.services.length, boardDoors.length,
+    `the agent view has ${agent.services.length} doors and the board has ${boardDoors.length}: `
+    + 'one route gained a door the other did not, which is the drift the plan predicted');
 });

@@ -218,10 +218,19 @@ function serviceView(doors, allowed) {
   return out;
 }
 
+/**
+ * 🛑 CLAUDE ONLY, AND IT SAYS SO ON THE WIRE. `connect.state()` is the Claude
+ * download-and-sign-in flow (`engine/connect.js`'s own header); OpenAI is a
+ * pasted key and never enters it. Reported unqualified beside a two-provider
+ * array, an agent helping somebody paste an OpenAI key reads `phase: idle` and
+ * honestly reports "no sign-in is going on" WHILE THE PERSON IS MID-FLOW --
+ * which is the two-accounts-of-what-to-do failure this card exists to prevent,
+ * arriving through a field name rather than a sentence.
+ */
 function signinView(st) {
   const raw = st && typeof st.phase === 'string' ? st.phase : null;
   const phase = PHASES.includes(raw) ? raw : 'unknown';
-  return { phase, busy: BUSY_PHASES.includes(phase) };
+  return { provider: 'anthropic', phase, busy: BUSY_PHASES.includes(phase) };
 }
 
 /**

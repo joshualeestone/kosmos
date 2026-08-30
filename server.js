@@ -3000,6 +3000,15 @@ const server = http.createServer((req, res) => {
          first-run wizard model step, which can re-fire on a back/forward pass),
          and /api/agent/connections (an agent, through the CLI). The list shows
          what demand-paced looks like; it is not a set to keep complete.
+         ⚠️ AND THE INVARIANT IS NOW STRETCHED, WHICH IS WORTH SAYING RATHER
+         THAN LEAVING FOR SOMEBODY TO DISCOVER. `/api/agent/connections` is called
+         by AGENTS, and the instruction block tells every agent the verb exists.
+         An agent is not a hand on a screen: nothing here rate-limits, caches or
+         debounces it, and EACH CALL IS A LIVE `claude auth status` PER ACCOUNT
+         PLUS EVERY DOOR CHECK. It is still demand-paced rather than a tick, an
+         agent asks to answer a question, but the phrase is doing more work than
+         it did. If this route ever appears in a polling loop, THE CACHE BELONGS
+         HERE, NOT IN THE CALLER.
        ⚠️ HEAD SKIPS THE LIVE CHECK. Nothing in web/index.html sends one
        today, but a HEAD is conventionally cheap/side-effect-light, and
        nothing about it needs a per-account subprocess/network call to
