@@ -1,3 +1,54 @@
+# --- Shared: is a matched process THIS run, or a separate one? (#1391) -------
+# Both guards below match a process by its command line and must then exclude
+# the caller's OWN run so it does not refuse itself. A single-pid exclusion is
+# not enough, for two measured reasons (#1391, reproduced deterministically):
+#   1. macOS `pgrep -f` never lists its own ANCESTOR, so the caller's process
+#      (the guard runs INSIDE it) is invisible to pgrep -- the pid exclusion
+#      targets a line pgrep never returns, i.e. it was dead code.
+#   2. A run forks bash subshells that INHERIT its command line with fresh pids
+#      (any `( a; b )`, background job or `$( )` that does not immediately exec).
+#      Those are the caller's own DESCENDANTS, matched by pgrep, and a single
+#      pid cannot drop them -- which made the browser gate refuse its own page
+#      layer while nothing else was running.
+# So the caller's run is "self + everything descended from self". This walks a
+# candidate's parent chain: reaching `root` means the candidate is part of THIS
+# run; only a candidate OUTSIDE the caller's subtree is a genuinely separate
+# run. A pid ps cannot resolve (a probe's synthetic pid, or one that just
+# exited) is treated as NOT ours and left in the list -- an unresolvable match
+# is safer reported than silently dropped.
+# KNOWN RESIDUAL, deliberate: the walk reads a LIVE tree, so a nested descendant
+# whose intermediate ancestor exits mid-walk (reparented to pid 1) can miss
+# `root` and read as a separate run -- a self-inflicted false positive, the very
+# class that first disarmed this guard. It is bounded: in the real path the
+# matched subshells are DIRECT children of a live caller, so the walk hits `root`
+# on the first hop. A process-group test would survive reparenting but cannot
+# tell a sibling in the same group from a separate run (which the tests model as
+# exactly that), so the ancestry walk is kept and the residual is named, not
+# hidden. The direction is the safe one: it over-reports (refuses), never misses
+# a genuinely separate run.
+_kosmos_pid_is_self_or_descendant() {
+  local pid="$1" root="$2" hops=0
+  { [ -n "$pid" ] && [ -n "$root" ]; } || return 1
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
+    [ "$pid" = "$root" ] && return 0
+    pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+    hops=$((hops + 1)); [ "$hops" -gt 64 ] && break
+  done
+  return 1
+}
+
+# Read `pid cmdline` lines on stdin; print only those whose pid is NEITHER the
+# caller (`$1`) nor one of its descendants -- i.e. a genuinely separate run.
+_kosmos_drop_self_subtree() {
+  local self="$1" line cpid
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    cpid="${line%% *}"
+    _kosmos_pid_is_self_or_descendant "$cpid" "$self" && continue
+    printf '%s\n' "$line"
+  done
+}
+
 # The live-cut guard (#708). Two copies of the install gate on one Mac share
 # the fixed port range, the real ~/Applications and /Applications
 # fingerprints and the gui launchd domain, and they poison each other:
@@ -33,6 +84,12 @@ kosmos_refuse_if_cut_live() {
   # Drop the caller's own line, in BOTH paths, so the probe seam exercises the
   # same exclusion the real pgrep gets. An `out` emptied by this is a clean
   # "no OTHER cut", which the rc==0 test below already reads correctly.
+  # 📌 This guard shares the #1391 flaw of the browser guard below: a single-pid
+  # exclusion cannot drop the caller's own argv-inheriting subshells. It has not
+  # bitten here because release.sh calls this at its very TOP, before it forks any
+  # such subshell -- so it is left unchanged in the #1391 PR to keep an armed,
+  # load-bearing guard out of scope. A focused follow-up can adopt
+  # _kosmos_drop_self_subtree here too; the helper is already shared.
   if [ -n "$out" ] && [ -n "$self" ]; then
     out="$(printf '%s\n' "$out" | grep -v -E "^${self} " || true)"
   fi
@@ -71,12 +128,19 @@ kosmos_refuse_if_browser_run_live() {
     out="$(printf '%s\n' "$raw" | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/browser-checks\.sh( |$)' || true)"
     if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
   fi
-  # ⚠️ SELF-EXCLUSION IS LOAD-BEARING HERE FOR THE SAME REASON IT IS ABOVE:
-  # browser-checks.sh IS a `bash tools/browser-checks.sh`, so wired in without
-  # this the gate refuses EVERY page-layer run on a Mac with no other run --
-  # a total page-layer outage that reads exactly like the guard working.
+  # ⚠️ EXCLUDE THE CALLER'S OWN SUBTREE, NOT JUST ITS PID (#1391). browser-checks.sh
+  # IS a `bash tools/browser-checks.sh` and forks subshells that inherit that
+  # command line with fresh pids, so a single-pid exclusion left the caller's own
+  # descendants in the list and the gate refused its own page layer while nothing
+  # else ran. See _kosmos_drop_self_subtree above for the mechanism.
   if [ -n "$out" ] && [ -n "$self" ]; then
-    out="$(printf '%s\n' "$out" | grep -v -E "^${self} " || true)"
+    # || true for parity with the single-pid `grep -v` path above. The function
+    # returns 0 today (a while-loop's status is its last executed body command,
+    # printf/continue here, not the read that hits EOF), so this is defensive
+    # rather than load-bearing: it keeps the assignment 0 under `set -o pipefail`
+    # should the function ever be changed to return non-zero, and it matches the
+    # sibling path.
+    out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
   fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether another browser run is live (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2
