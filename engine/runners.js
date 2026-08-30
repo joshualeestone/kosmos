@@ -195,10 +195,14 @@ function isRunnable(p) {
     // this", and a root-owned 0o700 binary passes that while failing at
     // launch for us. accessSync asks the only question that matters -- can
     // THIS process run it -- which engine/connect.js asked separately of the
-    // same binary at its presence probe, its post-install gate
-    // and its stuck-state check. (Not at the launch itself, which checks
-    // nothing -- so this is the question asked BEFORE a launch, three times
-    // over there and once here.)
+    // same binary at its presence probe and its stuck-state check, until #1592
+    // pointed both here. It asks zero times directly now.
+    //
+    // ⚠️ CORRECTED: an earlier version of this sentence said "three times over
+    // there", counting the post-install gate. That gate already used
+    // resolveBin().present and never asked this question, which this branch's
+    // own plan measured and recorded. I rewrote this comment to fix one stale
+    // claim and introduced a second in the same edit.
     fs.accessSync(p, fs.constants.X_OK);
     return true;
   } catch { return false; }

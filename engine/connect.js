@@ -963,7 +963,7 @@ async function start(opts) {
      * so the hatch had never rendered and this repoint was dead code.
      *
      * 🛑 THAT CORRECTION IS ITSELF NOW FALSE. #1595 landed: `publicView` carries
-     * `canRunClaude` (line 511) and `engine.publicview-canrun-1595.test.js` on
+     * `canRunClaude` in its returned object, and `engine.publicview-canrun-1595.test.js` on
      * main pins it. So the field IS served, and repointing `becomeStuck` is a
      * LIVE user-visible change: a directory at the bin path now correctly hides
      * the "open Terminal, type claude" hatch instead of offering it.
@@ -971,8 +971,14 @@ async function start(opts) {
      * ⭐ A retraction can go stale exactly like the claim it retracted. This one
      * understated the change rather than overstating it, which is why nobody
      * caught it: an error in the modest direction reads as caution. Out of scope
-     * here either way, but the reason is "it is not wired", not "it is wired and
-     * weak" -- and this branch is what first routes a machine to that screen.
+     * here either way, and this branch is what first routes a machine to that
+     * screen.
+     *
+     * ⚠️ THE OLD CLOSING SENTENCE SAID the reason is "it is not wired", not "it
+     * is wired and weak". That is retracted: since #1595 it IS wired, so the
+     * repoint is live rather than dormant. It is called out here rather than
+     * quietly deleted because it was the block's LAST line, and a block that
+     * ends on its own retracted claim gets read ending-first.
      */
     const binaryOnDisk = require('./runners').resolveBin('claude').present;
 
