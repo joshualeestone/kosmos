@@ -82,7 +82,7 @@ test('#1488: the rule is CALLED in both places, never restated', () => {
     'the predicate is not in codexupdate.js either, so the absence assertions above proved nothing');
 });
 
-test('#1488: the page filter EXECUTES and drops only non-offerable rows', () => {
+test('#1488: the page filter EXECUTES, drops non-offerable rows, and keeps its older exclusions', () => {
   /* Lift the real filter expression out of the page and run it, rather than asserting
      on its text. A text assertion cannot tell a correct filter from a reversed one. */
   const at = PAGE.indexOf('function fillSwitchAccounts');
@@ -106,7 +106,13 @@ test('#1488: the page filter EXECUTES and drops only non-offerable rows', () => 
     'the pre-existing dead-connection exclusion must survive');
 });
 
-test('#1488: the route computes offerable from the shared predicate', () => {
+/* ⚠️ NAMED FOR WHAT IT CHECKS, WHICH IS LESS THAN IT FIRST READ AS. This asserted that
+   `offerable:` and `codexupdate.homeIsNamed()` both appear in the route's slice. That is
+   CO-OCCURRENCE, not computation: it cannot see whether the value is derived correctly, and
+   an earlier name ("the route COMPUTES offerable from the shared predicate") answered
+   "is that covered?" with a yes it had not earned. The behaviour of the derivation is
+   covered by the page-filter test above, which executes. */
+test('#1488: the route mentions offerable AND the shared predicate in the same route slice', () => {
   const at = SERVER.indexOf("pathname === '/api/accounts'");
   assert.ok(at > -1, '/api/accounts route not found; this assertion is aimed at nothing');
   /* ⚠️ SLICE TO THE NEXT ROUTE, NOT TO A CHARACTER COUNT. My first version took 3000
