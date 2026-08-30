@@ -195,7 +195,11 @@ function serviceView(doors, allowed) {
      alphabetical and is not: `/api/cloudflare` and `/api/github` sort before
      `/api/svc/*` while `/api/vercel` sorts after, so the screen read
      Cloudflare, GitHub, Airtable, ... Vercel. */
-  const byName = (a, b) => String(names[a] || a).localeCompare(String(names[b] || b));
+  /* Own-property here too. The gate below already refuses inherited keys, so
+     this is unreachable today -- but the two lookups reading the same map by
+     different rules is how they stop agreeing. */
+  const nameOf = (k) => (Object.prototype.hasOwnProperty.call(names, k) ? names[k] : k);
+  const byName = (a, b) => String(nameOf(a)).localeCompare(String(nameOf(b)));
   for (const route of Object.keys(doors).sort(byName)) {
     /* ⚠️ OWN PROPERTY, NOT A PLAIN LOOKUP. `names['constructor']` walks the
        prototype chain and answers a Function, which is truthy, so a door named

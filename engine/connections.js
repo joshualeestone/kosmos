@@ -21,17 +21,20 @@
  *
  * ⚠️ EVERY AGENT GETS THE SAME WORDS. Unlike the reports-to block, nothing here
  * is per-agent: it is how the product works, not who this agent is. `blockBody`
- * therefore takes no argument, and 🛑 CORRECTED (#1034 part 2): the block NOW POINTS AT MACHINE STATE. It tells
- * every agent to run `kosmos connections`, which reports which providers are
- * connected on this computer. The consent question was decided (verdict only:
- * no sign-in URL, no terminal output, no emails, no key tails), so the sentence
- * above is still true of the block's OWN words and is no longer true of what
- * they lead to. Said here because this header is the first thing the next
- * editor reads.
- * ⚠️ The original caution still applies to everything else: a future caller
- * must not be tempted to pass
+ * therefore takes no argument, and a future caller must not be tempted to pass
  * one in and start describing THIS machine's state, which is the part that
  * needs a person's consent.
+ *
+ * 🛑 CORRECTED (#1034 part 2): THE BLOCK NOW POINTS AT MACHINE STATE, though it
+ * still contains none. It tells every agent to run `kosmos connections`, which
+ * reports which providers are connected on this computer. The consent question
+ * was decided (verdict only: no sign-in URL, no terminal output, no emails, no
+ * key tails). So the paragraph above remains true of these WORDS and is no
+ * longer true of where they lead, and this header is the first thing the next
+ * editor reads.
+ * ⚠️ An earlier version of this correction was spliced into the MIDDLE of the
+ * sentence above, leaving it reading "must not be tempted to pass / one in"
+ * across a paragraph break. Editing half a comment is its own defect.
  *
  * ⚠️ ONLY WHAT WAS READ OFF THE PRODUCT. Nothing below is remembered from
  * training or inferred from how such flows usually look. A wrong step in an

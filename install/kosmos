@@ -730,9 +730,21 @@ cmd_connections() {
       let v = null;
       try { v = JSON.parse(raw); } catch { v = null; }
       if (v && typeof v.error === "string") {
-        // The board composed a sentence about its own failure. Print THAT rather
-        // than our vaguer one, the same rule `whoami` states.
-        console.log(v.error);
+        /* 🛑 PRINT THE BOARD SENTENCE ONLY WHEN IT COMPOSED ONE FOR A PERSON. A board
+           that PREDATES this route falls through to a generic
+           `{"error":"no such endpoint"}`, and printing that verbatim puts
+           developer vocabulary on screen with no next step -- in a verb that
+           refuses machine vocabulary two lines up. The window is real: an
+           install replaces this file while the running board is still the old
+           process.
+           NOTE: no apostrophes in this embedded script. It lives in a
+           single-quoted shell string and one apostrophe ends the file. */
+        if (/no such endpoint/i.test(v.error)) {
+          console.log("This copy of Kosmos does not know how to answer that yet.");
+          console.log("The board is running an older version. Restart it with: kosmos restart");
+        } else {
+          console.log(v.error);
+        }
         process.exit(1);
       }
       if (!v || !Array.isArray(v.providers)) {
@@ -756,7 +768,7 @@ cmd_connections() {
           var w = p.howManyWorking != null ? p.howManyWorking : p.howMany;
           if (p.howMany === 0) many = "";
           else if (w === p.howMany) many = ", " + (w === 1 ? "1 sign-in" : w + " sign-ins");
-          else many = ", " + w + " of " + p.howMany + " sign-ins working";
+          else many = ", " + w + " of " + p.howMany + (p.howMany === 1 ? " sign-in working" : " sign-ins working");
         }
         console.log("  " + p.name + ": " + verdict + " (" + p.because + many + ")");
       }
