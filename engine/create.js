@@ -273,6 +273,51 @@ function launchIsSandboxed() {
    * opt-in, where a caller STATES its intent, rather than to a heuristic here.
    */
 
+  /**
+   * 🛑 A HALF-SANDBOX NOBODY DECLARED IS A SANDBOX. `sandbox.js` computes exactly
+   * this and calls it `partial`: some knobs redirected, others live, and no
+   * `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` saying that was deliberate.
+   *
+   * ⚠️ THIS IS NOT THE ARM REMOVED IN REVIEW SIX, AND THE DIFFERENCE IS THE WHOLE
+   * POINT. That one keyed on `audit().set`, which counts a variable as set
+   * REGARDLESS of the hatch, so it refused real installs. `partial` honours the
+   * hatch, and `install/setup.sh` ALWAYS exports it alongside the three
+   * (:2635-2637 with :2662). Measured:
+   *
+   *   the gap: 3 knobs, LAUNCH forgotten, NO hatch   partial TRUE   -> refuse
+   *   real non-default KOSMOS_HOME (always hatched)  partial FALSE  -> allow
+   *   default install, nothing set                   partial FALSE  -> allow
+   *
+   * ⇒ Every shape review six was protecting stays allowed. An earlier comment here
+   * claimed this "CANNOT be decided from the environment". That is true of a test
+   * that SETS the hatch, which really is identical to a real install, and FALSE of
+   * the shape this closes. I applied an absolute to the wrong shape.
+   *
+   * 📌 Production risk is nil by construction: `server.js:133` refuses to start a
+   * board at all when `partial`, so this branch is unreachable inside a running
+   * board.
+   */
+  try {
+    /**
+     * ⚠️ `partial` ALONE IS NOT THE CONDITION, AND I GOT THIS WRONG TWICE. With
+     * ONLY `AGENT_WORKFORCE_LAUNCH` set it is TRUE, because the other three are
+     * live - so pointing LAUNCH at the real directory would be refused, which is
+     * the production break review six removed an arm for.
+     *
+     * The shape actually wanted is narrower: a NON-LAUNCH knob is sandboxed, LAUNCH
+     * is NOT, and nobody declared the half-sandbox. That is the only combination
+     * where a plist lands in the real LaunchAgents BY ACCIDENT. LAUNCH's own value
+     * is judged by the path comparison below, where it belongs.
+     */
+    const env = process.env;
+    const others = require('./sandbox').DIRS
+      .map(([k]) => k)
+      .filter((k) => k !== 'AGENT_WORKFORCE_LAUNCH');
+    if (!env.AGENT_WORKFORCE_LAUNCH
+        && env.AGENT_WORKFORCE_HALF_SANDBOX_OK !== '1'
+        && others.some((k) => env[k])) return true;
+  } catch { /* sandbox.js unavailable: fall through to the path comparison. */ }
+
   let real;
   try {
     real = path.join(os.userInfo().homedir, 'Library', 'LaunchAgents');

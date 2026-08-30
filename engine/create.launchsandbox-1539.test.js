@@ -184,9 +184,25 @@ test('#1539: a sandboxed LAUNCH refuses to register, and registers NOTHING', () 
    * at process exit - deleting the plist out from under a live registration. That
    * is the 18-minute incident, produced by the test whose job is to prevent it.
    */
+  /**
+   * 🛑 ASSERT THE GUARD, NOT ONLY THE PREDICATE, AND THIS DISTINCTION IS THE WHOLE
+   * SAFETY OF THIS TEST. An earlier version asserted `launchIsSandboxed()` alone.
+   * That covers a PREDICATE regression and is blind to the likelier one: the guard
+   * clause going inert. Measured - prefixing the guard with `false &&` leaves the
+   * predicate returning true, so the precondition PASSED and the test walked into
+   * `installJob` and registered a real job. That is the 18-minute incident exactly.
+   *
+   * ⇒ The predicate assertion is kept because it is cheap and catches the other
+   * arm. The one below is the one that matters: it asks the guard to actually
+   * refuse, using a harmless plist path that exists nowhere.
+   */
   assert.equal(live.launchIsSandboxed(), true,
-    'precondition: the guard must be armed before this test is allowed to call '
-    + 'installJob with no runner and no dry-run');
+    'precondition: the predicate must read sandboxed');
+  assert.equal(
+    live.run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, '/tmp/nope-1539.plist']).sandboxRefused,
+    true,
+    'precondition: the GUARD must actually REFUSE a bootstrap before this test is '
+    + 'allowed to call installJob with no runner and no dry-run');
 
   const before = countKosmosJobs();
   const name = `sandboxprobe${Math.random().toString(36).slice(2, 8)}`;
@@ -487,13 +503,19 @@ test('#1539: sandboxing OTHER knobs does not refuse a REAL plist destination', (
     try {
       delete process.env.AGENT_WORKFORCE_LAUNCH;
       process.env.AGENT_WORKFORCE_DATA = '/tmp/otherknobs-1539/data';
-      assert.equal(create.launchIsSandboxed(), false,
-        'a sandboxed DATA with LAUNCH pointing at the REAL directory was refused; '
-        + 'the plist is going somewhere real, so the registration must be real too');
 
+      /**
+       * ⚠️ THE HATCH IS WHAT SEPARATES THESE TWO, and an earlier version of this
+       * test asserted `allow` for the UNHATCHED case. That contradicted the gap
+       * closure: an undeclared half-sandbox is a test that FORGOT LAUNCH and is
+       * about to write a real plist. A DECLARED one is `setup.sh`'s production
+       * shape, which always exports the hatch alongside the three.
+       */
       process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = '1';
       assert.equal(create.launchIsSandboxed(), false,
-        'the documented half-sandbox override was refused');
+        'a DECLARED half-sandbox with LAUNCH pointing at the REAL directory was '
+        + 'refused; the plist is going somewhere real and the operator said the '
+        + 'half-sandbox was deliberate, so the registration must be real too');
 
       /* CONTROL: redirect LAUNCH and it must be caught, so the two assertions
          above are about the plist DESTINATION and not about the guard being
@@ -508,36 +530,45 @@ test('#1539: sandboxing OTHER knobs does not refuse a REAL plist destination', (
   });
 });
 
-test('#1539 KNOWN GAP: a test that FORGETS to redirect LAUNCH is not covered', () => {
+test('#1539: a half-sandbox nobody DECLARED is treated as a sandbox', () => {
   /**
-   * 🛑 PINNED SO THE BOUNDARY IS VISIBLE RATHER THAN ACCIDENTAL. A test that
-   * sandboxes everything except LAUNCH writes a REAL plist and registers a REAL
-   * job, and this guard does not stop it.
+   * 🛑 THIS PINNED A GAP AS PERMANENTLY OPEN AND THE JUSTIFICATION WAS FALSE.
+   * The old comment said the gap "CANNOT" be decided from the environment, because
+   * a test that forgets LAUNCH is byte-identical to a real install.
    *
-   * ⚠️ IT CANNOT. That test is byte-identical in environment to a real install:
-   * both write a real plist and both want a real registration. The arm that used
-   * to catch it was inferring INTENT from the environment, and the environment
-   * does not carry intent - which is the argument this card made for #1598, so
-   * applying it here means removing the arm rather than defending it.
+   * ⚠️ THAT IS TRUE OF A TEST THAT **SETS THE HATCH**, and false of this shape.
+   * `install/setup.sh` ALWAYS exports `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` alongside
+   * the three (:2635-2637 with :2662), so a real install is always hatched and a
+   * forgetful test is not. `sandbox.js` already computes the difference and calls
+   * it `partial`. I applied an absolute to the wrong shape and pinned it into a
+   * permanent comment, which is what would have stopped the next person closing it.
    *
-   * ✅ The hazard belongs to #1598's explicit live opt-in, where a caller STATES
-   * its intent. If that lands and create.js adopts it, THIS TEST SHOULD FAIL.
-   * Delete it then; its failure is the signal the class closed.
+   * 📌 It is NOT the arm removed in review six: that keyed on `audit().set`, which
+   * ignores the hatch and therefore refused real installs.
    */
   withOnlyLaunch(() => {
-    delete process.env.AGENT_WORKFORCE_LAUNCH;
-    process.env.AGENT_WORKFORCE_DATA = '/tmp/gap-1539/data';
-    process.env.AGENT_WORKFORCE_PROJECTS = '/tmp/gap-1539/projects';
-    process.env.AGENT_WORKFORCE_WORKERS = '/tmp/gap-1539/workers';
-    assert.equal(create.launchIsSandboxed(), false,
-      'KNOWN GAP: everything sandboxed but LAUNCH forgotten is NOT caught. If this '
-      + 'now reads true, #1598 or an equivalent has landed: delete this test.');
+    const saved = process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
+    try {
+      delete process.env.AGENT_WORKFORCE_LAUNCH;
+      delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
+      process.env.AGENT_WORKFORCE_DATA = '/tmp/gap-1539/data';
+      process.env.AGENT_WORKFORCE_PROJECTS = '/tmp/gap-1539/projects';
+      process.env.AGENT_WORKFORCE_WORKERS = '/tmp/gap-1539/workers';
+      assert.equal(create.launchIsSandboxed(), true,
+        'everything sandboxed but LAUNCH forgotten, and nobody declared the '
+        + 'half-sandbox: this writes a REAL plist and must be refused');
 
-    /* CONTROL: the same shape with LAUNCH redirected IS caught, so the gap is
-       about the forgotten variable and not about the guard being dead. */
-    process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'LaunchAgents');
-    assert.equal(create.launchIsSandboxed(), true,
-      'CONTROL: with LAUNCH redirected the same shape must be refused');
+      /* CONTROL, and it is the production shape: DECLARING the half-sandbox with
+         the hatch must be allowed. setup.sh always sets it, so if this goes true
+         every non-default-KOSMOS_HOME install rolls back every agent creation. */
+      process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = '1';
+      assert.equal(create.launchIsSandboxed(), false,
+        'CONTROL: a DECLARED half-sandbox is the setup.sh production shape and '
+        + 'must NOT be refused');
+    } finally {
+      if (saved === undefined) delete process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK;
+      else process.env.AGENT_WORKFORCE_HALF_SANDBOX_OK = saved;
+    }
   });
 });
 
