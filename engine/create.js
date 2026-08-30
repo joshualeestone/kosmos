@@ -187,6 +187,34 @@ function workersDir() { return process.env.AGENT_WORKFORCE_WORKERS || path.join(
    than removing it: measured, `create.workerDir()` still returned the
    real machine with the seam set after require. */
 function agentsDir() { return process.env.AGENT_WORKFORCE_LAUNCH || path.join(homeDir(), 'Library', 'LaunchAgents'); }
+
+/**
+ * 🛑 IS THE PLIST GOING SOMEWHERE REAL? (#1539)
+ *
+ * `AGENT_WORKFORCE_LAUNCH` sandboxes where a plist is WRITTEN. It does not
+ * sandbox the `launchctl` REGISTRATION, and nothing about the variable's name
+ * says so. A test that redirected it, believing itself sandboxed, bootstrapped
+ * three real agents into the operator's own user domain: three tmux sessions,
+ * three `claude --dangerously-skip-permissions` processes with cwd in $HOME, and
+ * three loaded launchd jobs.
+ *
+ * ⇒ THE INVARIANT THIS RESTORES: if the plist is being written somewhere other
+ * than the real LaunchAgents directory, the registration must not be real
+ * either. Those two are one decision, and the variable only ever moved half of
+ * it.
+ *
+ * ⚠️ WHY THIS IS NOT REDUNDANT WITH THE EXISTING GUARDS. `run()` already
+ * short-circuits on an injected runner or on DRY_RUN, and every test that calls
+ * `installJob` today sets one or both (measured: 5 files, all covered). So this
+ * changes nothing that exists. It is for the NEXT test, which is exactly how
+ * this was found: the author added one `installJob` call to prove an assertion
+ * could fail, and no existing guard was in the path.
+ */
+function launchIsSandboxed() {
+  const set = process.env.AGENT_WORKFORCE_LAUNCH;
+  if (!set) return false;
+  return path.resolve(set) !== path.resolve(path.join(homeDir(), 'Library', 'LaunchAgents'));
+}
 /**
  * Where the product keeps things it installs for itself, as opposed to things
  * that belong to an agent.
@@ -235,6 +263,10 @@ function setDryRun(on) {
   DRY_RUN = Boolean(on);
 }
 
+/* launchctl verbs that CHANGE the user's launchd domain. Reads are harmless and
+   are deliberately not listed: `print`, `print-disabled`, `list`. */
+const LAUNCHCTL_MUTATIONS = ['bootstrap', 'bootout', 'enable', 'disable', 'kickstart'];
+
 function run(file, args) {
   /* 🔑 `runner` IS CHECKED FIRST, AND THAT IS THE SEAM TO REACH FOR IN A TEST (kosmos#1465).
      Reaching for `AGENT_WORKFORCE_DRY_RUN` instead gives you a GREEN test that measured
@@ -246,6 +278,33 @@ function run(file, args) {
      this one alone leaves the restart path shelling out for real. */
   if (runner) return runner(file, args);
   if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
+  /**
+   * 🛑 A SANDBOXED PLIST PATH MEANS A SANDBOXED REGISTRATION (#1539). Refuse to
+   * MUTATE the real launchd domain while `AGENT_WORKFORCE_LAUNCH` points
+   * somewhere other than the operator's own LaunchAgents.
+   *
+   * ⚠️ BOTH DIRECTIONS ARE HARMFUL, WHICH IS WHY `bootout` IS ON THE LIST.
+   * A test that believes it is sandboxed can START real agents (that is how this
+   * was found: three claude processes in the operator's home) and can equally
+   * TEAR DOWN a real one, which would take a live agent off the fleet with no
+   * trace in the test's own output.
+   *
+   * 📌 Reads are not listed. `print`, `print-disabled` and `list` change nothing,
+   * and blocking them would break sandboxed tests that legitimately ask what is
+   * running.
+   */
+  if (file === '/bin/launchctl' && launchIsSandboxed()
+      && Array.isArray(args) && LAUNCHCTL_MUTATIONS.includes(args[0])) {
+    return {
+      ok: false,
+      stdout: '',
+      stderr: `refusing to launchctl ${args[0]} the real user domain while `
+        + `AGENT_WORKFORCE_LAUNCH is redirected to ${process.env.AGENT_WORKFORCE_LAUNCH}. `
+        + 'That variable moves where the plist is WRITTEN; it does not sandbox the '
+        + 'registration, so this call would have reached the operator\'s own launchd (#1539).',
+      sandboxRefused: true,
+    };
+  }
   // ⚠️ `stdio` pipes stderr rather than inheriting it. Without this, the
   // `launchctl print` probe -- which fails for every FREE name, by design --
   // printed "Could not find service" to the operator's console immediately
@@ -2903,6 +2962,11 @@ module.exports = {
   modelFor,
   SELF_STARTS,
   createdLog, createdLogFile, disabledJobs, runningJobs,
+  /* #1539: exported so the sandbox predicate can be tested directly. The guard
+     it feeds sits inside `run()`, which is only reachable with NO injected
+     runner -- the exact configuration that started three real agents -- so
+     testing it end-to-end first requires knowing the predicate is right. */
+  launchIsSandboxed,
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` only lowercases — it
      is a converter, not a gate — so anything asking "is this a name we can
      act on" has to reach this, or it grows a weaker second copy. */
