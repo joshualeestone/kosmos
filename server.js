@@ -3723,8 +3723,13 @@ const server = http.createServer((req, res) => {
    * which passes nothing through; see that module for the rule and the reason.
    *
    * listLive() rather than list(), the same trade `/api/accounts` documents:
-   * this is a person-paced moment (an agent answering "what is connected?"),
+   * this is a DEMAND-paced moment (an agent answering "what is connected?"),
    * never the 5-second tick.
+   * 🛑 "PERSON-PACED" until iteration 12, which was the word this same file
+   * retracted 30 lines above and again inside this very block ("THIS ROUTE IS
+   * NOT. It is called by AGENTS"). Three comments, one file, two answers about
+   * one route. The correction swept two of them and missed this one, which is
+   * the failure mode itself: a correction does not sweep by itself.
    */
   if (pathname === '/api/agent/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
     /* Intentionally short-circuits before any work, unlike the sibling
@@ -5574,11 +5579,17 @@ const server = http.createServer((req, res) => {
              this was therefore a no-op for existing agents. Both halves were
              wrong the moment the copy was edited.
              ⚠️ WHERE THIS ACTUALLY FIRES, because it decides who learns the verb
-             exists: `connections.syncEveryone` runs here (POST /api/you, i.e. a
-             person saving the About-you form), in `create.js` when an agent is
-             made, and in `discover.js` on import. So a NEW or IMPORTED agent gets
-             the paragraph immediately; an agent ALREADY RUNNING gets it only when
-             somebody next saves that form, and nothing signals the difference. */
+             exists: the connections block is written here by
+             `connections.syncEveryone` (POST /api/you, i.e. a person saving the
+             About-you form). `create.js` and `discover.js` also write it when an
+             agent is made or imported, but they call `blockBody()` +
+             `projects.spliceBlock` DIRECTLY rather than going through
+             `syncEveryone` -- an earlier version of this sentence named
+             syncEveryone at all three sites, and it runs at one of them.
+             ⇒ The delivery conclusion is unchanged and is the part that matters:
+             a NEW or IMPORTED agent gets the paragraph immediately; an agent
+             ALREADY RUNNING gets it only when somebody next saves that form, and
+             nothing signals the difference. */
           try { connections.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
         }
         catch (err2) { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not tell the agents') }]; }

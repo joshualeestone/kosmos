@@ -245,7 +245,11 @@ function list() {
  * tick (server.js) specifically because that poll cannot afford anything
  * heavier than a directory stat; layering a live subprocess call in there
  * would repeat the mistake `subscription.js`'s own file-cache header warns
- * against, worse. This function is for ON-DEMAND, PERSON-PACED reads only --
+ * against, worse. This function is for ON-DEMAND, DEMAND-PACED reads only --
+ * (it said PERSON-PACED, which server.js retracted for exactly the caller named
+ * below: an agent reaching it with curl is not a person pressing something. The
+ * two files spelled one invariant with words that disagreed, and this held the
+ * retracted one.) --
  * opened deliberately, never ticked -- where paying a real check's cost is the
  * entire point. Two routes call it today: `GET /api/accounts` (Settings >
  * Accounts, the first-run wizard) and `GET /api/agent/connections` (#1034, an
