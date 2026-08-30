@@ -849,6 +849,18 @@ cmd_connections() {
          printed "An earlier [object Object] sign-in got stuck and did not finish."
          A non-string name is truthy, so `||` accepted it and the fallback never
          fired -- the fallback was there and simply did not apply. */
+      /* 🛑 RESOLVED IS ITS OWN FACT. The comment below says one resolved row drives
+         both, and it did not: when `signin.provider` matches NO row, `whoRow` is
+         undefined, so `whoName` fell back to "Claude" while `anyConnected` fell back
+         to false. MEASURED against a board answering provider "gemini" phase "stuck"
+         with the anthropic row connected, the output was "Claude: connected (...)"
+         followed by "An earlier Claude sign-in got stuck" -- the two-accounts-of-one
+         computer contradiction, produced by the fallback meant to prevent it.
+         (Control: the same payload with provider "anthropic" suppressed the stuck
+         line correctly, so the instrument can produce the safe answer.)
+         ⇒ An unresolved provider means we do not know WHOSE sign-in it is. We say
+         so by not attributing it, rather than by guessing a name. */
+      var whoResolved = !!whoRow;
       var whoName = (whoRow && typeof whoRow.name === "string" && whoRow.name) || "Claude";
       /* 🛑 ONE RESOLVED ROW DRIVES BOTH, BECAUSE TWO FALLBACKS FOR ONE VALUE
          DISAGREED. `whoName` fell back to "Claude" on an unrecognised provider while
@@ -868,7 +880,7 @@ cmd_connections() {
          exact collapse the null count one layer up exists to prevent. */
       if (v.signin && v.signin.phase === "unknown") {
         console.log("");
-        console.log("  We could not tell whether a " + whoName + " sign-in is going on. Ask what is on their screen.");
+        console.log("  We could not tell whether " + (whoResolved ? ("a " + whoName) : "a") + " sign-in is going on. Ask what is on their screen.");
       /* ⚠️ ONE replace, not two. The first was `.replace("A sign-in", ...)` and it
          was DEAD: measured, 0 of the 2 STOPPED values contain that substring and
          both contain "An earlier sign-in" (control: "got stuck" matches 1). Dead
@@ -877,7 +889,7 @@ cmd_connections() {
          sign-in", it will print without the provider name and this needs revisiting. */
       } else if (v.signin && own(STOPPED, v.signin.phase) && !anyConnected) {
         console.log("");
-        console.log("  " + own(STOPPED, v.signin.phase).replace("An earlier sign-in", "An earlier " + whoName + " sign-in") + " Ask what is on their screen.");
+        console.log("  " + (whoResolved ? own(STOPPED, v.signin.phase).replace("An earlier sign-in", "An earlier " + whoName + " sign-in") : own(STOPPED, v.signin.phase)) + " Ask what is on their screen.");
       } else if (v.signin && v.signin.busy) {
         // The phase is machine vocabulary too, exactly like the verdicts above.
         // An unmapped phase falls back to a sentence with no jargon in it
@@ -891,7 +903,7 @@ cmd_connections() {
           "signin-completing": "it is finishing the sign-in"
         };
         console.log("");
-        console.log("  A " + whoName + " sign-in is going on right now: " + (own(STEP, v.signin.phase) || "it is part way through")
+        console.log("  " + (whoResolved ? ("A " + whoName) : "A") + " sign-in is going on right now: " + (own(STEP, v.signin.phase) || "it is part way through")
           + ". Ask what is on their screen.");
       }
       /* Gate on the FILTERED rows, not the raw length. The loop below drops

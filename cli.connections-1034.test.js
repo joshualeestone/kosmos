@@ -405,6 +405,32 @@ test('a section with nothing printable in it prints no header', async () => {
   });
 });
 
+test('an UNRESOLVED sign-in provider is not attributed to Claude', async () => {
+  /**
+   * 🛑 THE COMMENT SAID "ONE RESOLVED ROW DRIVES BOTH" AND IT DID NOT. When
+   * `signin.provider` matches no row, `whoRow` is undefined, so the NAME fell
+   * back to "Claude" while `anyConnected` fell back to false. The two fallbacks
+   * disagreed, which is the exact contradiction the comment claims to have fixed.
+   *
+   * Measured before the fix: "Claude: connected (...)" followed by "An earlier
+   * Claude sign-in got stuck and did not finish." Two accounts of one computer.
+   */
+  const p = P();
+  p.signin = { provider: 'gemini', phase: 'stuck', busy: false };
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    assert.equal(r.code, 0, `exited ${r.code}: ${r.err}`);
+    assert.match(r.out, /Claude: connected/, 'control: the connected row should still print');
+    assert.doesNotMatch(r.out, /An earlier Claude sign-in got stuck/,
+      'an unresolved provider was attributed to Claude, contradicting the row above it');
+    /* CONTROL that the signal is not merely dropped: the stuck sentence must still
+       be there, just unattributed. Silently swallowing it would also satisfy the
+       assertion above and would lose a real thing the person needs to know. */
+    assert.match(r.out, /An earlier sign-in got stuck/,
+      'the stuck sentence vanished entirely, losing a signal rather than un-attributing it');
+  });
+});
+
 test('a malformed element prints a sentence, never a stack trace', async () => {
   /**
    * 🛑 THE GUARD CHECKED THE CONTAINER, NOT THE ELEMENTS. `providers: [null]`
