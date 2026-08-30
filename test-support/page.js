@@ -157,6 +157,18 @@ function liftConst(script, name) {
    two harnesses because that is the whole reason this list exists: when the
    painter last gained a page-scope helper, each harness carried its own copy and
    two of them broke with a ReferenceError that read as a product defect. */
-const FOUND_PAINTER_FNS = ['esc', 'foundCountLine', 'foundOverflows', 'foundCountRefresh', 'foundRowsHtml', 'frFoundOffer'];
+/**
+ * The page functions a found-list harness has to lift, in ONE list because two
+ * harnesses read it and a second copy is a second place to forget a name.
+ *
+ * ⚠️ `adoptRowsHtml` AND `cssId` JOINED WHEN THE ADOPT PROMPT SHIPPED (#1531). The
+ * painters that call them are already lifted here, so leaving them out made those
+ * harnesses throw `adoptRowsHtml is not defined` rather than fail an assertion,
+ * which reads like a broken test rather than a missing name. `cssId` is here only
+ * because `adoptRowsHtml` calls it: a lifted function's own callees have to come
+ * with it or it cannot run.
+ */
+const FOUND_PAINTER_FNS = ['esc', 'foundCountLine', 'foundOverflows', 'foundCountRefresh',
+  'foundRowsHtml', 'frFoundOffer', 'adoptRowsHtml', 'cssId'];
 
 module.exports = { scriptOf, lift, liftAll, liftConst, FOUND_PAINTER_FNS };

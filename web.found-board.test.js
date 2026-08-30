@@ -48,7 +48,11 @@ async function paint(agents, opts = {}) {
   const list = opts.list || el();
   const toggle = opts.toggle || el();
   const calls = [];
-  const src = liftAll(SCRIPT, ['esc', 'foundRowsHtml', 'paintFoundBoard']);
+  /* ⚠️ `adoptRowsHtml` AND `cssId` JOINED WHEN THE ADOPT PROMPT SHIPPED (#1531).
+     `paintFoundBoard` calls the first and it calls the second, and a lifted function
+     whose callees are missing throws `not defined` rather than failing an assertion,
+     which reads like a broken harness rather than a missing name. */
+  const src = liftAll(SCRIPT, ['esc', 'foundRowsHtml', 'adoptRowsHtml', 'cssId', 'paintFoundBoard']);
   const run = new Function('document', 'fetch', 'onAgentsTab', 'calls', `
     ${src}
     /* 🛑 DECLARED, NOT ASSIGNED. The page keeps these beside the function; a

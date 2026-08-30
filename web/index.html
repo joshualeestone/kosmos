@@ -5204,6 +5204,28 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    same height as it was before the control existed. It spans both columns: a
    failure sentence is about the row, not about the button. */
 .fr-foundrow .fr-foundsaid:empty { display: none; }
+
+/* The adopt prompt (#1531). It reuses `.fr-foundrow` for its handlers and its
+   states, and overrides only the layout, because this row carries a field the
+   found rows do not and the two-column grid has nowhere to put it. */
+.fr-adopt { margin-top: var(--space-6); }
+.fr-adopth { font-size: .9375rem; font-weight: 650; margin: 0 0 var(--space-3); color: var(--k-ink); }
+.fr-adoptrow { display: block; }
+.fr-adoptrow .fr-foundname { font-size: .8125rem; font-weight: 400; color: var(--k-ink-2);
+  word-break: break-all; }
+.fr-adoptname { display: block; margin: var(--space-3) 0; }
+.fr-adoptlab { display: block; font-size: .75rem; font-weight: 600; color: var(--k-ink);
+  margin-bottom: 4px; }
+.fr-adoptinput { width: 100%; max-width: 22rem; box-sizing: border-box; padding: 8px 10px;
+  font: inherit; font-size: .875rem; border: 1px solid var(--k-rule); border-radius: 8px;
+  background: var(--k-bg); color: var(--k-ink); }
+/* 🔑 THE HELPER IS LOAD-BEARING, NOT DECORATION (Mona Lisa). It is what tells somebody
+   the field is theirs to fill rather than something we already know. Cut it for space
+   and the empty box starts reading as a thing that failed to load. */
+.fr-adopthelp { display: block; margin-top: 4px; font-size: .75rem; color: var(--k-ink-2); }
+.fr-adoptrow .fr-foundact { display: flex; gap: var(--space-3); align-items: center; }
+.fr-adoptgone { margin: 0 0 var(--space-3); font-size: .875rem; color: var(--k-ink-2); }
+.fr-adoptrow.declined { opacity: .85; }
 .fr-foundrow .fr-foundsaid { grid-column: 1 / -1; margin: var(--space-3) 0 0;
   font: var(--text-callout) var(--font-ui); color: var(--label-2); }
 .fr-foundrow.done { border-color: var(--label-3); }
@@ -19877,7 +19899,11 @@ async function paintFoundBoard() {
     + 'Adding one leaves it exactly where it is, in its own folder with its own '
     + 'instructions. Kosmos starts looking after it, so it comes back when you '
     + 'log in and restarts in one click.</p>'
-    + foundRowsHtml(missing);
+    + foundRowsHtml(missing)
+    /* 🔑 ONE ANSWER CARRIES BOTH (#1531). `found()` returns named agents AND the
+       folders nothing names, so the board draws one list of each from a single
+       response rather than a second request that could disagree with the first. */
+    + adoptRowsHtml(body.adoptable);
 }
 
 /**
@@ -31286,6 +31312,68 @@ async function frFindAgents() {
  * place for the class names, the dataset keys and the undo control to be right,
  * and the handlers below key on all three.
  */
+/**
+ * The folders Kosmos can see somebody working in, that no file gives a name to.
+ *
+ * 🔑 NEVER GUESS A NAME, ASK FOR ONE (Josh's ruling, 2026-08-29, and #1531).
+ * Extraction was MEASURED DEAD on a real machine: no name is cleanly pullable from
+ * a transcript. So the field ships EMPTY rather than pre-filled, and nothing on this
+ * prompt asserts anything about who lives in the folder.
+ *
+ * ⭐ THAT IS WHY IT CANNOT BE WRONG. There is no guess to be wrong about. The person
+ * types the name, which they know and we do not, and they walk away with a correctly
+ * named agent rather than one called after their home directory.
+ *
+ * 🛑 THE HEADLINE IS A QUESTION AND THE DECLINE IS ONE BLAMELESS CLICK (Mona Lisa's
+ * copy, and the reasoning is hers): a false positive is then a costless "no" rather
+ * than an error the product made. A wrong row in a list costs a click; a wrong claim
+ * in a headline costs the screen's trust, including the parts that were right.
+ *
+ * ⚠️ IT REUSES THE `fr-foundrow` SHAPE ON PURPOSE, not out of laziness. The Add
+ * handler, the disabled state, the "Added" receipt and the live-region status line
+ * are all keyed on those class names, and a second set would be a second place for
+ * every one of them to be right. The only addition is the name field.
+ */
+function adoptRowsHtml(folders) {
+  if (!folders || !folders.length) return '';
+  return '<div class="fr-found fr-adopt">'
+    + '<h3 class="fr-adopth">Is this one of your agents?</h3>'
+    + '<p class="fr-foundnote">We noticed Claude running here, and there is no file saying '
+    + 'who it is. Add it to Kosmos so it shows up on your board with the others. '
+    + 'Nothing changes until you add it.</p>'
+    + folders.map((a) => {
+      const dir = String(a && a.dir ? a.dir : '');
+      /* The folder is the only fact this row has, so it is the only thing shown. */
+      return '<div class="fr-foundrow fr-adoptrow" data-found-dir="' + esc(dir) + '">'
+        + '<span class="fr-foundwho">'
+        + '<b class="fr-foundname">' + esc(dir) + '</b>'
+        + '</span>'
+        + '<span class="fr-adoptname">'
+        + '<label class="fr-adoptlab" for="adopt-' + esc(cssId(dir)) + '">Name</label>'
+        + '<input class="fr-adoptinput" id="adopt-' + esc(cssId(dir)) + '" type="text"'
+        + ' autocomplete="off" placeholder="e.g. Site monitor"'
+        + ' aria-describedby="adopthelp-' + esc(cssId(dir)) + '">'
+        + '<span class="fr-adopthelp" id="adopthelp-' + esc(cssId(dir)) + '">'
+        + 'What should we call it? You can rename it anytime.</span>'
+        + '</span>'
+        + '<span class="fr-foundact">'
+        /* Same label rule as the found rows: the visible words come FIRST so a voice
+           control reaching "add to kosmos" finds it, and the folder disambiguates
+           after them (WCAG label-in-name). */
+        + '<button class="btn uprime fr-foundgo" type="button"'
+        + ' aria-label="Add to Kosmos, ' + esc(dir) + '">Add to Kosmos</button>'
+        + '<button class="btn fr-adoptno" type="button"'
+        + ' aria-label="This isn\u2019t an agent, ' + esc(dir) + '">This isn\u2019t an agent</button>'
+        + '</span>'
+        + '<p class="fr-foundsaid" role="status" aria-live="polite"></p>'
+        + '</div>';
+    }).join('')
+    + '</div>';
+}
+
+/** A DOM id from a folder path: ids cannot carry slashes or spaces. */
+function cssId(dir) { return String(dir).replace(/[^A-Za-z0-9_-]/g, '-').slice(-60); }
+
 function foundRowsHtml(agents) {
   /* Names that appear more than once, so the row can say which is which. */
   const seen = new Map();
@@ -31422,6 +31510,7 @@ function frPaintFound() {
     + 'where it is, in its own folder with its own instructions.</p>'
     + search
     + foundRowsHtml(offer)
+    + adoptRowsHtml(FR_FOUND && FR_FOUND.adoptable)
     /* ⚠️ THE COUNT LINE IS IN THE DESIGN AND WAS NEVER BUILT. It is the only
        thing on the screen that says how many rows there are when the list runs
        past the fold, and the only thing that says how to get back once a search
@@ -31562,6 +31651,69 @@ document.addEventListener('input', (e) => {
   if (line) line.textContent = foundCountLine(shown, rows.length, String(box.value || '').trim(), foundOverflows());
 });
 
+/**
+ * "This isn't an agent" (#1531, Mona Lisa's copy and her reasoning).
+ *
+ * 🛑 ONE CLICK AND NO CONFIRM DIALOG. Rejecting a row the product offered should never
+ * feel like undoing something: the person is answering a question, not correcting a
+ * mistake of theirs. A confirm here would make saying no cost more than saying yes,
+ * on a screen whose whole safety is that being wrong is cheap.
+ *
+ * ⭐ AND UNDO IS WHY THE DECLINE CAN BE PERMANENT. It writes to disk so the copy is
+ * true on the next load, and the Undo beside it means permanent never means trapped.
+ */
+document.addEventListener('click', async (e) => {
+  const no = e.target.closest && e.target.closest('.fr-adoptno');
+  if (!no || no.disabled) return;
+  const row = no.closest('.fr-adoptrow');
+  const said = row && row.querySelector('.fr-foundsaid');
+  const dir = row && row.dataset.foundDir;
+  if (!dir || !said) return;
+  no.disabled = true;
+  let out = null;
+  try {
+    const res = await fetch('/api/found-agents/decline', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dir }),
+    });
+    out = await res.json().catch(() => null);
+  } catch { out = null; }
+  if (!out || !out.ok) {
+    no.disabled = false;
+    said.textContent = (out && out.because) || 'we could not remember that';
+    return;
+  }
+  /* The row becomes the receipt rather than vanishing, the same rule the Add button
+     follows: a control that disappears leaves somebody unsure they pressed it. */
+  row.classList.add('declined');
+  row.innerHTML = '<p class="fr-adoptgone" role="status" aria-live="polite">'
+    + 'Not an agent, got it. We won\u2019t ask about this folder again.</p>'
+    + '<span class="fr-foundact">'
+    + '<button class="btn fr-adoptundo" type="button"'
+    + ' aria-label="Undo, offer ' + esc(dir) + ' again">Undo</button></span>';
+});
+
+document.addEventListener('click', async (e) => {
+  const undo = e.target.closest && e.target.closest('.fr-adoptundo');
+  if (!undo || undo.disabled) return;
+  const row = undo.closest('.fr-adoptrow');
+  const dir = row && row.dataset.foundDir;
+  if (!dir) return;
+  undo.disabled = true;
+  try {
+    await fetch('/api/found-agents/undecline', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dir }),
+    });
+  } catch { /* the repaint below is the recovery either way */ }
+  /* Repaint from the server rather than reconstructing the row here: the row's markup
+     lives in ONE painter and rebuilding it by hand is a second place for it to drift. */
+  if (typeof frFindAgents === 'function') { await frFindAgents(); }
+  if (typeof paintFoundBoard === 'function') { await paintFoundBoard(); }
+});
+
 document.addEventListener('click', async (e) => {
   const go = e.target.closest && e.target.closest('.fr-foundgo');
   if (!go || go.disabled) return;
@@ -31569,8 +31721,19 @@ document.addEventListener('click', async (e) => {
   const said = row && row.querySelector('.fr-foundsaid');
   const dir = row && row.dataset.foundDir;
   if (!dir || !said) return;
+  const field = row.querySelector('.fr-adoptinput');
+  const typed = field ? field.value.trim() : null;
+  /* 🛑 REFUSED HERE RATHER THAN AT THE SERVER. The server's answer for an absent name
+     is "that folder has no instructions in it", which is true and useless to somebody
+     looking at the name box they just left blank. */
+  if (field && !typed) {
+    said.textContent = 'Give this agent a name first.';
+    field.focus();
+    return;
+  }
   const was = go.textContent;
   go.disabled = true;
+  if (field) field.disabled = true;
   go.textContent = 'Adding\u2026';
   said.textContent = '';
   let out = null;
@@ -31578,7 +31741,10 @@ document.addEventListener('click', async (e) => {
     const res = await fetch('/api/connect-agent', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ dir }),
+      /* 🔑 THE NAME THE PERSON TYPED, when this row asked for one (#1531). A found
+         row takes its name from its instructions file and sends none; an adopt row
+         has an empty field and sends what is in it. */
+      body: JSON.stringify(typed === null ? { dir } : { dir, name: typed }),
     });
     out = await res.json().catch(() => null);
   } catch { out = null; }

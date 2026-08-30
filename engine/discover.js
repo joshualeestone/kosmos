@@ -52,6 +52,60 @@ const store = require('./store');
    sandboxed gate that sets it. */
 const DISMISS_FILE = path.join(store.ROOT, 'found-agents-dismissed.json');
 
+/**
+ * Folders the person has said are NOT an agent (#1531).
+ *
+ * 🛑 SEPARATE FROM `dismiss`, WHICH IS THE WHOLE BLOCK. Josh's word for that one was
+ * "forever" and it hides everything. This is one folder, said no to once, and
+ * conflating them would make a single decline switch off the whole offer.
+ *
+ * ⭐ IT HAS TO PERSIST OR THE COPY IS A LIE. The button says "This isn't an agent"
+ * and the confirmation says we will not ask about this folder again. A
+ * session-only hide would bring it back on the next load, which is the screen
+ * telling somebody something untrue about itself.
+ *
+ * ⚠️ A LIST, NOT A FLAG, and unreadable reads as EMPTY rather than as everything.
+ * The failure that matters is a corrupt file hiding folders somebody never
+ * declined, so the safe direction is to offer a folder twice rather than never.
+ */
+const DECLINED_FILE = path.join(store.ROOT, 'found-agents-declined.json');
+
+function declined() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(DECLINED_FILE, 'utf8'));
+    return Array.isArray(raw && raw.dirs) ? raw.dirs.filter((d) => typeof d === 'string') : [];
+  } catch { return []; }
+}
+
+function decline(dir) {
+  const given = String(dir == null ? '' : dir);
+  if (!given || !path.isAbsolute(given)) {
+    return { ok: false, because: 'that is not a folder on this computer' };
+  }
+  const dirs = declined();
+  if (!dirs.includes(given)) dirs.push(given);
+  try {
+    fs.mkdirSync(path.dirname(DECLINED_FILE), { recursive: true });
+    const tmp = DECLINED_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ dirs }) + '\n');
+    fs.renameSync(tmp, DECLINED_FILE);
+  } catch { return { ok: false, because: 'we could not remember that' }; }
+  return { ok: true, declined: given };
+}
+
+/** Undo one decline, because the screen offers an Undo and it must do something. */
+function undecline(dir) {
+  const given = String(dir == null ? '' : dir);
+  const dirs = declined().filter((d) => d !== given);
+  try {
+    fs.mkdirSync(path.dirname(DECLINED_FILE), { recursive: true });
+    const tmp = DECLINED_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ dirs }) + '\n');
+    fs.renameSync(tmp, DECLINED_FILE);
+  } catch { return { ok: false, because: 'we could not remember that' }; }
+  return { ok: true, restored: given };
+}
+
 function dismissed() {
   try { fs.statSync(DISMISS_FILE); return true; } catch (err) {
     return !(err && err.code === 'ENOENT');
@@ -354,6 +408,7 @@ function found() {
      📌 DIAGNOSTIC ONLY. `noInstructions` keeps its meaning and its value, and
      nothing about what the screen says changes: what a person should be told is
      the product question this card is parked on. These two are for us. */
+  const declinedDirs = declined();
   const noInstructionsGoneDirs = new Set();
   const noInstructionsPresentDirs = new Set();
   /* One look at what is running, for every folder below (#362). An unreadable
@@ -497,7 +552,10 @@ function found() {
      * 📌 The route needs no change: `/api/found-agents` spreads this return, so the
      * field reaches the board by existing here.
      */
-    adoptable: [...noInstructionsPresentDirs].map((dir) => ({ dir })),
+    /* Folders the person has already said no to are not offered again (#1531). */
+    adoptable: [...noInstructionsPresentDirs]
+      .filter((dir) => !declinedDirs.includes(dir))
+      .map((dir) => ({ dir })),
     because: null,
   };
 }
@@ -912,4 +970,5 @@ function disconnect(name) {
 module.exports = { alreadyIn,
   foundCodex,
   codexIdentity,
-  runningUnderName, found, connect, disconnect, dismissed, dismiss, DISMISS_FILE };
+  runningUnderName, found, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
+  declined, decline, undecline, DECLINED_FILE };
