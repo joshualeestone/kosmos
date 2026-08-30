@@ -96,6 +96,21 @@ It is safe only because the predicate is asserted first and `claudeBin` is
 `/bin/echo`. Anyone repeating it should keep that order and prepare the cleanup
 before running it, not after.
 
+## Superseded: #1598 has landed, and this guard is now interim
+
+`engine/live-execution.js` is on main. `remove.js` and `delete-leftover.js` both
+call `liveExecutionAllowed()`; `create.js` does not. That gate fails closed on ANY
+binary and ANY verb, keyed on an explicit production opt-in.
+
+⇒ **It is strictly stronger than this guard**, which covers `launchctl` alone and
+infers intent from the environment - the thing this card argued the environment
+cannot carry. This guard is the interim cover for the one module not yet on the
+shared gate, and it should be DELETED when `create.js` adopts it, not kept beside
+it.
+
+⚠️ An earlier section of this file said both siblings "remain reachable live" and
+cited #1598 as open. True when written, false now.
+
 ## Not done
 
 The wider default-is-live property is not changed. `DRY_RUN` still initialises
