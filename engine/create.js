@@ -198,10 +198,11 @@ function agentsDir() { return process.env.AGENT_WORKFORCE_LAUNCH || path.join(ho
  * three `claude --dangerously-skip-permissions` processes with cwd in $HOME, and
  * three loaded launchd jobs.
  *
- * ⇒ THE INVARIANT THIS RESTORES: if the plist is being written somewhere other
- * than the real LaunchAgents directory, the registration must not be real
- * either. Those two are one decision, and the variable only ever moved half of
- * it.
+ * ⇒ THE INVARIANT THIS RESTORES, FOR THIS MODULE'S `run()` ONLY: if the plist is
+ * being written somewhere other than the real LaunchAgents directory, the
+ * registration must not be real either. Those two are one decision, and the
+ * variable only ever moved half of it. See the scope note on `run()`: two sibling
+ * modules hold the same seam unguarded (#1598).
  *
  * ⚠️ WHY THIS IS NOT REDUNDANT WITH THE EXISTING GUARDS. `run()` already
  * short-circuits on an injected runner or on DRY_RUN, and every test that calls
@@ -211,9 +212,32 @@ function agentsDir() { return process.env.AGENT_WORKFORCE_LAUNCH || path.join(ho
  * could fail, and no existing guard was in the path.
  */
 function launchIsSandboxed() {
-  const set = process.env.AGENT_WORKFORCE_LAUNCH;
-  if (!set) return false;
-  return path.resolve(set) !== path.resolve(path.join(homeDir(), 'Library', 'LaunchAgents'));
+  /**
+   * 🛑 COMPARE `agentsDir()`, NOT THE ENV VAR. The invariant above is a claim
+   * about WHERE THE PLIST IS WRITTEN, and that is `agentsDir()`, which has TWO
+   * inputs: the variable AND `homeDir()`. An earlier version of this function
+   * read only the variable, so a sandbox that redirected `HOME` moved the plist
+   * and the predicate did not follow: it returned false and the guard stood
+   * down while the plist was already sandboxed. Measured; 17 test files in this
+   * repo set `process.env.HOME`, 13 of them alongside AGENT_WORKFORCE_LAUNCH.
+   *
+   * 🛑 AND THE REFERENCE POINT MUST NOT MOVE WITH THE SANDBOX EITHER. `homeDir()`
+   * is `os.homedir()`, which honours `$HOME`, so comparing against it let a
+   * spoofed HOME satisfy BOTH sides and cancel out. `os.userInfo().homedir`
+   * reads the passwd entry and is not spoofable by the environment (measured:
+   * with HOME=/tmp/spoofed, os.homedir() follows it and os.userInfo().homedir
+   * does not).
+   */
+  let real;
+  try {
+    real = path.join(os.userInfo().homedir, 'Library', 'LaunchAgents');
+  } catch {
+    /* No passwd entry, so the reference point is unknowable. FAIL CLOSED: treat
+       it as sandboxed and refuse, rather than mutating a real domain we cannot
+       rule out. */
+    return true;
+  }
+  return path.resolve(agentsDir()) !== path.resolve(real);
 }
 /**
  * Where the product keeps things it installs for itself, as opposed to things
@@ -263,9 +287,23 @@ function setDryRun(on) {
   DRY_RUN = Boolean(on);
 }
 
-/* launchctl verbs that CHANGE the user's launchd domain. Reads are harmless and
-   are deliberately not listed: `print`, `print-disabled`, `list`. */
-const LAUNCHCTL_MUTATIONS = ['bootstrap', 'bootout', 'enable', 'disable', 'kickstart'];
+/**
+ * launchctl verbs this codebase uses that only READ. Everything else is treated
+ * as a mutation.
+ *
+ * 🛑 AN ALLOWLIST, NOT A DENYLIST, AND THE DIRECTION IS THE WHOLE POINT. A
+ * denylist of mutating verbs defaults a verb nobody listed to REACHING THE REAL
+ * LAUNCHD, which is the same default-is-dangerous shape that caused #1539 in the
+ * first place. `launchctl` has many mutating verbs that were not on that list:
+ * `load`, `unload`, `remove`, `start`, `stop`, `submit`, `kill`, `setenv`,
+ * `config`, `limit`, `attach`, `bsexec`, `asuser`, `reboot`. `load`/`unload` are
+ * the legacy spellings of `bootstrap`/`bootout` and are what every macOS doc
+ * shows, so anyone transcribing the manual recipe this product exists to spare
+ * people would have walked straight past the guard.
+ *
+ * 📌 The allowlist is also strictly smaller: the codebase uses exactly three.
+ */
+const LAUNCHCTL_READS = ['print', 'print-disabled', 'list'];
 
 function run(file, args) {
   /* 🔑 `runner` IS CHECKED FIRST, AND THAT IS THE SEAM TO REACH FOR IN A TEST (kosmos#1465).
@@ -289,19 +327,31 @@ function run(file, args) {
    * TEAR DOWN a real one, which would take a live agent off the fleet with no
    * trace in the test's own output.
    *
-   * 📌 Reads are not listed. `print`, `print-disabled` and `list` change nothing,
-   * and blocking them would break sandboxed tests that legitimately ask what is
-   * running.
+   * 📌 Reads are allowlisted above. `print`, `print-disabled` and `list` change
+   * nothing, and blocking them would break sandboxed tests that legitimately ask
+   * what is running.
+   *
+   * 🛑 SCOPE, STATED SO THE COMMENT DOES NOT CLAIM MORE THAN THE CODE DOES.
+   * THIS GUARDS `create.js`'s `run()` AND NOTHING ELSE. `engine/remove.js` has a
+   * structurally identical seam with six mutating call sites, and
+   * `engine/delete-leftover.js:257` has a seventh with no DRY_RUN at all. Both
+   * remain reachable live on a fresh require. Tracked as #1598; do not read this
+   * guard as restoring the invariant repo-wide, because it does not.
    */
-  if (file === '/bin/launchctl' && launchIsSandboxed()
-      && Array.isArray(args) && LAUNCHCTL_MUTATIONS.includes(args[0])) {
+  /* 🛑 BASENAME, NOT AN EXACT PATH. `engine/delete-leftover.js:257` already
+     calls `run('launchctl', ...)` bare, and `command -v launchctl` resolves it
+     to /bin/launchctl, so exact-string equality on one spelling is already
+     false at repo scope. */
+  if (path.basename(String(file || '')) === 'launchctl' && launchIsSandboxed()
+      && Array.isArray(args) && !LAUNCHCTL_READS.includes(args[0])) {
     return {
       ok: false,
       stdout: '',
-      stderr: `refusing to launchctl ${args[0]} the real user domain while `
-        + `AGENT_WORKFORCE_LAUNCH is redirected to ${process.env.AGENT_WORKFORCE_LAUNCH}. `
-        + 'That variable moves where the plist is WRITTEN; it does not sandbox the '
-        + 'registration, so this call would have reached the operator\'s own launchd (#1539).',
+      stderr: `refusing to launchctl ${args[0]} the real user domain while the `
+        + `plist directory is sandboxed to ${agentsDir()}. Sandboxing where the `
+        + 'plist is WRITTEN does not sandbox the REGISTRATION, so this call would '
+        + 'have reached the operator\'s own launchd (#1539). Inject a runner or '
+        + 'call setDryRun(true) if this test meant to reach launchctl.',
       sandboxRefused: true,
     };
   }
@@ -2967,6 +3017,14 @@ module.exports = {
      runner -- the exact configuration that started three real agents -- so
      testing it end-to-end first requires knowing the predicate is right. */
   launchIsSandboxed,
+  /* Test seam. `run` is exported so the #1539 refusal's MESSAGE can be asserted
+     directly. It has to be direct: the refusal is discarded by two of the five
+     mutating call sites (`:1700`, `:2290` both `try { run(...) } catch {}` and
+     never read the result) and `sandboxRefused` is read nowhere in the repo, so
+     there is no public path that surfaces the sentence. That is a real gap, not
+     a testing inconvenience, and it is why the export is labelled rather than
+     quietly added. */
+  run,
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` only lowercases — it
      is a converter, not a gate — so anything asking "is this a name we can
      act on" has to reach this, or it grows a weaker second copy. */
