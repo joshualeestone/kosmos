@@ -245,7 +245,20 @@ test('a stuck install does not strand the 281MB download in app data', async (t)
 
   await connect.start();
   await until(() => connect.state().phase === connect.PHASE.STUCK, 10000);
-  assert.match(connect.state().because, /did not finish setting itself up/);
+  /**
+   * 🔑 PRINT `tail`, NOT JUST `because`. The generic catch at connect.js:797
+   * passes the REAL error as becomeStuck's third argument, which lands in state
+   * as `tail` and is surfaced by publicView. So when this assertion fails with
+   * the generic `something went wrong that we did not plan for`, the actual
+   * cause was captured all along and nobody was reading it.
+   *
+   * ⚠️ THAT IS WHY kosmos#1551 READS AS UNEXPLAINED. Every report of that flake
+   * quoted `because`, which is the generic line by construction. This makes the
+   * next occurrence print the real error instead of the wrapper.
+   * (Found by Mona Lisa; the edit is here because this file is mine.)
+   */
+  assert.match(connect.state().because, /did not finish setting itself up/,
+    `because=${JSON.stringify(connect.state().because)} tail=${JSON.stringify(connect.state().tail)}`);
 
   const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
   const leftovers = (() => { try { return fs.readdirSync(dir); } catch { return []; } })()
