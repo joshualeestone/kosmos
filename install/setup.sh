@@ -1403,6 +1403,26 @@ KOSMOS_SWEEP_LIST
   # Claim only what was observed: the plists were REMOVED (we removed them);
   # "stopped" would assert an outcome the best-effort bootout never checked.
   # And on a machine with no agents, say nothing about agents at all.
+  # 🛑 OUR OWN BOOKKEEPING GOES; THE PERSON'S DATA STAYS (#1547). The status
+  # engine writes a would-ping log into the data folder during normal running
+  # (#1494), and the uninstall left it there -- so somebody who removed Kosmos
+  # found our ping-logs sitting in their AgentWorkforce folder. Leave no trace
+  # applies to what WE generated, never to what they made.
+  #
+  # ⚠️ BY EXACT NAME, NOT A GLOB, and that is this file's own rule rather than
+  # caution for its own sake: every other rm here proves ownership first, and a
+  # pattern-swept data folder is precisely how an uninstaller deletes the thing
+  # it promised to keep. `wouldping/` is written by us and only by us; anything
+  # we cannot name that confidently is left alone and named, per the header.
+  #
+  # 📌 The sandbox refusal earlier in this function already guarantees
+  # AGENT_WORKFORCE_DATA is this install's own data root, so this cannot reach
+  # a different install's folder.
+  _data_root="${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support/AgentWorkforce}"
+  if [ -d "$_data_root/wouldping" ]; then
+    info "removing Kosmos's own ping log from the data folder (your agents' files stay)"
+    rm -rf "$_data_root/wouldping" 2>/dev/null || true
+  fi
   if [ "$_agents_stopped" = "yes" ]; then
     printf '\n  Kosmos is removed. Your agents\047 background jobs were removed; their files were left alone\n'
     printf '  (in your Library/Application Support/AgentWorkforce folder and their own folders).\n\n'
