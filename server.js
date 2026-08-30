@@ -2972,9 +2972,14 @@ const server = http.createServer((req, res) => {
        real, live-checked `connection` field, not just what a saved local
        file's shape implies -- one badge vocabulary, one meaning, across
        providers.
-       ⚠️ listLive(), NOT list(): this route is the one place a live,
-       per-account check is safe to pay for -- its callers are deliberate,
-       person-paced moments, never the 5-second status tick (which still
+       ⚠️ listLive(), NOT list(): a live per-account check is safe to pay for
+       here because the callers are demand-paced rather than the 5-second tick.
+       🛑 CORRECTED: this used to say "THE ONE PLACE" and "person-paced moments",
+       and both halves went false on this branch. There are TWO callers now
+       (this route and /api/agent/connections), and the second is called by
+       AGENTS, not by a hand on a screen. The same over-narrow claim was fixed in
+       engine/accounts.js and this copy four lines above the rewritten block was
+       missed, which is the drift this branch is about. (which still
        calls the plain, fast list() elsewhere in this file, untouched).
          🛑 THE INVARIANT IS THE JUSTIFICATION, NOT A LIST. An earlier version of
          this comment made a caller enumeration NORMATIVE ("this list is the
@@ -3005,16 +3010,23 @@ const server = http.createServer((req, res) => {
          by AGENTS, and the instruction block tells every agent the verb exists.
          An agent is not a hand on a screen: nothing here rate-limits, caches or
          debounces it, and EACH CALL IS A LIVE `claude auth status` PER ACCOUNT
-         PLUS EVERY DOOR CHECK. It is still demand-paced rather than a tick, an
+         PLUS THREE FIRST-PARTY DOOR CHECKS (it said EVERY DOOR CHECK until the
+         token doors were removed from the agent route; see below). It is still demand-paced rather than a tick, an
          agent asks to answer a question, but the phrase is doing more work than
          it did. If this route ever appears in a polling loop, THE CACHE BELONGS
          HERE, NOT IN THE CALLER.
-         🛑 AND THE COST IS NOT ONLY THIS MACHINE'S. The door sweep calls each
-         token door's `state()`, which makes a LIVE AUTHENTICATED REQUEST to the
-         service. Several of those METER AGAINST THE PERSON'S OWN PAID QUOTA
-         (Brave Search, Exa, Tavily, Serper). So an agent in a poll loop spends
-         somebody's paid allowance, not just local CPU, AND NO LOCAL MEASUREMENT
-         WOULD SHOW IT. Named here because the caller cannot see that cost.
+         🛑 THE COST THAT WAS NOT ONLY THIS MACHINE'S, AND WHAT WAS DONE ABOUT IT.
+         A token door's `state()` makes a LIVE AUTHENTICATED REQUEST, and several
+         of those METER AGAINST THE PERSON'S OWN PAID QUOTA (Brave Search, Exa,
+         Tavily, Serper), so an agent in a poll loop would spend somebody's paid
+         allowance with NO LOCAL MEASUREMENT SHOWING IT.
+         ✅ FIXED rather than merely named: the token doors are no longer swept by
+         `/api/agent/connections` at all. This paragraph described the sweep in
+         the present tense for two commits after that stopped being true, and it
+         contradicted the agent route's own comment ("THE TOKEN DOORS ARE
+         DELIBERATELY NOT SWEPT HERE"). Two comments in one file giving opposite
+         answers about one route is the exact defect this branch exists to fix.
+         📌 The remaining first-party fan-out is carded as #1618.
        ⚠️ HEAD SKIPS THE LIVE CHECK. Nothing in web/index.html sends one
        today, but a HEAD is conventionally cheap/side-effect-light, and
        nothing about it needs a per-account subprocess/network call to

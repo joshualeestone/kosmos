@@ -22,6 +22,12 @@ const { kosmosCliShown } = require('./clipath');
  * works, seeing this machine's actual connection state, and acting on it. Only
  * the first is here. It has no security surface, it needs no consent, and the
  * card's own reading is that it delivers most of the value.
+ * 🛑 SCOPE, CORRECTED: that sentence is about the KNOWLEDGE this block carries,
+ * and it is still true of the words. It is NOT a claim about the block as a
+ * whole any more: the block now POINTS AT machine state by naming the verb (see
+ * the correction below). The consent question was decided there, not dodged
+ * here. Stated at this paragraph because a reader who stops here would otherwise
+ * conclude no ruling was ever needed.
  *
  * ⭐ THE MODEL IS A PHONE CALL. A person helping another person connect
  * something cannot see their screen either, and manages perfectly well by
@@ -37,7 +43,7 @@ const { kosmosCliShown } = require('./clipath');
  * needs a person's consent.
  *
  * 🛑 CORRECTED (#1034 part 2): THE BLOCK NOW POINTS AT MACHINE STATE, though it
- * still contains none. It tells every agent to run `kosmos connections`, which
+ * still contains none. It tells every agent to run the connections verb, which
  * reports which providers are connected on this computer. The consent question
  * was decided (verdict only: no sign-in URL, no terminal output, no emails, no
  * key tails). So the paragraph above remains true of these WORDS and is no

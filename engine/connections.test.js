@@ -103,7 +103,14 @@ test('#1034: it carries no CREDENTIAL and no PER-AGENT state', () => {
      meant to pin is a trap for whoever edits the copy next. */
   const body = connections.blockBody();
   assert.equal(connections.blockBody.length, 0, 'blockBody grew an argument; per-agent state is being smuggled in');
-  assert.doesNotMatch(body, /@/, 'an email address reached a block that must carry no credential');
+  /* ⚠️ An EMAIL SHAPE, not a bare `@`. The block now embeds a machine-derived
+     install path, and `kosmosCliShown` does not strip `@` (it is outside the
+     path allowlist, so such a path is merely quoted). A bare /@/ would fail on
+     any machine whose install path contains one, with a message accusing the
+     block of leaking an email, which is the worst kind of red: loud, wrong, and
+     pointing at the wrong file. */
+  assert.doesNotMatch(body, /[\w.+-]+@[\w-]+\.[\w.]+/,
+    'an email address reached a block that must carry no credential');
   assert.doesNotMatch(body, /sk-|key tail/i, 'a key or key tail reached the block');
   // CONTROL: the body is real, so the absence assertions above are about content
   // rather than about an empty string.

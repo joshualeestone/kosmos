@@ -869,9 +869,15 @@ cmd_connections() {
       if (v.signin && v.signin.phase === "unknown") {
         console.log("");
         console.log("  We could not tell whether a " + whoName + " sign-in is going on. Ask what is on their screen.");
+      /* ⚠️ ONE replace, not two. The first was `.replace("A sign-in", ...)` and it
+         was DEAD: measured, 0 of the 2 STOPPED values contain that substring and
+         both contain "An earlier sign-in" (control: "got stuck" matches 1). Dead
+         code that looks live is a trap, because a reader concludes both shapes are
+         handled. If a STOPPED value is ever added that does NOT begin "An earlier
+         sign-in", it will print without the provider name and this needs revisiting. */
       } else if (v.signin && own(STOPPED, v.signin.phase) && !anyConnected) {
         console.log("");
-        console.log("  " + own(STOPPED, v.signin.phase).replace("A sign-in", "A " + whoName + " sign-in").replace("An earlier sign-in", "An earlier " + whoName + " sign-in") + " Ask what is on their screen.");
+        console.log("  " + own(STOPPED, v.signin.phase).replace("An earlier sign-in", "An earlier " + whoName + " sign-in") + " Ask what is on their screen.");
       } else if (v.signin && v.signin.busy) {
         // The phase is machine vocabulary too, exactly like the verdicts above.
         // An unmapped phase falls back to a sentence with no jargon in it

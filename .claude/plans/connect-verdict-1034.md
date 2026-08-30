@@ -98,7 +98,6 @@ GPT`, so the gap this line called "still open" had been closed before this branc
 
 📌 Same class the rest of this branch is about, arriving in the plan file rather than the
 code, which is where nothing executes it.
-  `engine/connections.js`, control `provider` 9.
 
 ## 🛑 THIS IS NOT A PRIVILEGE BOUNDARY, AND NOTHING HERE MAY IMPLY IT IS
 
