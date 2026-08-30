@@ -86,7 +86,11 @@ test('#1556: the cache is ONE-SIDED, so a binary going missing is noticed at onc
 });
 
 test('#1556: the probe result IS cached, so a status poll does not spawn one every time', async () => {
-  /* 📌 An earlier draft of this said 'the route calls this on every /api/connect GET'. That design was abandoned: /api/connect is byte-identical to main and willInstall is referenced nowhere in server.js. The only consumer is /api/first-run via firstrun.state(). The behaviour asserted below is unchanged and still worth pinning; only the rationale was wrong. Without a cache that is a
+  /* 📌 An earlier draft of this said 'the route calls this on every /api/connect GET'. That design
+  /* was abandoned: /api/connect is byte-identical to main and willInstall is referenced nowhere in
+  /* server.js. The only consumer is /api/first-run via firstrun.state(). The behaviour asserted
+  /* below is unchanged and still worth pinning; only the rationale was wrong. Without a cache that
+  /* is a
      subprocess per poll, which is the #1560 mistake in a new place. */
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = fakeClaude('claude-slow', 'sleep 0.3; exit 0');
   connect.resetForTests();
@@ -106,8 +110,8 @@ test('#1556: the probe result IS cached, so a status poll does not spawn one eve
 test('#1556 concurrent callers share ONE probe, they do not each start their own', async () => {
   /* 🛑 THE CACHE IS WRITTEN AFTER AN AWAIT, so before coalescing every caller
      arriving during a cold probe missed it and spawned its own `claude --version`.
-     That is not hypothetical for any caller on a timer, and with a 15s timeout it
-     is a pile of concurrent subprocesses rather than one.
+     That is acute when this was served on the 1000ms-timer route; still
+     real for page boot overlapping "Check again".
 
      ⚠️ NOTE WHAT THIS TEST WOULD HAVE DONE BEFORE THE FIX: it fails at 8, not 1.
      Perturbation, measured: remove the in-flight guard and this goes red alone. */

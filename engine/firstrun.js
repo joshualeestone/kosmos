@@ -190,7 +190,9 @@ async function state() {
      must never become a confident "no install needed", which costs an unannounced
      281MB download), and because a future edit inside `willInstall` could make it
      reachable. What it must NOT do is read as a guarantee the code is providing
-     right now. This repo names that trap itself, at web/index.html:30776: saying a
+     right now. This repo names that trap itself, in `frClaudeDownloadBytes`'s doc block in
+     web/index.html (named rather than line-numbered, because a line number in a
+     32k-line file drifts): saying a
      function can return null when it cannot is how a dead branch gets pinned by a
      test that can never fail for the reason it states. */
   const willInstall = await willInstallSoon;

@@ -30853,8 +30853,11 @@ function frClaudeConfirmSentence() {
   /* ⚠️ `=== true`, NOT `typeof ... === 'boolean'`. The flat arm below states that an
      install IS needed, and a boolean test is satisfied by `false` too, so a machine
      that already HAS a working Claude Code would be told the opposite. It is safe
-     today only because the single caller is gated behind `frClaudeInstallNeeded()`
-     three hundred lines away, and #1556 is what made this arm reachable at all. A
+     today only because the single caller (`frConnectStart`) is gated behind
+     `frClaudeInstallNeeded()` in a different part of the file, and #1556 is what made
+     this arm reachable at all. (An earlier draft said "three hundred lines away" and
+     the real distances are neither of the numbers it implied, so the claim is stated
+     without one.) A
      sentence that cannot contradict itself is better than one that relies on a
      distant caller to stay honest. */
   const known = st && st.willInstall === true;

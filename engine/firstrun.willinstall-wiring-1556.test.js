@@ -122,3 +122,30 @@ test('#1556 control: this test can tell a right path from a wrong one', async ()
   assert.equal(typeof (state.subscription || {})[field], 'undefined',
     'the field appears on an unrelated key too, so the shape assertion proves nothing');
 });
+
+test('#1556 the two probes OVERLAP: the launcher probe starts before checkLive resolves', async () => {
+  /* ⚠️ THE COMMENT IN firstrun.js CLAIMS THIS AND NOTHING PINNED IT. Moving
+     `const willInstallSoon = ...` below `await subscription.checkLive()` left every
+     test green, so the overlap was an assertion about the code rather than a property
+     of it. That is the unchecked-claim class this branch has been correcting all
+     night, and it was sitting in my own fix for the cost finding.
+
+     Perturbation: move that line below the await and this arm goes red. */
+  let checkLiveResolved = false;
+  let probeStartedBeforeCheckLive = null;
+
+  subscription.setRunner(async () => {
+    await new Promise((r) => setTimeout(r, 60));
+    checkLiveResolved = true;
+    return { stdout: JSON.stringify({ loggedIn: true }), err: null };
+  });
+  connect.setRunner(async () => {
+    if (probeStartedBeforeCheckLive === null) probeStartedBeforeCheckLive = !checkLiveResolved;
+    return { ok: true, stdout: '' };
+  });
+  connect.resetForTests();
+
+  await firstrun.state();
+  assert.equal(probeStartedBeforeCheckLive, true,
+    'the launcher probe waited for checkLive, so the two shell-outs are serial, not overlapped');
+});

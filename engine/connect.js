@@ -399,9 +399,14 @@ function state() {
    unreachable in production, since setRunner and setDryRun are test-only. */
 /* ⚠️ COALESCED, BECAUSE A CACHE WRITTEN AFTER AN AWAIT IS NOT A CACHE YET.
    Every caller arriving while the first probe is still running would miss
-   `probeCache` and start its own `claude --version`. That is not hypothetical
-   for a caller on a timer, and with a 15s timeout it is a pile of concurrent
-   subprocesses rather than one. Sharing the in-flight promise makes N callers
+   `probeCache` and start its own `claude --version`. That mattered acutely when this
+   field was served on `/api/connect`, which IS on a 1000ms timer. It is now served on
+   `/api/first-run`, which is not, so the pile-of-subprocesses case is gone with that
+   design and the timeout is 5s rather than 15s.
+
+   ⇒ The coalescing still earns its place: page boot and "Check again" can genuinely
+   overlap, and a cache written after an await is not a cache yet. Only the original
+   justification was overtaken. Sharing the in-flight promise makes N callers
    cost exactly one probe, and changes no verdict. */
 let PROBE_TTL_MS = 60000;
 /** Tests only: make the probe cache's expiry assertable. Without a seam a typo

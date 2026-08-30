@@ -19,13 +19,23 @@
  * The three cases are the three states a user is actually in.
  *
  * 🛑 READ THIS BEFORE CITING THE FILE AS THIS BRANCH'S GUARD, BECAUSE I DID EXACTLY
- * THAT AND WAS WRONG. Every assertion here passes UNCHANGED against main. Measured:
- * 5 pass, 0 fail on main's page. The branch adds a PRODUCER; the reader it guards was
- * already correct, which is the card's own premise.
+ * THAT AND WAS WRONG. Most of this file passes UNCHANGED against main: it guards the
+ * READER, and the reader was already correct, which is the card's own premise. The
+ * branch adds a PRODUCER, and nothing here can see it.
  *
  * ⇒ Both of these are true and they measure different things:
- *     revert the READER      -> RED.        This file guards it.
- *     remove MY PRODUCER     -> GREEN 5/5.  This file is blind to it.
+ *     revert the READER    -> RED.    This file guards it.
+ *     remove MY PRODUCER   -> GREEN.  This file is blind to it.
+ *
+ * ⚠️ ONE ARM IS BRANCH-SENSITIVE, and it is named rather than counted:
+ * **"a machine that already HAS Claude is never told it needs an install"** fails on
+ * main, because `known` was a typeof-boolean test there and `false` satisfies it.
+ * Every other arm is main-green.
+ *
+ * 📌 THIS PARAGRAPH USED TO STATE A COUNT ("5 pass, 0 fail") AND THE COUNT ROTTED
+ * TWENTY MINUTES LATER when I added the sixth arm, inside the very comment written to
+ * stop this file being miscited. A count is a fact about a moment; a name survives the
+ * next test. That is why the arm above is identified by its title.
  *
  * The guards that fail without the branch are `firstrun.willinstall-wiring-1556` and
  * the wire contract in `server.test.js`. This file's value is that it EXECUTES the
