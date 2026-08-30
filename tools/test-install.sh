@@ -736,16 +736,26 @@ chk "user data folder survives" "[ -d \"$SB/data\" ]"
 # copy, made permanent: `<` lines are the fingerprint before the install,
 # `>` lines are the folder after the uninstall; a file that appears only on the
 # right was left behind, one on both sides with different hashes was changed.
-if [ "$(data_hashes)" = "$DATA_FINGERPRINT" ]; then
+# A DATA-SAFETY gate: the question is "did the uninstall DESTROY or CHANGE the
+# person's data", and that is answered exactly by "every SEEDED line still
+# present, byte for byte" -- a subset test, not folder equality. The gate's own
+# NAME is "every USER file survives", which is subset.
+# ⚠️ An ADDITION the app WROTE during its own run (e.g. #1494's wouldping log at
+# AgentWorkforce/wouldping/needs-you.jsonl) is litter, not a data-safety
+# violation. Equality here also failed on such additions and broke cut 0.6.06 at
+# 4b on exactly that file (2026-08-29). The uninstall leaving app litter behind
+# is a real product bug, but a SEPARATE one, carded on its own.
+# Both operands are `shasum | sort` output, so `comm -23` (lines only in the
+# seed) is exactly the seeded files that did NOT survive: a destroyed file's
+# line is gone; a changed file's OLD line is gone, because its new hash sorts as
+# a different line. comm exits 0, so no set -e / pipefail hazard.
+LOST="$(comm -23 <(printf '%s\n' "$DATA_FINGERPRINT") <(data_hashes))"
+if [ -z "$LOST" ]; then
   chk "every user file survives the uninstall byte for byte" true
 else
   chk "every user file survives the uninstall byte for byte" false
-  echo "      the data folder is not byte for byte what was seeded (< before install, > after uninstall):"
-  # ⚠️ `|| true`, or this diagnostic ends the suite: diff exits 1 whenever
-  # the folders differ (which is the only time this branch runs), pipefail
-  # carries it, and set -e aborts with ~200 checks unrun and no summary
-  # line (seen 2026-08-26, #891's red, twice in a row).
-  diff <(printf '%s\n' "$DATA_FINGERPRINT") <(data_hashes) | sed 's/^/      /' || true
+  echo "      a seeded user file did NOT survive the uninstall (destroyed or changed):"
+  printf '%s\n' "$LOST" | sed 's/^/      /'
 fi
 # POSITIVE CONTROL: the fingerprint is not empty, so the comparison above is
 # comparing something. An empty string equals an empty string.
