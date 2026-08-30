@@ -1369,6 +1369,66 @@ driverTest('already connected means connected, without touching anything', async
   assert.equal(term.made, 0, 'a sign-in session was opened for somebody already signed in');
 });
 
+/**
+ * #1560: the local file claiming a paid plan is not evidence the person is
+ * signed in, and `start()` used to refuse to run the sign-in on that evidence
+ * alone. That is a lockout with no way out from the UI: the one button that
+ * would fix it is the one this branch declines to honour.
+ *
+ * 🛑 THESE TESTS EXIST BECAUSE THE SUITE COULD NOT SEE THE FIX. Measured before
+ * writing them: replacing the new `live.state === NONE` branch with `if (false)`
+ * left every existing test green, because `claude auth status` cannot run in the
+ * sandbox, so `checkLive()` answers UNKNOWN and the new path is never taken.
+ * The seam is `subscription.setRunner`.
+ */
+driverTest('#1560: a connected-looking FILE does not block sign-in when the world says signed out', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    const st = await connect.start();
+    assert.notEqual(st.phase, connect.PHASE.CONNECTED,
+      'the file said connected and the person is signed out: start must run the sign-in, not refuse it');
+  } finally { subscription.setRunner(null); }
+});
+
+driverTest('#1560 CONTROL: when the world agrees, connected still means connected and nothing is opened', async () => {
+  // Without this arm the test above is satisfied by a change that simply never
+  // reports connected, which would break every genuinely connected person.
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    const st = await connect.start();
+    assert.equal(st.phase, connect.PHASE.CONNECTED);
+    assert.equal(term.made, 0, 'a sign-in session was opened for somebody already signed in');
+  } finally { subscription.setRunner(null); }
+});
+
+driverTest('#1560 CONTROL: an UNVERIFIABLE live check keeps the old behaviour rather than forcing a sign-in', async () => {
+  /**
+   * The third state matters. `checkLive` answers UNKNOWN when it cannot reach
+   * Claude Code, which is a statement about our instrument and not about the
+   * person. Treating that as "signed out" would push a genuinely connected
+   * customer into a sign-in every time the probe was flaky, which is this
+   * card's own harm arriving from the other side.
+   */
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => { throw new Error('claude is not reachable'); });
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    const st = await connect.start();
+    assert.equal(st.phase, connect.PHASE.CONNECTED,
+      'an unverifiable check must not be read as positive evidence the file is wrong');
+  } finally { subscription.setRunner(null); }
+});
+
 driverTest('cancel stops the flow and reports idle', async () => {
   const term = fakeTerminal();
   connect.setRunner(term.runner);
