@@ -434,7 +434,13 @@ test('#1575: every `node ./server.js` boot sets AGENT_WORKFORCE_DRY_RUN, or is a
  * 🛑 THREE SPELLINGS OF THAT MISTAKE USED TO WALK STRAIGHT PAST IT, all measured green
  * by a blind review: the URL held in a variable (the file's own dominant style), the
  * check invoked directly without `run_one`, and a second check chained with `&&` on the
- * same continuation so the line count stayed at 1. All three now counted.
+ * same continuation so the line count stayed at 1.
+ *
+ * 🛑 AND THAT LIST WAS ITSELF INCOMPLETE. An earlier version of this line ended
+ * "All three now counted", which was true of a second `run_one` and FALSE of a
+ * bare check chained onto a `run_one` line, because the counting branches were
+ * mutually exclusive. A fourth blind review measured it GREEN with a check that
+ * presses the real Create button. Counting is now per-fragment and additive.
  */
 test('#1573: exactly one check runs against the non-dry-run boards, and it is the read-only one', () => {
   const src = fs.readFileSync(RUNNER, 'utf8');
@@ -513,16 +519,32 @@ test('#1573: exactly one check runs against the non-dry-run boards, and it is th
        `CHK="docs/browser-checks/x"` (an assignment, invokes nothing) from
        `node "$CHK.js"` (an invocation). */
     if (!/(^|[;&|]|\s)(node|run_one)\b/.test(line)) return;
+    /* 🛑 PER FRAGMENT, BECAUSE THE TWO BRANCHES WERE MUTUALLY EXCLUSIVE. This read
+       `if (run_one) count run_one; else count paths`, so a line holding BOTH - a
+       legitimate `run_one` with a second bare check chained onto it by `&&` - took the
+       first branch and counted 1, silently discarding the chained invocation. Measured
+       GREEN with `render-create-made` (which presses the real Create button) chained
+       onto the render-connect-skip call.
+       ⚠️ AND THE COMMENT ABOVE CLAIMED THIS VARIANT WAS ALREADY CLOSED. It said "a
+       second check chained with && on the same continuation so the line count stayed at
+       1. All three now counted." That was true of a second `run_one` and false of a
+       chained bare invocation, which is the same "claims more than the code does" defect
+       this file keeps closing, arriving inside the fix for it.
+       ⇒ Split into command fragments and classify EACH, additively. Within a fragment
+       the run_one-versus-path distinction still holds, so `run_one ... foo.js` counts
+       once rather than twice. */
     let hits = 0;
-    if (/run_one/.test(line)) {
-      hits = (line.match(/run_one/g) || []).length;
-    } else {
-      /* the DIRECTORY, not a literal filename: this counts a constructed path
-         (`node "docs/browser-checks/$n.js"`) and a quoted one, which a `.js`-anchored
-         pattern could not. */
-      hits = (line.match(/docs\/browser-checks\//g) || []).length;
-      for (const v of checkVars) {
-        hits += (line.match(new RegExp(`\\$\\{?${v}\\b`, 'g')) || []).length;
+    for (const frag of line.split(/&&|\|\||;/)) {
+      if (/run_one/.test(frag)) {
+        hits += (frag.match(/run_one/g) || []).length;
+      } else {
+        /* the DIRECTORY, not a literal filename: this counts a constructed path
+           (`node "docs/browser-checks/$n.js"`) and a quoted one, which a `.js`-anchored
+           pattern could not. */
+        hits += (frag.match(/docs\/browser-checks\//g) || []).length;
+        for (const v of checkVars) {
+          hits += (frag.match(new RegExp(`\\$\\{?${v}\\b`, 'g')) || []).length;
+        }
       }
     }
     for (let i = 0; i < hits; i += 1) users.push({ line, n });

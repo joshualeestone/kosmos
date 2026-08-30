@@ -165,7 +165,10 @@ Both fixed. 🛑 THEN A FIFTH BLIND REVIEW FOUND THREE MORE, and the first was n
 **the URL held in a variable is this file's DOMINANT style**, written verbatim at line 608
 as `B8="http://127.0.0.1:$P8"` for fourteen checks. The others were invoking the check
 without `run_one`, and chaining a second onto the same continuation so the line count
-stayed at 1. All three now counted: one level of assignment is resolved into aliases, any
+stayed at 1. **That list was incomplete and the sentence claiming otherwise was false:**
+a bare check chained onto a `run_one` line survived, because the counting branches were
+mutually exclusive rather than additive, and a fourth blind review measured it GREEN with
+a check that presses the real Create button. Counting is now PER FRAGMENT. Closed: one level of assignment is resolved into aliases, any
 `docs/browser-checks/*.js` invocation counts, and occurrences are counted rather than lines.
 **Still open and stated rather than claimed closed:** a bare `curl -X POST` at those boards,
 which invokes no check script and so is invisible to this guard.
