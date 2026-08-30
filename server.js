@@ -3686,7 +3686,27 @@ const server = http.createServer((req, res) => {
         tail: String((err && err.message) || err),
       };
     }
-    sendJson(res, 200, st);
+    /**
+     * 🔑 THE ANSWER THE CLIENT HAS BEEN ASKING FOR ALL ALONG (#1556).
+     * `frClaudeInstallNeeded()` reads `willInstall` and FAILS OPEN when it is
+     * absent, so its absence showed the 281MB download prompt to everybody,
+     * including people who already have a working Claude Code.
+     *
+     * ⭐ MERGED HERE RATHER THAN INSIDE `state()`, AND THAT IS THE WHOLE DESIGN.
+     * The answer needs an AWAITED `--version` probe; `state()` is synchronous and
+     * has ELEVEN call sites, and `publicView` is synchronous under all of them.
+     * Making either async to carry one boolean would touch every caller for a
+     * field none of them use. The route is the one place that already has the
+     * freedom to wait, and this file's siblings already answer promise-style.
+     *
+     * ⚠️ IT FAILS OPEN, EXACTLY AS TODAY. If the probe throws or the field cannot
+     * be produced, the response is the one this route sent before this change, and
+     * the client falls back to asking. A missing answer must never become a
+     * confident one, which is the defect in the first place.
+     */
+    connect.willInstall()
+      .then((w) => sendJson(res, 200, { ...st, willInstall: w }))
+      .catch(() => sendJson(res, 200, st));
     return;
   }
 

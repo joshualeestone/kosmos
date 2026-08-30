@@ -311,6 +311,82 @@ function state() {
   return publicView(mem);
 }
 
+/**
+ * Would connecting Claude have to DOWNLOAD it first? (#1556)
+ *
+ * 🛑 THE CLIENT ALREADY ASKS THIS AND THE SERVER NEVER ANSWERED.
+ * `web/index.html`'s `frClaudeInstallNeeded()` reads `willInstall` and, finding
+ * nothing, FAILS OPEN and assumes an install is needed. So the download prompt was
+ * shown to everybody, including people who already have a working Claude Code. The
+ * consumer was correct all along; this field is what was unbuilt.
+ *
+ * ⭐ THE SAME TWO-STEP `start()` ALREADY USES, and it was here before either #1560
+ * or this card: a cheap `accessSync` decides whether the expensive probe is worth
+ * running. A truncated or half-written launcher passes `X_OK` forever, so "a file is
+ * there" is not "it runs", and only `--version` can tell them apart.
+ *
+ * 🛑 THE CACHE IS DELIBERATELY ONE-SIDED, BECAUSE THE TWO ERRORS ARE NOT EQUAL:
+ *
+ *   we say willInstall TRUE  and it was false  -> one needless confirm dialog
+ *   we say willInstall FALSE and it was true   -> AN UNANNOUNCED 281MB DOWNLOAD
+ *
+ * The second is the harm this card exists to prevent, and Josh asked for the confirm
+ * step by name. So the cheap check runs EVERY time and can only ever move the answer
+ * toward "yes, we will install": if the binary has gone, that is known instantly and
+ * no probe runs. Only the expensive PROBE result is cached, and only briefly, so a
+ * person who installs Claude while the board is open is not told for at most a
+ * minute, in the harmless direction.
+ *
+ * ⚠️ AND IT NEVER THROWS. A failure here must leave the caller free to fall back to
+ * today's behaviour, because the whole defect was a missing answer being read as a
+ * definite one.
+ */
+let probeCache = null;
+const PROBE_TTL_MS = 60000;
+
+async function willInstall() {
+  const bin = claudeBinPath();
+  /* The cheap half, every time. It cannot produce the harmful answer on its own:
+     a missing or non-executable file means an install IS needed, full stop. */
+  try { fs.accessSync(bin, fs.constants.X_OK); } catch { return true; }
+  const now = Date.now();
+  if (probeCache && probeCache.bin === bin && now - probeCache.at < PROBE_TTL_MS) {
+    return !probeCache.ok;
+  }
+  let ok = false;
+  try {
+    const probe = await run(bin, ['--version'], { timeout: 15000 });
+    /* 🛑 A DRY-RUN RESULT IS NOT A PASS, AND MY UNIT TESTS COULD NOT SEE THIS.
+       `run()` returns `{ ok: true, dryRun: true }` WITHOUT EXECUTING ANYTHING when
+       dry-run is on (this file, in `run` itself), so a probe that never ran reported
+       success and a broken launcher came back "installed" through the real route.
+
+       📌 I first wrote `create.js:240` here. WRONG FILE: connect.js has its own
+       `run`, its own DRY_RUN and its own setDryRun, and never requires create.js.
+       The behaviour was measured; the cause I named for it was not. Corrected
+       rather than quietly dropped, because a wrong citation reads as checked.
+
+       ⇒ MEASURED, both arms, same broken binary: dry-run OFF gives willInstall
+       true, dry-run ON gave FALSE. That is the unannounced-download answer,
+       produced by the safety mechanism meant to make things safe.
+
+       ⭐ `dryRun` MEANS "WE DID NOT CHECK", WHICH IS UNKNOWN, NOT YES. Every other
+       unknown in this function resolves toward "an install is needed", because that
+       costs a confirm dialog and the other direction costs 281MB nobody asked for.
+       This one now does too.
+
+       📌 Found by querying the real route on three boards, not by the six unit
+       tests, which never set dry-run. The units and the route disagreed and the
+       route was right. */
+    ok = !!(probe && probe.ok && !probe.dryRun);
+  } catch { ok = false; }
+  probeCache = { bin, ok, at: now };
+  return !ok;
+}
+
+/** So a test can put the probe back to unknown between arms. */
+function resetWillInstallCache() { probeCache = null; }
+
 function publicView(s) {
   return {
     configDir: s.configDir || null,
@@ -1677,5 +1753,4 @@ module.exports = {
   classifyPane, extractOauthUrl, tailOf, validCode, redirectDowngrades,
   download, platformKey,
   setRunner, setDryRun, setTickInterval, setUnknownGrace, setAbandonedSigninMs, setFreshnessForTests, resetForTests,
-  STATE_FILE,
-};
+  STATE_FILE, willInstall, resetWillInstallCache };
