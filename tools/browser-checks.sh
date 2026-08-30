@@ -839,6 +839,24 @@ fi
 # The enumeration is kept complete anyway: one that stops early is the same shape as the
 # sentence #1575 removed from this file, complete-looking and incomplete.
 #
+# 🛑 AND THE ENUMERATION ABOVE NAMED ONE MODULE OF FOUR. Measured: every engine module
+# holding an env-derived DRY_RUN seam, with its bare-DRY_RUN count.
+#     create.js   25   named above
+#     connect.js   7   NOT named
+#     remove.js   14   NOT named   <- the one that matters
+#     chat.js      9   NOT named
+# ⇒ `remove.js:97` is `if (DRY_RUN) return ...` and then a bare `execFileSync`, so on
+# THESE boards it is un-gated like every other seam. Its own doc block names
+# `bootout gui/<uid>/com.kosmos.agent.<NAME>`, which STOPS A RUNNING AGENT on the
+# operator's real session - a strictly worse verb than the `bootstrap`/`enable` the
+# paragraph above names, and it was not in the list.
+# ✅ LATENT, NOT LIVE, and the reason is structural rather than lucky: the wired guard
+# holds this pair to ONE read-only check, so nothing here presses a button that reaches
+# remove.js. That is a property somebody must keep true, which is why it is asserted in
+# `tools.browser-checks-wired.test.js` rather than promised here.
+# ⚠️ An enumeration that stops early is the shape #1575 removed from this file. This one
+# stopped at one of four while claiming to be complete, in the same paragraph that says so.
+#
 # ⚠️ THE DOWNLOAD BASE IS BLACKHOLED TOO, AND THAT MATTERS MORE THAN THE STUBS.
 # `connect.download()` is NOT dry-run gated at all, so the vendor fetch already happens on
 # every board including the six dry-run ones. What dry-run WAS preventing here is the next
