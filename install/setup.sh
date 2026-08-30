@@ -1177,7 +1177,7 @@ KOSMOS_SWEEP_LIST
       _tunnel="$KOSMOS_HOME/app/bin/kosmos-tunnel"
       if [ -f "$_remote_state/mac_key" ] && [ -x "$_tunnel" ]; then
         info "telling the Plus service this computer is going away"
-        if "$_tunnel" retire --state-dir "$_remote_state" --coordinator "${AGENT_WORKFORCE_TUNNEL_COORDINATOR:-https://coordinator.plus.installkosmos.com}" >/dev/null 2>&1; then
+        if "$_tunnel" retire --state-dir "$_remote_state" --coordinator "${AGENT_WORKFORCE_TUNNEL_COORDINATOR:-https://coordinator.kosmosplus.com}" >/dev/null 2>&1; then
           info "its Plus address is retired; the name is free again after a day"
         else
           info "note: the Plus service could not be told; its address may still show on your account page until you remove it there"

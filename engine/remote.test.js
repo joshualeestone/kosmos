@@ -211,7 +211,7 @@ test('#648: enrolled with nothing set dials the REAL relay and coordinator, with
   const args = recorded()[0];
   const flat = Array.isArray(args) ? args.join(' ') : String(args);
   assert.match(flat, /--relay relay\.plus\.installkosmos\.com:8443\b/);
-  assert.match(flat, /--coordinator https:\/\/coordinator\.plus\.installkosmos\.com\b/);
+  assert.match(flat, /--coordinator https:\/\/coordinator\.kosmosplus\.com\b/);
   assert.ok(!/--tunnel-ca/.test(flat), 'a CA was baked for the production relay: ' + flat);
   remote.resetForTests();
 });
@@ -338,7 +338,7 @@ test('#648: with nothing set, the Mac dials the real relay and coordinator, and 
   delete process.env.AGENT_WORKFORCE_TUNNEL_CA;
   try {
     assert.equal(remote.DEFAULT_RELAY, 'relay.plus.installkosmos.com:8443');
-    assert.equal(remote.DEFAULT_COORDINATOR, 'https://coordinator.plus.installkosmos.com');
+    assert.equal(remote.DEFAULT_COORDINATOR, 'https://coordinator.kosmosplus.com');
     /* The source, not a re-implementation: the CA flag is passed only when the env is set. */
     const src = require('node:fs').readFileSync(require.resolve('./remote'), 'utf8');
     assert.match(src, /if \(process\.env\.AGENT_WORKFORCE_TUNNEL_CA\) \{\s*args\.push\('--tunnel-ca'/);

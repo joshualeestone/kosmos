@@ -35,8 +35,10 @@
  *                                       wrong baked-in one could not dial
  *                                       somewhere nobody chose)
  *   AGENT_WORKFORCE_TUNNEL_COORDINATOR  coordinator URL for setup. Default: the
- *                                       real one, https://coordinator.plus.installkosmos.com
- *                                       (deployed 2026-08-24, #622)
+ *                                       real one, https://coordinator.kosmosplus.com
+ *                                       (flipped from coordinator.plus.installkosmos.com to the
+ *                                       kosmosplus.com domain 2026-08-30, #1565; the old host stays
+ *                                       up for already-installed clients until it is retired last)
  *   AGENT_WORKFORCE_TUNNEL_STATE        the state dir (keys, certs)
  *   AGENT_WORKFORCE_TUNNEL_CA           extra CA for a dev/self-host relay
  *                                       ONLY. The real relay serves a
@@ -75,7 +77,7 @@ const BIN = () => {
  * baked for a Mac to reach the real relay and coordinator. Precedence: env
  * (tests, self-host), then the relay saved in remote.json, then production. */
 const DEFAULT_RELAY = 'relay.plus.installkosmos.com:8443';
-const DEFAULT_COORDINATOR = 'https://coordinator.plus.installkosmos.com';
+const DEFAULT_COORDINATOR = 'https://coordinator.kosmosplus.com';
 const RELAY = () => process.env.AGENT_WORKFORCE_TUNNEL_RELAY || read().relay || DEFAULT_RELAY;
 /* The ONE answer to "is a relay configured on this machine" (#790). The
  * server's Plus route once re-derived it from the raw parts (saved relay or
