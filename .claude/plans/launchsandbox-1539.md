@@ -68,3 +68,73 @@ The wider default-is-live property is not changed. `DRY_RUN` still initialises
 false, and this guard only covers launchd mutations under a redirected plist
 path. Making the module default to safe is a larger change with a different
 blast radius.
+
+
+---
+
+# Iteration 1 review: two BLOCKERs, both mine, both fixed
+
+## BLOCKER 1: the predicate did not measure the property it claimed
+
+The docstring stated the invariant in terms of WHERE THE PLIST IS WRITTEN, which
+is `agentsDir()`. The predicate read `process.env.AGENT_WORKFORCE_LAUNCH`, which
+is only ONE of that function's two inputs, and compared it against `homeDir()`,
+which is `os.homedir()` and honours `$HOME`.
+
+⇒ A sandbox that redirected `HOME` moved the plist and the predicate did not
+follow. Worse, `HOME` spoofed AND `AGENT_WORKFORCE_LAUNCH` set to
+`$HOME/Library/LaunchAgents` (the most natural layout, because it mirrors
+production) moved BOTH sides and cancelled out, reading as production.
+
+Not hypothetical: 17 test files in this repo set `process.env.HOME`, 13 of them
+alongside AGENT_WORKFORCE_LAUNCH.
+
+Fixed by comparing `agentsDir()` against `os.userInfo().homedir`, which reads the
+passwd entry and is not spoofable by the environment. Fails CLOSED if that
+throws. Mutation-verified: reverting the predicate turns the new arm red.
+
+## BLOCKER 2: my READS control could not fail, twice
+
+v1 asserted `doesNotThrow`. A blocked read does not throw: the guard RETURNS
+`{ok:false, stdout:''}` and the parser fails soft to an empty Set. Structurally
+blind to the regression it was named for. Proven by mutation: blocking both read
+verbs left all four tests green.
+
+v2, my own first fix, asked the same question through an injected runner. `run()`
+short-circuits on a runner BEFORE the guard, so the stub answered and the guard
+was never in the path. Also proven by mutation: blocking `list` left it green.
+
+⇒ I wrote a broken control, fixed it, and wrote a differently broken one. Both
+were caught by mutation and neither by reading.
+
+v3 calls `run()` directly with no runner and no dry-run, asserts each read verb is
+NOT refused, and carries a control asserting a mutating verb IS. Mutation-verified
+both ways: blocking `list` -> red; making the guard inert -> red.
+
+## Shape changes from the WARNINGs
+
+- **Allowlist, not denylist.** `LAUNCHCTL_READS = [print, print-disabled, list]`,
+  everything else treated as a mutation. The old denylist omitted `load`,
+  `unload`, `remove`, `start`, `stop`, `submit`, `kill` and more, and
+  `load`/`unload` are the legacy spellings of the two verbs it did list, which is
+  what every macOS doc shows. Default-is-dangerous, the same shape that caused
+  this card.
+- **Basename, not an exact path.** `delete-leftover.js:257` already calls
+  `run('launchctl', ...)` bare.
+- **The comment is scoped.** It claimed the invariant unconditionally while
+  guarding one of three seams. Now states what it does not cover, and points at
+  #1598.
+- **The test file sandboxes DATA and PROJECTS.** It was writing three files into
+  the operator's REAL Application Support on every run, one of which every live
+  agent reads. `AGENT_WORKFORCE_HOME` was set and did nothing (create.js never
+  reads it); removed rather than left reading as protection.
+- **`run` is exported as a labelled test seam** so the refusal message can be
+  asserted at all, because no public path surfaces it.
+
+## Still not fixed, deliberately
+
+`remove.js` and `delete-leftover.js` hold the same seam unguarded. Filed as
+#1598 with measurements. The tmux half is the worse half: a booted launchd job
+returns at next login, a killed pane does not.
+
+Suite 3125 pass, 0 fail. launchd delta 0, tmux delta 0.
