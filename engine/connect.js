@@ -890,9 +890,38 @@ async function start(opts) {
      * be pathological, and they answer "did the login just land" rather than
      * "may I refuse to start", which is the question that locks somebody out.
      */
+    /**
+     * 🛑 SIGNED IN IS NOT THE SAME AS READY, AND THIS BRANCH USED TO CONFLATE
+     * THEM (#1580). The CONNECTED short-circuit below returns five lines before
+     * `haveBinary` is computed, so a machine with valid auth and NO Claude Code
+     * binary was told it was connected and never offered the install. Plausible
+     * after a machine migration or a partial uninstall, and it fails in the
+     * reassuring direction: nothing to click, no error, and the failure surfaces
+     * later as an agent that will not start, by which time this screen has
+     * already said everything is fine.
+     *
+     * ⚠️ THE CHEAP HALF ONLY, DELIBERATELY. `haveBinary` below refines this with
+     * an AWAITED `--version` probe carrying a 15 second timeout, and putting
+     * that in front of the fast path would make every already-connected start()
+     * pay for it. `accessSync` is synchronous and answers the question this
+     * branch actually needs: is there anything on disk to run at all.
+     *
+     * ⇒ A person whose binary exists but is BROKEN still reports connected here
+     * and is corrected by the probe further down, which is the pre-existing
+     * behaviour and not this card's subject.
+     */
+    let binaryOnDisk = false;
+    try { fs.accessSync(claudeBinPath(), fs.constants.X_OK); binaryOnDisk = true; } catch { /* nothing to run */ }
+
     const live = await subscription.checkLive(configDir ? { configDir } : undefined);
-    if (live.state === subscription.STATE.NONE) {
+    if (!binaryOnDisk || live.state === subscription.STATE.NONE) {
       /**
+       * ⚠️ TWO REASONS REACH HERE NOW, AND NEITHER IS AN ERROR TO SHOW SOMEBODY.
+       * Either there is nothing on disk to run (#1580) or the file and the world
+       * disagree about the sign-in (#1560). In both cases the honest response is
+       * to run the flow the person asked for, which installs what is missing and
+       * signs in if that is what is missing.
+       *
        * ⚠️ FALL THROUGH ON DISAGREEMENT, DO NOT REPORT A FAILURE. The file and
        * the world disagreeing is not an error to show somebody: it is the
        * ordinary state of a person whose session expired, and the correct
@@ -1286,6 +1315,45 @@ async function runFlow(owner, haveBinary) {
     if (!res.ok) { becomeStuck(owner, res.message, res.detail); return; }
   }
   if (driver !== owner) return;
+  /**
+   * 🛑 IF THE ONLY THING MISSING WAS THE BINARY, INSTALLING IT FINISHED THE JOB
+   * (#1580). A signed-in person whose Claude Code was gone now falls through to
+   * this flow to get the install; without this check they would then be walked
+   * through a sign-in they do not need, which trades one wrong screen for
+   * another.
+   *
+   * ⚠️ ASKED AGAIN RATHER THAN REMEMBERED. `start()` read the subscription
+   * BEFORE the install ran; this reads it after, because installing is exactly
+   * the kind of thing that can change the answer. It is the same reader the
+   * flow already trusts at its own connected-detection sites.
+   *
+   * 📌 The pane-based detection further down cannot cover this: it fires only
+   * once a pane classifies as `browser-open` or `awaiting-code`, and somebody
+   * who never needed a sign-in never produces either. Measured before adding
+   * this: the journey ended at `signin-launching` and stayed there.
+   *
+   * 🛑 TWO GUARDS, AND I ADDED BOTH ONLY AFTER MY FIRST VERSION REINTRODUCED
+   * #1560. Written without them, this read the FILE and ran for EVERY flow, so
+   * a signed-out person with a stale paid-plan file was declared connected right
+   * here at the end of runFlow: the exact lockout #1560 exists to prevent,
+   * re-entering through the back door of its own fix.
+   *   `!haveBinary`  this is only about the case where installing was the
+   *                  missing step. A flow that skipped the install has nothing
+   *                  new to learn and must not re-decide.
+   *   `checkLive`    the file over-claims by design (#1555); the same standard
+   *                  start() applies must apply here, or the guard is decorative.
+   * Caught by the #1562 matrix cells, not by the suite, which stayed green.
+   */
+  if (!haveBinary) {
+    const already = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
+    if (already.state === subscription.STATE.CONNECTED) {
+      const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);
+      if (live.state !== subscription.STATE.NONE) {
+        await finishConnected(owner, already);
+        return;
+      }
+    }
+  }
   await launchSignin(owner);
 }
 
