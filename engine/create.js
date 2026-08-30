@@ -241,120 +241,37 @@ function launchIsSandboxed() {
    * the first, which is the two-copies-of-one-fact defect this file's own header
    * names as its worst habit.
    */
-  {
-    /**
-     * 🛑 THIS DOES NOT CALL `sandbox.audit()`, AND AN EARLIER VERSION OF THIS
-     * COMMENT SAID IT DID. It borrows sandbox.js's DIRECTORY LIST and its escape
-     * hatch, and asks a DIFFERENT QUESTION on purpose:
-     *
-     *   sandbox.audit().partial  "is this BOARD half-sandboxed?"   (includes tmux)
-     *   launchIsSandboxed()      "is the PLIST DESTINATION sandboxed?"
-     *
-     * They legitimately disagree, and the disagreement is not a defect. Measured:
-     * with all four directories sandboxed AND `AGENT_WORKFORCE_TMUX_BIN` set
-     * (which `install/kosmos:228` exports in every production board), `partial` is
-     * FALSE because nothing is left live, while the plist destination IS sandboxed
-     * and this must return TRUE.
-     *
-     * 📌 The list is DERIVED from `sandbox.DIRS`, not copied, so a fifth directory
-     * knob added there is seen here automatically. An earlier version hardcoded
-     * the three names, which is the two-copies-of-one-fact defect this file's
-     * header calls its worst habit, inside the paragraph claiming to avoid it.
-     *
-     * 🛑 HONOUR `AGENT_WORKFORCE_HALF_SANDBOX_OK`, WHICH `.set` DOES NOT. THIS IS A PRODUCTION PATH AND AN EARLIER VERSION
-     * OF THIS LINE BROKE IT. `install/setup.sh` exports DATA, PROJECTS and
-     * WORKERS for a non-default `KOSMOS_HOME` (:2635-2637), DELIBERATELY leaves
-     * `AGENT_WORKFORCE_LAUNCH` unset so plists go to the real LaunchAgents, and
-     * sets `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` (:2662) as sandbox.js's own named
-     * escape hatch for exactly that shape. It then writes all four into the board
-     * plist's EnvironmentVariables (:2782), so the server carries them at EVERY
-     * LOGIN.
-     *
-     * Measured: with that env, `set.length` is 3 and `partial` is FALSE. Reading
-     * `.set` refused the registration, `installJob` reported `started: false`,
-     * and `createAgentInner` rolled the whole creation back. Silently, forever,
-     * on every non-default-KOSMOS_HOME install.
-     *
-     * ⇒ `.partial` is the field that encodes "half-sandboxed AND nobody said that
-     * was deliberate". Reading anything else here makes this module a SECOND
-     * definition of "am I sandboxed" that disagrees with sandbox.js, which is the
-     * exact defect consulting sandbox.js was supposed to avoid.
-     *
-     * 🛑 AND `partial` ALONE IS NOT THE ANSWER EITHER, WHICH I ASSERTED WITHOUT
-     * MEASURING AND WAS WRONG ABOUT. With ONLY `AGENT_WORKFORCE_LAUNCH` set,
-     * `partial` is TRUE (set=[LAUNCH], the other three are live), so pointing
-     * LAUNCH at the real directory would have been refused. Measured.
-     *
-     * ⇒ The condition that is actually wanted: SOMEBODY SANDBOXED SOMETHING
-     * OTHER THAN LAUNCH, AND DID NOT SAY THE HALF-SANDBOX WAS DELIBERATE. That
-     * is the shape where a plist lands in the real LaunchAgents by accident.
-     * LAUNCH's own value is judged by the path comparison below, where it
-     * belongs.
-     */
-    const env = process.env;
-    let others;
-    try {
-      others = require('./sandbox').DIRS
-        .map(([k]) => k)
-        .filter((k) => k !== 'AGENT_WORKFORCE_LAUNCH');
-    } catch {
-      /* sandbox.js unavailable: fall back to the known three rather than to
-         "nothing is sandboxed", which is the fail-OPEN direction. */
-      /* ⚠️ THIS FALLBACK IS A COPY, so the "derived, sees a fifth knob
-         automatically" claim above holds on the NORMAL PATH ONLY. It is
-         unreachable in the product (server.js requires ./engine/sandbox at
-         startup and the bundle ships every engine/*.js, so a missing sandbox.js
-         means no board at all), but it is a copy and must not be read as one more
-         place the derivation protects you. */
-      others = ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_PROJECTS', 'AGENT_WORKFORCE_WORKERS'];
-    }
-    /**
-     * 🛑 KNOWN RESIDUAL, AND IT IS NOT FIXABLE HERE. Setting the hatch disarms
-     * this arm completely, so a TEST that sandboxes the other three, sets
-     * `HALF_SANDBOX_OK=1`, and forgets LAUNCH gets the guard switched off and
-     * writes a real plist. That is the #1539 shape verbatim, and the hatch is
-     * exactly what sandbox.js tells you to set when a board refuses to start.
-     *
-     * ⚠️ IT CANNOT BE DECIDED FROM THE ENVIRONMENT. Measured: a legitimate
-     * non-default-KOSMOS_HOME install (setup.sh) and a test that sets the hatch
-     * present an IDENTICAL environment - same three variables, same hatch, LAUNCH
-     * unset in both. Any predicate that refuses one refuses the other, and
-     * refusing the real install is the failure that rolls back every agent
-     * creation (see the block above, which is how that was found).
-     *
-     * ⇒ The residual protection in that state is arm B alone: if LAUNCH is
-     * redirected the path comparison still catches it. What is unprotected is
-     * hatch-set AND LAUNCH-unset AND actually a test.
-     *
-     * ✅ THE REAL FIX IS NOT A BETTER PREDICATE, IT IS NOT INFERRING INTENT FROM
-     * THE ENVIRONMENT AT ALL: fail closed by default and require an explicit live
-     * opt-in at the one production caller. Tracked as #1598. This guard is a
-     * mitigation for the file it is in, not a solution to the class.
-     */
-    /**
-     * 🛑 THE HATCH ONLY EXCUSES A **COMPLETE** OTHER-SANDBOX, AND AN EARLIER
-     * VERSION LET IT EXCUSE ANY. It used to disarm this arm whenever it was set,
-     * so `{DATA only, hatch}` stood the guard down and a test in that shape wrote
-     * a real plist. Measured, and it IS decidable:
-     *
-     *   none set, no hatch             -> false   production, unchanged
-     *   all three + hatch (setup.sh)   -> false   production, unchanged
-     *   DATA only + hatch              -> TRUE    was false: the hole
-     *   any subset, no hatch           -> TRUE    unchanged
-     *
-     * ⇒ Production never presents partial-plus-hatch: `setup.sh` derives all three
-     * whenever it derives any. Requiring `every` closes the hole and touches
-     * neither production shape.
-     *
-     * ⚠️ THE TRADE, STATED RATHER THAN HIDDEN: this reads the hatch more strictly
-     * than `engine/sandbox.js` does, a mild version of the second-definition
-     * problem this function otherwise avoids. Taken deliberately: a hole that lets
-     * a test register real agents is worse than a stricter reading of a flag whose
-     * only production setter sets all three.
-     */
-    const hatched = env.AGENT_WORKFORCE_HALF_SANDBOX_OK === '1' && others.every((k) => env[k]);
-    if (!hatched && others.some((k) => env[k])) return true;
-  }
+  /**
+   * 🛑 THERE IS NO SECOND ARM, AND REMOVING IT IS THE MAIN CORRECTION OF THIS
+   * CARD'S SIXTH REVIEW. An earlier version returned TRUE whenever any of
+   * DATA/PROJECTS/WORKERS was sandboxed, on the theory that somebody who
+   * sandboxed those probably meant to sandbox LAUNCH too and forgot.
+   *
+   * ⇒ THAT ARM VIOLATED THIS FUNCTION'S OWN INVARIANT. It returned before the
+   * path comparison ran, so it refused registrations for plists that were
+   * genuinely going to the REAL LaunchAgents. Measured, three shapes, all with
+   * the plist directory REAL and the guard refusing:
+   *
+   *   DATA only + hatch, LAUNCH unset              refused
+   *   DATA + hatch, LAUNCH = the real directory    refused
+   *   all four set, LAUNCH = the real directory    refused
+   *
+   * In each, `createAgentInner` rolls the whole creation back and the person is
+   * told we took the agent back off their computer. `AGENT_WORKFORCE_HALF_SANDBOX_OK`
+   * is a DOCUMENTED user-facing override (`sandbox.js:19`,
+   * `docs/browser-checks/README.md:221`), not merely a setup.sh output, so this
+   * was reachable by anybody following the documentation.
+   *
+   * 🛑 AND IT COULD NOT HAVE WORKED IN PRINCIPLE. The case it existed for is a
+   * TEST that forgot to sandbox LAUNCH. That test writes a real plist and wants a
+   * real registration - which is byte-identical to a real install doing the same.
+   * The arm was inferring INTENT from the environment, and the environment does
+   * not carry it. That is the same argument this card made for #1598, applied to
+   * its own code.
+   *
+   * ⇒ The forgot-LAUNCH hazard is real and belongs to #1598's explicit live
+   * opt-in, where a caller STATES its intent, rather than to a heuristic here.
+   */
 
   let real;
   try {
@@ -484,9 +401,11 @@ function run(file, args) {
    * TEAR DOWN a real one, which would take a live agent off the fleet with no
    * trace in the test's own output.
    *
-   * 📌 Reads are allowlisted above. `print`, `print-disabled` and `list` change
-   * nothing, and blocking them would break sandboxed tests that legitimately ask
-   * what is running.
+   * 📌 Reads are allowlisted above: `print`, `print-disabled` and `list` are THE
+   * THREE THIS CODEBASE USES. Any other read verb (`blame`, `getenv`, `plist`,
+   * `procinfo`, `hostinfo`, `version`, and a dozen more) is REFUSED, which is the
+   * safe direction but is not what "reads are allowed" would suggest. Blocking the
+   * three in use would break sandboxed tests that legitimately enumerate.
    *
    * 🛑 SCOPE, STATED SO THE COMMENT DOES NOT CLAIM MORE THAN THE CODE DOES.
    * THIS GUARDS `create.js`'s `run()` AND NOTHING ELSE. `engine/remove.js` has a
@@ -499,10 +418,19 @@ function run(file, args) {
    * `createAgentInner` calls `require('./trust').trustFolder(...)` BEFORE the
    * bootstrap, and `trust.js` resolves to
    * `AGENT_WORKFORCE_CLAUDE_CONFIG || ~/.claude.json`. So a sandboxed test gets
-   * its registration refused AND STILL MERGES A `projects[]` ENTRY INTO THE
-   * OPERATOR'S REAL `~/.claude.json`, rewriting the file.
-   * `AGENT_WORKFORCE_CLAUDE_CONFIG` is not in `sandbox.DIRS`, so arm A cannot see
-   * a test that sandboxes it either.
+   * its registration refused AND STILL WRITES THE OPERATOR'S REAL
+   * `~/.claude.json`.
+   *
+   * ⚠️ PRECISE, BECAUSE AN EARLIER VERSION OF THIS SENTENCE OVERSTATED IT IN THE
+   * ALARMING DIRECTION: the entry does NOT normally persist. `createAgentInner`'s
+   * `if (!started)` branch calls `trust.forgetFolder(...)`, which restores the
+   * displaced value or removes the entry it created. What is true is that the real
+   * file is READ AND REWRITTEN TWICE on a path that refused the registration, and
+   * the entry DOES persist in two cases: `forgetFolder` refusing (a symlink,
+   * unreadable, or malformed file), and a live Claude Code session having
+   * rewritten the key in between.
+   * `AGENT_WORKFORCE_CLAUDE_CONFIG` is not a knob this guard consults at all, so a
+   * test that sandboxes it is invisible here.
    * ⇒ REFUSING THE REGISTRATION IS NOT THE SAME AS LEAVING THE MACHINE UNTOUCHED,
    * and this guard only does the first.
    */
