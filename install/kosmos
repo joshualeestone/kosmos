@@ -718,6 +718,12 @@ cmd_connections() {
     process.stdin.on("end", () => {
       let v = null;
       try { v = JSON.parse(raw); } catch { v = null; }
+      if (v && typeof v.error === "string") {
+        // The board composed a sentence about its own failure. Print THAT rather
+        // than our vaguer one, the same rule `whoami` states.
+        console.log(v.error);
+        process.exit(1);
+      }
       if (!v || !Array.isArray(v.providers)) {
         console.log("Kosmos answered something we could not read, so we cannot say what is connected.");
         process.exit(1);
@@ -728,12 +734,30 @@ cmd_connections() {
       for (const p of v.providers) {
         // `none` and `unknown` are machine vocabulary. A person reads this.
         var verdict = SAY[p.signedIn] || p.signedIn;
-        // No count beside "could not check": a number there reads as settled.
-        var many = p.howMany === null ? ""
-          : ", " + (p.howMany === 1 ? "1 sign-in" : p.howMany + " sign-ins");
+        /* 🛑 THE COUNT THAT WORKS, NOT THE COUNT THAT EXISTS. "3 sign-ins" beside
+           "has a working sign-in" reads as three working ones. Say both only when
+           they differ, and say nothing at all when we could not look
+           (`null`), because a number beside "could not check" reads as settled.
+           `!= null` on purpose: an older board that omits the field entirely
+           must be treated as "did not say", not as "0". */
+        var many = "";
+        if (p.howMany != null) {
+          var w = p.howManyWorking != null ? p.howManyWorking : p.howMany;
+          if (p.howMany === 0) many = "";
+          else if (w === p.howMany) many = ", " + (w === 1 ? "1 sign-in" : w + " sign-ins");
+          else many = ", " + w + " of " + p.howMany + " sign-ins working";
+        }
         console.log("  " + p.name + ": " + verdict + " (" + p.because + many + ")");
       }
-      if (v.signin && v.signin.busy) {
+      /* 🛑 STUCK AND INTERRUPTED ARE NOT BUSY, AND THEY ARE THE TWO MOMENTS AN
+         AGENT IS MOST USEFUL. Printing only on `busy` dropped both silently, so
+         a person whose sign-in is stuck got an agent that said nothing about it. */
+      var STOPPED = { stuck: "A sign-in got stuck and did not finish.",
+                      interrupted: "A sign-in was interrupted before it finished." };
+      if (v.signin && STOPPED[v.signin.phase]) {
+        console.log("");
+        console.log("  " + STOPPED[v.signin.phase] + " Ask what is on their screen.");
+      } else if (v.signin && v.signin.busy) {
         // The phase is machine vocabulary too, exactly like the verdicts above.
         // An unmapped phase falls back to a sentence with no jargon in it
         // rather than printing the raw token at somebody.

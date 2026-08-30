@@ -245,9 +245,14 @@ function list() {
  * tick (server.js) specifically because that poll cannot afford anything
  * heavier than a directory stat; layering a live subprocess call in there
  * would repeat the mistake `subscription.js`'s own file-cache header warns
- * against, worse. This function exists ONLY for the on-demand `GET
- * /api/accounts` route -- opened deliberately (Settings > Accounts), never
- * ticked -- where paying a real check's cost is the entire point.
+ * against, worse. This function is for ON-DEMAND, PERSON-PACED reads only --
+ * opened deliberately, never ticked -- where paying a real check's cost is the
+ * entire point. Two routes call it today: `GET /api/accounts` (Settings >
+ * Accounts, the first-run wizard) and `GET /api/agent/connections` (#1034, an
+ * agent answering "what is connected?", including via `kosmos connections`).
+ * ⚠️ The RULE is the invariant, not the list: a second caller was added and this
+ * comment said there could only ever be one, which is how a guard stops being
+ * read. Add callers freely; putting this on a TIMER is the thing it forbids.
  *
  * Parallel, not serial: one account's live check taking the full timeout
  * must not make every other account's row wait behind it.

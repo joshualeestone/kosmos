@@ -28,6 +28,8 @@ const SECRETS = {
   bin: '/opt/planted9271/bin/claude',
   org: 'planted9271_org',
   doorkey: 'PLANTEDDOORKEY9271',
+  doorname: 'PLANTEDDOORNAME9271',
+  keyTail: 'PLANTEDKEYTAIL9271',
 };
 
 function richInput() {
@@ -50,9 +52,17 @@ function richInput() {
         },
       },
       {
+        /* The shape openaiaccounts.rowFor() really produces. The brief for this
+           change names an API KEY TAIL explicitly, and the proof did not cover
+           it because the fixture did not carry one. */
         provider: 'openai',
+        providerName: 'OpenAI',
         email: SECRETS.email,
         dir: SECRETS.dir,
+        keyTail: SECRETS.keyTail,
+        authMode: 'key',
+        label: SECRETS.email,
+        isDefault: true,
         connection: { state: subscription.STATE.NONE, because: 'nope' },
       },
     ],
@@ -73,8 +83,13 @@ function richInput() {
          values, so this whole class was invisible to the proof the module rests on */
       [`/api/svc/${SECRETS.doorkey}`]: { connected: true },
     },
+    /* 🛑 A SECRET IN THE ONE CHANNEL THAT ACTUALLY TRAVELS. `services[].name` is
+       copied out of this map, so it is the only genuine pass-through in the
+       module -- and it was the only channel with nothing planted in it, which
+       made the leak proof a proof about the fixture rather than about the rule. */
     doorNames: {
       '/api/github': 'GitHub', '/api/vercel': 'Vercel', '/api/cloudflare': 'Cloudflare',
+      '/api/svc/leaky': SECRETS.doorname,
     },
   };
 }
@@ -104,7 +119,7 @@ test('every string the view emits comes from this module, not from its input', (
   const allowed = new Set([
     ...Object.values(verdict.SAYS),
     ...verdict.PHASES, 'unknown',
-    'anthropic', 'openai', 'Claude Code', 'GPT (OpenAI, through Codex)',
+    'anthropic', 'openai', ...Object.values(verdict.PROVIDER_LABEL),
     'GitHub', 'Vercel', 'Cloudflare',
     subscription.STATE.CONNECTED, subscription.STATE.NONE, subscription.STATE.UNKNOWN,
   ]);
@@ -259,4 +274,57 @@ test('a count is withheld rather than guessed when we could not check', () => {
   // control: a provider we COULD read still reports a real count
   const seen = verdict.forAgent({ accounts: [{ provider: 'openai', connection: { state: subscription.STATE.CONNECTED } }] });
   assert.strictEqual(seen.providers.find((p) => p.id === 'openai').howMany, 1);
+});
+
+test('a door name is dropped unless the CALLER allowlisted it, prototype keys included', () => {
+  /**
+   * `names['constructor']` walks the prototype chain and answers a Function,
+   * which is truthy, so an inherited key passed the gate whose whole job is
+   * refusing input. The rows came back with a Function for a name, which
+   * JSON.stringify drops, so the CLI printed `undefined: connected`.
+   */
+  const out = verdict.forAgent({
+    doors: { constructor: { connected: true }, toString: { connected: false }, valueOf: { connected: null } },
+    doorNames: {},
+  });
+  assert.deepStrictEqual(out.services, [], 'an inherited key passed the allowlist gate');
+  // control: a door the caller DID allowlist still comes through
+  const ok = verdict.forAgent({ doors: { '/api/github': { connected: true } }, doorNames: { '/api/github': 'GitHub' } });
+  assert.strictEqual(ok.services.length, 1);
+  assert.strictEqual(ok.services[0].name, 'GitHub');
+});
+
+test('the count of sign-ins is separate from the count that WORK', () => {
+  /**
+   * `howMany` counts rows. Rendered beside "this computer has a working
+   * sign-in for it", three rows of which one works read as three working.
+   */
+  const sub = subscription.STATE;
+  const out = verdict.forAgent({ accounts: [
+    { provider: 'anthropic', connection: { state: sub.CONNECTED } },
+    { provider: 'anthropic', connection: { state: sub.NONE } },
+    { provider: 'anthropic', connection: { state: sub.NONE } },
+  ] });
+  const c = out.providers.find((p) => p.id === 'anthropic');
+  assert.strictEqual(c.signedIn, sub.CONNECTED);
+  assert.strictEqual(c.howMany, 3);
+  assert.strictEqual(c.howManyWorking, 1, 'the working count must not equal the row count here');
+  // control: when every row works, the two numbers agree
+  const all = verdict.forAgent({ accounts: [{ provider: 'openai', connection: { state: sub.CONNECTED } }] });
+  const o = all.providers.find((p) => p.id === 'openai');
+  assert.strictEqual(o.howMany, o.howManyWorking);
+});
+
+test('the provider names are the words the screen uses', () => {
+  /**
+   * The board labels them `Claude` and `GPT`. A third vocabulary here is the
+   * two-accounts-of-what-to-do failure this card exists to prevent.
+   */
+  const page = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  for (const label of Object.values(verdict.PROVIDER_LABEL)) {
+    assert.ok(page.includes('>' + label + '<'),
+      `the agent view says ${JSON.stringify(label)}, which the screen never says`);
+  }
+  // control: a name the screen genuinely does not use must fail this same test
+  assert.ok(!page.includes('>GPT (OpenAI, through Codex)<'), 'control: that string should not be on the page');
 });

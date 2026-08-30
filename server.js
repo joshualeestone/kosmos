@@ -2981,21 +2981,25 @@ const server = http.createServer((req, res) => {
          justification, so it has to stay complete") and shipped INCOMPLETE the
          same day: it omitted `paintConnLive` and `loadCreateExtras`, both of
          which already called this route. A list that must stay complete is a
-         promise nobody can keep and it goes false silently, which is the
-         "claims more than the code does" defect this diff spends its length
-         closing, arriving inside a comment the same diff rewrote.
-         ⇒ WHAT MUST HOLD: every caller is A PERSON PRESSING SOMETHING. A new
-         caller of that kind is fine and needs no edit here; a TIMER is not,
-         whatever the count. That property is checkable at each call site on its
-         own, without knowing the others.
-         📌 The callers as of #1373, illustrative and NOT a set to maintain:
+         promise nobody can keep and it goes false silently.
+         => WHAT MUST HOLD: every call is DEMAND-PACED. Either a person pressed
+         something, or an agent asked a question and is waiting for the answer.
+         A TIMER IS NOT, whatever the count. That property is checkable at each
+         call site on its own, without knowing the others.
+         🛑 "A PERSON PRESSING SOMETHING" WAS TOO NARROW AND I SHIPPED IT ON #1373.
+         That wording named `/api/agent/connections` among the person-paced
+         callers. It is not one: `install/kosmos` reaches it with curl, so the
+         caller is an AGENT. Worse, the route did not exist on main when that
+         comment landed -- it arrives with #1034, below -- so the comment listed
+         a caller that was not there and then described it wrongly. Both halves
+         are the defect this comment is about, committed inside it.
+         📌 The callers as of #1034, illustrative and NOT a set to maintain:
          paintAccounts (Settings > Accounts), paintConnLive (the Connections
          section opening), paintAccountPicker (the agent panel picker),
          loadCreateExtras (a create-form role change), frPaintOpenai (the
          first-run wizard model step, which can re-fire on a back/forward pass),
-         and /api/agent/connections. Every one of them is a person walking a
-         screen rather than a timer, which is the property that matters; the
-         list is here to show what that looks like, not to be kept complete.
+         and /api/agent/connections (an agent, through the CLI). The list shows
+         what demand-paced looks like; it is not a set to keep complete.
        ⚠️ HEAD SKIPS THE LIVE CHECK. Nothing in web/index.html sends one
        today, but a HEAD is conventionally cheap/side-effect-light, and
        nothing about it needs a per-account subprocess/network call to

@@ -32,6 +32,16 @@
  *   NOTHING IS PASSED THROUGH. Every string this module emits is either an
  *   enum value it allowlists, or a sentence from SAYS below.
  *
+ * 🛑 ONE HONEST EXCEPTION, AND IT IS A CALLER CONTRACT RATHER THAN A PROPERTY OF
+ * THIS FILE: `services[].name` is copied out of the `doorNames` map the caller
+ * supplies. Resolving THROUGH an allowlist does not make the resolved value
+ * stop being input, and an earlier comment here implied it did. It is safe
+ * because `server.js` builds that map from three literals plus
+ * `tokendoors.routes()`, whose names come from a hard-coded list -- so the
+ * guarantee lives at the call site. **Anyone passing a `doorNames` built from
+ * anything a person or a request can influence breaks this module's rule**, and
+ * no assertion in here can catch them.
+ *
  * ⚠️ Why not the softer "pass through the fields that are safe today". It was
  * measured and it is true today and it would have been wrong on the next edit:
  * none of the 23 `because` fields in connect.js interpolate captured output,
@@ -57,6 +67,16 @@ const subscription = require('./subscription');
  * encodes what its author believed the shape to be.
  */
 const RUNNER_KEY = { anthropic: 'claude', openai: 'openai' };
+
+/**
+ * 🔑 THE WORDS THAT ARE ON THE SCREEN, not words this module coined. The board
+ * labels the two providers `Claude` and `GPT` (web/index.html), and this whole
+ * feature exists so an agent and a screen describe the same thing the same way.
+ * A third vocabulary here works directly against that: an agent saying "Claude
+ * Code" at somebody looking at a row marked "Claude" is the two-accounts-of-what-
+ * to-do failure the card names.
+ */
+const PROVIDER_LABEL = { anthropic: 'Claude', openai: 'GPT' };
 
 /* Every sentence this module can emit. Nothing else may be said. */
 const SAYS = {
@@ -118,6 +138,11 @@ function countOf(rows) {
   return Array.isArray(rows) ? rows.length : 0;
 }
 
+function workingCount(rows) {
+  if (!Array.isArray(rows)) return 0;
+  return rows.filter((r) => r && r.connection && r.connection.state === subscription.STATE.CONNECTED).length;
+}
+
 /**
  * ⚠️ A READER THAT THREW IS NOT AN EMPTY MACHINE. Without this the route's
  * `.catch(() => null)` arrives here as zero rows, which `stateOf` correctly
@@ -138,6 +163,12 @@ function providerView(id, name, rows, runner, unreadable) {
        `unknown` reads as a settled "you have none", which is the exact
        collapse the three-state rule exists to prevent. */
     howMany: state === subscription.STATE.UNKNOWN ? null : countOf(rows),
+    /* 🛑 TWO NUMBERS, BECAUSE ONE OF THEM WAS BEING READ AS THE OTHER. `howMany`
+       counts ROWS on this computer; it was rendered as "3 sign-ins" directly
+       after "this computer has a working sign-in for it", so somebody with three
+       accounts of which ONE works was told they had three working. That is the
+       over-confident direction this card exists to avoid. */
+    howManyWorking: state === subscription.STATE.UNKNOWN ? null : workingCount(rows),
     because: saysFor(state, present),
   };
 }
@@ -161,8 +192,15 @@ function serviceView(doors, allowed) {
    */
   const names = allowed && typeof allowed === 'object' ? allowed : {};
   for (const route of Object.keys(doors).sort()) {
+    /* ⚠️ OWN PROPERTY, NOT A PLAIN LOOKUP. `names['constructor']` walks the
+       prototype chain and answers a Function, which is truthy, so a door named
+       after anything on Object.prototype sailed through the gate whose entire
+       job is refusing input. Measured: two rows came back, each with a Function
+       for a name, which JSON.stringify drops -- so the CLI printed
+       `undefined: connected` at a person. */
+    if (!Object.prototype.hasOwnProperty.call(names, route)) continue;
     const name = names[route];
-    if (!name) continue;
+    if (!name || typeof name !== 'string') continue;
     const d = doors[route] || {};
     const connected = d.connected === true ? true : (d.connected === false ? false : null);
     out.push({
@@ -193,12 +231,12 @@ function forAgent(raw) {
   const blind = src.unreadable && typeof src.unreadable === 'object' ? src.unreadable : {};
   return {
     providers: [
-      providerView('anthropic', 'Claude Code', byProvider('anthropic'), runners[RUNNER_KEY.anthropic], blind.anthropic === true),
-      providerView('openai', 'GPT (OpenAI, through Codex)', byProvider('openai'), runners[RUNNER_KEY.openai], blind.openai === true),
+      providerView('anthropic', PROVIDER_LABEL.anthropic, byProvider('anthropic'), runners[RUNNER_KEY.anthropic], blind.anthropic === true),
+      providerView('openai', PROVIDER_LABEL.openai, byProvider('openai'), runners[RUNNER_KEY.openai], blind.openai === true),
     ],
     signin: signinView(src.connect),
     services: serviceView(src.doors, src.doorNames),
   };
 }
 
-module.exports = { forAgent, SAYS, PHASES, BUSY_PHASES, RUNNER_KEY };
+module.exports = { forAgent, SAYS, PHASES, BUSY_PHASES, RUNNER_KEY, PROVIDER_LABEL };
