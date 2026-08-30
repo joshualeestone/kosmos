@@ -25,11 +25,41 @@ fs.mkdirSync(CFG_DIR, { recursive: true });
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(CFG_DIR, '.claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = CFG_DIR;
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+/* #527: without this a default-dir scoped check in this file would read the
+   operator's real ~/.claude.json. Inert today because every cell overrides
+   AGENT_WORKFORCE_CLAUDE_BIN and none passes a configDir, but it arms the
+   multi-account cell this file will eventually want. */
+process.env.AGENT_WORKFORCE_HOME = nodePath.join(SANDBOX, 'home');
 
 const connect = require('./connect');
 const subscription = require('./subscription');
 
 const PAID_FILE = { oauthAccount: { organizationType: 'claude_max' } };
+
+const http = require('node:http');
+const crypto = require('node:crypto');
+
+function serveRelease(t, binary, checksum) {
+  const paths = {
+    '/latest': () => '9.9.5',
+    '/9.9.5/manifest.json': () => JSON.stringify({ platforms: { [connect.platformKey()]: { checksum } } }),
+    [`/9.9.5/${connect.platformKey()}/claude`]: () => binary,
+  };
+  const server = http.createServer((req, res) => {
+    const answer = paths[req.url];
+    if (!answer) { res.writeHead(404); res.end(); return; }
+    const body = Buffer.isBuffer(answer()) ? answer() : Buffer.from(answer());
+    res.writeHead(200, { 'content-length': body.length });
+    res.end(body);
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      t.after(() => server.close());
+      resolve(`http://127.0.0.1:${server.address().port}`);
+    });
+  });
+}
+
 
 /**
  * One cell of the #1562 matrix: a machine described by whether Claude Code is on
@@ -37,6 +67,20 @@ const PAID_FILE = { oauthAccount: { organizationType: 'claude_max' } };
  * `start()`.
  */
 async function cell(t, { binary, fileSaysPaid, liveLoggedIn }) {
+  /**
+   * 🛑 SERVE A LOCAL RELEASE OR THIS HITS downloads.claude.ai FOR REAL. A review
+   * witnessed the first version of this helper fetching `/latest`, then the
+   * manifest, then the 281MB production artifact, on every suite run, stopped
+   * only by the runner force-exiting: `download()` has no cancellation check
+   * between the manifest fetch and `fetchFile`, and `resetForTests()` nulls
+   * `activeRequest` without destroying it.
+   *
+   * ⚠️ Every cell here that falls through reaches the download by design, which
+   * is the whole point of the card, so the base is not optional in this file.
+   */
+  const fixture = crypto.randomBytes(8 * 1024);
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(
+    t, fixture, crypto.createHash('sha256').update(fixture).digest('hex'));
   const bin = nodePath.join(SANDBOX, `claude-${Math.random().toString(36).slice(2, 8)}`);
   if (binary) { fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bin, 0o755); }
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
@@ -49,7 +93,10 @@ async function cell(t, { binary, fileSaysPaid, liveLoggedIn }) {
     connect.setRunner(null);
     subscription.setRunner(null);
     connect.resetForTests();
+    connect.setDryRun(true);
+    connect.setTickInterval(700);
     delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
   });
   const st = await connect.start();
   return st.phase;
@@ -65,6 +112,17 @@ async function cell(t, { binary, fileSaysPaid, liveLoggedIn }) {
  * ⇒ An assertion on the immediate return cannot tell "wrote the wrong phase"
  * from "has not written one yet", so any future refactor that adds an unrelated
  * await would redden these with a misleading message.
+ *
+ * ⚠️ AND `signin-launching` IS A WAYPOINT, NOT AN END STATE. A review measured
+ * that with a pane classifying as `unknown` rather than this file's blank
+ * fixture, the trail continues `downloading -> signin-launching -> connected`
+ * via the pre-existing config-outranks-screen arm, which reads the FILE. That
+ * arm is not touched by this branch.
+ *
+ * ⇒ So the assertions below establish "the flow reaches sign-in rather than
+ * short-circuiting to connected", which is what this card is about. They do NOT
+ * establish that a stale file can never reach connected by any route, and their
+ * names should not be read that way.
  */
 async function settled(ms = 6000) {
   const deadline = Date.now() + ms;
@@ -118,30 +176,6 @@ test('#1580 CONTROL: signed out with a CLEAN file also reaches sign-in', async (
  * It drives the flow to completion rather than reading `start()`'s first answer,
  * because the defect is in what happens AFTER the download.
  */
-const http = require('node:http');
-const crypto = require('node:crypto');
-
-function serveRelease(t, binary, checksum) {
-  const paths = {
-    '/latest': () => '9.9.5',
-    '/9.9.5/manifest.json': () => JSON.stringify({ platforms: { [connect.platformKey()]: { checksum } } }),
-    [`/9.9.5/${connect.platformKey()}/claude`]: () => binary,
-  };
-  const server = http.createServer((req, res) => {
-    const answer = paths[req.url];
-    if (!answer) { res.writeHead(404); res.end(); return; }
-    const body = Buffer.isBuffer(answer()) ? answer() : Buffer.from(answer());
-    res.writeHead(200, { 'content-length': body.length });
-    res.end(body);
-  });
-  return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
-      t.after(() => server.close());
-      resolve(`http://127.0.0.1:${server.address().port}`);
-    });
-  });
-}
-
 test('#1560 MUST NOT RETURN VIA THE INSTALL PATH: no binary, signed out, stale paid file', async (t) => {
   const binary = crypto.randomBytes(16 * 1024);
   const checksum = crypto.createHash('sha256').update(binary).digest('hex');
@@ -252,4 +286,43 @@ test('#1580 part 2: an UNANSWERABLE post-install probe must not declare a stale 
   await connect.start();
   assert.equal(await settled(9000), connect.PHASE.SIGNIN_LAUNCHING,
     'an unanswerable probe was read as connected, off a stale paid-plan file');
+});
+
+test('#1580: the !haveBinary guard stops a flow that ALREADY had a binary from re-deciding', async (t) => {
+  /**
+   * 🛑 THIS ARM EXISTS BECAUSE A REVIEW MEASURED THAT MY PLAN WAS WRONG. It
+   * claimed both guards on the post-install check went red under mutation;
+   * replacing `if (!haveBinary)` with `if (true)` left every connect test green,
+   * because no cell reached the end of `runFlow` with a binary present AND a
+   * live-CONNECTED account. The guard's positive case was unreachable in the
+   * fixture set: the same gap I had already found and closed for `checkLive`,
+   * still open one guard over.
+   *
+   * ⇒ The shape that reaches it is a LIVE ANSWER THAT CHANGES MID-FLOW. Signed
+   * out at `start()` (so the sign-in flow runs with a binary already present),
+   * signed in by the time the tail is reached. Without `!haveBinary` the tail
+   * would then declare connected for a flow that installed nothing, skipping the
+   * sign-in the person is in the middle of.
+   */
+  const bin = nodePath.join(SANDBOX, `claude-flip-${Math.random().toString(36).slice(2, 8)}`);
+  fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bin, 0o755);   // PRESENT
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(PAID_FILE));
+  let answers = 0;
+  subscription.setRunner(async () => {
+    answers += 1;
+    // NONE at start() so the flow runs; CONNECTED by the time the tail asks
+    return { stdout: JSON.stringify({ loggedIn: answers > 1 }), err: null };
+  });
+  connect.setRunner(() => ({ ok: true, stdout: '' }));
+  connect.setDryRun(false);
+  connect.setTickInterval(60);
+  t.after(() => {
+    connect.setRunner(null); subscription.setRunner(null); connect.resetForTests();
+    delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  });
+
+  await connect.start();
+  assert.equal(await settled(), connect.PHASE.SIGNIN_LAUNCHING,
+    'a flow that installed nothing re-decided at the tail and skipped the sign-in in progress');
 });

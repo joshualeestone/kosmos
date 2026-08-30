@@ -910,8 +910,25 @@ async function start(opts) {
      * and is corrected by the probe further down, which is the pre-existing
      * behaviour and not this card's subject.
      */
-    let binaryOnDisk = false;
-    try { fs.accessSync(claudeBinPath(), fs.constants.X_OK); binaryOnDisk = true; } catch { /* nothing to run */ }
+    /**
+     * 🛑 `resolveBin().present`, NOT A BARE accessSync, AND THE DIFFERENCE IS A
+     * DIRECTORY. `fs.accessSync(path, X_OK)` SUCCEEDS ON A DIRECTORY, so a
+     * folder sitting at the binary path passed the first version of this check
+     * and this branch reported CONNECTED. That is precisely the machine this
+     * card is about: nothing on it can run an agent.
+     *
+     * ⚠️ AND THE COMMENT I WROTE HERE CLAIMED A FALLBACK THAT DOES NOT EXIST.
+     * It said a broken binary "is corrected by the probe further down". It is
+     * not: on this arm `start()` RETURNS five lines above that probe, so the
+     * verdict is terminal. A wrong rationale reads as checked, which is worse
+     * than no rationale.
+     *
+     * ✅ `runners.isRunnable` already asks the right question, adding
+     * `statSync().isFile()` for exactly this reason, and its own comment
+     * enumerates connect.js's three other sites that ask it. This is the fourth
+     * and it was the only one whose answer was both weaker and final.
+     */
+    const binaryOnDisk = require('./runners').resolveBin('claude').present;
 
     /* With nothing on disk to run we fall through regardless, so do not spawn
        `claude auth status` against a path that does not exist. */

@@ -53,33 +53,44 @@ Both guards on part 2 are therefore load-bearing:
 - cell 4 (auth, no binary): **CONNECTED -> DOWNLOADING**
 - journey (install then finish): **downloading -> connected**, binary on disk
 - cells 1, 2, 5, 5b unchanged
-- three mutations, each RED independently: the binary check, the `!haveBinary`
-  guard, the `checkLive` verification
+- **five** mutations, each RED independently, every one re-measured after a
+  review found this list overstated: part 2 deleted wholesale, the part-1 binary
+  check, `=== CONNECTED` reverted to `!== NONE`, the `checkLive` verification,
+  and the `!haveBinary` guard.
+
+  ⚠️ **The `!haveBinary` claim was FALSE when first written.** Replacing it with
+  `if (true)` left every connect test green, because no cell reached the tail of
+  `runFlow` with a binary present AND a live-CONNECTED account. The arm that
+  reaches it needs a live answer that CHANGES MID-FLOW (signed out at `start()`,
+  signed in by the tail). Added; the mutation is red now.
 
 The third needed a test of its own. Perturbing it first left the file green,
 because the post-install path is unreachable in any cell that has a binary; the
 new arm has no binary AND a stale file over a signed-out account, which is the
 only shape that reaches it.
 
-## The test file verified against the UNFIXED tree, which cannot be redone later
+## The test file verified against the UNFIXED tree
 
 Run on `origin/main`, without this branch's fix:
 
 ```
-engine/connect.nobinary-1580.test.js   5 tests   4 pass   1 FAIL
-  FAIL: "#1580: signed in with NO binary is not reported connected,
-         it is offered the install"
+engine/connect.nobinary-1580.test.js   8 tests   5 pass   3 FAIL
 ```
 
-**That red is the file's strongest property and it has a shelf life.** It shows
-the cells detect the real defect, on the real tree, in the state that actually
-shipped. Once this lands, that demonstration can never be produced again: the
-bug is gone and the test passes for the ordinary reason.
+The failures are the arms that describe the defect and the behaviour the fix
+adds; the passes are the surrounding behaviour the fix must not disturb (#1560
+and the controls). So the file is not merely "tests that pass with my change".
 
-The other 4 arms pass on main because they guard behaviour that already works
-(#1560, and the two controls). So the file is not merely "tests that pass with my
-change" - it is 1 arm that fails without the fix and 4 that hold the surrounding
-behaviour still.
+**🛑 I FIRST WROTE THAT THIS DEMONSTRATION "CAN NEVER BE PRODUCED AGAIN" AFTER
+THE FIX LANDS. THAT IS FALSE AND A REVIEWER DISPROVED IT IN THIRTY SECONDS** by
+dropping `main`'s `engine/connect.js` into this tree and running the file. The
+old code is in git forever, so the demonstration is reproducible by anyone at any
+time.
+
+⇒ What is actually true is smaller: it is *easy to forget to run*, and nobody
+does it by default once the bug is gone. That is an argument for writing the
+number down, not for calling it unrepeatable. The original figure in this section
+(4 pass, 1 fail) was also stale, from before the review added three arms.
 
 ## Deliberately not done
 
