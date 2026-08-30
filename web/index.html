@@ -22545,7 +22545,15 @@ function fillSwitchAccounts() {
        hint was suppressed and nothing replaced it. The control still appears, still sends
        its row, and the dialog still promises it, so a screen-reader user got a promise
        about a control they were never told about. It gets a sentence that is true of one
-       row instead. */
+       row instead.
+       ⚠️ AND ONE CASE IS STILL SILENT, INHERITED RATHER THAN CHOSEN, recorded here
+       because it sits directly under a heading that says none of them may be. A single
+       account whose ONLY label is a filesystem path is announced as nothing: `one` is
+       emptied for a path (the dialog does the same, deliberately, so a machine path is
+       never read out as a person's account) and `if (line)` then suppresses the whole
+       sentence. The dialog documents that suppression for itself; the announcement
+       inherits it without saying so. A generic "It will run on the sign-in shown" would
+       close it, and that is a copy decision rather than a code one. */
     /* ⚠️ OURS MAY BE REPLACED, SOMEBODY ELSE'S MAY NOT. Gating purely on the region being
        EMPTY meant that when it already held one of our own earlier sentences (a refusal,
        say) the picker could appear with no announcement at all, which is the one signal a
@@ -22734,6 +22742,14 @@ async function changeProviderNow(say) {
     /* The route's sentence verbatim: it says what stayed, what did not
        cross, and that the agent will look idle until spoken to. */
     msg.textContent = out.because || 'Switched.';
+    /* Symmetric with the failure path below, and for the same reason: the
+       route's own sentence has replaced whatever we last wrote, so a tracker
+       still naming our string describes text the region no longer contains.
+       The cost is not a clobber (a stale value can only equal text we wrote);
+       it is that the next `if (appearing)` announcement is SUPPRESSED, because
+       the equality test can no longer match. An asymmetry between two paths
+       that need the same reset is what goes wrong on the next edit. */
+    SWITCH_ACCT_SAID = '';
     tell(out.because || 'Switched.', true);
     sel.value = '';
     /* ⚠️ A PROGRAMMATIC `value =` FIRES NO `change` EVENT, so nothing rebuilt the

@@ -175,25 +175,6 @@ require('./engine/remove').setRunner(null);
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-/**
- * The body of a function, located by brace matching rather than a byte window.
- * A fixed-size slice is wrong as soon as the function grows or shrinks, and it
- * is wrong SILENTLY: an over-long window can satisfy an assertion from the next
- * function down and report a guard that has moved.
- */
-function fnBody(src, signature) {
-  const start = src.indexOf(signature);
-  assert.ok(start !== -1, `control: ${signature} is not in the source at all`);
-  let depth = 0; let started = false;
-  for (let i = start; i < src.length; i++) {
-    if (src[i] === '{') { depth++; started = true; } else if (src[i] === '}') {
-      depth--;
-      if (started && depth === 0) return src.slice(start, i + 1);
-    }
-  }
-  assert.fail(`control: braces never balanced for ${signature}`);
-  return '';
-}
 
 const { start, server, pathOf, decodeSegment, resetHeardBudgetForTests } = require('./server');
 const fleet = require('./test-support/fleet');
@@ -3147,7 +3128,7 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
      from the NEIGHBOUR's identical guard. Both were live here: the number had
      already been raised once, and `moveAccountNow` carries the same recheck.
      Brace matching has neither failure mode and needs no number. */
-  const pap = fnBody(script, 'async function paintAccountPicker(');
+  const pap = require('./test-support/page').lift(script, 'paintAccountPicker');
   assert.ok(!/async function moveAccountNow\(/.test(pap),
     'the located body reaches into moveAccountNow, so the assertion below could pass on its guard rather than paintAccountPicker\'s');
   assert.ok(/!CURRENT \|\| CURRENT\.sessionName !== forAgent/.test(pap),

@@ -536,26 +536,6 @@ test('#1373: the route says a different sentence for a pick than for a default',
     'the two sentences are no longer the arms of the chosen conditional');
 });
 
-/**
- * Locate a function by BRACE MATCHING rather than by a byte window. A
- * `slice(start, start + N)` is coupled to the size of whatever happens to sit
- * at `start`, so it is one comment away from either missing its subject or
- * absorbing a neighbour's code and passing on it. This asks the source where
- * the function ends.
- */
-function bodyOf(src, signature) {
-  const start = src.indexOf(signature);
-  assert.notEqual(start, -1, `control: ${signature} is not in the source at all`);
-  let depth = 0; let started = false;
-  for (let i = start; i < src.length; i++) {
-    if (src[i] === '{') { depth++; started = true; } else if (src[i] === '}') {
-      depth--;
-      if (started && depth === 0) return src.slice(start, i + 1);
-    }
-  }
-  assert.fail(`control: braces never balanced for ${signature}`);
-  return '';
-}
 
 test('opening another agent cannot leave the previous one\'s sign-in list on screen', () => {
   /**
@@ -564,7 +544,8 @@ test('opening another agent cannot leave the previous one\'s sign-in list on scr
    * Asserted inside paintProviderPicker specifically: the same line sitting in
    * the async sibling would satisfy a whole-file grep and fix nothing.
    */
-  const body = bodyOf(PAGE, 'function paintProviderPicker(');
+  const { lift, scriptOf } = require('./test-support/page');
+  const body = lift(scriptOf(PAGE), 'paintProviderPicker');
   // control: the body really is this function and really was read
   assert.match(body, /d-provider-go/, 'control: paintProviderPicker body looks wrong');
   assert.ok(body.length > 400, `control: body implausibly short (${body.length})`);
@@ -579,7 +560,8 @@ test('opening another agent cannot leave the previous one\'s sign-in list on scr
 });
 
 test('the reveal stays the async path\'s job, so the hide cannot strand the control', () => {
-  const fill = bodyOf(PAGE, 'function fillSwitchAccounts(');
+  const { lift, scriptOf } = require('./test-support/page');
+  const fill = lift(scriptOf(PAGE), 'fillSwitchAccounts');
   assert.match(fill, /sel\.hidden = false/, 'control: fillSwitchAccounts no longer reveals the picker');
   assert.match(fill, /sel\.hidden = true/, 'control: fillSwitchAccounts no longer hides it either');
 });

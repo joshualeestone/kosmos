@@ -84,6 +84,41 @@ keeps catching, and three of these came out of review rather than design:**
 - The picker is **seen in a real browser**, per my standing rule that no frontend change
   merges without being seen on screen.
 
+## The layout wrap: DECIDED, with measurements, and Josh can overrule
+
+Choosing OpenAI moves **Switch & Restart** to a second line. This was carried as an open
+design call for Josh. It is reversible in a commit, so it is decided here rather than
+left waiting, and the three options were **measured** rather than argued.
+
+Viewport 1300px, container 494px wide, headless, same probe for all three:
+
+| option | provider | picker | Switch button | verdict |
+|---|---|---|---|---|
+| **A. as shipped** | y=399 w=233 | y=399 **w=253** | **y=441** (line 2) | inputs, then action |
+| B. picker in its own `.frow` | y=399 w=233 | **y=445 w=494** | y=399 (line 1) | picker sits BELOW the button that acts on it, and stretches to double its siblings |
+| C. picker out of the shared width rule | y=399 w=233 | y=399 **w=172** | **y=441 (STILL line 2)** | does not even fix the wrap, and truncates the label |
+
+### The decision: keep A
+
+- 🛑 **C is disqualified by measurement, not by taste.** It does not solve the wrap
+  (233 + 172 + 127 still exceeds 494) **and** it narrows the picker to 172px, which
+  truncates "API key ending BETA". Naming which sign-in you get is the entire card.
+- **B was proposed as costing neither width nor button position. Measured, it costs
+  both differently:** the picker lands at y=445, **below** the button, so a person sets
+  the input after the control they press; and alone in a flex row it stretches to 494px,
+  double every sibling select.
+- **A puts both inputs first and the action last**, which is ordinary form order, and
+  gives the picker 253px, matching the selects beside it.
+
+### The honest cost of A, stated rather than buried
+
+**The button moves when OpenAI is chosen.** That is a layout shift, and shifts are
+jarring. It follows a deliberate click rather than appearing unbidden, which is the
+weakest part of this argument and is named here so it can be attacked.
+
+⇒ **What would change my mind:** Josh saying the moving button reads as broken. Then B
+is the fallback, and it should also pin the picker's width so it does not stretch.
+
 ## Proof before the write
 
 🛑 **THE PER-FILE COUNTS BELOW ARE FLOORS, NOT COUNTS, AND THAT IS DELIBERATE.**
@@ -118,7 +153,7 @@ yarn test | grep -E '^\xe2\x84\xb9 (tests|pass|fail)'
   never sets `AGENT_WORKFORCE_HOME`, and an arm of its own reasons from that; since
   `homeDir()` falls back to `os.homedir()`, a route test added there would enumerate the
   operator's REAL `~/.codex-*` sign-ins. This file seals all three roots instead.
-- Full runner: **3037 pass, 0 fail, exit 0** (re-measured 2026-08-29 16:28 CDT, rebased onto main). The figure moves as this branch adds tests, so it is dated
+- Full runner: **3083 pass, 0 fail, exit 0** (re-measured 2026-08-29 23:40 CDT, rebased onto main). The figure moves as this branch adds tests, so it is dated
   rather than stated: 2907 pre-rebase, 2935 post-rebase, 2936 after iteration 13's pair
   test, 2937 after iteration 14, 2938 after iteration 15's fail-quiet guards.
   🛑 THIS NUMBER HAS GONE STALE THREE ITERATIONS RUNNING (14, 15 and 16 each caught it),
