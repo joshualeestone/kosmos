@@ -2975,15 +2975,24 @@ const server = http.createServer((req, res) => {
        per-account check is safe to pay for -- its callers are deliberate,
        person-paced moments, never the 5-second status tick (which still
        calls the plain, fast list() elsewhere in this file, untouched).
-       Callers today, and this list is the JUSTIFICATION for paying listLive()'s
-       per-account check, so it has to stay complete: a Settings > Accounts open;
-       the first-run wizard's model step entering (frPaintOpenai); the agent
-       panel's account picker opening; and, added by #1373, a SUCCESSFUL account
-       move and a FAILED provider switch, both of which drop the page-side cache
-       and repaint so the remedy the refusal names points at a fresh list.
-       ⚠️ Every one of those is a person pressing something. That is the property
-       the cost is justified against, not the count, so a new caller is fine and a
-       new TIMER would not be. The wizard step can re-fire on a back/forward pass
+         🛑 THE INVARIANT IS THE JUSTIFICATION, NOT A LIST. An earlier version of
+         this comment made a caller enumeration NORMATIVE ("this list is the
+         justification, so it has to stay complete") and shipped INCOMPLETE the
+         same day: it omitted `paintConnLive` and `loadCreateExtras`, both of
+         which already called this route. A list that must stay complete is a
+         promise nobody can keep and it goes false silently, which is the
+         "claims more than the code does" defect this diff spends its length
+         closing, arriving inside a comment the same diff rewrote.
+         ⇒ WHAT MUST HOLD: every caller is A PERSON PRESSING SOMETHING. A new
+         caller of that kind is fine and needs no edit here; a TIMER is not,
+         whatever the count. That property is checkable at each call site on its
+         own, without knowing the others.
+         📌 The callers as of #1373, illustrative and NOT a set to maintain:
+         paintAccounts (Settings > Accounts), paintConnLive (the Connections
+         section opening), paintAccountPicker (the agent panel picker),
+         loadCreateExtras (a create-form role change), frPaintOpenai (the
+         first-run wizard model step, which can re-fire on a back/forward pass),
+         and /api/agent/connections.
        -- still a person walking a screen, not a timer, and the client holds a
        supersession token so a
        slow answer landing late cannot overwrite a newer state.

@@ -22130,7 +22130,14 @@ async function paintAccountPicker(a) {
   /* 🛑 SAY IT WHERE THE PERSON IS, NOT IN DEVTOOLS. A throw here means the picker
      did not render, so the failure is announced beside the control that is
      missing. A `console.warn` would satisfy "not silent" against an audience of
-     nobody: this page ships to people who do not have devtools open. */
+     nobody: this page ships to people who do not have devtools open.
+     ⚠️ RESIDUAL, AND THE SENTENCE ABOVE OVERSTATED IT UNTIL THIS LINE EXISTED:
+     the write is gated on the region being EMPTY, so when it already holds
+     something (an engine refusal, most likely) the throw IS announced to nobody.
+     Refusing to clobber a more specific sentence is still the right call; what
+     was wrong was claiming the announcement is unconditional. The sibling
+     announcement block documents its own equivalent residual, and this one did
+     not. */
   fillSwitchAccountsSafely();
 }
 
