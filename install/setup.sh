@@ -1467,18 +1467,21 @@ KOSMOS_SWEEP_LIST
   #                             test, "it is ours rather than theirs" is
   #     created.jsonl, trust-writes.json, styles.json, ping.json, remote.json,
   #     remote-status.json, github-app.json, autoupdate.json, engmode.json,
-  #     limits.json, notify.json
+  #     limits.json, notify.json, policy.json
   #                             OURS BY THE SAME RULE AS THE SWEPT LIST, AND
   #                             DELIBERATELY NOT SWEPT. See the note below.
   #
   # 🛑 ALREADY REMOVED ABOVE, SO DO NOT ADD THEM HERE: `first-run.json`,
   # `seen-version.json`, `found-agents-dismissed.json` and `found-agents-declined.json`
-  # go at line 1397. An earlier version of this table listed them as LEFT ALONE, which
+  # go at line 1397, and the `remote/` DIRECTORY goes at line 1186 (distinct from the
+  # `remote.json` and `remote-status.json` FILES, which are left alone above -- a
+  # maintainer reading this table for `remote` needs that distinction spelled out or
+  # they will read the two files' row as covering the directory). An earlier version of this table listed them as LEFT ALONE, which
   # put two contradictory rulings about the same four files in one function, and the
   # newer one was wrong. A maintainer reading this table to decide whether a fifth
   # decision-record is safe would have got the wrong answer.
   #
-  # 🛑 WHY THE SWEEP STOPS AT SIX RATHER THAN TAKING THE ELEVEN NAMED ABOVE AS OURS.
+  # 🛑 WHY THE SWEEP STOPS AT SIX RATHER THAN TAKING THE TWELVE NAMED ABOVE AS OURS.
   # This is a deliberate call, not an omission. Each round of widening this list has
   # introduced a defect: adding `liveness` and `selfreports` silently falsified the
   # closing sentence of the whole uninstall, because both are keyed PER AGENT and that
@@ -1501,22 +1504,36 @@ KOSMOS_SWEEP_LIST
   # person records were removed when a permission error meant they were not. The
   # neighbouring leftover-folder code at line 1350 already does it this way.
   _swept=no
-  _swept_failed=no
+  _swept_left=""
   for _litter in downloads usage sendertokens selfreports wouldping liveness; do
     if [ -d "$_support/$_litter" ]; then
       rm -rf "$_support/$_litter" 2>/dev/null || true
-      if [ -d "$_support/$_litter" ]; then _swept_failed=yes; else _swept=yes; fi
+      if [ -d "$_support/$_litter" ]; then _swept_left="$_swept_left $_litter"; else _swept=yes; fi
     fi
   done
   # 📌 ONE LINE, IN THE PERSON'S WORDS. An earlier version said "removing Kosmos's own
   # wouldping records", printing a MODULE NAME to somebody uninstalling an app, once
   # per directory, so six removals read as more happening than had. The neighbours are
   # the model: "removing the shared supervisor", "stopping the board".
+  # 🛑 "LEFTOVER FILES", NOT "RECORDS ABOUT YOUR AGENTS". Three of the six are not
+  # records about agents at all: `downloads` is provider binaries, `usage` is a cache
+  # derived from the person's own transcripts, `sendertokens` are minted credentials.
+  # The biggest thing this removes was being announced as something it is not.
+  # ⚠️ AND IT MUST NOT MENTION AGENTS, because it fires on machines that have none:
+  # `downloads/` is written by the provider-connect flow and `usage/` from the person's
+  # own ~/.claude dirs, both before any agent exists. The rule is stated at setup.sh:1405
+  # -- on a machine with no agents, say nothing about agents at all.
   if [ "$_swept" = yes ]; then
-    info "removed the records Kosmos kept about your agents (their own folders stay)"
+    info "removed Kosmos's own leftover files (your projects, conversations and sign-ins stay)"
   fi
-  if [ "$_swept_failed" = yes ]; then
-    info "note: some of Kosmos's own records could not be removed and are still in your data folder"
+  # ⚠️ NAMES WHAT SURVIVED AND WHERE, which this file's header (setup.sh:89) requires of
+  # every leave-behind: "on the rare machine where that leaves something behind, the
+  # sentence says what it is". Every sibling note in this function names a path; this
+  # was the only one that named nothing.
+  if [ -n "$_swept_left" ]; then
+    for _litter in $_swept_left; do
+      info "note: could not remove $_support/$_litter; it is Kosmos's own and safe to delete"
+    done
   fi
   if [ "$_agents_stopped" = "yes" ]; then
     # 🛑 THIS SENTENCE WAS TRUE UNTIL THE SWEEP ABOVE EXISTED, AND THE SWEEP IS WHAT
@@ -1525,9 +1542,23 @@ KOSMOS_SWEEP_LIST
     # (`liveness/angel.json`, `selfreports/angel.jsonl`) and the sweep removes them.
     # A closing line on an uninstall exists to say truthfully what survived, so it
     # names the split rather than the folder.
-    printf '\n  Kosmos is removed. Your agents\047 background jobs were removed, and so were the\n'
-    printf '  records Kosmos kept about them. Their own folders, and your projects, conversations\n'
-    printf '  and sign-ins, were left alone.\n\n'
+    # 🛑 THE SECOND CLAUSE IS CONDITIONAL AND MUST STAY THAT WAY. Written flat, it
+    # asserted the leftover files were removed even when the sweep had just FAILED and
+    # said so four lines above, and even when there was nothing to sweep and no line was
+    # printed at all. A closing sentence that contradicts a note in its own transcript is
+    # worse than no closing sentence.
+    # ⚠️ BOTH CONDITIONS. `_swept` is yes when ANY directory went, so with five removed
+    # and one stuck it was still making the unqualified claim while a note above named
+    # the survivor. The unqualified sentence needs nothing left behind, not something
+    # taken. Caught by the failure-path test rather than by reading.
+    if [ "$_swept" = yes ] && [ -z "$_swept_left" ]; then
+      printf '\n  Kosmos is removed. Your agents\047 background jobs were removed, and so were\n'
+      printf '  Kosmos\047s own leftover files. Your agents\047 own folders, and your projects,\n'
+      printf '  conversations and sign-ins, were left alone.\n\n'
+    else
+      printf '\n  Kosmos is removed. Your agents\047 background jobs were removed; your projects,\n'
+      printf '  conversations and sign-ins were left alone.\n\n'
+    fi
   else
     printf '\n  Kosmos is removed.\n\n'
   fi

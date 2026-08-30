@@ -130,8 +130,14 @@ test('the ping log goes and the person\'s files stay', () => {
        sibling test's `doesNotMatch` passes just as happily when the script died
        before reaching the sweep. Nothing asserted the person is ever TOLD what
        was removed, which is the reversibility contract this file's header owes. */
-    assert.match(out, /removed the records Kosmos kept about your agents/,
-      'the uninstall removed our records without telling the person');
+    assert.match(out, /removed Kosmos's own leftover files/,
+      'the uninstall removed our files without telling the person');
+    /* ⚠️ NOT "records about your agents". Three of the six are not that: downloads is
+       provider binaries, usage is a cache from the person's own transcripts,
+       sendertokens are credentials. And the line fires on machines with no agents at
+       all, where setup.sh:1405 forbids mentioning agents. */
+    assert.doesNotMatch(out, /removed the records Kosmos kept about your agents/,
+      'the sweep line describes the removal as agent records, which three of the six are not');
 
     /* 🛑 THE ARM FOR THE BLOCKER THIS SWEEP CREATED AND THEN HAD TO UNDO. The closing
        sentence used to say agents' files were left alone IN THIS FOLDER. `liveness/`
@@ -140,13 +146,13 @@ test('the ping log goes and the person\'s files stay', () => {
        uninstall's last line exists to say truthfully what survived. */
     assert.doesNotMatch(out, /their files were left alone/,
       'the closing line claims agents files were left alone while per-agent records were removed');
-    assert.match(out, /records Kosmos kept about them/,
-      'the closing line no longer says the records went, so it under-reports what was removed');
-    assert.match(out, /Their own folders, and your projects, conversations\s+and sign-ins, were left alone/,
+    assert.match(out, /Kosmos.s own leftover files/,
+      'the closing line no longer says the leftover files went, so it under-reports what was removed');
+    assert.match(out, /own folders, and your projects,\s+conversations and sign-ins, were left alone/,
       'the closing line no longer names what actually survived');
-    assert.doesNotMatch(out, /wouldping|liveness|sendertokens|selfreports|_litter/,
+    assert.doesNotMatch(out, /wouldping|liveness|sendertokens|selfreports|downloads|usage|_litter|store\.ROOT/,
       'a module name reached the person uninstalling the app: ' + out);
-    assert.equal((out.match(/removed the records Kosmos kept about your agents/g) || []).length, 1,
+    assert.equal((out.match(/removed Kosmos's own leftover files/g) || []).length, 1,
       'the removal is announced once per directory, so six removals read as more than happened');
 
     // 🛑 THE ARM THAT STOPS THE FIX BECOMING THE DISASTER. Deleting the whole
@@ -156,6 +162,37 @@ test('the ping log goes and the person\'s files stay', () => {
     assert.equal(fs.readFileSync(path.join(sb.data, 'profiles', 'angel.json'), 'utf8'), '{"name":"Angel"}\n',
       'the uninstall reached into a user subfolder');
   } finally {
+    fs.rmSync(sb.root, { recursive: true, force: true });
+  }
+});
+
+test('a sweep that CANNOT remove something says so, names it, and does not claim it went', () => {
+  /* 🛑 THE ONLY ARM ON THE FAILURE PATH, AND IT DID NOT EXIST. Both info sites were
+     added in one commit; one had three assertions and the other had none, so the only
+     new failure-reporting code in the change was the half nobody drove. Inserting an
+     unconditional failure left the suite 3/3 green.
+     ⚠️ WORSE, THE CLOSING LINE WAS UNCONDITIONAL: the person could be told in ONE
+     transcript that a file could not be removed AND that it was removed. */
+  const sb = sandbox();
+  const stuck = path.join(sb.data, 'liveness');
+  try {
+    fs.chmodSync(stuck, 0o500);           // directory readable, entry not removable
+    const out = runUninstall(sb);
+
+    assert.ok(fs.existsSync(path.join(stuck, 'angel.json')),
+      'control: the directory was removable after all, so this test proves nothing about the failure path');
+
+    assert.match(out, /could not remove .*liveness/,
+      'the uninstall could not remove a directory and did not say which one');
+    assert.match(out, new RegExp(sb.data.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      'the note names no path, so the person cannot find what was left behind');
+
+    /* 🛑 THE CONTRADICTION ARM. The closing line must not assert the removal happened
+       while a note four lines above says it did not. */
+    assert.doesNotMatch(out, /and so were\s+Kosmos's own leftover files/,
+      'the closing line claims the leftover files went while the transcript says one could not be removed');
+  } finally {
+    try { fs.chmodSync(stuck, 0o700); } catch { /* best effort, temp dir */ }
     fs.rmSync(sb.root, { recursive: true, force: true });
   }
 });

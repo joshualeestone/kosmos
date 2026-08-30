@@ -54,7 +54,7 @@ This section previously bolded a command as "the fix":
 `engine/trust.js:393` write through an inline `require('./store').ROOT`, and
 `engine/create.js:1683` goes through a `supportDir()` helper. Measured:
 `grep -c 'store\.ROOT' engine/styles.js` returns **0** for a file that writes there,
-against a control of 2 on `engine/wouldping.js`.
+against a control of 1 on `engine/wouldping.js`. Measured three ways (grep -c, grep -o piped to wc -l, and node match), and an earlier draft of THIS line said 2 without running it, which is the unverified-figure defect this whole section is about, appearing inside it.
 
 ⇒ **Round 1 was an unverified claim. Round 2 was better wording for the same unverified
 claim. Round 3 pinned a COMMAND that cannot produce the list it was credited with.** The
