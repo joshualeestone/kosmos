@@ -46,14 +46,31 @@ test('#1034: it names only the two providers that can actually be connected toda
   assert.match(body, /coming soon and cannot be chosen yet/);
 });
 
-test('#1034: it carries NO machine state, which is the line between part one and part two', () => {
-  /* Part 2 of the card (which providers ARE connected here, account emails,
-     key tails) is a privacy decision and is deliberately not in this block.
-     If someone later passes machine state into blockBody, this fails. */
+test('#1034: it carries no CREDENTIAL and no PER-AGENT state', () => {
+  /* 🛑 RENAMED AND REWRITTEN, BECAUSE THIS BRANCH OVERTURNED WHAT IT SAID. It
+     used to be called "it carries NO machine state, the line between part one and
+     part two", and its comment said part 2 was deliberately not in this block.
+     Part 2 IS in this block now: blockBody() embeds a machine-derived CLI path and
+     tells every agent to run the verb that reports machine state.
+     `engine/connections.js` says so outright, so the two files contradicted each
+     other about one function, which is the exact defect this branch is about.
+
+     ⚠️ The old assertions were kept and are still right; only what they GUARD
+     was misdescribed. What must stay true is narrower and more durable than "no
+     machine state": no credential, and nothing that varies per AGENT.
+
+     📌 `is connected on this` was dropped from the regex deliberately. It passed
+     only because the new copy happens to read "providers ARE connected on this
+     computer", so a harmless rephrase would have turned it red for a reason that
+     has nothing to do with credentials. A guard that fires on wording it never
+     meant to pin is a trap for whoever edits the copy next. */
   const body = connections.blockBody();
-  assert.equal(connections.blockBody.length, 0, 'blockBody grew an argument; part two is being smuggled in');
-  assert.doesNotMatch(body, /@/, 'an email address reached a block that must carry no machine state');
-  assert.doesNotMatch(body, /sk-|key tail|is connected on this/i);
+  assert.equal(connections.blockBody.length, 0, 'blockBody grew an argument; per-agent state is being smuggled in');
+  assert.doesNotMatch(body, /@/, 'an email address reached a block that must carry no credential');
+  assert.doesNotMatch(body, /sk-|key tail/i, 'a key or key tail reached the block');
+  // CONTROL: the body is real, so the absence assertions above are about content
+  // rather than about an empty string.
+  assert.ok(body.length > 500, 'control: blockBody returned almost nothing');
 });
 
 test('#1034: the block lands in an agent file and is idempotent', () => {

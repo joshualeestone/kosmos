@@ -330,8 +330,11 @@ test('a door NAME is passed through verbatim, and that is the documented excepti
    * `services[].name` is copied out of the caller's `doorNames`. Resolving
    * THROUGH an allowlist does not make the resolved value stop being input, so
    * the module's "nothing is passed through" rule has exactly one exception and
-   * its safety lives at the CALL SITE (`server.js` builds that map from three
-   * literals plus `tokendoors.routes()`).
+   * its safety lives at the CALL SITE (`server.js` builds that map from THREE
+   * LITERALS AND NOTHING ELSE). It used to add `tokendoors.routes()`; the token
+   * doors were dropped from the agent view as a money decision, the module
+   * header was corrected, and THIS COPY OF THE SAME CLAIM WAS NOT. A correction
+   * does not sweep by itself.
    *
    * ⚠️ An earlier version of this file planted a secret into `doorNames` and
    * asserted it did NOT appear. It passed -- because the planted name was keyed

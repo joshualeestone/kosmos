@@ -689,7 +689,11 @@ cmd_connections() {
   fi
   local body
   # ⏱ 40s, not 15. This route composes a LIVE per-account check (a `claude auth
-  # status` subprocess each) plus the whole door sweep. The arms run in
+  # status` subprocess each) plus THREE first-party doors. (It used to be the
+  # whole door sweep; the metered token doors were dropped from this route as a
+  # money decision, so the budget is smaller than it was when 40s was chosen.
+  # Left at 40 deliberately: the cost that set it was the per-account subprocess
+  # sweep, which has not changed.) The arms run in
   # parallel so the real cost is bounded near the slowest one, but 15s left no
   # margin on a machine with several accounts and a slow network door.
   # 🛑 `|| { ... }`, NOT `; rc=$?`. This script runs under `set -euo pipefail`
@@ -884,15 +888,21 @@ cmd_connections() {
         console.log("  A " + whoName + " sign-in is going on right now: " + (own(STEP, v.signin.phase) || "it is part way through")
           + ". Ask what is on their screen.");
       }
-      if (Array.isArray(v.services) && v.services.length) {
+      /* Gate on the FILTERED rows, not the raw length. The loop below drops
+         non-string rows, so a board answering only malformed services printed
+         the "Other services:" header with nothing underneath it, which reads as
+         a section that failed to load rather than one with nothing to say. */
+      var okServices = (Array.isArray(v.services) ? v.services : []).filter(function (s) {
+        return s && typeof s.name === "string" && typeof s.because === "string";
+      });
+      if (okServices.length) {
         console.log("");
         console.log("Other services:");
         /* ⚠️ STRINGS ONLY. A service row whose name or reason is an object
            rendered as "[object Object]: [object Object]" at a person. The boundary
            allowlists these, so this is the CLI refusing to trust a board it does not
            control, which is the same reason the guard above checks elements. */
-        for (const s of v.services) {
-          if (!s || typeof s.name !== "string" || typeof s.because !== "string") continue;
+        for (const s of okServices) {
           console.log("  " + s.name + ": " + s.because);
         }
       }
