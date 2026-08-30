@@ -1,6 +1,6 @@
 {
   "name": "agent-workforce",
-  "version": "0.6.13",
+  "version": "0.6.14",
   "license": "MIT",
   "private": true,
   "description": "A small team of assistants that runs on your own computer.",
