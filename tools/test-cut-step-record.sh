@@ -27,6 +27,13 @@ run() {   # $1 = script body appended after the block, $2 = exit code to record
   # and would be replaced by the next call's, so the removal is explicit below.
   local T; T="$(mktemp -d)"; mkdir -p "$T/.claude/logs"
   HOME="$T" V=9.9.9 _CUT_DONE_WRITTEN=0 bash -c "
+    # 🛑 THE SAME SHELL OPTIONS release.sh RUNS UNDER (tools/release.sh:17), OR THIS
+    # GUARD IS BLIND TO THE MOST LIKELY REGRESSION IN THE CODE IT GUARDS. Measured: an
+    # errexit-unsafe refactor of the decode (the classic assign-then-read-status shape,
+    # where the assignment exits first) passes this harness with ZERO failures, while
+    # under real errexit it exits 1 and writes NO COMPLETION ROW AT ALL. A guard whose
+    # whole job is protecting that row reported green on a change that deletes it.
+    set -euo pipefail
     _CUT_DONE_WRITTEN=0
     V=9.9.9
     $blk
@@ -105,10 +112,22 @@ kstep="${killed#*step=}"; fstep="${failed#*step=}"
 # which is exactly the pre-change regression this arm guards -- `${row#*outcome=}`
 # returns the row unchanged and `%% *` yields the TIMESTAMP, so the failure
 # message pointed a reader at the wrong field while correctly failing.
-has "$killed" 'outcome=' && has "$failed" 'outcome=' \
-  || fail "no outcome= field at all, so a killed cut and a failed cut are still one row shape"
-kout="${killed#*outcome=}"; kout="${kout%% *}"
-fout="${failed#*outcome=}"; fout="${fout%% *}"
+# 🛑 A SENTINEL, NOT A BARE EXTRACTION, AND THIS ARM PROVED IT NEEDED ONE. `fail`
+# records and CONTINUES, so the lines below ran anyway on a row with no `outcome=`. There
+# `${row#*outcome=}` returns the row unchanged and `%% *` yields the TIMESTAMP, so this
+# arm was comparing two TIMESTAMPS: equal within one second (fails correctly, which is
+# why it looked solid) and DIFFERENT across a second boundary, where it PASSED against
+# the unfixed code and printed two timestamps while calling them outcomes.
+# ⚠️ A race that fails in the reassuring direction, in the one arm this card
+# rewrote SO THAT IT COULD FAIL. Both sides now collapse to one sentinel when the field
+# is absent, so they compare EQUAL and the arm fails on the code it exists to catch.
+if has "$killed" 'outcome=' && has "$failed" 'outcome='; then
+  kout="${killed#*outcome=}"; kout="${kout%% *}"
+  fout="${failed#*outcome=}"; fout="${fout%% *}"
+else
+  fail "no outcome= field at all, so a killed cut and a failed cut are still one row shape"
+  kout='<absent>'; fout='<absent>'
+fi
 [ "$kstep" = "$fstep" ] \
   && { [ "$kout" != "$fout" ] \
        && pass "same step, but the OUTCOME field separates a kill from a failure ($kout vs $fout)" \

@@ -5,7 +5,7 @@ Card kosmos#1388. Angel, 2026-08-30.
 ## What finished looks like
 
 Reading `cut-suite-runs.log`, somebody can tell a cut that was **killed** from a cut that
-**failed**, without asking anybody. Two rows that were byte-identical apart from an exit
+**failed**, without asking anybody, for the statuses a signal actually produces. Two rows that were byte-identical apart from an exit
 number now differ on a field that says which happened.
 
 ## The defect
@@ -48,9 +48,13 @@ anything actually signalled the cut.**
 Guarded in `tools/test-cut-step-record.sh`, and the guard is proven against real code
 rather than assumed:
 
-- **8 arms go red** against the genuine pre-#1388 `origin/main:tools/release.sh`.
+- **11 arms go red** against the genuine pre-#1388 `origin/main:tools/release.sh`,
+  re-measured 2026-08-30, three runs, identical each time. An earlier draft said 8:
+  that was iteration 1's number, and iteration 2 added three failure paths without
+  this line being updated. A count in a plan is a second source of truth that
+  nothing updates, which is why it is dated here.
 - **2 arms go red** specifically against the fabricated-signal version.
-- Arms cover 0, 1, 128 (the boundary), 143, 137, 160, 255.
+- Arms cover 0, 1, 128 (the boundary), 129, 137, 143, 160, 255. An earlier draft omitted 129, which is the one this plan spends a whole section on.
 
 ⚠️ **One arm had to be rewritten because it could not fail.** It asserted the killed and
 failed rows merely *differed*, which passes against the unfixed code: they always differed
