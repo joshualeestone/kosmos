@@ -283,7 +283,7 @@ function run(file, args) {
        so the caller would report an agent started when nothing registered it.
        ok:false keeps installJob honest with no change at that site. */
     liveExec.refuseOrWarn('engine/create.js', file, args);
-    return { ok: false, stdout: '', dryRun: true, liveExecutionRefused: true };
+    return { ok: false, stdout: '', liveExecutionRefused: true };
   }
   // stdio pipes stderr rather than inheriting it. Without this, the launchctl
   // print probe -- which fails for every FREE name, by design -- printed
