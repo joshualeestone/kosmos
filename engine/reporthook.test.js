@@ -129,6 +129,39 @@ test('a script path carrying shell-special characters is refused, not embedded i
   assert.match(got.because, /will not embed/);
 });
 
+// #1582: a release cut resolves an app/bin/kosmos-report-hook.sh that genuinely
+// exists inside its temp sandbox, and the naive fix persisted that ephemeral path
+// into the DURABLE shared ~/.claude/settings.json, killing reporting for every
+// agent on the box. The refusal must fire on the RESOLVED /private/var/... form
+// (os.tmpdir() returns the unresolved /var/... form; a startsWith(os.tmpdir())
+// guard never fires on the path that actually reaches a settings file), and only
+// when the settings file itself is durable.
+const RESOLVED_TMP = (() => { try { return fs.realpathSync(os.tmpdir()); } catch { return os.tmpdir(); } })();
+// A durable (non-temp) settings path; the refusal returns BEFORE any file access,
+// so nothing is created here.
+const DURABLE_SETTINGS = path.join(path.sep, 'nonexistent-durable-1582', 'settings.json');
+
+test('#1582: a temp-root (resolved) script into a durable settings file is refused, catching the macOS trap', () => {
+  const dead = path.join(RESOLVED_TMP, 'tmp.FAKE1582abc', 'home', 'app', 'bin', 'kosmos-report-hook.sh');
+  const got = reporthook.ensureWired(DURABLE_SETTINGS, dead);
+  assert.equal(got.wired, false);
+  assert.match(got.because, /temp root|ephemeral/);
+});
+
+test('#1582 control: a non-temp (installed) script into a durable settings file is NOT refused as temp-rooted', () => {
+  const installed = path.join(os.homedir(), '.local', 'share', 'kosmos', 'bin', 'kosmos-report-hook.sh');
+  const got = reporthook.ensureWired(fresh(), installed);
+  assert.equal(got.wired, true, 'a non-temp script must wire, proving the temp guard does not over-fire');
+});
+
+test('#1582 refinement: an ephemeral script in an ephemeral settings file is NOT a mismatch and still wires', () => {
+  // Both under the temp sandbox (the test fixtures already do this); the durable
+  // vs ephemeral distinction is what keeps the refusal from breaking test isolation.
+  const ephemeralScript = path.join(SANDBOX, 'kosmos-report-hook.sh'); // under temp, exists
+  const got = reporthook.ensureWired(fresh(), ephemeralScript);
+  assert.equal(got.wired, true);
+});
+
 // ---------------------------------------------------------------------------
 // #561/#1467: an entry of ours pointing at the WRONG COPY is not "already wired"
 // ---------------------------------------------------------------------------
