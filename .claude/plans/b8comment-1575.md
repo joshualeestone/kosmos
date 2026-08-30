@@ -2,22 +2,32 @@
 
 ## The defect
 
-`tools/browser-checks.sh` said the render-create-made check needed its own board
-*"rather than joining B8 (which runs without AGENT_WORKFORCE_DRY_RUN)"*.
+`tools/browser-checks.sh` justified render-create-made needing its own board by
+asserting that B8 runs WITHOUT `AGENT_WORKFORCE_DRY_RUN`.
+
+(Paraphrased, not quoted. Quoting the false form verbatim leaves a searchable copy
+of it, which is how a repo-wide sweep for the defect kept returning the files that
+had supposedly been fixed.)
 
 **B8 runs under dry-run.** Measured:
 
 ```
-:601   boot_board "$sb7" "$P8"     <- B8 is booted by boot_board
-:603   B8="http://127.0.0.1:$P8"
-:290   boot_board sets AGENT_WORKFORCE_DRY_RUN=1
+the `boot_board "$sb7" "$P8"` call        <- B8 is booted by boot_board
+`B8="http://127.0.0.1:$P8"` beside it
+boot_board's own env sets AGENT_WORKFORCE_DRY_RUN=1
 ```
 
-Every `node ./server.js` boot site in the script sets it: six sites, at 280, 292, 522,
-549, 551, 583, none without.
+Every `node ./server.js` boot site in the script sets it: six sites, none without.
 
-⚠️ **That scoping is load-bearing, not decoration.** `boot_thread_server` (line 298,
-invoked at 769) is a real, invoked server boot that sets NO dry-run. It runs
+📌 **Anchored on greppable text, not line numbers, and that is not fussiness.** The
+last revision of this plan carried four line references that were each exactly one low,
+because the commit that wrote them also added a line to the comment above them. A
+document about stale prose shipped stale prose in the same commit. `tools/lib/versions-entry.sh`
+argues the same point in this repo and carries its own self-correction for making the
+same mistake.
+
+⚠️ **That scoping is load-bearing, not decoration.** `boot_thread_server` is a real,
+invoked server boot that sets NO dry-run. It runs
 `thread-server.js` rather than `server.js`, so it falls outside the claim as worded and
 would falsify the looser "every server boot".
 
@@ -74,13 +84,33 @@ Three em dashes were removed. Two are in comments. **The third is inside a
 emitting surface rather than a reviewing one. That is the single executable line this
 diff changes.
 
-Checked before touching it: `tools/release.sh:371` is the only consumer and filters with
+Checked before touching it: `tools/release.sh` is the only consumer (its anchored PASS/FAIL filter) and it filters with
 an anchored `grep -E '^PASS |^FAIL |...'`. `log()` is a bare `printf '%s\n'`, so
 `^PASS ` still matches, and `on retry:` does not newly match the unanchored `retried:`
 alternative. Nothing asserts the wording.
 
 Verified mechanically: stripping comment lines from this file and from `origin/main` and
 diffing leaves exactly that one line.
+
+## The claim is now GUARDED, which is the actual repair
+
+Correcting the comment replaced a false universal with a true one, and **a true
+universal that nothing tests is the same construction as the false one**: it rots
+silently the moment somebody adds a seventh boot site, exactly as the original did.
+
+`tools.browser-checks-wired.test.js` now asserts it. Perturbed both ways, each red
+alone, control green after restore:
+
+```
+plant a 7th boot site with no dry-run     -> RED
+strip dry-run from an existing boot       -> RED
+restore                                    -> 5 pass, 0 fail
+```
+
+It also asserts it found at least six boot sites, so the check cannot pass vacuously by
+parsing nothing, which is the failure mode that file exists to prevent.
+
+⇒ **A comment cannot be tested. The fact under it can.**
 
 ## Verification
 

@@ -298,3 +298,54 @@ test('#1387: a file exempted as a library is actually required by a check', () =
       `${lib} is exempted as a library but no check requires it, so the exemption is unearned`);
   }
 });
+
+/**
+ * #1575: every `node ./server.js` boot site in the runner sets AGENT_WORKFORCE_DRY_RUN.
+ *
+ * 🛑 WHY THIS EXISTS, AND IT IS THE POINT OF THE CARD IT COMES FROM. A comment in
+ * `tools/browser-checks.sh` claimed B8 ran WITHOUT dry-run. It was false, nothing
+ * tested it, nothing went red when it rotted, and it misled a review of #1573 before
+ * anybody noticed. The correction replaced a false universal with a TRUE one, and a
+ * true universal that nothing guards is the same construction: it rots the moment
+ * somebody adds a seventh boot site, silently, exactly as the first one did.
+ *
+ * ⇒ A COMMENT CANNOT BE TESTED. THE FACT UNDER IT CAN.
+ *
+ * ⚠️ Scoped to `node ./server.js` deliberately. `boot_thread_server` boots
+ * `thread-server.js` and sets no dry-run, which is correct for it, so the looser
+ * "every server boot" would be false. That scoping is the difference between a true
+ * statement and the one this card removed.
+ */
+test('#1575: every `node ./server.js` boot in the runner sets AGENT_WORKFORCE_DRY_RUN', () => {
+  const src = fs.readFileSync(RUNNER, 'utf8');
+  const lines = src.split('\n');
+  const boots = [];
+  lines.forEach((line, i) => {
+    if (!line.includes('node ./server.js')) return;
+    if (/^\s*#/.test(line)) return;                 // prose about the boots, not a boot
+    boots.push({ n: i + 1, line });
+  });
+
+  /* The instrument must be reading something: if this ever goes to zero the
+     assertion below passes vacuously, which is the failure mode the whole file
+     is about. */
+  assert.ok(boots.length >= 6,
+    `expected at least 6 \`node ./server.js\` boot sites, found ${boots.length}; the parser is not reading the runner`);
+
+  /* The env is a prefix spanning the lines above the invocation, so look back from
+     each boot to the start of its command. */
+  const missing = boots.filter(({ n }) => {
+    let j = n - 1;
+    let seen = false;
+    for (let k = 0; k < 12 && j >= 0; k += 1, j -= 1) {
+      const l = lines[j];
+      if (l.includes('AGENT_WORKFORCE_DRY_RUN=1')) { seen = true; break; }
+      if (j < n - 1 && !/\\\s*$/.test(lines[j])) break;   // command started above here
+    }
+    return !seen;
+  });
+
+  assert.deepEqual(missing.map((m) => m.n), [],
+    'a `node ./server.js` boot site does not set AGENT_WORKFORCE_DRY_RUN=1, so the comment in '
+    + 'browser-checks.sh that says every one of them does is now false');
+});

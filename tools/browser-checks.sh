@@ -565,12 +565,13 @@ fi
 # call further down, and boot_board sets AGENT_WORKFORCE_DRY_RUN=1, as does
 # every `node ./server.js` boot site in this script. An earlier version of this
 # comment stated the opposite and misled the review of #1573; corrected under
-# #1575. Why the board was split out rather than joining B8 is not recorded in
-# this file or its git history, which is as far as PigeonPete looked.
+# #1575. The only reason ever recorded for the split was that false one, so no
+# TRUE reason is recorded here or in this file's git history, which is as far as
+# #1575 looked.
 #
 # render-create-made was restated against 4bf7d95's real
 # ending by Ice Cream Kitty (#826) before #812's PR wired it in; proven
-# standalone (18/18) before that line was written, with exactly the env vars
+# standalone (18/18) before the run_one line below was written, with exactly the env vars
 # below -- no tmux/fake-panes vars, because dry run never reaches tmux and
 # the standalone proof ran clean without them. P10 comes from pick_ports's
 # own dedup, not a standalone free_port() call: at this point in the script
