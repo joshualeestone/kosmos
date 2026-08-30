@@ -3294,7 +3294,12 @@ const server = http.createServer((req, res) => {
         } catch { home = null; /* a first screen a person fills themselves is the fallback, not a failure */ }
 
         let out;
-        try { out = discover.connect(body.dir, { projects: projectsToJoin }); }
+        /* 🔑 THE NAME THE PERSON TYPED (#1531, Josh's ruling 2(a)). A folder with no
+         instructions file has nothing to read a name out of, so the screen asks and
+         this carries the answer. `connect` trims it and refuses an unusable one; an
+         absent field is absent rather than empty, and the folder's own name is still
+         the answer when nobody supplies one. */
+      try { out = discover.connect(body.dir, { projects: projectsToJoin, name: body.name }); }
         catch (err) {
           /* A state question never 500s, the contract every sibling here keeps:
              the screen can render "we could not" and cannot render a stack. */
