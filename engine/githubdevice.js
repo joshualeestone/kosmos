@@ -105,47 +105,39 @@ function setClientId(id) {
 /* gh presence, so ONE writer can branch on this object alone (her ruling:
    the field keeps its name on this road too). Mirrors github.js's spec
    candidates; the gh DOOR stays the authority on the gh road itself. */
-/* Where gh lives when nothing overrides it. Hoisted out of ghPresent and made
-   settable ONLY so a test can point the candidate branch at a temp directory:
-   with the paths inline, that branch could not be exercised at all, and a review
-   measured it silently accepting a FOLDER at /opt/homebrew/bin/gh while every arm
-   stayed green (#1592).
+/* Where gh lives when nothing overrides it.
 
-   🛑 ONE VARIABLE, NO FALLBACK EXPRESSION, AND THAT IS THE WHOLE POINT OF THE
-   SHAPE. The first version of this seam read `(ghCandidates || GH_CANDIDATES)`,
-   which is two paths, and a reviewer defeated it by weakening only the one the
-   test does not drive:
+   🛑 THE SEAM CHOOSES DATA, NEVER A PREDICATE, AND THAT DISTINCTION IS THE WHOLE
+   HISTORY OF THIS BLOCK (#1592). It began as an exported
+   `setGhCandidatesForTests(list)`, which is a SUBSTITUTING seam: the test drove
+   the list it set and production's own default list was driven by nothing, so a
+   reviewer weakened only the production side and every arm stayed green.
 
-     return ghCandidates ? ghCandidates.some(runnable)
-                         : GH_CANDIDATES.some((p) => fs.existsSync(p));   // 12 pass
+   Reshaping it to one variable removed the natural `||` fallback and did not
+   remove the possibility, and a source arm counting scan sites was then defeated
+   twice over, by a scan that is not `.some(` and by a scan placed outside the
+   region the arm looked at. Both axes belong to whoever writes the code.
 
-   The seam path stayed correct, production was defective, and no arm could see
-   it. A SUBSTITUTING SEAM IS SAFE ONLY WHILE EXACTLY ONE CALL SITE CONSUMES BOTH
-   THE SEAM AND THE DEFAULT, and nothing enforced that.
+   ✅ So the override is an env var carrying PATHS, the same shape the rest of
+   this file uses for its test seams, and there is exactly one unconditional scan
+   below. The test drives real code with real data rather than swapping a list in.
+   It also removes an exported test-only function from production.
 
-   ✅ So there is no fallback expression: `ghCandidates` IS the list, seeded with
-   the real paths, and the setter restores that seeding rather than clearing a
-   flag. Production and the test drive the same scan because there is only one.
-   That is the property devicedoor already had for free, where `candidates` is a
-   real parameter production callers pass.
+   ⚠️ NAMED LIMIT, because overclaiming is the failure this branch keeps finding:
+   this does not make divergence impossible. `GH_CANDIDATES_DEFAULT` is still
+   separately referenceable, and somebody could scan it a second way. NO SOURCE
+   SHAPE PREVENTS THAT AND NO SOURCE ARM DETECTS IT; the arm that tried was
+   removed for pretending otherwise.
 
-   ⚠️ THIS MAKES THE DIVERGENCE UNNATURAL, NOT IMPOSSIBLE, AND I CHECKED RATHER
-   THAN ASSUMED. Comparing against the default reintroduces two paths:
-
-     return ghCandidates !== GH_CANDIDATES_DEFAULT ? ghCandidates.some(runnable)
-                                                   : GH_CANDIDATES_DEFAULT.some(weak);
-
-   Measured: still 12 pass / 0 fail. What the reshape buys is that the form a
-   REFACTOR would naturally produce, a `||` fallback, is gone; what remains needs
-   a deliberate identity check against the default, which nobody writes by
-   accident. No behavioural arm can ever see this, because the defective path is
-   the one nothing drives. The single-scan-site assertion in
-   engine.runnable-not-directory.test.js is the only instrument that can, and it
-   is a source check, with everything that implies. */
+   📌 The genuinely closed form is devicedoor's: pass the candidates in as a
+   parameter production callers already supply, so there is no default to diverge
+   from. It is available here (`ghPresent` has exactly one caller) and costs a
+   parameter on the exported `state()`. Left undone deliberately: that is an API
+   change for a hazard nobody has hit, and it is Josh's product surface. */
 const GH_CANDIDATES_DEFAULT = Object.freeze(['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh']);
-let ghCandidates = GH_CANDIDATES_DEFAULT;
-function setGhCandidatesForTests(list) {
-  ghCandidates = Array.isArray(list) ? list : GH_CANDIDATES_DEFAULT;
+function ghCandidateList() {
+  const override = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+  return override ? override.split(':').filter(Boolean) : GH_CANDIDATES_DEFAULT;
 }
 
 function ghPresent() {
@@ -153,7 +145,7 @@ function ghPresent() {
   // fixing one file would not have found the other. Both now ask runners.
   const runnable = (p) => require('./runners').isRunnable(p);
   if (process.env.AGENT_WORKFORCE_GH_BIN) return runnable(process.env.AGENT_WORKFORCE_GH_BIN);
-  return ghCandidates.some(runnable);
+  return ghCandidateList().some(runnable);
 }
 
 async function http(url, opts) {
@@ -325,4 +317,4 @@ async function forget() {
   return state();
 }
 
-module.exports = { PHASE, state, start, cancel, forget, setClientId, clientId, setFetcher, setGhCandidatesForTests, FILE, DIR, APP_FILE, NO_APP };
+module.exports = { PHASE, state, start, cancel, forget, setClientId, clientId, setFetcher, FILE, DIR, APP_FILE, NO_APP };
