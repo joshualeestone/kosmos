@@ -3009,6 +3009,12 @@ const server = http.createServer((req, res) => {
          agent asks to answer a question, but the phrase is doing more work than
          it did. If this route ever appears in a polling loop, THE CACHE BELONGS
          HERE, NOT IN THE CALLER.
+         🛑 AND THE COST IS NOT ONLY THIS MACHINE'S. The door sweep calls each
+         token door's `state()`, which makes a LIVE AUTHENTICATED REQUEST to the
+         service. Several of those METER AGAINST THE PERSON'S OWN PAID QUOTA
+         (Brave Search, Exa, Tavily, Serper). So an agent in a poll loop spends
+         somebody's paid allowance, not just local CPU, AND NO LOCAL MEASUREMENT
+         WOULD SHOW IT. Named here because the caller cannot see that cost.
        ⚠️ HEAD SKIPS THE LIVE CHECK. Nothing in web/index.html sends one
        today, but a HEAD is conventionally cheap/side-effect-light, and
        nothing about it needs a per-account subprocess/network call to

@@ -205,3 +205,48 @@ test('the embedded renderer contains no apostrophe, which would end the shell st
   assert.equal(apostrophes, 0,
     `the embedded renderer contains ${apostrophes} apostrophe(s); one ends the shell string and the file stops parsing`);
 });
+
+test('an unknown sign-in phase is a THIRD answer, not silence', async () => {
+  /**
+   * The verb's header says "three answers, never two", and this section
+   * collapsed to two: `phase: unknown` fell through both branches and printed
+   * nothing, byte-identical to `idle`. So "no sign-in is going on" and "we could
+   * not tell whether one is" were indistinguishable to the agent reading it.
+   */
+  const p = P({ signin: { provider: 'anthropic', phase: 'unknown', busy: false } });
+  p.providers[0].signedIn = 'none';
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    assert.match(r.out, /could not tell whether a sign-in/i,
+      'an unknown phase printed nothing, which reads as "no sign-in is going on"');
+  });
+
+  // control: idle must STAY silent, or the assertion above passes for everything
+  const q = P({ signin: { provider: 'anthropic', phase: 'idle', busy: false } });
+  q.providers[0].signedIn = 'none';
+  await withBoard({ body: q }, async (port) => {
+    const r = await kosmos(port);
+    assert.doesNotMatch(r.out, /could not tell whether a sign-in/i,
+      'an idle phase now claims we could not tell, which is the opposite error');
+  });
+});
+
+test('a hostile or unknown wire value cannot print machine internals at a person', async () => {
+  /**
+   * The renderer indexes objects with values that arrive over the wire. A board
+   * answering `signedIn: "constructor"` walked the prototype chain and printed
+   * `function Object() { [native code] }` on screen -- the same class the engine
+   * boundary closed one file away, in the verb whose job is refusing machine
+   * vocabulary. The CLI does not control the board, so it must tolerate one.
+   */
+  const p = P();
+  p.providers[0].signedIn = 'constructor';
+  p.signin = { provider: 'anthropic', phase: 'toString', busy: false };
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    assert.doesNotMatch(r.out, /native code|function Object|\[object /,
+      'a prototype member reached the screen');
+    assert.match(r.out, /Claude: could not check/,
+      'an unrecognised verdict should degrade to could-not-check, not to a blank');
+  });
+});

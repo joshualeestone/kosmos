@@ -1,5 +1,16 @@
 'use strict';
 
+/* 🛑 THE COMMAND AS THIS MACHINE CAN RUN IT, NOT `kosmos`. Bare `kosmos` was a
+   measured lie on every stock install: the installer links the CLI into
+   ~/.local/bin, which is not on a default macOS PATH, so a taught bare command
+   failed with "command not found" in every agent's shell -- silently, because
+   the engine is never reached and no refusal row can exist (see clipath.js).
+   ⚠️ Measured again while writing this block: bare `kosmos` on this machine
+   resolves to an OLDER installed bundle carrying neither `cmd_connections` nor
+   `cmd_whoami` (control: 23 other `cmd_`), so the taught command reaches a CLI
+   without the verb and answers with a usage line and exit 2. */
+const { kosmosCliShown } = require('./clipath');
+
 /**
  * What an agent needs to know to help somebody connect a provider (#1034).
  *
@@ -98,10 +109,10 @@ function blockBody() {
     'being the one who confidently describes the wrong screen.',
     '',
     'One thing you CAN check for yourself, rather than asking: run',
-    '`kosmos connections`. It tells you which providers are connected on this',
-    'computer, whether the program each needs is installed, and whether a sign-in',
-    'is going on right now. It answers in three states, and **could not check** is',
-    'one of them: treat that as unknown, never as "not connected".',
+    '`' + kosmosCliShown() + ' connections`. It tells you which providers are',
+    'connected on this computer and whether a sign-in is going on right now. It',
+    'answers in three states, and **could not check** is one of them: treat that',
+    'as unknown, never as "not connected".',
     '',
     'It deliberately does NOT show you the sign-in link or the terminal output.',
     'Those are the parts that would let somebody sign in as them, so they are not',

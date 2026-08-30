@@ -753,10 +753,16 @@ cmd_connections() {
       }
       console.log("What this computer is connected to:");
       console.log("");
+      /* Own-property lookups on every wire-supplied key. A board answering
+         signedIn "constructor" made this print
+         `function Object() { [native code] }` at a person, which is the same
+         prototype-chain class the engine boundary closed one file away, in the
+         verb whose stated job is refusing machine vocabulary. */
+      var own = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined; };
       var SAY = { connected: "connected", none: "not connected", unknown: "could not check" };
       for (const p of v.providers) {
         // `none` and `unknown` are machine vocabulary. A person reads this.
-        var verdict = SAY[p.signedIn] || p.signedIn;
+        var verdict = own(SAY, p.signedIn) || "could not check";
         /* 🛑 THE COUNT THAT WORKS, NOT THE COUNT THAT EXISTS. "3 sign-ins" beside
            "has a working sign-in" reads as three working ones. Say both only when
            they differ, and say nothing at all when we could not look
@@ -797,9 +803,17 @@ cmd_connections() {
       var anyConnected = v.providers.some(function (p) {
         return p.id === who && p.signedIn === "connected";
       });
-      if (v.signin && STOPPED[v.signin.phase] && !anyConnected) {
+      /* 🛑 THREE ANSWERS, NEVER TWO, AND THIS SECTION COLLAPSED TO TWO. An
+         `unknown` phase fell through both branches and printed NOTHING, which is
+         byte-identical to `idle`. So "no sign-in is going on" and "we could not
+         tell whether one is" were indistinguishable to the agent reading it, the
+         exact collapse the null count one layer up exists to prevent. */
+      if (v.signin && v.signin.phase === "unknown") {
         console.log("");
-        console.log("  " + STOPPED[v.signin.phase] + " Ask what is on their screen.");
+        console.log("  We could not tell whether a sign-in is going on. Ask what is on their screen.");
+      } else if (v.signin && own(STOPPED, v.signin.phase) && !anyConnected) {
+        console.log("");
+        console.log("  " + own(STOPPED, v.signin.phase) + " Ask what is on their screen.");
       } else if (v.signin && v.signin.busy) {
         // The phase is machine vocabulary too, exactly like the verdicts above.
         // An unmapped phase falls back to a sentence with no jargon in it
@@ -813,7 +827,7 @@ cmd_connections() {
           "signin-completing": "it is finishing the sign-in"
         };
         console.log("");
-        console.log("  A sign-in is going on right now: " + (STEP[v.signin.phase] || "it is part way through")
+        console.log("  A sign-in is going on right now: " + (own(STEP, v.signin.phase) || "it is part way through")
           + ". Ask what is on their screen.");
       }
       if (Array.isArray(v.services) && v.services.length) {
