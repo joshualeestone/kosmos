@@ -48,6 +48,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const create = require('./create');
+const liveExec = require('./live-execution');
 const store = require('./store');
 const status = require('./status');
 
@@ -73,10 +74,15 @@ const REMOVED_FILE = path.join(store.ROOT, 'removed.json');
  * to. `setDryRun(false)` refuses unless a runner is installed, and clearing the
  * runner re-arms dry-run.
  *
- * ⚠️ The DEFAULT is not dry-run, matching `create`. Defaulting it on made the
- * server silently do nothing while reporting success, which is not a safe
- * default but an invisible one. The safety belongs in the tests, which arm it
- * at file load.
+ * ⚠️ #1598: the DEFAULT is now FAIL CLOSED via live-execution. It used to be
+ * live (matching `create`), on the reasoning that a dry-run default made the
+ * server silently do nothing while reporting success. That failure is real but
+ * is now handled where it belongs: production opts in explicitly
+ * (`live-execution.allowLiveExecution()`), a missed prod opt-in is LOUD on
+ * stderr rather than silent, and a TEST that forgot a seam THROWS rather than
+ * dry-running a fiction. The old default carried the opposite failure, worse: a
+ * test that forgot to arm dry-run ran live launchctl/tmux against the operator's
+ * own fleet.
  */
 let DRY_RUN = process.env.AGENT_WORKFORCE_DRY_RUN === '1';
 let runner = null;
@@ -92,9 +98,20 @@ function setDryRun(on) {
   DRY_RUN = Boolean(on);
 }
 
+/* Test seam (#1598): back to a clean fail-closed state (no runner, explicit
+   dry-run flag off) so a test can exercise the live-execution gate itself. */
+function resetForTests() { runner = null; DRY_RUN = false; }
+
 function run(file, args) {
   if (runner) return runner(file, args);
   if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
+  /* #1598: fail closed. Live launchctl/tmux only when production has opted in;
+     otherwise refuseOrWarn throws (in a test, refusing to fake success past a
+     missing seam) or warns loudly and we dry-run (in production, never fatal). */
+  if (!liveExec.liveExecutionAllowed()) {
+    liveExec.refuseOrWarn('engine/remove.js', file, args);
+    return { ok: true, stdout: '', dryRun: true };
+  }
   try {
     return { ok: true, stdout: execFileSync(file, args, { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] }) };
   } catch (err) {
@@ -1419,6 +1436,8 @@ module.exports = {
   jobFor,
   setRunner,
   setDryRun,
+  resetForTests,
+  run,
   OUTCOME,
   REMOVED_FILE,
   get DRY_RUN() { return DRY_RUN; },
