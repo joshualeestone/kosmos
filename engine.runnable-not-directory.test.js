@@ -157,7 +157,12 @@ const REPO = __dirname;
 const WEAK_CALL = /(accessSync|access)\s*\(.*\bX_OK\b/;
 /* The same shape, global, for collection. Kept as a separate binding because a
    /g regex carries lastIndex state and WEAK_CALL is also used with .test(). */
-const WEAK_CALL_ALL = /(accessSync|access)\s*\(.*?\bX_OK\b/g;
+/* 🛑 DERIVED FROM WEAK_CALL, NOT RETYPED. It was written independently as a LAZY
+   `.*?` while WEAK_CALL is GREEDY `.*`, so the sweep collected with one regex and
+   the control asserted against the other: a control aimed at a matcher the sweep
+   does not run, which is this file's own concern one level up. Deriving makes
+   divergence impossible. */
+const WEAK_CALL_ALL = new RegExp(WEAK_CALL.source, 'g');
 
 /** Every non-test .js file in the repo, relative to REPO. */
 function walkJs(dir, base = dir, out = []) {

@@ -19,7 +19,19 @@ const { makeDoor, PHASE } = require('./devicedoor');
    about one definition of runnability. Named here rather than left to be inferred. */
 const GH_CANDIDATES = Object.freeze(['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh']);
 
-function ghCandidateList(override = process.env.AGENT_WORKFORCE_GH_CANDIDATES) {
+/* 🛑 `|| undefined` ON THE DEFAULT, AND IT IS A PRODUCTION FIX NOT A STYLE CHOICE.
+   `'' -> []` is correct for an EXPLICIT argument: a test asking for "no candidates"
+   must not silently scan the operator's real paths. But once this branch repointed
+   the real door's `candidates` at this function, that rule reached PRODUCTION, and
+   `export AGENT_WORKFORCE_GH_CANDIDATES=$UNSET` yields an empty string routinely.
+   ⚠️ MEASURED before the fix: empty env -> door.ghBin() null on a machine with gh
+   at a default path; control, unset -> /opt/homebrew/bin/gh. GitHub read as
+   "missing" with no diagnostic, and the variable is documented nowhere.
+   📌 Unreachable before the unification: main's door used a literal array. I
+   introduced it by making the door honour the override, so the empty-string rule
+   had to stop applying to the ENV default while still applying to an argument.
+   📌 No test needs '' from the env: the arm that pins it passes '' directly. */
+function ghCandidateList(override = (process.env.AGENT_WORKFORCE_GH_CANDIDATES || undefined)) {
   /* 🛑 THE RULE AS SHIPPED: anything that is not a STRING means unset.
      `''` IS a string, so it is honoured and means "no candidates", yielding [].
      Measured, four arms: '' -> [], ':::' -> [], null -> the three defaults,

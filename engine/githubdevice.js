@@ -241,7 +241,14 @@ function ghPresent() {
   /* Identity wrapper removed: `(p) => isRunnable(p)` allocated a closure on every
      call and was the last structural trace of the duplicated lambda this card is
      about. The local name is kept because the two call sites read better with it. */
-  const runnable = isRunnable;
+  /* 🛑 THE WRAPPER PINS ARITY AND MUST STAY. `.some(runnable)` hands the callback
+     `(element, index, array)`. Safe only while `isRunnable` takes one parameter,
+     and this branch PROMOTES it to exported public API, so a second parameter is a
+     realistic evolution that would silently receive an array index.
+     ⚠️ I removed this wrapper for closure-allocation cosmetics, leaving
+     devicedoor.js's identical wrapper in place: the two siblings then disagreed
+     about the same lambda, which is the class this branch is named for. */
+  const runnable = (p) => isRunnable(p);
   /* Truthiness here, deliberately, and NOT the `typeof override !== 'string'`
      test that `ghCandidateList` uses in `engine/github.js`: an empty
      AGENT_WORKFORCE_GH_BIN means "no override",
