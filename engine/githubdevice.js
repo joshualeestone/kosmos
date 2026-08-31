@@ -213,7 +213,7 @@ const { ghCandidateList } = require('./github');
    swallowed by `state()`'s outer catch, and the route answers `gh: 'missing'`
    silently. This warns so the failure is visible.
    🛑 IT USED TO THROW, AND THAT WAS THE WRONG TRADE. `server.js` requires this
-   module at top level with NO try (lines 165/166/180), so a throw here means the
+   module at top level with NO try (`github` and `githubdevice` both), so a throw means the
    BOARD DOES NOT BOOT AT ALL, with a raw TypeError and no UI, where the same
    degradation previously stayed confined to one door answering `gh: 'missing'`.
    Measured: with the binding stubbed, requiring `github.js` gave BOOT FAILS.
