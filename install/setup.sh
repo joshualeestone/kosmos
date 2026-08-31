@@ -494,8 +494,7 @@ verify_download() {
 # page and gets `206 text/html, 1 byte`, which is a success. Measured
 # 2026-08-31 against a deliberately impossible name, which PASSED.
 #
-# The cost was not a wrong answer, it was SILENCE. `if ! reachable "$url"` could
-# never fire, so the sentence written for exactly this case ("could not reach
+# The cost was not a wrong answer, it was SILENCE. The guard could never fire, so the sentence written for exactly this case ("could not reach
 # the download ... it is safe to re-run") was dead code, and a person whose
 # download was missing met a bare curl failure with no guidance instead. Every
 # caller here fetches a TARBALL, so the answer is knowable: assert the content
@@ -594,10 +593,13 @@ reachable() {
   # safe because `curl … && return 0` was shielded by the `&&`.
   # Both shapes were measured under `set -euo pipefail`; the transcript is in
   # .claude/plans/reachable-1662.md rather than here.
-  # Latent rather than live today, because all three call sites are `if`/`&&`
-  # conditions where -e is suspended: the two `if ! reachable "$url"` guards in
-  # fetch_tmux and install_kosmos, and the `[ -n "${TARGET_VERSION:-}" ] &&
-  # reachable …` probe that picks the versioned tarball. It is still a trap,
+  # Latent rather than live today, because -e is suspended at all three call
+  # sites: the two guards in fetch_tmux and install_kosmos capture the status
+  # with `|| _r_why=$?`, and the probe that picks the versioned tarball is the
+  # right side of a `&&`. (This sentence used to describe the guards as
+  # `if ! reachable`, the shape THIS branch replaced. The conclusion held and
+  # the description had rotted, which is the failure the paragraph below is
+  # about.) It is still a trap,
   # and it lands exactly on the fallback's reason for existing: a 405 on HEAD.
   # The call sites are named by their surrounding code above rather than by
   # position, because nothing checks a line number in a comment.

@@ -622,6 +622,19 @@ test('#1662: the FIXTURE serves what each arm asked for, checked at the wire', a
 const REFUSE_RE = /_reachable_refuse\(\)\s*\{[\s\S]*?\n\}\n/;
 const REFUSE = SRC.match(REFUSE_RE) || [];
 
+test('#1662: the refusal helper was extracted, so the guard arms are running shipped text', () => {
+  /* The only extraction in this file that lacked its own assertion, added the
+     iteration after the helper was introduced. Its failure is a MISDIAGNOSIS,
+     not a silence: an unmatched regex leaves REFUSE[0] undefined, the harness
+     script gets a literal `undefined` line, sh dies, and every guard arm then
+     reports "the guard fired but said nothing" -- which reads as a broken guard
+     rather than a broken extractor. */
+  assert.ok(REFUSE[0],
+    '_reachable_refuse() was not extracted from install/setup.sh. If its shape moved, fix '
+    + 'REFUSE_RE: the guard arms below would otherwise run a block calling a function the '
+    + 'harness never defines, and report it as the guard saying nothing.');
+});
+
 const GUARD_RE = /(?:local )?_r_why=0; reachable "\$url" \|\| _r_why=\$\?\n[\s\S]*?_reachable_refuse[\s\S]*?rm -rf "\$stage"; return 1\n\s*fi\n/g;
 const GUARDS = SRC.match(GUARD_RE) || [];
 
@@ -726,16 +739,18 @@ test('#1662: a CONNECTION failure and a SERVED-ERROR failure get different sente
        which is the shape that silently voids a control when someone rewords in
        a rebase. It caught a real reword here, so it worked, but the next reword
        should not need an assertion edit to stay honest. */
-    /* Status 2 is also reached by a missing file:// path (curl 37), which has no
-       server, no release and no network. The copy therefore must not ASSERT a
-       server; it opens on the address, which is true for every shape that gets
-       here. Paired so neither half is vacuous: the new opening must be present
-       and the old assertion must be absent. */
+    /* 📌 THE "must not say server answered" ASSERTION WAS REMOVED HERE, AND THE
+       REASON IS THE POINT. It was added when curl 37 (a missing file:// path)
+       still landed on status 2, where claiming a server had answered was simply
+       false. Iteration 26 gave rc 37 its own status 3, so status 2 is now
+       reached ONLY from rc 0 or a code >= 400, both of which mean a server
+       really did answer. The premise the assertion existed for is gone, and
+       keeping it would have meant re-justifying a guard on weaker grounds than
+       the ones it was written for, which is how a suite fills with assertions
+       nobody can explain. The opening-on-the-address check stays: that is a
+       property of the copy, not of the vanished premise. */
     assert.match(servedError, /did not give an installable file/,
       `guard ${i}: the refusal must open on the ADDRESS. Got: ${servedError}`);
-    assert.doesNotMatch(servedError, /server answered/,
-      `guard ${i}: must not assert a server. curl 37 (a missing file:// path) reaches this branch, `
-      + 'and tools/test-install.sh drives the whole release path over file://');
     assert.match(servedError, /publishing/,
       `guard ${i}: must offer the release-still-publishing cause. Got: ${servedError}`);
     assert.match(servedError, /address/,

@@ -914,3 +914,40 @@ wrote "twelve lines above" for the rule itself, which was wrong by three. Now
 named by its anchor. A distance in a comment is wrong the moment anyone edits
 above it, which is the entire reason the rule exists, and I have now proved that
 twice in two iterations.
+
+## Iteration 27
+
+**My iteration-26 change made one of my own rationales false, and it took a
+reviewer to see it.** The assertion "the refusal must not say the server
+answered" was added when curl 37 still landed on status 2, where claiming a
+server had answered was simply false. Giving rc 37 its own status 3 removed that
+premise: status 2 is now reached only from rc 0 or a code at or above 400, and
+both of those mean a server really did answer. The comment still cited curl 37,
+and contradicted itself twelve lines later where a sibling assertion is
+justified with "the server DID answer".
+
+✅ **I removed the assertion rather than re-justifying it.** The honest options
+were to keep it on weaker grounds or to delete it, and re-justifying a guard on
+grounds other than the ones it was written for is how a suite fills with
+assertions nobody can explain. The check that survives is that the copy opens on
+the address, which is a property of the copy rather than of the vanished
+premise.
+
+**The helper I extracted last iteration had no extraction guard, and its failure
+mode is a misdiagnosis.** `FN`, `GUARDS` and `PROBE` each assert they matched;
+`REFUSE` did not. If its shape moves, `REFUSE[0]` is undefined, the harness gets
+a literal `undefined` line, `sh` dies, and every guard arm then reports "the
+guard fired but said nothing", which reads as a broken guard rather than a
+broken extractor. Verified: breaking the regex now reddens the named arm first,
+so the diagnosis points at the extractor.
+
+**Two comments still described the call sites in the shape this branch
+replaced.** One said the guards are `if ! reachable "$url"`; they capture the
+status with `|| _r_why=$?`. Another said all three sites are `if`/`&&`
+conditions; two are now `||` lists. The conclusion in both cases still held and
+only the description had rotted, which is the exact failure the surrounding
+paragraph argues against.
+
+⭐ **Three iterations running, the finding has been that a change of mine
+invalidated a claim elsewhere that nothing checks.** A false comment costs
+nothing until someone believes it, which is precisely when it costs the most.
