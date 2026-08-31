@@ -40,8 +40,10 @@ const crypto = require('node:crypto');
  * keep-alive sockets as well as the listener, so a file does not sit at exit
  * waiting for the server's `keepAliveTimeout`.
  */
+const KNOWN_OPTIONS = ['platformKey', 'version', 'binary', 'checksum'];
+
 function serveRelease(t, opts = {}) {
-  const { platformKey, version = '9.9.5', binary } = opts;
+  const { platformKey, version = '9.9.5', binary, checksum } = opts;
   /* 🛑 A LOUD REFUSAL, because the alternative is a download-shaped error for a
      fixture-shaped mistake. See the docblock. */
   if (typeof platformKey !== 'string' || !platformKey) {
@@ -51,11 +53,37 @@ function serveRelease(t, opts = {}) {
       + 'Note this helper takes ONE options object; the three private serveRelease '
       + 'copies in engine/ take different positional arguments.');
   }
+  /* 🛑 AN UNKNOWN KEY IS REFUSED, NOT IGNORED, and this is the half the first
+     version got wrong. Guarding only a MISSING platformKey left the natural
+     migration shape accepted-and-silently-wrong one field over: a caller
+     passing a sibling's `checksum` had it discarded in favour of one computed
+     from the body, which is exactly the class the guard exists to prevent. */
+  const unknown = Object.keys(opts).filter((k) => !KNOWN_OPTIONS.includes(k));
+  if (unknown.length) {
+    throw new TypeError(
+      `serveRelease() got unknown option(s): ${unknown.join(', ')}. `
+      + `Known options are ${KNOWN_OPTIONS.join(', ')}. `
+      + 'A silently-dropped option is how a fixture mistake becomes a download error.');
+  }
+  /* `download()` validates the version (connect.js, `^\d+\.\d+\.\d+`), and a
+     bad one surfaces as "the download service did not answer with a version",
+     which reads as a service fault rather than a fixture one. Refuse here. */
+  if (!/^\d+\.\d+\.\d+[A-Za-z0-9.-]*$/.test(version)) {
+    throw new TypeError(
+      `serveRelease({version}) got ${JSON.stringify(version)}, which download() will reject. `
+      + 'It must look like 1.2.3.');
+  }
   const body = binary || crypto.randomBytes(8 * 1024);
-  const checksum = crypto.createHash('sha256').update(body).digest('hex');
+  /* An explicit checksum is HONOURED, not overridden: two of the sibling copies
+     take one so a test can serve a body that does NOT match its manifest, which
+     is the only way to exercise the checksum-mismatch path. Without this the
+     migration this docblock recommends could not be done for connect.test.js. */
+  const served = typeof checksum === 'string' && checksum
+    ? checksum
+    : crypto.createHash('sha256').update(body).digest('hex');
   const paths = {
     '/latest': () => version,
-    [`/${version}/manifest.json`]: () => JSON.stringify({ platforms: { [platformKey]: { checksum } } }),
+    [`/${version}/manifest.json`]: () => JSON.stringify({ platforms: { [platformKey]: { checksum: served } } }),
     [`/${version}/${platformKey}/claude`]: () => body,
   };
   const server = http.createServer((req, res) => {
@@ -72,12 +100,24 @@ function serveRelease(t, opts = {}) {
        timeout rather than a bind failure. */
     server.on('error', reject);
     server.listen(0, '127.0.0.1', () => {
-      t.after(() => {
+      /* Detached once listening: leaving it attached swallows any later server
+         error into an already-settled promise. */
+      server.removeListener('error', reject);
+      try {
+        t.after(() => {
         if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
         /* A callback so a close on an already-closed server reports rather than
            throwing ERR_SERVER_NOT_RUNNING out of the teardown. */
+          server.close(() => {});
+        });
+      } catch (err) {
+        /* A `t` without `after` would otherwise throw INSIDE the listen
+           callback, which is uncaught and kills the process rather than
+           failing the test that misused the helper. */
         server.close(() => {});
-      });
+        reject(err);
+        return;
+      }
       resolve(`http://127.0.0.1:${server.address().port}`);
     });
   });

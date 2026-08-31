@@ -42,7 +42,11 @@ force canRunClaude = true      1 passes   <- ABSENT arm goes red
 
 `connect.js` restored clean after each mutation (`git status --porcelain` on it empty).
 
-**Full suite, via the repo's own runner rather than a glob:** `tests 3254, pass 3254, fail 0, skipped 0`, plus 12 shell-section tests, npm exit code 0 (captured explicitly, not read from a trailing command).
+**Full suite, via the repo's own runner rather than a glob:** `tests 3258, pass 3258, fail 0, skipped 0`.
+
+🛑 **THAT NUMBER WAS 3254 AND THE DIFFERENCE IS A FINDING, NOT A ROUNDING.** The four tests for the new shared fixture were first placed in `test-support/`, and `tools/run-tests.sh:103` is `node --test engine/*.test.js *.test.js` -- it globs `engine/` and the repo root and nothing else. **Four tests were written and the suite total did not move.** A test that never runs is worse than no test, because it reports coverage it does not provide. Caught only by reading the count rather than the colour, which is the same discipline the arms in this branch are built on. Moved to the root beside `test-support.code-only.test.js`; the total then rose to 3258, and the rise is the proof.
+
+⚠️ **On the shell portion, stated precisely because the earlier figure was not:** the run prints two `Results:` lines totalling 12 passed, 0 failed. That is **not** a count of shell tests. `test:shell` executes far more scripts than that; most simply do not print a `Results` line, so 12 is what the log reports rather than what ran. Quoting it as a suite total would have been a number with no defensible meaning.
 
 ## One trap, recorded because it costs an hour to rediscover
 

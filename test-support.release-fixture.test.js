@@ -53,6 +53,34 @@ test('a sibling call shape is REFUSED, not silently accepted', async (t) => {
     "a positional Buffer was accepted; that is a sibling's second argument");
 });
 
+/**
+ * ⭐ THE SILENTLY-DROPPED-OPTION ARM. Guarding only a MISSING platformKey left
+ * the natural migration shape accepted and silently wrong one field over: two
+ * sibling copies take a `checksum`, and it was being discarded in favour of one
+ * computed from the body.
+ */
+test('an unknown option is REFUSED rather than silently dropped', async (t) => {
+  await assert.rejects(
+    async () => serveRelease(t, { platformKey: 'darwin-arm64', chekcsum: 'typo' }),
+    /unknown option\(s\): chekcsum/,
+    'a misspelled option was accepted and ignored');
+});
+
+test('an explicit checksum is HONOURED, so the mismatch path can be exercised', async (t) => {
+  const wrong = 'f'.repeat(64);
+  const base = await serveRelease(t, { platformKey: 'darwin-arm64', checksum: wrong });
+  const manifest = await (await fetch(`${base}/9.9.5/manifest.json`)).json();
+  assert.equal(manifest.platforms['darwin-arm64'].checksum, wrong,
+    'the caller checksum was overridden, so no test could serve a body that fails its manifest');
+});
+
+test('a version download() would reject is refused HERE, with a fixture-shaped message', async (t) => {
+  await assert.rejects(
+    async () => serveRelease(t, { platformKey: 'darwin-arm64', version: 'latest' }),
+    /must look like 1\.2\.3/,
+    "'latest' was accepted; download() would report it as a service fault");
+});
+
 test('CONTROL: the refusal is not unconditional, a correct call still resolves', async (t) => {
   const base = await serveRelease(t, { platformKey: 'darwin-arm64' });
   assert.match(base, /^http:\/\/127\.0\.0\.1:\d+$/,

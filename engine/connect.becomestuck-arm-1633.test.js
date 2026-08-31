@@ -126,9 +126,11 @@ async function stuckWith(t, { binaryExists }) {
     await serveRelease(t, { platformKey: connect.platformKey() });
   /* 🔑 A DISTINCT PATH PER ARM IS LOAD-BEARING, not tidiness: the PRESENT arm
      writes an 0755 file, and if the ABSENT arm reused that path it would find a
-     real executable and report canRunClaude true, turning a genuine red into a
+     real executable and report canRunClaude true. The names alone are distinct
+     and SANDBOX is a fresh mkTemp per process, so no random suffix is needed;
+     a stable filename also keeps a failure message reproducible. turning a genuine red into a
      false one. */
-  const bin = nodePath.join(SANDBOX, `claude-${binaryExists ? 'present' : 'absent'}-${Math.random().toString(36).slice(2, 8)}`);
+  const bin = nodePath.join(SANDBOX, `claude-${binaryExists ? 'present' : 'absent'}`);
   if (binaryExists) { fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bin, 0o755); }
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify({}));
