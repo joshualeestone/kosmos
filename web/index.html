@@ -9051,12 +9051,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            tech read it a second time, on top of the announcement the textContent
            write already queued. Focus a container, let the live region speak. -->
       <div id="set-accounts" tabindex="-1"></div>
-      <!-- ⚠️ `tabindex="-1"` so the result line can be FOCUSED programmatically without
-         joining the tab order, the same idiom as the `h1.vh` above. Removing an
-         account repaints the whole list, which DESTROYS the button the person just
-         pressed, so focus falls to `<body>` and a keyboard or screen-reader user
-         loses their place entirely. Focus moves here instead, which is where the
-         answer is. Without the attribute `.focus()` is a silent no-op. -->
       <p class="dhint" id="set-accounts-msg" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
       <!-- #248, LIVE: the browser sign-in the first run already has, on this
            button. POST /api/connect/start { another: true } (Angel's frozen
@@ -13469,9 +13463,13 @@ async function paintAccounts() {
        is exactly the "nothing that looks live may do nothing"
        shape this file already refuses for the external-person/agent
        doors.
-       ⚠️ IT STILL DOES NOT ASK FIRST, on either provider. #770 asked for a
-       link "that asks first" and neither control is wired to a confirm;
-       removal is one click. Pre-existing on the OpenAI side since #1372.
+       ✅ IT ASKS FIRST NOW, on both providers, and this paragraph used to say the
+       opposite. #1702 (card #1683) landed the arm-in-place confirm and it is bound
+       over `[data-forget]` below, which this card is what puts on Claude rows, so
+       the Claude half arrived with the merge exactly as predicted. The claim that
+       "removal is one click" was true when written and was falsified by a merge
+       rather than by an edit, which is why nobody caught it: a stale comment does
+       not fail a test.
        🛑 BUT DO NOT READ THAT AS "MERELY INHERITED". The exposure is larger
        here: undoing an OpenAI removal costs a re-paste of an API key, undoing a
        Claude one costs an OAuth sign-in, and this is the provider every user
@@ -13666,7 +13664,11 @@ async function paintAccounts() {
          INTRODUCED IT. Press the disabled default row, then a live Disconnect
          within 60ms: the deferred refusal lands DURING the in-flight removal and
          shows the wrong sentence over a request that is still running. The timer
-         id is held on the button so the live handler can cancel it. */
+         id is the MODULE-SCOPE `acctSayTimer`, NOT a button expando. This comment
+         said "held on the button" while the code four hundred lines up says the
+         expando version was the bug and why: `paintAccounts` destroys the node via
+         `box.innerHTML`, so nothing could cancel after a repaint. One file, one
+         mechanism, two comments describing it oppositely. */
       acctCancelSay();
       msg.textContent = '';
       acctSayTimer = setTimeout(() => {
@@ -13697,9 +13699,27 @@ async function paintAccounts() {
        good?" would make the confirm contradict the sentence after it. */
     let armed = false;
     const REST = btn.textContent;
-    btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; btn.textContent = REST; btn.classList.remove('armed'); } });
+    /* 🛑 THE ARMED STATE WAS INVISIBLE TO ASSISTIVE TECH, AND THE CONFIRM IS THE
+       SAFETY STEP OF A DESTRUCTIVE ACTION. `aria-label` WINS over name-from-content
+       in accessible-name computation, so relabelling `textContent` to "Remove it?"
+       changed what a sighted person sees and NOTHING a screen reader announces: the
+       name was identical before and after arming, both presses. So the whole "ask
+       first" promise of #1683 was sighted-only on a control whose cost is an OAuth
+       sign-in.
+       ⚠️ AND IT IS NOT FIXED BY DROPPING THE LABEL: the resting name carries the
+       account identity, which is what tells two rows apart. Keep the identity and
+       APPEND the state, so the armed name says both which account and what the next
+       press does.
+       📌 Inherited from the OpenAI control and fixed for both here, because #1659 is
+       the change that makes this button live on Claude rows too. */
+    const REST_LABEL = btn.getAttribute && btn.getAttribute('aria-label');
+    const armLabel = (on) => {
+      if (!REST_LABEL || !btn.setAttribute) return;
+      btn.setAttribute('aria-label', on ? REST_LABEL + ', press again to remove' : REST_LABEL);
+    };
+    btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false); } });
     btn.addEventListener('click', async () => {
-      if (!armed) { armed = true; btn.textContent = 'Remove it?'; btn.classList.add('armed'); return; }
+      if (!armed) { armed = true; btn.textContent = 'Remove it?'; btn.classList.add('armed'); armLabel(true); return; }
       btn.disabled = true;
       acctCancelSay();
       if (msg) msg.textContent = '';
@@ -13768,16 +13788,21 @@ async function paintAccounts() {
           }
           /* Restore the resting label, or a refused remove leaves the button
              reading "Remove it?" and the NEXT single click acts. */
-          armed = false; btn.textContent = REST; btn.classList.remove('armed');
+          armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
           /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH GETS AND
              THIS ONE DID NOT. `btn.disabled = true` at the top of this handler
              dropped focus to `<body>` before the request went out, so without this a
              keyboard or screen-reader user is left at the top of the document while
              the refusal that names the blocking agents renders far below them.
-             ⚠️ AFTER THE DISARM ON PURPOSE, and the order is the whole point: focus
-             first and assistive tech announces "Remove it?", then the label changes
-             under it silently. Disarm first and it announces the resting label,
-             which is what the button will actually do if pressed again. */
+             ⚠️ AFTER THE DISARM ON PURPOSE, so the name announced on arrival is the
+             resting one, which is what the button will actually do if pressed again.
+             🛑 THE REASON I FIRST GAVE FOR THIS ORDER WAS WRONG and is corrected here
+             rather than swapped quietly: I wrote that focusing first would announce
+             "Remove it?". It would not have. `aria-label` WINS over
+             name-from-content, so the textContent swap was never announced at all,
+             in either order. That was not a nitpick about my reasoning, it was a
+             real defect hiding behind it: the confirm was sighted-only until
+             `armLabel` above started carrying the state into the accessible name. */
           if (btn.focus) btn.focus({ preventScroll: true });
       }
     });

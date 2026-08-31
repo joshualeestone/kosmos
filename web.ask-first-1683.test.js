@@ -53,12 +53,30 @@ function world(fetchImpl) {
     classList: { has: new Set(), add(c) { this.has.add(c); }, remove(c) { this.has.delete(c); } },
     listeners: {},
     addEventListener(t, fn) { this.listeners[t] = fn; },
+    /* The handler keeps the ARMED state in the accessible name, because aria-label
+       wins over name-from-content and the confirm was otherwise sighted-only. The
+       fixture has to model the attribute or the arm path throws here rather than
+       failing on the behaviour under test. */
+    attrs: { 'aria-label': 'Disconnect walk@example.com (OpenAI)' },
+    getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; },
+    setAttribute(k, v) { this.attrs[k] = String(v); },
   };
   const msg = { textContent: '' };
   const box = { querySelectorAll: () => [btn] };
   const ctx = {
     box, msg, fetch: fetchImpl, console,
     paintAccounts: async () => {},
+    /* 🔑 THE SAME KINDNESS THIS FIXTURE ALREADY DID FOR `forgetProvider`, one
+       rebase later. #1659's handler cancels a pending announcement before it
+       acts, so the extracted binding now references `acctCancelSay` and this
+       sandbox did not define it. The failure was `ReferenceError:
+       acctCancelSay is not defined` reported as "the first click asks and does
+       NOT reach the engine", which reads exactly like the confirm being broken.
+       It was not; it was the fixture being older than the markup again.
+       ⚠️ A no-op rather than a defensive `typeof` guard in the handler: the
+       dependency is real, so the fixture should model it rather than the
+       product hiding it. */
+    acctCancelSay: () => {},
   };
   vm.runInNewContext(SCRIPT.slice(start, end), ctx);
   return {
@@ -117,4 +135,26 @@ test('#1683: a refused remove disarms, so the next single click cannot fire blin
   await w.click();
   assert.equal(asked, 1, 'STILL ARMED AFTER A REFUSAL: the third click fired blind');
   assert.equal(w.btn.textContent, 'Remove it?', 'the third click should have re-armed');
+});
+
+/* 🛑 THE ARMED STATE MUST REACH THE ACCESSIBLE NAME. `aria-label` wins over
+   name-from-content, so relabelling textContent to "Remove it?" changes what a
+   sighted person sees and NOTHING a screen reader announces. Without this arm the
+   confirm that #1683 exists to add is sighted-only, on a control whose cost is an
+   OAuth sign-in, and every other test in this file passes anyway because they all
+   read textContent. */
+test('#1683: arming changes the ACCESSIBLE NAME, not only the visible label', () => {
+  const w = world(async () => ({ ok: true, json: async () => ({ because: 'gone' }) }));
+  const rest = w.btn.getAttribute('aria-label');
+  assert.ok(rest && /Disconnect/.test(rest), 'the fixture lost its resting accessible name');
+  w.btn.listeners.click();
+  const armed = w.btn.getAttribute('aria-label');
+  assert.notEqual(armed, rest,
+    'the accessible name did not change on arming, so a screen-reader user cannot tell the confirm happened');
+  assert.match(armed, /press again to remove/,
+    'the armed name must say what the next press does');
+  assert.ok(armed.indexOf(rest) === 0,
+    'the armed name dropped the account identity, which is what tells two rows apart');
+  w.btn.listeners.blur();
+  assert.equal(w.btn.getAttribute('aria-label'), rest, 'blur disarmed the label but did not restore the name');
 });

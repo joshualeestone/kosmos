@@ -3368,15 +3368,23 @@ const server = http.createServer((req, res) => {
            reads `status.snapshot()`, whose agents are `listPanes()` plus
            `panelessKeys()`, and `panelessKeys` requires `liveness.alive(key)`.
            So an agent that EXISTS but is stopped keeps a launch file naming
-           this config dir and is invisible to this loop: removal proceeds, and
+           this config dir and WAS invisible to this loop: removal proceeded, and
            its next start points CLAUDE_CONFIG_DIR at a directory that has been
            renamed away.
            🛑 IT LANDS HARDER ON CLAUDE THAN ON OPENAI, because transcripts live
            under the config directory, so that agent comes up signed out AND
            with a blank history -- the shape this module's own header names:
            "It looks like a working agent and behaves like a blank one."
-           📌 Inherited from the OpenAI route, not introduced here. Carded as
-           kosmos#1689 rather than fixed here.
+           ✅ CLOSED BELOW, and this paragraph said otherwise until it was. The
+           union with `register.known()` fifteen lines down is the #1697 port of
+           #1693, so a stopped-but-registered agent DOES block now. The old text
+           ("Carded as kosmos#1689 rather than fixed here") told the next reader a
+           safety hole was open and pointed at a card that had been done, which is
+           worse than saying nothing: it invites someone to re-open a closed gap.
+           ⚠️ THE RESIDUAL IS NARROWER AND DIFFERENT, so do not read the closure as
+           total: an agent with a LAUNCH FILE BUT NO PROFILE is in neither source.
+           `known()` reads profiles, `safeRoster()` reads the board, and a job
+           written outside Kosmos satisfies neither.
            🛑 AND A SECOND, DIFFERENT BLIND SPOT, WHICH THIS COMMENT USED TO HIDE
            BY NAMING ONLY THE FIRST: a Claude session running on this computer
            that KOSMOS DID NOT CREATE. It IS in the roster, because the roster
