@@ -3337,7 +3337,7 @@ const server = http.createServer((req, res) => {
    *
    * 📌 THE `isDefault` FALLBACK IS CARRIED FOR SYMMETRY WITH THE OPENAI ROUTE
    * AND IS INERT HERE. A Claude job on the default account carries
-   * `configDir: null` (`create.js:769` writes `acct.isDefault ? null :
+   * `configDir: null` (`create.js:734` writes `acct.isDefault ? null :
    * acct.dir`), so absence falls back to the isDefault comparison rather than
    * reading as "no account" -- but that branch can only ADD names to `usedBy`
    * when `dir` IS the default, and `accounts.forgetAccount` refuses the default

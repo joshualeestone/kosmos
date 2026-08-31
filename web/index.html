@@ -13737,6 +13737,15 @@ async function paintAccounts() {
         if (marked !== 'claude' && marked !== 'openai') {
           if (msg) msg.textContent = 'we could not tell which provider that account belongs to, so nothing was changed';
           btn.disabled = false;
+          /* 🛑 DISARM AND RESTORE FOCUS HERE TOO. This was the ONE exit from this
+             handler that did neither, so a wiring fault left the button reading
+             "Remove it?" with `armed` still true, and focus on `<body>` where
+             `btn.disabled = true` dropped it. Only reachable on a bug, and the
+             button cannot act in that state, but it contradicted the restore rule
+             the catch path states three lines later, and a control that LOOKS one
+             press from removing an account is its own problem. */
+          armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
+          if (btn.focus) btn.focus({ preventScroll: true });
           return;
         }
         const provider = marked;
