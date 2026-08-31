@@ -39,8 +39,16 @@ const BLOCK_RE = /_reachable_is_download\(\)\s*\{[\s\S]*?\n\}\n(?:[ \t]*#[^\n]*\
 const FN = SRC.match(BLOCK_RE);
 
 const BIGBODY = require('node:crypto').randomBytes(4 * 1024 * 1024);
+/* Keyed BY PATH rather than a single counter, so an arm reading /bigrange's
+   bytes cannot pick up /nolen's. */
 const BYTES_SENT = {};
-const SEEN = [];        /* {path, method, ranged} per request, so an arm can assert HOW it was probed, not just the verdict */   /* keyed BY PATH: a single counter would let one arm read another's bytes if node:test ever runs these concurrently */
+/* {path, method, ranged} per request, so an arm can assert HOW it was probed
+   and not just the verdict. Reset in place by the arms that use it. Both this
+   and BYTES_SENT assume arms in a file run one at a time, which is node:test's
+   default; an earlier comment here claimed per-path keying defended against
+   concurrency, which it does not, because SEEN is reset globally two arms
+   below. If this file is ever made concurrent, both need scoping, not one. */
+const SEEN = [];
 const GZ = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 const ERR = Buffer.from('<!doctype html><html><body>Not here</body></html>');
 
@@ -89,6 +97,11 @@ test.before(async () => {
       /* Written in chunks and COUNTED, so an arm can assert the cap actually
          stopped the transfer. Sending it in one `res.end()` would tell us
          nothing: the point is how much crossed the wire before curl gave up. */
+      /* Three arms exist to make curl hang up mid-transfer, so a write can land
+         after the peer resets. Without this the response emits an unhandled
+         'error' and the fixture crashes intermittently in exactly the arms whose
+         job is being hung up on. */
+      res.on('error', () => {});
       let off = 0;
       const CHUNK = 64 * 1024;
       const pump = () => {
@@ -275,6 +288,17 @@ test('#1662: text/plain is ACCEPTED, because it is nginx default_type for an unm
   assert.equal(await reachable(`${base}/real.tar.gz?ct=text%2Fplain`), 'YES',
     'a genuine tarball served as text/plain was refused, which blocks installs from any '
     + 'origin that has not mapped the .gz extension');
+});
+
+/* `application/*+xml` was refused only in the +json direction until iteration 16.
+   A structured-syntax-suffix type is textual by construction and is never a
+   tarball, so refusing it is the same call as refusing +json; leaving one in and
+   the other out was an inconsistency, not a decision. */
+test('#1662: a +xml suffix type is refused, matching the +json arm', async () => {
+  assert.equal(await reachable(`${base}/real.tar.gz?ct=application%2Frss%2Bxml`), 'NO',
+    'application/rss+xml is textual and must be refused, exactly as application/*+json is');
+  assert.equal(await reachable(`${base}/real.tar.gz?ct=application%2Fgzip`), 'YES',
+    'CONTROL: the same fixture with a real gzip type must still be YES, or this arm is refusing everything');
 });
 
 test('#1662: a download with NO content-type header at all is accepted', async () => {
@@ -523,6 +547,31 @@ test('#1662: a length-less (chunked) origin still yields the right VERDICT, what
  * Measured before this existed: deleting `&& reachable …` from that line left
  * all 20 arms green while changing which URL gets downloaded.
  */
+/* ---- the call-site POPULATION, not just the three we know about ------------
+ * Every arm above pins the behaviour of a caller that already exists. None of
+ * them notices a FOURTH caller added later, and the cost of that is asymmetric
+ * in the direction this design calls its worst outcome: `_reachable_is_download`
+ * refuses anything positively textual, so a caller pointed at a JSON or XML url
+ * gets a false NO. Verified against the live origin: /dist/latest.json is served
+ * `application/json; charset=utf-8`, which this predicate refuses. That is safe
+ * today only because the pointer fetch uses bare curl and not reachable().
+ *
+ * Same idiom as one-derivation.test.js, which reads source to reach a caller
+ * nobody has written yet. Comments are stripped first: two of the five textual
+ * matches for `reachable "` in this file are inside comments, so counting raw
+ * hits would pin the wrong number and pass for the wrong reason. */
+test('#1662: reachable() has exactly three call sites, so a fourth is a deliberate act', () => {
+  const execOnly = SRC.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+  const sites = execOnly.match(/(^|[^_a-zA-Z])reachable "/gm) || [];
+  assert.equal(sites.length, 3,
+    `expected 3 reachable() call sites, found ${sites.length}. If you ADDED one: check the url it `
+    + 'probes is a DOWNLOAD, not a pointer. _reachable_is_download refuses text/html, json and xml, '
+    + 'so a probe aimed at latest.json (served application/json) returns a false NO and, at an abort '
+    + 'guard, blocks the install behind "Check your internet connection". If the new site is correct, '
+    + 'raise this number and say why in the plan. If you REMOVED one, the arms above are now testing '
+    + 'a caller that no longer exists.');
+});
+
 const PROBE_RE = /if \[ -n "\$\{TARGET_VERSION:-\}" \] && reachable[\s\S]*?\n\s*fi\n/;
 const PROBE = SRC.match(PROBE_RE);
 

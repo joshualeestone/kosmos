@@ -568,7 +568,7 @@ _reachable_is_download() {
   # than noisy. It is NOT a general absolute-path policy: `curl` two lines
   # below is bare, as it is everywhere else in this file.
   case "$(printf '%s' "$2" | /usr/bin/tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')" in
-    text/html*|application/xhtml*|application/json*|application/*+json*|application/xml*|text/xml*) return 1 ;;
+    text/html*|application/xhtml*|application/json*|application/*+json*|application/xml*|application/*+xml*|text/xml*) return 1 ;;
   esac
   return 0
 }
@@ -634,6 +634,15 @@ reachable() {
   # transfer mid-flight, which is why the test arm for that shape asserts the
   # VERDICT and deliberately does not pin a byte count: the count is the part
   # that legitimately differs across versions.
+  #
+  # ⚠️ THE HTML-ON-63 REFUSAL ALSO RESTS ON A CURL VERSION, and this comment is
+  # scrupulous about that everywhere else, so it should be here too. Refusing a
+  # capped HTML body needs curl to still REPORT a content-type alongside exit
+  # 63. Measured on 8.7.1 it does. On the 13.5 floor's curl 8.1.x the abort
+  # happens before the transfer starts, and if content_type is empty there that
+  # arm flips NO to YES. The shipped-code direction is the harmless one, a false
+  # YES that curl catches a few lines later; the cost is a red suite on a
+  # floor-OS runner rather than a broken install.
   #
   # 🛑 AND EXIT 63 MUST BE TREATED AS A SUCCESSFUL FETCH, WHICH THE FIRST
   # VERSION OF THIS GOT WRONG AND IT WAS A REGRESSION. curl exits 63 when the

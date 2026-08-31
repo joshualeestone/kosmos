@@ -95,8 +95,6 @@ any future HEAD:
 
 ```
 tested-source-sha256   c4fae33e...   the sha the GATE RAN AGAINST (commit ac69295d)
-HEAD install/setup.sh  4a43af61...   current, differing from the above by
-                                     COMMENT-ONLY edits, verified below
 bundle-sha-matches     dist/setup == install/setup.sh, asserted BEFORE the harness
 source-sha-at-end      c4fae33e... (identical, so nothing moved mid-run)
 assertions             328 (a run that asserted NOTHING is not a pass)
@@ -105,17 +103,26 @@ attempts               1
   shasum -a 256 install/setup.sh
 ```
 
-**If that command does not print the sha above, this evidence does not describe
-the current installer.** That is the property the previous two remedies lacked.
+**If that command does not print `tested-source-sha256`, the gate did not run
+against the file you are holding, and the exec-identical argument below is what
+closes the gap.** That is the property the previous two remedies lacked.
 
-📌 **AND IT FIRED, AS INTENDED.** Comment-only edits after the run changed the
-file sha away from the tested one, so the anchor stopped matching. Under the previous two
-remedies that would have been silent and I would have carried a stale claim
-into a third PR.
+🛑 **A THIRD STALENESS, AND IT WAS IN THE FIX FOR THE FIRST TWO.** This table
+used to carry a second row naming the CURRENT HEAD sha. That row goes stale on
+every comment edit, including the ones made to satisfy a review, so it was
+wrong again within a day of being written and the document's own rule voided
+its own evidence. Recorded rather than quietly corrected, because it is the
+third instance of one shape.
+
+✅ **The fix is to delete the field, not to maintain it.** A row that must be
+updated by hand every time anything changes will go stale, and an anchor that
+fails on itself teaches readers to ignore anchors. What is kept is the half
+that discriminates: the sha the gate ran against, plus a reproducible
+comparison anyone can run against any future HEAD.
 
 ✅ **The gate was NOT re-run, and here is the argument, with a control.** The
 executable text is unchanged: stripping comments and blank lines from the
-anchored revision and from HEAD gives **1267 identical lines**. The same
+anchored revision and from HEAD gives **1268 identical lines**, re-measured. The same
 comparison against a commit that DID change behaviour differs, so it can
 discriminate. Reproduce it with:
 
@@ -288,3 +295,62 @@ it as one of two traps worth keeping, and it explains why the mapping exists.
 six absolute and one bare at the `_pids` line. My grep for this initially gave
 three different answers because "tr " matches inside words like string and
 control, which is the pattern being wrong rather than the artifact.
+
+## Iteration 16
+
+Four WARNINGs, three NITs. The first one is about this document.
+
+**The anchor I introduced to end stale gate evidence went stale itself.** The
+table carried a row naming the current HEAD sha. That row changes on every
+comment edit, including the ones made to satisfy a review, so it was wrong
+within a day and the document's own rule three lines below it voided its own
+evidence. That is the third staleness on this branch and the first two are what
+the anchor was written for.
+
+I deleted the row rather than updating it. A field that has to be maintained by
+hand every time anything changes will go stale, and an anchor that fails on
+itself teaches a reader to ignore anchors. What is kept is the half that
+discriminates: the sha the gate ran against, plus a comparison anyone can
+reproduce against any future HEAD. The substance was never in doubt and I
+re-verified it: comment-stripped, the tested revision and HEAD differ by zero
+lines at 1268.
+
+**The document also gave two different numbers for that same measurement**, 1267
+in one place and 1268 in another. Measured: 1268. A reader running my own
+published recipe would have falsified one of my claims with no way to tell
+which. Both now say 1268.
+
+**Nothing pinned how many callers `reachable()` has.** Every arm tested a caller
+that already exists; none would notice a fourth added later, and the cost is
+asymmetric in the direction this design calls its worst outcome. The predicate
+refuses anything positively textual, and the live origin serves
+`/dist/latest.json` as `application/json`, so a probe aimed at a pointer returns
+a false NO. It is safe today only because the pointer fetch uses bare curl.
+
+Added an arm pinning the count at three, using the same read-the-source idiom as
+`one-derivation.test.js`. It strips comments first: two of the five textual
+matches are inside comments, so a raw count would pin the wrong number and pass
+for the wrong reason. Verified by planting a fourth caller aimed at
+`latest.json` and watching it go red, then restoring.
+
+**The HTML-on-63 refusal rested on a curl version and did not say so**, while
+the comment beside it is careful about exactly that for the cap. Refusing a
+capped HTML body needs curl to still report a content-type alongside exit 63.
+Measured on 8.7.1 it does; on the floor's 8.1.x the abort precedes the transfer
+and that arm could flip. Named it. The shipped direction is the harmless one; a
+red suite on a floor-OS runner is the real cost.
+
+**`application/*+xml` was refused only in the +json direction.** A structured
+suffix type is textual by construction and is never a tarball, so admitting one
+and refusing the other was an inconsistency rather than a decision. Added, with
+an arm that carries a control, and verified by removing the predicate and
+watching the arm redden.
+
+**Two NITs, one of which was worse than reported.** The concurrency rationale
+for keying `BYTES_SENT` by path was physically attached to `SEEN`, which is a
+plain array reset globally two arms below, so the comment defended a property
+the variable it sat on does not have. Both are fine because node:test runs a
+file's arms sequentially; the comment now says that instead of claiming a
+defence. The fixture also lacked an error handler on the responses that three
+arms deliberately cause curl to hang up on, which is an intermittent crash in
+exactly the arms whose job is being hung up on.
