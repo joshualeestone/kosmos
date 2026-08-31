@@ -813,6 +813,22 @@ cmd_connections() {
   # apostrophe in it would end the script (which is what the apostrophe guard
   # test in this file exists to catch).
   printf '%s\n' "$body" | KOSMOS_RESTART_CMD="\"$SELF\" restart" "$NODE" -e '
+    /* 🛑 CONTROL CHARACTERS STRIPPED FROM EVERY WIRE STRING BEFORE IT IS PRINTED.
+       This output does not only land on a terminal, it lands in the CONTEXT
+       WINDOW OF AN AGENT: this branch splices the connections verb into every
+       agent instruction file. So an escape sequence repaints the screen, and
+       instruction-shaped text arrives exactly where instructions are read.
+       Our own boundary allowlists every string it emits, so nothing from OUR
+       board can carry these. That is precisely the assumption this block refuses
+       to make everywhere else: it type-guards, own-property checks and filters
+       because the board may be a different build than the CLI.
+       ⚠️ DECLARED AT THE TOP, OUTSIDE EVERY BRANCH, AND THE POSITION IS LOAD
+       BEARING. It sat ~55 lines below its first caller once, so v.error printed
+       uncleaned; moved into the error branch it was hoisted-but-unassigned on the
+       happy path and threw for 18 tests. var hoists the NAME, never the value.
+       NOTE no apostrophe anywhere in this comment. This whole renderer is a
+       single-quoted shell string and one apostrophe ends the program. */
+    var clean = function (x) { return typeof x === "string" ? x.replace(/[\u0000-\u001f\u007f]/g, " ") : x; };
     let raw = ""; process.stdin.on("data", (d) => { raw += d; });
     process.stdin.on("end", () => {
       let v = null;
@@ -831,7 +847,7 @@ cmd_connections() {
           console.log("This copy of Kosmos does not know how to answer that yet.");
           console.log("The board is running an older version. Restart it with: " + (process.env.KOSMOS_RESTART_CMD || "kosmos restart"));
         } else {
-          console.log(v.error);
+          console.log(clean(v.error));
         }
         process.exit(1);
       }
@@ -886,7 +902,6 @@ cmd_connections() {
          renderer lives inside a single-quoted shell string, so one apostrophe
          ends the program. The first draft of this comment said AGENT plus S and
          broke 22 tests at once, which is what the guard below is for. */
-      var clean = function (x) { return typeof x === "string" ? x.replace(/[\u0000-\u001f\u007f]/g, " ") : x; };
       var SAY = { connected: "connected", none: "not connected", unknown: "could not check" };
       for (const p of okProviders) {
         /* ⚠️ STRINGS ONLY, for the same reason as the services loop below:
@@ -985,7 +1000,13 @@ cmd_connections() {
          ⇒ An unresolved provider means we do not know WHOSE sign-in it is. We say
          so by not attributing it, rather than by guessing a name. */
       var whoResolved = !!whoRow;
-      var whoName = (whoRow && typeof whoRow.name === "string" && whoRow.name) || "Claude";
+      /* ⚠️ CLEANED AT THE ASSIGNMENT so all three sign-in sentences inherit it.
+         The provider loop cleans this same field; whoName is computed OUT HERE
+         from the same unvalidated value and reached three console.log calls
+         uncleaned. That is the SECOND time this exact field has leaked past a
+         guard that lived inside the loop: the typeof check had the same shape.
+         Fixing it at the source is what stops a third sentence inheriting it. */
+      var whoName = clean((whoRow && typeof whoRow.name === "string" && whoRow.name) || "Claude");
       /* 🛑 ONE RESOLVED ROW DRIVES BOTH, BECAUSE TWO FALLBACKS FOR ONE VALUE
          DISAGREED. `whoName` fell back to "Claude" on an unrecognised provider while
          this stayed false, so a board answering an unknown provider printed BOTH

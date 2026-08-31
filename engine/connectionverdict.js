@@ -347,8 +347,16 @@ function forAgent(raw) {
        An earlier version of this line used `.some(...)` and reintroduced it HERE,
        where the CLI's correctly-scoped check cannot recover it: the server rewrites
        the phase first, so the renderer never sees the truth to protect. Moving a
-       rule inward is only safe if its SCOPE moves with it. */
-    signin: signinView(src.connect, byProvider('anthropic').some((a) => a && a.connection && a.connection.state === subscription.STATE.CONNECTED)),
+       rule inward is only safe if its SCOPE moves with it.
+       ⇒ AND IT IS DERIVED FROM THE BUILT PROVIDER ROW, not recomputed from the
+       accounts. Asking `.some(...)` here answered "is Claude connected" a SECOND
+       time by a SECOND rule: providerView honours `unreadable`, that pass did
+       not. They cannot disagree today, because an unreadable provider has no rows
+       so both say false. The two disagreements this branch already fixed
+       (readableCount vs stateOf, whoName vs anyConnected) could not disagree
+       either, until they did. One derivation, and the ordering is now a real
+       dependency rather than a claim. */
+    signin: signinView(src.connect, providers[0].signedIn === subscription.STATE.CONNECTED),
     services: serviceView(src.doors, src.doorNames),
   };
 }

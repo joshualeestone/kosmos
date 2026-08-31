@@ -908,3 +908,51 @@ test('control characters in a wire string are neutralised before they reach an a
     assert.match(r.out, /fine/, 'the reason was lost entirely rather than cleaned');
   });
 });
+
+test('control characters are stripped from EVERY sentence, not only the provider rows', async () => {
+  /**
+   * 🛑 THE EARLIER CONTROL-CHARACTER TEST COULD NOT REACH THE PATHS THAT LEAKED.
+   * It plants into providers[0].name and .because and asserts over the whole
+   * output, but the shared fixture sets signin.phase to idle, so NONE of the
+   * three sign-in sentences render, and no arm planted into v.error. The guard
+   * was real, the test was real, and the fixture phase is what made them miss
+   * each other. Both leaks sat green underneath.
+   *
+   * whoName is the specific hazard: it is computed OUTSIDE the provider loop
+   * from the same unvalidated field the loop cleans, and it feeds three separate
+   * console.log calls. This is the second time that field has slipped past a
+   * guard that lived inside the loop.
+   */
+  const ESC = String.fromCharCode(27);
+  const NUL = String.fromCharCode(0);
+  const dirty = 'Cl' + ESC + '[2J' + NUL + 'aude';
+
+  for (const [label, phase, busy] of [
+    ['the stopped sentence', 'stuck', false],
+    ['the unknown sentence', 'unknown', false],
+    ['the in-flight sentence', 'signin-awaiting-code', true],
+  ]) {
+    const p = P({ signin: { provider: 'anthropic', phase, busy } });
+    p.providers[0].name = dirty;
+    p.providers[0].signedIn = 'none';
+    p.providers[0].howMany = 0;
+    p.providers[0].howManyWorking = 0;
+    p.providers[0].howManyReadable = 0;
+    await withBoard({ body: p }, async (port) => {
+      const r = await kosmos(port);
+      assert.ok(!r.out.includes(ESC), label + ': an escape character reached the output');
+      assert.ok(!r.out.includes(NUL), label + ': a NUL reached the output');
+      /* CONTROL: the sentence actually rendered, or the assertions above pass on
+         output that never contained the field at all. */
+      assert.match(r.out, /aude/, label + ': the sentence never rendered, so this arm proves nothing');
+    });
+  }
+
+  /* The error branch prints a board-supplied string and is reached before any
+     provider rendering, which is why the cleaner has to be declared above it. */
+  await withBoard({ body: { error: 'boom' + ESC + '[2Jtail' } }, async (port) => {
+    const r = await kosmos(port);
+    assert.ok(!r.out.includes(ESC), 'the error branch printed an escape character');
+    assert.match(r.out, /boom/, 'the error text was lost entirely rather than cleaned');
+  });
+});
