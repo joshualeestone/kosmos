@@ -1662,7 +1662,13 @@ KOSMOS_SWEEP_LIST
     printf '  Trust marks were left in place: your agents'"'"' folders are recorded as\n'
     printf '  trusted in these files (Claude Code will not ask before working in\n'
     printf '  them):\n'
-    for _cfg in $_trust_marked; do printf '    %s\n' "$_cfg"; done
+    # ⚠️ UNQUOTED ON PURPOSE, and said so because it looks like the word-splitting
+  # bug this fleet keeps finding: `$_trust_marked` is a space-joined LIST built
+  # above, so it MUST split. What it cannot survive is a path containing a space,
+  # and #1659 adds another source of paths into that accumulator, so the hazard is
+  # now fed from two places rather than one. Pre-existing and not fixed here;
+  # named so the next person meets it as known rather than as a discovery.
+  for _cfg in $_trust_marked; do printf '    %s\n' "$_cfg"; done
     printf '  Those folders are still on your machine, so the marks still apply.\n'
     printf '  Remove those entries if you want the question back.\n\n'
   fi

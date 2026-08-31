@@ -576,8 +576,11 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    covers a natively `disabled` control. This one is deliberately FOCUSABLE and
    carries a click handler that writes into a live region, so it is not inactive
    in that sense and the exemption does not reach it.
-   MEASURED, --label-2 #4a4f57 on the light surface: 8.24:1 at full opacity,
-   3.76:1 at .7 (AA needs 4.5 for 13px text), 4.83:1 at .8. It still reads as
+   MEASURED ON THE LIGHT SCHEME, and named as such because a ratio quoted
+   without its background reads as though one theme were the whole answer:
+   --label-2 #4a4f57 on the light surface is 8.24:1 at full opacity, 3.76:1 at
+   .7 (AA needs 4.5 for 13px text) and 4.83:1 at .8. The dark and
+   prefers-contrast arms clear AA at .8 by a wider margin. It still reads as
    unavailable via cursor, the removed underline and the announced label. */
 .acct-disconnect[aria-disabled="true"] { cursor: not-allowed; text-decoration: none; opacity: .8; }
 /* #770: "underneath it we just have a large one that's the same exact
@@ -13545,8 +13548,15 @@ async function paintAccounts() {
          leave the region BLANK there -- worse than the unchanged text it is
          working around. A frame is also arguably too fast for assistive tech to
          register the change. */
+      /* 🛑 THE TWO WRITERS TO THIS LINE CAN RACE, AND THE TIMER IS WHAT
+         INTRODUCED IT. Press the disabled default row, then a live Disconnect
+         within 60ms: the deferred refusal lands DURING the in-flight removal and
+         shows the wrong sentence over a request that is still running. The timer
+         id is held on the button so the live handler can cancel it. */
+      if (btn._sayTimer) clearTimeout(btn._sayTimer);
       msg.textContent = '';
-      setTimeout(() => {
+      btn._sayTimer = setTimeout(() => {
+        btn._sayTimer = null;
         msg.textContent = say;
         /* 🛑 THE DEFAULT ROW IS EMITTED FIRST AND THIS MESSAGE LINE SITS AFTER
            THE WHOLE LIST (index 9021 vs 9022). On a multi-account machine the
@@ -13561,6 +13571,11 @@ async function paintAccounts() {
   for (const btn of box.querySelectorAll('[data-forget]')) {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
+      /* Cancel any deferred refusal from the disabled default row, or it lands
+         on top of this removal's own sentence 60ms from now. */
+      for (const other of box.querySelectorAll('.acct-disconnect[aria-disabled="true"]')) {
+        if (other._sayTimer) { clearTimeout(other._sayTimer); other._sayTimer = null; }
+      }
       if (msg) msg.textContent = '';
       try {
         /* #1659: ONE handler, two providers. The endpoint is the only
