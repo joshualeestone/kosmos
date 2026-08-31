@@ -12,7 +12,9 @@
  * lists by provider; no OpenAI row carries the Claude history arm (no
  * ruling for codex yet); on the create form, choosing OpenAI leaves the
  * account menu live and offers the new account while the model menu still
- * parks; and choosing Anthropic back shows no OpenAI account.
+ * parks; choosing Anthropic back shows no OpenAI account; and removal ASKS
+ * FIRST (#1683, #1702), so the first press only arms and leaves the account
+ * on the list, and the second press is what removes it.
  *
  * Computed-state only, so headless is sound. First run is completed
  * through the product's own route first: on a fresh board the first-run
@@ -215,28 +217,60 @@ let failed = 0;
      "the row went away" and "the row was never rendered" are the same pass. */
   say('before the click, the account is on the list',
     rowsBefore.some((r) => /API key ending WALK/.test(r)), JSON.stringify(rowsBefore));
-  const pressed = await p.evaluate(() => { const b = document.querySelector('#set-accounts [data-forget]'); if (!b) return false; b.click(); return true; });
-  say('the Remove button is there to press', pressed);
   /* 🛑 #1702 MADE REMOVAL A TWO-PRESS CONFIRM AND THIS CHECK STILL PRESSED ONCE,
      so it red every cut from the moment #1702 landed: the single press only ARMED,
      the row stayed, and both assertions below failed with the label reading
      "Remove it?". It killed release 0.6.20 at step 3b.
-     ⭐ THE CLASS, worth naming because it is not carelessness: when you change a
-     rendered behaviour, the check you are THINKING about is the one you are
-     writing. The one that already exists is invisible because it is passing,
-     right up until it is not.
+     ⭐ THE CLASS: when you change a rendered behaviour, the check you are THINKING
+     about is the one you are writing. The one that already exists is invisible
+     because it is passing, right up until it is not.
      ✅ ASSERT THE ARM RATHER THAN TOLERATING IT. Pressing twice blindly would go
-     green whether or not the confirm exists, which would leave #1683's whole
-     promise (ask first) unguarded at the page layer. Pressing once, checking the
-     label changed, then pressing again tests BOTH halves: the confirm is there,
-     and the second press really acts. */
-  await p.waitForTimeout(300);
-  const armed = await p.evaluate(() => {
-    const b = document.querySelector('#set-accounts [data-forget]');
-    return b ? b.textContent.replace(/\s+/g, ' ').trim() : '(no button)';
+     green whether or not the confirm exists, leaving #1683's whole promise (ask
+     first) unguarded at the page layer.
+     🔑 EVERY LOOKUP IS SCOPED TO THE WALK ROW, not to the first [data-forget] on
+     the screen. #1659 makes the Claude row live and gives it a data-forget button
+     too, and this fixture can carry a Claude account, so an unrooted querySelector
+     would press one account while every assertion here is about another. */
+  const pressed = await p.evaluate(() => {
+    const row = [...document.querySelectorAll('#set-accounts .acct-box')]
+      .find((r) => /API key ending WALK/.test(r.innerText));
+    const b = row && row.querySelector('[data-forget]');
+    if (!b) return false;
+    b.click();
+    return true;
   });
-  say('the FIRST press only arms, it does not remove (#1683, #1702)', armed === 'Remove it?', armed);
-  await p.evaluate(() => { const b = document.querySelector('#set-accounts [data-forget]'); if (b) b.click(); });
+  say('the Remove button is there to press', pressed);
+  await p.waitForTimeout(300);
+  /* ⚠️ THE LABEL ALONE IS NOT ENOUGH. A regression that ARMS *and* also fires the
+     DELETE leaves the label reading "Remove it?" for as long as the fetch and the
+     repaint take, so a label-only assertion passes on the exact defect #1683
+     exists to prevent. Assert the row is STILL LISTED too: that is the property
+     anybody cared about, and it costs nothing because we already read the rows. */
+  const firstPress = await p.evaluate(() => {
+    const rows = [...document.querySelectorAll('#set-accounts .acct-box')];
+    const row = rows.find((r) => /API key ending WALK/.test(r.innerText));
+    const b = row && row.querySelector('[data-forget]');
+    return {
+      label: b ? b.textContent.replace(/\s+/g, ' ').trim() : '(no button)',
+      stillListed: rows.some((r) => /API key ending WALK/.test(r.innerText)),
+    };
+  });
+  say('the FIRST press only ARMS, it does not remove (#1683, #1702)',
+    firstPress.label === 'Remove it?' && firstPress.stillListed === true,
+    JSON.stringify(firstPress));
+  /* Guarded like the first press. A bare `if (b) b.click()` no-ops silently, and
+     then "the account leaves the list" fails without distinguishing "we pressed
+     and it did not remove" from "we never pressed at all", which is a diagnosis
+     one step removed from the cause on a check that has already taken down a cut. */
+  const pressedAgain = await p.evaluate(() => {
+    const row = [...document.querySelectorAll('#set-accounts .acct-box')]
+      .find((r) => /API key ending WALK/.test(r.innerText));
+    const b = row && row.querySelector('[data-forget]');
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  say('the second press is there to make', pressedAgain);
   await p.waitForTimeout(1500);
   const after = await p.evaluate(() => ({
     rows: [...document.querySelectorAll('#set-accounts .acct-box')].map((r) => r.innerText.replace(/\s+/g, ' ').trim()),
