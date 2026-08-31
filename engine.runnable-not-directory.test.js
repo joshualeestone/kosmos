@@ -215,18 +215,54 @@ function walkJs(dir, base = dir, out = []) {
    than the whole file; the argument was right there and was not applied here.
 
    Keying on `line.match(WEAK_CALL)[0]` keeps set equality and identity intact and
-   makes only the CALL significant, so the prose around it is editable. Detection
-   is unchanged: a new weak call produces a key not in this list, and a duplicate
-   of an existing one produces a second entry the array comparison still catches.
-   Verified by mutation in both directions rather than argued.
+   makes only the CALL significant FOR A PROSE ROW, so the sentence around it stays
+   editable.
+
+   🛑 AND FOR A CODE ROW THAT WAS NOT ENOUGH. A key of {file, call} is a SET WITH THE
+   IDENTITIES THROWN AWAY, so it cannot see a SWAP: remove a pinned call and add a
+   different one in the SAME FILE with the SAME matched text, and the set is
+   unchanged. A reviewer demonstrated it against this guard by routing machine.js's
+   pinned call through isRunnable (a correct change) while adding a new helper with a
+   bare accessSync. Guard 18/18 green; the new helper accepted a DIRECTORY.
+   ⭐ This file had ALREADY recorded defeating that exact class for canRunClaude and
+   the fix was applied to that guard and not to this one, thirty lines apart. The
+   lesson was written down and not carried across.
+   ⚠️ A trimmed-line key does NOT close it: the planted helper's line was
+   byte-identical to the pinned one. Only a SITE identity separates them, so a CODE
+   row is keyed on its ENCLOSING FUNCTION as well.
 
    📌 The values below are GENERATED, never transcribed. A table in this branch has
    been hand-written wrong four times. */
+/* A hit is PROSE if its line is a comment. Prose rows are keyed on the call alone
+   (edit freedom); code rows also carry their enclosing function (swap detection). */
+const isProseLine = (line) => /^(\*|\/\/|\/\*)/.test(line.trim());
+
+/* The nearest enclosing function DECLARATION above a line. Control-flow keywords are
+   excluded deliberately: without that, machine.js's site keys as `for` and connect's
+   as `if`, which are not identities and would collide across unrelated sites. */
+const FN_KEYWORDS = new Set(['if', 'for', 'while', 'switch', 'catch', 'return', 'else', 'do', 'try', 'function']);
+const FN_DECL = [
+  /^\s*(?:async\s+)?function\s+(\w+)/,
+  /^\s*(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\b|\(|[\w$]+\s*=>)/,
+  /^\s{0,6}(\w+)\s*\([^)]*\)\s*\{\s*$/,
+];
+function enclosingFn(lines, i) {
+  for (let j = i; j >= 0; j--) {
+    for (const re of FN_DECL) {
+      const g = lines[j].match(re);
+      if (g && g[1] && !FN_KEYWORDS.has(g[1])) return g[1];
+    }
+  }
+  return '(top level)';
+}
+
 const KNOWN_WEAK_CALLS = [
+  /* PROSE: call-only key, so the sentence stays editable. */
   { file: 'engine/connect.js', call: 'accessSync(path, X_OK' },
   { file: 'engine/devicedoor.js', call: 'accessSync(X_OK' },
-  { file: 'engine/machine.js', call: 'accessSync(bin, fs.constants.X_OK' },
-  { file: 'engine/runners.js', call: 'accessSync(p, fs.constants.X_OK' },
+  /* CODE: call AND enclosing function, so a same-file same-text swap is visible. */
+  { file: 'engine/machine.js', call: 'accessSync(bin, fs.constants.X_OK', fn: 'installedCheck' },
+  { file: 'engine/runners.js', call: 'accessSync(p, fs.constants.X_OK', fn: 'isRunnable' },
 ];
 
 test('the set of lines matching the weak call is exactly what we audited', () => {
@@ -240,18 +276,32 @@ test('the set of lines matching the weak call is exactly what we audited', () =>
   const found = [];
   for (const rel of files) {
     const key = rel.split(path.sep).join('/');
-    fs.readFileSync(path.join(REPO, rel), 'utf8')
-      .split('\n')
+    const lines = fs.readFileSync(path.join(REPO, rel), 'utf8').split('\n');
+    lines
       .forEach((line, i) => {
-        /* matchAll, not match: a line carrying TWO weak calls recorded only the
-           first, and if that one was already pinned the second was invisible to a
-           sweep whose entire value is completeness. */
-        for (const m of line.matchAll(WEAK_CALL_ALL)) found.push({ file: key, call: m[0], line: i + 1 });
+        /* matchAll, not match. 🛑 THE REASON ORIGINALLY WRITTEN HERE WAS FALSE and
+           is corrected rather than deleted, because acting on it would change
+           behaviour: it claimed matchAll splits a line carrying TWO weak calls.
+           MEASURED, it does not. WEAK_CALL is GREEDY (`.*`, chosen at its definition
+           to cross nested parens), so both calls merge into ONE span:
+             'fs.accessSync(a, X_OK); fs.accessSync(b, X_OK);' -> 1 match
+           Detection is unaffected, because the merged span is a key not in the table
+           and still reds. ⚠️ But anyone tightening WEAK_CALL to a lazy `.*?` on the
+           strength of the old sentence would be changing behaviour they had been
+           told was already handled. matchAll is kept for the case the greedy form
+           cannot produce: two calls the regex genuinely cannot merge. */
+        for (const m of line.matchAll(WEAK_CALL_ALL)) {
+          const entry = { file: key, call: m[0], line: i + 1 };
+          if (!isProseLine(line)) entry.fn = enclosingFn(lines, i);
+          found.push(entry);
+        }
       });
   }
 
-  const sortKey = (e) => e.file + '\u0000' + e.call;
-  const seen = found.map((e) => ({ file: e.file, call: e.call })).sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
+  const sortKey = (e) => e.file + '\u0000' + e.call + '\u0000' + (e.fn || '');
+  const seen = found
+    .map((e) => (e.fn ? { file: e.file, call: e.call, fn: e.fn } : { file: e.file, call: e.call }))
+    .sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
   const want = [...KNOWN_WEAK_CALLS].sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
 
   assert.deepStrictEqual(
@@ -262,8 +312,12 @@ test('the set of lines matching the weak call is exactly what we audited', () =>
       '  a real call    -> use require("./runners").isRunnable(p)\n' +
       '  a call you are KEEPING -> pin it AND write a behavioural arm. Pinning alone proves ' +
       'nothing; that was measured and defeated.\n' +
-      '  prose -> pin it too, and note the KEY is the matched call\n' +
-      '           (line.match(WEAK_CALL_ALL)[0]), NOT the trimmed line\n' +
+      '  prose -> pin it too. A PROSE key is the matched call ONLY\n' +
+      '           (line.match(WEAK_CALL_ALL)[0]), NOT the trimmed line, so the\n' +
+      '           sentence stays editable.\n' +
+      '  code  -> a CODE key ALSO carries fn: the enclosing function name. That is\n' +
+      '           what makes a same-file swap visible; {file, call} alone could not\n' +
+      '           see one, and a trimmed line could not either.\n' +
       'Live locations right now:\n  ' +
       found.map((e) => e.file + ':' + e.line).join('\n  ') + '\n'
   );
@@ -462,7 +516,7 @@ test('githubdevice rejects a DIRECTORY found by the CANDIDATE SCAN, not just the
   }
 });
 
-test('an EMPTY candidates override means no candidates, not the real machine paths', () => {
+test("':' asks for NO candidates explicitly, and does not fall back to the real machine paths", () => {
   /* 🛑 THE ARM FOR A LEAK, AND ITS FIRST VERSION SHIPPED THE FIX UNGUARDED
      WHERE IT MATTERED. `ghCandidateList` branched on TRUTHINESS, so
      AGENT_WORKFORCE_GH_CANDIDATES="" meant "unset" and silently scanned
@@ -499,9 +553,13 @@ test('an EMPTY candidates override means no candidates, not the real machine pat
   try {
   assert.deepStrictEqual(
     gd.ghCandidateList(':'), [],
-    'an EMPTY candidates override was treated as UNSET and fell back to the real default paths. ' +
-    'The override is being tested for truthiness rather than for being undefined, so a test ' +
-    'asking for "no candidates" reaches the operator\'s own gh installation.'
+    "':' did not yield an empty list, so there is no way to ask for NO candidates and a " +
+    'sandboxed test reaches the operator\'s own gh installation. ' +
+    "📌 ':' is the spelling, NOT ''. An earlier revision made '' mean no-candidates as an " +
+    "argument while meaning unset from the env: the SAME value, opposite answers, and the " +
+    'opposite one reachable through the obvious call ghCandidateList(process.env.X). ' +
+    "':'.split(':').filter(Boolean) already yields [], so '' never needed the second meaning. " +
+    "That '' now means unset BOTH ways is pinned by its own arm below and is intended."
   );
   // Control: undefined MUST still give the real defaults, or "[]" above would be
   // the answer to everything and would prove nothing.
@@ -606,10 +664,19 @@ test('willInstall rejects a DIRECTORY without ever reaching the version probe', 
     assert.strictEqual(probes, 1,
       'a real executable did not reach the version probe, so the probe count proves nothing');
   } finally {
-    /* ⚠️ setRunner(null) also sets DRY_RUN = true module-wide (in `setRunner` itself)
-       and nothing here restores it. Harmless in this file because no later arm
-       calls run(), and noted rather than silently left: it is unrestored module
-       state on a cleanup path. */
+    /* ✅ setRunner(null) also sets DRY_RUN = true module-wide, and THAT IS THE POINT,
+       not a leak to be cleaned up. connect.js declares a deliberate bidirectional
+       interlock beside the seams: setRunner(null) RE-ARMS dry-run, and setDryRun(false)
+       REFUSES while no runner is installed, so that no ordering of test teardowns can
+       leave the suite able to spawn a real tmux session or execute a real binary.
+       🛑 DO NOT "RESTORE" IT. A review proposed connect.setDryRun(false) here. Measured,
+       both arms: after setRunner(null) it THROWS `refusing to leave dry-run with no
+       injected runner`; control, with a runner installed, it succeeds. So the suggested
+       line breaks this teardown, and were the interlock ever removed it would instead
+       hand the rest of the suite the ability to run real programs.
+       📌 An earlier version of this comment called the state "harmless because no later
+       arm calls run()". That was a weaker claim than the truth and invited exactly the
+       fix above: it framed a safety feature as an acceptable untidiness. */
     connect.setRunner(null);
     if (before === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
     else process.env.AGENT_WORKFORCE_CLAUDE_BIN = before;
@@ -784,8 +851,16 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      ✅ So this classifies nothing. It keys on `writeState`, a property of the
      CODE rather than of the comment syntax: exactly one line may both mention the
      flag and write state. Measured on this file: 1 line has both, and although 9
-     prose lines mention writeState, ZERO prose lines have both. Prose stays fully
-     editable, which the unfiltered-set version cost.
+     prose lines mention writeState, ZERO prose lines have both. Prose stays editable
+     in practice, which the unfiltered-set version cost.
+
+     ⚠️ "FULLY" WAS OVERSTATED AND IS CORRECTED HERE. The token-pair check is
+     FILE-WIDE and does not classify, which is its strength and also this cost: it
+     reds on ANY line carrying both tokens, INCLUDING A COMMENT. So one explanatory
+     sentence mentioning canRunClaude and writeState together turns a #1592 test red,
+     in connect.js, the most-edited file in the repo. It holds today by one line and
+     it is a live tripwire, not a guarantee. Re-measured while writing this: 1 line
+     has both, 27 lines carry writeState without it, out of 2441.
 
      ⚠️ Its one gap, covered by the exact-text pin below: a multi-line writeState
      call with the property on its own line would have neither token together.
@@ -1228,7 +1303,11 @@ test('an EMPTY env var means UNSET, not "no candidates", or gh reads as missing'
     process.env.AGENT_WORKFORCE_GH_CANDIDATES = '';
     assert.deepStrictEqual(gh.ghCandidateList(), ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'],
       'an ACCIDENTALLY EMPTY env var was read as "no candidates" instead of "unset", so gh '
-      + 'reads as missing on a machine that has it. The `|| undefined` on the default was removed.');
+      + 'reads as missing on a machine that has it. `export AGENT_WORKFORCE_GH_CANDIDATES=$UNSET` '
+      + "yields '' routinely, so this is a production path and not a test-only nicety. "
+      + "The one rule in github.js is: anything that is not a non-empty string means unset. Use ':' "
+      + 'to ask for no candidates. 📌 Do not restore a `|| undefined` on the default parameter to '
+      + 'fix a failure here; that spelling is gone and reintroducing it recreates the two-meanings bug.');
     /* CONTROL: a real value must still be honoured, or the assertion above would
        pass for a function that ignores the env entirely. */
     process.env.AGENT_WORKFORCE_GH_CANDIDATES = '/a:/b';

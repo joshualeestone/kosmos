@@ -32,7 +32,11 @@ const PHASE = Object.freeze({
 
 // #1592: accessSync(X_OK) SUCCEEDS ON A DIRECTORY, so this used to accept a
 // folder as an executable. runners.isRunnable adds the one line that matters,
-// statSync(p).isFile(), and is the single definition of the question.
+// statSync(p).isFile(), and is the definition every DOOR and CONNECT site now asks.
+// ⚠️ NOT the only definition in the repo, and saying so would be false: machine.js
+// installedCheck keeps its own statSync/isFile/accessSync because it needs a THIRD
+// state (null for "could not look") that a boolean helper cannot carry. That site
+// is deliberate, is pinned by the #1592 sweep, and is covered by its own arm.
 /* 🛑 MODULE SCOPE, AND THIS IS A CONTRACT FIX RATHER THAN A TIDY-UP.
    This read `(p) => require('./runners').isRunnable(p)`, requiring at CALL time.
    The lambda is reached from `ghBin()`, which `status()` calls synchronously inside

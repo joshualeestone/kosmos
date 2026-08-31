@@ -57,7 +57,22 @@ const store = require('./store');
    📌 That is also why the contract arm written for this file was REMOVED as
    undefeatable: `state()`'s own catch upholds "never rejects" here regardless of
    the hoist. The hoist defends against a WRONG ANSWER, not against a rejection.
-   📌 Safe: `runners.js` requires only node builtins, so there is no cycle. */
+   📌 Safe: `runners.js` requires only node builtins, so there is no cycle.
+
+   🛑 AND THIS FILE CARRIES THE OPPOSITE RULE THIRTY LINES BELOW, DELIBERATELY. The
+   cycle detector near `ghPresent` WARNS rather than throws, on the stated ground that
+   throwing at import bricks the board because `server.js` requires this module with
+   no try. Both are correct and they are not in tension, because they are about
+   DIFFERENT FAILURES:
+     a `runners` LOAD failure  -> a corrupt install. Nothing works anyway, and
+                                  `server.js` already requires `./engine/runners` at
+                                  top level with no try, so it kills boot on main too.
+                                  Dying loudly costs nothing that was not already lost.
+     a require CYCLE           -> a code-structure mistake in an otherwise working
+                                  install. Bricking the whole board over one door's
+                                  verdict is the wrong trade; degrade and stay visible.
+   ⚠️ Stated because a reader can otherwise apply either rule to the other site and be
+   told by this file that they are following it. */
 const { isRunnable } = require('./runners');
 
 const DIR = path.join(store.ROOT, 'secrets');
@@ -205,7 +220,7 @@ function setClientId(id) {
    ⚠️ NOT re-exported here. `module.exports` below carries no `ghCandidateList` and
    no `ghPresent`, and neither name was exported on main either, so no caller or
    test is affected. THIS SENTENCE PREVIOUSLY CLAIMED A RE-EXPORT, contradicted by
-   the export list 190 lines below it, after the re-export was dropped as new
+   the `module.exports` list at the foot of this file, after the re-export was dropped as new
    public surface. Consumers require it from `github.js`, where it is defined. */
 const { ghCandidateList } = require('./github');
 /* ⚠️ DETECTED, NOT FATAL. If a require cycle is introduced the destructured name
