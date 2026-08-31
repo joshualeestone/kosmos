@@ -195,6 +195,30 @@ const BLOCK = [
   '**The same applies to the four events above.** A Stopped nobody receives is',
   'not a Stopped.',
   '',
+  '### Answering the person who messaged you',
+  '',
+  '**When your operator messages you, answer with `kosmos reply "..."`.** It is',
+  'the only command that reaches them. `kosmos post` goes to a project room and',
+  '`kosmos msg` goes to another agent; neither one arrives with the person who',
+  'wrote to you.',
+  '',
+  '**Answering in your own session sends nothing.** It looks like a finished',
+  'reply from where you are sitting and like silence from where they are, and to',
+  'them those are the same thing.',
+  '',
+  '**The message tells you which command to use**, in a bracketed note at the',
+  'front. Reading that note is not running it, and only running it answers.',
+  '',
+  '**You answer whoever sent the message, not whoever you report to.** Those are',
+  'different people and the message says which one it came from. Look at the',
+  'message, not at your place in the org chart.',
+  '',
+  '**Who you report to is who you escalate to.** It is not who is talking to you,',
+  'and it is not the audience for a reply. If the person who runs this computer',
+  'writes to you, you are answering them, even though your four reports go',
+  'somewhere else. Greeting your manager in a reply to somebody else reads as',
+  'not having looked at who was speaking.',
+  '',
   '### Before you do something you cannot take back',
   '',
   '**Two questions, and you need yes to both:**',
@@ -348,8 +372,30 @@ function block() {
  *     agent's behaviour. Since no agent ever received either wording, nobody
  *     has been in the bind. It is a demonstrated design defect and NOT a
  *     measured cause of the 22.
+ *
+ *   7. kosmos#1673 and kosmos#1676. An agent that received a message from the
+ *     person answered it IN ITS OWN SESSION and never ran a command, so the
+ *     person watched an empty box. Measured from Josh's own terminal: the
+ *     bracketed prefix naming `kosmos reply` arrives in the message body and
+ *     loses to the model's natural act of answering in prose.
+ *     🛑 AND THE STANDING TEXT POINTED THE WRONG WAY. "Answering where you were
+ *     asked" named `kosmos post` for a room and `kosmos msg` for "one person",
+ *     but `msg` reaches another AGENT and neither reaches the operator, which
+ *     install/kosmos:512 states outright. So an agent that consulted its
+ *     instructions and obeyed them still could not answer.
+ *     ⭐ NEW HEADING, deliberately: `missingFrom` matches by heading, so an
+ *     edit inside the old section would have reached only future agents and
+ *     healed none of the ones already built. This is version 5's delivery
+ *     lesson applied on purpose rather than rediscovered.
+ *     📌 It also carries #1676: agents addressed whoever they REPORT TO rather
+ *     than whoever wrote to them. The room case is deliberately untouched
+ *     (kosmos#186: `kosmos reply` is the wrong surface there).
+ *     ⚠️ WEAKEST PREMISE, NAMED: this is standing prose against a behaviour,
+ *     and the same class of instruction already lost once here. It removes a
+ *     second, independent reason the reply cannot happen; it is not proof the
+ *     first one is fixed. Capturing the answer without opt-in would be better.
  */
-const DOCTRINE_VERSION = 6;
+const DOCTRINE_VERSION = 7;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

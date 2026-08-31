@@ -65,6 +65,16 @@ function personName() {
   return 'the person who runs this computer';
 }
 
+/* kosmos#1676. `personName()` falls back to a generic phrase, so naming the
+   operator inline produced "run by the person who runs this computer". This
+   says the same fact in whichever of the two states the record is in. */
+function personLine() {
+  const who = personName();
+  return who === 'the person who runs this computer'
+    ? 'This computer is run by a person.'
+    : `This computer is run by **${who}**.`;
+}
+
 /* The name a manager is known by: its display name when the record has one,
    else the session name, which is what the org chart stores. */
 function managerName(sessionName) {
@@ -94,6 +104,18 @@ function blockBody(profile) {
       'will take it to the person if it needs to. They can hand you work and',
       'reorder yours. They do not replace the person: if the two ever disagree,',
       'the person wins, and you say so to both.',
+      '',
+      /* kosmos#1676. Everything above is about ESCALATION, and an agent that
+         read it correctly then greeted its manager in a reply meant for the
+         person: this block named exactly one human, so it was the only name
+         it had. `personName()` was called only in the branch below, which is
+         the branch a managed agent never reaches. */
+      `**Reporting to them is not the same as being spoken to by them.** ${personLine()}`,
+      `Either they or ${to} can write to you.`,
+      '',
+      '**You answer whoever sent the message, not whoever you report to.** The',
+      'message says who it came from. Read that before you greet anyone by name:',
+      'answering one person by another person\'s name reads as not having looked.',
     );
   } else {
     lines.push(
