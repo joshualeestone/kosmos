@@ -980,11 +980,25 @@ cmd_connections() {
             if (m < 0) m = 0;
             if (w > m) w = m;
             if (w < 0) w = 0;
+            /* 🛑 A BOARD THAT OMITS howManyWorking MUST NOT BE READ AS "ALL OF THEM
+               WORK". Both w and m fall back to howMany when their field is absent,
+               so an omitted working count made w === m and printed "3 sign-ins
+               working" - asserting every row works, which is EXACTLY the conflation
+               the comment above records as the original defect ("3 sign-ins beside
+               has a working sign-in reads as three working ones"). The typeof
+               guards exist so an omitted field means DID NOT SAY, and then the
+               fallback quietly turned did-not-say into a settled yes.
+               ⇒ Say nothing about counts rather than assert something we were not
+               told. Unreachable from our own boundary, which emits all three; every
+               neighbouring guard in this block is equally unreachable and is here
+               for the same reason. */
+            var saidWorking = typeof p.howManyWorking === "number";
             /* "working" even when the two numbers match. Dropping it is accurate
                and reintroduces the exact ambiguity recorded above: "3 sign-ins"
                beside "has a working sign-in for it" is what read as three working
                ones. A reader cannot know the numbers matched. One word. */
-            if (w === m) many = ", " + (w === 1 ? "1 sign-in working" : w + " sign-ins working");
+            if (!saidWorking) many = "";
+            else if (w === m) many = ", " + (w === 1 ? "1 sign-in working" : w + " sign-ins working");
             else many = ", " + w + " of " + m + (m === 1 ? " sign-in working" : " sign-ins working");
             if (p.howMany > m) many = many + ", " + (p.howMany - m) + " we could not check";
           }

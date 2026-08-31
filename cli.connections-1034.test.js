@@ -1185,3 +1185,42 @@ test('a version-skewed board cannot produce a negative or nonsensical count', as
     assert.match(r.out, /1 of 3 sign-ins working/, 'a sane count stopped rendering, so this test proves nothing');
   });
 });
+
+test('a board that OMITS howManyWorking is not read as "all of them work"', async () => {
+  /**
+   * 🛑 BOTH w AND m FALL BACK TO howMany WHEN THEIR FIELD IS ABSENT, so an omitted
+   * working count made w === m and printed ", 3 sign-ins working": every row
+   * asserted to work, on a board that never said so. That is the exact conflation
+   * the comment above the block records as the ORIGINAL defect, reintroduced
+   * through the fallback rather than through the arithmetic.
+   *
+   * The typeof guards exist precisely so an omitted field means DID NOT SAY. The
+   * fallback then turned did-not-say into a settled yes, which is the same
+   * three-state collapse this branch refuses everywhere else, one field over.
+   */
+  const p = P();
+  p.providers[0].signedIn = 'connected';
+  p.providers[0].howMany = 3;
+  delete p.providers[0].howManyWorking;
+  delete p.providers[0].howManyReadable;
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    const line = r.out.split('\n').find((l) => /^\s*Claude:/.test(l)) || '';
+    assert.ok(line, 'the Claude row did not render, so this arm proves nothing');
+    assert.doesNotMatch(line, /sign-ins? working/,
+      `a board that never said how many work was reported as all working: ${JSON.stringify(line)}`);
+    /* CONTROL: the row still renders its verdict, so the assertion above is not
+       satisfied by a CLI that dropped the provider entirely. */
+    assert.match(line, /connected/, 'the verdict was lost along with the count');
+  });
+
+  /* CONTROL: a board that DOES say still gets its numbers, so the fix is
+     "say nothing when not told" rather than "never say anything". */
+  const q = P();
+  q.providers[0].signedIn = 'connected';
+  q.providers[0].howMany = 3; q.providers[0].howManyWorking = 1; q.providers[0].howManyReadable = 3;
+  await withBoard({ body: q }, async (port) => {
+    const r = await kosmos(port);
+    assert.match(r.out, /1 of 3 sign-ins working/, 'a board that DID say lost its counts');
+  });
+});

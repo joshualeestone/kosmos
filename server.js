@@ -222,6 +222,10 @@ const inflight = require('./engine/inflight');
    makes it mechanical. A caller that annotates a door in place now fails in
    its own stack rather than corrupting an unrelated response, and only when
    two requests overlap - the shape that otherwise gets dismissed as a flake. */
+/* One sentence, two routes. Written out twice, they drift apart in wording and
+   nobody notices because nothing keys on it. */
+const COULD_NOT_READ_CONNECTIONS = 'we could not read this computer\'s connections';
+
 const askDoor = (fn) => Promise.resolve().then(fn).then(
   /* A held token whose service could not be reached is not "not connected":
      the door says so in its own words, and the shelf must not say nothing. */
@@ -4096,7 +4100,7 @@ const server = http.createServer((req, res) => {
          its cause. `headersSent` is the cheap discriminator between "the
          work failed" and "the answer already left". */
       if (res.headersSent) return;
-      sendJson(res, 500, { error: 'we could not read this computer\'s connections' });
+      sendJson(res, 500, { error: COULD_NOT_READ_CONNECTIONS });
     });
     return;
   }
@@ -4132,7 +4136,7 @@ const server = http.createServer((req, res) => {
        headersSent-guarded catch on the sibling agent route. */
     readConnectionsShelf().then((doors) => { sendJson(res, 200, { doors }); }).catch(() => {
       if (res.headersSent) return;
-      sendJson(res, 500, { error: 'we could not read this computer\'s connections' });
+      sendJson(res, 500, { error: COULD_NOT_READ_CONNECTIONS });
     });
     return;
   }

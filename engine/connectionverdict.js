@@ -359,8 +359,13 @@ function forAgent(raw) {
        so both say false. The two disagreements this branch already fixed
        (readableCount vs stateOf, whoName vs anyConnected) could not disagree
        either, until they did. One derivation, and the ordering is now a real
-       dependency rather than a claim. */
-    signin: signinView(src.connect, providers[0].signedIn === subscription.STATE.CONNECTED),
+       dependency rather than a claim.
+       📌 FOUND BY IDENTITY, NOT BY POSITION. This read `providers[0]` while the
+       paragraph above argued that the scope must be anthropic SPECIFICALLY, and
+       recorded that the rule had already been broken once by `.some(...)`. An
+       index encodes "whichever is first": reorder the array or insert a third
+       provider and the comment stays true while the code stops matching it. */
+    signin: signinView(src.connect, (providers.find((x) => x && x.id === 'anthropic') || {}).signedIn === subscription.STATE.CONNECTED),
     services: serviceView(src.doors, src.doorNames),
   };
 }
