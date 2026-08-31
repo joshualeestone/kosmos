@@ -45,7 +45,47 @@ check_200() {     # url  label
 
 echo "== what a NEW install runs, and what an UPDATE re-runs =="
 check_bytes "$HOST/setup" "$REPO/install/setup.sh" "/setup"
-check_200   "$HOST/setup.sha256" "/setup.sha256"
+# ⚠️ #1666: A 200 IS NOT AN ANSWER HERE, and this line used to be check_200.
+# Existence is not the question: a STALE sidecar returns 200 forever. Measured
+# on the site repo, `setup` was replaced at 21:30:58 on 2026-08-30 and deployed
+# 76 seconds later, while `setup.sha256` was last written at 10:28:51 and still
+# described the 0.6.17 installer. Production served an installer whose
+# published checksum was a whole release behind, and this check said 200
+# throughout.
+#
+# ⭐ IT PUNISHES ONLY THE CAREFUL. Anyone who verifies before piping to a shell
+# gets a mismatch that reads as tampering; anyone who pipes straight to sh sees
+# nothing, which is why it went unreported.
+#
+# 🛑 AND IT HAS TO LIVE HERE, NOT ONLY IN release.sh. The release has its own
+# guard now, but THE DEPLOY THAT CAUSED THIS NEVER RAN release.sh: it was a
+# hand-sync of one source file followed by a bare deploy. A guard that fires
+# only during a cut cannot see the path that broke it. This one asks
+# production, so it holds however the bytes got there.
+check_sidecar() {  # label
+  # 🛑 THE FETCH MUST BE CHECKED SEPARATELY FROM THE HASH. `curl ... | shasum`
+  # turns a FAILED fetch into e3b0c442..., the hash of empty input, which is a
+  # perfectly plausible-looking sha. Measured: on an unfetchable URL the body
+  # side is never empty, so an emptiness test on it is dead code, and a
+  # sidecar that happened to contain the empty hash would MATCH an unreachable
+  # installer and report the site healthy. Same class as the 206 in #1662: a
+  # failure wearing the shape of a success.
+  sc_tmp=$(mktemp)
+  if ! curl -fsS "$HOST/setup" -o "$sc_tmp" 2>/dev/null; then
+    say "$1" "could not fetch /setup, so nothing was compared"; fail=1; rm -f "$sc_tmp"; return
+  fi
+  sc_body=$(shasum -a 256 < "$sc_tmp" | awk '{print $1}')
+  rm -f "$sc_tmp"
+  sc_claim=$(curl -fsS "$HOST/setup.sha256" 2>/dev/null | awk '{print $1}')
+  if [ -z "$sc_claim" ]; then
+    say "$1" "could not read setup.sha256, so nothing was compared"; fail=1
+  elif [ "$sc_body" = "$sc_claim" ]; then
+    say "$1" "describes the served installer"
+  else
+    say "$1" "STALE: claims $sc_claim, /setup hashes to $sc_body"; fail=1
+  fi
+}
+check_sidecar "/setup.sha256"
 # #568: the served installer must be a COMMITTED revision of the site, not
 # whatever the working tree held at deploy time; a script matching no
 # revision confounds the line-number diagnostic that found the 0.5.13

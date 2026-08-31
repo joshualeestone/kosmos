@@ -93,3 +93,62 @@ test('#1666: BOTH files missing is refused, because two empties are not a match'
   assert.notEqual(r.code, 0,
     'a release with NO installer and NO checksum passed the guard, because empty equals empty');
 });
+
+/* ---- the POST-DEPLOY half of #1666 ----------------------------------------
+ * The release-side guard above cannot see the path that actually caused this.
+ * The 2026-08-30 21:32 deploy was a hand-sync of one source file followed by a
+ * bare deploy: release.sh never ran. tools/verify-served.sh asks PRODUCTION,
+ * so it holds however the bytes got there, and it used to assert only that
+ * setup.sha256 returned 200. A stale sidecar returns 200 forever.
+ */
+const VS = fs.readFileSync(path.join(__dirname, 'tools', 'verify-served.sh'), 'utf8');
+const SIDECAR = VS.match(/check_sidecar\(\)\s*\{[\s\S]*?\n\}\n/);
+
+function runSidecar({ setup, sidecar }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1666-srv-'));
+  try {
+    if (setup !== null) fs.writeFileSync(path.join(dir, 'setup'), setup);
+    if (sidecar !== null) fs.writeFileSync(path.join(dir, 'setup.sha256'), sidecar);
+    /* file:// rather than a socket: curl reads it the same way and there is no
+       server to deadlock against, which is the trap the #1662 file documents. */
+    const script = `say() { printf '%s %s\\n' "$1" "$2"; }\nfail=0\nHOST="file://${dir}"\n${SIDECAR[0]}\ncheck_sidecar "/setup.sha256"\necho "FAIL=$fail"\n`;
+    const out = execFileSync('bash', ['-c', script], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    return { failed: /FAIL=1/.test(out), out };
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+test('#1666: check_sidecar was actually extracted from verify-served.sh', () => {
+  assert.ok(SIDECAR, 'could not extract check_sidecar, so the post-deploy arms measured nothing');
+});
+
+test('#1666 post-deploy: a STALE sidecar on the served site is caught', () => {
+  const r = runSidecar({ setup: BODY, sidecar: `${'b'.repeat(64)}  setup\n` });
+  assert.ok(r.failed,
+    `the served checksum described a different installer and the sweep passed: ${r.out}`);
+});
+
+test('#1666 post-deploy: a correct pair passes', () => {
+  const r = runSidecar({ setup: BODY, sidecar: `${GOOD}  setup\n` });
+  assert.ok(!r.failed, `a correct serving set was reported broken: ${r.out}`);
+});
+
+test('#1666 post-deploy: an unreadable pair is refused, not counted as a match', () => {
+  const r = runSidecar({ setup: null, sidecar: null });
+  assert.ok(r.failed, `nothing could be read and the sweep called it healthy: ${r.out}`);
+});
+
+test('#1666 post-deploy: an UNFETCHABLE installer cannot be matched by the empty hash', () => {
+  /* 🛑 THE TRAP THAT MADE ME RESTRUCTURE check_sidecar, and I only found it by
+     perturbing. `curl ... | shasum` turns a FAILED fetch into
+     e3b0c442...b855, the hash of empty input, which is a plausible-looking
+     sha rather than an empty string. So an emptiness test on the body side is
+     DEAD CODE, and a sidecar carrying that exact value would MATCH an
+     installer that cannot be fetched at all and report the site healthy.
+     The fetch is now checked separately from the hash, so a failed fetch is a
+     failure rather than a value. Same class as the 206 in #1662: a failure
+     wearing the shape of a success. */
+  const EMPTY_SHA = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  const r = runSidecar({ setup: null, sidecar: `${EMPTY_SHA}  setup\n` });
+  assert.ok(r.failed,
+    `an unfetchable /setup matched the empty hash and the sweep called the site healthy: ${r.out}`);
+});
