@@ -221,6 +221,38 @@ if [ -z "$PW_NODE_PATH" ]; then
 fi
 log "Playwright: $PW_NODE_PATH"
 
+# --- Is it the PINNED version? (#1708) --------------------------------------
+# 🛑 RESOLVING IS NOT PINNING. resolve_pw accepts ANY node_modules that has a
+# `playwright`, and the launch check below proves it can START a browser -- but
+# neither proves it is the version tools/provision-pw.sh pinned. A drifted
+# pw-runtime (a bare `npm i` there resolves a newer 1.6x) launches fine and
+# SILENTLY changes the browser build: the exact #1594 skew, one layer up (#1594
+# stopped the PROVISION drifting with --save-exact; the gate never re-checked at
+# run time). So read the pin from its single source of truth and compare.
+#
+# ⚠️ WARN, do not block by default: the launch check below still gates on a
+# working browser, and a mismatch during an intentional pin bump (PW_VERSION
+# updated, runtime not yet re-provisioned, or vice versa) should be VISIBLE, not
+# a hard stop. The whole defect this fixes is that drift was SILENT; a loud warn
+# cures that. KOSMOS_PW_STRICT_VERSION=1 makes it a hard stop for a cut that
+# wants the pin enforced.
+_pw_pin="$(sed -n 's/^PW_VERSION="\([^"]*\)".*/\1/p' "$(cd "$(dirname "$0")" && pwd)/provision-pw.sh" 2>/dev/null | head -1)"
+_pw_got="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PW_NODE_PATH/playwright/package.json" 2>/dev/null | head -1)"
+if [ -n "$_pw_pin" ] && [ -n "$_pw_got" ] && [ "$_pw_got" != "$_pw_pin" ]; then
+  log "‼️  Playwright version DRIFT: resolved $_pw_got, but the pin (tools/provision-pw.sh) is $_pw_pin."
+  log "‼️  A drifted runtime changes the browser build silently (#1594/#1708). Re-provision: bash tools/provision-pw.sh"
+  if [ "${KOSMOS_PW_STRICT_VERSION:-0}" = "1" ]; then
+    log "🛑 KOSMOS_PW_STRICT_VERSION=1: refusing to run the page gate on an unpinned build."
+    exit 2
+  fi
+elif [ -z "$_pw_pin" ]; then
+  log "‼️  Could not read PW_VERSION from tools/provision-pw.sh; skipping the version-pin check (#1708). The launch check still runs."
+elif [ -z "$_pw_got" ]; then
+  log "‼️  Could not read the resolved Playwright's version; skipping the version-pin check (#1708). The launch check still runs."
+else
+  log "Playwright version: $_pw_got (matches the pin)"
+fi
+
 # --- Can it actually LAUNCH? (#1594) ----------------------------------------
 # 🛑 A DIRECTORY IS A PROXY; A LAUNCH IS THE THING. `resolve_pw` above accepts any
 # node_modules containing a `playwright` directory, and browser builds live in a
