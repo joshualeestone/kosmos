@@ -176,7 +176,13 @@ function ghCandidateList(override = process.env.AGENT_WORKFORCE_GH_CANDIDATES) {
      string routinely. The directions differ and both are safe: here '' yields an
      empty scan, there '' falls through to the candidate list. Noted at both
      sites rather than only at this one. */
-  if (override === undefined) return GH_CANDIDATES_DEFAULT;
+  /* ⚠️ `typeof`, NOT `=== undefined`, NOW THAT THIS IS EXPORTED. The `=== undefined`
+     sentinel is still what distinguishes UNSET from the empty string, and `'' `is a
+     string so it still yields []. What changed is the audience: as public API this
+     can be handed a null or a number, which `.split` would throw on, and that throw
+     would escape `ghPresent` into `state()`, whose contract says it never rejects.
+     Anything that is not a string is treated as unset. */
+  if (typeof override !== 'string') return GH_CANDIDATES_DEFAULT;
   return override.split(':').filter(Boolean);
 }
 

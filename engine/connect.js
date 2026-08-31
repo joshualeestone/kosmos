@@ -1076,7 +1076,15 @@ async function start(opts) {
     }
   }
 
-  const bin = claudeBinPath();
+  /* ONE RESOLUTION, matching willInstall and claudeHatchAvailable. This read
+     `const bin = claudeBinPath()` here and `resolveBin('claude').present` twenty
+     lines below, with only comments between them, so the same resolver ran twice
+     for one path.
+     🛑 THIS IS THE SITE BOTH OF THOSE COMMENTS CALL "the neighbouring site". They
+     claimed one resolution and matched a site that still did two, which made the
+     claim true of the sites that changed and false of the one they point at. */
+  const claudeResolved = require('./runners').resolveBin('claude');
+  const bin = claudeResolved.bin;
   /**
    * 🛑 THE SAME RESOLVER AS THE SHORT-CIRCUIT ABOVE, SO THE TWO CANNOT ANSWER
    * DIFFERENTLY. With this left as a bare `accessSync`, a DIRECTORY at the
@@ -1097,7 +1105,7 @@ async function start(opts) {
    * edit, and the probe that currently rescues it is an implementation detail
    * of a different concern.
    */
-  let haveBinary = require('./runners').resolveBin('claude').present;
+  let haveBinary = claudeResolved.present;
   /**
    * ⚠️ EXECUTABLE IS NOT WORKING. A cancel or crash mid-`claude install` can
    * leave a truncated launcher that passes X_OK forever -- and trusting it
@@ -2182,8 +2190,10 @@ async function finishConnected(owner, sub) {
  * file), and this used to say `claudeBinPath()` calls the resolver, which was
  * true until this function stopped calling claudeBinPath in the same commit that
  * removed the double resolution. The substance held and the named mechanism did
- * not, in the docblock a maintainer reads BEFORE touching the try, and `becomeStuck`'s docblock promises any error
- * answers FALSE. Hoisting the resolution out of the try lets the throw escape
+ * not, in the docblock a maintainer reads BEFORE touching the try.
+ *
+ * Separately, and this is the load-bearing half: `becomeStuck`'s docblock promises
+ * any error answers FALSE. Hoisting the resolution out of the try lets the throw escape
  * becomeStuck entirely, so `writeState` never runs and the person is left on no
  * screen at all. Mona Lisa found that; two blind reviewers hit it on her branch.
  *
