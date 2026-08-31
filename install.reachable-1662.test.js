@@ -252,6 +252,24 @@ test('#1662: a file:// URL is reachable, because the install gate drives the rel
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+/* The arm above is a must-PASS, and this file's own thesis is that a must-FAIL
+   is the only thing that proves an instrument works. Without one, "file:// is
+   reachable" is equally consistent with a predicate that says YES to
+   everything. tools/test-install.sh drives the entire release path over
+   file://, and the refusal paths in that gate are exactly what this branch
+   makes live for the first time, so the NO direction is the one that matters
+   there. Measured: curl -fsIL on a missing file:// path returns rc 37. */
+test('#1662: a MISSING file:// path is refused, so the file:// arm has a failing case', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1662-file-none-'));
+  try {
+    const missing = path.join(dir, 'not-here.tar.gz');
+    assert.equal(await reachable(`file://${missing}`), 'NO',
+      'a nonexistent file:// path must be refused. If this is YES the file:// arm above proves '
+      + 'nothing, because the predicate would be saying YES regardless of whether the artifact '
+      + 'exists, and tools/test-install.sh would march on into a download that cannot succeed');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('#1662: content-type matching is case-insensitive, per RFC 9110 section 8.3', async () => {
   /* 🛑 THE ARM MUST BE A CAPITALISED **TEXTUAL** TYPE BEING REFUSED. An earlier
      version asserted `Application/GZIP` -> YES, which is decoration: unknown
@@ -425,7 +443,7 @@ test('#1662: the FIXTURE serves what each arm asked for, checked at the wire', a
    non-greedy match to `fi` stopped at the INNER one: the extracted fragment was
    truncated, unbalanced, and the harness shell died producing empty output,
    which reads as "the guard said nothing" rather than "the regex is wrong". */
-const GUARD_RE = /_r_why=0; reachable "\$url" \|\| _r_why=\$\?\n[\s\S]*?rm -rf "\$stage"; return 1\n\s*fi\n/g;
+const GUARD_RE = /(?:local )?_r_why=0; reachable "\$url" \|\| _r_why=\$\?\n[\s\S]*?rm -rf "\$stage"; return 1\n\s*fi\n/g;
 const GUARDS = SRC.match(GUARD_RE) || [];
 
 async function runGuard(reachableVerdict, which) {
@@ -493,15 +511,23 @@ test('#1662: a CONNECTION failure and a SERVED-ERROR failure get different sente
     assert.match(cannotConnect, /Check your internet connection/,
       `guard ${i}: a connection failure must still advise checking the connection. Got: ${cannotConnect}`);
     assert.doesNotMatch(cannotConnect, /still publishing/,
-      `guard ${i}: a connection failure must not blame the release`);
+      `guard ${i}: a connection failure did not reach any server, so it must not blame the release`);
 
     const servedError = await runGuard(2, i);
+    /* 🛑 STATUS 2 HAS TWO CAUSES AND THIS LAYER CANNOT SEPARATE THEM, so the arm
+       requires BOTH to be named. A captive portal, a corporate proxy block page
+       and an ISP NXDOMAIN redirect all answer 200 with text/html, which is the
+       same signature as a half-published CDN. An earlier version of this arm
+       asserted the network advice was ABSENT, which did not merely miss the
+       portal case: it GUARANTEED the only correct sentence for those users
+       could never appear. An assertion can pin a defect in place, and this one
+       did. */
     assert.match(servedError, /still publishing/,
-      `guard ${i}: an origin that ANSWERED but served no download must say so rather than blame `
-      + `the network. Got: ${servedError}`);
-    assert.doesNotMatch(servedError, /Check your internet connection/,
-      `guard ${i}: this is the half-published-CDN case. The network is fine and re-running cannot `
-      + 'publish a missing artifact, so that advice is wrong and is the defect this arm exists for');
+      `guard ${i}: must offer the release-still-publishing cause. Got: ${servedError}`);
+    assert.match(servedError, /intercepting/,
+      `guard ${i}: must ALSO offer the intercepting-network cause. A portal is indistinguishable `
+      + `from a half-published CDN here, so naming one cause tells the other half of users `
+      + `something false. Got: ${servedError}`);
     assert.doesNotMatch(servedError, /FELL-THROUGH/, `guard ${i} continued past a served-error NO`);
 
     /* The rc line only became observable once the harness stopped letting set -e

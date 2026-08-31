@@ -664,10 +664,15 @@ reachable() {
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   # 🛑 TWO DIFFERENT FAILURES, TWO DIFFERENT STATUSES, because they need
   # different sentences. rc 0 here means the origin ANSWERED and served
-  # something textual, which is the half-published-CDN case named at the first
-  # call site: the network is fine and re-running cannot publish a missing
-  # artifact, so "check your internet connection" is the wrong advice. Anything
-  # else means the request did not complete at all.
+  # something textual. Anything else means the request did not complete at all.
+  #
+  # ⚠️ STATUS 2 HAS TWO CAUSES AND THIS LAYER CANNOT TELL THEM APART, so the
+  # sentence must not pick one. A half-published CDN and an intercepting network
+  # (captive portal, corporate proxy block page, ISP NXDOMAIN redirect) BOTH
+  # answer 200 with text/html, which is byte-for-byte the same signature here.
+  # An earlier version of this named only the CDN and told portal users to wait
+  # for a release that was already published, which is the same class of wrong
+  # advice as the "check your connection" it replaced, pointed the other way.
   #
   # ⚠️ Every caller uses `!`, `&&` or a `!= 0` test, all of which treat 1 and 2
   # identically, so this changes no control flow anywhere. It only lets a caller
@@ -730,11 +735,11 @@ fetch_tmux() {
     # actually hits (no network, a half-published CDN) refuse in a sentence
     # instead of a curl error code. The real download keeps its progress
     # bar, which lives on stderr and cannot be silenced without losing it.
-    _r_why=0; reachable "$url" || _r_why=$?
+    local _r_why=0; reachable "$url" || _r_why=$?
     if [ "$_r_why" != 0 ]; then
       info "could not reach the download at $url"
       if [ "$_r_why" = 2 ]; then
-        info "The server answered but did not send an installable file. The release is probably still publishing; wait a few minutes and paste the install line again."
+        info "The server answered but did not send an installable file. Either the release is still publishing, or something on your network is intercepting the request. Wait a few minutes and paste the install line again."
       else
         info "Check your internet connection and paste the install line again; it is safe to re-run."
       fi
@@ -807,11 +812,11 @@ install_kosmos() {
       url="$KOSMOS_RELEASE_BASE/kosmos-$ARCH.tar.gz"
       shaurl="$url.sha256"
     fi
-    _r_why=0; reachable "$url" || _r_why=$?
+    local _r_why=0; reachable "$url" || _r_why=$?
     if [ "$_r_why" != 0 ]; then
       info "could not reach the download at $url"
       if [ "$_r_why" = 2 ]; then
-        info "The server answered but did not send an installable file. The release is probably still publishing; wait a few minutes and paste the install line again."
+        info "The server answered but did not send an installable file. Either the release is still publishing, or something on your network is intercepting the request. Wait a few minutes and paste the install line again."
       else
         info "Check your internet connection and paste the install line again; it is safe to re-run."
       fi

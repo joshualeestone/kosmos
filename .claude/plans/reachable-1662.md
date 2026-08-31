@@ -186,6 +186,12 @@ on that reasoning.
 
 ## Named follow-up, deliberately NOT done here
 
+🛑 **SUPERSEDED BY ITERATION 17, WHICH SHIPPED THIS.** The reasoning below is
+kept because it records why it was deferred and what changed, but the deferral
+itself no longer describes the branch: `reachable()` now returns 2 for "answered
+but served no download" and each guard picks its own sentence. A reader who
+stops here would be told the shipped behaviour does not exist.
+
 `reachable()` collapses two distinct causes into one `return 1`: a connection
 that failed, and an origin that answered fine but served an error page. The
 sentence this card resurrects says *"Check your internet connection and paste
@@ -421,3 +427,53 @@ and it is 185 to 18 because I keep adding corrections the reviews ask for. The
 file's own convention is heavy commenting, and a trap warning belongs where the
 code is rather than in a plan file nobody opens while editing. Recording the
 ratio as deliberate rather than reporting it fixed.
+
+## Iteration 18
+
+**I introduced a regression in iteration 17 and then wrote an assertion that
+guaranteed it.** The status-2 sentence blamed the release: "the release is
+probably still publishing". But status 2 has TWO causes and this layer cannot
+separate them. A captive portal, a corporate proxy block page and an ISP
+NXDOMAIN redirect all answer 200 with text/html, which is byte-for-byte the
+same signature as a half-published CDN. Traced it through the predicate: both
+probes refuse the textual type, `_r_rc` stays 0, so both land on status 2.
+
+So I replaced advice that was wrong for CDN users with advice that is wrong for
+portal users, pointed the other way. That is not an improvement, it is the same
+defect rotated.
+
+**And the assertion was worse than the string.** My arm asserted "Check your
+internet connection" was ABSENT on that path. That did not merely fail to catch
+the portal case: it made the only correct sentence for those users impossible to
+add without going red. An assertion can pin a defect in place, and mine did.
+
+The sentence now names both causes, and the arm requires both to be present
+rather than requiring one to be absent. Verified by dropping the intercepting
+clause and watching it redden.
+
+**Added the must-fail arm the file:// coverage was missing.** There was a
+must-pass arm only, and this file's own thesis is that a must-fail is the only
+thing that proves an instrument works: "file:// is reachable" is equally
+consistent with a predicate that says YES to everything. A missing file:// path
+must be NO. It matters because `tools/test-install.sh` drives the whole release
+path over file://, and the refusal paths there are what this branch makes live.
+
+**`_r_why` is now local**, matching `reachable()`'s own vars two lines above,
+and the guard extractor was widened to keep the `local` keyword so the harness
+still runs the shipped text rather than a variant of it.
+
+### Deferred, with reasoning
+
+**The known-red arm on the floor OS.** The large-textual-body refusal depends on
+curl reporting a content-type alongside exit 63, which holds on 8.7.1 and may
+not on the floor's 8.1.x. The reviewer suggested a skip guard keyed on
+`curl --version`. I am not adding one. There is no floor-OS runner today, the
+trade-off is already written at the call site, and a version-keyed skip trades a
+hypothetical future red for silently reduced coverage on the exact platform we
+care least about breaking. If a floor-OS runner is ever added, add the guard
+then, and make it print why it skipped rather than skipping quietly.
+
+**The duplicated eight-line guard** in `fetch_tmux` and `install_kosmos`. The
+reviewer raised it and explicitly did not ask for extraction, because the arms
+pin `GUARDS.length === 2` and a helper makes it a two-file change. The
+duplication predates this branch. Left alone.
