@@ -142,7 +142,41 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
 # not carry the caller's environment across.
 /bin/launchctl asuser "$CONSOLE_UID" \
   /usr/bin/sudo -u "$CONSOLE_USER" -H /bin/sh -c \
-  'KOSMOS_INSTALL_VIA=pkg; KOSMOS_INSTALL_PAGE="$1"; export KOSMOS_INSTALL_VIA KOSMOS_INSTALL_PAGE; exec /usr/bin/curl -fsSL "$0" | /bin/sh' "$SETUP_URL" "$PAGE_OPENED"
+  'KOSMOS_INSTALL_VIA=pkg; KOSMOS_INSTALL_PAGE="$1"; export KOSMOS_INSTALL_VIA KOSMOS_INSTALL_PAGE
+   # kosmos#1670: VERIFY BEFORE RUNNING. The pkg is the one install path with a
+   # real trust anchor -- it carries a stapled Apple notarisation ticket, so it
+   # reached this machine through a channel independent of the HTTPS fetch it is
+   # about to perform. It was also the least verified path: nothing machine-side
+   # read setup.sha256, which is why a published checksum that did not match the
+   # served bytes survived a whole day (#1666).
+   #
+   # THE TERMINAL PATH CANNOT DO THIS AND THIS IS NOT AN ATTEMPT TO FIX IT.
+   # `curl | sh` would have to fetch the thing to check the thing, over the same
+   # channel, so it has no independent anchor. Only the pkg does.
+   set -e
+   d=$(/usr/bin/mktemp -d) || exit 1
+   trap "/bin/rm -rf \"$d\"" EXIT
+   /usr/bin/curl -fsSL -o "$d/setup" "$0" || { echo "Kosmos: could not download the installer." >&2; exit 1; }
+   # AN UNREACHABLE CHECKSUM REFUSES TOO, AND THAT IS DELIBERATE. The threat this
+   # guards is a MISCONFIGURED origin, not a malicious one: an origin that can
+   # serve you bad bytes can serve you a matching checksum, so the guard buys
+   # nothing against that. What it does buy is protection against a HALF-PUBLISHED
+   # site -- and a missing .sha256 is a symptom of exactly that state, not an
+   # unrelated blip. Proceeding without the anchor would make this path no better
+   # than the terminal one, which is the whole argument for the card.
+   if ! /usr/bin/curl -fsSL -o "$d/sum" "$0.sha256"; then
+     echo "Kosmos: could not check the installer against its published checksum, so it was not run." >&2
+     echo "Nothing was installed. This usually means the download site is mid-update; it is safe to try again shortly." >&2
+     exit 1
+   fi
+   want=$(/usr/bin/awk "{print \$1; exit}" "$d/sum")
+   got=$(/usr/bin/shasum -a 256 "$d/setup" | /usr/bin/awk "{print \$1}")
+   if [ -z "$want" ] || [ "$want" != "$got" ]; then
+     echo "Kosmos: the installer did not match its published checksum, so it was NOT run." >&2
+     echo "Nothing was installed. Please report this rather than retrying: a mismatch does not fix itself." >&2
+     exit 1
+   fi
+   exec /bin/sh "$d/setup"' "$SETUP_URL" "$PAGE_OPENED"
 rc=$?
 
 if [ "$rc" -ne 0 ]; then
