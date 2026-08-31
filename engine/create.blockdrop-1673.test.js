@@ -108,3 +108,40 @@ test('#1673 CONTROL: an agent whose blocks all fit reports no drop', () => {
   assert.doesNotMatch(labels, /reports-to section/, 'nothing was dropped, so nothing may be reported as dropped');
   assert.doesNotMatch(labels, /section about you/, 'nothing was dropped, so nothing may be reported as dropped');
 });
+
+test('#1701 GUARD: the phrases the controls key on still exist in the product', () => {
+  /* 🛑 WHY THIS TEST EXISTS, AND IT IS ABOUT THE TESTS ABOVE RATHER THAN THE
+     PRODUCT. Two of the assertions above are `doesNotMatch` with NO paired
+     `match` on the same phrase:
+
+         'operating instructions'   match @82 AND doesNotMatch   <- protected
+         'reports-to section'       doesNotMatch ONLY            <- was exposed
+         'section about you'        doesNotMatch ONLY            <- was exposed
+
+     An absence assertion whose phrase no longer exists PASSES VACUOUSLY. So
+     rewording either warning would have silently voided its control and
+     nothing would have gone red. Found by Splinter reporting the same shape
+     against a colleague's live PR; this is the same defect in my own merged
+     work, and the phrases were one edit away from meaningless.
+
+     ⚠️ THE SECOND WEAKNESS, WHICH THIS DOES NOT FIX AND I AM NOT PRETENDING IT
+     DOES: those two controls run in a scenario that never reaches the `reports`
+     or `you` appends at all (no manager, no `you` record), so they assert the
+     absence of warnings that COULD NOT HAVE FIRED. True by construction rather
+     than because the fix works. Closing that needs a fixture with a manager and
+     a `you` record, which is a bigger change than this one.
+
+     ⇒ So this guard makes the controls FAIL LOUDLY on a rewording. It does not
+     make them strong. Both statements are true and the second one matters. */
+  const src = fs.readFileSync(nodePath.join(__dirname, 'create.js'), 'utf8');
+
+  for (const phrase of ['operating instructions', 'reports-to section', 'section about you']) {
+    assert.ok(src.includes(phrase),
+      `the control above keys on "${phrase}" and the product no longer says it, so that control now passes for free`);
+  }
+
+  /* CONTROL: this assertion must be capable of failing. A phrase the product
+     has never contained must not be found, or `includes` is matching anything. */
+  assert.equal(src.includes('zzz-not-a-warning-phrase'), false,
+    'the instrument matches a string that cannot exist, so its positives mean nothing');
+});
