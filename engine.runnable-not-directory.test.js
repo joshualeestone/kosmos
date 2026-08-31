@@ -159,7 +159,7 @@ function walkJs(dir, base = dir, out = []) {
  * definition. The two real ones have behavioural arms below.
  */
 const KNOWN_WEAK_LINES = [
-  'engine/connect.js:931',
+  'engine/connect.js:943',
   'engine/devicedoor.js:33',
   'engine/machine.js:412',
   'engine/runners.js:206',
@@ -369,6 +369,58 @@ test('githubdevice rejects a DIRECTORY found by the CANDIDATE SCAN, not just the
     else process.env.AGENT_WORKFORCE_GH_CANDIDATES = beforeCands;
     if (before !== undefined) process.env.AGENT_WORKFORCE_GH_BIN = before;
     f.cleanup();
+  }
+});
+
+test('an EMPTY candidates override means no candidates, not the real machine paths', async (t) => {
+  /* 🛑 THE ARM FOR A LEAK I FIXED WITH NOTHING GUARDING IT. `ghCandidateList`
+     branched on TRUTHINESS, so `AGENT_WORKFORCE_GH_CANDIDATES=""` meant "unset"
+     and silently scanned /opt/homebrew/bin/gh and the other REAL paths. A
+     sandboxed test setting the empty string to mean "no candidates" would reach
+     the operator's machine, which is the same leak class as the unsandboxed store
+     this file already had once. Fixed to `override === undefined`.
+
+     My own perturbation caught that the fix had NO ARM: reverting it left the
+     suite green. A fix with no guard is one edit from being undone silently.
+
+     ⚠️ IT CAN ONLY DISCRIMINATE ON A MACHINE THAT HAS gh AT A DEFAULT PATH,
+     and it SKIPS rather than passing when it cannot. Under the bug, `""` falls
+     back to the defaults and answers "present" only if one of them is really
+     runnable; with none installed both shapes answer "missing" and the arm would
+     pass while proving nothing. A vacuous pass is what this whole file is about,
+     so it reports skipped instead. */
+  const gd = require('./engine/githubdevice.js');
+  const { isRunnable } = require('./engine/runners.js');
+  const DEFAULTS = ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'];
+  if (!DEFAULTS.some(isRunnable)) {
+    t.skip('no gh at any default path on this machine, so the buggy and fixed shapes both answer ' +
+      '"missing" and this arm cannot tell them apart. Not a pass.');
+    return;
+  }
+  const beforeBin = process.env.AGENT_WORKFORCE_GH_BIN;
+  const beforeCands = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+  try {
+    delete process.env.AGENT_WORKFORCE_GH_BIN;
+    process.env.AGENT_WORKFORCE_GH_CANDIDATES = '';
+    const empty = await gd.state();
+    assert.strictEqual(empty.gh, 'missing',
+      'an EMPTY AGENT_WORKFORCE_GH_CANDIDATES fell back to the real default paths and found gh ' +
+      'on this machine. The override is being tested for truthiness rather than for being unset, ' +
+      'so a test asking for "no candidates" reaches the operator\'s own installation.');
+    // Control: a real executable through the same seam must still answer present,
+    // or "missing" above would be the answer to everything.
+    const f = fixture('gh');
+    try {
+      process.env.AGENT_WORKFORCE_GH_CANDIDATES = f.realBin;
+      const one = await gd.state();
+      assert.strictEqual(one.gh, 'present',
+        'the candidates seam answered missing for a real executable, so the assertion above ' +
+        'proves nothing');
+    } finally { f.cleanup(); }
+  } finally {
+    if (beforeCands === undefined) delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+    else process.env.AGENT_WORKFORCE_GH_CANDIDATES = beforeCands;
+    if (beforeBin !== undefined) process.env.AGENT_WORKFORCE_GH_BIN = beforeBin;
   }
 });
 
@@ -718,32 +770,65 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      concatenated-key residual above: both are deliberate-evasion shapes needing
      several unusual choices at once, neither is a plausible regression, and no
      source assertion closes either. */
-  const calls = src.match(/writeState\(/g) || [];
+  /* 🛑 SCOPED TO becomeStuck, AND I HAD IT FILE-WIDE UNTIL A BLIND REVIEWER
+     PRICED IT. Two reviewers gave me OPPOSITE advice here and both were right
+     about their half, so this records the trade rather than pretending there was
+     none.
+
+       file-wide   catches a second writer ANYWHERE, including one placed in
+                   another function, which the scoped version misses
+       scoped      four independent tripwires on connect.js drop to two, and
+                   connect.js is the most-edited file in this repo
+
+     What decided it: THREE of the four branches the plan names as conflicting in
+     connect.js are live on origin right now (willinstall-1556, live-1560-pete,
+     live-check-1560, measured). A file-wide `writeState(` count reds for ANY of
+     them, on a test named for #1592, in a file its author never opened, and the
+     remedy it prints is "bump this number", which is the habit that trains people
+     to clear reds without reading them. `tools/run-tests.sh`'s own header argues
+     against exactly that.
+
+     📌 SO THE THIRD RESIDUAL, RECORDED WITH THE OTHER TWO: a second writer placed
+     OUTSIDE becomeStuck, multi-line, with the property comment-prefixed, is not
+     caught. That needs a new writeState call AND multi-line formatting AND an
+     inline comment on the property, the same deliberate multi-property shape as
+     the concatenated key and the alias, and I am holding all three to one
+     threshold rather than guarding whichever I happened to see last.
+
+     ⚠️ WHAT WOULD CHANGE MY MIND: a second writeState carrying canRunClaude
+     appearing in real review, or those conflicting branches landing so the
+     friction argument expires. Either one, and file-wide is right again. */
+  const fnAt = src.indexOf('function becomeStuck(');
+  assert.ok(fnAt > 0, 'becomeStuck was renamed or removed; re-aim this guard');
+  const nextFn = src.indexOf('\nfunction ', fnAt + 1);
+  assert.ok(nextFn > fnAt, 'no top-level function follows becomeStuck; this bound is unanchored');
+  const body = src.slice(fnAt, nextFn);
+
+  const calls = body.match(/writeState\(/g) || [];
   assert.strictEqual(
-    calls.length, 20,
-    'connect.js makes ' + calls.length + ' writeState( calls, expected 20. A NEW one can carry ' +
-      'canRunClaude past both checks above: put the property on its own line and prefix it with ' +
-      'an inline comment, and the token-pair check (line-local) and the exact-text pin (which ' +
-      'filters comment-prefixed lines) are both blind to it. If the new call is legitimate and ' +
-      'does not touch canRunClaude, bump this number; that is the intended friction.'
+    calls.length, 1,
+    'becomeStuck makes ' + calls.length + ' writeState( calls, expected 1. A SECOND call can ' +
+      'carry canRunClaude past the check below: put the property on its own line and prefix it ' +
+      'with an inline comment, and a line-local check cannot see the pair while a ' +
+      'comment-filtering one drops the line.'
   );
 
-  /* The exact-text pin, kept beside the writer check rather than replaced by it.
-     It covers publicView's serving default, and it is what would catch the writer
-     going multi-line, which the token-pair check above cannot see. */
-  const lines = src.split('\n').map((l) => l.trim())
+  /* The exact-text pin, now also scoped to becomeStuck. It catches the writer
+     going multi-line, which the token-pair check above cannot see.
+
+     📌 IT USED TO PIN publicView's `canRunClaude: s.canRunClaude || false` TOO,
+     AND THAT WAS COUPLING SOMEBODY ELSE'S LINE. publicView is #1595's, already
+     merged on main, and engine.publicview-canrun-1595.test.js pins it. A reformat
+     by that card's owner would have redded a #1592 test with a message that never
+     mentions publicView. Scoping to becomeStuck drops the coupling for free. */
+  const lines = body.split('\n').map((l) => l.trim())
     .filter((l) => /\bcanRunClaude\b/.test(l) && !l.startsWith('*') && !l.startsWith('//') && !l.startsWith('/*'));
   assert.deepStrictEqual(
     lines,
-    [
-      // publicView's serving default. READS an already-computed value rather than
-      // computing one, so it is not a second writer; #1595 pins it separately.
-      'canRunClaude: s.canRunClaude || false,',
-      // becomeStuck, the one writer.
-      'writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable() });',
-    ],
-    'the code lines mentioning canRunClaude changed. If you only reworded a comment this will ' +
-      'NOT fire, by design; if it fired, a code line moved.'
+    ['writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable() });'],
+    'the code lines mentioning canRunClaude inside becomeStuck changed. It must pass ' +
+      'claudeHatchAvailable() straight through: anything appended widens the answer AFTER the ' +
+      'check, and a `|| fs.existsSync(p)` turns a DIRECTORY back into true.'
   );
 });
 
