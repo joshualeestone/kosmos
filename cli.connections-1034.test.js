@@ -1224,3 +1224,41 @@ test('a board that OMITS howManyWorking is not read as "all of them work"', asyn
     assert.match(r.out, /1 of 3 sign-ins working/, 'a board that DID say lost its counts');
   });
 });
+
+test('a count of Infinity from a skewed board never reaches a person', async () => {
+  /**
+   * 🛑 `typeof Infinity === "number"` IS TRUE, so the guards accepted it, and
+   * `JSON.parse('{"howMany": 1e400}')` really does produce Infinity. A skewed board
+   * printed ", Infinity sign-ins working" at exit 0. Every neighbouring guard in
+   * that block exists for a board the CLI does not control; this was the one that
+   * let a non-number through WHILE LOOKING LIKE IT CHECKED.
+   *
+   * ⚠️ A STRING BODY, because JSON.stringify(Infinity) is `null`: an object fixture
+   * cannot carry the value under test. Same shape as the control-character arm.
+   *
+   * ⚠️ AND MY FIRST TWO PROBES OF THIS WERE FALSE PASSES. Hand-rolled boards hit
+   * the liveness check and printed "Kosmos is not running", so nothing rendered and
+   * "no Infinity in the output" was true for the wrong reason. The CONTROL is the
+   * only reason I know: it failed in exactly the same way.
+   */
+  const row = (n) => `{"providers":[{"id":"anthropic","name":"Claude","installed":true,`
+    + `"signedIn":"connected","because":"fine","howMany":${n},"howManyWorking":${n},`
+    + `"howManyReadable":${n}}],"services":[],"signin":{"provider":"anthropic","phase":"idle","busy":false}}`;
+
+  await withBoard({ body: row('1e400') }, async (port) => {
+    const r = await kosmos(port);
+    const line = r.out.split('\n').find((l) => /^\s*Claude:/.test(l)) || '';
+    assert.ok(line, `the row did not render at all, so this arm proves nothing. code=${r.code} out=${JSON.stringify(r.out)} err=${JSON.stringify(r.err)}`);
+    assert.doesNotMatch(line, /Infinity/, `Infinity reached a person: ${JSON.stringify(line)}`);
+    assert.match(line, /connected/, 'the verdict was lost along with the count');
+  });
+
+  /* CONTROL: a finite count still prints, so the assertion above is not satisfied
+     by a renderer that stopped printing counts or stopped rendering the row. */
+  await withBoard({ body: row('3') }, async (port) => {
+    const r = await kosmos(port);
+    const line = r.out.split('\n').find((l) => /^\s*Claude:/.test(l)) || '';
+    assert.ok(line, 'the control row did not render, so neither arm proves anything');
+    assert.match(line, /3 sign-ins working/, `a finite count stopped rendering: ${JSON.stringify(line)}`);
+  });
+});

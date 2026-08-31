@@ -945,13 +945,22 @@ cmd_connections() {
            machine vocabulary. `typeof` rather than `!= null` keeps the older-board
            case intact, because a board that OMITS the field is undefined, which is
            not a number, and so is still treated as did not say rather than as 0. */
-        if (typeof p.howMany === "number") {
-          var w = typeof p.howManyWorking === "number" ? p.howManyWorking : p.howMany;
+        /* 🛑 isFinite, NOT typeof. A JSON body carrying 1e400 parses to Infinity, and
+           typeof Infinity is "number", so these guards accepted it: a skewed board
+           printed "Infinity sign-ins working" AT EXIT 0. Every other guard in this
+           block exists for a board the CLI does not control; this was the one that
+           let a non-number through while LOOKING like it checked.
+           NOTE no single quote anywhere in this comment. The whole renderer lives
+           in a single-quoted shell string, so one quote truncates the program, and
+           bash -n still PASSES because what is left is valid shell. The apostrophe
+           guard test is what catches it, which is why that test exists. */
+        if (Number.isFinite(p.howMany)) {
+          var w = Number.isFinite(p.howManyWorking) ? p.howManyWorking : p.howMany;
           /* The denominator is the READABLE rows, not every row. A row whose
              live check we could not read is neither working nor broken, and
              counting it against the person is a settled negative about
              something nobody looked at. */
-          var m = typeof p.howManyReadable === "number" ? p.howManyReadable : p.howMany;
+          var m = Number.isFinite(p.howManyReadable) ? p.howManyReadable : p.howMany;
           /* ⚠️ THE ZERO CASE RETURNS EARLY RATHER THAN FALLING THROUGH. It used to
              set `many = ""` and then meet an UNCONDITIONAL append below, so a board
              reporting a negative `howManyReadable` re-armed the very text the zero
@@ -992,7 +1001,7 @@ cmd_connections() {
                told. Unreachable from our own boundary, which emits all three; every
                neighbouring guard in this block is equally unreachable and is here
                for the same reason. */
-            var saidWorking = typeof p.howManyWorking === "number";
+            var saidWorking = Number.isFinite(p.howManyWorking);
             /* "working" even when the two numbers match. Dropping it is accurate
                and reintroduces the exact ambiguity recorded above: "3 sign-ins"
                beside "has a working sign-in for it" is what read as three working
