@@ -516,12 +516,17 @@ _reachable_is_download() {
   # ⚠️ THAT ASYMMETRY HOLDS AT TWO OF THE THREE CALL SITES, NOT ALL THREE, and
   # saying it unconditionally would be false. At the `TARGET_VERSION` probe
   # this predicate is an EXISTENCE TEST, not an abort guard: a false NO there
-  # does not stop the install, it silently falls through to the plain
-  # unversioned name -- which is the cache-collision hazard the comment above
-  # that branch was written against. Downstream `verify_download` still checks
-  # the sha and the version refusal still fires, so the failure is caught
-  # rather than silent, but the cost of a false NO at THAT site is a stale
-  # download risk rather than a blocked install.
+  # does not stop the install, it falls to the next branch. Downstream
+  # `verify_download` still checks the sha and the version refusal still fires.
+  #
+  # 🛑 AND THE COST OF THAT FALL-THROUGH IS SMALLER THAN THIS COMMENT CLAIMED
+  # FOR EVERY NETWORK INSTALL. `BUST=yes` is set for any http/https base and
+  # `install_kosmos` runs after that, so the fallback is the `elif` arm, which
+  # fetches the cache-BUSTED `kosmos-$ARCH.tar.gz?v=...`. A cache treats that as
+  # a fresh resource, so there is no collision to inherit. The bare unversioned
+  # name is reached only when BUST is empty, i.e. `file://` bases, which have no
+  # cache to collide with in the first place. So a false NO here costs the
+  # version-named artifact, not a stale one.
   #
   # ⚠️ AND AN ALLOWLIST BREAKS THE PROJECT'S OWN INSTALL GATE. `curl` on a
   # `file://` URL succeeds and reports an EMPTY content-type (measured: a real
@@ -554,7 +559,8 @@ _reachable_is_download() {
   # is an installer that refuses to run. Tightening this to match it would
   # reintroduce the file:// break above.
   [ "$1" = 0 ] || return 1
-  # /usr/bin/tr, matching this file's six other `tr` call sites. The reason is
+  # /usr/bin/tr, matching the six other ABSOLUTE `tr` call sites in this file (a
+  # seventh, at the `_pids` line, is bare). The reason is
   # narrow and worth stating so nobody generalises it: the design is fail-open,
   # so a `tr` that did not resolve would empty the substitution, match no arm,
   # and silently accept EVERY type. That is the harmless direction by this
@@ -600,8 +606,7 @@ reachable() {
   # on a single mis-typed HEAD would be a false NO, and there is an arm
   # asserting it buys that.
   #
-  # ⚠️ THE COST, STATED THIRD TIME AND MEASURED ON BOTH ARMS, because the first
-  # two versions of this comment were both wrong. It is NOT the 30s hung-origin
+  # ⚠️ THE COST, MEASURED ON BOTH ARMS. It is NOT the 30s hung-origin
   # case: measured, the pre-#1662 predicate also ran both probes to full
   # timeout there (HEAD times out, the `&&` falls through, the range GET runs),
   # old 30s NO and new 30s NO, identical. And NO for a host that cannot be
@@ -618,6 +623,17 @@ reachable() {
   # --max-filesize bounds the residual named above: an origin that ignores
   # Range answers with the WHOLE body, and without a cap this probe would
   # stream a 48MB tarball into /dev/null until -m 15 expired.
+  #
+  # ⚠️ THAT BOUND IS CURL-VERSION DEPENDENT, SO DO NOT READ IT AS A GUARANTEE.
+  # The macOS manpage says "the transfer does not start", i.e. the decision is
+  # made from an ANNOUNCED content-length; and curl only began aborting an
+  # already-running transfer in 8.4.0. tools/macos-floor declares this
+  # installer's floor as 13.5, which ships curl 8.1.x. So against an origin that
+  # omits content-length, on the floor OS, the residual is bounded by -m 15 and
+  # not by this cap. Measured on curl 8.7.1 the cap DOES stop a length-less
+  # transfer mid-flight, which is why the test arm for that shape asserts the
+  # VERDICT and deliberately does not pin a byte count: the count is the part
+  # that legitimately differs across versions.
   #
   # 🛑 AND EXIT 63 MUST BE TREATED AS A SUCCESSFUL FETCH, WHICH THE FIRST
   # VERSION OF THIS GOT WRONG AND IT WAS A REGRESSION. curl exits 63 when the

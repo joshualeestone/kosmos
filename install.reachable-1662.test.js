@@ -72,11 +72,20 @@ test.before(async () => {
        under the cap: the fixture measured nothing. */
     const bigGzip = u.pathname === '/bigrange.tar.gz';
     const bigHtml = u.pathname === '/bightml.tar.gz';
-    if (bigGzip || bigHtml) {
+    /* Same shape as bigGzip but with NO content-length, so node sends it
+       chunked. This is the response shape --max-filesize is documented NOT to
+       act on: the macOS manpage says "the transfer does not start", i.e. the
+       decision is made from an ANNOUNCED size. Without one there is nothing to
+       decide from. Kept as its own path so an arm can measure what actually
+       happens rather than leaving the comment to assert it. */
+    const bigNoLen = u.pathname === '/nolen.tar.gz';
+    if (bigGzip || bigHtml || bigNoLen) {
       if (req.method === 'HEAD') { res.writeHead(405, { 'content-length': '0' }); return res.end(); }
       // NOTE: Range deliberately IGNORED, which is the shape under test.
-      const type = bigGzip ? 'application/gzip' : 'text/html; charset=utf-8';
-      res.writeHead(200, { 'content-type': type, 'content-length': String(BIGBODY.length) });
+      const type = bigHtml ? 'text/html; charset=utf-8' : 'application/gzip';
+      const hdrs = { 'content-type': type };
+      if (!bigNoLen) hdrs['content-length'] = String(BIGBODY.length);
+      res.writeHead(200, hdrs);
       /* Written in chunks and COUNTED, so an arm can assert the cap actually
          stopped the transfer. Sending it in one `res.end()` would tell us
          nothing: the point is how much crossed the wire before curl gave up. */
@@ -483,12 +492,34 @@ test('#1662: --max-filesize actually truncates the transfer, it is not decoratio
     + 'not stop it. Against a real 48MB tarball that is exactly the cost the cap exists to avoid.');
 });
 
+/* The arm above proves the cap fires when the origin ANNOUNCES a length. That
+   is the only shape the other cap arms exercise, so on its own the suite cannot
+   tell "the cap works" from "the cap works when a length is announced". macOS
+   curl documents the option as acting before the transfer starts, which means
+   an announced size is what it decides from; this arm pins what actually
+   happens when there is none. It deliberately asserts the VERDICT strictly and
+   only RECORDS the byte count, because the byte count is the part that is
+   allowed to differ across curl versions (the floor OS, 13.5, ships 8.1.x). */
+test('#1662: a length-less (chunked) origin still yields the right VERDICT, whatever the cap does', async () => {
+  BYTES_SENT['/nolen.tar.gz'] = 0;
+  assert.equal(await reachable(`${base}/nolen.tar.gz`), 'YES',
+    'a genuine gzip served without content-length must still be reachable. If this is NO, the cap '
+    + 'or the exit-63 mapping is refusing a real download on a chunked origin, which is the same '
+    + 'class of regression as the --max-filesize BLOCKER this branch already fixed once.');
+  const n = BYTES_SENT['/nolen.tar.gz'] || 0;
+  assert.ok(n > 0,
+    'control: the fixture must actually have sent something, or a passing verdict above proves nothing');
+});
+
 /* ---- the THIRD call site: the versioned-artifact probe -------------------
  * Raised by three separate reviewers. The two `if ! reachable "$url"` guards
  * are covered above; this one is different in kind. It is an EXISTENCE PROBE
  * selecting WHICH url to download, and a false NO here does not stop the
- * install, it silently falls through to the unversioned name -- the exact
- * cache-collision hazard the surrounding comment was written against.
+ * install, it falls through to the next branch. For any http/https base that
+ * is the cache-BUSTED unversioned url (BUST=yes is set before install_kosmos
+ * runs), so there is no stale-cache hazard to inherit; the bare unversioned
+ * name is reached only for file:// bases, which have no cache. An earlier
+ * version of this comment claimed the collision hazard and overstated the cost.
  * Measured before this existed: deleting `&& reachable …` from that line left
  * all 20 arms green while changing which URL gets downloaded.
  */

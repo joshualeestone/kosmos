@@ -239,3 +239,52 @@ other two rather than left implicit in the design.
 the code did not already cost** (curl fails a few lines later with its own
 error), **a false NO is an installer that refuses to run.** A reviewer who
 weighs those differently should change the predicate, not the tests.
+
+## Iteration 15
+
+Three WARNINGs, one CONVENTION, one NIT. I verified all three WARNINGs against
+the code myself rather than accepting the reviewer's reading.
+
+**The cost of a false NO at the TARGET_VERSION probe was overstated, and that is
+this branch's central argument.** My comment said a false NO there falls through
+to the plain unversioned name and inherits the cache-collision hazard. It does
+not, for any network install. `BUST=yes` is set for every http/https base, and
+`install_kosmos` is called after that point, so the fallback is the `elif` arm
+fetching the cache-busted `kosmos-$ARCH.tar.gz?v=...`, which a cache treats as a
+fresh resource. The bare unversioned name is reached only when BUST is empty,
+which is `file://` bases, and those have no cache to collide with. Verified by
+reading the branch structure and confirming the call site is after the
+assignment, because position in a shell script is not execution order.
+
+Corrected in the installer. A maintainer weighing this design was being handed a
+cost larger than the real one.
+
+**The `--max-filesize` claim was stated as a guarantee and is version
+dependent.** The macOS manpage says the transfer does not start, so the decision
+comes from an announced content-length, and curl only began aborting an
+in-flight transfer in 8.4.0. The declared floor is 13.5, which ships curl 8.1.x.
+So on the floor OS, against an origin that omits content-length, the residual is
+bounded by `-m 15` and not by the cap. Measured here on 8.7.1 the cap does stop
+a length-less transfer mid-flight. Both facts are now in the comment.
+
+**The suite could not tell "the cap works" from "the cap works when a length is
+announced".** Every cap fixture sent content-length, so the one shape the option
+is documented not to act on had no arm. Added `/nolen.tar.gz`, same body served
+chunked. The arm asserts the verdict strictly and deliberately does not pin a
+byte count, because the count is the part that legitimately varies by curl
+version. I measured it before deciding what to assert: a temporary strict
+assertion passed on 8.7.1, which told me the cap does engage here, which is
+exactly why pinning it would encode this machine rather than the contract.
+
+**CONVENTION, partly addressed and I am not claiming more.** The block was 157
+comment lines to 26 executable. I removed the one piece of self-referential
+iteration history inside my region. It is now 162 to 31, because the two
+corrections above are additions. The ratio is worse in raw count and better in
+content: what I added is decision-relevant and what I removed was narrative
+about the comment's own drafting. The exit-63 passage stays; the reviewer named
+it as one of two traps worth keeping, and it explains why the mapping exists.
+
+**NIT, corrected.** I wrote "six other tr call sites". There are seven others:
+six absolute and one bare at the `_pids` line. My grep for this initially gave
+three different answers because "tr " matches inside words like string and
+control, which is the pattern being wrong rather than the artifact.
