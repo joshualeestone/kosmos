@@ -622,7 +622,20 @@ reachable() {
   _r_code=${_r_out%% *}; _r_ct=${_r_out#* }
   case "$_r_code" in ''|*[!0-9]*) _r_code=0 ;; esac
   case "$_r_out" in *' '*) ;; *) _r_ct='' ;; esac
-  if [ "$_r_rc" = 0 ] || [ "$_r_code" -ge 400 ] || [ "$_r_rc" = 37 ]; then _r_answered=1; fi
+  # 🛑 A METHOD REFUSAL IS NOT AN ANSWER ABOUT THE ARTIFACT. 405 and 501 mean
+  # "I do not do HEAD", which says nothing about whether the file exists, so
+  # they must not set _r_answered here. Without this, an origin that refuses
+  # HEAD and whose range GET then fails to COMPLETE (reset, DNS blip) got
+  # status 2 and was told to check the address, when the truth is a transient
+  # connection failure that wants "it is safe to re-run". That is this card's
+  # own wrong-sentence defect aimed at the shape the fallback exists for.
+  # A 405 followed by a SUCCESSFUL range GET is unaffected: the range arm sets
+  # the flag on its own rc.
+  if [ "$_r_rc" = 0 ] || [ "$_r_rc" = 37 ]; then
+    _r_answered=1
+  elif [ "$_r_code" -ge 400 ] && [ "$_r_code" != 405 ] && [ "$_r_code" != 501 ]; then
+    _r_answered=1
+  fi
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   # 📌 This arm also runs when HEAD SUCCEEDED with a textual type, where the
   # pre-#1662 code reached it only after a HEAD failure. Kept because refusing

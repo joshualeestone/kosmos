@@ -652,6 +652,37 @@ or the unversioned name.
 
 ## The install gate, run for real
 
+🛑 **READ THIS FIRST: THE RUN RECORDED BELOW IS SUPERSEDED AND THE GATE IS NOW
+FINAL VALIDATION, NOT PER-ITERATION EVIDENCE.**
+
+The gate ran against `install/setup.sh` at commit `89991d64`. Executable text
+has changed twice since: the `rc = 37` rule (iteration 22) and the 405/501
+method-refusal exclusion (iteration 24). So the anchored result no longer
+describes the file anyone is holding. **This is the third recurrence of one
+shape**, and the first two were "fix the field" and "fix the argument". Both
+came back.
+
+✅ **The structural fix is SEQUENCING, not another number.** A gate result
+recorded mid-loop is invalidated by the very next iteration, because every
+iteration edits the file the gate measures. So:
+
+- `yarn test:install` runs **once, at convergence**, as final validation.
+- The proof file carries **that** run and no earlier one.
+- No iteration records a gate result as standing evidence again.
+
+⚠️ **A reviewer offered the escape that the post-gate delta was copy-only. I
+checked and it is not** — it includes the `rc = 37` rule on both probes. Worth
+saying because I would have been glad to accept it: the escape was offered in
+good faith, and taking it without measuring would have produced a true-sounding
+claim resting on somebody else's characterisation of my own diff.
+
+📌 **Practical note for whoever runs it:** the gate asserts `dist/setup ==
+install/setup.sh` before it starts, and `dist/` is gitignored, so a re-run needs
+a rebuild first or it trips that pre-assertion. That is not committed drift.
+
+### What the superseded run established, which still stands
+
+
 `yarn test:install` is the only gate that drives `reachable()` end to end, and it
 had not run since iteration 15. It has now, against HEAD.
 
@@ -775,3 +806,26 @@ right follow-up and is written down here rather than lost.
 **The comment ratio.** Trimmed the drafting archaeology the reviewer named,
 210 to 207 lines in the region. That is marginal and I am not calling it fixed:
 I remove history and add decision content at about the same rate.
+
+## Iteration 24
+
+**A method refusal is not an answer about the artifact.** `_r_answered` counted
+any status at or above 400, so a 405 on the HEAD probe set it. A 405 means "I do
+not do HEAD" and says nothing about whether the file exists. So an origin that
+refuses HEAD and whose range GET then failed to COMPLETE got status 2 and was
+told to check the address, when the truth is a transient connection failure
+whose only honest advice is that re-running is safe.
+
+That is this card's own wrong-sentence defect, aimed at the shape the range
+fallback exists for. Many origins refuse HEAD, and four paths in my own fixture
+already answer 405, so the shape was in front of me the whole time and had no
+arm either way.
+
+405 and 501 are now excluded on the HEAD probe only. A 405 followed by a working
+range GET is unaffected, because the range arm sets the flag on its own rc, and
+there is a control arm asserting exactly that so the exclusion cannot quietly
+break the ordinary refuses-HEAD origin. Verified by putting 405 back and
+watching the new arm redden while the control stayed green.
+
+**The install-gate anchor went stale for the third time**, and is dealt with
+above by sequencing rather than by another number.

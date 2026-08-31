@@ -83,6 +83,14 @@ test.before(async () => {
        connection. Reproduces the dead-store defect: the second probe used to
        overwrite the first probe's status, so the 404 the server plainly gave us
        was discarded and the caller blamed the user's network. */
+    /* HEAD refuses the METHOD (405) and the ranged GET then DROPS. A 405 says
+       nothing about whether the artifact exists, so this must stay a transient
+       connection failure. Counting it as "the server answered" produced the
+       address sentence for a case whose only honest advice is to re-run. */
+    if (u.pathname === '/head405-rangedrops.tar.gz') {
+      if (req.method === 'HEAD') { res.writeHead(405, { 'content-length': '0', allow: 'GET' }); return res.end(); }
+      return req.socket.destroy();
+    }
     if (u.pathname === '/headanswers-rangedrops.tar.gz') {
       if (req.method === 'HEAD') { res.writeHead(404, { 'content-length': '0' }); return res.end(); }
       return req.socket.destroy();
@@ -350,6 +358,21 @@ test('#1662: a missing file:// path is status 2, not a network failure', async (
     assert.equal(await reachableStatus(`file://${path.join(dir, 'absent.tar.gz')}`), '2',
       'a missing local file must not be reported as a connection failure');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#1662: a 405 HEAD plus a dropped GET stays status 1, because a method refusal is not an answer', async () => {
+  assert.equal(await reachableStatus(`${base}/head405-rangedrops.tar.gz`), '1',
+    'a 405 means "I do not do HEAD", not "the artifact is missing". If this is 2 the caller drops '
+    + '"could not reach" and "it is safe to re-run" and tells the user to check the address, for '
+    + 'what is actually a transient connection failure. Many origins refuse HEAD, so this is not '
+    + 'an exotic shape.');
+});
+
+test('#1662: a 405 HEAD followed by a WORKING range GET is still status 0', async () => {
+  /* CONTROL for the arm above: excluding 405 from the answered rule must not
+     break the ordinary refuses-HEAD origin, which most of this fixture uses. */
+  assert.equal(await reachableStatus(`${base}/head405.tar.gz`), '0',
+    'an origin that refuses HEAD but serves the range GET must still be a clean YES');
 });
 
 test('#1662: the REAL reachable() returns 1 when nothing answered at all', async () => {
