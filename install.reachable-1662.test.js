@@ -67,7 +67,13 @@ test.before(async () => {
        case-insensitivity and no-header arms vary ONE thing. `ct=none` omits
        the header entirely, which is what curl reports for file:// too. */
     const want = u.searchParams.get('ct');
-    const type = isReal ? (want || 'application/gzip') : 'text/html; charset=utf-8';
+    /* `headct=` lets HEAD and the ranged GET report DIFFERENT types. Without
+       it the fixture cannot distinguish the second-opinion behaviour at all:
+       one type for both probes means a mutant that refuses as soon as HEAD
+       succeeds gives identical verdicts on every other arm. */
+    const headWant = u.searchParams.get('headct');
+    const baseType = isReal ? (want || 'application/gzip') : 'text/html; charset=utf-8';
+    const type = (req.method === 'HEAD' && headWant) ? headWant : baseType;
     const slice = ranged ? body.subarray(0, 1) : body;
     const headers = { 'content-length': String(slice.length) };
     if (!(isReal && want === 'none')) headers['content-type'] = type;
@@ -261,4 +267,24 @@ test('#1662: EVERY refused media type has an arm, not just text/html', async () 
     assert.equal(await reachable(`${base}/real.tar.gz?ct=${encodeURIComponent(ct)}`), 'YES',
       `${ct} was refused, which blocks a genuine download`);
   }
+});
+
+test('#1662: a textual HEAD does not end it, the ranged GET gets a second opinion', async () => {
+  /* 🛑 THE ARM THE FIXTURE COULD NOT PREVIOUSLY EXPRESS. The range-GET arm now
+     runs even when HEAD SUCCEEDED with a textual type, where the pre-#1662
+     code reached it only after a HEAD failure. That behaviour is deliberate
+     and it has a documented cost (against an origin that ignores Range it
+     pulls a whole tarball into /dev/null), so something must assert it buys
+     anything at all.
+     Measured before this arm existed: a mutant returning 1 as soon as the HEAD
+     probe succeeded produced IDENTICAL verdicts on all nine other arms, while
+     the control mutation was caught. A documented cost with nothing asserting
+     the benefit is a cost paid for nothing.
+     Here HEAD mis-reports text/html and the ranged GET reports gzip, which is
+     a host with a broken HEAD handler serving a genuine tarball. */
+  assert.equal(
+    await reachable(`${base}/real.tar.gz?headct=${encodeURIComponent('text/html')}&ct=${encodeURIComponent('application/gzip')}`),
+    'YES',
+    'a genuine tarball was refused on the strength of a single mis-typed HEAD, so the range-GET '
+    + 'second opinion is not happening and the cost it pays buys nothing');
 });

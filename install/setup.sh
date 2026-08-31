@@ -509,10 +509,9 @@ _reachable_is_download() {
   # 🛑 REFUSE WHAT IS POSITIVELY TEXTUAL; DO NOT DEMAND A KNOWN BINARY. An
   # allowlist of binary types looks stricter and is wrong here, because the
   # cost is asymmetric: a false YES only means this pre-check did not help and
-  # curl fails a few lines later with its own error, which is exactly the
-  # behaviour before this guard existed. A false NO blocks the install outright
-  # behind "Check your internet connection", which is a worse outcome than the
-  # bug the guard is for.
+  # curl fails a few lines later with its own error, which is the behaviour
+  # before this guard existed. A false NO blocks the install outright behind
+  # "Check your internet connection", which is worse than the bug it is for.
   #
   # ⚠️ THAT ASYMMETRY HOLDS AT TWO OF THE THREE CALL SITES, NOT ALL THREE, and
   # saying it unconditionally would be false. At the `TARGET_VERSION` probe
@@ -525,11 +524,10 @@ _reachable_is_download() {
   # download risk rather than a blocked install.
   #
   # ⚠️ AND AN ALLOWLIST BREAKS THE PROJECT'S OWN INSTALL GATE. `curl` on a
-  # `file://` URL succeeds and reports an EMPTY content-type, and
-  # tools/test-install.sh drives the whole release path over `file://` on
-  # purpose ("curl serves file:// for both probes, so no server is needed").
-  # An allowlist refuses a genuine tarball there and aborts the download path.
-  # Measured: file:// on a real gzip gives content_type=[] with exit 0.
+  # `file://` URL succeeds and reports an EMPTY content-type (measured: a real
+  # gzip gives content_type=[] with exit 0), and tools/test-install.sh drives
+  # the whole release path over `file://` on purpose. An allowlist refuses a
+  # genuine tarball there and aborts the download path.
   #
   # ⚠️ Media types are case-insensitive (RFC 9110 section 8.3), so the compare
   # is lowercased. The case that matters is a CAPITALISED TEXTUAL type being
@@ -562,7 +560,7 @@ _reachable_is_download() {
   # type. That is the harmless direction by this predicate's own asymmetry, but
   # it would make the guard invisible rather than noisy.
   case "$(printf '%s' "$2" | /usr/bin/tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')" in
-    text/html*|application/xhtml*|application/json*|application/problem+json*|application/xml*|text/xml*) return 1 ;;
+    text/html*|application/xhtml*|application/json*|application/*+json*|application/xml*|text/xml*) return 1 ;;
   esac
   return 0
 }
@@ -584,9 +582,9 @@ reachable() {
   # fetch_tmux and install_kosmos, and the `[ -n "${TARGET_VERSION:-}" ] &&
   # reachable …` probe that picks the versioned tarball. It is still a trap,
   # and it lands exactly on the fallback's reason for existing: a 405 on HEAD.
-  # ⚠️ Cited by their text, not by line number: an earlier version of this
-  # comment named 622/684/694, and this very comment block pushed the real
-  # calls down to 633/695/705. Nothing checks a line number in a comment.
+  # ⚠️ Cited by their TEXT and never by line number. Two successive versions of
+  # this comment carried positions that its own growth had already invalidated.
+  # Nothing checks a line number in a comment, so there are none here.
   local _r_ct _r_rc
   _r_ct=$(curl -fsIL -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
