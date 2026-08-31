@@ -1087,6 +1087,19 @@ test('the gh door never rejects when runners fails to LOAD', async () => {
   const Module = require('module');
   const orig = Module._load;
   const door = require('./engine/github.js');
+  /* 🛑 PIN THE gh ENV, OR THIS ARM EXECS THE OPERATOR'S REAL gh. With neither
+     variable set, `ghBin()` falls through to the candidate scan, finds the real
+     /opt/homebrew/bin/gh (measured), and `status()` runs
+     `gh auth status --hostname github.com` against the operator's own keyring,
+     with an 8s timeout, once per `state()` call.
+     ⚠️ These arms shipped without it, which FALSIFIED the comment in
+     githubdevice.js claiming no test reaches the real gh through the door. The
+     getter and candidate-scan path is still exercised: the override is a real
+     string, so ghCandidateList parses it and the scan runs and finds nothing. */
+  const beforeBin = process.env.AGENT_WORKFORCE_GH_BIN;
+  const beforeCands = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+  delete process.env.AGENT_WORKFORCE_GH_BIN;
+  process.env.AGENT_WORKFORCE_GH_CANDIDATES = path.join(SANDBOX, 'no-gh-here');
   /* CONTROL FIRST: with everything loadable it resolves, so a resolve below
      cannot be the answer to everything. */
   await assert.doesNotReject(() => door.state(), 'control: the door rejected with no fault injected');
@@ -1098,13 +1111,32 @@ test('the gh door never rejects when runners fails to LOAD', async () => {
     await assert.doesNotReject(() => door.state(),
       'a runners LOAD failure rejected door.state(), against devicedoor\'s "Never rejects". '
       + 'The isRunnable require was probably moved back inside the runnable lambda.');
-  } finally { Module._load = orig; }
+  } finally {
+    Module._load = orig;
+    if (beforeBin === undefined) delete process.env.AGENT_WORKFORCE_GH_BIN;
+    else process.env.AGENT_WORKFORCE_GH_BIN = beforeBin;
+    if (beforeCands === undefined) delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+    else process.env.AGENT_WORKFORCE_GH_CANDIDATES = beforeCands;
+  }
 });
 
 test('github.js does not reach BACK into githubdevice at call time', async () => {
   const Module = require('module');
   const orig = Module._load;
   const door = require('./engine/github.js');
+  /* 🛑 PIN THE gh ENV, OR THIS ARM EXECS THE OPERATOR'S REAL gh. With neither
+     variable set, `ghBin()` falls through to the candidate scan, finds the real
+     /opt/homebrew/bin/gh (measured), and `status()` runs
+     `gh auth status --hostname github.com` against the operator's own keyring,
+     with an 8s timeout, once per `state()` call.
+     ⚠️ These arms shipped without it, which FALSIFIED the comment in
+     githubdevice.js claiming no test reaches the real gh through the door. The
+     getter and candidate-scan path is still exercised: the override is a real
+     string, so ghCandidateList parses it and the scan runs and finds nothing. */
+  const beforeBin = process.env.AGENT_WORKFORCE_GH_BIN;
+  const beforeCands = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+  delete process.env.AGENT_WORKFORCE_GH_BIN;
+  process.env.AGENT_WORKFORCE_GH_CANDIDATES = path.join(SANDBOX, 'no-gh-here');
   await assert.doesNotReject(() => door.state(), 'control: the door rejected with no fault injected');
   Module._load = function (req, ...rest) {
     if (req === './githubdevice') return {};   // the shape a cycle or failed load gives
@@ -1115,7 +1147,13 @@ test('github.js does not reach BACK into githubdevice at call time', async () =>
       'github.state() rejected when githubdevice\'s exports were empty, so the candidates '
       + 'getter is reaching back into githubdevice. That recreates the cycle and the reject '
       + 'path; ghCandidateList must be called as a LOCAL function in github.js.');
-  } finally { Module._load = orig; }
+  } finally {
+    Module._load = orig;
+    if (beforeBin === undefined) delete process.env.AGENT_WORKFORCE_GH_BIN;
+    else process.env.AGENT_WORKFORCE_GH_BIN = beforeBin;
+    if (beforeCands === undefined) delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+    else process.env.AGENT_WORKFORCE_GH_CANDIDATES = beforeCands;
+  }
 });
 
 /* 🛑 A THIRD ARM WAS WRITTEN HERE FOR githubdevice.state() AND REMOVED, BECAUSE IT
