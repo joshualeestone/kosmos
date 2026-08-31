@@ -81,9 +81,24 @@ outside `yarn test`. The gate refused to run because a 0.6.19 release cut is
 live on this Mac and would share its ports and launchd domain. **It must be run
 before merge**, and not with `KOSMOS_HARNESS_IGNORE_CUT=1`.
 
-## The weakest premise
+## The weakest premises, both directions
 
-Accepting an unknown content-type means a host that serves an error page with
-no type at all still passes. I judged that the right trade because the false-NO
-cost is an unusable installer, but it is a real hole and a reviewer may weigh it
-differently.
+**Accepting an unknown content-type** means a host that serves an error page
+with no type at all still passes. I judged that the right trade because the
+false-NO cost is an unusable installer, but it is a real hole.
+
+**Refusing `text/html` and not `text/*`** is the same trade in the other
+direction, and the first version of this plan named only the first one. A
+plain-text error page now passes. The reason is that `text/plain` is nginx's
+compiled-in `default_type`, so a mirror that has not mapped `.gz` serves a
+genuine tarball as `text/plain` and refusing it would block that install
+behind "Check your internet connection". `KOSMOS_RELEASE_BASE` is overridable
+(`install/setup.sh:456`), so a mirror is a real case rather than a
+hypothetical. Production is separately mitigated because `serves_gzip()` in
+`tools/kosmos-artifact-check.sh` gates the release on a gzip type, but that
+mitigation does not extend to a mirror.
+
+⇒ Both premises resolve the same way on purpose: **a false YES costs nothing
+the code did not already cost** (curl fails a few lines later with its own
+error), **a false NO is an installer that refuses to run.** A reviewer who
+weighs those differently should change the predicate, not the tests.

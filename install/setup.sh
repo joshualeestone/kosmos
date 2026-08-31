@@ -522,7 +522,17 @@ _reachable_is_download() {
   # Measured: file:// on a real gzip gives content_type=[] with exit 0.
   #
   # ⚠️ Media types are case-insensitive (RFC 9110 section 8.3), so the compare
-  # is lowercased: `Application/GZIP` is the same type as `application/gzip`.
+  # is lowercased. The case that matters is a CAPITALISED TEXTUAL type being
+  # refused (`Text/HTML`), not a capitalised binary one being accepted: unknown
+  # types are accepted anyway, so an `Application/GZIP` arm proves nothing.
+  #
+  # 🛑 `text/html` AND NOT `text/*`, DELIBERATELY. `text/plain` is nginx's
+  # compiled-in `default_type`, so a mirror that has not mapped `.gz` serves a
+  # genuine tarball as `text/plain`. Refusing it would block that install
+  # behind "Check your internet connection" -- the exact false NO this design
+  # is built to avoid, and `KOSMOS_RELEASE_BASE` is overridable, so a mirror is
+  # a real case rather than a hypothetical one. A plain-text error page passing
+  # is the harmless direction: curl fails a few lines later with its own error.
   #
   # The exit status is checked FIRST and separately, because an empty
   # content-type from a FAILED connection must not read the same as an empty
@@ -537,7 +547,7 @@ _reachable_is_download() {
   # reintroduce the file:// break above.
   [ "$1" = 0 ] || return 1
   case "$(printf '%s' "$2" | tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')" in
-    text/*|application/json*|application/xml*|application/xhtml*) return 1 ;;
+    text/html*|application/xhtml*|application/json*|application/xml*|text/xml*) return 1 ;;
   esac
   return 0
 }
@@ -547,6 +557,7 @@ reachable() {
   # A 404 page answers a range request with 206 and its own HTML body, so the
   # status alone cannot tell a download from an error page: the type must be
   # judged too, on both arms.
+  local _r_ct _r_rc
   _r_ct=$(curl -fsIL -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null); _r_rc=$?
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   _r_ct=$(curl -fsL -r 0-0 -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null); _r_rc=$?

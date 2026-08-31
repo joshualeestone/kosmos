@@ -92,7 +92,10 @@ async function reachable(url) {
   const script = `${FN[0]}\nif reachable "$1"; then echo YES; else echo NO; fi\n`;
   /* `sh`, not `bash`: install/setup.sh ships #!/bin/sh and the repo's own
      test:shell checks it with `sh -n`. Pinning the text under the wrong
-     interpreter would pass on a bashism the shipped installer cannot run. */
+     interpreter would pass on a bashism the shipped installer cannot run.
+     ⚠️ The fidelity stops there: on macOS /bin/sh is bash in POSIX mode, so a
+     bashism that dash would reject still passes here. This closes the obvious
+     gap, not every one. */
   const { stdout } = await run('sh', ['-c', script, 'sh', url], { encoding: 'utf8' });
   return stdout.trim();
 }
@@ -164,8 +167,41 @@ test('#1662: a file:// URL is reachable, because the install gate drives the rel
 });
 
 test('#1662: content-type matching is case-insensitive, per RFC 9110 section 8.3', async () => {
-  const r = await reachable(`${base}/real.tar.gz?ct=Application%2FGZIP`);
-  assert.equal(r, 'YES', 'a genuine tarball was refused because its header was capitalised');
+  /* 🛑 THE ARM MUST BE A CAPITALISED **TEXTUAL** TYPE BEING REFUSED. An earlier
+     version asserted `Application/GZIP` -> YES, which is decoration: unknown
+     types are accepted anyway, so that arm passed with the lowercasing
+     REMOVED. Measured: deleting the `tr` left all 8 tests green, while
+     `Text/HTML` flipped NO -> YES. This is the direction that discriminates. */
+  assert.equal(await reachable(`${base}/real.tar.gz?ct=Text%2FHTML%3B%20charset%3Dutf-8`), 'NO',
+    'a capitalised text/html was accepted: the media-type compare is not case-insensitive, '
+    + 'so an error page can impersonate a download just by capitalising its header');
+  assert.equal(await reachable(`${base}/real.tar.gz?ct=Application%2FGZIP`), 'YES',
+    'a genuine tarball was refused because its header was capitalised');
+});
+
+test('#1662: a host that cannot be reached at all is refused, and NOT via the type rule', async () => {
+  /* 🛑 THE CURL EXIT STATUS IS A SEPARATE RULE AND IT WAS UNCOVERED. Measured:
+     deleting `[ "$1" = 0 ] || return 1` left all 8 tests green, because every
+     other failing arm in this fixture also carries text/html, so the type rule
+     covered for it. But behaviour genuinely changed: against a closed port the
+     shipped predicate answered NO and the mutant answered YES.
+     This is the no-network case the installer's "Check your internet
+     connection" sentence is written for, so it must have an arm of its own.
+     Port 1 refuses instantly; there is no server to wait for. */
+  assert.equal(await reachable('http://127.0.0.1:1/kosmos-arm64.tar.gz'), 'NO',
+    'an unreachable host was called reachable: the exit-status rule is gone, and the '
+    + 'installer would proceed to a download that cannot happen');
+});
+
+test('#1662: text/plain is ACCEPTED, because it is nginx default_type for an unmapped extension', async () => {
+  /* The refusal is `text/html`, not `text/*`, on purpose. A mirror that has
+     not mapped .gz serves a genuine tarball as text/plain, and refusing it
+     would block that install behind "Check your internet connection" -- the
+     exact false NO this design exists to avoid. KOSMOS_RELEASE_BASE is
+     overridable, so a mirror is a real case. */
+  assert.equal(await reachable(`${base}/real.tar.gz?ct=text%2Fplain`), 'YES',
+    'a genuine tarball served as text/plain was refused, which blocks installs from any '
+    + 'origin that has not mapped the .gz extension');
 });
 
 test('#1662: a download with NO content-type header at all is accepted', async () => {
