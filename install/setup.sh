@@ -1629,13 +1629,28 @@ KOSMOS_SWEEP_LIST
   # says nothing about agents on a machine that had none, and this block was
   # contradicting it three lines later — and its own sentence "those folders are
   # still on your machine" is only true because THAT paragraph left them there.
-  if [ "$_agents_stopped" = "yes" ] \
-     && [ -f "$HOME/.claude.json" ] \
-     && grep -q '"hasTrustDialogAccepted": true' "$HOME/.claude.json" 2>/dev/null; then
-    printf '  Trust marks were left in place: your agents'\'' folders are recorded as\n'
-    printf '  trusted in ~/.claude.json (Claude Code will not ask before working in\n'
-    printf '  them). Those folders are still on your machine, so the marks still\n'
-    printf '  apply. Remove those entries if you want the question back.\n\n'
+  # 🛑 #1629: EVERY CONFIG AN AGENT COULD READ, NOT JUST THE DEFAULT ONE. Claude
+  # Code reads trust from `$CLAUDE_CONFIG_DIR/.claude.json` when that variable is
+  # set, and Kosmos points agents at per-account config dirs (`~/.claude-*`). This
+  # checked `$HOME/.claude.json` alone, so on a machine whose agents ran under
+  # other accounts it said nothing while the marks it describes were sitting in a
+  # file one directory over -- a true-sounding silence.
+  # ⚠️ It also NAMED that one file in its sentence, so even when it did fire the
+  # remedy pointed at the wrong place. It now names the files it actually found.
+  _trust_marked=''
+  for _cfg in "$HOME/.claude.json" ${CLAUDE_CONFIG_DIR:+"$CLAUDE_CONFIG_DIR/.claude.json"} "$HOME"/.claude-*/.claude.json; do
+    [ -f "$_cfg" ] || continue
+    grep -q '"hasTrustDialogAccepted": true' "$_cfg" 2>/dev/null || continue
+    case " $_trust_marked " in *" $_cfg "*) continue ;; esac
+    _trust_marked="$_trust_marked $_cfg"
+  done
+  if [ "$_agents_stopped" = "yes" ] && [ -n "$_trust_marked" ]; then
+    printf '  Trust marks were left in place: your agents'"'"' folders are recorded as\n'
+    printf '  trusted in these files (Claude Code will not ask before working in\n'
+    printf '  them):\n'
+    for _cfg in $_trust_marked; do printf '    %s\n' "$_cfg"; done
+    printf '  Those folders are still on your machine, so the marks still apply.\n'
+    printf '  Remove those entries if you want the question back.\n\n'
   fi
   exit 0
 }

@@ -3000,6 +3000,64 @@ test('#1486: the ANTHROPIC arm resolves too, because perturbing it alone left th
     'resolving made an unknown Claude account match, which is worse than the defect it fixed');
 });
 
+/* 🛑 #1629: THE FLIP MUST TRUST THE WORKER FOLDER IN THE ACCOUNT IT MOVES TO.
+   Claude Code records trust PER CONFIG DIR, so an agent pointed at an account
+   whose config never carried the flag comes up frozen on the workspace-trust
+   prompt with `No, exit` PRESELECTED - indistinguishable from an agent ignoring
+   you, because the session is alive and the process is running.
+   ⚠️ THE ENTRY IS USUALLY ABSENT RATHER THAN FALSE. Measured across worker
+   folders on a real machine, one agent's folder had no entry in ANY of three
+   configs, so a fix that only flipped an existing boolean would do nothing for
+   it. This asserts the entry is CREATED. */
+test('#1629: moving an agent to another account trusts its folder in THAT account', () => {
+  const { home } = seedAccounts();
+  const name = 'trustmover';
+  recorder();
+  create.setDryRun(false);
+  const made = create.createAgent({ ...BINS, name, role: 'pm' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+
+  const target = nodePath.join(home, '.claude-work');
+  const cfgFile = nodePath.join(target, '.claude.json');
+  const readEntry = () => {
+    const d = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
+    const key = fs.realpathSync(create.workerDir(name));
+    return (d.projects || {})[key];
+  };
+
+  /* THE PREMISE, asserted rather than assumed: the destination knows nothing
+     about this folder yet. Without this the test could pass on a fixture that
+     was already trusted, which is the state it exists to create. */
+  assert.equal(readEntry(), undefined,
+    'the destination account already carried an entry, so this test cannot show one being created');
+
+  const out = create.setAccount(name, target);
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+
+  const entry = readEntry();
+  assert.ok(entry, 'the flip left the destination account with no entry for the worker folder, so the agent meets the trust prompt');
+  assert.equal(entry.hasTrustDialogAccepted, true, 'the entry exists but does not trust the folder');
+  assert.equal(out.trust && out.trust.ok, true, 'the flip did not report what it did about trust');
+  assert.equal(out.trust.madeEntry, true, 'the flip reported flipping an existing entry rather than creating one');
+});
+
+/* The other direction: moving BACK to the default account trusts the folder
+   there too. `isDefault` means no configDir on the plist, and the trust write
+   has to follow the same rule rather than writing into a directory nobody reads. */
+test('#1629: moving back to the default account trusts the folder in the default config', () => {
+  const { home } = seedAccounts();
+  const name = 'trustback';
+  recorder();
+  create.setDryRun(false);
+  assert.equal(create.createAgent({ ...BINS, name, role: 'pm' }).outcome, create.OUTCOME.CREATED);
+  create.setAccount(name, nodePath.join(home, '.claude-work'));
+
+  const back = create.setAccount(name, '');
+  assert.equal(back.outcome, create.OUTCOME.CREATED, back.because);
+  assert.ok(back.trust, 'the move back reported nothing about trust');
+  assert.equal(back.trust.ok, true, back.trust.because);
+});
+
 test('an agent can be moved to another account, and the model comes with it', () => {
   const { home } = seedAccounts();
   const name = 'mover';
