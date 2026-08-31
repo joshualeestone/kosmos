@@ -813,6 +813,16 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    connected state, which this file already measured at 5.32:1 for white on
    #1f7a4d. One vocabulary for one outcome. */
 .acct-ok { color: var(--ok, #1f7a4d); font-weight: 700; margin-right: 6px; }
+/* kosmos#1656: the connect-success panel reuses .acct-ok's green (no second
+   check). .acct-ok-big shows that same glyph at hero size with a scale-in;
+   reduced motion drops the motion, not the check. */
+.acct-success { text-align: center; padding: 8px 0 4px; }
+.acct-ok-big { display: block; margin: 0 auto 10px; margin-right: auto; font-size: 44px; line-height: 1;
+  animation: acct-pop .32s cubic-bezier(.2,.7,.3,1.2) both; }
+.acct-success-t { margin: 0 0 4px; font-size: 1.15rem; font-weight: 700; color: var(--k-ink); }
+.acct-success-say { margin: 0 auto; color: var(--k-ink-2); max-width: 40ch; }
+@keyframes acct-pop { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .acct-ok-big { animation: none; } }
 .fmsg.is-connected, .dhint.is-connected { color: var(--ok, #1f7a4d); font-weight: 600; }
 .dwarn-m { color: var(--danger, #b3261e); font-weight: 700; margin-right: 6px; }
 /* #727: the provider choice on Accounts; the pressed one reads pressed. */
@@ -6901,7 +6911,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="acct-add-t" aria-describedby="acct-add-in">
     <h2 class="rm-title" id="acct-add-t">Add a provider</h2>
     <p class="rm-small" id="acct-add-in">Pick which AI provider you want to connect. Anthropic Claude and OpenAI work today; the rest are listed so you can see what is coming.</p>
-    <div class="field">
+    <div class="field" id="acct-provider-field">
       <label class="flabel tk-lab" id="acct-provider-lab" for="acct-provider-pick">Provider</label>
       <!-- #770: "list all the others so people can see that they're
            coming" -- a placeholder roster, not Josh's own list, since he
@@ -7026,7 +7036,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       </div>
       <p class="dhint" id="acct-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
-    <div class="rm-acts" style="margin-top: var(--space-6);">
+    <!-- kosmos#1656 (Josh, 2026-08-31, from a screenshot): a real success state.
+         On a known-good connect the modal stops showing the sign-in controls and
+         shows this: the connect flow's own green check (.acct-ok, reused not
+         rebuilt) at size with a scale-in, the account it connected to, and a way
+         out. Painted by acctShowSuccess(); the provider field, both flows and the
+         plain Close row are hidden alongside. Reusable: #1659's disconnect confirm
+         can consume the same panel rather than drawing a second that drifts. -->
+    <div id="acct-success" class="acct-success" role="status" aria-live="polite" hidden>
+      <span class="acct-ok acct-ok-big" aria-hidden="true">&#10003;</span>
+      <h3 class="acct-success-t">Success!</h3>
+      <p class="acct-success-say" id="acct-success-say"></p>
+      <div class="rm-acts" style="margin-top: var(--space-6);">
+        <button class="btn uprime" id="acct-success-close" type="button">Close</button>
+      </div>
+    </div>
+    <div class="rm-acts" style="margin-top: var(--space-6);" id="acct-add-acts">
       <button class="btn" id="acct-add-close" type="button">Close</button>
     </div>
   </div>
@@ -13548,6 +13573,7 @@ function acctFlowPaint(st) {
     note.innerHTML = '<span class="acct-ok" aria-hidden="true">\u2713</span> Connected';
     note.classList.add('is-connected');
     paintAccounts();
+    acctShowSuccess('your Claude account');
   } else if (phase === 'stuck' || phase === 'interrupted' || phase === 'failed') {
     /* ⚠️ EVERY OTHER ARM PUTS THE GREEN BACK. A recheck can move from connected
        to a failure, and a note left wearing the tick after that is the same
@@ -13872,7 +13898,26 @@ function openAcctReauth(dir, email) {
   acctPick('claude', { focus: false });
   document.getElementById('acct-add').focus();
 }
+/* kosmos#1656: switch the add-a-provider modal into a success state and back.
+   acctShowSuccess hides the sign-in controls (provider field, both flows, the
+   plain Close row) and shows the reused green check + the account it connected
+   to + a way out. acctResetSuccess restores the form, run on every open so a
+   second connect starts clean. */
+function acctShowSuccess(accountLabel) {
+  ['acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-add-acts']
+    .forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
+  document.getElementById('acct-success-say').textContent = 'Successfully connected to ' + accountLabel + '.';
+  document.getElementById('acct-success').hidden = false;
+  document.getElementById('acct-success-close').focus();
+}
+function acctResetSuccess() {
+  document.getElementById('acct-success').hidden = true;
+  ['acct-add-in', 'acct-provider-field', 'acct-add-acts'].forEach((id) => {
+    const el = document.getElementById(id); if (el) el.hidden = false;
+  });
+}
 function openAcctAdd() {
+  acctResetSuccess();
   const modal = document.getElementById('acct-add-modal');
   const sel = document.getElementById('acct-provider-pick');
   const active = frConnActive((ACCT_FLOW_LAST || '').split('|')[0]);
@@ -13910,6 +13955,7 @@ function closeAcctAdd() {
 }
 document.getElementById('acct-add-open').addEventListener('click', openAcctAdd);
 document.getElementById('acct-add-close').addEventListener('click', closeAcctAdd);
+document.getElementById('acct-success-close').addEventListener('click', closeAcctAdd);
 document.getElementById('acct-add-modal').addEventListener('click', (e) => { if (e.target.id === 'acct-add-modal') closeAcctAdd(); });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
@@ -13946,11 +13992,13 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
       throw e;
     }
     // The key leaves the field the moment it is stored: nothing on screen keeps it.
+    const enteredLabel = labelField.value.trim();
     keyField.value = '';
     labelField.value = '';
     const a = out && out.account;
     msg.textContent = 'Added' + (a && a.keyTail ? ': API key ending ' + a.keyTail : '') + '.';
     await paintAccounts();
+    acctShowSuccess(enteredLabel || (a && a.keyTail ? 'your OpenAI account (key ending ' + a.keyTail + ')' : 'your OpenAI account'));
   } catch (err) {
     msg.textContent = String((err && err.message) || 'We could not add that account.');
     /* kosmos#979: the runner can go missing between opening this form and
