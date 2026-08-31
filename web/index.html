@@ -570,7 +570,16 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-reauth,
 .acct-disconnect { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
   color: var(--label-2); text-decoration: underline; cursor: pointer; min-height: 24px; }
-.acct-disconnect[disabled], .acct-disconnect[aria-disabled="true"] { cursor: not-allowed; text-decoration: none; opacity: .7; }
+.acct-disconnect[disabled] { cursor: not-allowed; text-decoration: none; opacity: .7; }
+/* 🛑 THE aria-disabled ARM GETS ITS OWN OPACITY, AND THE REASON IS WCAG RATHER
+   THAN TASTE. WCAG 1.4.3 exempts "inactive user interface components", which
+   covers a natively `disabled` control. This one is deliberately FOCUSABLE and
+   carries a click handler that writes into a live region, so it is not inactive
+   in that sense and the exemption does not reach it.
+   MEASURED, --label-2 #4a4f57 on the light surface: 8.24:1 at full opacity,
+   3.76:1 at .7 (AA needs 4.5 for 13px text), 4.83:1 at .8. It still reads as
+   unavailable via cursor, the removed underline and the announced label. */
+.acct-disconnect[aria-disabled="true"] { cursor: not-allowed; text-decoration: none; opacity: .8; }
 /* #770: "underneath it we just have a large one that's the same exact
    size that says Add a provider." Same width as a box, no fixed height
    assumption -- .btn already matches a box's padding rhythm closely
@@ -13587,10 +13596,25 @@ async function paintAccounts() {
            right words and every server test passes on them; nothing below the
            page can see a sentence that is written and then wiped. */
         await paintAccounts();
-        if (msg) msg.textContent = (out && out.because) || 'Removed.';
+        if (msg) {
+          msg.textContent = (out && out.because) || 'Removed.';
+          /* Same reason as the disabled-row handler: this line sits AFTER the
+             whole account list, so feedback for a row near the top can render
+             off-screen at the moment the person acts. The class was found once
+             and fixed at one of its call sites. */
+          if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+        }
       } catch (err) {
         btn.disabled = false;
-        if (msg) msg.textContent = String((err && err.message) || 'we could not remove that account');
+        if (msg) {
+          msg.textContent = String((err && err.message) || 'we could not remove that account');
+          /* 🛑 THIS ONE MATTERS MOST OF THE THREE. On the failure path the
+             sentence is a REFUSAL that names the agents blocking the removal
+             ("marlowe is running on this account"), which the person has to read
+             to know what to do next. Rendering it below every other account box
+             is the worst place for the one message they must act on. */
+          if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+        }
       }
     });
   }

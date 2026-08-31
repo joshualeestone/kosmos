@@ -96,7 +96,19 @@ review this ships a third variant of one function.
 
 ⚠️ **DO NOT LAND THIS BRANCH WITHOUT CHECKING.** One command:
 `git show origin/main:server.js | sed -n '/accounts\/openai. && req.method === .DELETE/,/^  }/p' | grep -c 'disabledJobs\|known('`
-Non-zero means #1693 has landed and this port is owed.
+
+🛑 **BOTH ARMS, BECAUSE AN EARLIER VERSION STATED ONLY ONE AND A READER TOOK THE
+SILENCE FOR CLEARANCE:**
+
+- **NON-ZERO** -> #1693 has landed -> **the port is owed NOW.** Adopt its
+  enumeration before this merges.
+- **ZERO** -> #1693 has NOT landed -> **the decision above applies: WAIT.**
+  Landing now ships the pre-fix copy and recreates the divergence, cleanly and
+  with nothing red. **Zero is not clearance.**
+
+📌 If waiting is not acceptable, the other honest route is to land and convert
+the decision into kosmos#1697 explicitly, saying so in the PR body. **What is not
+available is landing on a zero and treating the check as satisfied.**
 
 📌 The footprint exercise found the FILE. Only reading the code found the
 DIVERGENCE. A file-overlap map cannot see same-file, different-line, opposite-
