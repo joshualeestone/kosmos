@@ -4028,14 +4028,22 @@ const server = http.createServer((req, res) => {
        agent instructed to poll), or a measurement showing agents calling it in a loop
        rather than on a person's question. Either makes it machine-paced, and a
        machine-paced ceiling is a real one. Neither is true today.
-       ⭐ AND THE ARGUMENT ABOVE HAS A HOLE THAT IS NOW CARDED AS #1645. It refuses
-       a limiter that REFUSES, which is the only kind considered here. A minimum
-       interval that answers with the PREVIOUS SWEEP PLUS ITS AGE is neither a
-       refusal nor the TTL: it changes no verdict, so it cannot turn `cannot tell`
-       into a confident `not connected`, and the age travels with the answer so
-       nothing is presented as fresher than it is. That shape was not weighed when
-       this decision was made, and the decision stands only because the work is not
-       done, not because the objection survives. */
+       ⭐ AND THE ARGUMENT ABOVE HAS A HOLE. It refuses a limiter that REFUSES,
+       which is the only kind it considered. A minimum interval that answers with
+       the PREVIOUS SWEEP PLUS ITS AGE is neither a refusal nor the TTL: it changes
+       no verdict, so it cannot turn `cannot tell` into a confident `not connected`,
+       and the age travels with the answer so nothing is presented as fresher than
+       it is. That shape was not weighed when this decision was made.
+       🛑 THAT WORK IS NOW DONE: `engine/inflight.minInterval` shipped in #1646 and
+       is one require away. An earlier version of this paragraph said the decision
+       "stands only because the work is not done", and that sentence went false the
+       moment #1646 merged, WHILE THIS ROUTE STILL DID NOT WIRE IT.
+       ⇒ SO THE HONEST STATUS IS: deliberately not wired HERE, not blocked. Wiring
+       it is user-visible (the CLI has to say the age in words a person reads), and
+       this branch is deep enough in review that the newest code is where defects
+       have been landing. It goes in a follow-up the day this merges, and the
+       reasoning is recorded on #1645 rather than left as a silence. The route
+       serves nobody today, so waiting costs nothing. */
     /* Every arm is already fail-soft, so one unreachable service degrades to
        `cannot tell` for that door rather than failing the whole answer.
        `readFirstPartyDoors` is fail-soft per door in the same way, and it

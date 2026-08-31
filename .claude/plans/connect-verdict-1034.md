@@ -88,6 +88,14 @@ your file was written"*. ⇒ **A DEVELOPER-MACHINE hazard, on exactly the machin
 boards out of worktrees all day, which is this fleet.** Named here because the plan argued
 the path trade at length and this half of it was invisible.
 
+📌 **AND THE OBVIOUS FIX IS ALREADY THE BEHAVIOUR, recorded so it is not proposed a third
+time.** A review suggested "prefer the stable `$KOSMOS_HOME/bin/kosmos` form when one
+exists". `clipath.kosmosCli` **already does exactly that**: it probes for `bin/kosmos` AND
+`app/server.js` together and returns the installed path, falling back to the source
+checkout only when that conjunction fails. So there is no change to make. What remains is
+inherent to running a board out of a worktree at all, and it is the source arm doing its
+job rather than a defect in the chooser.
+
 ## Scope
 
 **In:** the boundary module, one read route, one CLI verb, tests, **and the agent-facing
@@ -103,6 +111,12 @@ spends its length arguing against.
 NEW or IMPORTED agent gets the paragraph immediately (`create.js`, `discover.js`); an agent
 ALREADY RUNNING gets it only when somebody next saves the About-you form, and nothing
 signals the difference.
+📌 **CARDED AS #1649, and measured as PRE-EXISTING rather than introduced here:**
+`syncEveryone` already had that single caller on `origin/main` before this branch (6
+references in `server.js`, 2 in `engine/connections.js`), and this branch's only edits in
+that area are comments. So it is the delivery path for the WHOLE managed block, not for
+one paragraph, and fixing it inside a privacy change would be the scope creep this plan
+was already pulled up for once.
 
 🛑 **TWO MORE EDITS SHIPPED OUTSIDE THAT LIST AND THE LIST DID NOT MOVE.** Recording them
 here rather than leaving a reader to find them and conclude they were sneaked in:

@@ -174,8 +174,8 @@ function blockBody() {
        hand-wrapped to ~72 that eighteen agents read. */
     '`' + cli + ' connections`.',
     'It tells you which providers are connected on this computer, and whether a',
-    'CLAUDE sign-in is part way through.',
-    '(pasting a GPT key is not a sign-in flow and will not show there). It answers',
+    'CLAUDE sign-in is part way through, remembering that pasting a GPT key is not',
+    'a sign-in flow and will not show there. It answers',
     'in three states, and **could not check** is one of them: treat that as',
     'unknown, never as "not connected".',
     '',
