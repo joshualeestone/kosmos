@@ -3407,7 +3407,13 @@ const server = http.createServer((req, res) => {
                  recoverable was the one fact withheld from the person who might
                  need it. Guarded, because `movedTo` is absent on the
                  already-gone branch. */
-              + (out.movedTo ? ' It is in ' + path.basename(out.movedTo) + '.' : '')
+              /* 📌 "IT IS IN .removed-claude-walk" IS NOT AN ANSWER TO "WHERE
+                 DID IT GO" for the person this product is written for. A bare
+                 hidden-directory name is a fact, not a location. Naming the home
+                 folder costs four words and makes the sentence actionable, which
+                 was the whole point of surfacing `movedTo` at all. */
+              + (out.movedTo ? ' It is in a folder called ' + path.basename(out.movedTo)
+                  + ' in your home folder.' : '')
             : 'That account was already gone from this computer.',
           /* Carried for diffability with the OpenAI route. The page repaints
              through GET /api/accounts, which uses listLive(), so no caller

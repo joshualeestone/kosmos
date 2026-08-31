@@ -512,9 +512,14 @@ function forgetAccount(dir, usedBy) {
          emits. A reason that is true only sometimes, stated as fact, on a
          refusal that is always.
          📌 PRECISELY WHAT THE REWRITE ACHIEVED, because the earlier version of
-         this comment overstated it: the clause is now "ANY other accounts",
-         which on a single-account machine is VACUOUSLY true rather than false.
-         That is honest, not unconditional. The genuinely unconditional half is
+         this comment overstated it. The clause now reads "other accounts here
+         MAY keep their history inside it", which is true in all three cases the
+         module models: none exist, they share the primary tree, or they keep
+         their own (`sharesMemory` / `memoryShared: false`).
+         ⚠️ AND THIS COMMENT WAS ITSELF STALE FOR ONE ITERATION: it described an
+         intermediate wording ("ANY other accounts", vacuously true) that the
+         next rewrite replaced, so two comments about one sentence disagreed
+         while the sentence sat three lines below both of them. The genuinely unconditional half is
          the first sentence (this is the folder Claude Code uses when nothing
          says otherwise), and that is what carries the refusal. */
       because: 'Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.',

@@ -87,6 +87,28 @@ test('#1659: a path that is not a Claude account on this computer is refused', (
    because every other check keys on the name. The module's own docblock states
    the invariant and list() enforces it; this is the destructive path enforcing
    it too. */
+/* 🛑 THE UNINSTALLER MUST KNOW ABOUT THE SHAPE THIS MODULE CREATES, AND NOTHING
+   PINNED THAT. `forgetAccount` renames an account to FORGOTTEN_PREFIX + label
+   and deliberately KEEPS its config inside, so a "hasTrustDialogAccepted" mark
+   survives there. install/setup.sh's uninstall sweep globs the account configs
+   it warns about; before #1659 it could not match this prefix, and the person
+   was told their trust marks were accounted for while one sat in plain sight.
+   📌 PINNED IN SOURCE because that is how its three siblings are guarded
+   (install.uninstall-sweep / -litter-1547 / -remembered-1531 all read setup.sh
+   and assert on its text). Without this, dropping the glob restores a
+   true-sounding silence and nothing goes red. */
+test('#1659: the uninstall trust sweep covers the directory forgetAccount creates', () => {
+  const setup = fs.readFileSync(nodePath.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
+  const loop = setup.split('\n').find((l) => l.trim().startsWith('for _cfg in'));
+  assert.ok(loop, 'the uninstall trust-sweep loop is gone from install/setup.sh');
+  assert.ok(loop.includes(accounts.FORGOTTEN_PREFIX + '*/.claude.json'),
+    'the sweep no longer covers ' + accounts.FORGOTTEN_PREFIX + '*, so a trust mark in a forgotten account is invisible and the uninstaller says nothing');
+  /* CONTROL: the loop really does carry the ordinary account glob, so a pass
+     above means the assertion found a populated line rather than an empty one. */
+  assert.ok(loop.includes('.claude-*/.claude.json'),
+    'the sweep lost its ordinary account glob, so this test is asserting against the wrong line');
+});
+
 test('#1659: a .claude-* directory that is NOT signed in is refused, and survives', () => {
   const notAnAccount = nodePath.join(SANDBOX, '.claude-workers');
   fs.mkdirSync(nodePath.join(notAnAccount, 'inbox'), { recursive: true });
