@@ -44,6 +44,30 @@ process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'LaunchAgents');
 process.env.AGENT_WORKFORCE_HOME = nodePath.join(SANDBOX, 'home');
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'support');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+/* 🛑 THE TMUX STUB IS UNCONDITIONAL AND SITS BESIDE THE OTHER SANDBOX VARS,
+   BECAUSE A HALF-SANDBOXED BOARD READS THE REAL FLEET. This file shipped
+   without it and I measured the consequence rather than assuming one: running
+   it with a TRACING tmux first on PATH captured
+
+       tmux list-panes -a -F '#{session_name} ...'      TWICE
+
+   so every suite run was enumerating the operator's real panes. The writes
+   were safe (they go to AGENT_WORKFORCE_WORKERS above), but the READ was not
+   sandboxed at all, and a roster of real agents inside a test that CREATES
+   agents is one derived path away from touching them.
+
+   ⚠️ IT IS THE DEFECT MY OWN #1692 IS ABOUT, IN MY OWN TEST. That card exists
+   because `DRY_RUN=1` satisfied a guard it must not: DRY_RUN neuters tmux
+   WRITES, and a roster is a READ. `engine/status.js` resolves the binary as
+   `AGENT_WORKFORCE_TMUX_BIN || 'tmux'` and consults nothing else, so only
+   TMUX_BIN redirects a read.
+
+   📌 FAKE_PANES is set too. TMUX_BIN alone points the read at a stub that has
+   no pane list to answer with; the pair is what makes the roster both fake and
+   deterministic. */
+process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, '..', 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_FAKE_PANES = nodePath.join(SANDBOX, 'panes.txt');
+fs.writeFileSync(nodePath.join(SANDBOX, 'panes.txt'), '');
 process.on('exit', () => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
