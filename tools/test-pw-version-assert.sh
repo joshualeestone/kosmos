@@ -9,7 +9,10 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 GATE="$REPO/tools/browser-checks.sh"
-PIN="$(sed -n 's/^PW_VERSION="\([0-9][0-9.]*\)".*/\1/p' "$REPO/tools/provision-pw.sh" | head -1)"
+# Read the pin IDENTICALLY to browser-checks.sh (`\([^"]*\)`), so a pre-release
+# pin (e.g. 1.63.0-alpha) is captured whole and the matching-version control
+# below cannot spuriously read as drift.
+PIN="$(sed -n 's/^PW_VERSION="\([^"]*\)".*/\1/p' "$REPO/tools/provision-pw.sh" | head -1)"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 pass() { printf 'ok   %s\n' "$*"; }
 [ -n "$PIN" ] || fail "could not read the PW_VERSION pin"
@@ -46,5 +49,16 @@ rc=0; KOSMOS_PW_STRICT_VERSION=1 KOSMOS_PW_NODE_PATH="$D2" bash "$GATE" >"$TMP/o
 grep -q 'refusing to run the page gate on an unpinned build' "$TMP/out" || { cat "$TMP/out"; fail "STRICT drift did not print the refusal"; }
 [ "$rc" -eq 2 ] || fail "STRICT drift exited $rc, expected 2"
 pass "KOSMOS_PW_STRICT_VERSION=1 hard-stops on drift (exit 2)"
+
+# 4. STRICT + an UNREADABLE version must ALSO hard-stop: resolve_pw accepts a
+#    `playwright/` dir that lacks package.json, so the version cannot be read.
+#    "cannot verify" is not "verified pinned" -- a fail-closed flag must not fail
+#    open. (Control for this arm: case 3 above, where STRICT stops on a real
+#    mismatch; here it must stop on an unreadable one too.)
+N="$(mktemp -d "$TMP/nm.XXXXXX")"; mkdir -p "$N/playwright"   # dir present, no package.json
+rc=0; KOSMOS_PW_STRICT_VERSION=1 KOSMOS_PW_NODE_PATH="$N" bash "$GATE" >"$TMP/out" 2>&1 || rc=$?
+grep -q 'cannot verify the pin' "$TMP/out" || { cat "$TMP/out"; fail "STRICT with an unreadable version did NOT refuse (fail-open under a fail-closed flag)"; }
+[ "$rc" -eq 2 ] || fail "STRICT unreadable-version exited $rc, expected 2"
+pass "KOSMOS_PW_STRICT_VERSION=1 hard-stops when the version cannot be verified (exit 2)"
 
 printf '\nall pass\n'
