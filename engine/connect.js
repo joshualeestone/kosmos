@@ -987,12 +987,16 @@ async function start(opts) {
      * of offering it.
      *
      * ------------------------------------------------------------------
-     * 📌 HISTORY MOVED, NOT TRIMMED. Three superseded readings of this paragraph
-     * (each wrong in a different and instructive direction) now live in
-     * `.claude/plans/runnable-dir-1592-20260830.md`, under "History of the
-     * becomeStuck paragraph". Two independent reviewers flagged 25 lines of
-     * non-operative archaeology in a hot path; the rule this branch wrote for
-     * itself is MOVE, THEN TRIM, NEVER TRIM FIRST, so it was moved.
+     * 📌 HISTORY MOVED, NOT TRIMMED. Three superseded readings of this paragraph,
+     * each wrong in a different and instructive direction, were moved to the #1592
+     * plan and the PR that carried it. Two independent reviewers flagged 25 lines of
+     * non-operative archaeology in a hot path; the rule this branch wrote for itself
+     * is MOVE, THEN TRIM, NEVER TRIM FIRST, so it was moved.
+     * ⚠️ POINTING AT THE CARD, NOT AT A FILENAME. This cited
+     * `.claude/plans/runnable-dir-1592-20260830.md` directly, and a plan file is a
+     * branch artifact with a DATE in its name: it can be pruned or renamed, and
+     * shipped source would then point at nothing with no signal to the reader.
+     * A card number survives both.
      */
 
     const binaryOnDisk = require('./runners').resolveBin('claude').present;

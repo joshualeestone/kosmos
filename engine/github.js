@@ -60,16 +60,6 @@ function ghCandidateList(override = process.env.AGENT_WORKFORCE_GH_CANDIDATES) {
   return override.split(':').filter(Boolean);
 }
 
-/* gh presence, so ONE writer can branch on this object alone (her ruling:
-   the field keeps its name on this road too). Mirrors github.js's spec
-   candidates; the gh DOOR stays the authority on the gh road itself.
-
-   📌 MOVED BACK DOWN ONTO THE FUNCTION IT DOCUMENTS. The candidate-list block
-   above was inserted BETWEEN this comment and ghPresent, so it read as
-   documentation for the constant. That is the doc-comment-binds-by-position
-   hazard this branch documents elsewhere, committed by the person documenting
-   it. */
-
 module.exports = Object.assign(makeDoor({
   serviceName: 'GitHub',
   toolName: 'the GitHub tool (gh)',

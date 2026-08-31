@@ -121,10 +121,13 @@ function setClientId(id) {
    It also removes an exported test-only function from production.
 
    ⚠️ NAMED LIMIT, because overclaiming is the failure this branch keeps finding:
-   this does not make divergence impossible. `GH_CANDIDATES_DEFAULT` is still
-   separately referenceable, and somebody could scan it a second way. NO SOURCE
-   SHAPE PREVENTS THAT AND NO SOURCE ARM DETECTS IT; the arm that tried was
-   removed for pretending otherwise.
+   this does not make divergence impossible. `github.GH_CANDIDATES` is exported and
+   separately referenceable, so somebody could scan it a second way. NO SOURCE SHAPE
+   PREVENTS THAT AND NO SOURCE ARM DETECTS IT; the arm that tried was removed for
+   pretending otherwise.
+   📌 This named `GH_CANDIDATES_DEFAULT`, a local alias that no longer exists: it was
+   imported here and never used, and dropping it left this paragraph pointing at a
+   deleted binding. The hazard is unchanged; only the reachable name is different.
 
    📌 The genuinely closed form is devicedoor's: pass the candidates in as a
    parameter production callers already supply, so there is no default to diverge
@@ -169,14 +172,24 @@ function setClientId(id) {
    ⇒ The dependency is now one-directional (this file -> github.js) and the door
    calls a function defined in its own module, so no load failure can reach it.
    Re-exported below unchanged, so every existing caller and test is unaffected. */
-const { GH_CANDIDATES: GH_CANDIDATES_DEFAULT, ghCandidateList } = require('./github');
+const { ghCandidateList } = require('./github');
 
+/* gh presence, so ONE writer can branch on this object alone.
+
+   📌 THIS COMMENT WAS DRAGGED INTO `engine/github.js` when `ghCandidateList` moved
+   there, and it sat above that file's door spec, documenting a function in THIS
+   file. Its own closing note claimed it had been "MOVED BACK DOWN ONTO THE FUNCTION
+   IT DOCUMENTS", which was false in the file it had landed in. A comment that
+   asserts its own position is wrong the moment somebody moves it, and a move is
+   exactly when nobody re-reads it. Returned here, and the self-describing sentence
+   is gone rather than re-asserted. */
 function ghPresent() {
   // #1592: the byte-identical twin of devicedoor.js's lambda, which is why
   // fixing one file would not have found the other. Both now ask runners.
   const runnable = (p) => require('./runners').isRunnable(p);
-  /* Truthiness here, deliberately, and NOT the `=== undefined` used by
-     ghCandidateList above: an empty AGENT_WORKFORCE_GH_BIN means "no override",
+  /* Truthiness here, deliberately, and NOT the `typeof override !== 'string'`
+     test that `ghCandidateList` uses in `engine/github.js`: an empty
+     AGENT_WORKFORCE_GH_BIN means "no override",
      so it falls through to the candidate scan rather than asserting a bin at ''. */
   if (process.env.AGENT_WORKFORCE_GH_BIN) return runnable(process.env.AGENT_WORKFORCE_GH_BIN);
   return ghCandidateList().some(runnable);
