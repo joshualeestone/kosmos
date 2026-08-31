@@ -149,8 +149,9 @@ let failed = 0;
      rename is the product decision; this line was left behind by it. */
   say('every box says Signed in (live check against the harness stub accepted the walk key)', rows.length > 0 && rows.every((r) => /Signed in/.test(r)), JSON.stringify(rows));
   /* 🛑 THIS ASSERTED "Disconnect is disabled everywhere" AND #1372 MADE IT
-     FALSE. The OpenAI arm has an engine route now, so its button is live and says
-     Remove; Claude's still has none (#1184) and keeps the honest dead Disconnect.
+     FALSE, THEN #1659 MADE THE REPLACEMENT FALSE TOO. Both providers now have an
+     engine route: OpenAI says Remove (#1372), Claude says Disconnect (#1659), and
+     BOTH are live except on the default row, which the engine refuses.
      ⚠️ THIS WOULD HAVE BEEN THE THIRD CUT THIS ONE FILE TOOK DOWN by an assertion
      that was correct when written: "Connected"->"Signed in" failed 0.5.88, the
      provider leaving the row failed 0.6.05. Each was green right up to the change
@@ -170,13 +171,17 @@ let failed = 0;
   say('the OpenAI account offers a live Remove (#1372)',
     openaiDoors.length > 0 && openaiDoors.every((b) => !b.disabled && b.forgets && /^Remove$/.test(b.label)),
     JSON.stringify(doors));
-  /* Reported, not asserted: this fixture adds no Claude account, so the #1184 arm
-     has nothing to say here and a silent pass would claim that it did. */
+  /* Reported, not asserted: this fixture adds no Claude account, so the Claude arm
+     has nothing to say here and a silent pass would claim that it did.
+     🛑 THIS ARM ASSERTED THE OPPOSITE UNTIL #1659 and was dormant only because
+     `otherDoors` is empty in this sandbox -- a fourth stale assertion in this one
+     file, armed and waiting on whoever first seeded a Claude account. It now
+     asserts the LIVE control, so it fails if the button reverts to dead. */
   if (otherDoors.length === 0) {
-    console.log('NOTE  no non-OpenAI account in this fixture; the #1184 dead-Disconnect arm was not exercised');
+    console.log('NOTE  no non-OpenAI account in this fixture; the Claude live-Disconnect arm was not exercised');
   } else {
-    say('a non-OpenAI account keeps the dead Disconnect (#1184 unchanged)',
-      otherDoors.every((b) => b.disabled && !b.forgets && /^Disconnect$/.test(b.label)), JSON.stringify(otherDoors));
+    say('a non-default Claude account offers a live Disconnect (#1659)',
+      otherDoors.some((b) => !b.disabled && b.forgets && /^Disconnect$/.test(b.label)), JSON.stringify(otherDoors));
   }
   // Create form: OpenAI provider -> account menu offers the new account
   await p.goto(BASE + '/?tab=create', { waitUntil: 'load' });
@@ -215,7 +220,11 @@ let failed = 0;
      "the row went away" and "the row was never rendered" are the same pass. */
   say('before the click, the account is on the list',
     rowsBefore.some((r) => /API key ending WALK/.test(r)), JSON.stringify(rowsBefore));
-  const pressed = await p.evaluate(() => { const b = document.querySelector('#set-accounts [data-forget]'); if (!b) return false; b.click(); return true; });
+  /* 🛑 SCOPED TO THE PROVIDER (#1659). `[data-forget]` was unambiguous while only
+     OpenAI rows carried it; Claude rows carry it now, so a bare selector presses
+     whichever row renders first and this OpenAI flow could silently drive the
+     Claude one. */
+  const pressed = await p.evaluate(() => { const b = document.querySelector('#set-accounts [data-forget-provider="openai"]'); if (!b) return false; b.click(); return true; });
   say('the Remove button is there to press', pressed);
   await p.waitForTimeout(1500);
   const after = await p.evaluate(() => ({

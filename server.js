@@ -3272,14 +3272,6 @@ const server = http.createServer((req, res) => {
   }
 
   /**
-   * Point an account's history at the shared tree, so agents can be moved to it.
-   *
-   * 📌 A SEPARATE ACT FROM THE MOVE, on purpose. It edits something outside
-   * Kosmos's own data (a directory belonging to a Claude account), so it is
-   * something a person chooses, not a side effect of picking a name in a
-   * dropdown.
-   */
-  /**
    * Forget a Claude account (#1659).
    *
    * The Claude half of #1372. Josh, 2026-08-31: the button said "Disconnect is
@@ -3298,12 +3290,18 @@ const server = http.createServer((req, res) => {
    * sentence for it was AMBIGUITY WAS SILENTLY NONE. A Claude route written
    * from the card alone would have had that bug, so it is copied deliberately.
    *
-   * 📌 A CLAUDE JOB ON THE DEFAULT ACCOUNT CARRIES `configDir: null`
-   * (`create.js:769` writes `acct.isDefault ? null : acct.dir`), which is why
-   * absence falls back to the isDefault comparison rather than reading as "no
-   * account". And `readJob` normalises a MISSING runner to 'claude', because
-   * every plist written before runners existed carries no ninth argument -- so
-   * the filter below cannot silently skip an old Claude agent.
+   * 📌 THE `isDefault` FALLBACK IS CARRIED FOR SYMMETRY WITH THE OPENAI ROUTE
+   * AND IS INERT HERE. A Claude job on the default account carries
+   * `configDir: null` (`create.js:769` writes `acct.isDefault ? null :
+   * acct.dir`), so absence falls back to the isDefault comparison rather than
+   * reading as "no account" -- but that branch can only ADD names to `usedBy`
+   * when `dir` IS the default, and `accounts.forgetAccount` refuses the default
+   * before it ever reads `usedBy`. So no test can exercise it and it cannot
+   * change this route's outcome. It is kept so the two routes stay diffable;
+   * it is not load-bearing, and this comment says so rather than implying it is.
+   * 📌 `readJob` normalises a MISSING runner to 'claude', because every plist
+   * written before runners existed carries no ninth argument -- so the filter
+   * below cannot silently skip an old Claude agent. That one IS load-bearing.
    */
   if (pathname === '/api/accounts/claude' && req.method === 'DELETE') {
     readBody(req)
@@ -3364,6 +3362,14 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /**
+   * Point an account's history at the shared tree, so agents can be moved to it.
+   *
+   * 📌 A SEPARATE ACT FROM THE MOVE, on purpose. It edits something outside
+   * Kosmos's own data (a directory belonging to a Claude account), so it is
+   * something a person chooses, not a side effect of picking a name in a
+   * dropdown.
+   */
   if (pathname === '/api/accounts/share' && req.method === 'POST') {
     readBody(req)
       .then((raw) => {

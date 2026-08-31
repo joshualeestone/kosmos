@@ -13320,7 +13320,12 @@ async function paintAccounts() {
        the honest state rather than a gap: a live button opening onto nothing
        is exactly the "nothing that looks live may do nothing"
        shape this file already refuses for the external-person/agent
-       doors. Wire the modal when that route exists. */
+       doors.
+       ⚠️ IT STILL DOES NOT ASK FIRST, on either provider. #770 asked for a
+       link "that asks first" and neither this nor the OpenAI Remove beside it
+       is wired to a confirm; removal is one click. Pre-existing on the OpenAI
+       side since #1372, and inherited here rather than introduced. Recorded as
+       an open gap, not fixed on this card. */
     /* #881: THREE STATES, NOT A HARDCODED ONE. This badge used to be
        unconditional markup -- every account row said "Connected" no
        matter what. GET /api/accounts now confirms each Claude row live
@@ -13409,10 +13414,23 @@ async function paintAccounts() {
         ? '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
           + 'data-forget-provider="openai" '
           + 'aria-label="Remove ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '">Remove</button>'
-        : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
-          + 'data-forget-provider="claude" '
-          + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
-          + 'title="Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted.">Disconnect</button>')
+        : (a.isDefault
+          /* 🛑 THE DEFAULT ROW GETS A DISABLED BUTTON, BECAUSE THE ENGINE
+             REFUSES IT. `accounts.forgetAccount` will not move `~/.claude`:
+             `prepare()` symlinks every account Kosmos makes at
+             `~/.claude/projects`, so removing it strands the history of
+             accounts nobody asked to remove. `list()` always emits the default
+             row first, so a live button here is one EVERY user sees and NONE
+             can use -- the "nothing that looks live may do nothing" shape this
+             file refuses elsewhere, and it would carry a title promising an act
+             it cannot perform. The title states the refusal and the way out. */
+          ? '<button class="acct-disconnect" type="button" disabled '
+            + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+            + 'title="This is this computer\u2019s main Claude folder. The other accounts here keep their history inside it, so it cannot be removed. Remove the others first, or sign out of this one instead.">Disconnect</button>'
+          : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
+            + 'data-forget-provider="claude" '
+            + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+            + 'title="Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted.">Disconnect</button>'))
       + '</div>';
   };
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);

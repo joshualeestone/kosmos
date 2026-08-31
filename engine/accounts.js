@@ -534,6 +534,10 @@ function forgetAccount(dir, usedBy) {
   try { fs.renameSync(clean, target); }
   catch { return { ok: false, forgotten: false, because: 'we could not move that account out of the way' }; }
 
+  /* `wasDefault` is a constant here and there is no branch that sets it true:
+     the default is refused above, so it can never reach this line. Kept so the
+     success shape matches `openaiaccounts.forgetAccount`, whose default CAN be
+     forgotten. Said out loud to save the next reader hunting for the branch. */
   return { ok: true, forgotten: true, movedTo: target, wasDefault: false, because: null };
 }
 

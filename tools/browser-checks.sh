@@ -587,6 +587,16 @@ exit 0
 FAKE
 chmod +x "$sb4/fake-claude"
 write_fleet "$sb4"
+# #1659: a NON-DEFAULT Claude account, so the Claude Disconnect arm in
+# render-accounts-openai is EXERCISED rather than skipped. Before this the
+# sandbox held only OpenAI accounts, `otherDoors` was empty, and that arm
+# printed a NOTE and asserted nothing -- which is how its assertion sat stale
+# and green across two changes that contradicted it. A non-default label on
+# purpose: the default row's button is deliberately disabled (the engine
+# refuses to move ~/.claude), so seeding only the default would leave the live
+# control untested for a second time.
+mkdir -p "$sb4/home/.claude-walk"
+printf '{"oauthAccount":{"emailAddress":"walk@example.com"}}' > "$sb4/home/.claude-walk/.claude.json"
 # A stand-in for api.openai.com/v1/models (#962): the badge now checks a key
 # live, and a page gate must not send a fake key to OpenAI, nor depend on
 # OpenAI answering. The stub accepts exactly the walk's key and refuses any
