@@ -815,6 +815,16 @@ test('every spelling of zero is refused by the connection deadline guard', () =>
   for (const junk of ['', 'abc', '4x', '-1']) {
     assert.equal(run(junk), '40', `a non-numeric value ${JSON.stringify(junk)} was accepted as a deadline`);
   }
+  /* 🛑 THE HIGH SIDE, WHICH THE FIRST VERSION OF THIS GUARD LEFT WIDE OPEN.
+     `curl -m 999999` is about 11.5 days, which removes the ceiling exactly as
+     `-m 0` does and makes the timeout sentence unreachable by the same route.
+     Same failure, opposite end. Zero spellings alone are not the hazard: any
+     value outside a sane band is. */
+  for (const huge of ['301', '3600', '999999']) {
+    assert.equal(run(huge), '40',
+      `KOSMOS_CONN_TIMEOUT=${huge} was accepted: a deadline that long is no ceiling at all, and the CLI hangs instead of reporting a timeout`);
+  }
+  assert.equal(run('300'), '300', 'the top of the band was rejected, so the band is narrower than it claims');
   /* CONTROL: a real value must still get through, or the guard is just a
      constant and the test above passes for the wrong reason. */
   assert.equal(run('7'), '7', 'a valid deadline was rejected, so the guard refuses everything and proves nothing');

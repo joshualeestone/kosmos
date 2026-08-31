@@ -453,3 +453,82 @@ test('a stale terminal sign-in beside a live connection reads as unknown, not st
   assert.equal(gptOnly.signin.phase, 'stuck',
     'a GPT connection suppressed a CLAUDE sign-in that is genuinely stuck: the sign-in flow is Claude only, so only a Claude connection can make its record stale');
 });
+
+test('every NON-string leaf is a number, boolean or null, and no number is a plausible identifier', () => {
+  /**
+   * 🛑 THE TWO LEAK PROOFS ABOVE ARE STRING-ONLY. One plants string secrets and
+   * greps the serialized output; the other collects `typeof v === 'string'` and
+   * checks an allowlist. BOTH ARE BLIND TO A NUMERIC OR BOOLEAN LEAK: an account
+   * id, a pid, a port, a uid, a timestamp. The plan names the field-name residual
+   * ("the allowlist is only as good as its list") and does not name this one.
+   *
+   * ⭐ The counts this module emits are small by construction (they count rows on
+   * one computer), so a large integer arriving anywhere in the view is a value
+   * that came from somewhere else. That is a cheap, honest discriminator without
+   * pinning the exact numbers, which would make this test a copy of the code.
+   */
+  const out = verdict.forAgent(richInput());
+  const leaves = [];
+  /* ⚠️ ONLY PLAIN OBJECTS AND ARRAYS ARE RECURSED INTO, AND THAT PRECISION IS THE
+     WHOLE GUARD. The first version of this walker recursed into anything with
+     `typeof v === 'object'`. A planted `new Date(0)` has no enumerable own
+     entries, so it produced NO LEAVES AND VANISHED, and the test passed while a
+     Date sat in the view. That is the same blindness this test exists to close,
+     wearing a different shape: found by perturbing the guard, not by reading it.
+     Anything that is not a plain object or an array is now a LEAF, so it has to
+     survive the type assertion below rather than slipping through the recursion. */
+  const isPlain = (v) => v !== null && typeof v === 'object'
+    && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
+  (function walk(v, path) {
+    if (Array.isArray(v)) { v.forEach((x, i) => walk(x, `${path}[${i}]`)); return; }
+    if (isPlain(v)) { Object.entries(v).forEach(([k, x]) => walk(x, `${path}.${k}`)); return; }
+    leaves.push([path, v]);
+  }(out, 'view'));
+
+  const nonStrings = leaves.filter(([, v]) => typeof v !== 'string');
+  assert.ok(nonStrings.length > 0,
+    'control: the view emitted no non-string leaves at all, so this test is checking nothing');
+
+  for (const [path, v] of nonStrings) {
+    assert.ok(v === null || typeof v === 'number' || typeof v === 'boolean',
+      `${path} is a ${typeof v}, which is neither a count, a flag, nor "we could not look"`);
+    if (typeof v === 'number') {
+      assert.ok(Number.isInteger(v) && v >= 0 && v < 1000,
+        `${path} = ${v}: counts on one computer are small, so a value this size came from somewhere else (a pid, a port, an id, a timestamp)`);
+    }
+  }
+});
+
+test('services come out in NAME order, which is the recorded reason the sort exists', () => {
+  /**
+   * 🛑 A RECORDED DEFECT FIX WITH NO GUARD IS A DEFECT WITH A NOTE ATTACHED.
+   * That is this branch's own standard, applied to paragraph order one file away,
+   * and the service sort was the place it was not applied to itself. Nothing in
+   * any test pinned the order, so a revert to key order goes green.
+   *
+   * The defect it fixes: the doors arrive keyed `/api/github`, `/api/svc/<slug>`,
+   * `/api/vercel`, so KEY order interleaves the token doors between the
+   * first-party ones and printed "Cloudflare, GitHub, Airtable, ..., Vercel" at a
+   * person. Sorting by the NAME the person actually reads is the fix.
+   *
+   * ⭐ The control is what makes this more than a tautology: the fixture is built
+   * so key order and name order genuinely DISAGREE. Without that, a test asserting
+   * name order passes on an unsorted list.
+   */
+  const doors = {
+    '/api/vercel': { connected: true },
+    '/api/svc/airtable': { connected: true },
+    '/api/github': { connected: true },
+  };
+  const names = { '/api/vercel': 'Vercel', '/api/svc/airtable': 'Airtable', '/api/github': 'GitHub' };
+
+  const keyOrder = Object.keys(doors).sort().map((k) => names[k]);
+  const nameOrder = [...Object.values(names)].sort();
+  assert.notDeepEqual(keyOrder, nameOrder,
+    'control: this fixture cannot tell key order from name order, so the assertion below would pass either way');
+
+  const out = verdict.forAgent({ doors, doorNames: names });
+  const got = out.services.map((s) => s.name);
+  assert.deepEqual(got, nameOrder,
+    `services came out in ${JSON.stringify(got)}: the person reads the NAME, so a name they can scan must not be interleaved by a route key they never see`);
+});

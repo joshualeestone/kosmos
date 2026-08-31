@@ -3153,8 +3153,14 @@ const server = http.createServer((req, res) => {
          `checkLive` -> `askModels` issues an uncached
          `GET https://api.openai.com/v1/models` carrying the person's REAL KEY as
          a bearer token, once per apikey account, on every call. Measured: the
-         string `cache` appears ZERO times in engine/openaiaccounts.js (control:
-         `async` appears 5 times, so the grep works).
+         only occurrence of `cache` in engine/openaiaccounts.js is line 470's
+         `Not a cache`, describing #1618's in-flight collapse (control: `async`
+         appears 5 times, so the grep works). Collapsing concurrent callers is
+         not caching: nothing is held after it settles, so every call is live.
+         ⚠️ This read ZERO until #1618 merged in mid-branch and added that
+         comment. The conclusion never moved; the MEASUREMENT went stale, in a
+         comment on the branch about measurements going stale. Cite what the hit
+         IS, not that there are none: a count of zero is one edit from wrong.
          ⚠️ NOT the Brave/Exa/Tavily money case: /v1/models is not token-billed,
          which is why it was not swept out with the token doors. It is still a
          third-party authenticated round trip per agent call, and a paragraph
@@ -4032,11 +4038,19 @@ const server = http.createServer((req, res) => {
          ⇒ The route now says which provider it asked for, rather than believing
          what came back. `listLive` on each module answers for one provider, so
          stamping is a statement of the question, not an override of an answer. */
+      /* ⚠️ Array.isArray, NOT `|| []`. A reader that resolves a truthy NON-array
+         made the spread throw, and the throw landed in the outer .catch as a 500:
+         the one input shape where this route answered with a hard failure instead
+         of the `cannot tell` it exists to produce. Defensive only today, since
+         both readers return arrays or reject. */
+      const asRows = (v) => (Array.isArray(v) ? v : []);
       const rows = [
-        ...(claudeRows || []).map((a) => ({ ...a, provider: 'anthropic' })),
-        ...(openaiRows || []).map((a) => ({ ...a, provider: 'openai' })),
+        ...asRows(claudeRows).map((a) => ({ ...a, provider: 'anthropic' })),
+        ...asRows(openaiRows).map((a) => ({ ...a, provider: 'openai' })),
       ];
-      const unreadable = { anthropic: claudeRows === null, openai: openaiRows === null };
+      /* A non-array is 'we could not read it', exactly like null: reporting it as
+         an empty machine would be the confident negative this card refuses. */
+      const unreadable = { anthropic: !Array.isArray(claudeRows), openai: !Array.isArray(openaiRows) };
       let runnerStatus = {};
       try { runnerStatus = runners.status(); } catch { runnerStatus = {}; }
       let signin = null;

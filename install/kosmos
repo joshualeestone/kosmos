@@ -756,7 +756,15 @@ cmd_connections() {
   case "${KOSMOS_CONN_TIMEOUT:-}" in
     "") : ;;
     *[!0-9]*) : ;;          # not digits-only: ignore it, keep the ceiling
-    *) [ "$((10#$KOSMOS_CONN_TIMEOUT))" -gt 0 ] && deadline="$KOSMOS_CONN_TIMEOUT" ;;
+    *) _t=$((10#$KOSMOS_CONN_TIMEOUT))
+       # 🛑 A BAND, NOT JUST "> 0". An earlier version closed every spelling of
+       # zero and left the high side wide open: KOSMOS_CONN_TIMEOUT=999999 reached
+       # `curl -m 999999`, about 11.5 days, which removes the ceiling exactly as
+       # `-m 0` does and makes the timeout sentence below unreachable by the same
+       # route. Same failure, opposite end, and the guard's own comment claimed to
+       # prevent it. 300 is well past any honest local sweep and far short of a
+       # hang. Anything outside the band keeps the 40s default.
+       [ "$_t" -ge 1 ] && [ "$_t" -le 300 ] && deadline="$KOSMOS_CONN_TIMEOUT" ;;
   esac
   # `-s` alone, not `-sS`: the comment above says stderr is discarded on purpose,
   # and `-S` exists solely to print errors there. Keeping both states an intent
