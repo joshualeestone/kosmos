@@ -610,9 +610,20 @@ reachable() {
   # connection about a server that had demonstrably answered. Same wrong-sentence
   # class this card removes, pointed the other way.
   #
-  # ⚠️ `if`, not `{ …; } && _r_answered=1`: as a standalone statement that
-  # compound returns non-zero when both tests are false, which under `set -e`
-  # kills the shell. An `if` is never checked by -e.
+  # 📌 `if` rather than `{ …; } && _r_answered=1` PURELY FOR READABILITY, and
+  # an earlier version of this comment gave a false reason for it. It claimed
+  # the `&&` form would abort under `set -e`. It does not: an AND-OR list is
+  # EXEMPT from -e whether or not the left side fails. Measured on /bin/sh
+  # (bash 3.2.57), which is what this file runs under, with a control:
+  #     { [ a ] || [ b ]; } && x=1 ; echo AFTER   -> AFTER, rc=0   survives
+  #     [ 1 = 63 ] && x=0 ; echo AFTER            -> AFTER, rc=0   survives
+  #     CONTROL: the same compound with NO `&&`   -> rc=1, AFTER never printed
+  # The control is what makes those two zeros mean anything.
+  #
+  # ⚠️ The false version was self-refuting and worth naming: this file uses the
+  # supposedly fatal shape 14 times, including `[ "$_r_rc" = 63 ] && _r_rc=0`
+  # twenty lines below, which runs on nearly every call. A future maintainer
+  # who believed the comment would have "fixed" all fourteen.
   _r_answered=0
   # %{http_code} FIRST because a content type contains spaces ("text/html;
   # charset=utf-8") and a status code never does, so the split is unambiguous.

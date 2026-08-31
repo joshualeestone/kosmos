@@ -220,7 +220,8 @@ h(){ local a rc; a=$(false) && rc=0 || rc=$?; echo "REACHED rc=$rc"; }
 
 A bare `_r_ct=$(curl …)` is the first shape: a failing HEAD probe aborts the
 shell before the range-GET fallback runs. The pre-#1662 code was the second
-shape and safe only by accident. The third is what ships.
+shape, and it was safe by the DOCUMENTED and-or exemption rather than by
+accident, which the transcript directly above shows. The third is what ships.
 
 ## The weakest premises, both directions
 
@@ -538,9 +539,21 @@ non-zero rc, and the caller told the user to check a connection about a server
 that had plainly answered.
 
 The fact is now accumulated in `_r_answered` across both probes rather than
-replaced. Written as an `if` rather than `{ ...; } && _r_answered=1`, because as
-a standalone statement that compound returns non-zero when both tests are false,
-which under `set -e` kills the shell.
+replaced. Written as an `if` rather than `{ ...; } && _r_answered=1` purely for
+readability.
+
+🛑 **I first gave a false reason for that and it sat in two places.** I wrote
+that the `&&` form aborts under `set -e`. It does not: an and-or list is exempt
+whether or not the left side fails. Measured on /bin/sh with a control:
+`{ [ a ] || [ b ]; } && x=1` survives at rc 0, `[ 1 = 63 ] && x=0` survives, and
+the same compound with no `&&` dies at rc 1.
+
+⚠️ **The claim was refuted by this document's own transcript 325 lines above it,
+and by the installer four lines below it.** That file uses the supposedly fatal
+shape 14 times, including `[ "$_r_rc" = 63 ] && _r_rc=0` inside the very
+function the comment sits in. A maintainer who believed me would have "fixed"
+all fourteen. In a file whose convention is that comments are measured claims,
+an unmeasured one dressed as a measurement is the most expensive kind.
 
 New fixture reproducing exactly that shape: HEAD returns 404, the ranged GET
 destroys the socket. Verified by turning the accumulator back into an overwrite
@@ -576,3 +589,56 @@ refusing rather than dropping; on a host with a filtering rule they would burn
 `reachable()` text and the whole point of that harness is running the shipped
 text rather than a variant. Measured here: both arms complete in about 15ms, so
 the cost is hypothetical on this machine and the fidelity is not.
+
+## Iteration 21
+
+**A comment of mine asserted a shell mechanism that is false, and the code four
+lines below it disproves the claim.** I wrote that `{ ...; } && x=1` aborts under
+`set -e`. It does not: an and-or list is exempt whether or not the left side
+fails. Measured on /bin/sh (bash 3.2.57), which is what this file runs under,
+with a control that returns the dangerous answer:
+
+```
+{ [ a ] || [ b ]; } && x=1 ; echo AFTER   -> AFTER, rc=0   survives
+[ 1 = 63 ] && x=0 ; echo AFTER            -> AFTER, rc=0   survives
+CONTROL, same compound with no &&         -> rc=1, AFTER never printed
+```
+
+The installer uses that supposedly fatal shape **14 times**, two of them inside
+`reachable()` itself, including `[ "$_r_rc" = 63 ] && _r_rc=0` which runs on
+nearly every call. A maintainer who believed the comment would have rewritten
+all fourteen. The plan repeated the same claim, and was refuted by its own
+measured transcript 325 lines earlier. Both corrected, and the `if` is kept for
+readability, which is the honest reason.
+
+⭐ This is the worst kind of wrong comment in a file whose convention is that
+comments are measured claims: an unmeasured assertion wearing a measurement's
+clothes. I also called the pre-#1662 form "safe only by accident"; it was safe
+by the documented exemption, and my own transcript said so.
+
+**And my iteration-20 conclusion was too strong.** I claimed guard copy
+"cannot silently diverge" after editing one guard and watching the suite redden.
+That perturbation happened to hit an ASSERTED substring. Measured now: changing
+"Wait a few minutes and paste the install line again." in one guard only leaves
+the whole suite green. One arm generalised into a rule, which is the error I had
+been flagging in others the same afternoon.
+
+Closed properly and more cheaply than a helper: an arm now asserts the two guard
+blocks are byte-identical, so drift in any text, asserted or not, reddens.
+Verified against the exact perturbation that previously slipped through.
+
+### Filed rather than fixed here
+
+**kosmos#1707.** This branch makes the served content-type decide whether an
+install proceeds, and only one of the artifacts it judges has a release-time
+instrument on its type: `serves_gzip` covers `kosmos-<VER>-arm64.tar.gz` with a
+bogus-version control. The tmux tarball, the unversioned kosmos name and every
+x86_64 variant are ungated, and `tools/verify-served.sh` checks bytes and
+checksums but mentions content-type zero times (control: 18 sha mentions).
+
+Filed rather than fixed because the remedy is in release tooling, which is
+batched separately, and this branch is scoped to the installer and its tests.
+The residual is narrower than it first reads: these are served from one origin
+with one type configuration, so a config-level mis-map would redden the gated
+artifact too. The uncovered shape is a per-object regression on the tmux tarball
+or the unversioned name.

@@ -557,6 +557,24 @@ test('#1662: BOTH guard blocks were extracted, and the count is pinned', () => {
     + 'they measured nothing.');
 });
 
+/* 🛑 THE TWO GUARDS MUST BE IDENTICAL, AND SUBSTRING ASSERTIONS DO NOT ENSURE
+   THAT. The arms below pin particular phrases, so drift in any text they do not
+   name goes unnoticed: measured, changing "Wait a few minutes and paste the
+   install line again." in ONE guard left the whole suite green. I had claimed
+   divergence "cannot be silent" on the strength of a perturbation that happened
+   to hit an asserted phrase, which is one arm generalised to a rule.
+
+   This is the assertion that actually covers it, and it is cheaper than
+   extracting a helper: the blocks are duplicated on purpose, so require them to
+   be byte-identical and any drift in either, asserted or not, reddens. */
+test('#1662: the two guard blocks are byte-identical, so user-facing copy cannot drift apart', () => {
+  assert.equal(GUARDS.length, 2, 'precondition: both guards must have been extracted');
+  assert.equal(GUARDS[0], GUARDS[1],
+    'the two reachable() guards have diverged. They are duplicated deliberately and carry two '
+    + 'lines of user-facing copy each, so a copy edit applied to one and not the other ships two '
+    + 'different sentences for one failure. Either fix both, or extract a helper and update this arm.');
+});
+
 test('#1662: EVERY guard makes the caller SAY SO and stop on a NO', async () => {
   for (let i = 0; i < GUARDS.length; i += 1) {
   const out = await runGuard(1, i);
