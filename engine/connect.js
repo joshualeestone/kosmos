@@ -422,7 +422,22 @@ function setProbeTtlForTests(ms) { PROBE_TTL_MS = Number.isFinite(ms) && ms > 0 
    cost exactly one probe, and changes no verdict. */
 
 async function willInstall() {
-  /* ⚠️ THE RESOLUTION IS INSIDE THE GUARD, and it was not. `resolveBin('claude')`
+  /* 🛑 DO NOT HOIST THIS `require('./runners')` TO MODULE SCOPE. The same shape was
+     JUST HOISTED in devicedoor.js and githubdevice.js, and doing it here would be a
+     regression, because the two cases are opposites and the difference is whether
+     the enclosing code CATCHES.
+       devicedoor/githubdevice: the lambda runs inside a Promise executor whose
+         contract says it never rejects, so a call-time require failure BROKE that
+         contract. Hoisting made it fail loudly at import instead.
+       here: the try/catch turns any failure into a DEFINED answer. Measured, both
+         arms: with the require throwing, `willInstall()` RESOLVES to true (install
+         needed); control, module whole, resolves false. Hoisting would move the
+         failure OUTSIDE the guard and make this function throw.
+     ⇒ A sweep that hoists every lazy require on this branch would break exactly
+     this site. The rule is not "requires belong at module scope", it is "a failure
+     must reach a defined answer".
+
+     ⚠️ THE RESOLUTION IS INSIDE THE GUARD, and it was not. `resolveBin('claude')`
      can throw (it derives a home directory and joins paths before it ever asks about
      the file), and the doc block above promises this function never does. A resolver
      failure is an unknown like any other here, so it resolves the same way: an
@@ -1062,7 +1077,21 @@ async function start(opts) {
     }
   }
 
-  /* ONE RESOLUTION, matching willInstall and claudeHatchAvailable. This read
+  /* ONE RESOLUTION FOR THE TWO READS AROUND THE PROBE, matching willInstall and
+     claudeHatchAvailable.
+
+     🛑 `binaryOnDisk` NEAR THE TOP OF THIS FUNCTION IS DELIBERATELY EXCLUDED AND
+     MUST NOT BE FOLDED IN. Two awaits sit between it and this pair
+     (`subscription.checkLive(...)` and `killSession()`), so the disk can change
+     across them and the later read is deliberately FRESH. Collapsing it would be a
+     real bug, not a tidy-up.
+     ⚠️ This comment used to say only "ONE RESOLUTION, matching willInstall and
+     claudeHatchAvailable", which reads as a file-wide rule and gave the next person
+     no signal that the third site is excluded on purpose. Measured, with a control:
+     two awaits between `binaryOnDisk` and here, ZERO awaits between this pair, which
+     is exactly why this pair was safe to collapse and that one is not.
+
+     This read
      `const bin = claudeBinPath()` here and `resolveBin('claude').present` twenty
      lines below, with only comments between them, so the same resolver ran twice
      for one path.
