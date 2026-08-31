@@ -533,45 +533,51 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      independent of the syntax somebody chooses. */
   const src = fs.readFileSync(path.join(ENGINE, 'connect.js'), 'utf8');
   const mentions = src.split('\n').map((l) => l.trim()).filter((l) => /\bcanRunClaude\b/.test(l));
-  /* 🛑 AN UNFILTERED COUNT, BECAUSE THE FILTER BELOW IS STILL TRYING TO TELL
-     CODE FROM PROSE, WHICH IS THE CLASSIFICATION THIS FILE REFUSES EVERYWHERE
-     ELSE. A reviewer got live code past it in the direction I had not considered:
-     not a comment wrongly INCLUDED, but live code wrongly EXCLUDED. A line that
-     CLOSES a block comment and then carries code begins with a star, so
-     `startsWith('*')` drops it, and node parses the line perfectly well. The arm
-     saw its usual 2 lines while a second writer sat on disk.
+  /* 🛑 THE WHOLE SET, UNFILTERED. NOT A FILTER, AND NOT A COUNT, AND I HAD TO
+     BREAK BOTH OF THOSE MYSELF TO BELIEVE IT.
 
-     (The shape is not written out here on purpose: a docblock cannot contain a
-     comment closer without ending itself, which is how I broke this file once
-     already while trying to show it.)
+     A filter that skips lines starting with a star, a slash-slash or a
+     slash-star is trying to tell code from prose, which is the classification
+     this file refuses everywhere else. A reviewer got live code past it: a line
+     that CLOSES a block comment and then carries code begins with a star, node
+     parses it, and the arm saw its usual two lines.
 
-     The count below cannot be fooled by any prefix, because it filters nothing.
+     I then added an unfiltered COUNT beside the filtered set, which the reviewer
+     predicted would be where the next defect landed. It was, and I found it by
+     going looking: DELETE ONE PROSE MENTION AND ADD ONE HIDDEN CODE LINE, and
+     the count stays 5 and the filtered set stays 2. Both checks pass, and a
+     DIRECTORY reads true.
 
-     ⭐ COUNT, NOT SET, DELIBERATELY. Pinning the unfiltered SET also catches it
-     and reds on every docblock reword; pinning the count catches it and leaves the
-     prose editable. The three excluded lines are all docblock prose today. */
-  assert.strictEqual(
-    mentions.length, 5,
-    'the number of lines mentioning canRunClaude in connect.js changed (' + mentions.length +
-      ', expected 5: two code lines and three in prose). If you added CODE, it is a second ' +
-      'writer and a path no arm drives. If you only edited a comment, update this number.'
-  );
-  const lines = mentions.filter((l) => !l.startsWith('*') && !l.startsWith('//') && !l.startsWith('/*'));
+     ⭐ A COUNT IS A SET ASSERTION WITH THE IDENTITIES THROWN AWAY, so it cannot
+     see a swap. That is the same defect as every other one on this branch: an
+     instrument whose two outcomes are not distinguishable.
+
+     ⚠️ THE COST, AND IT IS REAL: this reds on rewording any of the three docblock
+     lines below, not just on a code change. That is the same trade
+     KNOWN_WEAK_LINES makes at the top of this file, it is loud, and the fix is to
+     paste the new line in here. I am taking it because being right about code is
+     worth more than being convenient about prose. */
   assert.deepStrictEqual(
-    lines,
+    mentions,
     [
-      // publicView's serving default. It READS an already-computed value rather
-      // than computing one, so it is not a second writer; #1595 pins it separately.
+      // publicView's serving default. READS an already-computed value rather than
+      // computing one, so it is not a second writer; #1595 pins it separately.
       'canRunClaude: s.canRunClaude || false,',
+      // Three docblock mentions in connect.js's own prose. Listed so that prose
+      // and code are held to the SAME standard: no line gets in unexamined.
+      '* presence check and `canRunClaude` were the last two, and both now ask',
+      '* SECOND TIME IS THE INSTRUCTIVE ONE. It first said `canRunClaude` "decides',
+      '* `canRunClaude` in its returned object, and `engine.publicview-canrun-1595.test.js` on',
       // becomeStuck, the one writer.
       'writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable() });',
     ],
-    'the code lines mentioning canRunClaude in connect.js changed. The writer must pass ' +
+    'the lines mentioning canRunClaude in connect.js changed. The writer must pass ' +
       'claudeHatchAvailable() straight through: anything else can widen the answer AFTER the ' +
-      'check, and a `|| fs.existsSync(p)` turns a DIRECTORY back into true. A THIRD line is a ' +
-      'second writer, which is a path no arm drives, and it need not use a colon at all: ' +
-      '`writeState({ ..., canRunClaude })` is shorthand and was this line\'s own previous shape. ' +
-      'If you only reformatted, update the two strings here; that is the intended friction.'
+      'check, and a `|| fs.existsSync(p)` turns a DIRECTORY back into true. A NEW line is a ' +
+      'second writer and a path no arm drives, and it need not use a colon: ' +
+      '`writeState({ ..., canRunClaude })` is shorthand and was this line\'s own previous shape, ' +
+      'and a line beginning with a block-comment closer is live code too. If you only reworded ' +
+      'a comment, paste the new line in here; that is the intended friction.'
   );
 });
 
