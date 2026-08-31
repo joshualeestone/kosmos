@@ -89,7 +89,13 @@ test.after(() => server && server.close());
    failed, and the passes were TIMEOUTS, not refusals. A must-fail arm that
    fails because nothing answered is not evidence of anything. */
 async function reachable(url) {
-  const script = `${FN[0]}\nif reachable "$1"; then echo YES; else echo NO; fi\n`;
+  /* 🛑 `set -euo pipefail`, BECAUSE THE SHIPPED FILE RUNS UNDER IT
+     (install/setup.sh:102). Without these options the harness cannot see a
+     whole class of defect: an unprotected `x=$(cmd)` inside reachable()
+     aborts the shell under -e before the range-GET fallback runs, and a
+     no-options harness reports a cheerful YES. That is exactly how a real
+     latent break reached iteration 3 of this branch's review. */
+  const script = `set -euo pipefail\n${FN[0]}\nif reachable "$1"; then echo YES; else echo NO; fi\n`;
   /* `sh`, not `bash`: install/setup.sh ships #!/bin/sh and the repo's own
      test:shell checks it with `sh -n`. Pinning the text under the wrong
      interpreter would pass on a bashism the shipped installer cannot run.
@@ -209,4 +215,21 @@ test('#1662: a download with NO content-type header at all is accepted', async (
      check already rejects a connection that failed. */
   const r = await reachable(`${base}/real.tar.gz?ct=none`);
   assert.equal(r, 'YES', 'a real download with no content-type header was refused');
+});
+
+test('#1662: reachable() does not abort the shell under set -euo pipefail when HEAD fails', async () => {
+  /* 🛑 THE ARM THE NO-OPTIONS HARNESS COULD NOT HAVE. The shipped file runs
+     under `set -euo pipefail`, where a bare `_r_ct=$(curl …)` is an
+     unprotected simple command: a failing HEAD probe kills the shell before
+     the fallback runs. All three current callers are `if`/`&&` conditions
+     where -e is suspended, so the break is LATENT, and a test that only ever
+     calls reachable() inside an `if` can never surface it.
+     This calls it OUTSIDE a condition, against the host the fallback exists
+     for, and requires the shell to still be alive afterwards. */
+  const script = `set -euo pipefail\n${FN[0]}\nreachable "$1"\necho "SURVIVED rc=$?"\n`;
+  const { stdout } = await run('sh', ['-c', script, 'sh', `${base}/head405.tar.gz`], { encoding: 'utf8' });
+  assert.match(stdout, /SURVIVED rc=0/,
+    'the shell died inside reachable() before the range-GET fallback could run: the HEAD probe '
+    + 'is an unprotected assignment under set -e, so a HEAD-refusing host aborts the installer '
+    + `instead of falling through. Got: ${JSON.stringify(stdout)}`);
 });

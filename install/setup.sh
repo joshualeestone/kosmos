@@ -547,7 +547,7 @@ _reachable_is_download() {
   # reintroduce the file:// break above.
   [ "$1" = 0 ] || return 1
   case "$(printf '%s' "$2" | tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')" in
-    text/html*|application/xhtml*|application/json*|application/xml*|text/xml*) return 1 ;;
+    text/html*|application/xhtml*|application/json*|application/problem+json*|application/xml*|text/xml*) return 1 ;;
   esac
   return 0
 }
@@ -557,10 +557,21 @@ reachable() {
   # A 404 page answers a range request with 206 and its own HTML body, so the
   # status alone cannot tell a download from an error page: the type must be
   # judged too, on both arms.
+  # 🛑 `cmd && rc=0 || rc=$?`, NOT a bare assignment. This file runs under
+  # `set -euo pipefail` (line 102), where a plain `_r_ct=$(curl …)` is an
+  # UNPROTECTED SIMPLE COMMAND: a failing HEAD probe aborts the whole shell
+  # before the range-GET fallback can run. The pre-#1662 form happened to be
+  # safe because `curl … && return 0` was shielded by the `&&`.
+  # Measured, both shapes, under `set -euo pipefail`:
+  #   f(){ local a; a=$(false); echo REACHED; }   -> nothing, rc=1
+  #   g(){ false && return 0; echo REACHED; }     -> REACHED, rc=0
+  # Latent rather than live today, because all three callers (622, 684, 694)
+  # are `if`/`&&` conditions where -e is suspended. It is still a trap, and it
+  # lands exactly on the fallback's reason for existing: a host that 405s HEAD.
   local _r_ct _r_rc
-  _r_ct=$(curl -fsIL -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null); _r_rc=$?
+  _r_ct=$(curl -fsIL -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
-  _r_ct=$(curl -fsL -r 0-0 -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null); _r_rc=$?
+  _r_ct=$(curl -fsL -r 0-0 -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   return 1
 }

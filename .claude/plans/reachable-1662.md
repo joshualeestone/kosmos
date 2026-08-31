@@ -72,14 +72,42 @@ production real tarball                YES
 production name that cannot exist      NO
 ```
 
-## Outstanding before merge
+## The install gate HAS now been run
 
-**`yarn test:install` has not been run on this branch.** The node suite cannot
-catch a defect in this code path: `test:shell` only runs `bash -n
-tools/test-install.sh`, a syntax check, and `test:install` is a separate script
-outside `yarn test`. The gate refused to run because a 0.6.19 release cut is
-live on this Mac and would share its ports and launchd domain. **It must be run
-before merge**, and not with `KOSMOS_HARNESS_IGNORE_CUT=1`.
+`yarn test:install` is the only gate that drives `reachable()` end to end, and
+the node suite structurally cannot: `test:shell` runs `bash -n
+tools/test-install.sh` (a syntax check) and `test:install` sits outside `yarn
+test`. An earlier claim that "the full suite is green" was never evidence about
+this code path.
+
+Run against freshly built bundles (`dist/setup` is byte-for-byte this branch's
+`install/setup.sh`), after the 0.6.19 cut completed, and **not** with
+`KOSMOS_HARNESS_IGNORE_CUT=1`:
+
+```
+327 passed, 1 failed
+
+the download path (file:// origin, no local-copy shortcut)
+  PASS  download-path install exits 0        PASS  tampered download refuses
+  PASS  download-path board answers          PASS  tamper refusal speaks a sentence
+                                             PASS  no stage residue after refusal
+the pointer pins the bytes (the 0.5.13 wedge)
+  PASS  the versioned artifact name was fetched
+  PASS  the refusal names both versions
+  PASS  no false installed-done over old bytes
+```
+
+Those are exactly the assertions an allowlist-shaped predicate was predicted to
+break, and they pass.
+
+**The one failure is not attributable to this diff**, and the reasoning is
+stated so a reviewer can reject it: the assertion is `EXPECTED_ADDS` in the
+LOCAL-SOURCES install, which `tools/test-install.sh:797` says outright "never
+runs `reachable()`, `verify_download()` or tar". The unexpected addition is
+`./AgentWorkforce/wouldping/needs-you.jsonl`, a runtime notification record,
+and `main` carries the identical `EXPECTED_ADDS` list. **A control run on
+`main` was NOT performed**, so this is a reasoned attribution rather than a
+measured one.
 
 ## The weakest premises, both directions
 
