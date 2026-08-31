@@ -735,7 +735,42 @@ function setAccount(name, dir) {
   } catch {
     return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
   }
-  return { outcome: OUTCOME.CREATED, because: null, account: acct };
+
+  /**
+   * 🛑 #1629: TRUST THE WORKER FOLDER IN THE ACCOUNT WE ARE MOVING THEM TO. This
+   * is the moment the new config dir becomes real, and it was the moment we did
+   * nothing.
+   *
+   * Claude Code records trust PER CONFIG DIR. #164/#165 pre-record it at CREATE
+   * time, into the config THIS process reads - so a flip pointed the agent at a
+   * config where the flag had never been written, and it came up frozen on
+   * "Is this a project you created or one you trust?" with **`No, exit`
+   * preselected**. From outside that is indistinguishable from an agent ignoring
+   * you: the session is alive and the process is running. Measured on this
+   * machine: one folder, `~/.claude.json` TRUE, two account configs FALSE.
+   *
+   * ⚠️ BEST-EFFORT AND NON-GATING, deliberately, and the direction is chosen:
+   * the plist is already written, so the flip HAS happened. Refusing here would
+   * report failure for a change that took effect. The cost of the write failing
+   * is the prompt the person would have met anyway; the cost of gating on it is
+   * a half-applied flip that says it did not happen.
+   *
+   * 📌 IT IS REPORTED RATHER THAN SWALLOWED. `trustFolder` names its reason for
+   * every refusal, and #164's own comment records that throwing that away is why
+   * "nothing on the machine says which guard fired" when an agent still stops.
+   * The field below is that sentence, carried out for a caller that wants it.
+   * ⚠️ It does NOT reach a screen yet: surfacing a blocked agent is this card's
+   * point 3 and its own piece of work.
+   */
+  let trust = null;
+  if (!DRY_RUN) {
+    try {
+      trust = require('./trust').trustFolder(workerDir(clean),
+        { configDir: acct.isDefault ? null : acct.dir });
+    } catch { trust = { ok: false, because: 'we could not read that account\'s config file' }; }
+  }
+
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, trust };
 }
 
 /**

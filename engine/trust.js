@@ -46,8 +46,34 @@ function homeDir() { return os.homedir(); }
  * file, and a test that pointed only one of them at a fixture would read the
  * operator's real account through the other.
  */
-const CONFIG = () => process.env.AGENT_WORKFORCE_CLAUDE_CONFIG
-  || path.join(homeDir(), '.claude.json');
+/**
+ * 🛑 #1629: WHICH CONFIG CLAUDE CODE ACTUALLY READS, WHICH IS NOT ALWAYS OURS.
+ * Claude Code reads trust from `$CLAUDE_CONFIG_DIR/.claude.json` when that
+ * variable is set, and from `~/.claude.json` when it is not. This resolved only
+ * the second, so on an agent pointed at another account Kosmos wrote the trust
+ * flag into a file the agent does not read, while the agent read a file where it
+ * was never written.
+ *
+ * Measured on this machine, one folder, three configs, with a control:
+ *     ~/.claude.json                    hasTrustDialogAccepted TRUE   (55 projects)
+ *     ~/.claude-account-b/.claude.json  FALSE                         (17 projects)
+ *     ~/.claude-account-c/.claude.json  FALSE                         (13 projects)
+ * ⇒ Trust is recorded PER CONFIG DIR, so a flip re-arms every trust decision the
+ * agent had already made, and the prompt it lands on has `No, exit` preselected.
+ *
+ * ⚠️ `dir` IS THE ACCOUNT'S DIRECTORY, NOT OUR OWN ENVIRONMENT. A caller writing
+ * trust for an agent it is about to point somewhere passes that destination; the
+ * env var below is only the fallback for "the config THIS process would read".
+ * Conflating the two would write an agent's trust into the server's own account.
+ */
+const CONFIG = (dir) => {
+  if (dir) return path.join(String(dir), '.claude.json');
+  if (process.env.AGENT_WORKFORCE_CLAUDE_CONFIG) return process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  /* Honoured because Claude Code honours it: a Kosmos running under its own
+     CLAUDE_CONFIG_DIR must not write into the default account's file. */
+  if (process.env.CLAUDE_CONFIG_DIR) return path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json');
+  return path.join(homeDir(), '.claude.json');
+};
 
 const KEY = 'hasTrustDialogAccepted';
 
@@ -90,8 +116,13 @@ const tempPath = (target) => `${target}.kosmos-${process.pid}-${STARTED}-${++SEQ
  *   `key` is the resolved path that was written. The rollback gates on it, so
  *   it is part of the contract rather than a convenience.
  */
-function trustFolder(dir) {
-  const target = CONFIG();
+/**
+ * `opts.configDir` (#1629): the ACCOUNT whose config should carry the trust, for
+ * a caller that is pointing an agent somewhere. Absent means "the config this
+ * process would read", which is what every pre-#1629 caller meant.
+ */
+function trustFolder(dir, opts) {
+  const target = CONFIG(opts && opts.configDir);
 
   if (!dir || !path.isAbsolute(dir)) {
     return { ok: false, because: 'that is not an absolute folder path' };
