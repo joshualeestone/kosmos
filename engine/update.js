@@ -167,6 +167,70 @@ function maybeAutoInstall() {
   } catch { /* an update that cannot start must not break the one that shows */ }
 }
 
+/**
+ * #1277: THE UPDATER'S OWN TIMER, so a Kosmos nobody looks at still updates.
+ *
+ * `poke()` had exactly one caller in the whole product: the status route.
+ * That route only runs when a browser is polling it, so a board with nobody
+ * watching never poked, never refreshed, and never reached
+ * `maybeAutoInstall()` -- frozen at its installed version with its own
+ * `autoupdate.on` reading true. Measured on this machine's one standing
+ * install: alive, auto-update on, every install gate passing, and four
+ * releases behind after thirteen hours because nobody had opened its page.
+ *
+ * ⚠️ AN AGENT MACHINE IS EXACTLY THAT SHAPE. A Mac running agents with
+ * nobody sitting at its board is the normal case, not the odd one, and
+ * every one of them stopped taking updates silently, security fixes
+ * included. The screen that would have told you is the screen nobody is
+ * looking at.
+ *
+ * Same posture as #185's nudge sweep two files over: its own timer, never
+ * the status GET, because a read must stay a read. Polling the status
+ * endpoint to trigger an update is not a read -- it installs.
+ *
+ * WHY THE INTERVAL IS WELL UNDER TTL. `poke()` already rate-limits itself
+ * to one fetch per TTL window, so this timer does not decide how often the
+ * host is asked; it decides how promptly the TTL is noticed. Firing AT TTL
+ * would be subtly wrong: `cache.at` is stamped when a refresh COMPLETES,
+ * always a little after the tick that caused it, so the next tick lands
+ * fractionally inside the window, the gate skips it, and the real cadence
+ * silently doubles to 2*TTL. Firing well inside TTL makes the gate the only
+ * thing that decides, which is what the rest of this module already assumes.
+ *
+ * Gated on `installedRoot()` per tick: a from-source checkout cannot install
+ * (see that function), so polling from one would be network traffic that can
+ * never lead anywhere. Checked per tick rather than at start so there is no
+ * boot-order dependency.
+ *
+ * unref'd, so it never holds the process open -- `kosmos start` must still
+ * exit, and the suite must still finish.
+ */
+const POLL_EVERY = 5 * 60 * 1000;
+let pollTimer = null;
+
+function startAutoPoll(opts = {}) {
+  const envMs = Number(process.env.AGENT_WORKFORCE_UPDATE_POLL_MS);
+  const every = Number(opts.every) > 0 ? Number(opts.every)
+    : (envMs > 0 ? envMs : POLL_EVERY);  // the opts/env are the test seam only
+  stopAutoPoll();
+  pollTimer = setInterval(() => {
+    try {
+      if (!installedRoot()) return;
+      poke();
+    } catch { /* an update that cannot be checked must not break the board */ }
+  }, every);
+  if (pollTimer && typeof pollTimer.unref === 'function') pollTimer.unref();
+  return pollTimer;
+}
+
+/** Stop the poll. Idempotent, and safe to call when it never started. */
+function stopAutoPoll() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+/** Is the poll running? For the tests, and for anyone diagnosing a frozen board. */
+function autoPollRunning() { return pollTimer !== null; }
+
 /** What the last look established: for the screen's could-not-reach state.
     looked distinguishes "the first look is still in flight" (at 0) from
     "we looked and could not reach": at boot the screen must say Checking,
@@ -393,4 +457,5 @@ module.exports = {
   available, poke, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
   resetCache, RUNNING, TTL, lastLook, checkNow,
+  startAutoPoll, stopAutoPoll, autoPollRunning,
 };

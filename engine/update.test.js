@@ -426,3 +426,80 @@ test('#553: a failure the OLD server never lived to see is read back from logs/i
   update.setInstalledRoot(null); update.resetCache();
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+/* #1277: THE UPDATER'S OWN TIMER.
+   Every arm below is BEHAVIOURAL: it drives the real poll and watches what
+   happens, rather than reading update.js for the shape of the code. A source
+   read would pass against a timer that was created and never fired, which is
+   the exact defect this card is about -- machinery that exists and is never
+   driven. */
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+async function waitFor(pred, ms) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) { if (pred()) return true; await sleep(5); }
+  return pred();
+}
+
+test.afterEach(() => { update.stopAutoPoll(); });
+
+test('#1277: a board NOBODY LOOKS AT still checks, and still installs', async () => {
+  const started = autoSetup({ latest: '99.0.0', pref: { on: true, ok: true }, root: '/opt/kosmos' });
+  /* The whole point: nothing in this test poked. No status GET, no checkNow,
+     no hand-driven refresh -- exactly the headless machine's situation. */
+  assert.equal(started(), 0, 'precondition: nothing has installed before the poll runs');
+  update.startAutoPoll({ every: 5 });
+  await waitFor(() => started() === 1, 3000);
+  assert.equal(started(), 1,
+    'an unwatched board took no update: poke() still has no caller but the status route');
+});
+
+test('#1277: a from-source board does not poll a host it could never install from', async () => {
+  autoSetup({ latest: '99.0.0', pref: { on: true, ok: true }, root: null });
+  let fetches = 0;
+  update.setFetcher(async () => { fetches += 1; return { ok: true, json: async () => ({ version: '99.0.0' }) }; });
+  update.startAutoPoll({ every: 5 });
+  await sleep(150);
+  assert.equal(fetches, 0,
+    'a checkout that installs from git made release-host traffic that can lead nowhere');
+});
+
+test('#1277: the poll never holds the process open', () => {
+  const t = update.startAutoPoll({ every: 60 * 1000 });
+  assert.ok(t, 'no timer was created');
+  assert.equal(typeof t.hasRef, 'function', 'not a node timer, so unref cannot be checked');
+  assert.equal(t.hasRef(), false,
+    'the poll is ref\'d, so `kosmos start` would never exit and the suite would hang');
+});
+
+test('#1277: starting twice leaves ONE timer, so a single stop really stops', async () => {
+  autoSetup({ latest: '99.0.0', pref: { on: true, ok: true }, root: '/opt/kosmos' });
+  let fetches = 0;
+  update.setFetcher(async () => { fetches += 1; return { ok: true, json: async () => ({ version: '99.0.0' }) }; });
+  update.startAutoPoll({ every: 5 });
+  update.startAutoPoll({ every: 5 });
+  await waitFor(() => fetches > 0, 2000);
+  update.stopAutoPoll();
+  assert.equal(update.autoPollRunning(), false, 'autoPollRunning still reports a live poll after stop');
+
+  /* 🔑 THE TTL GATE HIDES AN ORPHANED TIMER, so the obvious assertion here is
+     worthless. After the first fetch `poke()` returns early for a whole TTL
+     window, so a leaked timer keeps firing and fetches NOTHING -- the count
+     stops growing whether or not the leak exists. Measured: with the
+     single-flight `stopAutoPoll()` removed from `startAutoPoll`, a
+     count-based version of this test stayed GREEN.
+     Clearing the cache reopens the gate, so a timer that is still alive is
+     forced to reveal itself on its next tick. */
+  update.resetCache();
+  const settled = fetches;
+  await sleep(150);
+  assert.equal(fetches, settled,
+    'a second start orphaned the first timer, so one stop left it running forever');
+});
+
+test('#1277: stopping a poll that never started is safe', () => {
+  update.stopAutoPoll();
+  update.stopAutoPoll();
+  assert.equal(update.autoPollRunning(), false);
+});

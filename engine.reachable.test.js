@@ -40,6 +40,7 @@ const EXCUSED = {
   setInstallRunner: 'test seam (update installer)',
   setInstalledRoot: 'test seam (update root)',
   setAutoPref: 'test seam (auto-update preference file)',
+  autoPollRunning: 'test seam (#1277): the observer the WIRING guard uses to assert that booting the board actually starts the update poll. #1277 was this very class one layer down -- poke() worked, was well tested, and had exactly one caller, so a board nobody looked at never updated itself. Checkable: delete updates.startAutoPoll() from server.js and server.update-poll-1277.test.js goes red while engine/update.test.js stays fully green.',
   projectsFor: 'superseded reader: list()/get() carry the same join; kept for its tests until they migrate (#265 sweep)',
   currentChildPid: 'test seam: reads the tunnel supervisor child pid to assert its lifetime deterministically',
   setRelay: 'engine/remote.js: dormant until the Kosmos-team Settings surface wires the self-host relay field; validated here so garbage is refused at set time. Its siblings (setOn, status, ...) escape this sweep only because their names collide with words in other files; setRelay is unique, so it is named here rather than passing by luck.',

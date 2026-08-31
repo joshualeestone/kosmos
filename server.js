@@ -7399,6 +7399,16 @@ function start(port = PORT) {
         try { messages.sweepUnanswered(safeRoster()); } catch { /* the line still shows */ }
       }, 60 * 1000);
       if (sweep && typeof sweep.unref === 'function') sweep.unref();
+      /* #1277: the updater's own tick. Until this existed, `poke()` had one
+         caller in the product -- the status route -- so a board nobody was
+         looking at never checked for a release and never auto-installed one,
+         however loudly its own preference said auto-update was on. A Mac
+         running agents with nobody at its board is the normal shape, not the
+         odd one. Same posture as the sweep above: its own timer, never the
+         status GET, because polling that route to force an update is not a
+         read, it installs. The interval, the installed-copy gate and the
+         unref all live in update.js beside the thing they govern. */
+      updates.startAutoPoll();
       resolve(server);
     };
     server.once('error', onError);
