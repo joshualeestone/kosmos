@@ -63,11 +63,38 @@
  * reason this file's own prose does not trip it is that the walk excludes
  * `*.test.js`, not comment-blindness.
  */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+/* 🛑 SANDBOX THE STORE BEFORE ANY ENGINE REQUIRE. THIS IS NOT DEFENSIVE
+   TIDINESS; WITHOUT IT THIS FILE READS THE OPERATOR'S REAL SECRETS.
+
+   `engine/githubdevice.js` resolves its paths from `store.ROOT` AT MODULE LOAD
+   (githubdevice.js:43-45), so `FILE` becomes
+   `<real config dir>/secrets/github.token`. The two `await gd.state()` arms below
+   call `readToken()` against that path, and when a token EXISTS `state()` issues a
+   live HTTPS request to https://api.github.com/user CARRYING IT. Four such calls
+   per suite run, 10s timeout each.
+
+   ⚠️ IT IS DORMANT ON THIS MACHINE ONLY BECAUSE `secrets/` DOES NOT EXIST
+   YET. It arms itself the first time the operator connects GitHub through the very
+   feature githubdevice.js implements, which is a trap that springs later and
+   silently. A blind reviewer found it; eighteen non-blind passes read these arms
+   repeatedly and did not.
+
+   📌 The repo already states this rule in two places, and I broke it anyway:
+   `tools/run-tests.sh:19` ("every store-using test sandboxes before requiring")
+   and `fixture-discipline.test.js`, which records the MEASURED cost of leaving it
+   out: 93 entries written into the operator's own live config by an unsandboxed
+   suite. Pattern copied from `engine/githubdevice.test.js:4-12`; both knobs travel
+   together per #527. */
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-runnable-1592-'));
+process.env.AGENT_WORKFORCE_HOME = SANDBOX;
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+
 const { test } = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
-const path = require('node:path');
-const os = require('node:os');
 
 const ENGINE = path.join(__dirname, 'engine');
 const REPO = __dirname;
@@ -99,7 +126,7 @@ const REPO = __dirname;
    redundant. Measured before rejecting that: `access` alone does NOT match
    `fs.accessSync(bin, X_OK)`, because after `access` comes `Sync` rather than
    the `\s*\(` this pattern requires. Dropping either branch loses a real form. */
-const WEAK_CALL = /(accessSync|access)\s*\(.*X_OK/;
+const WEAK_CALL = /(accessSync|access)\s*\(.*\bX_OK\b/;
 
 /** Every non-test .js file in the repo, relative to REPO. */
 function walkJs(dir, base = dir, out = []) {
@@ -325,6 +352,7 @@ test('githubdevice rejects a DIRECTORY found by the CANDIDATE SCAN, not just the
   const gd = require('./engine/githubdevice.js');
   const f = fixture('gh');
   const before = process.env.AGENT_WORKFORCE_GH_BIN;
+  const beforeCands = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
   try {
     delete process.env.AGENT_WORKFORCE_GH_BIN;
     process.env.AGENT_WORKFORCE_GH_CANDIDATES = f.asDirectory;
@@ -337,7 +365,8 @@ test('githubdevice rejects a DIRECTORY found by the CANDIDATE SCAN, not just the
     assert.strictEqual(onFile.gh, 'present',
       'the candidate scan rejected a real executable, so the arm above proves nothing');
   } finally {
-    delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+    if (beforeCands === undefined) delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+    else process.env.AGENT_WORKFORCE_GH_CANDIDATES = beforeCands;
     if (before !== undefined) process.env.AGENT_WORKFORCE_GH_BIN = before;
     f.cleanup();
   }
@@ -393,7 +422,18 @@ test('willInstall rejects a DIRECTORY without ever reaching the version probe', 
     process.env.AGENT_WORKFORCE_CLAUDE_BIN = f.asDirectory;
     let probes = 0;
     connect.setRunner(() => { probes += 1; return { ok: true, stdout: '1.0.0' }; });
-    if (connect.setProbeTtlForTests) connect.setProbeTtlForTests(0);
+    /* 🛑 NO setProbeTtlForTests CALL HERE, AND THE ONE THAT USED TO BE WAS A
+       SILENT NO-OP. It passed 0, and connect.js:341 is
+       `PROBE_TTL_MS = Number.isFinite(ms) && ms > 0 ? ms : 60000`, so 0 falls
+       straight back to the 60s default. The stated cache bypass never happened,
+       and a later comment claimed it had leaked that 0 to whatever ran next,
+       describing a state that never existed.
+       ⚠️ A CALL THAT READS AS A GUARD AND DOES NOTHING is the exact class this
+       file is about, committed inside it. Removed rather than "fixed" to a
+       positive value, because the isolation these two arms need is already real:
+       `probeCache` is keyed on `bin` and the arms use DIFFERENT paths, so neither
+       can serve the other's cached answer. Saying that is honest; passing 0 was
+       decoration. */
 
     const answer = await connect.willInstall();
     assert.strictEqual(probes, 0,
@@ -409,10 +449,11 @@ test('willInstall rejects a DIRECTORY without ever reaching the version probe', 
     assert.strictEqual(probes, 1,
       'a real executable did not reach the version probe, so the probe count proves nothing');
   } finally {
+    /* ⚠️ setRunner(null) also sets DRY_RUN = true module-wide (connect.js:157)
+       and nothing here restores it. Harmless in this file because no later arm
+       calls run(), and noted rather than silently left: it is unrestored module
+       state on a cleanup path. */
     connect.setRunner(null);
-    // Restore the probe TTL too: a reviewer found this arm left it at 0 for
-    // whatever ran next, and it is the last arm to touch connect.
-    if (connect.setProbeTtlForTests) connect.setProbeTtlForTests(undefined);
     if (before === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
     else process.env.AGENT_WORKFORCE_CLAUDE_BIN = before;
     f.cleanup();
