@@ -129,8 +129,22 @@ const REPO = __dirname;
  *   - `fs.accessSync(bin, 1)`, the numeric mode
  *   - bracket notation, `fs['accessSync'](bin, X_OK)`  <- added pass 9
  *
+ * 🛑 AND THE LARGEST GAP IS A DIFFERENT SPELLING ENTIRELY, WHICH THE FOUR ABOVE
+ * DO NOT HINT AT: `fs.existsSync` IS A PRESENCE CHECK THAT ALSO ACCEPTS A
+ * DIRECTORY, AND THIS MATCHER CANNOT SEE IT. `WEAK_CALL` requires `X_OK`, which
+ * `existsSync` never carries. Live instances exist TODAY on the creation path
+ * (`engine/create.js` in `setProvider`, `installJob` and `createAgentInner`, and
+ * `engine/openaiaccounts.js`), carded as #1616 and deliberately out of scope here.
+ *   ⇒ EXCLUDED BY DESIGN, NOT MISSED: widening to presence-checks generally would
+ *   sweep hundreds of legitimate `existsSync` calls that have nothing to do with
+ *   runnability, and the set would stop being a list somebody can audit.
+ *   ⚠️ The four bullets above are all `accessSync` spellings, so a reader takes
+ *   the class to BE accessSync. Naming this here is the file's own rule applied to
+ *   itself: disclosing one gap is worse than disclosing none.
+ *
  * ⚠️ AND THE FILE SELECTION HAS ITS OWN GAPS: `.js` only (no `.mjs`/`.cjs`, none
- * exist), `*.test.js` excluded, any directory named `dist` skipped.
+ * exist), `*.test.js` excluded, any directory named `dist` skipped, and any
+ * dot-directory.
  *
  * ⭐ Disclosing one gap is worse than disclosing none: a reader takes the single
  * caveat as the complete list.
