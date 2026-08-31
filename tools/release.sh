@@ -742,6 +742,28 @@ step "== 8. deploy, from an export of the COMMITTED site plus the named artifact
 # line below is the link from a deployment to its commit.
 . "$REPO/tools/lib/site-deploy.sh"
 _site_export="$BUILD_ROOT/site-export"
+# 🔑 #1664: WHAT THIS SHIPS, stated HERE because the name does not say it and an
+# experienced reader inferred the opposite from this line alone, filed a card,
+# and proposed a fix that would have broken every install.
+#
+#   PAGES AND EVERYTHING TRACKED  come from the COMMIT ($SITE_SHA), via
+#   `git archive`. A half-edited or uncommitted page in the shared site
+#   checkout CANNOT ship. This is not a hazard; it is the guarantee.
+#
+#   dist/*.tar.gz AND dist/*.tar.gz.sha256  come from the WORKING TREE, on
+#   purpose, because the release writes them there and git does not carry them.
+#   `_site_carry_allowed` REFUSES any such file that is tracked, so the carry is
+#   untracked-only, and `_site_left_behind` then prints everything the working
+#   tree held that did not ship.
+#
+# 🛑 SO DO NOT "FIX" THIS INTO A COMMIT-ONLY DEPLOY. That removes the only path
+# by which release artifacts reach the site.
+# ✅ You would not get far: tools/test-site-deploy-export.sh already asserts BOTH
+# halves, with controls -- "the versioned bundle pair ships" (the carry) and "the
+# untracked stray does not ship" (the archive). A commit-only change reds there.
+# This comment exists to stop the change being STARTED; that test exists to stop
+# it LANDING. The card that prompted both was filed by a careful reader who had
+# only this line to go on.
 site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }
 # The filter that ACTUALLY ships is the export's; 3c read HEAD's early, and
 # the sha can have moved since. Same evaluator, same refusal, on the real file.
