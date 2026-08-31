@@ -101,7 +101,7 @@ test('control: the extracted function discriminates in both directions', () => {
    caught it in review, on the exact case the key-tail test above constructs.
    ⇒ A guard covering one of two branches is how the other branch stays broken. */
 test('the Disconnect control carries the qualifier, escaped, because that is the name the check reads', () => {
-  assert.match(PAGE, /aria-label="Disconnect ' \+ who \+ \(qual \? ' \(' \+ esc\(qual\) \+ '\)' : ''\)/,
+  assert.match(PAGE, /aria-label="Disconnect ' \+ who \+ ' \(' \+ esc\(qualName\) \+ '\)'/,
     'the Disconnect button either dropped the qualifier (two of them answer to one name again) or stopped escaping it (a directory name with a quote breaks out of the attribute)');
 });
 
@@ -187,10 +187,15 @@ test('#1659: the default row renders DISABLED and a non-default row renders LIVE
   const body = PAGE.slice(at + 2, endAt + ">Disconnect</button>'".length + 1);
   const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   // eslint-disable-next-line no-new-func
-  const render = new Function('a', 'who', 'qual', 'esc', `return ${body};`);
+  /* `qualName` joins the signature because #1659 made the accessible name ALWAYS
+     carry a parenthetical, falling back to the provider when the ambiguity
+     qualifier is empty. This test EXECUTES the ternary rather than reading it,
+     so a new free variable is a ReferenceError rather than a silent pass. That
+     is the property worth having: it caught the change instead of ignoring it. */
+  const render = new Function('a', 'who', 'qual', 'qualName', 'esc', `return ${body};`);
 
-  const onDefault = render({ isDefault: true, dir: '/h/.claude' }, 'main@example.com', '', esc);
-  const onOther = render({ isDefault: false, dir: '/h/.claude-walk' }, 'walk@example.com', '', esc);
+  const onDefault = render({ isDefault: true, dir: '/h/.claude' }, 'main@example.com', '', 'Claude', esc);
+  const onOther = render({ isDefault: false, dir: '/h/.claude-walk' }, 'walk@example.com', '', 'Claude', esc);
 
   /* 🛑 ANCHOR ON THE EXACT SPELLING. `/disabled/` matched the SUBSTRING inside
      `aria-disabled`, so the moment the markup moved from the native attribute to
@@ -231,7 +236,7 @@ test('#1659: the default row renders DISABLED and a non-default row renders LIVE
 });
 
 test('EVERY Disconnect control carries the qualifier, escaped, or one branch keeps the whole defect', () => {
-  const qualified = (PAGE.match(/aria-label="Disconnect ' \+ who \+ \(qual \? ' \(' \+ esc\(qual\) \+ '\)' : ''\)/g) || []).length;
+  const qualified = (PAGE.match(/aria-label="Disconnect ' \+ who \+ ' \(' \+ esc\(qualName\) \+ '\)'/g) || []).length;
   const controls = (PAGE.match(/class="acct-disconnect"/g) || []).length;
   assert.ok(controls >= 3,
     `expected the three disconnect branches (OpenAI, live Claude, disabled default); found ${controls}`);

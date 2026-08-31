@@ -13349,6 +13349,22 @@ async function paintAccounts() {
     /* Empty for every row whose name is already unique, which is nearly all of
        them. Present only where two rows would otherwise read alike. */
     const qual = acctQual.get(String(a.dir || '')) || '';
+    /* 🛑 THE PROVIDER IS THE FALLBACK QUALIFIER, AND #1659 IS WHY IT HAS TO BE.
+       `accountQualifiers` keys on `email || keyTail`, so a row yielding NEITHER
+       gets `qual = ''` and its name falls back to the label. This file already
+       records that as deferred finding 8 and says outright it goes live the moment
+       such a row exists.
+       ⚠️ WHAT #1659 CHANGED IS THE CONSEQUENCE, NOT THE CAUSE. Until this branch
+       the two controls read "Disconnect work1" and "REMOVE work1", so the VERB was
+       doing disambiguation work by accident. Relabelling OpenAI to Disconnect
+       removed that accident, and `~/.claude-work1` beside `~/.codex-work1` would
+       give two buttons whose accessible name is exactly "Disconnect work1".
+       ⇒ The provider is what actually differs between them, so it is what the
+       parenthetical falls back to. Always present, so there is no branch that can
+       render an unqualified name. The VISIBLE qualifier tag below is unchanged:
+       this is the accessible name only, where the ambiguity is unrecoverable
+       because a screen reader user cannot see which group the row sits under. */
+    const qualName = qual || (isOpenai ? 'OpenAI' : 'Claude');
     const qualTag = qual
       ? '<span class="acct-qual" title="' + esc('Two accounts on this computer are signed in as ' + (a.email || 'this login') + '. This one is ' + qual + '.') + '">' + esc(qual) + '</span>'
       : '';
@@ -13477,7 +13493,7 @@ async function paintAccounts() {
          sign-in, which is the shape #1372 kept these two providers apart for. */
       + (isOpenai ? ''
         : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
-          + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+          + 'aria-label="Sign in again as ' + who + ' (' + esc(qualName) + ')' + '" '
           + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>')
       + (isOpenai
         /* 🔑 ONE WORD FOR ONE ACT (#1659). This said "Remove" while the Claude
@@ -13487,7 +13503,7 @@ async function paintAccounts() {
            engine, the route and the sentence are unchanged; only the label is. */
         ? '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
           + 'data-forget-provider="openai" '
-          + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '">Disconnect</button>'
+          + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '">Disconnect</button>'
         : (a.isDefault
           /* 🛑 THE DEFAULT ROW GETS A DISABLED BUTTON, BECAUSE THE ENGINE
              REFUSES IT. `accounts.forgetAccount` will not move `~/.claude`:
@@ -13516,12 +13532,12 @@ async function paintAccounts() {
              fire. The refusal is enforced by the absence of wiring, not by the
              attribute, which is why softening the attribute is safe. */
           ? '<button class="acct-disconnect" type="button" aria-disabled="true" '
-            + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '')
+            + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')'
               + '. Unavailable: Kosmos does not remove this computer\u2019s main Claude folder." '
             + 'title="Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.">Disconnect</button>'
           : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
             + 'data-forget-provider="claude" '
-            + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+            + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '" '
             + 'title="Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted, and Kosmos stops looking inside it, so any history kept only there will not appear any more.">Disconnect</button>'))
       + '</div>';
   };
