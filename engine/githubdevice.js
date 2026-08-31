@@ -59,13 +59,6 @@ const store = require('./store');
    the hoist. The hoist defends against a WRONG ANSWER, not against a rejection.
    📌 Safe: `runners.js` requires only node builtins, so there is no cycle. */
 const { isRunnable } = require('./runners');
-/* 🛑 GUARDED FOR THE SAME REASON AS THE ./github BINDING, because guarding ONE of
-   THREE identical destructures is this branch's own fixed-one-site-left-its-siblings
-   class, committed inside the guard added to fix it. If `runners.js` stops exporting
-   `isRunnable`, the binding is `undefined` and `runnable(p)` throws a TypeError. */
-if (typeof isRunnable !== 'function') {
-  throw new TypeError("githubdevice: isRunnable did not load from ./runners; the catch in state() would swallow it and serve gh:missing silently");
-}
 
 const DIR = path.join(store.ROOT, 'secrets');
 const FILE = path.join(DIR, 'github.token');
@@ -215,15 +208,20 @@ function setClientId(id) {
    the export list 190 lines below it, after the re-export was dropped as new
    public surface. Consumers require it from `github.js`, where it is defined. */
 const { ghCandidateList } = require('./github');
-/* 🛑 FAIL LOUDLY IF THIS BINDING EVER DEGRADES. If a require cycle is introduced,
-   the destructured name is `undefined` during a partial load, the TypeError inside
-   `ghPresent()` is swallowed by `state()`'s outer catch, and the route answers
-   `gh: 'missing'` instead of failing. The branch pins the OPPOSITE direction
-   (github.js must not reach back into githubdevice) and nothing pinned this one.
-   ⚠️ Same silent-degradation shape as the hoist above: the risk here is a WRONG
-   ANSWER, not a rejection, which is exactly what a catch-all hides. */
+/* ⚠️ DETECTED, NOT FATAL. If a require cycle is introduced the destructured name
+   is `undefined` during a partial load, the TypeError inside `ghPresent()` is
+   swallowed by `state()`'s outer catch, and the route answers `gh: 'missing'`
+   silently. This warns so the failure is visible.
+   🛑 IT USED TO THROW, AND THAT WAS THE WRONG TRADE. `server.js` requires this
+   module at top level with NO try (lines 165/166/180), so a throw here means the
+   BOARD DOES NOT BOOT AT ALL, with a raw TypeError and no UI, where the same
+   degradation previously stayed confined to one door answering `gh: 'missing'`.
+   Measured: with the binding stubbed, requiring `github.js` gave BOOT FAILS.
+   ⇒ Two independent reviewers flagged it and neither of my comments stated that
+   "loudly" meant whole-app boot failure. `main` carried no such guard at all.
+   ⇒ Warning keeps the detection and returns the blast radius to one door. */
 if (typeof ghCandidateList !== 'function') {
-  throw new TypeError('githubdevice: ghCandidateList did not load from ./github; a require cycle would answer gh:"missing" silently');
+  console.warn('githubdevice: ghCandidateList did not load from ./github; a require cycle would answer gh:"missing" silently');
 }
 
 /* gh presence, so ONE writer can branch on this object alone.

@@ -947,8 +947,15 @@ async function start(opts) {
      * ⚠️ THE CHEAP HALF ONLY, DELIBERATELY. `haveBinary` below refines this with
      * an AWAITED `--version` probe carrying a 15 second timeout, and putting
      * that in front of the fast path would make every already-connected start()
-     * pay for it. `accessSync` is synchronous and answers the question this
-     * branch actually needs: is there anything on disk to run at all.
+     * pay for it. A SYNCHRONOUS presence check is what the fast path needs, and
+     * `resolveBin().present` is exactly that.
+     * ⚠️ THIS SAID "`accessSync` is synchronous and answers the question this
+     * branch actually needs". IT DOES NOT ANSWER IT: the raw execute-permission
+     * check succeeds on a DIRECTORY, which the block fifteen lines below spells
+     * out in full (and this sentence deliberately avoids spelling the call, because
+     * the #1592 sweep pins every line that does, and it caught this edit). The
+     * branch rewrote this same phrasing at three other sites and left this one
+     * standing, fifteen lines above its own refutation.
      *
      * 🛑 A BINARY THAT EXISTS AND DOES NOT RUN STILL REPORTS CONNECTED HERE, AND
      * NOTHING CORRECTS IT. This branch's verdict is TERMINAL: `start()` returns
