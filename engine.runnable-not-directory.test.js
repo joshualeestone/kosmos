@@ -1064,3 +1064,76 @@ test('nothing unconditionally forces canRunClaude true, which would dead-code th
   assert.strictEqual(('  } catch { canRunClaude = false; }'.match(FORCED) || []).length, 0,
     'the override matcher fires on `= false`, which is legitimate and cannot make a directory pass');
 });
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE "NEVER REJECTS" CONTRACT, PINNED AT THE DOOR SITES TOO.
+
+   🛑 THREE production changes on this branch are justified by devicedoor's
+   `state()` "Never rejects" promise: the isRunnable hoists in devicedoor.js and
+   githubdevice.js, and moving ghCandidateList into github.js so the getter calls
+   a LOCAL function rather than a lazy require of githubdevice.
+
+   ⚠️ ALL THREE CARRIED A "Measured, both arms" COMMENT AND ONLY ONE HAD AN ARM.
+   The connect.js site got a real regression test; these two got prose. Measured:
+   re-adding `require('./githubdevice')` inside github.js's getter passed the
+   WHOLE SUITE, EXIT_CODE=0, fail 0. Nothing went red.
+
+   ⇒ That is this branch's own "fixed one site, left its siblings" class, and
+   also its own "the claim outlives the guard": my sentence about the property
+   was stronger than any guard on it, and the sentence is what a maintainer
+   trusts. These arms replace the sentence.
+   ══════════════════════════════════════════════════════════════════════════ */
+test('the gh door never rejects when runners fails to LOAD', async () => {
+  const Module = require('module');
+  const orig = Module._load;
+  const door = require('./engine/github.js');
+  /* CONTROL FIRST: with everything loadable it resolves, so a resolve below
+     cannot be the answer to everything. */
+  await assert.doesNotReject(() => door.state(), 'control: the door rejected with no fault injected');
+  Module._load = function (req, ...rest) {
+    if (req === './runners') throw new Error('simulated runners load failure');
+    return orig.call(this, req, ...rest);
+  };
+  try {
+    await assert.doesNotReject(() => door.state(),
+      'a runners LOAD failure rejected door.state(), against devicedoor\'s "Never rejects". '
+      + 'The isRunnable require was probably moved back inside the runnable lambda.');
+  } finally { Module._load = orig; }
+});
+
+test('github.js does not reach BACK into githubdevice at call time', async () => {
+  const Module = require('module');
+  const orig = Module._load;
+  const door = require('./engine/github.js');
+  await assert.doesNotReject(() => door.state(), 'control: the door rejected with no fault injected');
+  Module._load = function (req, ...rest) {
+    if (req === './githubdevice') return {};   // the shape a cycle or failed load gives
+    return orig.call(this, req, ...rest);
+  };
+  try {
+    await assert.doesNotReject(() => door.state(),
+      'github.state() rejected when githubdevice\'s exports were empty, so the candidates '
+      + 'getter is reaching back into githubdevice. That recreates the cycle and the reject '
+      + 'path; ghCandidateList must be called as a LOCAL function in github.js.');
+  } finally { Module._load = orig; }
+});
+
+/* 🛑 A THIRD ARM WAS WRITTEN HERE FOR githubdevice.state() AND REMOVED, BECAUSE IT
+   COULD NOT FAIL. Recording the measurement rather than the arm.
+
+   `githubdevice.state()` wraps `ghPresent()` in its OWN try/catch (githubdevice.js,
+   `async function state()`), so a throw from the runnable lambda is absorbed and
+   `state()` resolves whatever happens underneath. Measured: with `./runners` made
+   to throw at load, it resolved with `gh: "present"`; and mutating the hoist back
+   into the lambda left the suite at 17 pass 0 fail.
+
+   ⇒ THE HOIST IN githubdevice.js IS DEFENCE IN DEPTH, NOT THE THING THAT UPHOLDS
+   THE CONTRACT THERE. The contract is upheld by that catch. The two arms above are
+   different: they redden (2 fail and 1 fail respectively) because `github.js`'s
+   door reaches devicedoor's `status()`, which calls `ghBin()` synchronously inside
+   the promise executor with no catch of its own.
+
+   ⚠️ This matters because the comment on that hoist said "Measured, both arms" and
+   the claim was true of the OTHER two sites. Writing the arm is what showed the
+   third was already guaranteed elsewhere. A green arm here would have implied a
+   guard that does not exist. */
