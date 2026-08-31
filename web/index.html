@@ -9004,6 +9004,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         </div>
         <p class="fmsg" id="you-name-msg" role="status" aria-live="polite"></p>
       </div>
+      <!-- #1668: the operator's time zone. Its ONLY job is so an agent knows
+           the operator's local time when they write, so it lives beside the
+           name (the other thing agents are told about the person). The dropdown
+           defaults to this computer's own time zone; saving it makes each
+           direct message carry the local time. -->
+      <div class="field" style="margin-top:18px;">
+        <label class="flabel" for="you-tz">Your time zone</label>
+        <div class="fhint">So your agents know your local time when you write to them.</div>
+        <div class="frow">
+          <select id="you-tz" aria-label="Your time zone" disabled></select>
+          <button class="btn uprime" type="button" id="you-tz-save" aria-label="Save your time zone" disabled>Save</button>
+        </div>
+        <p class="fmsg" id="you-tz-msg" role="status" aria-live="polite"></p>
+      </div>
     </section>
   </section>
   <section class="dsec" id="s-sec-accounts" data-sec="accounts" tabindex="-1" aria-label="AI Models" hidden>
@@ -13044,8 +13058,65 @@ document.getElementById('you-name-save').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+/* #1668: the operator's time zone. The dropdown lists the runtime's IANA zones
+   and defaults to this computer's own, so a person who never opens Settings
+   still has the right one; saving it is what makes each direct message carry the
+   local time (server.js reads it at delivery). */
+const YOU_TZ_FALLBACK = ['America/Chicago', 'America/New_York', 'America/Denver', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu', 'UTC', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Asia/Kolkata', 'Asia/Shanghai', 'Asia/Tokyo', 'Australia/Sydney'];
+function youTzMachine() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
+}
+async function paintYouTz() {
+  const sel = document.getElementById('you-tz');
+  const btn = document.getElementById('you-tz-save');
+  const msg = document.getElementById('you-tz-msg');
+  if (!sel.options.length) {
+    let zones;
+    try { zones = (typeof Intl.supportedValuesOf === 'function') ? Intl.supportedValuesOf('timeZone') : YOU_TZ_FALLBACK.slice(); }
+    catch { zones = YOU_TZ_FALLBACK.slice(); }
+    for (const z of zones) {
+      const o = document.createElement('option'); o.value = z; o.textContent = z; sel.appendChild(o);
+    }
+  }
+  let saved = null;
+  try {
+    const r = await (await fetch('/api/settings', { cache: 'no-store' })).json();
+    saved = r && r.timezone ? r.timezone : null;
+  } catch { /* fall through to this computer's own time zone */ }
+  const want = saved || youTzMachine();
+  /* the machine's zone is not always in the enumerated list; make it selectable */
+  if (want && !Array.from(sel.options).some((o) => o.value === want)) {
+    const o = document.createElement('option'); o.value = want; o.textContent = want; sel.insertBefore(o, sel.firstChild);
+  }
+  if (document.activeElement !== sel) sel.value = want;
+  sel.disabled = false; btn.disabled = false;
+  msg.textContent = saved ? '' : "Set to this computer's time zone. Save to confirm.";
+}
+document.getElementById('you-tz-save').addEventListener('click', async () => {
+  const sel = document.getElementById('you-tz');
+  const btn = document.getElementById('you-tz-save');
+  const msg = document.getElementById('you-tz-msg');
+  const timezone = sel.value;
+  if (!timezone) { msg.textContent = 'Pick a time zone first.'; return; }
+  btn.disabled = true;
+  msg.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ timezone }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = out.because || 'That did not save.'; return; }
+    msg.textContent = 'Saved. Your agents will see your local time.';
+  } catch {
+    msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally {
+    btn.disabled = false;
+  }
+});
 async function paintSettings() {
   paintYouName();
+  paintYouTz();
   const loc = document.getElementById('set-applocation');
   const mach = document.getElementById('set-machine');
   try {
@@ -13612,7 +13683,23 @@ async function paintAccounts() {
     });
   }
   for (const btn of box.querySelectorAll('[data-forget]')) {
+    /* #1683: ASK FIRST. Josh asked for exactly this in #770: "a
+       Disconnect link at the bottom that asks first". It shipped without
+       the asking half, so one click removed an account with no confirm.
+       📌 The arm-in-place idiom already in this file (17800, 18285,
+       20522): first press arms and relabels, second press acts, blur
+       disarms. No modal, no state outside this closure, no repaint.
+       🛑 THE LABEL DELIBERATELY DOES NOT SAY "for good", WHICH THE
+       SIBLING IDIOMS DO. The engine FORGETS rather than deletes: it
+       renames the directory and the sign-in file survives, and the
+       success sentence below is careful to say so, because "removed"
+       and "deleted" are different promises. Copying "Remove it for
+       good?" would make the confirm contradict the sentence after it. */
+    let armed = false;
+    const REST = btn.textContent;
+    btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; btn.textContent = REST; btn.classList.remove('armed'); } });
     btn.addEventListener('click', async () => {
+      if (!armed) { armed = true; btn.textContent = 'Remove it?'; btn.classList.add('armed'); return; }
       btn.disabled = true;
       acctCancelSay();
       if (msg) msg.textContent = '';
@@ -13670,24 +13757,28 @@ async function paintAccounts() {
         }
       } catch (err) {
         btn.disabled = false;
-        if (msg) {
-          msg.textContent = String((err && err.message) || 'we could not remove that account');
-          /* 🛑 THIS ONE MATTERS MOST OF THE THREE. On the failure path the
-             sentence is a REFUSAL that names the agents blocking the removal
-             ("marlowe is running on this account"), which the person has to read
-             to know what to do next. Rendering it below every other account box
-             is the worst place for the one message they must act on. */
-          if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
-        }
-        /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH USED TO GET
-           AND THIS ONE DID NOT. `btn.disabled = true` above dropped focus to
-           `<body>` before the request went out, so without this a keyboard or
-           screen-reader user is left at the top of the document while the refusal
-           that names the blocking agents renders far below them. The button still
-           exists here and was just re-enabled, so it is the right place to land:
-           they are back on the control they pressed, and the live region speaks
-           the refusal. */
-        if (btn.focus) btn.focus({ preventScroll: true });
+          if (msg) {
+            msg.textContent = String((err && err.message) || 'we could not remove that account');
+            /* 🛑 THIS ONE MATTERS MOST OF THE THREE. On the failure path the
+               sentence is a REFUSAL that names the agents blocking the removal
+               ("marlowe is running on this account"), which the person has to read
+               to know what to do next. Rendering it below every other account box
+               is the worst place for the one message they must act on. */
+            if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+          }
+          /* Restore the resting label, or a refused remove leaves the button
+             reading "Remove it?" and the NEXT single click acts. */
+          armed = false; btn.textContent = REST; btn.classList.remove('armed');
+          /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH GETS AND
+             THIS ONE DID NOT. `btn.disabled = true` at the top of this handler
+             dropped focus to `<body>` before the request went out, so without this a
+             keyboard or screen-reader user is left at the top of the document while
+             the refusal that names the blocking agents renders far below them.
+             ⚠️ AFTER THE DISARM ON PURPOSE, and the order is the whole point: focus
+             first and assistive tech announces "Remove it?", then the label changes
+             under it silently. Disarm first and it announces the resting label,
+             which is what the button will actually do if pressed again. */
+          if (btn.focus) btn.focus({ preventScroll: true });
       }
     });
   }
@@ -15098,41 +15189,20 @@ function paintOrg() {
   }
   orgLiveStart(map, placed, cx, cy, size);
   const unplaced = agents.length - placed.size;
-  /**
-   * The flat-fleet line (Mona Lisa, after #137 shipped). Everybody's first org
-   * chart is a wheel of spokes, because nobody has answered the question yet,
-   * and the view had no words for that state in the build OR in the drawing.
-   *
-   * ⚠️ THE SHOW RULE IS WRITTEN SO IT CAN FAIL, not as an intention:
-   *   SHOW   at least one agent AND not one of them has a reportsTo
-   *   HIDE   the moment any agent has one, and it does not come back unless
-   *          every one is cleared again
-   *   NEVER  with no agents at all -- the board's own empty state owns that
-   *          screen, and two empty states on one view is exactly the busy-ness
-   *          Settings was cut down to avoid.
-   * The at-least-one clause is the one that earns its keep: without it the line
-   * greets somebody on a fresh install who has no agents and therefore no
-   * possible use for it.
-   *
-   * 🔑 "You can change that" rather than "set up your team": a flat fleet is a
-   * legitimate way to run this, and the line must not read as a chore list. It
-   * echoes the field's own label so the words match the control.
-   */
-  const anyManaged = agents.some((a) => a && a.profile && typeof a.profile.reportsTo === 'string'
-    && a.profile.reportsTo.trim());
+  /* The flat-fleet hint that used to sit here is gone (Josh, 2026-08-31). It read
+     "Assign agents to each other to create a hierarchy." on a board whose agents all
+     report to nobody. The reasoning is kept for whoever considers adding one back: the
+     drawing already shows the cause (nobody reports, so everyone is on one ring), so
+     the only thing a hint could add was the action, and Josh's read is that a flat
+     fleet is a legitimate way to run this, not a state to nag about. The line was cut
+     to the action alone on 2026-08-22 and to nothing on 2026-08-31.
+     🔑 THE unplaced BRANCH BELOW STAYS: "could not be placed" is a real state the
+     drawing cannot show on its own, unlike the flat-fleet case which the ring already
+     tells. Only render at least one agent AND none placed, never on the empty board
+     (its own empty state owns that screen). */
   note.textContent = unplaced > 0
     ? 'One or more agents could not be placed, so they are not drawn.'
-    : (!anyManaged
-      /* 🔑 JOSH'S OWN WORDS, 2026-08-22, replacing two sentences of mine: "I
-         don't know that we need that much text. Let's say centered something
-         like 'assign agents to each other to create a hierarchy'".
-         ⚠️ WHAT THE LONGER VERSION WAS DOING was explaining the CAUSE (nobody
-         reports to anyone, so everyone is on one ring) before naming the
-         action. Under a picture that already shows one ring, the cause is on
-         screen and only the action is missing. His version is shorter because
-         it drops the half the drawing already says. */
-      ? 'Assign agents to each other to create a hierarchy.'
-      : '');
+    : '';
 }
 
 /* Build the live state from what was just painted, seeded from the last

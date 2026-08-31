@@ -28,6 +28,9 @@ test('#923: the board process chdirs to $HOME at startup, so a directory it was 
       AGENT_WORKFORCE_WORKERS: path.join(launchDir, 'workers'),
       AGENT_WORKFORCE_LAUNCH: path.join(launchDir, 'launch'),
       AGENT_WORKFORCE_DRY_RUN: '1',
+      /* kosmos#1651: DRY_RUN stops tmux WRITES; the roster is a READ and only
+         TMUX_BIN redirects one, so the whole-sandbox guard now requires it. */
+      AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

@@ -91,6 +91,9 @@ function boardWithSeededIds(tmuxScript) {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
       AGENT_WORKFORCE_DRY_RUN: '1',
+      /* kosmos#1651: DRY_RUN stops tmux WRITES; the roster is a READ and only
+         TMUX_BIN redirects one, so the whole-sandbox guard now requires it. */
+      AGENT_WORKFORCE_TMUX_BIN: nodePath.join(bin, 'tmux'),
       AGENT_WORKFORCE_DATA: data,
       AGENT_WORKFORCE_WORKERS: workers,
       AGENT_WORKFORCE_LAUNCH: nodePath.join(sb, 'launch'),

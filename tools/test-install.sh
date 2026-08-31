@@ -221,6 +221,11 @@ export AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_LAUNCH="$SB/launch"
 # harness starts; the build's smoke test sandboxes both, so does this.
 # tools/test-build-smoke-sandbox.sh audits these exports against the gate.
 export AGENT_WORKFORCE_PROJECTS="$SB/projects" AGENT_WORKFORCE_WORKERS="$SB/workers" AGENT_WORKFORCE_DRY_RUN=1
+# 🛑 kosmos#1651. THE COMMENT ABOVE SAID IT: "the harness never sets TMUX_BIN, so
+# install/kosmos may hand a board the machine's tmux". DRY_RUN makes SENDS no-ops
+# and does nothing to READS, so those boards enumerated the real fleet. Naming a
+# stub makes the read inert too, which is what this block already intended.
+export AGENT_WORKFORCE_TMUX_BIN="$HERE/test-support/fake-tmux.sh"
 export AGENT_WORKFORCE_CLAUDE_CONFIG="$SB/claude.json" AGENT_WORKFORCE_CONFIG_ROOT="$SB/config"
 # A test that steals the operator's browser is a test nobody runs twice:
 # every pass suppresses the fresh-install open unless it deliberately

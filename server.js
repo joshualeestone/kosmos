@@ -1667,13 +1667,22 @@ const server = http.createServer((req, res) => {
                        diagnosis. The agent has a job, is not removed (filtered
                        above) and is not switched off (the branch above), so
                        the launch model is the true next move: nothing to
-                       press, it comes back on its own -- and when it does
-                       not, this computer holds no reason, and saying THAT is
-                       still more than a full stop. Sentence shared with
+                       press, it comes back on its own                       -- it comes back on its own.
+                       🛑 #1663 CHANGED THE SECOND HALF AND THIS COMMENT JUSTIFIED THE
+                       OLD ONE. It read "this computer holds no reason, and saying THAT
+                       is still more than a full stop": true against a full stop, FALSE
+                       against the Terminal tab, which held Claude Code's trust prompt at
+                       the same moment this page called the cause unobtainable. Josh read
+                       it, stopped looking, and wiped his Mac. #671's intent survives (say
+                       something rather than stop at the diagnosis); only its claim that
+                       nothing can be known is gone. The clause now POINTS without
+                       promising: "where to look" holds whether or not the pane has
+                       content, and naming what the tab SHOWS would over-promise for an
+                       agent that genuinely has no session. Sentence shared with
                        remove.js's restart refusal via create.SELF_STARTS. */
                     ? 'this agent is not running: nothing on this computer has a session for it. '
                       + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
-                      + '; if it stays off, this computer is not saying why'
+                      + '; if it stays off, its Terminal tab is where to look'
                     : 'this agent is not running: nothing on this computer has a session for it',
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
                 profile,
@@ -3216,8 +3225,44 @@ const server = http.createServer((req, res) => {
            agent". Only a THROW, or an unreadable roster, is ignorance. */
         const roster = safeRoster();
         let complete = roster !== null;
+        /* 🛑 THE ROSTER ALONE CANNOT SEE A STOPPED AGENT, AND THIS GUARD IS WHAT
+           MAKES THE RENAME SAFE (kosmos#1689). `safeRoster()` is
+           `status.snapshot()`, whose `panelessKeys` does
+           `if (liveness.alive(key) !== true) continue;` - so an agent that exists
+           but is not running is invisible here. Its plist still names this
+           account's directory by absolute path, so the rename proceeds and the
+           agent comes back pointed at a path that is not there.
+           ⚠️ THE CHECK BELOW WAS NEVER THE PROBLEM: `readJob` reads the PLIST,
+           which is true whether or not the agent runs. Only the ENUMERATION was
+           liveness-gated, so this unions in the names Kosmos has written a
+           profile for - its own record that an agent exists, independent of any
+           process being up.
+           📌 `known()` separates "nothing has ever been written" (ok, empty) from
+           "we could not look" (not ok), so an unreadable profiles directory makes
+           this INCOMPLETE rather than quietly shortening the list. Same
+           fail-closed posture the `complete` flag already keeps for an unreadable
+           launch file. */
+        const knownNames = register.known();
+        if (!knownNames || knownNames.ok !== true) complete = false;
+        /* 🛑 THE REMOVED-AGENT FILTER HAS TO BE APPLIED TO THESE TOO. `safeRoster`
+           drops agents the person has removed, for the reason its own comment
+           gives, and a profile file outlives that removal. Unioning the profile
+           names in RAW would resurrect a removed agent into this guard and refuse
+           the account because of one the person was already told was gone - the
+           same "two derivations of the fleet" habit that comment calls this
+           codebase's worst, arriving from the side that looks like a fix. */
+        let goneNames = null;
+        try { goneNames = new Set(removal.removedAgents().filter((r) => r && r.stopped !== false).map((r) => r.name)); }
+        catch { complete = false; goneNames = null; }
+        const names = new Set();
+        for (const a of (roster || [])) if (a && a.sessionName) names.add(a.sessionName);
+        if (goneNames) {
+          for (const n of (knownNames && Array.isArray(knownNames.names) ? knownNames.names : [])) {
+            if (!goneNames.has(n)) names.add(n);
+          }
+        }
         const usedBy = [];
-        for (const a of (roster || [])) {
+        for (const a of Array.from(names).map((sessionName) => ({ sessionName }))) {
           let job = null;
           try { job = create.readJob(a.sessionName); }
           catch { complete = false; continue; }
@@ -3245,7 +3290,7 @@ const server = http.createServer((req, res) => {
         }
         if (!complete) {
           sendJson(res, 400, {
-            error: 'we could not check which agents are running, so nothing was changed',
+            error: 'we could not check which agents are on this account, so nothing was changed',
             usedBy: [],
           });
           return;
@@ -3744,6 +3789,34 @@ const server = http.createServer((req, res) => {
    * screen with no answers at all is worse than three that say "we could not
    * tell". The catch turns that into exactly that.
    */
+  /* #1668: the operator's account-level settings. Today just the timezone, which
+     the delivery path reads (5086) to tell each agent the operator's local time.
+     Never 500s for a state question, same contract as /api/machine below: a store
+     that cannot be read answers with an unset timezone, not an error. */
+  if (pathname === '/api/settings' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let s;
+    try { s = store.readSettings(); } catch { s = {}; }
+    /* timezone is null until the operator sets one; the UI then defaults its
+       dropdown to the browser's own machine timezone (detected client-side,
+       the authoritative source for the operator's machine). */
+    sendJson(res, 200, { timezone: (s && s.timezone) || null });
+    return;
+  }
+  if (pathname === '/api/settings' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
+        if (!messages.validTimeZone(body.timezone)) {
+          sendJson(res, 400, { ok: false, because: 'that is not a timezone we recognise' });
+          return;
+        }
+        const saved = store.writeSettings({ timezone: body.timezone });
+        sendJson(res, 200, { ok: true, timezone: saved.timezone });
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
   if (pathname === '/api/machine' && (req.method === 'GET' || req.method === 'HEAD')) {
     let checks;
     try { checks = machine.check(); }
@@ -5253,7 +5326,12 @@ const server = http.createServer((req, res) => {
            told the file's path in the bracketed line so the agent can open it. */
         const files = attachments.resolveForMessage(body, 'agent', name, 'that attachment is not one this conversation can send');
         if (!files.ok) throw new Error(files.because);
-        const delivery = chat.deliver(name, body.text, roster, messages.OPERATOR_DIRECT, attachments.wireNote(files.recs));
+        /* #1668: carry the operator's local time in the prefix when a timezone
+           has been set in Settings, so the agent is told the time on every direct
+           operator message rather than having to be instructed to know it. No
+           timezone set (or an unreadable id) yields the bare prefix, unchanged. */
+        const opPrefix = messages.operatorDirect(messages.operatorNowLabel(store.readSettings().timezone));
+        const delivery = chat.deliver(name, body.text, roster, opPrefix, attachments.wireNote(files.recs));
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...attachments.rowFields(files.recs),
           text: chose || body.text,
@@ -5702,14 +5780,56 @@ const server = http.createServer((req, res) => {
             const card = t && Array.isArray(roster) ? roster.find((c) => c && c.sessionName === t.agent) : null;
             return card && card.name ? { ...t, shownAs: card.name } : t;
           });
-          // The reports-to block names the person in its default form (#336),
-          // so a new name here has to reach it too. Same roster, same posture.
-          try { reports.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
-          /* #1034: the connections block rides the same sweep. Its words never
-             change, so this is a no-op for an agent that already has it, and it
-             is the one write that gives it to every agent created before the
-             block existed. */
-          try { connections.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
+          /* 🛑 kosmos#1684. THESE TWO USED TO DISCARD THEIR VERDICTS AND SWALLOW
+             THEIR THROWS ("carried by the marker, not here"). The marker is
+             real -- #323's stale-block marker -- but it marks a block as stale
+             IN THE AGENT'S FILE, FOUND LATER. It cannot tell the person who
+             just pressed Save that the write did not land, which is the only
+             question this route is answering.
+             ⇒ `told` is built from `you.syncEveryone` ALONE, so all three
+             blocks could fail for every agent and this route would still
+             answer a complete success. Not a missing detail: the wrong answer
+             to the one question asked.
+             📌 One row per agent is the UI contract, so the sibling verdicts
+             DOWNGRADE a row rather than being concatenated onto it -- three
+             lists would show each agent three times. A row can only ever move
+             TOLD -> not-TOLD here; nothing upgrades.
+             📌 Shapes are identical across the three modules (same guard, same
+             `isNamedOurs` filter, same `{ agent, ...tellAgent() }`), so this
+             merges on `agent` without a mapping step. Measured, not assumed.
+             📌 A `null` agent is the whole-roster verdict those modules return
+             when the roster is unreadable, so it downgrades EVERY row. */
+          const sideWork = [
+            // The reports-to block names the person in its default form (#336),
+            // so a new name here has to reach it too. Same roster, same posture.
+            ['who they report to', () => reports.syncEveryone(roster)],
+            /* #1034: the connections block rides the same sweep. Its words never
+               change, so this is a no-op for an agent that already has it, and it
+               is the one write that gives it to every agent created before the
+               block existed. */
+            ['how to connect a provider', () => connections.syncEveryone(roster)],
+          ];
+          for (const [what, run] of sideWork) {
+            let verdicts;
+            try { verdicts = run(); }
+            catch (e) {
+              verdicts = [{ agent: null, state: projects.TOLD.COULD_NOT,
+                            because: String((e && e.message) || 'we could not write it') }];
+            }
+            for (const v of (Array.isArray(verdicts) ? verdicts : [])) {
+              if (!v || v.state === projects.TOLD.TOLD) continue;
+              /* Name WHICH block failed. "we could not tell them" over a
+                 successful name change sends the person to look at the wrong
+                 thing; they need to know the reports-to block is what is
+                 stale. */
+              const because = `${what}: ${v.because || 'we could not write it'}`;
+              told = told.map((t) => (
+                (t && (v.agent === null || t.agent === v.agent) && t.state === projects.TOLD.TOLD)
+                  ? { ...t, state: v.state, because }
+                  : t
+              ));
+            }
+          }
         }
         catch (err2) { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not tell the agents') }]; }
         sendJson(res, 200, { you: saved, told });
@@ -7579,6 +7699,35 @@ if (require.main === module) {
    * instructions of an agent it has told the person is gone. `syncEveryone`
    * separately skips anything that is not `isNamedOurs`.
    */
+  /* The reports-to block is refreshed at boot for the same reason, and it had the
+   * same defect one module over (kosmos#1676). `reports.syncEveryone` has exactly
+   * ONE caller, `PUT /api/you` at the route above, so an edit to its `blockBody()`
+   * reached an agent that already existed only when the person happened to save
+   * their own About-you details. Measured on origin/main before wiring this:
+   * `reports.syncEveryone` 1 caller, against 3 for the identically-named
+   * `policyEngine.syncEveryone` - which is what makes this easy to misread as
+   * already covered, and I did misread it once.
+   *
+   * ⚠️ It writes the FILE, not the agent. `engine/instructions.js` reads an
+   * instruction file once at session start, so this does not change a running
+   * agent; what it buys is that the file is already right at the agent's next
+   * start. Same claim as the connections refresh below, and the same limit.
+   *
+   * The wording this delivers is kosmos#1673/#1676's: an agent with a `reportsTo`
+   * was greeting its manager in a reply meant for the person, because the block
+   * named exactly one human. The fix landed in `5be19009` and reached nobody who
+   * already existed.
+   */
+  try {
+    const told = reports.syncEveryone(safeRoster());
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) {
+      const why = (stuck[0] && stuck[0].because) || 'no reason given';
+      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about who they report to; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not refresh what agents know about who they report to: ${String(err && err.message)}\n`);
+  }
   try {
     const told = connections.syncEveryone(safeRoster());
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);

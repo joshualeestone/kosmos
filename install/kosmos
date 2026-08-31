@@ -857,6 +857,37 @@ cmd_adopt() {
   ' "$KOSMOS_HOME/app"
 }
 
+# kosmos#1674: -h / --help must never SEND.
+# `kosmos reply --help` did not print help. cmd_reply takes text="$*", so every
+# argument is the message: asking for help TRANSMITTED "--help" and answered
+# "Answered. It is in their conversation with you." `report --help` likewise
+# tried to record a state. msg and post looked safe only by ACCIDENT, needing
+# two arguments so a lone flag lands in their usage branch; `kosmos msg <agent>
+# --help` sends it just the same.
+#
+# ONE guard before the dispatch rather than a flag per verb, so a verb added
+# later is covered without anyone remembering. --help is what you type when you
+# do not yet know what a command does, which is exactly when it must not act.
+#
+# For an argument-taking verb this re-dispatches it with NONE, because those
+# already print their own usage in that case. Reusing that string is deliberate:
+# a second copy here would be two renderings of one sentence, free to disagree.
+_kosmos_help=0
+for _a in "$@"; do
+  case "$_a" in -h|--help) _kosmos_help=1 ;; esac
+done
+if [ "$_kosmos_help" = 1 ]; then
+  case "${1:-}" in
+    msg|reply|post|report|room|adopt|whoami) set -- "$1" ;;
+    *)
+      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | whoami\n\n'
+      printf '  Run any of them with no arguments to see what that one takes.\n'
+      printf '  The dashboard lives at %s once started.\n\n' "$URL"
+      exit 0
+      ;;
+  esac
+fi
+
 case "${1:-}" in
   start)   cmd_start ;;
   stop)    cmd_stop ;;

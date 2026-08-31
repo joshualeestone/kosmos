@@ -2558,6 +2558,11 @@ function createAgentInner(opts) {
         // block is the thing to drop, never the person's words.
         const { MAX_BYTES } = require('./instructions');
         if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
+        /* kosmos#1673: SAY SO WHEN THE CAP DROPS IT. Dropping the block
+           is the right failure and that is unchanged; dropping it in
+           SILENCE is not. Two sibling appends already warn here and
+           three did not, and the silent three included this one. */
+        else steps.push({ label: 'could not add the section about you to its instructions, so it does not know who it works for; edit its instructions or remake it', ok: false });
       }
     } catch { /* the boot file simply ships without the block */ }
     // Who it reports to rides from birth too, BOTH paths, keyed on the agent
@@ -2576,6 +2581,11 @@ function createAgentInner(opts) {
       }), reportsMod.START, reportsMod.END);
       const { MAX_BYTES } = require('./instructions');
       if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
+      /* kosmos#1673: SAY SO WHEN THE CAP DROPS IT. Dropping the block
+         is the right failure and that is unchanged; dropping it in
+         SILENCE is not. Two sibling appends already warn here and
+         three did not, and the silent three included this one. */
+      else steps.push({ label: 'could not add the reports-to section to its instructions, so it does not know who it reports to; edit its instructions or remake it', ok: false });
     } catch { /* the profile-save sync still does it, after the fact */ }
     // The colleagues block rides from birth too, same machinery and the
     // same non-gating posture: agent-to-agent messaging only works if the
@@ -2636,11 +2646,38 @@ function createAgentInner(opts) {
        their words and ours is visible in the file, and the create form says
        so before the write (told before the write is consent). The byte cap
        is unchanged: drop the block, never refuse the agent. */
+    /* kosmos#1672: SAY SO WHEN IT DOES NOT LAND. The non-gating posture above is
+       right and is unchanged - never refuse somebody their agent because the
+       product wanted to teach it something. The silence was the defect: twelve
+       lines below, the connections block does the same job and DOES report its
+       failure, so the same file reported one loss and swallowed the other.
+       What is lost here is the block carrying `kosmos post` and `kosmos msg`, so
+       an agent born without it does not know how to answer a person at all, and
+       creation said it worked.
+       📌 A code-level break is caught before shipping: making `appendTo` throw
+       reds 6 of the 141 tests in engine/create.test.js, measured. The case this
+       step is for is the DEPLOYMENT one - a partially synced install where the
+       shipped code is fine and the file on disk is not - which no test can see
+       and which this box has had happen. */
+    let defaultsLanded = false;
     try {
       const withDefaults = require('./defaults').appendTo(text);
       const { MAX_BYTES } = require('./instructions');
-      if (Buffer.byteLength(withDefaults, 'utf8') <= MAX_BYTES) text = withDefaults;
-    } catch { /* ships without the defaults */ }
+      /* kosmos#1673 gave this the warning it was missing, and kosmos#1672 extends
+         it to the OTHER way the block can be lost. Two failure paths, one report:
+           the byte cap drops it   -> #1673's case, warned since #1701
+           the try THROWS          -> was silent, because `catch` swallowed it
+         A flag checked AFTER the catch covers both, where an `else` on the size
+         test can only ever see the first. The wording is #1673's unchanged: it is
+         on main, it is more specific than mine was, and two competing sentences
+         for one failure is the defect this file already carries elsewhere.
+         The idiom is not new either - `blockLanded` at the sibling append above
+         does exactly this. */
+      if (Buffer.byteLength(withDefaults, 'utf8') <= MAX_BYTES) { text = withDefaults; defaultsLanded = true; }
+    } catch { /* ships without the defaults, and says so below */ }
+    if (!defaultsLanded) {
+      steps.push({ label: 'could not add the operating instructions to its instructions, so it does not know how to answer you or when to keep working; edit its instructions or remake it', ok: false });
+    }
       /* #1034: how connecting a provider works. Constant words, no machine
          state, no consent surface -- the card's part one. An agent born
          without it will confidently describe a screen it cannot see, which is

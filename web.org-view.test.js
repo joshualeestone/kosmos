@@ -372,3 +372,17 @@ test('the callout shows the name, the title small, and a chevron; the verb lives
   assert.match(node, /class="co-go" aria-hidden="true">&rsaquo;/, 'the chevron is missing or read aloud');
   assert.doesNotMatch(node, /callout">Open /, 'the visible word Open is back');
 });
+
+test('the flat-fleet hint stays removed (Josh, 2026-08-31): a deletion needs an absence guard', () => {
+  /* The flat-fleet org-chart hint was removed at Josh's request. Guard the MECHANISM, not
+     the string: the removal's own comment quotes the old line for the record, so a
+     whole-file string search would match that documentation. anyManaged was the hint's
+     ONLY reader, so its absence plus the note render staying the simplified two-branch
+     form (empty fallback, no anyManaged arm) is the durable signal that an older branch
+     has not re-added the hint. A removal with no assertion is undone silently. */
+  const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
+  assert.doesNotMatch(paint, /anyManaged/, 'anyManaged was the removed hint\'s only reader; it stays gone');
+  assert.match(paint, /note\.textContent = unplaced > 0[\s\S]{0,120}: '';/,
+    'the flat-fleet case renders an empty note, with no re-added hint arm');
+  assert.match(paint, /could not be placed/, 'control: the unplaced branch the removal kept is still present');
+});
