@@ -171,8 +171,9 @@ let failed = 0;
   say('the OpenAI account offers a live Disconnect (#1372, relabelled #1659)',
     openaiDoors.length > 0 && openaiDoors.every((b) => !b.disabled && b.forgets && /^Disconnect$/.test(b.label)),
     JSON.stringify(doors));
-  /* Reported, not asserted: this fixture adds no Claude account, so the Claude arm
-     has nothing to say here and a silent pass would claim that it did.
+  /* 📌 THE FIXTURE NOW SEEDS TWO CLAUDE ACCOUNTS (the default and one other), so
+     these arms RUN. The empty branch below is kept for a sandbox that does not,
+     because a silent pass would claim coverage it did not have.
      🛑 THIS ARM ASSERTED THE OPPOSITE UNTIL #1659 and was dormant only because
      `otherDoors` is empty in this sandbox -- a fourth stale assertion in this one
      file, armed and waiting on whoever first seeded a Claude account. It now
@@ -239,7 +240,7 @@ let failed = 0;
      whichever row renders first and this OpenAI flow could silently drive the
      Claude one. */
   const pressed = await p.evaluate(() => { const b = document.querySelector('#set-accounts [data-forget-provider="openai"]'); if (!b) return false; b.click(); return true; });
-  say('the Remove button is there to press', pressed);
+  say('the OpenAI Disconnect button is there to press', pressed);
   await p.waitForTimeout(1500);
   const after = await p.evaluate(() => ({
     rows: [...document.querySelectorAll('#set-accounts .acct-box')].map((r) => r.innerText.replace(/\s+/g, ' ').trim()),

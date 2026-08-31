@@ -594,6 +594,10 @@ cat > "$sb4/fake-claude" <<'FAKE'
 # it is answered signed-in on purpose rather than by omission.
 [ "$1" = auth ] && [ "$2" = status ] && {
   case "${CLAUDE_CONFIG_DIR:-DEFAULT}" in
+    # ⚠️ `authMethod` HERE IS A GUESS AND THE FALSE ARM ABOVE IS A CAPTURE. It is
+    # inert (checkLive reads only `loggedIn`), but the fixture-discipline comment
+    # at the top of this stub claims capture for the whole thing, so this says
+    # which half it does not cover rather than letting the claim stand.
     DEFAULT|*/.claude-walk) echo '{"loggedIn": true, "authMethod": "claudeai"}'; exit 0;;
     *) echo '{"loggedIn": false, "authMethod": "none"}'; exit 1;;
   esac
@@ -1010,7 +1014,9 @@ sb_ok="$(new_sandbox)"; sb_bad="$(new_sandbox)"
 cat > "$sb_ok/fake-claude" <<'STUBOK'
 #!/bin/sh
 # 1573-pair stub. This marker exists so a block-scoped mutation can anchor here:
-# the sb4 stub earlier in this file is byte-identical without it, and two blind
+# the sb4 stub earlier in this file was byte-identical without it until #1659
+# gave sb4 a per-account case (it now answers signed-in for its two seeded
+# accounts), so compare by PURPOSE rather than by bytes, and two blind
 # reviewers independently anchored on the shared text and mutated the wrong one.
 [ "$1" = --version ] && { echo "claude 0.0.0-fake"; exit 0; }
 [ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
@@ -1022,7 +1028,9 @@ STUBOK
 cat > "$sb_bad/fake-claude" <<'STUBBAD'
 #!/bin/sh
 # 1573-pair stub. This marker exists so a block-scoped mutation can anchor here:
-# the sb4 stub earlier in this file is byte-identical without it, and two blind
+# the sb4 stub earlier in this file was byte-identical without it until #1659
+# gave sb4 a per-account case (it now answers signed-in for its two seeded
+# accounts), so compare by PURPOSE rather than by bytes, and two blind
 # reviewers independently anchored on the shared text and mutated the wrong one.
 [ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
 exit 1

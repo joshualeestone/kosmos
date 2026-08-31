@@ -479,9 +479,16 @@ function forgetAccount(dir, usedBy) {
     return {
       ok: false,
       forgotten: false,
-      because: 'That is this computer\u2019s main Claude folder. The other accounts here keep '
-        + 'their history inside it, so removing it would take theirs too. Remove the other '
-        + 'accounts first, or sign out of this one instead.',
+      /* 🛑 THE REASON IS UNCONDITIONAL BECAUSE THE REFUSAL IS. An earlier
+         version said "Remove the other accounts first, or sign out of this one
+         instead": the first implies the button becomes usable, which it never
+         does, and the second names an affordance the product does not have
+         (measured: no sign-out control exists on the page). It also claimed
+         other accounts keep their history here, which is FALSE on a
+         single-account machine -- the common install, and the row list() always
+         emits. A reason that is true only sometimes, stated as fact, on a
+         refusal that is always. */
+      because: 'Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and any other accounts here keep their history inside it.',
     };
   }
 

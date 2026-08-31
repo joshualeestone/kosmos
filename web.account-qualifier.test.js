@@ -109,6 +109,37 @@ test('the Disconnect control carries the qualifier, escaped, because that is the
    so a branch added or edited without it drops the count and this goes red --
    which is the property the original two-arm version was protecting, kept
    rather than weakened into a single match that any one branch could satisfy. */
+/* 🛑 #1659: THE TWO DISCONNECT BRANCHES, ASSERTED IN THE SOURCE. The real
+   assertions that the default row is DISABLED and the others are LIVE live in
+   the browser gate, which does not run under `yarn test`. So inverting
+   `a.isDefault`, or dropping `disabled`, would keep the node suite green and
+   ship a live Disconnect on ~/.claude -- the one row every user has, and the
+   one the engine refuses. This is the cheap merge-time floor under that. */
+test('#1659: the default row renders a DISABLED Disconnect with no data-forget', () => {
+  const openaiBtn = /data-forget-provider="openai"/;
+  const claudeLive = /data-forget="' \+ esc\(a\.dir\) \+ '" '\s*\n?\s*\+ 'data-forget-provider="claude"/;
+  assert.match(PAGE, openaiBtn, 'the OpenAI branch lost its provider marker');
+  assert.match(PAGE, claudeLive, 'the live Claude branch lost data-forget or its provider marker');
+
+  /* Located by CONTENT, between the disabled-button anchor and the live Claude
+     branch that follows it, rather than by an `a.isDefault` index: that string
+     appears elsewhere in the page and a loose slice spans code that legitimately
+     carries data-forget, which makes this assertion fail for the wrong reason. */
+  const startAt = PAGE.indexOf('class="acct-disconnect" type="button" disabled');
+  /* End at the default branch's OWN closing tag. Ending at the live branch's
+     provider marker instead ran the slice past `data-forget="' + esc(a.dir)`,
+     so the assertion tripped on the NEXT branch's attribute and failed for a
+     reason that had nothing to do with the default row. */
+  const endAt = PAGE.indexOf('>Disconnect</button>', startAt);
+  assert.ok(startAt > -1 && endAt > startAt,
+    'the disabled default branch is gone, or no longer precedes the live Claude branch');
+  const defaultBranch = PAGE.slice(startAt, endAt);
+  assert.ok(defaultBranch.includes('disabled'),
+    'the default branch is no longer rendered disabled, so ~/.claude gets a live button the engine always refuses');
+  assert.ok(!/data-forget=/.test(defaultBranch),
+    'the default branch now carries data-forget, so the shared handler would fire on a row the engine refuses');
+});
+
 test('EVERY Disconnect control carries the qualifier, escaped, or one branch keeps the whole defect', () => {
   const qualified = (PAGE.match(/aria-label="Disconnect ' \+ who \+ \(qual \? ' \(' \+ esc\(qual\) \+ '\)' : ''\)/g) || []).length;
   const controls = (PAGE.match(/class="acct-disconnect"/g) || []).length;

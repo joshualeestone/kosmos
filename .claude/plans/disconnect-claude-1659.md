@@ -52,6 +52,26 @@ undo that.
 - `web/index.html` : both buttons carry `data-forget-provider`, one handler
   reads the endpoint off the button. No second handler to drift.
 
+## What the review added, beyond the original shape
+
+The plan below described what I set out to build. Three things the challenge
+loop added are recorded here because a plan that omits them reads as a smaller
+change than shipped:
+
+- **The default row renders a PERMANENTLY disabled Disconnect.** The engine
+  refuses `~/.claude`, and `list()` always emits that row first, so a live
+  button there is one every user sees and none can use.
+- **The OpenAI control was relabelled from "Remove" to "Disconnect".** That is a
+  user-visible change to an already-shipped feature. One act, one word, in one
+  row builder, which is this card's own argument applied one layer up.
+- **The refusal copy was rewritten twice.** The first version named two
+  remedies and neither was reachable: "remove the other accounts first" implies
+  the button then works (it never does), and "sign out of this one" names an
+  affordance the product does not have (measured: no sign-out control exists on
+  the page). It also asserted that other accounts keep their history there,
+  which is false on a single-account machine. The reason is now unconditional,
+  because the refusal is.
+
 ## Verification
 
 - 13 tests: 6 on the engine function, 7 on the route.
@@ -62,10 +82,19 @@ undo that.
   block, or the button would be unpressable on a busy machine.
 - Full suite: 3267 pass, 0 fail.
 
-## Known gap
+## Known gap, narrowed
 
-**No browser check.** The shipped OpenAI handler carries a repaint-ordering fix
-that the browser gate caught and no server test could see. My change reuses that
-handler rather than adding a second one, so the ordering is inherited, but the
-Claude button itself has not been clicked in a browser. Recorded rather than
-claimed.
+**The browser check now covers the Claude control's STATE but not a click.**
+The diff adds three arms and seeds two Claude accounts in sandbox 4 so they are
+exercised rather than dormant: the OpenAI control is live, a non-default Claude
+control is live, and the default one is disabled. What is still not covered is
+pressing the Claude button end to end, the way the OpenAI flow is pressed.
+
+**I did not add that press, deliberately.** I cannot run the browser gate from
+here, and an unverified press flow in a file that has already taken down three
+release cuts is a worse trade than a stated gap. The repaint ordering is
+inherited rather than re-derived, because both providers share one handler.
+
+⚠️ **And the earlier version of this section was stale within one iteration:**
+it said "no browser check" after the diff had already modified the browser
+check, which read as more honest than it was.
