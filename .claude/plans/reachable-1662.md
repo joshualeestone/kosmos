@@ -73,32 +73,38 @@ production real tarball                YES
 production name that cannot exist      NO
 ```
 
-## The install gate: run once, and that run is SUPERSEDED
+## The install gate, anchored to the bytes it tested
 
 `yarn test:install` is the only gate that drives `reachable()` end to end. The
 node suite structurally cannot: `test:shell` runs `bash -n
 tools/test-install.sh` (a syntax check) and `test:install` sits outside `yarn
-test`. An earlier claim in this branch that "the full suite is green" was never
+test`. An earlier claim on this branch that "the full suite is green" was never
 evidence about this code path.
 
-**A first run passed 327 / failed 1** with the whole download-path section
-green, including the versioned-name probe. ⚠️ **That evidence is stale and is
-recorded here as stale rather than quietly kept.** `dist/setup` was built at
-11:48:31; commit `167d42b9` at 11:55:44 then introduced the `set -e` fix, the
-`/usr/bin/tr` change and `application/problem+json`. So that run exercised
-bytes **without the set -e fix**, which is the most consequential part of this
-diff. A reviewer found that, not me.
+🛑 **THE FIRST TWO RECORDED RUNS WERE BOTH STALE, AND THE SECOND WAS STALE
+THROUGH THE FIX FOR THE FIRST.** Run one predated the `set -e` fix by seven
+minutes. I then moved a `diff -q` assertion inside the job and wrote that the
+problem "cannot recur silently" - and it recurred immediately, because **an
+assertion inside the job protects a RUN, not a later COMMIT.** I ran the gate,
+then committed `application/*+json*`, then kept citing the number. A reviewer
+found it both times.
 
-**The second run, against bundles rebuilt from the final code, is what this
-branch rests on.** The job asserts `diff -q dist/setup install/setup.sh` BEFORE
-starting the harness, so the staleness above cannot recur silently: if the
-bundle does not match the source the job fails instead of producing a number.
+✅ **So the evidence is anchored to the SHA256 OF THE TESTED FILE, not to a
+commit and not to my discipline.** Anyone can check it in one command against
+any future HEAD:
 
 ```
-bundle-matches-source        (asserted before the harness ran)
-dist/setup                   byte-identical to install/setup.sh
-set -e fix in tested bytes   present
+tested-source-sha256   faaa04c20d8840b07da0c5a5e9490e2e3e57f8a3f8b55d805a7371f20b01fb3d
+bundle-sha-matches     dist/setup == install/setup.sh, asserted BEFORE the harness
+source-sha-at-end      faaa04c2... (identical, so nothing moved mid-run)
 
+  shasum -a 256 install/setup.sh
+```
+
+**If that command does not print the sha above, this evidence does not describe
+the current installer.** That is the property the previous two remedies lacked.
+
+```
 327 passed, 1 failed
 
 PASS  download-path install exits 0     PASS  the versioned artifact name was fetched
@@ -108,19 +114,16 @@ PASS  tamper refusal speaks a sentence  PASS  stage residue swept from the home 
 PASS  no stage residue after refusal    PASS  pinned install exits 0
 ```
 
-⭐ **The remaining failure is now shown invariant rather than argued away.** It
-reproduced with byte-identical detail across two runs **whose code differed**
-(the second carries the `set -e` fix, `/usr/bin/tr` and
-`application/problem+json`). A failure caused by this diff would have moved
-when the diff moved. That is a measurement; the reasoning below is what it
-replaced.
-
-The one failure in the first run was `EXPECTED_ADDS` in the LOCAL-SOURCES
-install, which `tools/test-install.sh:797` says never runs `reachable()`,
-`verify_download()` or tar. The unexpected addition was
-`./AgentWorkforce/wouldping/needs-you.jsonl`, a runtime notification record,
-and `main` carries the identical expectation. **No control run on `main` was
-performed**, so that attribution is reasoned, not measured.
+⭐ **The remaining failure is invariant across THREE runs whose code differed**
+(run 2 added the `set -e` fix, `/usr/bin/tr` and `problem+json`; run 3 added
+`*+json*`, the contract comment and the cost correction). Byte-identical
+detail each time. A failure caused by this diff would have moved when the diff
+moved. The assertion is `EXPECTED_ADDS` in the LOCAL-SOURCES install, which
+`tools/test-install.sh:797` says never runs `reachable()`, `verify_download()`
+or tar; the unexpected file is `wouldping/needs-you.jsonl`, a runtime
+notification record, and `main` carries the identical expectation. **No control
+run on `main` was performed**, so the attribution rests on the invariance, not
+on that reasoning.
 
 ## The `set -e` shapes, measured
 
