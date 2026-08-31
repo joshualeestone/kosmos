@@ -39,14 +39,16 @@ On a known-good connect the modal switches to a success state:
   phase 'connected') and the OpenAI add-success; #acct-success-close -> closeAcctAdd.
   The Close is a plain .btn (a non-primary way out, per the #1438 guard).
 
+## Also on success
+- The form heading (#acct-add-t "Add a provider") is hidden too, so the success screen
+  does not read "Add a provider" above the check and "Success!" (a successful connect
+  should stop looking like a form). The dialog's aria-labelledby is re-pointed to the
+  success heading (#acct-success-t) so a screen reader entering the dialog on success
+  hears "Success!", not the form title. closeAcctAdd restores both on the way out.
+
 ## Not done (deliberately deferred)
 - Naming the specific Claude account (needs the accounts-list lookup the card
   cautioned against). Documented as a follow-up.
-- The dialog's aria-labelledby stays "acct-add-t" ("Add a provider") on the success
-  screen, so a screen reader re-entering the dialog on success hears the form title.
-  Deferred: the role="status" region announces the success on the transition (text set
-  after unhide), and a state-dependent dialog label (acct-add-t is shared with the reauth
-  "Sign in again" title) is disproportionate for the rare re-entry case.
 - On the reauth path the email is in hand (openAcctReauth) but success shows the generic
   "your Claude account". Deferred: consistent with the no-lookup decision above; carrying
   the reauth email through to the connect verdict is a small follow-up.

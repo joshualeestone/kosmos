@@ -6908,7 +6908,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      browser sign-in, OpenAI pasted key) are unchanged, just reached
      through a dialog instead of always sitting on the page. -->
 <div class="rm-back" id="acct-add-modal" hidden>
-  <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="acct-add-t" aria-describedby="acct-add-in">
+  <div class="rm-box rm-box-form" id="acct-add-dialog" role="dialog" aria-modal="true" aria-labelledby="acct-add-t" aria-describedby="acct-add-in">
     <h2 class="rm-title" id="acct-add-t">Add a provider</h2>
     <p class="rm-small" id="acct-add-in">Pick which AI provider you want to connect. Anthropic Claude and OpenAI work today; the rest are listed so you can see what is coming.</p>
     <div class="field" id="acct-provider-field">
@@ -7045,7 +7045,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          can consume the same panel rather than drawing a second that drifts. -->
     <div id="acct-success" class="acct-success" role="status" aria-live="polite" hidden>
       <span class="acct-ok acct-ok-big" aria-hidden="true">&#10003;</span>
-      <h3 class="acct-success-t">Success!</h3>
+      <h3 class="acct-success-t" id="acct-success-t">Success!</h3>
       <p class="acct-success-say" id="acct-success-say"></p>
       <div class="rm-acts" style="margin-top: var(--space-6);">
         <button class="btn" id="acct-success-close" type="button">Close</button>
@@ -13910,13 +13910,16 @@ function acctShowSuccess(accountLabel) {
      stale "Success!" with no provider form on the next open. closeAcctAdd has already
      put the modal back to its form state by then, so a no-op here is the clean outcome. */
   if (document.getElementById('acct-add-modal').hidden) return;
-  ['acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-add-acts']
+  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-add-acts']
     .forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
   /* Unhide the role="status" region BEFORE writing its text: a polite live region
      mutated while hidden is not reliably announced, so the order is what makes a
      screen reader hear the success, not just show it. */
   document.getElementById('acct-success').hidden = false;
   document.getElementById('acct-success-say').textContent = 'Successfully connected to ' + accountLabel + '.';
+  /* Name the dialog by its "Success!" heading, not the form title we just hid, so a
+     screen reader entering the dialog on success does not hear "Add a provider". */
+  document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-success-t');
   document.getElementById('acct-success-close').focus();
 }
 function openAcctAdd() {
@@ -13956,9 +13959,10 @@ function closeAcctAdd() {
      open is clean: the success panel gone and the sign-in controls back. */
   const success = document.getElementById('acct-success');
   if (success) success.hidden = true;
-  ['acct-add-in', 'acct-provider-field', 'acct-add-acts'].forEach((id) => {
+  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts'].forEach((id) => {
     const el = document.getElementById(id); if (el) el.hidden = false;
   });
+  document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-add-t');
   document.getElementById('acct-add-modal').hidden = true;
   document.getElementById('acct-add-open').focus();
 }

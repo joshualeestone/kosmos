@@ -27,7 +27,7 @@ const SCRIPT = scriptOf(PAGE);
 /** A DOM stub that records what was set, and NAMES an element nobody stubbed. */
 function fakeDom(ids) {
   const els = new Map();
-  for (const id of ids) els.set(id, { id, textContent: '', innerHTML: '', hidden: false, value: '', focus() { this.focused = true; } });
+  for (const id of ids) els.set(id, { id, textContent: '', innerHTML: '', hidden: false, value: '', attrs: {}, focus() { this.focused = true; }, setAttribute(k, v) { this.attrs[k] = v; } });
   return {
     els,
     document: {
@@ -40,7 +40,7 @@ function fakeDom(ids) {
   };
 }
 
-const IDS = ['acct-add-modal', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow',
+const IDS = ['acct-add-modal', 'acct-add-dialog', 'acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow',
   'acct-openai-flow', 'acct-add-acts', 'acct-success', 'acct-success-say', 'acct-success-close'];
 
 /** acctShowSuccess, the REAL one, run against a stub in a known start state. */
@@ -59,9 +59,10 @@ test('kosmos#1656: on an OPEN modal, success shows, names the account, and hides
   show('your Claude account');
   assert.equal(els.get('acct-success').hidden, false, 'the success panel is shown');
   assert.equal(els.get('acct-success-say').textContent, 'Successfully connected to your Claude account.');
-  for (const id of ['acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-add-acts']) {
+  for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-add-acts']) {
     assert.equal(els.get(id).hidden, true, id + ' is hidden while success shows');
   }
+  assert.equal(els.get('acct-add-dialog').attrs['aria-labelledby'], 'acct-success-t', 'the dialog is renamed to its success heading, not the hidden form title');
   assert.equal(els.get('acct-success-close').focused, true, 'focus lands on the way out');
 });
 
@@ -75,6 +76,7 @@ test('kosmos#1656: a background sign-in that finishes on a DISMISSED modal paint
   assert.equal(els.get('acct-success').hidden, true, 'success is NOT shown on a hidden modal');
   assert.equal(els.get('acct-success-say').textContent, '', 'no message is written');
   assert.equal(els.get('acct-provider-field').hidden, false, 'the sign-in controls are left untouched');
+  assert.equal(els.get('acct-add-t').hidden, false, 'the form title is left untouched');
 });
 
 test('kosmos#1656: the way out is a non-primary button (#1438) and reuses the one green check', () => {
@@ -86,11 +88,20 @@ test('kosmos#1656: the way out is a non-primary button (#1438) and reuses the on
   assert.match(panel, /class="acct-ok acct-ok-big"/, 'the success mark reuses .acct-ok rather than drawing a second check');
 });
 
-test('kosmos#1656: closeAcctAdd puts the modal back to its form state on the way out', () => {
-  const at = SCRIPT.indexOf('function closeAcctAdd');
-  const closeFn = SCRIPT.slice(at, at + 800);
-  assert.match(closeFn, /getElementById\('acct-success'\)/, 'closeAcctAdd hides the success panel on close, so the next open is clean');
-  assert.match(closeFn, /acct-provider-field/, 'closeAcctAdd restores the sign-in controls on close');
+test('kosmos#1656: closeAcctAdd puts the modal back to its form state on the way out (run)', () => {
+  const dom = fakeDom([...IDS, 'acct-add-open']);
+  // start from a success state: success shown, the form pieces and title hidden, dialog renamed
+  dom.els.get('acct-success').hidden = false;
+  for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts']) dom.els.get(id).hidden = true;
+  dom.els.get('acct-add-dialog').attrs['aria-labelledby'] = 'acct-success-t';
+  const close = new Function('document', 'acctAddConfirmReset', lift(SCRIPT, 'closeAcctAdd') + '\nreturn closeAcctAdd;')(dom.document, () => {});
+  close();
+  assert.equal(dom.els.get('acct-success').hidden, true, 'the success panel is hidden on close');
+  for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts']) {
+    assert.equal(dom.els.get(id).hidden, false, id + ' is restored on close');
+  }
+  assert.equal(dom.els.get('acct-add-dialog').attrs['aria-labelledby'], 'acct-add-t', 'the dialog title is restored on close');
+  assert.equal(dom.els.get('acct-add-modal').hidden, true, 'the modal is closed');
 });
 
 /* The two previous tests prove acctShowSuccess WORKS in isolation. These pin that it
