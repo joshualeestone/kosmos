@@ -486,9 +486,293 @@ verify_download() {
 # A HEAD probe first, and a one-byte ranged GET before refusing: some static
 # origins reject HEAD (405) while serving GET fine, and "check your internet
 # connection" for a working connection is the wrong sentence.
+# ⚠️ A STATUS CODE CANNOT ANSWER "IS THE DOWNLOAD THERE". This used to accept
+# any response and therefore accepted every url ON AN HTTP ORIGIN WHOSE 404 PAGE
+# ANSWERS A RANGE REQUEST, including names that cannot exist. (Not literally
+# every url: a missing `file://` path already failed, rc 37, and there is an arm
+# for it.) The range arm asks a web server for the first byte of its own 404
+# page and gets `206 text/html, 1 byte`, which is a success. Measured
+# 2026-08-31 against a deliberately impossible name, which PASSED.
+#
+# The cost was not a wrong answer, it was SILENCE. The guard could never fire, so the sentence written for exactly this case ("could not reach
+# the download ... it is safe to re-run") was dead code, and a person whose
+# download was missing met a bare curl failure with no guidance instead. Every
+# caller here fetches a TARBALL, so the answer is knowable: assert the content
+# type, and an error page can no longer impersonate a download.
+#
+# 🛑 A FIX HERE IS ONLY PROVEN BY A URL THAT CANNOT EXIST RETURNING FALSE. The
+# broken version passed on real files too, so "it still finds the tarball" is
+# not evidence of anything. See install.reachable-1662.test.js, which asserts
+# both arms against a local server.
+_reachable_is_download() {
+  # $1 = curl's exit status, $2 = the content-type it reported.
+  #
+  # 🛑 REFUSE WHAT IS POSITIVELY TEXTUAL; DO NOT DEMAND A KNOWN BINARY. An
+  # allowlist of binary types looks stricter and is wrong here, because the
+  # cost is asymmetric: a false YES only means this pre-check did not help and
+  # curl fails a few lines later with its own error, which is the behaviour
+  # before this guard existed. A false NO stops the install outright behind
+  # "Check your internet connection", which is worse than the bug it is for.
+  #
+  # ⚠️ THAT ASYMMETRY HOLDS AT TWO OF THE THREE CALL SITES, NOT ALL THREE, and
+  # saying it unconditionally would be false. At the `TARGET_VERSION` probe
+  # this predicate is an EXISTENCE TEST, not an abort guard: a false NO there
+  # does not stop the install, it falls to the next branch. Downstream
+  # `verify_download` still checks the sha and the version refusal still fires.
+  #
+  # 🛑 AND THE COST OF THAT FALL-THROUGH IS SMALL FOR EVERY NETWORK INSTALL,
+  # which is the point most easily got wrong here.
+  # `BUST=yes` is set for any http/https base and
+  # `install_kosmos` runs after that, so the fallback is the `elif` arm, which
+  # fetches the cache-BUSTED `kosmos-$ARCH.tar.gz?v=...`. A cache treats that as
+  # a fresh resource, so there is no collision to inherit. The bare unversioned
+  # name is reached only when BUST is empty, i.e. `file://` bases, which have no
+  # cache to collide with in the first place. So a false NO here costs the
+  # version-named artifact, not a stale one.
+  #
+  # ⚠️ AND AN ALLOWLIST BREAKS THE PROJECT'S OWN INSTALL GATE. `curl` on a
+  # `file://` URL succeeds and reports an EMPTY content-type (measured: a real
+  # gzip gives content_type=[] with exit 0), and tools/test-install.sh drives
+  # the whole release path over `file://` on purpose. An allowlist refuses a
+  # genuine tarball there and aborts the download path.
+  #
+  # ⚠️ Media types are case-insensitive (RFC 9110 section 8.3), so the compare
+  # is lowercased. The case that matters is a CAPITALISED TEXTUAL type being
+  # refused (`Text/HTML`), not a capitalised binary one being accepted: unknown
+  # types are accepted anyway, so an `Application/GZIP` arm proves nothing.
+  #
+  # 🛑 `text/html` AND NOT `text/*`, DELIBERATELY. `text/plain` is nginx's
+  # compiled-in `default_type`, so a mirror that has not mapped `.gz` serves a
+  # genuine tarball as `text/plain`. Refusing it would block that install
+  # behind "Check your internet connection" -- the exact false NO this design
+  # is built to avoid, and `KOSMOS_RELEASE_BASE` is overridable, so a mirror is
+  # a real case rather than a hypothetical one. A plain-text error page passing
+  # is the harmless direction: curl fails a few lines later with its own error.
+  #
+  # The exit status is checked FIRST and separately, because an empty
+  # content-type from a FAILED connection must not read the same as an empty
+  # one from a local file that is genuinely there.
+  #
+  # 📌 THIS IS DELIBERATELY LOOSER THAN `serves_gzip()` in
+  # tools/kosmos-artifact-check.sh, which requires the type to CONTAIN gzip.
+  # They judge the same header for opposite stakes, so they should not match:
+  # that one gates a RELEASE, where a false NO safely blocks a bad cut and a
+  # false YES ships one; this one gates a PERSON'S INSTALL, where a false NO
+  # is an installer that refuses to run. Tightening this to match it would
+  # reintroduce the file:// break above.
+  [ "$1" = 0 ] || return 1
+  # /usr/bin/tr, matching the six other ABSOLUTE `tr` call sites in this file (a
+  # seventh, at the `_pids` line, is bare). The reason is
+  # narrow and worth stating so nobody generalises it: the design is fail-open,
+  # so a `tr` that did not resolve would empty the substitution, match no arm,
+  # and silently accept EVERY type. That is the harmless direction by this
+  # predicate's own asymmetry, but it would make the guard invisible rather
+  # than noisy. It is NOT a general absolute-path policy: `curl` two lines
+  # below is bare, as it is everywhere else in this file.
+  case "$(printf '%s' "$2" | /usr/bin/tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')" in
+    text/html*|application/xhtml*|application/json*|application/*+json*|application/xml*|application/*+xml*|text/xml*) return 1 ;;
+  esac
+  return 0
+}
+
+# ⚠️ THE NAME IS WIDER THAN THE CONTRACT. This answers "is this a NON-TEXTUAL
+# DOWNLOAD", not "is this URL reachable": a perfectly reachable JSON or XML URL
+# is refused on purpose. Every caller here fetches a tarball, so that is the
+# question they are asking -- but do not reuse this for a general reachability
+# test. `latest.json` is fetched by bare curl further down for exactly that
+# reason, and routing it through here would refuse it.
 reachable() {
-  curl -fsIL -m 15 "$1" >/dev/null 2>&1 && return 0
-  curl -fsL -r 0-0 -m 15 -o /dev/null "$1" >/dev/null 2>&1
+  # HEAD first; the range GET is the fallback for hosts that refuse HEAD.
+  # A 404 page answers a range request with 206 and its own HTML body, so the
+  # status alone cannot tell a download from an error page: the type must be
+  # judged too, on both arms.
+  # 🛑 `cmd && rc=0 || rc=$?`, NOT a bare assignment. This file runs under
+  # `set -euo pipefail`, set near the top of this file, where a plain
+  # `_r_ct=$(curl …)` is an UNPROTECTED SIMPLE COMMAND: a failing HEAD probe aborts the whole shell
+  # before the range-GET fallback can run. The pre-#1662 form happened to be
+  # safe because `curl … && return 0` was shielded by the `&&`.
+  # Both shapes were measured under `set -euo pipefail`; the transcript is in
+  # .claude/plans/reachable-1662.md rather than here.
+  # Latent rather than live today, because -e is suspended at all three call
+  # sites: the two guards in fetch_tmux and install_kosmos capture the status
+  # with `|| _r_why=$?`, and the probe that picks the versioned tarball is the
+  # right side of a `&&`. (This sentence used to describe the guards as
+  # `if ! reachable`, the shape THIS branch replaced. The conclusion held and
+  # the description had rotted, which is the failure the paragraph below is
+  # about.) It is still a trap,
+  # and it lands exactly on the fallback's reason for existing: a 405 on HEAD.
+  # The call sites are named by their surrounding code above rather than by
+  # position, because nothing checks a line number in a comment.
+  local _r_ct _r_rc _r_out _r_code _r_answered
+  # 🛑 ACCUMULATED ACROSS BOTH PROBES, NEVER OVERWRITTEN. The second probe used
+  # to clobber the first probe's status, so a HEAD that got a definite answer
+  # (a hard 404, or a 200 carrying HTML) followed by a range GET that failed to
+  # COMPLETE (reset, DNS blip, an origin that drops the second connection) left
+  # code 000 with a non-zero rc, and the caller told the user to check a
+  # connection about a server that had demonstrably answered. Same wrong-sentence
+  # class this card removes, pointed the other way.
+  #
+  # 📌 `if` rather than `{ …; } && _r_answered=1` is READABILITY ONLY, not
+  # safety. An AND-OR list is EXEMPT from `set -e` whether or not the left side
+  # fails, measured on /bin/sh with a control. This file uses that shape 14
+  # times, including the `= 63` remap in the range-GET arm below, so do not
+  # "fix" them. (Plan file has the measurement.) Named by its surrounding code
+  # rather than by a distance, per the rule stated on the `local` declaration
+  # that opens this function: the old reference said "twenty lines" and had
+  # become 82. I then wrote "twelve lines above" for the rule itself and that was
+  # wrong too, by three. A distance in a comment is wrong the moment anyone edits
+  # above it, which is the whole reason the rule exists.
+  _r_answered=0
+  # %{http_code} FIRST because a content type contains spaces ("text/html;
+  # charset=utf-8") and a status code never does, so the split is unambiguous.
+  _r_out=$(curl -fsIL -m 15 -o /dev/null -w '%{http_code} %{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
+  _r_code=${_r_out%% *}; _r_ct=${_r_out#* }
+  case "$_r_code" in ''|*[!0-9]*) _r_code=0 ;; esac
+  case "$_r_out" in *' '*) ;; *) _r_ct='' ;; esac
+  # 🛑 A METHOD REFUSAL IS NOT AN ANSWER ABOUT THE ARTIFACT. 405 and 501 mean
+  # "I do not do HEAD", which says nothing about whether the file exists, so
+  # they must not set _r_answered here. Without this, an origin that refuses
+  # HEAD and whose range GET then fails to COMPLETE (reset, DNS blip) got
+  # status 2 and was told to check the address, when the truth is a transient
+  # connection failure that wants "it is safe to re-run". That is this card's
+  # own wrong-sentence defect aimed at the shape the fallback exists for.
+  # A 405 followed by a SUCCESSFUL range GET is unaffected: the range arm sets
+  # the flag on its own rc.
+  # 🛑 rc 37 GETS ITS OWN STATUS, IT IS NOT "THE SERVER ANSWERED". 37 is
+  # FILE_COULDNT_READ_FILE: a `file://` path that is absent or unreadable. There
+  # is no server, no release and no network, so folding it into status 2 printed
+  # two false causes at a reader whose only true one is the path. Three separate
+  # reviewers found that sentence before it was split out.
+  [ "$_r_rc" = 37 ] && return 3
+  if [ "$_r_rc" = 0 ]; then
+    _r_answered=1
+  elif [ "$_r_code" -ge 400 ] && [ "$_r_code" != 405 ] && [ "$_r_code" != 501 ]; then
+    _r_answered=1
+  fi
+  _reachable_is_download "$_r_rc" "$_r_ct" && return 0
+  # 📌 This arm also runs when HEAD SUCCEEDED with a textual type, where the
+  # pre-#1662 code reached it only after a HEAD failure. Kept because refusing
+  # on a single mis-typed HEAD would be a false NO, and there is an arm
+  # asserting it buys that.
+  #
+  # ⚠️ THE COST, MEASURED ON BOTH ARMS. It is NOT the 30s hung-origin
+  # case: measured, the pre-#1662 predicate also ran both probes to full
+  # timeout there (HEAD times out, the `&&` falls through, the range GET runs),
+  # old 30s NO and new 30s NO, identical. And NO for a host that cannot be
+  # reached is the CORRECT answer, not a false one.
+  #
+  # The genuinely new cost is one extra request after a textual HEAD, normally
+  # fast. The real residual is narrower and worth naming: against an origin
+  # that IGNORES Range and answers 200 with the whole body, that request
+  # streams the tarball, and on a slow enough link `-m 15` expires and the
+  # predicate answers NO on a genuine download. That needs a mis-typed HEAD AND
+  # a Range-ignoring origin AND a slow link together. It is untested here: a
+  # faithful test would have to burn the full 15s timeout, which buys one
+  # narrow arm at the price of a slow and timing-dependent suite.
+  # --max-filesize bounds the residual named above: an origin that ignores
+  # Range answers with the WHOLE body, and without a cap this probe would
+  # stream a 48MB tarball into /dev/null until -m 15 expired.
+  #
+  # ⚠️ THAT BOUND IS CURL-VERSION DEPENDENT, SO DO NOT READ IT AS A GUARANTEE.
+  # The macOS manpage says "the transfer does not start", i.e. the decision is
+  # made from an ANNOUNCED content-length; and curl only began aborting an
+  # already-running transfer in 8.4.0. tools/macos-floor declares this
+  # installer's floor as 13.5, which ships curl 8.1.x. So against an origin that
+  # omits content-length, on the floor OS, the residual is bounded by -m 15 and
+  # not by this cap. Measured on curl 8.7.1 the cap DOES stop a length-less
+  # transfer mid-flight, which is why the test arm for that shape asserts the
+  # VERDICT and deliberately does not pin a byte count: the count is the part
+  # that legitimately differs across versions.
+  #
+  # ⚠️ THE HTML-ON-63 REFUSAL ALSO RESTS ON A CURL VERSION, and this comment is
+  # scrupulous about that everywhere else, so it should be here too. Refusing a
+  # capped HTML body needs curl to still REPORT a content-type alongside exit
+  # 63. Measured on 8.7.1 it does. On the 13.5 floor's curl 8.1.x the abort
+  # happens before the transfer starts, and if content_type is empty there that
+  # arm flips NO to YES. The shipped-code direction is the harmless one, a false
+  # YES that curl catches a few lines later; the cost is a red suite on a
+  # floor-OS runner rather than a broken install.
+  #
+  # 🛑 AND EXIT 63 MUST BE TREATED AS A SUCCESSFUL FETCH. Getting this wrong is
+  # a REGRESSION, not a missed improvement. curl exits 63 when the
+  # cap is hit, `_reachable_is_download` saw non-zero, and a GENUINE download
+  # from a HEAD-refusing Range-ignoring origin was refused with "could not
+  # reach the download". Measured against exactly that shape serving a real
+  # 5MB body: capped NO, uncapped YES. That is the false-NO direction this
+  # predicate's whole design says is the worst outcome.
+  #
+  # ⭐ A body that EXCEEDS the cap is affirmatively NOT a small error page, so
+  # 63 is evidence FOR a download rather than against one. curl still reports
+  # the content-type on 63 (measured, for both `application/gzip` and
+  # `text/html`), so mapping it to 0 hands the decision to the type rule rather
+  # than short-circuiting it: a 5MB gzip is accepted, a 5MB HTML page is still
+  # refused.
+  _r_out=$(curl -fsL -r 0-0 -m 15 --max-filesize 1048576 -o /dev/null -w '%{http_code} %{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
+  [ "$_r_rc" = 63 ] && _r_rc=0
+  _r_code=${_r_out%% *}; _r_ct=${_r_out#* }
+  case "$_r_code" in ''|*[!0-9]*) _r_code=0 ;; esac
+  case "$_r_out" in *' '*) ;; *) _r_ct='' ;; esac
+  # 📌 NO 405/501 CARVE-OUT HERE, DELIBERATELY, and the asymmetry with the HEAD
+  # arm is the point. On HEAD a 405 is about the METHOD and says nothing about
+  # the artifact. On the range GET the request named the artifact, so any 4xx IS
+  # an answer about it: a 416 from a zero-length object means the file exists and
+  # is unusable, which is what status 2 says. If a future edit makes the two arms
+  # match "for consistency", it will be re-introducing the bug the HEAD carve-out
+  # fixed, backwards.
+  [ "$_r_rc" = 37 ] && return 3
+  if [ "$_r_rc" = 0 ] || [ "$_r_code" -ge 400 ]; then _r_answered=1; fi
+  _reachable_is_download "$_r_rc" "$_r_ct" && return 0
+  # 🛑 TWO DIFFERENT FAILURES, TWO DIFFERENT STATUSES, because they need
+  # different sentences. rc 0 here means the origin ANSWERED and served
+  # something textual. Anything else means the request did not complete at all.
+  #
+  # ⚠️ STATUS 2 HAS TWO CAUSES AND THIS LAYER CANNOT TELL THEM APART, so the
+  # sentence must not pick one. A half-published CDN and an intercepting network
+  # (captive portal, corporate proxy block page, ISP NXDOMAIN redirect) BOTH
+  # answer 200 with text/html, which is byte-for-byte the same signature here.
+  # An earlier version of this named only the CDN and told portal users to wait
+  # for a release that was already published, which is the same class of wrong
+  # advice as the "check your connection" it replaced, pointed the other way.
+  #
+  # ⚠️ Every caller uses `!`, `&&` or a `!= 0` test, all of which treat 1 and 2
+  # identically, so this changes no control flow anywhere. It only lets a caller
+  # pick its sentence.
+  [ "$_r_answered" = 1 ] && return 2
+  # 🛑 AN HTTP ERROR IS ALSO THE SERVER ANSWERING, AND rc ALONE MISSES IT. `-f`
+  # makes curl exit non-zero on a 4xx even though the request COMPLETED, so
+  # testing rc covered only origins whose error page answers 2xx (this site's
+  # 404 replies 206 with its own HTML, which is why the arms passed). S3, R2 and
+  # GitHub Releases return a HARD 404 for a not-yet-published object, the most
+  # common half-published shape, and those fell through to "check your internet
+  # connection". Measured: a GitHub Releases 404 gives exit 56, http_code 404.
+  return 1
+}
+
+# One copy of the refusal, because it carries four lines of user-facing text and
+# now branches three ways. It was duplicated verbatim in fetch_tmux and
+# install_kosmos, policed by a byte-identity assertion in the suite; a helper
+# makes that assertion unnecessary rather than load-bearing, and a wording edit
+# can no longer land in one caller and not the other.
+#
+# $1 = the status reachable() returned, $2 = the url.
+_reachable_refuse() {
+  case "$1" in
+    3)
+      info "the download at $2 is not there"
+      info "That path does not exist or cannot be read. Check the address it is installing from."
+      ;;
+    2)
+      # NOT "could not reach": the origin answered. Saying both contradicts itself.
+      info "the download at $2 is not usable"
+      info "The address it is downloading from did not give an installable file."
+      info "The release may still be publishing, something on your network may be intercepting the request, or the address may be wrong."
+      info "Try again in a few minutes; if it keeps happening, check the address."
+      ;;
+    *)
+      info "could not reach the download at $2"
+      info "Check your internet connection and paste the install line again; it is safe to re-run."
+      ;;
+  esac
 }
 
 # ⚠️ FETCHED INTO A FRESH STAGE AND SWAPPED, never merged over what is there.
@@ -545,9 +829,9 @@ fetch_tmux() {
     # actually hits (no network, a half-published CDN) refuse in a sentence
     # instead of a curl error code. The real download keeps its progress
     # bar, which lives on stderr and cannot be silenced without losing it.
-    if ! reachable "$url"; then
-      info "could not reach the download at $url"
-      info "Check your internet connection and paste the install line again; it is safe to re-run."
+    local _r_why=0; reachable "$url" || _r_why=$?
+    if [ "$_r_why" != 0 ]; then
+      _reachable_refuse "$_r_why" "$url"
       rm -rf "$stage"; return 1
     fi
     info "downloading from $url"
@@ -617,9 +901,9 @@ install_kosmos() {
       url="$KOSMOS_RELEASE_BASE/kosmos-$ARCH.tar.gz"
       shaurl="$url.sha256"
     fi
-    if ! reachable "$url"; then
-      info "could not reach the download at $url"
-      info "Check your internet connection and paste the install line again; it is safe to re-run."
+    local _r_why=0; reachable "$url" || _r_why=$?
+    if [ "$_r_why" != 0 ]; then
+      _reachable_refuse "$_r_why" "$url"
       rm -rf "$stage"; return 1
     fi
     info "downloading from $url"
