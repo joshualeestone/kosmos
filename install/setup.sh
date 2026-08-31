@@ -554,11 +554,13 @@ _reachable_is_download() {
   # is an installer that refuses to run. Tightening this to match it would
   # reintroduce the file:// break above.
   [ "$1" = 0 ] || return 1
-  # /usr/bin/tr, as this file does at six other sites. It also matters here
-  # beyond consistency: the design is fail-open, so a `tr` that did not resolve
-  # would make the substitution empty, match no arm, and silently accept EVERY
-  # type. That is the harmless direction by this predicate's own asymmetry, but
-  # it would make the guard invisible rather than noisy.
+  # /usr/bin/tr, matching this file's six other `tr` call sites. The reason is
+  # narrow and worth stating so nobody generalises it: the design is fail-open,
+  # so a `tr` that did not resolve would empty the substitution, match no arm,
+  # and silently accept EVERY type. That is the harmless direction by this
+  # predicate's own asymmetry, but it would make the guard invisible rather
+  # than noisy. It is NOT a general absolute-path policy: `curl` two lines
+  # below is bare, as it is everywhere else in this file.
   case "$(printf '%s' "$2" | /usr/bin/tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')" in
     text/html*|application/xhtml*|application/json*|application/*+json*|application/xml*|text/xml*) return 1 ;;
   esac
@@ -577,7 +579,8 @@ reachable() {
   # status alone cannot tell a download from an error page: the type must be
   # judged too, on both arms.
   # 🛑 `cmd && rc=0 || rc=$?`, NOT a bare assignment. This file runs under
-  # `set -euo pipefail` (line 102), where a plain `_r_ct=$(curl …)` is an
+  # `set -euo pipefail`, set near the top of this file, where a plain
+  # `_r_ct=$(curl …)` is an
   # UNPROTECTED SIMPLE COMMAND: a failing HEAD probe aborts the whole shell
   # before the range-GET fallback can run. The pre-#1662 form happened to be
   # safe because `curl … && return 0` was shielded by the `&&`.
@@ -588,8 +591,8 @@ reachable() {
   # fetch_tmux and install_kosmos, and the `[ -n "${TARGET_VERSION:-}" ] &&
   # reachable …` probe that picks the versioned tarball. It is still a trap,
   # and it lands exactly on the fallback's reason for existing: a 405 on HEAD.
-  # Cited by their text. Nothing checks a line number in a comment, so there
-  # are none here.
+  # The call sites are named by their surrounding code above rather than by
+  # position, because nothing checks a line number in a comment.
   local _r_ct _r_rc
   _r_ct=$(curl -fsIL -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0

@@ -198,7 +198,16 @@ hypothetical. Production is separately mitigated because `serves_gzip()` in
 `tools/kosmos-artifact-check.sh` gates the release on a gzip type, but that
 mitigation does not extend to a mirror.
 
-⇒ Both premises resolve the same way on purpose: **a false YES costs nothing
+**Refusing `text/html` on a genuine tarball** is a THIRD of the same shape, and
+the first two versions of this section named only two. An origin that
+mis-serves a real `.tar.gz` as `text/html` is now a HARD install block behind
+"Check your internet connection". It is unlikely (nginx defaults to
+`text/plain`, S3 to `octet-stream`, and both are accepted) and it follows
+directly from the refusal list rather than being an oversight, but it IS a
+false NO, which is the expensive direction, and it belongs named beside the
+other two rather than left implicit in the design.
+
+⇒ All three resolve the same way on purpose: **a false YES costs nothing
 the code did not already cost** (curl fails a few lines later with its own
 error), **a false NO is an installer that refuses to run.** A reviewer who
 weighs those differently should change the predicate, not the tests.

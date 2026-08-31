@@ -38,7 +38,8 @@ const SRC = fs.readFileSync(SETUP, 'utf8');
 const BLOCK_RE = /_reachable_is_download\(\)\s*\{[\s\S]*?\n\}\n(?:[ \t]*#[^\n]*\n|[ \t]*\n)*reachable\(\)\s*\{[\s\S]*?\n\}\n/;
 const FN = SRC.match(BLOCK_RE);
 
-const BIGBODY = require('node:crypto').randomBytes(2 * 1024 * 1024);
+const BIGBODY = require('node:crypto').randomBytes(4 * 1024 * 1024);
+const BYTES_SENT = { n: 0 };
 const GZ = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 const ERR = Buffer.from('<!doctype html><html><body>Not here</body></html>');
 
@@ -71,7 +72,24 @@ test.before(async () => {
       // NOTE: Range deliberately IGNORED, which is the shape under test.
       const type = bigGzip ? 'application/gzip' : 'text/html; charset=utf-8';
       res.writeHead(200, { 'content-type': type, 'content-length': String(BIGBODY.length) });
-      return res.end(BIGBODY);
+      /* Written in chunks and COUNTED, so an arm can assert the cap actually
+         stopped the transfer. Sending it in one `res.end()` would tell us
+         nothing: the point is how much crossed the wire before curl gave up. */
+      let off = 0;
+      const CHUNK = 64 * 1024;
+      const pump = () => {
+        while (off < BIGBODY.length) {
+          if (res.destroyed || res.writableEnded) return;
+          const end = Math.min(off + CHUNK, BIGBODY.length);
+          const ok = res.write(BIGBODY.subarray(off, end));
+          off = end;
+          BYTES_SENT.n = off;
+          if (!ok) { res.once('drain', pump); return; }
+        }
+        res.end();
+      };
+      pump();
+      return;
     }
     const isReal = u.pathname === '/real.tar.gz' || u.pathname === '/head405.tar.gz';
     const refusesHead = u.pathname === '/head405.tar.gz';
@@ -419,4 +437,23 @@ test('#1662: but a LARGE textual body is still refused, so 63 is not a blanket y
   assert.equal(await reachable(`${base}/bightml.tar.gz`), 'NO',
     'a 2MB HTML page was accepted as a download: exit 63 is being treated as an unconditional '
     + 'yes rather than as a successful fetch whose type still has to pass');
+});
+
+test('#1662: --max-filesize actually STOPS the transfer, it is not just decoration', async () => {
+  /* 🛑 THE CAP ITSELF HAD NO FAILING ARM. Measured: removing
+     `--max-filesize 1048576` left all 19 other tests green, because both big-body
+     arms answer identically capped or uncapped. Only the COMPENSATING fix (exit
+     63 mapped to success) was asserted, never the cap's own benefit -- and this
+     branch's whole thesis is that a check with no failing case is not a check.
+     The fixture streams a 4MB body in 64KB chunks and counts what it actually
+     wrote, so this asserts the transfer was CUT SHORT rather than merely that
+     the verdict was right. */
+  BYTES_SENT.n = 0;
+  assert.equal(await reachable(`${base}/bigrange.tar.gz`), 'YES',
+    'precondition: the capped probe should still accept this download');
+  const sent = BYTES_SENT.n;
+  assert.ok(sent < 3 * 1024 * 1024,
+    `the probe pulled ${sent} of ${BIGBODY.length} bytes, so --max-filesize did not stop it. `
+    + 'Without the cap this streams the entire body, which against a real 48MB tarball is the '
+    + 'cost the cap exists to avoid.');
 });
