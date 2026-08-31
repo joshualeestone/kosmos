@@ -1673,7 +1673,7 @@ const server = http.createServer((req, res) => {
                        remove.js's restart refusal via create.SELF_STARTS. */
                     ? 'this agent is not running: nothing on this computer has a session for it. '
                       + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
-                      + '; if it stays off, this computer is not saying why'
+                      + '; if it stays off, its Terminal tab is where to look'
                     : 'this agent is not running: nothing on this computer has a session for it',
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
                 profile,
