@@ -5541,14 +5541,56 @@ const server = http.createServer((req, res) => {
             const card = t && Array.isArray(roster) ? roster.find((c) => c && c.sessionName === t.agent) : null;
             return card && card.name ? { ...t, shownAs: card.name } : t;
           });
-          // The reports-to block names the person in its default form (#336),
-          // so a new name here has to reach it too. Same roster, same posture.
-          try { reports.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
-          /* #1034: the connections block rides the same sweep. Its words never
-             change, so this is a no-op for an agent that already has it, and it
-             is the one write that gives it to every agent created before the
-             block existed. */
-          try { connections.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
+          /* 🛑 kosmos#1684. THESE TWO USED TO DISCARD THEIR VERDICTS AND SWALLOW
+             THEIR THROWS ("carried by the marker, not here"). The marker is
+             real -- #323's stale-block marker -- but it marks a block as stale
+             IN THE AGENT'S FILE, FOUND LATER. It cannot tell the person who
+             just pressed Save that the write did not land, which is the only
+             question this route is answering.
+             ⇒ `told` is built from `you.syncEveryone` ALONE, so all three
+             blocks could fail for every agent and this route would still
+             answer a complete success. Not a missing detail: the wrong answer
+             to the one question asked.
+             📌 One row per agent is the UI contract, so the sibling verdicts
+             DOWNGRADE a row rather than being concatenated onto it -- three
+             lists would show each agent three times. A row can only ever move
+             TOLD -> not-TOLD here; nothing upgrades.
+             📌 Shapes are identical across the three modules (same guard, same
+             `isNamedOurs` filter, same `{ agent, ...tellAgent() }`), so this
+             merges on `agent` without a mapping step. Measured, not assumed.
+             📌 A `null` agent is the whole-roster verdict those modules return
+             when the roster is unreadable, so it downgrades EVERY row. */
+          const sideWork = [
+            // The reports-to block names the person in its default form (#336),
+            // so a new name here has to reach it too. Same roster, same posture.
+            ['who they report to', () => reports.syncEveryone(roster)],
+            /* #1034: the connections block rides the same sweep. Its words never
+               change, so this is a no-op for an agent that already has it, and it
+               is the one write that gives it to every agent created before the
+               block existed. */
+            ['how to connect a provider', () => connections.syncEveryone(roster)],
+          ];
+          for (const [what, run] of sideWork) {
+            let verdicts;
+            try { verdicts = run(); }
+            catch (e) {
+              verdicts = [{ agent: null, state: projects.TOLD.COULD_NOT,
+                            because: String((e && e.message) || 'we could not write it') }];
+            }
+            for (const v of (Array.isArray(verdicts) ? verdicts : [])) {
+              if (!v || v.state === projects.TOLD.TOLD) continue;
+              /* Name WHICH block failed. "we could not tell them" over a
+                 successful name change sends the person to look at the wrong
+                 thing; they need to know the reports-to block is what is
+                 stale. */
+              const because = `${what}: ${v.because || 'we could not write it'}`;
+              told = told.map((t) => (
+                (t && (v.agent === null || t.agent === v.agent) && t.state === projects.TOLD.TOLD)
+                  ? { ...t, state: v.state, because }
+                  : t
+              ));
+            }
+          }
         }
         catch (err2) { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not tell the agents') }]; }
         sendJson(res, 200, { you: saved, told });
