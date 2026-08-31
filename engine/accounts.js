@@ -453,8 +453,13 @@ const FORGOTTEN_PREFIX = '.removed-claude-';
  * somebody who knows where to look. "Removed" and "deleted" are different
  * promises and the caller is told which one it got.
  *
- * 🛑 THE DEFAULT ACCOUNT IS REFUSED, AND THIS IS THE ONE PLACE THE CLAUDE SIDE
- * IS NOT A MIRROR OF THE OPENAI SIDE. `forgetAccount` on `.codex` moves a codex
+ * 🛑 THE DEFAULT ACCOUNT IS REFUSED, AND THAT IS ONE OF THREE PLACES THIS
+ * DIVERGES FROM THE OPENAI SIDE. The others: the `identityOf` check below (the
+ * OpenAI sibling has none, so a `.codex-*` directory carrying no auth.json is
+ * renamed on request), and the `|| 'unnamed'` label fallback where `.codex`
+ * maps to `'default'`. An earlier version of this docblock called the default
+ * refusal THE one divergence, which would send the next reader to
+ * `openaiaccounts.js` expecting a parity that is not there. `forgetAccount` on `.codex` moves a codex
  * home and nothing else points at it. `~/.claude` is not only this account's
  * credential store: `prepare()` symlinks EVERY account Kosmos makes at
  * `~/.claude/projects`, so renaming it strands the transcripts of accounts that

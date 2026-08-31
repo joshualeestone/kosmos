@@ -148,7 +148,12 @@ test('#1659: the engine refusal and the page tooltip say the SAME thing', () => 
     const rest = text.slice(at + anchor.length - 'Kosmos does not remove'.length);
     const end = rest.indexOf('inside it.');
     assert.ok(end > -1, 'the sentence no longer ends where both copies expect');
-    return rest.slice(0, end + 'inside it.'.length).replace(/'\s*\+\s*'/g, '').replace(/\s+/g, ' ');
+    /* ⚠️ NORMALISE THE ENCODING, NOT ONLY THE WHITESPACE. Without this the test
+       compares SOURCE SPELLINGS: `computer\u2019s` in one file and a literal
+       curly apostrophe in the other would fail while rendering identically, so
+       the guard would fire on a difference no person could see. */
+    const unescape = (t) => t.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+    return unescape(rest.slice(0, end + 'inside it.'.length).replace(/'\s*\+\s*'/g, '').replace(/\s+/g, ' '));
   };
   assert.equal(pull(engine, 'Kosmos does not remove'), pull(PAGE, 'title="Kosmos does not remove'),
     'the engine refusal and the page tooltip have drifted; a person would be told two different things about one act');

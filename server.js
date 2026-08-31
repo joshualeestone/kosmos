@@ -3364,12 +3364,26 @@ const server = http.createServer((req, res) => {
           return;
         }
         /* "Removed" and "deleted" are different promises and the person is
-           entitled to know which one they got. */
+           entitled to know which one they got.
+           🛑 AND ON THE CLAUDE SIDE "nothing was deleted" IS TRUE OF THE
+           CREDENTIAL AND NOT OF THE HISTORY, which the OpenAI wording does not
+           have to carry. `status.js:198` finds transcript roots by accepting
+           only `.claude` and `.claude-*`; the rename produces
+           `.removed-claude-*`, which that rule skips. Measured both arms:
+           `.claude-solo` SCANNED, `.removed-claude-solo` SKIPPED. So an account
+           that kept its OWN `projects` tree stops being findable by the product
+           the moment it is forgotten, while the files sit on disk.
+           📌 Worded generally on purpose: an account whose `projects` is
+           symlinked into the shared tree loses nothing. It says what Kosmos
+           STOPS DOING rather than asserting a loss that is only sometimes real,
+           which is the conditional-stated-as-fact error this card already made
+           once in the refusal copy. */
         sendJson(res, 200, {
           forgotten: out.forgotten === true,
           because: out.forgotten
             ? 'That account is off the list. Its sign-in file is still on this computer, '
-              + 'so nothing was deleted.'
+              + 'so nothing was deleted. Kosmos stops looking inside it, so any history '
+              + 'kept only there will not appear any more.'
             : 'That account was already gone from this computer.',
           /* Carried for diffability with the OpenAI route. The page repaints
              through GET /api/accounts, which uses listLive(), so no caller

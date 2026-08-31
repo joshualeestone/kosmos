@@ -13322,10 +13322,15 @@ async function paintAccounts() {
        shape this file already refuses for the external-person/agent
        doors.
        ⚠️ IT STILL DOES NOT ASK FIRST, on either provider. #770 asked for a
-       link "that asks first" and neither this nor the OpenAI Remove beside it
-       is wired to a confirm; removal is one click. Pre-existing on the OpenAI
-       side since #1372, and inherited here rather than introduced. Recorded as
-       an open gap, not fixed on this card. */
+       link "that asks first" and neither control is wired to a confirm;
+       removal is one click. Pre-existing on the OpenAI side since #1372.
+       🛑 BUT DO NOT READ THAT AS "MERELY INHERITED". The exposure is larger
+       here: undoing an OpenAI removal costs a re-paste of an API key, undoing a
+       Claude one costs an OAuth sign-in, and this is the provider every user
+       has. Extending a no-confirm destructive control to it is a bigger step
+       than inheriting one, and it is recorded as an open gap rather than
+       fixed on this card because the confirm would change the press flow in a
+       browser gate this branch cannot run. */
     /* #881: THREE STATES, NOT A HARDCODED ONE. This badge used to be
        unconditional markup -- every account row said "Connected" no
        matter what. GET /api/accounts now confirms each Claude row live

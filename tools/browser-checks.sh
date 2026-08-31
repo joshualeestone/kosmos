@@ -618,6 +618,11 @@ write_fleet "$sb4"
 # deliberately-disabled Disconnect is exercised. list() emits the default from
 # home/.claude.json, which is where configFile() puts it.
 printf '{"oauthAccount":{"emailAddress":"main@example.com"}}' > "$sb4/home/.claude.json"
+# The directory too, not only the config beside it: list() renders the row from
+# ~/.claude.json alone, but a real machine always has ~/.claude/projects, and a
+# fixture that is the MINIMUM which renders leaves memoryReadable false, a state
+# no real install reaches. A fixture is a capture, not the least that passes.
+mkdir -p "$sb4/home/.claude/projects"
 mkdir -p "$sb4/home/.claude-walk"
 printf '{"oauthAccount":{"emailAddress":"walk@example.com"}}' > "$sb4/home/.claude-walk/.claude.json"
 # A stand-in for api.openai.com/v1/models (#962): the badge now checks a key
