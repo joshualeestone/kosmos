@@ -371,7 +371,15 @@ test('an install that reports success but leaves no runnable binary is caught', 
      red when #1580 widened the message to cover a directory at that path, which
      is exactly right in kind but not what this test is about. It is about the
      ARM, so it matches the part that identifies the arm. */
-  assert.match(res.message, /cannot find anything runnable|cannot find it where it should be/);
+  /* 🛑 #1570: THE SECOND ALTERNATIVE WAS DEAD AND IT IS GONE. It was the pre-#1580
+     wording, kept when the message widened. Measured against the three `fail()`
+     calls in `installClaudeCode`: none emits it, so that arm could never match.
+     A regex alternative that cannot fire is not harmless - it makes the assertion
+     LOOK like it covers two messages when one of them does not exist, which is the
+     same use-versus-mention confusion the card is about, one layer along.
+     ⚠️ The remaining half is still the one that identifies the ARM rather than the
+     full sentence, which is what the note above is about and is unchanged. */
+  assert.match(res.message, /cannot find anything runnable/);
   assert.deepEqual(downloadsMatching(/^claude-/), [],
     'a failed access check must not strand the downloaded binary');
   /**
