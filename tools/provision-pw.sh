@@ -37,9 +37,13 @@ command -v npm >/dev/null 2>&1 || { say "provision-pw: no npm on PATH; cannot pr
 
 installed_version() {
   # The version actually on disk, or empty. Read from the package's own
-  # package.json rather than trusting the range in ours.
-  cat "$PW_DIR/node_modules/playwright/package.json" 2>/dev/null \
-    | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+  # package.json rather than trusting the range in ours. Guard the missing-file
+  # case and read the file directly (no `cat | ... | head` pipeline), so this
+  # cannot fail the pipe under `set -euo pipefail`; only playwright's own
+  # "version" field matches, so there is exactly one line.
+  local f="$PW_DIR/node_modules/playwright/package.json"
+  [ -f "$f" ] || return 0
+  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f"
 }
 
 mkdir -p "$PW_DIR"
@@ -49,16 +53,22 @@ if [ "$(installed_version)" = "$PW_VERSION" ]; then
   say "provision-pw: playwright $PW_VERSION already present in $PW_DIR (no-op)."
 else
   say "provision-pw: installing playwright@$PW_VERSION into $PW_DIR"
-  # Pin EXACTLY, so a later `npm i` cannot drift the build. --no-save would
-  # leave no record on disk; we want the exact version recorded in this dir's
-  # own package.json, so pin it there too.
-  npm i --no-audit --no-fund "playwright@$PW_VERSION"
+  # --save-exact so the version RECORDED in this dir's own package.json is the
+  # exact "1.62.1", not npm's default caret range "^1.62.1". Without it a later
+  # bare `npm i` in pw-runtime could resolve a newer 1.6x and change the browser
+  # build -- the exact #1594 skew. The @$PW_VERSION already pins this install;
+  # --save-exact makes the on-disk record match, so the pin is airtight.
+  npm i --no-audit --no-fund --save-exact "playwright@$PW_VERSION"
 fi
 
 # Install BOTH engines the checks use (chromium AND webkit). Playwright is a
 # no-op when the pinned build is already downloaded, so this stays idempotent.
+# Use the LOCAL pinned binary explicitly (not `npx --yes`, which could fetch a
+# different playwright from the registry if local resolution ever failed and
+# drive the browser install unpinned): the browser builds must come from the
+# exact version we just installed.
 say "provision-pw: ensuring chromium + webkit browser builds for playwright@$PW_VERSION"
-npx --yes playwright install chromium webkit
+./node_modules/.bin/playwright install chromium webkit
 
 got="$(installed_version)"
 if [ "$got" != "$PW_VERSION" ]; then
