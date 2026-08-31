@@ -13912,8 +13912,11 @@ function acctShowSuccess(accountLabel) {
   if (document.getElementById('acct-add-modal').hidden) return;
   ['acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-add-acts']
     .forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
-  document.getElementById('acct-success-say').textContent = 'Successfully connected to ' + accountLabel + '.';
+  /* Unhide the role="status" region BEFORE writing its text: a polite live region
+     mutated while hidden is not reliably announced, so the order is what makes a
+     screen reader hear the success, not just show it. */
   document.getElementById('acct-success').hidden = false;
+  document.getElementById('acct-success-say').textContent = 'Successfully connected to ' + accountLabel + '.';
   document.getElementById('acct-success-close').focus();
 }
 function openAcctAdd() {

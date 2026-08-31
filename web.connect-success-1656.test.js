@@ -92,3 +92,30 @@ test('kosmos#1656: closeAcctAdd puts the modal back to its form state on the way
   assert.match(closeFn, /getElementById\('acct-success'\)/, 'closeAcctAdd hides the success panel on close, so the next open is clean');
   assert.match(closeFn, /acct-provider-field/, 'closeAcctAdd restores the sign-in controls on close');
 });
+
+/* The two previous tests prove acctShowSuccess WORKS in isolation. These pin that it
+   is actually WIRED: without them, deleting a call site would leave every other test
+   green while the success state silently never appeared. The Claude path is RUN (it is
+   the poll-driven one, and a run cannot be fooled by a dead branch); the OpenAI add is
+   inside an async fetch handler, so its call site is pinned by source instead. */
+test('kosmos#1656: acctFlowPaint on the connected phase shows success (Claude wiring, run)', () => {
+  const dom = fakeDom([...IDS, 'acct-flow', 'acct-flow-say', 'acct-code-row', 'acct-add', 'acct-add-note']);
+  dom.els.get('acct-add-modal').hidden = false;   // modal is open when the connect lands
+  dom.els.get('acct-success').hidden = true;
+  dom.els.get('acct-claude-flow').hidden = true;
+  dom.els.get('acct-openai-flow').hidden = true;
+  dom.els.get('acct-add-note').classList = { add() {}, remove() {} };
+  const src = [lift(SCRIPT, 'acctFlowPaint'), lift(SCRIPT, 'acctShowSuccess'), 'return acctFlowPaint;'].join('\n');
+  const paint = new Function(
+    'document', 'frConnActive', 'ACCT_FLOW_SAY', 'acctPick', 'acctFlowStop', 'paintAccounts', 'pjSentence', 'ACCT_FLOW_LAST', src,
+  )(dom.document, () => false, {}, () => {}, () => {}, () => {}, (s) => s, null);
+  paint({ phase: 'connected' });
+  assert.equal(dom.els.get('acct-success').hidden, false, 'the connected phase shows the success panel: the call site is wired');
+  assert.equal(dom.els.get('acct-success-say').textContent, 'Successfully connected to your Claude account.');
+});
+
+test('kosmos#1656: the OpenAI add-success is wired to acctShowSuccess (source-pinned)', () => {
+  const at = SCRIPT.indexOf("getElementById('acct-openai-go').addEventListener");
+  const handler = SCRIPT.slice(at, at + 1600);
+  assert.match(handler, /paintAccounts\(\);\s*acctShowSuccess\(/, 'on a good add, success fires after the account list is repainted');
+});
