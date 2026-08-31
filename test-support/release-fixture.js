@@ -42,7 +42,20 @@ const crypto = require('node:crypto');
  */
 const KNOWN_OPTIONS = ['platformKey', 'version', 'binary', 'checksum'];
 
-function serveRelease(t, opts = {}) {
+function serveRelease(t, opts = {}, ...extra) {
+  /* 🛑 A THIRD POSITIONAL IS A SIBLING'S SHAPE, NOT A TYPO.
+     engine/connect.install-997.test.js is serveRelease(t, {...}, opts) and its
+     opts.dieMidStream changes what the server DOES (promise 1MB, deliver 64KB,
+     destroy the socket). Accepted and dropped, a migrator would get a healthy
+     download where the test needs a mid-stream death, and the test would pass
+     for the wrong reason. */
+  if (extra.length) {
+    throw new TypeError(
+      `serveRelease() got ${extra.length} extra positional argument(s). It takes (t, options). `
+      + 'engine/connect.install-997.test.js takes a THIRD positional (opts.dieMidStream); '
+      + 'that behaviour is not implemented here, so a dropped third argument would '
+      + 'silently change what the server does.');
+  }
   const { platformKey, version = '9.9.5', binary, checksum } = opts;
   /* 🛑 A LOUD REFUSAL, because the alternative is a download-shaped error for a
      fixture-shaped mistake. See the docblock. */
@@ -72,6 +85,19 @@ function serveRelease(t, opts = {}) {
     throw new TypeError(
       `serveRelease({version}) got ${JSON.stringify(version)}, which download() will reject. `
       + 'It must look like 1.2.3.');
+  }
+  /* 🛑 A KNOWN OPTION OF THE WRONG TYPE IS REFUSED, NOT IGNORED. The unknown-key
+     guard above catches a wrong NAME; this catches a wrong TYPE, which is the
+     same silent-drop one field over: `checksum: Buffer.from(...)` or `null`
+     would otherwise fall back to a hash of the body with no complaint. */
+  if (checksum !== undefined && (typeof checksum !== 'string' || !checksum)) {
+    throw new TypeError(
+      `serveRelease({checksum}) must be a non-empty string; got ${Object.prototype.toString.call(checksum)}. `
+      + 'A dropped checksum silently serves a body that matches its manifest, which is the opposite of what a mismatch test needs.');
+  }
+  if (binary !== undefined && !Buffer.isBuffer(binary)) {
+    throw new TypeError(
+      `serveRelease({binary}) must be a Buffer; got ${Object.prototype.toString.call(binary)}.`);
   }
   const body = binary || crypto.randomBytes(8 * 1024);
   /* An explicit checksum is HONOURED, not overridden: two of the sibling copies

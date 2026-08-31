@@ -60,7 +60,7 @@
  * rest of the file already relies on.
  */
 const { test } = require('node:test');
-const assert = require('node:assert');
+const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const nodePath = require('node:path');
 const { mkTemp } = require('../test-support/tmpdir');
@@ -112,7 +112,7 @@ async function settled(ms = 8000) {
  * is what makes them comparable. `installClaudeCode` unlinks the DOWNLOADED file,
  * not the bin path, so the PRESENT arm's executable survives to be seen.
  */
-async function stuckWith(t, { binaryExists }) {
+async function stuckWith(t, { binaryExists, directoryInstead = false }) {
   /* Registered BEFORE the seam calls, so a throw from either still cleans up. */
   t.after(() => {
     connect.setRunner(null);
@@ -128,10 +128,10 @@ async function stuckWith(t, { binaryExists }) {
      writes an 0755 file, and if the ABSENT arm reused that path it would find a
      real executable and report canRunClaude true. The names alone are distinct
      and SANDBOX is a fresh mkTemp per process, so no random suffix is needed;
-     a stable filename also keeps a failure message reproducible. turning a genuine red into a
-     false one. */
-  const bin = nodePath.join(SANDBOX, `claude-${binaryExists ? 'present' : 'absent'}`);
-  if (binaryExists) { fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bin, 0o755); }
+     a stable filename also keeps a failure message reproducible. */
+  const bin = nodePath.join(SANDBOX, `claude-${directoryInstead ? 'dir' : binaryExists ? 'present' : 'absent'}`);
+  if (directoryInstead) { fs.mkdirSync(bin, { recursive: true }); }
+  else if (binaryExists) { fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bin, 0o755); }
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify({}));
   /* Unreachable on this path today (the config fixture is `{}`, so
@@ -147,7 +147,11 @@ async function stuckWith(t, { binaryExists }) {
 /**
  * Pin the trigger. Without this the arms cannot say WHICH `becomeStuck` call
  * they exercised, and the trigger genuinely varies with the environment: a
- * download failure yields 'we could not download Claude' (`download`'s failure return),
+ * download failure yields 'we could not download Claude'. BOTH messages come from
+ * `installClaudeCode`: `download()` has NO failure return, it THROWS, and that
+ * string is what installClaudeCode's own catch turns the throw into. An earlier
+ * version of this comment credited `download`, which made the contrast look like
+ * two functions when it is two failure points inside one.
  * while the install failure these arms force yields the message below
  * (returned by `installClaudeCode` and surfaced by `runFlow`'s
  * `if (!res.ok) becomeStuck(owner, res.message, res.detail)`). Asserting it is what would have caught the missing release
@@ -177,6 +181,35 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
     'reached STUCK by a different trigger than the install failure this arm forces');
   assert.equal(st.canRunClaude, false,
     'nothing is on disk, yet the stuck screen would tell somebody already stuck to type `claude` (#205)');
+});
+
+/**
+ * 🔴 CHARACTERISATION, NOT AN ENDORSEMENT. `becomeStuck` asks the disk with a
+ * bare `fs.accessSync(claudeBinPath(), X_OK)`, and `engine/connect.js` names
+ * that site itself as one of the remaining weak bare-accessSync checks: A
+ * DIRECTORY PASSES X_OK. Measured, with both controls: a directory passes, a
+ * real executable passes, a missing path is ENOENT.
+ *
+ * ⇒ So a directory sitting at the bin path yields `canRunClaude: true`, and the
+ * stuck screen tells somebody already stuck to type `claude` -- the exact #205
+ * harm the field exists to prevent. The two arms above cannot see it, because
+ * neither creates a directory there.
+ *
+ * This arm asserts the CURRENT behaviour rather than the correct one, on
+ * purpose. Asserting `false` would redden the suite for a production defect
+ * this card is not fixing (the card is about the field having a behavioural
+ * arm at all). Pinned here so that WHEN someone fixes it, this reddens and
+ * says what to change, instead of the fix landing with nothing noticing.
+ */
+test('#1633 CHARACTERISATION: a DIRECTORY at the bin path is reported runnable, which is wrong', async (t) => {
+  const st = await stuckWith(t, { binaryExists: false, directoryInstead: true });
+  assert.equal(st.timedOut, false,
+    'the flow never settled within the deadline; this is contention, not a verdict');
+  assert.equal(st.phase, connect.PHASE.STUCK);
+  assert.equal(st.canRunClaude, true,
+    'GOOD NEWS IF THIS FAILS: the bare accessSync(X_OK) has been tightened so a '
+    + 'directory no longer counts as runnable. Change this arm to expect false '
+    + 'and delete the characterisation note above it.');
 });
 
 /**

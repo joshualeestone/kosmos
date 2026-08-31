@@ -8,8 +8,8 @@
  * 🛑 IT LIVES AT THE REPO ROOT, NOT BESIDE THE HELPER, AND THAT IS NOT A STYLE
  * CHOICE. `tools/run-tests.sh:103` is `node --test engine/*.test.js *.test.js`.
  * It globs engine/ and the root and NOTHING ELSE, so a test placed in
- * test-support/ is never run. I put it there first and the suite total stayed
- * at 3254 with four new tests written, which is the only reason I noticed: three private
+ * test-support/ is never run. It was placed there first and the suite total did
+ * not move, which is the only reason it was noticed: three private
  * `serveRelease` copies in `engine/` take DIFFERENT positional arguments, so a
  * call copied between files must fail loudly rather than serve a manifest
  * keyed "[object Object]".
@@ -51,6 +51,31 @@ test('a sibling call shape is REFUSED, not silently accepted', async (t) => {
     async () => serveRelease(t, Buffer.from('x')),
     /needs a platformKey string/,
     "a positional Buffer was accepted; that is a sibling's second argument");
+  // connect.install-997.test.js's shape: (t, {...}, opts) -- a THIRD positional
+  // whose opts.dieMidStream changes what the server does. Dropped silently, a
+  // migrator gets a healthy download where the test needs a mid-stream death.
+  await assert.rejects(
+    async () => serveRelease(t, { platformKey: 'darwin-arm64' }, { dieMidStream: true }),
+    /extra positional argument/,
+    'a third positional was accepted and dropped; that is install-997 shape');
+});
+
+test('a KNOWN option of the wrong TYPE is refused, not silently dropped', async (t) => {
+  await assert.rejects(
+    async () => serveRelease(t, { platformKey: 'darwin-arm64', checksum: Buffer.from('ab') }),
+    /checksum.*must be a non-empty string/,
+    'a Buffer checksum was dropped in favour of a hash of the body');
+  await assert.rejects(
+    async () => serveRelease(t, { platformKey: 'darwin-arm64', binary: 'not a buffer' }),
+    /binary.*must be a Buffer/,
+    'a string binary was accepted');
+});
+
+test('a caller-supplied binary is the body actually SERVED', async (t) => {
+  const mine = Buffer.from('a body only this test would produce');
+  const base = await serveRelease(t, { platformKey: 'darwin-arm64', binary: mine });
+  const got = Buffer.from(await (await fetch(`${base}/9.9.5/darwin-arm64/claude`)).arrayBuffer());
+  assert.deepEqual(got, mine, 'the helper served something other than the binary it was given');
 });
 
 /**
