@@ -32,11 +32,16 @@
  *
  * 🛑 SERVE A LOCAL RELEASE OR THIS HITS downloads.claude.ai FOR REAL. Both arms
  * fail at the INSTALL step, which is downstream of the download, so both walk the
- * real `download()` -- and `download()` is plain `https.get`, so the injected
- * runner does not touch it. Measured before the fixture was added: each arm took
- * ~5.3s against the live service and ~65ms with the base pointed at a dead port,
- * an 80x difference that was entirely network. Both arms passed either way, so
- * the green never depended on the fixture and would not have revealed this.
+ * real `download()` -- and `download()` uses plain node http/https and sits OUTSIDE the
+ * injected runner seam, so a runner stub does not touch it. (The fixture below
+ * is served over plain `http://127.0.0.1`, which is why naming `https.get`
+ * specifically would have been wrong.) Measured before the fixture was added: each arm took ~5.3s against the live
+ * service. Pointing the base at a DEAD PORT gave ~65ms, and that number is an
+ * ISOLATION CONTROL rather than this file's cost: it proves the 5.3s was
+ * network, not that the arms are that fast. With the fixture actually serving,
+ * the shipped cost is ~70ms per arm. Both arms passed in ALL THREE
+ * configurations, so the green never depended on the fixture and could not have
+ * revealed this.
  * `engine/connect.nobinary-1580.test.js` carries the same warning for the same
  * reason.
  *
@@ -54,10 +59,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const http = require('node:http');
-const crypto = require('node:crypto');
 const nodePath = require('node:path');
 const { mkTemp } = require('../test-support/tmpdir');
+const { serveRelease } = require('../test-support/release-fixture');
 
 const SANDBOX = mkTemp('becomestuck1633-');
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
@@ -71,28 +75,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_HOME = nodePath.join(SANDBOX, 'home');
 
 const connect = require('./connect');
-
-/** Same shape as `engine/connect.nobinary-1580.test.js`, for the same reason. */
-function serveRelease(t, binary, checksum) {
-  const paths = {
-    '/latest': () => '9.9.5',
-    '/9.9.5/manifest.json': () => JSON.stringify({ platforms: { [connect.platformKey()]: { checksum } } }),
-    [`/9.9.5/${connect.platformKey()}/claude`]: () => binary,
-  };
-  const server = http.createServer((req, res) => {
-    const answer = paths[req.url];
-    if (!answer) { res.writeHead(404); res.end(); return; }
-    const body = Buffer.isBuffer(answer()) ? answer() : Buffer.from(answer());
-    res.writeHead(200, { 'content-length': body.length });
-    res.end(body);
-  });
-  return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
-      t.after(() => server.close());
-      resolve(`http://127.0.0.1:${server.address().port}`);
-    });
-  });
-}
+const subscription = require('./subscription');
 
 /**
  * Read the SETTLED state, not `start()`'s immediate return. `start()` returns
@@ -102,11 +85,15 @@ function serveRelease(t, binary, checksum) {
 async function settled(ms = 8000) {
   const deadline = Date.now() + ms;
   const moving = [connect.PHASE.DOWNLOADING, connect.PHASE.INSTALLING, connect.PHASE.IDLE];
+  let timedOut = true;
   while (Date.now() < deadline) {
-    if (!moving.includes(connect.state().phase)) break;
+    if (!moving.includes(connect.state().phase)) { timedOut = false; break; }
     await new Promise((r) => setTimeout(r, 60));
   }
-  return connect.state();
+  /* ⚠️ REPORTED SEPARATELY, because otherwise a slow machine and a wrong
+     verdict produce the SAME red. On timeout the phase is whatever the flow
+     last wrote, and asserting on it would blame becomeStuck for contention. */
+  return { ...connect.state(), timedOut };
 }
 
 /**
@@ -124,18 +111,26 @@ async function stuckWith(t, { binaryExists }) {
   /* Registered BEFORE the seam calls, so a throw from either still cleans up. */
   t.after(() => {
     connect.setRunner(null);
+    subscription.setRunner(null);
     connect.resetForTests();
     connect.setDryRun(true);
     delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
     delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
   });
-  const fixture = crypto.randomBytes(8 * 1024);
-  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(
-    t, fixture, crypto.createHash('sha256').update(fixture).digest('hex'));
-  const bin = nodePath.join(SANDBOX, `claude-${Math.random().toString(36).slice(2, 8)}`);
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE =
+    await serveRelease(t, connect.platformKey());
+  /* 🔑 A DISTINCT PATH PER ARM IS LOAD-BEARING, not tidiness: the PRESENT arm
+     writes an 0755 file, and if the ABSENT arm reused that path it would find a
+     real executable and report canRunClaude true, turning a genuine red into a
+     false one. */
+  const bin = nodePath.join(SANDBOX, `claude-${binaryExists ? 'present' : 'absent'}-${Math.random().toString(36).slice(2, 8)}`);
   if (binaryExists) { fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bin, 0o755); }
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify({}));
+  /* Unreachable on this path today (the config fixture is `{}`, so
+     `subscription.check()` never returns CONNECTED), but it is a latent
+     subprocess spawn held closed only by the fixture's shape. One line. */
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
   connect.setRunner(() => ({ ok: false, stdout: '', stderr: '', message: 'forced by #1633 arm' }));
   connect.setDryRun(false);
   await connect.start();
@@ -145,16 +140,18 @@ async function stuckWith(t, { binaryExists }) {
 /**
  * Pin the trigger. Without this the arms cannot say WHICH `becomeStuck` call
  * they exercised, and the trigger genuinely varies with the environment: a
- * download failure yields 'we could not download Claude' (connect.js:1317),
+ * download failure yields 'we could not download Claude' (`download`'s failure return),
  * while the install failure these arms force yields the message below
- * (connect.js:1376, surfaced by the `if (!res.ok) becomeStuck(...)` at
- * connect.js:1458). Asserting it is what would have caught the missing release
+ * (returned by `installClaudeCode` and surfaced by `runFlow`'s
+ * `if (!res.ok) becomeStuck(owner, res.message, res.detail)`). Asserting it is what would have caught the missing release
  * server on the first run.
  */
 const INSTALL_FAILURE = /did not finish setting itself up/;
 
 test('#1633: a stuck flow WITH claude on disk records canRunClaude true', async (t) => {
   const st = await stuckWith(t, { binaryExists: true });
+  assert.equal(st.timedOut, false,
+    'the flow never settled within the deadline; this is contention, not a verdict about canRunClaude');
   assert.equal(st.phase, connect.PHASE.STUCK,
     'the arm never reached becomeStuck, so it proves nothing about canRunClaude');
   assert.match(st.because, INSTALL_FAILURE,
@@ -165,6 +162,8 @@ test('#1633: a stuck flow WITH claude on disk records canRunClaude true', async 
 
 test('#1633: a stuck flow with NO claude on disk records canRunClaude false', async (t) => {
   const st = await stuckWith(t, { binaryExists: false });
+  assert.equal(st.timedOut, false,
+    'the flow never settled within the deadline; this is contention, not a verdict about canRunClaude');
   assert.equal(st.phase, connect.PHASE.STUCK,
     'the arm never reached becomeStuck, so it proves nothing about canRunClaude');
   assert.match(st.because, INSTALL_FAILURE,
@@ -182,6 +181,6 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
  *
  * 📌 The FALSE arm is the weaker half on its own and should not be read as
  * load-bearing alone: `publicView` writes `canRunClaude: s.canRunClaude || false`
- * (connect.js:508), so it cannot distinguish "computed false" from "never written
+ * (`publicView`), so it cannot distinguish "computed false" from "never written
  * at all". The TRUE arm is what rules that out.
  */
