@@ -63,10 +63,17 @@ function board(seed) {
       AGENT_WORKFORCE_WORKERS: workers,
       AGENT_WORKFORCE_LAUNCH: launch,
       AGENT_WORKFORCE_PROJECTS: nodePath.join(sb, 'projects'),
-      ...(ctx.panesFile ? {
-        AGENT_WORKFORCE_FAKE_PANES: ctx.panesFile,
-        AGENT_WORKFORCE_TMUX_BIN: nodePath.join(REPO, 'test-support', 'fake-tmux.sh'),
-      } : {}),
+      /* 🛑 THE TMUX STUB IS UNCONDITIONAL AND MUST STAY THAT WAY (#634, Pete 1650).
+         It used to ride along inside this `ctx.panesFile` ternary, so the arms that
+         build no panes file left AGENT_WORKFORCE_TMUX_BIN UNSET - and `connect.js:94`,
+         `remove.js:714` and `remove.js:1327` fall back to an ABSOLUTE
+         `/opt/homebrew/bin/tmux`, which the sandbox `PATH` above cannot intercept.
+         A half-sandboxed board reads the real fleet's panes and a send types into one.
+         Measured: sandbox.audit() reports partial=true without this var, false with it. */
+      AGENT_WORKFORCE_TMUX_BIN: ctx.panesFile
+        ? nodePath.join(REPO, 'test-support', 'fake-tmux.sh')
+        : nodePath.join(bin, 'tmux'),
+      ...(ctx.panesFile ? { AGENT_WORKFORCE_FAKE_PANES: ctx.panesFile } : {}),
     },
   });
   const parsed = JSON.parse(out);
@@ -235,8 +242,21 @@ test('#1659 route: an agent whose plist PREDATES runners still blocks (absent ru
      spelling. */
   assert.ok(typeof r.seededPlist === 'string' && r.seededPlist.length > 0,
     'the seeded plist did not reach the assertion, so the check below would pass on an empty string');
-  assert.ok(!/<string>claude<\/string>\s*<\/array>/.test(r.seededPlist),
-    'the fixture wrote a runner argument, so it does not represent a pre-runners plist');
+  /* 🛑 THIS ASSERTION USED TO BE VACUOUS AND A PERTURBATION MISATTRIBUTED ITS
+     RED. It matched /<string>claude<\/string>\s*<\/array>/, and NO plist shape
+     contains that: `plistFor` writes a runner argument only for codex, so the
+     claude and absent cases write none at all. Measured: the regex matched
+     none of the claude, codex or null plists. It could never fire, and when I
+     perturbed the fixture the suite went red on the OUTCOME assertion instead,
+     which I read as this arm working.
+     ✅ COUNT THE ARGUMENTS INSTEAD, which is the thing that actually differs:
+     a written runner adds two <string> entries (16 -> 18, measured). The codex
+     arm below is the paired positive: it proves the seam can produce a plist
+     that DOES carry one. */
+  const seededArgs = (r.seededPlist.match(/<string>/g) || []).length;
+  const withRunner = (require('./engine/create').plistFor('probe', '/bin/claude', '/bin/tmux', null, '/h/x', 'codex').match(/<string>/g) || []).length;
+  assert.ok(withRunner > seededArgs,
+    `the fixture is not pre-runners: it carries ${seededArgs} arguments and a runner-bearing plist carries ${withRunner}`);
   assert.equal(r.code, 400, 'a pre-runners plist must still read as a Claude agent. body: '
     + JSON.stringify(r.json));
   assert.deepEqual(r.json.usedBy, ['oldtimer']);
