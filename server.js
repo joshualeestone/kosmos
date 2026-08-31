@@ -4093,7 +4093,17 @@ const server = http.createServer((req, res) => {
     if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
     /* #1618: one shelf read shared by every caller asking at once. The sweep and
        the reason it is shared on the read path only are at readConnectionsShelf. */
-    readConnectionsShelf().then((doors) => { sendJson(res, 200, { doors }); });
+    /* ⚠️ A CATCH, BECAUSE THIS BRANCH ADDED A SECOND PROMISE SOURCE UNDER IT.
+       `askDoor` swallows both arms, so nothing rejects today and this route went
+       without one for good reason. But the shelf is now
+       `Promise.all([readFirstPartyDoors(), settleDoors(jobs)])` rather than one
+       flat settle, and a rejection here would hang the request with NO RESPONSE
+       and surface as an unhandled rejection far from its cause. Mirrors the
+       headersSent-guarded catch on the sibling agent route. */
+    readConnectionsShelf().then((doors) => { sendJson(res, 200, { doors }); }).catch(() => {
+      if (res.headersSent) return;
+      sendJson(res, 500, { error: 'we could not read this computer\'s connections' });
+    });
     return;
   }
   {

@@ -169,8 +169,12 @@ function blockBody() {
     'being the one who confidently describes the wrong screen.',
     '',
     'One thing you CAN check for yourself, rather than asking: run',
-    '`' + cli + ' connections`. It tells you which providers are',
-    'connected on this computer, and whether a CLAUDE sign-in is part way through',
+    /* On its own line: `cli` is an absolute path under the person's home, so
+       splicing it mid-sentence rendered a ~130-character line inside a document
+       hand-wrapped to ~72 that eighteen agents read. */
+    '`' + cli + ' connections`.',
+    'It tells you which providers are connected on this computer, and whether a',
+    'CLAUDE sign-in is part way through',
     '(pasting a GPT key is not a sign-in flow and will not show there). It answers',
     'in three states, and **could not check** is one of them: treat that as',
     'unknown, never as "not connected".',

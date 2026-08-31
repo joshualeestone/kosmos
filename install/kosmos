@@ -756,7 +756,7 @@ cmd_connections() {
   case "${KOSMOS_CONN_TIMEOUT:-}" in
     "") : ;;
     *[!0-9]*) : ;;          # not digits-only: ignore it, keep the ceiling
-    *) _t=$((10#$KOSMOS_CONN_TIMEOUT))
+    *) local _t=$((10#$KOSMOS_CONN_TIMEOUT))
        # 🛑 A BAND, NOT JUST "> 0". An earlier version closed every spelling of
        # zero and left the high side wide open: KOSMOS_CONN_TIMEOUT=999999 reached
        # `curl -m 999999`, about 11.5 days, which removes the ceiling exactly as
@@ -764,7 +764,13 @@ cmd_connections() {
        # route. Same failure, opposite end, and the guard's own comment claimed to
        # prevent it. 300 is well past any honest local sweep and far short of a
        # hang. Anything outside the band keeps the 40s default.
-       [ "$_t" -ge 1 ] && [ "$_t" -le 300 ] && deadline="$KOSMOS_CONN_TIMEOUT" ;;
+       # ⚠️ ASSIGN THE VALUE THAT WAS VALIDATED, not the raw one. The band checks
+       # $_t (base-10 normalised) and an earlier version then assigned the RAW
+       # string, so the value tested and the value used were not the same thing:
+       # a 22-digit "0000000000000000000005" passes the band as 5 and reached
+       # `curl -m 0000000000000000000005`. Harmless with today's curl, and the
+       # gap between checked and used is the part worth closing.
+       [ "$_t" -ge 1 ] && [ "$_t" -le 300 ] && deadline="$_t" ;;
   esac
   # `-s` alone, not `-sS`: the comment above says stderr is discarded on purpose,
   # and `-S` exists solely to print errors there. Keeping both states an intent
@@ -866,6 +872,21 @@ cmd_connections() {
          prototype-chain class the engine boundary closed one file away, in the
          verb whose stated job is refusing machine vocabulary. */
       var own = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined; };
+      /* 🛑 CONTROL CHARACTERS STRIPPED FROM EVERY WIRE STRING BEFORE IT IS PRINTED.
+         This output does not only land on a terminal, it lands in the CONTEXT
+         WINDOW OF AN AGENT: this branch splices the connections verb into every
+         agent instruction file. So an escape sequence repaints the screen, and
+         instruction-shaped text arrives exactly where instructions are read.
+         Our own boundary already allowlists every string it emits, so nothing
+         from OUR board can carry these. That is precisely the assumption this
+         block refuses to make everywhere else: it type-guards, own-property
+         checks and filters because the board may be a different build than the
+         CLI. Same posture, one class further.
+         NOTE the wording here carries NO APOSTROPHE, deliberately. This whole
+         renderer lives inside a single-quoted shell string, so one apostrophe
+         ends the program. The first draft of this comment said AGENT plus S and
+         broke 22 tests at once, which is what the guard below is for. */
+      var clean = function (x) { return typeof x === "string" ? x.replace(/[\u0000-\u001f\u007f]/g, " ") : x; };
       var SAY = { connected: "connected", none: "not connected", unknown: "could not check" };
       for (const p of okProviders) {
         /* ⚠️ STRINGS ONLY, for the same reason as the services loop below:
@@ -912,7 +933,7 @@ cmd_connections() {
             if (p.howMany > m) many = many + ", " + (p.howMany - m) + " we could not check";
           }
         }
-        console.log("  " + p.name + ": " + verdict + " (" + p.because + many + ")");
+        console.log("  " + clean(p.name) + ": " + verdict + " (" + clean(p.because) + many + ")");
       }
       /* 🛑 STUCK AND INTERRUPTED ARE NOT BUSY, AND THEY ARE THE TWO MOMENTS AN
          AGENT IS MOST USEFUL. Printing only on `busy` dropped both silently, so
@@ -1024,7 +1045,7 @@ cmd_connections() {
            allowlists these, so this is the CLI refusing to trust a board it does not
            control, which is the same reason the guard above checks elements. */
         for (const s of okServices) {
-          console.log("  " + s.name + ": " + s.because);
+          console.log("  " + clean(s.name) + ": " + clean(s.because));
         }
       }
       console.log("");

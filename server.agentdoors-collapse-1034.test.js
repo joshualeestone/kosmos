@@ -106,6 +106,44 @@ test('#1618: two agents asking at once sweep the first-party doors ONCE', async 
   }
 });
 
+test('#1618: the BOARD SHELF and the AGENT ROUTE share one sweep, which is why the builder exists', async () => {
+  /**
+   * 🛑 THIS IS THE HEADLINE PROPERTY OF `readFirstPartyDoors`, AND IT WAS THE ONE
+   * THING NOT PINNED. The function's own header spends thirty lines arguing it
+   * exists so the board shelf and this route cannot drift and cannot double-sweep.
+   * Every other test in this file fires `/api/agent/connections` TWICE, and the two
+   * tests elsewhere that touch both routes fetch them SEQUENTIALLY, which cannot
+   * observe collapse at all.
+   *
+   * ⇒ A refactor handing the agent route its own private `inflight.collapse` would
+   * satisfy every existing assertion while destroying the property the extraction
+   * was made for. The duplication it replaced was invisible to two green suites
+   * once already; this is the guard that stops it returning.
+   */
+  const g = countedGithub();
+  try {
+    await hit();
+    const warm = g.entries();
+    assert.ok(warm >= 1, 'the agent route never reached the github door, so the counter below measures nothing');
+
+    g.arm();
+    const agent = hit();
+    const board = fetch(base + '/api/connections').then((r) => r.json());
+    await new Promise((r) => setTimeout(r, 150));
+    const during = g.entries() - warm;
+    assert.equal(during, 1,
+      `the two routes swept the github door ${during} times between them, so they are NOT sharing one in-flight sweep and can drift apart`);
+
+    g.release();
+    const [a, b] = await Promise.all([agent, board]);
+    assert.ok(a && typeof a === 'object', 'the agent route returned no object');
+    assert.ok(b && b.doors, 'the board shelf returned no doors');
+  } finally {
+    g.release();
+    g.restore();
+  }
+});
+
 test('#1618: a later ask is FRESH, not served from a window', async () => {
   /**
    * The collapse holds the promise only while it is unsettled. If anyone ever

@@ -800,7 +800,12 @@ test('every spelling of zero is refused by the connection deadline guard', () =>
   const src = fs.readFileSync(CLI, 'utf8');
   const m = src.match(/local deadline=40\n([\s\S]*?\n  esac)/);
   assert.ok(m, 'could not find the deadline guard in install/kosmos: it moved or was reshaped, and this test just went blind');
-  const guard = 'deadline=40\n' + m[1].replace(/^\s*#.*$/gm, '');
+  /* `local` is function-only syntax and this snippet runs at top level, so it is
+     neutralised here rather than dropped from the real script: the shipped guard
+     SHOULD declare its temporaries, and a test that forced it not to would be the
+     test dictating the code. Comments go too, so a future emoji or apostrophe in
+     one cannot break the extraction. */
+  const guard = 'deadline=40\n' + m[1].replace(/^\s*#.*$/gm, '').replace(/\blocal\s+/g, '');
   assert.match(guard, /10#/, 'the extracted guard does not compare numerically, so a leading-zero spelling can still disable the ceiling');
 
   const run = (value) => {
@@ -871,5 +876,35 @@ test('a board with no readable providers says so and exits non-zero, instead of 
     const r = await kosmos(port);
     assert.equal(r.code, 0, 'a good payload was refused, so this test proves nothing');
     assert.match(r.out, /What this computer is connected to/, 'a good payload lost its heading');
+  });
+});
+
+test('control characters in a wire string are neutralised before they reach an agent', async () => {
+  /**
+   * This output does not only land on a terminal. This branch splices the
+   * connections verb into every agent instruction file, so the rendered text
+   * lands in the context window of an agent: an escape sequence repaints a
+   * screen, and instruction-shaped text arrives where instructions are read.
+   *
+   * Our own boundary allowlists every string it emits, so nothing from OUR board
+   * carries these. That is the assumption this renderer refuses to make
+   * everywhere else, which is why it type-guards and own-property-checks: the
+   * board may be a different build than the CLI.
+   */
+  const ESC = String.fromCharCode(27);
+  const BEL = String.fromCharCode(7);
+  const NUL = String.fromCharCode(0);
+  const p = P();
+  p.providers[0].name = 'Claude' + ESC + '[2J';
+  p.providers[0].because = 'fine' + BEL + NUL + 'x';
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    for (const [label, ch] of [['escape', ESC], ['bell', BEL], ['NUL', NUL]]) {
+      assert.ok(!r.out.includes(ch), `a ${label} character reached the output, and this text lands in the context window of an agent`);
+    }
+    /* CONTROL: the surrounding words survive, so this strips control characters
+       rather than dropping the row or blanking the field. */
+    assert.match(r.out, /Claude/, 'the provider name was lost entirely rather than cleaned');
+    assert.match(r.out, /fine/, 'the reason was lost entirely rather than cleaned');
   });
 });
