@@ -1019,3 +1019,49 @@ test('a connected provider is never told we could not tell whether its sign-in i
       'the uncertainty sentence was suppressed with nothing connected, which hides a real unknown');
   });
 });
+
+test('a working sign-in with the program MISSING says so, and a program we could not check does not', async () => {
+  /**
+   * 🛑 `installed` WAS EMITTED AND NEVER RENDERED. The boundary computes it as a
+   * three-state field and the anthropic -> claude runner-key mapping exists purely
+   * so it can be correct, but no consumer read it: a grep of install/kosmos for
+   * `installed` returned 0 against a control of 7 for other provider fields.
+   *
+   * So the combination "a working sign-in exists but the runner binary is gone"
+   * (a config surviving an uninstall, or the binary moved off disk) rendered as a
+   * bare "connected", and the agent this branch recruits to run the verb was never
+   * told the program was missing. The module's only not-installed sentence is
+   * reachable when the state is `none`, because `connected` short-circuits above it.
+   *
+   * ⭐ THE THIRD ARM IS THE POINT. `installed: null` means we could not look, and a
+   * confident "not installed" there would be the same collapse the counts and the
+   * verdicts spend this whole branch refusing, one field over.
+   */
+  /* ⚠️ SCOPED TO THE CLAUDE LINE, NOT THE WHOLE OUTPUT. The shared fixture carries
+     a SECOND provider (GPT) whose own row legitimately says the program is not
+     installed, both via `installed: false` and inside its `because`. A first version
+     of this test asserted over the whole output and failed on that row, which would
+     have read as the fix being broken when it was the assertion aimed too wide. */
+  const claudeLine = async (installed) => {
+    const p = P();
+    p.providers[0].signedIn = 'connected';
+    p.providers[0].installed = installed;
+    let out = '';
+    await withBoard({ body: p }, async (port) => { out = (await kosmos(port)).out; });
+    const line = out.split('\n').find((l) => /^\s*Claude:/.test(l));
+    assert.ok(line, `the Claude row did not render at all, so this arm proves nothing. Output: ${JSON.stringify(out)}`);
+    return line;
+  };
+
+  const missing = await claudeLine(false);
+  assert.match(missing, /not installed on this computer/,
+    'a connected provider whose program is GONE said nothing about it, so the person is told everything is fine');
+
+  const present = await claudeLine(true);
+  assert.doesNotMatch(present, /not installed on this computer/,
+    'a provider whose program is present was told it was missing');
+
+  const blind = await claudeLine(null);
+  assert.doesNotMatch(blind, /not installed on this computer/,
+    'a program we could not check was reported as definitely missing, which is a confident negative about something nobody looked at');
+});

@@ -234,7 +234,14 @@ const settleDoors = (jobs) => {
   return Promise.all(keys.map((k) => jobs[k])).then((vals) => {
     const doors = {};
     keys.forEach((k, i) => { doors[k] = vals[i]; });
-    return doors;
+    /* ⚠️ THE CONTAINER TOO, not only the values. askDoor freezes each door, and
+       readFirstPartyDoors' header tells callers to treat what comes back as
+       frozen, but the object holding them was writable: the shelf copies the top
+       level before adding token doors, while the agent route passes this straight
+       through. A caller assigning doors['/api/x'] would have landed in a
+       concurrent response, which is the timing-dependent corruption the value
+       freeze was added to make mechanical. Half a guarantee reads as a whole one. */
+    return Object.freeze(doors);
   });
 };
 

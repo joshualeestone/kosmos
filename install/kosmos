@@ -829,6 +829,15 @@ cmd_connections() {
        NOTE no apostrophe anywhere in this comment. This whole renderer is a
        single-quoted shell string and one apostrophe ends the program. */
     var clean = function (x) { return typeof x === "string" ? x.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ") : x; };
+    /* setEncoding, because `raw += d` on a Buffer does an implicit per-chunk
+       toString: a multi-byte UTF-8 character split across a chunk boundary is
+       corrupted and JSON.parse then fails, degrading to "we could not read".
+       An error listener for the same reason the rest of this block exists: an
+       unhandled stdin error throws a stack with absolute paths at the reader,
+       which is the machine vocabulary these fifty lines refuse. Both unreachable
+       from this board, both free. */
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("error", function () { console.log("Kosmos answered something we could not read, so we cannot say what is connected."); process.exitCode = 1; });
     let raw = ""; process.stdin.on("data", (d) => { raw += d; });
     process.stdin.on("end", () => {
       let v = null;
@@ -950,12 +959,28 @@ cmd_connections() {
                the stated reason that the CLI does not control the board, so this
                was the odd omission rather than a new policy. */
             if (w > m) w = m;
-            if (w === m) many = ", " + (w === 1 ? "1 sign-in" : w + " sign-ins");
+            /* "working" even when the two numbers match. Dropping it is accurate
+               and reintroduces the exact ambiguity recorded above: "3 sign-ins"
+               beside "has a working sign-in for it" is what read as three working
+               ones. A reader cannot know the numbers matched. One word. */
+            if (w === m) many = ", " + (w === 1 ? "1 sign-in working" : w + " sign-ins working");
             else many = ", " + w + " of " + m + (m === 1 ? " sign-in working" : " sign-ins working");
             if (p.howMany > m) many = many + ", " + (p.howMany - m) + " we could not check";
           }
         }
-        console.log("  " + clean(p.name) + ": " + verdict + " (" + clean(p.because) + many + ")");
+        /* 🛑 `installed` WAS COMPUTED AND NEVER RENDERED. The boundary emits it as a
+           careful three-state field, and the runner-key mapping exists so it can be
+           right, but no consumer read it: grep of this file for `installed` returned
+           0 against a control of 7 for other provider fields. So a working sign-in
+           beside a MISSING PROGRAM printed as a bare "connected", and the agent this
+           branch recruits to run the verb was never told the program was gone. The
+           only not-installed sentence in the module is reachable when the state is
+           `none`, because `connected` short-circuits above it.
+           ⚠️ ONLY ON `false`, NEVER ON `null`. `null` is "we could not look", and a
+           confident "not installed" there is exactly the collapse the three-state
+           rule refuses, one field over. */
+        var missing = p.installed === false ? ". The program it needs is not installed on this computer yet" : "";
+        console.log("  " + clean(p.name) + ": " + verdict + " (" + clean(p.because) + many + ")" + missing);
       }
       /* 🛑 STUCK AND INTERRUPTED ARE NOT BUSY, AND THEY ARE THE TWO MOMENTS AN
          AGENT IS MOST USEFUL. Printing only on `busy` dropped both silently, so
