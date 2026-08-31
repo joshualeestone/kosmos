@@ -104,6 +104,27 @@ source-sha-at-end      faaa04c2... (identical, so nothing moved mid-run)
 **If that command does not print the sha above, this evidence does not describe
 the current installer.** That is the property the previous two remedies lacked.
 
+📌 **AND IT FIRED, AS INTENDED.** Comment-only edits after the run changed the
+file sha to `f587b533758fcce06321758c521724f89a1614768d8c4110783b5d34f24769cf`, so the anchor stopped matching. Under the previous two
+remedies that would have been silent and I would have carried a stale claim
+into a third PR.
+
+✅ **The gate was NOT re-run, and here is the argument, with a control.** The
+executable text is unchanged: stripping comments and blank lines from the
+anchored revision and from HEAD gives **1267 identical lines**. The same
+comparison against a commit that DID change behaviour differs, so it can
+discriminate. Reproduce it with:
+
+```
+strip(){ sed 's/[[:space:]]*#.*$//' | grep -vE '^[[:space:]]*$'; }
+git show 85b75857:install/setup.sh | strip > /tmp/a
+strip < install/setup.sh > /tmp/b
+diff /tmp/a /tmp/b        # empty => the gate evidence still describes this behaviour
+```
+
+⚠️ **This argument is only valid while the delta stays comment-only. Any change
+to executable text means the gate must be re-run, not re-argued.**
+
 ```
 327 passed, 1 failed
 
