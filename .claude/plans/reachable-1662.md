@@ -104,8 +104,25 @@ attempts               1
 ```
 
 **If that command does not print `tested-source-sha256`, the gate did not run
-against the file you are holding, and the exec-identical argument below is what
-closes the gap.** That is the property the previous two remedies lacked.
+against the file you are holding.** That is the property the previous two
+remedies lacked.
+
+🛑 **THE ARGUMENT THAT USED TO CLOSE THAT GAP IS GONE, BECAUSE IT EXPIRED AND
+NOTHING ANNOUNCED IT.** It said the executable text was unchanged since the
+anchored run, so no re-run was needed. Nine commits later that was false: 1268
+executable lines became 1290, differing in 42 lines across five hunks, all of
+them the substance of iterations 16 to 21. The document's own rule three
+sections down says a change to executable text means the gate is re-run rather
+than re-argued, and the document was breaking it.
+
+⭐ **An argument has an expiry and does not announce it, which is worse than a
+stale FIELD.** A stale sha fails a comparison somebody runs. A stale argument
+just sits there reading as reasoning. Caught by an independent reviewer at
+iteration 22, not by me, and it is the fourth instance of a staleness shape this
+document already catalogues three times.
+
+✅ **Replaced by actually running the gate. See "The install gate, run for
+real" below.**
 
 🛑 **A THIRD STALENESS, AND IT WAS IN THE FIX FOR THE FIRST TWO.** This table
 used to carry a second row naming the CURRENT HEAD sha. That row goes stale on
@@ -119,16 +136,6 @@ updated by hand every time anything changes will go stale, and an anchor that
 fails on itself teaches readers to ignore anchors. What is kept is the half
 that discriminates: the sha the gate ran against, plus a reproducible
 comparison anyone can run against any future HEAD.
-
-✅ **The gate was NOT re-run, and here is the argument, with a control.** The
-executable text is unchanged: stripping comments and blank lines from the
-anchored revision and from HEAD gives **1268 identical lines**, re-measured. The same
-comparison against a commit that DID change behaviour differs, so it can
-discriminate. Reproduce it with:
-
-```
-git diff ac69295d HEAD -- install/setup.sh    # read it: comments only?
-```
 
 🛑 **AND AN EARLIER VERSION NAMED THE WRONG BASE, WHICH IS WORSE THAN A LOSSY
 FILTER BECAUSE IT ARGUED AGAINST ITSELF.** It said `85b75857`, which PREDATES
@@ -642,3 +649,79 @@ The residual is narrower than it first reads: these are served from one origin
 with one type configuration, so a config-level mis-map would redden the gated
 artifact too. The uncovered shape is a per-object regression on the tmux tarball
 or the unversioned name.
+
+## The install gate, run for real
+
+`yarn test:install` is the only gate that drives `reachable()` end to end, and it
+had not run since iteration 15. It has now, against HEAD.
+
+```
+my branch   install/setup.sh 78f4f18e   327 PASS, 1 FAIL, exit 1
+```
+
+The single failure is `wouldping/needs-you.jsonl` appearing in the installed
+tree when the arm expects nothing added.
+
+**It is pre-existing on main and this branch does not cause it.** I had asserted
+that earlier from the failure being invariant across runs, and recorded at the
+time that no control on main had been run. Here it is.
+
+**The first control attempt was a non-result and I nearly counted it as one.** A
+fresh `origin/main` worktree exits 1 with **0 PASS and 0 FAIL**, because `dist/`
+is unbuilt there and the suite SKIPs. A suite that never ran is not a clean
+control; it just has the same exit code as one.
+
+**The control that works isolates a single variable:** main's `install/setup.sh`
+placed in my worktree, so the same `dist/`, same fixtures, same everything, and
+only the predicate differs.
+
+```
+main's setup.sh  db404c43  + my dist/   327 PASS, 1 FAIL, exit 1, SAME arm
+my setup.sh      78f4f18e  + my dist/   327 PASS, 1 FAIL, exit 1, SAME arm
+restored afterwards, sha re-verified 78f4f18e, git status clean
+```
+
+⚠️ **This is live for other people right now, not just for this branch.**
+`tools/release.sh` runs the install gate at step 4b, so any cut in progress will
+hit the same arm. Passed to Splinter and to Angel with the exact fingerprint, so
+a cut that dies there is matched in seconds rather than debugged for an hour
+against a failure that was already on main.
+
+## Iteration 22
+
+**The gate had not run since iteration 15 and my document argued it did not need
+to.** Covered above under "The install gate, run for real". The argument was
+stale, the gate now has, and the one failure is proven pre-existing on main by a
+single-variable control.
+
+**The status-2 sentence was true for two causes and I had let it name two.** A
+403 from a private or geo-blocked bucket, and a typo'd `KOSMOS_RELEASE_BASE`,
+both reach status 2, and "wait a few minutes" fixes neither. The copy now offers
+three causes and a recovery that is honest for all of them: try again shortly,
+and if it persists check the address.
+
+**Rewording it immediately voided one of my own controls, which is the hazard
+Splinter had broadcast an hour earlier.** The arm matched the phrase "still
+publishing" and the new copy says "may still BE publishing". It went red, which
+is the arm working, but the lesson is that it was keyed on WORDING rather than
+meaning. Re-keyed to single stable tokens, and a third token pins the new cause.
+
+**A missing `file://` path told the user to check their internet connection
+about a file on their own disk.** `KOSMOS_RELEASE_BASE` accepts `file://` and
+the install gate drives the whole release path over it. curl 37 is
+FILE_COULDNT_READ_FILE: the filesystem answered and the address is wrong, which
+is exactly what status 2 says. Mapped, pinned with an arm, and verified by
+removing the rule and watching it redden.
+
+### Method note worth keeping
+
+A grep told me one `doesNotMatch` was vacuous. **Perturbation said otherwise:**
+removing the `${TARGET_VERSION:-$$}` fallback reddens that arm, so it guards a
+real future regression. Splinter had just corrected the fleet on exactly this,
+after a colleague's grep false-alarmed on strings built at runtime: a grep finds
+candidates, perturbation decides.
+
+⚠️ And my own verification grep read **0** while the perturbation had plainly
+applied. `grep` on this box is ugrep in BRE mode, where the literal pattern
+returned 0 and `-F` returned 1, against a control of 1. Had I trusted it I would
+have concluded the perturbation never ran and drawn the opposite conclusion.

@@ -327,6 +327,19 @@ test('#1662: an answer seen by HEAD survives a range GET that never completes', 
     + 'the network sentence about a reachable server.');
 });
 
+test('#1662: a missing file:// path is status 2, not a network failure', async () => {
+  /* KOSMOS_RELEASE_BASE accepts file://, and the install gate drives the whole
+     release path over it. A missing local tarball used to return 1, so the
+     installer told someone to check their internet connection about a file on
+     their own disk. curl 37 is FILE_COULDNT_READ_FILE: the filesystem answered
+     and the address is wrong, which is what status 2 now says. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1662-st2-'));
+  try {
+    assert.equal(await reachableStatus(`file://${path.join(dir, 'absent.tar.gz')}`), '2',
+      'a missing local file must not be reported as a connection failure');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('#1662: the REAL reachable() returns 1 when nothing answered at all', async () => {
   /* Port 1 on loopback: nothing listens, so the request never completes and
      there is no http_code to read. This is the arm that keeps the 4xx rule
@@ -612,8 +625,18 @@ test('#1662: a CONNECTION failure and a SERVED-ERROR failure get different sente
        portal case: it GUARANTEED the only correct sentence for those users
        could never appear. An assertion can pin a defect in place, and this one
        did. */
-    assert.match(servedError, /still publishing/,
+    /* ⚠️ Keyed on single stable tokens, not phrases. An earlier version matched
+       "still publishing" and went red the moment the copy became "may still BE
+       publishing": the control was pinned to wording rather than to meaning,
+       which is the shape that silently voids a control when someone rewords in
+       a rebase. It caught a real reword here, so it worked, but the next reword
+       should not need an assertion edit to stay honest. */
+    assert.match(servedError, /publishing/,
       `guard ${i}: must offer the release-still-publishing cause. Got: ${servedError}`);
+    assert.match(servedError, /address/,
+      `guard ${i}: must offer the wrong-address cause. A 403 from a private or geo-blocked `
+      + `bucket, and a typo'd KOSMOS_RELEASE_BASE, both reach status 2 and waiting fixes `
+      + `neither. Got: ${servedError}`);
     assert.match(servedError, /intercepting/,
       `guard ${i}: must ALSO offer the intercepting-network cause. A portal is indistinguishable `
       + `from a half-published CDN here, so naming one cause tells the other half of users `

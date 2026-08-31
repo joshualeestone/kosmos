@@ -631,7 +631,7 @@ reachable() {
   _r_code=${_r_out%% *}; _r_ct=${_r_out#* }
   case "$_r_code" in ''|*[!0-9]*) _r_code=0 ;; esac
   case "$_r_out" in *' '*) ;; *) _r_ct='' ;; esac
-  if [ "$_r_rc" = 0 ] || [ "$_r_code" -ge 400 ]; then _r_answered=1; fi
+  if [ "$_r_rc" = 0 ] || [ "$_r_code" -ge 400 ] || [ "$_r_rc" = 37 ]; then _r_answered=1; fi
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   # 📌 This arm also runs when HEAD SUCCEEDED with a textual type, where the
   # pre-#1662 code reached it only after a HEAD failure. Kept because refusing
@@ -695,7 +695,7 @@ reachable() {
   _r_code=${_r_out%% *}; _r_ct=${_r_out#* }
   case "$_r_code" in ''|*[!0-9]*) _r_code=0 ;; esac
   case "$_r_out" in *' '*) ;; *) _r_ct='' ;; esac
-  if [ "$_r_rc" = 0 ] || [ "$_r_code" -ge 400 ]; then _r_answered=1; fi
+  if [ "$_r_rc" = 0 ] || [ "$_r_code" -ge 400 ] || [ "$_r_rc" = 37 ]; then _r_answered=1; fi
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   # 🛑 TWO DIFFERENT FAILURES, TWO DIFFERENT STATUSES, because they need
   # different sentences. rc 0 here means the origin ANSWERED and served
@@ -782,7 +782,7 @@ fetch_tmux() {
       if [ "$_r_why" = 2 ]; then
         # NOT "could not reach": the server answered. Saying both contradicts itself.
         info "the download at $url is not usable"
-        info "The server answered but did not send an installable file. Either the release is still publishing, or something on your network is intercepting the request. Wait a few minutes and paste the install line again."
+        info "The server answered but did not send an installable file. The release may still be publishing, something on your network may be intercepting the request, or the address it is downloading from may be wrong. Try again in a few minutes; if it keeps happening, check the address."
       else
         info "could not reach the download at $url"
         info "Check your internet connection and paste the install line again; it is safe to re-run."
@@ -861,7 +861,7 @@ install_kosmos() {
       if [ "$_r_why" = 2 ]; then
         # NOT "could not reach": the server answered. Saying both contradicts itself.
         info "the download at $url is not usable"
-        info "The server answered but did not send an installable file. Either the release is still publishing, or something on your network is intercepting the request. Wait a few minutes and paste the install line again."
+        info "The server answered but did not send an installable file. The release may still be publishing, something on your network may be intercepting the request, or the address it is downloading from may be wrong. Try again in a few minutes; if it keeps happening, check the address."
       else
         info "could not reach the download at $url"
         info "Check your internet connection and paste the install line again; it is safe to re-run."
