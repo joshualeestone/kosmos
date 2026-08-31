@@ -15,10 +15,14 @@ GATE="$REPO/tools/browser-checks.sh"
 # four cases would spuriously fail. Ignore the cut-guard here -- we drive a fake
 # runtime and never launch a browser, so there is nothing to contend with.
 export KOSMOS_HARNESS_IGNORE_CUT=1
-# Read the pin IDENTICALLY to browser-checks.sh (`\([^"]*\)`), so a pre-release
-# pin (e.g. 1.63.0-alpha) is captured whole and the matching-version control
-# below cannot spuriously read as drift.
-PIN="$(sed -n 's/^PW_VERSION="\([^"]*\)".*/\1/p' "$REPO/tools/provision-pw.sh" | head -1)"
+# Read the pin from committed HEAD, mirroring how the gate reads it: on a branch
+# the gate freezes to HEAD (browser-checks.sh #758) BEFORE reading
+# tools/provision-pw.sh, so it compares against the COMMITTED pin. Reading the
+# working tree here would diverge during a pin bump (provision-pw.sh edited but
+# not yet committed) and spuriously fail case 2's control on a correct build.
+# Same sed as browser-checks.sh (`\([^"]*\)`) so a pre-release pin (e.g.
+# 1.63.0-alpha) is captured whole.
+PIN="$(git -C "$REPO" show HEAD:tools/provision-pw.sh 2>/dev/null | sed -n 's/^PW_VERSION="\([^"]*\)".*/\1/p' | head -1)"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 pass() { printf 'ok   %s\n' "$*"; }
 [ -n "$PIN" ] || fail "could not read the PW_VERSION pin"
@@ -33,12 +37,20 @@ fake_pw() { # <version> -> prints a node_modules dir whose playwright is that ve
 # real browser) so the exit is non-zero, but the version-assert prints FIRST.
 run_gate() { KOSMOS_PW_NODE_PATH="$1" bash "$GATE" 2>&1 || true; }
 
-# 1. DRIFT: a version different from the pin must WARN loudly (and name both).
+# 1. DRIFT (non-strict): a version different from the pin must WARN loudly (and
+#    name both) AND NOT BLOCK. Warn-by-default is the whole design, so it is not
+#    enough to see the DRIFT line: assert the gate CONTINUED past the version
+#    block into the launch phase ("engines the checks ask for:", the first line
+#    after the version block) and did NOT print the STRICT refusal. Without
+#    these two, a regression that made non-strict drift `exit 2` would still
+#    pass -- the DRIFT line prints either way, and `|| true` swallows the exit.
 D="$(fake_pw "1.63.0-not-the-pin")"
 out="$(run_gate "$D")"
 printf '%s' "$out" | grep -q 'version DRIFT' || { printf '%s\n' "$out" | head; fail "a drifted runtime did NOT warn"; }
 printf '%s' "$out" | grep -qF "$PIN" || fail "the DRIFT warning does not name the pin ($PIN)"
-pass "a drifted Playwright warns loudly and names the pin"
+printf '%s' "$out" | grep -q 'engines the checks ask for' || { printf '%s\n' "$out" | head -20; fail "non-strict drift BLOCKED before the launch phase (warn-by-default is broken)"; }
+printf '%s' "$out" | grep -q 'refusing to run the page gate' && { printf '%s\n' "$out" | head -20; fail "non-strict drift printed the STRICT refusal (must only fire under KOSMOS_PW_STRICT_VERSION=1)"; }
+pass "a drifted Playwright warns loudly, names the pin, and does NOT block (warn-by-default continues to the launch phase)"
 
 # 2. CONTROL: the SAME setup on the MATCHING version must NOT warn -- proving the
 #    warning above means drift, not just 'the check ran'.
@@ -66,5 +78,14 @@ rc=0; KOSMOS_PW_STRICT_VERSION=1 KOSMOS_PW_NODE_PATH="$N" bash "$GATE" >"$TMP/ou
 grep -q 'cannot verify the pin' "$TMP/out" || { cat "$TMP/out"; fail "STRICT with an unreadable version did NOT refuse (fail-open under a fail-closed flag)"; }
 [ "$rc" -eq 2 ] || fail "STRICT unreadable-version exited $rc, expected 2"
 pass "KOSMOS_PW_STRICT_VERSION=1 hard-stops when the version cannot be verified (exit 2)"
+
+# 5. WIRING: the release cut (tools/release.sh) must invoke the gate with STRICT
+#    ENABLED. The default is warn-only, so without this line the enforcement
+#    arms above (cases 3 and 4) are dead code in the pipeline: a drifted runtime
+#    would merely print one line in a 25-minute cut log and the release would
+#    ship. Guard against a refactor silently dropping the flag.
+grep -Eq 'KOSMOS_PW_STRICT_VERSION=1[[:space:]]+bash[[:space:]]+tools/browser-checks\.sh' "$REPO/tools/release.sh" \
+  || fail "tools/release.sh does not invoke the page gate with KOSMOS_PW_STRICT_VERSION=1 (#1708 enforcement is dead in the cut)"
+pass "the release cut invokes the page gate with the version pin ENFORCED (STRICT)"
 
 printf '\nall pass\n'

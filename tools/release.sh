@@ -408,7 +408,15 @@ step "== 3b. the page layer, headless (#39) =="
 # unchecked page.
 _page_log="$(mktemp)"
 _page_exit=0
-( cd "$REPO" && bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+# ENFORCE the Playwright version pin in the cut (#1708): the gate WARNS by
+# default (a developer running it by hand should not be hard-blocked over
+# drift), but a RELEASE must not ship a page-gate result rendered by a runtime
+# that has drifted off tools/provision-pw.sh's pin. A drifted build changes what
+# the checks see, so a green from it is a lie. KOSMOS_PW_STRICT_VERSION=1 turns
+# drift -- and an unverifiable version, which is not verified-pinned -- into a
+# hard stop: the gate exits 2 and the red-gate check below fails the cut.
+# Recover by re-provisioning: bash tools/provision-pw.sh.
+( cd "$REPO" && KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
 grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|retried:|all page' "$_page_log" || true
 if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page gate COULD NOT RUN (exit $_page_exit: bash, node or a program it needs is missing or not executable); this is not a red check. Full output: $_page_log"; exit 1; fi
 [ "$_page_exit" -eq 0 ] || { echo "the page checks are red (exit $_page_exit); full output: $_page_log"; exit 1; }
