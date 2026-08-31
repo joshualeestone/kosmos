@@ -196,17 +196,9 @@ function isRunnable(p) {
     // launch for us. accessSync asks the only question that matters -- can
     // THIS process run it.
     //
-    // 📌 A CENSUS OF ANOTHER FILE'S CALL SITES USED TO LIVE HERE ("connect.js
-    // asks zero times directly now"). True when written and checked by nothing,
-    // in a branch whose own plan documents comment staleness as its recurring
-    // defect. The sweep in engine.runnable-not-directory.test.js is what actually
-    // holds that count, and its failure message is where it belongs.
-    //
-    // ⚠️ CORRECTED: an earlier version of this sentence said "three times over
-    // there", counting the post-install gate. That gate already used
-    // resolveBin().present and never asked this question, which this branch's
-    // own plan measured and recorded. I rewrote this comment to fix one stale
-    // claim and introduced a second in the same edit.
+    // 📌 The count of who calls this is held by the sweep in
+    // engine.runnable-not-directory.test.js, not by a census in this comment.
+    // Two earlier drafts of that census were stale; both are in the plan.
     fs.accessSync(p, fs.constants.X_OK);
     return true;
   } catch { return false; }
