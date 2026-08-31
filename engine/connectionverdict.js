@@ -303,9 +303,15 @@ function serviceView(doors, allowed) {
 /* The phases that describe a sign-in that STOPPED. Derived rather than
    hand-listed: anything in the enum that is neither in flight nor one of the two
    resting states is a stopped one, so a new terminal phase upstream is covered
-   here without an edit. `PHASES` already includes this module's own `unknown`,
-   which is why it is excluded too. */
-const TERMINAL_PHASES = PHASES.filter((p) => !BUSY_PHASES.includes(p) && !['idle', 'connected', 'unknown'].includes(p));
+   here without an edit.
+   ⚠️ `PHASES` IS EXACTLY `connect.PHASE` AND DOES NOT CONTAIN `unknown`. An
+   earlier version of this comment claimed it did, and excluded `'unknown'` below
+   on that basis: a no-op that read as load-bearing. `unknown` is this module's
+   own word, produced by signinView when the phase is unrecognised, so it can
+   never appear in the enum being filtered here. Measured: PHASES.includes(
+   'unknown') === false, which is also why the leak test has to add the literal
+   alongside `...verdict.PHASES` in its allowlist. */
+const TERMINAL_PHASES = PHASES.filter((p) => !BUSY_PHASES.includes(p) && !['idle', 'connected'].includes(p));
 
 function signinView(st, anyConnected) {
   const raw = st && typeof st.phase === 'string' ? st.phase : null;
@@ -332,7 +338,17 @@ function forAgent(raw) {
     providers,
     /* The providers are built first ON PURPOSE: whether anything is connected is
        an input to how a stale sign-in record is read. See signinView. */
-    signin: signinView(src.connect, providers.some((p) => p.signedIn === subscription.STATE.CONNECTED)),
+    /* 🛑 THE ANTHROPIC ROW SPECIFICALLY, NEVER `.some(...)`. The sign-in flow is
+       CLAUDE ONLY (see signinView's header): `connect.state()` never describes a
+       pasted OpenAI key. Asking "is ANYTHING connected?" means a machine with GPT
+       connected and Claude genuinely stuck RIGHT NOW has its true `stuck` rewritten
+       to `unknown` before any consumer can see it.
+       ⚠️ install/kosmos ALREADY FIXED EXACTLY THIS at its own layer, in those words.
+       An earlier version of this line used `.some(...)` and reintroduced it HERE,
+       where the CLI's correctly-scoped check cannot recover it: the server rewrites
+       the phase first, so the renderer never sees the truth to protect. Moving a
+       rule inward is only safe if its SCOPE moves with it. */
+    signin: signinView(src.connect, byProvider('anthropic').some((a) => a && a.connection && a.connection.state === subscription.STATE.CONNECTED)),
     services: serviceView(src.doors, src.doorNames),
   };
 }

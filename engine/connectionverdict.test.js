@@ -436,4 +436,20 @@ test('a stale terminal sign-in beside a live connection reads as unknown, not st
   assert.equal(live.signin.phase, 'signin-awaiting-code',
     'a sign-in happening RIGHT NOW was suppressed because something else was connected');
   assert.equal(live.signin.busy, true, 'the live phase lost its busy flag');
+
+  /* 🛑 THE ARM THAT WAS MISSING, AND ITS ABSENCE HID A REAL REGRESSION.
+     The sign-in flow is CLAUDE ONLY. An earlier version of the suppression asked
+     "is ANY provider connected?", so a machine with GPT connected and Claude
+     genuinely stuck RIGHT NOW had its true `stuck` rewritten to `unknown`. Every
+     control in this test varied the PHASE and none varied the PROVIDER, so the
+     whole set was aimed at the wrong axis and passed throughout.
+     ⚠️ install/kosmos had already fixed this at its own layer. Moving the rule
+     inward without moving its SCOPE reintroduced it somewhere the CLI could no
+     longer defend against, because the server rewrites the phase first. */
+  const gptOnly = verdict.forAgent({
+    accounts: [{ provider: 'openai', connection: { state: subscription.STATE.CONNECTED, because: 'fine' } }],
+    connect: { phase: 'stuck' },
+  });
+  assert.equal(gptOnly.signin.phase, 'stuck',
+    'a GPT connection suppressed a CLAUDE sign-in that is genuinely stuck: the sign-in flow is Claude only, so only a Claude connection can make its record stale');
 });

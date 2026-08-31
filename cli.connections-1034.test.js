@@ -764,3 +764,59 @@ test('every connect.PHASE is accounted for by the CLI, so a new phase cannot pri
   assert.ok(stopped.includes('stuck') && stopped.includes('interrupted'),
     'the STOPPED extraction did not find the two phases known to be there, so it is not reading the map');
 });
+
+test('"connections" refuses arguments instead of paying for a sweep to ignore them', async () => {
+  /**
+   * The verb takes no options, and answering as though it did is expensive: the
+   * sweep behind it is a subprocess per Claude account plus an authenticated
+   * request per OpenAI account. `kosmos connections --help` used to pay all of
+   * that and then print the report anyway.
+   */
+  const r = await new Promise((resolve) => {
+    execFile('bash', [CLI, 'connections', '--help'],
+      { env: { ...process.env, KOSMOS_PORT: '1', KOSMOS_HOME: FAKE_HOME } },
+      (err, stdout, stderr) => resolve({ code: err ? err.code : 0, out: String(stdout) + String(stderr) }));
+  });
+  assert.equal(r.code, 2, `expected exit 2 for an unexpected argument, got ${r.code}`);
+  assert.match(r.out, /takes no options/, 'the refusal did not say why');
+  assert.doesNotMatch(r.out, /is connected on this computer|sign-in/,
+    'it printed the report anyway, which means it paid for the sweep before refusing');
+});
+
+test('every spelling of zero is refused by the connection deadline guard', () => {
+  /**
+   * 🛑 THE HOLE THIS CLOSES WAS IN A GUARD WHOSE OWN COMMENT SAID IT WAS CLOSED.
+   * `KOSMOS_CONN_TIMEOUT` is read from the ambient environment in production, and
+   * `curl -m 0` means NO TIMEOUT AT ALL. An earlier guard refused the literal "0"
+   * and anything containing a non-digit; `00` is digits-only and is not
+   * string-equal to "0", so it passed straight through and removed the 40s
+   * ceiling, making the rc-28 "took longer than we waited" sentence unreachable.
+   * The CLI would hang instead of saying so.
+   *
+   * ⭐ THE GUARD IS EXTRACTED FROM THE SHIPPED FILE AND RUN, NOT REIMPLEMENTED
+   * HERE. A test that spelled the case-block out again would be a copy of the
+   * thing it verifies and could not fail when the real one drifted.
+   */
+  const src = fs.readFileSync(CLI, 'utf8');
+  const m = src.match(/local deadline=40\n([\s\S]*?\n  esac)/);
+  assert.ok(m, 'could not find the deadline guard in install/kosmos: it moved or was reshaped, and this test just went blind');
+  const guard = 'deadline=40\n' + m[1].replace(/^\s*#.*$/gm, '');
+  assert.match(guard, /10#/, 'the extracted guard does not compare numerically, so a leading-zero spelling can still disable the ceiling');
+
+  const run = (value) => {
+    const script = `${value === null ? '' : `KOSMOS_CONN_TIMEOUT=${JSON.stringify(value)}\n`}${guard}\necho "$deadline"`;
+    return require('node:child_process').execFileSync('bash', ['-c', script], { encoding: 'utf8' }).trim();
+  };
+
+  for (const zero of ['0', '00', '000', '0000']) {
+    assert.equal(run(zero), '40',
+      `KOSMOS_CONN_TIMEOUT=${zero} disabled the 40s ceiling: curl reads it as "no timeout" and the CLI hangs instead of reporting a timeout`);
+  }
+  for (const junk of ['', 'abc', '4x', '-1']) {
+    assert.equal(run(junk), '40', `a non-numeric value ${JSON.stringify(junk)} was accepted as a deadline`);
+  }
+  /* CONTROL: a real value must still get through, or the guard is just a
+     constant and the test above passes for the wrong reason. */
+  assert.equal(run('7'), '7', 'a valid deadline was rejected, so the guard refuses everything and proves nothing');
+  assert.equal(run(null), '40', 'an unset variable did not fall back to the ceiling');
+});

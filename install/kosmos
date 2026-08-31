@@ -746,11 +746,17 @@ cmd_connections() {
   # sentence below unreachable: the CLI would hang instead of saying so. A test
   # seam that can disable a production guard is not a seam, it is a hole.
   local deadline=40
+  # 🛑 COMPARED NUMERICALLY, NOT AS A STRING. An earlier version refused the
+  # literal "0" and any value containing a non-digit, and its comment claimed the
+  # hole was closed. It was not: "00" and "000" are digits-only and are not
+  # string-equal to "0", so they reached `curl -m 00`, which means NO TIMEOUT.
+  # Measured against a never-answering server: `-m 2` returns rc=28 in ~2s,
+  # `-m 00` was still running after 6. `10#` forces base 10 so a leading zero is
+  # not read as octal.
   case "${KOSMOS_CONN_TIMEOUT:-}" in
     "") : ;;
     *[!0-9]*) : ;;          # not digits-only: ignore it, keep the ceiling
-    0) : ;;                 # 0 means "no timeout" to curl: refuse it
-    *) deadline="$KOSMOS_CONN_TIMEOUT" ;;
+    *) [ "$((10#$KOSMOS_CONN_TIMEOUT))" -gt 0 ] && deadline="$KOSMOS_CONN_TIMEOUT" ;;
   esac
   # `-s` alone, not `-sS`: the comment above says stderr is discarded on purpose,
   # and `-S` exists solely to print errors there. Keeping both states an intent
