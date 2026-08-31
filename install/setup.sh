@@ -613,13 +613,26 @@ reachable() {
   # a Range-ignoring origin AND a slow link together. It is untested here: a
   # faithful test would have to burn the full 15s timeout, which buys one
   # narrow arm at the price of a slow and timing-dependent suite.
-  # --max-filesize bounds the residual named above rather than only describing
-  # it: an origin that ignores Range answers with the WHOLE body, and without a
-  # cap this probe would stream a 48MB tarball into /dev/null until -m 15
-  # expired. The range request asks for ONE byte, so 1MB is enormous headroom
-  # for any honest answer, and an origin that ignores Range now fails fast
-  # instead of burning the timeout. Same verdict, seconds instead of fifteen.
+  # --max-filesize bounds the residual named above: an origin that ignores
+  # Range answers with the WHOLE body, and without a cap this probe would
+  # stream a 48MB tarball into /dev/null until -m 15 expired.
+  #
+  # 🛑 AND EXIT 63 MUST BE TREATED AS A SUCCESSFUL FETCH, WHICH THE FIRST
+  # VERSION OF THIS GOT WRONG AND IT WAS A REGRESSION. curl exits 63 when the
+  # cap is hit, `_reachable_is_download` saw non-zero, and a GENUINE download
+  # from a HEAD-refusing Range-ignoring origin was refused with "could not
+  # reach the download". Measured against exactly that shape serving a real
+  # 5MB body: capped NO, uncapped YES. That is the false-NO direction this
+  # predicate's whole design says is the worst outcome.
+  #
+  # ⭐ A body that EXCEEDS the cap is affirmatively NOT a small error page, so
+  # 63 is evidence FOR a download rather than against one. curl still reports
+  # the content-type on 63 (measured, for both `application/gzip` and
+  # `text/html`), so mapping it to 0 hands the decision to the type rule rather
+  # than short-circuiting it: a 5MB gzip is accepted, a 5MB HTML page is still
+  # refused.
   _r_ct=$(curl -fsL -r 0-0 -m 15 --max-filesize 1048576 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
+  [ "$_r_rc" = 63 ] && _r_rc=0
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   return 1
 }

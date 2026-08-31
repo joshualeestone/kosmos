@@ -38,6 +38,7 @@ const SRC = fs.readFileSync(SETUP, 'utf8');
 const BLOCK_RE = /_reachable_is_download\(\)\s*\{[\s\S]*?\n\}\n(?:[ \t]*#[^\n]*\n|[ \t]*\n)*reachable\(\)\s*\{[\s\S]*?\n\}\n/;
 const FN = SRC.match(BLOCK_RE);
 
+const BIGBODY = require('node:crypto').randomBytes(2 * 1024 * 1024);
 const GZ = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 const ERR = Buffer.from('<!doctype html><html><body>Not here</body></html>');
 
@@ -60,6 +61,18 @@ test.before(async () => {
                         file claimed to test it and did not: the path fell to
                         the default branch and was served as 404, making the
                         arm a duplicate of the cannot-exist case. */
+    /* >1MB, incompressible, so it genuinely exceeds --max-filesize. A first
+       attempt used gzip of repeated bytes, which compressed to 5KB and sailed
+       under the cap: the fixture measured nothing. */
+    const bigGzip = u.pathname === '/bigrange.tar.gz';
+    const bigHtml = u.pathname === '/bightml.tar.gz';
+    if (bigGzip || bigHtml) {
+      if (req.method === 'HEAD') { res.writeHead(405, { 'content-length': '0' }); return res.end(); }
+      // NOTE: Range deliberately IGNORED, which is the shape under test.
+      const type = bigGzip ? 'application/gzip' : 'text/html; charset=utf-8';
+      res.writeHead(200, { 'content-type': type, 'content-length': String(BIGBODY.length) });
+      return res.end(BIGBODY);
+    }
     const isReal = u.pathname === '/real.tar.gz' || u.pathname === '/head405.tar.gz';
     const refusesHead = u.pathname === '/head405.tar.gz';
     const html200 = u.pathname === '/html200';
@@ -382,4 +395,28 @@ test('#1662: EVERY guard falls through on a YES, so none is a wall', async () =>
   assert.doesNotMatch(out, /could not reach/,
     `guard ${i} printed a failure sentence on a download that was reachable`);
   }
+});
+
+test('#1662: --max-filesize must not refuse a REAL download from a Range-ignoring origin', async () => {
+  /* 🛑 THIS ARM EXISTS BECAUSE I SHIPPED THE REGRESSION IT CATCHES. The cap
+     was added to bound a residual, and curl exits 63 when it trips. The first
+     version let that non-zero reach the predicate, so a genuine download from
+     an origin that refuses HEAD and ignores Range was REFUSED with "could not
+     reach the download" - the false-NO direction this design calls the worst
+     outcome. Measured then: capped NO, uncapped YES.
+     A body that EXCEEDS the cap is affirmatively not a small error page, so 63
+     is evidence FOR a download. */
+  assert.equal(await reachable(`${base}/bigrange.tar.gz`), 'YES',
+    'a genuine multi-megabyte download from a HEAD-refusing, Range-ignoring origin was refused: '
+    + 'curl exit 63 (max-filesize) is being read as a failure instead of as proof of a large body');
+});
+
+test('#1662: but a LARGE textual body is still refused, so 63 is not a blanket yes', async () => {
+  /* The pair to the arm above. Mapping 63 to success must hand the decision to
+     the TYPE rule, not short-circuit it: curl still reports the content-type on
+     63 (measured for both gzip and html). If this ever goes green-for-NO the
+     cap has become an unconditional accept. */
+  assert.equal(await reachable(`${base}/bightml.tar.gz`), 'NO',
+    'a 2MB HTML page was accepted as a download: exit 63 is being treated as an unconditional '
+    + 'yes rather than as a successful fetch whose type still has to pass');
 });
