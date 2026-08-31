@@ -3,7 +3,7 @@ pre_challenge: true
 method: pre-challenge
 explicit_override: true
 branch: verdicts-1684
-diff_hash: beb01515560dffa15007a1c1e5f2d4fcc311da2b78d1b5f875425db113f60b24
+diff_hash: 79fce0aafa11644d46ce9380ddb8c273d1978c5aefbb8e2e762da6523662a5eb
 timestamp: 2026-08-31T18:52:00Z
 iterations: 1
 converged: true
@@ -38,3 +38,7 @@ Single-pass self review with two-direction perturbation. I set `explicit_overrid
 ### Final Ledger
 
 Suite: exit code 0, 3262 pass, 0 fail, 0 shell failures. Read from the EXIT CODE, not the tally.
+
+[STRENGTH, ADDED 14:05] **The gate computes its diff hash against BARE `main`, which is the stale-main defect I reported this afternoon, sitting inside the gate itself.** `pre-challenge-gate.sh:382` diffs `${default_branch}...HEAD`, and here that resolved to a local `main` one commit behind `origin/main`, so the gate's own hash covered another author's merged files. I fixed the CAUSE rather than encoding the stale value: fast-forwarded the shared checkout (clean, on main, ancestor-checked, reversible) so both bases now agree at `79fce0aa`. On `claude-setup`, whose local main is 1917 commits behind, the same formula would hash 825 files of somebody else's history.
+
+[NIT, ADDED 14:05] The plan file is INSIDE the hash: the gate excludes only `-pre-challenge.md`. So the proof must be hashed after the plan is committed, not before.
