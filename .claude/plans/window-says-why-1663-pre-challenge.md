@@ -3,7 +3,7 @@ pre_challenge: true
 method: pre-challenge
 explicit_override: true
 branch: window-says-why-1663
-diff_hash: 2ceea0e1104d03ee9cfe393cc2b0ca1e46a3d0abb6cb5ad01f77da749467806e
+diff_hash: 0b24b4d8d63c5a5577f2e28faec3c4d510e574889f52077f80c9def70e68b40a
 timestamp: 2026-08-31T16:21:00Z
 iterations: 1
 converged: true
@@ -28,6 +28,8 @@ Single-pass self review with two-direction perturbation. I set `explicit_overrid
 [NIT] "Where to look" deliberately promises nothing about what the tab shows, because a genuinely sessionless agent renders "We could not read its window just now". Naming the content would over-promise.
 
 [CONVENTION] No em dashes on any added line, checked before writing.
+
+[STRENGTH, ADDED 13:33] **I fixed the instance and left its own rationale stale, then caught it from somebody else's lesson.** The #671 comment directly above the changed clause justified the OLD text ("this computer holds no reason, and saying THAT is still more than a full stop"). A reader would have found the comment and the code disagreeing. Corrected in place, with #671's surviving intent restated and only its unknowability claim removed. **Prompted by Pete's kosmos#1680 note: fix the instance, leave the copies. Mine was one line away, not twelve.**
 
 ### Final Ledger
 
