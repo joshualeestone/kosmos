@@ -73,6 +73,35 @@ change than shipped:
   which is false on a single-account machine. The reason is now unconditional,
   because the refusal is.
 
+## 🔴 A DIVERGENCE THAT MERGES CLEAN, AND IT MUST BE PORTED BEFORE THIS LANDS
+
+**This route's enumeration is a VERBATIM COPY of the OpenAI one, and kosmos#1693
+fixes the original.** Measured: the two enumeration bodies are line-for-line
+identical on this branch, the routes are 114 lines apart in `server.js`, and
+#1693 ("account removal: count stopped agents, not only running ones") touches
+that file.
+
+⇒ **After #1693 lands, OpenAI counts stopped agents and Claude does not. Nothing
+conflicts, nothing goes red**, and the two buttons on one screen behave
+differently again, which is the divergence this card exists to close.
+
+🛑 **AND THE FIX LANDS WHERE IT MATTERS LESS.** A stopped OpenAI agent loses its
+key, which presents as a sign-in problem. A stopped Claude agent comes back
+signed out AND with a blank transcript tree, because Claude transcripts live
+under the config directory. That asymmetry is the whole argument of #1689.
+
+✅ **DECISION: #1693 lands first, then this branch rebases and adopts its
+enumeration.** Not copying an unmerged PR's approach, because if it changes in
+review this ships a third variant of one function.
+
+⚠️ **DO NOT LAND THIS BRANCH WITHOUT CHECKING.** One command:
+`git show origin/main:server.js | sed -n '/accounts\/openai. && req.method === .DELETE/,/^  }/p' | grep -c 'disabledJobs\|known('`
+Non-zero means #1693 has landed and this port is owed.
+
+📌 The footprint exercise found the FILE. Only reading the code found the
+DIVERGENCE. A file-overlap map cannot see same-file, different-line, opposite-
+behaviour collisions.
+
 ## Verification
 
 - 18 tests: 8 on the engine function, 10 on the route.
@@ -132,6 +161,49 @@ the native attribute, so the arm asserting it went red; and the node floor
 discriminating and did not catch the first. **One markup change, two guards
 quietly retired, in opposite directions.** Both are re-anchored on the exact
 spelling and perturbation-checked in both directions.
+
+## The browser gate: RUN, and the gap is closed
+
+🛑 **THIS SECTION SAID FOR ELEVEN ITERATIONS THAT THE GATE COULD NOT RUN HERE.
+THAT WAS MY OWN BAD MEASUREMENT.** I tested `require('playwright')` from the
+worktree, which throws, and concluded the box could not run it. **The harness
+resolves playwright itself**: `browser-checks.sh:175 resolve_pw` searches
+`KOSMOS_PW_NODE_PATH`, a runtime dir and the npx cache, then exports `NODE_PATH`.
+It resolves from `~/work/pw-runtime/node_modules` (control: an impossible module
+still fails). **A stated gap I never retested is worse than an unstated one,
+because it reads as diligence.**
+
+✅ **RUN TWICE ON THIS BRANCH. The three new arms EXECUTE and PASS, with the DOM
+as evidence rather than a source assertion:**
+
+```
+default row   ariaDisabled:true   forgets:false   row "main@example.com ..."
+walk row      ariaDisabled:false  forgets:true    row "walk@example.com ..."
+openai row    ariaDisabled:false  forgets:true    label "Disconnect"
+```
+
+⇒ **The source-level floor and the browser agree**, which is what the floor was
+built to stand in for.
+
+### The first run was RED, and it did not reproduce
+
+```
+18:34  sha=1e6da83c  ran=56  retried=1  failed=1  render-boot-no-flash
+18:50  sha=1e6da83c  ran=56  retried=0  failed=0
+```
+
+**Same sha, same tree, same machine.** Not a regression from this branch, and
+three independent reasons it could not be: the check boots `$sb7` while every
+account this branch seeds writes to `$sb4/home` (shared paths: 0); the check
+contains zero terms from this diff (control: 7 `boot-cover` refs); and its
+failing assertion is a LAYOUT property (`getBoundingClientRect` vs
+`window.innerWidth`) measured inside a deliberately stalled `page.route` window,
+which is inherently timing-sensitive.
+
+⚠️ **"Did not reproduce" is not "cannot happen".** One flake in two runs of a
+timing-sensitive check is exactly what the harness's own summary calls "a flake
+to fix, not to accept". It is not this card's to fix, and it is recorded here so
+the next person who sees it red has the two data points.
 
 ## Known gap, narrowed
 
