@@ -3769,6 +3769,26 @@ const server = http.createServer((req, res) => {
      connected:null, which the page says as could-not-check, never as
      nothing. GitHub is connected on either of its two roads (#620). */
   if (pathname === '/api/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* 🛑 #1636: REFUSED BEFORE THE SWEEP, BECAUSE THE SWEEP IS THE COST. A page the
+       person merely visits can `fetch()` this in a loop. It learns nothing - CORS
+       makes the response opaque and the Host guard closes DNS rebinding - but the
+       SIDE EFFECTS still run, and this route is the expensive sibling: the three
+       first-party doors plus EVERY metered token door, each making a live
+       authenticated `verify()` on every call. Brave Search, Exa, Tavily and Serper
+       meter against the person's own paid quota, so a drive-by page can spend
+       somebody's money in a loop with nothing on their machine saying why.
+       ⚠️ THE ORDER IS THE WHOLE FIX. A 403 returned after `readConnectionsShelf()`
+       had already been called would refuse the ANSWER and still pay for the sweep,
+       which is not a refusal at all. Nothing above this line touches a door.
+       📌 `engine/inflight.js` (#1618) is not a defence here and it was never meant
+       to be: it collapses CONCURRENT callers, and a loop of sequential fetches is
+       not concurrent - the slot deliberately holds nothing once it settles.
+       📌 Same one line as `/api/unfurl`, `/api/unfurl/image` and
+       `/api/agent/connections`. It refuses only on an explicit browser signal (a
+       foreign `sec-fetch-site`, or a `referer` from a foreign host), so curl and
+       the board's own same-origin page both pass. */
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
     /* #1618: one shelf read shared by every caller asking at once. The sweep and
        the reason it is shared on the read path only are at readConnectionsShelf. */
     readConnectionsShelf().then((doors) => { sendJson(res, 200, { doors }); });
