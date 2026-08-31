@@ -134,10 +134,12 @@ function setClientId(id) {
    It also removes an exported test-only function from production.
 
    ⚠️ NAMED LIMIT, because overclaiming is the failure this branch keeps finding:
-   this does not make divergence impossible. `github.GH_CANDIDATES` is exported and
-   separately referenceable, so somebody could scan it a second way. NO SOURCE SHAPE
-   PREVENTS THAT AND NO SOURCE ARM DETECTS IT; the arm that tried was removed for
-   pretending otherwise.
+   this does not make divergence impossible IN PRINCIPLE, but the reachable name is
+   gone: `GH_CANDIDATES` is no longer exported, because it had zero consumers outside
+   `github.js`. ⚠️ THIS PARAGRAPH USED TO NAME THAT EXPORT AS AN OPEN RESIDUAL the
+   branch had chosen not to close. A reviewer pointed out it cost nothing to close,
+   which was true, so the caveat became a fix. Anybody who re-adds the export
+   re-opens it, and no source arm would detect that.
    📌 This named `GH_CANDIDATES_DEFAULT`, a local alias that no longer exists: it was
    imported here and never used, and dropping it left this paragraph pointing at a
    deleted binding. The hazard is unchanged; only the reachable name is different.

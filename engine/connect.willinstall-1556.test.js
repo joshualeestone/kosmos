@@ -76,45 +76,6 @@ test('#1556: a binary that RUNS means no install is needed', async () => {
     'a working Claude was reported as needing a 281MB download');
 });
 
-test('#1556 "never throws" covers a runners LOAD failure, not only a resolver throw', async () => {
-  /* 🛑 THIS PINS A PROPERTY THAT WAS DEFENDED BY A COMMENT ALONE.
-     `willInstall` requires `./runners` INSIDE its try on purpose: the try converts
-     any failure into a DEFINED answer (install needed), which is the safe direction.
-     The same lazy-require shape was correctly HOISTED out of devicedoor.js and
-     githubdevice.js, where it sat in a Promise executor that promises never to
-     reject, and a sweep following that precedent would hoist this one too.
-
-     ⚠️ THE SIBLING ARM ABOVE CANNOT CATCH THAT. It swaps `runners.resolveBin` on the
-     ALREADY-LOADED module object, so by the time it runs `runners` is cached and the
-     require cannot fail. It proves the RESOLVER-throw arm and is silent on whether
-     the require sits inside the try. So hoisting would have gone green.
-
-     The failure this arm forbids is a LOAD failure, so it has to break the load. */
-  const Module = require('module');
-  const origLoad = Module._load;
-  process.env.AGENT_WORKFORCE_CLAUDE_BIN = fakeClaude('claude-loadfail', 'echo "1.2.3"; exit 0');
-  connect.resetForTests();
-  try {
-    /* CONTROL FIRST, so a passing result means something: with runners loadable, a
-       real executable answers false. If this ever returns true the arm below proves
-       nothing, because every path returns true. */
-    assert.equal(await connect.willInstall(), false,
-      'control: a runnable launcher should not need an install, so the arm below is not vacuous');
-
-    Module._load = function (request, ...rest) {
-      if (request === './runners') throw new Error('simulated runners load failure');
-      return origLoad.call(this, request, ...rest);
-    };
-    connect.resetForTests();
-    assert.equal(await connect.willInstall(), true,
-      'a runners LOAD failure escaped willInstall instead of resolving to "install needed"; '
-      + 'the require was probably hoisted out of the try');
-  } finally {
-    Module._load = origLoad;
-    connect.resetForTests();
-  }
-});
-
 test('#1556 THE POINT: a binary that EXISTS and does NOT run still needs an install', async () => {
   /* X_OK passes on this file. Only the probe can tell. A fix that checked existence
      alone would say "installed" here and start an unannounced download. */
@@ -218,6 +179,51 @@ test('#1556 "never throws" covers the RESOLVER too, not just a missing file', as
       'a resolver failure is an unknown, and every unknown here means an install is needed');
   } finally {
     runners.resolveBin = orig;
+    connect.resetForTests();
+  }
+});
+
+/* 📌 PLACED HERE, NOT WITH THE EARLY ARMS, PER THIS FILE'S HEADER RULE. It was
+   originally inserted between arms 2 and 3, before the injected ones. Harmless as
+   written (it patches Module._load and injects no runner), but the rule is
+   unconditional and the next arm added at that position by analogy may well call
+   setRunner, silently converting three real-execution arms into seam arms with
+   nothing going red. Sits beside its sibling resolver arm instead. */
+test('#1556 "never throws" covers a runners LOAD failure, not only a resolver throw', async () => {
+  /* 🛑 THIS PINS A PROPERTY THAT WAS DEFENDED BY A COMMENT ALONE.
+     `willInstall` requires `./runners` INSIDE its try on purpose: the try converts
+     any failure into a DEFINED answer (install needed), which is the safe direction.
+     The same lazy-require shape was correctly HOISTED out of devicedoor.js and
+     githubdevice.js, where it sat in a Promise executor that promises never to
+     reject, and a sweep following that precedent would hoist this one too.
+
+     ⚠️ THE SIBLING ARM ABOVE CANNOT CATCH THAT. It swaps `runners.resolveBin` on the
+     ALREADY-LOADED module object, so by the time it runs `runners` is cached and the
+     require cannot fail. It proves the RESOLVER-throw arm and is silent on whether
+     the require sits inside the try. So hoisting would have gone green.
+
+     The failure this arm forbids is a LOAD failure, so it has to break the load. */
+  const Module = require('module');
+  const origLoad = Module._load;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = fakeClaude('claude-loadfail', 'echo "1.2.3"; exit 0');
+  connect.resetForTests();
+  try {
+    /* CONTROL FIRST, so a passing result means something: with runners loadable, a
+       real executable answers false. If this ever returns true the arm below proves
+       nothing, because every path returns true. */
+    assert.equal(await connect.willInstall(), false,
+      'control: a runnable launcher should not need an install, so the arm below is not vacuous');
+
+    Module._load = function (request, ...rest) {
+      if (request === './runners') throw new Error('simulated runners load failure');
+      return origLoad.call(this, request, ...rest);
+    };
+    connect.resetForTests();
+    assert.equal(await connect.willInstall(), true,
+      'a runners LOAD failure escaped willInstall instead of resolving to "install needed"; '
+      + 'the require was probably hoisted out of the try');
+  } finally {
+    Module._load = origLoad;
     connect.resetForTests();
   }
 });
