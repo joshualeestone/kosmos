@@ -524,8 +524,7 @@ test('githubdevice reports a DIRECTORY at the gh override as missing', async () 
   /* The byte-identical twin of the devicedoor lambda, which is why fixing one
      file would not have found the other. `state()` is ASYNC: reading `.gh` off
      the promise gives undefined in BOTH arms, which looks like a result and is
-     an instrument fault. Awaited here for that reason.
-     branch named for having one definition of a fact. */
+     an instrument fault. Awaited here for that reason. */
   /* 🛑 `githubdevice`, NOT `github`. These arms drive `githubdevice.state()`, which
      reaches `ghPresent` -- the byte-identical twin that is half the reason this card
      exists. `github.js`'s `state()` is `makeDoor`'s and never touches it.
