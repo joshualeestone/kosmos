@@ -14,7 +14,9 @@
  * account menu live and offers the new account while the model menu still
  * parks; choosing Anthropic back shows no OpenAI account; and removal ASKS
  * FIRST (#1683, #1702), so the first press only arms and leaves the account
- * on the list, and the second press is what removes it.
+ * on the list, and the second press is what removes it; and the answer says
+ * the sign-in file is still on the computer and nothing was deleted, which is
+ * the promise the whole removal turns on and was never enumerated here.
  *
  * Computed-state only, so headless is sound. First run is completed
  * through the product's own route first: on a fresh board the first-run
@@ -223,6 +225,12 @@ let failed = 0;
      itself. */
   const secAgain = await p.evaluate(() => { const s = document.getElementById('s-sec-accounts'); return s ? !s.hidden : null; });
   say('the accounts section is open again', secAgain === true, String(secAgain));
+  /* Deliberately the LAX, unfiltered DOM read, kept even though `beforePress`
+     below asserts a strict superset of it. The PAIR is the diagnostic: this one
+     present and that one absent separates "in the DOM but zero-height" from
+     "never rendered at all", which are different bugs. Said out loud because the
+     comment 20 lines down argues AGAINST a DOM count, and a reader meeting the
+     two together would reasonably wonder why the lax read survived. */
   const rowsBefore = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-box')].map((r) => r.innerText.replace(/\s+/g, ' ').trim()));
   /* 🔑 THE ARM THAT MAKES THE ABSENCE BELOW MEAN ANYTHING. Without it,
      "the row went away" and "the row was never rendered" are the same pass. */
@@ -267,10 +275,13 @@ let failed = 0;
     const b = row ? row.querySelector('[data-forget]') : null;
     const seen = {
       /* textContent, not innerText: an EXACT-MATCH assertion on a label the page
-         sets itself, and innerText would move under a text-transform. CHECKED on
-         this element rather than assumed, as README asks: .acct-disconnect declares
-         no text-transform today, so the two reads are identical here and this is
-         future-proofing rather than a live difference. Stated
+         sets itself, and innerText would move under a text-transform. CHECKED
+         rather than assumed, as README asks, and checked the ANCESTORS too because
+         text-transform INHERITS: an element's own declaration cannot settle it. The
+         only two text-transform rules anywhere near this markup are on
+         `#panel-settings .dbox .flabel` and `.acctag`, neither an ancestor of this
+         button, so the two reads are identical here and this is future-proofing
+         rather than a live difference. Stated
          because docs/browser-checks/README.md (#687) asks every textContent read in
          a wired check to say which it is, and because the `offers a live Remove`
          assertion above reads this same element with innerText. */
@@ -302,6 +313,11 @@ let failed = 0;
       btnH: b ? b.getBoundingClientRect().height : 0,
       btnOpacity: b ? getComputedStyle(b).opacity : null,
       btnVisibility: b ? getComputedStyle(b).visibility : null,
+      /* ⚠️ SCOPE, so nobody reads this as more than it is: `visibility` inherits
+         and `display:none` zeroes the rect, so both ancestor cases ARE caught. An
+         ancestor with `opacity: 0` is NOT: the button's own computed opacity stays
+         1. The sibling render-projects.js has the identical limitation, so this
+         matches the house rather than falling short of it. */
       found: !!b,
     };
     seen.visible = !!(seen.btnW && seen.btnH && seen.btnOpacity !== '0' && seen.btnVisibility !== 'hidden');
