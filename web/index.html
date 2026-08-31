@@ -14905,41 +14905,20 @@ function paintOrg() {
   }
   orgLiveStart(map, placed, cx, cy, size);
   const unplaced = agents.length - placed.size;
-  /**
-   * The flat-fleet line (Mona Lisa, after #137 shipped). Everybody's first org
-   * chart is a wheel of spokes, because nobody has answered the question yet,
-   * and the view had no words for that state in the build OR in the drawing.
-   *
-   * ⚠️ THE SHOW RULE IS WRITTEN SO IT CAN FAIL, not as an intention:
-   *   SHOW   at least one agent AND not one of them has a reportsTo
-   *   HIDE   the moment any agent has one, and it does not come back unless
-   *          every one is cleared again
-   *   NEVER  with no agents at all -- the board's own empty state owns that
-   *          screen, and two empty states on one view is exactly the busy-ness
-   *          Settings was cut down to avoid.
-   * The at-least-one clause is the one that earns its keep: without it the line
-   * greets somebody on a fresh install who has no agents and therefore no
-   * possible use for it.
-   *
-   * 🔑 "You can change that" rather than "set up your team": a flat fleet is a
-   * legitimate way to run this, and the line must not read as a chore list. It
-   * echoes the field's own label so the words match the control.
-   */
-  const anyManaged = agents.some((a) => a && a.profile && typeof a.profile.reportsTo === 'string'
-    && a.profile.reportsTo.trim());
+  /* The flat-fleet hint that used to sit here is gone (Josh, 2026-08-31). It read
+     "Assign agents to each other to create a hierarchy." on a board whose agents all
+     report to nobody. The reasoning is kept for whoever considers adding one back: the
+     drawing already shows the cause (nobody reports, so everyone is on one ring), so
+     the only thing a hint could add was the action, and Josh's read is that a flat
+     fleet is a legitimate way to run this, not a state to nag about. The line was cut
+     to the action alone on 2026-08-22 and to nothing on 2026-08-31.
+     🔑 THE unplaced BRANCH BELOW STAYS: "could not be placed" is a real state the
+     drawing cannot show on its own, unlike the flat-fleet case which the ring already
+     tells. Only render at least one agent AND none placed, never on the empty board
+     (its own empty state owns that screen). */
   note.textContent = unplaced > 0
     ? 'One or more agents could not be placed, so they are not drawn.'
-    : (!anyManaged
-      /* 🔑 JOSH'S OWN WORDS, 2026-08-22, replacing two sentences of mine: "I
-         don't know that we need that much text. Let's say centered something
-         like 'assign agents to each other to create a hierarchy'".
-         ⚠️ WHAT THE LONGER VERSION WAS DOING was explaining the CAUSE (nobody
-         reports to anyone, so everyone is on one ring) before naming the
-         action. Under a picture that already shows one ring, the cause is on
-         screen and only the action is missing. His version is shorter because
-         it drops the half the drawing already says. */
-      ? 'Assign agents to each other to create a hierarchy.'
-      : '');
+    : '';
 }
 
 /* Build the live state from what was just painted, seeded from the last
