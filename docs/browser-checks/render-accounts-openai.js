@@ -238,74 +238,76 @@ let failed = 0;
      ✅ ASSERT THE ARM RATHER THAN TOLERATING IT. Pressing twice blindly would go
      green whether or not the confirm exists, leaving #1683's whole promise (ask
      first) unguarded at the page layer.
-     🔑 ONE ROW PREDICATE, USED BY THE PRESS AND BY BOTH READS. It must be the
-     SAME predicate in all three or the press and the assertion can name different
-     buttons: a hidden .acct-box matching WALK ahead of the visible one in DOM
-     order would be pressed while the visible one is read, whose label still says
-     "Remove", and the gate reds on a correct product. Visible-only, matching the
-     `groups` reader above and 1c5e2614 ("browser checks assert rendered text, not
-     DOM text"): a DOM count reads a merely HIDDEN row as present, which fails in
-     the reassuring direction on the one assertion added to stop that.
-     ⚠️ A REPAINT BETWEEN THE TWO PRESSES WOULD DISARM THIS. The arm lives in a
-     per-button closure, so any repaint of #set-accounts rebuilds the buttons,
-     resets `armed`, and the second press only re-arms. The gate then reds as "the
-     account leaves the list" with the row still there, which is this branch's own
-     failure signature pointing at the wrong cause.
+     🔑 ONE `walkStep`, AND IT IS ONE COPY RATHER THAN A COMMENT SAYING SO. An
+     earlier version of this block claimed "one row predicate used by the press and
+     by both reads" while physically duplicating the four-line selection in two
+     evaluate bodies. Nothing bound them, the drift it warned about was one edit
+     away, and a reader would have trusted the comment instead of re-checking. It
+     now takes a boolean: read, or read-and-click, same selection either way.
+     Visible-only, matching the `groups` reader above and 1c5e2614 ("browser checks
+     assert rendered text, not DOM text"): a DOM count reads a merely HIDDEN row as
+     present, failing in the reassuring direction.
+     ⚠️ A REPAINT BETWEEN THE PRESSES WOULD DISARM THIS. The arm lives in a
+     per-button closure, so a repaint of #set-accounts rebuilds the buttons, resets
+     `armed`, and the second press only re-arms: the gate then reds as "the account
+     leaves the list" with the row still there, pointing at the wrong cause.
      📌 The guards that make it unreachable, named precisely because an earlier
      version of this comment said "every paintAccounts() caller is event-driven"
-     and THAT IS FALSE: acctFlowPaint() is driven by a 1-second setInterval in
-     acctFlowWatch(). It cannot fire here for three narrower reasons, and a reader
-     who trusts the old sentence would never re-check them: acctFlowWatch is
-     started only by acctAddStart(), the Claude connect flow, which this check
-     never runs; acctFlowPaint early-returns on the ACCT_FLOW_LAST dedup; and the
-     connected arm calls acctFlowStop() before repainting. That is a materially
-     more fragile guard than "event-driven", so an accounts poll added later would
-     make a RELEASE GATE intermittently red. */
-  const readWalk = () => p.evaluate(() => {
+     and THAT IS FALSE: acctFlowPaint() runs off a 1-second setInterval. It cannot
+     fire here for three narrower reasons a reader trusting that sentence would
+     never re-check: acctFlowWatch is started only by acctAddStart, the Claude
+     connect flow, which this check never reaches; acctFlowPaint early-returns on
+     the ACCT_FLOW_LAST dedup; and the connected arm calls acctFlowStop() before
+     repainting. That is materially more fragile than "event-driven", so an
+     accounts poll added later would make a RELEASE GATE intermittently red. */
+  const walkStep = (doClick) => p.evaluate((click) => {
     const shown = [...document.querySelectorAll('#set-accounts .acct-box')]
       .filter((r) => r.getBoundingClientRect().height > 0);
     const row = shown.find((r) => /API key ending WALK/.test(r.innerText));
     const b = row ? row.querySelector('[data-forget]') : null;
-    /* textContent, not innerText: this is an EXACT-MATCH assertion on a label the
-       page sets itself, and innerText would move under a text-transform. Stated
-       because docs/browser-checks/README.md (#687) asks every textContent read in
-       a wired check to say which it is, and because :167 reads this same element
-       with innerText for a different purpose. */
-    return {
+    const seen = {
+      /* textContent, not innerText: an EXACT-MATCH assertion on a label the page
+         sets itself, and innerText would move under a text-transform. Stated
+         because docs/browser-checks/README.md (#687) asks every textContent read in
+         a wired check to say which it is, and because the `offers a live Remove`
+         assertion above reads this same element with innerText. */
       label: b ? b.textContent.replace(/\s+/g, ' ').trim() : '(no button)',
       listed: shown.some((r) => /API key ending WALK/.test(r.innerText)),
       shownRows: shown.length,
+      /* 🔑 THE TIMING-INDEPENDENT ARM SIGNAL. The acting branch sets
+         `btn.disabled = true` SYNCHRONOUSLY, before its first await; the arming
+         branch returns before reaching it. So `disabled === false` after the first
+         press proves the handler did NOT act, whatever the network did. Without
+         this, the hybrid regression (arms AND fires the DELETE) is caught only if
+         the round trip plus repaint happens to land inside the 300ms window, and
+         goes GREEN on a slower machine. */
+      disabled: b ? !!b.disabled : null,
+      found: !!b,
     };
-  });
-  const pressWalkRemove = () => p.evaluate(() => {
-    const shown = [...document.querySelectorAll('#set-accounts .acct-box')]
-      .filter((r) => r.getBoundingClientRect().height > 0);
-    const row = shown.find((r) => /API key ending WALK/.test(r.innerText));
-    const b = row ? row.querySelector('[data-forget]') : null;
-    if (!b) return false;
-    b.click();
-    return true;
-  });
+    if (click && b) { b.click(); return Object.assign({}, seen, { clicked: true }); }
+    return Object.assign({}, seen, { clicked: false });
+  }, doClick);
   /* 🔑 THE BEFORE ARM. Without it this asserts a STATE, not a TRANSITION: a
-     regression that rendered the button reading "Remove it?" AT REST would pass
-     for the wrong reason. The resting-label assertion at :173 is two full
-     navigations earlier against a destroyed page, so it is not an arm for this. */
-  const beforePress = await readWalk();
+     regression rendering the button as "Remove it?" AT REST would pass for the
+     wrong reason. The `offers a live Remove` assertion is two full navigations
+     earlier against a destroyed page, so it is not an arm for this one. */
+  const beforePress = await walkStep(false);
   say('before the press, the button rests on "Remove"',
-    beforePress.label === 'Remove', JSON.stringify(beforePress));
-  const pressed = await pressWalkRemove();
-  say('the Remove button is there to press', pressed, JSON.stringify(beforePress));
+    beforePress.label === 'Remove' && beforePress.listed === true, JSON.stringify(beforePress));
+  const pressOne = await walkStep(true);
+  say('the Remove button is there to press', pressOne.clicked === true, JSON.stringify(pressOne));
   await p.waitForTimeout(300);
-  const firstPress = await readWalk();
+  const firstPress = await walkStep(false);
   say('the FIRST press only ARMS, it does not remove (#1683, #1702)',
-    beforePress.label === 'Remove' && firstPress.label === 'Remove it?' && firstPress.listed === true,
+    firstPress.label === 'Remove it?' && firstPress.listed === true && firstPress.disabled === false,
     JSON.stringify({ before: beforePress, after: firstPress }));
-  /* Guarded like the first press, and it REPORTS THE PAGE when it fails. A bare
-     `if (b) b.click()` no-ops silently, and a detail-less say() is a diagnosis one
-     step removed from the cause on a check that has already taken down a cut. */
-  const pressedAgain = await pressWalkRemove();
-  say('the second press is there to make', pressedAgain,
-    JSON.stringify({ pressedAgain, afterFirst: firstPress }));
+  /* Guarded like the first press, and it reports the PAGE rather than repeating
+     the boolean being asserted. A bare `if (b) b.click()` no-ops silently, and
+     then "the account leaves the list" fails without distinguishing "we pressed
+     and it did not remove" from "we never pressed at all". */
+  const pressTwo = await walkStep(true);
+  say('the second press lands on the armed button', pressTwo.clicked === true,
+    JSON.stringify({ afterFirst: firstPress, atSecondPress: pressTwo }));
   await p.waitForTimeout(1500);
   const after = await p.evaluate(() => ({
     rows: [...document.querySelectorAll('#set-accounts .acct-box')].map((r) => r.innerText.replace(/\s+/g, ' ').trim()),
