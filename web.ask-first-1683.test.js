@@ -39,7 +39,17 @@ function world(fetchImpl) {
   const btn = {
     textContent: 'Remove',
     disabled: false,
-    dataset: { forget: '/some/dir' },
+    /* 🔑 `forgetProvider` IS SET EVEN THOUGH TODAY'S HANDLER IGNORES IT.
+       #1659 makes the Claude row live and its handler REFUSES a button
+       without this attribute ("we could not tell which provider that
+       account belongs to"), correctly, because an unmarked button is a
+       wiring bug rather than an OpenAI one. Measured: with the fixture as
+       it was, two of these four go RED the moment #1659 is rebased on, and
+       they fail as "the second click must actually remove it", which reads
+       exactly like this confirm being broken. It is not; it is the fixture
+       being older than the markup. Setting it now costs nothing today and
+       removes a red that would otherwise land on whoever does that rebase. */
+    dataset: { forget: '/some/dir', forgetProvider: 'openai' },
     classList: { has: new Set(), add(c) { this.has.add(c); }, remove(c) { this.has.delete(c); } },
     listeners: {},
     addEventListener(t, fn) { this.listeners[t] = fn; },

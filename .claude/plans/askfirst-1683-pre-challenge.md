@@ -37,6 +37,8 @@ Single-pass self review with two-direction perturbation. I set `explicit_overrid
 
 [CONVENTION] Worktree created from `origin/main`, not bare `main`.
 
+[STRENGTH, ADDED 15:07] **I removed a red that would have landed on somebody else rather than documenting it.** #1659 requires `data-forget-provider` and refuses without it; my fixture predated that attribute, so two of these four went RED on the merged state, failing as *"the second click must actually remove it"* -- which reads exactly like this confirm being broken. Measured on a real trial merge. Setting the attribute now costs nothing on today's code (which ignores it) and removes the false failure from whoever rebases #1659. **Verified after the change: still 4/4 today, still 4 RED under perturbation, suite exit 0.**
+
 ### Final Ledger
 
 Suite: exit code 0, 3264 pass, 0 fail, 0 shell FAIL lines. Read from the EXIT CODE, not the tally.
