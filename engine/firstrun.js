@@ -187,10 +187,16 @@ async function state() {
      is caught either way: from `require('./runners')` itself, or from
      `resolveBin('claude')`, which can throw on its own account (it derives a home
      directory and joins paths) before it ever asks whether the file is runnable.
-     ⚠️ This named `isRunnable` until now, which was wrong from the moment the same
-     commit changed willInstall to call resolveBin: willInstall never enters
-     isRunnable. The probe sits in another try, and nothing after those can throw. So it does not reject and this `.catch`
-     cannot fire today.
+     🛑 AND THE CORRECTION THAT USED TO SIT HERE WAS ITSELF FALSE, IN THE PARAGRAPH
+     REWRITTEN TO FIX A STALE CLAIM. It read "willInstall never enters isRunnable".
+     It does, on every call: `resolveBin` computes `present: isRunnable(...)` on all
+     four of its routes (runners.js:275, :282, :294, :304), so calling `resolveBin`
+     IS calling `isRunnable`, transitively. Measured, with a control.
+     ⇒ The naming was never the defect. What matters for THIS catch is only that both
+     throw sources sit inside the same try: `resolveBin` can throw before it asks
+     about runnability (it derives a home and joins paths), and `isRunnable` can
+     throw inside it. Nothing after that try can reject, so the `.catch` cannot fire
+     today.
 
      It stays because the property it defends is the one that matters (an unknown
      must never become a confident "no install needed", which costs an unannounced

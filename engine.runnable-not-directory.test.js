@@ -615,9 +615,14 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
 
      ⚠️ Mona Lisa's finding is now guarded by the function's own try rather than
      by a shape assertion here: claudeBinPath() can throw, and becomeStuck's
-     docblock promises any error answers false. Its behavioural consequence is
-     untested (forcing the resolver to throw needs a seam that does not exist),
-     and that is a known gap rather than a covered one. */
+     docblock promises any error answers false.
+     🛑 THIS USED TO SAY THE BEHAVIOURAL CONSEQUENCE IS "untested ... a known gap
+     rather than a covered one". THAT IS STALE, AND AN ARM SIXTY LINES ABOVE
+     CONTRADICTS IT: `claudeHatchAvailable answers false when the resolver THROWS`
+     drives exactly that, by swapping `runners.resolveBin` on the cached module
+     object. The seam the sentence called nonexistent is the one that arm uses.
+     Verified by mutation: hoisting the resolution out of the try reddens only that
+     arm. THE GAP IS COVERED. */
   /* 🛑 EVERY CODE LINE MENTIONING THE IDENTIFIER, PINNED. NOT A PROPERTY FORM,
      AND THE HISTORY OF THIS ONE MATCHER IS THE WHOLE ARGUMENT.
 
@@ -739,13 +744,17 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      is the thing that matters. A count over a homogeneous population of the
      relevant thing is sound; a count over a union of independent ones is not.
 
-     🛑 FILE-WIDE, NOT SCOPED TO becomeStuck, AND I HAD IT SCOPED FIRST. Q's
-     shape works ANYWHERE in the file: moved into submitCode, all three checks went
-     green and the writer was live. Any writeState call carrying the field reaches
-     the state publicView serves, and a retry path or helper elsewhere is an
-     ordinary refactor. The file-wide count is STRICTLY STRONGER, since anything
-     the scoped version caught adds a call file-wide too, so it replaces that
-     rather than adding to it.
+     🛑 SUPERSEDED, AND KEPT ONLY AS HISTORY. THE SHIPPED CHECK IS SCOPED TO
+     becomeStuck, NOT FILE-WIDE: it slices the function body and asserts exactly one
+     `writeState(` call. The block roughly thirty lines below records the trade
+     properly, including that a later blind reviewer priced the file-wide version and
+     it lost, because four independent tripwires on connect.js drop to two and
+     connect.js is the most-edited file in this repo.
+     ⚠️ The paragraph that stood here argued the file-wide count was "STRICTLY
+     STRONGER" and "replaces" the scoped one. It describes a design this branch does
+     NOT ship, and the numbers it cited belong to that discarded shape. A reader
+     trusting it would go looking for a file-wide assertion that is not there, which
+     is the stale-record defect this file spends most of its comments warning about.
 
      ⚠️ Friction: a legitimate new writeState reds and needs this number bumped.
      Deliberate act, one-line fix, safe direction. A writeState( written in prose
