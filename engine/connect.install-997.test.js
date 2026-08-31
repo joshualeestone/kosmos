@@ -160,9 +160,18 @@ test('a resolver that THROWS at the post-install gate fails cleanly instead of e
     const res = await withRelease(t, {});
     assert.equal(res.ok, false, 'a throwing resolver must produce a failure, not a success');
     assert.notEqual(res.cancelled, true, 'a resolver failure is not a cancellation');
-    assert.match(String(res.detail || res.because || JSON.stringify(res)), /could not resolve the expected path/,
+    const text = String(res.detail || res.because || JSON.stringify(res)) + ' ' + String(res.message || '');
+    assert.match(text, /could not work out where to look for it/,
       'the failure message did not carry the defensive fallback, so the handler probably '
       + 'rebuilt the path with the same call that threw');
+    /* 🛑 AND IT MUST NOT BLAME THE INSTALLER. A resolver throw is no evidence the
+       install failed; one copy used to cover both and sent the operator to reinstall
+       something that may be fine. This arm pins the DISTINCTION, not just the words. */
+    assert.doesNotMatch(text, /cannot find anything runnable/,
+      'a RESOLVER failure is being reported with the INSTALL failure copy, which blames '
+      + 'the wrong component and gives the operator no action');
+    assert.match(text, /AGENT_WORKFORCE_CLAUDE_BIN/,
+      'the resolver-failure detail names no variable the operator can actually check');
   } finally {
     runners.resolveBin = origResolve;
   }

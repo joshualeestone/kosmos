@@ -1481,7 +1481,10 @@ async function installClaudeCode(hooks) {
      `claudeHatchAvailable`, not applied at the one site whose own comment above is
      written about it. `expectedAt` is resolved defensively so the message survives
      a resolver that is failing. */
-  let expectedAt = '(could not resolve the expected path)';
+  /* null, NOT a placeholder sentence. The two failures below are different and the
+     operator needs different things from them, so the value has to be able to say
+     "never resolved" rather than carrying prose that reads like an answer. */
+  let expectedAt = null;
   try {
     /* ONE RESOLUTION, matching willInstall, claudeHatchAvailable and start(). The
        defensive capture and the presence check were two separate resolveBin calls,
@@ -1495,6 +1498,19 @@ async function installClaudeCode(hooks) {
   }
   catch {
     try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
+    /* 🛑 TWO DIFFERENT FAILURES, AND ONE COPY BLAMED THE WRONG COMPONENT FOR BOTH.
+       If resolveBin THREW, expectedAt is still null: the RESOLVER failed and that is
+       no evidence the install did. Saying "Claude said it set itself up, but we
+       cannot find anything runnable" sends the operator to reinstall a thing that
+       may be fine, and the old detail was a bare parenthetical with no action in it. */
+    if (expectedAt === null) {
+      return fail(
+        'Claude Code installed, but we could not work out where to look for it',
+        'The path resolver failed before it produced a path, so this does not mean the '
+          + 'install failed. If AGENT_WORKFORCE_CLAUDE_BIN is set, check it points at a '
+          + 'program rather than a folder, then try again.'
+      );
+    }
     return fail('Claude said it set itself up, but we cannot find anything runnable where it should be', `expected a program we can run at ${expectedAt}`);
   }
   // The verified download did its job; the installed launcher is what runs
