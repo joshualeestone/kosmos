@@ -580,8 +580,7 @@ reachable() {
   # judged too, on both arms.
   # 🛑 `cmd && rc=0 || rc=$?`, NOT a bare assignment. This file runs under
   # `set -euo pipefail`, set near the top of this file, where a plain
-  # `_r_ct=$(curl …)` is an
-  # UNPROTECTED SIMPLE COMMAND: a failing HEAD probe aborts the whole shell
+  # `_r_ct=$(curl …)` is an UNPROTECTED SIMPLE COMMAND: a failing HEAD probe aborts the whole shell
   # before the range-GET fallback can run. The pre-#1662 form happened to be
   # safe because `curl … && return 0` was shielded by the `&&`.
   # Both shapes were measured under `set -euo pipefail`; the transcript is in

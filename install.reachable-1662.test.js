@@ -148,7 +148,7 @@ test.after(() => server && server.close());
    fails because nothing answered is not evidence of anything. */
 async function reachable(url) {
   /* 🛑 `set -euo pipefail`, BECAUSE THE SHIPPED FILE RUNS UNDER IT
-     (install/setup.sh:102). Without these options the harness cannot see a
+     (the shipped file's `set -euo pipefail`). Without these options the harness cannot see a
      whole class of defect: an unprotected `x=$(cmd)` inside reachable()
      aborts the shell under -e before the range-GET fallback runs, and a
      no-options harness reports a cheerful YES. That is exactly how a real
@@ -389,6 +389,11 @@ async function runGuard(reachableVerdict, which) {
 info(){ printf '%s\\n' "$*"; }
 reachable(){ return ${reachableVerdict}; }
 stage=$(mktemp -d)
+# 🛑 TRAP, because only the NO path reaches the guard's own \`rm -rf "$stage"\`.
+# The YES path falls through and leaked a directory PER RUN: measured +2 each
+# time, and macOS mktemp ignores TMPDIR (run-tests.sh:84 says so and it is
+# true here), so the suite's per-run temp root cannot sweep them.
+trap 'rm -rf "$stage"' EXIT
 url='https://example.invalid/kosmos-arm64.tar.gz'
 f(){
 ${GUARDS[which]}
@@ -491,7 +496,10 @@ const PROBE_RE = /if \[ -n "\$\{TARGET_VERSION:-\}" \] && reachable[\s\S]*?\n\s*
 const PROBE = SRC.match(PROBE_RE);
 
 async function runProbe(reachableVerdict, opts = {}) {
-  const script = `set -eu
+  /* Same options as the shipped file and as the other harnesses here. It had
+     `set -eu`, which is harmless (no pipelines) but undercuts the fidelity
+     argument the other extractors make. */
+  const script = `set -euo pipefail
 reachable(){ return ${reachableVerdict}; }
 KOSMOS_RELEASE_BASE='https://example.invalid/dist'
 ARCH=arm64

@@ -170,7 +170,8 @@ run 5   + curl exit 63 mapped to a successful fetch
         327 / 1 every time, same file named every time
 ``` A failure caused by this diff would have moved when the diff
 moved. The assertion is `EXPECTED_ADDS` in the LOCAL-SOURCES install, which
-`tools/test-install.sh:797` says never runs `reachable()`, `verify_download()`
+`tools/test-install.sh` says, in the comment above its `file://` origin block,
+never runs `reachable()`, `verify_download()`
 or tar; the unexpected file is `wouldping/needs-you.jsonl`, a runtime
 notification record, and `main` carries the identical expectation. **No control
 run on `main` was performed**, so the attribution rests on the invariance, not
@@ -195,7 +196,7 @@ merge freeze. Worth doing, and worth doing on its own.
 
 ## The `set -e` shapes, measured
 
-Under `set -euo pipefail`, which `install/setup.sh:102` sets:
+Under `set -euo pipefail`, which the installer sets near the top of the file:
 
 ```
 f(){ local a; a=$(false); echo REACHED; }   -> nothing printed, rc=1
@@ -220,7 +221,7 @@ plain-text error page now passes. The reason is that `text/plain` is nginx's
 compiled-in `default_type`, so a mirror that has not mapped `.gz` serves a
 genuine tarball as `text/plain` and refusing it would block that install
 behind "Check your internet connection". `KOSMOS_RELEASE_BASE` is overridable
-(`install/setup.sh:456`), so a mirror is a real case rather than a
+(the `KOSMOS_RELEASE_BASE=` default near the top of the installer), so a mirror is a real case rather than a
 hypothetical. Production is separately mitigated because `serves_gzip()` in
 `tools/kosmos-artifact-check.sh` gates the release on a gzip type, but that
 mitigation does not extend to a mirror.
