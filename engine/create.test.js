@@ -2919,6 +2919,133 @@ test('#1313: switching to OpenAI carries a SIGNED-IN account, not the default ho
   assert.ok(known.includes(carried), `carried ${carried}, which list() does not report: ${known.join(', ')}`);
 });
 
+/* 🔑 #1600: THE TWO ROUTES ONTO THE DEFAULT ROW MUST AGREE, WHICH IS THE CARD'S
+   ACTUAL REQUIREMENT. `setProvider` used to write `openaiAccount.dir` for EVERY row
+   including the default, while `createAgentInner` writes `isDefault ? null : dir` and
+   lets codex resolve its own default. So a SWITCHED agent had the home pinned and
+   stopped following a later CODEX_HOME change, while a CREATED one kept following it -
+   two routes to one state, behaving differently, with nothing on screen telling them
+   apart.
+   ⚠️ ASSERTING BOTH ROUTES RATHER THAN JUST THE FIXED ONE. A test that only checked
+   the switch would go green if somebody later "fixed" the create path to pin instead,
+   which is the same divergence pointing the other way. The equality is the invariant. */
+test('#1600: switching onto the DEFAULT OpenAI row writes no CODEX_HOME, exactly like creating on it', () => {
+  recorder();
+  create.setDryRun(false);
+  /* The DEFAULT codex home is `~/.codex`; a labelled `~/.codex-<x>` is not default.
+     The sibling test above uses a labelled one, which is why it is unaffected. */
+  const home = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex');
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(nodePath.join(home, 'auth.json'),
+    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtestDEFAULTROW1' }), 'utf8');
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+
+  /* THE PREMISE, asserted: the account layer really does report this row as the
+     default. Without it the test could pass because the row was simply missing. */
+  const rows = require('./openaiaccounts').list();
+  const def = rows.find((a) => a.isDefault);
+  assert.ok(def, 'no default OpenAI row exists, so this test is not exercising the default case');
+  /* Compared through realpath on BOTH sides: on macOS the sandbox lives under
+     /var, which is a symlink to /private/var, and `list()` reports the unresolved
+     spelling. Comparing one resolved against one raw fails on a match. */
+  assert.equal(fs.realpathSync(def.dir), fs.realpathSync(home));
+
+  const homeOf = (n) => (fs.readFileSync(create.plistPath(n), 'utf8')
+    .match(/<key>CODEX_HOME<\/key><string>([^<]*)<\/string>/) || [])[1];
+
+  // ROUTE 1: switched onto the default row.
+  const switched = 'defrowswitch';
+  assert.equal(create.createAgent({ ...BINS, name: switched, role: 'pm' }).outcome, create.OUTCOME.CREATED);
+  const sw = create.setProvider(switched, 'openai', { ...BINS, codexBin: CODEX_BIN });
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, String(sw.because));
+  assert.equal(homeOf(switched), undefined,
+    'switching onto the DEFAULT row pinned its home into the launch job, so the agent stops following a later CODEX_HOME change');
+
+  // ROUTE 2: created directly on the same default row.
+  const created = 'defrowcreate';
+  /* The shape the sibling test uses: `provider` + `codexBin` + `account`. My first
+     draft passed `runner: 'codex'` with no bin and was refused with "we do not know
+     that account", which reads like a missing account rather than a malformed call. */
+  const made = create.createAgent({ ...BINS, name: created, role: 'pm', provider: 'openai', codexBin: CODEX_BIN, account: home });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, String(made.because));
+  assert.equal(homeOf(created), undefined, 'the create path started pinning the default home');
+
+  // THE INVARIANT: whatever the answer is, both routes give it.
+  assert.equal(homeOf(switched), homeOf(created),
+    'the two routes onto the default row disagree, which is the defect this card is about');
+});
+
+/* 🛑 THE CASE MY FIRST VERSION BROKE, GUARDED HERE RATHER THAN LEFT TO #1373's SUITE.
+   `openaiaccounts` derives "default" from `codexupdate.defaultHome()`, which honours
+   AGENT_WORKFORCE_CODEX_HOME and CODEX_HOME - the SERVER's environment. A launchd job
+   does not inherit those, so under an override the server's default and the agent's
+   default are different directories, and omitting the key sends the agent to ~/.codex
+   instead of the home an operator named.
+   ⇒ With an override in force the home MUST be written even though the row is
+   "default". #1373 catches this too; this arm states it as its own requirement so a
+   future reader sees why the condition is not simply `isDefault`. */
+test('#1600: with an override home in force, the default row still writes CODEX_HOME', () => {
+  recorder();
+  create.setDryRun(false);
+  const home = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-overridden');
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(nodePath.join(home, 'auth.json'),
+    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtestOVERRIDE01' }), 'utf8');
+  const name = 'overriderow';
+  assert.equal(create.createAgent({ ...BINS, name, role: 'pm' }).outcome, create.OUTCOME.CREATED);
+  process.env.AGENT_WORKFORCE_CODEX_HOME = home;
+  try {
+    /* THE PREMISE: under the override this row really is reported as the default, so
+       this arm is exercising the collision rather than an ordinary named account. */
+    const def = require('./openaiaccounts').list().find((a) => a.isDefault);
+    assert.ok(def && fs.realpathSync(def.dir) === fs.realpathSync(home),
+      'the override did not make this row the default, so this test is not exercising the case it names');
+
+    const sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN });
+    assert.equal(sw.outcome, create.OUTCOME.CREATED, String(sw.because));
+    const carried = (fs.readFileSync(create.plistPath(name), 'utf8')
+      .match(/<key>CODEX_HOME<\/key><string>([^<]*)<\/string>/) || [])[1];
+    assert.ok(carried,
+      'the default row wrote no home while an override was in force, so the agent will resolve ~/.codex instead of the home an operator named');
+    assert.equal(fs.realpathSync(carried), fs.realpathSync(home));
+
+    /* AND THE OTHER ROUTE, under the same override: fixing only the switch would make
+       the two agree without an override and disagree WITH one, which is this card's
+       own defect pointing the other way. */
+    const madeName = 'overriderowcreate';
+    const made = create.createAgent({ ...BINS, name: madeName, role: 'pm', provider: 'openai', codexBin: CODEX_BIN, account: home });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, String(made.because));
+    const madeCarried = (fs.readFileSync(create.plistPath(madeName), 'utf8')
+      .match(/<key>CODEX_HOME<\/key><string>([^<]*)<\/string>/) || [])[1];
+    assert.ok(madeCarried, 'the create route omitted the home under an override, so the two routes disagree again');
+    assert.equal(fs.realpathSync(madeCarried), fs.realpathSync(carried),
+      'the two routes disagree under an override');
+  } finally { delete process.env.AGENT_WORKFORCE_CODEX_HOME; }
+});
+
+/* CONTROL for the test above: a NON-default row must still carry its home, or the
+   change would have silently stopped recording every account rather than just the
+   default. */
+test('#1600 control: switching onto a NON-default OpenAI row still writes CODEX_HOME', () => {
+  recorder();
+  create.setDryRun(false);
+  const home = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-notdefault');
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(nodePath.join(home, 'auth.json'),
+    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtestNOTDEFAULT1' }), 'utf8');
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  const name = 'notdefrow';
+  assert.equal(create.createAgent({ ...BINS, name, role: 'pm' }).outcome, create.OUTCOME.CREATED);
+  /* `accountDir`, which is the option this function reads. Passing `account`
+     silently selected the DEFAULT row instead, and the control then failed for a
+     reason that looked like the fix going too wide. */
+  const sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN, accountDir: home, pickedByPerson: true });
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, String(sw.because));
+  const carried = (fs.readFileSync(create.plistPath(name), 'utf8')
+    .match(/<key>CODEX_HOME<\/key><string>([^<]*)<\/string>/) || [])[1];
+  assert.ok(carried, 'a non-default row stopped carrying its home, so the fix went too wide');
+});
+
 test('an OpenAI agent made on a non-default OpenAI account carries CODEX_HOME, and its folder is trusted in THAT home (#540)', () => {
   recorder();
   create.setDryRun(false);
