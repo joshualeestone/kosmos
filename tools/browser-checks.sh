@@ -195,6 +195,65 @@ if [ -z "$PW_NODE_PATH" ]; then
 fi
 log "Playwright: $PW_NODE_PATH"
 
+# --- Can it actually LAUNCH? (#1594) ----------------------------------------
+# 🛑 A DIRECTORY IS A PROXY; A LAUNCH IS THE THING. `resolve_pw` above accepts any
+# node_modules containing a `playwright` directory, and browser builds live in a
+# SHARED cache keyed by build number. So a machine can hold two Playwrights
+# pinning different builds (measured during the 0.6.14 cut: 1.63.0-alpha wanting
+# webkit-2342, 1.62.1 wanting webkit-2336), and the presence of *a* `webkit-*`
+# directory is not evidence THIS Playwright can start it.
+#
+# ⚠️ WITHOUT THIS, THE FIRST NEWS ARRIVES MINUTES IN AND NAMES THE WRONG THING.
+# The checks are multi-engine, so a missing webkit reds a check whose chromium
+# half was fine, and the step summary collapses it to "the page checks are red".
+# The 0.6.14 cut failed step 3b twice on two DIFFERENT missing browsers, and from
+# the summary alone you would chase chromium a second time.
+#
+# 📌 THE ENGINE SET IS DERIVED FROM THE CHECKS, not hardcoded: they differ
+# (`['chromium','webkit']` in some, `['chromium']` in others) and a hardcoded list
+# is one new check away from being wrong. Union of what the checks name.
+PW_ENGINES="$(grep -ho "ENGINES *= *\[[^]]*\]" docs/browser-checks/*.js 2>/dev/null \
+  | grep -o "'[a-z]*'" | tr -d "'" | sort -u | tr '\n' ' ')"
+[ -n "$PW_ENGINES" ] || PW_ENGINES="chromium"
+log "engines the checks ask for: $PW_ENGINES"
+
+pw_launch_failures=""
+for _eng in $PW_ENGINES; do
+  # Launch and close. Anything else - a version probe, a directory listing - is
+  # another proxy, and proxies are what this block exists to replace.
+  _err="$(NODE_PATH="$PW_NODE_PATH" node -e "
+    const pw = require('playwright');
+    (async () => { const b = await pw['$_eng'].launch({ headless: true }); await b.close(); })()
+      .catch(e => {
+        // The first line carries \"Executable doesn't exist at <path>/<engine>-<build>\",
+        // which is the whole diagnostic. Everything after it is Playwright's ASCII
+        // install banner, and printing it buries the one fact that matters.
+        const first = String((e && e.message) || e).split('\n')[0].split('\u2554')[0].trim();
+        console.error(first); process.exit(1);
+      });
+  " 2>&1)" && { log "  ✅ $_eng launches"; continue; }
+  log "  🛑 $_eng CANNOT LAUNCH: $_err"
+  pw_launch_failures="$pw_launch_failures $_eng"
+done
+
+if [ -n "$pw_launch_failures" ]; then
+  # Same posture as the no-Playwright branch above: loud, blocking, and skippable
+  # only by an operator who says so out loud.
+  if [ "${KOSMOS_SKIP_BROWSER_CHECKS:-0}" = "1" ]; then
+    log "‼️  BROWSER CHECKS SKIPPED: these engines cannot launch:$pw_launch_failures"
+    log "‼️  The page layer is NOT covered by this run. Deliberate opt-out, printed so it is never mistaken for a pass."
+    exit 0
+  fi
+  log "🛑 The page layer cannot be checked: these engines cannot launch:$pw_launch_failures"
+  log "   The error above carries the build number this Playwright wants. Install it FOR THIS"
+  log "   Playwright, or point the gate at one whose browsers are present:"
+  log "     NODE_PATH=\"$PW_NODE_PATH\" npx playwright install$pw_launch_failures"
+  log "     # or: KOSMOS_PW_NODE_PATH=<a self-consistent playwright's node_modules> $0"
+  log "   Refusing here rather than mid-run, so the failure names the ENGINE rather than"
+  log "   arriving as \"the page checks are red\" after several minutes (#1594)."
+  exit 2
+fi
+
 new_sandbox() {
   local sb; sb="$(mktemp -d "$RUN_DIR/sb.XXXXXX")"
   printf '%s' "$sb"
