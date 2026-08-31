@@ -109,7 +109,7 @@ attempts               1
 the current installer.** That is the property the previous two remedies lacked.
 
 📌 **AND IT FIRED, AS INTENDED.** Comment-only edits after the run changed the
-file sha to `f587b533758fcce06321758c521724f89a1614768d8c4110783b5d34f24769cf`, so the anchor stopped matching. Under the previous two
+file sha away from the tested one, so the anchor stopped matching. Under the previous two
 remedies that would have been silent and I would have carried a stale claim
 into a third PR.
 

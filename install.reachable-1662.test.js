@@ -39,7 +39,8 @@ const BLOCK_RE = /_reachable_is_download\(\)\s*\{[\s\S]*?\n\}\n(?:[ \t]*#[^\n]*\
 const FN = SRC.match(BLOCK_RE);
 
 const BIGBODY = require('node:crypto').randomBytes(4 * 1024 * 1024);
-const BYTES_SENT = {};   /* keyed BY PATH: a single counter would let one arm read another's bytes if node:test ever runs these concurrently */
+const BYTES_SENT = {};
+const SEEN = [];        /* {path, method, ranged} per request, so an arm can assert HOW it was probed, not just the verdict */   /* keyed BY PATH: a single counter would let one arm read another's bytes if node:test ever runs these concurrently */
 const GZ = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 const ERR = Buffer.from('<!doctype html><html><body>Not here</body></html>');
 
@@ -49,6 +50,10 @@ test.before(async () => {
   server = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
     const ranged = Boolean(req.headers.range);
+    /* Recorded so an arm can assert HOW a URL was probed, not only the
+       verdict: the HEAD-vs-GET split and the Range header are the only
+       evidence that the fast path and the one-byte fallback are real. */
+    SEEN.push({ path: u.pathname, method: req.method, ranged });
     /* Three shapes, because three different things need proving:
          /real.tar.gz   a normal download, HEAD answers
          /head405...    a host that REFUSES HEAD but serves GET. This is the
@@ -90,6 +95,17 @@ test.before(async () => {
       };
       pump();
       return;
+    }
+    /* A 404 carrying a BINARY type. Every other error fixture here is
+       text/html, which lets the type rule mask curl's `-f`: this one separates
+       them, because without -f curl succeeds on a 404 and the gzip type would
+       then be accepted. */
+    if (u.pathname === '/gzip404.tar.gz') {
+      const b = ranged ? GZ.subarray(0, 1) : GZ;
+      const h = { 'content-type': 'application/gzip', 'content-length': String(b.length) };
+      if (ranged) h['content-range'] = `bytes 0-0/${GZ.length}`;
+      res.writeHead(404, h);
+      return res.end(req.method === 'HEAD' ? undefined : b);
     }
     const isReal = u.pathname === '/real.tar.gz' || u.pathname === '/head405.tar.gz';
     const refusesHead = u.pathname === '/head405.tar.gz';
@@ -508,4 +524,48 @@ test('#1662: an UNreachable versioned artifact falls back to the unversioned nam
     `the fallback did not select the plain name. Got: ${out}`);
   assert.doesNotMatch(out, /9\.9\.9/,
     'the versioned name was used despite the probe saying the artifact is not there');
+});
+
+/* ---- the probe COMPONENTS, each measured as uncovered before being added ---
+ * Deleting the HEAD probe, removing `-r 0-0`, and removing `-f` each left
+ * 23/23 green. None changes the verdict on the existing fixtures, so the
+ * consequences are efficiency and robustness rather than correctness -- but
+ * this file's standard is that a component with no failing case is unasserted.
+ */
+
+test('#1662: a host that answers HEAD is resolved WITHOUT a ranged GET', async () => {
+  /* The HEAD probe is the fast path. Deleting it entirely left every arm green,
+     because a ranged GET reaches the same verdict -- at the cost of pulling up
+     to the 1MB cap on every probe. This asserts HOW it was resolved. */
+  SEEN.length = 0;
+  assert.equal(await reachable(`${base}/real.tar.gz`), 'YES', 'precondition');
+  const mine = SEEN.filter((r) => r.path === '/real.tar.gz');
+  assert.ok(mine.some((r) => r.method === 'HEAD'), 'no HEAD probe was made at all');
+  assert.equal(mine.filter((r) => r.method === 'GET').length, 0,
+    'a ranged GET was issued even though HEAD answered: the HEAD probe is gone, so every '
+    + 'probe now pulls a body it does not need');
+});
+
+test('#1662: the fallback GET asks for ONE BYTE, not the whole artifact', async () => {
+  /* `-r 0-0` is what keeps the fallback cheap. Removing it left every arm
+     green because the verdict is unchanged; the cost is pulling up to the cap
+     from every HEAD-refusing origin. Asserted on the wire, via the Range
+     header the fixture records. */
+  SEEN.length = 0;
+  assert.equal(await reachable(`${base}/head405.tar.gz`), 'YES', 'precondition');
+  const gets = SEEN.filter((r) => r.path === '/head405.tar.gz' && r.method === 'GET');
+  assert.ok(gets.length > 0, 'no GET was made, so the fallback did not run');
+  assert.ok(gets.every((r) => r.ranged),
+    'the fallback GET carried no Range header, so it requests the ENTIRE artifact from every '
+    + 'origin that refuses HEAD');
+});
+
+test('#1662: an error STATUS is refused even when the type looks like a download', async () => {
+  /* curl's `-f` is what makes a 4xx a failure. Its contribution is invisible
+     against every other fixture here, because they all carry text/html and the
+     type rule refuses them anyway. A 404 carrying application/gzip separates
+     the two: without -f, curl succeeds and the type rule waves it through. */
+  assert.equal(await reachable(`${base}/gzip404.tar.gz`), 'NO',
+    'a 404 was accepted because its content-type looked like a download: curl -f is not in '
+    + 'play, so status is no longer being judged at all');
 });
