@@ -1644,10 +1644,15 @@ KOSMOS_SWEEP_LIST
   # told their trust marks were accounted for while one sat in plain sight, which
   # is the exact true-sounding silence the note above describes, arriving through
   # a directory name that did not exist when that fix was written.
-  # 📌 The codex prefix is included for the same reason: #1372 created that shape
-  # first. A sweep whose whole job is to miss nothing should not know about one
-  # provider's forgotten accounts and not the other's.
-  for _cfg in "$HOME/.claude.json" ${CLAUDE_CONFIG_DIR:+"$CLAUDE_CONFIG_DIR/.claude.json"} "$HOME"/.claude-*/.claude.json "$HOME"/.removed-claude-*/.claude.json "$HOME"/.removed-codex-*/.claude.json; do
+  # 🛑 NO CODEX ENTRY, AND THAT IS DELIBERATE RATHER THAN AN OMISSION. An earlier
+  # version of this line added `.removed-codex-*/.claude.json` "for symmetry".
+  # IT IS A DEAD GLOB: codex homes store `auth.json` (openaiaccounts.js:58) and
+  # codex agents launch with CODEX_HOME, never CLAUDE_CONFIG_DIR, so no
+  # `.claude.json` can exist there. Adding it looked like completeness and was a
+  # pattern that can never match -- the same decoration this sweep exists to
+  # avoid. Note there is no live `.codex-*/.claude.json` in this loop either,
+  # which is the tell: the asymmetry is real, not an oversight.
+  for _cfg in "$HOME/.claude.json" ${CLAUDE_CONFIG_DIR:+"$CLAUDE_CONFIG_DIR/.claude.json"} "$HOME"/.claude-*/.claude.json "$HOME"/.removed-claude-*/.claude.json; do
     [ -f "$_cfg" ] || continue
     grep -q '"hasTrustDialogAccepted": true' "$_cfg" 2>/dev/null || continue
     case " $_trust_marked " in *" $_cfg "*) continue ;; esac

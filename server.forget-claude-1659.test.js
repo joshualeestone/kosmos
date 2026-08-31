@@ -123,6 +123,22 @@ test('#1659 route: an unused Claude account is forgotten, and the answer says no
     'the answer still promises "nothing was deleted" without saying the history stops appearing');
 });
 
+/* The route's FIRST branch had no arm: every other branch was covered. A body
+   with no usable `dir` must answer 400 rather than falling through to the
+   enumeration with an empty string, which the path guard would then refuse for
+   a misleading reason. */
+test('#1659 route: a request with no usable dir is refused before anything is enumerated', () => {
+  const r = board(({ home }) => {
+    account(home, 'bystander');
+    return '';
+  });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.match(String(r.json.error), /could not read that request/,
+    'it should say the REQUEST was unreadable, not that the path is not an account');
+  assert.ok(fs.existsSync(nodePath.join(r.home, '.claude-bystander')),
+    'and the real account beside it is untouched');
+});
+
 test('#1659 route CONTROL: a path that is not a Claude account is refused, and nothing moves', () => {
   const r = board(({ home }) => {
     account(home, 'bystander');

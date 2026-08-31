@@ -13479,7 +13479,7 @@ async function paintAccounts() {
           ? '<button class="acct-disconnect" type="button" aria-disabled="true" '
             + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '')
               + '. Unavailable: Kosmos does not remove this computer\u2019s main Claude folder." '
-            + 'title="Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and any other accounts here keep their history inside it.">Disconnect</button>'
+            + 'title="Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.">Disconnect</button>'
           : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
             + 'data-forget-provider="claude" '
             + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
@@ -13526,9 +13526,27 @@ async function paintAccounts() {
          silent for a screen-reader user, which is a smaller version of the
          defect this handler exists to fix. */
       if (!msg) return;
-      const say = btn.title || '';
+      /* 📌 NO EMPTY FALLBACK. `btn.title || ''` would clear the region and
+         produce exactly the silence this handler exists to prevent, on the day
+         somebody drops the title from that branch. If there is nothing to say,
+         say the short form rather than nothing. */
+      const say = btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.';
+      /* ⚠️ setTimeout, NOT requestAnimationFrame: rAF is throttled or suspended
+         outright in a hidden or background tab, so the clear-then-set would
+         leave the region BLANK there -- worse than the unchanged text it is
+         working around. A frame is also arguably too fast for assistive tech to
+         register the change. */
       msg.textContent = '';
-      requestAnimationFrame(() => { msg.textContent = say; });
+      setTimeout(() => {
+        msg.textContent = say;
+        /* 🛑 THE DEFAULT ROW IS EMITTED FIRST AND THIS MESSAGE LINE SITS AFTER
+           THE WHOLE LIST (index 9021 vs 9022). On a multi-account machine the
+           feedback for pressing the TOPMOST button renders below every other
+           account box, possibly off-screen at the moment the person acts. The
+           tooltip and aria-label cover hover and screen readers; a mouse user
+           who clicks and looks gets nothing where they are looking. */
+        if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+      }, 60);
     });
   }
   for (const btn of box.querySelectorAll('[data-forget]')) {

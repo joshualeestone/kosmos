@@ -75,13 +75,13 @@ change than shipped:
 
 ## Verification
 
-- 16 tests: 7 on the engine function, 9 on the route.
+- 18 tests: 8 on the engine function, 10 on the route.
 - **6 perturbation arms**, each breaking one guard and confirming the matching
   test goes red, then restoring clean: default refusal, usedBy refusal, path
   guard, collision loop, runner filter, fail-closed.
 - A route DISCRIMINATOR arm: an agent on a **different** account must not
   block, or the button would be unpressable on a busy machine.
-- Full suite: 3272 pass, 0 fail.
+- Full suite: 3281 pass, 0 fail (re-measured at iteration 10).
 - ⚠️ **These counts are a timestamp.** The previous version of this line said 13
   and 3267 and was stale within two iterations, which is the same defect this
   plan records elsewhere: a number written once and read as current.

@@ -459,14 +459,32 @@ const FORGOTTEN_PREFIX = '.removed-claude-';
  * renamed on request), and the `|| 'unnamed'` label fallback where `.codex`
  * maps to `'default'`. An earlier version of this docblock called the default
  * refusal THE one divergence, which would send the next reader to
- * `openaiaccounts.js` expecting a parity that is not there. `forgetAccount` on `.codex` moves a codex
- * home and nothing else points at it. `~/.claude` is not only this account's
- * credential store: `prepare()` symlinks EVERY account Kosmos makes at
- * `~/.claude/projects`, so renaming it strands the transcripts of accounts that
- * are not being removed. Measured on the fleet machine: two other accounts had
- * both `projects` AND `settings.json` linked into it.
- * ⇒ Removing the default would break accounts the person did not touch, which
- * fails in the quiet direction and is not reversible by the button that did it.
+ * `openaiaccounts.js` expecting a parity that is not there.
+ *
+ * ⚠️ WHY THE DEFAULT IS REFUSED, STATED NARROWLY, BECAUSE AN EARLIER VERSION OF
+ * THIS DOCBLOCK OVERCLAIMED IT AND THE OVERCLAIM WAS COPIED INTO THREE OTHER
+ * PLACES. That version said: `prepare()` symlinks EVERY account Kosmos makes at
+ * `~/.claude/projects`, so renaming that directory strands the transcripts of
+ * accounts nobody asked to remove (measured: two accounts on the fleet machine
+ * had both `projects` AND `settings.json` linked in). **All true, and it reads
+ * as "removing the default is impossible". It is not.**
+ * 🛑 The default's account record is `~/.claude.json`, a SIBLING FILE OUTSIDE
+ * the directory (`configFile()`), and `list()` emits the default row from that
+ * file. So taking the default off the list never required moving `~/.claude`.
+ * ⇒ THE HONEST REASON IS A PRODUCT CALL, NOT AN IMPOSSIBILITY, and it is two
+ * facts rather than one: moving `~/.claude.json` would sign the person out of
+ * their own terminal Claude Code, which is not this button's business; and
+ * moving the DIRECTORY would strand history belonging to accounts they did not
+ * touch. Both fail in the quiet direction, so the refusal stands. What does not
+ * stand is the claim that the act cannot be done.
+ * 📌 AND THE SENTENCE SAYS "MAY" FOR A MEASURED REASON. It said "any other
+ * accounts here KEEP their history inside it", which is vacuously true on a
+ * single-account machine and true when memory is shared, but AFFIRMATIVELY
+ * FALSE for an account with its own `projects` directory -- a state this module
+ * models explicitly (`sharesMemory`, `memoryShared: false`) and the page renders
+ * its own arm for. Three cases, and the earlier wording was right about two.
+ * "May" is true in all three, and this is the third time this one sentence has
+ * been narrowed: it is easier to assert a condition than to check it.
  * The refusal names the way forward rather than being a dead end.
  */
 function forgetAccount(dir, usedBy) {
@@ -499,7 +517,7 @@ function forgetAccount(dir, usedBy) {
          That is honest, not unconditional. The genuinely unconditional half is
          the first sentence (this is the folder Claude Code uses when nothing
          says otherwise), and that is what carries the refusal. */
-      because: 'Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and any other accounts here keep their history inside it.',
+      because: 'Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.',
     };
   }
 

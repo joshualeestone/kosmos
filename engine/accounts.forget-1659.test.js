@@ -41,7 +41,11 @@ test('#1659: forgetting a Claude account hides it from list() and KEEPS the sign
   assert.ok(!accounts.list().some((a) => a.dir === dir), 'it is gone from the list');
   assert.ok(fs.existsSync(nodePath.join(got.movedTo, '.claude.json')),
     'THE SIGN-IN SURVIVES: this forgets, it does not delete');
-  assert.ok(nodePath.basename(got.movedTo).startsWith('.removed-claude-'));
+  /* Uses the EXPORTED prefix rather than a literal: a hardcoded '.removed-claude-'
+     here is a second derivation of a string the engine owns, and the export
+     existed with no consumer until this line. */
+  assert.ok(nodePath.basename(got.movedTo).startsWith(accounts.FORGOTTEN_PREFIX),
+    'the moved directory does not carry the engine\'s own prefix');
 });
 
 /* 🛑 THE ONE PLACE THIS IS NOT A MIRROR OF THE OPENAI SIDE, and the reason is
@@ -130,6 +134,24 @@ test('#1659: an account already gone answers ok WITHOUT claiming it forgot anyth
 
 /* A second removal of the same label must not clobber the first one's
    credential, which would delete the thing this function exists not to delete. */
+/* The collision loop is bounded and REFUSES on exhaustion rather than falling
+   through to a rename. Covered at n=2 above; this is the other end, and it
+   matters because the fall-through would overwrite a sign-in this function
+   exists not to delete. */
+test('#1659: when no free name is left, it REFUSES rather than renaming over one', () => {
+  const dir = acct('crowded');
+  /* Occupy the whole search space the loop walks: the base name and -2..-499. */
+  fs.mkdirSync(nodePath.join(SANDBOX, accounts.FORGOTTEN_PREFIX + 'crowded'), { recursive: true });
+  for (let n = 2; n < 500; n += 1) {
+    fs.mkdirSync(nodePath.join(SANDBOX, `${accounts.FORGOTTEN_PREFIX}crowded-${n}`), { recursive: true });
+  }
+  const got = accounts.forgetAccount(dir, []);
+  assert.equal(got.ok, false);
+  assert.match(got.because, /could not find a free name/);
+  assert.ok(fs.existsSync(nodePath.join(dir, '.claude.json')),
+    'THE SIGN-IN SURVIVES: refusing means nothing was renamed over');
+});
+
 test('#1659: two removals of the same label keep BOTH sign-ins', () => {
   const first = accounts.forgetAccount(acct('twice'), []);
   assert.equal(first.forgotten, true);
