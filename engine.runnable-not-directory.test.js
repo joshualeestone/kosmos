@@ -96,12 +96,13 @@ const path = require('node:path');
    out: 93 entries written into the operator's own live config by an unsandboxed
    suite. Pattern copied from `engine/githubdevice.test.js:4-12`; both knobs travel
    together per #527. */
-const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-runnable-1592-'));
-/* Cleaned on exit, matching connect/firstrun/liveness/adopt/delete-leftover. The
-   comment above cites githubdevice.test.js, which also leaks; tools/run-tests.sh
-   records the measured cost of exactly this class (200 leaked sandbox dirs from a
-   cleanup that never ran), so the majority convention is the right one to copy. */
-process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+/* 🛑 THE SHIPPED HELPER, NOT A HAND-ROLLED COPY. `test-support/tmpdir.js`'s
+   `mkTemp` exists for exactly this (#1402) and registers ONE exit handler per file.
+   ⚠️ This file previously did `fs.mkdtempSync` plus its own `process.on('exit')`
+   remover, WHILE CITING the same measured cost the helper was built to fix (200
+   leaked sandbox dirs from a cleanup that never ran). Reimplementing the thing you
+   are citing is the two-copies-of-one-fact defect this branch is named for. */
+const SANDBOX = require('./test-support/tmpdir.js').mkTemp('kosmos-runnable-1592-');
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 

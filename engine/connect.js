@@ -987,32 +987,14 @@ async function start(opts) {
      * of offering it.
      *
      * ------------------------------------------------------------------
-     * HISTORY, kept in full because each layer was wrong in a different and
-     * instructive direction. Nothing below is operative.
-     *
-     * ⚠️ THIS PARAGRAPH HAS BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS, AND THE
-     * SECOND TIME IS THE INSTRUCTIVE ONE. It first said `canRunClaude` "decides
-     * whether the STUCK screen tells somebody to type `claude` in Terminal";
-     * it COMPUTES that. The correction then said `publicView` DROPS THE FIELD,
-     * so the hatch had never rendered and this repoint was dead code. That
-     * correction is what the block now leads by refuting.
-     *
-     * ⭐ A retraction can go stale exactly like the claim it retracted. This one
-     * understated the change rather than overstating it, which is why nobody
-     * caught it: an error in the modest direction reads as caution.
-     *
-     * ⚠️ THE OLD CLOSING SENTENCE SAID the reason is "it is not wired", not "it
-     * is wired and weak". Retracted: since #1595 it IS wired. It was called out
-     * rather than quietly deleted because it was the block's LAST line, and a
-     * block that ends on its own retracted claim gets read ending-first.
-     *
-     * 📌 THAT ARGUMENT IS WHY THIS BLOCK WAS REORDERED RATHER THAN TRIMMED. It is
-     * a reason to control WHICH sentence is prominent, and by its own logic the
-     * prominent one should be the true one, not the newest retraction. Three
-     * layers of "what an earlier paragraph got wrong" stood between a maintainer
-     * and the single fact they needed. The honesty was never the problem; the
-     * ordering was.
+     * 📌 HISTORY MOVED, NOT TRIMMED. Three superseded readings of this paragraph
+     * (each wrong in a different and instructive direction) now live in
+     * `.claude/plans/runnable-dir-1592-20260830.md`, under "History of the
+     * becomeStuck paragraph". Two independent reviewers flagged 25 lines of
+     * non-operative archaeology in a hot path; the rule this branch wrote for
+     * itself is MOVE, THEN TRIM, NEVER TRIM FIRST, so it was moved.
      */
+
     const binaryOnDisk = require('./runners').resolveBin('claude').present;
 
     /* With nothing on disk to run we fall through regardless, so do not spawn

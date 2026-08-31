@@ -157,57 +157,20 @@ function setClientId(id) {
    committed inside a comment added to fix that class. The control that produced it
    found `candidates:` in the #1592 test file and generalised it to "the door's
    tests", which is the wrong component. Re-measured with both arms. */
-const GH_CANDIDATES_DEFAULT = require('./github').GH_CANDIDATES;
-function ghCandidateList(override = process.env.AGENT_WORKFORCE_GH_CANDIDATES) {
-  /* 🛑 THE RULE AS SHIPPED: anything that is not a STRING means unset.
-     `''` IS a string, so it is honoured and means "no candidates", yielding [].
-     Measured, four arms: '' -> [], ':::' -> [], null -> the three defaults,
-     undefined -> the three defaults.
+/* 🛑 MOVED TO `engine/github.js`, WHICH OWNS THE gh ROAD, AND THE MOVE CLOSED A
+   CONTRACT BREACH RATHER THAN TIDYING ANYTHING.
+   This file defined `ghCandidateList` and `github.js`'s door reached BACK into it
+   through a getter, so the two modules were mutually dependent and `door.state()`
+   gained a REJECT PATH: `devicedoor.status()` calls `ghBin()` synchronously inside
+   `state()`'s promise executor, and `devicedoor.js:99` promises "Never rejects".
+   Measured, both arms: with this module's exports replaced by `{}` (the shape a
+   failed load gives) `github.state()` REJECTED; control, module whole, resolved.
+   Before that getter the door held a literal array and COULD NOT throw.
+   ⇒ The dependency is now one-directional (this file -> github.js) and the door
+   calls a function defined in its own module, so no load failure can reach it.
+   Re-exported below unchanged, so every existing caller and test is unaffected. */
+const { GH_CANDIDATES: GH_CANDIDATES_DEFAULT, ghCandidateList } = require('./github');
 
-     WHY NOT TRUTHINESS: on truthiness an empty string would mean "unset", so a test
-     setting AGENT_WORKFORCE_GH_CANDIDATES='' to mean "no candidates" would silently
-     scan /opt/homebrew/bin/gh and the other REAL paths on the operator's machine.
-     Same leak class as an unsandboxed store, which this branch already had once.
-
-     WHY `typeof` RATHER THAN `=== undefined`: as exported API this can be handed a
-     null or a number, which `.split` would throw on, and that throw would escape
-     `ghPresent` into `state()`, whose contract says it never rejects. `=== undefined`
-     is still the distinction being drawn; `typeof` just draws it safely.
-
-     📌 THE OVERRIDE IS A PARAMETER SO THE ARM IS NOT MACHINE LUCK. Its only guard
-     used to read the env and could therefore only tell the fixed and broken shapes
-     apart on a machine that HAS gh at a default path; on CI, which is the environment
-     that gates merges, it skipped and the fix shipped unguarded. Taking the value as
-     an argument lets a test drive THIS function directly with '' and with undefined.
-     Production still calls `ghCandidateList()` and reads the env, so the test
-     exercises production's own branch rather than a substitute.
-
-     ⚠️ ASYMMETRY, STATED HERE BECAUSE IT IS ONLY OBVIOUS FROM ONE SIDE: this
-     override treats '' as "no candidates", while AGENT_WORKFORCE_GH_BIN below treats
-     '' as "unset" (plain truthiness). `export FOO=$UNSET` produces an empty string
-     routinely. The directions differ and both are safe: here '' yields an empty scan,
-     there '' falls through to the candidate list. Noted at both sites.
-
-     📌 HISTORY, non-operative. This was headlined "`=== undefined`, NOT TRUTHINESS"
-     with a SECOND block below it correcting the rule to `typeof`. The headline
-     described a superseded implementation, and a reader takes the first sentence.
-     That is the stale-comment class this branch exists to fix, and `becomeStuck` was
-     reordered on exactly this reasoning ("the prominent one should be the true one")
-     less than an hour before this block was written the wrong way round. Folded so
-     there is one block whose first sentence is the shipped rule. */
-  if (typeof override !== 'string') return GH_CANDIDATES_DEFAULT;
-  return override.split(':').filter(Boolean);
-}
-
-/* gh presence, so ONE writer can branch on this object alone (her ruling:
-   the field keeps its name on this road too). Mirrors github.js's spec
-   candidates; the gh DOOR stays the authority on the gh road itself.
-
-   📌 MOVED BACK DOWN ONTO THE FUNCTION IT DOCUMENTS. The candidate-list block
-   above was inserted BETWEEN this comment and ghPresent, so it read as
-   documentation for the constant. That is the doc-comment-binds-by-position
-   hazard this branch documents elsewhere, committed by the person documenting
-   it. */
 function ghPresent() {
   // #1592: the byte-identical twin of devicedoor.js's lambda, which is why
   // fixing one file would not have found the other. Both now ask runners.
