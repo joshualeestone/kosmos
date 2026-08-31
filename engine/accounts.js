@@ -438,5 +438,90 @@ function nextWorkDir() {
    accounts sharing MEMORY and the collision of names would be a nasty one. */
 const listLive = inflight.collapse(listLiveNow);
 
-module.exports = { list, listLive, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+const FORGOTTEN_PREFIX = '.removed-claude-';
+
+/**
+ * Take a Claude account off the list (#1659).
+ *
+ * The Claude half of the OpenAI removal shipped in #1372. Same act, same shape,
+ * same refusal, deliberately: two buttons sitting in one row builder, under one
+ * word, must not mean two different things depending on a provider the person
+ * is not thinking about.
+ *
+ * 🔑 IT FORGETS RATHER THAN DELETES. The directory is renamed out of the way, so
+ * the sign-in file is still on this computer and a removal is recoverable by
+ * somebody who knows where to look. "Removed" and "deleted" are different
+ * promises and the caller is told which one it got.
+ *
+ * 🛑 THE DEFAULT ACCOUNT IS REFUSED, AND THIS IS THE ONE PLACE THE CLAUDE SIDE
+ * IS NOT A MIRROR OF THE OPENAI SIDE. `forgetAccount` on `.codex` moves a codex
+ * home and nothing else points at it. `~/.claude` is not only this account's
+ * credential store: `prepare()` symlinks EVERY account Kosmos makes at
+ * `~/.claude/projects`, so renaming it strands the transcripts of accounts that
+ * are not being removed. Measured on the fleet machine: two other accounts had
+ * both `projects` AND `settings.json` linked into it.
+ * ⇒ Removing the default would break accounts the person did not touch, which
+ * fails in the quiet direction and is not reversible by the button that did it.
+ * The refusal names the way forward rather than being a dead end.
+ */
+function forgetAccount(dir, usedBy) {
+  const home = path.resolve(homeDir());
+  const clean = path.resolve(String(dir == null ? '' : dir));
+  const base = path.basename(clean);
+
+  /* Only ever a Claude account directly inside this computer's home. A path
+     from anywhere else is not ours to move, and saying so beats moving it. */
+  if (path.dirname(clean) !== home || !(base === '.claude' || base.startsWith('.claude-'))) {
+    return { ok: false, forgotten: false, because: 'that is not a Claude account on this computer' };
+  }
+
+  if (base === '.claude') {
+    return {
+      ok: false,
+      forgotten: false,
+      because: 'That is this computer\u2019s main Claude folder. The other accounts here keep '
+        + 'their history inside it, so removing it would take theirs too. Remove the other '
+        + 'accounts first, or sign out of this one instead.',
+    };
+  }
+
+  /* 🛑 REFUSED WHILE AN AGENT IS ON IT, AND THE AGENTS ARE NAMED. The agent's
+     launch file points at this directory by absolute path, so the refusal is
+     not politeness, it is what makes the rename safe. And a refusal a person
+     cannot act on is a dead end: they need to know WHICH agents. */
+  const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
+  if (agents.length) {
+    return {
+      ok: false,
+      forgotten: false,
+      usedBy: agents,
+      because: agents.length === 1
+        ? `${agents[0]} is running on this account. Move it to another account or remove it first.`
+        : `${agents.length} agents are running on this account: ${agents.join(', ')}. `
+          + 'Move them to another account or remove them first.',
+    };
+  }
+
+  if (!fs.existsSync(clean)) {
+    return { ok: true, forgotten: false, because: 'that account is already gone from this computer' };
+  }
+
+  const label = base.slice('.claude-'.length);
+  let target = path.join(home, FORGOTTEN_PREFIX + label);
+  /* A second removal of the same label must not clobber the first one\u2019s
+     credential, which would delete the thing this function exists not to
+     delete. */
+  for (let n = 2; fs.existsSync(target) && n < 500; n += 1) {
+    target = path.join(home, `${FORGOTTEN_PREFIX}${label}-${n}`);
+  }
+  if (fs.existsSync(target)) {
+    return { ok: false, forgotten: false, because: 'we could not find a free name to move that account to' };
+  }
+  try { fs.renameSync(clean, target); }
+  catch { return { ok: false, forgotten: false, because: 'we could not move that account out of the way' }; }
+
+  return { ok: true, forgotten: true, movedTo: target, wasDefault: false, because: null };
+}
+
+module.exports = { list, listLive, forgetAccount, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };

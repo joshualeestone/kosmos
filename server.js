@@ -3279,6 +3279,91 @@ const server = http.createServer((req, res) => {
    * something a person chooses, not a side effect of picking a name in a
    * dropdown.
    */
+  /**
+   * Forget a Claude account (#1659).
+   *
+   * The Claude half of #1372. Josh, 2026-08-31: the button said "Disconnect is
+   * not built." It said so honestly -- the old title read "no way to tell agents
+   * on it to stop first" -- but that stopped being true when the OpenAI route
+   * shipped the enumeration. This is the same route for the other provider.
+   *
+   * ⭐ THE COUPLING LIVES HERE FOR THE SAME REASON IT DOES ABOVE. `accounts`
+   * cannot ask which agents are on a directory without requiring `create.js`,
+   * which requires it back. The route knows both.
+   *
+   * 🛑 THE ENUMERATION FAILS CLOSED, and that is inherited rather than
+   * rediscovered: Renet Tilley's review of #1447 caught the OpenAI version
+   * treating a null roster as "nobody is on it", which made an unreadable fleet
+   * into permission to rename a directory out from under a running agent. His
+   * sentence for it was AMBIGUITY WAS SILENTLY NONE. A Claude route written
+   * from the card alone would have had that bug, so it is copied deliberately.
+   *
+   * 📌 A CLAUDE JOB ON THE DEFAULT ACCOUNT CARRIES `configDir: null`
+   * (`create.js:769` writes `acct.isDefault ? null : acct.dir`), which is why
+   * absence falls back to the isDefault comparison rather than reading as "no
+   * account". And `readJob` normalises a MISSING runner to 'claude', because
+   * every plist written before runners existed carries no ninth argument -- so
+   * the filter below cannot silently skip an old Claude agent.
+   */
+  if (pathname === '/api/accounts/claude' && req.method === 'DELETE') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const dir = body && typeof body.dir === 'string' ? body.dir : '';
+        if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+
+        let isDefault = false;
+        try { isDefault = accounts.isDefaultDir(dir); } catch { isDefault = false; }
+
+        const roster = safeRoster();
+        let complete = roster !== null;
+        const usedBy = [];
+        for (const a of (roster || [])) {
+          let job = null;
+          try { job = create.readJob(a.sessionName); }
+          catch { complete = false; continue; }
+          if (!job) {
+            let absent = true;
+            try { absent = create.jobMissing(a.sessionName); } catch { absent = false; }
+            if (!absent) complete = false;
+            continue;
+          }
+          if (job.runner !== 'claude') continue;
+          const home = job.configDir || null;
+          let onIt = false;
+          try { onIt = home ? path.resolve(home) === path.resolve(dir) : isDefault; }
+          catch { complete = false; continue; }
+          if (onIt) usedBy.push(a.sessionName);
+        }
+        if (!complete) {
+          sendJson(res, 400, {
+            error: 'we could not check which agents are running, so nothing was changed',
+            usedBy: [],
+          });
+          return;
+        }
+
+        const out = accounts.forgetAccount(dir, usedBy);
+        if (!out.ok) {
+          sendJson(res, 400, { error: out.because, usedBy: out.usedBy || [] });
+          return;
+        }
+        /* "Removed" and "deleted" are different promises and the person is
+           entitled to know which one they got. */
+        sendJson(res, 200, {
+          forgotten: out.forgotten === true,
+          because: out.forgotten
+            ? 'That account is off the list. Its sign-in file is still on this computer, '
+              + 'so nothing was deleted.'
+            : 'That account was already gone from this computer.',
+          accounts: accounts.list(),
+        });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   if (pathname === '/api/accounts/share' && req.method === 'POST') {
     readBody(req)
       .then((raw) => {

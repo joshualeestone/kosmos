@@ -13315,11 +13315,10 @@ async function paintAccounts() {
        below is unaffected: that is the account's organisation, a different fact. */
     /* #770 (Josh, 2026-08-24 22:31): one box per account, a green
        Connected mark, a Disconnect link at the bottom that asks first.
-       ⚠️ DISCONNECT IS DISABLED, not wired to a confirm modal that opens
-       onto nothing: the engine has no route that ends an account's
-       connection yet (only `accounts.list()`/`share`, which read and
-       relink history -- neither closes anything), so a live button here
-       would be exactly the "nothing that looks live may do nothing"
+       ✅ DISCONNECT IS LIVE (#1659). It was disabled here for as long as
+       the engine had no route that ended an account's connection, which was
+       the honest state rather than a gap: a live button opening onto nothing
+       is exactly the "nothing that looks live may do nothing"
        shape this file already refuses for the external-person/agent
        doors. Wire the modal when that route exists. */
     /* #881: THREE STATES, NOT A HARDCODED ONE. This badge used to be
@@ -13370,14 +13369,21 @@ async function paintAccounts() {
       + '</b>' + qualTag + org + '</div>'
       + connBadge + '</div>'
       + shared
-      /* 🛑 LIVE FOR OPENAI (#1372), STILL DEAD FOR CLAUDE (#1184), AND THE
-         SPLIT IS DELIBERATE. The old title said disconnecting "has no way to
-         tell agents on it to stop first". For OpenAI that is now FALSE: the
-         route enumerates the agents on an account and REFUSES while any is on
-         it, NAMING them. For Claude nothing has changed, so its button keeps
-         the honest dead label rather than inheriting a capability it does not
-         have. Two providers, two states, one row builder; the wrong move is to
-         enable both because one of them works. */
+      /* ✅ LIVE FOR BOTH PROVIDERS (#1372 OpenAI, #1659 Claude). Each route
+         enumerates the agents on an account and REFUSES while any is on it,
+         NAMING them, so the old "has no way to tell agents on it to stop first"
+         is false on both sides now.
+         📌 THE SPLIT THAT USED TO BE HERE WAS RIGHT WHILE IT LASTED and the
+         reason is worth keeping: two providers were in two states, and the
+         wrong move would have been enabling both because one of them worked.
+         What changed is that the Claude half was built, not that the rule
+         relaxed.
+         ⚠️ THE TWO ARE NOT IDENTICAL, and the difference is one refusal.
+         `accounts.forgetAccount` REFUSES THE DEFAULT `~/.claude`, which its
+         OpenAI counterpart allows for `.codex`. `prepare()` symlinks every
+         account Kosmos makes at `~/.claude/projects`, so moving the default
+         strands the history of accounts that are not being removed. The words
+         differ; the act does not. */
       /* 🛑 A WAY BACK INTO AN ACCOUNT YOU ALREADY HAVE (#1492). Josh's sister's
          Claude login expired, Settings correctly said not connected, and the only
          affordance on the screen was "Add a provider" -- which signs in to a NEW
@@ -13401,10 +13407,12 @@ async function paintAccounts() {
           + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>')
       + (isOpenai
         ? '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
+          + 'data-forget-provider="openai" '
           + 'aria-label="Remove ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '">Remove</button>'
-        : '<button class="acct-disconnect" type="button" disabled '
+        : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
+          + 'data-forget-provider="claude" '
           + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
-          + 'title="Not built yet: disconnecting an account here has no way to tell agents on it to stop first">Disconnect</button>')
+          + 'title="Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted.">Disconnect</button>')
       + '</div>';
   };
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
@@ -13431,7 +13439,12 @@ async function paintAccounts() {
       btn.disabled = true;
       if (msg) msg.textContent = '';
       try {
-        const res = await fetch('/api/accounts/openai', {
+        /* #1659: ONE handler, two providers. The endpoint is the only
+           difference, and it is read off the button rather than branched on
+           here, so the two rows cannot drift apart in behaviour -- which is the
+           thing that made this card necessary in the first place. */
+        const provider = btn.dataset.forgetProvider === 'claude' ? 'claude' : 'openai';
+        const res = await fetch('/api/accounts/' + provider, {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ dir: btn.dataset.forget }),
