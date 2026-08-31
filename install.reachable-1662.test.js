@@ -186,6 +186,19 @@ async function reachable(url) {
   return stdout.trim();
 }
 
+/* 🛑 THE HELPER ABOVE COLLAPSES 1 AND 2, WHICH IS THE WHOLE POINT OF THIS ONE.
+   `if reachable; then YES else NO` cannot see the difference between "could not
+   connect" and "answered but served no download", and the GUARD arms stub
+   reachable() to a chosen verdict. So both halves were tested against
+   themselves and never joined: deleting the status-2 lines from setup.sh left
+   every arm in this file green while making the new sentence unreachable. That
+   is exactly the dead-code defect this card exists to remove, one layer up. */
+async function reachableStatus(url) {
+  const script = `set -euo pipefail\n${FN[0]}\nrc=0; reachable "$1" || rc=$?; echo "$rc"\n`;
+  const { stdout } = await run('sh', ['-c', script, 'sh', url], { encoding: 'utf8' });
+  return stdout.trim();
+}
+
 test('#1662: the extraction actually found the shipped function', () => {
   assert.ok(FN, 'reachable() could not be extracted from install/setup.sh, so this file measured nothing');
 });
@@ -268,6 +281,45 @@ test('#1662: a MISSING file:// path is refused, so the file:// arm has a failing
       + 'nothing, because the predicate would be saying YES regardless of whether the artifact '
       + 'exists, and tools/test-install.sh would march on into a download that cannot succeed');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+/* ---- JOINING THE TWO HALVES ------------------------------------------------
+ * Everything else either collapses the status (the YES/NO harness) or invents
+ * it (the guard harness stubs reachable). These arms run the REAL predicate and
+ * read the REAL number, so the sentence-picking above is connected to something
+ * that actually produces the value it switches on. */
+test('#1662: the REAL reachable() returns 2 when the server answered but sent no download', async () => {
+  assert.equal(await reachableStatus(`${base}/html200`), '2',
+    'an origin that answers 200 with HTML must yield status 2. If this is 1, every guard prints '
+    + '"Check your internet connection" for a server that answered perfectly well, and the '
+    + 'status-2 sentence is dead code that only the stubbed guard arms can reach.');
+});
+
+test('#1662: the REAL reachable() returns 2 for a hard 404, not just for a 2xx error page', async () => {
+  /* The site this installer ships against answers its own 404 with a 206 and an
+     HTML body, so rc is 0 there and status 2 was reached by luck of that
+     origin's shape. S3, R2 and GitHub Releases return a HARD 404, where -f
+     makes curl exit non-zero despite the request completing. Measured on a
+     GitHub Releases 404: exit 56, http_code 404. That is the MOST common
+     half-published-artifact signature and it was falling through to status 1. */
+  assert.equal(await reachableStatus(`${base}/gzip404.tar.gz`), '2',
+    'a hard 404 must be status 2: the server answered and told us the artifact is not there. '
+    + 'If this is 1 the user is told to check a connection that is working.');
+});
+
+test('#1662: the REAL reachable() returns 1 when nothing answered at all', async () => {
+  /* Port 1 on loopback: nothing listens, so the request never completes and
+     there is no http_code to read. This is the arm that keeps the 4xx rule
+     above from swallowing the genuine no-connection case. */
+  assert.equal(await reachableStatus('http://127.0.0.1:1/kosmos-arm64.tar.gz'), '1',
+    'a refused connection must stay status 1. If this is 2 the connection advice is unreachable '
+    + 'and every network failure is blamed on the release.');
+});
+
+test('#1662: the REAL reachable() returns 0 for a genuine download, so 0/1/2 are all pinned', async () => {
+  assert.equal(await reachableStatus(`${base}/real.tar.gz`), '0',
+    'CONTROL: a real gzip must be status 0. Without this the three arms above are consistent '
+    + 'with a predicate that never says yes.');
 });
 
 test('#1662: content-type matching is case-insensitive, per RFC 9110 section 8.3', async () => {
@@ -529,6 +581,12 @@ test('#1662: a CONNECTION failure and a SERVED-ERROR failure get different sente
       + `from a half-published CDN here, so naming one cause tells the other half of users `
       + `something false. Got: ${servedError}`);
     assert.doesNotMatch(servedError, /FELL-THROUGH/, `guard ${i} continued past a served-error NO`);
+    assert.doesNotMatch(servedError, /could not reach/,
+      `guard ${i}: the server DID answer, so "could not reach" contradicts the sentence printed `
+      + 'immediately after it. That pair shipped together for one iteration and read as two '
+      + 'different diagnoses of one failure');
+    assert.match(cannotConnect, /could not reach/,
+      `guard ${i}: a genuine connection failure should still say it could not reach the download`);
 
     /* The rc line only became observable once the harness stopped letting set -e
        abort on the failing call, so pin what it actually shows. BOTH cases
@@ -720,6 +778,21 @@ test('#1662: on a network base a false NO falls to the CACHE-BUSTED name, not th
     'a false NO on an http/https base must select the cache-busted unversioned url. If this is the '
     + 'bare name, the cost of a false NO at this probe is a STALE CACHE after all, and the comment '
     + `at setup.sh ("there is no collision to inherit") is wrong. Got: ${out}`);
+});
+
+/* The probe is `[ -n "$TARGET_VERSION" ] && reachable "..."`, and `&&` treats
+   ANY non-zero as false, so status 2 must select the same url as status 1. That
+   is the claim the status-2 change rests on ("no control flow moves anywhere"),
+   and it was asserted nowhere: runProbe had only ever been called with 0 and 1.
+   By this file's own standard a component with no exercised case is unasserted. */
+test('#1662: status 2 selects the same fallback as status 1, so the new status moves no control flow', async () => {
+  const two = await runProbe(2, { bust: 'yes' });
+  const one = await runProbe(1, { bust: 'yes' });
+  assert.equal(two, one,
+    `status 2 must pick the same url as status 1. If these differ, adding the status changed which `
+    + `artifact gets downloaded, which the installer comment explicitly promises it does not. `
+    + `two=${two} one=${one}`);
+  assert.match(two, /kosmos-arm64\.tar\.gz\?v=9\.9\.9$/, `and it must still be the cache-busted name. Got: ${two}`);
 });
 
 test('#1662: with no TARGET_VERSION the probe is skipped and the bust value is still present', async () => {

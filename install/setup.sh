@@ -599,8 +599,13 @@ reachable() {
   # and it lands exactly on the fallback's reason for existing: a 405 on HEAD.
   # The call sites are named by their surrounding code above rather than by
   # position, because nothing checks a line number in a comment.
-  local _r_ct _r_rc
-  _r_ct=$(curl -fsIL -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
+  local _r_ct _r_rc _r_out _r_code
+  # %{http_code} FIRST because a content type contains spaces ("text/html;
+  # charset=utf-8") and a status code never does, so the split is unambiguous.
+  _r_out=$(curl -fsIL -m 15 -o /dev/null -w '%{http_code} %{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
+  _r_code=${_r_out%% *}; _r_ct=${_r_out#* }
+  case "$_r_code" in ''|*[!0-9]*) _r_code=0 ;; esac
+  case "$_r_out" in *' '*) ;; *) _r_ct='' ;; esac
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   # 📌 This arm also runs when HEAD SUCCEEDED with a textual type, where the
   # pre-#1662 code reached it only after a HEAD failure. Kept because refusing
@@ -659,8 +664,11 @@ reachable() {
   # `text/html`), so mapping it to 0 hands the decision to the type rule rather
   # than short-circuiting it: a 5MB gzip is accepted, a 5MB HTML page is still
   # refused.
-  _r_ct=$(curl -fsL -r 0-0 -m 15 --max-filesize 1048576 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
+  _r_out=$(curl -fsL -r 0-0 -m 15 --max-filesize 1048576 -o /dev/null -w '%{http_code} %{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   [ "$_r_rc" = 63 ] && _r_rc=0
+  _r_code=${_r_out%% *}; _r_ct=${_r_out#* }
+  case "$_r_code" in ''|*[!0-9]*) _r_code=0 ;; esac
+  case "$_r_out" in *' '*) ;; *) _r_ct='' ;; esac
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   # 🛑 TWO DIFFERENT FAILURES, TWO DIFFERENT STATUSES, because they need
   # different sentences. rc 0 here means the origin ANSWERED and served
@@ -678,6 +686,14 @@ reachable() {
   # identically, so this changes no control flow anywhere. It only lets a caller
   # pick its sentence.
   [ "$_r_rc" = 0 ] && return 2
+  # 🛑 AN HTTP ERROR IS ALSO THE SERVER ANSWERING, AND rc ALONE MISSES IT. `-f`
+  # makes curl exit non-zero on a 4xx even though the request COMPLETED, so
+  # testing rc covered only origins whose error page answers 2xx (this site's
+  # 404 replies 206 with its own HTML, which is why the arms passed). S3, R2 and
+  # GitHub Releases return a HARD 404 for a not-yet-published object, the most
+  # common half-published shape, and those fell through to "check your internet
+  # connection". Measured: a GitHub Releases 404 gives exit 56, http_code 404.
+  [ "$_r_code" -ge 400 ] && return 2
   return 1
 }
 
@@ -737,10 +753,12 @@ fetch_tmux() {
     # bar, which lives on stderr and cannot be silenced without losing it.
     local _r_why=0; reachable "$url" || _r_why=$?
     if [ "$_r_why" != 0 ]; then
-      info "could not reach the download at $url"
       if [ "$_r_why" = 2 ]; then
+        # NOT "could not reach": the server answered. Saying both contradicts itself.
+        info "the download at $url is not usable"
         info "The server answered but did not send an installable file. Either the release is still publishing, or something on your network is intercepting the request. Wait a few minutes and paste the install line again."
       else
+        info "could not reach the download at $url"
         info "Check your internet connection and paste the install line again; it is safe to re-run."
       fi
       rm -rf "$stage"; return 1
@@ -814,10 +832,12 @@ install_kosmos() {
     fi
     local _r_why=0; reachable "$url" || _r_why=$?
     if [ "$_r_why" != 0 ]; then
-      info "could not reach the download at $url"
       if [ "$_r_why" = 2 ]; then
+        # NOT "could not reach": the server answered. Saying both contradicts itself.
+        info "the download at $url is not usable"
         info "The server answered but did not send an installable file. Either the release is still publishing, or something on your network is intercepting the request. Wait a few minutes and paste the install line again."
       else
+        info "could not reach the download at $url"
         info "Check your internet connection and paste the install line again; it is safe to re-run."
       fi
       rm -rf "$stage"; return 1

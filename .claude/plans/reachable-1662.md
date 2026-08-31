@@ -477,3 +477,52 @@ then, and make it print why it skipped rather than skipping quietly.
 reviewer raised it and explicitly did not ask for extraction, because the arms
 pin `GUARDS.length === 2` and a helper makes it a two-file change. The
 duplication predates this branch. Left alone.
+
+## Iteration 19
+
+**The case this card exists to fix was only half covered, and my own arms could
+not see it.** Both probes carry `-f`, which makes curl exit non-zero on a 4xx
+even though the request completed. So `_r_rc` was never 0 for a hard 404 and
+`reachable()` returned 1, printing "Check your internet connection" for an
+artifact that is simply not published yet.
+
+Status 2 was only ever reached by origins whose error page answers 2xx. This
+site's 404 replies 206 with its own HTML, which is exactly why every arm passed:
+**the fixture and the production origin share a shape that the standard case
+does not.** S3, R2 and GitHub Releases return a hard 404, and that is the most
+common half-published signature.
+
+Measured on real origins before and after: a GitHub Releases 404 gives exit 56
+with http_code 404, and now yields status 2 where it used to yield 1. Both
+probes capture `%{http_code}`, status first because a content type contains
+spaces and a status code never does.
+
+**The two halves of this feature were tested against themselves and never
+joined.** The YES/NO harness collapses 1 and 2 by construction, and the guard
+arms stub `reachable()` to a chosen verdict. So deleting the status-2 lines from
+the installer left every arm in the file green while making the new sentence
+unreachable. That is precisely the dead-code defect this card was opened to
+remove, one layer up, and I built it while removing the original.
+
+Added a status-returning harness and four arms pinning the real predicate: 0 for
+a real download, 1 for a refused connection, 2 for a 200 HTML body, 2 for a hard
+404. Verified by deleting both status-2 rules (two arms redden, previously zero)
+and by deleting only the http_code rule (exactly the hard-404 arm reddens).
+
+**The guard contradicted itself for one iteration.** On the status-2 path it
+printed "could not reach the download at $url" and then "The server answered but
+did not send an installable file". Two diagnoses of one failure, in consecutive
+lines. The first line now appears only where it is true, and an arm asserts both
+directions.
+
+**And the claim that the new status moves no control flow was unasserted.**
+`runProbe` had only ever been called with 0 and 1. Status 2 must select the same
+url as status 1, because `&&` treats any non-zero as false; that is now pinned.
+
+### Still deliberate, restated because a reviewer flagged it again
+
+The comment ratio in the `reachable()` region. Recorded as a decision in
+iteration 17 and unchanged. This reviewer independently spot-checked the factual
+claims in those comments (the seven `tr` call sites, the 13.5 floor, `BUST=yes`
+being set before `install_kosmos` runs) and found them accurate, which is the
+property that makes the comments worth their length.
