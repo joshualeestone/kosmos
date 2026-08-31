@@ -594,17 +594,25 @@ reachable() {
   _r_ct=$(curl -fsIL -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   # 📌 This arm also runs when HEAD SUCCEEDED with a textual type, where the
-  # pre-#1662 code reached it only after a HEAD failure. Kept deliberately,
-  # because refusing on a single mis-typed HEAD would be a false NO.
+  # pre-#1662 code reached it only after a HEAD failure. Kept because refusing
+  # on a single mis-typed HEAD would be a false NO, and there is an arm
+  # asserting it buys that.
   #
-  # ⚠️ AND THE COST IS BIGGER THAN "AN EXTRA REQUEST", WHICH IS HOW AN EARLIER
-  # VERSION OF THIS COMMENT UNDERSTATED IT. Against a hung origin BOTH probes
-  # run their full timeout: measured end to end at 30.3s, verdict NO. So the
-  # worst case is a doubled wait AND a refusal -- a false NO, the very
-  # direction this predicate's asymmetry argument says it does not trade into.
-  # It is accepted rather than optimised away because the alternative refuses a
-  # genuine tarball on one bad header, but the trade is 15s of extra waiting on
-  # a dead host, not merely some wasted bandwidth.
+  # ⚠️ THE COST, STATED THIRD TIME AND MEASURED ON BOTH ARMS, because the first
+  # two versions of this comment were both wrong. It is NOT the 30s hung-origin
+  # case: measured, the pre-#1662 predicate also ran both probes to full
+  # timeout there (HEAD times out, the `&&` falls through, the range GET runs),
+  # old 30s NO and new 30s NO, identical. And NO for a host that cannot be
+  # reached is the CORRECT answer, not a false one.
+  #
+  # The genuinely new cost is one extra request after a textual HEAD, normally
+  # fast. The real residual is narrower and worth naming: against an origin
+  # that IGNORES Range and answers 200 with the whole body, that request
+  # streams the tarball, and on a slow enough link `-m 15` expires and the
+  # predicate answers NO on a genuine download. That needs a mis-typed HEAD AND
+  # a Range-ignoring origin AND a slow link together. It is untested here: a
+  # faithful test would have to burn the full 15s timeout, which buys one
+  # narrow arm at the price of a slow and timing-dependent suite.
   _r_ct=$(curl -fsL -r 0-0 -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   return 1
