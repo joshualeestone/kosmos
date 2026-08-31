@@ -37,6 +37,17 @@
  * ⇒ Telling USE from MENTION by pattern is a parsing job, there is no parser
  * here, and nine passes of trying produced nothing but new holes.
  *
+ * ⭐⭐ THE DURABLE ARTIFACT OF THIS BRANCH IS NOT THIS GUARD. IT IS THE PROGRESSION
+ * OF ONE ASSERTION, THE CALL-SITE CHECK, WHICH WAS DEFEATED FOUR TIMES:
+ *
+ *     nested-delimiter blind   `writeState\({[^}]*X[^}]*}` cannot cross a `}`
+ *     form blind               `X\s*:\s*[^,}]+` misses shorthand and bracket keys
+ *     a count blind to a swap  delete a prose mention, add a hidden code line
+ *     no filter, no count, no form   key on `writeState`, a property of the CODE
+ *
+ * ⇒ EACH SHAPE WAS DEFEATED BY THE THING IT STILL TRIED TO CLASSIFY, AND IT
+ * STOPPED FALLING WHEN IT STOPPED CLASSIFYING. That generalises well past #1592.
+ *
  * ✅ SO THIS FILE NOW DOES TWO THINGS AND REFUSES A THIRD:
  *
  *   1. A SET SWEEP that strips NOTHING. Every line in the repo matching the weak
@@ -559,6 +570,22 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
 
      ⚠️ Its one gap, covered by the exact-text pin below: a multi-line writeState
      call with the property on its own line would have neither token together.
+
+     🛑 THE RESIDUAL, RECORDED AT ITS TRUE WEIGHT AND NOT AS A BLOCKER. Every
+     assertion here covers lines that SPELL the identifier. A reviewer defeated
+     that with a writer that never spells it: an obfuscated key built by
+     concatenation, a value stashed in a module variable, and the property merged
+     inside writeState itself. Three coordinated edits, deliberately avoiding both
+     the pinned line and connect.js:931.
+
+     ⇒ It is real and it is NOT a finding, and the reason matters more than the
+     demonstration. Every other defeat on this branch was reachable by an ordinary
+     edit: the shorthand was the code's own previous shape, the comment-closer is
+     a normal style, the per-key gap is a plain oversight, the prose-for-code swap
+     is a plausible commit. THIS ONE IS SOMEBODY TRYING TO HIDE. A guard catches
+     regressions and honest mistakes; no source assertion can beat concealment,
+     and calling it a blocker would be the overclaiming this file spent seventeen
+     review passes stamping out.
 
      📌 AND THE ATTACKING SHAPE IS DESCRIBED HERE, NEVER SHOWN, ON PURPOSE. A
      docblock cannot contain a comment closer without ending itself, and I broke
