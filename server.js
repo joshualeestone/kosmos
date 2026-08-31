@@ -3094,8 +3094,6 @@ const server = http.createServer((req, res) => {
        engine/accounts.js and this copy four lines above the rewritten block was
        missed, which is the drift this branch is about. The 5-second board-status
        tick still calls the plain, fast list() elsewhere in this file, untouched.
-       (That trailing clause was left dangling by the rewrite above, attached to
-       nothing, which is the same half-edited-comment defect this branch names.)
          🛑 THE INVARIANT IS THE JUSTIFICATION, NOT A LIST. An earlier version of
          this comment made a caller enumeration NORMATIVE ("this list is the
          justification, so it has to stay complete") and shipped INCOMPLETE the
@@ -3913,11 +3911,10 @@ const server = http.createServer((req, res) => {
    * listLive() rather than list(), the same trade `/api/accounts` documents:
    * this is a DEMAND-paced moment (an agent answering "what is connected?"),
    * never the 5-second tick.
-   * 🛑 "PERSON-PACED" until iteration 12, which was the word this same file
-   * retracted 30 lines above and again inside this very block ("THIS ROUTE IS
-   * NOT. It is called by AGENTS"). Three comments, one file, two answers about
-   * one route. The correction swept two of them and missed this one, which is
-   * the failure mode itself: a correction does not sweep by itself.
+   * ⚠️ DEMAND-paced, NOT person-paced, and the distinction is load-bearing only
+   * here: every other listLive() caller in this file is a hand on a screen, and
+   * this one is an agent. Anything reasoning about how often this route is hit
+   * must start from that.
    */
   if (pathname === '/api/agent/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
     /* The cost paragraphs below reason about AGENTS polling this route, and an
