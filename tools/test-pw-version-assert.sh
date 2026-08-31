@@ -9,6 +9,12 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 GATE="$REPO/tools/browser-checks.sh"
+# Hermetic: the version-assert fires AFTER the concurrent-browser-run refusal
+# (browser-checks.sh:86). If a real cut/board is live when this test runs (e.g.
+# during a release), that refusal would exit the gate BEFORE the assert and all
+# four cases would spuriously fail. Ignore the cut-guard here -- we drive a fake
+# runtime and never launch a browser, so there is nothing to contend with.
+export KOSMOS_HARNESS_IGNORE_CUT=1
 # Read the pin IDENTICALLY to browser-checks.sh (`\([^"]*\)`), so a pre-release
 # pin (e.g. 1.63.0-alpha) is captured whole and the matching-version control
 # below cannot spuriously read as drift.

@@ -244,7 +244,7 @@ log "Playwright: $PW_NODE_PATH"
 # would grab the last "version" in a minified file); PW_PKG is passed in env so a
 # path with odd characters cannot break the node expression.
 _pw_pin="$(sed -n 's/^PW_VERSION="\([^"]*\)".*/\1/p' "$REPO/tools/provision-pw.sh" 2>/dev/null | head -1)"
-_pw_got="$(PW_PKG="$PW_NODE_PATH/playwright/package.json" node -e "try{process.stdout.write(String(require(process.env.PW_PKG).version||''))}catch(e){}" 2>/dev/null)"
+_pw_got="$(PW_PKG="$PW_NODE_PATH/playwright/package.json" node -e "try{process.stdout.write(String(require(require('path').resolve(process.env.PW_PKG)).version||''))}catch(e){}" 2>/dev/null)"
 if [ -z "$_pw_pin" ] || [ -z "$_pw_got" ]; then
   # Cannot VERIFY the pin. Loud, and under STRICT a hard stop (unverified is not pinned).
   if [ -z "$_pw_pin" ]; then _why="could not read PW_VERSION from tools/provision-pw.sh"; else _why="could not read the resolved Playwright's version"; fi
