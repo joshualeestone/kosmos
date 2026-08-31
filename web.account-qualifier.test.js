@@ -102,9 +102,20 @@ test('the Disconnect control carries the qualifier, escaped, because that is the
     'the Disconnect button either dropped the qualifier (two of them answer to one name again) or stopped escaping it (a directory name with a quote breaks out of the attribute)');
 });
 
-test('the Remove control carries it too, escaped, or the OpenAI arm keeps the whole defect', () => {
-  assert.match(PAGE, /aria-label="Remove ' \+ who \+ \(qual \? ' \(' \+ esc\(qual\) \+ '\)' : ''\)/,
-    'the Remove button either names itself by login alone (two OpenAI rows sharing a key tail give two controls called "Remove API key ending ...") or interpolates the qualifier unescaped into the attribute');
+/* 🔑 #1659 RELABELLED THE OPENAI CONTROL FROM "Remove" TO "Disconnect", so this
+   arm can no longer name its branch by its label: all three controls (OpenAI,
+   the live Claude row, and the DISABLED default row) now read "Disconnect".
+   ⇒ IT COUNTS INSTEAD. Every acct-disconnect button must carry the qualifier,
+   so a branch added or edited without it drops the count and this goes red --
+   which is the property the original two-arm version was protecting, kept
+   rather than weakened into a single match that any one branch could satisfy. */
+test('EVERY Disconnect control carries the qualifier, escaped, or one branch keeps the whole defect', () => {
+  const qualified = (PAGE.match(/aria-label="Disconnect ' \+ who \+ \(qual \? ' \(' \+ esc\(qual\) \+ '\)' : ''\)/g) || []).length;
+  const controls = (PAGE.match(/class="acct-disconnect"/g) || []).length;
+  assert.ok(controls >= 3,
+    `expected the three disconnect branches (OpenAI, live Claude, disabled default); found ${controls}`);
+  assert.equal(qualified, controls,
+    `${controls - qualified} disconnect control(s) name themselves by login alone (two rows sharing a key tail give two controls with one name) or interpolate the qualifier unescaped into the attribute`);
 });
 
 /* Angel's review, kept as an arm rather than a comment. The map was keyed on the

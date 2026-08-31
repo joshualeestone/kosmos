@@ -3314,6 +3314,22 @@ const server = http.createServer((req, res) => {
         let isDefault = false;
         try { isDefault = accounts.isDefaultDir(dir); } catch { isDefault = false; }
 
+        /* ⚠️ THE REFUSAL ONLY SEES AGENTS THAT ARE RUNNING, AND THAT BOUNDARY
+           IS STATED HERE RATHER THAN LEFT TO BE DISCOVERED. `safeRoster()`
+           reads `status.snapshot()`, whose agents are `listPanes()` plus
+           `panelessKeys()`, and `panelessKeys` requires `liveness.alive(key)`.
+           So an agent that EXISTS but is stopped keeps a launch file naming
+           this config dir and is invisible to this loop: removal proceeds, and
+           its next start points CLAUDE_CONFIG_DIR at a directory that has been
+           renamed away.
+           🛑 IT LANDS HARDER ON CLAUDE THAN ON OPENAI, because transcripts live
+           under the config directory, so that agent comes up signed out AND
+           with a blank history -- the shape this module's own header names:
+           "It looks like a working agent and behaves like a blank one."
+           📌 Inherited from the OpenAI route, not introduced here, and not
+           fixed here: closing it means enumerating agents from their launch
+           files rather than from the live roster, which is a different card.
+           Named so the next person meets it as a known boundary. */
         const roster = safeRoster();
         let complete = roster !== null;
         const usedBy = [];
@@ -3355,6 +3371,9 @@ const server = http.createServer((req, res) => {
             ? 'That account is off the list. Its sign-in file is still on this computer, '
               + 'so nothing was deleted.'
             : 'That account was already gone from this computer.',
+          /* Carried for diffability with the OpenAI route. The page repaints
+             through GET /api/accounts, which uses listLive(), so no caller
+             reads this: it is a second, non-live derivation of the same list. */
           accounts: accounts.list(),
         });
       })

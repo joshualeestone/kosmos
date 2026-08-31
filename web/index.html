@@ -13411,9 +13411,14 @@ async function paintAccounts() {
           + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
           + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>')
       + (isOpenai
+        /* 🔑 ONE WORD FOR ONE ACT (#1659). This said "Remove" while the Claude
+           row said "Disconnect", for the same act in the same row builder --
+           the exact divergence this card exists to close, one layer up from
+           the handler. "Disconnect" is the operator's own word for it. The
+           engine, the route and the sentence are unchanged; only the label is. */
         ? '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
           + 'data-forget-provider="openai" '
-          + 'aria-label="Remove ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '">Remove</button>'
+          + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '">Disconnect</button>'
         : (a.isDefault
           /* 🛑 THE DEFAULT ROW GETS A DISABLED BUTTON, BECAUSE THE ENGINE
              REFUSES IT. `accounts.forgetAccount` will not move `~/.claude`:
@@ -13426,7 +13431,7 @@ async function paintAccounts() {
              it cannot perform. The title states the refusal and the way out. */
           ? '<button class="acct-disconnect" type="button" disabled '
             + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
-            + 'title="This is this computer\u2019s main Claude folder. The other accounts here keep their history inside it, so it cannot be removed. Remove the others first, or sign out of this one instead.">Disconnect</button>'
+            + 'title="This is this computer\u2019s main Claude folder. The other accounts here keep their history inside it, so removing it would take theirs too. Remove the other accounts first, or sign out of this one instead.">Disconnect</button>'
           : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
             + 'data-forget-provider="claude" '
             + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '

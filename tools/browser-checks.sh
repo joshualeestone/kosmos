@@ -582,7 +582,22 @@ cat > "$sb4/fake-claude" <<'FAKE'
 # command answers {"loggedIn": false, "authMethod": "none"} and exits 1;
 # both halves are copied here, per the repo's fixture-discipline rule that a
 # fixture is a capture and not a guess.
-[ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
+# 🛑 SIGNED IN FOR THE SEEDED ACCOUNTS, NOT SIGNED IN FOR ANYTHING ELSE (#1659).
+# This answered "not signed in" unconditionally, which was the honest fixture
+# WHILE this sandbox had no Claude account. It now seeds two, and an
+# unconditional false renders "Anthropic says this account is not signed in"
+# in their badges -- lowercase "signed in", which the case-sensitive /Signed in/
+# arm does NOT match. Seeding an account would then have turned a passing check
+# red for a reason having nothing to do with what that arm tests.
+# ⚠️ THE DEFAULT ACCOUNT ARRIVES WITH CLAUDE_CONFIG_DIR UNSET, because create.js
+# writes `acct.isDefault ? null : acct.dir`. So "unset" IS the default row, and
+# it is answered signed-in on purpose rather than by omission.
+[ "$1" = auth ] && [ "$2" = status ] && {
+  case "${CLAUDE_CONFIG_DIR:-DEFAULT}" in
+    DEFAULT|*/.claude-walk) echo '{"loggedIn": true, "authMethod": "claudeai"}'; exit 0;;
+    *) echo '{"loggedIn": false, "authMethod": "none"}'; exit 1;;
+  esac
+}
 exit 0
 FAKE
 chmod +x "$sb4/fake-claude"
@@ -595,6 +610,10 @@ write_fleet "$sb4"
 # purpose: the default row's button is deliberately disabled (the engine
 # refuses to move ~/.claude), so seeding only the default would leave the live
 # control untested for a second time.
+# The DEFAULT account too, so the row every user sees is rendered and its
+# deliberately-disabled Disconnect is exercised. list() emits the default from
+# home/.claude.json, which is where configFile() puts it.
+printf '{"oauthAccount":{"emailAddress":"main@example.com"}}' > "$sb4/home/.claude.json"
 mkdir -p "$sb4/home/.claude-walk"
 printf '{"oauthAccount":{"emailAddress":"walk@example.com"}}' > "$sb4/home/.claude-walk/.claude.json"
 # A stand-in for api.openai.com/v1/models (#962): the badge now checks a key

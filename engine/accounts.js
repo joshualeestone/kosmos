@@ -522,7 +522,7 @@ function forgetAccount(dir, usedBy) {
 
   const label = base.slice('.claude-'.length) || 'unnamed';
   let target = path.join(home, FORGOTTEN_PREFIX + label);
-  /* A second removal of the same label must not clobber the first one\u2019s
+  /* A second removal of the same label must not clobber the first one's
      credential, which would delete the thing this function exists not to
      delete. */
   for (let n = 2; fs.existsSync(target) && n < 500; n += 1) {

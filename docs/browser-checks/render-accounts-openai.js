@@ -168,8 +168,8 @@ let failed = 0;
   })));
   const openaiDoors = doors.filter((g) => /OpenAI/.test(g.provider) && !/Codex/.test(g.provider)).flatMap((g) => g.buttons);
   const otherDoors = doors.filter((g) => !/OpenAI/.test(g.provider)).flatMap((g) => g.buttons);
-  say('the OpenAI account offers a live Remove (#1372)',
-    openaiDoors.length > 0 && openaiDoors.every((b) => !b.disabled && b.forgets && /^Remove$/.test(b.label)),
+  say('the OpenAI account offers a live Disconnect (#1372, relabelled #1659)',
+    openaiDoors.length > 0 && openaiDoors.every((b) => !b.disabled && b.forgets && /^Disconnect$/.test(b.label)),
     JSON.stringify(doors));
   /* Reported, not asserted: this fixture adds no Claude account, so the Claude arm
      has nothing to say here and a silent pass would claim that it did.
@@ -178,10 +178,24 @@ let failed = 0;
      file, armed and waiting on whoever first seeded a Claude account. It now
      asserts the LIVE control, so it fails if the button reverts to dead. */
   if (otherDoors.length === 0) {
-    console.log('NOTE  no non-OpenAI account in this fixture; the Claude live-Disconnect arm was not exercised');
+    console.log('NOTE  no non-OpenAI account in this fixture; the Claude Disconnect arms were not exercised');
   } else {
+    /* 🛑 TWO STATES ON ONE PROVIDER, ASSERTED SEPARATELY (#1659). The default
+       row's button is deliberately DISABLED (the engine refuses to move
+       ~/.claude, because prepare() symlinks every account's projects into it);
+       every other row is live. A single blanket arm over `otherDoors` would
+       pass on either state alone and could not tell them apart -- which is the
+       vacuity this file has already been bitten by three times.
+       📌 A LENGTH FLOOR ON EACH, not `some`: with two Claude rows seeded, a
+       bare `some` passes on one good button standing beside a broken one. */
+    const claudeLive = otherDoors.filter((b) => b.forgets);
+    const claudeDead = otherDoors.filter((b) => !b.forgets);
     say('a non-default Claude account offers a live Disconnect (#1659)',
-      otherDoors.some((b) => !b.disabled && b.forgets && /^Disconnect$/.test(b.label)), JSON.stringify(otherDoors));
+      claudeLive.length > 0 && claudeLive.every((b) => !b.disabled && /^Disconnect$/.test(b.label)),
+      JSON.stringify(otherDoors));
+    say('the DEFAULT Claude account\'s Disconnect is disabled, not live (#1659)',
+      claudeDead.length > 0 && claudeDead.every((b) => b.disabled && /^Disconnect$/.test(b.label)),
+      JSON.stringify(otherDoors));
   }
   // Create form: OpenAI provider -> account menu offers the new account
   await p.goto(BASE + '/?tab=create', { waitUntil: 'load' });
