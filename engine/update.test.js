@@ -503,3 +503,97 @@ test('#1277: stopping a poll that never started is safe', () => {
   update.stopAutoPoll();
   assert.equal(update.autoPollRunning(), false);
 });
+
+/* ---- iteration 1 findings: cadence, the env floor, the fetch gate, the reset ----
+ * Each of these was a real defect found by review, and each has an arm because
+ * a fix nobody drives is the same shape as the bug this card is about.
+ */
+test('#1277: the poll tick stays small against TTL, so a missed boundary costs little', () => {
+  const u = require('./update');
+  /* The module docblock says firing AT TTL doubles the cadence. 5 minutes is
+     "well inside" 15 and still lands EXACTLY on the boundary every third tick,
+     which is the same failure by a different route: measured at 5, 25, 45, 65,
+     a 20-minute cadence from a 15-minute TTL, and a REACHABLE host polled less
+     often than an unreachable one. The property that matters is alignment. */
+  /* Read off a STARTED timer rather than an exported constant. Exporting the
+     constant purely so this arm could see it created an export that is tested,
+     excused by nobody, and reachable from nowhere, which is the #265 signature
+     the repo's own engine.reachable guard exists to catch. It caught me in the
+     full suite while the single-file run stayed green. */
+  u.resetCache();
+  const t = u.startAutoPoll();
+  const interval = t && (t._repeat || t._idleTimeout);
+  u.stopAutoPoll();
+  assert.ok(interval > 0, 'could not read the default interval off the started timer');
+  /* 🛑 THE PROPERTY IS GRANULARITY, NOT DIVISIBILITY, AND I ASSERTED THE WRONG
+     ONE FIRST. My first version of this arm required the interval not to divide
+     TTL; it went red on 60s, which divides 900s exactly and is nonetheless
+     fine. A boundary tick is ALWAYS missed by epsilon, so the real cost is one
+     whole tick, and what matters is how big that tick is: 5 minutes stretched
+     15 to 20 (+33%), 60 seconds stretches it to 16 (+7%). Bounding the
+     overshoot is the honest invariant; the arm taught me that by failing. */
+  assert.ok(interval <= u.TTL / 10,
+    `a missed boundary costs one whole tick, so ${interval}ms against a ${u.TTL}ms TTL can stretch `
+    + `the real cadence by ${Math.round((interval / u.TTL) * 100)}%. Keep the tick small relative `
+    + 'to TTL so the gate, not the tick, decides when the host is asked');
+});
+
+test('#1277: the poll interval env var has a floor, so =1 cannot spin the machine', () => {
+  const u = require('./update');
+  u.resetCache();
+  const prev = process.env.AGENT_WORKFORCE_UPDATE_POLL_MS;
+  process.env.AGENT_WORKFORCE_UPDATE_POLL_MS = '1';
+  try {
+    const t = u.startAutoPoll();
+    const ms = t && (t._repeat || (t._idleTimeout));
+    assert.ok(ms >= 1000,
+      `an interval of ${ms}ms got through. The variable is live in production with no validation, `
+      + 'so =1 would spin installedRoot() a thousand times a second on an unattended machine');
+  } finally {
+    u.stopAutoPoll();
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_UPDATE_POLL_MS;
+    else process.env.AGENT_WORKFORCE_UPDATE_POLL_MS = prev;
+  }
+});
+
+test('#1277: DRY_RUN stops the FETCH but leaves the timer, so the suite cannot install', async () => {
+  /* Sixteen test files boot the real server, so all of them start this poll
+     against the real fetch and the real release host. The only thing that kept
+     the suite off the network was installedRoot() returning null because a
+     checkout is not an installed layout, which is incidental: from an installed
+     app directory that guard goes truthy, the default-on preference passes, and
+     a test run can spawn a real curl-pipe-sh installer.
+
+     The gate is on the FETCH, not the timer, because the wiring guard in
+     server.update-poll-1277.test.js asks whether the poll is running. */
+  const u = require('./update');
+  u.resetCache();
+  let fetches = 0;
+  u.setFetcher(async () => { fetches += 1; return { ok: true, json: async () => ({ version: '9.9.9' }) }; });
+  u.setInstalledRoot(() => '/tmp/pretend-installed');
+  const prev = process.env.AGENT_WORKFORCE_DRY_RUN;
+  process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+  try {
+    u.startAutoPoll({ every: 1000 });
+    assert.equal(u.autoPollRunning(), true,
+      'the TIMER must still run under DRY_RUN, or the wiring assertion this card exists for cannot see it');
+    await new Promise((r) => setTimeout(r, 2400));
+    assert.equal(fetches, 0,
+      `the poll fetched ${fetches} time(s) under DRY_RUN with a truthy installedRoot. That is the `
+      + 'shape where a test run reaches the real release host and can start a real installer');
+  } finally {
+    u.stopAutoPoll();
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_DRY_RUN; else process.env.AGENT_WORKFORCE_DRY_RUN = prev;
+    u.setFetcher(null); u.setInstalledRoot(null); u.resetCache();
+  }
+});
+
+test('#1277: resetCache stops the poll, so a reset means what its name says', () => {
+  const u = require('./update');
+  u.startAutoPoll({ every: 5000 });
+  assert.equal(u.autoPollRunning(), true, 'precondition: the poll must be running');
+  u.resetCache();
+  assert.equal(u.autoPollRunning(), false,
+    'resetCache left the poll running. It clears five other pieces of module state, so a future '
+    + 'test that starts the poll and calls only resetCache leaks a live interval into the suite');
+});

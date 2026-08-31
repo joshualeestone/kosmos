@@ -205,16 +205,50 @@ function maybeAutoInstall() {
  * unref'd, so it never holds the process open -- `kosmos start` must still
  * exit, and the suite must still finish.
  */
-const POLL_EVERY = 5 * 60 * 1000;
+/* 🛑 THIS INTERVAL MUST NOT DIVIDE `TTL`, AND THAT IS THE WHOLE REQUIREMENT.
+   The docblock above says firing AT TTL doubles the cadence, and 5 minutes is
+   "well inside" 15 while still landing EXACTLY on the boundary every third
+   tick. Measured with a 120ms stamp delay: fetches at minutes 5, 25, 45, 65,
+   so a 20-minute cadence from a 15-minute TTL.
+
+   ⚠️ And it made a REACHABLE host poll LESS often than an unreachable one. The
+   success path stamps `cache.at` after the await (so the boundary tick misses
+   by epsilon and waits a whole extra tick); the miss path stamps `started`
+   before the fetch, so it has no epsilon and lands at 5, 20, 35, 50. Both
+   stamps are deliberate and documented where they sit, so the fix is here:
+   pick an interval that cannot align with the boundary.
+
+   60s leaves the gate as the only thing that decides, with at most one minute
+   of tick granularity on top of TTL, and no alignment to walk into. */
+const POLL_EVERY = 60 * 1000;
 let pollTimer = null;
 
 function startAutoPoll(opts = {}) {
   const envMs = Number(process.env.AGENT_WORKFORCE_UPDATE_POLL_MS);
-  const every = Number(opts.every) > 0 ? Number(opts.every)
-    : (envMs > 0 ? envMs : POLL_EVERY);  // the opts/env are the test seam only
+  const wanted = Number(opts.every) > 0 ? Number(opts.every)
+    : (envMs > 0 ? envMs : POLL_EVERY);
+  /* A FLOOR, because the env var is not really "the test seam only": it is a
+     live production variable with no validation, and `=1` would spin
+     installedRoot() (two existsSync calls) a thousand times a second forever,
+     on exactly the unattended machine this card exists for. */
+  const every = Math.max(wanted, 1000);
   stopAutoPoll();
   pollTimer = setInterval(() => {
     try {
+      /* 🛑 THE FETCH IS GATED, THE TIMER IS NOT. Sixteen test files boot the
+         real server, so every one of them starts this poll against the real
+         fetch and the real release host. The only thing that kept the suite
+         off the network was `installedRoot()` returning null because a
+         checkout is not an installed layout, which is INCIDENTAL rather than
+         declared: run the suite from an installed app directory and that
+         guard goes truthy, the default-on preference passes, and a test run
+         can spawn a real `curl | sh` installer.
+
+         Gating the timer instead would break the wiring assertion that this
+         poll starts at boot, so the gate sits on the fetch. 39 test files
+         already set this variable, so it is the established seam rather than
+         a new one. */
+      if (process.env.AGENT_WORKFORCE_DRY_RUN) return;
       if (!installedRoot()) return;
       poke();
     } catch { /* an update that cannot be checked must not break the board */ }
@@ -451,7 +485,16 @@ function setInstallRunner(f) { installRunner = f; }
 function setAutoPref(f) { autoPrefFn = f; }
 function setInstalledRoot(f) { installedRootFn = f; }
 function setFetcher(f) { fetcher = f; }
-function resetCache() { cache = { at: 0, latest: null, reached: false, readable: false }; inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null; }
+/* Clears EVERY piece of module-level state, including the poll timer. It used
+   to clear five of six, and the only thing preventing a leaked interval was an
+   afterEach in one test file: any future file that started the poll and called
+   just resetCache() would leave a live timer hitting the real installedRoot().
+   A reset that leaves something running does not mean what its name says. */
+function resetCache() {
+  cache = { at: 0, latest: null, reached: false, readable: false };
+  inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null;
+  stopAutoPoll();
+}
 
 module.exports = {
   available, poke, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
