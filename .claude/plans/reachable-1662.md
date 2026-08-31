@@ -871,3 +871,46 @@ deferred it in iteration 18 on the grounds that a silent skip trades a
 hypothetical red for coverage quietly lost. It now skips only below curl 8.4.0
 and prints the full reason when it does. Verified both arms: it runs here on
 8.7.1, and simulating 8.1 produces a skip carrying its explanation.
+
+## Iteration 26
+
+**I stopped deferring the file:// sentence, because three separate reviewers had
+now found it.** Iterations 23, 24 and 26 each raised that a missing local path
+gets copy naming a still-publishing release and an intercepting network, when
+there is no release and no network. I fixed the opening in 23 and left the
+causes, which addressed the assertion and not the falsehood.
+
+⭐ **A deferral that survives three independent findings is not a judgement
+call any more.** My reason each time was risk: the guard harness executes the
+shipped block verbatim, so a third status plus a helper rewrites both the block
+and the extractor late in a long loop. That reason was true and it stopped being
+sufficient somewhere around the second reviewer.
+
+Done now, in full:
+
+- `rc 37` returns its own status 3 on both probe arms.
+- The refusal moved into `_reachable_refuse`, one copy, branching three ways.
+- Each guard went from 14 lines to 5, and the duplicated user-facing copy is
+  gone, which is what four reviewers had been asking for.
+- Status 3 says: *the download at X is not there / That path does not exist or
+  cannot be read. Check the address it is installing from.* No server, no
+  release, no network.
+
+**The harness needed teaching, and this is the part that would have failed
+silently.** It extracts the guard and executes it with `reachable()` stubbed.
+Once the copy moved into a helper, the extracted block called a function the
+harness had never defined, so the arms would have seen empty output rather than
+a wrong sentence. It now extracts `_reachable_refuse` verbatim too, by the same
+idiom as `reachable()`, so the arms still run the SHIPPED text.
+
+Verified by perturbation, both halves: removing the status-3 return reddens the
+file:// arm, and making the status-3 copy blame the network reddens the sentence
+arm. Five arms broke during the refactor and each was a real signal about what I
+had just moved.
+
+**And I made the distance-reference error again, inside the comment about not
+making it.** Iteration 25 replaced "twenty lines below" (actually 82) and I
+wrote "twelve lines above" for the rule itself, which was wrong by three. Now
+named by its anchor. A distance in a comment is wrong the moment anyone edits
+above it, which is the entire reason the rule exists, and I have now proved that
+twice in two iterations.

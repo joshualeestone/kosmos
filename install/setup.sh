@@ -615,9 +615,11 @@ reachable() {
   # fails, measured on /bin/sh with a control. This file uses that shape 14
   # times, including the `= 63` remap in the range-GET arm below, so do not
   # "fix" them. (Plan file has the measurement.) Named by its surrounding code
-  # rather than by a distance, per the rule twelve lines above: the distance was
-  # written as "twenty lines" and is now 82, which is exactly why that rule
-  # exists.
+  # rather than by a distance, per the rule stated on the `local` declaration
+  # that opens this function: the old reference said "twenty lines" and had
+  # become 82. I then wrote "twelve lines above" for the rule itself and that was
+  # wrong too, by three. A distance in a comment is wrong the moment anyone edits
+  # above it, which is the whole reason the rule exists.
   _r_answered=0
   # %{http_code} FIRST because a content type contains spaces ("text/html;
   # charset=utf-8") and a status code never does, so the split is unambiguous.
@@ -634,7 +636,13 @@ reachable() {
   # own wrong-sentence defect aimed at the shape the fallback exists for.
   # A 405 followed by a SUCCESSFUL range GET is unaffected: the range arm sets
   # the flag on its own rc.
-  if [ "$_r_rc" = 0 ] || [ "$_r_rc" = 37 ]; then
+  # 🛑 rc 37 GETS ITS OWN STATUS, IT IS NOT "THE SERVER ANSWERED". 37 is
+  # FILE_COULDNT_READ_FILE: a `file://` path that is absent or unreadable. There
+  # is no server, no release and no network, so folding it into status 2 printed
+  # two false causes at a reader whose only true one is the path. Three separate
+  # reviewers found that sentence before it was split out.
+  [ "$_r_rc" = 37 ] && return 3
+  if [ "$_r_rc" = 0 ]; then
     _r_answered=1
   elif [ "$_r_code" -ge 400 ] && [ "$_r_code" != 405 ] && [ "$_r_code" != 501 ]; then
     _r_answered=1
@@ -709,7 +717,8 @@ reachable() {
   # is unusable, which is what status 2 says. If a future edit makes the two arms
   # match "for consistency", it will be re-introducing the bug the HEAD carve-out
   # fixed, backwards.
-  if [ "$_r_rc" = 0 ] || [ "$_r_code" -ge 400 ] || [ "$_r_rc" = 37 ]; then _r_answered=1; fi
+  [ "$_r_rc" = 37 ] && return 3
+  if [ "$_r_rc" = 0 ] || [ "$_r_code" -ge 400 ]; then _r_answered=1; fi
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   # 🛑 TWO DIFFERENT FAILURES, TWO DIFFERENT STATUSES, because they need
   # different sentences. rc 0 here means the origin ANSWERED and served
@@ -735,6 +744,33 @@ reachable() {
   # common half-published shape, and those fell through to "check your internet
   # connection". Measured: a GitHub Releases 404 gives exit 56, http_code 404.
   return 1
+}
+
+# One copy of the refusal, because it carries four lines of user-facing text and
+# now branches three ways. It was duplicated verbatim in fetch_tmux and
+# install_kosmos, policed by a byte-identity assertion in the suite; a helper
+# makes that assertion unnecessary rather than load-bearing, and a wording edit
+# can no longer land in one caller and not the other.
+#
+# $1 = the status reachable() returned, $2 = the url.
+_reachable_refuse() {
+  case "$1" in
+    3)
+      info "the download at $2 is not there"
+      info "That path does not exist or cannot be read. Check the address it is installing from."
+      ;;
+    2)
+      # NOT "could not reach": the origin answered. Saying both contradicts itself.
+      info "the download at $2 is not usable"
+      info "The address it is downloading from did not give an installable file."
+      info "The release may still be publishing, something on your network may be intercepting the request, or the address may be wrong."
+      info "Try again in a few minutes; if it keeps happening, check the address."
+      ;;
+    *)
+      info "could not reach the download at $2"
+      info "Check your internet connection and paste the install line again; it is safe to re-run."
+      ;;
+  esac
 }
 
 # ⚠️ FETCHED INTO A FRESH STAGE AND SWAPPED, never merged over what is there.
@@ -793,16 +829,7 @@ fetch_tmux() {
     # bar, which lives on stderr and cannot be silenced without losing it.
     local _r_why=0; reachable "$url" || _r_why=$?
     if [ "$_r_why" != 0 ]; then
-      if [ "$_r_why" = 2 ]; then
-        # NOT "could not reach": the server answered. Saying both contradicts itself.
-        info "the download at $url is not usable"
-        info "The address it is downloading from did not give an installable file."
-        info "The release may still be publishing, something on your network may be intercepting the request, or the address may be wrong."
-        info "Try again in a few minutes; if it keeps happening, check the address."
-      else
-        info "could not reach the download at $url"
-        info "Check your internet connection and paste the install line again; it is safe to re-run."
-      fi
+      _reachable_refuse "$_r_why" "$url"
       rm -rf "$stage"; return 1
     fi
     info "downloading from $url"
@@ -874,16 +901,7 @@ install_kosmos() {
     fi
     local _r_why=0; reachable "$url" || _r_why=$?
     if [ "$_r_why" != 0 ]; then
-      if [ "$_r_why" = 2 ]; then
-        # NOT "could not reach": the server answered. Saying both contradicts itself.
-        info "the download at $url is not usable"
-        info "The address it is downloading from did not give an installable file."
-        info "The release may still be publishing, something on your network may be intercepting the request, or the address may be wrong."
-        info "Try again in a few minutes; if it keeps happening, check the address."
-      else
-        info "could not reach the download at $url"
-        info "Check your internet connection and paste the install line again; it is safe to re-run."
-      fi
+      _reachable_refuse "$_r_why" "$url"
       rm -rf "$stage"; return 1
     fi
     info "downloading from $url"

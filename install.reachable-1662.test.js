@@ -372,17 +372,33 @@ test('#1662: an answer seen by HEAD survives a range GET that never completes', 
     + 'the network sentence about a reachable server.');
 });
 
-test('#1662: a missing file:// path is status 2, not a network failure', async () => {
-  /* KOSMOS_RELEASE_BASE accepts file://, and the install gate drives the whole
-     release path over it. A missing local tarball used to return 1, so the
-     installer told someone to check their internet connection about a file on
-     their own disk. curl 37 is FILE_COULDNT_READ_FILE: the filesystem answered
-     and the address is wrong, which is what status 2 now says. */
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1662-st2-'));
+test('#1662: a missing file:// path is status 3, its own local-path case', async () => {
+  /* It was status 2 for one iteration, and status 2's copy offers a still-
+     publishing release and an intercepting network. Both are false for a path
+     on the reader's own disk, and tools/test-install.sh drives the entire
+     release path over file://, so that is the sentence the project's own gate
+     produces. Three reviewers found it before it got its own status. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1662-st3-'));
   try {
-    assert.equal(await reachableStatus(`file://${path.join(dir, 'absent.tar.gz')}`), '2',
-      'a missing local file must not be reported as a connection failure');
+    assert.equal(await reachableStatus(`file://${path.join(dir, 'absent.tar.gz')}`), '3',
+      'a missing local file must be its own status, not folded into the answered-but-unusable case');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#1662: the status-3 sentence names the PATH and claims no server, release or network', async () => {
+  for (let i = 0; i < GUARDS.length; i += 1) {
+    const out = await runGuard(3, i);
+    assert.match(out, /is not there/, `guard ${i}: must say the download is not there. Got: ${out}`);
+    assert.match(out, /does not exist or cannot be read/,
+      `guard ${i}: must name the path as the cause. Got: ${out}`);
+    assert.doesNotMatch(out, /publishing/,
+      `guard ${i}: a local path has no release to be publishing`);
+    assert.doesNotMatch(out, /intercepting/,
+      `guard ${i}: a local path has no network to intercept it`);
+    assert.doesNotMatch(out, /Check your internet connection/,
+      `guard ${i}: and it certainly is not a connection problem`);
+    assert.doesNotMatch(out, /FELL-THROUGH/, `guard ${i} continued past a status-3 refusal`);
+  }
 });
 
 test('#1662: a 405 HEAD plus a dropped GET stays status 1, because a method refusal is not an answer', async () => {
@@ -598,7 +614,15 @@ test('#1662: the FIXTURE serves what each arm asked for, checked at the wire', a
    non-greedy match to `fi` stopped at the INNER one: the extracted fragment was
    truncated, unbalanced, and the harness shell died producing empty output,
    which reads as "the guard said nothing" rather than "the regex is wrong". */
-const GUARD_RE = /(?:local )?_r_why=0; reachable "\$url" \|\| _r_why=\$\?\n[\s\S]*?rm -rf "\$stage"; return 1\n\s*fi\n/g;
+/* The refusal helper, extracted verbatim so the guard harness runs the SHIPPED
+   sentences rather than a copy of them. Iteration 26 moved the copy out of the
+   guard into `_reachable_refuse`, so a harness that only extracted the guard
+   would execute a block whose output now comes from a function it never
+   defined, and the arms would see empty output rather than a wrong sentence. */
+const REFUSE_RE = /_reachable_refuse\(\)\s*\{[\s\S]*?\n\}\n/;
+const REFUSE = SRC.match(REFUSE_RE) || [];
+
+const GUARD_RE = /(?:local )?_r_why=0; reachable "\$url" \|\| _r_why=\$\?\n[\s\S]*?_reachable_refuse[\s\S]*?rm -rf "\$stage"; return 1\n\s*fi\n/g;
 const GUARDS = SRC.match(GUARD_RE) || [];
 
 async function runGuard(reachableVerdict, which) {
@@ -607,6 +631,7 @@ async function runGuard(reachableVerdict, which) {
   const script = `set -euo pipefail
 info(){ printf '%s\\n' "$*"; }
 reachable(){ return ${reachableVerdict}; }
+${REFUSE[0]}
 stage=$(mktemp -d)
 # 🛑 TRAP, because only the NO path reaches the guard's own \`rm -rf "$stage"\`.
 # The YES path falls through and leaked a directory PER RUN: measured +2 each
