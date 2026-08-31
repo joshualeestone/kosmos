@@ -684,7 +684,17 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      that with a writer that never spells it: an obfuscated key built by
      concatenation, a value stashed in a module variable, and the property merged
      inside writeState itself. Three coordinated edits, deliberately avoiding both
-     the pinned line and connect.js:931.
+     the pinned line and the serving contract in `publicView`, which this file
+     deliberately does not pin.
+
+     ⚠️ THIS CITED `connect.js:931`, a blank line in a docblock. It is the only
+     LIVE line-number pointer this file still carried, and it went stale on the
+     rebase. The two numbers surviving above are quoting audit notes that were
+     DELETED, so they are mentions rather than pointers and are correct as written;
+     a sweep that does not separate those two reads three stale citations where
+     there is one. Named by mechanism now, for the reason this file already gives
+     when it rejects line numbers as keys: a line number moves when anybody adds
+     anything.
 
      ⇒ It is real and it is NOT a finding, and the reason matters more than the
      demonstration. Every other defeat on this branch was reachable by an ordinary
