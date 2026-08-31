@@ -4322,7 +4322,7 @@ test('#1672: when the working-rules block cannot be added, creation SAYS SO and 
     const r = create.createAgent({ ...BINS, name: 'Pete Defaults', role: 'pm' });
     assert.equal(r.outcome, create.OUTCOME.CREATED,
       'non-gating: the agent is still made when the block cannot be added');
-    const said = (r.steps || []).some((s) => s && s.ok === false && /working rules/.test(s.label || ''));
+    const said = (r.steps || []).some((s) => s && s.ok === false && /operating instructions/.test(s.label || ''));
     assert.equal(said, true,
       'creation must NAME the loss: without this the person is told it worked and the agent cannot reply');
   } finally {
@@ -4337,6 +4337,6 @@ test('#1672 CONTROL: a normal create reports no such failure', () => {
   create.setDryRun(false);
   const r = create.createAgent({ ...BINS, name: 'Pete Defaults Ok', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because || '');
-  const said = (r.steps || []).some((s) => s && s.ok === false && /working rules/.test(s.label || ''));
+  const said = (r.steps || []).some((s) => s && s.ok === false && /operating instructions/.test(s.label || ''));
   assert.equal(said, false, 'a healthy create must not claim the working rules failed');
 });
