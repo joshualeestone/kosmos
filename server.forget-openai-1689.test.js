@@ -116,10 +116,15 @@ function board(seed) {
       AGENT_WORKFORCE_WORKERS: workers,
       AGENT_WORKFORCE_LAUNCH: launch,
       AGENT_WORKFORCE_PROJECTS: nodePath.join(sb, 'projects'),
-      ...(ctx.panesFile ? {
-        AGENT_WORKFORCE_TMUX_BIN: nodePath.join(REPO, 'test-support', 'fake-tmux.sh'),
-        AGENT_WORKFORCE_FAKE_PANES: ctx.panesFile,
-      } : {}),
+      /* 🛑 THE TMUX STUB IS UNCONDITIONAL, AND IT WAS NOT. It used to ride along
+         with `panesFile`, so a case with NO agents set no stub at all - and
+         `server.js`'s half-sandbox guard refuses exactly that: data dirs pointed
+         at a sandbox while tmux is still the real fleet's. The board would read
+         real terminals. The guard is right and my env was the thing that was
+         wrong, so the stub belongs beside the other sandbox vars rather than
+         beside the fixture that happens to need panes. */
+      AGENT_WORKFORCE_TMUX_BIN: nodePath.join(REPO, 'test-support', 'fake-tmux.sh'),
+      ...(ctx.panesFile ? { AGENT_WORKFORCE_FAKE_PANES: ctx.panesFile } : {}),
     },
   });
   const parsed = JSON.parse(out);
