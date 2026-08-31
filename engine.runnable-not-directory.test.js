@@ -419,7 +419,17 @@ test('githubdevice rejects a DIRECTORY found by the CANDIDATE SCAN, not just the
   /* Required from `github.js`, WHERE IT IS DEFINED, not through githubdevice's
      re-export. Two exported names for one function is new public surface on a
      branch named for having one definition of a fact. */
-  const gd = require('./engine/github.js');
+  /* 🛑 `githubdevice`, NOT `github`. These arms drive `githubdevice.state()`, which
+     reaches `ghPresent` -- the byte-identical twin that is half the reason this card
+     exists. `github.js`'s `state()` is `makeDoor`'s and never touches it.
+     ⚠️ THIS BINDING WAS SWITCHED TO `github.js` TO SATISFY A NIT ABOUT WHERE
+     `ghCandidateList` IS DEFINED, WHICH SILENTLY REPOINTED THESE TWO ARMS OFF THE
+     TWIN AND LEFT `ghPresent` DRIVEN BY NO TEST IN THE REPO. Measured: weakening
+     the lambda to `existsSync` then passed 14/14, fully green, and `existsSync` is
+     explicitly outside WEAK_CALL so the sweep cannot see it either.
+     📌 The "require it where it is defined" justification applies ONLY to the
+     `ghCandidateList` arm below; neither of these calls it. */
+  const gd = require('./engine/githubdevice.js');
   const f = fixture('gh');
   const before = process.env.AGENT_WORKFORCE_GH_BIN;
   const beforeCands = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
@@ -509,7 +519,17 @@ test('githubdevice reports a DIRECTORY at the gh override as missing', async () 
   /* Required from `github.js`, WHERE IT IS DEFINED, not through githubdevice's
      re-export. Two exported names for one function is new public surface on a
      branch named for having one definition of a fact. */
-  const gd = require('./engine/github.js');
+  /* 🛑 `githubdevice`, NOT `github`. These arms drive `githubdevice.state()`, which
+     reaches `ghPresent` -- the byte-identical twin that is half the reason this card
+     exists. `github.js`'s `state()` is `makeDoor`'s and never touches it.
+     ⚠️ THIS BINDING WAS SWITCHED TO `github.js` TO SATISFY A NIT ABOUT WHERE
+     `ghCandidateList` IS DEFINED, WHICH SILENTLY REPOINTED THESE TWO ARMS OFF THE
+     TWIN AND LEFT `ghPresent` DRIVEN BY NO TEST IN THE REPO. Measured: weakening
+     the lambda to `existsSync` then passed 14/14, fully green, and `existsSync` is
+     explicitly outside WEAK_CALL so the sweep cannot see it either.
+     📌 The "require it where it is defined" justification applies ONLY to the
+     `ghCandidateList` arm below; neither of these calls it. */
+  const gd = require('./engine/githubdevice.js');
   const f = fixture('gh');
   const before = process.env.AGENT_WORKFORCE_GH_BIN;
   try {

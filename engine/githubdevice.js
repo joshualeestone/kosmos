@@ -184,7 +184,11 @@ function setClientId(id) {
    Before that getter the door held a literal array and COULD NOT throw.
    ⇒ The dependency is now one-directional (this file -> github.js) and the door
    calls a function defined in its own module, so no load failure can reach it.
-   Re-exported below unchanged, so every existing caller and test is unaffected. */
+   ⚠️ NOT re-exported here. `module.exports` below carries no `ghCandidateList` and
+   no `ghPresent`, and neither name was exported on main either, so no caller or
+   test is affected. THIS SENTENCE PREVIOUSLY CLAIMED A RE-EXPORT, contradicted by
+   the export list 190 lines below it, after the re-export was dropped as new
+   public surface. Consumers require it from `github.js`, where it is defined. */
 const { ghCandidateList } = require('./github');
 
 /* gh presence, so ONE writer can branch on this object alone.

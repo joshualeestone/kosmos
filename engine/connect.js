@@ -1475,8 +1475,17 @@ async function installClaudeCode(hooks) {
      written about it. `expectedAt` is resolved defensively so the message survives
      a resolver that is failing. */
   let expectedAt = '(could not resolve the expected path)';
-  try { expectedAt = claudeBinPath(); } catch { /* keep the fallback */ }
-  try { if (!require('./runners').resolveBin('claude').present) throw new Error('not runnable'); }
+  try {
+    /* ONE RESOLUTION, matching willInstall, claudeHatchAvailable and start(). The
+       defensive capture and the presence check were two separate resolveBin calls,
+       which is the exact double resolution this branch removed at the other three
+       sites under comments calling it "the one definition this branch is named
+       for". Same defensive behaviour: a throw leaves `expectedAt` on its fallback
+       and lands in the catch below. */
+    const r = require('./runners').resolveBin('claude');
+    expectedAt = r.bin;
+    if (!r.present) throw new Error('not runnable');
+  }
   catch {
     try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
     return fail('Claude said it set itself up, but we cannot find anything runnable where it should be', `expected a program we can run at ${expectedAt}`);
