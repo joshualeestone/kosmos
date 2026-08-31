@@ -34,9 +34,12 @@
 #     $KOSMOS_PW_NODE_PATH           (a node_modules dir containing playwright)
 #     ~/work/pw-runtime/node_modules
 #     ~/.npm/_npx/*/node_modules     (an npx cache, where `npx playwright` lands)
-#   To provision one:  PW=$(mktemp -d); cd "$PW" && npm i playwright \
-#                        && npx playwright install chromium
-#   then export KOSMOS_PW_NODE_PATH="$PW/node_modules".
+#   To provision one (pinned + persistent, #1594):  bash tools/provision-pw.sh
+#   That writes a PINNED playwright (exact version + both browser builds) to
+#   ~/work/pw-runtime, the second candidate above, which the gate then finds
+#   with no KOSMOS_PW_NODE_PATH needed. The old provision left the runtime in a
+#   throwaway temp dir that was gone by the time the gate ran, and did not pin
+#   the browser build -- see #1594.
 #
 # ⚠️ HEADLESS on purpose. A CI or release machine has no console, and every
 # check the MVP runs asserts COMPUTED STATE (aria-checked, which container is
@@ -177,7 +180,20 @@ resolve_pw() {
   fi
   local c
   for c in "$HOME/work/pw-runtime/node_modules" "$HOME"/.npm/_npx/*/node_modules; do
-    [ -d "$c/playwright" ] && { printf '%s' "$c"; return 0; }
+    if [ -d "$c/playwright" ]; then
+      # #1594: resolving from the npx cache means the gate is about to run the
+      # MCP's OWN unpinned Playwright, whose browser build is whatever the MCP
+      # installed -- the exact skew this card is about. It works, so we use it,
+      # but we say so LOUDLY (never silent), on stderr so the captured path is
+      # unaffected. The pinned runtime (tools/provision-pw.sh) avoids it.
+      case "$c" in
+        "$HOME"/.npm/_npx/*)
+          log "‼️  Playwright resolved from the npx cache, which is UNPINNED (the MCP's build): $c" >&2
+          log "‼️  The gate's browser build is not pinned. Provision the pinned runtime: bash tools/provision-pw.sh (#1594)." >&2
+          ;;
+      esac
+      printf '%s' "$c"; return 0
+    fi
   done
   return 1
 }
@@ -195,8 +211,8 @@ if [ -z "$PW_NODE_PATH" ]; then
   fi
   log "🛑 No Playwright found, so the page layer cannot be checked."
   log "   Provision one and re-run:"
-  log "     PW=\$(mktemp -d); (cd \"\$PW\" && npm i playwright && npx playwright install chromium)"
-  log "     KOSMOS_PW_NODE_PATH=\"\$PW/node_modules\" $0"
+  log "     bash tools/provision-pw.sh   (pins playwright + both browsers to ~/work/pw-runtime, #1594)"
+  log "     then re-run: $0"
   log "   Or, to run the rest of the release without page coverage (said out loud): KOSMOS_SKIP_BROWSER_CHECKS=1"
   exit 2
 fi
