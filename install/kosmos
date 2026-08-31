@@ -967,10 +967,17 @@ cmd_connections() {
                this board; the block guards several equally unreachable shapes for
                the stated reason that the CLI does not control the board, so this
                was the odd omission rather than a new policy. */
-            /* Clamp BOTH ends. It clamped only the high side, so a board answering
-               a negative working count rendered "-1 of 2 sign-ins working". As
-               unreachable as the high side it already guards, which is what made
-               it the odd omission rather than a policy difference. */
+            /* 🛑 CLAMP THE DENOMINATOR FIRST, THEN THE NUMERATOR AGAINST IT.
+               An earlier version of this comment said "clamp BOTH ends" and clamped
+               only `w`, leaving `m` free. Measured with a board answering
+               howManyReadable -1: ", 0 of -1 sign-ins working, 2 we could not
+               check" - a NEGATIVE denominator, and an unchecked count larger than
+               the total. The comment claimed coverage it did not have, which on
+               this branch is the defect itself rather than a nit.
+               Unreachable from our own boundary; every neighbouring guard in this
+               block exists for a version-skewed board the CLI does not control,
+               which is what made this the odd omission. */
+            if (m < 0) m = 0;
             if (w > m) w = m;
             if (w < 0) w = 0;
             /* "working" even when the two numbers match. Dropping it is accurate

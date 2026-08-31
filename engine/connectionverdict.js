@@ -242,7 +242,11 @@ function serviceView(doors, allowed) {
      this is unreachable today -- but the two lookups reading the same map by
      different rules is how they stop agreeing. */
   const nameOf = (k) => (Object.prototype.hasOwnProperty.call(names, k) ? names[k] : k);
-  const byName = (a, b) => String(nameOf(a)).localeCompare(String(nameOf(b)));
+  /* An explicit locale, because the ORDER A PERSON READS must not depend on the
+     machine. Bare localeCompare uses the runtime default, so the same door set
+     could come out in different orders on two computers, and the ordering test
+     runs under one locale only and would never see it. */
+  const byName = (a, b) => String(nameOf(a)).localeCompare(String(nameOf(b)), 'en');
   for (const route of Object.keys(doors).sort(byName)) {
     /* ⚠️ OWN PROPERTY, NOT A PLAIN LOOKUP. `names['constructor']` walks the
        prototype chain and answers a Function, which is truthy, so a door named

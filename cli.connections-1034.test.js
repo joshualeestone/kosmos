@@ -1144,3 +1144,44 @@ test('the no-runtime path strips control characters from the raw body it prints'
       'an escape character reached the output through the no-runtime path');
   });
 });
+
+test('a version-skewed board cannot produce a negative or nonsensical count', async () => {
+  /**
+   * 🛑 THE COMMENT CLAIMED COVERAGE IT DID NOT HAVE. It said "clamp BOTH ends" and
+   * clamped only the numerator, so a board answering a negative readable count
+   * rendered ", 0 of -1 sign-ins working, 2 we could not check": a NEGATIVE
+   * denominator, and an unchecked count larger than the total.
+   *
+   * Unreachable from our own boundary. Every neighbouring guard in that block
+   * exists for a board the CLI does not control, which is what made this the odd
+   * omission rather than a policy difference.
+   */
+  const hostile = [
+    { label: 'negative readable', howMany: 1, howManyWorking: 0, howManyReadable: -1 },
+    { label: 'negative working', howMany: 2, howManyWorking: -3, howManyReadable: 2 },
+    { label: 'working above readable', howMany: 3, howManyWorking: 9, howManyReadable: 2 },
+  ];
+  for (const h of hostile) {
+    const p = P();
+    p.providers[0].signedIn = 'connected';
+    p.providers[0].howMany = h.howMany;
+    p.providers[0].howManyWorking = h.howManyWorking;
+    p.providers[0].howManyReadable = h.howManyReadable;
+    await withBoard({ body: p }, async (port) => {
+      const r = await kosmos(port);
+      const line = r.out.split('\n').find((l) => /^\s*Claude:/.test(l)) || '';
+      assert.doesNotMatch(line, /-\d/, `${h.label}: a negative number reached a person: ${JSON.stringify(line)}`);
+      assert.doesNotMatch(line, /of -/, `${h.label}: a negative denominator was printed: ${JSON.stringify(line)}`);
+    });
+  }
+
+  /* CONTROL: a sane skew still renders its real numbers, so the assertions above
+     are not satisfied by a renderer that has stopped printing counts at all. */
+  const ok = P();
+  ok.providers[0].signedIn = 'connected';
+  ok.providers[0].howMany = 3; ok.providers[0].howManyWorking = 1; ok.providers[0].howManyReadable = 3;
+  await withBoard({ body: ok }, async (port) => {
+    const r = await kosmos(port);
+    assert.match(r.out, /1 of 3 sign-ins working/, 'a sane count stopped rendering, so this test proves nothing');
+  });
+});
