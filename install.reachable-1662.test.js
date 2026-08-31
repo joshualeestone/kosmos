@@ -24,6 +24,31 @@ const http = require('node:http');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const zlib = require('node:zlib');
+
+/* curl only began aborting an ALREADY-RUNNING transfer at 8.4.0; before that
+   --max-filesize decides from an announced length and refuses to start. That
+   changes whether curl reports a content-type alongside exit 63, which one arm
+   below depends on. tools/macos-floor declares this installer's floor as 13.5,
+   which ships curl 8.1.x, so that arm can legitimately flip on a floor-OS
+   runner. Gated rather than left to redden there, and the gate SPEAKS: a silent
+   skip would trade a hypothetical red for coverage quietly lost on the exact
+   platform we care least about breaking. */
+const CURL_MM = (() => {
+  try {
+    const out = require('node:child_process').execFileSync('curl', ['--version'], { encoding: 'utf8' });
+    const m = out.match(/^curl (\d+)\.(\d+)/);
+    return m ? [Number(m[1]), Number(m[2])] : null;
+  } catch { return null; }
+})();
+const CURL_ABORTS_INFLIGHT = CURL_MM === null
+  ? true
+  : (CURL_MM[0] > 8 || (CURL_MM[0] === 8 && CURL_MM[1] >= 4));
+const CAP_SKIP = CURL_ABORTS_INFLIGHT
+  ? false
+  : `curl ${CURL_MM[0]}.${CURL_MM[1]} predates 8.4.0, where --max-filesize refuses to START rather `
+    + 'than aborting in flight, so a content-type may not accompany exit 63. The shipped direction '
+    + 'there is the safe one (a false YES curl catches moments later). Raise curl or read '
+    + 'install/setup.sh for the trade-off.';
 const run = promisify(execFile);
 
 const SETUP = path.join(__dirname, 'install', 'setup.sh');
@@ -430,7 +455,7 @@ test('#1662: a host that cannot be reached at all is refused, and NOT via the ty
 test('#1662: text/plain is ACCEPTED, because it is nginx default_type for an unmapped extension', async () => {
   /* The refusal is `text/html`, not `text/*`, on purpose. A mirror that has
      not mapped .gz serves a genuine tarball as text/plain, and refusing it
-     would block that install behind "Check your internet connection" -- the
+     would stop that install with the status-1 connection sentence -- the
      exact false NO this design exists to avoid. KOSMOS_RELEASE_BASE is
      overridable, so a mirror is a real case. */
   assert.equal(await reachable(`${base}/real.tar.gz?ct=text%2Fplain`), 'YES',
@@ -742,7 +767,7 @@ test('#1662: --max-filesize must not refuse a REAL download from a Range-ignorin
     + 'curl exit 63 (max-filesize) is being read as a failure instead of as proof of a large body');
 });
 
-test('#1662: but a LARGE textual body is still refused, so 63 is not a blanket yes', async () => {
+test('#1662: but a LARGE textual body is still refused, so 63 is not a blanket yes', { skip: CAP_SKIP }, async () => {
   /* The pair to the arm above. Mapping 63 to success must hand the decision to
      the TYPE rule, not short-circuit it: curl still reports the content-type on
      63 (measured for both gzip and html). If this ever goes green-for-NO the

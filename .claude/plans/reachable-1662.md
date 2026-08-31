@@ -671,7 +671,7 @@ iteration edits the file the gate measures. So:
 - No iteration records a gate result as standing evidence again.
 
 ⚠️ **A reviewer offered the escape that the post-gate delta was copy-only. I
-checked and it is not** — it includes the `rc = 37` rule on both probes. Worth
+checked and it is not**: it includes the `rc = 37` rule on both probes. Worth
 saying because I would have been glad to accept it: the escape was offered in
 good faith, and taking it without measuring would have produced a true-sounding
 claim resting on somebody else's characterisation of my own diff.
@@ -829,3 +829,45 @@ watching the new arm redden while the control stayed green.
 
 **The install-gate anchor went stale for the third time**, and is dealt with
 above by sequencing rather than by another number.
+
+## Iteration 25
+
+**An em dash reached a file, which is the one style rule Josh has.** One
+literal U+2014, in the iteration-24 entry of this plan. Fixed.
+
+🛑 **My check did not miss it. I never read the check.** I had put the em-dash
+verification in the same command block that launched the background gate, so its
+output went into the background task's stream rather than to me. **Running a
+check is not reading it**, and a check whose output you do not see is worth
+exactly nothing. Verified afterwards across all four files I have touched, all
+six spellings, with a hyphen control: the plan is clean, and my 259 added lines
+in the installer carry zero (the file's 11 are identical to main's, so this
+branch introduced none).
+
+**The design rationale quoted a sentence the code no longer prints.** Both
+asymmetry comments said a false NO "blocks the install outright behind Check
+your internet connection". Since the status-2 change that is no longer true for
+a false NO from the TYPE rule: the origin answered, so it returns 2 and prints
+the not-usable copy. The connection sentence is reachable only via status 1. The
+argument survives; only the quoted cost was stale.
+
+**A comment naming a call site by distance was wrong, twelve lines below the
+rule forbidding exactly that.** It said "twenty lines below"; it is 82. Now
+named by its surrounding code, which is the rule the same block states.
+
+**The range arm's lack of a 405 carve-out is deliberate and now says so.** On
+HEAD a 405 is about the METHOD. On the range GET the request named the artifact,
+so any 4xx is an answer about it: a 416 from a zero-length object means the file
+exists and is unusable, which is what status 2 says. Written down because the
+next reader will otherwise "make the two arms consistent" and reintroduce the
+iteration-24 bug backwards.
+
+**The status-2 copy was a single 282-character info line**, the longest in the
+file, rendering as four ragged lines on an 80-column terminal while the sibling
+failure copy above it already split. Now three semantic lines.
+
+**The floor-OS arm is gated, and the gate speaks.** Two reviewers raised it; I
+deferred it in iteration 18 on the grounds that a silent skip trades a
+hypothetical red for coverage quietly lost. It now skips only below curl 8.4.0
+and prints the full reason when it does. Verified both arms: it runs here on
+8.7.1, and simulating 8.1 produces a skip carrying its explanation.

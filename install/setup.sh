@@ -512,7 +512,7 @@ _reachable_is_download() {
   # allowlist of binary types looks stricter and is wrong here, because the
   # cost is asymmetric: a false YES only means this pre-check did not help and
   # curl fails a few lines later with its own error, which is the behaviour
-  # before this guard existed. A false NO blocks the install outright behind
+  # before this guard existed. A false NO stops the install outright behind
   # "Check your internet connection", which is worse than the bug it is for.
   #
   # ⚠️ THAT ASYMMETRY HOLDS AT TWO OF THE THREE CALL SITES, NOT ALL THREE, and
@@ -613,8 +613,11 @@ reachable() {
   # 📌 `if` rather than `{ …; } && _r_answered=1` is READABILITY ONLY, not
   # safety. An AND-OR list is EXEMPT from `set -e` whether or not the left side
   # fails, measured on /bin/sh with a control. This file uses that shape 14
-  # times, including `[ "$_r_rc" = 63 ] && _r_rc=0` twenty lines below, so do
-  # not "fix" them. (Plan file has the measurement.)
+  # times, including the `= 63` remap in the range-GET arm below, so do not
+  # "fix" them. (Plan file has the measurement.) Named by its surrounding code
+  # rather than by a distance, per the rule twelve lines above: the distance was
+  # written as "twenty lines" and is now 82, which is exactly why that rule
+  # exists.
   _r_answered=0
   # %{http_code} FIRST because a content type contains spaces ("text/html;
   # charset=utf-8") and a status code never does, so the split is unambiguous.
@@ -699,6 +702,13 @@ reachable() {
   _r_code=${_r_out%% *}; _r_ct=${_r_out#* }
   case "$_r_code" in ''|*[!0-9]*) _r_code=0 ;; esac
   case "$_r_out" in *' '*) ;; *) _r_ct='' ;; esac
+  # 📌 NO 405/501 CARVE-OUT HERE, DELIBERATELY, and the asymmetry with the HEAD
+  # arm is the point. On HEAD a 405 is about the METHOD and says nothing about
+  # the artifact. On the range GET the request named the artifact, so any 4xx IS
+  # an answer about it: a 416 from a zero-length object means the file exists and
+  # is unusable, which is what status 2 says. If a future edit makes the two arms
+  # match "for consistency", it will be re-introducing the bug the HEAD carve-out
+  # fixed, backwards.
   if [ "$_r_rc" = 0 ] || [ "$_r_code" -ge 400 ] || [ "$_r_rc" = 37 ]; then _r_answered=1; fi
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   # 🛑 TWO DIFFERENT FAILURES, TWO DIFFERENT STATUSES, because they need
@@ -786,7 +796,9 @@ fetch_tmux() {
       if [ "$_r_why" = 2 ]; then
         # NOT "could not reach": the server answered. Saying both contradicts itself.
         info "the download at $url is not usable"
-        info "The address it is downloading from did not give an installable file. The release may still be publishing, something on your network may be intercepting the request, or the address may be wrong. Try again in a few minutes; if it keeps happening, check the address."
+        info "The address it is downloading from did not give an installable file."
+        info "The release may still be publishing, something on your network may be intercepting the request, or the address may be wrong."
+        info "Try again in a few minutes; if it keeps happening, check the address."
       else
         info "could not reach the download at $url"
         info "Check your internet connection and paste the install line again; it is safe to re-run."
@@ -865,7 +877,9 @@ install_kosmos() {
       if [ "$_r_why" = 2 ]; then
         # NOT "could not reach": the server answered. Saying both contradicts itself.
         info "the download at $url is not usable"
-        info "The address it is downloading from did not give an installable file. The release may still be publishing, something on your network may be intercepting the request, or the address may be wrong. Try again in a few minutes; if it keeps happening, check the address."
+        info "The address it is downloading from did not give an installable file."
+        info "The release may still be publishing, something on your network may be intercepting the request, or the address may be wrong."
+        info "Try again in a few minutes; if it keeps happening, check the address."
       else
         info "could not reach the download at $url"
         info "Check your internet connection and paste the install line again; it is safe to re-run."
