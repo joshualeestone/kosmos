@@ -791,7 +791,12 @@ cmd_connections() {
     # The runtime is how we PRINT the answer, not how we get it. Losing it
     # should cost formatting, not the answer, so the raw body goes out rather
     # than a locally-invented sentence. Same rule `whoami` states.
-    printf '%s\n' "$body"
+    # Control characters stripped here too. The renderer below strips them because
+    # this output lands in the context window of an agent, and that argument does
+    # not stop applying just because the runtime is missing. The trade this path
+    # makes is losing FORMATTING, not losing the guarantee about what bytes can
+    # reach a reader.
+    printf '%s\n' "$body" | tr -d '\000-\010\013\014\016-\037\177'
     # 🛑 THE STATUS STILL HAS TO BE HONEST. Printing the raw body when we cannot
     # format it is the stated trade above and stays. Reporting SUCCESS for a call
     # that FAILED is not part of that trade, and this was doing both: a board
@@ -958,7 +963,12 @@ cmd_connections() {
                this board; the block guards several equally unreachable shapes for
                the stated reason that the CLI does not control the board, so this
                was the odd omission rather than a new policy. */
+            /* Clamp BOTH ends. It clamped only the high side, so a board answering
+               a negative working count rendered "-1 of 2 sign-ins working". As
+               unreachable as the high side it already guards, which is what made
+               it the odd omission rather than a policy difference. */
             if (w > m) w = m;
+            if (w < 0) w = 0;
             /* "working" even when the two numbers match. Dropping it is accurate
                and reintroduces the exact ambiguity recorded above: "3 sign-ins"
                beside "has a working sign-in for it" is what read as three working
@@ -979,7 +989,23 @@ cmd_connections() {
            ⚠️ ONLY ON `false`, NEVER ON `null`. `null` is "we could not look", and a
            confident "not installed" there is exactly the collapse the three-state
            rule refuses, one field over. */
-        var missing = p.installed === false ? ". The program it needs is not installed on this computer yet" : "";
+        /* ⚠️ NOT WHEN THE STATE IS ALREADY `none`. saysFor() ALREADY returns the
+           not-installed sentence as `because` for none + not-installed, which is
+           the FRESH MACHINE case this card exists for, so appending here printed
+           it TWICE in exactly the situation that matters most:
+             Claude: not connected (the program it needs is not installed...). The
+             program it needs is not installed on this computer yet
+           The comment on the previous version reasoned that the module sentence
+           "is reachable when the state is none" and then appended unconditionally,
+           so the two overlapped precisely there.
+           🛑 AND 31 CLI TESTS RENDERED THE DUPLICATE WITHOUT NOTICING, because the
+           GPT row in the shared fixture is exactly none + not-installed and nothing
+           asserted against it. The arm I did write covered connected plus
+           not-installed, where the suffix genuinely adds information.
+           NOTE no apostrophe in this comment. Writing one here terminated the
+           single-quoted shell string and broke 28 tests, which is the third time
+           tonight and precisely what the apostrophe guard below exists to catch. */
+        var missing = (p.installed === false && p.signedIn !== "none") ? ". The program it needs is not installed on this computer yet" : "";
         console.log("  " + clean(p.name) + ": " + verdict + " (" + clean(p.because) + many + ")" + missing);
       }
       /* 🛑 STUCK AND INTERRUPTED ARE NOT BUSY, AND THEY ARE THE TWO MOMENTS AN

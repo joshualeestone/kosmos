@@ -1065,3 +1065,82 @@ test('a working sign-in with the program MISSING says so, and a program we could
   assert.doesNotMatch(blind, /not installed on this computer/,
     'a program we could not check was reported as definitely missing, which is a confident negative about something nobody looked at');
 });
+
+test('a fresh machine is told the program is missing ONCE, not twice', async () => {
+  /**
+   * 🛑 THE DUPLICATE LANDED IN THE CASE THIS CARD EXISTS FOR. saysFor() already
+   * returns the not-installed sentence as `because` when the state is none and the
+   * program is absent, which is the FRESH MACHINE. Appending the suffix there
+   * printed it twice:
+   *
+   *   Claude: not connected (the program it needs is not installed on this
+   *   computer yet). The program it needs is not installed on this computer yet
+   *
+   * ⚠️ AND 31 CLI TESTS RENDERED IT WITHOUT NOTICING. The GPT row in the shared
+   * fixture is exactly none plus not-installed, so every test in this file printed
+   * the duplicate and nothing asserted against it. The arm I had written covered
+   * connected plus not-installed, where the suffix genuinely adds information, so
+   * it confirmed the half that worked.
+   */
+  const p = P();
+  p.providers[0].signedIn = 'none';
+  p.providers[0].installed = false;
+  p.providers[0].because = 'the program it needs is not installed on this computer yet';
+  p.providers[0].howMany = 0; p.providers[0].howManyWorking = 0; p.providers[0].howManyReadable = 0;
+
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    const line = r.out.split('\n').find((l) => /^\s*Claude:/.test(l));
+    assert.ok(line, 'the Claude row did not render, so this arm proves nothing');
+    const hits = (line.match(/not installed on this computer/g) || []).length;
+    assert.equal(hits, 1,
+      `the fresh-machine line said the program is missing ${hits} times: ${JSON.stringify(line)}`);
+  });
+
+  /* CONTROL: connected plus not-installed is the case the suffix EXISTS for, and it
+     must still say it exactly once, from the suffix rather than from `because`. */
+  const q = P();
+  q.providers[0].signedIn = 'connected';
+  q.providers[0].installed = false;
+  await withBoard({ body: q }, async (port) => {
+    const r = await kosmos(port);
+    const line = r.out.split('\n').find((l) => /^\s*Claude:/.test(l));
+    const hits = (line.match(/not installed on this computer/g) || []).length;
+    assert.equal(hits, 1,
+      `a connected provider with the program missing said it ${hits} times, so the suffix was lost or doubled: ${JSON.stringify(line)}`);
+  });
+});
+
+test('the no-runtime path strips control characters from the raw body it prints', async () => {
+  /**
+   * When the bundled runtime is missing, the verb prints the board raw body rather
+   * than inventing a sentence: losing the runtime should cost FORMATTING, not the
+   * answer. But that output still lands in the context window of an agent, so the
+   * same argument that put a control-character stripper in the renderer applies
+   * here, and this path bypassed it.
+   *
+   * ⚠️ MY FIRST PROBE OF THIS NEVER REACHED THE PATH. I hand-rolled a fake board
+   * and got the "Kosmos is not running" sentence instead, so the escape-absent
+   * result was meaningless: the content control failed too, and that is the only
+   * reason I noticed rather than recording a false pass. This uses the helper the
+   * file already has for the degraded path.
+   */
+  const ESC = String.fromCharCode(27);
+  /* 🛑 A STRING BODY, NOT AN OBJECT, AND THAT IS THE WHOLE TEST. An object body is
+     JSON.stringify'd by the harness, and JSON ENCODES an escape as the six
+     characters backslash-u-0-0-1-b, so a literal control byte never reaches the
+     output and the assertion below cannot fail. My first version did exactly that
+     and PASSED WITH THE STRIPPER DELETED. The perturbation is what caught it: the
+     test looked right, ran the right path, and was measuring text that could not
+     contain the thing it asserted about. */
+  const body = 'boom' + ESC + '[2Jtail';
+  await withBoard({ body }, async (port) => {
+    const r = await kosmosNoRuntime(port);
+    /* CONTROL FIRST: the raw body really did reach the output, or the assertion
+       below is about text that was never printed. */
+    assert.match(r.out, /boom/,
+      `the degraded path did not print the raw body, so this arm proves nothing. Output: ${JSON.stringify(r.out.slice(0, 200))}`);
+    assert.ok(!r.out.includes(ESC),
+      'an escape character reached the output through the no-runtime path');
+  });
+});
