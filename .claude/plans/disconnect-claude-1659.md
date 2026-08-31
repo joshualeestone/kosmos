@@ -114,6 +114,38 @@ available is landing on a zero and treating the check as satisfied.**
 DIVERGENCE. A file-overlap map cannot see same-file, different-line, opposite-
 behaviour collisions.
 
+## The landing criterion, in its mechanical form
+
+**Do not use "does the Claude button have a confirm?"** That question is answered
+YES by reading the file: #1702 adds a confirm bound generically over
+`[data-forget]`, and on main that attribute is emitted ONLY on the `isOpenai`
+branch. **A guard that exists is not this gap guarded** - and stated as a release
+criterion, that is where the error costs something.
+
+✅ **THE CRITERION IS ONE GREP ON THIS BRANCH'S DIFF: does the LIVE Claude row
+emit `data-forget`?** Verified by executing the ternary, not by grepping it:
+
+```
+DEFAULT row   data-forget: false   aria-disabled: true
+LIVE row      data-forget: true    aria-disabled: false
+```
+
+⇒ **The live row inherits #1702's confirm; the default row deliberately carries
+neither**, because `forgetAccount` refuses `~/.claude` unconditionally and a
+confirm on a control that can never act is worse than none. **The absent
+`data-forget` is what makes that refusal structural rather than a check somebody
+could delete.**
+
+⚠️ **AND THE ORDERING IS CONDITIONAL, WHICH AN EARLIER VERSION OF THIS SECTION
+GLOSSED: #1702 IS OPEN, NOT MERGED.** "Claude inherits the confirm" is true only
+once it lands. **If this branch lands first, BOTH providers are unconfirmed** -
+OpenAI is already live-and-unconfirmed on main, and this makes Claude the same.
+
+🛑 **AND WE CONFLICT ON THE SAME LINES, WHICH IS THE SAFE OUTCOME.** Both edit the
+body of `for (const btn of box.querySelectorAll('[data-forget]'))`. Resolution is
+mine: keep his arming, keep the provider guard, and **the guard must run BEFORE
+the arming** so an unmarked button cannot arm.
+
 ## Verification
 
 - 18 tests: 8 on the engine function, 10 on the route.
