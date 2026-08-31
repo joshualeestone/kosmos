@@ -1209,3 +1209,33 @@ test('the REAL gh door honours the candidates override, which is the branch head
     f.cleanup();
   }
 });
+
+test('an EMPTY env var means UNSET, not "no candidates", or gh reads as missing', () => {
+  /* 🛑 THIS PINS A PRODUCTION FIX WHOSE OWN COMMENT CALLS IT "A PRODUCTION FIX NOT
+     A STYLE CHOICE" AND WHICH NOTHING GUARDED. Measured: deleting `|| undefined`
+     from the default parameter left the WHOLE SUITE green at EXIT_CODE=0.
+
+     The arm above drives `ghCandidateList('')` as an ARGUMENT, which exercises the
+     `typeof` branch INSIDE the function. It never touches the default-parameter
+     expression, so it cannot see this. Two different rules, and only one was pinned.
+
+     ⚠️ The harm is user-visible: `export AGENT_WORKFORCE_GH_CANDIDATES=$UNSET`
+     yields '' routinely, and without the fix that makes the real door return null
+     on a machine where gh IS installed. */
+  const gh = require('./engine/github.js');
+  const before = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+  try {
+    process.env.AGENT_WORKFORCE_GH_CANDIDATES = '';
+    assert.deepStrictEqual(gh.ghCandidateList(), ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'],
+      'an ACCIDENTALLY EMPTY env var was read as "no candidates" instead of "unset", so gh '
+      + 'reads as missing on a machine that has it. The `|| undefined` on the default was removed.');
+    /* CONTROL: a real value must still be honoured, or the assertion above would
+       pass for a function that ignores the env entirely. */
+    process.env.AGENT_WORKFORCE_GH_CANDIDATES = '/a:/b';
+    assert.deepStrictEqual(gh.ghCandidateList(), ['/a', '/b'],
+      'control: a real env override is no longer honoured, so the arm above proves nothing');
+  } finally {
+    if (before === undefined) delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+    else process.env.AGENT_WORKFORCE_GH_CANDIDATES = before;
+  }
+});

@@ -31,6 +31,19 @@ const GH_CANDIDATES = Object.freeze(['/opt/homebrew/bin/gh', '/usr/local/bin/gh'
    introduced it by making the door honour the override, so the empty-string rule
    had to stop applying to the ENV default while still applying to an argument.
    📌 No test needs '' from the env: the arm that pins it passes '' directly. */
+/** Where gh lives. EXPORTED, so read the two `''` rules together before calling:
+ *
+ *    ghCandidateList('')                     -> []              '' as an ARGUMENT
+ *                                                               means "no candidates"
+ *    AGENT_WORKFORCE_GH_CANDIDATES=''        -> the 3 defaults  '' from the ENV
+ *                                                               means "unset"
+ *
+ * 🛑 THE SAME VALUE MEANS OPPOSITE THINGS DEPENDING ON HOW IT ARRIVES, and a caller
+ * who learns one rule will get the other backwards. Both halves are justified below,
+ * thirteen lines apart, and neither said so at the signature until now. The argument
+ * rule exists so a test can ask for "no candidates" without scanning the operator's
+ * real paths; the env rule exists because `export FOO=$UNSET` yields '' routinely and
+ * must not blind the door. Each is pinned by its own arm. */
 function ghCandidateList(override = (process.env.AGENT_WORKFORCE_GH_CANDIDATES || undefined)) {
   /* 🛑 THE RULE AS SHIPPED: anything that is not a STRING means unset.
      `''` IS a string, so it is honoured and means "no candidates", yielding [].
