@@ -154,15 +154,22 @@ function walkJs(dir, base = dir, out = []) {
  * number is the correct response and is safe, because the number is not what
  * proves anything.
  *
- * 📌 Audited today: connect.js:943 prose, devicedoor.js:33 prose,
- * machine.js:412 a real call guarded by st.isFile(), runners.js:206 IS the
- * definition. The two real ones have behavioural arms below.
+ * 📌 PINNED BY TEXT, NOT BY LINE NUMBER, AND THAT IS A CONSISTENCY FIX. This
+ * pinned `file:line`, so ANY insertion above one of them turned it red. That is
+ * strictly MORE exposed than the file-wide `writeState(` count this same file
+ * rejected for exactly that reason: a count moves only when somebody adds a
+ * writeState, a line number moves when anybody adds anything. Rejecting the
+ * lesser friction while keeping the greater one was incoherent.
+ * Keying on the trimmed line text is insertion-immune and keeps the identity the
+ * deepStrictEqual needs; the failure message prints the LIVE line numbers, which
+ * is what a reader actually wants. Two audit notes carrying stale numbers
+ * (connect.js:931 and runners.js:206) are gone with it.
  */
 const KNOWN_WEAK_LINES = [
-  'engine/connect.js:943',
-  'engine/devicedoor.js:33',
-  'engine/machine.js:412',
-  'engine/runners.js:210',
+  { file: 'engine/connect.js', text: '* DIRECTORY. `fs.accessSync(path, X_OK)` SUCCEEDS ON A DIRECTORY, so a' },
+  { file: 'engine/devicedoor.js', text: '// #1592: accessSync(X_OK) SUCCEEDS ON A DIRECTORY, so this used to accept a' },
+  { file: 'engine/machine.js', text: 'fs.accessSync(bin, fs.constants.X_OK);' },
+  { file: 'engine/runners.js', text: 'fs.accessSync(p, fs.constants.X_OK);' },
 ];
 
 test('the set of lines matching the weak call is exactly what we audited', () => {
@@ -179,20 +186,25 @@ test('the set of lines matching the weak call is exactly what we audited', () =>
     fs.readFileSync(path.join(REPO, rel), 'utf8')
       .split('\n')
       .forEach((line, i) => {
-        if (WEAK_CALL.test(line)) found.push(`${key}:${i + 1}`);
+        if (WEAK_CALL.test(line)) found.push({ file: key, text: line.trim(), line: i + 1 });
       });
   }
 
+  const sortKey = (e) => e.file + '\u0000' + e.text;
+  const seen = found.map((e) => ({ file: e.file, text: e.text })).sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
+  const want = [...KNOWN_WEAK_LINES].sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
+
   assert.deepStrictEqual(
-    found.sort(),
-    [...KNOWN_WEAK_LINES].sort(),
-    'the set of accessSync(X_OK) lines changed. accessSync(X_OK) SUCCEEDS ON A ' +
-      'DIRECTORY, so look at each new line and decide:\n' +
+    seen,
+    want,
+    'the set of accessSync(X_OK) lines changed. accessSync(X_OK) SUCCEEDS ON A DIRECTORY, so ' +
+      'look at each new line and decide:\n' +
       '  a real call    -> use require("./runners").isRunnable(p)\n' +
-      '  a call you are KEEPING -> list it AND write a behavioural arm that hands\n' +
-      '                   the real code a real directory. Listing alone proves\n' +
-      '                   nothing; that was measured and defeated on pass 9.\n' +
-      '  prose, or a moved line -> update the entry\n'
+      '  a call you are KEEPING -> pin it AND write a behavioural arm. Pinning alone proves ' +
+      'nothing; that was measured and defeated.\n' +
+      '  prose -> pin the trimmed text\n' +
+      'Live locations right now:\n  ' +
+      found.map((e) => e.file + ':' + e.line).join('\n  ') + '\n'
   );
 });
 
@@ -552,9 +564,13 @@ test('claudeHatchAvailable answers false when the resolver THROWS, rather than l
      ⭐ This asserts the CONSEQUENCE rather than the shape, so it survives refactors
      a shape check would red on, and it fails on the one thing that matters.
 
-     ⚠️ ITS OWN DEPENDENCY, STATED: it works because `claudeBinPath` keeps the late
-     `require(...)`. Tidying that into a top-level destructured import would
-     silently unhook the seam and this arm would stop testing anything. */
+     ⚠️ ITS OWN DEPENDENCY, STATED, AND IT NAMED THE WRONG FUNCTION UNTIL NOW.
+     This arm works because **claudeHatchAvailable** does its own late
+     `require('./runners')`, so replacing the module object replaces what it
+     reaches. It previously said `claudeBinPath`, which would have sent a
+     maintainer to preserve the wrong thing: tidying claudeHatchAvailable's
+     require into a top-level destructured import silently unhooks this arm, and
+     the comment was pointing somewhere else entirely. */
   const connect = require('./engine/connect.js');
   const runners = require('./engine/runners.js');
   const realResolve = runners.resolveBin;
@@ -860,7 +876,17 @@ test('nothing unconditionally forces canRunClaude true, which would dead-code th
     .split('\n')
     .map((l) => l.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*$/, ''))
     .join('\n');
-  const FORCED = /canRunClaude\s*=\s*(?!false\b)(true\b|[1-9]\d*|['"`])/g;
+  /* 🛑 `[:=]`, NOT `=` ALONE, AND MY OWN REFACTOR ORPHANED THIS ARM. It was
+     written when becomeStuck ASSIGNED the flag; this branch then moved the write
+     to an object PROPERTY (`canRunClaude: claudeHatchAvailable()`), and the arm
+     went on passing while no longer defending the shape the code uses. Measured:
+     it matched `canRunClaude = true;` and missed `canRunClaude: true,`.
+     Adding the colon is free. Measured zero live hits in connect.js, because both
+     real property lines start with an IDENTIFIER rather than a literal. It catches
+     the literal half of the documented "second writer, comment-prefixed" residual;
+     it does NOT catch the `fs.existsSync(...)` variant, so this narrows that gap
+     rather than closing it. */
+  const FORCED = /canRunClaude\s*[:=]\s*(?!false\b)(true\b|[1-9]\d*|['"`])/g;
 
   for (const [label, text] of [['raw', raw], ['prose-stripped', stripped]]) {
     const hits = (text.match(FORCED) || []);
@@ -872,6 +898,7 @@ test('nothing unconditionally forces canRunClaude true, which would dead-code th
   // Controls: every shape that has defeated this arm before must be seen now.
   const mustCatch = [
     ['plain', '  canRunClaude = true;'],
+    ['as a PROPERTY, the form the code now uses', '  canRunClaude: true,'],
     ['after a semicolon', "  const d = 1; canRunClaude = true;"],
     ['behind a block comment', '  /* belt */ canRunClaude = true;'],
     ['a URL string on the line', "  const d = 'https://x'; canRunClaude = true;"],
