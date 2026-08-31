@@ -293,3 +293,28 @@ test('#1662: a textual HEAD does not end it, the ranged GET gets a second opinio
     'a genuine tarball was refused on the strength of a single mis-typed HEAD, so the range-GET '
     + 'second opinion is not happening and the cost it pays buys nothing');
 });
+
+test('#1662: the FIXTURE serves what each arm asked for, checked at the wire', async () => {
+  /* 🛑 A CONTROL THAT SHARES THE INSTRUMENT'S BLINDNESS CERTIFIES THE WRONG
+     ANSWER. Every arm in this file -- must-pass and must-fail alike -- routes
+     through one server and its `ct=` / `headct=` knobs. If those knobs were
+     silently ignored, several arms would still pass, for the wrong reason:
+     "text/plain is accepted" would really be testing application/gzip.
+     So this asserts the WIRE, not the verdict: it reads the response headers
+     directly and requires the server to have served exactly what was asked.
+     Without it, the whole file rests on an assumption no arm checks. */
+  const probe = async (path, method) => {
+    const r = await fetch(base + path, { method });
+    return r.headers.get('content-type');
+  };
+  assert.equal(await probe('/real.tar.gz?ct=application%2Fx-tar', 'GET'), 'application/x-tar',
+    'the ct= knob is ignored on GET, so every content-type arm is testing the default instead');
+  assert.equal(await probe('/real.tar.gz?ct=Text%2FHTML', 'GET'), 'Text/HTML',
+    'the ct= knob does not preserve case, so the case-insensitivity arm proves nothing');
+  assert.equal(await probe('/real.tar.gz?ct=none', 'GET'), null,
+    'ct=none still sent a content-type, so the no-header arm is testing a header');
+  assert.equal(await probe('/real.tar.gz?headct=text%2Fhtml&ct=application%2Fgzip', 'HEAD'), 'text/html',
+    'headct= is ignored on HEAD, so the second-opinion arm is not creating the condition it names');
+  assert.equal(await probe('/real.tar.gz?headct=text%2Fhtml&ct=application%2Fgzip', 'GET'), 'application/gzip',
+    'headct= leaked into the GET, so HEAD and GET are not actually disagreeing');
+});
