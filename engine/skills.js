@@ -148,4 +148,9 @@ function remove(dir, key) {
   return { ok: true };
 }
 
-module.exports = { globalDir, agentDir, list, add, remove, slugFor };
+/* #1652: `readMeta` is exported so the agent-file writer can be tested against
+   THE PARSER THAT ALREADY EXISTS rather than against a second one. The agent
+   file uses this same `---` frontmatter shape on purpose, and an assertion that
+   round-trips through this function is what makes "not a new format" a measured
+   claim instead of a stated one. No behaviour change: the function is unmoved. */
+module.exports = { globalDir, agentDir, list, add, remove, slugFor, readMeta };
