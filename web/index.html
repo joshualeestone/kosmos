@@ -817,7 +817,7 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    check). .acct-ok-big shows that same glyph at hero size with a scale-in;
    reduced motion drops the motion, not the check. */
 .acct-success { text-align: center; padding: 8px 0 4px; }
-.acct-ok-big { display: block; margin: 0 auto 10px; margin-right: auto; font-size: 44px; line-height: 1;
+.acct-ok-big { display: block; margin: 0 auto 10px; font-size: 44px; line-height: 1;
   animation: acct-pop .32s cubic-bezier(.2,.7,.3,1.2) both; }
 .acct-success-t { margin: 0 0 4px; font-size: 1.15rem; font-weight: 700; color: var(--k-ink); }
 .acct-success-say { margin: 0 auto; color: var(--k-ink-2); max-width: 40ch; }
@@ -13904,6 +13904,12 @@ function openAcctReauth(dir, email) {
    closeAcctAdd puts the modal back to its form state on the way out, so the next open
    is clean. */
 function acctShowSuccess(accountLabel) {
+  /* kosmos#1656: only paint success while the modal is actually open. The Claude path
+     is poll-driven (acctFlowWatch), so a sign-in that completes AFTER the person has
+     dismissed the modal must not mutate a hidden modal's state, which would strand a
+     stale "Success!" with no provider form on the next open. closeAcctAdd has already
+     put the modal back to its form state by then, so a no-op here is the clean outcome. */
+  if (document.getElementById('acct-add-modal').hidden) return;
   ['acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-add-acts']
     .forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
   document.getElementById('acct-success-say').textContent = 'Successfully connected to ' + accountLabel + '.';
