@@ -184,10 +184,12 @@ async function state() {
      plainly rather than describing a live fail-open path, because `willInstall()`
      catches on every route it has: the bin resolution sits in one try (a throw
      there returns true), the runnability check sits in that SAME try, so a throw
-     is caught either way: from `require('./runners')` itself, which happens
-     BEFORE `isRunnable` is entered, or from `isRunnable` once inside it (it
-     catches internally and returns a boolean). The probe sits in another try,
-     and nothing after those can throw. So it does not reject and this `.catch`
+     is caught either way: from `require('./runners')` itself, or from
+     `resolveBin('claude')`, which can throw on its own account (it derives a home
+     directory and joins paths) before it ever asks whether the file is runnable.
+     ⚠️ This named `isRunnable` until now, which was wrong from the moment the same
+     commit changed willInstall to call resolveBin: willInstall never enters
+     isRunnable. The probe sits in another try, and nothing after those can throw. So it does not reject and this `.catch`
      cannot fire today.
 
      It stays because the property it defends is the one that matters (an unknown

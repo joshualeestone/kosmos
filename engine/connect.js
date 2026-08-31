@@ -2156,8 +2156,12 @@ async function finishConnected(owner, sub) {
  * and asserts the BEHAVIOUR of this function against a real directory. A
  * behavioural arm is the only kind that has survived twelve review passes here.
  *
- * ⚠️ THE TRY IS LOAD-BEARING AND MUST STAY. `claudeBinPath()` calls the runner
- * resolver, which can throw, and `becomeStuck`'s docblock promises any error
+ * ⚠️ THE TRY IS LOAD-BEARING AND MUST STAY. `resolveBin('claude')` can throw
+ * (it derives a home directory and joins paths before it ever asks about the
+ * file), and this used to say `claudeBinPath()` calls the resolver, which was
+ * true until this function stopped calling claudeBinPath in the same commit that
+ * removed the double resolution. The substance held and the named mechanism did
+ * not, in the docblock a maintainer reads BEFORE touching the try, and `becomeStuck`'s docblock promises any error
  * answers FALSE. Hoisting the resolution out of the try lets the throw escape
  * becomeStuck entirely, so `writeState` never runs and the person is left on no
  * screen at all. Mona Lisa found that; two blind reviewers hit it on her branch.
