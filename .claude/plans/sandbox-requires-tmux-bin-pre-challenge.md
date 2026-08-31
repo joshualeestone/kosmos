@@ -3,7 +3,7 @@ pre_challenge: true
 method: pre-challenge
 explicit_override: true
 branch: sandbox-requires-tmux-bin
-diff_hash: faa06d0bb034b1f49f1f70396d34edfd082676a98b4851d9b7712638c53c6d3e
+diff_hash: 81af983b23c976712348452464bf5f52d0ae863d7e1f95850f6fc32823ed19d9
 timestamp: 2026-08-31T17:16:07Z
 iterations: 1
 converged: true
@@ -30,6 +30,9 @@ Single-pass self review. `explicit_override` set by me and named rather than bur
 [NIT] The refusal sentence grew to name both hazards, which broke an assertion pinning the old phrase. Rewritten as two property assertions so the next rewording does not have to come back.
 
 [CONVENTION] No em dashes added, checked before writing.
+
+
+[STRENGTH, ADDED AFTER A SELF-AUDIT] **I found a real defect in this branch by checking a surface the suite does not cover.** Browser checks are not in `run-tests.sh`, so exit 0 said nothing about them. The `render-create-made` board in `tools/browser-checks.sh` set four dirs plus DRY_RUN and no TMUX_BIN: measured both ways on the same env, current main ALLOWS it and this branch REFUSED it. It would have failed to boot. Fixed. Every other boot site was already covered, and that file's header records three release cuts taken down by its assertions.
 
 ### Final Ledger
 
