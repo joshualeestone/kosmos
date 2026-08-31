@@ -487,8 +487,10 @@ verify_download() {
 # origins reject HEAD (405) while serving GET fine, and "check your internet
 # connection" for a working connection is the wrong sentence.
 # ⚠️ A STATUS CODE CANNOT ANSWER "IS THE DOWNLOAD THERE". This used to accept
-# any response and therefore accepted EVERY url, including ones that cannot
-# exist: the range arm asks a web server for the first byte of its own 404
+# any response and therefore accepted every url ON AN HTTP ORIGIN WHOSE 404 PAGE
+# ANSWERS A RANGE REQUEST, including names that cannot exist. (Not literally
+# every url: a missing `file://` path already failed, rc 37, and there is an arm
+# for it.) The range arm asks a web server for the first byte of its own 404
 # page and gets `206 text/html, 1 byte`, which is a success. Measured
 # 2026-08-31 against a deliberately impossible name, which PASSED.
 #
@@ -599,13 +601,26 @@ reachable() {
   # and it lands exactly on the fallback's reason for existing: a 405 on HEAD.
   # The call sites are named by their surrounding code above rather than by
   # position, because nothing checks a line number in a comment.
-  local _r_ct _r_rc _r_out _r_code
+  local _r_ct _r_rc _r_out _r_code _r_answered
+  # 🛑 ACCUMULATED ACROSS BOTH PROBES, NEVER OVERWRITTEN. The second probe used
+  # to clobber the first probe's status, so a HEAD that got a definite answer
+  # (a hard 404, or a 200 carrying HTML) followed by a range GET that failed to
+  # COMPLETE (reset, DNS blip, an origin that drops the second connection) left
+  # code 000 with a non-zero rc, and the caller told the user to check a
+  # connection about a server that had demonstrably answered. Same wrong-sentence
+  # class this card removes, pointed the other way.
+  #
+  # ⚠️ `if`, not `{ …; } && _r_answered=1`: as a standalone statement that
+  # compound returns non-zero when both tests are false, which under `set -e`
+  # kills the shell. An `if` is never checked by -e.
+  _r_answered=0
   # %{http_code} FIRST because a content type contains spaces ("text/html;
   # charset=utf-8") and a status code never does, so the split is unambiguous.
   _r_out=$(curl -fsIL -m 15 -o /dev/null -w '%{http_code} %{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   _r_code=${_r_out%% *}; _r_ct=${_r_out#* }
   case "$_r_code" in ''|*[!0-9]*) _r_code=0 ;; esac
   case "$_r_out" in *' '*) ;; *) _r_ct='' ;; esac
+  if [ "$_r_rc" = 0 ] || [ "$_r_code" -ge 400 ]; then _r_answered=1; fi
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   # 📌 This arm also runs when HEAD SUCCEEDED with a textual type, where the
   # pre-#1662 code reached it only after a HEAD failure. Kept because refusing
@@ -669,6 +684,7 @@ reachable() {
   _r_code=${_r_out%% *}; _r_ct=${_r_out#* }
   case "$_r_code" in ''|*[!0-9]*) _r_code=0 ;; esac
   case "$_r_out" in *' '*) ;; *) _r_ct='' ;; esac
+  if [ "$_r_rc" = 0 ] || [ "$_r_code" -ge 400 ]; then _r_answered=1; fi
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   # 🛑 TWO DIFFERENT FAILURES, TWO DIFFERENT STATUSES, because they need
   # different sentences. rc 0 here means the origin ANSWERED and served
@@ -685,7 +701,7 @@ reachable() {
   # ⚠️ Every caller uses `!`, `&&` or a `!= 0` test, all of which treat 1 and 2
   # identically, so this changes no control flow anywhere. It only lets a caller
   # pick its sentence.
-  [ "$_r_rc" = 0 ] && return 2
+  [ "$_r_answered" = 1 ] && return 2
   # 🛑 AN HTTP ERROR IS ALSO THE SERVER ANSWERING, AND rc ALONE MISSES IT. `-f`
   # makes curl exit non-zero on a 4xx even though the request COMPLETED, so
   # testing rc covered only origins whose error page answers 2xx (this site's
@@ -693,7 +709,6 @@ reachable() {
   # GitHub Releases return a HARD 404 for a not-yet-published object, the most
   # common half-published shape, and those fell through to "check your internet
   # connection". Measured: a GitHub Releases 404 gives exit 56, http_code 404.
-  [ "$_r_code" -ge 400 ] && return 2
   return 1
 }
 

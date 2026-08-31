@@ -526,3 +526,53 @@ iteration 17 and unchanged. This reviewer independently spot-checked the factual
 claims in those comments (the seven `tr` call sites, the 13.5 floor, `BUST=yes`
 being set before `install_kosmos` runs) and found them accurate, which is the
 property that makes the comments worth their length.
+
+## Iteration 20
+
+**The http_code fix I shipped in iteration 19 had a dead store, and it failed in
+the same direction as the bug it replaced.** Each probe assigned `_r_code`, and
+the second overwrote the first. So a HEAD that got a definite answer (a hard
+404, or a 200 carrying HTML) followed by a range GET that failed to COMPLETE
+(reset, DNS blip, an origin dropping the second connection) left code 000 with a
+non-zero rc, and the caller told the user to check a connection about a server
+that had plainly answered.
+
+The fact is now accumulated in `_r_answered` across both probes rather than
+replaced. Written as an `if` rather than `{ ...; } && _r_answered=1`, because as
+a standalone statement that compound returns non-zero when both tests are false,
+which under `set -e` kills the shell.
+
+New fixture reproducing exactly that shape: HEAD returns 404, the ranged GET
+destroys the socket. Verified by turning the accumulator back into an overwrite
+and watching that arm redden.
+
+**The census could not see an unquoted caller.** It matched `reachable "`, so a
+fourth caller written `reachable $url` or `reachable ${url}` would have left the
+count at three and passed. That arm's entire job is noticing a caller nobody has
+written yet, so assuming that caller copies the quoting style of the three that
+exist defeats it. Widened and verified against both unquoted forms.
+
+**A claim in the comment was overstated and this branch's own test contradicted
+it.** It said the old predicate "accepted EVERY url, including ones that cannot
+exist". A missing `file://` path already failed with rc 37, and there is an arm
+asserting it. Scoped to HTTP origins whose 404 page answers a range request,
+which is where it is true.
+
+Also moved a stray `require` up to the others.
+
+### Declined, with the measurement rather than an argument
+
+**Extracting the duplicated status-dispatch block into a helper.** The stated
+risk is that duplicated user-facing copy "can silently diverge". I tested that:
+edited the sentence in ONE guard only, and the suite went red. The arms loop
+over every extracted guard and assert both sentences in each, so divergence
+between guards is caught, not silent. Two reviewers have now raised this
+duplication and the first explicitly declined to ask for extraction because the
+census pins `GUARDS.length === 2`. Leaving it.
+
+**Shortening the timeout on the two `127.0.0.1:1` arms.** They rely on loopback
+refusing rather than dropping; on a host with a filtering rule they would burn
+`-m 15` each. I am not changing it, because the timeout is inside the shipped
+`reachable()` text and the whole point of that harness is running the shipped
+text rather than a variant. Measured here: both arms complete in about 15ms, so
+the cost is hypothetical on this machine and the fidelity is not.

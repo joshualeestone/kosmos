@@ -23,6 +23,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+const zlib = require('node:zlib');
 const run = promisify(execFile);
 
 const SETUP = path.join(__dirname, 'install', 'setup.sh');
@@ -78,6 +79,14 @@ test.before(async () => {
     /* >1MB, incompressible, so it genuinely exceeds --max-filesize. A first
        attempt used gzip of repeated bytes, which compressed to 5KB and sailed
        under the cap: the fixture measured nothing. */
+    /* HEAD answers DEFINITIVELY (404) and the ranged GET then DROPS the
+       connection. Reproduces the dead-store defect: the second probe used to
+       overwrite the first probe's status, so the 404 the server plainly gave us
+       was discarded and the caller blamed the user's network. */
+    if (u.pathname === '/headanswers-rangedrops.tar.gz') {
+      if (req.method === 'HEAD') { res.writeHead(404, { 'content-length': '0' }); return res.end(); }
+      return req.socket.destroy();
+    }
     const bigGzip = u.pathname === '/bigrange.tar.gz';
     const bigHtml = u.pathname === '/bightml.tar.gz';
     /* Same shape as bigGzip but with NO content-length, so node sends it
@@ -251,7 +260,6 @@ test('#1662: a host that REFUSES HEAD is still reachable, via the range-GET fall
  * which is the behaviour before the guard existed. A false NO blocks the
  * install outright behind "Check your internet connection".
  */
-const zlib = require('node:zlib');
 
 test('#1662: a file:// URL is reachable, because the install gate drives the release path over it', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1662-file-'));
@@ -305,6 +313,18 @@ test('#1662: the REAL reachable() returns 2 for a hard 404, not just for a 2xx e
   assert.equal(await reachableStatus(`${base}/gzip404.tar.gz`), '2',
     'a hard 404 must be status 2: the server answered and told us the artifact is not there. '
     + 'If this is 1 the user is told to check a connection that is working.');
+});
+
+test('#1662: an answer seen by HEAD survives a range GET that never completes', async () => {
+  /* The two probes each produced a status and the second overwrote the first.
+     So a definite 404 from HEAD, followed by a dropped range connection, left
+     code 000 and non-zero rc: status 1, and the user was told to check a
+     connection about a server that had answered. The fact is now accumulated
+     rather than replaced. */
+  assert.equal(await reachableStatus(`${base}/headanswers-rangedrops.tar.gz`), '2',
+    'HEAD got a 404, so the server answered and the artifact is absent. If this is 1, one probe '
+    + 'failing to complete erases what the other probe already established, and the caller prints '
+    + 'the network sentence about a reachable server.');
 });
 
 test('#1662: the REAL reachable() returns 1 when nothing answered at all', async () => {
@@ -713,7 +733,12 @@ test('#1662: reachable() has exactly three call sites, so a fourth is a delibera
     .filter((l) => !/^\s*#/.test(l))
     .map((l) => l.replace(/\s#.*$/, ''))
     .join('\n');
-  const sites = execOnly.match(/(^|[^_a-zA-Z])reachable "/gm) || [];
+  /* NOT `reachable "` : requiring the double quote means `reachable $url` or
+     `reachable ${url}` would leave the count at 3 and this arm would pass. The
+     arm's entire job is noticing a caller nobody has written yet, so it must not
+     assume that caller copies the quoting style of the three that exist. The
+     definition line is excluded by requiring a non-brace first character. */
+  const sites = execOnly.match(/(^|[^_a-zA-Z])reachable[ \t]+[^ \t{]/gm) || [];
   assert.equal(sites.length, 3,
     `expected 3 reachable() call sites, found ${sites.length}. If you ADDED one: check the url it `
     + 'probes is a DOWNLOAD, not a pointer. _reachable_is_download refuses text/html, json and xml, '
