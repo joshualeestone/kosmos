@@ -776,7 +776,8 @@ deliberately, so dropping `-L` reddens rather than passing by luck. Verified:
 removing `-L` from both probes reddens exactly that arm.
 
 **And my own iteration-22 fix shipped copy that was false in three of four
-clauses.** Mapping curl 37 to status 2 was right, but the sentence opened "The
+clauses.** Mapping curl 37 to status 2 was right FOR ONE ITERATION and iteration 26
+replaced it with status 3, but at the time the sentence opened "The
 server answered but did not send an installable file", and a `file://` path has
 no server, no release and no network. `tools/test-install.sh` drives the entire
 release path over `file://`, so that is the sentence the project's own gate
@@ -794,7 +795,18 @@ is the true one for that reader, but it is not ideal copy for them.
 
 ### Considered and not done, with the reasoning
 
-**Giving rc 37 its own status 3, and extracting a `_reachable_refusal` helper.**
+**Giving rc 37 its own status 3, and extracting a refusal helper.**
+
+🛑 **SUPERSEDED: ITERATION 26 SHIPPED BOTH.** The reasoning below is kept
+because it records why the deferral was taken and what ended it, but as a
+statement of what the branch does it is false. The helper exists and is called
+`_reachable_refuse`, not `_reachable_refusal`, so the name below never named
+anything. A reader stopping here is told a shipped design is still outstanding.
+
+📌 Found in my own audit rather than by a reviewer, which is the first time in
+this loop. Three consecutive iterations had found a claim of mine that a later
+change of mine had falsified, so I went looking for the rest.
+
 That is the cleaner design and it would also settle the duplication four
 reviewers have now raised. I took the reviewer's lower-risk alternative instead:
 five of my last seven fixes introduced a defect that the next iteration caught,
@@ -951,3 +963,55 @@ paragraph argues against.
 ⭐ **Three iterations running, the finding has been that a change of mine
 invalidated a claim elsewhere that nothing checks.** A false comment costs
 nothing until someone believes it, which is precisely when it costs the most.
+
+## Iteration 28: converged
+
+Zero BLOCKERs, zero WARNINGs, zero CONVENTIONs. No unresolved ASKED findings.
+Three NITs, deduplicated:
+
+| finding | status |
+|---|---|
+| status 2 merges the 404 and captive-portal signals | NEW, does not gate |
+| the happy path probes the same URL twice | duplicate of iteration 26 |
+| comment-to-code ratio in the changed hunk | duplicate of 18, 21, 23, 25, 26 |
+
+The loop converges on ONE iteration with no blocking findings, not on a run of
+them, and a confirming pass would be drift rather than rigour. So it is
+converged at 28, after 3 BLOCKERs, 30 WARNINGs, 12 CONVENTIONs and roughly 45
+NITs across the run.
+
+The reviewer also verified the live origin independently, which is the claim
+this whole card rests on:
+
+```
+HEAD tmux-arm64.tar.gz        rc=0  200 application/gzip
+HEAD kosmos-arm64.tar.gz      rc=0  200 application/gzip
+HEAD zzz-cannot-exist.tar.gz  rc=56 404 text/html
+```
+
+### The one new NIT, recorded rather than fixed
+
+Status 2 is reached both by an origin answering 2xx with a textual body and by a
+hard 404, and its copy offers an intercepting network. A hard 404 is almost
+never a captive portal, since portals answer 200 or 302 with their own page, so
+that cause is imprecise for the most common half-published shape. A 403 does
+plausibly mean a proxy or a private bucket, so the merge is defensible for 4xx
+in general and only the 404 arm is loose. `_r_code` is already in hand if a
+fourth status is ever wanted.
+
+Not fixed here: it is a NIT, the copy hedges every cause with "may", and adding
+a fourth status at the convergence boundary would reopen the loop to validate
+one word. Written down as outstanding, and this time it says outstanding rather
+than describing something already shipped.
+
+### Self-audit before the reviewer, for once
+
+Three consecutive iterations had found a claim of mine that a later change of
+mine had falsified, so I swept the plan for the rest instead of waiting. Two:
+the "considered and not done" section still presented status 3 and the refusal
+helper as an outstanding follow-up when iteration 26 shipped both, and it named
+the helper `_reachable_refusal` when the shipped one is `_reachable_refuse`, so
+that name never named anything.
+
+⭐ The habit that generalises: after changing behaviour, grep the plan for the
+shape you just replaced. The loop found this class four times; I found it once.
