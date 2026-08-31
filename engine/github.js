@@ -31,57 +31,28 @@ const GH_CANDIDATES = Object.freeze(['/opt/homebrew/bin/gh', '/usr/local/bin/gh'
    introduced it by making the door honour the override, so the empty-string rule
    had to stop applying to the ENV default while still applying to an argument.
    📌 No test needs '' from the env: the arm that pins it passes '' directly. */
-/** Where gh lives. EXPORTED, so read the two `''` rules together before calling:
+/** Where gh lives. EXPORTED, and there is ONE rule: anything that is not a
+ * non-empty string means "unset" and yields the defaults.
  *
- *    ghCandidateList('')                     -> []              '' as an ARGUMENT
- *                                                               means "no candidates"
- *    AGENT_WORKFORCE_GH_CANDIDATES=''        -> the 3 defaults  '' from the ENV
- *                                                               means "unset"
+ *    ghCandidateList()            unset  -> the 3 defaults
+ *    AGENT_WORKFORCE_GH_CANDIDATES=''    -> the 3 defaults   ('' is unset, both ways)
+ *    ghCandidateList('')                 -> the 3 defaults
+ *    ghCandidateList(':')                -> []               ask for NONE explicitly
+ *    ghCandidateList('/a:/b')            -> ['/a','/b']
  *
- * 🛑 THE SAME VALUE MEANS OPPOSITE THINGS DEPENDING ON HOW IT ARRIVES, and a caller
- * who learns one rule will get the other backwards. Both halves are justified below,
- * thirteen lines apart, and neither said so at the signature until now. The argument
- * rule exists so a test can ask for "no candidates" without scanning the operator's
- * real paths; the env rule exists because `export FOO=$UNSET` yields '' routinely and
- * must not blind the door. Each is pinned by its own arm. */
-function ghCandidateList(override = (process.env.AGENT_WORKFORCE_GH_CANDIDATES || undefined)) {
-  /* 🛑 THE RULE AS SHIPPED: anything that is not a STRING means unset.
-     `''` IS a string, so it is honoured and means "no candidates", yielding [].
-     Measured, four arms: '' -> [], ':::' -> [], null -> the three defaults,
-     undefined -> the three defaults.
-
-     WHY NOT TRUTHINESS: on truthiness an empty string would mean "unset", so a test
-     setting AGENT_WORKFORCE_GH_CANDIDATES='' to mean "no candidates" would silently
-     scan /opt/homebrew/bin/gh and the other REAL paths on the operator's machine.
-     Same leak class as an unsandboxed store, which this branch already had once.
-
-     WHY `typeof` RATHER THAN `=== undefined`: as exported API this can be handed a
-     null or a number, which `.split` would throw on, and that throw would escape
-     `ghPresent` into `state()`, whose contract says it never rejects. `=== undefined`
-     is still the distinction being drawn; `typeof` just draws it safely.
-
-     📌 THE OVERRIDE IS A PARAMETER SO THE ARM IS NOT MACHINE LUCK. Its only guard
-     used to read the env and could therefore only tell the fixed and broken shapes
-     apart on a machine that HAS gh at a default path; on CI, which is the environment
-     that gates merges, it skipped and the fix shipped unguarded. Taking the value as
-     an argument lets a test drive THIS function directly with '' and with undefined.
-     Production still calls `ghCandidateList()` and reads the env, so the test
-     exercises production's own branch rather than a substitute.
-
-     ⚠️ ASYMMETRY, STATED HERE BECAUSE IT IS ONLY OBVIOUS FROM ONE SIDE: this
-     override treats '' as "no candidates", while AGENT_WORKFORCE_GH_BIN below treats
-     '' as "unset" (plain truthiness). `export FOO=$UNSET` produces an empty string
-     routinely. The directions differ and both are safe: here '' yields an empty scan,
-     there '' falls through to the candidate list. Noted at both sites.
-
-     📌 HISTORY, non-operative. This was headlined "`=== undefined`, NOT TRUTHINESS"
-     with a SECOND block below it correcting the rule to `typeof`. The headline
-     described a superseded implementation, and a reader takes the first sentence.
-     That is the stale-comment class this branch exists to fix, and `becomeStuck` was
-     reordered on exactly this reasoning ("the prominent one should be the true one")
-     less than an hour before this block was written the wrong way round. Folded so
-     there is one block whose first sentence is the shipped rule. */
-  if (typeof override !== 'string') return GH_CANDIDATES;
+ * 🛑 IT USED TO GIVE '' TWO OPPOSITE MEANINGS: [] as an argument, defaults from the
+ * env. Both halves were justified and the split was AVOIDABLE. The natural call for
+ * an exported function, `ghCandidateList(process.env.AGENT_WORKFORCE_GH_CANDIDATES)`,
+ * then returned the OPPOSITE of what production does with the same value. Measured:
+ * production 3 paths, that call [].
+ * ⇒ `':'` already yields [] through `.split(':').filter(Boolean)`, so a caller can
+ * ask for "no candidates" without overloading ''. Collapsing removed the double
+ * meaning, the `|| undefined` on the default, and the two arms needed to pin the
+ * two halves. */
+function ghCandidateList(override = process.env.AGENT_WORKFORCE_GH_CANDIDATES) {
+  /* One rule. '' is unset whichever way it arrives, which is what `export FOO=$UNSET`
+     produces and what a caller passing the env value expects. */
+  if (typeof override !== 'string' || override === '') return GH_CANDIDATES;
   return override.split(':').filter(Boolean);
 }
 

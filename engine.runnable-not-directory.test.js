@@ -498,7 +498,7 @@ test('an EMPTY candidates override means no candidates, not the real machine pat
   delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
   try {
   assert.deepStrictEqual(
-    gd.ghCandidateList(''), [],
+    gd.ghCandidateList(':'), [],
     'an EMPTY candidates override was treated as UNSET and fell back to the real default paths. ' +
     'The override is being tested for truthiness rather than for being undefined, so a test ' +
     'asking for "no candidates" reaches the operator\'s own gh installation.'
@@ -580,7 +580,7 @@ test('willInstall rejects a DIRECTORY without ever reaching the version probe', 
     let probes = 0;
     connect.setRunner(() => { probes += 1; return { ok: true, stdout: '1.0.0' }; });
     /* 🛑 NO setProbeTtlForTests CALL HERE, AND THE ONE THAT USED TO BE WAS A
-       SILENT NO-OP. It passed 0, and connect.js:341 is
+       SILENT NO-OP. It passed 0, and `setProbeTtlForTests` in connect.js is
        `PROBE_TTL_MS = Number.isFinite(ms) && ms > 0 ? ms : 60000`, so 0 falls
        straight back to the 60s default. The stated cache bypass never happened,
        and a later comment claimed it had leaked that 0 to whatever ran next,
@@ -606,7 +606,7 @@ test('willInstall rejects a DIRECTORY without ever reaching the version probe', 
     assert.strictEqual(probes, 1,
       'a real executable did not reach the version probe, so the probe count proves nothing');
   } finally {
-    /* ⚠️ setRunner(null) also sets DRY_RUN = true module-wide (connect.js:157)
+    /* ⚠️ setRunner(null) also sets DRY_RUN = true module-wide (in `setRunner` itself)
        and nothing here restores it. Harmless in this file because no later arm
        calls run(), and noted rather than silently left: it is unrestored module
        state on a cleanup path. */
