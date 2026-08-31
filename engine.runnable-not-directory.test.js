@@ -323,9 +323,15 @@ test('the set of lines matching the weak call is exactly what we audited', () =>
       '           that judgement let a LIVE call opening with an inline block comment\n' +
       '           pass as prose.\n' +
       '  THE KEY is {file, call, fn}: the matched call (line.match(WEAK_CALL_ALL)[0],\n' +
-      '           NOT the trimmed line) plus the ENCLOSING FUNCTION. fn is what sees a\n' +
-      '           same-file swap; {file, call} alone cannot, and neither can a trimmed\n' +
-      '           line, because the planted line was byte-identical to the pinned one.\n' +
+      '           NOT the trimmed line) plus the ENCLOSING FUNCTION. fn sees a same-file\n' +
+      '           DIFFERENT-FUNCTION swap; {file, call} alone cannot, and neither can a\n' +
+      '           trimmed line, because the planted line was byte-identical.\n' +
+      '  ⚠️ IT DOES NOT SEE A SAME-FUNCTION SWAP, and an earlier version of this message\n' +
+      '           said "a same-file swap" with no qualifier. MEASURED: route the pinned\n' +
+      '           call through isRunnable and add an identical bare call ELSEWHERE IN THE\n' +
+      '           SAME FUNCTION -> 18 pass 0 fail, because the multiset is unchanged. It\n' +
+      '           needs a deliberate paired edit, the same weight as the other residuals\n' +
+      '           this file lists, and it is listed with them now.\n' +
       '  ⚠️ IF YOU ONLY RENAMED THE ENCLOSING FUNCTION, update fn here and move on.\n' +
       '           That is safe and expected, and it is the acknowledged cost of this\n' +
       '           key: a rename unrelated to runnability reds a #1592 test. Taken\n' +
@@ -595,16 +601,9 @@ test('githubdevice reports a DIRECTORY at the gh override as missing', async () 
      file would not have found the other. `state()` is ASYNC: reading `.gh` off
      the promise gives undefined in BOTH arms, which looks like a result and is
      an instrument fault. Awaited here for that reason. */
-  /* 🛑 `githubdevice`, NOT `github`. These arms drive `githubdevice.state()`, which
-     reaches `ghPresent` -- the byte-identical twin that is half the reason this card
-     exists. `github.js`'s `state()` is `makeDoor`'s and never touches it.
-     ⚠️ THIS BINDING WAS SWITCHED TO `github.js` TO SATISFY A NIT ABOUT WHERE
-     `ghCandidateList` IS DEFINED, WHICH SILENTLY REPOINTED THESE TWO ARMS OFF THE
-     TWIN AND LEFT `ghPresent` DRIVEN BY NO TEST IN THE REPO. Measured: weakening
-     the lambda to `existsSync` then passed 14/14, fully green, and `existsSync` is
-     explicitly outside WEAK_CALL so the sweep cannot see it either.
-     📌 The "require it where it is defined" justification applies ONLY to the
-     `ghCandidateList` arm below; neither of these calls it. */
+    /* 🛑 `githubdevice`, NOT `github`, for the reason written out in full on the
+       FIRST arm of this pair. Deliberately not restated: two copies of one fact is
+       the defect this file is named for, and one copy always goes stale. */
   const gd = require('./engine/githubdevice.js');
   const f = fixture('gh');
   const before = process.env.AGENT_WORKFORCE_GH_BIN;
@@ -1019,7 +1018,27 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
 
      ⚠️ WHAT WOULD CHANGE MY MIND: a second writeState carrying canRunClaude
      appearing in real review, or those conflicting branches landing so the
-     friction argument expires. Either one, and file-wide is right again. */
+     friction argument expires. Either one, and file-wide is right again.
+
+       📌 FOURTH RESIDUAL, IN THE SWEEP RATHER THAN IN THIS ARM, RECORDED HERE BECAUSE
+       THIS IS WHERE THE LIST LIVES: the {file, call, fn} key sees a same-file
+       DIFFERENT-FUNCTION swap and NOT a same-FUNCTION one. MEASURED: route machine.js's
+       pinned call through isRunnable and add an identical bare call elsewhere inside the
+       SAME function -> 18 pass 0 fail, because the multiset is unchanged. Same weight as
+       the three above: it needs a deliberate paired edit, a removal AND an addition
+       together, not an ordinary careless commit. The sweep IS a real multiset, so an
+       unpaired ADD still reds.
+       ⚠️ This entry exists because the sweep's failure message told maintainers the gap
+       "is listed with the other residuals" BEFORE it was. That is this file's own
+       claim-outlives-the-guard defect, committed in the act of documenting a guard.
+
+       📌 FIFTH, AN ABSENCE RATHER THAN AN EVASION: githubdevice.js's hoist of
+       require('./runners') to module scope is THE ONE PRODUCTION EDIT ON THIS BRANCH
+       WITH NO ARM. Measured: reverting it to the lazy require leaves this file at 18
+       pass 0 fail. The sweep cannot see it (it keys on accessSync, not isRunnable) and
+       state()'s own catch upholds "never rejects" either way, which is why the arm
+       written for it was removed as undefeatable. It is defence in depth AND it is
+       unpinned; both are true, and the second was only in prose until now. */
   const fnAt = src.indexOf('function becomeStuck(');
   assert.ok(fnAt > 0, 'becomeStuck was renamed or removed; re-aim this guard');
   /* Matches `async function` too. It was `\nfunction ` only, which is correct
@@ -1178,12 +1197,28 @@ test('the gh door never rejects when runners fails to LOAD', async () => {
      `gh auth status --hostname github.com` against the operator's own keyring,
      with an 8s timeout, once per `state()` call.
      ⚠️ These arms shipped without it, which FALSIFIED the comment in
-     githubdevice.js claiming no test reaches the real gh through the door. The
-     getter and candidate-scan path is still exercised: the override is a real
-     string, so ghCandidateList parses it and the scan runs and finds nothing. */
+       githubdevice.js claiming no test reaches the real gh through the door.
+       📌 CORRECTED, AND BY MY OWN LATER CHANGE: this used to end "the candidate scan
+       runs and finds nothing". Once GH_BIN is pinned below, the scan does NOT run at
+       all, because ghBin() honours the bin override first. That is the POINT of
+       pinning it. The candidate-scan coverage lives in the candidates-override arm. */
   const beforeBin = process.env.AGENT_WORKFORCE_GH_BIN;
   const beforeCands = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
-  delete process.env.AGENT_WORKFORCE_GH_BIN;
+  /* 🛑 GH_BIN IS PINNED, NOT DELETED, AND THAT IS A SANDBOX FIX NOT A STYLE CHOICE.
+     This arm used to `delete` it and rely on the CANDIDATES pin alone. But that pin is
+     honoured only BECAUSE OF `github.js`'s `get candidates()` getter, which is the very
+     change this branch exists to make: the arm was sandboxing itself with the code under
+     test. MEASURED, with a control:
+       getter reverted to the bare literal -> door.ghBin() = /opt/homebrew/bin/gh
+       shipped                             -> door.ghBin() = null
+       reverted, but GH_BIN pinned         -> door.ghBin() = null
+     ⇒ under the exact regression this branch fixes, the arm silently began exec'ing the
+     OPERATOR'S REAL gh (`gh auth status` against their live keyring) AND STILL PASSED.
+     `ghBin()` honours the bin override unconditionally however `candidates` is spelled,
+     so this sandbox cannot be undone by a regression in the thing under test.
+     📌 The candidate-scan coverage this trades away is carried by "the REAL gh door
+     honours the candidates override", which is the arm whose whole subject that is. */
+  process.env.AGENT_WORKFORCE_GH_BIN = path.join(SANDBOX, 'no-gh-binary-here');
   process.env.AGENT_WORKFORCE_GH_CANDIDATES = path.join(SANDBOX, 'no-gh-here');
   /* CONTROL FIRST: with everything loadable it resolves, so a resolve below
      cannot be the answer to everything. */
@@ -1209,18 +1244,25 @@ test('github.js does not reach BACK into githubdevice at call time', async () =>
   const Module = require('module');
   const orig = Module._load;
   const door = require('./engine/github.js');
-  /* 🛑 PIN THE gh ENV, OR THIS ARM EXECS THE OPERATOR'S REAL gh. With neither
-     variable set, `ghBin()` falls through to the candidate scan, finds the real
-     /opt/homebrew/bin/gh (measured), and `status()` runs
-     `gh auth status --hostname github.com` against the operator's own keyring,
-     with an 8s timeout, once per `state()` call.
-     ⚠️ These arms shipped without it, which FALSIFIED the comment in
-     githubdevice.js claiming no test reaches the real gh through the door. The
-     getter and candidate-scan path is still exercised: the override is a real
-     string, so ghCandidateList parses it and the scan runs and finds nothing. */
+    /* 🛑 PIN THE gh ENV, same reason and same measurement as the FIRST arm of this
+       pair, where it is written out in full. */
   const beforeBin = process.env.AGENT_WORKFORCE_GH_BIN;
   const beforeCands = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
-  delete process.env.AGENT_WORKFORCE_GH_BIN;
+  /* 🛑 GH_BIN IS PINNED, NOT DELETED, AND THAT IS A SANDBOX FIX NOT A STYLE CHOICE.
+     This arm used to `delete` it and rely on the CANDIDATES pin alone. But that pin is
+     honoured only BECAUSE OF `github.js`'s `get candidates()` getter, which is the very
+     change this branch exists to make: the arm was sandboxing itself with the code under
+     test. MEASURED, with a control:
+       getter reverted to the bare literal -> door.ghBin() = /opt/homebrew/bin/gh
+       shipped                             -> door.ghBin() = null
+       reverted, but GH_BIN pinned         -> door.ghBin() = null
+     ⇒ under the exact regression this branch fixes, the arm silently began exec'ing the
+     OPERATOR'S REAL gh (`gh auth status` against their live keyring) AND STILL PASSED.
+     `ghBin()` honours the bin override unconditionally however `candidates` is spelled,
+     so this sandbox cannot be undone by a regression in the thing under test.
+     📌 The candidate-scan coverage this trades away is carried by "the REAL gh door
+     honours the candidates override", which is the arm whose whole subject that is. */
+  process.env.AGENT_WORKFORCE_GH_BIN = path.join(SANDBOX, 'no-gh-binary-here');
   process.env.AGENT_WORKFORCE_GH_CANDIDATES = path.join(SANDBOX, 'no-gh-here');
   await assert.doesNotReject(() => door.state(), 'control: the door rejected with no fault injected');
   Module._load = function (req, ...rest) {

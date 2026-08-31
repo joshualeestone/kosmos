@@ -226,6 +226,10 @@ const { ghCandidateList } = require('./github');
 /* ⚠️ DETECTED, NOT FATAL. If a require cycle is introduced the destructured name
    is `undefined` during a partial load, the TypeError inside `ghPresent()` is
    swallowed by `state()`'s outer catch, and the route answers `gh: 'missing'`
+   (NOT silently, and the earlier word here was wrong: that catch also returns
+   `phase: PHASE.FAILED` and `because: String(err.message)`, both of which the board
+   renders. What is wrong is the `gh` FIELD specifically, which is the field the door's
+   consumers read. The argument for hoisting survives the correction; "silent" did not.)
    silently. This warns so the failure is visible.
    🛑 IT USED TO THROW, AND THAT WAS THE WRONG TRADE. `server.js` requires this
    module at top level with NO try (`github` and `githubdevice` both), so a throw means the

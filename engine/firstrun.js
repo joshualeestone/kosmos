@@ -198,7 +198,10 @@ async function state() {
      paths).
      📌 THIS ALSO NAMED `isRunnable` AS A THIRD THROW SOURCE. IT IS NOT ONE:
      `isRunnable` wraps its entire body in try/catch and returns false, so it cannot
-     throw. Two of the three named sources were right and the third was invented. Nothing after that try can reject, so the `.catch` cannot fire
+     throw. Two of the three named sources were right and the third was invented.
+
+     ⇒ THE OPERATIVE CLAIM, which is what this whole block exists to state: nothing
+     after that try can reject, so the `.catch` cannot fire
      today.
 
      It stays because the property it defends is the one that matters (an unknown
