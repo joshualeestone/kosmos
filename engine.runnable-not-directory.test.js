@@ -256,7 +256,8 @@ test('the set of lines matching the weak call is exactly what we audited', () =>
       '  a real call    -> use require("./runners").isRunnable(p)\n' +
       '  a call you are KEEPING -> pin it AND write a behavioural arm. Pinning alone proves ' +
       'nothing; that was measured and defeated.\n' +
-      '  prose -> pin the trimmed text\n' +
+      '  prose -> pin it too, and note the KEY is the matched call\n' +
+      '           (line.match(WEAK_CALL_ALL)[0]), NOT the trimmed line\n' +
       'Live locations right now:\n  ' +
       found.map((e) => e.file + ':' + e.line).join('\n  ') + '\n'
   );
@@ -893,7 +894,19 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
   const nextFn = Math.min(plainFn === -1 ? Infinity : plainFn, asyncFn === -1 ? Infinity : asyncFn);
   assert.ok(Number.isFinite(nextFn) && nextFn > fnAt,
     'no top-level function follows becomeStuck; this bound is unanchored');
-  const body = src.slice(fnAt, nextFn);
+  /* 🛑 BOUNDED AT becomeStuck's OWN CLOSING BRACE, NOT AT THE NEXT DECLARATION.
+     `nextFn` is the index of `\nfunction `, so slicing to it INCLUDES the docblock
+     that belongs to the following function. Measured: 227 bytes of `submitCode`'s
+     docblock sat inside the region. The count is unaffected today, so this was
+     LATENT: a `writeState(` written in that neighbouring comment would have redded
+     a test named for #1592 over a change belonging to another card.
+     ⚠️ That is precisely the coupling the comment above says scoping removed, so
+     the claim was true of the file axis and false of the boundary. Top-level
+     functions close at column 0, so the last `\n}` in the slice is this one's. */
+  const looseBody = src.slice(fnAt, nextFn);
+  const closeAt = looseBody.lastIndexOf('\n}');
+  assert.ok(closeAt > 0, 'becomeStuck has no column-0 closing brace; this bound is unanchored');
+  const body = looseBody.slice(0, closeAt + 2);
 
   const calls = body.match(/writeState\(/g) || [];
   assert.strictEqual(
