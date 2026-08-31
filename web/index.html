@@ -9031,7 +9031,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            config directory on the machine that carries a login record, so the
            screen cannot disagree with what is actually there. -->
       <div id="set-accounts"></div>
-      <p class="dhint" id="set-accounts-msg" role="status" style="margin:10px 0 0;"></p>
+      <p class="dhint" id="set-accounts-msg" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
       <!-- #248, LIVE: the browser sign-in the first run already has, on this
            button. POST /api/connect/start { another: true } (Angel's frozen
            contract): the engine picks the next free work directory itself
@@ -13258,9 +13258,21 @@ function accountGroupsHtml(list, rowHtml) {
   }).join('');
 }
 
+/* 🛑 ONE TIMER, MODULE SCOPE, CANCELLED BY EVERY WRITER TO #set-accounts-msg.
+   The disabled default Disconnect defers its refusal by 60ms so a status region
+   re-announces an unchanged sentence. That deferred write can land on top of a
+   newer message, and an earlier version of this held the id as an EXPANDO ON THE
+   BUTTON -- which `paintAccounts` destroys wholesale via `box.innerHTML = ...`,
+   so after any repaint NOTHING COULD CANCEL IT. Module scope outlives the node. */
+let acctSayTimer = null;
+function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctSayTimer = null; } }
+
 async function paintAccounts() {
   const box = document.getElementById('set-accounts');
   const msg = document.getElementById('set-accounts-msg');
+  /* A repaint is itself a writer to that line ("Checking your accounts..."), so
+     it cancels too: otherwise a refusal scheduled 60ms ago lands over it. */
+  acctCancelSay();
   if (!box) return;
   /* #881: GET /api/accounts now confirms each account live with Anthropic
      (a real check per account, not an instant directory stat), so this
@@ -13366,8 +13378,11 @@ async function paintAccounts() {
        Claude one costs an OAuth sign-in, and this is the provider every user
        has. Extending a no-confirm destructive control to it is a bigger step
        than inheriting one, and it is recorded as an open gap rather than
-       fixed on this card because the confirm would change the press flow in a
-       browser gate this branch cannot run. */
+       fixed on this card. The confirm is kosmos#1683's, landing as #1702, and it
+       binds generically over `[data-forget]` -- which this card is what puts on
+       Claude rows, so the Claude half arrives on the rebase rather than as new
+       code. An earlier version of this comment said the browser gate could not
+       run here; that was a bad measurement and the gate runs and passes. */
     /* #881: THREE STATES, NOT A HARDCODED ONE. This badge used to be
        unconditional markup -- every account row said "Connected" no
        matter what. GET /api/accounts now confirms each Claude row live
@@ -13553,10 +13568,10 @@ async function paintAccounts() {
          within 60ms: the deferred refusal lands DURING the in-flight removal and
          shows the wrong sentence over a request that is still running. The timer
          id is held on the button so the live handler can cancel it. */
-      if (btn._sayTimer) clearTimeout(btn._sayTimer);
+      acctCancelSay();
       msg.textContent = '';
-      btn._sayTimer = setTimeout(() => {
-        btn._sayTimer = null;
+      acctSayTimer = setTimeout(() => {
+        acctSayTimer = null;
         msg.textContent = say;
         /* 🛑 THE DEFAULT ROW IS EMITTED FIRST AND THIS MESSAGE LINE SITS AFTER
            THE WHOLE LIST (index 9021 vs 9022). On a multi-account machine the
@@ -13571,11 +13586,7 @@ async function paintAccounts() {
   for (const btn of box.querySelectorAll('[data-forget]')) {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
-      /* Cancel any deferred refusal from the disabled default row, or it lands
-         on top of this removal's own sentence 60ms from now. */
-      for (const other of box.querySelectorAll('.acct-disconnect[aria-disabled="true"]')) {
-        if (other._sayTimer) { clearTimeout(other._sayTimer); other._sayTimer = null; }
-      }
+      acctCancelSay();
       if (msg) msg.textContent = '';
       try {
         /* #1659: ONE handler, two providers. The endpoint is the only
@@ -13636,6 +13647,7 @@ async function paintAccounts() {
   for (const btn of box.querySelectorAll('[data-share]')) {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
+      acctCancelSay();
       if (msg) msg.textContent = '';
       try {
         const res = await fetch('/api/accounts/share', {

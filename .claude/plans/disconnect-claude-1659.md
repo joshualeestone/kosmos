@@ -148,7 +148,7 @@ the arming** so an unmarked button cannot arm.
 
 ## Verification
 
-- 18 tests: 8 on the engine function, 10 on the route.
+- 19 tests: 9 on the engine function, 10 on the route.
 - **6 perturbation arms**, each breaking one guard and confirming the matching
   test goes red, then restoring clean: default refusal, usedBy refusal, path
   guard, collision loop, runner filter, fail-closed.
