@@ -94,7 +94,9 @@ commit and not to my discipline.** Anyone can check it in one command against
 any future HEAD:
 
 ```
-tested-source-sha256   c4fae33e37a974e9b0c69c0f56a875638397a4aed4d893213ff2fd7b7a53d99a
+tested-source-sha256   c4fae33e...   the sha the GATE RAN AGAINST (commit ac69295d)
+HEAD install/setup.sh  4a43af61...   current, differing from the above by
+                                     COMMENT-ONLY edits, verified below
 bundle-sha-matches     dist/setup == install/setup.sh, asserted BEFORE the harness
 source-sha-at-end      c4fae33e... (identical, so nothing moved mid-run)
 assertions             328 (a run that asserted NOTHING is not a pass)
@@ -118,10 +120,18 @@ comparison against a commit that DID change behaviour differs, so it can
 discriminate. Reproduce it with:
 
 ```
-git diff 85b75857 HEAD -- install/setup.sh    # read it: comments only?
+git diff ac69295d HEAD -- install/setup.sh    # read it: comments only?
 ```
 
-🛑 **AN EARLIER VERSION OF THIS RECIPE WAS LOSSY IN THE REASSURING DIRECTION
+🛑 **AND AN EARLIER VERSION NAMED THE WRONG BASE, WHICH IS WORSE THAN A LOSSY
+FILTER BECAUSE IT ARGUED AGAINST ITSELF.** It said `85b75857`, which PREDATES
+`--max-filesize` and the exit-63 mapping, so running it showed EXECUTABLE
+changes and told the reader this evidence was void. The correct base is the
+commit the gate actually ran against, `ac69295d`; that comparison is
+exec-identical at 1268 lines. My conclusion was right and my document could not
+establish it.
+
+🛑 **AN EARLIER VERSION OF THIS RECIPE WAS ALSO LOSSY IN THE REASSURING DIRECTION
 AND IS RETRACTED.** It used `sed 's/[[:space:]]*#.*$//'` to strip comments,
 which also truncates EXECUTABLE lines containing `#` inside a parameter
 expansion. `install/setup.sh` has **14** such lines. Measured: changing
@@ -165,6 +175,23 @@ or tar; the unexpected file is `wouldping/needs-you.jsonl`, a runtime
 notification record, and `main` carries the identical expectation. **No control
 run on `main` was performed**, so the attribution rests on the invariance, not
 on that reasoning.
+
+## Named follow-up, deliberately NOT done here
+
+`reachable()` collapses two distinct causes into one `return 1`: a connection
+that failed, and an origin that answered fine but served an error page. The
+sentence this card resurrects says *"Check your internet connection and paste
+the install line again; it is safe to re-run."* **For the half-published-CDN
+case, which the call-site comment names explicitly, that advice is wrong** - the
+network is fine and re-running cannot publish a missing artifact.
+
+A distinguishable status (1 = could not connect, 2 = answered but is not a
+download) would let each caller print the right sentence.
+
+⚠️ **Deferred on scope, not on merit.** This card is "the check cannot fail";
+making the failure MESSAGE distinguish its causes is a different change,
+touching three call sites and new user-facing copy in release tooling during a
+merge freeze. Worth doing, and worth doing on its own.
 
 ## The `set -e` shapes, measured
 

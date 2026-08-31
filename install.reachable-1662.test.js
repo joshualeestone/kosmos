@@ -39,7 +39,7 @@ const BLOCK_RE = /_reachable_is_download\(\)\s*\{[\s\S]*?\n\}\n(?:[ \t]*#[^\n]*\
 const FN = SRC.match(BLOCK_RE);
 
 const BIGBODY = require('node:crypto').randomBytes(4 * 1024 * 1024);
-const BYTES_SENT = { n: 0 };
+const BYTES_SENT = {};   /* keyed BY PATH: a single counter would let one arm read another's bytes if node:test ever runs these concurrently */
 const GZ = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 const ERR = Buffer.from('<!doctype html><html><body>Not here</body></html>');
 
@@ -83,7 +83,7 @@ test.before(async () => {
           const end = Math.min(off + CHUNK, BIGBODY.length);
           const ok = res.write(BIGBODY.subarray(off, end));
           off = end;
-          BYTES_SENT.n = off;
+          BYTES_SENT[u.pathname] = off;
           if (!ok) { res.once('drain', pump); return; }
         }
         res.end();
@@ -439,21 +439,73 @@ test('#1662: but a LARGE textual body is still refused, so 63 is not a blanket y
     + 'yes rather than as a successful fetch whose type still has to pass');
 });
 
-test('#1662: --max-filesize actually STOPS the transfer, it is not just decoration', async () => {
+test('#1662: --max-filesize actually truncates the transfer, it is not decoration', async () => {
   /* 🛑 THE CAP ITSELF HAD NO FAILING ARM. Measured: removing
-     `--max-filesize 1048576` left all 19 other tests green, because both big-body
+     `--max-filesize 1048576` left all other tests green, because both big-body
      arms answer identically capped or uncapped. Only the COMPENSATING fix (exit
-     63 mapped to success) was asserted, never the cap's own benefit -- and this
-     branch's whole thesis is that a check with no failing case is not a check.
-     The fixture streams a 4MB body in 64KB chunks and counts what it actually
-     wrote, so this asserts the transfer was CUT SHORT rather than merely that
-     the verdict was right. */
-  BYTES_SENT.n = 0;
+     63 mapped to success) was asserted, never the cap's own benefit.
+     The fixture streams a 4MB body in 64KB chunks and counts what it wrote.
+
+     ⚠️ THE ASSERTION IS "DID NOT SEND THE WHOLE BODY", NOT "SENT SOME". An
+     earlier comment here claimed the arm proves the transfer was CUT SHORT; it
+     cannot distinguish that from NEVER STARTED, because curl may abort on the
+     Content-Length before a byte moves. Both are correct outcomes of the cap,
+     and the amount is TCP-buffer dependent. Measured on this machine it is
+     genuinely mid-transfer (196608 of 4194304 written), but pinning a lower
+     bound would be pinning a buffer size. */
+  BYTES_SENT['/bigrange.tar.gz'] = 0;
   assert.equal(await reachable(`${base}/bigrange.tar.gz`), 'YES',
     'precondition: the capped probe should still accept this download');
-  const sent = BYTES_SENT.n;
-  assert.ok(sent < 3 * 1024 * 1024,
-    `the probe pulled ${sent} of ${BIGBODY.length} bytes, so --max-filesize did not stop it. `
-    + 'Without the cap this streams the entire body, which against a real 48MB tarball is the '
-    + 'cost the cap exists to avoid.');
+  const sent = BYTES_SENT['/bigrange.tar.gz'] || 0;
+  assert.ok(sent < BIGBODY.length,
+    `the probe pulled the ENTIRE ${BIGBODY.length}-byte body (${sent}), so --max-filesize did `
+    + 'not stop it. Against a real 48MB tarball that is exactly the cost the cap exists to avoid.');
+});
+
+/* ---- the THIRD call site: the versioned-artifact probe -------------------
+ * Raised by three separate reviewers. The two `if ! reachable "$url"` guards
+ * are covered above; this one is different in kind. It is an EXISTENCE PROBE
+ * selecting WHICH url to download, and a false NO here does not stop the
+ * install, it silently falls through to the unversioned name -- the exact
+ * cache-collision hazard the surrounding comment was written against.
+ * Measured before this existed: deleting `&& reachable …` from that line left
+ * all 20 arms green while changing which URL gets downloaded.
+ */
+const PROBE_RE = /if \[ -n "\$\{TARGET_VERSION:-\}" \] && reachable[\s\S]*?\n\s*fi\n/;
+const PROBE = SRC.match(PROBE_RE);
+
+async function runProbe(reachableVerdict, opts = {}) {
+  const script = `set -eu
+reachable(){ return ${reachableVerdict}; }
+KOSMOS_RELEASE_BASE='https://example.invalid/dist'
+ARCH=arm64
+TARGET_VERSION='${opts.target === undefined ? '9.9.9' : opts.target}'
+BUST='${opts.bust || ''}'
+url=''; shaurl=''
+${PROBE[0]}
+echo "url=$url"
+`;
+  const { stdout } = await run('sh', ['-c', script], { encoding: 'utf8' });
+  return stdout.trim();
+}
+
+test('#1662: the versioned-artifact probe was extracted from the installer', () => {
+  assert.ok(PROBE, 'could not extract the TARGET_VERSION probe from install/setup.sh, '
+    + 'so the arms below measured nothing');
+});
+
+test('#1662: a reachable versioned artifact IS selected by name', async () => {
+  const out = await runProbe(0);
+  assert.match(out, /kosmos-9\.9\.9-arm64\.tar\.gz$/,
+    `the versioned name was not chosen even though the probe said yes. Got: ${out}`);
+});
+
+test('#1662: an UNreachable versioned artifact falls back to the unversioned name', async () => {
+  /* This is the branch the fix makes reachable for the first time: before
+     #1662 the probe could never return false, so this `else` was dead. */
+  const out = await runProbe(1);
+  assert.match(out, /kosmos-arm64\.tar\.gz$/,
+    `the fallback did not select the plain name. Got: ${out}`);
+  assert.doesNotMatch(out, /9\.9\.9/,
+    'the versioned name was used despite the probe saying the artifact is not there');
 });
