@@ -1066,6 +1066,56 @@ async function start(opts) {
     if (!probe.ok || probe.dryRun) haveBinary = false;
   }
 
+  /**
+   * 🛑 #1574: THE CONFIRM IS DECIDED HERE, IN THE SAME CALL THAT WOULD START THE
+   * DOWNLOAD, BECAUSE ANYWHERE ELSE IS A RACE.
+   *
+   * The screen used to decide from `FR.connect.willInstall`, a snapshot taken at
+   * page boot and refreshed only on "Check again". On a board left open whose
+   * launcher is removed or broken AFTER boot, that snapshot still says no install
+   * is needed, the confirm is skipped, and ~281MB begins unannounced. The
+   * server-side TTL does not bound it: it bounds how long the SERVER serves a
+   * stale verdict, while the page holds its own copy for as long as it has been
+   * sitting there.
+   *
+   * ⚠️ RE-READING `/api/first-run` BEFORE THE PRESS ONLY NARROWS IT. The same race
+   * exists between that read and the download starting. The window closes only
+   * when the check and the act are the SAME decision, which is here: `haveBinary`
+   * above is a live probe, and the line below is what hands it to `runFlow`.
+   *
+   * 🛑 FAIL-CLOSED FOR THE CALLER THAT ASKS FOR IT, AND THE DIRECTION IS THE POINT:
+   *     we refuse and an install was not needed  -> one needless confirm click
+   *     we proceed and an install WAS needed     -> 281MB nobody agreed to
+   * Within a run that opted in, an absent or non-true `installConfirmed` REFUSES.
+   * Silence is not consent.
+   *
+   * ⚠️ WHY THIS IS OPT-IN RATHER THAN THE DEFAULT, STATED SO IT CAN BE OVERTURNED.
+   * I built the default-refuse version first. It is the stronger contract and it
+   * broke ELEVEN tests across four files, every one of them a test that
+   * deliberately drives the install path and would have had to declare it. That is
+   * churn in files this card does not own, to protect against a caller that does
+   * not exist: `/api/connect/start` is the only route that reaches here, and it
+   * always opts in (server.js), so the browser - the one place a person can be
+   * surprised by a download - is fully covered either way.
+   * ⇒ WHAT WOULD CHANGE MY MIND: a SECOND caller that can reach the install path
+   * without going through that route. At that point the default should flip and the
+   * eleven tests should declare their intent, which is honest work rather than
+   * accommodation.
+   *
+   * 📌 THE ATOMICITY IS THE PART THAT MATTERS AND IT IS NOT OPTIONAL. Whatever the
+   * default, the decision happens HERE, in the same call that would start the
+   * download, using the live `haveBinary` probe above. A caller that asked the
+   * server "will you install?" and then pressed Start has a race between the two;
+   * this has none, which is why the fix could not live in the page.
+   *
+   * 📌 IT REFUSES BEFORE CLAIMING A DRIVER, so a refusal leaves no flow to cancel
+   * and the record stays IDLE. The caller re-presses with `installConfirmed: true`
+   * and walks the same checks again, which is the idempotence `start` already has.
+   */
+  if (!haveBinary && opts && opts.requireInstallConfirm === true && opts.installConfirmed !== true) {
+    return { ...state(), needsInstallConfirm: true };
+  }
+
   // ⚠️ The probe was an AWAIT between the top guard and the claim below: two
   // rapid starts could both pass the guard and race the same .part path.
   // Re-check before claiming; the second caller adopts the first's flow.

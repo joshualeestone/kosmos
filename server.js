@@ -4058,6 +4058,26 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (pathname === '/api/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* 🛑 #1636: REFUSED BEFORE THE SWEEP, BECAUSE THE SWEEP IS THE COST. A page the
+       person merely visits can `fetch()` this in a loop. It learns nothing - CORS
+       makes the response opaque and the Host guard closes DNS rebinding - but the
+       SIDE EFFECTS still run, and this route is the expensive sibling: the three
+       first-party doors plus EVERY metered token door, each making a live
+       authenticated `verify()` on every call. Brave Search, Exa, Tavily and Serper
+       meter against the person's own paid quota, so a drive-by page can spend
+       somebody's money in a loop with nothing on their machine saying why.
+       ⚠️ THE ORDER IS THE WHOLE FIX. A 403 returned after `readConnectionsShelf()`
+       had already been called would refuse the ANSWER and still pay for the sweep,
+       which is not a refusal at all. Nothing above this line touches a door.
+       📌 `engine/inflight.js` (#1618) is not a defence here and it was never meant
+       to be: it collapses CONCURRENT callers, and a loop of sequential fetches is
+       not concurrent - the slot deliberately holds nothing once it settles.
+       📌 Same one line as `/api/unfurl`, `/api/unfurl/image` and
+       `/api/agent/connections`. It refuses only on an explicit browser signal (a
+       foreign `sec-fetch-site`, or a `referer` from a foreign host), so curl and
+       the board's own same-origin page both pass. */
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
     /* #1618: one shelf read shared by every caller asking at once. The sweep and
        the reason it is shared on the read path only are at readConnectionsShelf. */
     readConnectionsShelf().then((doors) => { sendJson(res, 200, { doors }); });
@@ -4180,6 +4200,19 @@ const server = http.createServer((req, res) => {
         if (typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return null; }
         if ('another' in body && typeof body.another !== 'boolean') { sendJson(res, 400, { error: 'another must be true or false' }); return null; }
         if ('accountDir' in body && typeof body.accountDir !== 'string') { sendJson(res, 400, { error: 'accountDir must be the folder of an account on this computer' }); return null; }
+        /* #1574: the 281MB confirm. Validated like its siblings so a mangled value
+           is a 400 rather than a silent falsy, and then passed to `connect.start`,
+           which decides in the SAME call that would begin the download.
+           🛑 THE PAGE IS NOT THE AUTHORITY HERE AND MUST NOT BE. It decided from a
+           boot-time snapshot, so a board left open whose launcher broke after boot
+           skipped the confirm entirely. This flag says only "a person pressed
+           Confirm"; whether an install is actually about to happen is answered by a
+           live probe inside `start()`. A client that sends `installConfirmed: true`
+           without asking anybody is lying, and the engine cannot detect that - but a
+           client that simply has a STALE view now gets refused, which is the case
+           this card is about. */
+        if ('installConfirmed' in body && typeof body.installConfirmed !== 'boolean') { sendJson(res, 400, { error: 'installConfirmed must be true or false' }); return null; }
+        const installConfirmed = body.installConfirmed === true;
         /* 🛑 SIGNING IN AGAIN TO AN ACCOUNT THAT ALREADY EXISTS (#1492). Without
            this the only two shapes were "the default account" and `another:true`,
            which picks a FREE spot and makes a NEW record. So a person whose login
@@ -4210,7 +4243,7 @@ const server = http.createServer((req, res) => {
             sendJson(res, 400, { error: 'we do not know that account on this computer' });
             return null;
           }
-          return connect.start({ configDir: known.dir });
+          return connect.start({ configDir: known.dir, requireInstallConfirm: true, installConfirmed });
         }
         /* { another: true } asks for a SECOND account (#248/#324): pick the
            first free work spot, prepare it (idempotent; the shared-memory
@@ -4236,9 +4269,9 @@ const server = http.createServer((req, res) => {
             sendJson(res, 500, { error: 'we could not set up the new account to share this computer\'s memory, so we did not start the sign-in' });
             return null;
           }
-          return connect.start({ configDir: prep.dir });
+          return connect.start({ configDir: prep.dir, requireInstallConfirm: true, installConfirmed });
         }
-        return connect.start();
+        return connect.start({ requireInstallConfirm: true, installConfirmed });
       })
       .then((st) => { if (st) sendJson(res, 200, st); })
       .catch((err) => sendJson(res, 500, {
@@ -7593,11 +7626,12 @@ function start(port = PORT) {
  */
 if (require.main === module) {
   /* #1598: authorize live launchctl/tmux for the real board process ONLY. The
-     guarded modules (engine/remove.js, engine/delete-leftover.js) fail closed
-     until this runs, so a stray removal dry-runs loudly rather than stopping a
-     real agent. It is here, not at module load, for the same reason as the port
-     bind below: the routing tests require this module, and a load-time opt-in
-     would arm live execution in every one of them. */
+     guarded modules (engine/remove.js, engine/delete-leftover.js, engine/create.js)
+     fail closed until this runs, so a stray removal dry-runs loudly rather than
+     stopping a real agent, and an agent creation that could not authorize reports
+     started:false rather than a silent success. It is here, not at module load,
+     for the same reason as the port bind below: the routing tests require this
+     module, and a load-time opt-in would arm live execution in every one of them. */
   require('./engine/live-execution').allowLiveExecution();
   /* 🛑 PINNED TO $HOME, NOT AT IMPORT, ONLY WHEN THIS IS THE REAL BOARD
      PROCESS (#923). Nothing anywhere in this file or engine/ ever calls

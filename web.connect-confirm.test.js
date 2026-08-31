@@ -29,7 +29,13 @@ test('NO caller can reach the download without passing the confirm gate', () => 
   assert.ok(entry.length > 100, 'the gated entry moved or was renamed');
   assert.match(entry, /frClaudeInstallNeeded\(\)/, 'the entry no longer asks whether an install is needed');
   assert.match(entry, /frClaudeConfirmOpen\(/, 'the entry no longer opens the confirm');
-  assert.match(entry, new RegExp('return ' + worker + '\\(\\)'), 'the entry no longer reaches the worker at all');
+  /* 🛑 #1574 GAVE THE WORKER ARGUMENTS; THE INVARIANT IS UNCHANGED. The entry must
+     still be the only thing that reaches the worker. It now hands down whether a
+     PERSON confirmed, because the page used to set FR_CONN_CONFIRMED on the skip
+     path too and so asserted a consent nobody gave. The call-count assertion below
+     is what actually guards the property; this one only says the entry reaches it. */
+  assert.match(entry, new RegExp('return ' + worker + '\\('), 'the entry no longer reaches the worker at all');
+  assert.match(entry, /frConnectStartConfirmed\(confirmed/, 'the entry no longer tells the worker whether a person confirmed (#1574)');
 
   /* Every mention of the worker outside its own declaration must be that one
      call. If a second appears, something reaches the download around the gate. */
@@ -188,9 +194,12 @@ test('#1550: the start shows immediate phase-general feedback before the fetch, 
      download-only bar would show nothing on a machine that already has Claude
      Code, where runFlow skips the download -- which is the stuck case -- so the
      feedback must be phase-general and rendered BEFORE the fetch. */
-  const start = CODE.indexOf('async function frConnectStartConfirmed()');
+  const start = CODE.indexOf('async function frConnectStartConfirmed(');   // #1574 gave it parameters
   assert.ok(start > 0, 'frConnectStartConfirmed moved or was renamed');
-  const body = CODE.slice(start, start + 1500);
+  /* 2600, not 1500: #1574 added the request body and the server-refusal arm
+     between the fetch and the catch, so the old window ended before `catch (err)`
+     and the last assertion below could not see the path it names. */
+  const body = CODE.slice(start, start + 2600);
   const barAt = body.indexOf('fr-progress fr-indet');
   const fetchAt = body.indexOf("fetch('/api/connect/start'");
   assert.ok(barAt > 0, 'no indeterminate bar on start: a start that dies before the first phase is a silent screen');

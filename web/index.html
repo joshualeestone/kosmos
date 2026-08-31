@@ -13577,7 +13577,7 @@ function acctFlowWatch() {
    the POST. Errs toward asking: anything other than a definite
    `willInstall === false` shows the confirm, so a silent download is impossible
    even when the field cannot be read. */
-async function acctAddStart() {
+async function acctAddStart(installConfirmed) {
   const btn = document.getElementById('acct-add');
   const note = document.getElementById('acct-add-note');
   btn.disabled = true;
@@ -13590,13 +13590,33 @@ async function acctAddStart() {
       /* #1492: an existing account's own directory, or a new one. `accountDir`
          and `another` are refused together by the route, so this must be one or
          the other and never both. */
-      body: JSON.stringify(ACCT_REAUTH_DIR ? { accountDir: ACCT_REAUTH_DIR } : { another: true }),
+      /* #1574: the confirm flag rides with whichever shape this is. The fresh
+         `/api/first-run` read above narrows the window; only the server, deciding
+         inside the same call that would download, closes it. */
+      body: JSON.stringify(Object.assign(
+        ACCT_REAUTH_DIR ? { accountDir: ACCT_REAUTH_DIR } : { another: true },
+        { installConfirmed: installConfirmed === true },
+      )),
     });
     const out = await res.json().catch(() => null);
     if (!res.ok) {
       btn.disabled = false;
       note.textContent = (out && (out.because || out.error)) || 'We could not start the sign-in.';
       note.focus();
+      return;
+    }
+    /* 🛑 #1574: the server refused because an install would have started
+       unconfirmed. Nothing has begun. Reopen the confirm rather than painting a
+       flow that is not running: the fresh read above can still be overtaken
+       between the read and the POST, and this is the arm that catches that. */
+    if (out && out.needsInstallConfirm) {
+      const box = document.getElementById('acct-add-confirm');
+      const t = document.getElementById('acct-add-confirm-t');
+      const go = document.getElementById('acct-add-confirm-go');
+      if (t) t.textContent = frClaudeConfirmSentence(null);
+      if (box) box.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+      if (go) { go.disabled = false; go.focus(); }
       return;
     }
     acctFlowPaint(out && out.phase ? out : { phase: 'signin-launching' });
@@ -13666,7 +13686,10 @@ document.getElementById('acct-add').addEventListener('click', async () => {
     if (go) { go.disabled = false; go.focus(); }
     return;
   }
-  acctAddStart();
+  /* false: the fresh read above said no install is coming, so no dialog appeared
+     and NOBODY CONFIRMED. Saying so lets the server refuse if its live probe
+     disagrees, instead of the page asserting a consent it never collected. */
+  acctAddStart(false);
 });
 
 document.getElementById('acct-add-confirm-go').addEventListener('click', (e) => {
@@ -13686,8 +13709,9 @@ document.getElementById('acct-add-confirm-go').addEventListener('click', (e) => 
   if (note) note.focus();
   /* The acct-add button is already disabled from the gating click; acctAddStart
      manages it from here (re-enables on error, leaves it disabled while the
-     sign-in runs). */
-  acctAddStart();
+     sign-in runs). `true`: a person pressed Confirm, which is the one thing this
+     flag is allowed to mean. */
+  acctAddStart(true);
 });
 
 document.getElementById('acct-add-confirm-no').addEventListener('click', () => {
@@ -31408,14 +31432,24 @@ function frConnWatch() {
  */
 let FR_CONN_CONFIRMED = false;
 
+/* 🛑 #1574: `FR_CONN_CONFIRMED` USED TO BE SET ON THE SKIP PATH TOO, WHICH IS HOW
+   THE PAGE CAME TO ASSERT A CONFIRMATION NOBODY GAVE. When `frClaudeInstallNeeded()`
+   answered false the gate was skipped and this flag went true anyway, so the very
+   next line reported "a person confirmed" to a flow where no dialog had appeared.
+   That was harmless while the snapshot was right and is exactly the defect when it
+   is stale: a board left open whose launcher broke after boot skips the gate AND
+   claims consent.
+   ⇒ The flag now means what its name says: A PERSON PRESSED CONFIRM. When the gate
+   is skipped it stays false, the POST says so, and the SERVER decides - in the same
+   call that would start the download - whether a confirm was actually required. */
 async function frConnectStart(opts) {
-  const confirmed = (opts && opts.confirmed) || FR_CONN_CONFIRMED;
+  const confirmed = (opts && opts.confirmed === true) || FR_CONN_CONFIRMED;
   if (!confirmed && frClaudeInstallNeeded()) { frClaudeConfirmOpen(opts && opts.opener); return; }
-  FR_CONN_CONFIRMED = true;
-  return frConnectStartConfirmed();
+  if (confirmed) FR_CONN_CONFIRMED = true;
+  return frConnectStartConfirmed(confirmed, opts && opts.opener);
 }
 
-async function frConnectStartConfirmed() {
+async function frConnectStartConfirmed(installConfirmed, opener) {
   const msg = document.getElementById('fr-sub-msg');
   msg.textContent = '';
   const next = document.getElementById('fr-next');
@@ -31435,10 +31469,28 @@ async function frConnectStartConfirmed() {
     + 'aria-label="Starting the connection"><i></i></div>'
     + '<p class="dhint" role="status" aria-live="polite" style="margin:8px 0 0;">Starting…</p>';
   try {
-    const res = await fetch('/api/connect/start', { method: 'POST' });
+    const res = await fetch('/api/connect/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      /* #1574: what a PERSON did, not what the page concluded. The server pairs it
+         with a live probe and refuses if an install would start unconfirmed. */
+      body: JSON.stringify({ installConfirmed: installConfirmed === true }),
+    });
     const st = await res.json();
     if (!res.ok) throw new Error(st.error || ('status ' + res.status));
     if (FR_STEP !== 3) return;
+    /* 🛑 #1574: THE SERVER REFUSED BECAUSE AN INSTALL WOULD HAVE STARTED UNCONFIRMED.
+       Nothing has begun: `start()` refuses before it claims a driver, so the record
+       is still idle and there is no flow to cancel. Our snapshot said no install was
+       needed and the live probe disagreed, which is the whole case this closes.
+       ⇒ Ask now, with the placeholder cleared and the button live again, and the
+       Confirm press re-enters the same path with the flag set. */
+    if (st && st.needsInstallConfirm) {
+      if (sub) sub.innerHTML = '';
+      next.disabled = false;
+      frClaudeConfirmOpen(opener);
+      return;
+    }
     // Invalidate any in-flight resume/poll answer: the click's own view of
     // the flow is newer than anything requested before it.
     FR_CONN_SEQ += 1;
