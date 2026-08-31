@@ -5888,12 +5888,23 @@ const server = http.createServer((req, res) => {
              About-you form). `create.js` and `discover.js` also write it when an
              agent is made or imported, but they call `blockBody()` +
              `projects.spliceBlock` DIRECTLY rather than going through
-             `syncEveryone` -- an earlier version of this sentence named
-             syncEveryone at all three sites, and it runs at one of them.
-             ⇒ The delivery conclusion is unchanged and is the part that matters:
-             a NEW or IMPORTED agent gets the paragraph immediately; an agent
-             ALREADY RUNNING gets it only when somebody next saves that form, and
-             nothing signals the difference. */
+             `syncEveryone`: it runs at one of the three sites, not all of them.
+             ⇒ 🛑 AND THAT DELIVERY CONCLUSION WENT FALSE WHILE THIS BRANCH WAS
+             OPEN. It said an agent ALREADY RUNNING gets the paragraph "only when
+             somebody next saves that form". #1650 shipped on main and now calls
+             `connections.syncEveryone(safeRoster())` AT BOARD START, so every
+             agent file is refreshed on every boot. The merge that brought it in
+             was textually clean, because that call is nowhere near this line: a
+             comment can be falsified by a commit that never touches it.
+             ⚠️ AND THE FIX WAS TO THE CARD I FILED (#1649), so this sentence was
+             made false BY MY OWN REQUEST. Measured after merging: the boot call is
+             present at server.js:7731 and the unchanged path costs 3.3ms for 18
+             agents.
+             📌 What survives: a NEW or IMPORTED agent still gets it immediately by
+             a different route (`create.js`, `discover.js`), and a RUNNING session
+             still does not re-read its file, so the block reaches an agent at its
+             next session start rather than mid-session. That last part is a
+             property of the runtime, not of the delivery path. */
           try { connections.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
         }
         catch (err2) { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not tell the agents') }]; }

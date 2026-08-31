@@ -9,7 +9,6 @@
    in which case a bare command reaches a CLI without the verb at all and answers
    with a usage line and exit 2. (Observed on a developer box; the durable point
    is the rule above, not that one machine's state.) */
-const { kosmosCliShown } = require('./clipath');
 
 /**
  * What an agent needs to know to help somebody connect a provider (#1034).
@@ -59,6 +58,7 @@ const { kosmosCliShown } = require('./clipath');
  * with confidence to somebody who cannot check it.
  */
 
+const { kosmosCliShown } = require('./clipath');
 const projects = require('./projects');
 const instructions = require('./instructions');
 

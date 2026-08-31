@@ -1013,9 +1013,9 @@ cmd_connections() {
            GPT row in the shared fixture is exactly none + not-installed and nothing
            asserted against it. The arm I did write covered connected plus
            not-installed, where the suffix genuinely adds information.
-           NOTE no apostrophe in this comment. Writing one here terminated the
-           single-quoted shell string and broke 28 tests, which is the third time
-           tonight and precisely what the apostrophe guard below exists to catch. */
+           NOTE no apostrophe anywhere in this comment. This renderer is a
+           single-quoted shell string and one apostrophe ends the program, which
+           is what the apostrophe guard below exists to catch. */
         var missing = (p.installed === false && p.signedIn !== "none") ? ". The program it needs is not installed on this computer yet" : "";
         console.log("  " + clean(p.name) + ": " + verdict + " (" + clean(p.because) + many + ")" + missing);
       }

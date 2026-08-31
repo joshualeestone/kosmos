@@ -88,6 +88,19 @@ your file was written"*. ⇒ **A DEVELOPER-MACHINE hazard, on exactly the machin
 boards out of worktrees all day, which is this fleet.** Named here because the plan argued
 the path trade at length and this half of it was invisible.
 
+🛑 **AND #1650 AMPLIFIED IT, WHICH IS A CONSEQUENCE OF THE CARD I FILED.** That path used
+to be written only when somebody saved the About-you form. Since #1650 the board writes it
+**at every boot**, so a worktree-launched board now stamps a worktree path into eighteen
+agent files on every restart rather than occasionally.
+
+⚠️ **The cost paragraph above was written against the rarer delivery path and no longer
+bounds the exposure.** What has NOT changed: it still self-heals the next time a board
+starts from the installed layout, `cliAdvice` still degrades with *"If that path is not
+there, Kosmos has moved since your file was written"*, and no real user sees it because the
+installed layout resolves the stable path. ⇒ **Exposure amplification, not a new failure
+mode** - and worth stating plainly, because I asked for the change that caused it and the
+honest record is that it made a documented hazard more frequent.
+
 📌 **AND THE OBVIOUS FIX IS ALREADY THE BEHAVIOUR, recorded so it is not proposed a third
 time.** A review suggested "prefer the stable `$KOSMOS_HOME/bin/kosmos` form when one
 exists". `clipath.kosmosCli` **already does exactly that**: it probes for `bin/kosmos` AND
@@ -111,7 +124,17 @@ spends its length arguing against.
 NEW or IMPORTED agent gets the paragraph immediately (`create.js`, `discover.js`); an agent
 ALREADY RUNNING gets it only when somebody next saves the About-you form, and nothing
 signals the difference.
-📌 **CARDED AS #1649, and measured as PRE-EXISTING rather than introduced here:**
+✅ **CLOSED: #1649 SHIPPED AS #1650 WHILE THIS BRANCH WAS OPEN.** The board now calls
+`connections.syncEveryone(safeRoster())` at start, so every agent file is refreshed on
+every boot rather than only on an About-you save. PigeonPete amended one acceptance
+criterion when he closed it, and the amendment is right: it makes the FILE current, not the
+running agent, because nothing re-reads an instruction file mid-session. Verified before
+accepting. The unchanged path costs 3.3ms for 18 agents, measured rather than assumed.
+⚠️ **So the paragraph above is history, not current state.** Kept because the reasoning for
+deferring it out of a privacy change was correct at the time and is the reason the fix
+exists at all.
+
+📌 **It was measured as PRE-EXISTING rather than introduced here:**
 `syncEveryone` already had that single caller on `origin/main` before this branch (6
 references in `server.js`, 2 in `engine/connections.js`), and this branch's only edits in
 that area are comments. So it is the delivery path for the WHOLE managed block, not for
