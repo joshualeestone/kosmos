@@ -519,8 +519,9 @@ _reachable_is_download() {
   # does not stop the install, it falls to the next branch. Downstream
   # `verify_download` still checks the sha and the version refusal still fires.
   #
-  # 🛑 AND THE COST OF THAT FALL-THROUGH IS SMALLER THAN THIS COMMENT CLAIMED
-  # FOR EVERY NETWORK INSTALL. `BUST=yes` is set for any http/https base and
+  # 🛑 AND THE COST OF THAT FALL-THROUGH IS SMALL FOR EVERY NETWORK INSTALL,
+  # which is the point most easily got wrong here.
+  # `BUST=yes` is set for any http/https base and
   # `install_kosmos` runs after that, so the fallback is the `elif` arm, which
   # fetches the cache-BUSTED `kosmos-$ARCH.tar.gz?v=...`. A cache treats that as
   # a fresh resource, so there is no collision to inherit. The bare unversioned
@@ -644,8 +645,8 @@ reachable() {
   # YES that curl catches a few lines later; the cost is a red suite on a
   # floor-OS runner rather than a broken install.
   #
-  # 🛑 AND EXIT 63 MUST BE TREATED AS A SUCCESSFUL FETCH, WHICH THE FIRST
-  # VERSION OF THIS GOT WRONG AND IT WAS A REGRESSION. curl exits 63 when the
+  # 🛑 AND EXIT 63 MUST BE TREATED AS A SUCCESSFUL FETCH. Getting this wrong is
+  # a REGRESSION, not a missed improvement. curl exits 63 when the
   # cap is hit, `_reachable_is_download` saw non-zero, and a GENUINE download
   # from a HEAD-refusing Range-ignoring origin was refused with "could not
   # reach the download". Measured against exactly that shape serving a real
@@ -661,6 +662,17 @@ reachable() {
   _r_ct=$(curl -fsL -r 0-0 -m 15 --max-filesize 1048576 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   [ "$_r_rc" = 63 ] && _r_rc=0
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
+  # 🛑 TWO DIFFERENT FAILURES, TWO DIFFERENT STATUSES, because they need
+  # different sentences. rc 0 here means the origin ANSWERED and served
+  # something textual, which is the half-published-CDN case named at the first
+  # call site: the network is fine and re-running cannot publish a missing
+  # artifact, so "check your internet connection" is the wrong advice. Anything
+  # else means the request did not complete at all.
+  #
+  # ⚠️ Every caller uses `!`, `&&` or a `!= 0` test, all of which treat 1 and 2
+  # identically, so this changes no control flow anywhere. It only lets a caller
+  # pick its sentence.
+  [ "$_r_rc" = 0 ] && return 2
   return 1
 }
 
@@ -718,9 +730,14 @@ fetch_tmux() {
     # actually hits (no network, a half-published CDN) refuse in a sentence
     # instead of a curl error code. The real download keeps its progress
     # bar, which lives on stderr and cannot be silenced without losing it.
-    if ! reachable "$url"; then
+    _r_why=0; reachable "$url" || _r_why=$?
+    if [ "$_r_why" != 0 ]; then
       info "could not reach the download at $url"
-      info "Check your internet connection and paste the install line again; it is safe to re-run."
+      if [ "$_r_why" = 2 ]; then
+        info "The server answered but did not send an installable file. The release is probably still publishing; wait a few minutes and paste the install line again."
+      else
+        info "Check your internet connection and paste the install line again; it is safe to re-run."
+      fi
       rm -rf "$stage"; return 1
     fi
     info "downloading from $url"
@@ -790,9 +807,14 @@ install_kosmos() {
       url="$KOSMOS_RELEASE_BASE/kosmos-$ARCH.tar.gz"
       shaurl="$url.sha256"
     fi
-    if ! reachable "$url"; then
+    _r_why=0; reachable "$url" || _r_why=$?
+    if [ "$_r_why" != 0 ]; then
       info "could not reach the download at $url"
-      info "Check your internet connection and paste the install line again; it is safe to re-run."
+      if [ "$_r_why" = 2 ]; then
+        info "The server answered but did not send an installable file. The release is probably still publishing; wait a few minutes and paste the install line again."
+      else
+        info "Check your internet connection and paste the install line again; it is safe to re-run."
+      fi
       rm -rf "$stage"; return 1
     fi
     info "downloading from $url"

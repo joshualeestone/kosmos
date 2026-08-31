@@ -354,3 +354,70 @@ file's arms sequentially; the comment now says that instead of claiming a
 defence. The fixture also lacked an error handler on the responses that three
 arms deliberately cause curl to hang up on, which is an intermittent crash in
 exactly the arms whose job is being hung up on.
+
+## Iteration 17
+
+**The cost argument rested on a branch nothing exercised.** In iteration 15 I
+corrected the comment to say a false NO at the version probe falls into the
+cache-busted `elif`, not the bare name. I never tested that branch. The harness
+already had the knob (`runProbe` accepts `bust` and `target`) and neither caller
+passed it, so every probe arm ran with `BUST=''`, which is the `file://` case.
+The one arm the whole argument depends on had no assertion at all.
+
+Added two: a false NO on a network base must select `?v=9.9.9`, and an
+unversioned run must still bust the cache through the `${...:-$$}` fallback.
+
+**I reversed my own deferral on the wrong sentence, and it is the right call.**
+The plan named it a follow-up: `reachable()` collapsed "could not connect" and
+"answered but served an error page" into one status, so a half-published CDN
+told the user to check an internet connection that is fine, when re-running
+cannot publish a missing artifact.
+
+What changed my mind is a fact I did not have when I deferred it: before this
+branch the guard could never fire, so that sentence was unreachable. This card
+is what makes it live, and the half-published CDN is the most likely way to
+reach it. Deferring means shipping a wrong user-facing message that my own
+change created. The fix is local: status 2 for "answered but not a download",
+and every caller uses `!`, `&&` or `!= 0`, all of which treat 1 and 2
+identically, so no control flow moves anywhere.
+
+Weakest premise: I am asserting the new sentence is better, and no user has read
+either. If Josh wants different words, they are one string each and the
+mechanism does not change.
+
+**Three things went wrong while doing it, and each was caught by a guard rather
+than by me.**
+
+The guard rewrite broke the test file's extraction regex, which was pinned to
+`if ! reachable "$url"`. That is the stale-assertion class, and the assertion
+existing is the only reason a rewritten guard did not leave the arms silently
+testing a block that no longer exists.
+
+Re-anchoring it then failed for a second reason: the new guard contains a nested
+`if/else/fi`, and a non-greedy match to `fi` stopped at the inner one. The
+extracted fragment was unbalanced, the harness shell died, and the arm reported
+"the guard said nothing", which reads as a code defect rather than a broken
+regex. The end anchor is now the outer block's own last statement.
+
+Then I asserted the served-error case surfaces as `rc=2` upstream. It went red.
+Both cases return 1 to the caller, deliberately: status 2 is consumed inside the
+guard to choose a sentence, and `install_kosmos`'s contract stays a single
+failure. The assertion taught me what my own change did. It now pins that
+contract, so an edit leaking 2 upstream reddens.
+
+**Two NITs, both about instruments rather than code.** The call-site census
+stripped only whole-line comments, so one inline `# see reachable "$url"` would
+have inflated the count and reddened for a reason unrelated to a new caller.
+Fixed and verified both ways: it ignores a planted inline comment and still
+catches a planted real caller. And the guard harness ran `f` bare under
+`set -e`, so on the NO path the shell aborted before the rc line: that output
+was dead and looked like a measurement. Captured properly, and now asserted, so
+it cannot drift back.
+
+**CONVENTION, and I am going to stop trimming.** Two reviewers have flagged the
+comment ratio in this region. I have removed every passage that narrates this
+comment's own drafting, twice. What remains is decision content and two traps,
+and it is 185 to 18 because I keep adding corrections the reviews ask for. The
+file's own convention is heavy commenting, and a trap warning belongs where the
+code is rather than in a plan file nobody opens while editing. Recording the
+ratio as deliberate rather than reporting it fixed.

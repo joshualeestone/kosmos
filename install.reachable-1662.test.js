@@ -412,7 +412,20 @@ test('#1662: the FIXTURE serves what each arm asked for, checked at the wire', a
    matched only the first, so mutating that one simply made the extraction pick
    up the second and every arm stayed green -- an arm that looked right and
    could not fail. Measured: disabling one guard left 17/17 passing. */
-const GUARD_RE = /if ! reachable "\$url"; then\n[\s\S]*?\n\s*fi\n/g;
+/* The guard shape changed in iteration 17: `if ! reachable "$url"` became a
+   captured status, so each guard can pick a sentence (1 = could not connect,
+   2 = answered but served no download). This regex was pinned to the OLD shape
+   and went red on that change, which is the assertion doing its job rather than
+   a nuisance: it is the one thing standing between a rewritten guard and arms
+   that silently test a block that no longer exists. Anchored on the status
+   capture, so a future rewrite reddens here too instead of extracting nothing.
+
+   ⚠️ The END anchor is the outer block's own last statement, NOT the first `fi`.
+   The guard now contains a NESTED if/else/fi to choose its sentence, and a
+   non-greedy match to `fi` stopped at the INNER one: the extracted fragment was
+   truncated, unbalanced, and the harness shell died producing empty output,
+   which reads as "the guard said nothing" rather than "the regex is wrong". */
+const GUARD_RE = /_r_why=0; reachable "\$url" \|\| _r_why=\$\?\n[\s\S]*?rm -rf "\$stage"; return 1\n\s*fi\n/g;
 const GUARDS = SRC.match(GUARD_RE) || [];
 
 async function runGuard(reachableVerdict, which) {
@@ -433,8 +446,13 @@ ${GUARDS[which]}
   echo FELL-THROUGH
   return 0
 }
-f
-echo "rc=$?"
+# 🛑 THE FUNCTION RETURNS 1 ON THE NO PATH AND THIS RUNS UNDER set -e. Calling
+# it bare aborted the shell right here, so the rc echo never executed: that line
+# was dead output which read like a measurement, and the arms passed only
+# because the catch below salvages stdout from the non-zero exit. Capturing the
+# status keeps the shell alive and makes rc genuinely observable.
+rc=0; f || rc=$?
+echo "rc=$rc"
 `;
   try {
     const { stdout } = await run('sh', ['-c', script], { encoding: 'utf8' });
@@ -457,6 +475,47 @@ test('#1662: EVERY guard makes the caller SAY SO and stop on a NO', async () => 
   assert.match(out, /safe to re-run/, 'the recovery half of the sentence is missing');
   assert.doesNotMatch(out, /FELL-THROUGH/,
     `guard ${i} continued past a NO, so it would attempt a download it was just told is not there`);
+  }
+});
+
+/* ---- the two failures now say different things ------------------------------
+ * reachable() returns 1 for "could not connect" and 2 for "answered but served
+ * no download". The second is the half-published-CDN case the first call site
+ * names, and telling that user to check a working internet connection is wrong
+ * advice, because re-running cannot publish a missing artifact. Before this
+ * branch the guard could never fire at all, so the wrong sentence was
+ * unreachable; this card is what makes it live, which is why the fix belongs
+ * here rather than in a follow-up. Each arm asserts the OTHER sentence is
+ * ABSENT, so an edit that collapses them back into one message reddens. */
+test('#1662: a CONNECTION failure and a SERVED-ERROR failure get different sentences', async () => {
+  for (let i = 0; i < GUARDS.length; i += 1) {
+    const cannotConnect = await runGuard(1, i);
+    assert.match(cannotConnect, /Check your internet connection/,
+      `guard ${i}: a connection failure must still advise checking the connection. Got: ${cannotConnect}`);
+    assert.doesNotMatch(cannotConnect, /still publishing/,
+      `guard ${i}: a connection failure must not blame the release`);
+
+    const servedError = await runGuard(2, i);
+    assert.match(servedError, /still publishing/,
+      `guard ${i}: an origin that ANSWERED but served no download must say so rather than blame `
+      + `the network. Got: ${servedError}`);
+    assert.doesNotMatch(servedError, /Check your internet connection/,
+      `guard ${i}: this is the half-published-CDN case. The network is fine and re-running cannot `
+      + 'publish a missing artifact, so that advice is wrong and is the defect this arm exists for');
+    assert.doesNotMatch(servedError, /FELL-THROUGH/, `guard ${i} continued past a served-error NO`);
+
+    /* The rc line only became observable once the harness stopped letting set -e
+       abort on the failing call, so pin what it actually shows. BOTH cases
+       return 1 to the guard's own caller, deliberately: reachable()'s status 2
+       is consumed INSIDE the guard to choose a sentence, and install_kosmos's
+       contract upstream stays the single "this failed". I first asserted rc=2
+       here and it went red, which is the assertion teaching me my own change:
+       the distinction is in the message, not in the return. Pinned so an edit
+       that leaks 2 upstream, and changes that contract, reddens here. */
+    assert.match(cannotConnect, /rc=1/, `guard ${i}: a connection failure must return 1 to the caller`);
+    assert.match(servedError, /rc=1/,
+      `guard ${i}: a served-error failure must ALSO return 1 upstream. The status 2 exists only to `
+      + 'pick the sentence; leaking it changes what every caller of install_kosmos sees');
   }
 });
 
@@ -561,7 +620,15 @@ test('#1662: a length-less (chunked) origin still yields the right VERDICT, what
  * matches for `reachable "` in this file are inside comments, so counting raw
  * hits would pin the wrong number and pass for the wrong reason. */
 test('#1662: reachable() has exactly three call sites, so a fourth is a deliberate act', () => {
-  const execOnly = SRC.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+  /* Whole-line comments AND trailing inline ones: the census counts textual
+     matches, so a single `foo   # see reachable "$url"` would inflate it and
+     redden this arm for a reason that has nothing to do with a new caller.
+     Stripping from an unquoted ` #` to end-of-line is safe for this purpose
+     because a real call site has no `#` before the call. */
+  const execOnly = SRC.split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .map((l) => l.replace(/\s#.*$/, ''))
+    .join('\n');
   const sites = execOnly.match(/(^|[^_a-zA-Z])reachable "/gm) || [];
   assert.equal(sites.length, 3,
     `expected 3 reachable() call sites, found ${sites.length}. If you ADDED one: check the url it `
@@ -612,6 +679,31 @@ test('#1662: an UNreachable versioned artifact falls back to the unversioned nam
     `the fallback did not select the plain name. Got: ${out}`);
   assert.doesNotMatch(out, /9\.9\.9/,
     'the versioned name was used despite the probe saying the artifact is not there');
+});
+
+/* ---- the branch the COST ARGUMENT actually rests on --------------------------
+ * The arm above runs with BUST='' , which setup.sh reaches only for file://
+ * bases. Every http/https install sets BUST=yes before install_kosmos runs, so
+ * the branch a false NO really falls into is the cache-BUSTED elif, and that is
+ * the whole reason the comment can say a false NO here does not inherit a stale
+ * cache. That claim had no assertion until now: runProbe already wired the knob
+ * and no caller passed it, so the argument rested on a branch nothing exercised. */
+test('#1662: on a network base a false NO falls to the CACHE-BUSTED name, not the bare one', async () => {
+  const out = await runProbe(1, { bust: 'yes' });
+  assert.match(out, /kosmos-arm64\.tar\.gz\?v=9\.9\.9$/,
+    'a false NO on an http/https base must select the cache-busted unversioned url. If this is the '
+    + 'bare name, the cost of a false NO at this probe is a STALE CACHE after all, and the comment '
+    + `at setup.sh ("there is no collision to inherit") is wrong. Got: ${out}`);
+});
+
+test('#1662: with no TARGET_VERSION the probe is skipped and the bust value is still present', async () => {
+  /* TARGET_VERSION='' short-circuits the `[ -n ... ]` test, so reachable() is
+     never called at all. The url must still be cache-busted, via the ${...:-$$}
+     fallback, or an unversioned run would serve whatever a CDN cached. */
+  const out = await runProbe(1, { bust: 'yes', target: '' });
+  assert.match(out, /kosmos-arm64\.tar\.gz\?v=.+$/,
+    `an unversioned run must still bust the cache. Got: ${out}`);
+  assert.doesNotMatch(out, /\?v=$/, 'the bust value is empty, so the query string busts nothing');
 });
 
 /* ---- the probe COMPONENTS, each measured as uncovered before being added ---
