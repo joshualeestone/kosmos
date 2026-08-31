@@ -91,11 +91,15 @@ function agentOn(ctx, name, configDir, runner) {
   process.env.AGENT_WORKFORCE_LAUNCH = ctx.launch;
   fs.mkdirSync(nodePath.join(ctx.workers, name), { recursive: true });
   fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, '/bin/claude', '/bin/tmux', null, configDir, runner || 'claude'), 'utf8');
+    /* `runner` is passed THROUGH, not defaulted. `|| 'claude'` made a null
+       fixture byte-identical to a claude one, so the pre-runners test below was
+       a duplicate of the test above it and could not fail for its own reason. */
+    create.plistFor(name, '/bin/claude', '/bin/tmux', null, configDir, runner), 'utf8');
   ctx.panesFile = ctx.panesFile || nodePath.join(ctx.sb, 'panes.txt');
   fs.appendFileSync(ctx.panesFile, fleet.line({ session: name }) + '\n');
   assert.ok(fs.existsSync(create.plistPath(name)),
     'the seeded launch file is missing, so every assertion below would be right for the wrong reason');
+  ctx.seededPlist = fs.readFileSync(create.plistPath(name), 'utf8');
 }
 
 test('#1659 route: an unused Claude account is forgotten, and the answer says nothing was deleted', () => {
@@ -196,6 +200,16 @@ test('#1659 route: an agent whose plist PREDATES runners still blocks (absent ru
     agentOn(ctx, 'oldtimer', dir, null);
     return dir;
   });
+  /* 🔑 ASSERT THE FIXTURE IS ACTUALLY PRE-RUNNERS. Without this the test reads
+     as covering the absent-runner default while in fact being indistinguishable
+     from the claude case: plistFor writes the ninth argument only for codex, so
+     plistFor(...,'claude') and plistFor(...,null) are byte-identical. The
+     assertion is what makes this arm about the DEFAULT rather than about a
+     spelling. */
+  assert.ok(typeof r.seededPlist === 'string' && r.seededPlist.length > 0,
+    'the seeded plist did not reach the assertion, so the check below would pass on an empty string');
+  assert.ok(!/<string>claude<\/string>\s*<\/array>/.test(r.seededPlist),
+    'the fixture wrote a runner argument, so it does not represent a pre-runners plist');
   assert.equal(r.code, 400, 'a pre-runners plist must still read as a Claude agent. body: '
     + JSON.stringify(r.json));
   assert.deepEqual(r.json.usedBy, ['oldtimer']);

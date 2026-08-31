@@ -13424,13 +13424,22 @@ async function paintAccounts() {
              REFUSES IT. `accounts.forgetAccount` will not move `~/.claude`:
              `prepare()` symlinks every account Kosmos makes at
              `~/.claude/projects`, so removing it strands the history of
-             accounts nobody asked to remove. `list()` always emits the default
-             row first, so a live button here is one EVERY user sees and NONE
-             can use -- the "nothing that looks live may do nothing" shape this
+             accounts nobody asked to remove. `list()` emits the default row
+             first WHENEVER it is signed in (it is skipped when
+             `identityOf(~/.claude.json)` is null, so a machine signed in only
+             on a named account renders none), so a live button here is one
+             nearly every user sees and NONE can use -- the "nothing that looks live may do nothing" shape this
              file refuses elsewhere, and it would carry a title promising an act
              it cannot perform. The title states the refusal and the way out. */
+          /* ⚠️ THE REASON RIDES THE aria-label, NOT ONLY THE title. A `title`
+             on a DISABLED control is not announced, so a screen-reader user got
+             "Disconnect main@example.com" with no hint it is unavailable or
+             why. Repo rule is WCAG AA, and this same function already states
+             the principle for the connection badge: the real sentence is the
+             visible text AND the label, never a reason hidden in a hover. */
           ? '<button class="acct-disconnect" type="button" disabled '
-            + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+            + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '')
+              + '. Unavailable: Kosmos does not remove this computer\u2019s main Claude folder." '
             + 'title="Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and any other accounts here keep their history inside it.">Disconnect</button>'
           : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
             + 'data-forget-provider="claude" '
@@ -13466,7 +13475,18 @@ async function paintAccounts() {
            difference, and it is read off the button rather than branched on
            here, so the two rows cannot drift apart in behaviour -- which is the
            thing that made this card necessary in the first place. */
-        const provider = btn.dataset.forgetProvider === 'claude' ? 'claude' : 'openai';
+        /* ⚠️ AN UNMARKED BUTTON IS A BUG, NOT AN OPENAI ONE. Defaulting a
+           missing attribute to 'openai' would send a dropped-attribute or a
+           third provider to the wrong endpoint and surface as "that is not an
+           OpenAI account on this computer", which reads as a data problem
+           rather than as the wiring fault it is. */
+        const marked = btn.dataset.forgetProvider;
+        if (marked !== 'claude' && marked !== 'openai') {
+          if (msg) msg.textContent = 'we could not tell which provider that account belongs to, so nothing was changed';
+          btn.disabled = false;
+          return;
+        }
+        const provider = marked;
         const res = await fetch('/api/accounts/' + provider, {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },

@@ -115,29 +115,69 @@ test('the Disconnect control carries the qualifier, escaped, because that is the
    `a.isDefault`, or dropping `disabled`, would keep the node suite green and
    ship a live Disconnect on ~/.claude -- the one row every user has, and the
    one the engine refuses. This is the cheap merge-time floor under that. */
-test('#1659: the default row renders a DISABLED Disconnect with no data-forget', () => {
-  const openaiBtn = /data-forget-provider="openai"/;
-  const claudeLive = /data-forget="' \+ esc\(a\.dir\) \+ '" '\s*\n?\s*\+ 'data-forget-provider="claude"/;
-  assert.match(PAGE, openaiBtn, 'the OpenAI branch lost its provider marker');
-  assert.match(PAGE, claudeLive, 'the live Claude branch lost data-forget or its provider marker');
+/* 🛑 THIS TEST USED TO READ THE BRANCH'S TEXT AND COULD NOT SEE ITS GUARD.
+   It sliced the disabled branch out of the page source and asserted the slice
+   was `disabled` and carried no `data-forget`. Both are true of the branch no
+   matter WHICH row reaches it, so inverting `a.isDefault` to `!a.isDefault`
+   left every assertion green -- the default row got a live Disconnect the
+   engine refuses on every click, and every removable account got a permanently
+   dead one, with nothing red.
+   ⭐ AND THE PERTURBATIONS THAT "VERIFIED" IT MISSED FOR ONE REASON: they broke
+   the branch BODY (added data-forget, dropped disabled) and never the branch
+   SELECTOR. A slice cannot see the condition that chooses it.
+   ✅ SO IT RUNS THE BRANCH NOW instead of reading it: the ternary is extracted
+   from the page and evaluated against a default row and a non-default row, and
+   the two rendered strings are asserted separately. Inverting the guard swaps
+   them and both assertions fail. */
+/* 🛑 ONE FACT, TWO DERIVATIONS, NOTHING RECONCILING THEM. The default-refusal
+   sentence is written in engine/accounts.js (what the API answers) and again in
+   web/index.html (what the tooltip says). They have already drifted once during
+   this card's own review, and because the button is disabled the engine's copy
+   is unreachable from the UI for this case, so nothing would ever reveal a
+   mismatch. This pins them until somebody gives the page a single source. */
+test('#1659: the engine refusal and the page tooltip say the SAME thing', () => {
+  const engine = fs.readFileSync(path.join(__dirname, 'engine', 'accounts.js'), 'utf8');
+  /* ⚠️ ANCHOR THE PAGE ON `title="`, NOT ON THE SENTENCE. The aria-label carries
+     a deliberately SHORTER form of the same refusal (a label should be terse;
+     the tooltip carries the whole thing), so the page holds two occurrences and
+     a bare indexOf finds the label's. Pinning the label to the engine's full
+     sentence would force the two to be identical, which is the wrong contract. */
+  const pull = (text, anchor) => {
+    const at = text.indexOf(anchor);
+    assert.ok(at > -1, 'the default-refusal sentence is gone from one of the two files');
+    const rest = text.slice(at + anchor.length - 'Kosmos does not remove'.length);
+    const end = rest.indexOf('inside it.');
+    assert.ok(end > -1, 'the sentence no longer ends where both copies expect');
+    return rest.slice(0, end + 'inside it.'.length).replace(/'\s*\+\s*'/g, '').replace(/\s+/g, ' ');
+  };
+  assert.equal(pull(engine, 'Kosmos does not remove'), pull(PAGE, 'title="Kosmos does not remove'),
+    'the engine refusal and the page tooltip have drifted; a person would be told two different things about one act');
+});
 
-  /* Located by CONTENT, between the disabled-button anchor and the live Claude
-     branch that follows it, rather than by an `a.isDefault` index: that string
-     appears elsewhere in the page and a loose slice spans code that legitimately
-     carries data-forget, which makes this assertion fail for the wrong reason. */
-  const startAt = PAGE.indexOf('class="acct-disconnect" type="button" disabled');
-  /* End at the default branch's OWN closing tag. Ending at the live branch's
-     provider marker instead ran the slice past `data-forget="' + esc(a.dir)`,
-     so the assertion tripped on the NEXT branch's attribute and failed for a
-     reason that had nothing to do with the default row. */
-  const endAt = PAGE.indexOf('>Disconnect</button>', startAt);
-  assert.ok(startAt > -1 && endAt > startAt,
-    'the disabled default branch is gone, or no longer precedes the live Claude branch');
-  const defaultBranch = PAGE.slice(startAt, endAt);
-  assert.ok(defaultBranch.includes('disabled'),
-    'the default branch is no longer rendered disabled, so ~/.claude gets a live button the engine always refuses');
-  assert.ok(!/data-forget=/.test(defaultBranch),
-    'the default branch now carries data-forget, so the shared handler would fire on a row the engine refuses');
+test('#1659: the default row renders DISABLED and a non-default row renders LIVE', () => {
+  const at = PAGE.indexOf(': (a.isDefault');
+  assert.ok(at > -1, 'the default-vs-live ternary is gone from acctRowHtml');
+  /* +1 for the paren that closes `(a.isDefault ... )` itself: the end token is
+     the LIVE branch's tail followed by `))`, and the slice needs exactly one of
+     those two. Measured rather than guessed (open 10, close 9 without it). */
+  const endAt = PAGE.indexOf(">Disconnect</button>'))", at);
+  assert.ok(endAt > at, 'the ternary no longer closes the way this extraction expects');
+  const body = PAGE.slice(at + 2, endAt + ">Disconnect</button>'".length + 1);
+  const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // eslint-disable-next-line no-new-func
+  const render = new Function('a', 'who', 'qual', 'esc', `return ${body};`);
+
+  const onDefault = render({ isDefault: true, dir: '/h/.claude' }, 'main@example.com', '', esc);
+  const onOther = render({ isDefault: false, dir: '/h/.claude-walk' }, 'walk@example.com', '', esc);
+
+  assert.match(onDefault, /disabled/,
+    'the DEFAULT row no longer renders a disabled Disconnect, so ~/.claude gets a button the engine refuses on every click');
+  assert.ok(!/data-forget=/.test(onDefault),
+    'the DEFAULT row now carries data-forget, so the shared handler fires on a row the engine refuses');
+  assert.match(onOther, /data-forget="\/h\/\.claude-walk"/,
+    'a NON-default row lost its data-forget, so a removable account cannot be removed');
+  assert.ok(!/disabled/.test(onOther),
+    'a NON-default row is rendered disabled, so every removable account got a dead button');
 });
 
 test('EVERY Disconnect control carries the qualifier, escaped, or one branch keeps the whole defect', () => {

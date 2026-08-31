@@ -150,8 +150,11 @@ let failed = 0;
   say('every box says Signed in (live check against the harness stub accepted the walk key)', rows.length > 0 && rows.every((r) => /Signed in/.test(r)), JSON.stringify(rows));
   /* 🛑 THIS ASSERTED "Disconnect is disabled everywhere" AND #1372 MADE IT
      FALSE, THEN #1659 MADE THE REPLACEMENT FALSE TOO. Both providers now have an
-     engine route: OpenAI says Remove (#1372), Claude says Disconnect (#1659), and
-     BOTH are live except on the default row, which the engine refuses.
+     engine route AND, since #1659, BOTH READ "Disconnect": one act, one word, in
+     one row builder. Both are live except on the default Claude row, which the
+     engine refuses. (An earlier version of this comment still said OpenAI says
+     "Remove" while the assertion below already required "Disconnect" -- a
+     comment contradicting the code beneath it, in this file.)
      ⚠️ THIS WOULD HAVE BEEN THE THIRD CUT THIS ONE FILE TOOK DOWN by an assertion
      that was correct when written: "Connected"->"Signed in" failed 0.5.88, the
      provider leaving the row failed 0.6.05. Each was green right up to the change
@@ -160,11 +163,20 @@ let failed = 0;
      tightened on the axis this change promises, kept on the axis it leaves alone
      -- and kept NON-VACUOUSLY, because under a blanket every() "the Claude button
      is dead" and "no Claude row rendered at all" are the same pass. */
+  /* 🛑 EACH BUTTON IS CAPTURED WITH ITS OWN ROW'S TEXT (#1659). Partitioning
+     the buttons by whether they carry `data-forget` cannot tell WHICH row is
+     which, so "default disabled + other live" and "default live + other
+     disabled" produced identical passes -- the feature fully inverted, arms
+     green. `row` ties each control to the account it belongs to. */
   const doors = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-prov')].map((g) => ({
     provider: ((g.querySelector('.acct-prov-name') || {}).innerText || '').trim(),
-    buttons: [...g.querySelectorAll('.acct-disconnect')].map((b) => ({
-      label: (b.innerText || '').trim(), disabled: !!b.disabled, forgets: !!b.dataset.forget,
-    })),
+    buttons: [...g.querySelectorAll('.acct-disconnect')].map((b) => {
+      const box = b.closest('.acct-box');
+      return {
+        label: (b.innerText || '').trim(), disabled: !!b.disabled, forgets: !!b.dataset.forget,
+        row: ((box && box.innerText) || '').replace(/\s+/g, ' ').trim(),
+      };
+    }),
   })));
   const openaiDoors = doors.filter((g) => /OpenAI/.test(g.provider) && !/Codex/.test(g.provider)).flatMap((g) => g.buttons);
   const otherDoors = doors.filter((g) => !/OpenAI/.test(g.provider)).flatMap((g) => g.buttons);
@@ -189,14 +201,21 @@ let failed = 0;
        vacuity this file has already been bitten by three times.
        📌 A LENGTH FLOOR ON EACH, not `some`: with two Claude rows seeded, a
        bare `some` passes on one good button standing beside a broken one. */
-    const claudeLive = otherDoors.filter((b) => b.forgets);
-    const claudeDead = otherDoors.filter((b) => !b.forgets);
-    say('a non-default Claude account offers a live Disconnect (#1659)',
-      claudeLive.length > 0 && claudeLive.every((b) => !b.disabled && /^Disconnect$/.test(b.label)),
-      JSON.stringify(otherDoors));
-    say('the DEFAULT Claude account\'s Disconnect is disabled, not live (#1659)',
-      claudeDead.length > 0 && claudeDead.every((b) => b.disabled && /^Disconnect$/.test(b.label)),
-      JSON.stringify(otherDoors));
+    /* Partitioned BY ROW IDENTITY, not by the attribute under test: the
+       sandbox seeds main@example.com as the default and walk@example.com as the
+       other, so each arm names the account it is about. Inverting the guard now
+       fails both arms instead of swapping two indistinguishable sets. */
+    const rowFor = (needle) => otherDoors.filter((b) => b.row.includes(needle));
+    const defaultRow = rowFor('main@example.com');
+    const otherRow = rowFor('walk@example.com');
+    say('the browser sees BOTH seeded Claude rows (or the two arms below are vacuous)',
+      defaultRow.length === 1 && otherRow.length === 1, JSON.stringify(otherDoors));
+    say('the NON-DEFAULT Claude account offers a live Disconnect (#1659)',
+      otherRow.length > 0 && otherRow.every((b) => !b.disabled && b.forgets && /^Disconnect$/.test(b.label)),
+      JSON.stringify(otherRow));
+    say('the DEFAULT Claude account\'s Disconnect is disabled and not wired (#1659)',
+      defaultRow.length > 0 && defaultRow.every((b) => b.disabled && !b.forgets && /^Disconnect$/.test(b.label)),
+      JSON.stringify(defaultRow));
   }
   // Create form: OpenAI provider -> account menu offers the new account
   await p.goto(BASE + '/?tab=create', { waitUntil: 'load' });
