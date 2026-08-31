@@ -102,7 +102,8 @@ const path = require('node:path');
    remover, WHILE CITING the same measured cost the helper was built to fix (200
    leaked sandbox dirs from a cleanup that never ran). Reimplementing the thing you
    are citing is the two-copies-of-one-fact defect this branch is named for. */
-const SANDBOX = require('./test-support/tmpdir.js').mkTemp('kosmos-runnable-1592-');
+const { mkTemp } = require('./test-support/tmpdir.js');
+const SANDBOX = mkTemp('kosmos-runnable-1592-');
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 
@@ -287,7 +288,14 @@ test('the sweep can actually find a weak call, so an empty result means somethin
 
 /** A temp dir holding a DIRECTORY named like a binary, and a real executable. */
 function fixture(name) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runnable-1592-'));
+  /* 🛑 THE SHIPPED HELPER HERE TOO. I left this on raw mkdtempSync earlier because
+     it returns an explicit `cleanup` and leaked nothing, which was true and was the
+     wrong test. A reviewer found the real window: the `rawSaysYes` assertion below
+     runs AFTER the directory exists and BEFORE the caller receives the cleanup
+     handle, so a failure there strands it with nothing registered to remove it.
+     ⚠️ And this file's own header forbids exactly this pattern twelve lines above,
+     citing the measured cost. I applied that rule to SANDBOX and not to fixture. */
+  const dir = mkTemp('runnable-1592-');
   const asDirectory = path.join(dir, name);
   fs.mkdirSync(asDirectory);
   const realBin = path.join(dir, 'real-' + name);

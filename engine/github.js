@@ -83,4 +83,9 @@ module.exports = Object.assign(makeDoor({
   codeRe: /one-time code:\s*([A-Z0-9]{4}-[A-Z0-9]{4})/i,
   urlRe: /(https:\/\/github\.com\/login\/device\S*)/,
   deviceUrl: 'https://github.com/login/device',
-}), { PHASE, GH_CANDIDATES, ghCandidateList });
+}), { PHASE, ghCandidateList });
+/* 📌 `GH_CANDIDATES` is deliberately NOT exported. It had zero consumers outside
+   this file, and `githubdevice.js` named that export as the residual divergence
+   hazard the branch had chosen not to close ("separately referenceable, so
+   somebody could scan it a second way"). Removing the identifier closes it at zero
+   cost, which is better than the documented caveat it replaces. */
