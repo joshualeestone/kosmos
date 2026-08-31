@@ -828,7 +828,7 @@ cmd_connections() {
        happy path and threw for 18 tests. var hoists the NAME, never the value.
        NOTE no apostrophe anywhere in this comment. This whole renderer is a
        single-quoted shell string and one apostrophe ends the program. */
-    var clean = function (x) { return typeof x === "string" ? x.replace(/[\u0000-\u001f\u007f]/g, " ") : x; };
+    var clean = function (x) { return typeof x === "string" ? x.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ") : x; };
     let raw = ""; process.stdin.on("data", (d) => { raw += d; });
     process.stdin.on("end", () => {
       let v = null;
@@ -943,6 +943,13 @@ cmd_connections() {
           if (p.howMany === 0) {
             many = "";
           } else {
+            /* w cannot exceed m. Each falls back to p.howMany independently, so a
+               version-skewed board sending howManyWorking above howManyReadable
+               rendered "3 of 1 sign-ins working" at a person. Unreachable from
+               this board; the block guards several equally unreachable shapes for
+               the stated reason that the CLI does not control the board, so this
+               was the odd omission rather than a new policy. */
+            if (w > m) w = m;
             if (w === m) many = ", " + (w === 1 ? "1 sign-in" : w + " sign-ins");
             else many = ", " + w + " of " + m + (m === 1 ? " sign-in working" : " sign-ins working");
             if (p.howMany > m) many = many + ", " + (p.howMany - m) + " we could not check";
@@ -1023,7 +1030,21 @@ cmd_connections() {
          byte-identical to `idle`. So "no sign-in is going on" and "we could not
          tell whether one is" were indistinguishable to the agent reading it, the
          exact collapse the null count one layer up exists to prevent. */
-      if (v.signin && v.signin.phase === "unknown") {
+      /* 🛑 GATED ON !anyConnected, THE SAME AS THE STOPPED BRANCH BELOW, AND THIS
+         GATE WAS MISSING WHILE THE OTHER ONE WAS NOT. The module now rewrites a
+         stale terminal phase to "unknown" when the provider reads connected, so
+         the record that USED to arrive as "stuck" and be suppressed here by the
+         STOPPED gate now arrives as "unknown" and landed in this branch, which
+         had no gate. The result was printed side by side on one screen:
+             Claude: connected (this computer has a working sign-in for it)
+             We could not tell whether a Claude sign-in is going on.
+         A settled answer and an uncertainty about the same provider, which is the
+         contradiction this whole verb exists to refuse.
+         ⚠️ THE RULE MOVED INWARD AND ONLY HALF ITS SCOPE MOVED WITH IT, for the
+         second time on this branch. The first time it was provider scope; this
+         time it is which BRANCH the rewritten value lands in. Moving a rule is
+         not finished until every consumer of the OLD value is checked. */
+      if (v.signin && v.signin.phase === "unknown" && !anyConnected) {
         console.log("");
         console.log("  We could not tell whether " + (whoResolved ? ("a " + whoName) : "a") + " sign-in is going on. Ask what is on their screen.");
       /* ⚠️ ONE replace, not two. The first was `.replace("A sign-in", ...)` and it

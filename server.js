@@ -3933,11 +3933,18 @@ const server = http.createServer((req, res) => {
        and GitHub calls. A drive-by page cannot read the answer and can still
        burn the person's third-party quota.
 
-       `crossSiteRead` is this file's existing answer to exactly that, and it
-       refuses ONLY on an explicit browser signal: a `sec-fetch-site` that is
-       not same-origin/none, or a `referer` from a foreign host. The CLI sends
-       neither (`grep -c 'referer\|sec-fetch' install/kosmos` = 0, against a
-       control of 7 for headers it does set), so the agent path is untouched.
+       `crossSiteRead` is this file's existing answer, and it covers the
+       BROWSER-SIGNALLED part of that class rather than the whole class: it
+       refuses only on an explicit signal, a `sec-fetch-site` that is not
+       same-origin/none, or a `referer` from a foreign host. A caller sending
+       NEITHER passes, which is deliberate and is what keeps the CLI working
+       (`grep -c 'referer\|sec-fetch' install/kosmos` = 0, against a control of 7
+       for headers it does set). In practice every browser that can run `fetch`
+       sends one or the other, so the drive-by page is covered; a non-browser
+       caller on this machine is not, and is not the thing being defended against.
+       ⚠️ Stated this way on purpose. An earlier version read as though the guard
+       closed the class outright, which would have let the next person skip a
+       check believing it was already handled.
 
        Placed before the HEAD short-circuit deliberately: a cross-site caller
        should not learn the route exists either, and a 403 is as cheap as the

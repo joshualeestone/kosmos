@@ -956,3 +956,47 @@ test('control characters are stripped from EVERY sentence, not only the provider
     assert.match(r.out, /boom/, 'the error text was lost entirely rather than cleaned');
   });
 });
+
+test('a connected provider is never told we could not tell whether its sign-in is going on', async () => {
+  /**
+   * 🛑 THE COMPOSITION NO ARM COVERED. All three unknown-phase arms in this file
+   * force providers[0].signedIn = none first, so the CONNECTED case had never
+   * been exercised, and the contradiction below rendered green underneath them:
+   *
+   *     Claude: connected (this computer has a working sign-in for it, 1 sign-in)
+   *     We could not tell whether a Claude sign-in is going on.
+   *
+   * A settled answer and an uncertainty about the same provider on one screen.
+   *
+   * ⚠️ HOW IT GOT THERE: the module now rewrites a stale terminal phase to
+   * unknown when the provider reads connected. The record that used to arrive as
+   * stuck, and be suppressed by the STOPPED gate, started arriving as unknown and
+   * landing in a branch with no gate. The rule moved inward and only half its
+   * scope moved with it, for the second time on this branch.
+   */
+  const p = P({ signin: { provider: 'anthropic', phase: 'unknown', busy: false } });
+  p.providers[0].signedIn = 'connected';
+  p.providers[0].howMany = 1;
+  p.providers[0].howManyWorking = 1;
+  p.providers[0].howManyReadable = 1;
+  await withBoard({ body: p }, async (port) => {
+    const r = await kosmos(port);
+    assert.match(r.out, /connected/, 'the connected provider row did not render, so this arm proves nothing');
+    assert.doesNotMatch(r.out, /could not tell whether/,
+      'an uncertainty about a sign-in printed beside a settled connected answer for the same provider');
+  });
+
+  /* CONTROL: with nothing connected, the SAME unknown phase is real news and must
+     still be said. Without this arm the assertion above is satisfied by a CLI
+     that never prints the sentence at all. */
+  const q = P({ signin: { provider: 'anthropic', phase: 'unknown', busy: false } });
+  q.providers[0].signedIn = 'none';
+  q.providers[0].howMany = 0;
+  q.providers[0].howManyWorking = 0;
+  q.providers[0].howManyReadable = 0;
+  await withBoard({ body: q }, async (port) => {
+    const r = await kosmos(port);
+    assert.match(r.out, /could not tell whether/,
+      'the uncertainty sentence was suppressed with nothing connected, which hides a real unknown');
+  });
+});
