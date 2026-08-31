@@ -486,9 +486,36 @@ verify_download() {
 # A HEAD probe first, and a one-byte ranged GET before refusing: some static
 # origins reject HEAD (405) while serving GET fine, and "check your internet
 # connection" for a working connection is the wrong sentence.
+# ⚠️ A STATUS CODE CANNOT ANSWER "IS THE DOWNLOAD THERE". This used to accept
+# any response and therefore accepted EVERY url, including ones that cannot
+# exist: the range arm asks a web server for the first byte of its own 404
+# page and gets `206 text/html, 1 byte`, which is a success. Measured
+# 2026-08-31 against a deliberately impossible name, which PASSED.
+#
+# The cost was not a wrong answer, it was SILENCE. `if ! reachable "$url"` could
+# never fire, so the sentence written for exactly this case ("could not reach
+# the download ... it is safe to re-run") was dead code, and a person whose
+# download was missing met a bare curl failure with no guidance instead. Every
+# caller here fetches a TARBALL, so the answer is knowable: assert the content
+# type, and an error page can no longer impersonate a download.
+#
+# 🛑 A FIX HERE IS ONLY PROVEN BY A URL THAT CANNOT EXIST RETURNING FALSE. The
+# broken version passed on real files too, so "it still finds the tarball" is
+# not evidence of anything. See install.reachable-1662.test.js, which asserts
+# both arms against a local server.
+_reachable_is_download() {
+  case "$1" in
+    application/gzip*|application/x-gzip*|application/octet-stream*|binary/octet-stream*) return 0 ;;
+  esac
+  return 1
+}
+
 reachable() {
-  curl -fsIL -m 15 "$1" >/dev/null 2>&1 && return 0
-  curl -fsL -r 0-0 -m 15 -o /dev/null "$1" >/dev/null 2>&1
+  # HEAD first; the range GET is the fallback for hosts that refuse HEAD.
+  # Both must name a binary: a 206 whose body is HTML is the error page.
+  _reachable_is_download "$(curl -fsIL -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null)" && return 0
+  _reachable_is_download "$(curl -fsL -r 0-0 -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null)" && return 0
+  return 1
 }
 
 # ⚠️ FETCHED INTO A FRESH STAGE AND SWAPPED, never merged over what is there.
