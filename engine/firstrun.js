@@ -190,8 +190,12 @@ async function state() {
      🛑 AND THE CORRECTION THAT USED TO SIT HERE WAS ITSELF FALSE, IN THE PARAGRAPH
      REWRITTEN TO FIX A STALE CLAIM. It read "willInstall never enters isRunnable".
      It does, on every call: `resolveBin` computes `present: isRunnable(...)` on all
-     four of its routes (runners.js:275, :282, :294, :304), so calling `resolveBin`
+     four of its routes (the claude env override, the claude canonical path, the
+     codex env override, and the codex candidate scan), so calling `resolveBin`
      IS calling `isRunnable`, transitively. Measured, with a control.
+     📌 Named by route rather than by line number ON PURPOSE: those four numbers
+     were accurate, and `runners.js` is edited by this same branch, so they are the
+     fragile-citation shape this branch's own test file rejects as a key.
      ⇒ The naming was never the defect. What matters for THIS catch is only that both
      throw sources sit inside the same try: `resolveBin` can throw before it asks
      about runnability (it derives a home and joins paths), and `isRunnable` can

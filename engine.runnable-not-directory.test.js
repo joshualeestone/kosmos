@@ -5,8 +5,15 @@
  * `engine/runners.js`'s `isRunnable` is the correct form and differs by one
  * line: `statSync(p).isFile()` before the access check.
  *
- * The branch repoints four sites to `runners.isRunnable`:
- *   connect.js willInstall, connect.js becomeStuck, devicedoor.js, githubdevice.js
+ * The branch repoints four sites onto `runners.isRunnable`, TWO OF THEM
+ * TRANSITIVELY, and the distinction is not pedantic:
+ *   devicedoor.js, githubdevice.js       call `isRunnable` directly
+ *   connect.js willInstall,              ask `resolveBin('claude').present`, which
+ *   connect.js claudeHatchAvailable      computes `present` with `isRunnable`
+ *
+ * 📌 `engine/firstrun.js` in this same branch spends a paragraph correcting
+ * exactly this conflation, and the correction landed there and in neither of the
+ * other two places that state it. Fixed as a class.
  *
  * ============================================================================
  * 🛑 NINE REVIEW PASSES, 44 FINDINGS, EVERY SINGLE ONE IN THIS GUARD AND NOT
@@ -51,7 +58,7 @@
  * ✅ SO THIS FILE NOW DOES TWO THINGS AND REFUSES A THIRD:
  *
  *   1. A SET SWEEP that strips NOTHING. Every line in the repo matching the weak
- *      shape must be in KNOWN_WEAK_LINES. It cannot be fooled by a comment
+ *      shape must be in KNOWN_WEAK_CALLS. It cannot be fooled by a comment
  *      because it does not try to judge one; a new prose mention, a new guarded
  *      call and a new defect all land in the same place, which is correct.
  *   2. BEHAVIOURAL ARMS that run the real code with a real directory.
@@ -131,7 +138,11 @@ const WEAK_CALL = /(accessSync|access)\s*\(.*\bX_OK\b/;
 /** Every non-test .js file in the repo, relative to REPO. */
 function walkJs(dir, base = dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (e.name === 'node_modules' || e.name === '.git' || e.name === 'dist') continue;
+    /* Dot-directories skipped wholesale, matching the sibling walker in
+       fixture-discipline.test.js. A stray .js under any dot-directory in somebody's
+       worktree would otherwise red THIS sweep with a #1592 message that has nothing
+       to do with the file. */
+    if (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.')) continue;
     const full = path.join(dir, e.name);
     if (e.isDirectory()) walkJs(full, base, out);
     else if (e.name.endsWith('.js') && !e.name.endsWith('.test.js')) out.push(path.relative(base, full));
@@ -165,11 +176,28 @@ function walkJs(dir, base = dir, out = []) {
  * is what a reader actually wants. Two audit notes carrying stale numbers
  * (connect.js:931 and runners.js:206) are gone with it.
  */
-const KNOWN_WEAK_LINES = [
-  { file: 'engine/connect.js', text: '* DIRECTORY. `fs.accessSync(path, X_OK)` SUCCEEDS ON A DIRECTORY, so a' },
-  { file: 'engine/devicedoor.js', text: '// #1592: accessSync(X_OK) SUCCEEDS ON A DIRECTORY, so this used to accept a' },
-  { file: 'engine/machine.js', text: 'fs.accessSync(bin, fs.constants.X_OK);' },
-  { file: 'engine/runners.js', text: 'fs.accessSync(p, fs.constants.X_OK);' },
+/* 🛑 KEYED ON THE MATCHED CALL, NOT ON THE WHOLE LINE, AND THE REASON IS A COST
+   THIS FILE ALREADY ACCEPTED ELSEWHERE AND FAILED TO APPLY HERE.
+   Two of these four entries are PROSE. Pinning the whole trimmed line made
+   rewording an ordinary comment sentence turn a test named for #1592 red, in
+   `connect.js`, which this file elsewhere calls the most-edited file in the repo,
+   on a branch whose author never opened this test. That is exactly the friction
+   argument used above to scope the `writeState(` count to `becomeStuck` rather
+   than the whole file; the argument was right there and was not applied here.
+
+   Keying on `line.match(WEAK_CALL)[0]` keeps set equality and identity intact and
+   makes only the CALL significant, so the prose around it is editable. Detection
+   is unchanged: a new weak call produces a key not in this list, and a duplicate
+   of an existing one produces a second entry the array comparison still catches.
+   Verified by mutation in both directions rather than argued.
+
+   📌 The values below are GENERATED, never transcribed. A table in this branch has
+   been hand-written wrong four times. */
+const KNOWN_WEAK_CALLS = [
+  { file: 'engine/connect.js', call: 'accessSync(path, X_OK' },
+  { file: 'engine/devicedoor.js', call: 'accessSync(X_OK' },
+  { file: 'engine/machine.js', call: 'accessSync(bin, fs.constants.X_OK' },
+  { file: 'engine/runners.js', call: 'accessSync(p, fs.constants.X_OK' },
 ];
 
 test('the set of lines matching the weak call is exactly what we audited', () => {
@@ -186,13 +214,14 @@ test('the set of lines matching the weak call is exactly what we audited', () =>
     fs.readFileSync(path.join(REPO, rel), 'utf8')
       .split('\n')
       .forEach((line, i) => {
-        if (WEAK_CALL.test(line)) found.push({ file: key, text: line.trim(), line: i + 1 });
+        const m = line.match(WEAK_CALL);
+        if (m) found.push({ file: key, call: m[0], line: i + 1 });
       });
   }
 
-  const sortKey = (e) => e.file + '\u0000' + e.text;
-  const seen = found.map((e) => ({ file: e.file, text: e.text })).sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
-  const want = [...KNOWN_WEAK_LINES].sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
+  const sortKey = (e) => e.file + '\u0000' + e.call;
+  const seen = found.map((e) => ({ file: e.file, call: e.call })).sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
+  const want = [...KNOWN_WEAK_CALLS].sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
 
   assert.deepStrictEqual(
     seen,
@@ -647,9 +676,14 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      nested object and anything else all show up the same way: a line that is not
      one of these two.
 
-     ⚠️ THE COST, STATED: it reds on reformatting either line. Same friction as
-     KNOWN_WEAK_LINES above, same two-line fix, and it is the price of being
-     independent of the syntax somebody chooses. */
+     ⚠️ THE COST, STATED: it reds on reformatting either line, a one-line fix, and
+     it is the price of being independent of the syntax somebody chooses.
+
+     📌 THIS USED TO SAY "same friction as KNOWN_WEAK_CALLS above". IT NO LONGER IS:
+     that list was re-keyed onto the matched CALL rather than the whole line, so
+     rewording prose around it is free. The cost survives HERE because this pin is
+     deliberately exact-text; it did not survive there. Corrected by the same change
+     that removed it, rather than left to be found later. */
   const src = fs.readFileSync(path.join(ENGINE, 'connect.js'), 'utf8');
   /* 🛑 KEY ON A CODE PROPERTY, NOT ON COMMENT-NESS, AND NOT ON A NUMBER.
      This assertion has had five shapes and the last four all failed the same way:
@@ -768,7 +802,9 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
 
      ⚠️ Friction: a legitimate new writeState reds and needs this number bumped.
      Deliberate act, one-line fix, safe direction. A writeState( written in prose
-     also inflates it, same friction KNOWN_WEAK_LINES already carries.
+     also inflates it, which IS a real cost here. It is no longer shared with
+     KNOWN_WEAK_CALLS, which was re-keyed onto the matched call and is now immune to
+     prose edits; this count is not.
 
      📌 SECOND RESIDUAL, DOCUMENTED AND DELIBERATELY NOT GUARDED: ALIASING,
      AND IT NEEDS ALL THREE PROPERTIES AT ONCE. Measured: an aliased call that is
