@@ -2853,7 +2853,22 @@ function createAgentInner(opts) {
   // create result has no slot that shows a person a non-failure.
   let trusted = null;
   if (!DRY_RUN && weMadeTheFolder) {
-    try { trusted = require('./trust').trustFolder(workerDir(name)); }
+    /* 🛑 #1629, THE CREATE HALF. This call had no `configDir`, so creating an
+       agent on a NEWLY ADDED Claude account wrote the trust entry into the
+       DEFAULT account's `.claude.json` while the agent started under the new
+       account's - line 2775 puts that same `configDir` in the plist. Claude Code
+       then asked, on a machine where the answer had already been written to the
+       wrong file. Josh hit exactly this creating agents on a second account.
+       #1629 shipped the FLIP half (setAccount, which passes this correctly);
+       creation was never covered, and `setAccount` is not called during it.
+       ⭐ The codex arm ninety lines up already did the right thing with the same
+       variable - `trustCodexFolder(workerDir(name), configDir)` - which is the
+       asymmetry that gave this away.
+       ⚠️ PROVIDER-GUARDED ON PURPOSE. `configDir` holds a CODEX_HOME on the
+       OpenAI path, and this is the CLAUDE trust write, which is not otherwise
+       provider-guarded. Passing it unconditionally would write a Claude trust
+       entry into a codex home. OpenAI behaviour is left exactly as it was. */
+    try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir }); }
     catch { /* another tool's file; an agent that asks once is not a failed creation */ }
   }
 
