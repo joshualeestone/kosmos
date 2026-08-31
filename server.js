@@ -1667,9 +1667,18 @@ const server = http.createServer((req, res) => {
                        diagnosis. The agent has a job, is not removed (filtered
                        above) and is not switched off (the branch above), so
                        the launch model is the true next move: nothing to
-                       press, it comes back on its own -- and when it does
-                       not, this computer holds no reason, and saying THAT is
-                       still more than a full stop. Sentence shared with
+                       press, it comes back on its own                       -- it comes back on its own.
+                       🛑 #1663 CHANGED THE SECOND HALF AND THIS COMMENT JUSTIFIED THE
+                       OLD ONE. It read "this computer holds no reason, and saying THAT
+                       is still more than a full stop": true against a full stop, FALSE
+                       against the Terminal tab, which held Claude Code's trust prompt at
+                       the same moment this page called the cause unobtainable. Josh read
+                       it, stopped looking, and wiped his Mac. #671's intent survives (say
+                       something rather than stop at the diagnosis); only its claim that
+                       nothing can be known is gone. The clause now POINTS without
+                       promising: "where to look" holds whether or not the pane has
+                       content, and naming what the tab SHOWS would over-promise for an
+                       agent that genuinely has no session. Sentence shared with
                        remove.js's restart refusal via create.SELF_STARTS. */
                     ? 'this agent is not running: nothing on this computer has a session for it. '
                       + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
