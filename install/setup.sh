@@ -527,6 +527,14 @@ _reachable_is_download() {
   # The exit status is checked FIRST and separately, because an empty
   # content-type from a FAILED connection must not read the same as an empty
   # one from a local file that is genuinely there.
+  #
+  # 📌 THIS IS DELIBERATELY LOOSER THAN `serves_gzip()` in
+  # tools/kosmos-artifact-check.sh, which requires the type to CONTAIN gzip.
+  # They judge the same header for opposite stakes, so they should not match:
+  # that one gates a RELEASE, where a false NO safely blocks a bad cut and a
+  # false YES ships one; this one gates a PERSON'S INSTALL, where a false NO
+  # is an installer that refuses to run. Tightening this to match it would
+  # reintroduce the file:// break above.
   [ "$1" = 0 ] || return 1
   case "$(printf '%s' "$2" | tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')" in
     text/*|application/json*|application/xml*|application/xhtml*) return 1 ;;
