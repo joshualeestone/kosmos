@@ -167,6 +167,40 @@ test('#1659 route: an agent ON the account blocks removal and is NAMED', () => {
 
 /* Without this the arm above could pass on a route that refuses whenever ANY
    agent exists, which would make the button unpressable on a busy machine. */
+/* 🛑 THE RUNNER FILTER, PERTURBED BY DELETION RATHER THAN BY INVERSION.
+   Inverting `job.runner !== 'claude'` to `'codex'` goes red because every other
+   agent in this file is a Claude one. DELETING the line does NOT: with no
+   filter, all runners count, and since nothing here was a codex agent the
+   outcome never changed. So the guard was only half covered and the arm below
+   is the missing half -- a CODEX agent whose recorded home IS the target
+   directory, which the filter must skip. Delete the line and this goes red. */
+test('#1659 route: a CODEX agent on this directory does NOT block a Claude removal', () => {
+  const r = board((ctx) => {
+    const dir = account(ctx.home, 'mixed');
+    agentOn(ctx, 'codexer', dir, 'codex');
+    return dir;
+  });
+  assert.equal(r.code, 200, 'a codex agent is not on the Claude account; the filter must skip it. body: '
+    + JSON.stringify(r.json));
+  assert.equal(r.json.forgotten, true);
+});
+
+/* The other half of the same guard, and the route docblock calls it the
+   load-bearing one: `readJob` normalises a MISSING ninth argument to 'claude',
+   because every plist written before runners existed carries none. If that
+   default ever changed, an OLD Claude agent would stop being seen and its
+   account could be renamed out from under it. */
+test('#1659 route: an agent whose plist PREDATES runners still blocks (absent runner means claude)', () => {
+  const r = board((ctx) => {
+    const dir = account(ctx.home, 'legacy');
+    agentOn(ctx, 'oldtimer', dir, null);
+    return dir;
+  });
+  assert.equal(r.code, 400, 'a pre-runners plist must still read as a Claude agent. body: '
+    + JSON.stringify(r.json));
+  assert.deepEqual(r.json.usedBy, ['oldtimer']);
+});
+
 test('#1659 route DISCRIMINATOR: an agent on a DIFFERENT account does not block', () => {
   const r = board((ctx) => {
     const target = account(ctx.home, 'quiet');
