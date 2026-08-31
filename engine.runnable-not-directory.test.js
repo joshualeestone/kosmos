@@ -310,11 +310,18 @@ test('devicedoor rejects a DIRECTORY found by the CANDIDATE SCAN, not just the e
 });
 
 test('githubdevice rejects a DIRECTORY found by the CANDIDATE SCAN, not just the env override', async () => {
-  /* The same second branch, at the twin site. Its candidate paths were inline
-     and therefore unreachable from a test, so `setGhCandidatesForTests` was
-     added for this arm alone, in keeping with the file's existing setClientId
-     and setFetcher seams. Without it this branch cannot be exercised at all,
-     which is how it went unguarded. */
+  /* The same second branch, at the twin site. Its candidate paths were inline and
+     therefore unreachable from a test, so the AGENT_WORKFORCE_GH_CANDIDATES env
+     seam exists, in keeping with the file's other env-var seams. Without it this
+     branch cannot be exercised at all, which is how it went unguarded.
+
+     📌 THIS COMMENT PREVIOUSLY NAMED `setGhCandidatesForTests`, WHICH NO LONGER
+     EXISTS. That was the seam's first shape, removed because a reviewer defeated
+     it (githubdevice.js:112 records why), and the comment outlived it by four
+     commits. It is the exact defect the plan writes up about itself, a
+     description surviving the design it described and becoming a second source of
+     truth, landed one file over from the warning. Caught by a blind reviewer; the
+     eighteen non-blind passes read past it. */
   const gd = require('./engine/githubdevice.js');
   const f = fixture('gh');
   const before = process.env.AGENT_WORKFORCE_GH_BIN;
@@ -603,6 +610,81 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
       'and it need not use a colon: `writeState({ ..., canRunClaude })` is shorthand and was this ' +
       'line\'s own previous shape, and a line beginning with a block-comment closer is live code ' +
       'too. NONE means the call went multi-line; re-aim this and the pin below together.'
+  );
+
+  /* 🛑 AND ONE MORE CHECK, BECAUSE THE TWO ABOVE HAVE COMPLEMENTARY BLIND
+     SPOTS THAT COMPOSE. Neither hole is new; the composition is.
+
+       the token-pair check   classifies nothing, but is LINE-LOCAL
+       the exact-text pin     is not line-local, but CLASSIFIES
+
+     A writer that is BOTH multi-line AND comment-prefixed is invisible to both:
+     the property sits on its own line so the pair never co-occur, and that line
+     opens with a comment marker so the pin filters it away.
+
+       if (owner.retry) writeState({
+         (an inline comment) canRunClaude: fs.existsSync(claudeBinPath()),
+       });
+
+     Measured: 13 pass / 0 fail, and the control (the same writer WITHOUT the
+     inline comment) reds, so the comment is the mechanism and the multi-line
+     shape alone is already covered.
+
+     ⚠️ REALISM, WHICH IS WHY THIS IS FIXED AND THE CONCATENATED-KEY RESIDUAL ABOVE
+     IS NOT: a multi-line writeState is ordinary formatting, an inline comment on
+     a property is an ordinary comment, and nobody writing one would suspect it
+     disables a guard. That is a plausible regression. The residual needs a
+     deliberately obfuscated key and is somebody trying to hide.
+
+     ⭐ YES, THIS IS A COUNT, AND A COUNT WAS THE DEFECT TWO SHAPES AGO. The
+     distinction is the point rather than special pleading: THAT count summed TWO
+     INDEPENDENT POPULATIONS, live code and docblock prose, so one could be traded
+     for the other. THIS counts ONE HOMOGENEOUS population, and the thing counted
+     is the thing that matters. A count over a homogeneous population of the
+     relevant thing is sound; a count over a union of independent ones is not.
+
+     🛑 FILE-WIDE, NOT SCOPED TO becomeStuck, AND I HAD IT SCOPED FIRST. Q's
+     shape works ANYWHERE in the file: moved into submitCode, all three checks went
+     green and the writer was live. Any writeState call carrying the field reaches
+     the state publicView serves, and a retry path or helper elsewhere is an
+     ordinary refactor. The file-wide count is STRICTLY STRONGER, since anything
+     the scoped version caught adds a call file-wide too, so it replaces that
+     rather than adding to it.
+
+     ⚠️ Friction: a legitimate new writeState reds and needs this number bumped.
+     Deliberate act, one-line fix, safe direction. A writeState( written in prose
+     also inflates it, same friction KNOWN_WEAK_LINES already carries.
+
+     📌 SECOND RESIDUAL, DOCUMENTED AND DELIBERATELY NOT GUARDED: ALIASING,
+     AND IT NEEDS ALL THREE PROPERTIES AT ONCE. Measured: an aliased call that is
+     ALSO multi-line AND comment-prefixed passes every check here, with all three
+     counters unchanged (token pair 1, filtered set 2, writeState( 20). Any two of
+     the three is caught: the single-line aliased form reds on the exact-text pin,
+     and the un-aliased multi-line comment-prefixed form reds on the call count.
+
+     ⚠️ I NEARLY RECORDED THIS AS COVERED. My first probe used the single-line
+     aliased form, it went RED, and that red was for the WRONG REASON: the pin
+     caught it because the property was not on a comment-prefixed line. A red that
+     does not come from the mechanism you are testing is not a catch, and here it
+     would have produced a FALSE claim of coverage rather than a false finding.
+
+     🛑 AND IT IS DELIBERATELY NOT GUARDED. A probe for `= writeState` exists
+     and works, and it is a FORM CHECK, a regex for one spelling, which is the
+     exact class that has failed on this branch five times: it catches
+     `const w = writeState` and misses `const { writeState: w } = ...` or
+     `obj.w = writeState`. Adding it buys a narrow spelling and re-arms the trap
+     this file spent eighteen passes disarming. Recorded beside the
+     concatenated-key residual above: both are deliberate-evasion shapes needing
+     several unusual choices at once, neither is a plausible regression, and no
+     source assertion closes either. */
+  const calls = src.match(/writeState\(/g) || [];
+  assert.strictEqual(
+    calls.length, 20,
+    'connect.js makes ' + calls.length + ' writeState( calls, expected 20. A NEW one can carry ' +
+      'canRunClaude past both checks above: put the property on its own line and prefix it with ' +
+      'an inline comment, and the token-pair check (line-local) and the exact-text pin (which ' +
+      'filters comment-prefixed lines) are both blind to it. If the new call is legitimate and ' +
+      'does not touch canRunClaude, bump this number; that is the intended friction.'
   );
 
   /* The exact-text pin, kept beside the writer check rather than replaced by it.
