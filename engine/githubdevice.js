@@ -141,7 +141,14 @@ function setClientId(id) {
    was left undone: github.js is not otherwise in this branch's diff, and making it
    read this constant would pull a product-surface file into a branch about one
    definition of runnability, for a hazard nobody has hit. Recording the divergence
-   is the part that costs nothing and is what a reader actually needs. */
+   is the part that costs nothing and is what a reader actually needs.
+
+   ✅ WHY THIS IS RECORDED AND NOT FIXED, i.e. why it is small: `makeDoor` takes
+   `candidates` as a SPEC PARAMETER (`spec.candidates.find(runnable)`), and the door's
+   tests pass their own lists rather than the default, so no test reaches the
+   operator's real `/opt/homebrew/bin/gh` through that path. The asymmetry is a
+   documentation hazard for the next reader, not a live leak. Verified rather than
+   assumed, with a control. */
 const GH_CANDIDATES_DEFAULT = Object.freeze(['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh']);
 function ghCandidateList(override = process.env.AGENT_WORKFORCE_GH_CANDIDATES) {
   /* 🛑 `=== undefined`, NOT TRUTHINESS, AND THE DIFFERENCE IS A REAL LEAK.
