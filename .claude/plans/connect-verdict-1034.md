@@ -75,6 +75,19 @@ plan says the card is about. That is accepted because the alternative is an inst
 that does not work, and because a home directory name is not a credential. **If that ever
 stops being true for a machine, the fix is `clipath`, not the boundary.**
 
+🛑 **AND A SECOND COST THIS PLAN DID NOT NAME: THE PATH CAN BE TRANSIENT.** Measured from
+this checkout, the embedded path is
+`/Users/agent1/work/agent-workforce-connect-verdict-1034/install/kosmos` - **a WORKTREE**.
+A board started from a worktree, plus one save of the About-you form, writes that into
+eighteen agent files, and it dies the moment the worktree is removed.
+
+✅ **Not a shipped defect, and worth being precise about why:** the installed layout
+resolves the stable `$KOSMOS_HOME/bin/kosmos`, so a real user never sees a worktree path,
+and `cliAdvice` already degrades with *"If that path is not there, Kosmos has moved since
+your file was written"*. ⇒ **A DEVELOPER-MACHINE hazard, on exactly the machines that run
+boards out of worktrees all day, which is this fleet.** Named here because the plan argued
+the path trade at length and this half of it was invisible.
+
 ## Scope
 
 **In:** the boundary module, one read route, one CLI verb, tests, **and the agent-facing
@@ -90,6 +103,16 @@ spends its length arguing against.
 NEW or IMPORTED agent gets the paragraph immediately (`create.js`, `discover.js`); an agent
 ALREADY RUNNING gets it only when somebody next saves the About-you form, and nothing
 signals the difference.
+
+🛑 **TWO MORE EDITS SHIPPED OUTSIDE THAT LIST AND THE LIST DID NOT MOVE.** Recording them
+here rather than leaving a reader to find them and conclude they were sneaked in:
+- **`askDoor` / `settleDoors` / `readFirstPartyDoors` in `server.js`.** The reversal is
+  argued at length further down, and the Scope line was never updated to match, which is
+  the same defect the argument is about.
+- **A comment-only correction in `engine/accounts.js`**, fixing a claim that went false
+  on this branch.
+⇒ Both are in scope as of now. A plan that argues a reversal in its body while its Scope
+line still says the old thing is a plan disagreeing with itself.
 
 **Out, deliberately:**
 - Part (1) KNOWING. Merged as PR #1060; this card already records one duplicate-build

@@ -223,9 +223,23 @@ test('the agent first-party set is DERIVED from the board, not pinned to a liter
    *   "a fourth first-party door added to /api/connections would silently never
    *    appear in the agent view"
    *
-   * The sweep is duplicated inline in both routes and the shared builder was
-   * deliberately deferred out of a privacy change. A deferral with no guard is a
-   * defect with a note attached, so this is the guard.
+   * 🛑 WHAT THIS GUARDS CHANGED UNDER IT, AND THE COMMENT DID NOT FOLLOW.
+   * It read "the sweep is duplicated inline in both routes and the shared builder
+   * was deliberately deferred out of a privacy change". Both halves are now FALSE:
+   * `readFirstPartyDoors` in server.js IS that shared builder, this route consumes
+   * it, and the deferral was reversed once #1618 turned the copy into a live defect
+   * rather than a tidiness question.
+   *
+   * ⇒ THE TEST STILL EARNS ITS PLACE, FOR A DIFFERENT REASON THAN IT WAS WRITTEN
+   * FOR. The sweep is shared; the NAMES are not. `doorNames` is still a
+   * hand-maintained literal in the route handler, so a door added to
+   * `readFirstPartyDoors` with no matching entry there is swept, PAID FOR, and then
+   * silently dropped by the allowlist gate. Verified by adding one: only this test
+   * goes red.
+   *
+   * 📌 Corrected rather than rewritten. A test whose stated reason has gone stale is
+   * this branch its own subject, and deleting the sentence would take the evidence
+   * of it away with it.
    *
    * ⚠️ COMPARED BY COUNT, NOT BY NAME, AND THE REASON IS THE FEATURE ITSELF. The
    * board answers `doors` keyed by ROUTE (`/api/github`); the agent view answers
@@ -258,8 +272,10 @@ test('the agent first-party set is DERIVED from the board, not pinned to a liter
   assert.equal(agentNames.length, boardFirstParty.length,
     `the agent view has ${agentNames.length} first-party doors and the board has `
     + `${boardFirstParty.length} (${boardFirstParty.join(', ')}). A door added to one `
-    + 'route and not the other is the drift the plan predicted, and the two sweeps '
-    + 'are still separate inline copies.');
+    + 'route and not the other is the drift the plan predicted. The SWEEP is shared '
+    + 'via readFirstPartyDoors, so this is almost certainly a door added there with no '
+    + 'matching entry in the hand-maintained doorNames literal in the route handler: '
+    + 'swept, paid for, then dropped by the allowlist gate.');
 
   /* The other half, asserted separately so a failure says WHICH way it broke: no
      metered door may reach the agent view. Checked by route on the board side and

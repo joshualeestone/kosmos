@@ -794,8 +794,12 @@ cmd_connections() {
     # Control characters stripped here too. The renderer below strips them because
     # this output lands in the context window of an agent, and that argument does
     # not stop applying just because the runtime is missing. The trade this path
-    # makes is losing FORMATTING, not losing the guarantee about what bytes can
-    # reach a reader.
+    # makes is losing FORMATTING, not the answer.
+    # ⚠️ NOT THE IDENTICAL CLASS, and the comment used to claim it was. `tr` is
+    # byte-oriented, so this strips C0 and DEL; the node renderer also strips C1
+    # (U+0080-U+009F), which is multi-byte in UTF-8 and cannot be expressed here.
+    # Practically negligible, and worth saying accurately rather than claiming the
+    # two paths give the same guarantee when one is narrower.
     printf '%s\n' "$body" | tr -d '\000-\010\013\014\016-\037\177'
     # 🛑 THE STATUS STILL HAS TO BE HONEST. Printing the raw body when we cannot
     # format it is the stated trade above and stays. Reporting SUCCESS for a call
