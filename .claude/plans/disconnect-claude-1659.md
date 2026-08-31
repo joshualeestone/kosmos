@@ -385,3 +385,54 @@ behaviour I have not measured, and measuring it belongs on #1689.
 stands that this file had three derivations of one fact and the branch only
 found them because a reviewer went looking. The docblock's claim that the helper
 makes re-derivation impossible is aspirational, not enforced.
+
+## The twice-deferred finding is resolved by BEHAVIOUR, not by copy (2026-08-31)
+
+Iterations 16 and 17 both raised it: the screen does not tell the user that an
+agent configured on this account but not running will come back signed out with
+a blank transcript tree. I deferred it twice, both times because I would not
+ship copy asserting behaviour I had not measured.
+
+**#1693 landed and #1697 named my route as the last one still counting running
+agents only.** So the right fix was never the copy. It was to stop the thing the
+copy would have had to apologise for. The Claude route now unions the running
+roster with `register.known()`, minus removed agents, exactly as the OpenAI
+route does rather than as a second derivation of it.
+
+⇒ **The consequence the copy failed to disclose no longer happens**, so there is
+nothing to disclose. Closing a gap beats documenting it.
+
+### 🛑 And the regression coverage is honestly absent, which I nearly faked
+
+I wrote an arm for the port. It passed. **Then I perturbed the port away and it
+passed again.** Verified the mutation had actually applied, and printed the
+response: the route still answered `usedBy:["ghost"]` with the union removed.
+
+The arm was vacuous, and it was the *third* vacuous assertion I have written on
+this branch in one session, after the plist regex and the argument count.
+
+**Why it cannot be fixed cheaply, measured rather than guessed:**
+
+```
+standalone, profile + launch file + NO pane:
+  snapshot()        []          <- the gap is REAL
+  register.known()  ["ghost"]   <- the union catches it
+
+inside this suite's harness, same fixture:
+  safeRoster() already returns ghost, because it sees the launch file
+  => roster-only and the union agree on EVERY fixture the suite can build
+```
+
+An agent with a profile and no launch file cannot be attributed to an account by
+either path, since `readJob` returns null. So the discriminating state is
+unreachable in this harness.
+
+**The port stays, its justification is the standalone measurement and #1697, and
+the missing coverage is written into the code rather than implied by a passing
+test.** Anyone strengthening it should start by making the harness's roster
+reflect panes rather than launch files.
+
+⭐ The lesson I keep paying for today: **a test that passes under its own
+perturbation is not weak coverage, it is ZERO coverage wearing the costume of
+coverage.** Deleting it was the honest move; keeping it would have made the next
+reader believe the port was guarded.

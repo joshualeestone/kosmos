@@ -3410,8 +3410,53 @@ const server = http.createServer((req, res) => {
            worse one. */
         const roster = safeRoster();
         let complete = roster !== null;
+        /* 🛑 REGISTERED AGENTS, NOT ONLY RUNNING ONES (kosmos#1693, ported here per
+           kosmos#1697). `safeRoster()` answers who is RUNNING. An agent that exists
+           and is stopped keeps a launch file naming this directory, so removing the
+           account under it means its next start points CLAUDE_CONFIG_DIR at a path
+           that no longer exists, and it comes up signed out AND with no transcripts:
+           the shape this module's own header calls "a working agent that behaves
+           like a blank one".
+           📌 `known()` separates "nothing has ever been written" (ok, empty) from
+           "we could not look" (not ok), so an unreadable profiles directory makes
+           this INCOMPLETE rather than quietly shortening the list.
+           ⚠️ AND THE REMOVED-AGENT FILTER APPLIES TO THESE TOO. A profile file
+           outlives a removal, so unioning the profile names RAW would resurrect an
+           agent the person was already told was gone and refuse the account because
+           of it. This is the OpenAI route's exact shape rather than a second
+           derivation of it: two derivations of the fleet is what that route's own
+           comment calls this codebase's worst habit.
+           🛑 AND THIS PORT IS NOT PROVEN BY THIS REPO'S TESTS. Said plainly because
+           I wrote an arm for it, watched it pass, PERTURBED THE PORT AWAY, AND
+           WATCHED IT PASS AGAIN. The arm was vacuous and I nearly shipped it as
+           coverage.
+           Measured standalone, the gap is REAL: a profile plus a launch file with
+           NO pane gives `snapshot()` an empty list while `register.known()` returns
+           the agent, which is exactly the state this union exists to catch.
+           ⚠️ But inside `server.forget-claude-1659.test.js`'s harness that state is
+           UNREACHABLE: there `safeRoster()` already returns any agent that has a
+           launch file, so roster-only and the union agree on every fixture the
+           suite can build, and no assertion over them can tell the two apart. An
+           agent with a profile and NO launch file cannot be attributed to an
+           account either way, because `readJob` returns null.
+           ⇒ The change is justified by the standalone measurement and by #1697, and
+           its regression coverage is HONESTLY ABSENT rather than fake. Anyone
+           strengthening it should start by making the harness's roster reflect
+           panes rather than launch files. */
+        const knownNames = register.known();
+        if (!knownNames || knownNames.ok !== true) complete = false;
+        let goneNames = null;
+        try { goneNames = new Set(removal.removedAgents().filter((r) => r && r.stopped !== false).map((r) => r.name)); }
+        catch { complete = false; goneNames = null; }
+        const names = new Set();
+        for (const a of (roster || [])) if (a && a.sessionName) names.add(a.sessionName);
+        if (goneNames) {
+          for (const nm of (knownNames && Array.isArray(knownNames.names) ? knownNames.names : [])) {
+            if (!goneNames.has(nm)) names.add(nm);
+          }
+        }
         const usedBy = [];
-        for (const a of (roster || [])) {
+        for (const a of Array.from(names).map((sessionName) => ({ sessionName }))) {
           let job = null;
           try { job = create.readJob(a.sessionName); }
           catch { complete = false; continue; }
