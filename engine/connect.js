@@ -970,7 +970,10 @@ async function start(opts) {
      *
      * There are NO bare-`accessSync` sites left in this file. `willInstall`'s
      * presence check and `canRunClaude` were the last two, and both now ask
-     * `require('./runners').isRunnable`, which answers false for a directory.
+     * `resolveBin('claude').present`, which computes `present` WITH
+     * `runners.isRunnable` and so answers false for a directory. Stated
+     * transitively because that is what the code does; saying they "ask
+     * isRunnable" is the conflation `firstrun.js` corrects at length.
      *
      * ⚠️ THIS PARAGRAPH USED TO NAME THOSE TWO AS STILL WEAK, AND IT WAS LEFT
      * STANDING BY THE COMMIT THAT FIXED THEM. That is precisely the hazard the
