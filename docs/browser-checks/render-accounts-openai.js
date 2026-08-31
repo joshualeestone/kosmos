@@ -267,7 +267,10 @@ let failed = 0;
     const b = row ? row.querySelector('[data-forget]') : null;
     const seen = {
       /* textContent, not innerText: an EXACT-MATCH assertion on a label the page
-         sets itself, and innerText would move under a text-transform. Stated
+         sets itself, and innerText would move under a text-transform. CHECKED on
+         this element rather than assumed, as README asks: .acct-disconnect declares
+         no text-transform today, so the two reads are identical here and this is
+         future-proofing rather than a live difference. Stated
          because docs/browser-checks/README.md (#687) asks every textContent read in
          a wired check to say which it is, and because the `offers a live Remove`
          assertion above reads this same element with innerText. */
@@ -277,13 +280,31 @@ let failed = 0;
       /* 🔑 THE TIMING-INDEPENDENT ARM SIGNAL. The acting branch sets
          `btn.disabled = true` SYNCHRONOUSLY, before its first await; the arming
          branch returns before reaching it. So `disabled === false` after the first
-         press proves the handler did NOT act, whatever the network did. Without
+         press proves the handler did not REACH `btn.disabled = true`, whatever the
+         network did. Stated that way rather than "did not act", which overreaches:
+         a hybrid that armed and fired WITHOUT that assignment would fall through to
+         the weaker listed/timing signal. Without
          this, the hybrid regression (arms AND fires the DELETE) is caught only if
          the round trip plus repaint happens to land inside the 300ms window, and
          goes GREEN on a slower machine. */
       disabled: b ? !!b.disabled : null,
+      /* 🛑 THE BUTTON'S OWN VISIBILITY, not the row's. The `shown` filter above
+         guards the ROW's height and says nothing about the control inside it, so a
+         confirm shipped invisible (display:none, opacity:0, zero size) passed every
+         assertion here: textContent cannot see it, and b.click() fires on a hidden
+         element quite happily. innerText would not have helped either, because an
+         element that is not rendered returns its descendant text content, so the
+         two reads are equal exactly when it matters.
+         📌 The sibling render-projects.js does this and says why: "A confirmation
+         is exactly the control that can ship invisible." Measured in the page, not
+         judged from a picture. */
+      btnW: b ? b.getBoundingClientRect().width : 0,
+      btnH: b ? b.getBoundingClientRect().height : 0,
+      btnOpacity: b ? getComputedStyle(b).opacity : null,
+      btnVisibility: b ? getComputedStyle(b).visibility : null,
       found: !!b,
     };
+    seen.visible = !!(seen.btnW && seen.btnH && seen.btnOpacity !== '0' && seen.btnVisibility !== 'hidden');
     if (click && b) { b.click(); return Object.assign({}, seen, { clicked: true }); }
     return Object.assign({}, seen, { clicked: false });
   }, doClick);
@@ -292,21 +313,24 @@ let failed = 0;
      wrong reason. The `offers a live Remove` assertion is two full navigations
      earlier against a destroyed page, so it is not an arm for this one. */
   const beforePress = await walkStep(false);
-  say('before the press, the button rests on "Remove"',
-    beforePress.label === 'Remove' && beforePress.listed === true, JSON.stringify(beforePress));
+  say('before the press, the button rests on "Remove" and is VISIBLE',
+    beforePress.label === 'Remove' && beforePress.listed === true && beforePress.visible === true,
+    JSON.stringify(beforePress));
   const pressOne = await walkStep(true);
   say('the Remove button is there to press', pressOne.clicked === true, JSON.stringify(pressOne));
   await p.waitForTimeout(300);
   const firstPress = await walkStep(false);
   say('the FIRST press only ARMS, it does not remove (#1683, #1702)',
-    firstPress.label === 'Remove it?' && firstPress.listed === true && firstPress.disabled === false,
+    firstPress.label === 'Remove it?' && firstPress.listed === true
+      && firstPress.disabled === false && firstPress.visible === true,
     JSON.stringify({ before: beforePress, after: firstPress }));
   /* Guarded like the first press, and it reports the PAGE rather than repeating
      the boolean being asserted. A bare `if (b) b.click()` no-ops silently, and
      then "the account leaves the list" fails without distinguishing "we pressed
      and it did not remove" from "we never pressed at all". */
   const pressTwo = await walkStep(true);
-  say('the second press lands on the armed button', pressTwo.clicked === true,
+  say('the second press lands on the armed button',
+    pressTwo.clicked === true && pressTwo.label === 'Remove it?',
     JSON.stringify({ afterFirst: firstPress, atSecondPress: pressTwo }));
   await p.waitForTimeout(1500);
   const after = await p.evaluate(() => ({
