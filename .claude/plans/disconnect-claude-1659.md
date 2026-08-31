@@ -85,6 +85,37 @@ change than shipped:
   and 3267 and was stale within two iterations, which is the same defect this
   plan records elsewhere: a number written once and read as current.
 
+## Consequences of the default refusal, recorded rather than left in a comment
+
+**On a single-account machine the capability this card was opened for is
+unreachable.** `list()` emits the default row whenever `~/.claude.json` carries
+an `oauthAccount`, and on the common install that is the only row, so its
+Disconnect is permanently disabled and there is no other path (#1492's "Sign in
+again" re-auths the same identity rather than replacing it).
+
+**That is a deliberate call and it is defensible** (removing the only account
+leaves Kosmos with none, and `prepare()` symlinks other accounts' history into
+that folder), **but it was not written down anywhere**, and a plan that
+justifies the refusal without naming who it leaves with nothing reads as more
+complete than it is.
+
+**A stopped agent is invisible to the refusal.** `safeRoster()` reports agents
+the live roster knows (`listPanes()` plus `panelessKeys()`, the latter gated on
+`liveness.alive`). An agent that exists but is not running keeps a launch file
+naming this config dir, so removal proceeds and its next start points
+`CLAUDE_CONFIG_DIR` at a renamed directory. It bites harder on Claude than on
+OpenAI because transcripts live under the config dir. Inherited from the OpenAI
+route, named in the route docblock, and now named here too: a data-visible
+failure mode recorded only in a code comment is recorded for nobody.
+
+**The refusal is announced but not focusable.** The reason rides the
+`aria-label` rather than only the `title`, because a `title` on a disabled
+control is not announced. A `disabled` button is still out of the tab order, so
+a keyboard user tabbing the row never lands on it. `aria-disabled="true"` plus a
+no-op handler would deliver the reason on both paths; not done here because it
+makes the control clickable and that change belongs with the browser gate, which
+this branch cannot run.
+
 ## Known gap, narrowed
 
 **The browser check now covers the Claude control's STATE but not a click.**

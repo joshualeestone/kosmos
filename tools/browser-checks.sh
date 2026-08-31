@@ -625,6 +625,12 @@ printf '{"oauthAccount":{"emailAddress":"main@example.com"}}' > "$sb4/home/.clau
 mkdir -p "$sb4/home/.claude/projects"
 mkdir -p "$sb4/home/.claude-walk"
 printf '{"oauthAccount":{"emailAddress":"walk@example.com"}}' > "$sb4/home/.claude-walk/.claude.json"
+# ...and its projects symlinked into the primary tree, which is what prepare()
+# does for every account Kosmos makes. Without it sharesMemory() is false and the
+# row renders "An agent moved here would start with no history. Fix this" -- a
+# state no Kosmos-created account reaches. The capture-not-minimum standard two
+# lines above was applied to the default row and not to this one.
+ln -s "$sb4/home/.claude/projects" "$sb4/home/.claude-walk/projects"
 # A stand-in for api.openai.com/v1/models (#962): the badge now checks a key
 # live, and a page gate must not send a fake key to OpenAI, nor depend on
 # OpenAI answering. The stub accepts exactly the walk's key and refuses any

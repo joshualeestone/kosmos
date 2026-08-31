@@ -110,6 +110,17 @@ test('#1659 route: an unused Claude account is forgotten, and the answer says no
   assert.ok(!fs.existsSync(r.target), 'the account directory moved');
   assert.ok(fs.existsSync(nodePath.join(r.home, '.removed-claude-lonely', '.claude.json')),
     'and its sign-in survived the move');
+  /* 🔑 THE SENTENCE MUST NAME WHERE IT WENT. "Still on this computer" is true
+     and unactionable alone; the engine computes movedTo and the route used to
+     drop it, so the one fact that makes a removal recoverable was withheld from
+     the person who might need it. */
+  assert.match(r.json.because, /\.removed-claude-lonely/,
+    'the answer does not say where the account went, so the removal is not recoverable by anyone reading it');
+  /* And it must say what Kosmos stops doing: the rename takes the directory out
+     of status.js configRoots (which accepts only .claude and .claude-*), so an
+     account with its own projects tree stops being findable. */
+  assert.match(r.json.because, /stops looking inside it/,
+    'the answer still promises "nothing was deleted" without saying the history stops appearing');
 });
 
 test('#1659 route CONTROL: a path that is not a Claude account is refused, and nothing moves', () => {

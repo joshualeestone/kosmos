@@ -183,6 +183,26 @@ test('#1659: the default row renders DISABLED and a non-default row renders LIVE
     'a NON-default row lost its data-forget, so a removable account cannot be removed');
   assert.ok(!/disabled/.test(onOther),
     'a NON-default row is rendered disabled, so every removable account got a dead button');
+
+  /* 🛑 THE PROVIDER MARKER WAS GUARDED BY NOTHING AT ANY LAYER. The handler
+     reads the endpoint off `data-forget-provider`, and since it now REFUSES an
+     unmarked button rather than defaulting to OpenAI, dropping or misspelling
+     this attribute ships a Claude Disconnect that renders live, is pressable,
+     and only prints "we could not tell which provider" -- the exact
+     nothing-that-looks-live-may-do-nothing shape this file refuses. Measured:
+     misspelling it left the whole node suite AND the browser gate green, because
+     the gate pins only the OPENAI marker. Same reasoning as the a.isDefault
+     floor above: a browser-only property, so pin it here. */
+  assert.match(onOther, /data-forget-provider="claude"/,
+    'the live Claude row lost its provider marker, so the shared handler cannot route it and the button does nothing');
+  assert.ok(!/data-forget-provider=/.test(onDefault),
+    'the disabled default row now carries a provider marker, which only a wired button should have');
+
+  /* The OpenAI branch sits outside the extracted ternary, so it is pinned in
+     source rather than executed. Without this, the same misspelling on the
+     other provider is equally invisible. */
+  assert.match(PAGE, /data-forget-provider="openai"/,
+    'the OpenAI row lost its provider marker, so its Disconnect cannot route either');
 });
 
 test('EVERY Disconnect control carries the qualifier, escaped, or one branch keeps the whole defect', () => {

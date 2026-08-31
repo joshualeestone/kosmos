@@ -3311,8 +3311,12 @@ const server = http.createServer((req, res) => {
         const dir = body && typeof body.dir === 'string' ? body.dir : '';
         if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
 
+        /* `=== true` because isDefaultDir answers NULL for an unresolvable path,
+           which would make this boolean|null. Both are falsy at the one use
+           site so no outcome changes, but the OpenAI sibling derives a strict
+           boolean and the docblock asks for diffability. */
         let isDefault = false;
-        try { isDefault = accounts.isDefaultDir(dir); } catch { isDefault = false; }
+        try { isDefault = accounts.isDefaultDir(dir) === true; } catch { isDefault = false; }
 
         /* ⚠️ THE REFUSAL ONLY SEES AGENTS THAT ARE RUNNING, AND THAT BOUNDARY
            IS STATED HERE RATHER THAN LEFT TO BE DISCOVERED. `safeRoster()`
@@ -3384,6 +3388,13 @@ const server = http.createServer((req, res) => {
             ? 'That account is off the list. Its sign-in file is still on this computer, '
               + 'so nothing was deleted. Kosmos stops looking inside it, so any history '
               + 'kept only there will not appear any more.'
+              /* 🔑 NAME WHERE IT WENT. "Still on this computer" is true and
+                 unactionable on its own: the engine computes `movedTo` and the
+                 route was dropping it, so the one fact that makes a removal
+                 recoverable was the one fact withheld from the person who might
+                 need it. Guarded, because `movedTo` is absent on the
+                 already-gone branch. */
+              + (out.movedTo ? ' It is in ' + require('path').basename(out.movedTo) + '.' : '')
             : 'That account was already gone from this computer.',
           /* Carried for diffability with the OpenAI route. The page repaints
              through GET /api/accounts, which uses listLive(), so no caller
