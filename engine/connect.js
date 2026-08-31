@@ -1016,7 +1016,11 @@ async function start(opts) {
      * is MOVE, THEN TRIM, NEVER TRIM FIRST, so it was moved.
      * ⚠️ POINTING AT THE CARD, NOT AT A FILENAME. This cited
      * `.claude/plans/runnable-dir-1592-20260830.md` directly, and a plan file is a
-     * branch artifact with a DATE in its name: it can be pruned or renamed, and
+     * branch artifact with a DATE in its name. ⚠️ THE REASON FIRST GIVEN HERE WAS
+     * FALSE: it said such a file "can be pruned or renamed". MEASURED, `.claude/plans`
+     * is tracked on main and carries 587 committed plan files, so it is a durable home.
+     * The conclusion stands on a different footing: a card is where the DISCUSSION is,
+     * and
      * shipped source would then point at nothing with no signal to the reader.
      * A card number survives both.
      */
@@ -1523,13 +1527,27 @@ async function installClaudeCode(hooks) {
        resolves normally. ⇒ expectedAt stays null only when the variable is UNSET and the
        HOME derivation fails, so the home derivation is what the advice must name.
        ⭐ A branch whose whole point is not blaming the wrong component was handing out an
-       action aimed at a condition that could not have produced it. */
+       action aimed at a condition that could not have produced it.
+
+       🛑 AND THE FIRST CORRECTION MADE THE IDENTICAL MISTAKE ONE VARIABLE OVER, which is
+       why this copy now names NO VARIABLE AT ALL. It said "Check AGENT_WORKFORCE_HOME if
+       it is set". MEASURED, three arms with a working control, os.homedir() stubbed to
+       throw and CLAUDE_BIN unset:
+           AGENT_WORKFORCE_HOME **SET**   -> NO THROW (homeDir returns it, path.join
+                                             cannot throw) => branch UNREACHABLE
+           AGENT_WORKFORCE_HOME **UNSET** -> THREW
+           control, homedir working       -> NO THROW
+       ⇒ Setting that variable GUARANTEES you are not reading this message, so advising
+       the operator to check it is the same defect in a new costume.
+       ⭐ THE LESSON THAT SURVIVES BOTH: when a branch is reached by a FAILURE TO DERIVE
+       something, no environment variable can be the advice, because any variable that
+       supplies the value also prevents the branch. Name the CONDITION, not a knob. */
     if (expectedAt === null) {
       return fail(
         'Claude Code installed, but we could not work out where to look for it',
-        'We could not work out a home directory to look in, so this does not mean the '
-          + 'install failed. Check AGENT_WORKFORCE_HOME if it is set, and that your home '
-          + 'directory is readable, then try again.'
+        'This account has no home directory we can resolve, so we had nowhere to look. '
+          + 'It does not mean the install failed. It usually means HOME is unset and the '
+          + 'account has no passwd entry, which a service or container account can hit.'
       );
     }
     return fail('Claude said it set itself up, but we cannot find anything runnable where it should be', `expected a program we can run at ${expectedAt}`);

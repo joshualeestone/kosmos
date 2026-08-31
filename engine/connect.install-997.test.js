@@ -114,7 +114,7 @@ async function withRelease(t, over = {}, opts = {}) {
   // injected runner, which is a guard worth keeping and worth ordering around.
   //
   // ⚠️ THE DEFAULT RUNNER MUST ACTUALLY CREATE THE BINARY. A stub that merely
-  // reports `{ok:true}` leaves the sequence's own `fs.accessSync(..., X_OK)`
+  // reports `{ok:true}` leaves the sequence's own runnability check
   // check failing, so the SUCCESS arm silently becomes a failure arm and a
   // control asserting `ok === true` cannot pass. Found by that control failing.
   connect.setRunner(opts.runner || ((file, args) => {
@@ -176,10 +176,19 @@ test('a resolver that THROWS at the post-install gate fails cleanly instead of e
        env rung before anything that can throw). The arm was holding the wrong copy in
        place. Pinning the home derivation is what ties the message to the only condition
        that reaches it. */
-    assert.match(text, /AGENT_WORKFORCE_HOME/,
-      'the resolver-failure detail names no variable that could actually have caused it');
-    assert.doesNotMatch(text, /AGENT_WORKFORCE_CLAUDE_BIN/,
-      'the detail sends the operator to a variable that makes this branch unreachable');
+    /* 🛑 THIS ARM PINS THAT NO ENV VAR IS NAMED, and that is stronger than pinning a
+       phrase. TWO successive versions of this copy named a variable, and BOTH times the
+       named variable made the branch UNREACHABLE when set: CLAUDE_BIN returns on the env
+       rung before anything can throw, and HOME supplies the value whose absence is the
+       only way in. Measured both. ⇒ A branch reached by a FAILURE TO DERIVE something
+       can never be advised with a variable that supplies it, so the assertion is on the
+       CLASS rather than on whichever name is wrong this week. */
+    assert.doesNotMatch(text, /AGENT_WORKFORCE_[A-Z_]+/,
+      'the resolver-failure detail names an environment variable. Any variable that could '
+      + 'supply the missing value also PREVENTS this branch, so naming one is always wrong '
+      + 'here. Describe the condition instead.');
+    assert.match(text, /home directory/i,
+      'the detail does not name the condition that actually reaches this branch');
   } finally {
     runners.resolveBin = origResolve;
   }

@@ -13,7 +13,7 @@
  *   we say FALSE and it was true   ->  AN UNANNOUNCED 281MB DOWNLOAD
  *
  * Josh asked for the confirm step by name. So every arm below that could produce the
- * second answer is checked, and the cheap `accessSync` runs EVERY time so it can only
+ * second answer is checked, and the cheap runnability check runs EVERY time so it can only
  * ever move the verdict toward "yes, we will install".
  *
  * ⭐ THE THIRD ARM IS THE WHOLE POINT AND IT IS THE ONE A SIMPLER FIX WOULD MISS. A
