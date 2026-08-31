@@ -158,10 +158,18 @@ test('#1556: it never throws, whatever the binary does', async () => {
 
 test('#1556 "never throws" covers the RESOLVER too, not just a missing file', async () => {
   /* ⚠️ THE DOC BLOCK PROMISES THIS FUNCTION NEVER THROWS, and the only test for it
-     exercised a missing binary. `claudeBinPath()` calls into the runner resolver,
-     which can throw, and it used to sit OUTSIDE the guard. So the stated property
-     was not the property pinned. Perturbation: move `claudeBinPath()` back out of
-     the try in connect.js and this arm rejects while the others stay green. */
+     exercised a missing binary. The resolver can throw on its own account (it
+     derives a home directory and joins paths before it ever asks about the file),
+     and it used to sit OUTSIDE the guard. So the stated property was not the
+     property pinned.
+     Perturbation, CURRENT AND FOLLOWABLE: hoist the
+     `require('./runners').resolveBin('claude')` call out of `willInstall`'s try in
+     connect.js, and this arm rejects while the others stay green.
+     📌 The recipe used to say "move `claudeBinPath()` back out of the try". #1592
+     removed that call from this path, so the one instruction telling a maintainer
+     how to prove this arm still works had become unfollowable. The arm itself never
+     stopped working: the 1556 wiring swaps `runners.resolveBin`, which is what
+     `willInstall` now calls directly. */
   const runners = require('./runners.js');
   const orig = runners.resolveBin;
   runners.resolveBin = () => { throw new Error('resolver exploded'); };

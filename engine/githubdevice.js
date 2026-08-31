@@ -131,25 +131,27 @@ function setClientId(id) {
    from. It is available here (`ghPresent` has exactly one caller) and costs a
    parameter on the exported `state()`. Left undone deliberately: that is an API
    change for a hazard nobody has hit, and it is Josh's product surface. */
-/* ⚠️ THIS LIST IS DUPLICATED VERBATIM AT `engine/github.js`'s `candidates:`, AND
-   THE OVERRIDE BELOW REACHES ONLY THIS COPY. Setting AGENT_WORKFORCE_GH_CANDIDATES
-   changes what `ghPresent` scans and does NOT change what github.js's door scans,
-   because that file passes its own literal array to `makeDoor`. Anyone reading the
-   env var as global will be wrong about half of it.
+/* ⚠️ ONE LITERAL, IN `engine/github.js`, WHICH THIS REQUIRES. It used to be a
+   verbatim second copy under a comment saying it "mirrors" the door's list, and a
+   mirror nothing compares is just two facts that can drift.
 
-   📌 DELIBERATELY NOT UNIFIED, and for the same reason the parameter form above
-   was left undone: github.js is not otherwise in this branch's diff, and making it
-   read this constant would pull a product-surface file into a branch about one
-   definition of runnability, for a hazard nobody has hit. Recording the divergence
-   is the part that costs nothing and is what a reader actually needs.
+   🛑 THE ASYMMETRY THAT SURVIVES, BECAUSE UNIFYING DOES NOT CLOSE IT: the override
+   below reaches ONLY `ghPresent`. github.js's door takes its candidates as a spec
+   parameter at module load, so AGENT_WORKFORCE_GH_CANDIDATES is NOT a machine-wide
+   "where is gh" switch, and a reader who takes it for one is wrong about half of it.
+   Unifying removed the DRIFT. The scope is unchanged and is documented, not fixed.
 
-   ✅ WHY THIS IS RECORDED AND NOT FIXED, i.e. why it is small: `makeDoor` takes
-   `candidates` as a SPEC PARAMETER (`spec.candidates.find(runnable)`), and the door's
-   tests pass their own lists rather than the default, so no test reaches the
-   operator's real `/opt/homebrew/bin/gh` through that path. The asymmetry is a
-   documentation hazard for the next reader, not a live leak. Verified rather than
-   assumed, with a control. */
-const GH_CANDIDATES_DEFAULT = Object.freeze(['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh']);
+   ✅ WHY THAT IS SMALL RATHER THAN A LEAK, AND THE MECHANISM CORRECTED:
+   no test reaches the operator's real `/opt/homebrew/bin/gh` through the door,
+   because `github.test.js` pins `AGENT_WORKFORCE_GH_BIN = '/bin/echo'` in
+   `beforeEach`, so `ghBin()` returns before the candidate scan is ever consulted.
+   ⚠️ THIS COMMENT PREVIOUSLY SAID the door's tests "pass their own lists". THEY DO
+   NOT: `github.test.js` contains no `candidates:` at all. The conclusion was right
+   and the named mechanism was wrong, which is this branch's own recurring defect
+   committed inside a comment added to fix that class. The control that produced it
+   found `candidates:` in the #1592 test file and generalised it to "the door's
+   tests", which is the wrong component. Re-measured with both arms. */
+const GH_CANDIDATES_DEFAULT = require('./github').GH_CANDIDATES;
 function ghCandidateList(override = process.env.AGENT_WORKFORCE_GH_CANDIDATES) {
   /* 🛑 `=== undefined`, NOT TRUTHINESS, AND THE DIFFERENCE IS A REAL LEAK.
      On truthiness an EMPTY STRING means "unset", so a test setting
