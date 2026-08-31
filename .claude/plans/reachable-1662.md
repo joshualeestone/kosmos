@@ -116,11 +116,22 @@ comparison against a commit that DID change behaviour differs, so it can
 discriminate. Reproduce it with:
 
 ```
-strip(){ sed 's/[[:space:]]*#.*$//' | grep -vE '^[[:space:]]*$'; }
-git show 85b75857:install/setup.sh | strip > /tmp/a
-strip < install/setup.sh > /tmp/b
-diff /tmp/a /tmp/b        # empty => the gate evidence still describes this behaviour
+git diff 85b75857 HEAD -- install/setup.sh    # read it: comments only?
 ```
+
+🛑 **AN EARLIER VERSION OF THIS RECIPE WAS LOSSY IN THE REASSURING DIRECTION
+AND IS RETRACTED.** It used `sed 's/[[:space:]]*#.*$//'` to strip comments,
+which also truncates EXECUTABLE lines containing `#` inside a parameter
+expansion. `install/setup.sh` has **14** such lines. Measured: changing
+`${_stg##*.}` to `${_stg#*.}` -- a genuine behaviour change -- strips to the
+same text, so that recipe would have certified it "comment-only" and told a
+reader the gate need not be re-run.
+
+⇒ **A control that shares the instrument's blindness certifies the wrong
+answer**, and this one was published in a plan for other people to run. Read
+the raw diff. If a mechanical filter is wanted, `grep -v '^[[:space:]]*#'`
+removes whole-line comments only and distinguishes the case above (verified
+both ways).
 
 ⚠️ **This argument is only valid while the delta stays comment-only. Any change
 to executable text means the gate must be re-run, not re-argued.**

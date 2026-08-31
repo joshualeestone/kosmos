@@ -613,7 +613,13 @@ reachable() {
   # a Range-ignoring origin AND a slow link together. It is untested here: a
   # faithful test would have to burn the full 15s timeout, which buys one
   # narrow arm at the price of a slow and timing-dependent suite.
-  _r_ct=$(curl -fsL -r 0-0 -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
+  # --max-filesize bounds the residual named above rather than only describing
+  # it: an origin that ignores Range answers with the WHOLE body, and without a
+  # cap this probe would stream a 48MB tarball into /dev/null until -m 15
+  # expired. The range request asks for ONE byte, so 1MB is enormous headroom
+  # for any honest answer, and an origin that ignores Range now fails fast
+  # instead of burning the timeout. Same verdict, seconds instead of fifteen.
+  _r_ct=$(curl -fsL -r 0-0 -m 15 --max-filesize 1048576 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   return 1
 }

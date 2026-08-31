@@ -318,3 +318,68 @@ test('#1662: the FIXTURE serves what each arm asked for, checked at the wire', a
   assert.equal(await probe('/real.tar.gz?headct=text%2Fhtml&ct=application%2Fgzip', 'GET'), 'application/gzip',
     'headct= leaked into the GET, so HEAD and GET are not actually disagreeing');
 });
+
+/* ---- the CALLER, not the predicate ----------------------------------------
+ * Every arm above tests what reachable() DECIDES. None tested whether a caller
+ * ACTS on a NO, and that is the defect this card is actually about: the guard
+ * could never fire, so `info "could not reach the download at $url"` was dead
+ * code and a person with a missing download got a bare curl error.
+ * Three separate reviewers raised this gap; it is the trigger rather than the
+ * decision, and nothing in `yarn test` covered it.
+ */
+/* 🛑 ALL of them, and the COUNT is asserted. There are two identical
+   `if ! reachable "$url"` guards in the installer. An earlier version of this
+   matched only the first, so mutating that one simply made the extraction pick
+   up the second and every arm stayed green -- an arm that looked right and
+   could not fail. Measured: disabling one guard left 17/17 passing. */
+const GUARD_RE = /if ! reachable "\$url"; then\n[\s\S]*?\n\s*fi\n/g;
+const GUARDS = SRC.match(GUARD_RE) || [];
+
+async function runGuard(reachableVerdict, which) {
+  /* The shipped guard block, with reachable() STUBBED to the verdict under
+     test. Runs under the file's own shell options. */
+  const script = `set -euo pipefail
+info(){ printf '%s\\n' "$*"; }
+reachable(){ return ${reachableVerdict}; }
+stage=$(mktemp -d)
+url='https://example.invalid/kosmos-arm64.tar.gz'
+f(){
+${GUARDS[which]}
+  echo FELL-THROUGH
+  return 0
+}
+f
+echo "rc=$?"
+`;
+  try {
+    const { stdout } = await run('sh', ['-c', script], { encoding: 'utf8' });
+    return stdout;
+  } catch (e) { return String(e.stdout || '') + String(e.stderr || ''); }
+}
+
+test('#1662: BOTH guard blocks were extracted, and the count is pinned', () => {
+  assert.equal(GUARDS.length, 2,
+    `expected exactly 2 \`if ! reachable "$url"\` guards in install/setup.sh, found ${GUARDS.length}. `
+    + 'If a guard was added or removed, the arms below must cover it too; if extraction broke, '
+    + 'they measured nothing.');
+});
+
+test('#1662: EVERY guard makes the caller SAY SO and stop on a NO', async () => {
+  for (let i = 0; i < GUARDS.length; i += 1) {
+  const out = await runGuard(1, i);
+  assert.match(out, /could not reach the download at https:\/\/example\.invalid/,
+    `the guard fired but said nothing: the sentence written for a missing download is dead code again. Got: ${out}`);
+  assert.match(out, /safe to re-run/, 'the recovery half of the sentence is missing');
+  assert.doesNotMatch(out, /FELL-THROUGH/,
+    `guard ${i} continued past a NO, so it would attempt a download it was just told is not there`);
+  }
+});
+
+test('#1662: EVERY guard falls through on a YES, so none is a wall', async () => {
+  for (let i = 0; i < GUARDS.length; i += 1) {
+  const out = await runGuard(0, i);
+  assert.match(out, /FELL-THROUGH/, `a reachable download was blocked by its own guard. Got: ${out}`);
+  assert.doesNotMatch(out, /could not reach/,
+    `guard ${i} printed a failure sentence on a download that was reachable`);
+  }
+});
