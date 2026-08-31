@@ -32,9 +32,12 @@ On a known-good connect the modal switches to a success state:
 - HTML: #acct-success panel; ids on the provider field (#acct-provider-field) and the
   form Close row (#acct-add-acts) so acctShowSuccess can hide them.
 - CSS: .acct-success, .acct-ok-big (scale-in via @keyframes acct-pop), reduced-motion.
-- JS: acctShowSuccess(label) / acctResetSuccess(); reset on openAcctAdd; call on the
-  Claude connected arm (acctFlowPaint phase 'connected') and the OpenAI add-success;
-  #acct-success-close -> closeAcctAdd.
+- JS: acctShowSuccess(label) shows the panel and hides the controls; closeAcctAdd puts
+  the modal back to its form state on the way out so the next open is clean (kept in
+  closeAcctAdd, not openAcctAdd, so openAcctAdd's DOM footprint stays as web.reauth-1492's
+  strict stub expects); call acctShowSuccess on the Claude connected arm (acctFlowPaint
+  phase 'connected') and the OpenAI add-success; #acct-success-close -> closeAcctAdd.
+  The Close is a plain .btn (a non-primary way out, per the #1438 guard).
 
 ## Not done
 - Naming the specific Claude account (needs the accounts-list lookup the card

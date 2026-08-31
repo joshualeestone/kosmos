@@ -7048,7 +7048,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <h3 class="acct-success-t">Success!</h3>
       <p class="acct-success-say" id="acct-success-say"></p>
       <div class="rm-acts" style="margin-top: var(--space-6);">
-        <button class="btn uprime" id="acct-success-close" type="button">Close</button>
+        <button class="btn" id="acct-success-close" type="button">Close</button>
       </div>
     </div>
     <div class="rm-acts" style="margin-top: var(--space-6);" id="acct-add-acts">
@@ -13898,11 +13898,11 @@ function openAcctReauth(dir, email) {
   acctPick('claude', { focus: false });
   document.getElementById('acct-add').focus();
 }
-/* kosmos#1656: switch the add-a-provider modal into a success state and back.
-   acctShowSuccess hides the sign-in controls (provider field, both flows, the
-   plain Close row) and shows the reused green check + the account it connected
-   to + a way out. acctResetSuccess restores the form, run on every open so a
-   second connect starts clean. */
+/* kosmos#1656: switch the add-a-provider modal into a success state. acctShowSuccess
+   hides the sign-in controls (subtitle, provider field, both flows, the plain Close
+   row) and shows the reused green check + the account it connected to + a way out.
+   closeAcctAdd puts the modal back to its form state on the way out, so the next open
+   is clean. */
 function acctShowSuccess(accountLabel) {
   ['acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-add-acts']
     .forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
@@ -13910,14 +13910,7 @@ function acctShowSuccess(accountLabel) {
   document.getElementById('acct-success').hidden = false;
   document.getElementById('acct-success-close').focus();
 }
-function acctResetSuccess() {
-  document.getElementById('acct-success').hidden = true;
-  ['acct-add-in', 'acct-provider-field', 'acct-add-acts'].forEach((id) => {
-    const el = document.getElementById(id); if (el) el.hidden = false;
-  });
-}
 function openAcctAdd() {
-  acctResetSuccess();
   const modal = document.getElementById('acct-add-modal');
   const sel = document.getElementById('acct-provider-pick');
   const active = frConnActive((ACCT_FLOW_LAST || '').split('|')[0]);
@@ -13950,6 +13943,13 @@ function closeAcctAdd() {
      disabled Start button behind a stale confirm panel for the next open, so
      the confirm is reset on the way out (#1587 review). */
   acctAddConfirmReset();
+  /* kosmos#1656: return the modal to its form state on the way out, so the next
+     open is clean: the success panel gone and the sign-in controls back. */
+  const success = document.getElementById('acct-success');
+  if (success) success.hidden = true;
+  ['acct-add-in', 'acct-provider-field', 'acct-add-acts'].forEach((id) => {
+    const el = document.getElementById(id); if (el) el.hidden = false;
+  });
   document.getElementById('acct-add-modal').hidden = true;
   document.getElementById('acct-add-open').focus();
 }
