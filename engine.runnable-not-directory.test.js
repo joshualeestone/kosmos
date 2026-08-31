@@ -423,9 +423,6 @@ test('githubdevice rejects a DIRECTORY found by the CANDIDATE SCAN, not just the
      commits. It is the exact defect the plan writes up about itself, a
      description surviving the design it described and becoming a second source of
      truth, landed one file over from the warning. Caught by a blind reviewer; the
-     eighteen non-blind passes read past it. */
-  /* Required from `github.js`, WHERE IT IS DEFINED, not through githubdevice's
-     re-export. Two exported names for one function is new public surface on a
      branch named for having one definition of a fact. */
   /* 🛑 `githubdevice`, NOT `github`. These arms drive `githubdevice.state()`, which
      reaches `ghPresent` -- the byte-identical twin that is half the reason this card
@@ -523,9 +520,6 @@ test('githubdevice reports a DIRECTORY at the gh override as missing', async () 
      file would not have found the other. `state()` is ASYNC: reading `.gh` off
      the promise gives undefined in BOTH arms, which looks like a result and is
      an instrument fault. Awaited here for that reason.
-     Proven red against the reverted lambda: the directory read "present". */
-  /* Required from `github.js`, WHERE IT IS DEFINED, not through githubdevice's
-     re-export. Two exported names for one function is new public surface on a
      branch named for having one definition of a fact. */
   /* 🛑 `githubdevice`, NOT `github`. These arms drive `githubdevice.state()`, which
      reaches `ghPresent` -- the byte-identical twin that is half the reason this card
@@ -1175,3 +1169,39 @@ test('github.js does not reach BACK into githubdevice at call time', async () =>
    the claim was true of the OTHER two sites. Writing the arm is what showed the
    third was already guaranteed elsewhere. A green arm here would have implied a
    guard that does not exist. */
+
+test('the REAL gh door honours the candidates override, which is the branch headline fix', () => {
+  /* 🛑 THIS PINS THE CHANGE THE BRANCH IS FOR, AND NOTHING DID UNTIL NOW.
+     Every other `ghBin()` assertion in this file drives a SYNTHETIC door built by
+     `makeDoor({ candidates: [...] })` with a hand-passed array, so none of them
+     touches `github.js`'s real door or its `get candidates()` getter. The two arms
+     that do call the real `door.state()` assert only `doesNotReject`, which
+     resolves either way.
+     ⚠️ MEASURED: reverting the getter to the bare `GH_CANDIDATES` literal passed
+     the WHOLE SUITE at EXIT_CODE=0, fail 0. The scope fix that three reviewers
+     flagged was completely unpinned, and a comment in githubdevice.js claimed it
+     was "proven end to end through door.ghBin(), four arms". That measurement was
+     ad hoc in a shell; it was never an arm. */
+  const door = require('./engine/github.js');
+  const f = fixture('gh');
+  const beforeBin = process.env.AGENT_WORKFORCE_GH_BIN;
+  const beforeCands = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+  delete process.env.AGENT_WORKFORCE_GH_BIN;   // or ghBin short-circuits before the scan
+  try {
+    process.env.AGENT_WORKFORCE_GH_CANDIDATES = f.realBin;
+    assert.strictEqual(door.ghBin(), f.realBin,
+      'the real door ignored AGENT_WORKFORCE_GH_CANDIDATES, so `candidates` is not going '
+      + 'through the getter and the override reaches ghPresent only');
+
+    process.env.AGENT_WORKFORCE_GH_CANDIDATES = f.asDirectory;
+    assert.strictEqual(door.ghBin(), null,
+      'a DIRECTORY was accepted as gh by the real door: either the getter is bypassed or '
+      + 'the scan is not asking runners.isRunnable');
+  } finally {
+    if (beforeBin === undefined) delete process.env.AGENT_WORKFORCE_GH_BIN;
+    else process.env.AGENT_WORKFORCE_GH_BIN = beforeBin;
+    if (beforeCands === undefined) delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+    else process.env.AGENT_WORKFORCE_GH_CANDIDATES = beforeCands;
+    f.cleanup();
+  }
+});

@@ -46,6 +46,13 @@ const PHASE = Object.freeze({
    failure now fails loudly at import instead of quietly breaking a promise
    contract at call time. */
 const { isRunnable } = require('./runners');
+/* 🛑 GUARDED FOR THE SAME REASON AS THE ./github BINDING, because guarding ONE of
+   THREE identical destructures is this branch's own fixed-one-site-left-its-siblings
+   class, committed inside the guard added to fix it. If `runners.js` stops exporting
+   `isRunnable`, the binding is `undefined` and `runnable(p)` throws a TypeError. */
+if (typeof isRunnable !== 'function') {
+  throw new TypeError("devicedoor: isRunnable did not load from ./runners; the throw escapes into the promise executor in state() and REJECTS it, the exact contract this hoist closes");
+}
 const runnable = (p) => isRunnable(p);
 
 /**

@@ -59,6 +59,13 @@ const store = require('./store');
    the hoist. The hoist defends against a WRONG ANSWER, not against a rejection.
    📌 Safe: `runners.js` requires only node builtins, so there is no cycle. */
 const { isRunnable } = require('./runners');
+/* 🛑 GUARDED FOR THE SAME REASON AS THE ./github BINDING, because guarding ONE of
+   THREE identical destructures is this branch's own fixed-one-site-left-its-siblings
+   class, committed inside the guard added to fix it. If `runners.js` stops exporting
+   `isRunnable`, the binding is `undefined` and `runnable(p)` throws a TypeError. */
+if (typeof isRunnable !== 'function') {
+  throw new TypeError("githubdevice: isRunnable did not load from ./runners; the catch in state() would swallow it and serve gh:missing silently");
+}
 
 const DIR = path.join(store.ROOT, 'secrets');
 const FILE = path.join(DIR, 'github.token');
@@ -163,9 +170,18 @@ function setClientId(id) {
    ✅ AND THE SCOPE IS NOW CLOSED TOO: `github.js` reads its door candidates through
    a GETTER that calls `ghCandidateList()`, so AGENT_WORKFORCE_GH_CANDIDATES is a
    machine-wide "where is gh" switch, which is what a reader assumes it is. The door
-   and `ghPresent` cannot disagree. Proven end to end through `door.ghBin()`, four
-   arms: override to a real executable finds it, to a DIRECTORY gives null, to '' gives
-   null, and with no override the control still finds the real gh.
+   and `ghPresent` cannot disagree. Pinned by an arm on the REAL door
+   (`engine.runnable-not-directory.test.js`, "the REAL gh door honours the candidates
+   override"): override to a real executable returns it, override to a DIRECTORY
+   returns null. Verified to redden when the getter is reverted to the bare literal.
+
+   ⚠️ THIS SENTENCE CLAIMED FOUR ARMS AND THERE WERE NONE. The measurement behind it
+   was ad hoc in a shell during development; every `ghBin()` assertion in the suite
+   drove a SYNTHETIC door built with a hand-passed candidates array, never this one.
+   Measured: reverting the getter passed the WHOLE SUITE at EXIT_CODE=0.
+   📌 And the fourth arm as described ("with no override the control still finds the
+   real gh") would EXEC THE OPERATOR'S OWN gh, which the paragraph below asserts no
+   test does. It is deliberately not written.
 
    🛑 THIS PARAGRAPH USED TO SAY THE ASYMMETRY SURVIVED and was "documented, not
    fixed". It was documented at THREE sites and in the plan, and that volume was the
