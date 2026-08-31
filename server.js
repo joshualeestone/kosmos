@@ -3225,8 +3225,44 @@ const server = http.createServer((req, res) => {
            agent". Only a THROW, or an unreadable roster, is ignorance. */
         const roster = safeRoster();
         let complete = roster !== null;
+        /* 🛑 THE ROSTER ALONE CANNOT SEE A STOPPED AGENT, AND THIS GUARD IS WHAT
+           MAKES THE RENAME SAFE (kosmos#1689). `safeRoster()` is
+           `status.snapshot()`, whose `panelessKeys` does
+           `if (liveness.alive(key) !== true) continue;` - so an agent that exists
+           but is not running is invisible here. Its plist still names this
+           account's directory by absolute path, so the rename proceeds and the
+           agent comes back pointed at a path that is not there.
+           ⚠️ THE CHECK BELOW WAS NEVER THE PROBLEM: `readJob` reads the PLIST,
+           which is true whether or not the agent runs. Only the ENUMERATION was
+           liveness-gated, so this unions in the names Kosmos has written a
+           profile for - its own record that an agent exists, independent of any
+           process being up.
+           📌 `known()` separates "nothing has ever been written" (ok, empty) from
+           "we could not look" (not ok), so an unreadable profiles directory makes
+           this INCOMPLETE rather than quietly shortening the list. Same
+           fail-closed posture the `complete` flag already keeps for an unreadable
+           launch file. */
+        const knownNames = register.known();
+        if (!knownNames || knownNames.ok !== true) complete = false;
+        /* 🛑 THE REMOVED-AGENT FILTER HAS TO BE APPLIED TO THESE TOO. `safeRoster`
+           drops agents the person has removed, for the reason its own comment
+           gives, and a profile file outlives that removal. Unioning the profile
+           names in RAW would resurrect a removed agent into this guard and refuse
+           the account because of one the person was already told was gone - the
+           same "two derivations of the fleet" habit that comment calls this
+           codebase's worst, arriving from the side that looks like a fix. */
+        let goneNames = null;
+        try { goneNames = new Set(removal.removedAgents().filter((r) => r && r.stopped !== false).map((r) => r.name)); }
+        catch { complete = false; goneNames = null; }
+        const names = new Set();
+        for (const a of (roster || [])) if (a && a.sessionName) names.add(a.sessionName);
+        if (goneNames) {
+          for (const n of (knownNames && Array.isArray(knownNames.names) ? knownNames.names : [])) {
+            if (!goneNames.has(n)) names.add(n);
+          }
+        }
         const usedBy = [];
-        for (const a of (roster || [])) {
+        for (const a of Array.from(names).map((sessionName) => ({ sessionName }))) {
           let job = null;
           try { job = create.readJob(a.sessionName); }
           catch { complete = false; continue; }
@@ -3254,7 +3290,7 @@ const server = http.createServer((req, res) => {
         }
         if (!complete) {
           sendJson(res, 400, {
-            error: 'we could not check which agents are running, so nothing was changed',
+            error: 'we could not check which agents are on this account, so nothing was changed',
             usedBy: [],
           });
           return;
