@@ -213,14 +213,16 @@ exercised rather than dormant: the OpenAI control is live, a non-default Claude
 control is live, and the default one is disabled. What is still not covered is
 pressing the Claude button end to end, the way the OpenAI flow is pressed.
 
-**I did not add that press, deliberately.** I cannot run the browser gate from
-here, and that is now MEASURED rather than asserted: `docs/browser-checks/
-render-accounts-openai.js:22` does `require('playwright')`, `package.json`
-declares **zero dependencies** (so `yarn install` would not supply it), and the
-module resolves from neither the worktree nor the main checkout (control: an
-impossible module fails identically, so the probe can say no). A chromium build
-IS cached at 1.6G, so the gate is expected to run somewhere that has the package
-- not on this machine as configured. and an unverified press flow in a file that has already taken down three
+**I did not add that press, and the reason has changed.** The original reason
+was that the gate could not run here. **That was wrong** (see the section above:
+`resolve_pw` exports `NODE_PATH` and it resolves). The gate runs, this branch
+passes it, and the three new arms execute.
+
+⇒ **The honest remaining reason is smaller and is a scope call:** a press flow
+that removes an account changes shared board state for every arm after it in the
+same file, and adding a second removal alongside the OpenAI one is the confirm
+work that belongs to kosmos#1683. **It is deferred, not blocked**, and anyone
+taking #1683 can now verify it here rather than at a cut. and an unverified press flow in a file that has already taken down three
 release cuts is a worse trade than a stated gap. The repaint ordering is
 inherited rather than re-derived, because both providers share one handler.
 
