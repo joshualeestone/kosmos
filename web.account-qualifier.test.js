@@ -178,14 +178,22 @@ test('#1659: the default row renders DISABLED and a non-default row renders LIVE
   const onDefault = render({ isDefault: true, dir: '/h/.claude' }, 'main@example.com', '', esc);
   const onOther = render({ isDefault: false, dir: '/h/.claude-walk' }, 'walk@example.com', '', esc);
 
-  assert.match(onDefault, /disabled/,
-    'the DEFAULT row no longer renders a disabled Disconnect, so ~/.claude gets a button the engine refuses on every click');
+  /* 🛑 ANCHOR ON THE EXACT SPELLING. `/disabled/` matched the SUBSTRING inside
+     `aria-disabled`, so the moment the markup moved from the native attribute to
+     the ARIA one this floor silently stopped discriminating: it could no longer
+     tell "the row is inert" from "the row carries an ARIA hint and nothing
+     else", and the browser arm that DID depend on the difference went red
+     unnoticed. Both spellings are pinned separately now. */
+  assert.match(onDefault, /aria-disabled="true"/,
+    'the DEFAULT row is no longer marked aria-disabled, so ~/.claude gets a button the engine refuses on every click');
+  assert.ok(!/(^|\s)disabled(?=[\s>'"])/.test(onDefault),
+    'the DEFAULT row went back to the NATIVE disabled attribute, which drops it out of the tab order so a keyboard user never reaches the reason');
   assert.ok(!/data-forget=/.test(onDefault),
     'the DEFAULT row now carries data-forget, so the shared handler fires on a row the engine refuses');
   assert.match(onOther, /data-forget="\/h\/\.claude-walk"/,
     'a NON-default row lost its data-forget, so a removable account cannot be removed');
   assert.ok(!/disabled/.test(onOther),
-    'a NON-default row is rendered disabled, so every removable account got a dead button');
+    'a NON-default row carries a disabled or aria-disabled marking, so a removable account got a dead button');
 
   /* 🛑 THE PROVIDER MARKER WAS GUARDED BY NOTHING AT ANY LAYER. The handler
      reads the endpoint off `data-forget-provider`, and since it now REFUSES an

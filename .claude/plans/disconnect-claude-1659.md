@@ -109,13 +109,29 @@ OpenAI because transcripts live under the config dir. Inherited from the OpenAI
 route, named in the route docblock, and now named here too: a data-visible
 failure mode recorded only in a code comment is recorded for nobody.
 
-**The refusal is announced but not focusable.** The reason rides the
-`aria-label` rather than only the `title`, because a `title` on a disabled
-control is not announced. A `disabled` button is still out of the tab order, so
-a keyboard user tabbing the row never lands on it. `aria-disabled="true"` plus a
-no-op handler would deliver the reason on both paths; not done here because it
-makes the control clickable and that change belongs with the browser gate, which
-this branch cannot run.
+**The refusal is announced AND focusable, and both halves shipped.** The reason
+rides the `aria-label` rather than only the `title`, because a `title` on a
+disabled control is not announced; and the control is `aria-disabled="true"`
+rather than natively `disabled`, so it stays in the tab order and a keyboard user
+reaches it.
+
+⚠️ **THE SECOND HALF WAS MISSED FOR ONE ITERATION AND THAT IS THE INSTRUCTIVE
+PART.** Making the control focusable also made it PRESSABLE, and the shared
+handler binds only `[data-forget]`, which this branch deliberately lacks. So for
+one iteration Enter and Space did nothing at all, with no feedback: the
+accessibility fix created a fresh instance of the exact
+nothing-that-looks-live-may-do-nothing shape it was meant to serve. A no-op
+handler now writes the button's own `title` into the accounts message line, so a
+press produces the reason on every input path, and it reads the title rather than
+repeating the sentence so it does not become a third copy.
+
+🛑 **AND THE SAME EDIT SILENTLY BROKE TWO GUARDS, WHICH IS WHY THIS SECTION IS
+LONG.** `b.disabled` in the browser check is the IDL property and reflects only
+the native attribute, so the arm asserting it went red; and the node floor
+`/disabled/` matched the substring inside `aria-disabled`, so it stopped
+discriminating and did not catch the first. **One markup change, two guards
+quietly retired, in opposite directions.** Both are re-anchored on the exact
+spelling and perturbation-checked in both directions.
 
 ## Known gap, narrowed
 

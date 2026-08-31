@@ -173,7 +173,14 @@ let failed = 0;
     buttons: [...g.querySelectorAll('.acct-disconnect')].map((b) => {
       const box = b.closest('.acct-box');
       return {
+        /* 🛑 BOTH STATES, BECAUSE THEY ARE NOT THE SAME ONE. `b.disabled` is the
+           IDL property and reflects ONLY the `disabled` content attribute, so a
+           control marked `aria-disabled="true"` reads disabled:false. This arm
+           asserted `b.disabled` and went red the moment the markup moved to
+           aria-disabled for keyboard reachability. Capture both or the check
+           cannot tell "inert" from "natively disabled". */
         label: (b.innerText || '').trim(), disabled: !!b.disabled, forgets: !!b.dataset.forget,
+        ariaDisabled: b.getAttribute('aria-disabled') === 'true',
         row: ((box && box.innerText) || '').replace(/\s+/g, ' ').trim(),
       };
     }),
@@ -211,10 +218,10 @@ let failed = 0;
     say('the browser sees BOTH seeded Claude rows (or the two arms below are vacuous)',
       defaultRow.length === 1 && otherRow.length === 1, JSON.stringify(otherDoors));
     say('the NON-DEFAULT Claude account offers a live Disconnect (#1659)',
-      otherRow.length > 0 && otherRow.every((b) => !b.disabled && b.forgets && /^Disconnect$/.test(b.label)),
+      otherRow.length > 0 && otherRow.every((b) => !b.disabled && !b.ariaDisabled && b.forgets && /^Disconnect$/.test(b.label)),
       JSON.stringify(otherRow));
     say('the DEFAULT Claude account\'s Disconnect is disabled and not wired (#1659)',
-      defaultRow.length > 0 && defaultRow.every((b) => b.disabled && !b.forgets && /^Disconnect$/.test(b.label)),
+      defaultRow.length > 0 && defaultRow.every((b) => !b.disabled && b.ariaDisabled && !b.forgets && /^Disconnect$/.test(b.label)),
       JSON.stringify(defaultRow));
   }
   // Create form: OpenAI provider -> account menu offers the new account

@@ -13505,6 +13505,22 @@ async function paintAccounts() {
       openAcctReauth(btn.dataset.reauth, (row && row.email) || '');
     });
   }
+  /* 🛑 THE OTHER HALF OF `aria-disabled`, WITHOUT WHICH IT IS WORSE THAN
+     `disabled`. Making the default row's control focusable so a keyboard user
+     can reach the reason ALSO makes it pressable, and the shared handler below
+     binds only `[data-forget]`, which this branch deliberately lacks. So Enter
+     or Space did nothing at all, with no feedback -- the exact
+     nothing-that-looks-live-may-do-nothing shape, newly reachable by keyboard
+     because of the accessibility fix.
+     ✅ IT READS THE BUTTON'S OWN `title` rather than repeating the sentence, so
+     this does not become a THIRD copy of a refusal that a test already pins
+     between the engine and the page. */
+  for (const btn of box.querySelectorAll('.acct-disconnect[aria-disabled="true"]')) {
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      if (msg) msg.textContent = btn.title || '';
+    });
+  }
   for (const btn of box.querySelectorAll('[data-forget]')) {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
