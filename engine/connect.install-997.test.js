@@ -144,8 +144,14 @@ test('a resolver that THROWS at the post-install gate fails cleanly instead of e
      The post-install gate used to build its failure message with `claudeBinPath()`,
      which is `resolveBin('claude').bin`. If the try entered the catch BECAUSE
      `resolveBin` threw, that same call threw again FROM INSIDE THE HANDLER and
-     escaped `installClaudeCode` entirely: no `fail()` returned, and the downloaded
-     file never unlinked. The path is now captured defensively before the guard.
+     escaped `installClaudeCode` entirely: no `fail()` returned.
+     ⚠️ AND A SECOND CLAUSE HERE WAS FALSE AND IS WITHDRAWN. It used to add "and the
+     downloaded file never unlinked". MEASURED on origin/main: the unlink is a COMPLETE
+     STATEMENT ON THE LINE BEFORE the failing return, so the file WAS removed even on
+     this path. Only the no-fail() half was ever true.
+     ⇒ The fix is still right and the harm it repairs was OVERSTATED, and the same wrong
+     sentence stood in two places, so correcting one would have left the other.
+     The path is now captured defensively before the guard.
 
      ⚠️ A reviewer found this was the only changed production behaviour on the branch
      with zero coverage, on a branch that added a both-directions arm for every other
