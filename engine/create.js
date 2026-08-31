@@ -1075,17 +1075,36 @@ function setProvider(name, provider, opts) {
     /* The account rides into the launch job as CODEX_HOME (#1313). `null` here
        meant the default home, which is the home the add path never writes. */
     fs.writeFileSync(plistPath(clean),
-      /* 📌 PRE-EXISTING ON MAIN, BUT #1373 MAKES IT REACHABLE ON PURPOSE FOR THE FIRST
-         TIME, so it is named here rather than left for whoever hits it. This writes
-         `openaiAccount.dir` for EVERY row including the default one, while
-         `createAgentInner` writes `acct.isDefault ? null : acct.dir` and lets codex
-         resolve its own default. So an agent SWITCHED onto the default row has that
-         home pinned into its launch job and stops following a later CODEX_HOME
-         change, whereas an agent CREATED on the same row keeps following it. Two
-         routes to one state that then behave differently. Not changed on this card:
-         the switch path is what #1373 is about and altering the create path's
-         contract here would widen a reviewed diff past what was reviewed. */
-      plistFor(clean, runnerBin, job.tmux, null, openaiAccount ? openaiAccount.dir : null, runner), 'utf8');
+      /* 🔑 #1600: THE DEFAULT ROW WRITES NO HOME, WHICH IS THE RULE THE REST OF THIS
+         FILE ALREADY FOLLOWS. This used to write `openaiAccount.dir` for EVERY row
+         including the default one, so an agent SWITCHED onto the default row had that
+         home pinned into its launch job and stopped following a later `CODEX_HOME`
+         change, while an agent CREATED on the same row kept following it. Two routes
+         to one state that then behaved differently, with nothing on screen telling
+         them apart.
+         ⇒ Aligned rather than chosen: three sites already write
+         `isDefault ? null : dir` (`createAgentInner`'s OpenAI and Claude arms, and
+         `setAccount`), and the Claude one is TESTED, with its own reasoning: "Back to
+         the default is a real choice, and it removes the key rather than writing the
+         default path", because "absent has always meant the default account, and a
+         rewrite that started stamping the default would make every unrelated edit look
+         like an account change." This was the one path not following it.
+         🛑 AND `isDefault` ALONE IS NOT THE CONDITION, WHICH I GOT WRONG FIRST AND THE
+         #1373 SUITE CAUGHT. `openaiaccounts` derives "default" from
+         `codexupdate.defaultHome()`, which honours `AGENT_WORKFORCE_CODEX_HOME` and
+         `CODEX_HOME`. Those are the SERVER's environment. **A launchd job does not
+         inherit them**, so under an override the server's default and the agent's
+         default are DIFFERENT DIRECTORIES, and omitting the key would silently send the
+         agent to `~/.codex` instead of the home an operator named.
+         ⇒ THE REAL RULE, and it is simpler than "is this the default": OMIT THE KEY
+         ONLY WHEN THE AGENT WOULD RESOLVE THE SAME HOME ANYWAY. The agent resolves with
+         no overrides, so that is exactly "this row is the default AND no override is in
+         force". With one set, the home is recorded, which is what #1373 asserts.
+         📌 Composed from `homeIsNamed()` rather than restating the rule: #1488 was
+         precisely a second copy of this derivation disagreeing with the first. */
+      plistFor(clean, runnerBin, job.tmux, null,
+        openaiAccount && !(openaiAccount.isDefault && !codexHomeOverridden())
+          ? openaiAccount.dir : null, runner), 'utf8');
   } catch {
     return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
   }
@@ -1190,6 +1209,20 @@ function supervisorPath() {
 /* The codex notify bridge (#245): installed beside the supervisor, by the
    same refresh, for the same reason — one copy, every agent, every fix
    reaching agents made long ago at their next start. */
+/**
+ * Whether the SERVER's environment names a codex home, so its idea of "the
+ * default" is not the one a launchd job would resolve (#1600).
+ *
+ * 🛑 BOTH VARIABLES, because `codexupdate.defaultHome()` honours both and this
+ * exists to answer "could the server and the agent disagree?". `homeIsNamed()`
+ * answers a narrower question (did an OPERATOR name one, via Kosmos's own
+ * variable) and is composed here rather than duplicated.
+ */
+function codexHomeOverridden() {
+  return require('./codexupdate').homeIsNamed()
+    || (typeof process.env.CODEX_HOME === 'string' && process.env.CODEX_HOME !== '');
+}
+
 /** The one CODEX_HOME resolution, shared by the trust write and the
     connected-check so the two cannot look in different homes.
     🛑 DELEGATES rather than restating the rule (#1337). FOUR copies of this
@@ -2137,7 +2170,13 @@ function createAgentInner(opts) {
     const acct = require('./openaiaccounts').list()
       .find((a) => a.dir === path.resolve(String(wantAccountDir)));
     if (!acct) return { outcome: OUTCOME.REFUSED, because: 'we do not know that OpenAI account on this computer', steps };
-    configDir = acct.isDefault ? null : acct.dir;
+    /* #1600: the SAME rule as the switch path, so the two routes cannot disagree.
+       Omit the key only when the agent would resolve this home anyway - which means
+       "the default row AND no override in force", because a launchd job does not
+       inherit the server's AGENT_WORKFORCE_CODEX_HOME or CODEX_HOME.
+       ⚠️ Fixing only the switch would have made the routes AGREE without an override
+       and DISAGREE with one, which is this card's own defect pointing the other way. */
+    configDir = acct.isDefault && !codexHomeOverridden() ? null : acct.dir;
   } else if (wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
     const accountsMod = require('./accounts');
     /* Resolved for the same reason as the OpenAI arm above (#1486):
