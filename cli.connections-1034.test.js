@@ -820,3 +820,46 @@ test('every spelling of zero is refused by the connection deadline guard', () =>
   assert.equal(run('7'), '7', 'a valid deadline was rejected, so the guard refuses everything and proves nothing');
   assert.equal(run(null), '40', 'an unset variable did not fall back to the ceiling');
 });
+
+test('a board with no readable providers says so and exits non-zero, instead of a heading over nothing', async () => {
+  /**
+   * 🛑 MEASURED BEFORE THE FIX: `providers: []` printed
+   *      "What this computer is connected to:"
+   *      <blank>
+   *   and nothing else, AT EXIT 0. A person reads that as "connected to nothing";
+   *   an agent branching on the exit status is told the call succeeded.
+   *
+   * ⚠️ THE SAME SCRIPT HAD ALREADY FIXED THIS ONE SCREEN BELOW, for services, with
+   * the reason written down: an empty section "reads as a section that failed to
+   * load rather than one with nothing to say". The providers half never got the
+   * same treatment. Both arms below are the cases the container guard cannot see:
+   * it catches a null element, not an empty list and not one whose every row the
+   * string guard drops.
+   *
+   * 📌 Not reachable from our own board, since forAgent always returns exactly two
+   * providers. Guarded because this block's whole job is tolerating a board it
+   * does not control.
+   */
+  for (const [label, providers] of [
+    ['an empty list', []],
+    ['rows the string guard drops', [{}, { name: 42, because: null }]],
+  ]) {
+    await withBoard({ body: { providers, services: [] } }, async (port) => {
+      const r = await kosmos(port);
+      assert.notEqual(r.code, 0,
+        `${label}: exited 0, so an agent branching on status is told this succeeded`);
+      assert.match(r.out, /could not read/,
+        `${label}: did not say the answer was unreadable`);
+      assert.doesNotMatch(r.out, /What this computer is connected to/,
+        `${label}: printed the heading with nothing under it, which reads as "connected to nothing"`);
+    });
+  }
+
+  /* CONTROL: a well-formed row still renders, or the assertions above are
+     satisfied by a CLI that refuses everything. */
+  await withBoard({ body: P() }, async (port) => {
+    const r = await kosmos(port);
+    assert.equal(r.code, 0, 'a good payload was refused, so this test proves nothing');
+    assert.match(r.out, /What this computer is connected to/, 'a good payload lost its heading');
+  });
+});

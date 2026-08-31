@@ -705,7 +705,7 @@ cmd_connections() {
   # first-party doors. The OpenAI half was missing from this sentence too, and it
   # is the one that depends on the network rather than on this machine, which is
   # most of the reason 15s was not enough.
-  # 🛑 CORRECTED AGAIN: THREE requests leave the machine, not one. Cloudflare and
+  # 🛑 THREE requests leave the machine, not one. Cloudflare and
   # the github device fallback each make an uncached authenticated call too
   # (measured: `cache` appears zero times in either module). None is billed, so
   # the money decision is unchanged; the timeout budget is about all three. (It used to be the
@@ -831,6 +831,25 @@ cmd_connections() {
         console.log("Kosmos answered something we could not read, so we cannot say what is connected.");
         process.exit(1);
       }
+      /* 🛑 THE HEADER IS GATED ON THE FILTERED LIST, NOT ON THE RAW ONE, for the
+         same reason the services header below is: a heading over nothing "reads
+         as a section that failed to load rather than one with nothing to say".
+         Measured before the gate: a board answering `providers: []` printed the
+         heading, a blank line, and nothing, AT EXIT 0, so an agent branching on
+         status was told the call succeeded. The container guard above catches a
+         null element; it cannot catch an empty list or one whose every row the
+         string guard drops.
+         ⚠️ THIS IS NOT REACHABLE FROM OUR OWN BOARD (`forAgent` always returns
+         exactly two providers). It is guarded because this whole block exists to
+         tolerate a board it does not control, which is precisely the argument
+         that got the services half guarded one screen below. */
+      var okProviders = v.providers.filter(function (p) {
+        return p && typeof p.name === "string" && typeof p.because === "string";
+      });
+      if (!okProviders.length) {
+        console.log("Kosmos answered something we could not read, so we cannot say what is connected.");
+        process.exit(1);
+      }
       console.log("What this computer is connected to:");
       console.log("");
       /* Own-property lookups on every wire-supplied key. A board answering
@@ -840,12 +859,15 @@ cmd_connections() {
          verb whose stated job is refusing machine vocabulary. */
       var own = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined; };
       var SAY = { connected: "connected", none: "not connected", unknown: "could not check" };
-      for (const p of v.providers) {
+      for (const p of okProviders) {
         /* ⚠️ STRINGS ONLY, for the same reason as the services loop below:
            a board answering name or because as an object printed
            "[object Object]: connected ([object Object])" at a person. Measured,
            exit 0, so nothing signalled it. The boundary allowlists both fields,
            so this is the CLI refusing to trust a board it does not control. */
+        /* Redundant with `okProviders` by construction and kept deliberately: it is
+           the same predicate, and a future edit that widens one without the other
+           is caught here rather than printing an object at a person. */
         if (!p || typeof p.name !== "string" || typeof p.because !== "string") continue;
         // `none` and `unknown` are machine vocabulary. A person reads this.
         var verdict = own(SAY, p.signedIn) || "could not check";
@@ -868,10 +890,19 @@ cmd_connections() {
              counting it against the person is a settled negative about
              something nobody looked at. */
           var m = typeof p.howManyReadable === "number" ? p.howManyReadable : p.howMany;
-          if (p.howMany === 0) many = "";
-          else if (w === m) many = ", " + (w === 1 ? "1 sign-in" : w + " sign-ins");
-          else many = ", " + w + " of " + m + (m === 1 ? " sign-in working" : " sign-ins working");
-          if (p.howMany > m) many = many + ", " + (p.howMany - m) + " we could not check";
+          /* ⚠️ THE ZERO CASE RETURNS EARLY RATHER THAN FALLING THROUGH. It used to
+             set `many = ""` and then meet an UNCONDITIONAL append below, so a board
+             reporting a negative `howManyReadable` re-armed the very text the zero
+             case exists to suppress. Unreachable from honest data (howMany === 0
+             implies m === 0), but two lines encoding opposite intents is exactly
+             what this block is here to prevent, and the next edit inherits it. */
+          if (p.howMany === 0) {
+            many = "";
+          } else {
+            if (w === m) many = ", " + (w === 1 ? "1 sign-in" : w + " sign-ins");
+            else many = ", " + w + " of " + m + (m === 1 ? " sign-in working" : " sign-ins working");
+            if (p.howMany > m) many = many + ", " + (p.howMany - m) + " we could not check";
+          }
         }
         console.log("  " + p.name + ": " + verdict + " (" + p.because + many + ")");
       }

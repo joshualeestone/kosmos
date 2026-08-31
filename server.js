@@ -3135,9 +3135,8 @@ const server = http.createServer((req, res) => {
          github device fallback returns the same way, and `checkLive` returns
          before `askModels` for an account with no key.
          ⇒ The honest claim is a CEILING, not a count, and the ceiling is what
-         matters for a route an agent can poll. Iteration 13 added the OpenAI call
-         and called it "the half that leaves the machine". Iteration 15 measured
-         the other two: `cloudflare.state()` issues an uncached
+         matters for a route an agent can poll. Three calls leave the machine, not
+         one: `cloudflare.state()` issues an uncached
          GET https://api.cloudflare.com/client/v4/user/tokens/verify with the
          person's token (engine/cloudflare.js:22,37), and the github arm's
          `gh === 'missing'` fallback reaches `githubdevice.state()` ->
@@ -5827,9 +5826,8 @@ const server = http.createServer((req, res) => {
           /* #1034: the connections block rides the same sweep.
              🛑 ITS WORDS DO CHANGE, and this branch is the proof: it rewrote
              `connections.blockBody()` to add the `kosmos connections` paragraph.
-             An earlier version of this comment said they never change and that
-             this was therefore a no-op for existing agents. Both halves were
-             wrong the moment the copy was edited.
+             🛑 THE COPY DOES CHANGE, so this is NOT a no-op for existing agents:
+             an edit to the block reaches them through this path and only this one.
              ⚠️ WHERE THIS ACTUALLY FIRES, because it decides who learns the verb
              exists: the connections block is written here by
              `connections.syncEveryone` (POST /api/you, i.e. a person saving the

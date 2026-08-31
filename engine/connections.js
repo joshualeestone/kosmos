@@ -163,8 +163,8 @@ function blockBody() {
     '',
     '🔑 **You cannot see their screen. Ask.** You do not know what the screen',
     'currently says or which button they are looking at.',
-    'Do not guess and do not describe a button as though you',
-    'can see it. Ask what they are looking at, ask what it says, and work from',
+    'Do not guess and do not describe a button as though you can see it.',
+    'Ask what they are looking at, ask what it says, and work from',
     'their answer. Being the one who asks a clear question is more useful than',
     'being the one who confidently describes the wrong screen.',
     '',
@@ -189,9 +189,8 @@ function blockBody() {
        show the sign-in link) and it contradicts the sentence immediately above
        it. The comment above records the reordering as fixing an antecedent
        defect; it moved one and created another a paragraph later. */
-    'That command deliberately does NOT show you the sign-in link or the',
-    'terminal output,',
-    'and you should not go looking for them anywhere else either.',
+    'That command deliberately does NOT show you the sign-in link or the terminal',
+    'output, and you should not go looking for them anywhere else either.',
     'Those are the parts that would let somebody sign in as them, so they are not',
     'yours to hold. If you need to know what a screen says, that is still a',
     'question for the person.',
