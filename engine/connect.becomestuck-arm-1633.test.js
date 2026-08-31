@@ -39,9 +39,12 @@
  * service. Pointing the base at a DEAD PORT gave ~65ms, and that number is an
  * ISOLATION CONTROL rather than this file's cost: it proves the 5.3s was
  * network, not that the arms are that fast. With the fixture actually serving,
- * the shipped cost is ~70ms per arm. Both arms passed in ALL THREE
- * configurations, so the green never depended on the fixture and could not have
- * revealed this.
+ * the shipped cost is ~70ms per arm. Both arms passed in all three configurations
+ * AT THE TIME, so the green never depended on the fixture and could not have
+ * revealed this. That is no longer true of the shipped file: the `because`
+ * assertion added afterwards reddens the dead-port configuration, because a
+ * download failure carries a different message. Stated with the qualifier so
+ * this does not read as contradicting the note on that assertion below.
  * `engine/connect.nobinary-1580.test.js` carries the same warning for the same
  * reason.
  *
@@ -99,7 +102,9 @@ async function settled(ms = 8000) {
 /**
  * Drive the real `start()` to a real install failure.
  *
- * ⚠️ The fixture's only variable is whether an executable exists at the bin path,
+ * ⚠️ The fixture's only INPUT variable is whether an executable exists at the bin
+ * path (the path itself also differs per arm, for the reason given at the call
+ * site),
  * which is the question `becomeStuck` asks the disk. That is NOT the same as the
  * two arms walking identical code: the PRESENT arm additionally runs the
  * `--version` probe, which the injected runner answers `{ok:false}`, flipping
@@ -118,7 +123,7 @@ async function stuckWith(t, { binaryExists }) {
     delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
   });
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE =
-    await serveRelease(t, connect.platformKey());
+    await serveRelease(t, { platformKey: connect.platformKey() });
   /* 🔑 A DISTINCT PATH PER ARM IS LOAD-BEARING, not tidiness: the PRESENT arm
      writes an 0755 file, and if the ABSENT arm reused that path it would find a
      real executable and report canRunClaude true, turning a genuine red into a

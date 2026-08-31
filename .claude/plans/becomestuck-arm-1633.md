@@ -46,16 +46,13 @@ force canRunClaude = true      1 passes   <- ABSENT arm goes red
 
 ## One trap, recorded because it costs an hour to rediscover
 
-**The injected runner must RETURN a failure, never throw.** `becomeStuck` calls the runner on its way out via `killSession()`, so a throwing runner throws again *inside the function under test*, after the interesting work and before any assertion can read it. The stack then reads as though the flow never arrived:
+**The injected runner must RETURN a failure, never throw.** `becomeStuck` calls the runner on its way out via `killSession()`, but that call is fire-and-forget through two async frames, so a synchronous throw becomes a **rejected promise** rather than an exception that unwinds the function.
 
-```
-at run          (connect.js:176)
-at tmux         (connect.js:790)
-at killSession  (connect.js:794)
-at becomeStuck  (connect.js:2123)   <- it HAD arrived
-```
+**Measured:** with a throwing runner the STUCK record is still written (`phase=stuck canRunClaude=false`). What reddens the file is the unhandled rejection, reported at process level with a stack through `becomeStuck -> killSession -> tmux -> run` that reads as though the flow never arrived.
 
 `run()` resolving `{ok:false}` and never rejecting is the contract the rest of the file already relies on.
+
+📌 **This section previously stated the opposite mechanism** (that the throw pre-empts the assertion). That sentence is deleted rather than annotated, per the rule `engine/connect.js` states twice in the code under review: a wrong sentence left standing above its own retraction is read first.
 
 ## Scope, stated so nobody reads it wider
 
@@ -80,4 +77,4 @@ base -> dead local port             67 ms /   63 ms
 
 ⇒ **80x, and it was entirely network.** Both arms passed in **both** configurations, so the green never depended on the fixture and could not have revealed this. `engine/connect.nobinary-1580.test.js` carries a standing warning about exactly this, which I had read and did not apply.
 
-**And the docblock's explanation of the throwing-runner trap was wrong.** I wrote that a throwing runner throws inside `becomeStuck` "before any assertion can read it". Measured: the record IS still written (`phase=stuck canRunClaude=false`) because `killSession()` is fire-and-forget through two async frames, so the throw becomes a rejected promise rather than an unwinding exception. What reddens the file is the unhandled rejection. **The advice was right and the mechanism was not**, and the wrong mechanism had already been repeated into the card comment and the PR body.
+**And the docblock's explanation of the throwing-runner trap was wrong.** The advice ("return, never throw") was right and the mechanism was not, and the wrong mechanism had already been repeated into the card comment and the PR body before it was caught. The corrected version is above; the wrong sentence is deleted rather than kept beside it.
