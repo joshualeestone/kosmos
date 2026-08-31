@@ -40,24 +40,40 @@ let server; let base;
 
 test.before(async () => {
   server = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://x');
     const ranged = Boolean(req.headers.range);
-    const isReal = req.url.startsWith('/real.tar.gz');
+    /* Three shapes, because three different things need proving:
+         /real.tar.gz   a normal download, HEAD answers
+         /head405...    a host that REFUSES HEAD but serves GET. This is the
+                        ONLY shape that exercises the range-GET fallback: with
+                        a HEAD-answering host, reachable() returns on the HEAD
+                        arm and the fallback is never reached. Measured by
+                        mutation: deleting the fallback entirely left every
+                        other arm in this file green.
+         /html200       a 200 carrying an HTML body, which is the captive
+                        portal / misconfigured host. An earlier version of this
+                        file claimed to test it and did not: the path fell to
+                        the default branch and was served as 404, making the
+                        arm a duplicate of the cannot-exist case. */
+    const isReal = u.pathname === '/real.tar.gz' || u.pathname === '/head405.tar.gz';
+    const refusesHead = u.pathname === '/head405.tar.gz';
+    const html200 = u.pathname === '/html200';
+    if (refusesHead && req.method === 'HEAD') {
+      res.writeHead(405, { 'content-length': '0', allow: 'GET' });
+      return res.end();
+    }
     const body = isReal ? GZ : ERR;
     /* `ct=` lets an arm choose the header without changing the body, so the
        case-insensitivity and no-header arms vary ONE thing. `ct=none` omits
        the header entirely, which is what curl reports for file:// too. */
-    const want = new URL(req.url, 'http://x').searchParams.get('ct');
+    const want = u.searchParams.get('ct');
     const type = isReal ? (want || 'application/gzip') : 'text/html; charset=utf-8';
-    /* The defect's exact shape for the non-real path: the error page answers a
-       range request with a 206 and one byte. A status-only check reads that as
-       success. content-length and content-range MUST be set or curl waits for
-       a body that never ends, and a timeout would make every arm "fail" for
-       the wrong reason -- which it did on the first run of this file. */
     const slice = ranged ? body.subarray(0, 1) : body;
     const headers = { 'content-length': String(slice.length) };
     if (!(isReal && want === 'none')) headers['content-type'] = type;
     if (ranged) headers['content-range'] = `bytes 0-0/${body.length}`;
-    res.writeHead(ranged ? 206 : (isReal ? 200 : 404), headers);
+    const code = ranged ? 206 : ((isReal || html200) ? 200 : 404);
+    res.writeHead(code, headers);
     if (req.method === 'HEAD') { res.end(); return; }
     res.end(slice);
   });
@@ -74,7 +90,10 @@ test.after(() => server && server.close());
    fails because nothing answered is not evidence of anything. */
 async function reachable(url) {
   const script = `${FN[0]}\nif reachable "$1"; then echo YES; else echo NO; fi\n`;
-  const { stdout } = await run('bash', ['-c', script, 'bash', url], { encoding: 'utf8' });
+  /* `sh`, not `bash`: install/setup.sh ships #!/bin/sh and the repo's own
+     test:shell checks it with `sh -n`. Pinning the text under the wrong
+     interpreter would pass on a bashism the shipped installer cannot run. */
+  const { stdout } = await run('sh', ['-c', script, 'sh', url], { encoding: 'utf8' });
   return stdout.trim();
 }
 
@@ -93,11 +112,28 @@ test('#1662: a real gzip download is still found (the check did not become usele
     'reachable() refused a genuine tarball, which would block every install');
 });
 
-test('#1662: an HTML body served with a 200 is not a download either', async () => {
-  /* The 404 page wearing a success code, which is what a misconfigured host or
-     a captive portal produces. Status is not the question; the type is. */
-  assert.equal(await reachable(`${base}/index.html`), 'NO',
-    'an HTML page passed as a download');
+test('#1662: an HTML body served with a genuine 200 is not a download either', async () => {
+  /* 🛑 THE ARM THAT DID NOT TEST WHAT IT SAID. This used to request
+     `/index.html`, which the fixture served as a 404, so it was a duplicate of
+     the cannot-exist case and the captive-portal shape was never covered
+     anywhere in this file. `/html200` returns a real 200 with an HTML body:
+     the status says yes and the content-type is the ONLY discriminator, which
+     is the whole reason this guard judges the type. */
+  assert.equal(await reachable(`${base}/html200`), 'NO',
+    'a 200 carrying an HTML body passed as a download: status alone was trusted');
+});
+
+test('#1662: a host that REFUSES HEAD is still reachable, via the range-GET fallback', async () => {
+  /* 🛑 THE ONLY ARM THAT EXERCISES THE FALLBACK, and without it the fallback
+     had NO must-pass coverage at all. Measured by mutation: deleting the
+     range-GET arm from install/setup.sh entirely left every other test in this
+     file green, because a HEAD-answering fixture returns on the HEAD arm and
+     never reaches line two. The fallback's one documented reason is a static
+     origin that rejects HEAD (405) while serving GET fine, so that is the
+     shape the fixture now provides. */
+  assert.equal(await reachable(`${base}/head405.tar.gz`), 'YES',
+    'a host that refuses HEAD was called unreachable: the range-GET fallback is not working, '
+    + 'and every install from such an origin would abort');
 });
 
 /* ---- what a blind reviewer caught, and it was nearly shipped ---------------
@@ -113,11 +149,10 @@ test('#1662: an HTML body served with a 200 is not a download either', async () 
  * which is the behaviour before the guard existed. A false NO blocks the
  * install outright behind "Check your internet connection".
  */
-const os2 = require('node:os');
 const zlib = require('node:zlib');
 
 test('#1662: a file:// URL is reachable, because the install gate drives the release path over it', async () => {
-  const dir = fs.mkdtempSync(path.join(os2.tmpdir(), 'aw-1662-file-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1662-file-'));
   try {
     const f = path.join(dir, 'real.tar.gz');
     fs.writeFileSync(f, zlib.gzipSync(Buffer.from('hello')));
