@@ -907,6 +907,11 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
   const closeAt = looseBody.lastIndexOf('\n}');
   assert.ok(closeAt > 0, 'becomeStuck has no column-0 closing brace; this bound is unanchored');
   const body = looseBody.slice(0, closeAt + 2);
+  /* A bound that sliced to nothing would make a PLANTED writeState redden for the
+     wrong reason, so assert the region is real rather than relying on the restore
+     arm to notice. */
+  assert.ok(body.includes('function becomeStuck(') && body.length > 200,
+    `the becomeStuck region collapsed to ${body.length} bytes; the bound is wrong`);
 
   const calls = body.match(/writeState\(/g) || [];
   assert.strictEqual(
