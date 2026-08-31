@@ -2558,6 +2558,11 @@ function createAgentInner(opts) {
         // block is the thing to drop, never the person's words.
         const { MAX_BYTES } = require('./instructions');
         if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
+        /* kosmos#1673: SAY SO WHEN THE CAP DROPS IT. Dropping the block
+           is the right failure and that is unchanged; dropping it in
+           SILENCE is not. Two sibling appends already warn here and
+           three did not, and the silent three included this one. */
+        else steps.push({ label: 'could not add the section about you to its instructions, so it does not know who it works for; edit its instructions or remake it', ok: false });
       }
     } catch { /* the boot file simply ships without the block */ }
     // Who it reports to rides from birth too, BOTH paths, keyed on the agent
@@ -2576,6 +2581,11 @@ function createAgentInner(opts) {
       }), reportsMod.START, reportsMod.END);
       const { MAX_BYTES } = require('./instructions');
       if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
+      /* kosmos#1673: SAY SO WHEN THE CAP DROPS IT. Dropping the block
+         is the right failure and that is unchanged; dropping it in
+         SILENCE is not. Two sibling appends already warn here and
+         three did not, and the silent three included this one. */
+      else steps.push({ label: 'could not add the reports-to section to its instructions, so it does not know who it reports to; edit its instructions or remake it', ok: false });
     } catch { /* the profile-save sync still does it, after the fact */ }
     // The colleagues block rides from birth too, same machinery and the
     // same non-gating posture: agent-to-agent messaging only works if the
@@ -2640,6 +2650,11 @@ function createAgentInner(opts) {
       const withDefaults = require('./defaults').appendTo(text);
       const { MAX_BYTES } = require('./instructions');
       if (Buffer.byteLength(withDefaults, 'utf8') <= MAX_BYTES) text = withDefaults;
+      /* kosmos#1673: SAY SO WHEN THE CAP DROPS IT. Dropping the block
+         is the right failure and that is unchanged; dropping it in
+         SILENCE is not. Two sibling appends already warn here and
+         three did not, and the silent three included this one. */
+      else steps.push({ label: 'could not add the operating instructions to its instructions, so it does not know how to answer you or when to keep working; edit its instructions or remake it', ok: false });
     } catch { /* ships without the defaults */ }
       /* #1034: how connecting a provider works. Constant words, no machine
          state, no consent surface -- the card's part one. An agent born
