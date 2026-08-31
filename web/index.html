@@ -9031,7 +9031,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            config directory on the machine that carries a login record, so the
            screen cannot disagree with what is actually there. -->
       <div id="set-accounts"></div>
-      <p class="dhint" id="set-accounts-msg" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
+      <!-- ⚠️ `tabindex="-1"` so the result line can be FOCUSED programmatically without
+         joining the tab order, the same idiom as the `h1.vh` above. Removing an
+         account repaints the whole list, which DESTROYS the button the person just
+         pressed, so focus falls to `<body>` and a keyboard or screen-reader user
+         loses their place entirely. Focus moves here instead, which is where the
+         answer is. Without the attribute `.focus()` is a silent no-op. -->
+      <p class="dhint" id="set-accounts-msg" role="status" aria-live="polite" tabindex="-1" style="margin:10px 0 0;"></p>
       <!-- #248, LIVE: the browser sign-in the first run already has, on this
            button. POST /api/connect/start { another: true } (Angel's frozen
            contract): the engine picks the next free work directory itself
@@ -13629,6 +13635,12 @@ async function paintAccounts() {
              off-screen at the moment the person acts. The class was found once
              and fixed at one of its call sites. */
           if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+          /* 🛑 AND MOVE FOCUS, because the repaint above destroyed the button the
+             person was standing on. Scrolling the answer into view helps a sighted
+             mouse user and does nothing for a keyboard one, whose focus is now on
+             `<body>` at the top of the document. `preventScroll` so this does not
+             fight the scrollIntoView immediately above it. */
+          if (msg.focus) { try { msg.focus({ preventScroll: true }); } catch { msg.focus(); } }
         }
       } catch (err) {
         btn.disabled = false;

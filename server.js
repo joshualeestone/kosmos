@@ -3332,6 +3332,22 @@ const server = http.createServer((req, res) => {
            "It looks like a working agent and behaves like a blank one."
            📌 Inherited from the OpenAI route, not introduced here. Carded as
            kosmos#1689 rather than fixed here.
+           🛑 AND A SECOND, DIFFERENT BLIND SPOT, WHICH THIS COMMENT USED TO HIDE
+           BY NAMING ONLY THE FIRST: a Claude session running on this computer
+           that KOSMOS DID NOT CREATE. It IS in the roster, because the roster
+           comes from the panes, and it IS drawn on the board. But `readJob`
+           returns null for it and `jobMissing` correctly answers "no launch
+           file", so the loop `continue`s WITHOUT setting `complete = false`, and
+           the removal proceeds under a live process.
+           ⚠️ It is not #1689 wearing a different hat, and the difference decides
+           the fix: #1689 is an agent we know about and cannot see running, this
+           is a process we can see and know nothing about. We cannot even say
+           which account it is on, because its config dir exists only in its own
+           environment and never in a launch file.
+           📌 Refusing on ANY launch-file-less roster entry would fail closed and
+           make Disconnect unusable on any machine carrying a hand-started Claude,
+           which is most of ours. Named here rather than quietly fixed the wrong
+           way, because a guard that refuses honest users gets deleted.
            ⚠️ AND THE "different card" FRAMING UNDERSTATED HOW CHEAP IT IS, so
            do not read it as hard: the primitives already exist in this repo -
            `create.disabledJobs()` and `create.runningJobs()` alongside

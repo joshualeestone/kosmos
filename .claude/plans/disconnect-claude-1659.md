@@ -273,3 +273,57 @@ inherited rather than re-derived, because both providers share one handler.
 ⚠️ **And the earlier version of this section was stale within one iteration:**
 it said "no browser check" after the diff had already modified the browser
 check, which read as more honest than it was.
+
+## Challenge loop, iteration 16 (2026-08-31)
+
+Four NEW findings, so this iteration did NOT converge. Three applied, one
+deferred with its reason stated rather than quietly dropped.
+
+**APPLIED. `engine/accounts.js` isDefaultDir and configFile now resolve BOTH
+sides.** They compared a resolved left against an unresolved
+`path.join(homeDir(), '.claude')`, so under a relative `AGENT_WORKFORCE_HOME`
+the exported helper answered FALSE for a directory that IS the default, while
+`forgetAccount` refused it correctly because it compares resolved paths. Two
+halves of one feature answering one question differently, which is the exact
+habit the helper's own docblock exists to end. Measured three arms:
+
+```
+before, relative home : isDefaultDir(<abs>/rel/.claude) = false   <- the bug
+after,  relative home : true
+control, absolute home: ~/.claude true, ~/.claude-x false          <- unchanged
+```
+
+**APPLIED. `web/index.html` moves focus after the repaint.** `paintAccounts()`
+destroys the button the person just pressed, so focus fell to `<body>` and a
+keyboard or screen reader user lost their place. The result line now carries
+`tabindex="-1"` (the file's own idiom, from the `h1.vh` above) and takes focus
+with `preventScroll` so it does not fight the existing `scrollIntoView`. This
+is a WCAG AA obligation on this card, not a nicety.
+
+**APPLIED. `server.js` comment now names the SECOND blind spot.** It described
+only the stopped-agent gap (#1689), so a reader concluded the boundary was
+narrower than it is. A Claude session Kosmos did not create is in the roster
+and on the board, but has no launch file, so the loop continues without
+setting `complete = false` and removal proceeds under a live process.
+
+**DEFERRED, and this is the reason rather than an omission: the user-facing
+copy does not mention that an agent configured on the account but not running
+will come back signed out with a blank transcript tree.**
+
+- The call: leave the copy alone for now.
+- Rejected: adding a sentence like "agents set up on this account will need
+  reconnecting". It is probably true and I have NOT measured it myself. The
+  reviewer derived it from reading the code, which is exactly the standard
+  this branch has been holding other claims to, and shipping user-facing copy
+  that asserts a behaviour nobody has run is the wrong way round.
+- Weakest premise in my own reasoning: that "probably true" is not good
+  enough. If it IS true, the person pressing the button is currently not told
+  a real consequence, and that is a live honesty gap, not a cosmetic one.
+- What would change my mind: measuring it. Stop an agent, disconnect its
+  account, start it again, and look at what it comes up as. That is a
+  twenty-minute experiment and it belongs on #1689, which already owns the
+  underlying gap, rather than in a branch that is currently on the critical
+  path of an unserved release.
+
+⇒ **NOT CONVERGED. Iteration 17 is owed**, and this deferral is not a dedup:
+it stays open and blocks convergence until it is measured or the answer lands.

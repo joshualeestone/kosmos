@@ -95,7 +95,14 @@ function isDefaultDir(dir) {
      rather than a throw would notice.
      ⇒ The catch is for an unreadable path, not for a coding mistake. Keeping one
      derivation means using the accessor the rest of this file uses. */
-  try { return path.resolve(String(dir)) === path.join(homeDir(), '.claude'); } catch { return null; }
+  /* 🛑 BOTH SIDES RESOLVED. This compared a RESOLVED left against an UNRESOLVED
+     `path.join(homeDir(), '.claude')`, so under a relative AGENT_WORKFORCE_HOME it
+     answered FALSE for a directory that IS the default. `forgetAccount` refused it
+     correctly anyway because it compares resolved paths, which meant the exported
+     helper and the engine disagreed about the one fact this helper exists to make
+     un-re-derivable. `path.resolve` is a no-op on an already absolute path, so the
+     ordinary case is unchanged. */
+  try { return path.resolve(String(dir)) === path.resolve(homeDir(), '.claude'); } catch { return null; }
 }
 
 function configFile(dir) {
@@ -103,7 +110,7 @@ function configFile(dir) {
      default dir must not silently fall to the inside-the-dir branch,
      which is the wrong-path bug this helper exists to prevent. */
   const clean = path.resolve(String(dir || ''));
-  const isDefault = clean === path.join(homeDir(), '.claude');
+  const isDefault = clean === path.resolve(homeDir(), '.claude');  /* same both-sides fix as isDefaultDir */
   return isDefault ? path.join(homeDir(), '.claude.json') : path.join(clean, '.claude.json');
 }
 
