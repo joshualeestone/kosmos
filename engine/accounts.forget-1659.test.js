@@ -78,6 +78,30 @@ test('#1659: a path that is not a Claude account on this computer is refused', (
 
 /* A refusal a person cannot act on is the dead end this card came from: they
    need to know WHICH agents, not that there are some. */
+/* 🛑 THE NAME IS NOT THE ACCOUNT. `.claude-workers` is a real directory on the
+   fleet machine and is NOT a login; before this guard, forgetAccount renamed it
+   because every other check keys on the name. The module's own docblock states
+   the invariant and list() enforces it; this is the destructive path enforcing
+   it too. */
+test('#1659: a .claude-* directory that is NOT signed in is refused, and survives', () => {
+  const notAnAccount = nodePath.join(SANDBOX, '.claude-workers');
+  fs.mkdirSync(nodePath.join(notAnAccount, 'inbox'), { recursive: true });
+  fs.writeFileSync(nodePath.join(notAnAccount, 'inbox', 'brief.md'), 'a colleague\'s work');
+  assert.ok(!accounts.list().some((a) => a.dir === notAnAccount),
+    'the premise: list() does not treat it as an account');
+
+  const got = accounts.forgetAccount(notAnAccount, []);
+  assert.equal(got.ok, false);
+  assert.match(got.because, /not a Claude account/);
+  assert.ok(fs.existsSync(nodePath.join(notAnAccount, 'inbox', 'brief.md')),
+    'THE FILES SURVIVE: a directory that is not an account is not ours to move');
+
+  /* CONTROL: the same call on a directory that IS signed in must still work,
+     or this guard could be refusing everything and the arm above would pass. */
+  const real = acct('stillworks');
+  assert.equal(accounts.forgetAccount(real, []).forgotten, true);
+});
+
 test('#1659: refused while agents are on it, and the agents are NAMED', () => {
   const dir = acct('busy');
 

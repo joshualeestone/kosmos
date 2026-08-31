@@ -506,7 +506,21 @@ function forgetAccount(dir, usedBy) {
     return { ok: true, forgotten: false, because: 'that account is already gone from this computer' };
   }
 
-  const label = base.slice('.claude-'.length);
+  /* 🛑 THE NAME IS NOT THE ACCOUNT, AND THIS FUNCTION IS THE ONE PLACE THAT
+     MATTERED. The docblock at the top of this module states the invariant and
+     `list()` enforces it: a `.claude-*` directory is an account only if it
+     carries a `.claude.json` with an `oauthAccount`. Measured on the fleet
+     machine, `.claude-workers` carries none and is the workers/inbox tree.
+     Without this check `forgetAccount` renamed it, because every guard above
+     keys on the NAME.
+     ⚠️ AFTER the existence check on purpose: `identityOf` answers null for a
+     missing directory too, so checking earlier would turn "already gone" into
+     "not an account" and lose the quiet-success arm. */
+  if (!identityOf(clean)) {
+    return { ok: false, forgotten: false, because: 'that is not a Claude account on this computer' };
+  }
+
+  const label = base.slice('.claude-'.length) || 'unnamed';
   let target = path.join(home, FORGOTTEN_PREFIX + label);
   /* A second removal of the same label must not clobber the first one\u2019s
      credential, which would delete the thing this function exists not to
