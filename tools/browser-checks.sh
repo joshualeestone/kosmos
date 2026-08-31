@@ -675,6 +675,7 @@ sb8="$(new_sandbox)"
 AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
   AGENT_WORKFORCE_LAUNCH="$sb8/launch" AGENT_WORKFORCE_PROJECTS="$sb8/projects" \
   AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
+  AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" \
   PORT="$P10" node ./server.js > "$sb8/server.log" 2>&1 &
 SERVER_PIDS+=("$!")
 if wait_up "$P10" "$sb8/server.log"; then

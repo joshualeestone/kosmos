@@ -36,6 +36,9 @@ function boot(sandbox, extraEnv) {
       AGENT_WORKFORCE_LAUNCH: path.join(sandbox, 'launch'),
       AGENT_WORKFORCE_PROJECTS: path.join(sandbox, 'projects'), // sandboxed whole (#634)
       AGENT_WORKFORCE_DRY_RUN: '1',
+      /* kosmos#1651: DRY_RUN stops tmux WRITES; the roster is a READ and only
+         TMUX_BIN redirects one, so the whole-sandbox guard now requires it. */
+      AGENT_WORKFORCE_TMUX_BIN: path.join(REPO, 'test-support', 'fake-tmux.sh'),
       ...extraEnv,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -104,6 +107,9 @@ test('requiring the module writes nothing', () => {
       AGENT_WORKFORCE_LAUNCH: path.join(sb, 'launch'),
       AGENT_WORKFORCE_PROJECTS: path.join(sb, 'projects'), // sandboxed whole (#634)
       AGENT_WORKFORCE_DRY_RUN: '1',
+      /* kosmos#1651: DRY_RUN stops tmux WRITES; the roster is a READ and only
+         TMUX_BIN redirects one, so the whole-sandbox guard now requires it. */
+      AGENT_WORKFORCE_TMUX_BIN: path.join(REPO, 'test-support', 'fake-tmux.sh'),
     },
     encoding: 'utf8',
   });
