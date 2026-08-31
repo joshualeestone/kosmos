@@ -546,7 +546,12 @@ _reachable_is_download() {
   # is an installer that refuses to run. Tightening this to match it would
   # reintroduce the file:// break above.
   [ "$1" = 0 ] || return 1
-  case "$(printf '%s' "$2" | tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')" in
+  # /usr/bin/tr, as this file does at six other sites. It also matters here
+  # beyond consistency: the design is fail-open, so a `tr` that did not resolve
+  # would make the substitution empty, match no arm, and silently accept EVERY
+  # type. That is the harmless direction by this predicate's own asymmetry, but
+  # it would make the guard invisible rather than noisy.
+  case "$(printf '%s' "$2" | /usr/bin/tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')" in
     text/html*|application/xhtml*|application/json*|application/problem+json*|application/xml*|text/xml*) return 1 ;;
   esac
   return 0
@@ -565,12 +570,25 @@ reachable() {
   # Measured, both shapes, under `set -euo pipefail`:
   #   f(){ local a; a=$(false); echo REACHED; }   -> nothing, rc=1
   #   g(){ false && return 0; echo REACHED; }     -> REACHED, rc=0
-  # Latent rather than live today, because all three callers (622, 684, 694)
-  # are `if`/`&&` conditions where -e is suspended. It is still a trap, and it
-  # lands exactly on the fallback's reason for existing: a host that 405s HEAD.
+  # Latent rather than live today, because all three call sites are `if`/`&&`
+  # conditions where -e is suspended: the two `if ! reachable "$url"` guards in
+  # fetch_tmux and install_kosmos, and the `[ -n "${TARGET_VERSION:-}" ] &&
+  # reachable …` probe that picks the versioned tarball. It is still a trap,
+  # and it lands exactly on the fallback's reason for existing: a 405 on HEAD.
+  # ⚠️ Cited by their text, not by line number: an earlier version of this
+  # comment named 622/684/694, and this very comment block pushed the real
+  # calls down to 633/695/705. Nothing checks a line number in a comment.
   local _r_ct _r_rc
   _r_ct=$(curl -fsIL -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
+  # 📌 This arm now also runs when HEAD SUCCEEDED with a textual type, where
+  # the pre-#1662 code only reached it when HEAD failed. Kept deliberately: a
+  # second opinion costs one bounded request (-m 15) and refusing on a single
+  # mis-typed HEAD would be a false NO, which is the expensive direction for
+  # this predicate. The cost is real though: against an origin that ignores
+  # Range and answers 200 with the whole body, this pulls a tarball into
+  # /dev/null. Only reachable when a genuine tarball URL reports a textual
+  # type, which is why it is accepted rather than optimised away.
   _r_ct=$(curl -fsL -r 0-0 -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   return 1

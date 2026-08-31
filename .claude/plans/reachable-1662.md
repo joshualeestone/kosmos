@@ -47,7 +47,8 @@ That is stricter-looking and wrong, for two reasons, both measured:
    behaviour before this guard existed. A **false NO blocks the install
    outright** behind "Check your internet connection".
 
-So the predicate refuses positively-textual types (`text/*`, JSON, XML) and
+So the predicate refuses positively-textual types (`text/html`, JSON, XML,
+and NOT `text/plain`, for the reason under Weakest premises below) and
 accepts anything else, including empty and unknown. Media types are compared
 lowercased, per RFC 9110 section 8.3.
 
