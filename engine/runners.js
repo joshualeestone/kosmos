@@ -194,9 +194,13 @@ function isRunnable(p) {
     // X_OK, not `mode & 0o111`: the mode bits answer "can SOMEBODY execute
     // this", and a root-owned 0o700 binary passes that while failing at
     // launch for us. accessSync asks the only question that matters -- can
-    // THIS process run it -- which engine/connect.js asked separately of the
-    // same binary at its presence probe and its stuck-state check, until #1592
-    // pointed both here. It asks zero times directly now.
+    // THIS process run it.
+    //
+    // 📌 A CENSUS OF ANOTHER FILE'S CALL SITES USED TO LIVE HERE ("connect.js
+    // asks zero times directly now"). True when written and checked by nothing,
+    // in a branch whose own plan documents comment staleness as its recurring
+    // defect. The sweep in engine.runnable-not-directory.test.js is what actually
+    // holds that count, and its failure message is where it belongs.
     //
     // ⚠️ CORRECTED: an earlier version of this sentence said "three times over
     // there", counting the post-install gate. That gate already used

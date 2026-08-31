@@ -2167,7 +2167,14 @@ async function finishConnected(owner, sub) {
  */
 function claudeHatchAvailable() {
   try {
-    return require('./runners').isRunnable(claudeBinPath());
+    /* ONE RESOLUTION, matching willInstall above. This read
+       `isRunnable(claudeBinPath())`, and claudeBinPath() is
+       `resolveBin('claude').bin`, so it resolved and stat'd twice. That is the
+       exact shape removed from willInstall IN THE SAME COMMIT, under a comment
+       about asking the question in one spelling; leaving it here made that
+       comment half true. `resolveBin` is still looked up late, so the
+       throw-escapes arm is unaffected. */
+    return require('./runners').resolveBin('claude').present;
   } catch {
     return false;
   }
