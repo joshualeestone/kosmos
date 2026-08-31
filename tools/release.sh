@@ -630,6 +630,37 @@ cp "$REPO/dist/setup" "$SITE/setup"
 cp "$REPO/dist/setup.sha256" "$SITE/setup.sha256"
 diff -q "$SITE/setup" "$REPO/install/setup.sh" >/dev/null || { echo "the emitted installer is not install/setup.sh"; exit 1; }
 sh -n "$SITE/setup" || { echo "the installer about to be published does not parse"; exit 1; }
+# ⚠️ #1666: AND THE CHECKSUM MUST DESCRIBE THE INSTALLER BESIDE IT. The line
+# above proves `setup` IS install/setup.sh. Nothing proved `setup.sha256`
+# describes `setup`, and the two are copied from `dist/` independently, so a
+# stale sidecar ships silently. Measured: a hand-sync of the installer at
+# 2026-08-30 21:30 (the #1629 trust-mark pickup) left the checksum from the
+# 10:28 cut, and production served an installer whose published checksum was
+# a whole release behind.
+#
+# ⭐ IT PUNISHES EXACTLY THE CAUTIOUS USER. Anyone who does the careful thing
+# and verifies before piping to a shell gets a mismatch, and the natural
+# reading of that mismatch is "this download was tampered with". Everyone who
+# pipes it straight to sh is unaffected, which is why it went unreported.
+#
+# 🛑 The emptiness checks are load-bearing, but NOT for the reason I first
+# wrote here, and the correction is the useful part. An absent or empty
+# SIDECAR is already caught by the comparison alone, because the installer
+# still hashes to something. What the -n checks actually catch is BOTH files
+# missing: this script runs without `set -e`, so a failed `cp` above leaves
+# no setup and no sidecar, both sides become the empty string, and a bare
+# equality test PASSES on exactly the state the guard exists to refuse.
+# Measured, not argued: with the -n checks removed, every other arm of
+# release.setup-sha-1666.test.js stays green and only the both-missing arm
+# goes red.
+_setup_have="$(awk '{print $1}' < "$SITE/setup.sha256" 2>/dev/null)"
+_setup_want="$(cd "$SITE" && shasum -a 256 setup 2>/dev/null | awk '{print $1}')"
+[ -n "$_setup_want" ] && [ -n "$_setup_have" ] && [ "$_setup_have" = "$_setup_want" ] || {
+  echo "setup.sha256 does not describe the installer about to be published"
+  echo "  setup.sha256 says : ${_setup_have:-<empty or unreadable>}"
+  echo "  setup hashes to   : ${_setup_want:-<empty or unreadable>}"
+  exit 1
+}
 echo "   /setup copied and parses"
 
 step "== 6. what we are about to publish says $V =="
