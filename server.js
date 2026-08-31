@@ -7529,6 +7529,35 @@ if (require.main === module) {
    * instructions of an agent it has told the person is gone. `syncEveryone`
    * separately skips anything that is not `isNamedOurs`.
    */
+  /* The reports-to block is refreshed at boot for the same reason, and it had the
+   * same defect one module over (kosmos#1676). `reports.syncEveryone` has exactly
+   * ONE caller, `PUT /api/you` at the route above, so an edit to its `blockBody()`
+   * reached an agent that already existed only when the person happened to save
+   * their own About-you details. Measured on origin/main before wiring this:
+   * `reports.syncEveryone` 1 caller, against 3 for the identically-named
+   * `policyEngine.syncEveryone` - which is what makes this easy to misread as
+   * already covered, and I did misread it once.
+   *
+   * ⚠️ It writes the FILE, not the agent. `engine/instructions.js` reads an
+   * instruction file once at session start, so this does not change a running
+   * agent; what it buys is that the file is already right at the agent's next
+   * start. Same claim as the connections refresh below, and the same limit.
+   *
+   * The wording this delivers is kosmos#1673/#1676's: an agent with a `reportsTo`
+   * was greeting its manager in a reply meant for the person, because the block
+   * named exactly one human. The fix landed in `5be19009` and reached nobody who
+   * already existed.
+   */
+  try {
+    const told = reports.syncEveryone(safeRoster());
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) {
+      const why = (stuck[0] && stuck[0].because) || 'no reason given';
+      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about who they report to; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not refresh what agents know about who they report to: ${String(err && err.message)}\n`);
+  }
   try {
     const told = connections.syncEveryone(safeRoster());
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
