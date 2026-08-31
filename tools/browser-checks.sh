@@ -77,6 +77,9 @@ cd "$REPO"
 # hatch is the one the cut guard already uses, deliberately: an operator who has
 # decided to override does not want to learn a second name.
 . "$REPO/tools/lib/cut-guard.sh"
+# #1079: a durable record of every run, so a retry no longer depends on a person
+# reading scrollback. It can never fail a run; see the lib's header.
+. "$REPO/tools/lib/browser-run-log.sh"
 if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
   kosmos_refuse_if_browser_run_live "this page layer" || exit 1
 fi
@@ -160,6 +163,10 @@ FAKE_TMUX="$REPO/test-support/fake-tmux.sh"
 FAILED=()
 RAN=()
 RETRIED=()
+# #1079: how many RICH boards booted this run. The card's hypothesis is that this
+# fifth concurrent server is what makes the heaviest check retry, so it is the
+# one variable the run log has to carry.
+RICH_BOOTED=0
 
 # --- Playwright, borrowed not depended-on -----------------------------------
 resolve_pw() {
@@ -338,7 +345,12 @@ boot_board_rich() {
     AGENT_WORKFORCE_CONFIG_ROOT="${AGENT_WORKFORCE_CONFIG_ROOT:-$sb/config}" \
     PORT="$port" node ./server.js > "$sb/server.log" 2>&1 &
   SERVER_PIDS+=("$!")
-  wait_up "$port" "$sb/server.log"
+  # #1079: counted HERE rather than at the call sites. There are two today, and a
+  # counter maintained per caller is one new caller away from being wrong.
+  if wait_up "$port" "$sb/server.log"; then
+    RICH_BOOTED=$((RICH_BOOTED+1)); return 0
+  fi
+  return 1
 }
 boot_board() {
   local sb="$1" port="$2"
@@ -1007,6 +1019,12 @@ else
 fi
 
 sec "browser checks summary"
+# #1079: recorded BEFORE the exit paths below, so a FAILED run lands in the log
+# too. A log that only captures successful runs cannot answer a question about
+# when things go wrong.
+browser_run_log_append \
+  "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+  "${#RAN[@]}" "${#RETRIED[@]}" "${#FAILED[@]}" "$RICH_BOOTED" ${RETRIED[@]+"${RETRIED[@]}"}
 log "ran:     ${RAN[*]:-none}"
 [ "${#RETRIED[@]}" -gt 0 ] && log "retried: ${RETRIED[*]}  (repeated retries are a flake to fix, not to accept)"
 
