@@ -492,7 +492,13 @@ function forgetAccount(dir, usedBy) {
          other accounts keep their history here, which is FALSE on a
          single-account machine -- the common install, and the row list() always
          emits. A reason that is true only sometimes, stated as fact, on a
-         refusal that is always. */
+         refusal that is always.
+         📌 PRECISELY WHAT THE REWRITE ACHIEVED, because the earlier version of
+         this comment overstated it: the clause is now "ANY other accounts",
+         which on a single-account machine is VACUOUSLY true rather than false.
+         That is honest, not unconditional. The genuinely unconditional half is
+         the first sentence (this is the folder Claude Code uses when nothing
+         says otherwise), and that is what carries the refusal. */
       because: 'Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and any other accounts here keep their history inside it.',
     };
   }

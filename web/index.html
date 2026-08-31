@@ -13516,9 +13516,19 @@ async function paintAccounts() {
      this does not become a THIRD copy of a refusal that a test already pins
      between the engine and the page. */
   for (const btn of box.querySelectorAll('.acct-disconnect[aria-disabled="true"]')) {
-    btn.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      if (msg) msg.textContent = btn.title || '';
+    btn.addEventListener('click', () => {
+      /* 📌 NO `preventDefault`: a `<button type="button">` defaults to nothing,
+         so calling it read as though IT were what suppresses the removal. What
+         suppresses the removal is the absent `data-forget`, and a line that
+         looks like the guard but is not is the shape this branch keeps finding.
+         ⚠️ CLEARED FIRST, THEN SET, because an unchanged `textContent` in a
+         status region is not reliably re-announced: pressing twice would be
+         silent for a screen-reader user, which is a smaller version of the
+         defect this handler exists to fix. */
+      if (!msg) return;
+      const say = btn.title || '';
+      msg.textContent = '';
+      requestAnimationFrame(() => { msg.textContent = say; });
     });
   }
   for (const btn of box.querySelectorAll('[data-forget]')) {

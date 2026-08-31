@@ -1638,7 +1638,16 @@ KOSMOS_SWEEP_LIST
   # ⚠️ It also NAMED that one file in its sentence, so even when it did fire the
   # remedy pointed at the wrong place. It now names the files it actually found.
   _trust_marked=''
-  for _cfg in "$HOME/.claude.json" ${CLAUDE_CONFIG_DIR:+"$CLAUDE_CONFIG_DIR/.claude.json"} "$HOME"/.claude-*/.claude.json; do
+  # 🛑 FORGOTTEN ACCOUNTS TOO (#1659). Removing an account RENAMES its directory
+  # to `.removed-claude-<label>` and deliberately KEEPS the config inside, so the
+  # trust mark survives in a file this sweep could not match. The person was then
+  # told their trust marks were accounted for while one sat in plain sight, which
+  # is the exact true-sounding silence the note above describes, arriving through
+  # a directory name that did not exist when that fix was written.
+  # 📌 The codex prefix is included for the same reason: #1372 created that shape
+  # first. A sweep whose whole job is to miss nothing should not know about one
+  # provider's forgotten accounts and not the other's.
+  for _cfg in "$HOME/.claude.json" ${CLAUDE_CONFIG_DIR:+"$CLAUDE_CONFIG_DIR/.claude.json"} "$HOME"/.claude-*/.claude.json "$HOME"/.removed-claude-*/.claude.json "$HOME"/.removed-codex-*/.claude.json; do
     [ -f "$_cfg" ] || continue
     grep -q '"hasTrustDialogAccepted": true' "$_cfg" 2>/dev/null || continue
     case " $_trust_marked " in *" $_cfg "*) continue ;; esac

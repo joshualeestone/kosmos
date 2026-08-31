@@ -3330,10 +3330,23 @@ const server = http.createServer((req, res) => {
            under the config directory, so that agent comes up signed out AND
            with a blank history -- the shape this module's own header names:
            "It looks like a working agent and behaves like a blank one."
-           📌 Inherited from the OpenAI route, not introduced here, and not
-           fixed here: closing it means enumerating agents from their launch
-           files rather than from the live roster, which is a different card.
-           Named so the next person meets it as a known boundary. */
+           📌 Inherited from the OpenAI route, not introduced here. Carded as
+           kosmos#1689 rather than fixed here.
+           ⚠️ AND THE "different card" FRAMING UNDERSTATED HOW CHEAP IT IS, so
+           do not read it as hard: the primitives already exist in this repo -
+           `create.disabledJobs()` and `create.runningJobs()` alongside
+           `plistPath`/`readJob` (all five verified present). Enumerating from
+           launch files is a compose, not a build.
+           🛑 ONE TRAP IF YOU DO IT, found by PigeonPete on #1693: `safeRoster()`
+           FILTERS OUT REMOVED AGENTS. Unioning `register.known()` raw to catch
+           the stopped ones RESURRECTS a removed agent into this guard, so a
+           removal is refused on behalf of an agent that no longer exists.
+           Filter, do not union.
+           ⚠️ And whatever replaces the roster walk must keep `jobMissing`
+           separating "no launch file" from "could not READ one". A version that
+           reads launch files but treats an unreadable one as absence is #1447
+           arriving from the other side: it looks like a better check and is a
+           worse one. */
         const roster = safeRoster();
         let complete = roster !== null;
         const usedBy = [];

@@ -138,6 +138,20 @@ test('the Disconnect control carries the qualifier, escaped, because that is the
    this card's own review, and because the button is disabled the engine's copy
    is unreachable from the UI for this case, so nothing would ever reveal a
    mismatch. This pins them until somebody gives the page a single source. */
+/* 🛑 THE NO-OP HANDLER HAD NO GUARD AT ANY LAYER. Deleting the loop silently
+   restores the state this branch found and fixed mid-review: the default row's
+   control stays focusable and pressable and produces NOTHING on Enter or Space.
+   The browser check reads that row's STATE (aria-disabled, forgets) and never
+   presses it, so nothing downstream would catch the deletion either.
+   📌 Same cheap merge-time floor already used for `data-forget-provider` and the
+   `a.isDefault` branch: a browser-only property, pinned in source. */
+test('#1659: the disabled default control has a handler, so a keypress is not silent', () => {
+  assert.match(PAGE, /querySelectorAll\('\.acct-disconnect\[aria-disabled="true"\]'\)/,
+    'the no-op handler binding is gone, so the focusable default button does nothing on Enter or Space with no feedback');
+  assert.match(PAGE, /msg\.textContent = say;/,
+    'the handler no longer writes the refusal into the message line, so pressing it is silent');
+});
+
 test('#1659: the engine refusal and the page tooltip say the SAME thing', () => {
   const engine = fs.readFileSync(path.join(__dirname, 'engine', 'accounts.js'), 'utf8');
   /* ⚠️ ANCHOR THE PAGE ON `title="`, NOT ON THE SENTENCE. The aria-label carries
