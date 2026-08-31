@@ -979,29 +979,39 @@ async function start(opts) {
      * STANDING BY THE COMMIT THAT FIXED THEM. That is precisely the hazard the
      * paragraph above warns about, committed two paragraphs below the warning.
      *
+     * ✅ THE CURRENT TRUTH, FIRST, BECAUSE IT IS THE ONLY PART NEEDED TO WORK HERE:
+     * since #1595 `publicView` carries `canRunClaude` in its returned object, and
+     * `engine.publicview-canrun-1595.test.js` on main pins it. The field IS served,
+     * so repointing `becomeStuck` is a LIVE user-visible change: a directory at the
+     * bin path now correctly hides the "open Terminal, type claude" hatch instead
+     * of offering it.
+     *
+     * ------------------------------------------------------------------
+     * HISTORY, kept in full because each layer was wrong in a different and
+     * instructive direction. Nothing below is operative.
+     *
      * ⚠️ THIS PARAGRAPH HAS BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS, AND THE
      * SECOND TIME IS THE INSTRUCTIVE ONE. It first said `canRunClaude` "decides
      * whether the STUCK screen tells somebody to type `claude` in Terminal";
      * it COMPUTES that. The correction then said `publicView` DROPS THE FIELD,
-     * so the hatch had never rendered and this repoint was dead code.
-     *
-     * 🛑 THAT CORRECTION IS ITSELF NOW FALSE. #1595 landed: `publicView` carries
-     * `canRunClaude` in its returned object, and `engine.publicview-canrun-1595.test.js` on
-     * main pins it. So the field IS served, and repointing `becomeStuck` is a
-     * LIVE user-visible change: a directory at the bin path now correctly hides
-     * the "open Terminal, type claude" hatch instead of offering it.
+     * so the hatch had never rendered and this repoint was dead code. That
+     * correction is what the block now leads by refuting.
      *
      * ⭐ A retraction can go stale exactly like the claim it retracted. This one
      * understated the change rather than overstating it, which is why nobody
-     * caught it: an error in the modest direction reads as caution. Out of scope
-     * here either way, and this branch is what first routes a machine to that
-     * screen.
+     * caught it: an error in the modest direction reads as caution.
      *
      * ⚠️ THE OLD CLOSING SENTENCE SAID the reason is "it is not wired", not "it
-     * is wired and weak". That is retracted: since #1595 it IS wired, so the
-     * repoint is live rather than dormant. It is called out here rather than
-     * quietly deleted because it was the block's LAST line, and a block that
-     * ends on its own retracted claim gets read ending-first.
+     * is wired and weak". Retracted: since #1595 it IS wired. It was called out
+     * rather than quietly deleted because it was the block's LAST line, and a
+     * block that ends on its own retracted claim gets read ending-first.
+     *
+     * 📌 THAT ARGUMENT IS WHY THIS BLOCK WAS REORDERED RATHER THAN TRIMMED. It is
+     * a reason to control WHICH sentence is prominent, and by its own logic the
+     * prominent one should be the true one, not the newest retraction. Three
+     * layers of "what an earlier paragraph got wrong" stood between a maintainer
+     * and the single fact they needed. The honesty was never the problem; the
+     * ordering was.
      */
     const binaryOnDisk = require('./runners').resolveBin('claude').present;
 
