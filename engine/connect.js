@@ -1436,10 +1436,21 @@ async function installClaudeCode(hooks) {
    * same flow. It cannot distinguish "the installer produced a binary" from "a
    * directory is still sitting there", and no fixture can make it.
    */
+  /* 🛑 THE PATH IS CAPTURED BEFORE THE GUARD, NOT REBUILT INSIDE THE HANDLER.
+     The catch used to interpolate `claudeBinPath()`, which is
+     `resolveBin('claude').bin`. If the try entered the catch BECAUSE `resolveBin`
+     threw, that call threw again from inside the handler and escaped
+     `installClaudeCode` entirely: no `fail()`, and the downloaded file never
+     unlinked. Same rule this file applies at `willInstall` and
+     `claudeHatchAvailable`, not applied at the one site whose own comment above is
+     written about it. `expectedAt` is resolved defensively so the message survives
+     a resolver that is failing. */
+  let expectedAt = '(could not resolve the expected path)';
+  try { expectedAt = claudeBinPath(); } catch { /* keep the fallback */ }
   try { if (!require('./runners').resolveBin('claude').present) throw new Error('not runnable'); }
   catch {
     try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
-    return fail('Claude said it set itself up, but we cannot find anything runnable where it should be', `expected a program we can run at ${claudeBinPath()}`);
+    return fail('Claude said it set itself up, but we cannot find anything runnable where it should be', `expected a program we can run at ${expectedAt}`);
   }
   // The verified download did its job; the installed launcher is what runs
   // from here. The official install script deletes its download too, and

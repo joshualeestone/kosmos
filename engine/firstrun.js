@@ -192,14 +192,22 @@ async function state() {
      It does, on every call: `resolveBin` computes `present: isRunnable(...)` on all
      four of its routes (the claude env override, the claude canonical path, the
      codex env override, and the codex candidate scan), so calling `resolveBin`
-     IS calling `isRunnable`, transitively. Measured, with a control.
+     IS calling `isRunnable`, transitively.
+     📌 SCOPE, because "four routes" undercounts and the operative claim survives it:
+     `resolveBin` has SIX return points, and two of them (the non-openai provider
+     guard, and the post-scan fallthrough) return `present: false` without calling
+     `isRunnable` at all. What holds is the claim that matters here, that BOTH CLAUDE
+     rungs compute `present` with it, so every `resolveBin('claude')` enters it. Measured, with a control.
      📌 Named by route rather than by line number ON PURPOSE: those four numbers
      were accurate, and `runners.js` is edited by this same branch, so they are the
      fragile-citation shape this branch's own test file rejects as a key.
      ⇒ The naming was never the defect. What matters for THIS catch is only that both
-     throw sources sit inside the same try: `resolveBin` can throw before it asks
-     about runnability (it derives a home and joins paths), and `isRunnable` can
-     throw inside it. Nothing after that try can reject, so the `.catch` cannot fire
+     throw sources sit inside the same try: the `require('./runners')` itself, and
+     `resolveBin` before it ever asks about runnability (it derives a home and joins
+     paths).
+     📌 THIS ALSO NAMED `isRunnable` AS A THIRD THROW SOURCE. IT IS NOT ONE:
+     `isRunnable` wraps its entire body in try/catch and returns false, so it cannot
+     throw. Two of the three named sources were right and the third was invented. Nothing after that try can reject, so the `.catch` cannot fire
      today.
 
      It stays because the property it defends is the one that matters (an unknown

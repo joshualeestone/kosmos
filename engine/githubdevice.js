@@ -39,6 +39,19 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
+/* 🛑 MODULE SCOPE, AND THIS IS A CONTRACT FIX RATHER THAN A TIDY-UP.
+   This read `(p) => require('./runners').isRunnable(p)`, requiring at CALL time.
+   The lambda is reached from `ghBin()`, which `status()` calls synchronously inside
+   a Promise executor, and this file's own `state()` promises "Never rejects", so a
+   load failure of `runners.js` REJECTED `door.state()`. Measured, both arms: with
+   the require throwing, `github.state()` REJECTED; control, module whole, resolved.
+   ⚠️ The branch fixed exactly this class for `ghCandidateList` and left this shape
+   standing IN THE SAME COMMIT, in two files. Fixing one site and not its siblings
+   is the defect this branch is named for, committed inside the fix for it.
+   📌 Safe: `runners.js` requires only node builtins, so there is no cycle. A load
+   failure now fails loudly at import instead of quietly breaking a promise
+   contract at call time. */
+const { isRunnable } = require('./runners');
 
 const DIR = path.join(store.ROOT, 'secrets');
 const FILE = path.join(DIR, 'github.token');
@@ -186,7 +199,7 @@ const { ghCandidateList } = require('./github');
 function ghPresent() {
   // #1592: the byte-identical twin of devicedoor.js's lambda, which is why
   // fixing one file would not have found the other. Both now ask runners.
-  const runnable = (p) => require('./runners').isRunnable(p);
+  const runnable = (p) => isRunnable(p);
   /* Truthiness here, deliberately, and NOT the `typeof override !== 'string'`
      test that `ghCandidateList` uses in `engine/github.js`: an empty
      AGENT_WORKFORCE_GH_BIN means "no override",
