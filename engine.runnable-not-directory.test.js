@@ -78,7 +78,7 @@ const path = require('node:path');
    TIDINESS; WITHOUT IT THIS FILE READS THE OPERATOR'S REAL SECRETS.
 
    `engine/githubdevice.js` resolves its paths from `store.ROOT` AT MODULE LOAD
-   (githubdevice.js:43-45), so `FILE` becomes
+   (`githubdevice.js`, where `DIR` and `FILE` are derived from `store.ROOT`), so `FILE` becomes
    `<real config dir>/secrets/github.token`. The two `await gd.state()` arms below
    call `readToken()` against that path, and when a token EXISTS `state()` issues a
    live HTTPS request to https://api.github.com/user CARRYING IT. Four such calls
@@ -411,12 +411,15 @@ test('githubdevice rejects a DIRECTORY found by the CANDIDATE SCAN, not just the
 
      📌 THIS COMMENT PREVIOUSLY NAMED `setGhCandidatesForTests`, WHICH NO LONGER
      EXISTS. That was the seam's first shape, removed because a reviewer defeated
-     it (githubdevice.js:112 records why), and the comment outlived it by four
+     it (`githubdevice.js` records why, in the block above `ghPresent`), and the comment outlived it by four
      commits. It is the exact defect the plan writes up about itself, a
      description surviving the design it described and becoming a second source of
      truth, landed one file over from the warning. Caught by a blind reviewer; the
      eighteen non-blind passes read past it. */
-  const gd = require('./engine/githubdevice.js');
+  /* Required from `github.js`, WHERE IT IS DEFINED, not through githubdevice's
+     re-export. Two exported names for one function is new public surface on a
+     branch named for having one definition of a fact. */
+  const gd = require('./engine/github.js');
   const f = fixture('gh');
   const before = process.env.AGENT_WORKFORCE_GH_BIN;
   const beforeCands = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
@@ -453,12 +456,27 @@ test('an EMPTY candidates override means no candidates, not the real machine pat
      merges. A guard that is present only where it is not needed is not a guard.
 
      ✅ `ghCandidateList` now takes the override as a parameter defaulting to the
-     env, so this drives the real function with both values and needs nothing from
-     the machine. Production still calls `ghCandidateList()` and reads the env, so
+     env, so this drives the real function with both values. The arm PINS that env
+     var below, because the default parameter reads it and an ambient value would
+     otherwise decide the control's answer. Production still calls `ghCandidateList()` and reads the env, so
      this exercises production's OWN branch rather than a substitute. That is
      devicedoor's property, and deliberately not the substituting seam this file
      removed earlier. */
-  const gd = require('./engine/githubdevice.js');
+  /* Required from `github.js`, WHERE IT IS DEFINED, not through githubdevice's
+     re-export. Two exported names for one function is new public surface on a
+     branch named for having one definition of a fact. */
+  const gd = require('./engine/github.js');
+  /* 🛑 PIN THE ENV BEFORE THE CONTROL. `ghCandidateList(undefined)` triggers the
+     DEFAULT PARAMETER, which reads process.env.AGENT_WORKFORCE_GH_CANDIDATES. So
+     the docblock above claiming this "needs nothing from the machine" was FALSE:
+     with that variable set in the ambient environment the control asserts a
+     different list and the empty-string assertion above it stops meaning anything.
+     ⚠️ Machine luck in a CONTROL is the exact defect this arm exists to fix, one
+     level up. The three sibling arms in this file already pin
+     AGENT_WORKFORCE_GH_BIN for the same reason; this one did not. */
+  const beforeCand = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+  delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+  try {
   assert.deepStrictEqual(
     gd.ghCandidateList(''), [],
     'an EMPTY candidates override was treated as UNSET and fell back to the real default paths. ' +
@@ -473,6 +491,10 @@ test('an EMPTY candidates override means no candidates, not the real machine pat
     'an UNSET override no longer yields the default candidate paths, so the empty-string ' +
     'assertion above proves nothing'
   );
+  } finally {
+    if (beforeCand === undefined) delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+    else process.env.AGENT_WORKFORCE_GH_CANDIDATES = beforeCand;
+  }
   // And a real override still splits, so the parameter is genuinely consulted.
   assert.deepStrictEqual(gd.ghCandidateList('/a:/b'), ['/a', '/b'],
     'the override is not being consulted at all');
@@ -484,7 +506,10 @@ test('githubdevice reports a DIRECTORY at the gh override as missing', async () 
      the promise gives undefined in BOTH arms, which looks like a result and is
      an instrument fault. Awaited here for that reason.
      Proven red against the reverted lambda: the directory read "present". */
-  const gd = require('./engine/githubdevice.js');
+  /* Required from `github.js`, WHERE IT IS DEFINED, not through githubdevice's
+     re-export. Two exported names for one function is new public surface on a
+     branch named for having one definition of a fact. */
+  const gd = require('./engine/github.js');
   const f = fixture('gh');
   const before = process.env.AGENT_WORKFORCE_GH_BIN;
   try {

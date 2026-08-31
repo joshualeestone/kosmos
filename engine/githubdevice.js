@@ -178,7 +178,7 @@ function setClientId(id) {
    This file defined `ghCandidateList` and `github.js`'s door reached BACK into it
    through a getter, so the two modules were mutually dependent and `door.state()`
    gained a REJECT PATH: `devicedoor.status()` calls `ghBin()` synchronously inside
-   `state()`'s promise executor, and `devicedoor.js:99` promises "Never rejects".
+   `state()`'s promise executor, and `devicedoor`'s `state()` docblock promises "Never rejects".
    Measured, both arms: with this module's exports replaced by `{}` (the shape a
    failed load gives) `github.state()` REJECTED; control, module whole, resolved.
    Before that getter the door held a literal array and COULD NOT throw.
@@ -377,4 +377,4 @@ async function forget() {
   return state();
 }
 
-module.exports = { PHASE, state, start, cancel, forget, setClientId, clientId, setFetcher, ghCandidateList, FILE, DIR, APP_FILE, NO_APP };
+module.exports = { PHASE, state, start, cancel, forget, setClientId, clientId, setFetcher, FILE, DIR, APP_FILE, NO_APP };
