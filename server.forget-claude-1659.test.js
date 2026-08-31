@@ -240,23 +240,30 @@ test('#1659 route: an agent whose plist PREDATES runners still blocks (absent ru
      plistFor(...,'claude') and plistFor(...,null) are byte-identical. The
      assertion is what makes this arm about the DEFAULT rather than about a
      spelling. */
-  assert.ok(typeof r.seededPlist === 'string' && r.seededPlist.length > 0,
-    'the seeded plist did not reach the assertion, so the check below would pass on an empty string');
-  /* 🛑 THIS ASSERTION USED TO BE VACUOUS AND A PERTURBATION MISATTRIBUTED ITS
-     RED. It matched /<string>claude<\/string>\s*<\/array>/, and NO plist shape
-     contains that: `plistFor` writes a runner argument only for codex, so the
-     claude and absent cases write none at all. Measured: the regex matched
-     none of the claude, codex or null plists. It could never fire, and when I
-     perturbed the fixture the suite went red on the OUTCOME assertion instead,
-     which I read as this arm working.
-     ✅ COUNT THE ARGUMENTS INSTEAD, which is the thing that actually differs:
-     a written runner adds two <string> entries (16 -> 18, measured). The codex
-     arm below is the paired positive: it proves the seam can produce a plist
-     that DOES carry one. */
-  const seededArgs = (r.seededPlist.match(/<string>/g) || []).length;
-  const withRunner = (require('./engine/create').plistFor('probe', '/bin/claude', '/bin/tmux', null, '/h/x', 'codex').match(/<string>/g) || []).length;
-  assert.ok(withRunner > seededArgs,
-    `the fixture is not pre-runners: it carries ${seededArgs} arguments and a runner-bearing plist carries ${withRunner}`);
+  /* 🛑 THIS ARM HAS NOW CARRIED TWO VACUOUS ASSERTIONS AND THE SECOND WAS MINE,
+     WRITTEN IN A COMMIT ABOUT REMOVING THE FIRST. Recorded in full because the
+     fact that kills both is stated three lines above and I wrote past it twice.
+       v1: matched /<string>claude<\/string>\s*<\/array>/. NO plist shape contains
+           that, so it could never fire. When I perturbed the fixture the suite
+           went red on the OUTCOME assertion below, and I read that as this arm
+           working. A perturbation that reds for a DIFFERENT reason proves nothing.
+       v2: counted <string> entries and asserted a runner-bearing plist carries
+           more. Measured: null -> 16, claude -> 16, codex -> 18, and
+           plistFor(null) === plistFor('claude') EXACTLY. So the count passes
+           identically whether this fixture is seeded null or 'claude', which is
+           the one distinction it claimed to make. The only substitution it could
+           catch is codex, and assert.equal(r.code, 400) below already catches it.
+     ⇒ THE FIXTURE'S "PRE-RUNNERS" PROPERTY IS UNPROVABLE FROM THE PLIST, BY
+     CONSTRUCTION, because the two constructions emit identical bytes. No
+     assertion over `seededPlist` can ever establish it, and writing one that
+     looks like it does is worse than writing none: it reads as coverage.
+     ✅ ASSERT THE MECHANISM INSTEAD, which IS falsifiable: `readJob` normalises a
+     MISSING runner to 'claude'. That is what makes this agent block a Claude
+     removal, and if the normalisation default ever changed this goes red. */
+  const seeded = require('./engine/create').readJob('oldtimer');
+  assert.ok(seeded, 'the seeded pre-runners agent has no readable launch file, so nothing below is about it');
+  assert.equal(seeded.runner, 'claude',
+    `a launch file with no runner argument must READ as claude, which is what makes it block; got ${JSON.stringify(seeded.runner)}`);
   assert.equal(r.code, 400, 'a pre-runners plist must still read as a Claude agent. body: '
     + JSON.stringify(r.json));
   assert.deepEqual(r.json.usedBy, ['oldtimer']);

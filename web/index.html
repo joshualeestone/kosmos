@@ -9030,14 +9030,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            🔑 THE LIST IS READ, NOT ASSERTED. `accounts.list()` finds every
            config directory on the machine that carries a login record, so the
            screen cannot disagree with what is actually there. -->
-      <div id="set-accounts"></div>
+      <!-- ⚠️ `tabindex="-1"` so this list can take focus PROGRAMMATICALLY after a
+           removal repaints it, without joining the tab order. It is the focus
+           target on purpose and #set-accounts-msg is NOT: that paragraph is a
+           `role="status"` live region, and focusing a live region makes assistive
+           tech read it a second time, on top of the announcement the textContent
+           write already queued. Focus a container, let the live region speak. -->
+      <div id="set-accounts" tabindex="-1"></div>
       <!-- ⚠️ `tabindex="-1"` so the result line can be FOCUSED programmatically without
          joining the tab order, the same idiom as the `h1.vh` above. Removing an
          account repaints the whole list, which DESTROYS the button the person just
          pressed, so focus falls to `<body>` and a keyboard or screen-reader user
          loses their place entirely. Focus moves here instead, which is where the
          answer is. Without the attribute `.focus()` is a silent no-op. -->
-      <p class="dhint" id="set-accounts-msg" role="status" aria-live="polite" tabindex="-1" style="margin:10px 0 0;"></p>
+      <p class="dhint" id="set-accounts-msg" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
       <!-- #248, LIVE: the browser sign-in the first run already has, on this
            button. POST /api/connect/start { another: true } (Angel's frozen
            contract): the engine picks the next free work directory itself
@@ -13635,12 +13641,16 @@ async function paintAccounts() {
              off-screen at the moment the person acts. The class was found once
              and fixed at one of its call sites. */
           if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
-          /* 🛑 AND MOVE FOCUS, because the repaint above destroyed the button the
-             person was standing on. Scrolling the answer into view helps a sighted
-             mouse user and does nothing for a keyboard one, whose focus is now on
-             `<body>` at the top of the document. `preventScroll` so this does not
-             fight the scrollIntoView immediately above it. */
-          if (msg.focus) { try { msg.focus({ preventScroll: true }); } catch { msg.focus(); } }
+          /* 🛑 AND MOVE FOCUS. THE STATED CAUSE USED TO BE THE REPAINT AND THAT WAS
+             WRONG: `btn.disabled = true` at the TOP of this handler already drops
+             focus to `<body>`, because a focused element that becomes disabled loses
+             focus. That happens before any fetch and on BOTH paths, so the repaint is
+             the second cause, not the first.
+             ⚠️ FOCUS THE LIST, NOT THE MESSAGE. #set-accounts-msg is a role="status"
+             live region: focusing it makes assistive tech read the sentence a second
+             time on top of the announcement the write above already queued. */
+          const acctBox = document.getElementById('set-accounts');
+          if (acctBox && acctBox.focus) acctBox.focus({ preventScroll: true });
         }
       } catch (err) {
         btn.disabled = false;
@@ -13653,6 +13663,15 @@ async function paintAccounts() {
              is the worst place for the one message they must act on. */
           if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
         }
+        /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH USED TO GET
+           AND THIS ONE DID NOT. `btn.disabled = true` above dropped focus to
+           `<body>` before the request went out, so without this a keyboard or
+           screen-reader user is left at the top of the document while the refusal
+           that names the blocking agents renders far below them. The button still
+           exists here and was just re-enabled, so it is the right place to land:
+           they are back on the control they pressed, and the live region speaks
+           the refusal. */
+        if (btn.focus) btn.focus({ preventScroll: true });
       }
     });
   }

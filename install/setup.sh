@@ -1659,18 +1659,26 @@ KOSMOS_SWEEP_LIST
     _trust_marked="$_trust_marked $_cfg"
   done
   if [ "$_agents_stopped" = "yes" ] && [ -n "$_trust_marked" ]; then
-    printf '  Trust marks were left in place: your agents'"'"' folders are recorded as\n'
-    printf '  trusted in these files (Claude Code will not ask before working in\n'
-    printf '  them):\n'
+    printf '  Trust marks were left in place. These files record a folder as\n'
+    printf '  trusted, so Claude Code does not ask before working in it:\n'
     # ⚠️ UNQUOTED ON PURPOSE, and said so because it looks like the word-splitting
-  # bug this fleet keeps finding: `$_trust_marked` is a space-joined LIST built
-  # above, so it MUST split. What it cannot survive is a path containing a space,
-  # and #1659 adds another source of paths into that accumulator, so the hazard is
-  # now fed from two places rather than one. Pre-existing and not fixed here;
-  # named so the next person meets it as known rather than as a discovery.
-  for _cfg in $_trust_marked; do printf '    %s\n' "$_cfg"; done
-    printf '  Those folders are still on your machine, so the marks still apply.\n'
-    printf '  Remove those entries if you want the question back.\n\n'
+    # bug this fleet keeps finding: `$_trust_marked` is a space-joined LIST built
+    # above, so it MUST split. What it cannot survive is a path containing a space,
+    # and #1659 adds another source of paths into that accumulator, so the hazard is
+    # now fed from two places rather than one. Pre-existing and not fixed here;
+    # named so the next person meets it as known rather than as a discovery.
+    for _cfg in $_trust_marked; do printf '    %s\n' "$_cfg"; done
+    # 🛑 THE OLD SENTENCE SAID "the marks still apply" AND #1659 MADE THAT FALSE FOR
+    # SOME OF THE LINES ABOVE. The sweep now also lists `.removed-claude-*`, and
+    # nothing points CLAUDE_CONFIG_DIR at a forgotten account: that is the point of
+    # the rename, and engine/status.js skips the prefix deliberately. So the mark in
+    # a disconnected account's config is INERT, and telling someone it is in effect
+    # is the same true-sounding-but-wrong disclosure this block was fixed for twice
+    # before. Listing the leftover file is right; asserting it still bites is not.
+    printf '  For a folder you still use, the mark applies.\n'
+    printf '  For an account you disconnected, the file is still there but nothing\n'
+    printf '  reads it, so you will be asked again if you reconnect that account.\n'
+    printf '  Remove these entries if you want the question back everywhere.\n\n'
   fi
   exit 0
 }

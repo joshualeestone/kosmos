@@ -111,7 +111,11 @@ function configFile(dir) {
      which is the wrong-path bug this helper exists to prevent. */
   const clean = path.resolve(String(dir || ''));
   const isDefault = clean === path.resolve(homeDir(), '.claude');  /* same both-sides fix as isDefaultDir */
-  return isDefault ? path.join(homeDir(), '.claude.json') : path.join(clean, '.claude.json');
+  /* Both branches return an ABSOLUTE path. The default branch used to return
+     `path.join(homeDir(), ...)` unresolved, so a relative AGENT_WORKFORCE_HOME
+     made this one branch cwd-dependent while the other was not: the same input
+     class the resolve fix above was written for. */
+  return isDefault ? path.resolve(homeDir(), '.claude.json') : path.join(clean, '.claude.json');
 }
 
 /**
@@ -182,7 +186,19 @@ function sharesMemory(dir, isDefault) {
 function share(dir) {
   const primary = path.join(homeDir(), '.claude', 'projects');
   const here = path.join(dir, 'projects');
-  if (sharesMemory(dir, dir === path.join(homeDir(), '.claude'))) return { ok: true, already: true };
+  /* 🛑 `isDefaultDir(dir)`, NOT A THIRD HAND-ROLLED COMPARISON. This read
+     `dir === path.join(homeDir(), '.claude')`: raw string equality, NEITHER side
+     resolved, which is the exact pattern the helper at :87 exists to end.
+     ⚠️ AND THIS ONE IS THE DESTRUCTIVE CALLER, which is why it matters more than
+     the other two. A trailing slash made `share('<home>/.claude/')` classify the
+     DEFAULT as non-default, take the mutation path, `rmSync` ~/.claude/projects
+     and symlink it TO ITSELF: realpath and readdir then throw ELOOP and
+     `sharesMemory` answers false for every account on the machine, while the
+     return value is a cheerful { ok: true }.
+     📌 Not reachable through /api/accounts/share, which looks the row up in
+     `list()` and passes the canonical spelling. But `share` is exported, and this
+     branch is the one asserting that the two derivations can no longer disagree. */
+  if (sharesMemory(dir, isDefaultDir(dir) === true)) return { ok: true, already: true };
   let st = null;
   try { st = fs.lstatSync(here); } catch { st = null; }
   if (st && !st.isSymbolicLink()) {
