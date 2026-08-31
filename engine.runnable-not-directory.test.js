@@ -58,9 +58,22 @@
  * ✅ SO THIS FILE NOW DOES TWO THINGS AND REFUSES A THIRD:
  *
  *   1. A SET SWEEP that strips NOTHING. Every line in the repo matching the weak
- *      shape must be in KNOWN_WEAK_CALLS. It cannot be fooled by a comment
- *      because it does not try to judge one; a new prose mention, a new guarded
- *      call and a new defect all land in the same place, which is correct.
+ *      shape must be in KNOWN_WEAK_CALLS, keyed on {file, call, ENCLOSING FUNCTION}.
+ *      It cannot be fooled by a comment because it does not try to judge one; a new
+ *      prose mention, a new guarded call and a new defect all land in the same
+ *      place, which is correct.
+ *      🛑 THAT SENTENCE WAS FALSE FOR ONE REVISION, AND THE FIX WAS TO MAKE IT TRUE
+ *      AGAIN RATHER THAN TO SOFTEN IT. An `isProseLine` helper was added so prose
+ *      rows could keep a looser key. That IS judging a comment, and it judged
+ *      wrongly: a LIVE code line opening with an inline block comment classified as
+ *      prose, so it inherited the looser key and could occupy a prose row's slot.
+ *      MEASURED END TO END ON THIS TREE: reword the connect.js prose sentence so it
+ *      stops spelling its pinned call, then add a new function containing a line
+ *      that begins with an inline block comment and then calls accessSync with the
+ *      freed text. Guard 18/18 GREEN, with a live directory-accepting call back in
+ *      connect.js. Control: the same plant without the leading comment REDS.
+ *      ⇒ Every row is now keyed identically and the helper is deleted, so there is
+ *      no comment judgement left to get wrong.
  *   2. BEHAVIOURAL ARMS that run the real code with a real directory.
  *   3. It does NOT try to read a call site and decide whether it is correct.
  *      That is the thing that failed nine times.
@@ -233,10 +246,6 @@ function walkJs(dir, base = dir, out = []) {
 
    📌 The values below are GENERATED, never transcribed. A table in this branch has
    been hand-written wrong four times. */
-/* A hit is PROSE if its line is a comment. Prose rows are keyed on the call alone
-   (edit freedom); code rows also carry their enclosing function (swap detection). */
-const isProseLine = (line) => /^(\*|\/\/|\/\*)/.test(line.trim());
-
 /* The nearest enclosing function DECLARATION above a line. Control-flow keywords are
    excluded deliberately: without that, machine.js's site keys as `for` and connect's
    as `if`, which are not identities and would collide across unrelated sites. */
@@ -256,11 +265,10 @@ function enclosingFn(lines, i) {
   return '(top level)';
 }
 
+/* EVERY row carries fn, prose included. GENERATED, never transcribed. */
 const KNOWN_WEAK_CALLS = [
-  /* PROSE: call-only key, so the sentence stays editable. */
-  { file: 'engine/connect.js', call: 'accessSync(path, X_OK' },
-  { file: 'engine/devicedoor.js', call: 'accessSync(X_OK' },
-  /* CODE: call AND enclosing function, so a same-file same-text swap is visible. */
+  { file: 'engine/connect.js', call: 'accessSync(path, X_OK', fn: 'start' },
+  { file: 'engine/devicedoor.js', call: 'accessSync(X_OK', fn: '(top level)' },
   { file: 'engine/machine.js', call: 'accessSync(bin, fs.constants.X_OK', fn: 'installedCheck' },
   { file: 'engine/runners.js', call: 'accessSync(p, fs.constants.X_OK', fn: 'isRunnable' },
 ];
@@ -291,16 +299,14 @@ test('the set of lines matching the weak call is exactly what we audited', () =>
            told was already handled. matchAll is kept for the case the greedy form
            cannot produce: two calls the regex genuinely cannot merge. */
         for (const m of line.matchAll(WEAK_CALL_ALL)) {
-          const entry = { file: key, call: m[0], line: i + 1 };
-          if (!isProseLine(line)) entry.fn = enclosingFn(lines, i);
-          found.push(entry);
+          found.push({ file: key, call: m[0], line: i + 1, fn: enclosingFn(lines, i) });
         }
       });
   }
 
   const sortKey = (e) => e.file + '\u0000' + e.call + '\u0000' + (e.fn || '');
   const seen = found
-    .map((e) => (e.fn ? { file: e.file, call: e.call, fn: e.fn } : { file: e.file, call: e.call }))
+    .map((e) => ({ file: e.file, call: e.call, fn: e.fn }))
     .sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
   const want = [...KNOWN_WEAK_CALLS].sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
 
@@ -312,12 +318,18 @@ test('the set of lines matching the weak call is exactly what we audited', () =>
       '  a real call    -> use require("./runners").isRunnable(p)\n' +
       '  a call you are KEEPING -> pin it AND write a behavioural arm. Pinning alone proves ' +
       'nothing; that was measured and defeated.\n' +
-      '  prose -> pin it too. A PROSE key is the matched call ONLY\n' +
-      '           (line.match(WEAK_CALL_ALL)[0]), NOT the trimmed line, so the\n' +
-      '           sentence stays editable.\n' +
-      '  code  -> a CODE key ALSO carries fn: the enclosing function name. That is\n' +
-      '           what makes a same-file swap visible; {file, call} alone could not\n' +
-      '           see one, and a trimmed line could not either.\n' +
+      '  prose -> pin it too. Prose and code are keyed IDENTICALLY, on purpose: a\n' +
+      '           looser key for prose meant judging which lines are comments, and\n' +
+      '           that judgement let a LIVE call opening with an inline block comment\n' +
+      '           pass as prose.\n' +
+      '  THE KEY is {file, call, fn}: the matched call (line.match(WEAK_CALL_ALL)[0],\n' +
+      '           NOT the trimmed line) plus the ENCLOSING FUNCTION. fn is what sees a\n' +
+      '           same-file swap; {file, call} alone cannot, and neither can a trimmed\n' +
+      '           line, because the planted line was byte-identical to the pinned one.\n' +
+      '  ⚠️ IF YOU ONLY RENAMED THE ENCLOSING FUNCTION, update fn here and move on.\n' +
+      '           That is safe and expected, and it is the acknowledged cost of this\n' +
+      '           key: a rename unrelated to runnability reds a #1592 test. Taken\n' +
+      '           deliberately, because fn is the only thing that sees a swap.\n' +
       'Live locations right now:\n  ' +
       found.map((e) => e.file + ':' + e.line).join('\n  ') + '\n'
   );
@@ -1234,9 +1246,22 @@ test('github.js does not reach BACK into githubdevice at call time', async () =>
 
    `githubdevice.state()` wraps `ghPresent()` in its OWN try/catch (githubdevice.js,
    `async function state()`), so a throw from the runnable lambda is absorbed and
-   `state()` resolves whatever happens underneath. Measured: with `./runners` made
-   to throw at load, it resolved with `gh: "present"`; and mutating the hoist back
-   into the lambda left the suite at 17 pass 0 fail.
+   `state()` resolves whatever happens underneath.
+
+   ✅ MEASURED ON THE SHAPE THIS PARAGRAPH IS ABOUT, with a control:
+       githubdevice reverted to LAZY, ./runners made to throw at load
+                                        -> state() RESOLVED, gh: "missing"
+       control, same shape, no fault    -> gh: "present"
+   Mutating the hoist back into the lambda also left the suite at 17 pass 0 fail.
+
+   🛑 AN EARLIER VERSION OF THIS BLOCK RECORDED `gh: "present"` AS THE FAULT-INJECTED
+   RESULT. That figure was impossible on either shape and is withdrawn. On the LAZY
+   shape the fault gives "missing", as above. On the SHIPPED hoisted shape the require
+   runs at import, so injecting the fault kills the import outright and `state()` is
+   never reached: the fault was NEVER INJECTED into the run that produced "present".
+   ⭐ "present" was this machine's real /opt/homebrew/bin/gh being found on a candidate
+   path, which is the operator-machine hazard this file flags twice elsewhere. The
+   CONCLUSION below survives unchanged; only its evidence was worthless.
 
    ⇒ THE HOIST IN githubdevice.js IS DEFENCE IN DEPTH, NOT THE THING THAT UPHOLDS
    THE CONTRACT THERE. The contract is upheld by that catch. The two arms above are

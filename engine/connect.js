@@ -1088,15 +1088,26 @@ async function start(opts) {
      claudeHatchAvailable.
 
      🛑 `binaryOnDisk` NEAR THE TOP OF THIS FUNCTION IS DELIBERATELY EXCLUDED AND
-     MUST NOT BE FOLDED IN. Two awaits sit between it and this pair
-     (`subscription.checkLive(...)` and `killSession()`), so the disk can change
-     across them and the later read is deliberately FRESH. Collapsing it would be a
-     real bug, not a tidy-up.
-     ⚠️ This comment used to say only "ONE RESOLUTION, matching willInstall and
-     claudeHatchAvailable", which reads as a file-wide rule and gave the next person
-     no signal that the third site is excluded on purpose. Measured, with a control:
-     two awaits between `binaryOnDisk` and here, ZERO awaits between this pair, which
-     is exactly why this pair was safe to collapse and that one is not.
+     MUST NOT BE FOLDED IN. It is CONDITIONAL and it is behind an await, so it is not
+     a value this pair can reuse: it is computed only inside
+     `if (sub.state === subscription.STATE.CONNECTED)`, so on the common path it is
+     never computed at all, and where it IS computed the disk can change before this
+     pair reads. Collapsing it would be a real bug, not a tidy-up.
+
+     🛑 THE REASON ORIGINALLY GIVEN HERE WAS FALSE, and it is corrected rather than
+     deleted because it was the wrong KIND of argument. It said "two awaits sit
+     between it and this pair (`checkLive` and `killSession`)". Verified against
+     control flow: `killSession()` lives in a branch that ALWAYS RETURNS (two returns,
+     ending `return publicView(...)`), so execution reaching here never passed it; and
+     `checkLive` is itself conditional on `binaryOnDisk`. So the count is AT MOST ONE
+     and often zero.
+     ⭐ It carried "Measured, with a control", which made a TEXTUAL await count read as
+     a behavioural measurement. Counting awaits between two lines ignores control flow,
+     and that is the same use-versus-mention defect this branch is named for, one level
+     up. The conclusion was right and its stated evidence was not.
+     ⚠️ Its other half stands: this comment used to say only "ONE RESOLUTION, matching
+     willInstall and claudeHatchAvailable", which reads as a file-wide rule and gave the
+     next person no signal that the third site is excluded on purpose.
 
      This read
      `const bin = claudeBinPath()` here and `resolveBin('claude').present` twenty
@@ -1503,12 +1514,22 @@ async function installClaudeCode(hooks) {
        no evidence the install did. Saying "Claude said it set itself up, but we
        cannot find anything runnable" sends the operator to reinstall a thing that
        may be fine, and the old detail was a bare parenthetical with no action in it. */
+    /* 🛑 THE FIRST VERSION OF THIS BRANCH NAMED THE WRONG VARIABLE, and the mistake is
+       worth keeping because it is subtle: it told the operator to check
+       AGENT_WORKFORCE_CLAUDE_BIN. MEASURED, that variable makes this branch UNREACHABLE.
+       With it set, resolveBin returns on the env rung BEFORE any homeDir()/path.join and
+       cannot throw; set to a DIRECTORY it returns {present:false, overridden:true}, so
+       expectedAt IS set and control goes to the OTHER branch below. Control, unset: it
+       resolves normally. ⇒ expectedAt stays null only when the variable is UNSET and the
+       HOME derivation fails, so the home derivation is what the advice must name.
+       ⭐ A branch whose whole point is not blaming the wrong component was handing out an
+       action aimed at a condition that could not have produced it. */
     if (expectedAt === null) {
       return fail(
         'Claude Code installed, but we could not work out where to look for it',
-        'The path resolver failed before it produced a path, so this does not mean the '
-          + 'install failed. If AGENT_WORKFORCE_CLAUDE_BIN is set, check it points at a '
-          + 'program rather than a folder, then try again.'
+        'We could not work out a home directory to look in, so this does not mean the '
+          + 'install failed. Check AGENT_WORKFORCE_HOME if it is set, and that your home '
+          + 'directory is readable, then try again.'
       );
     }
     return fail('Claude said it set itself up, but we cannot find anything runnable where it should be', `expected a program we can run at ${expectedAt}`);

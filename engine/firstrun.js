@@ -187,20 +187,11 @@ async function state() {
      is caught either way: from `require('./runners')` itself, or from
      `resolveBin('claude')`, which can throw on its own account (it derives a home
      directory and joins paths) before it ever asks whether the file is runnable.
-     🛑 AND THE CORRECTION THAT USED TO SIT HERE WAS ITSELF FALSE, IN THE PARAGRAPH
-     REWRITTEN TO FIX A STALE CLAIM. It read "willInstall never enters isRunnable".
-     It does, on every call: `resolveBin` computes `present: isRunnable(...)` on all
-     four of its routes (the claude env override, the claude canonical path, the
-     codex env override, and the codex candidate scan), so calling `resolveBin`
-     IS calling `isRunnable`, transitively.
-     📌 SCOPE, because "four routes" undercounts and the operative claim survives it:
-     `resolveBin` has SIX return points, and two of them (the non-openai provider
-     guard, and the post-scan fallthrough) return `present: false` without calling
-     `isRunnable` at all. What holds is the claim that matters here, that BOTH CLAUDE
-     rungs compute `present` with it, so every `resolveBin('claude')` enters it. Measured, with a control.
-     📌 Named by route rather than by line number ON PURPOSE: those four numbers
-     were accurate, and `runners.js` is edited by this same branch, so they are the
-     fragile-citation shape this branch's own test file rejects as a key.
+     📌 THE OPERATIVE CLAIM: both CLAUDE rungs of `resolveBin` compute `present` with
+     `isRunnable`, so every `resolveBin('claude')` enters it transitively. Measured,
+     with a control. (Not all six of its return points do; two return `present: false`
+     without it, which does not affect this catch.) Two earlier drafts of this
+     paragraph were false in opposite directions; both are recorded in the plan.
      ⇒ The naming was never the defect. What matters for THIS catch is only that both
      throw sources sit inside the same try: the `require('./runners')` itself, and
      `resolveBin` before it ever asks about runnability (it derives a home and joins

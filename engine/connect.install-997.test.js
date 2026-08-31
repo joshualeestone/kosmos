@@ -170,8 +170,16 @@ test('a resolver that THROWS at the post-install gate fails cleanly instead of e
     assert.doesNotMatch(text, /cannot find anything runnable/,
       'a RESOLVER failure is being reported with the INSTALL failure copy, which blames '
       + 'the wrong component and gives the operator no action');
-    assert.match(text, /AGENT_WORKFORCE_CLAUDE_BIN/,
-      'the resolver-failure detail names no variable the operator can actually check');
+    /* 🛑 AGENT_WORKFORCE_HOME, NOT ..._CLAUDE_BIN. An earlier version of this arm pinned
+       CLAUDE_BIN and PASSED, because the string was present, not because the advice was
+       usable: that variable makes this branch UNREACHABLE (set, resolveBin returns on the
+       env rung before anything that can throw). The arm was holding the wrong copy in
+       place. Pinning the home derivation is what ties the message to the only condition
+       that reaches it. */
+    assert.match(text, /AGENT_WORKFORCE_HOME/,
+      'the resolver-failure detail names no variable that could actually have caused it');
+    assert.doesNotMatch(text, /AGENT_WORKFORCE_CLAUDE_BIN/,
+      'the detail sends the operator to a variable that makes this branch unreachable');
   } finally {
     runners.resolveBin = origResolve;
   }
