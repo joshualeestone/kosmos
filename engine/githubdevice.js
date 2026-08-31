@@ -131,6 +131,17 @@ function setClientId(id) {
    from. It is available here (`ghPresent` has exactly one caller) and costs a
    parameter on the exported `state()`. Left undone deliberately: that is an API
    change for a hazard nobody has hit, and it is Josh's product surface. */
+/* ⚠️ THIS LIST IS DUPLICATED VERBATIM AT `engine/github.js`'s `candidates:`, AND
+   THE OVERRIDE BELOW REACHES ONLY THIS COPY. Setting AGENT_WORKFORCE_GH_CANDIDATES
+   changes what `ghPresent` scans and does NOT change what github.js's door scans,
+   because that file passes its own literal array to `makeDoor`. Anyone reading the
+   env var as global will be wrong about half of it.
+
+   📌 DELIBERATELY NOT UNIFIED, and for the same reason the parameter form above
+   was left undone: github.js is not otherwise in this branch's diff, and making it
+   read this constant would pull a product-surface file into a branch about one
+   definition of runnability, for a hazard nobody has hit. Recording the divergence
+   is the part that costs nothing and is what a reader actually needs. */
 const GH_CANDIDATES_DEFAULT = Object.freeze(['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh']);
 function ghCandidateList(override = process.env.AGENT_WORKFORCE_GH_CANDIDATES) {
   /* 🛑 `=== undefined`, NOT TRUTHINESS, AND THE DIFFERENCE IS A REAL LEAK.
