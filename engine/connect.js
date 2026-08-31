@@ -1020,7 +1020,7 @@ async function start(opts) {
      * FALSE: it said such a file "can be pruned or renamed". MEASURED, `.claude/plans`
      * is tracked on main and carries 587 committed plan files, so it is a durable home.
      * The conclusion stands on a different footing: a card is where the DISCUSSION is,
-     * and
+     * and a plan file can still be RENAMED even though it is never pruned, after which
      * shipped source would then point at nothing with no signal to the reader.
      * A card number survives both.
      */
@@ -1491,8 +1491,12 @@ async function installClaudeCode(hooks) {
      The catch used to interpolate `claudeBinPath()`, which is
      `resolveBin('claude').bin`. If the try entered the catch BECAUSE `resolveBin`
      threw, that call threw again from inside the handler and escaped
-     `installClaudeCode` entirely: no `fail()`, and the downloaded file never
-     unlinked. Same rule this file applies at `willInstall` and
+     escaped `installClaudeCode` entirely: no `fail()` returned.
+     ⚠️ A SECOND CLAUSE HERE ("and the downloaded file never unlinked") WAS FALSE AND IS
+     WITHDRAWN. Measured on origin/main; the full retraction is written once, in
+     connect.install-997.test.js beside the arm. Not restated here: I wrote it into BOTH
+     files an hour after deduping two other verbatim comment pairs in this same branch.
+     Same rule this file applies at `willInstall` and
      `claudeHatchAvailable`, not applied at the one site whose own comment above is
      written about it. `expectedAt` is resolved defensively so the message survives
      a resolver that is failing. */
@@ -1542,6 +1546,19 @@ async function installClaudeCode(hooks) {
        ⭐ THE LESSON THAT SURVIVES BOTH: when a branch is reached by a FAILURE TO DERIVE
        something, no environment variable can be the advice, because any variable that
        supplies the value also prevents the branch. Name the CONDITION, not a knob. */
+    /* 🛑 DEFENSIVE ONLY, AND CURRENTLY UNREACHABLE IN PRODUCTION. Stated plainly so the
+       next reader does not assume otherwise. `installClaudeCode` has ONE caller, inside
+       `runFlow`, which `start()` reaches only AFTER an unguarded
+           const claudeResolved = require('./runners').resolveBin('claude');
+       MEASURED: that line sits at try-depth ZERO inside `start()`, so a resolver throw
+       rejects `start()` there and `runFlow` is never entered. The only arm covering this
+       branch swaps `resolveBin` AFTER that point, so it drives a state production cannot
+       currently produce.
+       📌 Kept rather than deleted, for the reason firstrun.js keeps its dead `.catch`: the
+       guard is correct and the unreachability is a property of a CALLER that may change.
+       ⇒ The honest status is "written, tested, waiting for a caller that can reach it",
+       which is NOT the same as "protecting users today". Two iterations were spent
+       correcting this message's wording before anyone asked whether it is ever printed. */
     if (expectedAt === null) {
       return fail(
         'Claude Code installed, but we could not work out where to look for it',

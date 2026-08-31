@@ -44,8 +44,14 @@ const store = require('./store');
 
    ⚠️ THIS PARAGRAPH WAS A VERBATIM COPY OF devicedoor.js's AND EVERY MECHANISM IN
    IT WAS FALSE FOR THIS FILE. It cited `ghBin()`, `status()`, `makeDoor` and a
-   Promise executor; this file has NONE of them (measured 0, 0, 0, with `ghPresent`
-   at 5 as a control). It also cited devicedoor's own measurement,
+   Promise executor; NONE OF THEM APPEAR AS CODE IN THIS FILE.
+   ⚠️ STATED AS A PROPERTY, NOT AS INTEGERS, because the integers first written here
+   ("0, 0, 0, with ghPresent at 5 as a control") DO NOT REPRODUCE. A grep now returns
+   ghBin 4, status( 2, makeDoor 1, and every one is a citation inside THIS comment, so
+   writing the sentence falsified its own measurement.
+   ⚠️ And `ghPresent` was a USELESS CONTROL: its hits are prose and code mixed, so it
+   counted prose exactly as the subject did and could never separate "absent as code"
+   from "absent entirely". A control sharing the subject's blindness is not a control.
    "`github.state()` REJECTED", which is a different module's result.
 
    ✅ THE TRUE REASON, MEASURED FOR THIS FILE: `ghPresent()` is reached from
@@ -59,7 +65,9 @@ const store = require('./store');
    the hoist. The hoist defends against a WRONG ANSWER, not against a rejection.
    📌 Safe: `runners.js` requires only node builtins, so there is no cycle.
 
-   🛑 AND THIS FILE CARRIES THE OPPOSITE RULE THIRTY LINES BELOW, DELIBERATELY. The
+   🛑 AND THIS FILE CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK, DELIBERATELY. The
+   (Named by MECHANISM: an earlier draft said "thirty lines below" and the real
+   distance is now about 180, in the file that argues against citing distances.)
    cycle detector near `ghPresent` WARNS rather than throws, on the stated ground that
    throwing at import bricks the board because `server.js` requires this module with
    no try. Both are correct and they are not in tension, because they are about
@@ -230,7 +238,10 @@ const { ghCandidateList } = require('./github');
    `phase: PHASE.FAILED` and `because: String(err.message)`, both of which the board
    renders. What is wrong is the `gh` FIELD specifically, which is the field the door's
    consumers read. The argument for hoisting survives the correction; "silent" did not.)
-   silently. This warns so the failure is visible.
+   This warns so the failure is visible.
+   📌 THE WORD "silently." SURVIVED AS THE HEAD OF THIS LINE AFTER THE PARENTHETICAL
+   ABOVE RETRACTED IT, so the comment asserted the exact thing it had just withdrawn.
+   That is what bolting a retraction onto a sentence does instead of rewriting it.
    🛑 IT USED TO THROW, AND THAT WAS THE WRONG TRADE. `server.js` requires this
    module at top level with NO try (`github` and `githubdevice` both), so a throw means the
    BOARD DOES NOT BOOT AT ALL, with a raw TypeError and no UI, where the same
@@ -240,7 +251,7 @@ const { ghCandidateList } = require('./github');
    "loudly" meant whole-app boot failure. `main` carried no such guard at all.
    ⇒ Warning keeps the detection and returns the blast radius to one door. */
 if (typeof ghCandidateList !== 'function') {
-  console.warn('githubdevice: ghCandidateList did not load from ./github; a require cycle would answer gh:"missing" silently');
+  console.warn('githubdevice: ghCandidateList did not load from ./github; a require cycle would answer gh:"missing" with a FAILED phase but a wrong gh field');
 }
 
 /* gh presence, so ONE writer can branch on this object alone.
@@ -258,7 +269,13 @@ function ghPresent() {
   /* Identity wrapper removed: `(p) => isRunnable(p)` allocated a closure on every
      call and was the last structural trace of the duplicated lambda this card is
      about. The local name is kept because the two call sites read better with it. */
-  /* 🛑 THE WRAPPER PINS ARITY AND MUST STAY. `.some(runnable)` hands the callback
+  /* 🛑 THE WRAPPER PINS ARITY AND IS KEPT DELIBERATELY, UNGUARDED. `.some(runnable)` hands the callback
+     ⚠️ "MUST STAY" WAS TOO STRONG AND IS DOWNGRADED. MEASURED: replacing this with
+     `const runnable = isRunnable;` leaves the guard file at 18 pass 0 fail, and
+     isRunnable(p, 0, [p]) equals isRunnable(p) on both a real binary and a directory.
+     ⇒ THE WRAPPER IS COSMETIC TODAY. It is kept because it stays correct if isRunnable
+     ever gains a second parameter, and the guard file now pins that condition so such a
+     change announces itself instead of silently making this load-bearing.
      `(element, index, array)`. Safe only while `isRunnable` takes one parameter,
      and this branch PROMOTES it to exported public API, so a second parameter is a
      realistic evolution that would silently receive an array index.

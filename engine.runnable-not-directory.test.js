@@ -253,6 +253,14 @@ const FN_KEYWORDS = new Set(['if', 'for', 'while', 'switch', 'catch', 'return', 
 const FN_DECL = [
   /^\s*(?:async\s+)?function\s+(\w+)/,
   /^\s*(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\b|\(|[\w$]+\s*=>)/,
+  /* ⚠️ `[^)]*` IS THE CONSTRUCT WEAK_CALL'S OWN DOCBLOCK CALLS OUT, kept knowingly
+     rather than by oversight. It cannot cross a nested `)`, so a declaration like
+     `foo(a = bar(1)) {` is invisible to this arm.
+     ✅ IT FAILS SAFE, WHICH IS WHY IT STAYS: a mis-resolved fn yields a key that is NOT
+     in the table, so the sweep REDS rather than passing. The blindness costs a confusing
+     failure, never a missed defect. Recorded because a reader will otherwise carry the
+     construct into a place where the direction is reversed, which is how it got into the
+     production code this branch fixes. */
   /^\s{0,6}(\w+)\s*\([^)]*\)\s*\{\s*$/,
 ];
 function enclosingFn(lines, i) {
@@ -384,6 +392,31 @@ function fixture(name) {
   assert.strictEqual(rawSaysYes, true, 'a directory no longer passes X_OK; this card is moot');
   return { dir, asDirectory, realBin, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
+
+
+test('isRunnable ignores the extra arguments .find and .some pass it', () => {
+  /* 🛑 THIS PINS A COSMETIC WRAPPER'S PRECONDITION, NOT THE WRAPPER. devicedoor.js and
+     githubdevice.js both wrap it as `(p) => isRunnable(p)` so `.find(runnable)` cannot
+     hand it (element, index, array). Those comments used to say the wrapper MUST STAY.
+     MEASURED, it need not: dropping it leaves this file at 18 pass 0 fail, because
+     isRunnable ignores the extras today.
+     ⇒ SO THE WRAPPER IS COSMETIC, AND THIS ARM PINS THE FACT THAT MAKES IT COSMETIC.
+     If isRunnable ever gains a second parameter, this reds and tells whoever did it that
+     two wrappers just became load-bearing. Without it that change is silent: the wrappers
+     would keep working and anyone removing one would break a door with a green suite. */
+  const runners = require('./engine/runners.js');
+  const f = fixture('arity-real');
+  const bin = path.join(f.dir, 'realbin');
+  fs.writeFileSync(bin, '#!/bin/sh\n');
+  fs.chmodSync(bin, 0o755);
+  assert.strictEqual(runners.isRunnable(bin, 0, [bin]), runners.isRunnable(bin),
+    'isRunnable now behaves differently when .find/.some pass it (element, index, array). '
+    + 'The `(p) => isRunnable(p)` wrappers in devicedoor.js and githubdevice.js are no '
+    + 'longer cosmetic: they are load-bearing, and their comments say they are not.');
+  assert.strictEqual(runners.isRunnable(f.dir, 0, [f.dir]), runners.isRunnable(f.dir),
+    'same, on the DIRECTORY case, which is the one this whole card is about');
+  f.cleanup();
+});
 
 test('isRunnable rejects a directory and accepts a real executable', () => {
   const { isRunnable } = require('./engine/runners.js');
@@ -557,7 +590,12 @@ test("':' asks for NO candidates explicitly, and does not fall back to the real 
   /* Required from `github.js`, WHERE IT IS DEFINED, not through githubdevice's
      re-export. Two exported names for one function is new public surface on a
      branch named for having one definition of a fact. */
-  const gd = require('./engine/github.js');
+  /* `gh`, NOT `gd`. This binding was named `gd`, which is what the arms above and below
+     call GITHUBDEVICE, and it sits twenty lines under a block recording that switching a
+     `gd` binding between those two modules silently repointed two arms off the twin and
+     left ghPresent driven by no test in the repo. Re-using the identifier for the OTHER
+     module re-arms that exact confusion in the same file. */
+  const gh = require('./engine/github.js');
   /* 🛑 PIN THE ENV BEFORE THE CONTROL. `ghCandidateList(undefined)` triggers the
      DEFAULT PARAMETER, which reads process.env.AGENT_WORKFORCE_GH_CANDIDATES. So
      the docblock above claiming this "needs nothing from the machine" was FALSE:
@@ -570,7 +608,7 @@ test("':' asks for NO candidates explicitly, and does not fall back to the real 
   delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
   try {
   assert.deepStrictEqual(
-    gd.ghCandidateList(':'), [],
+    gh.ghCandidateList(':'), [],
     "':' did not yield an empty list, so there is no way to ask for NO candidates and a " +
     'sandboxed test reaches the operator\'s own gh installation. ' +
     "📌 ':' is the spelling, NOT ''. An earlier revision made '' mean no-candidates as an " +
@@ -582,7 +620,7 @@ test("':' asks for NO candidates explicitly, and does not fall back to the real 
   // Control: undefined MUST still give the real defaults, or "[]" above would be
   // the answer to everything and would prove nothing.
   assert.deepStrictEqual(
-    gd.ghCandidateList(undefined),
+    gh.ghCandidateList(undefined),
     ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'],
     'an UNSET override no longer yields the default candidate paths, so the empty-string ' +
     'assertion above proves nothing'
@@ -592,7 +630,7 @@ test("':' asks for NO candidates explicitly, and does not fall back to the real 
     else process.env.AGENT_WORKFORCE_GH_CANDIDATES = beforeCand;
   }
   // And a real override still splits, so the parameter is genuinely consulted.
-  assert.deepStrictEqual(gd.ghCandidateList('/a:/b'), ['/a', '/b'],
+  assert.deepStrictEqual(gh.ghCandidateList('/a:/b'), ['/a', '/b'],
     'the override is not being consulted at all');
 });
 
@@ -1244,36 +1282,62 @@ test('github.js does not reach BACK into githubdevice at call time', async () =>
   const Module = require('module');
   const orig = Module._load;
   const door = require('./engine/github.js');
-    /* 🛑 PIN THE gh ENV, same reason and same measurement as the FIRST arm of this
-       pair, where it is written out in full. */
   const beforeBin = process.env.AGENT_WORKFORCE_GH_BIN;
   const beforeCands = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
-  /* 🛑 GH_BIN IS PINNED, NOT DELETED, AND THAT IS A SANDBOX FIX NOT A STYLE CHOICE.
-     This arm used to `delete` it and rely on the CANDIDATES pin alone. But that pin is
-     honoured only BECAUSE OF `github.js`'s `get candidates()` getter, which is the very
-     change this branch exists to make: the arm was sandboxing itself with the code under
-     test. MEASURED, with a control:
-       getter reverted to the bare literal -> door.ghBin() = /opt/homebrew/bin/gh
-       shipped                             -> door.ghBin() = null
-       reverted, but GH_BIN pinned         -> door.ghBin() = null
-     ⇒ under the exact regression this branch fixes, the arm silently began exec'ing the
-     OPERATOR'S REAL gh (`gh auth status` against their live keyring) AND STILL PASSED.
-     `ghBin()` honours the bin override unconditionally however `candidates` is spelled,
-     so this sandbox cannot be undone by a regression in the thing under test.
-     📌 The candidate-scan coverage this trades away is carried by "the REAL gh door
-     honours the candidates override", which is the arm whose whole subject that is. */
+
+  /* 🛑 THIS ARM HAD TWO SANDBOXES AND EACH ONE BROKE THE OTHER'S TEST. Read this before
+     changing either, because both mistakes were made here in successive iterations.
+
+     ROUND 1, the arm DELETED GH_BIN and pinned only CANDIDATES. That pin is honoured
+     only BECAUSE OF `github.js`'s `get candidates()` getter, which is the change this
+     branch exists to make: the arm sandboxed itself with the code under test. Under the
+     regression it began exec'ing the OPERATOR'S REAL gh and still passed.
+       getter reverted to a bare literal -> door.ghBin() = /opt/homebrew/bin/gh
+       shipped                           -> null
+       reverted, but GH_BIN pinned       -> null
+
+     ROUND 2 pinned GH_BIN to fix that AND DISARMED THE ARM COMPLETELY, because
+     `devicedoor.js` `ghBin()` short-circuits on the bin override BEFORE it reads
+     `spec.candidates`:
+         if (process.env[spec.binEnv]) return runnable(...) ? ... : null;
+         return spec.candidates.find(runnable) || null;      <- the getter, never reached
+     ⇒ THE GETTER IS ONLY REACHABLE THROUGH THE SCAN, so pinning the override to keep the
+     scan out also keeps the SUBJECT out. MEASURED against the reach-back regression:
+         door.state(), GH_BIN pinned -> RESOLVED   (fault never reached)
+         door.state(), GH_BIN unset  -> REJECTED: ghCandidateList is not a function
+     The round-2 comment half-saw this ("the scan does NOT run at all, that is the POINT")
+     and did not carry it through to what the arm was for.
+
+     ✅ ROUND 3, BOTH AT ONCE, because the two hazards live on different calls:
+       - `state()` REACHES `status()`, which EXECS gh. Keep GH_BIN pinned there.
+       - `ghBin()` ONLY RESOLVES A PATH. It never spawns. So the scan can be forced there
+         safely, and that is the only call that reads the getter.
+     Verified: PASS shipped, FAIL on the reach-back regression. */
+
   process.env.AGENT_WORKFORCE_GH_BIN = path.join(SANDBOX, 'no-gh-binary-here');
   process.env.AGENT_WORKFORCE_GH_CANDIDATES = path.join(SANDBOX, 'no-gh-here');
   await assert.doesNotReject(() => door.state(), 'control: the door rejected with no fault injected');
+  /* Control for the arm that actually bites, with the scan forced and nothing injected. */
+  delete process.env.AGENT_WORKFORCE_GH_BIN;
+  assert.doesNotThrow(() => door.ghBin(), 'control: ghBin threw with no fault injected');
+
   Module._load = function (req, ...rest) {
     if (req === './githubdevice') return {};   // the shape a cycle or failed load gives
     return orig.call(this, req, ...rest);
   };
   try {
+    /* THE ARM. GH_BIN is deleted, so `candidates` IS read and the injected fault IS
+       reached. ghBin() does not spawn, so forcing the scan costs nothing. */
+    assert.doesNotThrow(() => door.ghBin(),
+      'github.js\'s candidates getter is reaching BACK into githubdevice at call time. '
+      + 'That recreates the cycle and the reject path; ghCandidateList must be called as a '
+      + 'LOCAL function in github.js.');
+    /* And the contract level, with GH_BIN pinned again so status() cannot exec. */
+    process.env.AGENT_WORKFORCE_GH_BIN = path.join(SANDBOX, 'no-gh-binary-here');
     await assert.doesNotReject(() => door.state(),
-      'github.state() rejected when githubdevice\'s exports were empty, so the candidates '
-      + 'getter is reaching back into githubdevice. That recreates the cycle and the reject '
-      + 'path; ghCandidateList must be called as a LOCAL function in github.js.');
+      'github.state() rejected when githubdevice\'s exports were empty. NOTE this assertion '
+      + 'alone cannot catch a reach-back, because GH_BIN short-circuits before the getter '
+      + 'is read; the ghBin() arm above is the one that sees it.');
   } finally {
     Module._load = orig;
     if (beforeBin === undefined) delete process.env.AGENT_WORKFORCE_GH_BIN;
