@@ -43,7 +43,11 @@ installed_version() {
   # "version" field matches, so there is exactly one line.
   local f="$PW_DIR/node_modules/playwright/package.json"
   [ -f "$f" ] || return 0
-  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f"
+  # Quit at the FIRST "version" line, so the output is exactly one line even if
+  # a second "version" ever appeared (which would otherwise make the idempotency
+  # short-circuit and the final check compare a multiline value). No `head` pipe,
+  # so no SIGPIPE under `set -euo pipefail`.
+  sed -n '/"version"[[:space:]]*:/{s/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p;q;}' "$f"
 }
 
 mkdir -p "$PW_DIR"
@@ -76,5 +80,11 @@ if [ "$got" != "$PW_VERSION" ]; then
   exit 1
 fi
 
-say "provision-pw: ready. The gate finds it at $PW_DIR/node_modules (no KOSMOS_PW_NODE_PATH needed)."
-say "provision-pw: or export KOSMOS_PW_NODE_PATH=\"$PW_DIR/node_modules\" to force it."
+if [ "$PW_DIR" = "$HOME/work/pw-runtime" ]; then
+  say "provision-pw: ready. The gate finds it at $PW_DIR/node_modules automatically (no env needed)."
+else
+  # A relocated dir is only found by the gate if it, too, sees the override.
+  say "provision-pw: ready at $PW_DIR/node_modules. This is a RELOCATED runtime, so keep"
+  say "provision-pw: KOSMOS_PW_RUNTIME_DIR set for the gate run too, or export"
+  say "provision-pw: KOSMOS_PW_NODE_PATH=\"$PW_DIR/node_modules\" for it."
+fi

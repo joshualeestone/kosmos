@@ -179,7 +179,10 @@ resolve_pw() {
     return 1
   fi
   local c
-  for c in "$HOME/work/pw-runtime/node_modules" "$HOME"/.npm/_npx/*/node_modules; do
+  # #1594: honour KOSMOS_PW_RUNTIME_DIR here too, so a box that relocated the
+  # pinned runtime (the override provision-pw.sh accepts) is found by the gate
+  # rather than falling through to the npx cache. Default is unchanged.
+  for c in "${KOSMOS_PW_RUNTIME_DIR:-$HOME/work/pw-runtime}/node_modules" "$HOME"/.npm/_npx/*/node_modules; do
     if [ -d "$c/playwright" ]; then
       # #1594: resolving from the npx cache means the gate is about to run the
       # MCP's OWN unpinned Playwright, whose browser build is whatever the MCP
