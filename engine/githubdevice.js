@@ -135,11 +135,17 @@ function setClientId(id) {
    verbatim second copy under a comment saying it "mirrors" the door's list, and a
    mirror nothing compares is just two facts that can drift.
 
-   🛑 THE ASYMMETRY THAT SURVIVES, BECAUSE UNIFYING DOES NOT CLOSE IT: the override
-   below reaches ONLY `ghPresent`. github.js's door takes its candidates as a spec
-   parameter at module load, so AGENT_WORKFORCE_GH_CANDIDATES is NOT a machine-wide
-   "where is gh" switch, and a reader who takes it for one is wrong about half of it.
-   Unifying removed the DRIFT. The scope is unchanged and is documented, not fixed.
+   ✅ AND THE SCOPE IS NOW CLOSED TOO: `github.js` reads its door candidates through
+   a GETTER that calls `ghCandidateList()`, so AGENT_WORKFORCE_GH_CANDIDATES is a
+   machine-wide "where is gh" switch, which is what a reader assumes it is. The door
+   and `ghPresent` cannot disagree. Proven end to end through `door.ghBin()`, four
+   arms: override to a real executable finds it, to a DIRECTORY gives null, to '' gives
+   null, and with no override the control still finds the real gh.
+
+   🛑 THIS PARAGRAPH USED TO SAY THE ASYMMETRY SURVIVED and was "documented, not
+   fixed". It was documented at THREE sites and in the plan, and that volume was the
+   signal: documentation is what gets written when a thing is believed unfixable.
+   Three independent reviewers flagged it before it was closed.
 
    ✅ WHY THAT IS SMALL RATHER THAN A LEAK, AND THE MECHANISM CORRECTED:
    no test reaches the operator's real `/opt/homebrew/bin/gh` through the door,
@@ -153,35 +159,42 @@ function setClientId(id) {
    tests", which is the wrong component. Re-measured with both arms. */
 const GH_CANDIDATES_DEFAULT = require('./github').GH_CANDIDATES;
 function ghCandidateList(override = process.env.AGENT_WORKFORCE_GH_CANDIDATES) {
-  /* 🛑 `=== undefined`, NOT TRUTHINESS, AND THE DIFFERENCE IS A REAL LEAK.
-     On truthiness an EMPTY STRING means "unset", so a test setting
-     AGENT_WORKFORCE_GH_CANDIDATES="" to mean "no candidates" silently scans
-     /opt/homebrew/bin/gh and the other REAL paths on the operator's machine.
-     Measured: "" gave the three real paths, ":::" gave []. Same leak class as an
-     unsandboxed store, which this branch already had once.
+  /* 🛑 THE RULE AS SHIPPED: anything that is not a STRING means unset.
+     `''` IS a string, so it is honoured and means "no candidates", yielding [].
+     Measured, four arms: '' -> [], ':::' -> [], null -> the three defaults,
+     undefined -> the three defaults.
 
-     📌 THE OVERRIDE IS A PARAMETER SO THE ARM IS NOT MACHINE LUCK. Its only
-     guard used to read the env and could therefore only tell the fixed and broken
-     shapes apart on a machine that HAS gh at a default path; on CI, which is the
-     environment that gates merges, it skipped and the fix shipped unguarded.
-     Taking the value as an argument lets a test drive THIS function directly with
-     '' and with undefined. Production still calls `ghCandidateList()` and reads
-     the env, so the test exercises production's own branch rather than a
-     substitute: that is devicedoor's property, not the substituting seam this
-     file removed earlier.
+     WHY NOT TRUTHINESS: on truthiness an empty string would mean "unset", so a test
+     setting AGENT_WORKFORCE_GH_CANDIDATES='' to mean "no candidates" would silently
+     scan /opt/homebrew/bin/gh and the other REAL paths on the operator's machine.
+     Same leak class as an unsandboxed store, which this branch already had once.
+
+     WHY `typeof` RATHER THAN `=== undefined`: as exported API this can be handed a
+     null or a number, which `.split` would throw on, and that throw would escape
+     `ghPresent` into `state()`, whose contract says it never rejects. `=== undefined`
+     is still the distinction being drawn; `typeof` just draws it safely.
+
+     📌 THE OVERRIDE IS A PARAMETER SO THE ARM IS NOT MACHINE LUCK. Its only guard
+     used to read the env and could therefore only tell the fixed and broken shapes
+     apart on a machine that HAS gh at a default path; on CI, which is the environment
+     that gates merges, it skipped and the fix shipped unguarded. Taking the value as
+     an argument lets a test drive THIS function directly with '' and with undefined.
+     Production still calls `ghCandidateList()` and reads the env, so the test
+     exercises production's own branch rather than a substitute.
 
      ⚠️ ASYMMETRY, STATED HERE BECAUSE IT IS ONLY OBVIOUS FROM ONE SIDE: this
-     override treats '' as "no candidates", while AGENT_WORKFORCE_GH_BIN below
-     treats '' as "unset" (plain truthiness). `export FOO=$UNSET` produces an empty
-     string routinely. The directions differ and both are safe: here '' yields an
-     empty scan, there '' falls through to the candidate list. Noted at both
-     sites rather than only at this one. */
-  /* ⚠️ `typeof`, NOT `=== undefined`, NOW THAT THIS IS EXPORTED. The `=== undefined`
-     sentinel is still what distinguishes UNSET from the empty string, and `'' `is a
-     string so it still yields []. What changed is the audience: as public API this
-     can be handed a null or a number, which `.split` would throw on, and that throw
-     would escape `ghPresent` into `state()`, whose contract says it never rejects.
-     Anything that is not a string is treated as unset. */
+     override treats '' as "no candidates", while AGENT_WORKFORCE_GH_BIN below treats
+     '' as "unset" (plain truthiness). `export FOO=$UNSET` produces an empty string
+     routinely. The directions differ and both are safe: here '' yields an empty scan,
+     there '' falls through to the candidate list. Noted at both sites.
+
+     📌 HISTORY, non-operative. This was headlined "`=== undefined`, NOT TRUTHINESS"
+     with a SECOND block below it correcting the rule to `typeof`. The headline
+     described a superseded implementation, and a reader takes the first sentence.
+     That is the stale-comment class this branch exists to fix, and `becomeStuck` was
+     reordered on exactly this reasoning ("the prominent one should be the true one")
+     less than an hour before this block was written the wrong way round. Folded so
+     there is one block whose first sentence is the shipped rule. */
   if (typeof override !== 'string') return GH_CANDIDATES_DEFAULT;
   return override.split(':').filter(Boolean);
 }

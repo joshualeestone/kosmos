@@ -97,6 +97,11 @@ const path = require('node:path');
    suite. Pattern copied from `engine/githubdevice.test.js:4-12`; both knobs travel
    together per #527. */
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-runnable-1592-'));
+/* Cleaned on exit, matching connect/firstrun/liveness/adopt/delete-leftover. The
+   comment above cites githubdevice.test.js, which also leaks; tools/run-tests.sh
+   records the measured cost of exactly this class (200 leaked sandbox dirs from a
+   cleanup that never ran), so the majority convention is the right one to copy. */
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 
@@ -134,6 +139,9 @@ const REPO = __dirname;
    `fs.accessSync(bin, X_OK)`, because after `access` comes `Sync` rather than
    the `\s*\(` this pattern requires. Dropping either branch loses a real form. */
 const WEAK_CALL = /(accessSync|access)\s*\(.*\bX_OK\b/;
+/* The same shape, global, for collection. Kept as a separate binding because a
+   /g regex carries lastIndex state and WEAK_CALL is also used with .test(). */
+const WEAK_CALL_ALL = /(accessSync|access)\s*\(.*?\bX_OK\b/g;
 
 /** Every non-test .js file in the repo, relative to REPO. */
 function walkJs(dir, base = dir, out = []) {
@@ -214,8 +222,10 @@ test('the set of lines matching the weak call is exactly what we audited', () =>
     fs.readFileSync(path.join(REPO, rel), 'utf8')
       .split('\n')
       .forEach((line, i) => {
-        const m = line.match(WEAK_CALL);
-        if (m) found.push({ file: key, call: m[0], line: i + 1 });
+        /* matchAll, not match: a line carrying TWO weak calls recorded only the
+           first, and if that one was already pinned the second was invisible to a
+           sweep whose entire value is completeness. */
+        for (const m of line.matchAll(WEAK_CALL_ALL)) found.push({ file: key, call: m[0], line: i + 1 });
       });
   }
 
