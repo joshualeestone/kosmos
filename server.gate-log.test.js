@@ -16,6 +16,9 @@ const LOG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gatelog-')), 'ne
 process.env.KOSMOS_INSTALL_GATE = '1';
 process.env.KOSMOS_INSTALL_GATE_LOG = LOG;
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+/* kosmos#1651: DRY_RUN stops tmux WRITES; the roster is a READ and only
+   TMUX_BIN redirects one, so the whole-sandbox guard now requires it. */
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gatelog-data-'));
 process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gatelog-proj-'));

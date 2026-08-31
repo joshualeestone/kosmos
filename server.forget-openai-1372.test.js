@@ -64,6 +64,11 @@ function board(seed) {
       PATH: `${bin}:${process.env.PATH}`,
       FORGET_DIR: target,
       AGENT_WORKFORCE_DRY_RUN: '1',
+      /* kosmos#1651: DRY_RUN stops tmux WRITES; the roster is a READ. This file
+         already sandboxes tmux by putting its own stub first on PATH, so naming
+         that same stub satisfies the guard. The conditional spread below still
+         overrides it with fake-tmux.sh for the panes case. */
+      AGENT_WORKFORCE_TMUX_BIN: nodePath.join(bin, 'tmux'),
       AGENT_WORKFORCE_HOME: home,
       AGENT_WORKFORCE_DATA: nodePath.join(sb, 'data'),
       AGENT_WORKFORCE_WORKERS: workers,
