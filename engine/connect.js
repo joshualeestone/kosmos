@@ -422,10 +422,18 @@ function setProbeTtlForTests(ms) { PROBE_TTL_MS = Number.isFinite(ms) && ms > 0 
    cost exactly one probe, and changes no verdict. */
 
 async function willInstall() {
-  /* ⚠️ `claudeBinPath()` IS INSIDE THE GUARD, and it was not. It calls into the
-     runner resolver, which can throw, and the doc block above promises this
-     function never does. A resolver failure is an unknown like any other here, so
-     it resolves the same way: an install is needed. */
+  /* ⚠️ THE RESOLUTION IS INSIDE THE GUARD, and it was not. `resolveBin('claude')`
+     can throw (it derives a home directory and joins paths before it ever asks about
+     the file), and the doc block above promises this function never does. A resolver
+     failure is an unknown like any other here, so it resolves the same way: an
+     install is needed.
+
+     📌 THIS NAMED `claudeBinPath()`, which was true until this function stopped
+     calling it, in the same commit that removed the double resolution below. That is
+     the identical staleness already corrected in `claudeHatchAvailable`'s docblock,
+     one function over, left standing here by the commit that fixed the sibling.
+     Named by MECHANISM now rather than by wrapper, so dropping a wrapper cannot
+     stale it a third time. */
   let bin;
   try {
     /* The cheap half, every time. It cannot produce the harmful answer on its own:
