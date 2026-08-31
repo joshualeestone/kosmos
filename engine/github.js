@@ -73,7 +73,7 @@ module.exports = Object.assign(makeDoor({
      could exec a real gh. Three independent reviewers flagged it.
      ✅ AND IT CALLS A LOCAL FUNCTION, NOT `require('./githubdevice')`. The lazy-require
      form gave `door.state()` a reject path, because `devicedoor.status()` calls
-     `ghBin()` inside the promise executor and `devicedoor.js:99` promises "Never
+     `ghBin()` inside the promise executor and `devicedoor's state() docblock` promises "Never
      rejects". A local call cannot fail to load. */
   get candidates() { return ghCandidateList(); },
   configEnv: 'AGENT_WORKFORCE_GH_CONFIG_DIR', configVar: 'GH_CONFIG_DIR', configArg: null,

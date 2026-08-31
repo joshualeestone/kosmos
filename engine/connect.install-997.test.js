@@ -139,6 +139,44 @@ async function withRelease(t, over = {}, opts = {}) {
 
 // ── the three return shapes ─────────────────────────────────────────────────
 
+test('a resolver that THROWS at the post-install gate fails cleanly instead of escaping', async (t) => {
+  /* 🛑 THIS PINS THE ONE PRODUCTION BEHAVIOUR THIS BRANCH CHANGED WITHOUT AN ARM.
+     The post-install gate used to build its failure message with `claudeBinPath()`,
+     which is `resolveBin('claude').bin`. If the try entered the catch BECAUSE
+     `resolveBin` threw, that same call threw again FROM INSIDE THE HANDLER and
+     escaped `installClaudeCode` entirely: no `fail()` returned, and the downloaded
+     file never unlinked. The path is now captured defensively before the guard.
+
+     ⚠️ A reviewer found this was the only changed production behaviour on the branch
+     with zero coverage, on a branch that added a both-directions arm for every other
+     changed site. Found by grep: neither this file nor connect.hookwiring-1569
+     drove that path, with a passing control (12 files reference willInstall).
+
+     The failure is a RESOLVER throw, so the arm has to make the resolver throw. */
+  const runners = require('./runners.js');
+  const origResolve = runners.resolveBin;
+  runners.resolveBin = () => { throw new Error('simulated resolver failure'); };
+  try {
+    const res = await withRelease(t, {});
+    assert.equal(res.ok, false, 'a throwing resolver must produce a failure, not a success');
+    assert.notEqual(res.cancelled, true, 'a resolver failure is not a cancellation');
+    assert.match(String(res.detail || res.because || JSON.stringify(res)), /could not resolve the expected path/,
+      'the failure message did not carry the defensive fallback, so the handler probably '
+      + 'rebuilt the path with the same call that threw');
+  } finally {
+    runners.resolveBin = origResolve;
+  }
+});
+
+test('CONTROL: the same flow with a working resolver succeeds', async (t) => {
+  /* Without this, the arm above passes for any reason at all, including a flow that
+     fails long before the post-install gate. */
+  const res = await withRelease(t, {});
+  assert.equal(res.ok, true,
+    'the control install failed, so the throwing-resolver arm above proves nothing');
+});
+
+
 test('a cancelled install returns the CANCELLED shape AND never runs the installer', async (t) => {
   /**
    * 🛑 THE SHAPE ALONE DOES NOT PIN THIS BRANCH, AND ASSERTING ONLY THE SHAPE
