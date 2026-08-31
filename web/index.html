@@ -13452,7 +13452,23 @@ async function paintAccounts() {
     });
   }
   for (const btn of box.querySelectorAll('[data-forget]')) {
+    /* #1683: ASK FIRST. Josh asked for exactly this in #770: "a
+       Disconnect link at the bottom that asks first". It shipped without
+       the asking half, so one click removed an account with no confirm.
+       📌 The arm-in-place idiom already in this file (17800, 18285,
+       20522): first press arms and relabels, second press acts, blur
+       disarms. No modal, no state outside this closure, no repaint.
+       🛑 THE LABEL DELIBERATELY DOES NOT SAY "for good", WHICH THE
+       SIBLING IDIOMS DO. The engine FORGETS rather than deletes: it
+       renames the directory and the sign-in file survives, and the
+       success sentence below is careful to say so, because "removed"
+       and "deleted" are different promises. Copying "Remove it for
+       good?" would make the confirm contradict the sentence after it. */
+    let armed = false;
+    const REST = btn.textContent;
+    btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; btn.textContent = REST; btn.classList.remove('armed'); } });
     btn.addEventListener('click', async () => {
+      if (!armed) { armed = true; btn.textContent = 'Remove it?'; btn.classList.add('armed'); return; }
       btn.disabled = true;
       if (msg) msg.textContent = '';
       try {
@@ -13477,6 +13493,9 @@ async function paintAccounts() {
       } catch (err) {
         btn.disabled = false;
         if (msg) msg.textContent = String((err && err.message) || 'we could not remove that account');
+        /* Restore the resting label, or a refused remove leaves the button
+           reading "Remove it?" and the NEXT single click acts. */
+        armed = false; btn.textContent = REST; btn.classList.remove('armed');
       }
     });
   }
