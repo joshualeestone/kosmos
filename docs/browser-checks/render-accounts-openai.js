@@ -217,6 +217,26 @@ let failed = 0;
     rowsBefore.some((r) => /API key ending WALK/.test(r)), JSON.stringify(rowsBefore));
   const pressed = await p.evaluate(() => { const b = document.querySelector('#set-accounts [data-forget]'); if (!b) return false; b.click(); return true; });
   say('the Remove button is there to press', pressed);
+  /* 🛑 #1702 MADE REMOVAL A TWO-PRESS CONFIRM AND THIS CHECK STILL PRESSED ONCE,
+     so it red every cut from the moment #1702 landed: the single press only ARMED,
+     the row stayed, and both assertions below failed with the label reading
+     "Remove it?". It killed release 0.6.20 at step 3b.
+     ⭐ THE CLASS, worth naming because it is not carelessness: when you change a
+     rendered behaviour, the check you are THINKING about is the one you are
+     writing. The one that already exists is invisible because it is passing,
+     right up until it is not.
+     ✅ ASSERT THE ARM RATHER THAN TOLERATING IT. Pressing twice blindly would go
+     green whether or not the confirm exists, which would leave #1683's whole
+     promise (ask first) unguarded at the page layer. Pressing once, checking the
+     label changed, then pressing again tests BOTH halves: the confirm is there,
+     and the second press really acts. */
+  await p.waitForTimeout(300);
+  const armed = await p.evaluate(() => {
+    const b = document.querySelector('#set-accounts [data-forget]');
+    return b ? b.textContent.replace(/\s+/g, ' ').trim() : '(no button)';
+  });
+  say('the FIRST press only arms, it does not remove (#1683, #1702)', armed === 'Remove it?', armed);
+  await p.evaluate(() => { const b = document.querySelector('#set-accounts [data-forget]'); if (b) b.click(); });
   await p.waitForTimeout(1500);
   const after = await p.evaluate(() => ({
     rows: [...document.querySelectorAll('#set-accounts .acct-box')].map((r) => r.innerText.replace(/\s+/g, ' ').trim()),
