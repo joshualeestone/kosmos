@@ -213,7 +213,55 @@ function markerProblem(text) {
  * command; filed as kosmos#186 rather than papered over with an instruction
  * that sends the answer somewhere else.
  */
-const OPERATOR_DIRECT = '[message from your operator \u00b7 to answer, run: kosmos reply]';
+/* #1668: the operator's local time rides with the prefix WHEN the engine knows
+   it (a timezone was set in Settings), so the agent is GIVEN the time as data on
+   every operator message rather than an instruction it has to carry. With no set
+   timezone it is the bare prefix, unchanged. The opening '[message from your
+   operator' is unchanged in both forms, so the MARKERS forgery guard above still
+   matches it and a body an agent tries to forge is still refused. */
+function operatorDirect(nowLabel) {
+  const at = nowLabel ? (' at ' + nowLabel) : '';
+  return '[message from your operator' + at + ' \u00b7 to answer, run: kosmos reply]';
+}
+
+/* #1668: the operator's current local time as a short label ("9:14 PM CDT"),
+   from a stored IANA timezone id. Returns '' when no timezone is set (the bare
+   prefix then), OR when the id is not one Intl recognises -- an unknown id must
+   degrade to no-time, never throw inside the delivery path. `now` is injectable
+   so a test can pin the instant. Two formatters on purpose: the abbreviation
+   ('CDT') comes cleanly off formatToParts rather than string-splitting a joined
+   render. */
+function operatorNowLabel(timezone, now) {
+  if (!timezone) return '';
+  const when = now || new Date();
+  try {
+    const time = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone, hour: 'numeric', minute: '2-digit'
+    }).format(when);
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone, hour: 'numeric', timeZoneName: 'short'
+    }).formatToParts(when);
+    const zone = (parts.find(p => p.type === 'timeZoneName') || {}).value || '';
+    const label = zone ? (time + ' ' + zone) : time;
+    /* Intl emits a narrow no-break space (U+202F) or a no-break space (U+00A0)
+       before AM/PM on some ICU builds (Node 20-22); normalise to a regular
+       space so the operator prefix is deterministic plain ASCII on every
+       runtime, rather than carrying a stray unicode space into the pane. */
+    return label.replace(/[\u202f\u00a0]/g, ' ');
+  } catch {
+    return '';
+  }
+}
+
+/* #1668: is `tz` an IANA id this runtime recognises? The dropdown only offers
+   valid ids, so this is defense in depth on the write path -- a direct API call
+   with a garbage id is refused rather than persisted, where it would later make
+   operatorNowLabel silently return '' with nothing to explain why. */
+function validTimeZone(tz) {
+  if (typeof tz !== 'string' || !tz) return false;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; }
+  catch { return false; }
+}
 
 /* Injectable for tests, mirroring chat.setRunner: one tmux question, "whose
    session is this pane in". */
@@ -1537,7 +1585,7 @@ function sweepUnanswered(roster, now) {
 
 module.exports = {
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
-  OPERATOR_DIRECT,
+  operatorDirect, operatorNowLabel, validTimeZone,
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,

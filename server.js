@@ -3583,6 +3583,34 @@ const server = http.createServer((req, res) => {
    * screen with no answers at all is worse than three that say "we could not
    * tell". The catch turns that into exactly that.
    */
+  /* #1668: the operator's account-level settings. Today just the timezone, which
+     the delivery path reads (5086) to tell each agent the operator's local time.
+     Never 500s for a state question, same contract as /api/machine below: a store
+     that cannot be read answers with an unset timezone, not an error. */
+  if (pathname === '/api/settings' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let s;
+    try { s = store.readSettings(); } catch { s = {}; }
+    /* timezone is null until the operator sets one; the UI then defaults its
+       dropdown to the browser's own machine timezone (detected client-side,
+       the authoritative source for the operator's machine). */
+    sendJson(res, 200, { timezone: (s && s.timezone) || null });
+    return;
+  }
+  if (pathname === '/api/settings' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
+        if (!messages.validTimeZone(body.timezone)) {
+          sendJson(res, 400, { ok: false, because: 'that is not a timezone we recognise' });
+          return;
+        }
+        const saved = store.writeSettings({ timezone: body.timezone });
+        sendJson(res, 200, { ok: true, timezone: saved.timezone });
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
   if (pathname === '/api/machine' && (req.method === 'GET' || req.method === 'HEAD')) {
     let checks;
     try { checks = machine.check(); }
@@ -5092,7 +5120,12 @@ const server = http.createServer((req, res) => {
            told the file's path in the bracketed line so the agent can open it. */
         const files = attachments.resolveForMessage(body, 'agent', name, 'that attachment is not one this conversation can send');
         if (!files.ok) throw new Error(files.because);
-        const delivery = chat.deliver(name, body.text, roster, messages.OPERATOR_DIRECT, attachments.wireNote(files.recs));
+        /* #1668: carry the operator's local time in the prefix when a timezone
+           has been set in Settings, so the agent is told the time on every direct
+           operator message rather than having to be instructed to know it. No
+           timezone set (or an unreadable id) yields the bare prefix, unchanged. */
+        const opPrefix = messages.operatorDirect(messages.operatorNowLabel(store.readSettings().timezone));
+        const delivery = chat.deliver(name, body.text, roster, opPrefix, attachments.wireNote(files.recs));
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...attachments.rowFields(files.recs),
           text: chose || body.text,
