@@ -220,13 +220,30 @@ test('machine.js installedCheck answers NOT PRESENT for a directory named like t
   const { installedCheck } = require('./engine/machine.js');
   const f = fixture('claude');
   try {
-    const onDir = installedCheck({ claudeBin: f.asDirectory, tmuxBin: f.realBin, codexBin: f.realBin });
-    assert.strictEqual(onDir.present.claude, false,
-      'installedCheck reported a DIRECTORY as a present binary. The `if (!st.isFile())` guard ' +
-      'above the accessSync no longer REACHES the call; check that it still ends the iteration.');
+    /* 🛑 EVERY KEY, NOT JUST `claude`. installedCheck reports claude, codex and
+       tmux through ONE loop, and this arm used to assert only `.claude`. A
+       reviewer special-cased codex to fs.existsSync and it went 13 pass / 0 fail
+       with a FOLDER at the codex path reading as installed. codex is a supported
+       provider (#979), so that is a real answer on a real screen.
+       ⇒ Same family as the devicedoor and githubdevice candidate-branch finding,
+       one level down: per-KEY coverage rather than per-BRANCH. An arm that drives
+       shared code through one of its inputs proves nothing about the others. */
+    const keys = ['claude', 'codex', 'tmux'];
+    for (const key of keys) {
+      const opts = { claudeBin: f.realBin, tmuxBin: f.realBin, codexBin: f.realBin };
+      opts[key === 'claude' ? 'claudeBin' : key === 'codex' ? 'codexBin' : 'tmuxBin'] = f.asDirectory;
+      const onDir = installedCheck(opts);
+      assert.strictEqual(onDir.present[key], false,
+        'installedCheck reported a DIRECTORY as a present binary for `' + key + '`. The ' +
+        '`if (!st.isFile())` guard above the accessSync no longer REACHES the call for that key, ' +
+        'so a folder at its path reads as installed.');
+    }
     const onFile = installedCheck({ claudeBin: f.realBin, tmuxBin: f.realBin, codexBin: f.realBin });
-    assert.strictEqual(onFile.present.claude, true,
-      'installedCheck reported a real executable as absent, so the arm above proves nothing');
+    for (const key of keys) {
+      assert.strictEqual(onFile.present[key], true,
+        'installedCheck reported a real executable as absent for `' + key + '`, so the arm ' +
+        'above proves nothing for that key');
+    }
   } finally { f.cleanup(); }
 });
 
@@ -515,10 +532,31 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      KNOWN_WEAK_LINES above, same two-line fix, and it is the price of being
      independent of the syntax somebody chooses. */
   const src = fs.readFileSync(path.join(ENGINE, 'connect.js'), 'utf8');
-  const lines = src
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => /\bcanRunClaude\b/.test(l) && !l.startsWith('*') && !l.startsWith('//') && !l.startsWith('/*'));
+  const mentions = src.split('\n').map((l) => l.trim()).filter((l) => /\bcanRunClaude\b/.test(l));
+  /* 🛑 AN UNFILTERED COUNT, BECAUSE THE FILTER BELOW IS STILL TRYING TO TELL
+     CODE FROM PROSE, WHICH IS THE CLASSIFICATION THIS FILE REFUSES EVERYWHERE
+     ELSE. A reviewer got live code past it in the direction I had not considered:
+     not a comment wrongly INCLUDED, but live code wrongly EXCLUDED. A line that
+     CLOSES a block comment and then carries code begins with a star, so
+     `startsWith('*')` drops it, and node parses the line perfectly well. The arm
+     saw its usual 2 lines while a second writer sat on disk.
+
+     (The shape is not written out here on purpose: a docblock cannot contain a
+     comment closer without ending itself, which is how I broke this file once
+     already while trying to show it.)
+
+     The count below cannot be fooled by any prefix, because it filters nothing.
+
+     ⭐ COUNT, NOT SET, DELIBERATELY. Pinning the unfiltered SET also catches it
+     and reds on every docblock reword; pinning the count catches it and leaves the
+     prose editable. The three excluded lines are all docblock prose today. */
+  assert.strictEqual(
+    mentions.length, 5,
+    'the number of lines mentioning canRunClaude in connect.js changed (' + mentions.length +
+      ', expected 5: two code lines and three in prose). If you added CODE, it is a second ' +
+      'writer and a path no arm drives. If you only edited a comment, update this number.'
+  );
+  const lines = mentions.filter((l) => !l.startsWith('*') && !l.startsWith('//') && !l.startsWith('/*'));
   assert.deepStrictEqual(
     lines,
     [
