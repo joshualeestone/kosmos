@@ -58,10 +58,16 @@ blur-disarm path is structurally unexercisable by this check. `p.click()`
 would exercise the real interaction.
 
 - The call: not in this change.
-- Why: switching to `p.click()` also invalidates the timing analysis that says
-  the 300ms wait is safe. The arming branch is synchronous only because nothing
-  focuses. That is a real trade and it does not belong in a change whose job is
-  to unblock a release.
+- Why: `p.click()` adds Playwright actionability checks, which can throw on a
+  button that is covered or zero-size, so it trades a structural blind spot for
+  a new flake surface on a release gate.
+- 🛑 CORRECTED: I first justified this by saying `p.click()` would invalidate the
+  timing analysis behind the 300ms wait, because "the arming branch is
+  synchronous only because nothing focuses". THAT IS WRONG. The arming branch
+  returns before any `await` regardless of how the click is delivered; focus has
+  nothing to do with it. The deferral still stands and its real cost is the line
+  above. Recorded rather than quietly swapped, because a right decision resting
+  on a wrong reason is one bad day from being a wrong decision.
 - Weakest premise in my own reasoning: that the unit coverage is adequate.
   `web.ask-first-1683.test.js:95` covers blur against a fake button with no
   focus model at all, which is weaker than it sounds.

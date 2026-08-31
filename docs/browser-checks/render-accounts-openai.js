@@ -212,6 +212,17 @@ let failed = 0;
   }
   await p.evaluate(() => { try { settingsGo('accounts'); } catch (e) { const b = document.querySelector('[data-go="accounts"]'); if (b) b.click(); } });
   await p.waitForTimeout(800);
+  /* 🔑 THE SECTION-OPEN CONTROL, mirroring the first open at :49-50. The re-open
+     above navigates away and back, force-unhides #panel-settings and calls
+     settingsGo with a SILENT catch and a [data-go] fallback, and until now nothing
+     checked it worked. That mattered the moment the assertions below started
+     depending on RENDERED GEOMETRY: a section that failed to reopen makes every
+     row zero-height, and the arm assertion would red as "the FIRST press only
+     ARMS" while the real cause is a closed panel. A false red on a release gate
+     that points at the wrong component is worse than no assertion. Fail as
+     itself. */
+  const secAgain = await p.evaluate(() => { const s = document.getElementById('s-sec-accounts'); return s ? !s.hidden : null; });
+  say('the accounts section is open again', secAgain === true, String(secAgain));
   const rowsBefore = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-box')].map((r) => r.innerText.replace(/\s+/g, ' ').trim()));
   /* 🔑 THE ARM THAT MAKES THE ABSENCE BELOW MEAN ANYTHING. Without it,
      "the row went away" and "the row was never rendered" are the same pass. */
@@ -227,57 +238,68 @@ let failed = 0;
      ✅ ASSERT THE ARM RATHER THAN TOLERATING IT. Pressing twice blindly would go
      green whether or not the confirm exists, leaving #1683's whole promise (ask
      first) unguarded at the page layer.
-     🔑 EVERY LOOKUP IS SCOPED TO THE WALK ROW, not to the first [data-forget] on
-     the screen. #1659 makes the Claude row live and gives it a data-forget button
-     too, and this fixture can carry a Claude account, so an unrooted querySelector
-     would press one account while every assertion here is about another.
-     ⚠️ A HAZARD THIS CHECK NOW DEPENDS ON, NAMED BECAUSE IT IS INVISIBLE AND NOT
-     BECAUSE IT IS LIVE: the arm lives in a per-button closure (`let armed = false`
-     inside the `[data-forget]` loop in web/index.html), so ANY repaint of
-     #set-accounts between the two presses rebuilds the buttons, resets `armed`,
-     and the second press only re-arms. The gate would then red as "the account
-     leaves the list" with the row still there, which is this branch's own failure
-     signature pointing at the wrong cause.
-     📌 Traced and NOT reachable today: every paintAccounts() caller is
-     event-driven, and the only tick-driven Settings repaint is paintPlus, gated on
-     SETTINGS_SEC === 'plus'. But this codebase has already had to engineer around
-     exactly this for a sibling panel ("Nor while a removal is being confirmed:
-     repainting under an open question is how somebody answers a different question
-     than the one they read"), so an accounts poll added later is a plausible change
-     that would make a RELEASE GATE intermittently red. */
+     🔑 ONE ROW PREDICATE, USED BY THE PRESS AND BY BOTH READS. It must be the
+     SAME predicate in all three or the press and the assertion can name different
+     buttons: a hidden .acct-box matching WALK ahead of the visible one in DOM
+     order would be pressed while the visible one is read, whose label still says
+     "Remove", and the gate reds on a correct product. Visible-only, matching the
+     `groups` reader above and 1c5e2614 ("browser checks assert rendered text, not
+     DOM text"): a DOM count reads a merely HIDDEN row as present, which fails in
+     the reassuring direction on the one assertion added to stop that.
+     ⚠️ A REPAINT BETWEEN THE TWO PRESSES WOULD DISARM THIS. The arm lives in a
+     per-button closure, so any repaint of #set-accounts rebuilds the buttons,
+     resets `armed`, and the second press only re-arms. The gate then reds as "the
+     account leaves the list" with the row still there, which is this branch's own
+     failure signature pointing at the wrong cause.
+     📌 The guards that make it unreachable, named precisely because an earlier
+     version of this comment said "every paintAccounts() caller is event-driven"
+     and THAT IS FALSE: acctFlowPaint() is driven by a 1-second setInterval in
+     acctFlowWatch(). It cannot fire here for three narrower reasons, and a reader
+     who trusts the old sentence would never re-check them: acctFlowWatch is
+     started only by acctAddStart(), the Claude connect flow, which this check
+     never runs; acctFlowPaint early-returns on the ACCT_FLOW_LAST dedup; and the
+     connected arm calls acctFlowStop() before repainting. That is a materially
+     more fragile guard than "event-driven", so an accounts poll added later would
+     make a RELEASE GATE intermittently red. */
+  const readWalk = () => p.evaluate(() => {
+    const shown = [...document.querySelectorAll('#set-accounts .acct-box')]
+      .filter((r) => r.getBoundingClientRect().height > 0);
+    const row = shown.find((r) => /API key ending WALK/.test(r.innerText));
+    const b = row ? row.querySelector('[data-forget]') : null;
+    /* textContent, not innerText: this is an EXACT-MATCH assertion on a label the
+       page sets itself, and innerText would move under a text-transform. Stated
+       because docs/browser-checks/README.md (#687) asks every textContent read in
+       a wired check to say which it is, and because :167 reads this same element
+       with innerText for a different purpose. */
+    return {
+      label: b ? b.textContent.replace(/\s+/g, ' ').trim() : '(no button)',
+      listed: shown.some((r) => /API key ending WALK/.test(r.innerText)),
+      shownRows: shown.length,
+    };
+  });
   const pressWalkRemove = () => p.evaluate(() => {
-    const row = [...document.querySelectorAll('#set-accounts .acct-box')]
-      .find((r) => /API key ending WALK/.test(r.innerText));
-    const b = row && row.querySelector('[data-forget]');
+    const shown = [...document.querySelectorAll('#set-accounts .acct-box')]
+      .filter((r) => r.getBoundingClientRect().height > 0);
+    const row = shown.find((r) => /API key ending WALK/.test(r.innerText));
+    const b = row ? row.querySelector('[data-forget]') : null;
     if (!b) return false;
     b.click();
     return true;
   });
+  /* 🔑 THE BEFORE ARM. Without it this asserts a STATE, not a TRANSITION: a
+     regression that rendered the button reading "Remove it?" AT REST would pass
+     for the wrong reason. The resting-label assertion at :173 is two full
+     navigations earlier against a destroyed page, so it is not an arm for this. */
+  const beforePress = await readWalk();
+  say('before the press, the button rests on "Remove"',
+    beforePress.label === 'Remove', JSON.stringify(beforePress));
   const pressed = await pressWalkRemove();
-  say('the Remove button is there to press', pressed);
+  say('the Remove button is there to press', pressed, JSON.stringify(beforePress));
   await p.waitForTimeout(300);
-  /* ⚠️ THE LABEL ALONE IS NOT ENOUGH. A regression that ARMS *and* also fires the
-     DELETE leaves the label reading "Remove it?" for as long as the fetch and the
-     repaint take, so a label-only assertion passes on the exact defect #1683
-     exists to prevent. Assert the row is STILL LISTED too.
-     🔑 RENDERED rows, not DOM rows, matching `groups` above and 1c5e2614 ("browser
-     checks assert rendered text, not DOM text"). A DOM count would read
-     stillListed:true for a row that is merely HIDDEN, which fails in the
-     reassuring direction on the one assertion added to stop exactly that. */
-  const firstPress = await p.evaluate(() => {
-    const shown = [...document.querySelectorAll('#set-accounts .acct-box')]
-      .filter((r) => r.getBoundingClientRect().height > 0);
-    const row = shown.find((r) => /API key ending WALK/.test(r.innerText));
-    const b = row && row.querySelector('[data-forget]');
-    return {
-      label: b ? b.textContent.replace(/\s+/g, ' ').trim() : '(no button)',
-      stillListed: shown.some((r) => /API key ending WALK/.test(r.innerText)),
-      shownRows: shown.length,
-    };
-  });
+  const firstPress = await readWalk();
   say('the FIRST press only ARMS, it does not remove (#1683, #1702)',
-    firstPress.label === 'Remove it?' && firstPress.stillListed === true,
-    JSON.stringify(firstPress));
+    beforePress.label === 'Remove' && firstPress.label === 'Remove it?' && firstPress.listed === true,
+    JSON.stringify({ before: beforePress, after: firstPress }));
   /* Guarded like the first press, and it REPORTS THE PAGE when it fails. A bare
      `if (b) b.click()` no-ops silently, and a detail-less say() is a diagnosis one
      step removed from the cause on a check that has already taken down a cut. */
