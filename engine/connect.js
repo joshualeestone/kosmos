@@ -1337,7 +1337,18 @@ async function installClaudeCode(hooks) {
    * the child, WHERE WE LOOK and WHERE THE VENDOR WRITES key on different
    * variables: under a sandbox the install would land in the operator's
    * real home and the `accessSync` below would then report a SUCCESSFUL
-   * install as "we cannot find it where it should be". Production is
+   * install as a failure, through the `fail()` at the end of this function.
+   * 🛑 #1570: THIS COMMENT DELIBERATELY QUOTES NO PART OF THAT SENTENCE, and the
+   * reason is worth the two lines. It used to PARAPHRASE the message inside
+   * quotation marks. The product never emitted that wording, so the paraphrase was
+   * the ONLY match it had ever had, and a mutation anchored on it landed here -
+   * two hundred lines from the code it meant - and reported that the assertion
+   * being built was impossible.
+   * ⚠️ Quoting the sentence EXACTLY is not the fix either: it makes the real
+   * message ambiguous between this prose and the emit, which is the same defect
+   * pointing the other way. I wrote that version first and measured it: one phrase,
+   * two hits. A comment about a message should name WHERE the message is emitted
+   * and quote NONE of it. Production is
    * unchanged, and the REASON is checkable rather than remembered: there
    * was no `HOME` constant at this call site. The old call passed only
    * `{ TERM: 'dumb' }`, and `run()` merges `{ ...process.env, ...opts.env }`,
@@ -2037,9 +2048,13 @@ async function tickBody(owner) {
              * knowledge -- a signed-in free plan, likely the most common
              * way a machine with a config reaches this flow at all -- and
              * for that person "we could not confirm" misstates what is
-             * known, and "open Terminal and run claude" cannot help (the
-             * CLI is already signed in). `unknown` is the genuine
-             * cannot-confirm.
+             * known, and the Terminal way out cannot help (the CLI is
+             * already signed in). `unknown` is the genuine cannot-confirm.
+             * 📌 #1570: the Terminal remedy is DESCRIBED rather than quoted,
+             * because no code emits that sentence - the quoted version was a
+             * paraphrase, and its only hit in the tree was this comment. The
+             * neighbouring "we could not confirm" keeps its quote marks because
+             * it IS emitted verbatim. Quote exactly, or do not use quote marks.
              */
             if (sub.state === subscription.STATE.NONE) {
               becomeStuck(owner, 'this computer is signed in to Claude, but on a plan without a subscription',
