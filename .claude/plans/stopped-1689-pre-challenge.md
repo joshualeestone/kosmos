@@ -3,7 +3,7 @@ pre_challenge: true
 method: pre-challenge
 explicit_override: true
 branch: stopped-1689
-diff_hash: 5bb3979690193479fc239d249358775552130d7a8ecad48c2041f1e8696ae6c5
+diff_hash: 7b49ba0220b2f72be8ca815736afea17ee4115cbb555ca6bf4784d708144d2f2
 timestamp: 2026-08-31T17:28:00Z
 iterations: 1
 converged: true
@@ -35,7 +35,13 @@ the next person looking for code that is not there.
 one in the same message that handed me the card. The reproduction happened to confirm the
 premise; that is luck rather than method, and the method is what I would want next time.
 
-[WARNING] THE ROUTE HAS NO TEST, BEFORE OR AFTER THIS CHANGE. openaiaccounts.test.js covers
+[STRENGTH] THE ROUTE TEST NOW EXISTS and the gap below is CLOSED. Angel offered the harness
+she built on #1659 and it lifted cleanly. Five arms, perturbation exact: reverting server.js
+to origin/main fails EXACTLY the stopped-agent arm while all four controls stay green. The
+first perturbation attempt did not apply (git stash on an already-committed file), which the
+assertion caught before the four greens were believed.
+
+[WARNING] SUPERSEDED, KEPT SO THE RECORD SHOWS WHAT SHIPPED FIRST: the route had no test, openaiaccounts.test.js covers
 forgetAccount, which takes usedBy as a parameter and was never the defect. What I have instead
 is the reproduction, three sibling suites green BY EXIT CODE (26, 55, 22), and the fix read
 against the code it changes. That is weaker than my usual bar and I am not dressing it up. The
