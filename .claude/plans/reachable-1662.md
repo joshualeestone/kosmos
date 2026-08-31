@@ -89,8 +89,31 @@ recorded here as stale rather than quietly kept.** `dist/setup` was built at
 bytes **without the set -e fix**, which is the most consequential part of this
 diff. A reviewer found that, not me.
 
-**A second run, against bundles rebuilt from the final code, is what this
-branch actually rests on.** Its result is recorded below when it lands.
+**The second run, against bundles rebuilt from the final code, is what this
+branch rests on.** The job asserts `diff -q dist/setup install/setup.sh` BEFORE
+starting the harness, so the staleness above cannot recur silently: if the
+bundle does not match the source the job fails instead of producing a number.
+
+```
+bundle-matches-source        (asserted before the harness ran)
+dist/setup                   byte-identical to install/setup.sh
+set -e fix in tested bytes   present
+
+327 passed, 1 failed
+
+PASS  download-path install exits 0     PASS  the versioned artifact name was fetched
+PASS  download-path board answers       PASS  the refusal names both versions
+PASS  tampered download refuses         PASS  no false installed-done over old bytes
+PASS  tamper refusal speaks a sentence  PASS  stage residue swept from the home folder
+PASS  no stage residue after refusal    PASS  pinned install exits 0
+```
+
+⭐ **The remaining failure is now shown invariant rather than argued away.** It
+reproduced with byte-identical detail across two runs **whose code differed**
+(the second carries the `set -e` fix, `/usr/bin/tr` and
+`application/problem+json`). A failure caused by this diff would have moved
+when the diff moved. That is a measurement; the reasoning below is what it
+replaced.
 
 The one failure in the first run was `EXPECTED_ADDS` in the LOCAL-SOURCES
 install, which `tools/test-install.sh:797` says never runs `reachable()`,
