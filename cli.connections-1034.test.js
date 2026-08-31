@@ -772,15 +772,34 @@ test('"connections" refuses arguments instead of paying for a sweep to ignore th
    * request per OpenAI account. `kosmos connections --help` used to pay all of
    * that and then print the report anyway.
    */
-  const r = await new Promise((resolve) => {
-    execFile('bash', [CLI, 'connections', '--help'],
+  const run = (arg) => new Promise((resolve) => {
+    execFile('bash', [CLI, 'connections', arg],
       { env: { ...process.env, KOSMOS_PORT: '1', KOSMOS_HOME: FAKE_HOME } },
       (err, stdout, stderr) => resolve({ code: err ? err.code : 0, out: String(stdout) + String(stderr) }));
   });
+
+  const r = await run('--bogus');
   assert.equal(r.code, 2, `expected exit 2 for an unexpected argument, got ${r.code}`);
   assert.match(r.out, /takes no options/, 'the refusal did not say why');
-  assert.doesNotMatch(r.out, /is connected on this computer|sign-in/,
+  assert.doesNotMatch(r.out, /is connected on this computer|sign-in is going on/,
     'it printed the report anyway, which means it paid for the sweep before refusing');
+
+  /* ⚠️ --help IS ANSWERED, NOT REFUSED, and this arm exists because an earlier
+     version of this very test pinned the opposite. Refusing a request for help
+     with an error status is the one refusal that reads as the tool being broken
+     rather than the caller being wrong, and it costs nothing to answer from the
+     same branch. Both spellings, because -h alone is the easy one to forget. */
+  for (const flag of ['--help', '-h']) {
+    const h = await run(flag);
+    assert.equal(h.code, 0, `${flag} exited ${h.code}: asking for help is not an error`);
+    /* Case-insensitive deliberately: the help text opens the sentence with a
+       capital and the refusal does not. A case-sensitive match here failed
+       against text that plainly said the right thing, which is the most
+       repeated false zero on this fleet. The CASE is not what is being tested. */
+    assert.match(h.out, /takes no options/i, `${flag} did not say it takes no options`);
+    assert.doesNotMatch(h.out, /sign-in is going on/,
+      `${flag} printed the report, so it paid for the sweep to answer a help request`);
+  }
 });
 
 test('every spelling of zero is refused by the connection deadline guard', () => {

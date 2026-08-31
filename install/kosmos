@@ -849,7 +849,15 @@ cmd_connections() {
         } else {
           console.log(clean(v.error));
         }
-        process.exit(1);
+        /* ⚠️ exitCode + return, NEVER process.exit, AFTER PRINTING. stdout is
+           ASYNCHRONOUS when it is a pipe, and process.exit does not wait for a
+           pending write, so the sentence can be dropped and the status kept. In
+           the one verb whose stated job is to always say something rather than
+           nothing, losing the sentence and keeping the 1 is the worst of both.
+           Latent rather than live (these messages are short), and this is the
+           form that cannot drop it. */
+        process.exitCode = 1;
+        return;
       }
       /* 🛑 THE ELEMENTS, NOT ONLY THE CONTAINER. `[null]` passed this guard and
          then threw on `.signedIn`, printing a TypeError and a full stack with absolute
@@ -859,7 +867,10 @@ cmd_connections() {
       if (!v || !Array.isArray(v.providers)
           || v.providers.some(function (p) { return !p || typeof p !== "object"; })) {
         console.log("Kosmos answered something we could not read, so we cannot say what is connected.");
-        process.exit(1);
+        /* exitCode + return, not process.exit: stdout is async on a pipe and
+           process.exit does not wait for the write. See the v.error arm above. */
+        process.exitCode = 1;
+        return;
       }
       /* 🛑 THE HEADER IS GATED ON THE FILTERED LIST, NOT ON THE RAW ONE, for the
          same reason the services header below is: a heading over nothing "reads
@@ -878,7 +889,10 @@ cmd_connections() {
       });
       if (!okProviders.length) {
         console.log("Kosmos answered something we could not read, so we cannot say what is connected.");
-        process.exit(1);
+        /* exitCode + return, not process.exit: stdout is async on a pipe and
+           process.exit does not wait for the write. See the v.error arm above. */
+        process.exitCode = 1;
+        return;
       }
       console.log("What this computer is connected to:");
       console.log("");
@@ -888,20 +902,6 @@ cmd_connections() {
          prototype-chain class the engine boundary closed one file away, in the
          verb whose stated job is refusing machine vocabulary. */
       var own = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined; };
-      /* 🛑 CONTROL CHARACTERS STRIPPED FROM EVERY WIRE STRING BEFORE IT IS PRINTED.
-         This output does not only land on a terminal, it lands in the CONTEXT
-         WINDOW OF AN AGENT: this branch splices the connections verb into every
-         agent instruction file. So an escape sequence repaints the screen, and
-         instruction-shaped text arrives exactly where instructions are read.
-         Our own boundary already allowlists every string it emits, so nothing
-         from OUR board can carry these. That is precisely the assumption this
-         block refuses to make everywhere else: it type-guards, own-property
-         checks and filters because the board may be a different build than the
-         CLI. Same posture, one class further.
-         NOTE the wording here carries NO APOSTROPHE, deliberately. This whole
-         renderer lives inside a single-quoted shell string, so one apostrophe
-         ends the program. The first draft of this comment said AGENT plus S and
-         broke 22 tests at once, which is what the guard below is for. */
       var SAY = { connected: "connected", none: "not connected", unknown: "could not check" };
       for (const p of okProviders) {
         /* ⚠️ STRINGS ONLY, for the same reason as the services loop below:
@@ -1300,6 +1300,15 @@ case "${1:-}" in
     # sweep behind it is a subprocess per Claude account plus an authenticated
     # request per OpenAI account. `kosmos connections --help` used to pay all of
     # that and then print the report anyway.
+    # --help is answered from the refusal branch itself: it costs nothing, and
+    # refusing a request for help with an error is the one refusal that reads as
+    # the tool being broken rather than the caller being wrong.
+    case "${1:-}" in
+      --help|-h)
+        say "connections: say what this computer is connected to."
+        say "Takes no options. Run: \"$SELF\" connections"
+        exit 0 ;;
+    esac
     if [ "$#" -gt 0 ]; then
       say "\"connections\" takes no options. Run: \"$SELF\" connections"
       exit 2
