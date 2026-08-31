@@ -102,9 +102,6 @@ function setClientId(id) {
   } catch { return { ok: false, because: 'we could not save that' }; }
 }
 
-/* gh presence, so ONE writer can branch on this object alone (her ruling:
-   the field keeps its name on this road too). Mirrors github.js's spec
-   candidates; the gh DOOR stays the authority on the gh road itself. */
 /* Where gh lives when nothing overrides it.
 
    🛑 THE SEAM CHOOSES DATA, NEVER A PREDICATE, AND THAT DISTINCTION IS THE WHOLE
@@ -137,9 +134,25 @@ function setClientId(id) {
 const GH_CANDIDATES_DEFAULT = Object.freeze(['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh']);
 function ghCandidateList() {
   const override = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
-  return override ? override.split(':').filter(Boolean) : GH_CANDIDATES_DEFAULT;
+  /* 🛑 `=== undefined`, NOT TRUTHINESS, AND THE DIFFERENCE IS A REAL LEAK.
+     On truthiness an EMPTY STRING means "unset", so a test setting
+     AGENT_WORKFORCE_GH_CANDIDATES="" to mean "no candidates" silently scans
+     /opt/homebrew/bin/gh and the other REAL paths on the operator's machine.
+     Measured: "" gave the three real paths, ":::" gave []. Same leak class as an
+     unsandboxed store, which this branch already had once. */
+  if (override === undefined) return GH_CANDIDATES_DEFAULT;
+  return override.split(':').filter(Boolean);
 }
 
+/* gh presence, so ONE writer can branch on this object alone (her ruling:
+   the field keeps its name on this road too). Mirrors github.js's spec
+   candidates; the gh DOOR stays the authority on the gh road itself.
+
+   📌 MOVED BACK DOWN ONTO THE FUNCTION IT DOCUMENTS. The candidate-list block
+   above was inserted BETWEEN this comment and ghPresent, so it read as
+   documentation for the constant. That is the doc-comment-binds-by-position
+   hazard this branch documents elsewhere, committed by the person documenting
+   it. */
 function ghPresent() {
   // #1592: the byte-identical twin of devicedoor.js's lambda, which is why
   // fixing one file would not have found the other. Both now ask runners.

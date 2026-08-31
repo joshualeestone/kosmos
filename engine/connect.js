@@ -428,12 +428,24 @@ async function willInstall() {
      it resolves the same way: an install is needed. */
   let bin;
   try {
-    bin = claudeBinPath();
     /* The cheap half, every time. It cannot produce the harmful answer on its own:
-       a missing or non-executable file means an install IS needed, full stop. */
-    /* #1592: asked through runners.isRunnable, because the raw X_OK check
-       SUCCEEDS ON A DIRECTORY, so a folder at the bin path read as installed. */
-    if (!require('./runners').isRunnable(bin)) return true;
+       a missing or non-executable file means an install IS needed, full stop.
+
+       📌 ONE RESOLUTION, NOT TWO, AND IT MATCHES THE NEIGHBOURING SITE. This
+       read `bin = claudeBinPath(); if (!isRunnable(bin))`, and claudeBinPath()
+       already calls resolveBin('claude'), which computes `present` with
+       isRunnable internally. So the path was stat'd twice and the file asked the
+       same question in TWO spellings: isRunnable here, resolveBin().present at
+       the post-install gate below. Measured equal in both arms (a DIRECTORY gives
+       present=false and isRunnable=false; a real executable gives true and true).
+       Asking it once, the way the neighbour asks it, is the "one definition" this
+       branch is named for. */
+    const resolved = require('./runners').resolveBin('claude');
+    bin = resolved.bin;
+    /* #1592: `present` is computed with runners.isRunnable, because the raw X_OK
+       check SUCCEEDS ON A DIRECTORY, so a folder at the bin path read as
+       installed. */
+    if (!resolved.present) return true;
   } catch { return true; }
   if (probeCache && probeCache.bin === bin && Date.now() - probeCache.at < PROBE_TTL_MS) {
     return !probeCache.ok;
