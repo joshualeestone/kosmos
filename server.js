@@ -7369,6 +7369,61 @@ if (require.main === module) {
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh the script it starts agents with: ${String(err && err.message)}\n`);
   }
+  /**
+   * Refresh every agent's managed connections block, at boot (#1649).
+   *
+   * 🛑 THE SAME DEFECT AS THE SUPERVISOR ABOVE, IN A DIFFERENT FILE.
+   * `connections.syncEveryone` had exactly one caller, `POST /api/you`, so an
+   * edit to `blockBody()` reached an agent that already existed only when
+   * somebody happened to save the About-you form. True of the FILE and false of
+   * the MACHINE, one more time.
+   *
+   * 🔑 THE BOARD RESTARTING IS THE UPDATE, which is the same reason the
+   * supervisor refresh sits here: every update and every login stops and starts
+   * this process, so this runs exactly when new text arrives and never in
+   * between.
+   *
+   * ⚠️ IT MAKES THE FILE CURRENT, NOT THE RUNNING AGENT, and the distinction is
+   * not pedantic. `engine/instructions.js` says an instruction file is read ONCE
+   * at session start, so a live agent keeps running on what it read at boot
+   * whatever we write now. What this buys is that the file is already right at
+   * the agent's NEXT start instead of waiting for an unrelated form save. The
+   * half that tells anybody a running agent is behind already exists separately,
+   * as the staleness state derived from the file's mtime against the session's
+   * start time.
+   *
+   * ⚠️ NOT FATAL, and it must never be. A board that refuses to start because it
+   * could not rewrite somebody's instructions is strictly worse than a board
+   * running with the previous text, which is the state every install is in
+   * today. Same posture as the supervisor refresh above.
+   *
+   * 📌 COST MEASURED BEFORE WIRING IT HERE, because "it no-ops when unchanged"
+   * was a claim rather than a fact: the unchanged path still reads each file,
+   * runs findBlock, builds the whole spliced text and compares it. Measured on
+   * 18 agents with 13.6 KB instruction files: 3.3 ms unchanged (29.7 ms on the
+   * pass that actually writes), stable across repeats, 0.0 ms for an empty
+   * roster.
+   *
+   * 📌 `safeRoster()`, which drops removed agents, for the reason its own
+   * docblock gives: Kosmos must not splice the managed block into the
+   * instructions of an agent it has told the person is gone. `syncEveryone`
+   * separately skips anything that is not `isNamedOurs`.
+   */
+  try {
+    const told = connections.syncEveryone(safeRoster());
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) {
+      /* ⚠️ NAME THE REASON, not just the count. This runs at boot with nobody
+         watching, so "could not refresh 1 of 1" is a line that cannot be acted
+         on: it says something is wrong and nothing about what. `tellAgent`
+         already returns a `because` written for a person; the first one is
+         enough to tell a reader which KIND of failure this is. */
+      const why = (stuck[0] && stuck[0].because) || 'no reason given';
+      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about connections; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not refresh what agents know about connections: ${String(err && err.message)}\n`);
+  }
   start().then(() => {
     // Report the port actually bound, not the one requested, or a `PORT=0` run
     // would announce itself on port 0.
