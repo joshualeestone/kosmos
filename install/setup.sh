@@ -504,17 +504,45 @@ verify_download() {
 # not evidence of anything. See install.reachable-1662.test.js, which asserts
 # both arms against a local server.
 _reachable_is_download() {
-  case "$1" in
-    application/gzip*|application/x-gzip*|application/octet-stream*|binary/octet-stream*) return 0 ;;
+  # $1 = curl's exit status, $2 = the content-type it reported.
+  #
+  # 🛑 REFUSE WHAT IS POSITIVELY TEXTUAL; DO NOT DEMAND A KNOWN BINARY. An
+  # allowlist of binary types looks stricter and is wrong here, because the
+  # cost is asymmetric: a false YES only means this pre-check did not help and
+  # curl fails a few lines later with its own error, which is exactly the
+  # behaviour before this guard existed. A false NO blocks the install outright
+  # behind "Check your internet connection", which is a worse outcome than the
+  # bug the guard is for.
+  #
+  # ⚠️ AND AN ALLOWLIST BREAKS THE PROJECT'S OWN INSTALL GATE. `curl` on a
+  # `file://` URL succeeds and reports an EMPTY content-type, and
+  # tools/test-install.sh drives the whole release path over `file://` on
+  # purpose ("curl serves file:// for both probes, so no server is needed").
+  # An allowlist refuses a genuine tarball there and aborts the download path.
+  # Measured: file:// on a real gzip gives content_type=[] with exit 0.
+  #
+  # ⚠️ Media types are case-insensitive (RFC 9110 section 8.3), so the compare
+  # is lowercased: `Application/GZIP` is the same type as `application/gzip`.
+  #
+  # The exit status is checked FIRST and separately, because an empty
+  # content-type from a FAILED connection must not read the same as an empty
+  # one from a local file that is genuinely there.
+  [ "$1" = 0 ] || return 1
+  case "$(printf '%s' "$2" | tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')" in
+    text/*|application/json*|application/xml*|application/xhtml*) return 1 ;;
   esac
-  return 1
+  return 0
 }
 
 reachable() {
   # HEAD first; the range GET is the fallback for hosts that refuse HEAD.
-  # Both must name a binary: a 206 whose body is HTML is the error page.
-  _reachable_is_download "$(curl -fsIL -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null)" && return 0
-  _reachable_is_download "$(curl -fsL -r 0-0 -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null)" && return 0
+  # A 404 page answers a range request with 206 and its own HTML body, so the
+  # status alone cannot tell a download from an error page: the type must be
+  # judged too, on both arms.
+  _r_ct=$(curl -fsIL -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null); _r_rc=$?
+  _reachable_is_download "$_r_rc" "$_r_ct" && return 0
+  _r_ct=$(curl -fsL -r 0-0 -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null); _r_rc=$?
+  _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   return 1
 }
 

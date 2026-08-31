@@ -43,14 +43,19 @@ test.before(async () => {
     const ranged = Boolean(req.headers.range);
     const isReal = req.url.startsWith('/real.tar.gz');
     const body = isReal ? GZ : ERR;
-    const type = isReal ? 'application/gzip' : 'text/html; charset=utf-8';
+    /* `ct=` lets an arm choose the header without changing the body, so the
+       case-insensitivity and no-header arms vary ONE thing. `ct=none` omits
+       the header entirely, which is what curl reports for file:// too. */
+    const want = new URL(req.url, 'http://x').searchParams.get('ct');
+    const type = isReal ? (want || 'application/gzip') : 'text/html; charset=utf-8';
     /* The defect's exact shape for the non-real path: the error page answers a
        range request with a 206 and one byte. A status-only check reads that as
        success. content-length and content-range MUST be set or curl waits for
        a body that never ends, and a timeout would make every arm "fail" for
        the wrong reason -- which it did on the first run of this file. */
     const slice = ranged ? body.subarray(0, 1) : body;
-    const headers = { 'content-type': type, 'content-length': String(slice.length) };
+    const headers = { 'content-length': String(slice.length) };
+    if (!(isReal && want === 'none')) headers['content-type'] = type;
     if (ranged) headers['content-range'] = `bytes 0-0/${body.length}`;
     res.writeHead(ranged ? 206 : (isReal ? 200 : 404), headers);
     if (req.method === 'HEAD') { res.end(); return; }
@@ -93,4 +98,44 @@ test('#1662: an HTML body served with a 200 is not a download either', async () 
      a captive portal produces. Status is not the question; the type is. */
   assert.equal(await reachable(`${base}/index.html`), 'NO',
     'an HTML page passed as a download');
+});
+
+/* ---- what a blind reviewer caught, and it was nearly shipped ---------------
+ * The first version of this guard demanded a KNOWN BINARY content-type. That
+ * is stricter-looking and wrong, and it broke the project's own install gate:
+ * `curl` on a `file://` URL succeeds and reports an EMPTY content-type, and
+ * tools/test-install.sh drives the entire release path over `file://` on
+ * purpose. An allowlist refuses a genuine tarball there.
+ *
+ * ⭐ THE COST IS ASYMMETRIC, which is the whole reason the predicate refuses
+ * textual types instead of demanding binary ones: a false YES only means this
+ * pre-check did not help and curl fails a few lines later with its own error,
+ * which is the behaviour before the guard existed. A false NO blocks the
+ * install outright behind "Check your internet connection".
+ */
+const os2 = require('node:os');
+const zlib = require('node:zlib');
+
+test('#1662: a file:// URL is reachable, because the install gate drives the release path over it', async () => {
+  const dir = fs.mkdtempSync(path.join(os2.tmpdir(), 'aw-1662-file-'));
+  try {
+    const f = path.join(dir, 'real.tar.gz');
+    fs.writeFileSync(f, zlib.gzipSync(Buffer.from('hello')));
+    assert.equal(await reachable(`file://${f}`), 'YES',
+      'a genuine gzip on file:// was refused. curl reports an EMPTY content-type for file://, '
+      + 'so any predicate that DEMANDS a binary type breaks tools/test-install.sh, which drives '
+      + 'the whole download path over file:// deliberately');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#1662: content-type matching is case-insensitive, per RFC 9110 section 8.3', async () => {
+  const r = await reachable(`${base}/real.tar.gz?ct=Application%2FGZIP`);
+  assert.equal(r, 'YES', 'a genuine tarball was refused because its header was capitalised');
+});
+
+test('#1662: a download with NO content-type header at all is accepted', async () => {
+  /* Refusing here would be a false NO, which blocks an install. The status
+     check already rejects a connection that failed. */
+  const r = await reachable(`${base}/real.tar.gz?ct=none`);
+  assert.equal(r, 'YES', 'a real download with no content-type header was refused');
 });
