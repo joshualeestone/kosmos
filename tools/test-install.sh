@@ -374,6 +374,20 @@ EXPECTED_SURVIVORS="$(printf '%s\n' "$DATA_FINGERPRINT" | while read -r _h _f; d
   printf '%s  %s\n' "$_h" "$_f"
 done)"
 ADDED="$(printf '%s\n' "$DATA_PATHS_BEFORE" > "$SB/.before.txt"; data_paths > "$SB/.after.txt"; comm -13 "$SB/.before.txt" "$SB/.after.txt")"
+# 🛑 EXPECTED_ADDS is what the INSTALL writes (installSupervisor: the supervisor,
+# the codex bridge, engine-path). It is NOT the place for what the app writes
+# during its own BOOT: #1494 makes the board write AgentWorkforce/wouldping/
+# needs-you.jsonl when it starts, which the smoke boot in this gate triggers, so
+# it lands in ADDED as an "unexpected" file and reds a correct cut. The
+# data-safety check below already exempts this same litter (its comment names
+# exactly this file, and it broke cut 0.6.06 at 4b on 2026-08-29). Filter the
+# CLASS -- the whole wouldping runtime dir -- not the one file, so a NEW
+# wouldping log added later does not re-break the cut the way a fixed filename
+# would. This narrows the gate to what it exists to catch (an install writing an
+# unexpected file into a person's home) and stops it firing on the app's own
+# runtime log. A file the UNINSTALL should have removed is a real but SEPARATE
+# product bug, carded on its own (see the data-safety note below).
+ADDED="$(printf '%s\n' "$ADDED" | grep -vE '^\./AgentWorkforce/wouldping/' | grep -v '^$' || true)"
 GONE="$(comm -23 "$SB/.before.txt" "$SB/.after.txt")"
 
 chk "installing over an existing home leaves the person's own files byte for byte" \

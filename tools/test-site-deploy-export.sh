@@ -38,6 +38,16 @@ git -C "$S" check-ignore -q dist/build.log && ok "CONTROL: the stray really is g
 [ -f "$O/dist/tmux-arm64.tar.gz" ] && ok "the tmux bundle ships" || bad "the tmux bundle is missing"
 [ -f "$O/dist/Kosmos.pkg" ] && [ -f "$O/dist/Kosmos.pkg.sha256" ] && [ -f "$O/dist/Kosmos.pkg.inputs" ] && ok "the pkg triple ships" || bad "the pkg triple is incomplete"
 [ -f "$O/.vercel/project.json" ] && ok "the Vercel project link ships" || bad "the project link is missing"
+# kosmos#1669: the export marks itself, so "is this directory a release export?" is an
+# answerable question rather than an inference from a path name.
+[ -f "$O/.kosmos-release-export" ] && ok "the export writes its release marker" || bad "the release marker is missing from the export"
+grep -q "^kosmos-release-export$" "$O/.kosmos-release-export" 2>/dev/null && ok "the marker carries its identifying first line" || bad "the marker does not identify itself"
+grep -q "^commit=" "$O/.kosmos-release-export" 2>/dev/null && ok "the marker names the commit it was exported from" || bad "the marker does not name a commit"
+# CONTROL, and it is the one that makes the three above mean anything: the marker is absent
+# from the SOURCE tree, so its presence in the export proves the export created it rather
+# than copying a file that was already lying around. Without this, a stray marker in any
+# checkout would satisfy the assertions and the guard built on it would be worthless.
+[ ! -e "$S/.kosmos-release-export" ] && ok "CONTROL: the marker is NOT in the source tree, so the export created it" || bad "control: the source tree already had a marker, the assertions above prove nothing"
 [ -f "$O/dist/latest.json" ] && [ -f "$O/vercel.json" ] && [ -f "$O/.vercelignore" ] && ok "the committed release files and the upload filter ship from the commit" || bad "a committed file is missing"
 [ ! -e "$O/.git" ] && ok "no .git in the export" || bad ".git shipped"
 ls "$O".archive.* >/dev/null 2>&1 && bad "the archive temp file was left beside the export" || ok "no archive temp file left beside the export"
