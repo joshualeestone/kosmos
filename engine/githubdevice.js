@@ -132,14 +132,30 @@ function setClientId(id) {
    parameter on the exported `state()`. Left undone deliberately: that is an API
    change for a hazard nobody has hit, and it is Josh's product surface. */
 const GH_CANDIDATES_DEFAULT = Object.freeze(['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh']);
-function ghCandidateList() {
-  const override = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
+function ghCandidateList(override = process.env.AGENT_WORKFORCE_GH_CANDIDATES) {
   /* 🛑 `=== undefined`, NOT TRUTHINESS, AND THE DIFFERENCE IS A REAL LEAK.
      On truthiness an EMPTY STRING means "unset", so a test setting
      AGENT_WORKFORCE_GH_CANDIDATES="" to mean "no candidates" silently scans
      /opt/homebrew/bin/gh and the other REAL paths on the operator's machine.
      Measured: "" gave the three real paths, ":::" gave []. Same leak class as an
-     unsandboxed store, which this branch already had once. */
+     unsandboxed store, which this branch already had once.
+
+     📌 THE OVERRIDE IS A PARAMETER SO THE ARM IS NOT MACHINE LUCK. Its only
+     guard used to read the env and could therefore only tell the fixed and broken
+     shapes apart on a machine that HAS gh at a default path; on CI, which is the
+     environment that gates merges, it skipped and the fix shipped unguarded.
+     Taking the value as an argument lets a test drive THIS function directly with
+     '' and with undefined. Production still calls `ghCandidateList()` and reads
+     the env, so the test exercises production's own branch rather than a
+     substitute: that is devicedoor's property, not the substituting seam this
+     file removed earlier.
+
+     ⚠️ ASYMMETRY, STATED HERE BECAUSE IT IS ONLY OBVIOUS FROM ONE SIDE: this
+     override treats '' as "no candidates", while AGENT_WORKFORCE_GH_BIN below
+     treats '' as "unset" (plain truthiness). `export FOO=$UNSET` produces an empty
+     string routinely. The directions differ and both are safe: here '' yields an
+     empty scan, there '' falls through to the candidate list. Noted at both
+     sites rather than only at this one. */
   if (override === undefined) return GH_CANDIDATES_DEFAULT;
   return override.split(':').filter(Boolean);
 }
@@ -157,6 +173,9 @@ function ghPresent() {
   // #1592: the byte-identical twin of devicedoor.js's lambda, which is why
   // fixing one file would not have found the other. Both now ask runners.
   const runnable = (p) => require('./runners').isRunnable(p);
+  /* Truthiness here, deliberately, and NOT the `=== undefined` used by
+     ghCandidateList above: an empty AGENT_WORKFORCE_GH_BIN means "no override",
+     so it falls through to the candidate scan rather than asserting a bin at ''. */
   if (process.env.AGENT_WORKFORCE_GH_BIN) return runnable(process.env.AGENT_WORKFORCE_GH_BIN);
   return ghCandidateList().some(runnable);
 }
@@ -330,4 +349,4 @@ async function forget() {
   return state();
 }
 
-module.exports = { PHASE, state, start, cancel, forget, setClientId, clientId, setFetcher, FILE, DIR, APP_FILE, NO_APP };
+module.exports = { PHASE, state, start, cancel, forget, setClientId, clientId, setFetcher, ghCandidateList, FILE, DIR, APP_FILE, NO_APP };

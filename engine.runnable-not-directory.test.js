@@ -154,7 +154,7 @@ function walkJs(dir, base = dir, out = []) {
  * number is the correct response and is safe, because the number is not what
  * proves anything.
  *
- * 📌 Audited today: connect.js:931 prose, devicedoor.js:33 prose,
+ * 📌 Audited today: connect.js:943 prose, devicedoor.js:33 prose,
  * machine.js:412 a real call guarded by st.isFile(), runners.js:206 IS the
  * definition. The two real ones have behavioural arms below.
  */
@@ -162,7 +162,7 @@ const KNOWN_WEAK_LINES = [
   'engine/connect.js:943',
   'engine/devicedoor.js:33',
   'engine/machine.js:412',
-  'engine/runners.js:206',
+  'engine/runners.js:210',
 ];
 
 test('the set of lines matching the weak call is exactly what we audited', () => {
@@ -372,56 +372,43 @@ test('githubdevice rejects a DIRECTORY found by the CANDIDATE SCAN, not just the
   }
 });
 
-test('an EMPTY candidates override means no candidates, not the real machine paths', async (t) => {
-  /* 🛑 THE ARM FOR A LEAK I FIXED WITH NOTHING GUARDING IT. `ghCandidateList`
-     branched on TRUTHINESS, so `AGENT_WORKFORCE_GH_CANDIDATES=""` meant "unset"
-     and silently scanned /opt/homebrew/bin/gh and the other REAL paths. A
-     sandboxed test setting the empty string to mean "no candidates" would reach
-     the operator's machine, which is the same leak class as the unsandboxed store
-     this file already had once. Fixed to `override === undefined`.
+test('an EMPTY candidates override means no candidates, not the real machine paths', () => {
+  /* 🛑 THE ARM FOR A LEAK, AND ITS FIRST VERSION SHIPPED THE FIX UNGUARDED
+     WHERE IT MATTERED. `ghCandidateList` branched on TRUTHINESS, so
+     AGENT_WORKFORCE_GH_CANDIDATES="" meant "unset" and silently scanned
+     /opt/homebrew/bin/gh and the other REAL paths. A sandboxed test asking for "no
+     candidates" would reach the operator's own installation.
 
-     My own perturbation caught that the fix had NO ARM: reverting it left the
-     suite green. A fix with no guard is one edit from being undone silently.
+     My first arm drove `state()` through the env and could therefore only tell the
+     fixed and broken shapes apart ON A MACHINE THAT HAS gh at a default path. It
+     skipped honestly elsewhere, which is better than a vacuous pass and still
+     meant the fix had NO ENFORCEMENT ON CI, the environment that actually gates
+     merges. A guard that is present only where it is not needed is not a guard.
 
-     ⚠️ IT CAN ONLY DISCRIMINATE ON A MACHINE THAT HAS gh AT A DEFAULT PATH,
-     and it SKIPS rather than passing when it cannot. Under the bug, `""` falls
-     back to the defaults and answers "present" only if one of them is really
-     runnable; with none installed both shapes answer "missing" and the arm would
-     pass while proving nothing. A vacuous pass is what this whole file is about,
-     so it reports skipped instead. */
+     ✅ `ghCandidateList` now takes the override as a parameter defaulting to the
+     env, so this drives the real function with both values and needs nothing from
+     the machine. Production still calls `ghCandidateList()` and reads the env, so
+     this exercises production's OWN branch rather than a substitute. That is
+     devicedoor's property, and deliberately not the substituting seam this file
+     removed earlier. */
   const gd = require('./engine/githubdevice.js');
-  const { isRunnable } = require('./engine/runners.js');
-  const DEFAULTS = ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'];
-  if (!DEFAULTS.some(isRunnable)) {
-    t.skip('no gh at any default path on this machine, so the buggy and fixed shapes both answer ' +
-      '"missing" and this arm cannot tell them apart. Not a pass.');
-    return;
-  }
-  const beforeBin = process.env.AGENT_WORKFORCE_GH_BIN;
-  const beforeCands = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
-  try {
-    delete process.env.AGENT_WORKFORCE_GH_BIN;
-    process.env.AGENT_WORKFORCE_GH_CANDIDATES = '';
-    const empty = await gd.state();
-    assert.strictEqual(empty.gh, 'missing',
-      'an EMPTY AGENT_WORKFORCE_GH_CANDIDATES fell back to the real default paths and found gh ' +
-      'on this machine. The override is being tested for truthiness rather than for being unset, ' +
-      'so a test asking for "no candidates" reaches the operator\'s own installation.');
-    // Control: a real executable through the same seam must still answer present,
-    // or "missing" above would be the answer to everything.
-    const f = fixture('gh');
-    try {
-      process.env.AGENT_WORKFORCE_GH_CANDIDATES = f.realBin;
-      const one = await gd.state();
-      assert.strictEqual(one.gh, 'present',
-        'the candidates seam answered missing for a real executable, so the assertion above ' +
-        'proves nothing');
-    } finally { f.cleanup(); }
-  } finally {
-    if (beforeCands === undefined) delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
-    else process.env.AGENT_WORKFORCE_GH_CANDIDATES = beforeCands;
-    if (beforeBin !== undefined) process.env.AGENT_WORKFORCE_GH_BIN = beforeBin;
-  }
+  assert.deepStrictEqual(
+    gd.ghCandidateList(''), [],
+    'an EMPTY candidates override was treated as UNSET and fell back to the real default paths. ' +
+    'The override is being tested for truthiness rather than for being undefined, so a test ' +
+    'asking for "no candidates" reaches the operator\'s own gh installation.'
+  );
+  // Control: undefined MUST still give the real defaults, or "[]" above would be
+  // the answer to everything and would prove nothing.
+  assert.deepStrictEqual(
+    gd.ghCandidateList(undefined),
+    ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'],
+    'an UNSET override no longer yields the default candidate paths, so the empty-string ' +
+    'assertion above proves nothing'
+  );
+  // And a real override still splits, so the parameter is genuinely consulted.
+  assert.deepStrictEqual(gd.ghCandidateList('/a:/b'), ['/a', '/b'],
+    'the override is not being consulted at all');
 });
 
 test('githubdevice reports a DIRECTORY at the gh override as missing', async () => {
@@ -800,8 +787,16 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      friction argument expires. Either one, and file-wide is right again. */
   const fnAt = src.indexOf('function becomeStuck(');
   assert.ok(fnAt > 0, 'becomeStuck was renamed or removed; re-aim this guard');
-  const nextFn = src.indexOf('\nfunction ', fnAt + 1);
-  assert.ok(nextFn > fnAt, 'no top-level function follows becomeStuck; this bound is unanchored');
+  /* Matches `async function` too. It was `\nfunction ` only, which is correct
+     today because `function submitCode(` follows becomeStuck, but inserting an
+     ASYNC function there would silently widen the region to the next plain one.
+     The failure direction was loud rather than silent, and matching both costs
+     nothing. */
+  const plainFn = src.indexOf('\nfunction ', fnAt + 1);
+  const asyncFn = src.indexOf('\nasync function ', fnAt + 1);
+  const nextFn = Math.min(plainFn === -1 ? Infinity : plainFn, asyncFn === -1 ? Infinity : asyncFn);
+  assert.ok(Number.isFinite(nextFn) && nextFn > fnAt,
+    'no top-level function follows becomeStuck; this bound is unanchored');
   const body = src.slice(fnAt, nextFn);
 
   const calls = body.match(/writeState\(/g) || [];
