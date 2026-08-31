@@ -172,3 +172,26 @@ test('#743: a slower poll cannot revert a faster user click (or vice versa)', ()
       'the later, connected call did not win: the sign-in land step is still showing');
   });
 });
+
+test('#1615: every element a handler attaches to at load exists, so the page cannot throw on load', () => {
+  /* The journeys.html redo removed plus-switch/plus-enrol/plus-confirm and added
+     the pj-* step handlers. A load-time `getElementById('x').addEventListener`
+     against a missing element throws and breaks the WHOLE page before anything
+     renders -- the exact risk a source diff cannot see. This guards it headlessly
+     for the whole page: every directly-chained addEventListener target must have
+     a matching element id. (It does not cover handlers attached via a variable;
+     it covers the common form, which is what every pj-* handler uses.) */
+  const SCRIPT = PAGE.slice(PAGE.lastIndexOf('<script>'));
+  const re = /document\.getElementById\('([^']+)'\)\.addEventListener/g;
+  const missing = [];
+  let m;
+  while ((m = re.exec(SCRIPT)) !== null) {
+    const id = m[1];
+    if (!PAGE.includes('id="' + id + '"')) missing.push(id);
+  }
+  /* CONTROL FIRST: the scan actually found a real population of handlers, so an
+     empty `missing` means "all present", not "nothing scanned / mis-anchored". */
+  const count = (SCRIPT.match(/document\.getElementById\('[^']+'\)\.addEventListener/g) || []).length;
+  assert.ok(count > 50, 'the addEventListener scan found too few handlers (' + count + '); it may be mis-anchored');
+  assert.deepEqual(missing, [], 'these ids have a load-time addEventListener but no element, so the page throws on load: ' + missing.join(', '));
+});
