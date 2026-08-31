@@ -2,7 +2,8 @@
 
 ## What finished looks like
 
-A person can remove a Claude account from Settings, the button is not disabled,
+A person with MORE THAN ONE Claude account can remove one from Settings, its
+button is not disabled,
 and it behaves the same way the OpenAI Remove beside it already does: it refuses
 while agents are running on that account and names them, it forgets rather than
 deletes, and it says which of those two it did.
@@ -125,7 +126,13 @@ control is live, and the default one is disabled. What is still not covered is
 pressing the Claude button end to end, the way the OpenAI flow is pressed.
 
 **I did not add that press, deliberately.** I cannot run the browser gate from
-here, and an unverified press flow in a file that has already taken down three
+here, and that is now MEASURED rather than asserted: `docs/browser-checks/
+render-accounts-openai.js:22` does `require('playwright')`, `package.json`
+declares **zero dependencies** (so `yarn install` would not supply it), and the
+module resolves from neither the worktree nor the main checkout (control: an
+impossible module fails identically, so the probe can say no). A chromium build
+IS cached at 1.6G, so the gate is expected to run somewhere that has the package
+- not on this machine as configured. and an unverified press flow in a file that has already taken down three
 release cuts is a worse trade than a stated gap. The repaint ordering is
 inherited rather than re-derived, because both providers share one handler.
 

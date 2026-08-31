@@ -553,5 +553,5 @@ function forgetAccount(dir, usedBy) {
   return { ok: true, forgotten: true, movedTo: target, wasDefault: false, because: null };
 }
 
-module.exports = { list, listLive, forgetAccount, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+module.exports = { list, listLive, forgetAccount, FORGOTTEN_PREFIX, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };

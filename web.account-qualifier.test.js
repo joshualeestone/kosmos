@@ -90,10 +90,13 @@ test('control: the extracted function discriminates in both directions', () => {
    what a screen reader announces, and it is a different string from the visible
    row, so it needs its own pin.
    🛑 BOTH BUTTONS, AND THE SECOND ONE IS WHY THIS IS TWO ASSERTIONS RATHER THAN
-   ONE. The row builder has two branches: Anthropic rows get a disabled
-   `Disconnect`, OpenAI rows get a live `Remove` (#1372 made it real earlier the
-   same day). The first version of this fix qualified `Disconnect` and left
-   `Remove` naming itself by login alone, so the defect survived intact on the
+   ONE. The row builder had two branches: Anthropic rows a disabled `Disconnect`,
+   OpenAI rows a live `Remove` (#1372 made it real earlier the same day).
+   📌 THAT SPLIT IS GONE AS OF #1659: both providers now read `Disconnect`, both
+   are live, and the DEFAULT Anthropic row is the only dead one. The history is
+   kept because it explains why this is two assertions: the first version of the
+   fix qualified `Disconnect` and left `Remove` naming itself by login alone, so
+   the defect survived intact on the
    OpenAI arm while the visible span made the screen LOOK disambiguated. Angel
    caught it in review, on the exact case the key-tail test above constructs.
    ⇒ A guard covering one of two branches is how the other branch stays broken. */

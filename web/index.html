@@ -570,7 +570,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-reauth,
 .acct-disconnect { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
   color: var(--label-2); text-decoration: underline; cursor: pointer; min-height: 24px; }
-.acct-disconnect[disabled] { cursor: not-allowed; text-decoration: none; opacity: .7; }
+.acct-disconnect[disabled], .acct-disconnect[aria-disabled="true"] { cursor: not-allowed; text-decoration: none; opacity: .7; }
 /* #770: "underneath it we just have a large one that's the same exact
    size that says Add a provider." Same width as a box, no fixed height
    assumption -- .btn already matches a box's padding rhythm closely
@@ -13467,14 +13467,23 @@ async function paintAccounts() {
              why. Repo rule is WCAG AA, and this same function already states
              the principle for the connection badge: the real sentence is the
              visible text AND the label, never a reason hidden in a hover. */
-          ? '<button class="acct-disconnect" type="button" disabled '
+          /* 🛑 `aria-disabled`, NOT `disabled`. A `disabled` button is removed
+             from the tab order, so a keyboard user tabbing this row never lands
+             on it and never hears the reason -- and the repo's own rule names
+             non-focusable controls as a WCAG AA failure. aria-disabled keeps it
+             focusable and announces the state.
+             ✅ IT CANNOT ACT: the shared handler binds only `[data-forget]`, and
+             this branch deliberately carries none, so there is no listener to
+             fire. The refusal is enforced by the absence of wiring, not by the
+             attribute, which is why softening the attribute is safe. */
+          ? '<button class="acct-disconnect" type="button" aria-disabled="true" '
             + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '')
               + '. Unavailable: Kosmos does not remove this computer\u2019s main Claude folder." '
             + 'title="Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and any other accounts here keep their history inside it.">Disconnect</button>'
           : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
             + 'data-forget-provider="claude" '
             + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
-            + 'title="Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted.">Disconnect</button>'))
+            + 'title="Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted, and Kosmos stops looking inside it, so any history kept only there will not appear any more.">Disconnect</button>'))
       + '</div>';
   };
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
