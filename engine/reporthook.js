@@ -28,6 +28,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 
 const HOOK_EVENTS = Object.freeze([
   'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest',
@@ -87,6 +88,57 @@ function ensureWired(settingsPath, scriptPath) {
      instead of a settings file that runs it. */
   if (/["\\$`]/.test(scriptPath)) {
     return { wired: false, because: 'the hook script path contains characters we will not embed in a command' };
+  }
+  /* #1582: the fifth refusal. hookScriptPath() correctly probes and, during
+     a release cut, resolves an app/bin/kosmos-report-hook.sh that GENUINELY
+     EXISTS inside the cut's temp sandbox -- so the value is right and
+     ephemeral at once. Persisting it into a durable, SHARED settings file
+     points every agent on the box at a directory that is gone the moment the
+     cut ends (measured: four dead paths in one night, one per cut). The
+     resolver is not the place to fix this; refusing to write an ephemeral
+     path into a durable file is. Same shape as the four refusals around it.
+
+     🛑 os.tmpdir() returns the UNRESOLVED /var/folders/... form while the
+     paths that reach a settings file are the RESOLVED /private/var/... form,
+     so startsWith(os.tmpdir()) alone never fires on macOS. Compare against the
+     realpath (fallback to raw if realpath throws) AND the raw value, so a
+     scriptPath in either form is caught. (Josh's card #1582 measured this
+     trap: the obvious implementation is committed, reviewed, and never fires.)
+
+     ⚠️ DELIBERATE REFINEMENT OF THE CARD'S LITERAL WORDING, flagged for review:
+     the card says "refuse a path under the temp root", but its RATIONALE is "a
+     DURABLE shared settings file must not point into an ephemeral tree". The
+     literal form breaks the suite, whose fixtures put both the script AND the
+     settings file under the temp root on purpose (test isolation) -- there an
+     ephemeral script in an ephemeral settings file is no mismatch. So the
+     refusal fires only when the script is ephemeral AND the settings file is
+     NOT, which is exactly #1582's shape (~/.claude/settings.json given a
+     cut-sandbox path) and leaves a fully-ephemeral setup alone. This matches
+     the rationale precisely; a production settings file is never under temp. */
+  {
+    const rawTmp = os.tmpdir();
+    let realTmp = rawTmp;
+    try { realTmp = fs.realpathSync(rawTmp); } catch { /* keep the raw value */ }
+    /* Type-safe on purpose: this module never throws for an expected shape,
+       and both callers fail soft. A non-string settingsPath must NOT throw
+       here -- it falls through to the read below, which answers with a
+       sentence. underRoot returns false for a non-string rather than calling
+       .startsWith on it (#1582 review). */
+    const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
+    const scriptEphemeral = underRoot(scriptPath, rawTmp) || underRoot(scriptPath, realTmp);
+    /* Durable = a real settings path that is NOT under temp. A null/undefined
+       settingsPath is neither durable nor ephemeral here, so the refusal does
+       not fire and the downstream read handles the malformed input. */
+    const settingsDurable = typeof settingsPath === 'string'
+      && !underRoot(settingsPath, rawTmp) && !underRoot(settingsPath, realTmp);
+    /* Coupling this fix relies on, verified against the cut scripts (#1582
+       review): the sandbox is created with `mktemp -d` (test-install.sh:56)
+       and `${TMPDIR:-/tmp}/kosmos-release.XXXXXX` (release.sh:350), both under
+       $TMPDIR, and the setup Node process shares that $TMPDIR -- so os.tmpdir()
+       here names the same root the ephemeral script lives under. */
+    if (scriptEphemeral && settingsDurable) {
+      return { wired: false, because: 'the hook script path is under the temp root, which is ephemeral, so it was not written into the durable settings file' };
+    }
   }
   let target = settingsPath;
   try {
