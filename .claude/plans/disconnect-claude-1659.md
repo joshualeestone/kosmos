@@ -327,3 +327,61 @@ will come back signed out with a blank transcript tree.**
 
 ⇒ **NOT CONVERGED. Iteration 17 is owed**, and this deferral is not a dedup:
 it stays open and blocks convergence until it is measured or the answer lands.
+
+## Challenge loop, iteration 17 (2026-08-31)
+
+Eight WARNINGs and one CONVENTION, every one measured in a sandbox rather than
+argued. Five applied in 75d4e865. Three remain open, so this iteration did NOT
+converge.
+
+### The one worth reading twice: my own fix was vacuous too
+
+Iteration 16 replaced a vacuous plist assertion. The replacement counted
+`<string>` arguments. Measured:
+
+```
+plistFor(..., null)     -> 16 entries
+plistFor(..., 'claude') -> 16 entries      and === the null output, EXACTLY
+plistFor(..., 'codex')  -> 18 entries
+```
+
+So the count passes identically whether the fixture is seeded `null` or
+`'claude'`, which is the one distinction it claimed to make. The only
+substitution it could catch is codex, already caught by the 400 assertion.
+
+⭐ **The comment three lines above the assertion already said the two are
+byte-identical.** I wrote past a stated fact twice in one session, in a commit
+whose subject was removing a vacuous assertion.
+
+⇒ The fixture's "pre-runners" property is **unprovable from the plist by
+construction**. It now asserts the mechanism instead (`readJob` normalises a
+missing runner to `'claude'`), and the perturbation confirmed **that specific
+assertion** is the one that reds, which is the check I skipped last time.
+
+### Still open, so convergence is blocked
+
+**1. The "Disconnect" relabel removed a disambiguation axis. Mine.**
+Both providers' buttons now build `aria-label="Disconnect " + who + qual`. A row
+yielding neither an email nor a keyTail gets `qual = ''` and falls back to the
+label, so `~/.claude-work1` and `~/.codex-work1` both render exactly
+`Disconnect work1`. Before this branch they read `Disconnect work1` and
+`Remove work1`, so the verb was doing accidental disambiguation work.
+
+- Not created by me: `accountQualifiers` documents this in-code as deferred
+  finding 8, and says outright that a row yielding neither key makes it live.
+- Made worse by me: I removed the accident that was masking it.
+- The fix: fall back to the PROVIDER when `qual` is empty, so the parenthetical
+  is always present and always distinguishes.
+- Why it is not in this commit: it touches three render sites plus the test that
+  pins the exact source expression, and it is not on the release critical path.
+  Deliberately parked, not dropped.
+
+**2. The stopped-agent consequence is still absent from user-facing copy.**
+Re-raised independently this iteration, which is confirmation rather than new
+information. Unchanged from iteration 16: I will not ship copy asserting
+behaviour I have not measured, and measuring it belongs on #1689.
+
+**3. `configFile` returning a relative path** was fixed, but the broader point
+stands that this file had three derivations of one fact and the branch only
+found them because a reviewer went looking. The docblock's claim that the helper
+makes re-derivation impossible is aspirational, not enforced.
