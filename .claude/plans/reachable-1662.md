@@ -725,3 +725,53 @@ candidates, perturbation decides.
 applied. `grep` on this box is ugrep in BRE mode, where the literal pattern
 returned 0 and `-F` returned 1, against a control of 1. Had I trusted it I would
 have concluded the perturbation never ran and drawn the opposite conclusion.
+
+## Iteration 23
+
+**`-L` was the one probe component with no arm, and it is the one that matters
+most in production.** Every other flag in this predicate was measured as
+uncovered before being added, with a mutation that reddens. Not `-L`: the
+fixture never issued a 3xx at all (0 redirect responses against a control of 4
+explicit 404/405 responses).
+
+That gap is not academic. GitHub Releases, S3 and R2 all answer an asset URL
+with a redirect, and `-f` does not treat a 3xx as an error, so without `-L` curl
+reports the REDIRECT's content-type rather than the artifact's. An empty type
+gives a harmless false YES; `text/html` gives a FALSE NO, which this design
+calls its worst outcome, on the most likely deployment shape.
+
+Added `/redirect.tar.gz`, a 302 to the real gzip that answers with an HTML body
+deliberately, so dropping `-L` reddens rather than passing by luck. Verified:
+removing `-L` from both probes reddens exactly that arm.
+
+**And my own iteration-22 fix shipped copy that was false in three of four
+clauses.** Mapping curl 37 to status 2 was right, but the sentence opened "The
+server answered but did not send an installable file", and a `file://` path has
+no server, no release and no network. `tools/test-install.sh` drives the entire
+release path over `file://`, so that is the sentence the project's own gate
+produces. Fifth time on this branch that a fix has recreated the class it
+removed, and the second time on this exact sentence.
+
+It now opens on the ADDRESS, which is true for every shape reaching status 2,
+and the three causes stay hedged rather than asserted. Paired assertion: the new
+opening must be present and "server answered" must be absent.
+
+⚠️ **Residual, stated rather than papered over:** a missing local file still
+reads "the release may still be publishing" as one of three hedged
+possibilities. It is a possibility rather than a claim, and the address clause
+is the true one for that reader, but it is not ideal copy for them.
+
+### Considered and not done, with the reasoning
+
+**Giving rc 37 its own status 3, and extracting a `_reachable_refusal` helper.**
+That is the cleaner design and it would also settle the duplication four
+reviewers have now raised. I took the reviewer's lower-risk alternative instead:
+five of my last seven fixes introduced a defect that the next iteration caught,
+the guard harness extracts and executes the shipped block verbatim, and a
+three-way refusal plus a helper would rewrite both that block and the extractor
+late in a long loop. The reword closes the stated defect. The helper remains the
+right follow-up and is written down here rather than lost.
+
+**The comment ratio.** Trimmed the drafting archaeology the reviewer named,
+210 to 207 lines in the region. That is marginal and I am not calling it fixed:
+I remove history and add decision content at about the same rate.

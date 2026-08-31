@@ -610,20 +610,11 @@ reachable() {
   # connection about a server that had demonstrably answered. Same wrong-sentence
   # class this card removes, pointed the other way.
   #
-  # 📌 `if` rather than `{ …; } && _r_answered=1` PURELY FOR READABILITY, and
-  # an earlier version of this comment gave a false reason for it. It claimed
-  # the `&&` form would abort under `set -e`. It does not: an AND-OR list is
-  # EXEMPT from -e whether or not the left side fails. Measured on /bin/sh
-  # (bash 3.2.57), which is what this file runs under, with a control:
-  #     { [ a ] || [ b ]; } && x=1 ; echo AFTER   -> AFTER, rc=0   survives
-  #     [ 1 = 63 ] && x=0 ; echo AFTER            -> AFTER, rc=0   survives
-  #     CONTROL: the same compound with NO `&&`   -> rc=1, AFTER never printed
-  # The control is what makes those two zeros mean anything.
-  #
-  # ⚠️ The false version was self-refuting and worth naming: this file uses the
-  # supposedly fatal shape 14 times, including `[ "$_r_rc" = 63 ] && _r_rc=0`
-  # twenty lines below, which runs on nearly every call. A future maintainer
-  # who believed the comment would have "fixed" all fourteen.
+  # 📌 `if` rather than `{ …; } && _r_answered=1` is READABILITY ONLY, not
+  # safety. An AND-OR list is EXEMPT from `set -e` whether or not the left side
+  # fails, measured on /bin/sh with a control. This file uses that shape 14
+  # times, including `[ "$_r_rc" = 63 ] && _r_rc=0` twenty lines below, so do
+  # not "fix" them. (Plan file has the measurement.)
   _r_answered=0
   # %{http_code} FIRST because a content type contains spaces ("text/html;
   # charset=utf-8") and a status code never does, so the split is unambiguous.
@@ -782,7 +773,7 @@ fetch_tmux() {
       if [ "$_r_why" = 2 ]; then
         # NOT "could not reach": the server answered. Saying both contradicts itself.
         info "the download at $url is not usable"
-        info "The server answered but did not send an installable file. The release may still be publishing, something on your network may be intercepting the request, or the address it is downloading from may be wrong. Try again in a few minutes; if it keeps happening, check the address."
+        info "The address it is downloading from did not give an installable file. The release may still be publishing, something on your network may be intercepting the request, or the address may be wrong. Try again in a few minutes; if it keeps happening, check the address."
       else
         info "could not reach the download at $url"
         info "Check your internet connection and paste the install line again; it is safe to re-run."
@@ -861,7 +852,7 @@ install_kosmos() {
       if [ "$_r_why" = 2 ]; then
         # NOT "could not reach": the server answered. Saying both contradicts itself.
         info "the download at $url is not usable"
-        info "The server answered but did not send an installable file. The release may still be publishing, something on your network may be intercepting the request, or the address it is downloading from may be wrong. Try again in a few minutes; if it keeps happening, check the address."
+        info "The address it is downloading from did not give an installable file. The release may still be publishing, something on your network may be intercepting the request, or the address may be wrong. Try again in a few minutes; if it keeps happening, check the address."
       else
         info "could not reach the download at $url"
         info "Check your internet connection and paste the install line again; it is safe to re-run."

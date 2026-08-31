@@ -87,6 +87,18 @@ test.before(async () => {
       if (req.method === 'HEAD') { res.writeHead(404, { 'content-length': '0' }); return res.end(); }
       return req.socket.destroy();
     }
+    /* 🛑 A REDIRECT TO THE REAL ARTIFACT. This is the shape GitHub Releases, S3
+       and R2 all answer an asset URL with, and `-L` was the one probe component
+       with no arm: nothing in this fixture issued a 3xx. `-f` does not treat a
+       3xx as an error, so without `-L` curl reports the REDIRECT's own
+       content-type. Empty gives a harmless false YES; `text/html` gives a FALSE
+       NO, which this design calls its worst outcome, on the most likely
+       deployment shape. The redirect answers with an HTML body deliberately, so
+       dropping -L reddens instead of passing by luck. */
+    if (u.pathname === '/redirect.tar.gz') {
+      res.writeHead(302, { location: '/real.tar.gz', 'content-type': 'text/html; charset=utf-8' });
+      return res.end('<html>moved</html>');
+    }
     const bigGzip = u.pathname === '/bigrange.tar.gz';
     const bigHtml = u.pathname === '/bightml.tar.gz';
     /* Same shape as bigGzip but with NO content-length, so node sends it
@@ -353,6 +365,16 @@ test('#1662: the REAL reachable() returns 0 for a genuine download, so 0/1/2 are
   assert.equal(await reachableStatus(`${base}/real.tar.gz`), '0',
     'CONTROL: a real gzip must be status 0. Without this the three arms above are consistent '
     + 'with a predicate that never says yes.');
+});
+
+test('#1662: a REDIRECT to the artifact is followed, which is how S3, R2 and GitHub Releases serve', async () => {
+  assert.equal(await reachable(`${base}/redirect.tar.gz`), 'YES',
+    'a 302 to a real gzip must be YES. Without -L curl reports the REDIRECT response type, which '
+    + 'this fixture serves as text/html, so the predicate would refuse a perfectly good artifact '
+    + 'at an abort guard. Every major release host answers an asset URL with a redirect.');
+  assert.equal(await reachableStatus(`${base}/redirect.tar.gz`), '0',
+    'and it must be status 0, not merely non-1: a redirect that lands on a real download is a '
+    + 'download, not an "answered but unusable" case');
 });
 
 test('#1662: content-type matching is case-insensitive, per RFC 9110 section 8.3', async () => {
@@ -631,6 +653,16 @@ test('#1662: a CONNECTION failure and a SERVED-ERROR failure get different sente
        which is the shape that silently voids a control when someone rewords in
        a rebase. It caught a real reword here, so it worked, but the next reword
        should not need an assertion edit to stay honest. */
+    /* Status 2 is also reached by a missing file:// path (curl 37), which has no
+       server, no release and no network. The copy therefore must not ASSERT a
+       server; it opens on the address, which is true for every shape that gets
+       here. Paired so neither half is vacuous: the new opening must be present
+       and the old assertion must be absent. */
+    assert.match(servedError, /did not give an installable file/,
+      `guard ${i}: the refusal must open on the ADDRESS. Got: ${servedError}`);
+    assert.doesNotMatch(servedError, /server answered/,
+      `guard ${i}: must not assert a server. curl 37 (a missing file:// path) reaches this branch, `
+      + 'and tools/test-install.sh drives the whole release path over file://');
     assert.match(servedError, /publishing/,
       `guard ${i}: must offer the release-still-publishing cause. Got: ${servedError}`);
     assert.match(servedError, /address/,
