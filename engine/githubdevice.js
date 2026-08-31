@@ -39,18 +39,25 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
-/* 🛑 MODULE SCOPE, AND THIS IS A CONTRACT FIX RATHER THAN A TIDY-UP.
+/* 🛑 MODULE SCOPE, AND THE REASON HERE IS NOT devicedoor's REASON.
    This read `(p) => require('./runners').isRunnable(p)`, requiring at CALL time.
-   The lambda is reached from `ghBin()`, which `status()` calls synchronously inside
-   a Promise executor, and this file's own `state()` promises "Never rejects", so a
-   load failure of `runners.js` REJECTED `door.state()`. Measured, both arms: with
-   the require throwing, `github.state()` REJECTED; control, module whole, resolved.
-   ⚠️ The branch fixed exactly this class for `ghCandidateList` and left this shape
-   standing IN THE SAME COMMIT, in two files. Fixing one site and not its siblings
-   is the defect this branch is named for, committed inside the fix for it.
-   📌 Safe: `runners.js` requires only node builtins, so there is no cycle. A load
-   failure now fails loudly at import instead of quietly breaking a promise
-   contract at call time. */
+
+   ⚠️ THIS PARAGRAPH WAS A VERBATIM COPY OF devicedoor.js's AND EVERY MECHANISM IN
+   IT WAS FALSE FOR THIS FILE. It cited `ghBin()`, `status()`, `makeDoor` and a
+   Promise executor; this file has NONE of them (measured 0, 0, 0, with `ghPresent`
+   at 5 as a control). It also cited devicedoor's own measurement,
+   "`github.state()` REJECTED", which is a different module's result.
+
+   ✅ THE TRUE REASON, MEASURED FOR THIS FILE: `ghPresent()` is reached from
+   `async function state()`, which wraps its whole body in try/catch. A call-time
+   require failure here is therefore NOT a rejection, it is SWALLOWED and served as
+   `gh: 'missing'` -- a WRONG ANSWER rather than a loud one. Hoisting makes the same
+   failure die at import instead of degrading into a plausible-looking verdict.
+
+   📌 That is also why the contract arm written for this file was REMOVED as
+   undefeatable: `state()`'s own catch upholds "never rejects" here regardless of
+   the hoist. The hoist defends against a WRONG ANSWER, not against a rejection.
+   📌 Safe: `runners.js` requires only node builtins, so there is no cycle. */
 const { isRunnable } = require('./runners');
 
 const DIR = path.join(store.ROOT, 'secrets');
@@ -192,6 +199,16 @@ function setClientId(id) {
    the export list 190 lines below it, after the re-export was dropped as new
    public surface. Consumers require it from `github.js`, where it is defined. */
 const { ghCandidateList } = require('./github');
+/* 🛑 FAIL LOUDLY IF THIS BINDING EVER DEGRADES. If a require cycle is introduced,
+   the destructured name is `undefined` during a partial load, the TypeError inside
+   `ghPresent()` is swallowed by `state()`'s outer catch, and the route answers
+   `gh: 'missing'` instead of failing. The branch pins the OPPOSITE direction
+   (github.js must not reach back into githubdevice) and nothing pinned this one.
+   ⚠️ Same silent-degradation shape as the hoist above: the risk here is a WRONG
+   ANSWER, not a rejection, which is exactly what a catch-all hides. */
+if (typeof ghCandidateList !== 'function') {
+  throw new TypeError('githubdevice: ghCandidateList did not load from ./github; a require cycle would answer gh:"missing" silently');
+}
 
 /* gh presence, so ONE writer can branch on this object alone.
 
@@ -205,7 +222,10 @@ const { ghCandidateList } = require('./github');
 function ghPresent() {
   // #1592: the byte-identical twin of devicedoor.js's lambda, which is why
   // fixing one file would not have found the other. Both now ask runners.
-  const runnable = (p) => isRunnable(p);
+  /* Identity wrapper removed: `(p) => isRunnable(p)` allocated a closure on every
+     call and was the last structural trace of the duplicated lambda this card is
+     about. The local name is kept because the two call sites read better with it. */
+  const runnable = isRunnable;
   /* Truthiness here, deliberately, and NOT the `typeof override !== 'string'`
      test that `ghCandidateList` uses in `engine/github.js`: an empty
      AGENT_WORKFORCE_GH_BIN means "no override",
