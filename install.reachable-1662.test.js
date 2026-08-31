@@ -30,7 +30,12 @@ const SRC = fs.readFileSync(SETUP, 'utf8');
 
 /* Extraction, asserted rather than assumed: if the shape moves, this test must
    FAIL loudly, never quietly measure nothing. */
-const BLOCK_RE = /_reachable_is_download\(\)\s*\{[\s\S]*?\n\}\n\nreachable\(\)\s*\{[\s\S]*?\n\}\n/;
+/* Tolerates comment lines between the two functions. An earlier version
+   required a bare blank line there, and adding a doc comment above
+   `reachable()` broke the match -- which the assertion below caught
+   immediately, reporting 0 arms rather than silently measuring nothing.
+   That is the behaviour that arm exists for, so it is kept strict. */
+const BLOCK_RE = /_reachable_is_download\(\)\s*\{[\s\S]*?\n\}\n(?:[ \t]*#[^\n]*\n|[ \t]*\n)*reachable\(\)\s*\{[\s\S]*?\n\}\n/;
 const FN = SRC.match(BLOCK_RE);
 
 const GZ = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0]);

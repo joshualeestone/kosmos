@@ -565,6 +565,12 @@ _reachable_is_download() {
   return 0
 }
 
+# ⚠️ THE NAME IS WIDER THAN THE CONTRACT. This answers "is this a NON-TEXTUAL
+# DOWNLOAD", not "is this URL reachable": a perfectly reachable JSON or XML URL
+# is refused on purpose. Every caller here fetches a tarball, so that is the
+# question they are asking -- but do not reuse this for a general reachability
+# test. `latest.json` is fetched by bare curl further down for exactly that
+# reason, and routing it through here would refuse it.
 reachable() {
   # HEAD first; the range GET is the fallback for hosts that refuse HEAD.
   # A 404 page answers a range request with 206 and its own HTML body, so the
@@ -582,20 +588,23 @@ reachable() {
   # fetch_tmux and install_kosmos, and the `[ -n "${TARGET_VERSION:-}" ] &&
   # reachable …` probe that picks the versioned tarball. It is still a trap,
   # and it lands exactly on the fallback's reason for existing: a 405 on HEAD.
-  # ⚠️ Cited by their TEXT and never by line number. Two successive versions of
-  # this comment carried positions that its own growth had already invalidated.
-  # Nothing checks a line number in a comment, so there are none here.
+  # Cited by their text. Nothing checks a line number in a comment, so there
+  # are none here.
   local _r_ct _r_rc
   _r_ct=$(curl -fsIL -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
-  # 📌 This arm now also runs when HEAD SUCCEEDED with a textual type, where
-  # the pre-#1662 code only reached it when HEAD failed. Kept deliberately: a
-  # second opinion costs one bounded request (-m 15) and refusing on a single
-  # mis-typed HEAD would be a false NO, which is the expensive direction for
-  # this predicate. The cost is real though: against an origin that ignores
-  # Range and answers 200 with the whole body, this pulls a tarball into
-  # /dev/null. Only reachable when a genuine tarball URL reports a textual
-  # type, which is why it is accepted rather than optimised away.
+  # 📌 This arm also runs when HEAD SUCCEEDED with a textual type, where the
+  # pre-#1662 code reached it only after a HEAD failure. Kept deliberately,
+  # because refusing on a single mis-typed HEAD would be a false NO.
+  #
+  # ⚠️ AND THE COST IS BIGGER THAN "AN EXTRA REQUEST", WHICH IS HOW AN EARLIER
+  # VERSION OF THIS COMMENT UNDERSTATED IT. Against a hung origin BOTH probes
+  # run their full timeout: measured end to end at 30.3s, verdict NO. So the
+  # worst case is a doubled wait AND a refusal -- a false NO, the very
+  # direction this predicate's asymmetry argument says it does not trade into.
+  # It is accepted rather than optimised away because the alternative refuses a
+  # genuine tarball on one bad header, but the trade is 15s of extra waiting on
+  # a dead host, not merely some wasted bandwidth.
   _r_ct=$(curl -fsL -r 0-0 -m 15 -o /dev/null -w '%{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
   _reachable_is_download "$_r_rc" "$_r_ct" && return 0
   return 1
