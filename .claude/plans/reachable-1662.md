@@ -94,9 +94,10 @@ commit and not to my discipline.** Anyone can check it in one command against
 any future HEAD:
 
 ```
-tested-source-sha256   faaa04c20d8840b07da0c5a5e9490e2e3e57f8a3f8b55d805a7371f20b01fb3d
+tested-source-sha256   96f1e2a50d3c897922bfaff52a0b447a808119a2f22ebb8a37d3fe4ab5fa368d
 bundle-sha-matches     dist/setup == install/setup.sh, asserted BEFORE the harness
-source-sha-at-end      faaa04c2... (identical, so nothing moved mid-run)
+source-sha-at-end      96f1e2a5... (identical, so nothing moved mid-run)
+assertions             328 (a run that asserted NOTHING is not a pass)
 
   shasum -a 256 install/setup.sh
 ```
@@ -146,10 +147,16 @@ PASS  tamper refusal speaks a sentence  PASS  stage residue swept from the home 
 PASS  no stage residue after refusal    PASS  pinned install exits 0
 ```
 
-⭐ **The remaining failure is invariant across THREE runs whose code differed**
-(run 2 added the `set -e` fix, `/usr/bin/tr` and `problem+json`; run 3 added
-`*+json*`, the contract comment and the cost correction). Byte-identical
-detail each time. A failure caused by this diff would have moved when the diff
+⭐ **The remaining failure is invariant across FOUR runs whose code differed**
+Byte-identical detail every time, while the code changed under it:
+
+```
+run 1   baseline
+run 2   + set -e fix, /usr/bin/tr, problem+json
+run 3   + *+json*, contract comment, cost correction
+run 4   + --max-filesize on the second probe
+        327 / 1 every time, same file named every time
+``` A failure caused by this diff would have moved when the diff
 moved. The assertion is `EXPECTED_ADDS` in the LOCAL-SOURCES install, which
 `tools/test-install.sh:797` says never runs `reachable()`, `verify_download()`
 or tar; the unexpected file is `wouldping/needs-you.jsonl`, a runtime
