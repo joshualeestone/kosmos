@@ -712,3 +712,55 @@ test('a board that accepts the connection and never answers gets the TIMEOUT sen
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('every connect.PHASE is accounted for by the CLI, so a new phase cannot print silence', () => {
+  /**
+   * 🛑 THE FAILURE THIS CLOSES IS A SILENCE, WHICH IS WHY NOTHING ELSE CATCHES IT.
+   * The renderer has three phase branches: `unknown`, `STOPPED` (terminal), and
+   * `STEP` (in flight). A NEW phase added to `connect.PHASE` upstream that is not
+   * in `ACTIVE_PHASES` matches none of them and prints NOTHING, byte-identical to
+   * `idle`. No test fails, no sentence looks wrong, and the person is told nothing
+   * is happening while something is.
+   *
+   * That is the same silence-collapse the `unknown` branch was added to close, and
+   * `PHASES`/`BUSY_PHASES`/`SAY` are each already pinned to their source of truth.
+   * `STOPPED` and `STEP` were the two copies with no guard at all.
+   *
+   * ⭐ IT ASSERTS COVERAGE, NOT EQUALITY. Silence is a legitimate answer for `idle`
+   * and `connected`, so those are named here as DELIBERATE. A new phase forces
+   * whoever adds it to make that choice explicitly instead of inheriting silence.
+   */
+  const connect = require('./engine/connect');
+  const src = fs.readFileSync(CLI, 'utf8');
+
+  const keysOf = (name, re) => {
+    const m = src.match(re);
+    assert.ok(m, `could not find the ${name} map in install/kosmos: it was renamed or reshaped, and this guard just went blind`);
+    const keys = [...m[1].matchAll(/["']?([a-z-]+)["']?\s*:/g)].map((x) => x[1]);
+    assert.ok(keys.length > 0, `extracted zero keys from ${name}: the guard would pass vacuously`);
+    return keys;
+  };
+
+  const stopped = keysOf('STOPPED', /var STOPPED = \{([\s\S]*?)\};/);
+  const step = keysOf('STEP', /var STEP = \{([\s\S]*?)\};/);
+
+  /* Silence is correct for these two and only these two. */
+  const DELIBERATELY_SILENT = ['idle', 'connected'];
+
+  const spoken = new Set([...stopped, ...step, ...DELIBERATELY_SILENT]);
+  const unaccounted = Object.values(connect.PHASE).filter((p) => !spoken.has(p));
+  assert.deepEqual(unaccounted, [],
+    `connect.PHASE has phases the CLI neither speaks nor deliberately silences: ${unaccounted.join(', ')}. `
+    + 'Add each to STOPPED (terminal) or STEP (in flight), or to DELIBERATELY_SILENT here with a reason. '
+    + 'Left alone it prints nothing, which the person reads as "no sign-in is happening".');
+
+  /* The in-flight map is pinned exactly: a phase that IS active must have a
+     sentence, and a sentence for a phase that is not active is dead code. */
+  assert.deepEqual([...step].sort(), [...connect.ACTIVE_PHASES].sort(),
+    'the CLI in-flight sentences and connect.ACTIVE_PHASES have drifted apart');
+
+  /* Control: the extraction really reaches the maps, so the assertions above are
+     not passing on empty sets. */
+  assert.ok(stopped.includes('stuck') && stopped.includes('interrupted'),
+    'the STOPPED extraction did not find the two phases known to be there, so it is not reading the map');
+});

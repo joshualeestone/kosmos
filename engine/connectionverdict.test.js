@@ -391,3 +391,49 @@ test('#1034: an unrecognised state is NOT counted as readable, and the three cou
   const cg = allGood.providers.find((p) => p.id === 'anthropic');
   assert.equal(cg.howManyReadable, 2, 'control: two readable rows did not count as two');
 });
+
+test('a stale terminal sign-in beside a live connection reads as unknown, not stuck', () => {
+  /**
+   * 🛑 `connect.state()` CAN HAND US A RECORD FROM A PREVIOUS BOARD PROCESS.
+   * Once `startedOnce` is false, which is the state at every board boot, the disk
+   * fallback has no freshness gate. So a `stuck` phase can arrive for a provider
+   * that is connected right now, and reporting both is a contradiction about one
+   * computer that the PERSON is left to reconcile.
+   *
+   * This lived in the CLI renderer, which made the shipped path correct and the
+   * design wrong: no other consumer inherited it. It is decided here now.
+   *
+   * ⭐ IT BECOMES `unknown`, NOT `idle`. We cannot tell whether that record still
+   * describes anything. Saying `idle` would be a confident negative about a
+   * sign-in we did not look at, which is the collapse this whole module refuses.
+   */
+  const connectedRow = { provider: 'anthropic', connection: { state: subscription.STATE.CONNECTED, because: 'fine' } };
+
+  const suppressed = verdict.forAgent({
+    accounts: [connectedRow],
+    connect: { phase: 'stuck' },
+  });
+  assert.equal(suppressed.signin.phase, 'unknown',
+    'a stale terminal phase was reported beside a live connection: the two contradict each other about one computer');
+  assert.notEqual(suppressed.signin.phase, 'idle',
+    'the stale record was collapsed to idle, a confident negative about a sign-in nobody looked at');
+
+  /* CONTROL: with nothing connected, the SAME record is real news and survives.
+     Without this arm the assertion above is satisfied by suppressing always. */
+  const kept = verdict.forAgent({
+    accounts: [],
+    connect: { phase: 'stuck' },
+  });
+  assert.equal(kept.signin.phase, 'stuck',
+    'a terminal sign-in was suppressed even with nothing connected, which hides a real failure');
+
+  /* CONTROL: an IN-FLIGHT sign-in is never suppressed. Somebody is at their
+     keyboard now; a connected provider elsewhere does not make that stale. */
+  const live = verdict.forAgent({
+    accounts: [connectedRow],
+    connect: { phase: 'signin-awaiting-code' },
+  });
+  assert.equal(live.signin.phase, 'signin-awaiting-code',
+    'a sign-in happening RIGHT NOW was suppressed because something else was connected');
+  assert.equal(live.signin.busy, true, 'the live phase lost its busy flag');
+});

@@ -274,9 +274,43 @@ function serviceView(doors, allowed) {
  * which is the two-accounts-of-what-to-do failure this card exists to prevent,
  * arriving through a field name rather than a sentence.
  */
-function signinView(st) {
+/**
+ * 🛑 `anyConnected` IS A CORRECTNESS INPUT, NOT A RENDERING HINT.
+ * `connect.state()` can return a PERSISTED `stuck`/`interrupted` written by a
+ * previous board process: once `startedOnce` is false, which is the state at
+ * every board boot, there is no freshness gate on the disk fallback. So this
+ * module can be handed a terminal sign-in phase for a provider that is, right
+ * now, connected. Reported side by side those two are a contradiction about one
+ * computer, and the person is the one who has to reconcile it.
+ *
+ * ⚠️ THAT SUPPRESSION USED TO LIVE ONLY IN THE CLI RENDERER, WHICH MADE THE
+ * SHIPPED PATH CORRECT AND THE DESIGN WRONG. This plan's whole shape is that the
+ * module constructs the safe view and callers render it; a correctness property
+ * held in one renderer is inherited by no other consumer. An agent curling the
+ * route directly, or a future board panel, got the contradiction with nothing to
+ * warn it, and would each have had to re-derive the same rule.
+ *
+ * ⇒ It is decided here now. A stale terminal phase beside a live connection is
+ * reported as `unknown`, not as `stuck`: we genuinely cannot tell whether that
+ * record still describes anything, and `unknown` is this module's word for
+ * exactly that. Collapsing it to `idle` would be the confident-negative failure
+ * this card exists to refuse, one field over.
+ *
+ * 📌 The CLI keeps its own `!anyConnected` check, and it is NOT dead code: the
+ * CLI talks to a board over HTTP and that board may be an older build than the
+ * CLI. Belt and braces across a version boundary.
+ */
+/* The phases that describe a sign-in that STOPPED. Derived rather than
+   hand-listed: anything in the enum that is neither in flight nor one of the two
+   resting states is a stopped one, so a new terminal phase upstream is covered
+   here without an edit. `PHASES` already includes this module's own `unknown`,
+   which is why it is excluded too. */
+const TERMINAL_PHASES = PHASES.filter((p) => !BUSY_PHASES.includes(p) && !['idle', 'connected', 'unknown'].includes(p));
+
+function signinView(st, anyConnected) {
   const raw = st && typeof st.phase === 'string' ? st.phase : null;
-  const phase = PHASES.includes(raw) ? raw : 'unknown';
+  let phase = PHASES.includes(raw) ? raw : 'unknown';
+  if (anyConnected === true && TERMINAL_PHASES.includes(phase)) phase = 'unknown';
   return { provider: 'anthropic', phase, busy: BUSY_PHASES.includes(phase) };
 }
 
@@ -290,12 +324,15 @@ function forAgent(raw) {
   const accounts = Array.isArray(src.accounts) ? src.accounts : [];
   const byProvider = (p) => accounts.filter((a) => a && a.provider === p);
   const blind = src.unreadable && typeof src.unreadable === 'object' ? src.unreadable : {};
+  const providers = [
+    providerView('anthropic', PROVIDER_LABEL.anthropic, byProvider('anthropic'), runners[RUNNER_KEY.anthropic], blind.anthropic === true),
+    providerView('openai', PROVIDER_LABEL.openai, byProvider('openai'), runners[RUNNER_KEY.openai], blind.openai === true),
+  ];
   return {
-    providers: [
-      providerView('anthropic', PROVIDER_LABEL.anthropic, byProvider('anthropic'), runners[RUNNER_KEY.anthropic], blind.anthropic === true),
-      providerView('openai', PROVIDER_LABEL.openai, byProvider('openai'), runners[RUNNER_KEY.openai], blind.openai === true),
-    ],
-    signin: signinView(src.connect),
+    providers,
+    /* The providers are built first ON PURPOSE: whether anything is connected is
+       an input to how a stale sign-in record is read. See signinView. */
+    signin: signinView(src.connect, providers.some((p) => p.signedIn === subscription.STATE.CONNECTED)),
     services: serviceView(src.doors, src.doorNames),
   };
 }

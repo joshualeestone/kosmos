@@ -739,7 +739,23 @@ cmd_connections() {
   # Two reviews found that arm was the one failure sentence here with no test,
   # and this file already shipped two sentences DEAD once, under a green suite.
   # Hard-coding the 40 is what made it undriveable; nothing else reads this var.
-  body=$(curl -sS -m "${KOSMOS_CONN_TIMEOUT:-40}" "$URL/api/agent/connections" 2>/dev/null) || {
+  #
+  # 🛑 VALIDATED, BECAUSE `curl -m 0` MEANS NO TIMEOUT AT ALL. The var is read
+  # from the ambient environment in production, so a stray or zero value would
+  # silently remove the 40s ceiling and make the "took longer than we waited"
+  # sentence below unreachable: the CLI would hang instead of saying so. A test
+  # seam that can disable a production guard is not a seam, it is a hole.
+  local deadline=40
+  case "${KOSMOS_CONN_TIMEOUT:-}" in
+    "") : ;;
+    *[!0-9]*) : ;;          # not digits-only: ignore it, keep the ceiling
+    0) : ;;                 # 0 means "no timeout" to curl: refuse it
+    *) deadline="$KOSMOS_CONN_TIMEOUT" ;;
+  esac
+  # `-s` alone, not `-sS`: the comment above says stderr is discarded on purpose,
+  # and `-S` exists solely to print errors there. Keeping both states an intent
+  # the redirect immediately contradicts. We branch on the EXIT CODE, not output.
+  body=$(curl -s -m "$deadline" "$URL/api/agent/connections" 2>/dev/null) || {
     rc=$?
     # 28 is curl's own timeout. Saying "Kosmos did not answer" for a client-side
     # deadline blames the board for our impatience and sends the reader to the
@@ -1170,7 +1186,17 @@ case "${1:-}" in
   reply)   shift; cmd_reply "$@" ;;
   post)    shift; cmd_post "$@" ;;
   report)  shift; cmd_report "$@" ;;
-  connections) shift; cmd_connections "$@" ;;
+  connections)
+    shift
+    # It takes no arguments, and answering as though it did is expensive: the
+    # sweep behind it is a subprocess per Claude account plus an authenticated
+    # request per OpenAI account. `kosmos connections --help` used to pay all of
+    # that and then print the report anyway.
+    if [ "$#" -gt 0 ]; then
+      say "\"connections\" takes no options. Run: \"$SELF\" connections"
+      exit 2
+    fi
+    cmd_connections ;;
   whoami)  shift; cmd_whoami "$@" ;;
   room)    shift; cmd_room "$@" ;;
   *)
