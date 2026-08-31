@@ -32,8 +32,15 @@ test('the control lives under Plus, hidden until enrolled, and paints with the d
   assert.match(sec, /id="plus-second" hidden/, 'the control does not start hidden');
   assert.match(sec, /I lost my phone/);
   assert.match(sec, /Nobody else can/, 'the sentence that says there is no support path is gone');
-  const paint = SCRIPT.slice(SCRIPT.indexOf('async function paintPlus('), SCRIPT.indexOf("document.getElementById('plus-switch').addEventListener"));
-  assert.match(paint, /plus-second'\)\.hidden = r\.enrolled !== true/, 'the control is not gated on enrolled; an unenrolled Mac cannot sign the request');
+  /* #1615: the old end-anchor (the plus-switch handler) was removed with the
+     toggle; plusWords is the function immediately after paintPlus. */
+  const paint = SCRIPT.slice(SCRIPT.indexOf('async function paintPlus('), SCRIPT.indexOf('function plusWords('));
+  /* #1615: the gating moved from a one-liner (`hidden = r.enrolled !== true`)
+     to explicit enrolled / not-enrolled branches. The RULE is unchanged: the
+     reset shows only when enrolled, so an unenrolled Mac cannot reach it. */
+  assert.match(paint, /r\.enrolled === true/, 'the control is not gated on enrolled; an unenrolled Mac cannot sign the request');
+  assert.match(paint, /getElementById\('plus-second'\)\.hidden = false/, 'the control is not shown when enrolled');
+  assert.match(paint, /getElementById\('plus-second'\)\.hidden = true/, 'the control is not hidden when not enrolled');
   assert.match(paint, /plusSecondDisarm\(\)/, 'a repaint leaves a half-taken click armed');
 });
 

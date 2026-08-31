@@ -66,10 +66,10 @@ test('no hostname or price appears in the Plus copy: the domain is temporary and
 
 test('the flow gates on configured, and the section paints on arrival', () => {
   const SCRIPT = PAGE.slice(PAGE.lastIndexOf('<script>'));
-  const pStart = SCRIPT.indexOf('async function paintPlus(');
-  const pEnd = SCRIPT.indexOf("document.getElementById('plus-switch')", pStart);
-  assert.ok(pStart > -1 && pEnd > pStart, 'the paintPlus region moved; re-anchor (an open-ended slice would pass against the whole script)');
-  const paint = SCRIPT.slice(pStart, pEnd);
+  /* #1615: the old boundary anchored on plus-switch, which the journeys.html
+     redo removed. Brace-match the whole function instead (bounded to paintPlus,
+     so it cannot overshoot into the rest of the script). */
+  const paint = pageFnSource('paintPlus');
   assert.match(paint, /configured !== true/, 'the flow no longer gates on the machine being configured');
   /* #1615: the pane is three states now, so this asserts the RULE across all three
      rather than the two-line shape it used to pin. An unconfigured machine shows state 1
@@ -130,31 +130,45 @@ test('#743: a slower poll cannot revert a faster user click (or vice versa)', ()
   // Behavioural: run it for real, with the SECOND call's fetch resolving
   // FIRST (the exact inversion a naive "last resolved wins" would get
   // wrong), and assert the state left on screen is the second call's.
+  // #1615: the connected pane is the journeys.html step machine now, so the
+  // race is expressed through which STEP is left showing, not a toggle label.
+  // A (dispatched first) is unconnected -> the sign-in land step; B (dispatched
+  // second) is connected -> the done step, and must win however they resolve.
+  const PJ_STEPS = ['pj-land', 'pj-email', 'pj-ecode', 'pj-phone', 'pj-pcode', 'pj-done', 'pj-kick'];
   const els = {
     'plus-state1': { hidden: false },
     'plus-state2': { hidden: true },
     'plus-flow': { hidden: true },
-    'plus-switch': { textContent: '' },
     'plus-status': { textContent: '' },
-    'plus-enrol': { hidden: false },
     'plus-devices': { hidden: false },
     'plus-second': { hidden: false },
+    'pj-done-addr': { textContent: '' },
   };
+  for (const s of PJ_STEPS) els[s] = { hidden: s !== 'pj-land' };
   const pending = [];
   const fetchImpl = () => new Promise((resolve) => { pending.push(resolve); });
+  // paintPlus references the page-global step helpers; provide equivalents in
+  // the prelude so the extracted function runs in isolation.
+  const prelude = 'let PLUS_EPOCH = 0; let PLUS_ADDRESS = ""; let PLUS_MSG_KIND = "";\n'
+    + 'const PJ_STEPS = ' + JSON.stringify(PJ_STEPS) + ';\n'
+    + 'function pjShow(id){for(const s of PJ_STEPS){const el=document.getElementById(s);if(el)el.hidden=(s!==id);}}\n'
+    + 'function pjCurrent(){return PJ_STEPS.find((s)=>{const el=document.getElementById(s);return el&&!el.hidden;})||"";}\n'
+    + 'function plusSay(){}\n';
   const run = new Function('document', 'fetch', 'plusWords', 'paintDevices', 'plusSecondDisarm',
-    'let PLUS_EPOCH = 0;\n' + src + '\nreturn paintPlus;')(
+    prelude + src + '\nreturn paintPlus;')(
     { getElementById: (id) => els[id] }, fetchImpl, (t) => t, () => {}, () => {});
 
-  const callA = run();  // dispatched first: on
-  const callB = run();  // dispatched second: off -- must win regardless of resolve order
+  const callA = run();  // dispatched first: not connected -> land
+  const callB = run();  // dispatched second: connected -> done, must win
   assert.equal(pending.length, 2, 'both calls did not reach the fetch');
   // B (dispatched second) resolves FIRST.
-  pending[1]({ json: async () => ({ configured: true, on: false, status: {}, enrolled: true }) });
+  pending[1]({ json: async () => ({ configured: true, status: {}, enrolled: true }) });
   // A (dispatched first, slower) resolves SECOND, after B already painted.
-  pending[0]({ json: async () => ({ configured: true, on: true, status: {}, enrolled: true }) });
+  pending[0]({ json: async () => ({ configured: true, status: {}, enrolled: false }) });
   return Promise.all([callA, callB]).then(() => {
-    assert.equal(els['plus-switch'].textContent, 'Turn on',
-      'the slower, earlier-dispatched call overwrote the later click -- the exact revert Pete would see');
+    assert.equal(els['pj-done'].hidden, false,
+      'the slower, earlier-dispatched call overwrote the later one -- the exact revert the epoch guard prevents');
+    assert.equal(els['pj-land'].hidden, true,
+      'the later, connected call did not win: the sign-in land step is still showing');
   });
 });

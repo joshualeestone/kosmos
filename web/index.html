@@ -9614,54 +9614,99 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     </div>
 
     <div id="plus-flow" hidden>
-      <div class="setrow">
-        <div>
-          <p class="setname">Use Kosmos from anywhere</p>
-          <p class="fhint" id="plus-status" aria-live="polite"></p>
-          <!-- #1014. Setup used to end by handing you a URL and stopping, and
-               a URL with no instruction is a thing a person stares at. Josh,
-               with a working install in front of him, asked when he was
-               supposed to go to his device and open his own address.
-
-               Three facts in the order a person needs them: where to go, that
-               the sign-in they will meet is expected rather than a rebuff, and
-               that this Mac will ask them something next. The second one
-               matters most -- typing your address into your phone shows the
-               gate's "somebody else's Kosmos" page, which is correct and reads
-               as a refusal to somebody who was just told it is theirs.
-               (Deliberately NOT quoting the gate's exact sentence: the e2e
-               suite uses it to tell the gate apart from the board, and having
-               it here made the board look like the gate.)
-
-               The words are Ice Cream Kitty's and Mona Lisa may replace them,
-               the same footing as the recovery block below. -->
-          <p class="fhint" id="plus-next" hidden></p>
+      <!-- #1615: the coordinator-enable flow, redone to journeys.html Journey 2
+           ("Set up Kosmos on your Mac"). It was a from-anywhere TOGGLE plus an
+           enrol block, sketched to prove the connection was possible. Josh,
+           2026-08-30: "i want to see all the design implemented and then we make
+           the product work based on the design", so the DESIGNED stepped
+           sign-in is drawn even where its backing is not wired yet, and a step
+           that only advances is named as such. Voice and step order are Mona
+           Lisa's from journeys.html (confirmed 2026-08-30). Guards kept: every
+           "this computer" avoids engine/machine.test.js's no-"this Mac" rule,
+           no price and no hostname literal lives in this copy, and the address
+           on the done step is a runtime value, so web.plus-tab.test.js holds. -->
+      <div id="plus-journey">
+        <!-- land: sign in, or join if new -->
+        <div class="pj-step" id="pj-land">
+          <p class="setname">Kosmos+</p>
+          <p class="fhint">Sign in to connect this computer to your Kosmos+ account, or join if you are new.</p>
+          <div class="frow" style="margin-top:8px;">
+            <button class="btn uprime" type="button" id="pj-signin">Sign in</button>
+            <button class="btn" type="button" id="pj-join">Join Kosmos+</button>
+          </div>
         </div>
-        <button class="btn" type="button" id="plus-switch"></button>
-      </div>
-      <div id="plus-enrol" hidden style="margin-top:12px;">
-        <div class="field">
-          <label class="flabel" for="plus-email">Your email</label>
-          <input class="tk-inp" id="plus-email" type="email" maxlength="120" autocomplete="email">
+        <!-- email: sign in with the account email -->
+        <div class="pj-step" id="pj-email" hidden>
+          <p class="setname">Sign in to Kosmos+</p>
+          <p class="fhint">We will send a code to the email on your account.</p>
+          <div class="field">
+            <label class="flabel" for="plus-email">Your email</label>
+            <input class="tk-inp" id="plus-email" type="email" maxlength="120" autocomplete="email">
+          </div>
+          <div class="frow">
+            <button class="btn uprime" type="button" id="plus-send-code">Email me a code</button>
+            <button class="btn" type="button" id="pj-email-back">Back</button>
+          </div>
+          <p class="dhint" id="plus-sent" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
         </div>
-        <div class="frow">
-          <button class="btn" type="button" id="plus-send-code">Email me a code</button>
-        </div>
-        <p class="dhint" id="plus-sent" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
-        <div id="plus-code-row" hidden>
+        <!-- ecode: the emailed code -->
+        <div class="pj-step" id="pj-ecode" hidden>
+          <p class="setname">Check your email</p>
+          <p class="fhint" id="pj-ecode-to">Enter the 6-digit code we sent to the email on your account.</p>
           <div class="field">
             <label class="flabel" for="plus-code">The code from the email</label>
             <input class="tk-inp" id="plus-code" type="text" inputmode="numeric" maxlength="12">
           </div>
-          <div class="field">
-            <label class="flabel" for="plus-name">A name for your address</label>
-            <p class="fhint">3 to 32 characters: lowercase letters, digits and hyphens.</p>
-            <input class="tk-inp" id="plus-name" type="text" maxlength="32" autocomplete="off" autocapitalize="none">
-          </div>
           <div class="frow" style="margin-top:8px;">
-            <button class="btn uprime" type="button" id="plus-confirm">Confirm</button>
+            <button class="btn uprime" type="button" id="pj-ecode-next">Continue</button>
           </div>
         </div>
+        <!-- phone: the second factor. DESIGNED, backing NOT wired yet (#1615).
+             It TEXTS THE HELD NUMBER (the phone already on the account); it
+             checks you have the phone, it does not set one, so there is no
+             phone-number field here (Mona Lisa, 2026-08-30). -->
+        <div class="pj-step" id="pj-phone" hidden>
+          <p class="setname">Verify it is you</p>
+          <p class="fhint">True two-factor. Each time you sign in we text a code to the phone on your account, so email alone is never enough.</p>
+          <div class="frow" style="margin-top:8px;">
+            <button class="btn uprime" type="button" id="pj-phone-next">Text me a code</button>
+          </div>
+        </div>
+        <!-- pcode: the texted code. DESIGNED, backing NOT wired yet (#1615). -->
+        <div class="pj-step" id="pj-pcode" hidden>
+          <p class="setname">Enter your phone code</p>
+          <p class="fhint">Enter the 6-digit code we texted to the phone on your account.</p>
+          <div class="field">
+            <label class="flabel" for="pj-pcode-input">The code from the text</label>
+            <input class="tk-inp" id="pj-pcode-input" type="text" inputmode="numeric" maxlength="6">
+          </div>
+          <div class="frow" style="margin-top:8px;">
+            <button class="btn uprime" type="button" id="pj-pcode-next">Continue</button>
+          </div>
+        </div>
+        <!-- done: connected. The address is a RUNTIME value set in JS. -->
+        <div class="pj-step" id="pj-done" hidden>
+          <p class="setname">You are signed in</p>
+          <p class="fhint" id="pj-done-addr">This computer is connected.</p>
+        </div>
+        <!-- kick / kickopen: joining happens on the web, then come back. No
+             price and no hostname literal here (web.plus-tab.test.js); the
+             website address is set from KOSMOS_SITE in JS at paint time. -->
+        <div class="pj-step" id="pj-kick" hidden>
+          <p class="setname">Join Kosmos+ on the web</p>
+          <p class="fhint">Signing up and payment happen on the Kosmos website. It opens in your browser; finish joining there, then come back here and press Sign in.</p>
+          <div class="frow" style="margin-top:8px;">
+            <button class="btn uprime" type="button" id="pj-kick-open">Open the website</button>
+            <button class="btn" type="button" id="pj-kick-back">Back</button>
+          </div>
+        </div>
+        <!-- The name for the address. Journey 2 has NO name step: the name is
+             set at web signup and the app signs in. Until that arrives, the
+             connect still needs a name, so JS derives one from the email and
+             this hidden field carries it. #1615 reconciliation, flagged in the
+             plan: the real answer is the name arriving from the account. -->
+        <input type="hidden" id="plus-name">
+        <p class="fmsg" id="plus-status" aria-live="polite"></p>
       </div>
       <!-- #567: the durable home of the Allow rows. Pending first (the same
            two buttons as the card), then what this Mac lets in, with Remove
@@ -21681,6 +21726,29 @@ let PLUS_EPOCH = 0;
  */
 const KOSMOS_SITE = 'https://installkosmos.com';
 
+/* #1615: the journeys.html Journey 2 step machine. One step is visible at a
+   time; pjShow picks it, pjCurrent reads it. The ids match the design's step
+   order: land -> email -> ecode -> phone -> pcode -> done, plus the kick
+   (join-on-web) branch. Missing ids are tolerated so a partial render never
+   throws. */
+const PJ_STEPS = ['pj-land', 'pj-email', 'pj-ecode', 'pj-phone', 'pj-pcode', 'pj-done', 'pj-kick'];
+function pjShow(id) {
+  for (const s of PJ_STEPS) { const el = document.getElementById(s); if (el) el.hidden = (s !== id); }
+}
+function pjCurrent() {
+  return PJ_STEPS.find((s) => { const el = document.getElementById(s); return el && !el.hidden; }) || '';
+}
+/* The name step does not exist in Journey 2: the name is set at web signup and
+   the app signs in. Until that arrives the connect still needs a name, so it is
+   derived from the email localpart to satisfy setup-complete. #1615
+   reconciliation (flagged in the plan): the real answer is the name arriving
+   from the account, not derived here. */
+function pjDeriveName(email) {
+  let n = String(email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+  while (n.length < 3) n += '0';
+  return n;
+}
+
 async function paintPlus() {
   /* #1615: three states, per design/plus-flow.html section 5. `state1` is the pane a
      person with no Plus sees; `state2` is the sign-in for somebody who has paid but has
@@ -21730,30 +21798,41 @@ async function paintPlus() {
   state1.hidden = true;
   state2.hidden = true;
   flow.hidden = false;
-  const sw = document.getElementById('plus-switch');
-  sw.textContent = r.on ? 'Turn off' : 'Turn on';
-  const st = document.getElementById('plus-status');
+  /* #1615: the connected pane is now the journeys.html Journey 2 stepped
+     sign-in, not the toggle+enrol sketch. A poll (tick) must not yank a person
+     out of a step they are in, so a re-paint only (re)starts at land when
+     nothing is shown or a stale done is up; every other step change is an
+     explicit button. */
   const stat = r.status || {};
-  const because = plusWords(stat.because || '');
-  st.textContent = stat.state === 'up'
-    ? ('Connected. Your address: ' + (stat.address || 'is on its way.'))
-    : (because ? because.charAt(0).toUpperCase() + because.slice(1) + '.' : '');
-  /* #1014: only a real address earns an instruction. While the tunnel is
-     still coming up there is nothing to tell somebody to open, and telling
-     them to open "is on its way." would be worse than saying nothing. */
+  /* #1014: only a real address earns the "reach it at" sentence. */
   PLUS_ADDRESS = (stat.state === 'up' && stat.address) ? stat.address : '';
-  /* #1011: being connected supersedes a SETUP failure -- it cannot still be
-     true. A switch failure is left alone; it happens while connected and is
-     the one thing this rule must not eat. */
+  /* #1011: being connected supersedes a SETUP failure -- it cannot still be true. */
   if (stat.state === 'up' && PLUS_MSG_KIND === 'setup') plusSay('');
-  /* The enrol steps show only when the switch is on and nothing is
-     enrolled yet: the state the engine calls waiting-for-the-sign-in. */
-  document.getElementById('plus-enrol').hidden = !(r.on && r.enrolled !== true);
-  /* #567: the list shows once enrolled, on or off (off says so above it). */
-  document.getElementById('plus-devices').hidden = r.enrolled !== true;
-  /* #733 recovery: only an enrolled Mac can sign the reset, so the control
-     shows with the devices, and a fresh paint disarms a half-taken click. */
-  document.getElementById('plus-second').hidden = r.enrolled !== true;
+  /* The engine's spawn-error sentence still surfaces, on the runtime status
+     line (not a hardcoded string, so no guard is tripped). */
+  const because = plusWords(stat.because || '');
+  const st = document.getElementById('plus-status');
+  if (st) st.textContent = (r.enrolled !== true && because)
+    ? (because.charAt(0).toUpperCase() + because.slice(1) + '.') : '';
+  if (r.enrolled === true) {
+    /* Connected: the done step, address as a RUNTIME value (never a literal,
+       so web.plus-tab.test.js's no-hostname guard holds), then the device
+       list and the recovery control below. */
+    const da = document.getElementById('pj-done-addr');
+    if (da) da.textContent = PLUS_ADDRESS
+      ? ('This computer is connected. Reach it from any browser or your phone at ' + PLUS_ADDRESS + '.')
+      : 'This computer is connected.';
+    pjShow('pj-done');
+    document.getElementById('plus-devices').hidden = false;
+    document.getElementById('plus-second').hidden = false;
+  } else {
+    /* Not connected: (re)start or continue the sign-in journey. Reset to land
+       only from nothing or a stale done, so a poll cannot interrupt a step. */
+    const cur = pjCurrent();
+    if (!cur || cur === 'pj-done') pjShow('pj-land');
+    document.getElementById('plus-devices').hidden = true;
+    document.getElementById('plus-second').hidden = true;
+  }
   plusSecondDisarm();
   paintDevices();
 }
@@ -21773,19 +21852,30 @@ document.getElementById('plus-code').addEventListener('input', (e) => {
   const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
   if (e.target.value !== clean) e.target.value = clean;
 });
-document.getElementById('plus-switch').addEventListener('click', async () => {
-  const msg = document.getElementById('plus-msg');
-  plusSay('');
-  /* The click means what the BUTTON said, not what a re-fetch says now:
-     acting on re-read state lets a stale label do the opposite of its own
-     words, and a double click land twice at one value. */
-  const wantOn = document.getElementById('plus-switch').textContent === 'Turn on';
-  try {
-    const res = await fetch('/api/remote', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: wantOn }) });
-    if (!res.ok) plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not change that'), 'switch');
-  } catch { plusSay('we could not change that', 'switch'); }
-  paintPlus();
+/* #1615: the journeys.html Journey 2 step navigation. Each button moves one
+   step. The email + code steps reuse the existing setup-start / setup-complete
+   wiring; the phone second-factor steps are DESIGNED-not-wired (they only
+   advance, no SMS is sent and no phone code is checked yet); join opens the
+   website. */
+document.getElementById('pj-signin').addEventListener('click', () => {
+  pjShow('pj-email');
+  const e = document.getElementById('plus-email'); if (e) e.focus();
 });
+document.getElementById('pj-join').addEventListener('click', () => pjShow('pj-kick'));
+document.getElementById('pj-email-back').addEventListener('click', () => pjShow('pj-land'));
+document.getElementById('pj-ecode-next').addEventListener('click', () => {
+  /* The email code is verified by setup-complete at the end of the journey;
+     this step just carries it forward to the second factor. */
+  const code = document.getElementById('plus-code').value.replace(/\D/g, '');
+  if (!code) { plusSay('Enter the code from the email first.', 'setup'); return; }
+  plusSay('');
+  pjShow('pj-phone');
+});
+document.getElementById('pj-phone-next').addEventListener('click', () => pjShow('pj-pcode'));
+document.getElementById('pj-kick-open').addEventListener('click', () => {
+  window.open(KOSMOS_SITE + '/plus', '_blank', 'noreferrer noopener');
+});
+document.getElementById('pj-kick-back').addEventListener('click', () => pjShow('pj-land'));
 /* The words of the code box (#729). Pete sat at it for twelve minutes, three
    sends in, unable to tell from the screen whether anything had happened;
    the emails had all delivered. A wait a person is in must be able to say
@@ -21837,27 +21927,31 @@ document.getElementById('plus-send-code').addEventListener('click', async () => 
     }
     await res.text().catch(() => '');
     sent.textContent = PLUS_CODE_WORDS.sent(email);
-    document.getElementById('plus-code-row').hidden = false;
-    document.getElementById('plus-code').focus();
+    /* #1615: the code lives on its own step now (journeys.html "Check your
+       email"), so advance to it rather than revealing an inline row. */
+    pjShow('pj-ecode');
+    const codeEl = document.getElementById('plus-code'); if (codeEl) codeEl.focus();
   } catch (err) {
     sent.textContent = (err && err.name === 'AbortError') ? PLUS_CODE_WORDS.slow(email) : PLUS_CODE_WORDS.refused('this computer could not reach the sign-in service');
   } finally { clearTimeout(timer); if (!PLUS_COUNTDOWN) btn.disabled = false; }
 });
-document.getElementById('plus-confirm').addEventListener('click', async () => {
-  const msg = document.getElementById('plus-msg');
+/* #1615: the final step of Journey 2. After the (designed-not-wired) phone
+   second factor, this completes the connect with the email code. The name is
+   derived from the email (Journey 2 has no name step; the reconciliation is in
+   the plan), and the phone code is not sent yet, so it is not required. */
+document.getElementById('pj-pcode-next').addEventListener('click', async () => {
   plusSay('');
   const code = document.getElementById('plus-code').value.replace(/\D/g, '');
-  const name = document.getElementById('plus-name').value.trim();
-  /* The engine validates before spawning too; saying it here saves the
-     round trip, in the engine's own sentence so the two cannot drift. */
-  if (name && !/^[a-z0-9-]{3,32}$/.test(name)) {
-    plusSay('the name is 3 to 32 lowercase letters, digits or hyphens', 'setup');
+  const name = pjDeriveName(document.getElementById('plus-email').value.trim());
+  const hidden = document.getElementById('plus-name'); if (hidden) hidden.value = name;
+  if (!/^[a-z0-9-]{3,32}$/.test(name)) {
+    plusSay('we could not work out a name from that email; sign in again', 'setup');
     return;
   }
   try {
     const res = await fetch('/api/remote/setup-complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, name }) });
-    if (!res.ok) { plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not finish the sign-up'), 'setup'); return; }
-  } catch { plusSay('we could not finish the sign-up', 'setup'); }
+    if (!res.ok) { plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not finish signing in'), 'setup'); return; }
+  } catch { plusSay('we could not finish signing in', 'setup'); }
   paintPlus();
 });
 

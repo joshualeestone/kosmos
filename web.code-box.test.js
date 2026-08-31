@@ -25,9 +25,12 @@ function boxWorld(fetchImpl) {
     setTimeout: (fn, ms) => ({ fn, ms }), clearTimeout: () => {},
     setInterval: (fn, ms) => { ctx.__tick = fn; return 1; }, clearInterval: () => { ctx.__tick = null; },
     plusWords: (s) => s, console,
+    // #1615: the send-code handler now advances to the ecode step via pjShow
+    // (a page global), so provide it and record which step it showed.
+    pjShow: (id) => { ctx.__shown = id; },
   };
   const start = SCRIPT.indexOf('const PLUS_CODE_WORDS');
-  const end = SCRIPT.indexOf("document.getElementById('plus-confirm').addEventListener");
+  const end = SCRIPT.indexOf("document.getElementById('pj-pcode-next').addEventListener");
   assert.ok(start > 0 && end > start, 'the code box script moved');
   vm.runInNewContext(SCRIPT.slice(start, end), ctx);
   return { ctx, el, click: () => el('plus-send-code').listeners.click() };
@@ -40,7 +43,7 @@ test('a good ask names the address it sent to and says the wait can take a minut
   const line = w.el('plus-sent').textContent;
   assert.match(line, /We sent a code to her@example\.com\./);
   assert.match(line, /take a minute/);
-  assert.equal(w.el('plus-code-row').hidden, false);
+  assert.equal(w.ctx.__shown, 'pj-ecode', 'a good ask advances to the code step');
   assert.equal(w.el('plus-send-code').disabled, false, 'the button comes back after a good ask');
 });
 
@@ -62,7 +65,7 @@ test('a refusal that is not a cooldown says no code was sent and why', async () 
   w.el('plus-email').value = 'nope';
   await w.click();
   assert.equal(w.el('plus-sent').textContent, 'No code was sent: that does not look like an email address.');
-  assert.equal(w.el('plus-code-row').hidden, true, 'no code row for an ask that was refused');
+  assert.notEqual(w.ctx.__shown, 'pj-ecode', 'a refused ask does not advance to the code step');
 });
 
 test('a service that does not answer is said to be slow, with the address, and nothing is claimed sent', async () => {
