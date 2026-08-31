@@ -73,42 +73,46 @@ production real tarball                YES
 production name that cannot exist      NO
 ```
 
-## The install gate HAS now been run
+## The install gate: run once, and that run is SUPERSEDED
 
-`yarn test:install` is the only gate that drives `reachable()` end to end, and
-the node suite structurally cannot: `test:shell` runs `bash -n
+`yarn test:install` is the only gate that drives `reachable()` end to end. The
+node suite structurally cannot: `test:shell` runs `bash -n
 tools/test-install.sh` (a syntax check) and `test:install` sits outside `yarn
-test`. An earlier claim that "the full suite is green" was never evidence about
-this code path.
+test`. An earlier claim in this branch that "the full suite is green" was never
+evidence about this code path.
 
-Run against freshly built bundles (`dist/setup` is byte-for-byte this branch's
-`install/setup.sh`), after the 0.6.19 cut completed, and **not** with
-`KOSMOS_HARNESS_IGNORE_CUT=1`:
+**A first run passed 327 / failed 1** with the whole download-path section
+green, including the versioned-name probe. ⚠️ **That evidence is stale and is
+recorded here as stale rather than quietly kept.** `dist/setup` was built at
+11:48:31; commit `167d42b9` at 11:55:44 then introduced the `set -e` fix, the
+`/usr/bin/tr` change and `application/problem+json`. So that run exercised
+bytes **without the set -e fix**, which is the most consequential part of this
+diff. A reviewer found that, not me.
 
-```
-327 passed, 1 failed
+**A second run, against bundles rebuilt from the final code, is what this
+branch actually rests on.** Its result is recorded below when it lands.
 
-the download path (file:// origin, no local-copy shortcut)
-  PASS  download-path install exits 0        PASS  tampered download refuses
-  PASS  download-path board answers          PASS  tamper refusal speaks a sentence
-                                             PASS  no stage residue after refusal
-the pointer pins the bytes (the 0.5.13 wedge)
-  PASS  the versioned artifact name was fetched
-  PASS  the refusal names both versions
-  PASS  no false installed-done over old bytes
-```
-
-Those are exactly the assertions an allowlist-shaped predicate was predicted to
-break, and they pass.
-
-**The one failure is not attributable to this diff**, and the reasoning is
-stated so a reviewer can reject it: the assertion is `EXPECTED_ADDS` in the
-LOCAL-SOURCES install, which `tools/test-install.sh:797` says outright "never
-runs `reachable()`, `verify_download()` or tar". The unexpected addition is
+The one failure in the first run was `EXPECTED_ADDS` in the LOCAL-SOURCES
+install, which `tools/test-install.sh:797` says never runs `reachable()`,
+`verify_download()` or tar. The unexpected addition was
 `./AgentWorkforce/wouldping/needs-you.jsonl`, a runtime notification record,
-and `main` carries the identical `EXPECTED_ADDS` list. **A control run on
-`main` was NOT performed**, so this is a reasoned attribution rather than a
-measured one.
+and `main` carries the identical expectation. **No control run on `main` was
+performed**, so that attribution is reasoned, not measured.
+
+## The `set -e` shapes, measured
+
+Under `set -euo pipefail`, which `install/setup.sh:102` sets:
+
+```
+f(){ local a; a=$(false); echo REACHED; }   -> nothing printed, rc=1
+g(){ false && return 0; echo REACHED; }     -> REACHED, rc=0
+h(){ local a rc; a=$(false) && rc=0 || rc=$?; echo "REACHED rc=$rc"; }
+                                            -> REACHED rc=1, shell alive
+```
+
+A bare `_r_ct=$(curl …)` is the first shape: a failing HEAD probe aborts the
+shell before the range-GET fallback runs. The pre-#1662 code was the second
+shape and safe only by accident. The third is what ships.
 
 ## The weakest premises, both directions
 

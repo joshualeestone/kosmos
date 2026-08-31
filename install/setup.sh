@@ -514,6 +514,16 @@ _reachable_is_download() {
   # behind "Check your internet connection", which is a worse outcome than the
   # bug the guard is for.
   #
+  # ⚠️ THAT ASYMMETRY HOLDS AT TWO OF THE THREE CALL SITES, NOT ALL THREE, and
+  # saying it unconditionally would be false. At the `TARGET_VERSION` probe
+  # this predicate is an EXISTENCE TEST, not an abort guard: a false NO there
+  # does not stop the install, it silently falls through to the plain
+  # unversioned name -- which is the cache-collision hazard the comment above
+  # that branch was written against. Downstream `verify_download` still checks
+  # the sha and the version refusal still fires, so the failure is caught
+  # rather than silent, but the cost of a false NO at THAT site is a stale
+  # download risk rather than a blocked install.
+  #
   # ⚠️ AND AN ALLOWLIST BREAKS THE PROJECT'S OWN INSTALL GATE. `curl` on a
   # `file://` URL succeeds and reports an EMPTY content-type, and
   # tools/test-install.sh drives the whole release path over `file://` on
@@ -567,9 +577,8 @@ reachable() {
   # UNPROTECTED SIMPLE COMMAND: a failing HEAD probe aborts the whole shell
   # before the range-GET fallback can run. The pre-#1662 form happened to be
   # safe because `curl … && return 0` was shielded by the `&&`.
-  # Measured, both shapes, under `set -euo pipefail`:
-  #   f(){ local a; a=$(false); echo REACHED; }   -> nothing, rc=1
-  #   g(){ false && return 0; echo REACHED; }     -> REACHED, rc=0
+  # Both shapes were measured under `set -euo pipefail`; the transcript is in
+  # .claude/plans/reachable-1662.md rather than here.
   # Latent rather than live today, because all three call sites are `if`/`&&`
   # conditions where -e is suspended: the two `if ! reachable "$url"` guards in
   # fetch_tmux and install_kosmos, and the `[ -n "${TARGET_VERSION:-}" ] &&

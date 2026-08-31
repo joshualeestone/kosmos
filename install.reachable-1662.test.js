@@ -233,3 +233,32 @@ test('#1662: reachable() does not abort the shell under set -euo pipefail when H
     + 'is an unprotected assignment under set -e, so a HEAD-refusing host aborts the installer '
     + `instead of falling through. Got: ${JSON.stringify(stdout)}`);
 });
+
+test('#1662: EVERY refused media type has an arm, not just text/html', async () => {
+  /* 🛑 FIVE OF THE SIX REFUSE-ARMS HAD NO TEST. Measured: deleting
+     application/xhtml, application/json, application/problem+json,
+     application/xml and text/xml from the case statement left all 11 other
+     tests green, because only text/html was ever asserted. This file's own
+     thesis is that a check with no failing case is not a check, so the same
+     standard has to apply to the list itself.
+     application/problem+json (RFC 9457) is the one a JSON API returns for a
+     404, which is exactly the error-page-as-download shape. */
+  const refused = [
+    'application/xhtml+xml',
+    'application/json',
+    'application/problem+json',
+    'application/xml',
+    'text/xml',
+    'text/html; charset=utf-8',
+  ];
+  for (const ct of refused) {
+    assert.equal(await reachable(`${base}/real.tar.gz?ct=${encodeURIComponent(ct)}`), 'NO',
+      `${ct} was accepted as a download, so an error page carrying that type can impersonate one`);
+  }
+  /* The must-pass half, in the same arm, so a predicate that simply refused
+     everything could not pass this test. */
+  for (const ct of ['application/gzip', 'application/octet-stream', 'text/plain']) {
+    assert.equal(await reachable(`${base}/real.tar.gz?ct=${encodeURIComponent(ct)}`), 'YES',
+      `${ct} was refused, which blocks a genuine download`);
+  }
+});
