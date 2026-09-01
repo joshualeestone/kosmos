@@ -33,16 +33,32 @@ This branch builds Option A only.
 3. **engine/firstrun.js** - `state()` reports `platform: platform.describe()` so a
    future gate screen can tell an unsupported-OS visitor the product runs on macOS.
    Machine facts only, no copy.
+4. **engine/connect.js + engine/runners.js** (added at Splinter's ruling 2026-09-01,
+   after a blind reviewer flagged the download as an uncovered Mac-only path) - the
+   provider-binary DOWNLOADS refuse on a non-macOS platform before any bytes move.
+   `connect.download()` throws; `runners.install()` returns its job-shaped refusal.
+   Both binaries are darwin builds (the `darwin-${arch}` Claude fetch and the
+   codex-darwin-arm64 tgz), so on any other OS a download would land a Mac binary
+   that cannot run. This is the gate (REFUSE), NOT the Option C fix: it fetches no
+   Windows build, so no part of Windows is made to look functional. Each takes the
+   platform as a seam (default process.platform) so the refusal is testable on a Mac.
+
+⇒ The gate now covers BOTH the launchd substrate (via live-execution) AND the
+provider-binary downloads (connect + runners). That is the whole honest-refusal
+boundary; a non-macOS board cannot start an agent and cannot download a runner.
 
 ## Deliberately NOT built (the operator's to decide)
 
 - **The user-facing "runs on macOS" copy and the screen it shows on.** Splinter's
   instruction: leave every user-facing string alone; Josh adds the copy when he
   rules. `firstrun.state().platform` is the hook that copy/screen will read.
-- **The download/data-root fixes (Option C).** connect.js `platformKey()` hardcoding
-  darwin, runners.js's darwin-arm64 pin, and the Linux data-root gap are NOT touched
-  here. Fixing them would imply Windows works while agents still cannot start; they
-  stay out until Josh decides on a real port (Option B).
+- **The download/data-root FIXES (Option C) - the REFUSAL is built, the FIX is not.**
+  The gate now REFUSES the darwin downloads on a non-macOS OS (above). What stays out
+  is making them SUCCEED off macOS: `platformKey()` still returns `darwin-${arch}`,
+  runners.js still pins darwin-arm64, and the Linux data-root gap is untouched.
+  Fixing those would fetch a Windows/Linux build and imply the OS works while the
+  launchd substrate still cannot start an agent - the C trap. They stay out until
+  Josh decides on a real port (Option B).
 
 ## Tests
 
@@ -54,6 +70,11 @@ This branch builds Option A only.
   never in the else (source-asserted, because the real-start block is not run by
   tests by design - same reason update.test.js asserts the installer spawn from
   source); platformGate is required in server.js.
+- `engine/platform-gate-download.test.js`: connect.download refuses on win32 AND
+  linux (each naming itself, so the gate reads the param, and it throws before any
+  fetch); runners.install refuses on win32 in its job shape; and a control pair
+  proving the platform gate fires before other checks on win32 and does NOT fire on
+  darwin (the unknown-provider refusal wins there instead), with no download in any arm.
 
 ## Verification
 

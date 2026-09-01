@@ -45,6 +45,7 @@ const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
+const platformGate = require('./platform');
 
 
 /**
@@ -526,6 +527,19 @@ function install(provider, opts) {
    * by the route test, which asserted null and got undefined.
    */
   const refuse = (because) => ({ ...blankJob(), phase: 'failed', because });
+
+  /* kosmos macOS-only gate (Option A, extended to the provider-binary download at
+     Splinter's ruling 2026-09-01): the pinned runners are darwin builds (e.g.
+     codex-...-darwin-arm64.tgz), so on any other OS an install would download a Mac
+     binary that cannot run. Refuse BEFORE any bytes move, in the job shape the
+     screen already reads. This is the gate (refuse), NOT the Option C fix -- it
+     fetches no Windows build, so no part of Windows is made to look functional.
+     `o.platform` is the test seam (defaults to process.platform); the polished
+     user-facing wording is the operator's to refine (see engine/platform.js). */
+  const plat = o.platform || process.platform;
+  if (!platformGate.isSupported(plat)) {
+    return refuse(`this platform (${plat}) is not supported; the ${provider} runner is a macOS build and was not downloaded`);
+  }
 
   if (!m) return refuse(`we do not know how to install a runner for ${provider}`);
   // Join a LIVE job before consulting presence: during `proving` the
