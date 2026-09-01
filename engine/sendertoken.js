@@ -153,8 +153,15 @@ function writeTokens(sessionName, tokens) {
      never partially written: `rename` is atomic. `flag: 'wx'` fails rather than
      following or reusing anything already at the temp path, which also refuses a
      planted symlink there. Same pattern as `engine/trust.js` and `engine/create.js`.
-     📌 `chmodSync` on the temp is not belt and braces: a loose umask can widen a
-     create-time mode, which is the reason `trust.js` states beside its own copy. */
+     📌 `chmodSync` ON THE TEMP IS FOR THE OPPOSITE REASON I FIRST WROTE. An earlier
+     version of this comment said "a loose umask can widen a create-time mode". THAT IS
+     FALSE: umask only ever CLEARS bits, so after a `wx` create the mode is at most
+     FILE_MODE and this chmod can only ever widen it back. Measured, four umasks with
+     `flag:'wx', mode:0600`: 0000 -> 600, 0022 -> 600, 0077 -> 600, and 0600 -> 0.
+     ⇒ The real job is that LAST case: a restrictive umask can clear the OWNER bits
+     too, leaving a token the agent cannot read back. This restores them. `trust.js`
+     states the widening rationale beside its own copy and it does not transfer here,
+     because that path is not a guaranteed-fresh `wx` create. */
   /* 🛑 THE CLOCK AND A COUNTER ARE IN THE NAME, NOT JUST THE PID, and this file
      originally got that wrong while citing `trust.js` as its pattern. `trust.js`
      documents the exact failure at its own `tempPath`: with pid alone, a process that

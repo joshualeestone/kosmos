@@ -378,6 +378,49 @@ test('#1761: the directory is already tight WHEN the token is written, and the t
     'the temp was written without the wx flag, so a planted file at that path would be overwritten');
 });
 
+/* 🛑 THE EEXIST GUARD IS LOAD-BEARING, NOT DECORATIVE. `wx` means a file already at
+   the temp path makes the write throw, and unlinking THEN would delete somebody else's
+   file. Replacing the guard with `if (true)` left the suite fully green, so this arm
+   plants a file at the exact temp path and asserts it survives. */
+test('#1761: a planted file at the temp path is never deleted by the cleanup', () => {
+  sendertoken.mint('eexist');
+  const realWrite = fs.writeFileSync;
+  let planted = null;
+  fs.writeFileSync = function (target, data, opts) {
+    if (typeof target === 'string' && target.endsWith('.tmp') && planted === null) {
+      planted = target;
+      realWrite.call(fs, target, 'SOMEBODY ELSE FILE');
+      const e = new Error('forced'); e.code = 'EEXIST'; throw e;
+    }
+    return realWrite.call(fs, target, data, opts);
+  };
+  try { sendertoken.mint('eexist'); } finally { fs.writeFileSync = realWrite; }
+
+  assert.notEqual(planted, null, 'the temp write was never attempted, so this arm proves nothing');
+  assert.equal(fs.existsSync(planted), true,
+    'the cleanup deleted a file it did not create');
+  assert.equal(fs.readFileSync(planted, 'utf8'), 'SOMEBODY ELSE FILE',
+    'the cleanup overwrote a file it did not create');
+  fs.unlinkSync(planted);
+});
+
+/* 🛑 A RESTRICTIVE UMASK CLEARS THE OWNER BITS TOO. Measured: `flag:'wx', mode:0600`
+   under umask 0600 creates the file at mode 0, which the agent cannot read back. The
+   chmod on the temp is what restores it, and removing that chmod left the suite green.
+   ⚠️ NOT the reason first written here: umask only CLEARS, so it can never widen a
+   create-time mode. */
+test('#1761: a restrictive umask cannot leave the token unreadable by its owner', () => {
+  const old = process.umask(0o600);
+  try {
+    sendertoken.mint('umask-check');
+    const file = path.join(sendertoken.DIR, 'umask-check.json');
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600,
+      'a restrictive umask left the token at a mode the agent cannot read');
+    assert.ok(JSON.parse(fs.readFileSync(file, 'utf8')).tokens.length >= 1,
+      'the token could not be read back');
+  } finally { process.umask(old); }
+});
+
 test('#1761: a token DIRECTORY that is already loose is tightened too', () => {
   sendertoken.mint('loose-dir');
   fs.chmodSync(sendertoken.DIR, 0o755);
