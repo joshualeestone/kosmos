@@ -81,6 +81,13 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
    shapes that happened not to occur in the tree, which is the only reason nobody
    had met them.
 
+   🛑 AND A SCOPE ASYMMETRY, because "two instruments" is only true where BOTH run.
+   The static guard runs on `engine server.js`; the behavioural probe in
+   engine.lateseam-1443.test.js walks `engine/` only, because loading `server.js` in
+   a child process would start a real server. So server.js is covered by ONE
+   instrument, and it is this one, whose factory-body gap below is open. Stated here
+   rather than left for a reader to infer from two files.
+
    ⇒ The blind spot is REAL, is NOT closed, and is covered instead by the
    behavioural probe in engine.lateseam-1443.test.js, which loads each module and
    inspects resolved values rather than source text. Two instruments with
@@ -467,9 +474,31 @@ function scan(file) {
      tree) are not swept in. Verified to add zero findings across every non-test
      .js in the repo before it shipped. */
   const PATH_SHAPED = /^(?:[A-Z][A-Z0-9_]*_(?:DIR|FILE|PATH)|FILE|DIR|LOG|SEEN|FLAG|ROOT|AVATARS|PROFILES)$/;
+  /* 🛑 ANYWHERE IN THE INITIALIZER, NOT ONLY AS A BARE ACCESS. The first version
+     of this anchored the whole initializer, so the two most natural ways to consume
+     one of these getters were silent. Measured, with a passing control:
+       const F = limits.FILE;                     -> rc 1
+       const F = path.join(limits.FILE, 'x');     -> rc 0   <- a real freeze
+       const F = limits.FILE + '.tmp';            -> rc 0   <- a real freeze
+     Capturing the getter is the freeze whatever is wrapped around it. The
+     PATH_SHAPED filter still carries the false-positive protection (DRY_RUN and
+     HOME_FOR_TEST are real exported getters and must not be swept in), and the
+     laziness check upstream still exempts a deferred use. Re-verified to add zero
+     findings across every non-test .js in the repo after widening. */
   const capturedGetter = (init) => {
-    const m = /^\s*[A-Za-z_$][\w$]*\.([A-Z][A-Z0-9_]*)\s*;?\s*$/.exec(String(init));
-    return m && PATH_SHAPED.test(m[1]) ? m[1] : null;
+    for (const m of String(init).matchAll(/\b([A-Za-z_$][\w$]*)\.([A-Z][A-Z0-9_]*)\b/g)) {
+      /* 🛑 NOT `process.env.X`. Widening this rule to match anywhere in the
+         initializer immediately produced a FALSE POSITIVE on
+           const WORKERS = process.env.KOSMOS_WORKERS_DIR || ...
+         in tools/check-block-delivery.js, because the receiver matched is `env`
+         and the name is path-shaped. An environment variable is not a module
+         getter, and a guard that fires on correct code gets excused by name until
+         the debt list is decoration. Caught by re-running the repo-wide sweep
+         after widening, which is the only reason it did not ship. */
+      if (m[1] === 'env') continue;
+      if (PATH_SHAPED.test(m[2])) return m[2];
+    }
+    return null;
   };
   const resolvers = functionNamesReaching(src, SRC_SOURCES);
   const findings = [];
@@ -495,7 +524,14 @@ function main(argv) {
   const targets = argv.length ? argv : [path.join(__dirname, '..', 'engine')];
   const files = [];
   for (const t of targets) {
-    const st = fs.statSync(t);
+    /* A named error, not a stack trace. A typo in the npm script's target list
+       surfaced as an uncaught ENOENT, which reads as the tool being broken rather
+       than the argument being wrong. */
+    let st;
+    try { st = fs.statSync(t); } catch {
+      console.error(`check-frozen-roots: cannot read target '${t}' (no such file or directory)`);
+      process.exit(2);
+    }
     if (st.isDirectory()) {
       /* 🛑 RECURSIVE. `readdirSync` alone does not descend, so a future
          engine/<subdir>/*.js would be skipped in SILENCE while the run still
@@ -524,7 +560,11 @@ function main(argv) {
         continue;
       }
       total += 1;
-      console.log(`${path.relative(process.cwd(), f)}:${hit.line}  ${hit.kw || 'const '}${hit.name}  resolves a root at require time (${hit.how}, ${hit.lines} line(s))`);
+      /* The SAME spelling as the KNOWN key above, so a reader can paste the path
+         straight into the allowlist. These used to differ (repo-relative for KNOWN,
+         cwd-relative for findings), so running from outside the repo printed
+         `../../../../tmp/...`, which is not the string the allowlist wants. */
+      console.log(`${key.split(':')[0]}:${hit.line}  ${hit.kw || 'const '}${hit.name}  resolves a root at require time (${hit.how}, ${hit.lines} line(s))`);
     }
   }
   if (known) {

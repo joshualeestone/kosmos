@@ -52,7 +52,12 @@ shrink to nothing.
 ⚠️ **Removing it is what makes the fix enforced.** While the entry stood,
 re-freezing that root would have been **skipped by name**.
 
-Verified with a control: with the list empty the checker exits **0** on the tree,
+> 📌 CORRECTED: an earlier line here said "with the list empty the checker exits 0
+> on the tree", which contradicts the heading above. The allowlist is NOT empty:
+> it carries `server.js:GATE_LOG`. Measured now, both arms: with KNOWN emptied the
+> CI invocation goes RED on server.js (exit 1); with the entry it exits 0 and
+> prints the entry. So the allowlist hides something that would otherwise fail,
+> which is the whole reason it is printed rather than silent.
 and **1** on a planted `const FROZEN2 = os.homedir()`, naming it.
 
 ## Perturbed, four arms
@@ -113,8 +118,13 @@ guard anchored declarations to column 0, and the behavioural probe walked
 - The destructure-is-the-freeze arm was single-line while the alias scan beside it
   was multi-line, so a wrapped `const {\n ROOT,\n} = store` was silent.
 - Capturing one of the ~23 NEW getters this branch creates (`limits.FILE`) refreezes
-  a root, and the guard could not see it. Narrowly detected now: bare member access,
-  SCREAMING property, path-shaped name only, verified to add zero findings repo-wide.
+  a root, and the guard could not see it. Detected now wherever the getter appears in
+  the initializer, not only as a bare access: `path.join(limits.FILE,'x')` and
+  `limits.FILE + '.tmp'` are freezes too and were silent under the first version.
+  The false-positive protection is the PATH-SHAPED name filter plus an exclusion for
+  `process.env.X`, which the widening immediately tripped on in
+  `tools/check-block-delivery.js`. Re-verified to add zero findings across all 146
+  non-test .js in the repo, with a control proving the sweep does produce findings.
 
 **Scope.** The CI invocation was `check-frozen-roots.js engine`, which confined
 enforcement to one directory while `server.js` is the largest `store.ROOT` consumer.

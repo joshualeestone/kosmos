@@ -130,7 +130,7 @@ test('#1531: the derivation accepts BOTH shapes, which the comment used to only 
      test rather than of the guard. Each side testing its own copy is exactly the
      shape that let the original false claim stand. */
   const SELF = fs.readFileSync(__filename, 'utf8');
-  const m = SELF.match(/const re = (\/const[^\n]*\/g);/);
+  const m = SELF.match(/^\s*const re = (\/const[^\n]*\/g);/m);
   assert.ok(m, 'could not lift the derivation regex out of this file');
   // eslint-disable-next-line no-new-func
   const RE = () => new Function('return ' + m[1])();

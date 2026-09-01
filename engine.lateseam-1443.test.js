@@ -85,9 +85,17 @@ function probe(file) {
 }
 
 test('#1443: no engine module exposes a path frozen to the require-time root', () => {
-  const files = fs.readdirSync(ENGINE)
-    .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
-    .map((f) => path.join(ENGINE, f));
+  /* 🛑 RECURSIVE, because the static guard was made recursive on this same branch
+     and two halves of one idea must not disagree. A flat readdir would skip a
+     future engine/<subdir>/*.js in SILENCE, and the `files.length > 40` floor
+     below cannot detect it: engine holds 68 modules, so a subdirectory of any size
+     still leaves the floor satisfied. */
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) return (e.name === 'node_modules' || e.name.startsWith('.')) ? [] : walk(full);
+    return (e.name.endsWith('.js') && !e.name.endsWith('.test.js')) ? [full] : [];
+  });
+  const files = walk(ENGINE);
   /* A FLOOR, because a broken derivation would iterate an empty list and pass.
      Measured at 68 modules when this landed. */
   assert.ok(files.length > 40,
@@ -120,8 +128,11 @@ test('#1443: no engine module exposes a path frozen to the require-time root', (
   assert.deepEqual(skipped, [],
     `these engine modules could not be loaded by the probe, so they were never checked:\n  `
     + skipped.join('\n  '));
-  assert.ok(looked === files.length,
-    `only ${looked} of ${files.length} modules were probed`);
+  /* An `assert.ok(looked === files.length)` stood here and is REMOVED for the same
+     reason the aggregate below it was: `looked` only increments on the non-SKIP
+     branch, so `looked + skipped.length === files.length` by construction and the
+     deepEqual directly above already forces `skipped` empty. It could not fail
+     independently, which is the defect this file exists to catch. */
 
   /* 🛑 THE POSITIVE ARM, and without it every assertion here is satisfiable by
      resolving NOTHING. The frozen check only says "no export mentions the OLD
@@ -141,14 +152,18 @@ test('#1443: no engine module exposes a path frozen to the require-time root', (
   const RESOLVING_FLOOR = 24;
   assert.ok(resolving.length >= RESOLVING_FLOOR,
     `only ${resolving.length} engine modules resolve a path under the NEW root, below the `
-    + `measured floor of ${RESOLVING_FLOOR}. A module whose conversion stopped resolving `
-    + `entirely would look exactly like this. Currently resolving:\n  ${resolving.join('\n  ')}`);
+    + `measured floor of ${RESOLVING_FLOOR} (live=${live} resolved paths across ${looked} `
+    + `modules). The floor sits ON the measured value, so ANY drop reds here, including a `
+    + `removal unrelated to this card. A module whose conversion stopped resolving entirely `
+    + `looks exactly like this. Currently resolving:\n  ${resolving.join('\n  ')}`);
   /* The aggregate `live > 0` that stood here is REMOVED, not forgotten: the
      per-module floor above subsumes it (24 modules each resolving at least one
      path cannot happen with live === 0), so it could no longer fail independently
      and an assertion that cannot fail is the thing this file exists to prevent.
-     `live` is still computed and still printed in the floor's message, where it
-     tells a reader how far the count is from the floor. */
+     `live` is computed and IS interpolated into the floor's message above, where it
+     tells a reader how many paths resolved in total. An earlier version of this
+     sentence claimed that while `live` was in fact write-only, which is the exact
+     defect of a comment asserting a property the code does not have. */
 
   assert.deepEqual(frozen, [],
     'these modules resolve a data root at require time, so a sandbox seam installed afterwards is '

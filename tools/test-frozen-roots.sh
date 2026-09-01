@@ -109,7 +109,7 @@ const OK = () => path.join(store.AVATARS, 'pics');"
 if [ "$(run avatarslazy)" = "0" ]; then ok "a DEFERRED store.AVATARS is not flagged"
 else bad "widening SOURCES made the tool fire on correct lazy code"; fi
 
-# ---- arm 12: a `//` INSIDE A STRING must not end the declaration -----------
+# ---- arm 11: a `//` INSIDE A STRING must not end the declaration -----------
 # The terminator strips a trailing line comment. Stripping it without knowing
 # about strings cut `const U = 'https://x/a';` at the URL's `//`, so the line no
 # longer ended in `;`, the capture ran on, and the NEXT line's freeze was
@@ -123,7 +123,7 @@ if [ "$(run urlrunon)" = "1" ]; then
   else bad "a // inside a string ran the capture on" "$n findings, expected 1"; fi
 else bad "the real freeze after a URL line was not reported" "$(run urlrunon)"; fi
 
-# ---- arm 13: and a REAL trailing comment must still terminate --------------
+# ---- arm 12: and a REAL trailing comment must still terminate --------------
 # The counterweight to arm 12: this is the bug the strip was added for.
 fixture trailcomment "const store = require('./store');
 let fetcher = null; // test seam: (req, token) => Promise
@@ -131,7 +131,7 @@ const OK = () => path.join(store.ROOT, 'x');"
 if [ "$(run trailcomment)" = "0" ]; then ok "a real trailing // comment still terminates the declaration"
 else bad "the trailing-comment terminator regressed"; fi
 
-# ---- arm 14: a BLOCK-BODIED arrow resolver is still a resolver -------------
+# ---- arm 13: a BLOCK-BODIED arrow resolver is still a resolver -------------
 # Truncating its body at the first interior `;` meant it never reached the source,
 # so it was not recognised and every downstream freeze went silent.
 fixture blockbody "const store = require('./store');
@@ -143,7 +143,7 @@ const FILE = path.join(dirp(), 'x.json');"
 if [ "$(run blockbody)" = "1" ]; then ok "a freeze via a BLOCK-BODIED resolver is flagged"
 else bad "block-bodied resolver not recognised, downstream freeze silent"; fi
 
-# ---- arm 15: and it does not fire when that chain is deferred --------------
+# ---- arm 14: and it does not fire when that chain is deferred --------------
 fixture blocklazy "const store = require('./store');
 const dirp = () => {
   const seg = 'liveness';
@@ -153,7 +153,7 @@ const FILE = () => path.join(dirp(), 'x.json');"
 if [ "$(run blocklazy)" = "0" ]; then ok "a DEFERRED block-bodied chain is not flagged"
 else bad "fired on a correctly deferred block-bodied chain"; fi
 
-# ---- arm 16: a MULTI-LINE destructure is the same freeze -------------------
+# ---- arm 15: a MULTI-LINE destructure is the same freeze -------------------
 # The alias scan was whole-source; this arm was per-line, so the two halves of one
 # idea disagreed and a wrapped destructure was silent.
 fixture multidestr "const {
@@ -163,7 +163,7 @@ const dirFor = () => path.join(ROOT, 'x');"
 if [ "$(run multidestr)" = "1" ]; then ok "a MULTI-LINE destructure of a getter is flagged"
 else bad "multi-line destructure silent while the single-line form is flagged"; fi
 
-# ---- arm 17: capturing ANOTHER module's lazy getter refreezes --------------
+# ---- arm 16: capturing ANOTHER module's lazy getter refreezes --------------
 # #1443 creates ~23 new getters; capturing one at module level is the same defect
 # one relocation further on.
 fixture capgetter "const limits = require('./limits');
@@ -171,15 +171,15 @@ const F = limits.FILE;"
 if [ "$(run capgetter)" = "1" ]; then ok "capturing another module's lazy getter is flagged"
 else bad "blind to a captured cross-module getter"; fi
 
-# ---- arm 18: and NOT on a getter that is not path-shaped ------------------
+# ---- arm 17: and NOT on a getter that is not path-shaped ------------------
 # The counterweight to arm 17. DRY_RUN and HOME_FOR_TEST are real exported getters;
 # firing on them would be a guard that reports correct code.
-fixture capnonpath "const m = require('./engmode');
+fixture capnonpath "const m = require('./remove');
 const D = m.DRY_RUN;"
 if [ "$(run capnonpath)" = "0" ]; then ok "a non-path-shaped getter capture is NOT flagged"
 else bad "fired on a getter that resolves no root"; fi
 
-# ---- arm 19: an arrow passed to a CALL is not a deferral -------------------
+# ---- arm 18: an arrow passed to a CALL is not a deferral -------------------
 # .map/.forEach invoke immediately, so the join happens at require time. Measured:
 # this exited 0 while the identical logic written with `function (n)` exited 1.
 fixture arrowcall "const store = require('./store');
@@ -188,7 +188,7 @@ const PATHS = NAMES.map((n) => path.join(store.ROOT, n));"
 if [ "$(run arrowcall)" = "1" ]; then ok "an arrow passed to .map does NOT count as deferred"
 else bad "a require-time freeze inside .map went silent"; fi
 
-# ---- arm 20: an unrelated arrow must not launder a freeze ------------------
+# ---- arm 19: an unrelated arrow must not launder a freeze ------------------
 # The counterweight to arm 19, and the some/every defect one level further out:
 # inserting `.map((x) => x)` before a real freeze silenced it.
 fixture arrowlaunder "const store = require('./store');
@@ -196,7 +196,7 @@ const FILE = ['a'].map((x) => x).concat(path.join(store.ROOT,'y'));"
 if [ "$(run arrowlaunder)" = "1" ]; then ok "an unrelated arrow does not launder a freeze beside it"
 else bad "an arrow whose scope had already closed exempted a later freeze"; fi
 
-# ---- arm 21: a resolver is a resolver whatever keyword declared it ---------
+# ---- arm 20: a resolver is a resolver whatever keyword declared it ---------
 # functionNamesReaching matched `const` only while declarations() took const/let/var
 # and the exports forms, so the two halves of one idea disagreed, both toward silence.
 fixture letresolver "const store = require('./store');
@@ -211,13 +211,13 @@ const FILE = path.join(dirp(),'a');"
 if [ "$(run asyncresolver)" = "1" ]; then ok "an async resolver is still a resolver"
 else bad "async resolver not recognised"; fi
 
-# ---- arm 22: spacing is not a property of the code ------------------------
+# ---- arm 21: spacing is not a property of the code ------------------------
 fixture nospace "const store = require('./store');
 const DIR=path.join(store.ROOT,'x');"
 if [ "$(run nospace)" = "1" ]; then ok "a declaration without spaces around = is still checked"
 else bad "the guard depended on somebody's spacing"; fi
 
-# ---- arm 23: the store bound under any local name -------------------------
+# ---- arm 22: the store bound under any local name -------------------------
 # Every source is spelled `store.X`, so the guard was keyed on a variable name.
 # Every engine module imports it as `store` today, which is why this hid.
 fixture storealias "const st = require('./store');
@@ -230,6 +230,28 @@ const F = () => path.join(st.ROOT,'x');"
 if [ "$(run storealiaslazy)" = "0" ]; then ok "and a DEFERRED use under that name is not flagged"
 else bad "fired on a correctly deferred use of an aliased store"; fi
 
+# ---- arm 24: capturing a getter is the freeze whatever wraps it -----------
+# The rule first matched only a BARE member access, so the two most natural ways
+# to consume one of the ~23 getters this branch creates were silent.
+fixture capwrapped "const limits = require('./limits');
+const F = path.join(limits.FILE, 'x');"
+if [ "$(run capwrapped)" = "1" ]; then ok "a captured getter inside path.join is flagged"
+else bad "a captured getter was silent because something wrapped it"; fi
+
+fixture capconcat "const limits = require('./limits');
+const F = limits.FILE + '.tmp';"
+if [ "$(run capconcat)" = "1" ]; then ok "a captured getter in a concatenation is flagged"
+else bad "a captured getter was silent because it was concatenated"; fi
+
+# ---- arm 25: and process.env is NOT a module getter -----------------------
+# The counterweight to arm 24. Widening the rule immediately false-positived on
+# `process.env.KOSMOS_WORKERS_DIR` in tools/check-block-delivery.js: the receiver
+# is `env` and the name is path-shaped. A guard that fires on correct code gets
+# excused by name until the debt list is decoration.
+fixture capenv "const W = process.env.KOSMOS_WORKERS_DIR || path.join('a','b');"
+if [ "$(run capenv)" = "0" ]; then ok "process.env.X_DIR is not mistaken for a captured getter"
+else bad "fired on an environment variable read"; fi
+
 echo
-if [ "$FAILS" -eq 0 ]; then echo "ALL PASS (25 arms)"; else echo "$FAILS FAILED"; fi
+if [ "$FAILS" -eq 0 ]; then echo "ALL PASS (28 arms)"; else echo "$FAILS FAILED"; fi
 exit "$FAILS"

@@ -38,9 +38,15 @@ function makeTokenDoor(spec) {
      require time by engine/tokendoors.js, so all 18 doors held a path to whatever
      root existed when the module loaded.
 
-     Measured before this change, with the seam set after require:
-       tokendoor.DIR -> <sandbox>/secrets/env        (followed)
-       door.FILE     -> <REAL>/secrets/env/DISCORD_BOT_TOKEN   (frozen)
+     Measured against origin/main, seam set AFTER require, both rows re-run:
+       main:   tokendoor.DIR -> <SEAM-AT-REQUIRE>/secrets/env   (FROZEN)
+       branch: tokendoor.DIR -> <SEAM-NOW>/secrets/env          (follows)
+     🛑 AN EARLIER VERSION OF THIS BLOCK SAID DIR ALREADY FOLLOWED THE SEAM ON MAIN.
+     It does not: main freezes it at line 32 with `const DIR = path.join(store.ROOT,
+     ...)`. That reading only reproduced against an intermediate commit on this
+     branch where `dir()` was lazy and `FILE` was still captured, and after merge a
+     reader takes main as the baseline and would get a different answer. On main
+     BOTH rows are frozen; this branch makes both follow.
 
      That is worse than the other 22 because of WHAT it points at: connect()
      writes a token there and forget() unlinks it, so a late-seam test would
