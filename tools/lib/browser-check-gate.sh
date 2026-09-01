@@ -82,10 +82,13 @@ kosmos_browser_check_gate() {
     # A web/ change of ANY kind is a rendered change to guard -- add, edit OR delete.
     # Per-path so docs/webhooks/x never matches web/.
     case "$dpath" in web/*) touched_web=1 ;; esac
-    # A docs/browser-checks/*.js ASSERTION counts as coverage ONLY when ADDED or
-    # MODIFIED, and ONLY at the top level -- matching the driver's own enumeration
-    # (tools/browser-checks.sh globs `docs/browser-checks/*.js`, which does NOT descend
-    # into subdirs like shots/). A DELETE (a rename-away shows as a D under
+    # A top-level docs/browser-checks/*.js FILE counts as coverage when ADDED or
+    # MODIFIED. This is FILE-level granularity, matching the driver's own enumeration
+    # (tools/browser-checks.sh globs `docs/browser-checks/*.js`, top level only, not
+    # subdirs like shots/). It cannot tell a real assertion from a helper the driver
+    # runs as infrastructure (thread-server.js, lib-sandbox-guard.js), so touching a
+    # helper here also satisfies it; distinguishing them needs per-file metadata and is
+    # out of scope for an honesty aid. A DELETE (a rename-away shows as a D under
     # --no-renames), a NON-.js file (a README), or a NESTED .js the driver never runs
     # are none of them coverage -- each is the gap this gate exists to catch. (If the
     # driver's glob ever broadens, e.g. to .mjs or subdirs, broaden this in lockstep.)
