@@ -262,6 +262,28 @@ function installLog() { return installedRoot() ? path.join(installedRoot(), 'log
    A successful install rewrites the file with code 0, which seeds
    nothing: success is the board coming back changed. */
 function installStatusFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'install.status') : null; }
+/* 🛑 #1728: THE DURABLE IN-FLIGHT WITNESS. install.status above is written by
+   the spawned shell only WHEN AN ATTEMPT FINISHES. But this installer is
+   detached, unref'd and stdio-ignored, so the exact failure it cannot survive
+   to record -- a board killed, a Ctrl-C, a crash MID-INSTALL -- leaves no trace
+   at all: no exit listener (the process is gone) and no status file (the shell
+   never reached its printf). This marker closes that gap. THIS process writes
+   it the moment a child exists (wireChild), and the SAME shell removes it when
+   the attempt finishes (success or clean failure). Its survival is the whole
+   signal: a finished attempt has no marker, so a marker still on disk means the
+   attempt was interrupted before it could restart the board.
+   📌 Add-only. It never touches detached/unref/stdio (that is the recall design
+   left for Josh, kosmos#1728); it only makes an interruption OBSERVABLE. */
+function installStartedFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'install.started') : null; }
+function markInstallStarted(startedAt) {
+  const file = installStartedFile();
+  if (!file) return;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, String(startedAt || '') + '\n');
+  } catch { /* best-effort: a board that cannot write the marker is no worse off
+                than before #1728, and must never fail an install to record one. */ }
+}
 function noteAttemptEnd(owner, code, why) {
   /* ⚠️ IDENTITY, not existence. A child's exit/error listener stays bound
      for that child's life; only the record its OWN press created may be
@@ -279,21 +301,50 @@ function noteAttemptEnd(owner, code, why) {
     log: installLog(),
   };
 }
-function seedFromStatusFile() {
+function readStatusRecord() {
   const file = installStatusFile();
-  if (!file) return;
+  if (!file) return null;
   let raw = '';
-  try { raw = fs.readFileSync(file, 'utf8'); } catch { return; }
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return null; }
   const m = /^(-?\d+)\s+(\S+)/.exec(raw.trim());
-  if (!m) return;
+  if (!m) return null;
   const code = Number(m[1]);
-  if (code === 0) return;
+  if (code === 0) return null;   // a success seeds nothing: success is the board coming back changed
   let endedAt = null;
   try { endedAt = fs.statSync(file).mtime.toISOString(); } catch { endedAt = new Date().toISOString(); }
-  lastAttempt = { startedAt: m[2], endedAt, code, because: 'the installer stopped before it could restart the board', log: installLog() };
+  return { startedAt: m[2], endedAt, code, because: 'the installer stopped before it could restart the board', log: installLog() };
+}
+/* #1728. A surviving start marker (see markInstallStarted) means the attempt
+   never reached its finish line -- the shell removes the marker on finish. The
+   code is null because we do not know the outcome, only that it was in flight
+   and did not complete. */
+function readStartedRecord() {
+  const file = installStartedFile();
+  if (!file) return null;
+  let raw = '';
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return null; }
+  const startedAt = raw.trim();
+  if (!startedAt) return null;
+  let endedAt = null;
+  try { endedAt = fs.statSync(file).mtime.toISOString(); } catch { endedAt = new Date().toISOString(); }
+  return { startedAt, endedAt, code: null, because: 'the update was interrupted before it could finish', log: installLog() };
+}
+function seedFromDisk() {
+  /* Two durable witnesses; the more recent attempt (by ISO start stamp, which
+     sorts lexicographically) wins. In normal operation only one is present -- a
+     finished attempt has a status file and no marker, an interrupted one has a
+     marker and no fresh status -- but a failed attempt followed by an
+     interrupted one can leave both, and the newer marker must not be masked by
+     the older status. */
+  const fromStatus = readStatusRecord();
+  const fromMarker = readStartedRecord();
+  const pick = !fromStatus ? fromMarker
+             : !fromMarker ? fromStatus
+             : (String(fromMarker.startedAt) > String(fromStatus.startedAt) ? fromMarker : fromStatus);
+  if (pick) lastAttempt = pick;
 }
 function lastAttemptView() {
-  if (!lastAttempt) seedFromStatusFile();
+  if (!lastAttempt) seedFromDisk();
   return lastAttempt ? { ...lastAttempt } : null;
 }
 
@@ -310,6 +361,12 @@ function wireChild(child, opts) {
   // stranded true, answered every retry "already updating". Log, release
   // the flag, and the person's retry gets a real attempt.
   const owner = lastAttempt;
+  /* #1728: the moment a child exists, record the durable in-flight marker. This
+     is the shared choke point both the real spawn and an injected test runner
+     reach, so the witness is written once for both. It is written synchronously
+     here, microseconds after spawn; the shell's own `rm -f` of it runs only
+     after the (multi-second) curl|sh pipeline, so there is no race. */
+  markInstallStarted(owner && owner.startedAt);
   child.on('error', (err) => {
     installStarted = false;
     noteAttemptEnd(owner, null, 'the installer could not be started: ' + String((err && err.message) || err));
@@ -373,6 +430,10 @@ function beginInstall(opts) {
      leaves for the next board. Positional parameters, never interpolated
      into the one command in this product that ends in `| sh`. */
   const statusFile = installStatusFile() || '/dev/null';
+  /* #1728: the shell removes the in-flight marker (written by wireChild) when
+     the attempt finishes -- whichever way the pipeline exited, since the tail of
+     the command always runs. A surviving marker therefore means an interruption. */
+  const startedMarker = installStartedFile() || '/dev/null';
   /* 🛑 #1726: THE GATE GOES HERE, AND THIS CALL SITE NEEDS IT MORE THAN THE ONES
      THAT ALREADY HAD IT. `create.js` (#1598), `remove.js` and `delete-leftover.js`
      all gate an exec whose child this process still holds. THIS ONE IS
@@ -396,7 +457,7 @@ function beginInstall(opts) {
     liveExec.refuseOrWarn('engine/update.js', '/bin/sh', ['-c', 'curl | sh (installer)']);
     return;
   }
-  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s\n" "$code" "$3" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt], {
+  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s\n" "$code" "$3" > "$2"; rm -f "$4"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, startedMarker], {
     detached: true,
     stdio: 'ignore',
     env: { ...process.env, KOSMOS_RELEASE_BASE: base },
@@ -415,6 +476,7 @@ function resetCache() { cache = { at: 0, latest: null, reached: false, readable:
 
 module.exports = {
   available, poke, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
+  installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
   resetCache, RUNNING, TTL, lastLook, checkNow,
 };
