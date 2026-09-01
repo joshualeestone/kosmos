@@ -1257,6 +1257,94 @@ function crossSiteWrite(req) {
   return null;
 }
 
+/**
+ * The peers that count as loopback. `req.socket.remoteAddress` for a local
+ * connection is one of these; a network connection carries the peer's real
+ * address. An IPv4 loopback tunnelled over IPv6 shows as `::ffff:127.0.0.1`, so
+ * it is here too.
+ *
+ * 🔑 THIS IS DELIBERATELY THE SOCKET PEER, NOT A HEADER. `crossSiteWrite` reads
+ * `Origin`/`Host`, which a client controls -- right for the drive-by-page threat
+ * it names. Reachability is a different question: WHO is actually on the other
+ * end of this connection, which only the socket can answer and a client cannot
+ * forge.
+ */
+const LOOPBACK_PEERS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+function isLoopbackPeer(req) {
+  const a = req && req.socket && req.socket.remoteAddress;
+  // An undefined peer (a destroyed socket) is NOT loopback: fail closed, so a
+  // request we cannot place is held to the remote rules, not the local ones.
+  return !!a && LOOPBACK_PEERS.has(String(a));
+}
+
+/**
+ * The ONLY routes a remote (non-loopback) peer may reach, and only with a valid
+ * agent token. This is the whole network surface of the board: an agent reports
+ * its own state and sends messages as itself. Everything else -- the page, the
+ * connections shelf, avatars, settings, and above all `POST /api/agents`, which
+ * installs a launchd job running Claude with `--dangerously-skip-permissions` --
+ * is reachable only from loopback, ALWAYS.
+ */
+const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
+
+/**
+ * What makes opening the bind safe (#1112 phase 2).
+ *
+ * `crossSiteWrite` is a browser guard: a request with no `Origin` and a JSON
+ * content type passes it entirely, so it does NOT contain a direct network
+ * client. Today the only thing that does is the loopback bind at `start()`. When
+ * that bind is opened to the network (KOSMOS_BIND_HOST), this is what keeps the
+ * board's write surface -- including the agent-installing `POST /api/agents` --
+ * unreachable from the network.
+ *
+ * 🔑 A remote peer may reach ONLY `REMOTE_AGENT_ROUTES`, and only with a token
+ * the store recognises. A loopback peer is unaffected: this returns null and the
+ * request proceeds exactly as before, so nothing changes for the operator, the
+ * board UI, or any local process. Because it keys on the socket peer, opening
+ * the bind does NOT expose the board UI to the network either: a browser from
+ * another machine is a remote peer with no token, refused everywhere but
+ * report/reply, which it cannot reach without one.
+ *
+ * ⚠️ ONE REFUSAL SENTENCE, for the same reason `sendertoken` keeps one: a
+ * network probe must not learn from the answer whether a route exists or a token
+ * is valid. Wrong route, missing token, unknown token -- one reply.
+ *
+ * 📌 BOUNDARY, DOCUMENTED NOT SOLVED: a reverse proxy or tunnel terminates
+ * locally, so its socket peer is loopback while the real client is remote (the
+ * Funnel arm of the `start()` warning). Trusting `X-Forwarded-For` to recover
+ * the real client is its own footgun and is not done here. This guard protects a
+ * DIRECT network bind, which is the approved Windows-agent case.
+ */
+function remoteWriteGuard(req, pathname) {
+  if (isLoopbackPeer(req)) return null;
+  const NOPE = 'this board only accepts agent reports from the network';
+  if (!REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`)) return NOPE;
+  const presented = req.headers && req.headers['x-kosmos-agent-token'];
+  // Validate existence constant-time via the store, WITHOUT the roster: the
+  // route's own resolveAgentSender then enforces liveness + tie. This is an
+  // early reject of network noise, not the identity decision.
+  if (!presented || !sendertoken.resolveName(presented).ok) return NOPE;
+  return null;
+}
+
+/**
+ * Where the server binds. Loopback by default; a network host ONLY when the
+ * operator explicitly opts in with KOSMOS_BIND_HOST (#1112 phase 2). An
+ * un-opted-in board binds byte-identically to before this change.
+ *
+ * 🔑 SAFE ONLY BECAUSE `remoteWriteGuard` EXISTS. Opening this bind exposes the
+ * board's port to the network; the guard is what keeps every write except the
+ * token-gated agent surface unreachable from it. The two are one change -- do
+ * not read KOSMOS_BIND_HOST anywhere the guard is not also in force.
+ *
+ * Read at listen time (boot). A Settings toggle would need a restart to take
+ * effect, so the env is the honest mechanism.
+ */
+function bindHost() {
+  const v = String(process.env.KOSMOS_BIND_HOST || '').trim();
+  return v || '127.0.0.1';
+}
+
 /* 🔑 THE INSTALL GATE'S REQUEST LOG (#908). On 2026-08-25 and again on
    2026-08-26 the gate went red because something loaded a sandboxed board's
    page (POST /api/whats-new/seen wrote seen-version.json, #891), and nothing
@@ -1304,6 +1392,16 @@ const server = http.createServer((req, res) => {
   const refusal = crossSiteWrite(req);
   if (refusal) {
     sendJson(res, 403, { error: refusal });
+    return;
+  }
+
+  // ⚠️ ALSO before every route, and for the same "covered by default" reason:
+  // when the bind is opened to the network, this is what keeps a remote peer to
+  // any route but the token-gated agent surface a 403. A loopback peer is
+  // unaffected (returns null).
+  const remoteRefusal = remoteWriteGuard(req, pathname);
+  if (remoteRefusal) {
+    sendJson(res, 403, { error: remoteRefusal });
     return;
   }
 
@@ -4949,6 +5047,32 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* Issue a sender token for a remote agent (#1112 phase 2). LOOPBACK-ONLY: it
+     is not in REMOTE_AGENT_ROUTES, so `remoteWriteGuard` refuses a network peer,
+     and `crossSiteWrite` refuses another origin's page -- so this is reachable
+     only from the Mac itself, which is where an operator adds a Windows agent.
+     Minting a token for a name is not itself dangerous: the name does nothing
+     until it is live and reporting, where `resolveAgentSender` still enforces
+     the liveness + roster tie. The operator hands the returned token to the
+     remote agent as KOSMOS_AGENT_TOKEN. */
+  if (pathname === '/api/agent-token' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read');
+          bad.status = 400; throw bad;
+        }
+        const name = body && typeof body.name === 'string' ? body.name.trim() : '';
+        if (!name) { const bad = new Error('name a remote agent to issue a token for'); bad.status = 400; throw bad; }
+        const minted = sendertoken.mint(name);
+        if (!minted.ok) { sendJson(res, 200, { issued: false, because: minted.because }); return; }
+        sendJson(res, 200, { issued: true, name, token: minted.token, instance: minted.instance });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
+    return;
+  }
+
   if (pathname === '/api/msg' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
@@ -7632,8 +7756,16 @@ const server = http.createServer((req, res) => {
  *
  * THREE ways that protection is lost, and only the first is obvious:
  *
- *   1. Changing this to '0.0.0.0'. A one-line edit that looks harmless and
- *      exposes every write endpoint to whatever network the machine is on.
+ *   1. Opening the bind past loopback. `bindHost()` returns '127.0.0.1' unless
+ *      KOSMOS_BIND_HOST is set, and it is set on purpose to serve a remote
+ *      agent (#1112 phase 2). What makes that safe is `remoteWriteGuard`: a
+ *      remote peer reaches ONLY the token-gated agent surface (/api/report,
+ *      /api/reply), so every write below -- including POST /api/agents -- stays
+ *      loopback-only whether the bind is open or not. Opening the bind is no
+ *      longer the one-line footgun it was; the guard is why the two ship as one
+ *      change. ⚠️ Arms 2 and 3 below are NOT addressed by that guard: it keys
+ *      on the socket peer, and a proxy or tunnel makes the real client's peer
+ *      loopback (arm 2), while a browser vector is `crossSiteWrite`'s job (arm 3).
  *
  *   2. A reverse proxy or tunnel pointed at this port. **Binding to localhost
  *      is not sufficient on a machine running one.** Tailscale Funnel, for
@@ -7801,7 +7933,7 @@ function start(port = PORT) {
     };
     server.once('error', onError);
     server.once('listening', onListening);
-    server.listen(port, '127.0.0.1');
+    server.listen(port, bindHost());
   });
 }
 
@@ -8019,4 +8151,12 @@ module.exports = {
      only assertions on it went through the route, where the fixtures could not
      produce a null account and a known model at the same time (#1304). */
   sentenceForWhoami,
+  /* #1112 phase 2: the network-bind auth is exported so each arm can be driven
+     directly with a synthetic req. A real remote (non-loopback) socket peer is
+     not reachable from a same-machine test -- every local connection is
+     loopback -- so the security decision, which IS this function, is pinned as a
+     pure function with controls rather than through a bind nothing local can
+     reach. `bindHost` proves the default is unchanged; `REMOTE_AGENT_ROUTES` is
+     the allowlist under test. */
+  remoteWriteGuard, isLoopbackPeer, bindHost, REMOTE_AGENT_ROUTES,
 };
