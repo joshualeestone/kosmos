@@ -30,6 +30,7 @@ const store = require('./store');
 const status = require('./status');
 const subscription = require('./subscription');
 const connect = require('./connect');
+const platform = require('./platform');
 
 const FLAG = path.join(store.ROOT, 'first-run.json');
 
@@ -176,15 +177,34 @@ async function state() {
    * ⚠️ THE FORK IS ONLY OFFERED WHEN WE CAN ACTUALLY COUNT. If tmux could not
    * be asked we do not know whether they have agents, and guessing "create
    * your first one" at somebody with a running fleet is the version of this
-   * mistake that looks broken.
-   */
+   * mistake that looks broken. */
+
   const path_ = !here.known ? 'unknown' : (here.count > 0 ? 'adopt' : 'create');
 
   /* ⚠️ THE CATCH IS BELT AND BRACES, AND IT IS CURRENTLY UNREACHABLE. Say that
      plainly rather than describing a live fail-open path, because `willInstall()`
-     catches on every route it has: the bin resolution and the accessSync sit in
-     one try, the probe sits in another, and nothing after those can throw. So it
-     does not reject and this `.catch` cannot fire today.
+     catches on every route it has: the bin resolution sits in one try (a throw
+     there returns true), the runnability check sits in that SAME try, so a throw
+     is caught either way: from `require('./runners')` itself, or from
+     `resolveBin('claude')`, which can throw on its own account (it derives a home
+     directory and joins paths) before it ever asks whether the file is runnable.
+
+     📌 AND THE SECOND TRY, WHICH THIS PARAGRAPH HAD LOST. `willInstall`'s `--version` probe
+     runs in its own IIFE with its OWN `try { ... } catch { ok = false; }`, and that IIFE
+     always RESOLVES. That is what makes the code AFTER the first try unable to reject.
+     ⚠️ The clause naming it was deleted in an edit that shortened this block, leaving a
+     conclusion that is TRUE and no longer FOLLOWS from its stated premises. The cost is
+     specific: somebody who later removes that inner catch falsifies the conclusion while
+     every premise written here still holds, and nothing points them at this comment.
+
+     ⇒ THE CLAIM THIS BLOCK EXISTS TO STATE: nothing after either try can reject, so the
+     `.catch` cannot fire today.
+
+     📌 Three earlier drafts of this paragraph were wrong in three different ways, and a
+     fourth defect was structural: it carried "Measured, with a control" on what is a READING
+     of which lines call what, not a behavioural measurement. All four are recorded in
+     .claude/plans/runnable-dir-1592-20260830.md (in .claude/plans, which is tracked on main; kosmos#1592 for the card) rather than here, because this is a comment
+     on a dead `.catch` and it had grown to twenty-six lines of its own history.
 
      It stays because the property it defends is the one that matters (an unknown
      must never become a confident "no install needed", which costs an unannounced
@@ -194,7 +214,9 @@ async function state() {
      web/index.html (named rather than line-numbered, because a line number in a
      32k-line file drifts):
      saying a function can return null when it cannot is how a dead branch gets pinned by a
-     test that can never fail for the reason it states. */
+     test that can never fail for the reason it states.
+     📌 Path AND card, deliberately: the card does not contain the three .catch drafts (measured,
+     zero hits with live controls), so the card alone is an empty pointer today. */
   const willInstall = await willInstallSoon;
 
   return {
@@ -239,6 +261,11 @@ async function state() {
      * which is the same count-in-a-comment defect this branch corrects elsewhere.
      */
     connect: { willInstall },
+    /* kosmos macOS-only gate (Option A): machine facts only -- { platform, supported }
+       -- so a future gate screen can tell an unsupported-OS visitor the product
+       runs on macOS. Deliberately NO user-facing copy here: the wording and the
+       screen are the operator's to add (see engine/platform.js and the PR). */
+    platform: platform.describe(),
   };
 }
 

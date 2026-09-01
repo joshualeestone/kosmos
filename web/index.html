@@ -8957,6 +8957,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="policy" aria-controls="s-sec-policy">AI Policies</button>
     <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents Talking</button>
     <button type="button" data-go="mac" aria-controls="s-sec-mac">This computer</button>
+    <button type="button" data-go="automation" aria-controls="s-sec-automation">Automation</button>
     <button type="button" data-go="usage" aria-controls="s-sec-usage">Token Usage</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
     <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Plus Account</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
@@ -9456,6 +9457,64 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         and the agent gets on with the job. Don&rsquo;t Allow and that one job
         stops, nothing else. Kosmos only does what you asked an agent to do.
       </p>
+    </section>
+  </section>
+  <section class="dsec" id="s-sec-automation" data-sec="automation" tabindex="-1" aria-label="Automation" hidden>
+    <section class="dbox">
+      <!-- #1724 (Josh, 2026-08-31): auto-save a handoff when an agent's context
+           window fills, so a long piece of work is not lost as it nears the limit.
+           First control in the Automation section; the heartbeat (#1722) is a later
+           addition to the same section. -->
+      <h3 class="dlab">Auto-save</h3>
+      <div class="field" style="margin-top:14px;">
+        <label class="flabel" for="ah-enabled">Save your agents' progress</label>
+        <div class="fhint">When an agent's context is nearly full, Kosmos asks it to write its progress to a file, so a long piece of work is not lost as it reaches the limit. Off by default.</div>
+        <div class="frow" style="align-items:center; gap:10px;">
+          <input type="checkbox" id="ah-enabled">
+          <label for="ah-enabled" style="margin:0;">Ask agents to save their progress as their context fills</label>
+        </div>
+        <div class="frow" style="margin-top:12px; align-items:center; gap:10px;">
+          <label class="flabel" for="ah-threshold" style="margin:0;">Save when context reaches</label>
+          <select id="ah-threshold" aria-label="Context fill level to save at">
+            <option value="75">75%</option>
+            <option value="80">80%</option>
+            <option value="85">85%</option>
+            <option value="90">90%</option>
+            <option value="95">95%</option>
+          </select>
+          <button class="btn uprime" type="button" id="ah-save" aria-label="Save automation settings">Save</button>
+        </div>
+        <p class="fmsg" id="ah-msg" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+    <section class="dbox">
+      <!-- #1722 (Josh, 2026-08-31): a heartbeat that checks which agents are
+           working and asks you to chase anyone that has stopped. The later
+           addition the auto-save control above (#1724) reserved a slot for. Off
+           by default; the interval is adjustable. This is wired: the runner is
+           live (server.js), so the control is not a dead toggle. -->
+      <h3 class="dlab">Heartbeat</h3>
+      <div class="field" style="margin-top:14px;">
+        <label class="flabel" for="hb-enabled">Check on your agents</label>
+        <div class="fhint">Every so often, Kosmos looks at which of your agents are working and asks you to check on any that have stopped. It asks a question, never assumes, because an agent may be mid-something. Off by default.</div>
+        <div class="frow" style="align-items:center; gap:10px;">
+          <input type="checkbox" id="hb-enabled">
+          <label for="hb-enabled" style="margin:0;">Ask me to check on any agent that has stopped</label>
+        </div>
+        <!-- #1722: the heartbeat reaches the person through notifications, so if
+             the notify master switch is OFF this toggle does nothing, silently.
+             This conditional hint (Mona Lisa's voice) is shown ONLY when
+             notifications are off, keyed on the notify-master state in
+             paintHeartbeat -- a dedicated element, NOT hb-msg (which is the save
+             status). Hidden by default; unhidden only when notify is off. -->
+        <p class="fhint" id="hb-needs-notify" hidden>Notifications are off, so this cannot reach you. Turn them on and Kosmos will let you know when an agent has stopped.</p>
+        <div class="frow" style="margin-top:12px; align-items:center; gap:10px;">
+          <label class="flabel" for="hb-interval" style="margin:0;">Check every</label>
+          <select id="hb-interval" aria-label="How often to check on your agents"></select>
+          <button class="btn uprime" type="button" id="hb-save" aria-label="Save heartbeat settings">Save</button>
+        </div>
+        <p class="fmsg" id="hb-msg" role="status" aria-live="polite"></p>
+      </div>
     </section>
   </section>
   <!-- #853. Josh asked for real per-model, per-day token usage. The ENGINE
@@ -13108,9 +13167,115 @@ document.getElementById('you-tz-save').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+/* #1724: the auto-handoff control in Settings > Automation. Loads the stored
+   setting (off/85 by default) and saves {enabled, threshold} to /api/settings. */
+async function paintAutomation() {
+  const en = document.getElementById('ah-enabled');
+  const th = document.getElementById('ah-threshold');
+  const btn = document.getElementById('ah-save');
+  const msg = document.getElementById('ah-msg');
+  try {
+    const r = await (await fetch('/api/settings', { cache: 'no-store' })).json();
+    const a = (r && r.autohandoff) || { enabled: false, threshold: 85 };
+    if (document.activeElement !== en) en.checked = a.enabled === true;
+    if (document.activeElement !== th) th.value = String(a.threshold || 85);
+    /* #1724: the sweep (engine/autohandoff-sweep.js, wired in server.js) now acts on
+       this setting, so the control is live: enabled, and honoured by the monitor as an
+       agent's context fills. The not-yet-active note was true only while the sweep was
+       missing; shipping it now would be a false statement. */
+    en.disabled = false; th.disabled = false; btn.disabled = false;
+    msg.textContent = '';
+  } catch {
+    en.disabled = true; th.disabled = true; btn.disabled = true;
+    msg.textContent = 'We could not read the automation settings just now.';
+  }
+}
+document.getElementById('ah-save').addEventListener('click', async () => {
+  const en = document.getElementById('ah-enabled');
+  const th = document.getElementById('ah-threshold');
+  const btn = document.getElementById('ah-save');
+  const msg = document.getElementById('ah-msg');
+  btn.disabled = true;
+  msg.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autohandoff: { enabled: en.checked, threshold: Number(th.value) } }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = out.because || 'That did not save.'; return; }
+    msg.textContent = en.checked
+      ? 'Saved. Kosmos will ask agents to save progress at ' + th.value + '%.'
+      : 'Saved. Auto-save is off.';
+  } catch {
+    msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally {
+    btn.disabled = false;
+  }
+});
+/* #1722: the heartbeat control in Settings > Automation, a later addition to the
+   section #1724 created. Reads the in-force setting (off/17 by default; the runner
+   reads the same file, so read == in force) and saves {on, intervalMinutes} to PUT
+   /api/heartbeat-setting. The interval choices are rendered from the server so the
+   select and the engine cannot disagree about what is valid (same shape as the
+   theme select). A failed save repaints the in-force value, never a lost pick. */
+async function paintHeartbeat() {
+  const en = document.getElementById('hb-enabled');
+  const iv = document.getElementById('hb-interval');
+  const btn = document.getElementById('hb-save');
+  const msg = document.getElementById('hb-msg');
+  const needsNotify = document.getElementById('hb-needs-notify');
+  if (!en || !iv || !btn) return;
+  try {
+    const r = await (await fetch('/api/heartbeat-setting', { cache: 'no-store' })).json();
+    if (Array.isArray(r.intervals)) {
+      const html = r.intervals.map((m) => '<option value="' + m + '">' + m + ' minutes</option>').join('');
+      if (iv.innerHTML !== html) iv.innerHTML = html;
+    }
+    if (document.activeElement !== en) en.checked = r.on === true;
+    if (document.activeElement !== iv) iv.value = String(r.intervalMinutes || 17);
+    en.disabled = false; iv.disabled = false; btn.disabled = false;
+    if (msg) msg.textContent = '';
+  } catch {
+    en.disabled = true; iv.disabled = true; btn.disabled = true;
+    if (msg) msg.textContent = 'We could not read the heartbeat setting just now.';
+  }
+  /* The heartbeat reaches the person through notifications, so show the notify-off
+     hint ONLY when the notify master switch is off. Best-effort and separate from
+     the setting read above: a failed read HIDES the hint (never show a false
+     "notifications off" warning), and it keys its own element, not hb-msg. */
+  if (needsNotify) {
+    try {
+      const n = await (await fetch('/api/notify-setting', { cache: 'no-store' })).json();
+      needsNotify.hidden = n.on === true;
+    } catch { needsNotify.hidden = true; }
+  }
+}
+document.getElementById('hb-save') && document.getElementById('hb-save').addEventListener('click', async () => {
+  const en = document.getElementById('hb-enabled');
+  const iv = document.getElementById('hb-interval');
+  const btn = document.getElementById('hb-save');
+  const msg = document.getElementById('hb-msg');
+  btn.disabled = true; if (msg) msg.textContent = 'Saving...';
+  try {
+    const res = await fetch('/api/heartbeat-setting', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ on: en.checked, intervalMinutes: Number(iv.value) }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { if (msg) msg.textContent = out.error || 'That did not save.'; paintHeartbeat(); return; }
+    if (msg) msg.textContent = out.on
+      ? 'Saved. Kosmos will check on your agents every ' + out.intervalMinutes + ' minutes.'
+      : 'Saved. The heartbeat is off.';
+  } catch {
+    if (msg) msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally { btn.disabled = false; }
+});
 async function paintSettings() {
   paintYouName();
   paintYouTz();
+  paintAutomation();
+  paintHeartbeat();
   const loc = document.getElementById('set-applocation');
   const mach = document.getElementById('set-machine');
   try {

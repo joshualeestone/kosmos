@@ -19,7 +19,6 @@
  * and offers nothing to press; the card asked for instructions, not an
  * installer, and an install nobody asked for is the thing #548 was about.
  */
-const fs = require('node:fs');
 const { spawn, execFile } = require('node:child_process');
 
 const PHASE = Object.freeze({
@@ -31,7 +30,27 @@ const PHASE = Object.freeze({
 });
 
 
-const runnable = (p) => { try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } };
+// #1592: accessSync(X_OK) SUCCEEDS ON A DIRECTORY, so this used to accept a
+// folder as an executable. runners.isRunnable adds the one line that matters,
+// statSync(p).isFile(), and is the definition every DOOR and CONNECT site now asks.
+// ⚠️ NOT the only definition in the repo, and saying so would be false: machine.js
+// installedCheck keeps its own statSync/isFile/accessSync because it needs a THIRD
+// state (null for "could not look") that a boolean helper cannot carry. That site
+// is deliberate, is pinned by the #1592 sweep, and is covered by its own arm.
+/* 🛑 MODULE SCOPE, AND THIS IS A CONTRACT FIX RATHER THAN A TIDY-UP.
+   This read `(p) => require('./runners').isRunnable(p)`, requiring at CALL time.
+   The lambda is reached from `ghBin()`, which `status()` calls synchronously inside
+   a Promise executor, and this file's own `state()` promises "Never rejects", so a
+   load failure of `runners.js` REJECTED `door.state()`. Measured, both arms: with
+   the require throwing, `github.state()` REJECTED; control, module whole, resolved.
+   ⚠️ The branch fixed exactly this class for `ghCandidateList` and left this shape
+   standing IN THE SAME COMMIT, in two files. Fixing one site and not its siblings
+   is the defect this branch is named for, committed inside the fix for it.
+   📌 Safe: `runners.js` requires only node builtins, so there is no cycle. A load
+   failure now fails loudly at import instead of quietly breaking a promise
+   contract at call time. */
+const { isRunnable } = require('./runners');
+const runnable = (p) => isRunnable(p);
 
 /**
  * One service's door, from its spec. A spec says where the tool lives, how

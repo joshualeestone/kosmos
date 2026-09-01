@@ -35,6 +35,37 @@
  * text is used to know what to press, never to declare victory.
  */
 
+/* 📌 THE RESOLUTION RULE, STATED ONCE BECAUSE IT WAS STATED FOUR TIMES.
+   Every site that needs both a PATH and its PRESENCE resolves `runners.resolveBin`
+   ONCE and reads both off the one answer. Two resolutions can disagree across an
+   await.
+   ⚠️ NOT YET, AND NOT #1592. This used to say "that disagreement is what #1592 is about".
+   #1592 is the DIRECTORY defect; the resolution rule is a derived concern this branch
+   introduced. And the disagreement is BEHAVIOUR-NEUTRAL TODAY at all four sites: nothing
+   but comments separates the paired reads, so the two spellings cannot disagree yet.
+   ⇒ What makes this a rule is a future await landing between them. The guard file carries
+   that qualification; the version a maintainer meets FIRST carried neither.
+   ⚠️ Four comments used to name the membership of this set BY HAND, and all four
+   disagreed: "the neighbouring site", "willInstall and claudeHatchAvailable",
+   "willInstall, claudeHatchAvailable and start()", "willInstall above". Adding or
+   removing a resolution site silently staled three of them. That is the
+   two-copies-of-one-fact defect this branch exists to remove, reproduced in prose.
+   ⇒ The sites now point HERE instead of enumerating each other.
+   📌 The one deliberate EXCLUSION is `binaryOnDisk` in `start()`. It is not computed at
+   all on the common path, being inside the CONNECTED arm, and where it IS computed the
+   disk can change before this pair reads. The full reason is at that site.
+     ⚠️ "and it is behind an await" was removed from the exclusion sentence, here and at
+     the site. It was false by the site's own control-flow reading, where the await count
+     is at most one and often zero, and the load-bearing half is CONDITIONAL.
+     📌 An earlier version of this note was written for the SITE and left standing HERE,
+     so it told the reader the head-of-file summary already said something, while BEING
+     that summary, and pointed at a reading "two paragraphs down" that lives 1000 lines
+     away in a different block. Positional pointers are rejected elsewhere in this file
+     for exactly that reason.
+   ⚠️ This summary used to say "conditional and behind an await", which kept the await-count
+   evidence THE SITE ITSELF WITHDRAWS as "the wrong KIND of argument". Two copies of one
+   rationale, diverged, in the comment written to stop exactly that. */
+
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -44,6 +75,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const store = require('./store');
+const platformGate = require('./platform');
 const subscription = require('./subscription');
 
 
@@ -356,7 +388,7 @@ function setProbeTtlForTests(ms) { PROBE_TTL_MS = Number.isFinite(ms) && ms > 0 
  * this function only computes the value.
  *
  * ⭐ THE SAME TWO-STEP `start()` ALREADY USES, and it was here before either #1560
- * or this card: a cheap `accessSync` decides whether the expensive probe is worth
+ * or this card: a cheap runnability check decides whether the expensive probe is worth
  * running. A truncated or half-written launcher passes `X_OK` forever, so "a file is
  * there" is not "it runs", and only `--version` can tell them apart.
  *
@@ -369,7 +401,7 @@ function setProbeTtlForTests(ms) { PROBE_TTL_MS = Number.isFinite(ms) && ms > 0 
  * step by name. So the cheap check runs EVERY time: if the binary has GONE, that is
  * known instantly and no probe runs. Only the expensive PROBE result is cached.
  *
- * ⚠️ AND HERE IS THE WINDOW THAT LEAVES, STATED RATHER THAN GLOSSED. `accessSync`
+ * ⚠️ AND HERE IS THE WINDOW THAT LEAVES, STATED RATHER THAN GLOSSED. The check
  * catches REMOVAL, not corruption in place. A launcher that was present and working,
  * cached `ok: true`, and is then overwritten with something broken AT THE SAME PATH
  * reads as installed for up to the TTL. That is the harmful direction, and no cheap
@@ -422,16 +454,53 @@ function setProbeTtlForTests(ms) { PROBE_TTL_MS = Number.isFinite(ms) && ms > 0 
    cost exactly one probe, and changes no verdict. */
 
 async function willInstall() {
-  /* ⚠️ `claudeBinPath()` IS INSIDE THE GUARD, and it was not. It calls into the
-     runner resolver, which can throw, and the doc block above promises this
-     function never does. A resolver failure is an unknown like any other here, so
-     it resolves the same way: an install is needed. */
+  /* 🛑 DO NOT HOIST THIS `require('./runners')` TO MODULE SCOPE. The same shape was
+     JUST HOISTED in devicedoor.js and githubdevice.js, and doing it here would be a
+     regression, because the two cases are opposites and the difference is whether
+     the enclosing code CATCHES.
+       devicedoor/githubdevice: the lambda runs inside a Promise executor whose
+         contract says it never rejects, so a call-time require failure BROKE that
+         contract. Hoisting made it fail loudly at import instead.
+       here: the try/catch turns any failure into a DEFINED answer. Measured, both
+         arms: with the require throwing, `willInstall()` RESOLVES to true (install
+         needed); control, module whole, resolves false. Hoisting would move the
+         failure OUTSIDE the guard and make this function throw.
+     ⇒ A sweep that hoists every lazy require on this branch would break exactly
+     this site. The rule is not "requires belong at module scope", it is "a failure
+     must reach a defined answer".
+
+     ⚠️ THE RESOLUTION IS INSIDE THE GUARD, and it was not. `resolveBin('claude')`
+     can throw (it derives a home directory and joins paths before it ever asks about
+     the file), and the doc block above promises this function never does. A resolver
+     failure is an unknown like any other here, so it resolves the same way: an
+     install is needed.
+
+     📌 THIS NAMED `claudeBinPath()`, which was true until this function stopped
+     calling it, in the same commit that removed the double resolution below. That is
+     the identical staleness already corrected in `claudeHatchAvailable`'s docblock,
+     one function over, left standing here by the commit that fixed the sibling.
+     Named by MECHANISM now rather than by wrapper, so dropping a wrapper cannot
+     stale it a third time. */
   let bin;
   try {
-    bin = claudeBinPath();
     /* The cheap half, every time. It cannot produce the harmful answer on its own:
-       a missing or non-executable file means an install IS needed, full stop. */
-    fs.accessSync(bin, fs.constants.X_OK);
+       a missing or non-executable file means an install IS needed, full stop.
+
+       📌 ONE RESOLUTION, NOT TWO, PER THE RESOLUTION RULE AT THE HEAD OF THIS FILE. This
+       read `bin = claudeBinPath(); if (!isRunnable(bin))`, and claudeBinPath()
+       already calls resolveBin('claude'), which computes `present` with
+       isRunnable internally. So the path was stat'd twice and the file asked the
+       same question in TWO spellings: isRunnable here, resolveBin().present at
+       the post-install gate below. Measured equal in both arms (a DIRECTORY gives
+       present=false and isRunnable=false; a real executable gives true and true).
+       Asking it once, the way the neighbour asks it, is the "one definition" this
+       branch is named for. */
+    const resolved = require('./runners').resolveBin('claude');
+    bin = resolved.bin;
+    /* #1592: `present` is computed with runners.isRunnable, because the raw X_OK
+       check SUCCEEDS ON A DIRECTORY, so a folder at the bin path read as
+       installed. */
+    if (!resolved.present) return true;
   } catch { return true; }
   if (probeCache && probeCache.bin === bin && Date.now() - probeCache.at < PROBE_TTL_MS) {
     return !probeCache.ok;
@@ -663,7 +732,19 @@ function platformKey() {
  * way, but restart is simpler to reason about and the file downloads once
  * (measured: 281MB, 9 seconds on this machine's connection).
  */
-async function download(onProgress, track) {
+async function download(onProgress, track, platform = process.platform) {
+  /* kosmos macOS-only gate (Option A, extended to the provider-binary download at
+     Splinter's ruling 2026-09-01): the binary this fetches is a `darwin-${arch}`
+     build (see platformKey), so on any other OS it would download ~281MB of a Mac
+     binary that cannot run -- the exact "attempt a Mac-only action on the wrong OS
+     and half-succeed" this gate exists to prevent. Refuse BEFORE any bytes move.
+     This is the gate (refuse), NOT the Option C fix (it does not fetch a Windows
+     build, so it makes no part of Windows look functional). `platform` is a
+     parameter (default process.platform) so the refusal is testable on a Mac. The
+     polished user-facing wording is the operator's to refine (see engine/platform.js). */
+  if (!platformGate.isSupported(platform)) {
+    throw new Error('this platform (' + platform + ') is not supported; the Claude Code binary is a macOS build and was not downloaded');
+  }
   const base = downloadBase();
   const version = (await fetchText(`${base}/latest`, undefined, track)).trim();
   activeRequest = null; // finished; "set" must keep meaning "in flight"
@@ -910,8 +991,15 @@ async function start(opts) {
      * ⚠️ THE CHEAP HALF ONLY, DELIBERATELY. `haveBinary` below refines this with
      * an AWAITED `--version` probe carrying a 15 second timeout, and putting
      * that in front of the fast path would make every already-connected start()
-     * pay for it. `accessSync` is synchronous and answers the question this
-     * branch actually needs: is there anything on disk to run at all.
+     * pay for it. A SYNCHRONOUS presence check is what the fast path needs, and
+     * `resolveBin().present` is exactly that.
+     * ⚠️ THIS SAID "`accessSync` is synchronous and answers the question this
+     * branch actually needs". IT DOES NOT ANSWER IT: the raw execute-permission
+     * check succeeds on a DIRECTORY, which the refutation block further down spells
+     * out in full (and this sentence deliberately avoids spelling the call, because
+     * the #1592 sweep pins every line that does, and it caught this edit). The
+     * branch rewrote this same phrasing at three other sites and left this one
+     * standing, above its own refutation. (Named by position, not distance: a sibling file records a draft that said "thirty lines below" when the real distance had become 180.)
      *
      * 🛑 A BINARY THAT EXISTS AND DOES NOT RUN STILL REPORTS CONNECTED HERE, AND
      * NOTHING CORRECTS IT. This branch's verdict is TERMINAL: `start()` returns
@@ -946,18 +1034,43 @@ async function start(opts) {
      * This file records the identical hazard elsewhere ("this read
      * engine/firstrun.js:140 until #1556 inserted lines above that call").
      *
-     * The bare-`accessSync` sites remaining in this file are `willInstall`'s
-     * presence check and `canRunClaude`. Both are weak the same way: a directory
-     * passes them.
+     * There are NO bare-`accessSync` sites left in this file. `willInstall`'s
+     * presence check and `canRunClaude` were the last two, and both now ask
+     * `resolveBin('claude').present`, which computes `present` WITH
+     * `runners.isRunnable` and so answers false for a directory. Stated
+     * transitively because that is what the code does; saying they "ask
+     * isRunnable" is the conflation `firstrun.js` corrects at length.
      *
-     * ⚠️ AND MY FIRST VERSION OF THIS PARAGRAPH ASSERTED SOMETHING FALSE ABOUT
-     * `canRunClaude`. I wrote that it "decides whether the STUCK screen tells
-     * somebody to type `claude` in Terminal". It COMPUTES that, and `publicView`
-     * DROPS THE FIELD, so the page's read of `st.canRunClaude` is always
-     * undefined and that hatch has never rendered. Carded as #1595. Out of scope
-     * here either way, but the reason is "it is not wired", not "it is wired and
-     * weak" -- and this branch is what first routes a machine to that screen.
+     * ⚠️ THIS PARAGRAPH USED TO NAME THOSE TWO AS STILL WEAK, AND IT WAS LEFT
+     * STANDING BY THE COMMIT THAT FIXED THEM. That is precisely the hazard the
+     * paragraph above warns about, committed two paragraphs below the warning.
+     *
+     * ✅ THE CURRENT TRUTH, FIRST, BECAUSE IT IS THE ONLY PART NEEDED TO WORK HERE:
+     * since #1595 `publicView` carries `canRunClaude` in its returned object, and
+     * `engine.publicview-canrun-1595.test.js` on main pins it. The field IS served,
+     * so repointing `becomeStuck` is a LIVE user-visible change: a directory at the
+     * bin path now correctly hides the "open Terminal, type claude" hatch instead
+     * of offering it.
+     *
+     * ------------------------------------------------------------------
+     * 📌 HISTORY MOVED, NOT TRIMMED. Three superseded readings of this paragraph,
+     * each wrong in a different and instructive direction, were moved to the #1592
+     * plan and the PR that carried it. Two independent reviewers flagged 25 lines of
+     * non-operative archaeology in a hot path; the rule this branch wrote for itself
+     * is MOVE, THEN TRIM, NEVER TRIM FIRST, so it was moved.
+     * ⚠️ POINTING AT THE CARD, NOT AT A FILENAME. This cited
+     * `.claude/plans/runnable-dir-1592-20260830.md` directly, and a plan file is a
+     * branch artifact with a DATE in its name. ⚠️ THE REASON FIRST GIVEN HERE WAS
+     * FALSE: it said such a file "can be pruned or renamed". MEASURED, `.claude/plans`
+     * is TRACKED on main, so it is a durable home. (No file count here on purpose: the
+     * first version said "587 committed plan files" and it was 593 within the hour. A count
+     * in shipped source ages; the property does not.)
+     * The conclusion stands on a different footing: a card is where the DISCUSSION is,
+     * and a plan file can still be RENAMED even though it is never pruned, after which
+     * shipped source would then point at nothing with no signal to the reader.
+     * A card number survives both.
      */
+
     const binaryOnDisk = require('./runners').resolveBin('claude').present;
 
     /* With nothing on disk to run we fall through regardless, so do not spawn
@@ -1021,7 +1134,40 @@ async function start(opts) {
     }
   }
 
-  const bin = claudeBinPath();
+  /* ONE RESOLUTION FOR THE TWO READS AROUND THE PROBE, per the resolution rule at the
+     head of this file.
+
+     🛑 `binaryOnDisk` NEAR THE TOP OF THIS FUNCTION IS DELIBERATELY EXCLUDED AND
+     MUST NOT BE FOLDED IN. It is CONDITIONAL, so it is not a value this pair can reuse:
+     it is computed only inside
+     `if (sub.state === subscription.STATE.CONNECTED)`, so on the common path it is
+     never computed at all, and where it IS computed the disk can change before this
+     pair reads. Collapsing it would be a real bug, not a tidy-up.
+
+     🛑 THE REASON ORIGINALLY GIVEN HERE WAS FALSE, and it is corrected rather than
+     deleted because it was the wrong KIND of argument. It said "two awaits sit
+     between it and this pair (`checkLive` and `killSession`)". Verified against
+     control flow: `killSession()` lives in a branch that ALWAYS RETURNS (two returns,
+     ending `return publicView(...)`), so execution reaching here never passed it; and
+     `checkLive` is itself conditional on `binaryOnDisk`. So the count is AT MOST ONE
+     and often zero.
+     ⭐ It carried "Measured, with a control", which made a TEXTUAL await count read as
+     a behavioural measurement. Counting awaits between two lines ignores control flow,
+     and that is the same use-versus-mention defect this branch is named for, one level
+     up. The conclusion was right and its stated evidence was not.
+     ⚠️ Its other half stands: this comment used to say only "ONE RESOLUTION, matching
+     willInstall and claudeHatchAvailable", which reads as a file-wide rule and gave the
+     next person no signal that the third site is excluded on purpose.
+
+     This read
+     `const bin = claudeBinPath()` here and `resolveBin('claude').present` twenty
+     lines below, with only comments between them, so the same resolver ran twice
+     for one path.
+     🛑 THIS IS THE SITE BOTH OF THOSE COMMENTS CALL "the neighbouring site". They
+     claimed one resolution and matched a site that still did two, which made the
+     claim true of the sites that changed and false of the one they point at. */
+  const claudeResolved = require('./runners').resolveBin('claude');
+  const bin = claudeResolved.bin;
   /**
    * 🛑 THE SAME RESOLVER AS THE SHORT-CIRCUIT ABOVE, SO THE TWO CANNOT ANSWER
    * DIFFERENTLY. With this left as a bare `accessSync`, a DIRECTORY at the
@@ -1042,7 +1188,7 @@ async function start(opts) {
    * edit, and the probe that currently rescues it is an implementation detail
    * of a different concern.
    */
-  let haveBinary = require('./runners').resolveBin('claude').present;
+  let haveBinary = claudeResolved.present;
   /**
    * ⚠️ EXECUTABLE IS NOT WORKING. A cancel or crash mid-`claude install` can
    * leave a truncated launcher that passes X_OK forever -- and trusting it
@@ -1331,13 +1477,19 @@ async function installClaudeCode(hooks) {
 
   hooks.onPhase(PHASE.INSTALLING);
   /**
-   * ⚠️ HOME IS PASSED, and it is not cosmetic. `claudeBinPath()` now
+   * ⚠️ HOME IS PASSED, and it is not cosmetic. The post-install gate
    * resolves through `runners.resolveBin('claude')`, which honours the
    * AGENT_WORKFORCE_HOME sandbox seam. Without passing the same home to
    * the child, WHERE WE LOOK and WHERE THE VENDOR WRITES key on different
    * variables: under a sandbox the install would land in the operator's
-   * real home and the `accessSync` below would then report a SUCCESSFUL
+   * real home and the presence check below would then report a SUCCESSFUL
    * install as a failure, through the `fail()` at the end of this function.
+   * ⚠️ THIS NAMED `claudeBinPath()`, A WRAPPER THIS FUNCTION NO LONGER CALLS. Measured:
+   * that name appears in this function's body ONLY IN COMMENTS, never as a call, and the
+   * resolution arm's own assertion confirms zero calls after stripping. The conclusion
+   * survives because the gate calls resolveBin('claude') directly, honouring the same seam.
+   * 📌 The identical staleness was corrected at willInstall, at claudeHatchAvailable and in
+   * two firstrun test files, and left standing here. Fixed one site, left its siblings.
    * 🛑 #1570: THIS COMMENT DELIBERATELY QUOTES NO PART OF THAT SENTENCE, and the
    * reason is worth the two lines. It used to PARAPHRASE the message inside
    * quotation marks. The product never emitted that wording, so the paraphrase was
@@ -1358,9 +1510,30 @@ async function installClaudeCode(hooks) {
    * earlier version of this comment said "exactly as the old bare HOME
    * constant did", which described code that was not there.
    */
+  /* 🛑 DEFENCE IN DEPTH, NOT A REACHABLE FIX, AND AN EARLIER VERSION OF THIS COMMENT
+     CLAIMED OTHERWISE. It said a throw here stranded a verified ~281MB download. It
+     cannot: `store.ROOT` evaluates `os.homedir()` as an eager argument and `download()`
+     needs `store.ROOT`, so the download dies first and there is never a file to strand.
+     ⇒ Resolving the home here is correct and costs nothing, and it is NOT reachable
+     today. That is its honest status.
+     📌 The full retraction, both wrong reasons I gave, and why the arm for it proved
+     nothing, are in .claude/plans/runnable-dir-1592-20260830.md (in .claude/plans, which is tracked on main; kosmos#1592 for the card). Thirty lines of that
+     history lived here and became the thing every reviewer flagged.
+     📌 Path AND card, deliberately: the card does not contain the 281MB retraction (measured,
+     zero hits with live controls), so the card alone is an empty pointer today. */
+  let installHome;
+  try { installHome = require('./runners').homeDir(); }
+  catch {
+    try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
+    return fail(
+      'Claude Code downloaded, but we have nowhere to install it',
+      'This account has no home directory we can resolve. It usually means HOME is unset '
+        + 'and the account has no passwd entry, which a service or container account can hit.'
+    );
+  }
   const inst = await run(downloaded.path, ['install'], {
     timeout: 180000,
-    env: { TERM: 'dumb', HOME: require('./runners').homeDir() },
+    env: { TERM: 'dumb', HOME: installHome },
     cancellable: true,
   });
   if (hooks.cancelled()) {
@@ -1387,10 +1560,87 @@ async function installClaudeCode(hooks) {
    * same flow. It cannot distinguish "the installer produced a binary" from "a
    * directory is still sitting there", and no fixture can make it.
    */
-  try { if (!require('./runners').resolveBin('claude').present) throw new Error('not runnable'); }
+  /* 🛑 THE PATH IS CAPTURED BEFORE THE GUARD, NOT REBUILT INSIDE THE HANDLER.
+     The catch used to interpolate `claudeBinPath()`, which is
+     `resolveBin('claude').bin`. If the try entered the catch BECAUSE `resolveBin`
+     threw, that call threw again from inside the handler and
+     escaped `installClaudeCode` entirely: no `fail()` returned.
+     ⚠️ A SECOND CLAUSE HERE ("and the downloaded file never unlinked") WAS FALSE AND IS
+     WITHDRAWN. Measured on origin/main; the full retraction is written once, in
+     connect.install-997.test.js beside the arm. Not restated here: I wrote it into BOTH
+     files an hour after deduping two other verbatim comment pairs in this same branch.
+     Same rule this file applies at `willInstall` and
+     `claudeHatchAvailable`, not applied at the one site whose own comment above is
+     written about it. `expectedAt` is resolved defensively so the message survives
+     a resolver that is failing. */
+  /* null, NOT a placeholder sentence. The two failures below are different and the
+     operator needs different things from them, so the value has to be able to say
+     "never resolved" rather than carrying prose that reads like an answer. */
+  let expectedAt = null;
+  try {
+    /* ONE RESOLUTION, per the resolution rule at the head of this file. The
+       defensive capture and the presence check were two separate resolveBin calls,
+       which is the exact double resolution this branch removed at the other three
+       sites under comments calling it "the one definition this branch is named
+       for". Same defensive behaviour: a throw leaves `expectedAt` on its fallback
+       and lands in the catch below. */
+    const r = require('./runners').resolveBin('claude');
+    expectedAt = r.bin;
+    if (!r.present) throw new Error('not runnable');
+  }
   catch {
     try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
-    return fail('Claude said it set itself up, but we cannot find anything runnable where it should be', `expected a program we can run at ${claudeBinPath()}`);
+    /* 🛑 TWO DIFFERENT FAILURES, AND ONE COPY BLAMED THE WRONG COMPONENT FOR BOTH.
+       If resolveBin THREW, expectedAt is still null: the RESOLVER failed and that is
+       no evidence the install did. Saying "Claude said it set itself up, but we
+       cannot find anything runnable" sends the operator to reinstall a thing that
+       may be fine, and the old detail was a bare parenthetical with no action in it. */
+    /* 🛑 THE FIRST VERSION OF THIS BRANCH NAMED THE WRONG VARIABLE, and the mistake is
+       worth keeping because it is subtle: it told the operator to check
+       AGENT_WORKFORCE_CLAUDE_BIN. MEASURED, that variable makes this branch UNREACHABLE.
+       With it set, resolveBin returns on the env rung BEFORE any homeDir()/path.join and
+       cannot throw; set to a DIRECTORY it returns {present:false, overridden:true}, so
+       expectedAt IS set and control goes to the OTHER branch below. Control, unset: it
+       resolves normally. ⇒ expectedAt stays null only when the variable is UNSET and the
+       HOME derivation fails, so the home derivation is what the advice must name.
+       ⭐ A branch whose whole point is not blaming the wrong component was handing out an
+       action aimed at a condition that could not have produced it.
+
+       🛑 AND THE FIRST CORRECTION MADE THE IDENTICAL MISTAKE ONE VARIABLE OVER, which is
+       why this copy now names NO VARIABLE AT ALL. It said "Check AGENT_WORKFORCE_HOME if
+       it is set". MEASURED, three arms with a working control, os.homedir() stubbed to
+       throw and CLAUDE_BIN unset:
+           AGENT_WORKFORCE_HOME **SET**   -> NO THROW (homeDir returns it, path.join
+                                             cannot throw) => branch UNREACHABLE
+           AGENT_WORKFORCE_HOME **UNSET** -> THREW
+           control, homedir working       -> NO THROW
+       ⇒ Setting that variable GUARANTEES you are not reading this message, so advising
+       the operator to check it is the same defect in a new costume.
+       ⭐ THE LESSON THAT SURVIVES BOTH: when a branch is reached by a FAILURE TO DERIVE
+       something, no environment variable can be the advice, because any variable that
+       supplies the value also prevents the branch. Name the CONDITION, not a knob. */
+    /* 🛑 DEFENSIVE ONLY, AND CURRENTLY UNREACHABLE IN PRODUCTION. Stated plainly so the
+       next reader does not assume otherwise. `installClaudeCode` has ONE caller, inside
+       `runFlow`, which `start()` reaches only AFTER an unguarded
+           const claudeResolved = require('./runners').resolveBin('claude');
+       MEASURED: that line sits at try-depth ZERO inside `start()`, so a resolver throw
+       rejects `start()` there and `runFlow` is never entered. The only arm covering this
+       branch swaps `resolveBin` AFTER that point, so it drives a state production cannot
+       currently produce.
+       📌 Kept rather than deleted, for the reason firstrun.js keeps its dead `.catch`: the
+       guard is correct and the unreachability is a property of a CALLER that may change.
+       ⇒ The honest status is "written, tested, waiting for a caller that can reach it",
+       which is NOT the same as "protecting users today". Two iterations were spent
+       correcting this message's wording before anyone asked whether it is ever printed. */
+    if (expectedAt === null) {
+      return fail(
+        'Claude Code installed, but we could not work out where to look for it',
+        'This account has no home directory we can resolve, so we had nowhere to look. '
+          + 'It does not mean the install failed. It usually means HOME is unset and the '
+          + 'account has no passwd entry, which a service or container account can hit.'
+      );
+    }
+    return fail('Claude said it set itself up, but we cannot find anything runnable where it should be', `expected a program we can run at ${expectedAt}`);
   }
   // The verified download did its job; the installed launcher is what runs
   // from here. The official install script deletes its download too, and
@@ -2100,6 +2350,57 @@ async function finishConnected(owner, sub) {
   writeState({ phase: PHASE.CONNECTED, plan: sub.plan || null, startedOnce: true });
 }
 
+/**
+ * Whether the stuck screen's one way out is actually available: is there a
+ * Claude binary on this Mac that we could run.
+ *
+ * 🛑 THIS IS A FUNCTION BECAUSE A REGION CANNOT BE GUARDED, AND THAT COST SIX
+ * ATTEMPTS TO ESTABLISH (#1592). It was four lines inline in `becomeStuck`, and
+ * the test guarding it had to bound a region of a mutable function. A region has
+ * two edges and each one was independently wrong:
+ *
+ * 📌 THE THREE-ROW TABLE OF FAILED REGION BOUNDS THAT USED TO SIT HERE NOW LIVES IN
+ * ONE PLACE ONLY: engine.runnable-not-directory.test.js, beside the arm it justifies.
+ * ⚠️ It was in BOTH files and THE TWO COPIES HAD ALREADY DIVERGED IN WORDING ("however
+ * the region was bounded" against "at any boundary"). That is the same
+ * two-copies-of-one-fact defect as the resolution rule above, in the same file, found
+ * by a later reviewer after that one was fixed.
+ *
+ * ⇒ Every fix moved one edge and exposed the other. As one expression in one
+ * function there is nothing to bound: the test asserts this call site exactly,
+ * and asserts the BEHAVIOUR of this function against a real directory. A
+ * behavioural arm is the only kind that has reliably survived review here.
+ *
+ * ⚠️ THE TRY IS LOAD-BEARING AND MUST STAY. `resolveBin('claude')` can throw
+ * (it derives a home directory and joins paths before it ever asks about the
+ * file), and this used to say `claudeBinPath()` calls the resolver, which was
+ * true until this function stopped calling claudeBinPath in the same commit that
+ * removed the double resolution. The substance held and the named mechanism did
+ * not, in the docblock a maintainer reads BEFORE touching the try.
+ *
+ * Separately, and this is the load-bearing half: `becomeStuck`'s docblock promises
+ * any error answers FALSE. Hoisting the resolution out of the try lets the throw escape
+ * becomeStuck entirely, so `writeState` never runs and the person is left on no
+ * screen at all. Mona Lisa found that; two blind reviewers hit it on her branch.
+ *
+ * 📌 Asked through `isRunnable`, never through a raw execute-permission check,
+ * which SUCCEEDS ON A DIRECTORY and is the whole of #1592.
+ */
+function claudeHatchAvailable() {
+  try {
+    /* ONE RESOLUTION, per the resolution rule at the head of this file. This read
+       `isRunnable(claudeBinPath())`, and claudeBinPath() is
+       `resolveBin('claude').bin`, so it resolved and stat'd twice. That is the
+       exact shape removed from willInstall IN THE SAME COMMIT, under a comment
+       about asking the question in one spelling; leaving it here made that
+       comment half true. `resolveBin` is still looked up late, so the
+       throw-escapes arm is unaffected. */
+    return require('./runners').resolveBin('claude').present;
+  } catch {
+    return false;
+  }
+}
+
 function becomeStuck(owner, because, tail) {
   /**
    * ⚠️ ONLY THE OWNING FLOW MAY DECLARE ITSELF STUCK. Every path that lands
@@ -2142,12 +2443,7 @@ function becomeStuck(owner, because, tail) {
    * cannot work. A missing way out is a smaller harm than a way out that fails
    * in front of somebody already stuck.
    */
-  let canRunClaude = false;
-  try {
-    fs.accessSync(claudeBinPath(), fs.constants.X_OK);
-    canRunClaude = true;
-  } catch { canRunClaude = false; }
-  writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude });
+  writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable() });
 }
 
 /**
@@ -2268,5 +2564,5 @@ module.exports = {
   download, platformKey, installClaudeCode,
   setRunner, setDryRun, setTickInterval, setUnknownGrace, setAbandonedSigninMs, setFreshnessForTests, resetForTests,
   STATE_FILE,
-  willInstall, setProbeTtlForTests,
+  willInstall, setProbeTtlForTests, claudeHatchAvailable,
 };

@@ -34,8 +34,10 @@ process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
 
 /* 🛑 PIN THE LAUNCHER BEFORE REQUIRING, OR THIS TEST READS THE OPERATOR'S MACHINE.
-   `willInstall()` gates on `fs.accessSync(claudeBinPath(), X_OK)` BEFORE it reaches
-   any injected runner, and `claudeBinPath()` resolves the real `~/.local/bin/claude`.
+   `willInstall()` gates on `resolveBin('claude').present` BEFORE it reaches any
+   injected runner, and that resolves the real `~/.local/bin/claude`.
+   📌 This said `fs.accessSync(claudeBinPath(), X_OK)`, a call #1592 deleted. The
+   hazard and the fix for it are unchanged; only the named mechanism was stale.
    So on a box with no runnable launcher this file fails at the first assertion, and
    on this box it passed for a reason that has nothing to do with the code under test.
 

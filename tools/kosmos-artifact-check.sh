@@ -108,6 +108,37 @@ else
   echo; exit 1
 fi
 
+head_ "The other artifacts an install fetches are served as gzip too"
+# 🛑 #1707: THE CONTENT-TYPE IS LOAD-BEARING FOR EVERY ARTIFACT, AND ONLY ONE HAD
+# A GATE. #1662 made `reachable()` refuse anything positively textual, so a type
+# regression now STOPS AN INSTALL. Before it, curl took whatever the origin sent
+# and a mis-map was invisible. After it, the versioned tarball above was the only
+# one this cut looked at.
+# ⚠️ THE DIRECTION IS WHAT MAKES IT WORTH GATING: a false NO at those call sites is
+# an ABORT guard, not an existence probe. The person gets a blocked install and a
+# sentence telling them to wait for a release that is already published.
+# 📌 THREE URLS, NOT FIVE, AND THE MISSING TWO ARE DELIBERATE. Measured against the
+# live origin on 2026-09-01: kosmos-x86_64 and tmux-x86_64 both 404 as text/html,
+# because NO x86_64 ARTIFACT IS PUBLISHED. Asserting them would redden every
+# correct release, which is the same blocked-on-a-good-build failure this check
+# exists to prevent, arriving through the fix for it. If an x86_64 build is ever
+# published, add it here and the assertion becomes real.
+# ⚠️ AND NOTE WHAT THE PROBE CANNOT TELL YOU: an unpublished artifact and a
+# nonexistent one return the SAME signature (404, text/html). Which URLs belong
+# here comes from what the release publishes, never from probing.
+if serves_gzip "$BASE/kosmos-0.0.0-arm64.tar.gz"; then
+  unp "control failed: a nonexistent version looks served, so these checks cannot discriminate"
+else
+  for extra in "tmux-arm64.tar.gz" "kosmos-arm64.tar.gz"; do
+    if serves_gzip "$BASE/$extra"; then
+      ok "$extra is served as gzip"
+    else
+      bad "$extra is NOT served as gzip at $BASE/$extra (an install that fetches it will refuse)"
+      echo; exit 1
+    fi
+  done
+fi
+
 head_ "Published checksum matches the served bytes"
 curl -fsSL -o "$WORK/k.tgz" "$TGZ_URL" 2>/dev/null || { bad "download failed"; exit 1; }
 PUB="$(curl -fsSL "$TGZ_URL.sha256" 2>/dev/null | awk '{print $1}')"

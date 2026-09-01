@@ -13,7 +13,7 @@
  *   we say FALSE and it was true   ->  AN UNANNOUNCED 281MB DOWNLOAD
  *
  * Josh asked for the confirm step by name. So every arm below that could produce the
- * second answer is checked, and the cheap `accessSync` runs EVERY time so it can only
+ * second answer is checked, and the cheap runnability check runs EVERY time so it can only
  * ever move the verdict toward "yes, we will install".
  *
  * ⭐ THE THIRD ARM IS THE WHOLE POINT AND IT IS THE ONE A SIMPLER FIX WOULD MISS. A
@@ -158,10 +158,18 @@ test('#1556: it never throws, whatever the binary does', async () => {
 
 test('#1556 "never throws" covers the RESOLVER too, not just a missing file', async () => {
   /* ⚠️ THE DOC BLOCK PROMISES THIS FUNCTION NEVER THROWS, and the only test for it
-     exercised a missing binary. `claudeBinPath()` calls into the runner resolver,
-     which can throw, and it used to sit OUTSIDE the guard. So the stated property
-     was not the property pinned. Perturbation: move `claudeBinPath()` back out of
-     the try in connect.js and this arm rejects while the others stay green. */
+     exercised a missing binary. The resolver can throw on its own account (it
+     derives a home directory and joins paths before it ever asks about the file),
+     and it used to sit OUTSIDE the guard. So the stated property was not the
+     property pinned.
+     Perturbation, CURRENT AND FOLLOWABLE: hoist the
+     `require('./runners').resolveBin('claude')` call out of `willInstall`'s try in
+     connect.js, and this arm rejects while the others stay green.
+     📌 The recipe used to say "move `claudeBinPath()` back out of the try". #1592
+     removed that call from this path, so the one instruction telling a maintainer
+     how to prove this arm still works had become unfollowable. The arm itself never
+     stopped working: the 1556 wiring swaps `runners.resolveBin`, which is what
+     `willInstall` now calls directly. */
   const runners = require('./runners.js');
   const orig = runners.resolveBin;
   runners.resolveBin = () => { throw new Error('resolver exploded'); };
@@ -171,6 +179,51 @@ test('#1556 "never throws" covers the RESOLVER too, not just a missing file', as
       'a resolver failure is an unknown, and every unknown here means an install is needed');
   } finally {
     runners.resolveBin = orig;
+    connect.resetForTests();
+  }
+});
+
+/* 📌 PLACED HERE, NOT WITH THE EARLY ARMS, PER THIS FILE'S HEADER RULE. It was
+   originally inserted between arms 2 and 3, before the injected ones. Harmless as
+   written (it patches Module._load and injects no runner), but the rule is
+   unconditional and the next arm added at that position by analogy may well call
+   setRunner, silently converting three real-execution arms into seam arms with
+   nothing going red. Sits beside its sibling resolver arm instead. */
+test('#1556 "never throws" covers a runners LOAD failure, not only a resolver throw', async () => {
+  /* 🛑 THIS PINS A PROPERTY THAT WAS DEFENDED BY A COMMENT ALONE.
+     `willInstall` requires `./runners` INSIDE its try on purpose: the try converts
+     any failure into a DEFINED answer (install needed), which is the safe direction.
+     The same lazy-require shape was correctly HOISTED out of devicedoor.js and
+     githubdevice.js, where it sat in a Promise executor that promises never to
+     reject, and a sweep following that precedent would hoist this one too.
+
+     ⚠️ THE SIBLING ARM ABOVE CANNOT CATCH THAT. It swaps `runners.resolveBin` on the
+     ALREADY-LOADED module object, so by the time it runs `runners` is cached and the
+     require cannot fail. It proves the RESOLVER-throw arm and is silent on whether
+     the require sits inside the try. So hoisting would have gone green.
+
+     The failure this arm forbids is a LOAD failure, so it has to break the load. */
+  const Module = require('module');
+  const origLoad = Module._load;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = fakeClaude('claude-loadfail', 'echo "1.2.3"; exit 0');
+  connect.resetForTests();
+  try {
+    /* CONTROL FIRST, so a passing result means something: with runners loadable, a
+       real executable answers false. If this ever returns true the arm below proves
+       nothing, because every path returns true. */
+    assert.equal(await connect.willInstall(), false,
+      'control: a runnable launcher should not need an install, so the arm below is not vacuous');
+
+    Module._load = function (request, ...rest) {
+      if (request === './runners') throw new Error('simulated runners load failure');
+      return origLoad.call(this, request, ...rest);
+    };
+    connect.resetForTests();
+    assert.equal(await connect.willInstall(), true,
+      'a runners LOAD failure escaped willInstall instead of resolving to "install needed"; '
+      + 'the require was probably hoisted out of the try');
+  } finally {
+    Module._load = origLoad;
     connect.resetForTests();
   }
 });

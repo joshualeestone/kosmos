@@ -45,6 +45,7 @@ const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
+const platformGate = require('./platform');
 
 
 /**
@@ -194,11 +195,11 @@ function isRunnable(p) {
     // X_OK, not `mode & 0o111`: the mode bits answer "can SOMEBODY execute
     // this", and a root-owned 0o700 binary passes that while failing at
     // launch for us. accessSync asks the only question that matters -- can
-    // THIS process run it -- which is the same question engine/connect.js
-    // asks of the same binary at its presence probe, its post-install gate
-    // and its stuck-state check. (Not at the launch itself, which checks
-    // nothing -- so this is the question asked BEFORE a launch, three times
-    // over there and once here.)
+    // THIS process run it.
+    //
+    // 📌 The count of who calls this is held by the sweep in
+    // engine.runnable-not-directory.test.js, not by a census in this comment.
+    // Two earlier drafts of that census were stale; both are in the plan.
     fs.accessSync(p, fs.constants.X_OK);
     return true;
   } catch { return false; }
@@ -526,6 +527,19 @@ function install(provider, opts) {
    * by the route test, which asserted null and got undefined.
    */
   const refuse = (because) => ({ ...blankJob(), phase: 'failed', because });
+
+  /* kosmos macOS-only gate (Option A, extended to the provider-binary download at
+     Splinter's ruling 2026-09-01): the pinned runners are darwin builds (e.g.
+     codex-...-darwin-arm64.tgz), so on any other OS an install would download a Mac
+     binary that cannot run. Refuse BEFORE any bytes move, in the job shape the
+     screen already reads. This is the gate (refuse), NOT the Option C fix -- it
+     fetches no Windows build, so no part of Windows is made to look functional.
+     `o.platform` is the test seam (defaults to process.platform); the polished
+     user-facing wording is the operator's to refine (see engine/platform.js). */
+  const plat = o.platform || process.platform;
+  if (!platformGate.isSupported(plat)) {
+    return refuse(`this platform (${plat}) is not supported; the ${provider} runner is a macOS build and was not downloaded`);
+  }
 
   if (!m) return refuse(`we do not know how to install a runner for ${provider}`);
   // Join a LIVE job before consulting presence: during `proving` the
@@ -1033,4 +1047,4 @@ function installVendor(provider, m, o, existing) {
 /** Test-only: forget every job receipt (the same shape connect.js ships). */
 function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 
-module.exports = { MANIFEST, managedRoot, resolveBin, homeDir, status, install, download, resetForTests };
+module.exports = { MANIFEST, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, resetForTests };

@@ -16,8 +16,12 @@ process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: tr
 
 /* 🛑 PIN THE LAUNCHER TOO, NOT JUST THE RUNNER, AND THIS IS THE THIRD TIME THIS
    HAZARD HAS BITTEN THIS BRANCH. The `connect.setRunner` stub below stops the
-   SUBPROCESS, but `willInstall()` does `fs.accessSync(claudeBinPath(), X_OK)` BEFORE
-   it ever reaches an injected runner. So without this line `state().connect.willInstall`
+   SUBPROCESS, but `willInstall()` resolves and presence-checks the launcher BEFORE
+   it ever reaches an injected runner.
+   📌 This said `fs.accessSync(claudeBinPath(), X_OK)`, a call #1592 deleted. It is
+   now `resolveBin('claude').present`, which computes `present` with
+   `runners.isRunnable`. The ADVICE below is unchanged and still load-bearing; only
+   the named mechanism was stale. So without this line `state().connect.willInstall`
    is false on a box that has a real ~/.local/bin/claude and true on one that does not,
    and the sandbox is only partially isolating.
 

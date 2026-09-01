@@ -100,11 +100,15 @@ test('the two Save buttons on the agent panel say which they are', () => {
   /* CONTROL: both buttons really do still show the same visible word, which is
      the condition that makes the labels necessary. If one is ever renamed this
      test should be revisited rather than silently kept. */
-  assert.equal((PAGE.match(/>Save</g) || []).length, 4,
+  assert.equal((PAGE.match(/>Save</g) || []).length, 6,
     'the number of buttons visibly reading Save changed, so this pairing needs re-checking');
-  /* The third (settings-nav, 2026-08-23) is the Your name field's and the fourth
-     (#1668) is the Your time zone field's, both on the Settings page; named for the
-     same reason, pinned here so the count stays explained. */
+  /* The third (settings-nav, 2026-08-23) is the Your name field's, the fourth
+     (#1668) is the Your time zone field's, the fifth (#1724) is the Automation
+     auto-handoff field's, and the sixth (#1722) is the Automation heartbeat
+     field's, all on the Settings page; named for the same reason, pinned here so
+     the count stays explained. */
   assert.match(PAGE, /id="you-name-save" aria-label="Save your name"/, 'the Settings Save button announces as a bare Save');
   assert.match(PAGE, /id="you-tz-save" aria-label="Save your time zone"/, 'the time-zone Save button announces distinctly');
+  assert.match(PAGE, /id="ah-save" aria-label="Save automation settings"/, 'the auto-handoff Save button announces distinctly');
+  assert.match(PAGE, /id="hb-save" aria-label="Save heartbeat settings"/, 'the heartbeat Save button announces distinctly');
 });

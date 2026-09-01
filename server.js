@@ -43,6 +43,7 @@ const {
 const removal = require('./engine/remove');
 const leftover = require('./engine/delete-leftover');
 const firstrun = require('./engine/firstrun');
+const platformGate = require('./engine/platform');
 const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');
 const connect = require('./engine/connect');
@@ -124,6 +125,8 @@ function engineFreshness() {
   return { startedAt: ENGINE_STARTED_AT.toISOString(), staleSince: engineLook.staleSince };
 }
 const store = require('./engine/store');
+const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
+const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 /* Sandboxed whole or not at all (#634): refused before anything listens or
    writes. In-process (a test requiring this file) it throws; as the program it
    says the sentence and exits 2. */
@@ -172,6 +175,8 @@ const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const ping = require('./engine/ping');
 const notify = require('./engine/notify');
+const heartbeat = require('./engine/heartbeat');
+const heartbeatSetting = require('./engine/heartbeat-setting');
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
@@ -2977,6 +2982,36 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* #1722: the heartbeat setting (Settings > Automation). GET returns the value
+     the runner reads each cycle -- the setting file IS the in-force value, there
+     is no second copy -- plus the closed interval choices so the UI selector and
+     the server cannot disagree about what is valid. PUT takes an on/off change,
+     an interval change, or both; a rejected interval leaves the stored value
+     unchanged, so a failed write shows as an unchanged displayed value. */
+  if (pathname === '/api/heartbeat-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = heartbeatSetting.read();
+      sendJson(res, 200, { on: r.on, intervalMinutes: r.intervalMinutes, intervals: heartbeatSetting.INTERVAL_CHOICES, ok: r.ok });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/heartbeat-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        // ONE validated write: an invalid interval beside a valid `on` must not
+        // persist the `on` and then report failure (server.heartbeat-1722.test.js
+        // pins that a rejected interval leaves the stored value unchanged).
+        const saved = heartbeatSetting.set(body);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        const r = heartbeatSetting.read();
+        sendJson(res, 200, { on: r.on, intervalMinutes: r.intervalMinutes, intervals: heartbeatSetting.INTERVAL_CHOICES, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
   if (pathname === '/api/history' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, forget.summary()); }
     catch { sendJson(res, 500, { error: 'we could not look at your history' }); }
@@ -3885,7 +3920,7 @@ const server = http.createServer((req, res) => {
     /* timezone is null until the operator sets one; the UI then defaults its
        dropdown to the browser's own machine timezone (detected client-side,
        the authoritative source for the operator's machine). */
-    sendJson(res, 200, { timezone: (s && s.timezone) || null });
+    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s) });
     return;
   }
   if (pathname === '/api/settings' && req.method === 'POST') {
@@ -3893,12 +3928,30 @@ const server = http.createServer((req, res) => {
       .then((buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
-        if (!messages.validTimeZone(body.timezone)) {
-          sendJson(res, 400, { ok: false, because: 'that is not a timezone we recognise' });
+        /* Per-field patch: validate each KNOWN setting present, so the timezone
+           route (#1668) and the auto-handoff route (#1724) share one endpoint and
+           neither clobbers the other's stored value (writeSettings merges). */
+        const patch = {};
+        if ('timezone' in body) {
+          if (!messages.validTimeZone(body.timezone)) {
+            sendJson(res, 400, { ok: false, because: 'that is not a timezone we recognise' });
+            return;
+          }
+          patch.timezone = body.timezone;
+        }
+        if ('autohandoff' in body) {
+          if (!autohandoff.validSetting(body.autohandoff)) {
+            sendJson(res, 400, { ok: false, because: 'that is not a valid auto-handoff setting' });
+            return;
+          }
+          patch.autohandoff = { enabled: body.autohandoff.enabled, threshold: body.autohandoff.threshold };
+        }
+        if (Object.keys(patch).length === 0) {
+          sendJson(res, 400, { ok: false, because: 'no known setting to save' });
           return;
         }
-        const saved = store.writeSettings({ timezone: body.timezone });
-        sendJson(res, 200, { ok: true, timezone: saved.timezone });
+        const saved = store.writeSettings(patch);
+        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved) });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
@@ -7655,6 +7708,95 @@ function start(port = PORT) {
         try { messages.sweepUnanswered(safeRoster()); } catch { /* the line still shows */ }
       }, 60 * 1000);
       if (sweep && typeof sweep.unref === 'function') sweep.unref();
+      /* #1724: the auto-handoff sweep (the consume half). Sibling to the #185
+         nudge sweep above: its own ~1-min timer, unref'd, best-effort. When the
+         setting is on, it asks autohandoff.shouldPrompt per agent over the
+         board's live context fill and injects a handoff prompt when an agent
+         crosses a fill band. It advances the per-agent band ONLY on a confirmed
+         (PLACED) delivery, so an inject that never submitted is retried, never
+         silenced (engine/autohandoff-sweep.js). safeRoster(), never paneRoster():
+         chat.deliver needs full snapshot cards to address a pane. */
+      const autohandoffBands = new Map();
+      const ahSweep = setInterval(() => {
+        try {
+          const setting = autohandoff.settingFrom(store.readSettings());
+          if (!setting.enabled) return;
+          const roster = safeRoster();
+          autohandoffSweep.sweepOnce({
+            setting,
+            roster,
+            lastBand: autohandoffBands,
+            deliver: (session, textToSend) => {
+              try { return chat.deliver(session, textToSend, roster, undefined, undefined); }
+              catch { return { state: chat.DELIVERY.COULD_NOT }; }
+            },
+            pathFor: (session) => autohandoffSweep.handoffPathFor(store, session),
+            autohandoff,
+            DELIVERY: chat.DELIVERY,
+          });
+        } catch { /* best-effort, like the nudge sweep */ }
+      }, Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) : 60 * 1000); // the env is the test seam only
+      if (ahSweep && typeof ahSweep.unref === 'function') ahSweep.unref();
+      /* #1722: the product heartbeat. Its OWN self-rescheduling timer, because
+         the person's interval is adjustable: the period is re-read every cycle so
+         a Settings change takes effect at the next tick, and when off it polls the
+         setting on a base cadence so turning it on is picked up promptly. Off by
+         default. safeRoster(), NEVER paneRoster(): the sweep reads the board's
+         full snapshot cards (state + stateConfidence), the same reason the nudge
+         sweep above does. step() resets the baseline when off so re-enabling never
+         fabricates a stale working->stall edge. Best-effort and unref'd like the
+         nudge sweep; a missed tick is a missed nudge and the status/room surfaces
+         still show the truth. */
+      let heartbeatPrev = new Map();
+      const HEARTBEAT_OFF_POLL_MS = Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) > 0
+        ? Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) : 60 * 1000; // the env is the test seam only
+      const heartbeatTick = () => {
+        // Read the setting ONCE per tick and reuse it for both the sweep and the
+        // reschedule delay below -- no second disk read. A failed read is off, so
+        // the tick does nothing and the timer polls on the base cadence.
+        let setting = { on: false };
+        try { setting = heartbeatSetting.read(); } catch { /* off + base poll on a bad read */ }
+        try {
+          const roster = setting.on ? safeRoster() : null;
+          const outcome = heartbeat.step(heartbeatPrev, roster, setting.on);
+          heartbeatPrev = outcome.next;
+          if (setting.on && outcome.toAsk.length) {
+            const shown = new Map((roster || []).map((a) => [a.sessionName, a.name]));
+            for (const ask of outcome.toAsk) {
+              /* A QUESTION, not a verdict, and delivery is UNCONFIRMED:
+                 notify.happened is fire-and-forget with no receipt, so we do NOT
+                 mark the agent asked -- the next tick re-asks until a real receipt
+                 exists (engine/heartbeat.js). The app renders the question; the
+                 payload carries who + when, never the words.
+                 ⚠️ THE ID IS STABLE ACROSS RE-ASKS OF ONE STALL ON PURPOSE (session
+                 + arrived-state), so a coordinator MAY collapse a rapid double-fire
+                 into one alert -- but it MUST NOT treat the interval-cadence re-asks
+                 as duplicates to drop, because re-asking until delivery is confirmed
+                 is the whole design (an unconfirmed ask must not be silenced). When
+                 a receipt channel exists, the runner stops re-asking on its own. */
+              try {
+                notify.happened({
+                  kind: 'check_in',
+                  id: 'check_in:' + ask.session + ':' + ask.to,
+                  agent: shown.get(ask.session) || ask.session,
+                  session: ask.session,
+                  project: null,
+                });
+              } catch { /* notify never throws; belt and braces */ }
+            }
+          }
+        } catch { /* best-effort, like the nudge sweep */ }
+        const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
+        const t = setTimeout(heartbeatTick, delay);
+        if (t && typeof t.unref === 'function') t.unref();
+      };
+      // Defer the FIRST run off the synchronous listen path (parity with the
+      // sibling sweeps, whose setInterval defers their first fire): when the
+      // setting is on at boot, running the tick inline would block the listen
+      // callback on a snapshot() capture fan-out. unref'd so it never holds the
+      // process open.
+      const heartbeatFirst = setTimeout(heartbeatTick, 0);
+      if (heartbeatFirst && typeof heartbeatFirst.unref === 'function') heartbeatFirst.unref();
       resolve(server);
     };
     server.once('error', onError);
@@ -7705,7 +7847,20 @@ if (require.main === module) {
      started:false rather than a silent success. It is here, not at module load,
      for the same reason as the port bind below: the routing tests require this
      module, and a load-time opt-in would arm live execution in every one of them. */
-  require('./engine/live-execution').allowLiveExecution();
+  /* kosmos macOS-only gate (Option A, cross-platform analysis 2026-09-01): only
+     arm live execution on a supported platform. On any other OS the Mac-only
+     substrate (launchctl agent lifecycle, the darwin binary downloads, the
+     /bin/sh installer) cannot work, so we leave live execution UNARMED and the
+     guarded operations (create/remove/delete-leftover/update) fail closed and
+     refuse honestly through the existing live-execution gate, rather than
+     attempting a Mac-only action on the wrong OS. The user-facing copy + screen
+     for an unsupported platform is the operator's to add (see engine/platform.js
+     and the PR); this is the mechanism only, and it invents no product copy. */
+  if (platformGate.isSupported()) {
+    require('./engine/live-execution').allowLiveExecution();
+  } else {
+    process.stderr.write('Kosmos: platform ' + process.platform + ' is not supported (macOS only); live execution not armed, agent operations will refuse.\n');
+  }
   /* 🛑 PINNED TO $HOME, NOT AT IMPORT, ONLY WHEN THIS IS THE REAL BOARD
      PROCESS (#923). Nothing anywhere in this file or engine/ ever calls
      process.chdir(), so this process's own cwd is whatever directory

@@ -39,6 +39,37 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
+/* 🛑 MODULE SCOPE, AND THE REASON IS NOT devicedoor's REASON.
+   `ghPresent()` is reached from `async function state()`, which wraps its whole body
+   in try/catch. A call-time require failure here is therefore NOT a rejection, it is
+   SWALLOWED and served as `gh: 'missing'` -- a WRONG ANSWER rather than a loud one.
+   Hoisting makes the same failure die at import instead of degrading into a
+   plausible-looking verdict. Safe for the reason `devicedoor.js` states in full:
+   `runners.js` requires only node builtins, so there is no cycle. Anyone adding a
+   non-builtin require there invalidates this.
+   🛑 AND DO NOT WRITE A "NEVER REJECTS" ARM FOR THIS HOIST. One was written and REMOVED
+   as undefeatable: `state()`'s own catch upholds that contract here whether the require
+   is hoisted or not, so such an arm passes green forever and proves nothing. The hoist
+   defends against a WRONG ANSWER, not against a rejection, and only the wrong answer is
+   testable.
+
+   🛑 THIS FILE CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK, DELIBERATELY.
+   That cycle detector WARNS rather than throws, because throwing at import bricks the
+   board: `server.js` requires this module with no try. Both are correct, because they
+   are about DIFFERENT FAILURES:
+     a `runners` LOAD failure  -> a corrupt install. Nothing works anyway, and `server.js`
+                                  already requires `./engine/runners` at top level with no
+                                  try, so it kills boot on main too. Dying loudly costs
+                                  nothing that was not already lost.
+     a require CYCLE           -> a code-structure mistake in an otherwise working install.
+                                  Bricking the board over one door's verdict is the wrong
+                                  trade; degrade and stay visible.
+   ⚠️ Stated because a reader can otherwise apply either rule to the other site and be told
+   by this file that they are following it.
+   📌 The history of how this paragraph was got wrong (a verbatim copy from devicedoor.js
+   whose every mechanism was false here, two withdrawn counts, a control that shared its
+   subject's blindness) is on kosmos#1730. It is not needed to read the code. */
+const { isRunnable } = require('./runners');
 
 const DIR = path.join(store.ROOT, 'secrets');
 const FILE = path.join(DIR, 'github.token');
@@ -102,13 +133,107 @@ function setClientId(id) {
   } catch { return { ok: false, because: 'we could not save that' }; }
 }
 
-/* gh presence, so ONE writer can branch on this object alone (her ruling:
-   the field keeps its name on this road too). Mirrors github.js's spec
-   candidates; the gh DOOR stays the authority on the gh road itself. */
+/* Where gh lives when nothing overrides it. ONE LITERAL, in `engine/github.js`,
+   which this file requires.
+
+   🛑 THE SEAM CHOOSES DATA, NEVER A PREDICATE. The first shape was an exported
+   `setGhCandidatesForTests(list)`, a SUBSTITUTING seam: the test drove the list it
+   set while production's own default list was driven by nothing, so a reviewer could
+   weaken only the production side and every arm stayed green. That is the defeat
+   `engine.runnable-not-directory.test.js` points here for.
+   ✅ The override is instead an env var carrying PATHS, the same shape the rest of this
+   file uses for its test seams, and there is exactly one unconditional scan below. The
+   test drives real code with real data rather than swapping a list in, and no test-only
+   function is exported from production. `GH_CANDIDATES` is not exported; it had zero
+   consumers outside `github.js`. Anybody who re-adds that export re-opens the divergence
+   hazard, and no source arm would detect that.
+
+   ✅ SCOPE IS CLOSED: `github.js` reads its door candidates through a GETTER calling
+   `ghCandidateList()`, so `AGENT_WORKFORCE_GH_CANDIDATES` is a machine-wide "where is
+   gh" switch and the door cannot disagree with `ghPresent`. Pinned by an arm on the
+   REAL door (`engine.runnable-not-directory.test.js`, "the REAL gh door honours the
+   candidates override"): a real executable returns it, a DIRECTORY returns null.
+   Verified to redden when the getter is reverted to the bare literal.
+
+   ✅ NO TEST REACHES THE OPERATOR'S REAL gh through the door: `engine/github.test.js` pins
+   `AGENT_WORKFORCE_GH_BIN = '/bin/echo'` in `beforeEach`, so `ghBin()` returns before
+   the candidate scan is consulted.
+   🛑 SO DO NOT ADD THE OBVIOUS CONTROL ARM. "With no override the control still finds
+   the real gh" would EXEC THE OPERATOR'S OWN gh, which is exactly what the sentence
+   above promises no test does. It is deliberately not written.
+
+   🛑 IT LIVES IN `github.js` BECAUSE THE MOVE CLOSED A CONTRACT BREACH, not to tidy.
+   When this file defined it and `github.js`'s door reached BACK through a getter, the
+   two modules were mutually dependent and `door.state()` gained a REJECT PATH:
+   `devicedoor.status()` calls `ghBin()` synchronously inside `state()`'s promise
+   executor, and `devicedoor`'s `state()` docblock promises "Never rejects". Measured,
+   both arms: with this module's exports replaced by `{}` (the shape a failed load
+   gives) `github.state()` REJECTED; control, module whole, resolved.
+   ⇒ The dependency is now one-directional (this file -> `github.js`) and the door
+   calls a function defined in its own module, so no load failure can reach it.
+   ⚠️ NOT re-exported here. `module.exports` below carries neither `ghCandidateList`
+   nor `ghPresent`, and neither was exported on main, so no caller is affected.
+
+   📌 LEFT UNDONE DELIBERATELY: the genuinely closed form is devicedoor's, passing the
+   candidates in as a parameter production callers already supply, so there is no
+   default to diverge from. It is available here (`ghPresent` has exactly one caller)
+   and costs a parameter on the exported `state()`. That is an API change for a hazard
+   nobody has hit, and it is Josh's product surface.
+   📌 The history of how these paragraphs were got wrong (a claim of four arms that did
+   not exist, an asymmetry documented at three sites and believed unfixable until three
+   reviewers closed it, and two corrections bolted onto sentences instead of rewriting
+   them) is on kosmos#1730. It is not needed to read the code. */
+const { ghCandidateList } = require('./github');
+/* ⚠️ DETECTED, NOT FATAL. If a require cycle is introduced the destructured name is
+   `undefined` during a partial load, the TypeError inside `ghPresent()` is swallowed by
+   `state()`'s outer catch, and the route answers `gh: 'missing'`. Not silently: that
+   catch also returns `phase: PHASE.FAILED` and `because: String(err.message)`, both of
+   which the board renders. What is wrong is the `gh` FIELD specifically, which is the
+   field the door's consumers read. This warns so the failure is visible.
+
+   🛑 IT USED TO THROW, AND THAT WAS THE WRONG TRADE. `server.js` requires this module at
+   top level with NO try (`github` and `githubdevice` both), so a throw means the BOARD
+   DOES NOT BOOT AT ALL, with a raw TypeError and no UI, where the same degradation
+   otherwise stays confined to one door answering `gh: 'missing'`. Measured: with the
+   binding stubbed, requiring `github.js` gave BOOT FAILS. `main` carried no such guard
+   at all. ⇒ Warning keeps the detection and returns the blast radius to one door. */
+if (typeof ghCandidateList !== 'function') {
+  console.warn('githubdevice: ghCandidateList did not load from ./github; a require cycle would answer gh:"missing" with a FAILED phase but a wrong gh field');
+}
+
+/* gh presence, so ONE writer can branch on this object alone.
+
+   📌 THIS COMMENT WAS DRAGGED INTO `engine/github.js` when `ghCandidateList` moved
+   there, and it sat above that file's door spec, documenting a function in THIS
+   file. Its own closing note claimed it had been "MOVED BACK DOWN ONTO THE FUNCTION
+   IT DOCUMENTS", which was false in the file it had landed in. A comment that
+   asserts its own position is wrong the moment somebody moves it, and a move is
+   exactly when nobody re-reads it. Returned here, and the self-describing sentence
+   is gone rather than re-asserted. */
 function ghPresent() {
-  const runnable = (p) => { try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } };
+  // #1592: the byte-identical twin of devicedoor.js's lambda, which is why
+  // fixing one file would not have found the other. Both now ask runners.
+  /* 🛑 THE WRAPPER IS COSMETIC TODAY AND IS KEPT ANYWAY. `.some(runnable)` and
+     `.find(runnable)` hand a callback `(element, index, array)`, and this wrapper makes
+     sure only the element arrives.
+     MEASURED: `const runnable = isRunnable;` leaves the guard file green, and
+     isRunnable(p, 0, [p]) equals isRunnable(p) on a real binary and on a directory. So
+     nothing depends on the wrapper right now.
+     ✅ KEPT because it stays correct if `isRunnable` gains a second parameter, which this
+     branch makes realistic by promoting it to exported public API. An arm in the guard
+     file pins exactly that condition, so the day it becomes load-bearing goes red rather
+     than passing silently.
+     ⚠️ It was once removed for closure-allocation cosmetics while `devicedoor.js`'s
+     identical wrapper stayed, so two siblings disagreed about the same lambda. That is
+     the class this branch is named for. The history of what this comment previously got
+     wrong is on kosmos#1730. */
+  const runnable = (p) => isRunnable(p);
+  /* Truthiness here, deliberately, and NOT the `typeof override !== 'string'`
+     test that `ghCandidateList` uses in `engine/github.js`: an empty
+     AGENT_WORKFORCE_GH_BIN means "no override",
+     so it falls through to the candidate scan rather than asserting a bin at ''. */
   if (process.env.AGENT_WORKFORCE_GH_BIN) return runnable(process.env.AGENT_WORKFORCE_GH_BIN);
-  return ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'].some(runnable);
+  return ghCandidateList().some(runnable);
 }
 
 async function http(url, opts) {
