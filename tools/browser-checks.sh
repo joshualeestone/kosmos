@@ -4,7 +4,7 @@
 #
 # 🛑 SWEEPING FOR A BROWSER-CHECK ASSERTION? IT IS NOT IN THIS FILE (#1720). This
 # driver only NAMES and runs the checks; every assertion lives in the scripts under
-# docs/browser-checks/ (65 files). A grep of THIS file returns hits and looks
+# docs/browser-checks/ (63 checks). A grep of THIS file returns hits and looks
 # thorough while missing every assertion that matters -- and that gap killed a cut:
 # a rendered-markup change (#1702) was swept against this driver, but the assertion
 # it broke was in docs/browser-checks/render-accounts-openai.js, so 3b red'd from

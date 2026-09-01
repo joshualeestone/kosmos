@@ -12,10 +12,10 @@ exactly what was run, rather than re-deriving it.
 The assertions live in THIS directory, one file per surface -- **not** in
 `tools/browser-checks.sh`, which only names and runs them. Sweeping the driver for
 an existing assertion returns hits and looks thorough while missing every assertion
-that matters, and that gap killed a cut (#1720): a two-press-confirm change was
+that matters, and that gap killed a cut: a two-press-confirm change (#1702) was
 swept against the driver, but the assertion it broke (`render-accounts-openai.js`,
 which pressed Remove once and matched its label) was here, so the page gate red'd
-from the moment it landed. Before you move an id, class or text, `grep` this
+from the moment it landed. (#1720 is this fix, not the incident.) Before you move an id, class or text, `grep` this
 directory for it and read what each hit ASSERTS -- or run the browser gate, which
 is the only check that sees the page.
 
