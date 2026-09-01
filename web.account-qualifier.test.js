@@ -237,7 +237,15 @@ test('#1659: the default row renders DISABLED and a non-default row renders LIVE
      unnoticed. Both spellings are pinned separately now. */
   assert.match(onDefault, /aria-disabled="true"/,
     'the DEFAULT row is no longer marked aria-disabled, so ~/.claude gets a button the engine refuses on every click');
-  assert.ok(!/(^|\s)disabled(?=[\s>'"])/.test(onDefault),
+  /* 🛑 `(\b|$)`, NOT A LOOKAHEAD FOR `[\s>'"]`. That lookahead required the attribute
+     to be followed by whitespace, `>` or a quote, and `=` IS IN NONE OF THEM. So it
+     caught the BARE `disabled` (the spelling that happened to ship) and MISSED
+     `disabled=""` and `disabled="disabled"`. Measured with the empty-value spelling
+     planted: 914 pass, 0 fail, NO named test red, while the rendered row was natively
+     disabled, out of the tab order, its no-op handler unreachable, and its fallback
+     style 3.77:1 on the light surface, under AA. Controls: `aria-disabled="true"`
+     alone, and a class containing "disabled", both correctly still fail to match. */
+  assert.ok(!/(^|\s)disabled(\b|$)/.test(onDefault),
     'the DEFAULT row went back to the NATIVE disabled attribute, which drops it out of the tab order so a keyboard user never reaches the reason');
   assert.ok(!/data-forget=/.test(onDefault),
     'the DEFAULT row now carries data-forget, so the shared handler fires on a row the engine refuses');
@@ -458,4 +466,29 @@ test('#1659: the reauth label is CONDITIONAL while Disconnect is not, on purpose
     + 'announces "(Claude)" on a control that only ever appears on Claude rows');
   assert.doesNotMatch(PAGE, /Sign in again as ' \+ who \+ ' \(' \+ esc\(qualName\)/,
     'the reauth label took the unconditional provider fallback that belongs on Disconnect');
+});
+
+test('#1659: EVERY live Disconnect explains itself before the press, on both providers', () => {
+  /* 🔑 THE TOOLTIP IS THE SURFACE READ BEFORE ACTING, and it was the last place the two
+     providers still disagreed: Claude carried a reassurance and OpenAI carried none, for
+     the same act under the same word. This branch already closed that asymmetry one layer
+     down by porting `movedTo` onto the OpenAI route; this is the same fix on the surface
+     the person actually reads first.
+     ⚠️ Pinned on the SHARED half only. The history clause is default-only for OpenAI, so
+     requiring the identical sentence would force a claim that is false for every labelled
+     account. */
+  const SHARED = 'so nothing is deleted';
+  const live = PAGE.match(/<button class="acct-disconnect" type="button" data-forget=[\s\S]{0,900}?<\/button>/g) || [];
+  assert.ok(live.length >= 2,
+    'fewer than two live Disconnect branches were found, so this test is not looking at '
+    + 'what it claims to look at. found: ' + live.length);
+  for (const b of live) {
+    const provider = (b.match(/data-forget-provider="(\w+)"/) || [])[1] || '(none)';
+    assert.ok(b.includes('title="'),
+      'the ' + provider + ' Disconnect carries no title, so a person gets a reassurance '
+      + 'before pressing on one provider and nothing on the other');
+    assert.ok(b.includes(SHARED),
+      'the ' + provider + ' Disconnect no longer says nothing is deleted, which is the '
+      + 'half that is true of both providers');
+  }
 });

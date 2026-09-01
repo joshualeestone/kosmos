@@ -13592,9 +13592,21 @@ async function paintAccounts() {
            the exact divergence this card exists to close, one layer up from
            the handler. "Disconnect" is the operator's own word for it. The
            engine, the route and the sentence are unchanged; only the label is. */
+        /* 🔑 THE SAME ACT UNDER THE SAME WORD EXPLAINS ITSELF THE SAME WAY. The
+           Claude button carries a title and this one carried none, so a person read a
+           reassurance before pressing on one provider and nothing at all on the other.
+           That is the identical asymmetry this branch already closed one layer down
+           when it ported `movedTo` onto this route.
+           ⚠️ ONLY THE SHARED HALF. The history clause is DEFAULT-ONLY for OpenAI,
+           because `codexsession` reads the default home alone, so repeating it here
+           would assert for every labelled account a thing that is false of it.
+           "Nothing is deleted" is true of both. */
         ? '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
           + 'data-forget-provider="openai" '
-          + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '">Disconnect</button>'
+          + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '" '
+          + 'title="Takes this account off the list. Its sign-in file stays on this '
+          + 'computer, so nothing is deleted."'
+          + '>Disconnect</button>'
         : (a.isDefault
           /* 🛑 THE DEFAULT ROW GETS A DISABLED BUTTON, BECAUSE THE ENGINE
              REFUSES IT. `accounts.forgetAccount` will not move `~/.claude`:
@@ -13720,7 +13732,10 @@ async function paintAccounts() {
         acctSayTimer = null;
         msg.textContent = say;
         /* 🛑 THE DEFAULT ROW IS EMITTED FIRST AND THIS MESSAGE LINE SITS AFTER
-           THE WHOLE LIST (index 9021 vs 9022). On a multi-account machine the
+           THE WHOLE LIST (`#set-accounts` is emitted
+               before `#set-accounts-msg`; located by ID rather than by line,
+               because the numbers this carried were wrong in BOTH trees, and a
+               dead citation reads exactly like a live one). On a multi-account machine the
            feedback for pressing the TOPMOST button renders below every other
            account box, possibly off-screen at the moment the person acts. The
            tooltip and aria-label cover hover and screen readers; a mouse user
