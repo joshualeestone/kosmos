@@ -197,6 +197,14 @@ function rowsFrom(roster) {
  */
 function step(prev, roster, on) {
   if (!on) return { toAsk: [], next: new Map() };
+  // A NULL roster is a READ FAILURE (safeRoster returns null when tmux cannot be
+  // asked), NOT "no agents exist" (which is an empty array). Preserve the prev
+  // memory and skip this tick: wiping every agent's open/asked/streak on one
+  // transient failure would make a confirmed-asked stall re-ask a few ticks
+  // later, and treat a momentary blind spot as if the fleet had emptied.
+  if (roster === null || roster === undefined) {
+    return { toAsk: [], next: prev instanceof Map ? prev : new Map() };
+  }
   return tick(rowsFrom(roster), prev);
 }
 

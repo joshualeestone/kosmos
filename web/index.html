@@ -9447,10 +9447,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            window fills, so a long piece of work is not lost as it nears the limit.
            First control in the Automation section; the heartbeat (#1722) is a later
            addition to the same section. -->
-      <h3 class="dlab">Automation</h3>
+      <h3 class="dlab">Auto-save</h3>
       <div class="field" style="margin-top:14px;">
-        <label class="flabel" for="ah-enabled">Auto-save progress</label>
-        <div class="fhint">When an agent's context is nearly full, Kosmos asks it to write its progress to a file, so a long piece of work is not lost as it reaches the limit. You can turn this off.</div>
+        <label class="flabel" for="ah-enabled">Save your agents' progress</label>
+        <div class="fhint">When an agent's context is nearly full, Kosmos asks it to write its progress to a file, so a long piece of work is not lost as it reaches the limit. Off by default.</div>
         <div class="frow" style="align-items:center; gap:10px;">
           <input type="checkbox" id="ah-enabled">
           <label for="ah-enabled" style="margin:0;">Ask agents to save their progress as their context fills</label>
@@ -9481,7 +9481,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div class="fhint">Every so often, Kosmos looks at which of your agents are working and asks you to check on any that have stopped. It asks a question, never assumes, because an agent may be mid-something. Off by default.</div>
         <div class="frow" style="align-items:center; gap:10px;">
           <input type="checkbox" id="hb-enabled">
-          <label for="hb-enabled" style="margin:0;">Ask me to chase agents that have stopped</label>
+          <label for="hb-enabled" style="margin:0;">Ask me to check on any agent that has stopped</label>
         </div>
         <div class="frow" style="margin-top:12px; align-items:center; gap:10px;">
           <label class="flabel" for="hb-interval" style="margin:0;">Check every</label>
@@ -13209,7 +13209,10 @@ async function paintHeartbeat() {
     if (document.activeElement !== en) en.checked = r.on === true;
     if (document.activeElement !== iv) iv.value = String(r.intervalMinutes || 17);
     en.disabled = false; iv.disabled = false; btn.disabled = false;
-    if (msg) msg.textContent = '';
+    /* A read that came back but could not be parsed (ok:false) shows the safe
+       default AND says so, rather than presenting a corrupt file as a real
+       off/17 state -- the plan wanted a read failure visible, not silent. */
+    if (msg) msg.textContent = r.ok === false ? 'We could not read the saved heartbeat setting, so this shows the default.' : '';
   } catch {
     en.disabled = true; iv.disabled = true; btn.disabled = true;
     if (msg) msg.textContent = 'We could not read the heartbeat setting just now.';

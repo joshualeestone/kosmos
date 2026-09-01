@@ -83,9 +83,33 @@ function setInterval(minutes) {
   return write({ intervalMinutes: minutes });
 }
 
+/**
+ * Set `on` and/or `intervalMinutes` in ONE validated write. Validates every
+ * field present BEFORE writing any of them, so a valid `on` beside an invalid
+ * interval does not persist half the change and then report failure (which would
+ * leave the UI showing a toggle that "did not save" already flipped). Fields not
+ * present in the patch are left untouched.
+ * @param {{on?:boolean,intervalMinutes?:number}} patch
+ */
+function set(patch) {
+  const p = patch || {};
+  const hasOn = Object.prototype.hasOwnProperty.call(p, 'on');
+  const hasInterval = Object.prototype.hasOwnProperty.call(p, 'intervalMinutes');
+  if (hasOn && typeof p.on !== 'boolean') {
+    return { ok: false, because: 'that has to be on or off' };
+  }
+  if (hasInterval && !isValidInterval(p.intervalMinutes)) {
+    return { ok: false, because: 'the interval must be one of ' + INTERVAL_CHOICES.join(', ') + ' minutes' };
+  }
+  const next = {};
+  if (hasOn) next.on = p.on;
+  if (hasInterval) next.intervalMinutes = p.intervalMinutes;
+  return write(next);
+}
+
 /** The interval in milliseconds, for the runner. */
 function intervalMs() {
   return read().intervalMinutes * 60 * 1000;
 }
 
-module.exports = { FILE, INTERVAL_CHOICES, DEFAULT_INTERVAL, isValidInterval, read, setOn, setInterval, intervalMs };
+module.exports = { FILE, INTERVAL_CHOICES, DEFAULT_INTERVAL, isValidInterval, read, setOn, setInterval, set, intervalMs };

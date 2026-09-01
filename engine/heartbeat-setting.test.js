@@ -75,6 +75,29 @@ test('a corrupt file reads as safe defaults with ok:false', () => {
   assert.equal(s.ok, false);
 });
 
+test('set validates BOTH fields before writing either (atomic)', () => {
+  hb.set({ on: false, intervalMinutes: 10 }); // baseline
+  const bad = hb.set({ on: true, intervalMinutes: 7 }); // valid on + invalid interval
+  assert.equal(bad.ok, false);
+  assert.ok(bad.because);
+  const s = hb.read();
+  assert.equal(s.on, false, 'the valid on was NOT persisted alongside the rejected interval');
+  assert.equal(s.intervalMinutes, 10, 'the interval is unchanged');
+  // a fully-valid patch writes both
+  assert.equal(hb.set({ on: true, intervalMinutes: 60 }).ok, true);
+  const s2 = hb.read();
+  assert.equal(s2.on, true);
+  assert.equal(s2.intervalMinutes, 60);
+});
+
+test('set leaves an omitted field untouched', () => {
+  hb.set({ on: true, intervalMinutes: 5 });
+  hb.set({ intervalMinutes: 17 }); // no `on` in the patch
+  const s = hb.read();
+  assert.equal(s.on, true, 'on is preserved when the patch omits it');
+  assert.equal(s.intervalMinutes, 17);
+});
+
 test('intervalMs reflects the stored minutes', () => {
   hb.setInterval(5);
   assert.equal(hb.intervalMs(), 5 * 60 * 1000);

@@ -3000,14 +3000,11 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        if (Object.prototype.hasOwnProperty.call(body, 'on')) {
-          const saved = heartbeatSetting.setOn(body.on);
-          if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
-        }
-        if (Object.prototype.hasOwnProperty.call(body, 'intervalMinutes')) {
-          const saved = heartbeatSetting.setInterval(body.intervalMinutes);
-          if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
-        }
+        // ONE validated write: an invalid interval beside a valid `on` must not
+        // persist the `on` and then report failure (server.heartbeat-1722.test.js
+        // pins that a rejected interval leaves the stored value unchanged).
+        const saved = heartbeatSetting.set(body);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         const r = heartbeatSetting.read();
         sendJson(res, 200, { on: r.on, intervalMinutes: r.intervalMinutes, intervals: heartbeatSetting.INTERVAL_CHOICES, ok: r.ok });
       })
@@ -7509,7 +7506,13 @@ function start(port = PORT) {
                  notify.happened is fire-and-forget with no receipt, so we do NOT
                  mark the agent asked -- the next tick re-asks until a real receipt
                  exists (engine/heartbeat.js). The app renders the question; the
-                 payload carries who + when, never the words. */
+                 payload carries who + when, never the words.
+                 ⚠️ THE ID IS STABLE ACROSS RE-ASKS OF ONE STALL ON PURPOSE (session
+                 + arrived-state), so a coordinator MAY collapse a rapid double-fire
+                 into one alert -- but it MUST NOT treat the interval-cadence re-asks
+                 as duplicates to drop, because re-asking until delivery is confirmed
+                 is the whole design (an unconfirmed ask must not be silenced). When
+                 a receipt channel exists, the runner stops re-asking on its own. */
               try {
                 notify.happened({
                   kind: 'check_in',

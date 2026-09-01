@@ -130,6 +130,18 @@ test('rowsFrom maps the REAL board stateConfidence field (not confidence) and to
   assert.equal(withStray.length, 1);
 });
 
+test('step ON with a NULL roster (a read failure) preserves prev, never wipes the stall memory', () => {
+  // Build a memory where agent a has an open, confirmed-delivered stall.
+  const working = step(new Map(), boardRows([['mara', 'working']]), true);
+  const stalled = step(working.next, boardRows([['mara', 'stopped']]), true);
+  stalled.next.get('mara').asked = true; // runner confirmed the ask
+  // safeRoster() returns null on a transient tmux failure.
+  const failed = step(stalled.next, null, true);
+  assert.deepEqual(failed.toAsk, [], 'a read failure asks nothing');
+  assert.equal(failed.next, stalled.next, 'the prev memory is preserved verbatim, not reset');
+  assert.equal(failed.next.get('mara').asked, true, 'the confirmed-asked state survives the blind tick');
+});
+
 test('step ON runs the tick; step OFF resets the baseline so re-enabling cannot fabricate an edge', () => {
   const workingRow = boardRows([['mara', 'working']]); // real board rows
   const stoppedRow = boardRows([['mara', 'stopped']]);

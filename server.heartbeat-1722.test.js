@@ -68,6 +68,15 @@ test('PUT a non-choice interval is a 400 and does NOT change the stored value', 
   assert.equal(after, before, 'a rejected interval left the in-force value unchanged, so a failed write is visible');
 });
 
+test('PUT is atomic: a valid on beside an invalid interval persists NEITHER, and reports failure', async () => {
+  await put('/api/heartbeat-setting', { on: false, intervalMinutes: 17 }); // known baseline
+  const w = await put('/api/heartbeat-setting', { on: true, intervalMinutes: 7 });
+  assert.equal(w.status, 400, 'the invalid interval is rejected');
+  const r = await getJson('/api/heartbeat-setting');
+  assert.equal(r.on, false, 'the valid on was NOT persisted alongside the rejected interval');
+  assert.equal(r.intervalMinutes, 17, 'the interval is unchanged');
+});
+
 test('PUT can set on and interval together', async () => {
   await put('/api/heartbeat-setting', { on: false, intervalMinutes: 5 });
   const r = await getJson('/api/heartbeat-setting');
