@@ -194,13 +194,21 @@ const REPO = __dirname;
  * THIS SWEEP READS JAVASCRIPT ONLY, AND THE SAME DECISION IS MADE IN SHIPPED SHELL.
  * `[ -x "$p" ]` succeeds on a directory exactly as `accessSync(p, X_OK)` does, and
  * `install/kosmos` and `install/setup.sh` use it to decide whether a runtime, a tmux
- * and the kosmos binary are present. The repo already knows the correct form and uses
- * it twice in setup.sh: `[ -f "$b" ] && [ -x "$b" ]`.
+ it twice in setup.sh. ⚠️ FIGURES REMOVED: this said "twice" and the guarded count is
+ THREE, and a sibling sentence attributed to card #1716 two numbers the card does not
+ contain. The card holds the measurement; this comment holds the property.
  * ⭐ AND `runners.js`'s own docblock cites setup.sh's check_claude_code as WHERE THIS
  * TRAP CAME FROM, so shell is not an unrelated surface. It is where the class started.
  * ⚠️ DELIBERATELY NOT FIXED HERE: that is a different card, and widening this branch to
  * the shell installer is the scope creep the plan argues against. CARDED AS #1716,
- * which measured 27 BARE sites against 2 guarded on the SAME path, across 3 files.
+ * which HOLDS the measurement. ⚠️ NO FIGURES RESTATED HERE, because a comment restating
+ * a card's numbers is two copies of one fact and this pair had already diverged.
+ * 🛑 AND A REVIEWER'S CORRECTION TO THOSE FIGURES WAS ITSELF WRONG, WHICH IS WHY THEY
+ * ARE GONE RATHER THAN UPDATED. It reported 3 same-path guarded sites; the true figure
+ * is 2. setup.sh:1178 reads `[ -f "$_remote_state/mac_key" ] && [ -x "$_tunnel" ]`,
+ * which guards ONE path and tests ANOTHER, so that `[ -x ]` is bare. Counting line-level
+ * co-occurrence is the same flawed instrument the card's own correction was filed about.
+ * ⇒ Checked before accepting. A correction is a claim too.
  * 📌 This sentence read "NOT CARDED YET EITHER" for about ten minutes, deliberately,
  * rather than the comfortable "carded separately" that would have been false at the
  * time. Then I filed the card and came back. Say the true thing, then make it stop
@@ -445,6 +453,65 @@ function fixture(name) {
   return { dir, asDirectory, realBin, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
 
+
+
+test('start() and willInstall do not derive the claude PATH separately from its PRESENCE', () => {
+  /* 🛑 THIS PINS THE RULE THE BRANCH IS NAMED FOR, AND NOTHING PINNED IT UNTIL NOW.
+     connect.js states it at the head of the file, four sites point at it instead of
+     enumerating each other, and it carries an explicit carve-out ("Collapsing it would be
+     a real bug, not a tidy-up"). MEASURED: revert start() to
+         { bin: claudeBinPath(), present: resolveBin('claude').present }
+     and NOTHING REDS across 103 tests in four files.
+
+     ⚠️ TWO WRONG PINS WERE TRIED FIRST AND BOTH ARE INSTRUCTIVE.
+     (a) "exactly one resolveBin call per function" is FALSE of the shipped code. start()
+         legitimately has TWO: the pair, plus `binaryOnDisk`, which the head comment names
+         as a DELIBERATE EXCLUSION. An arm asserting 1 fails on correct code.
+     (b) counting `resolveBin(` at all counts COMMENT MENTIONS. Raw counts are 7 and 4;
+         code-only they are 2 and 1. A string search cannot tell a call from prose quoting
+         it, which is this branch's own use-versus-mention defect.
+     ⇒ AND NEITHER WOULD HAVE CAUGHT THE MUTATION, because the forbidden shape KEEPS the
+     resolveBin call and adds a separate path lookup. The count does not move.
+
+     ✅ THE DISCRIMINATOR IS `claudeBinPath()`. The rule is that a site needing both a PATH
+     and its PRESENCE reads both off ONE answer; deriving the path separately is exactly
+     what claudeBinPath() does, and it is what every reverted shape used. Measured on the
+     shipped code: zero in both functions.
+
+     📌 Comments are stripped before matching, and each function is bounded, so neither a
+     prose mention nor an unrelated call elsewhere in connect.js reds a #1592 test. */
+  const src = fs.readFileSync(path.join(REPO, 'engine', 'connect.js'), 'utf8');
+  const stripComments = (s) => {
+    let out = ''; let i = 0;
+    while (i < s.length) {
+      if (s.startsWith('/*', i)) { const j = s.indexOf('*/', i + 2); i = j > 0 ? j + 2 : s.length; }
+      else if (s.startsWith('//', i)) { const j = s.indexOf('\n', i); i = j > 0 ? j : s.length; }
+      else { out += s[i]; i += 1; }
+    }
+    return out;
+  };
+  /* CONTROL: the stripper must not eat code. A known call survives it. Verified to fire:
+     breaking the stripper so it drops everything reds THIS line, not the assertions below. */
+  assert.match(stripComments(src), /resolveBin\s*\(/,
+    'the comment stripper removed live code; every assertion below would pass vacuously');
+
+  for (const fn of ['async function start(', 'async function willInstall(']) {
+    const at = src.indexOf(fn);
+    assert.ok(at > 0, `${fn} not found in connect.js; this arm is unanchored`);
+    const loose = src.slice(at);
+    const close = loose.indexOf('\n}');
+    assert.ok(close > 0, `${fn} has no column-0 closing brace; this bound is unanchored`);
+    const code = stripComments(loose.slice(0, close + 2));
+    assert.ok(/resolveBin\s*\(/.test(code),
+      `${fn} does not call resolveBin at all, so this arm is aimed at the wrong function`);
+    const derived = code.match(/claudeBinPath\s*\(/g) || [];
+    assert.strictEqual(derived.length, 0,
+      `${fn} derives the claude path with claudeBinPath() while also asking resolveBin ` +
+      'for presence. That is two resolutions of one fact, and they can disagree across an ' +
+      'await. The rule is at the head of connect.js: resolve ONCE, read both off the one ' +
+      'answer. If you added this deliberately, change the rule and its carve-out, not this arm.');
+  }
+});
 
 test('isRunnable ignores the extra arguments .find and .some pass it', () => {
   /* 🛑 THIS PINS A COSMETIC WRAPPER'S PRECONDITION, NOT THE WRAPPER. devicedoor.js and
@@ -1178,7 +1245,16 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
        "is listed with the other residuals" BEFORE it was. That is this file's own
        claim-outlives-the-guard defect, committed in the act of documenting a guard.
 
-       📌 FIFTH, AN ABSENCE RATHER THAN AN EVASION. THREE PRODUCTION EDITS ON THIS BRANCH HAVE
+       📌 FIFTH, AN ABSENCE RATHER THAN AN EVASION. SEVERAL PRODUCTION EDITS HAVE NO ARM.
+       ⚠️ THIS SAID "THREE" AND A REVIEWER FOUND AT LEAST FIVE. The two it missed were the
+       RESOLUTION RULE ITSELF, in start() and willInstall: the invariant stated at the head of
+       connect.js, pointed at by four sites, carrying its own carve-out. Reverting either to a
+       separate path lookup reddened NOTHING across 103 tests.
+       ✅ THOSE TWO ARE NOW PINNED by the claudeBinPath arm above, so this list is shorter than
+       the reviewer found it. The three below remain unpinned and are defence in depth.
+       ⭐ The paragraph already warned "never say the one". Saying THREE was the same claim one
+       notch weaker, and it was wrong the same way: a residual list is exactly where a reviewer
+       looks, so a number in it is the cheapest claim there is to falsify.
        NO ARM, and all three are defence in depth:
          - githubdevice.js's hoist of require('./runners') to module scope. Reverting it to
            the lazy require REDS NOTHING. The sweep cannot see it (it keys on accessSync, not
