@@ -89,12 +89,83 @@ test('#1787: a symlink planted at the target is REFUSED, by our code and not the
   fs.symlinkSync(victim, link);
   assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'the symlink was not planted');
 
+  /* 🛑 ASSERT THE CODE, NOT ONLY THE MESSAGE, AND THE TITLE OF THIS ARM IS WHY.
+     The operator-facing strings report `err.code` and deliberately NOT `err.message`,
+     because the message carries the absolute path of a credential file. So the message
+     is a discriminator NOTHING IN PRODUCTION READS. Measured: reverting the code to
+     `ELOOP` -- the exact iteration-7 fix -- left this arm GREEN, and the only thing that
+     reddened was an arm in `sendertoken.test.js`, i.e. coverage attached to a CONSUMER
+     rather than to the thing being guarded. That is the shape this file's own header
+     was written to stop, arriving again one field over. */
+  let caught = null;
   assert.throws(
     () => securewrite.refuseSymlinkTarget(link, undefined),
-    /refusing to write a secret through a symlink/,
+    (err) => { caught = err; return /refusing to write a secret through a symlink/.test(err.message); },
     'a planted symlink was not refused',
   );
+  assert.equal(caught.code, 'ERR_KOSMOS_SYMLINK',
+    `our refusal reported code ${caught.code}: on macOS the KERNEL also refuses a symlink `
+    + 'with ELOOP, so sharing that code makes our refusal indistinguishable from the '
+    + 'kernel\'s -- and that distinction is the whole guard on win32, where there is no '
+    + 'kernel refusal at all');
   assert.equal(fs.readFileSync(victim, 'utf8'), 'ORIGINAL', 'the victim was written through');
+});
+
+/* 🛑 THE ATOMIC PATH'S REASON FOR GIVING UP MUST SURVIVE, AND NEITHER SITE THAT
+   ATTACHES IT HAD AN ARM. Measured by mutation before writing these: deleting the
+   cause-attach on the symlink branch reddened NOTHING across all five per-file runs,
+   and deleting the pre-existing one at the fallback failure reddened nothing either.
+   Both sites carry a paragraph of comment explaining why they matter, which is exactly
+   the shape that reads as covered and is not. */
+test('#1787: a symlink refusal in the fallback still carries WHY the atomic path was abandoned', () => {
+  const victim = fresh('cause-victim');
+  fs.writeFileSync(victim, 'ORIGINAL');
+  const link = fresh('cause-link');
+  fs.symlinkSync(victim, link);
+
+  const realRename = fs.renameSync;
+  /* Force the atomic path to exhaust its three attempts. EXDEV is the realistic
+     trigger: a temp and a target on different filesystems can never be renamed. */
+  fs.renameSync = () => { const e = new Error('forced cross-device'); e.code = 'EXDEV'; throw e; };
+  let caught = null;
+  try { securewrite.writeSecret(link, 'NEW-SECRET', 0o600); } catch (e) { caught = e; } finally {
+    fs.renameSync = realRename;
+  }
+
+  assert.notEqual(caught, null, 'the forced failure did not fail, so nothing was tested');
+  assert.equal(caught.code, 'ERR_KOSMOS_SYMLINK', 'the symlink was not what refused the write');
+  assert.equal(caught.cause && caught.cause.code, 'EXDEV',
+    'the symlink refusal was thrown with no cause, so a persistent EXDEV that drove the '
+    + 'write onto the fallback in the first place is invisible to the caller');
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'ORIGINAL', 'the victim was written through');
+});
+
+test('#1787: a fallback that fails carries WHY the atomic path was abandoned', () => {
+  const f = fresh('cause-fallback');
+  fs.writeFileSync(f, 'PREVIOUS');
+  fs.chmodSync(f, 0o600);
+
+  const realRename = fs.renameSync;
+  const realWrite = fs.writeFileSync;
+  fs.renameSync = () => { const e = new Error('forced cross-device'); e.code = 'EXDEV'; throw e; };
+  /* Scoped to fd writes only. A blanket stub also breaks the path-addressed writes the
+     atomic loop and the restore both use, which would fail this arm for an unrelated
+     reason -- the way three earlier arms on this branch passed with the fix reverted. */
+  fs.writeFileSync = function (target, data, ...rest) {
+    if (typeof target === 'number') { const e = new Error('no space left on device'); e.code = 'ENOSPC'; throw e; }
+    return realWrite.call(fs, target, data, ...rest);
+  };
+  let caught = null;
+  try { securewrite.writeSecret(f, 'NEW-SECRET', 0o600); } catch (e) { caught = e; } finally {
+    fs.renameSync = realRename;
+    fs.writeFileSync = realWrite;
+  }
+
+  assert.notEqual(caught, null, 'the forced failure did not fail, so nothing was tested');
+  assert.equal(caught.code, 'ENOSPC', 'the fallback failed for a different reason than the one forced');
+  assert.equal(caught.cause && caught.cause.code, 'EXDEV',
+    'the fallback error was thrown with no cause, so the reason the atomic path was '
+    + 'abandoned is lost behind it -- which is the case the comment at that site describes');
 });
 
 test('#1787: CONTROLS for the refusal, so it is not refusing everything', () => {
