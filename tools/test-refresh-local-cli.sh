@@ -80,16 +80,28 @@ out="$(REFRESH_CLI_TARGET="$repo/install/kosmos" REFRESH_CLI_SOURCE="$FRESH" REF
 if [ "$rc" -eq 0 ] && has "$out" "leaving it alone"; then pass "the repo's own install/kosmos is left alone, exit 0"; else fail "repo-copy arm (rc=$rc, out=$out)"; fi
 if ! cmp -s "$FRESH" "$repo/install/kosmos"; then pass "the repo copy was not overwritten"; else fail "the repo copy was overwritten"; fi
 
-# 6b. A CLI inside ANY git worktree is left alone, not just one under GUARD_REPO.
-#     REFRESH_CLI_REPO points elsewhere ($T/norepo), so ONLY the any-git-repo net
-#     can catch this -- protects the 100+ worktrees on this box. Arm 1 (a non-repo
-#     dir that DOES get refreshed) is this arm's negative control.
+# 6b. A repo's TRACKED install/kosmos (a source copy in the main checkout or any of
+#     this box's 100+ worktrees) is left alone; refreshing it would dirty a tracked
+#     file. REFRESH_CLI_REPO points elsewhere ($T/norepo) so ONLY the git-tracked net
+#     can catch this. Arm 1 (a non-repo dir that DOES get refreshed) is its control.
 gitrepo="$T/gitrepo"; mkdir -p "$gitrepo/install"
-( cd "$gitrepo" && git init -q && git config user.email t@t.test && git config user.name t ) >/dev/null 2>&1
+( cd "$gitrepo" && git init -q && git config user.email t@t.test && git config user.name t && : > install/kosmos && git add install/kosmos && git commit -qm x ) >/dev/null 2>&1
 make_stale "$gitrepo/install/kosmos"
 out="$(REFRESH_CLI_TARGET="$gitrepo/install/kosmos" REFRESH_CLI_SOURCE="$FRESH" REFRESH_CLI_REPO="$T/norepo" bash "$SCRIPT" 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && has "$out" "inside a git worktree"; then pass "a CLI inside ANY git worktree is left alone, not just GUARD_REPO"; else fail "any-git-repo gate arm (rc=$rc, out=$out)"; fi
-if ! cmp -s "$FRESH" "$gitrepo/install/kosmos"; then pass "the worktree copy was not overwritten"; else fail "the worktree copy was overwritten"; fi
+if [ "$rc" -eq 0 ] && has "$out" "tracked install/kosmos"; then pass "a repo's tracked install/kosmos source is left alone"; else fail "tracked-source gate arm (rc=$rc, out=$out)"; fi
+if ! cmp -s "$FRESH" "$gitrepo/install/kosmos"; then pass "the tracked source copy was not overwritten"; else fail "the tracked source copy was overwritten"; fi
+
+# 6c. A genuine INSTALL that merely lives inside a git repo (a dev whose $HOME is a
+#     dotfiles repo, kosmos at ~/.local/bin/kosmos) must STILL be refreshed -- silently
+#     skipping it is the exact pre-#1758 defect. Its relpath is NOT install/kosmos, so
+#     the precise gate does not catch it. This is the arm that proves the gate is
+#     precise rather than "inside any repo".
+gitrepo2="$T/gitrepo2"; mkdir -p "$gitrepo2/.local/bin"
+( cd "$gitrepo2" && git init -q && git config user.email t@t.test && git config user.name t ) >/dev/null 2>&1
+make_stale "$gitrepo2/.local/bin/kosmos"
+out="$(REFRESH_CLI_TARGET="$gitrepo2/.local/bin/kosmos" REFRESH_CLI_SOURCE="$FRESH" REFRESH_CLI_REPO="$T/norepo" bash "$SCRIPT" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && has "$out" "refreshed the installed CLI"; then pass "a real install inside a git repo is still refreshed, not silently skipped"; else fail "install-under-repo arm (rc=$rc, out=$out)"; fi
+if cmp -s "$FRESH" "$gitrepo2/.local/bin/kosmos"; then pass "the install under a git repo got the fresh bytes"; else fail "the install under a git repo was skipped"; fi
 
 # 7. --check reports but never writes.
 tgt7="$T/chk/kosmos"; mkdir -p "$(dirname "$tgt7")"; make_stale "$tgt7"
