@@ -60,8 +60,13 @@ test('kosmos#967: the terminal composer is wired -- markup, endpoint, gating', (
   assert.match(SCRIPT, /termSay\.disabled = body\.presence === 'off'/, 'the terminal box gates on the same presence read as the composer');
 });
 
-/** Lift sendTerm and run it against a stub fetch + DOM, injecting CURRENT. */
-function runSendTerm({ deliveryState, ok = true, errorBody, boxText = 'hello world' }) {
+/** Lift sendTerm and run it against a stub fetch + DOM, injecting CURRENT.
+ * placedWords is lifted alongside it (sendTerm calls it for the #402 silent-
+ * when-worked receipt), and TERM_DRAFTS is declared in the same scope so the
+ * placed arm can clear the parked draft. `duringFetch` runs while the request
+ * is in flight, so a test can simulate the person opening another agent. */
+function runSendTerm({ deliveryState, delivery, ok = true, errorBody, throws = false,
+                       boxText = 'hello world', current = CURRENT, duringFetch } = {}) {
   const els = {
     'd-term-say': { value: boxText },
     'd-term-send': { disabled: false },
@@ -71,23 +76,49 @@ function runSendTerm({ deliveryState, ok = true, errorBody, boxText = 'hello wor
   let posted = null;
   const fetch = async (url, opts) => {
     posted = { url, opts };
+    if (duringFetch) duringFetch();
+    if (throws) throw new Error('network down');
     return {
       ok,
-      json: async () => (ok ? { delivery: { state: deliveryState }, recorded: true } : (errorBody || { error: 'nope' })),
+      json: async () => (ok ? { delivery: (delivery || { state: deliveryState }), recorded: true } : (errorBody || { error: 'nope' })),
     };
   };
   const make = new Function('CURRENT', 'document', 'fetch',
-    'let TERM_SENDING = false;\n' + lift(SCRIPT, 'sendTerm') + '\nreturn sendTerm;');
-  const sendTerm = make(CURRENT, document, fetch);
+    'let TERM_SENDING = false;\nlet TERM_DRAFTS = {};\n'
+    + lift(SCRIPT, 'placedWords') + '\n' + lift(SCRIPT, 'sendTerm') + '\nreturn sendTerm;');
+  const sendTerm = make(current, document, fetch);
   return { sendTerm, els, getPosted: () => posted };
 }
 
-test('kosmos#967: PLACED clears the box and confirms', async () => {
+test('kosmos#967: a clean PLACED clears the box and says nothing (#402 silent-when-worked)', async () => {
   const { sendTerm, els, getPosted } = runSendTerm({ deliveryState: 'placed' });
   await sendTerm();
   assert.equal(getPosted().url, '/api/agent/' + CURRENT.sessionName + '/thread', 'posted to the open agent thread');
   assert.equal(els['d-term-say'].value, '', 'a placed message clears the box (it reached the agent)');
-  assert.match(els['d-term-say-msg'].textContent, /^Sent to Alice/, 'it confirms delivery by name');
+  assert.equal(els['d-term-say-msg'].textContent, '', 'an idle placed says nothing, matching sendTalk and the thread rows');
+});
+
+test('kosmos#967: a PLACED with a consequential note speaks it', async () => {
+  const { sendTerm, els } = runSendTerm({
+    delivery: { state: 'placed', paneNote: 'queued behind what it is doing', paneState: 'working' },
+  });
+  await sendTerm();
+  assert.equal(els['d-term-say'].value, '', 'the box still clears -- the words reached the agent');
+  assert.equal(els['d-term-say-msg'].textContent, 'Queued behind what it is doing.',
+    'when the note says something about what happens next, the receipt speaks it (capitalised, via placedWords)');
+});
+
+test('kosmos#967: if the flight moves to another agent, nothing is written to the box it left', async () => {
+  const current = { ...CURRENT };            // a mutable copy, so the module CURRENT is untouched
+  const { sendTerm, els } = runSendTerm({
+    deliveryState: 'placed', current,
+    duringFetch: () => { current.sessionName = 'someone-else'; },   // the person opened another agent mid-send
+  });
+  await sendTerm();
+  assert.equal(els['d-term-say'].value, 'hello world',
+    'the box now belongs to another agent, so a placed verdict must not clear it');
+  assert.notEqual(els['d-term-say-msg'].textContent, '',
+    'and the receipt line is not overwritten under the new agent (it keeps the "Sending" line, not a placed verdict)');
 });
 
 test('kosmos#967: UNCONFIRMED keeps the words for a retry', async () => {
@@ -104,11 +135,27 @@ test('kosmos#967: COULD_NOT keeps the words and says why', async () => {
   assert.match(els['d-term-say-msg'].textContent, /could not be handed the message/i, 'it says it was not delivered');
 });
 
+test('kosmos#967: COULD_NOT surfaces the reason when the server gives one', async () => {
+  const { sendTerm, els } = runSendTerm({
+    delivery: { state: 'could_not', because: 'it is waiting on an answer from you' },
+  });
+  await sendTerm();
+  assert.equal(els['d-term-say'].value, 'hello world', 'still keeps the words');
+  assert.match(els['d-term-say-msg'].textContent, /waiting on an answer from you/, 'it surfaces the server reason');
+});
+
 test('kosmos#967: a non-ok response surfaces the error, keeps the words', async () => {
   const { sendTerm, els } = runSendTerm({ ok: false, errorBody: { error: 'the agent is gone' } });
   await sendTerm();
   assert.equal(els['d-term-say'].value, 'hello world', 'a failed send keeps the words');
   assert.match(els['d-term-say-msg'].textContent, /the agent is gone/, 'it surfaces the server error');
+});
+
+test('kosmos#967: a thrown fetch keeps the words for a retry', async () => {
+  const { sendTerm, els } = runSendTerm({ throws: true });
+  await sendTerm();
+  assert.equal(els['d-term-say'].value, 'hello world', 'a network failure keeps the words');
+  assert.match(els['d-term-say-msg'].textContent, /kept here to try again/i, 'it invites a retry');
 });
 
 test('kosmos#967: an empty box sends nothing', async () => {
