@@ -192,6 +192,15 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
   kosmos_refuse_if_cut_live "a second cut" || exit 1
 fi
+# The mirror (#1713): a cut started while an install HARNESS was ALREADY running
+# was unprotected -- the harness's own start-check cannot help once it has run,
+# and the two share the install gate's fixed port, so the collision fails a
+# release step and the failure lands on the cut rather than the harness. Ask
+# here, at the cut's start, where the decision to cut is made, rather than four
+# steps in at 4b's port bind. KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway.
+if [ "${KOSMOS_CUT_IGNORE_HARNESS:-0}" != 1 ]; then
+  kosmos_refuse_if_harness_live "this cut" || exit 1
+fi
 
 step "== 1. main, clean, and carrying what you mean to ship =="
 git -C "$REPO" fetch origin -q

@@ -76,4 +76,80 @@ else
   kill "$sleeper" 2>/dev/null; wait "$sleeper" 2>/dev/null
 fi
 
+# --- #1713: the MIRROR guard, kosmos_refuse_if_harness_live, shown red, green,
+# --- and unable to answer via its own KOSMOS_HARNESS_PROBE seam. Reuses the
+# --- probe-quiet/probe-dead fixtures above (exit 1 / exit 3 are guard-agnostic).
+printf '#!/bin/sh\nprintf "77123 bash tools/test-install.sh\\n"\n' > "$T/hprobe-live"; chmod +x "$T/hprobe-live"
+out="$(KOSMOS_HARNESS_PROBE="$T/hprobe-live" kosmos_refuse_if_harness_live "this cut" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "the cut refuses while an install harness is running"; else fail "the cut refuses while a harness runs (rc=$rc)"; fi
+if has "$out" "test-install.sh" && has "$out" "fixed port"; then pass "and names the harness and why they collide"; else fail "and names the harness: $out"; fi
+if has "$out" "KOSMOS_CUT_IGNORE_HARNESS=1"; then pass "and names the harness override"; else fail "and names the override: $out"; fi
+
+out="$(KOSMOS_HARNESS_PROBE="$T/probe-quiet" kosmos_refuse_if_harness_live "this cut" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$out" ]; then pass "the cut passes silently when no harness is running"; else fail "the cut passes when no harness (rc=$rc, out=$out)"; fi
+
+out="$(KOSMOS_HARNESS_PROBE="$T/probe-dead" kosmos_refuse_if_harness_live "this cut" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && has "$out" "could not tell"; then pass "a harness probe that cannot answer is a refusal, not a pass"; else fail "a harness probe that cannot answer is a refusal (rc=$rc, out=$out)"; fi
+
+# self-exclusion: a caller that is ITSELF a test-install.sh (a future caller,
+# or this test) is not a reason to refuse.
+printf '#!/bin/sh\nprintf "5252 bash tools/test-install.sh\\n"\n' > "$T/hprobe-self"; chmod +x "$T/hprobe-self"
+out="$(KOSMOS_HARNESS_SELF_PID=5252 KOSMOS_HARNESS_PROBE="$T/hprobe-self" kosmos_refuse_if_harness_live "this cut" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "the caller's own test-install.sh is not a reason to refuse itself" \
+  || fail "the caller's own harness refused itself (rc=$rc, $out)"
+
+# --- END TO END through the real pgrep, with a script genuinely named
+# --- tools/test-install.sh. The probe seam cannot prove the robust filter (a
+# --- MENTION must not match) nor the live detection: both live in what pgrep
+# --- really reports.
+# 🛑 CRITICAL: the guard is called from a SEPARATE process ($T/tools/cut-start.sh,
+# standing in for the cut that calls it), so a harness/mention this test spawns is
+# a SIBLING of that caller, not its descendant. Called directly from this test,
+# _kosmos_drop_self_subtree would drop the spawned processes as "self's subtree"
+# and both arms would pass for the WRONG reason (self-exclusion, not the filter or
+# detection). Measured: the direct form silently dropped the real harness.
+cat > "$T/tools/test-install.sh" <<SH
+#!/bin/bash
+if [ "\${1:-}" = "--sleep" ]; then sleep "\$2"; exit 0; fi
+exit 0
+SH
+chmod +x "$T/tools/test-install.sh"
+cat > "$T/tools/cut-start.sh" <<SH
+#!/bin/bash
+. "$HERE/lib/cut-guard.sh"
+kosmos_refuse_if_harness_live "this cut" || exit 1
+echo CUT-PROCEEDS
+SH
+chmod +x "$T/tools/cut-start.sh"
+live_harness="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' || true)"
+if [ -n "$live_harness" ]; then
+  _fh="${live_harness%%$'\n'*}"
+  echo "SKIP  harness end-to-end: a real harness is live on this Mac, so this arm cannot answer"
+  echo "      (that is a skip, NOT a pass: ${_fh:0:60})"
+else
+  out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
+  { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
+    && pass "no harness running: the cut proceeds through the real pgrep" \
+    || fail "the cut refused with no harness running: rc=$rc out=$out"
+
+  # A MENTION: a shell whose argv contains tools/test-install.sh but is NOT a
+  # `bash tools/test-install.sh` (here `bash -c ... tools/test-install.sh`, the
+  # string as $0). A sibling of the caller, so ONLY the filter can exclude it --
+  # which is exactly what this arm exists to prove.
+  ( bash -c 'sleep 4' tools/test-install.sh ) & mention=$!
+  sleep 1
+  out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
+  { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
+    && pass "a mere MENTION of test-install.sh in a command line does not count" \
+    || fail "a mention was mistaken for a live harness: rc=$rc out=$out"
+  kill "$mention" 2>/dev/null; wait "$mention" 2>/dev/null
+
+  ( cd "$T" && bash tools/test-install.sh --sleep 4 ) & harness=$!
+  sleep 1
+  out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
+  [ "$rc" -ne 0 ] && pass "a real bash tools/test-install.sh IS detected and refuses the cut" \
+    || fail "a live harness was not detected: rc=$rc out=$out"
+  kill "$harness" 2>/dev/null; wait "$harness" 2>/dev/null
+fi
+
 echo "cut guard: $fails failures"; [ "$fails" -eq 0 ]

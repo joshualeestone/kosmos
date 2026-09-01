@@ -152,3 +152,45 @@ kosmos_refuse_if_browser_run_live() {
   fi
   return 0
 }
+
+# ⚠️ THE MIRROR OF THE CUT GUARD (#1713). `kosmos_refuse_if_cut_live` above lets
+# the install HARNESS (tools/test-install.sh) refuse to START during a cut. The
+# reverse was missing and is not the rarer case: a cut started while a harness is
+# ALREADY running was unprotected, and the harness's own start-check cannot help
+# -- it already ran. Measured 2026-08-31: a harness run overlapped the 16:40
+# cut's start by ~32s; nothing broke that time. The harness holds a FIXED port,
+# and two things wanting it is not a slow test, it is a failed release step
+# blamed on whatever the cut was doing then. So the CUT asks, at its own start,
+# whether a harness is already live. A harness is a process (tools/test-install.sh)
+# for as long as it runs; there is no lock file, same as a cut.
+# 📌 THE PROCESS, NOT THE WORDS: only a bash/sh whose own command line IS
+# tools/test-install.sh counts, so a peer shell that merely MENTIONS the script (a
+# grep, a git log, the pkill that cleared the box during the 0.6.20 window) does
+# not match -- the same robust filter the two guards above use. Self-subtree
+# exclusion as #1391, defensive here: the cut caller is release.sh, never a
+# test-install.sh, so it cannot self-match today; a future caller inside a harness
+# would. The seam (KOSMOS_HARNESS_PROBE) shows it red and green without a real
+# harness; a probe that cannot answer is a refusal, the same posture as above.
+kosmos_refuse_if_harness_live() {
+  local what="${1:-this run}" probe="${KOSMOS_HARNESS_PROBE:-}" raw out rc self
+  self="${KOSMOS_HARNESS_SELF_PID:-$$}"
+  if [ -n "$probe" ]; then
+    out="$("$probe" 2>/dev/null)"; rc=$?
+  else
+    raw="$(pgrep -fl 'test-install\.sh' 2>/dev/null)"; rc=$?
+    out="$(printf '%s\n' "$raw" | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' || true)"
+    if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
+  fi
+  if [ -n "$out" ] && [ -n "$self" ]; then
+    out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
+  fi
+  if [ "$rc" -ge 2 ]; then
+    echo "could not tell whether an install harness is running (the probe exited $rc); refusing to guess for $what. KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway." >&2
+    return 1
+  fi
+  if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
+    echo "an install harness (tools/test-install.sh) is already running on this Mac ($(printf '%s\n' "$out" | head -1 | cut -c1-80)); it holds the install gate's fixed port, so $what would collide with it and the failed step would be blamed on the cut rather than the harness. Wait for the harness to finish, or KOSMOS_CUT_IGNORE_HARNESS=1 to cut anyway." >&2
+    return 1
+  fi
+  return 0
+}
