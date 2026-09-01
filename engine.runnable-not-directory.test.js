@@ -501,12 +501,34 @@ test('every site under the resolution rule resolves the claude binary its docume
      of the thing the rule is about. Comments are stripped first, because a string search
      cannot tell a call from prose quoting it. */
   const src = fs.readFileSync(path.join(REPO, 'engine', 'connect.js'), 'utf8');
+  /* 🛑 QUOTE-AWARE, AND THAT IS THE WHOLE POINT. A naive stripper treats a comment opener
+     inside a STRING LITERAL as real and swallows live code up to the next closer.
+     MEASURED on the naive version, with a control: adding a string containing a comment
+     opener before a pinned resolveBin, plus a second resolution after a block comment that
+     closes the fake open, gave 20 pass 0 fail with the site resolving TWICE. Control, the
+     same second resolution WITHOUT that string: 19 pass 1 FAIL.
+     ⚠️ A REGEX GUARD FOR THAT TRIGGER WAS TRIED AND DEFEATED IN ONE PASS. It required the
+     quotes around the opener to be the only quotes on the line, so a string containing an
+     apostrophe slipped through and the double resolution went green again.
+     ⇒ SO THE STRIPPER TRACKS STRING STATE, instead of a guard trying to spot the trigger.
+     Detecting one spelling of an input that fools an instrument is the move that failed six
+     times on this arm. Making the instrument not be fooled is a different thing.
+     📌 AND THIS COMMENT ITSELF BROKE THE FILE ONCE: an earlier draft quoted the literal
+     closer, which ENDED THE BLOCK COMMENT EARLY and produced a SyntaxError. Structure is
+     not prose. Describe the sequences here, never spell them. */
   const stripComments = (s) => {
-    let out = ''; let i = 0;
+    let out = ''; let i = 0; let quote = null;
     while (i < s.length) {
-      if (s.startsWith('/*', i)) { const j = s.indexOf('*/', i + 2); i = j > 0 ? j + 2 : s.length; }
-      else if (s.startsWith('//', i)) { const j = s.indexOf('\n', i); i = j > 0 ? j : s.length; }
-      else { out += s[i]; i += 1; }
+      const c = s[i];
+      if (quote) {
+        if (c === '\\') { out += c + (s[i + 1] || ''); i += 2; continue; }
+        if (c === quote) quote = null;
+        out += c; i += 1; continue;
+      }
+      if (c === "'" || c === '"' || c === '`') { quote = c; out += c; i += 1; continue; }
+      if (s.startsWith('/*', i)) { const j = s.indexOf('*/', i + 2); i = j > 0 ? j + 2 : s.length; continue; }
+      if (s.startsWith('//', i)) { const j = s.indexOf('\n', i); i = j > 0 ? j : s.length; continue; }
+      out += c; i += 1;
     }
     return out;
   };
@@ -537,33 +559,18 @@ test('every site under the resolution rule resolves the claude binary its docume
       `${site.fn} contains no resolveBin call after comment stripping. Either the stripper `
       + 'ate the region, in which case the count below is vacuous, or this arm is aimed at '
       + 'a function that no longer resolves anything.');
-    
-    /* 🛑 THE STRIPPER CAN BE MADE TO EAT A REAL CALL, AND THIS GUARDS ITS KNOWN TRIGGER.
-       MEASURED, with a control: insert `const h = 'the old /* form';` before the pinned
-       resolveBin and add a SECOND resolution after a block comment that closes the fake open.
-       stripComments swallows from the string to that `*/`, taking the FIRST call with it. The
-       count then reads 1, matches the documented 1, and the per-site control is satisfied by
-       the planted second call: 20 pass 0 fail, with willInstall resolving TWICE across the
-       probe. Control, the same second call WITHOUT the fake string: 19 pass 1 FAIL.
-       ⚠️ The per-site control above detects only a TOTAL region eat. A PARTIAL eat is exactly
-       what the header's named blind spot (a `/*` inside a string literal) produces, and the
-       file-level sentence claimed that hazard was handled.
-    
-       ✅ SO THE TRIGGER IS ASSERTED ABSENT, RATHER THAN THE DAMAGE BEING DETECTED AFTERWARDS.
-       ⚠️ AND A SECOND LINE-BASED COUNT WAS TRIED FIRST AND DISCARDED, which is worth keeping:
-       it counted 3/4/2/3 against the stripper's 2/1/1/1 on UNMUTATED code, because this
-       codebase's block comments continue WITHOUT a leading `*`, so every prose mention read as
-       a call. It was not an independent instrument, it was a worse one.
-       📌 THIS GUARDS THE KNOWN TRIGGER, NOT EVERY PARTIAL EAT. Said plainly because the
-       sentence this arm is fixing over-claimed in exactly that way. */
-    const region = loose.slice(0, close + 2);
-    const fakeOpener = region.split('\n').filter((ln) => /(['"`])[^'"`]*\/\*[^'"`]*\1/.test(ln));
-    assert.deepStrictEqual(fakeOpener, [],
-      `${site.fn} contains a comment opener INSIDE A STRING LITERAL. stripComments treats it `
-      + 'as a real `/*` and swallows everything up to the next `*/`, which can eat a live '
-      + 'resolveBin call and leave the count matching its documented value. Measured: that '
-      + 'makes a double resolution invisible. If the string is legitimate, this arm needs a '
-      + 'real parser rather than a regex, and that is the change to make.');
+
+        /* 📌 A TRIGGER-ABSENCE GUARD USED TO SIT HERE AND IS DELETED, NOT KEPT AS DEFENCE IN
+           DEPTH, because it was defeated in one pass and would now only mislead. It asserted
+           no comment opener appeared inside a string literal, using a regex that required the
+           surrounding quotes to be the only quotes on the line. A string containing an
+           apostrophe went straight through it.
+           ⇒ THE STRIPPER ABOVE IS NOW QUOTE-AWARE, so the input cannot fool it at all and
+           there is no trigger left to assert absent. Measured, all four shapes red now:
+           single-quote, apostrophe-inside-double-quote, template literal, and a plain double
+           resolution with no string at all. Shipped stays 20 pass 0 fail.
+           ⭐ Seven versions of this arm keyed on the last shape somebody demonstrated. The
+           one that held keyed on nothing: it made the instrument correct instead. */
 
     const calls = code.match(/resolveBin\s*\(/g) || [];
     assert.strictEqual(calls.length, site.resolutions,
@@ -1370,7 +1377,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
        matters: the arm sees an ADDED resolution and ONE SPELLING of deriving the path. It does
        NOT see the presence asked in a second spelling, which is the sixth residual below.
        The three after that remain unpinned and are defence in depth.
-       
+
        📌 SIXTH RESIDUAL, THE HALF THE ARM ABOVE DOES NOT REACH: asking for the PRESENCE in a
        second spelling. MEASURED, each an ordinary refactor, each green at 20 pass 0 fail:
            start()      let haveBinary = require('./runners').isRunnable(bin);
