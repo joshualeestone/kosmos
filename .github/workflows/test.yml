@@ -36,9 +36,25 @@ on:
     branches: ["**"]
   pull_request:
 
+# Least privilege: this job only reads the repo and runs the suite; it needs no
+# write scope on the token. (Uses pull_request, not pull_request_target, so
+# untrusted PR code never runs with elevated access in the first place.)
+permissions:
+  contents: read
+
+# One run per ref, and cancel a superseded run when a newer push lands: push +
+# pull_request would otherwise double-run every branch that has an open PR, and
+# rapid pushes queue redundant runs across the six-agent roster.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    # run-tests.sh boots boards and servers; bound a hung run rather than let it
+    # sit on the 360-minute default. The suite is ~2-3 min, so 15 is generous.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       # PIN THE NODE, because the suite's output format is node-version-dependent
@@ -64,9 +80,14 @@ jobs:
           echo "node:  $(node --version 2>&1 || echo ABSENT)"
           echo "npm:   $(npm --version 2>&1 || echo ABSENT)"
           echo "image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
-      # No install step: this repo has zero dependencies (empty deps/devDeps, no
-      # lockfile, empty node_modules), so the suite runs on the Node standard library
-      # alone. Adding `yarn install` here would install nothing and only add a way to
-      # fail. run-tests.sh invokes `node --test` directly.
-      - name: the suite
+      # No install step, but NOT dependency-free: this repo declares zero package
+      # dependencies (empty deps/devDeps, no lockfile), so `yarn install` would
+      # install nothing and only add a way to fail. run-tests.sh does two things:
+      # `node --test engine/*.test.js *.test.js` (the JS suite) and then, on a green
+      # node run, `yarn -s test:shell` (dozens of tools/test-*.sh). So the runner's
+      # preinstalled `yarn` and `bash` ARE required at runtime; both ship on
+      # ubuntu-latest. Verified green on this recipe on node 22 AND node 26 (both
+      # arms of run-tests.sh, exit 0). If GitHub ever drops yarn from the image the
+      # suite would exit 127 and red here honestly, which is the correct direction.
+      - name: the suite (node --test + yarn test:shell, gated on the exit code)
         run: bash tools/run-tests.sh
