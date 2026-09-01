@@ -953,7 +953,12 @@ else bad "the DATA seam has no direct coverage" "verdict $(run dataenv)"; fi
 # introduces (messages.LOG, messages.SEEN, firstrun.FLAG, attachments.ROOT) and
 # trimming PATH_SHAPED to FILE|DIR left the suite green.
 pn_fail=0
-for nm in LOG SEEN FLAG; do
+# 🛑 THE COMMENT ABOVE LISTED FOUR NAMES AND THIS LOOP ITERATED THREE. It named
+# attachments.ROOT in its own justification and then never tested ROOT, so trimming
+# ROOT|HOME|AVATARS|PROFILES out of PATH_SHAPED left the suite ALL PASS while four
+# real freezes on this branch's own new getters went silent. A comment enumerating
+# more cases than the loop beside it is the cheapest possible false coverage claim.
+for nm in LOG SEEN FLAG ROOT HOME AVATARS PROFILES; do
   fixture "pn_$nm" "const { $nm } = require('./messages');
 const COPY = $nm;"
   v=$(node "$TOOL" "$T/pn_$nm.js" 2>&1 | grep -c "const { $nm }")
@@ -1004,13 +1009,17 @@ else bad "a getter name is tracked in one spelling only" "$ds findings, want >= 
 # It is a REGRESSION FLOOR, not evidence for the reviewer's mechanism, and the bound
 # is deliberately loose so a busy machine does not red it.
 perf_start=$(date +%s)
+# ⚠️ NARROWER THAN CI ON PURPOSE, AND SAY SO RATHER THAN CALLING IT "the enforced
+# scope". CI runs nine targets; this arm runs the two that hold 69 of the 78 source
+# files, because the arm must work from a scratch tree where only these two are
+# linked. A reader whose CI reds should run the package.json command, not this one.
 node "$TOOL" engine server.js >/dev/null 2>&1; perf_rc=$?
 perf_ms=$(( $(date +%s) - perf_start ))
 # ⭐ ASSERT THE EXIT CODE TOO. This arm ran the real gate and threw its verdict away.
 # Checking it costs nothing and catches every mutation that reds the enforced scope
 # without reding a fixture arm, which this round produced three of.
-if [ "$perf_rc" = "0" ]; then ok "the enforced scope still exits 0"
-else bad "the enforced scope is RED" "rc=$perf_rc -- run: node tools/check-frozen-roots.js engine server.js"; fi
+if [ "$perf_rc" = "0" ]; then ok "the checker still exits 0 on engine+server.js"
+else bad "the checker is RED on engine+server.js" "rc=$perf_rc -- run: node tools/check-frozen-roots.js engine server.js"; fi
 if [ "$perf_ms" -le 20 ]; then ok "the enforced scope completes well inside 20s (${perf_ms}s)"
 else bad "the enforced scope got dramatically slower" "${perf_ms}s, baseline is under 1s"; fi
 
@@ -1174,6 +1183,45 @@ fixture tpl_recurse "const MSG = \`see \${label('store.ROOT')} here\`;"
 tr=$(run tpl_recurse)
 if [ "$tr" = "0" ]; then ok "a root name quoted inside a template hole is not a freeze"
 else bad "blankStrings does not recurse into the hole" "verdict $tr, want 0"; fi
+
+# ---- arm 88: padBefore preserves WIDTH, not just newlines ----------------
+# padAfter's width is guarded by an earlier arm; padBefore's was not, and it is
+# load-bearing rather than cosmetic: scan() computes a destructure's line from a
+# byte offset into the normalised text, so the two must stay aligned.
+fixture padbefore_width "const a = 1;
+const R = require('./store')
+  .ROOT;
+const b = 2;
+const c = 3;
+const store2 = require('./store');
+const { ROOT } = store2;"
+pw=$(node "$TOOL" "$T/padbefore_width.js" 2>&1 | grep -o ':[0-9]*  const { ROOT }' | grep -o '[0-9]*')
+if [ "$pw" = "7" ]; then ok "padBefore keeps byte alignment so a later destructure lands on line 7"
+else bad "padBefore width loss moved a byte-offset line" "said $pw, want 7"; fi
+
+# ---- arm 89: an escaped NEWLINE inside a string keeps its line ------------
+# blankStrings emitted two spaces for the escape pair and ate the newline, so every
+# reported line after a backslash-continuation drifted. blankComments, the sibling
+# walker, copies the escaped character verbatim and never had it.
+fixture esc_newline "const os = require('os');
+const S = \"a\\
+b\";
+const HOME = os.homedir();"
+en=$(node "$TOOL" "$T/esc_newline.js" 2>&1 | grep -o ':[0-9]*  const HOME' | grep -o '[0-9]*')
+if [ "$en" = "4" ]; then ok "a backslash-continuation inside a string does not drift later lines"
+else bad "blankStrings ate an escaped newline" "said $en, want 4"; fi
+
+# ---- arm 90: the EXPORTS forms reach the resolver matcher ----------------
+# The comment claimed this matcher used "the same keyword set as declarations()".
+# It did not: declarations() takes exports.X and module.exports.X and this took only
+# const/let/var, so an exported arrow resolver was silent while the identical const
+# form exited 1.
+fixture exports_resolver "const store = require('./store');
+exports.dirp = () => path.join(store.ROOT,'x');
+const F = path.join(exports.dirp(),'a');"
+er=$(node "$TOOL" "$T/exports_resolver.js" 2>&1 | grep -c 'const F')
+if [ "$er" = "1" ]; then ok "an exports.X arrow resolver is reached, as declarations() already was"
+else bad "the exports forms do not reach the resolver matcher" "$er hits on const F, want 1"; fi
 
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,

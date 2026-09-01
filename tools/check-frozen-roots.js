@@ -102,7 +102,9 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()',
    had met them.
 
    🛑 AND A SCOPE ASYMMETRY, because "two instruments" is only true where BOTH run.
-   The static guard runs on `engine server.js`; the behavioural probe in
+   The static guard runs on `engine server.js tools bin native-app deploy web light
+   install` (see package.json's test:shell for the authoritative list); the
+   behavioural probe in
    engine.lateseam-1443.test.js walks `engine/` only, because loading `server.js` in
    a child process would start a real server. So server.js is covered by ONE
    instrument, and it is this one, whose factory-body gap below is open. Stated here
@@ -214,6 +216,15 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()',
    It is listed here rather than left unenforced because the alternative was
    running the guard on `engine/` only, which confined the check to one directory
    while server.js is this file's own example of the largest store.ROOT consumer. */
+/* 📌 WHY THE CI TARGET LISTS DIRECTORIES THAT HOLD NO SOURCE TODAY. Measured:
+   engine 68 non-test .js, tools 7, bin 2, server.js 1, and native-app / deploy /
+   web / light / install contribute ZERO. Including them buys nothing right now and
+   makes `main()` exit 2 if one is ever deleted, which was raised as a fragility.
+   It is kept deliberately: all five are TRACKED in git (2, 1, 8, 1 and 7 files), so
+   they exist in every checkout and cannot go missing by accident. A deletion is a
+   deliberate act, and a gate that reds on it is giving the right answer rather than
+   a false alarm. The benefit is that the first .js added to any of them is gated on
+   the day it lands rather than whenever somebody remembers to widen this list. */
 const KNOWN = new Map([
   ['server.js:GATE_LOG',
     'deliberate: the install-gate request log must outlive the sandbox the gate deletes on exit, '
@@ -399,7 +410,14 @@ const blankStrings = (src) => {
   for (let i = 0; i < src.length; i += 1) {
     const c = src[i];
     if (q) {
-      if (c === '\\') { out += '  '; i += 1; continue; }
+      /* 🛑 PRESERVE AN ESCAPED NEWLINE. This emitted two spaces for the escape pair,
+         so a backslash-continuation INSIDE a string literal ate a '\n' and every
+         reported line number after it drifted by one. The sibling walker
+         `blankComments` copies the escaped character verbatim and never had the bug,
+         which is the odd-sibling shape this file keeps finding: two implementations
+         of one idea, one member missed. Width is still preserved (two out for two
+         in), so column offsets are unaffected. */
+      if (c === '\\') { out += ' ' + (src[i + 1] === '\n' ? '\n' : ' '); i += 1; continue; }
       if (c === q) { q = null; out += c; continue; }
       /* 🛑 `${...}` INSIDE A TEMPLATE IS CODE, NOT STRING DATA. Blanking it made
          every source class silent behind a backtick, including the one this file's
@@ -813,7 +831,17 @@ function functionNamesReaching(rawSrc, sources) {
     /* One `function` alternative, not two: the plain form is a strict subset of the
        async-optional one and could never match anything it does not. */
     const m = /^\s*(?:async\s+)?function ([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(lines[i])
-      || /^\s*(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_][A-Za-z0-9_]*)\s*=>/.exec(lines[i]);
+      || /^\s*(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_][A-Za-z0-9_]*)\s*=>/.exec(lines[i])
+      /* 🛑 THE EXPORTS FORMS, AND THE COMMENT ABOVE USED TO CLAIM THEY WERE ALREADY
+         HERE. It said this matcher uses "the same keyword set as declarations(), and
+         for the same reason", and declarations() accepts const/let/var AND
+         exports.X AND module.exports.X. This one accepted only const/let/var, so the
+         two halves of one idea still disagreed and the claim of alignment is what
+         stopped anyone checking. Measured before the fix, with a passing control:
+           exports.dirp = () => path.join(store.ROOT,'x');
+           const F = path.join(exports.dirp(),'a');       -> SILENT
+         while the identical `const dirp` form exited 1. Silent direction. */
+      || /^\s*(?:module\.)?exports\.([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_][A-Za-z0-9_]*)\s*=>/.exec(lines[i]);
     if (!m) continue;
     const buf = [];
     let adepth = 0;

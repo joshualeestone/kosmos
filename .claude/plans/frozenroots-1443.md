@@ -132,7 +132,7 @@ guard anchored declarations to column 0, and the behavioural probe walked
 
 **Scope.** The CI invocation was `check-frozen-roots.js engine`, which confined
 enforcement to one directory while `server.js` is the largest `store.ROOT` consumer.
-Now `engine server.js`.
+Now `engine server.js tools bin native-app deploy web light install`.
 
 **The probe.** `engine.lateseam-1443.test.js` loads each engine module with the seam
 set AFTER require and inspects resolved values, catching what source text cannot. It

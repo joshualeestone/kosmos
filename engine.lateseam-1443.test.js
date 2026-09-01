@@ -161,6 +161,24 @@ test('#1443: no engine module exposes a path frozen to the require-time root', (
      wrong one makes the arm unsatisfiable). One module going dark drops it to 23 and
      fails HERE, naming the set, while adding a module that legitimately resolves
      nothing cannot break it. */
+  /* 🛑 THE FROZEN CHECK GOES FIRST, AND THE ORDER IS THE WHOLE POINT. It used to sit
+     BELOW the floor, and the floor MASKED it for exactly the population this card
+     converted. When one of the 24 converted modules re-freezes, the child reports
+     FROZEN, so that module LEAVES `resolving` (24 -> 23) and ENTERS `frozen` in the
+     same run. The floor asserted first, so the failure a reader saw was
+     "only 23 engine modules resolve a path ... if you removed or merged a module",
+     a message about a REMOVAL, while `frozen` -- which names the actual culprit --
+     was computed and never printed.
+     Measured by planting a require-time capture in engine/limits.js (n=3) and
+     engine/liveness.js (n=1): every run reported through the floor and none named
+     the module. The frozen assertion was reachable, not dead: planting in a module
+     that does not resolve (engine/chat.js) fired it correctly. MASKED, which is
+     worse than absent, because the run goes red and sends you after the wrong
+     thing. */
+  assert.deepEqual(frozen, [],
+    'these modules resolve a data root at require time, so a sandbox seam installed afterwards is '
+    + 'ignored and they read the operator\'s REAL data:\n  ' + frozen.join('\n  '));
+
   const RESOLVING_FLOOR = 24;
   assert.ok(resolving.length >= RESOLVING_FLOOR,
     `only ${resolving.length} engine modules resolve a path under the NEW root, below the `
@@ -173,7 +191,9 @@ test('#1443: no engine module exposes a path frozen to the require-time root', (
     + `remove one, a module stopped resolving lazily and that IS this card's regression. `
     + `The floor is deliberately tight rather than padded, because a padded floor would let `
     + `several modules silently stop resolving before anything went red. Currently resolving:`
-    + `\n  ${resolving.join('\n  ')}`);
+    + `\n  ${resolving.join('\n  ')}`
+    + (frozen.length ? `\nA MODULE ALSO RE-FROZE, which is the likelier cause of this drop and is `
+      + `the real regression: ${frozen.join(', ')}` : ''));
   /* The aggregate `live > 0` that stood here is REMOVED, not forgotten: the
      per-module floor above subsumes it (24 modules each resolving at least one
      path cannot happen with live === 0), so it could no longer fail independently
@@ -183,7 +203,4 @@ test('#1443: no engine module exposes a path frozen to the require-time root', (
      sentence claimed that while `live` was in fact write-only, which is the exact
      defect of a comment asserting a property the code does not have. */
 
-  assert.deepEqual(frozen, [],
-    'these modules resolve a data root at require time, so a sandbox seam installed afterwards is '
-    + 'ignored and they read the operator\'s REAL data:\n  ' + frozen.join('\n  '));
 });
