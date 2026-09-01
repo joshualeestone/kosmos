@@ -99,6 +99,13 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     if (posted < 20) { bad('the fixture posted enough messages to scroll', 'only ' + posted + ' posted'); }
     else ok('the fixture posted enough messages to scroll');
 
+    /* #1712: a healthy fixture (posted >= 20) waits the full window for a
+       contended paint; a BROKEN fixture (posted < 20) can never grow, so the
+       growth polls below would each burn the full window for an answer already
+       known. Gate the bound on the control, so a setup failure still fails fast
+       (~old cost) while a real load-contended paint gets the generous window. */
+    const GROW_MS = posted >= 20 ? 15000 : 1000;
+
     await p.click('[data-tab="projects"]');
     await p.locator('#pj-list').getByText('Scroll Repro').first().click();
     await p.waitForSelector('#pj-room', { state: 'visible' });
@@ -116,24 +123,24 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       await p.waitForFunction(() => {
         const el = document.getElementById('pj-room');
         return el && el.scrollHeight > el.clientHeight + 50;
-      }, null, { timeout: 15000 });
+      }, null, { timeout: GROW_MS });
       scrollable = await p.evaluate(() => {
         const el = document.getElementById('pj-room');
-        return { h: el.scrollHeight, c: el.clientHeight };
+        return el ? { h: el.scrollHeight, c: el.clientHeight } : { h: 0, c: 0 };
       });
       ok('the room is actually scrollable (' + scrollable.h + ' in ' + scrollable.c + ')');
     } catch {
-      /* Timed out. The posts succeeded (posted >= 20, asserted above), so the
-         messages are in the store; a room that has not grown to scrollable in
-         15s is not the old load flake, it is a room not painting them. Report it
-         as its own thing rather than as a silent one-shot failure, and keep the
-         post count so a reader can tell a paint failure from a delivery one. */
+      /* Did not reach scrollable within the bound. KEEP THE SAME BASE NAME as the
+         pass above, so a signature match or a paired summary still tracks this one
+         arm across the flip; the diagnosis goes in the reason. The posts landed
+         (posted >= 20), so this is the room not painting them, not a delivery
+         failure -- the post count is kept so a reader can tell those apart. */
       scrollable = await p.evaluate(() => {
         const el = document.getElementById('pj-room');
-        return { h: el.scrollHeight, c: el.clientHeight };
+        return el ? { h: el.scrollHeight, c: el.clientHeight } : { h: 0, c: 0 };
       });
-      bad('the room grew enough to scroll within 15s',
-        JSON.stringify(scrollable) + ' after ' + posted + ' posts -- the posts landed but the room did not paint them to a scrollable height; the arms below would test nothing');
+      bad('the room is actually scrollable',
+        JSON.stringify(scrollable) + ' -- did not reach a scrollable height within ' + GROW_MS + 'ms after ' + posted + ' posts; the arms below would pass trivially');
     }
 
     /* ---- 1. A READER WHO SCROLLED BACK STAYS PUT across a wording-only repaint. */
@@ -352,18 +359,18 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       await p.waitForFunction(() => {
         const el = document.getElementById('pj-room');
         return el && el.scrollHeight > el.clientHeight + 50;
-      }, null, { timeout: 15000 });
+      }, null, { timeout: GROW_MS });
       consScroll = await p.evaluate(() => {
         const el = document.getElementById('pj-room');
-        return { h: el.scrollHeight, c: el.clientHeight };
+        return el ? { h: el.scrollHeight, c: el.clientHeight } : { h: 0, c: 0 };
       });
       ok('consolidated: the room is actually scrollable (' + consScroll.h + ' in ' + consScroll.c + ')');
     } catch {
       consScroll = await p.evaluate(() => {
         const el = document.getElementById('pj-room');
-        return { h: el.scrollHeight, c: el.clientHeight };
+        return el ? { h: el.scrollHeight, c: el.clientHeight } : { h: 0, c: 0 };
       });
-      bad('consolidated: the room grew enough to scroll within 15s', JSON.stringify(consScroll) + ' -- the arms below would pass trivially');
+      bad('consolidated: the room is actually scrollable', JSON.stringify(consScroll) + ' -- did not reach a scrollable height within ' + GROW_MS + 'ms; the arms below would pass trivially');
     }
 
     const consMoved = await p.evaluate(async () => {
@@ -430,7 +437,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
        timestamp, a delivery verdict. paintRoom repositions only when the POST
        LIST changes, so a reader sitting on the floor is left above whatever
        just arrived, having touched nothing. */
-    const grew2 = await p.evaluate(async () => {
+    const grew2 = await p.evaluate(async (growMs) => {
       const el = document.getElementById('pj-room');
       el.scrollTop = el.scrollHeight;
       await new Promise((r) => setTimeout(r, 80));
@@ -448,18 +455,20 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
          fixed 150ms that lost the race under concurrent load and read an
          unrepainted, ungrown thread -- the "nothing was added, h unchanged,
          rewrote:false" flake this file was reported for. Poll for the write AND
-         the growth up to a generous bound; a real "it never repainted or never
+         the growth up to the bound passed in (GROW_MS: the full window when the
+         fixture is healthy, short when the posted control already failed so a
+         setup failure does not burn it). A real "it never repainted or never
          grew" still ends unsatisfied and fails below, now told apart from the
          timing artifact. Breaks early the instant both land, so an unloaded run
          is as fast as before. */
-      const deadline = Date.now() + 15000;
+      const deadline = Date.now() + growMs;
       while (Date.now() < deadline) {
         if (el.__lastLive !== liveBefore && el.scrollHeight > before.h) break;
         await new Promise((r) => setTimeout(r, 50));
       }
       return { before, rewrote: el.__lastLive !== liveBefore,
         after: { gap: el.scrollHeight - el.scrollTop - el.clientHeight, h: el.scrollHeight } };
-    });
+    }, GROW_MS);
     if (grew2.error) bad('a line arriving under the newest post keeps the reader on the floor', grew2.error);
     else {
       if (!grew2.rewrote) bad('THE ARRIVING LINE ACTUALLY REPAINTED', 'setLive skipped the write, so the arm below proves nothing');

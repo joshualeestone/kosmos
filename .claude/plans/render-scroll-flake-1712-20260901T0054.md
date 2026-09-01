@@ -32,6 +32,11 @@ GROWTH (the class the card names):
 The two `rewrote`-after-120ms repaint arms are a DIFFERENT measurement (the write
 landed + reader position, not growth), they passed under load, and they are not
 the class the card names -- left untouched to keep the diff to the reported flake.
+Those 120ms waits are now the only fixed waits left before a repaint measurement;
+they measure `__lastLive` changing (set synchronously by `setLive`) plus a
+synchronous `scrollTop` restore, so they are not exposed to the async-growth race.
+They would flake identically only if `setLive` ever became rAF-batched -- a known,
+documented residual, not an oversight.
 
 ## Must keep
 
