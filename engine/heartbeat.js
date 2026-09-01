@@ -160,9 +160,12 @@ function tick(roster, prev) {
         }
       }
     } else {
-      // needs_you / rate_limited: not a stall this sweep chases. needs_you already
-      // reaches the person on its own notify path; rate_limited is transient (the
-      // account works again on its own). Close the episode so we neither chase them
+      // The states NOT chased, each for a named reason (so this enumeration is not
+      // read as accidental): needs_you already reaches the person on its own notify
+      // path; rate_limited is transient (the account recovers on its own); blocked
+      // is a state the agent REPORTED (waiting on another agent, a deploy, a review)
+      // -- a deliberate wait the person cannot help by "checking on the agent", so
+      // chasing it would be pure noise. Close the episode so we neither chase them
       // nor, later, count them as a fresh stall. (auth_failed is NOT here -- it is
       // in ASK_ON_EXIT_TO, because it is dead-until-reconnect with no other path.)
       open = false;

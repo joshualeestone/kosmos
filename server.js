@@ -7533,7 +7533,13 @@ function start(port = PORT) {
         const t = setTimeout(heartbeatTick, delay);
         if (t && typeof t.unref === 'function') t.unref();
       };
-      heartbeatTick();
+      // Defer the FIRST run off the synchronous listen path (parity with the
+      // sibling sweeps, whose setInterval defers their first fire): when the
+      // setting is on at boot, running the tick inline would block the listen
+      // callback on a snapshot() capture fan-out. unref'd so it never holds the
+      // process open.
+      const heartbeatFirst = setTimeout(heartbeatTick, 0);
+      if (heartbeatFirst && typeof heartbeatFirst.unref === 'function') heartbeatFirst.unref();
       resolve(server);
     };
     server.once('error', onError);

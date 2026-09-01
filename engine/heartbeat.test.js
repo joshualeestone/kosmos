@@ -89,6 +89,12 @@ test('working -> rate_limited does NOT ask (transient, the account recovers on i
   assert.deepEqual(t.toAsk, [], 'a transient rate limit is not the "stopped working" this feature chases');
 });
 
+test('working -> blocked does NOT ask (a reported wait on another agent/deploy/review, not a stall)', () => {
+  const s = tick([row('a', 'working', 'scraped')], new Map()).next;
+  const t = tick([row('a', 'blocked', 'structured')], s);
+  assert.deepEqual(t.toAsk, [], 'a deliberate reported wait the person cannot help is not chased');
+});
+
 test('a came-up-stalled agent that NEVER worked is asked after STARTUP_STALL_TICKS (Splinter, 21:31 dead-on-boot)', () => {
   // No working frame ever -- the edge can never fire. The persistent-stall opener
   // must still ask, or a bot dead from the moment it started is never chased.
