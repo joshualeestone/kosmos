@@ -251,7 +251,14 @@ test('#1761: the secret never occupies the loose file, because the write is temp
   assert.notEqual(fs.statSync(file).ino, before,
     'the token was written in place, so the secret sat in the pre-existing loose file until the chmod');
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-  assert.deepEqual(fs.readdirSync(sendertoken.DIR).filter((f) => f.includes('.tmp-')), [],
+  /* 🛑 `endsWith('.tmp')`, NOT `includes('.tmp-')`. The old temp name was
+     `<file>.tmp-<pid>`; the current one is `<file>.kosmos-<pid>-<start>-<seq>.tmp`,
+     which contains `.tmp` and NEVER `.tmp-`. The old filter matched nothing, so this
+     assertion had two identical outcomes: a reviewer added a deliberate leak after
+     the rename and the suite stayed fully green. I broke this guard myself by
+     renaming the temp, which is the "controls keyed on the old wording are now
+     vacuous" failure in one file. */
+  assert.deepEqual(fs.readdirSync(sendertoken.DIR).filter((f) => f.endsWith('.tmp')), [],
     'a temp file was left behind');
 });
 
@@ -276,6 +283,37 @@ test('#1761: a symlink planted at the token path is never written through', () =
     'the token was written THROUGH the symlink into another file');
   assert.equal(fs.lstatSync(linked).isSymbolicLink(), false,
     'the token path is still a symlink, so a later write would follow it');
+});
+
+/* 🛑 THIS ARM EXISTS BECAUSE "TEST THE PROPERTY, NOT THE PATH" GAVE ZERO COVERAGE ON
+   THE FALLBACK. A reviewer measured it: deleting `O_NOFOLLOW` left the suite fully
+   green, because the symlink arm above only ever drives the rename path. The fix was
+   real and unguarded, which is a fix one edit away from being silently removed.
+   ⇒ Forcing the fallback needs a seam, so `renameSync` is stubbed to throw. That is a
+   contrivance, and it is the right one: it drives REAL production code down a path
+   that a crash or a planted temp reaches for real. */
+test('#1761: the FALLBACK path also refuses a symlink, not just the rename path', () => {
+  const victim = path.join(SANDBOX, 'fallback-victim.txt');
+  fs.writeFileSync(victim, 'ORIGINAL');
+  const linked = path.join(sendertoken.DIR, 'fb-linked.json');
+  fs.mkdirSync(sendertoken.DIR, { recursive: true, mode: 0o700 });
+  fs.symlinkSync(victim, linked);
+
+  const realRename = fs.renameSync;
+  fs.renameSync = () => { const e = new Error('forced'); e.code = 'EXDEV'; throw e; };
+  let res;
+  try {
+    res = sendertoken.mint('fb-linked');
+  } finally {
+    fs.renameSync = realRename;
+  }
+
+  assert.equal(res.ok, false,
+    'the fallback wrote a token through a symlink instead of refusing');
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'ORIGINAL',
+    'the fallback followed the symlink and overwrote another file');
+  assert.deepEqual(fs.readdirSync(sendertoken.DIR).filter((f) => f.endsWith('.tmp')), [],
+    'the forced-failure path left a temp behind');
 });
 
 test('#1761: a token DIRECTORY that is already loose is tightened too', () => {

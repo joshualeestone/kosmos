@@ -183,10 +183,25 @@ function writeTokens(sessionName, tokens) {
        it: measured by a reviewer, the minted token was written THROUGH the link into
        another file, which was then chmodded to 0600. O_NOFOLLOW makes that throw
        instead. */
+    /* 🛑 O_NOFOLLOW IS UNDEFINED ON WINDOWS, AND `x | undefined` IS `x`, SO THE FLAG
+       WOULD SILENTLY VANISH ON THE ONE PLATFORM THIS FILE EXISTS FOR. Measured:
+       `O_WRONLY | undefined === O_WRONLY` is true, no error, no signal. So the
+       constant is read explicitly and, where it does not exist, the check is done by
+       hand with `lstatSync` instead of pretending it was applied. */
+    const NOFOLLOW = fs.constants.O_NOFOLLOW;
+    if (NOFOLLOW === undefined) {
+      let st = null;
+      try { st = fs.lstatSync(file); } catch { /* absent is fine: nothing to follow */ }
+      if (st && st.isSymbolicLink()) {
+        const e = new Error(`refusing to write a token through a symlink at ${file}`);
+        e.code = 'ELOOP';
+        throw e;
+      }
+    }
     let fd = null;
     try {
       fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT
-        | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW, FILE_MODE);
+        | fs.constants.O_TRUNC | (NOFOLLOW || 0), FILE_MODE);
       fs.writeFileSync(fd, JSON.stringify({ tokens }));
       try { fs.fchmodSync(fd, FILE_MODE); } catch { /* best effort */ }
     } finally {
