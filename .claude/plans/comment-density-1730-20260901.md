@@ -63,8 +63,9 @@ rewrapping can.
   on the stripped text, with a control showing the instrument detects a
   one-character change. ⇒ This change CANNOT affect runtime behaviour.
 - Code line counts asserted unchanged: `githubdevice.js` 185, `github.js` 21.
-- Result: 527 raw lines to 449, a reduction of 78. Ratios 2.37 to 2.04 and
-  4.19 to 3.43.
+- Result: 527 raw lines to 442, a reduction of 85. Ratios 2.37 to 2.01 (githubdevice.js) and 4.19 to 3.38 (github.js).
+  📌 These figures are GENERATED from the files at HEAD, not typed. Three consecutive
+  review passes found a stale number here, so the fix was to stop hand-writing them.
 - Full suite: one failure, `TypeError: fetch failed` / `ECONNRESET` in a first-run
   route, on a run whose own diagnostics recorded a live board on :16180 and
   1-minute load 7.67 on 10 cores. `server.test.js` alone: 252 pass, 0 fail.
@@ -84,7 +85,7 @@ mode a cut like this actually has, and it is worth naming for the next person.
   the block above `ghPresent`", and I cut exactly that why. **Fixed by restoring the
   clause it promises**, rather than by editing the guard, so the existing pointer
   becomes true again. Verified: the clause is at line 135, `ghPresent` is defined at
-  206, so "the block above" resolves.
+  205, so "the block above" resolves.
 - **A pointer downgrade.** The removed block cited this repo's own plan file, which
   needs no network. My replacement cited only card numbers, which need network and
   GitHub auth. The plan path is back beside them.
@@ -134,6 +135,33 @@ paragraphs rewrapped whole.
 `githubdevice.js:119-120`, a `/**` block whose continuation lines lack the ` * `
 prefix. Verified present on `origin/main` (line 147), in a block this branch never
 touched. Fixing them would be scope this card did not ask for.
+
+## Review pass 3: THE THIRD CONSECUTIVE PASS TO FIND A CLAIM THAT OUTRAN ITS FIX
+
+🛑 **THAT IS THE FINDING. Not any single defect: the pattern.**
+
+| pass | the claim | the reality |
+|---|---|---|
+| 1 | the comments are cut and every fact kept | four POINTERS broken, none a lost fact |
+| 2 | "the quotation marks and attribution are gone" | only the attribution was |
+| 3 | "Both paragraphs rewrapped whole" | one was spliced; line 140 was 124 chars in a block wrapped at 80-89 |
+
+⭐ **THE CODE HAS BEEN CORRECT EVERY TIME. THE SENTENCES ABOUT THE CODE KEEP ROTTING,
+AND THEY ROT FASTEST IMMEDIATELY AFTER I CORRECT THEM.** Each false claim was written
+in the same commit that fixed the thing it described, which is the moment the claim
+feels most certainly true and is least checked.
+
+✅ **STRUCTURAL FIX, not more care: THE FIGURES IN THIS PLAN ARE NOW GENERATED FROM
+THE FILES AT HEAD RATHER THAN TYPED.** Three passes found a stale number here (78 vs
+80 vs 85, ratios, and a line number off by one). A fourth would have found another,
+because hand-copied numbers go stale on the next edit by construction.
+
+📌 Also cut in this pass: a 9-line block headed "THREE THINGS THIS COMMENT USED TO SAY,
+ALL WRONG, ALL MINE" at `githubdevice.js:218`. **It was the purest instance of the class
+this card exists to remove, sitting in one of the two files the card names**, and the
+exclusions list below did not mention it, so a reader would have taken that list as
+complete. The operative facts above it (the wrapper is cosmetic today, kept because
+`isRunnable` may gain a parameter, and a guard arm pins that) are unchanged.
 
 ## Not done here
 

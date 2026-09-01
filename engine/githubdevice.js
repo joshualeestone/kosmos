@@ -137,11 +137,11 @@ function setClientId(id) {
    weaken only the production side and every arm stayed green. That is the defeat
    `engine.runnable-not-directory.test.js` points here for.
    ✅ The override is instead an env var carrying PATHS, the same shape the rest of this
-   file uses for its test seams, and there is exactly one unconditional scan below. The test drives real code with real data
-   rather than swapping a list in, and no test-only function is exported from
-   production. `GH_CANDIDATES` is not exported; it had zero consumers outside
-   `github.js`. Anybody who re-adds that export re-opens the divergence hazard, and
-   no source arm would detect that.
+   file uses for its test seams, and there is exactly one unconditional scan below. The
+   test drives real code with real data rather than swapping a list in, and no test-only
+   function is exported from production. `GH_CANDIDATES` is not exported; it had zero
+   consumers outside `github.js`. Anybody who re-adds that export re-opens the divergence
+   hazard, and no source arm would detect that.
 
    ✅ SCOPE IS CLOSED: `github.js` reads its door candidates through a GETTER calling
    `ghCandidateList()`, so `AGENT_WORKFORCE_GH_CANDIDATES` is a machine-wide "where is
@@ -215,15 +215,10 @@ function ghPresent() {
      branch makes realistic by promoting it to exported public API. An arm in the guard
      file pins exactly that condition, so the day it becomes load-bearing goes red rather
      than passing silently.
-     📌 THREE THINGS THIS COMMENT USED TO SAY, ALL WRONG, ALL MINE:
-       - "Identity wrapper removed" -- it was removed, then restored, and the removal note
-         stayed. A reader was told the wrapper is gone while looking at it.
-       - "MUST STAY" -- too strong; measured above.
-       - "UNGUARDED" in the same block as "the guard file now pins that condition", which
-         cannot both be true. The second is the correct one.
-     ⚠️ And I removed this wrapper once for closure-allocation cosmetics while leaving
-     devicedoor.js's identical one in place, so the two siblings disagreed about the same
-     lambda. That is the class this branch is named for. */
+     ⚠️ It was once removed for closure-allocation cosmetics while `devicedoor.js`'s
+     identical wrapper stayed, so two siblings disagreed about the same lambda. That is
+     the class this branch is named for. The history of what this comment previously got
+     wrong is on kosmos#1730. */
   const runnable = (p) => isRunnable(p);
   /* Truthiness here, deliberately, and NOT the `typeof override !== 'string'`
      test that `ghCandidateList` uses in `engine/github.js`: an empty
