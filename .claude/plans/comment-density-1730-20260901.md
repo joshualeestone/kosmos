@@ -48,7 +48,7 @@ sentence that was wrong.
 ## What was kept
 
 📌 **Stated as facts about the file AS IT NOW STANDS, not as descriptions of what I
-changed.** Seven review passes each found a false summary of my own edit, including one
+changed.** Every review pass so far has found a false summary of my own edit, including one
 here: "the table is now stated in terms of `path.delimiter`" when the table's rows were
 untouched and only a line above them was added. **A sentence about what I DID encodes
 what I believe I did. A sentence about what the file SAYS can be checked against it.**
@@ -84,8 +84,8 @@ rewrapping can.
   one-character change. ⇒ This change CANNOT affect runtime behaviour.
 - Code line counts asserted unchanged: `githubdevice.js` 185, `github.js` 21.
 - **The totals that used to sit here are DELETED, not regenerated.** Review passes kept
-  finding them stale (78, 80, 85, 82: four measurements across five passes, the fifth
-  finding a figure I had claimed to have deleted), including twice after I "fixed" it by
+  finding them stale (78, 80, 85, 82), and a later pass found a figure I had
+  claimed to have deleted, including twice after I "fixed" it by
   generating them instead of typing them. **Generating a number once is still a snapshot,
   and a figure describing this repo goes stale on the next commit BY CONSTRUCTION.**
   ✅ Measure it at read time instead, which cannot go stale:
@@ -103,12 +103,15 @@ rewrapping can.
 
 ## The review passes are on kosmos#1730, not here
 
-**Six blind passes ran on this branch. Every finding was in this plan or in my claims
-about it. Not one was in the code**, which has been byte-identical throughout.
+**Every blind pass so far has found something in this plan or in my claims about it.
+Not one has found anything in the code**, which has been byte-identical throughout.
+
+📌 **The count is deliberately not stated.** It went stale the moment another pass ran,
+and a reviewer caught this file contradicting itself about it. "Each pass so far" cannot.
 
 🛑 **THE PASS-BY-PASS NARRATIVE THAT USED TO SIT HERE IS CUT, AND CUTTING IT IS THE
 POINT.** It was archaeology about my own archaeology-removal, in the plan for the card
-that removes archaeology. Six passes found a false claim in it, each time in a sentence
+that removes archaeology. Every pass found a false claim in it, each time in a sentence
 written by the commit that fixed the previous one.
 
 ⭐ **The sequence, because it is the only durable finding:**

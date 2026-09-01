@@ -47,6 +47,11 @@ const store = require('./store');
    plausible-looking verdict. Safe for the reason `devicedoor.js` states in full:
    `runners.js` requires only node builtins, so there is no cycle. Anyone adding a
    non-builtin require there invalidates this.
+   🛑 AND DO NOT WRITE A "NEVER REJECTS" ARM FOR THIS HOIST. One was written and REMOVED
+   as undefeatable: `state()`'s own catch upholds that contract here whether the require
+   is hoisted or not, so such an arm passes green forever and proves nothing. The hoist
+   defends against a WRONG ANSWER, not against a rejection, and only the wrong answer is
+   testable.
 
    🛑 THIS FILE CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK, DELIBERATELY.
    That cycle detector WARNS rather than throws, because throwing at import bricks the
