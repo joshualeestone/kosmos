@@ -34,30 +34,50 @@ hardening.
 
 ### Per-Iteration Breakdown
 
-- **Iter 1** WARNING: name validated only by safeValue (weaker than create.nameUsable);
-  `../../etc/passwd` accepted --> FIXED by injecting the canonical create.nameUsable and
-  refusing a path-unsafe name whole. NIT (untested marker/block arms) --> FIXED.
-- **Iter 2** WARNING: name-validation promise vs enforcement (docblock overclaimed) -->
-  tightened the shared safeValue to reject control/bidi and made the docblock honest.
-  NIT: enforcement could drift from IMPORT_CONTRACT --> anti-drift test on .required.
-- **Iter 3** WARNING: the returned displayName (the human-visible, spoofable field) was
-  raw --> run it through safeValue, refuse a bidi-spoofed name. WARNING: safeValue missed
-  the LRM/RLM marks + FEFF --> widened. NIT: anti-drift extended to .marker/.bodyMustName.
-- **Iter 4** WARNING: "ALL bidi" claim omitted U+061C + U+2028/2029 --> added them
-  (completing the Bidi_Control set), accurate comment. NIT: displayName unbounded -->
-  MAX_DISPLAY=64.
-- **Iter 5** WARNING: non-bidi zero-width chars in the preview displayName --> definitive
-  documented scope: refuse the no-legit-use invisibles (U+00AD/200B/2060), DELIBERATELY
-  keep the joiners U+200C/D (legitimate in scripts/emoji), explicitly NOT a homoglyph
-  defence (the machine name's [a-z0-9_-] allowlist is the identity boundary). NITs: BOM
-  literals --> ﻿ escapes; name reason made precise.
-- **Iter 6** WARNING: field()'s `\s*` matched newlines, so an empty `key:` line adopted the
-  NEXT line as its value (name:\nsmuggled -> name:'smuggled') --> `\s*` to `[ \t]*`. NIT:
-  no size ceiling --> a coarse 512KB cap (above the 256KB downstream body limit) before
-  any parse work.
-- **Iter 7** CONVERGED: 0 BLOCKER/WARNING/CONVENTION; 5 STRENGTHs confirming refuse-whole,
-  the identity-anchor containment, the field() fix, the displayName defence aimed at the
-  right (bold) arm, and the documented Unicode scope as defensible and code-consistent.
+#### Iteration 1
+- [WARNING] engine/agentfile.js -- name validated only by safeValue, weaker than create.nameUsable; `../../etc/passwd` accepted --> FIXED (inject canonical create.nameUsable, refuse path-unsafe whole)
+- [NIT] engine/agentfile.import.test.js -- untested marker/block arms --> FIXED
+
+#### Iteration 2
+- [WARNING] engine/agentfile.js -- name-validation promise vs enforcement (docblock overclaimed) --> FIXED (tightened shared safeValue to reject control/bidi, honest docblock)
+- [NIT] engine/agentfile.js -- enforcement could drift from IMPORT_CONTRACT --> FIXED (anti-drift test on .required)
+
+#### Iteration 3
+- [WARNING] engine/agentfile.js -- the returned displayName (human-visible, spoofable) was raw --> FIXED (run through safeValue, refuse a bidi-spoofed name)
+- [WARNING] engine/agentfile.js -- safeValue missed the LRM/RLM marks + FEFF --> FIXED (widened)
+- [NIT] engine/agentfile.import.test.js -- anti-drift extended to .marker/.bodyMustName --> FIXED
+
+#### Iteration 4
+- [WARNING] engine/agentfile.js -- "ALL bidi" claim omitted U+061C + U+2028/2029 --> FIXED (added, completing the Bidi_Control set, accurate comment)
+- [NIT] engine/agentfile.js -- displayName unbounded --> FIXED (MAX_DISPLAY=64)
+
+#### Iteration 5
+- [WARNING] engine/agentfile.js -- non-bidi zero-width chars in the preview displayName --> FIXED (documented scope: refuse no-legit-use invisibles U+00AD/200B/2060, DELIBERATELY keep joiners U+200C/D, explicitly not a homoglyph defence)
+- [NIT] engine/agentfile.js -- BOM literals --> FIXED (﻿ escapes); name reason made precise
+
+#### Iteration 6
+- [WARNING] engine/agentfile.js -- field()'s `\s*` matched newlines, so an empty `key:` line adopted the NEXT line as its value --> FIXED (`\s*` to `[ \t]*`)
+- [NIT] engine/agentfile.js -- no size ceiling --> FIXED (coarse 512KB cap before any parse work)
+
+#### Iteration 7
+- **Converged** -- 0 BLOCKER/WARNING/CONVENTION.
+- [STRENGTH] refuse-whole complete, identity-anchor containment, the field() fix, the displayName defence aimed at the right (bold) arm, and the documented Unicode scope defensible and code-consistent.
+- [NIT] engine/agentfile.js -- a provider with a control/bidi char is dropped to null not refused whole --> DEFERRED (intentional: provider is a re-chosen hint, not a shown identity)
+- [NIT] engine/agentfile.js -- error strings use the curly apostrophe U+2019 --> DEFERRED (within convention; matches existing exportAgent messages)
+
+### Final Ledger
+
+| # | Iter | Category | File | Description | Status |
+|---|------|----------|------|-------------|--------|
+| 1 | 1 | WARNING | agentfile.js | name path-safety not enforced | FIXED |
+| 2 | 2 | WARNING | agentfile.js | name-validation promise overclaimed | FIXED |
+| 3 | 3 | WARNING | agentfile.js | displayName returned raw (bidi spoof) | FIXED |
+| 4 | 3 | WARNING | agentfile.js | safeValue missed bidi marks + FEFF | FIXED |
+| 5 | 4 | WARNING | agentfile.js | "ALL bidi" claim missed U+061C/2028/2029 | FIXED |
+| 6 | 5 | WARNING | agentfile.js | zero-width chars in preview displayName | FIXED |
+| 7 | 6 | WARNING | agentfile.js | field() `\s*` adopted next line as value | FIXED |
+| 8 | 7 | NIT | agentfile.js | provider dropped to null on bad char | DEFERRED |
+| 9 | 7 | NIT | agentfile.js | curly apostrophe in error strings | DEFERRED |
 
 ### Deferred NITs (with reasoning)
 - Iter 1: a timing oracle on report/reply routes -- N/A here (that was the Phase 2 loop).
