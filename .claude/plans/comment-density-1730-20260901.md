@@ -16,7 +16,9 @@ Highest concentration, measured on `origin/main` at `fbb1caf4`:
 | `engine/github.js` | 88 | 21 | 4.19, highest in `engine/` |
 | `engine/githubdevice.js` | 439 | 185 | 2.37 |
 
-Median across 65 `engine/` modules: 2.14.
+Both were well above the `engine/` median. **The exact median is deliberately not
+quoted**: it depends on whether test modules are excluded, and two measurements of it
+disagreed (65 modules / 2.14 and 67 / 2.19).
 
 ## What was cut, as a class
 
@@ -75,13 +77,22 @@ rewrapping can.
   on the stripped text, with a control showing the instrument detects a
   one-character change. ⇒ This change CANNOT affect runtime behaviour.
 - Code line counts asserted unchanged: `githubdevice.js` 185, `github.js` 21.
-- Result: 527 raw lines to 442, a reduction of 85. Ratios 2.37 to 2.01 (githubdevice.js) and 4.19 to 3.38 (github.js).
-  📌 These figures are GENERATED from the files at HEAD, not typed. Three consecutive
-  review passes found a stale number here, so the fix was to stop hand-writing them.
-- Full suite: one failure, `TypeError: fetch failed` / `ECONNRESET` in a first-run
-  route, on a run whose own diagnostics recorded a live board on :16180 and
-  1-minute load 7.67 on 10 cores. `server.test.js` alone: 252 pass, 0 fail.
-  **Contention, and the byte-identical proof above is the stronger evidence.**
+- **The totals that used to sit here are DELETED, not regenerated.** Five consecutive
+  review passes found them stale (78, 80, 85, 82), including twice after I "fixed" it by
+  generating them instead of typing them. **Generating a number once is still a snapshot,
+  and a figure describing this repo goes stale on the next commit BY CONSTRUCTION.**
+  ✅ Measure it at read time instead, which cannot go stale:
+
+      git diff origin/main --stat -- engine/githubdevice.js engine/github.js
+
+  📌 The only durable claim is the invariant, and it is asserted mechanically below:
+  **comment-stripped code is byte-identical**, so the code line counts did not move.
+- **Suite, and both runs are stated because one contradicted the other in this file.**
+  The FIRST run (at the initial cut) was red: one `TypeError: fetch failed` / `ECONNRESET`
+  in a first-run route, on a run whose own diagnostics recorded a live board on :16180 and
+  1-minute load 7.67 on 10 cores. Every run since has been `EXIT_CODE=0`, 3396 pass, 0 fail.
+  ⭐ **The byte-identical proof is the load-bearing evidence, not either run**: a change
+  that cannot alter runtime cannot have caused a network timeout.
 
 ## Review pass 1: four findings, all about POINTERS, which is the risk of this change
 
@@ -96,8 +107,9 @@ mode a cut like this actually has, and it is worth naming for the next person.
   `engine.runnable-not-directory.test.js:831` says "`githubdevice.js` records why, in
   the block above `ghPresent`", and I cut exactly that why. **Fixed by restoring the
   clause it promises**, rather than by editing the guard, so the existing pointer
-  becomes true again. Verified: the clause is at line 135, `ghPresent` is defined at
-  205, so "the block above" resolves.
+  becomes true again. Verified: the clause sits ABOVE the `ghPresent` definition, so
+  "the block above" resolves. **Stated as an ORDERING rather than as two line numbers,
+  which move on every edit and went stale twice.**
 - **A pointer downgrade.** The removed block cited this repo's own plan file, which
   needs no network. My replacement cited only card numbers, which need network and
   GitHub auth. The plan path is back beside them.
@@ -146,8 +158,8 @@ paragraphs rewrapped whole.
 ⚠️ **A pre-existing prose defect was found and DELIBERATELY NOT FIXED**:
 `githubdevice.js:119-120`, ONE defect spanning two lines, a `/**` block whose
 continuation lines lack the ` * ` prefix. (This sentence said "two defects" until a
-reviewer counted them.) Verified present on `origin/main` (line 147), in a block this branch never
-touched. Fixing them would be scope this card did not ask for.
+reviewer counted them.) Verified present on `origin/main`, in a block this branch never touched. **Located by
+its text rather than a line number, because `origin/main` moves as others merge.** Fixing them would be scope this card did not ask for.
 
 ## Review pass 3: THE THIRD CONSECUTIVE PASS TO FIND A CLAIM THAT OUTRAN ITS FIX
 
@@ -209,6 +221,33 @@ the arm that breaks it.
 
 📌 The rule table also mixed spellings across adjacent rows (`path.delimiter` then
 `'/a:/b'`). Every row is POSIX now, which is what the table's own preamble says.
+
+## Review pass 5: I STOPPED REGENERATING AND DELETED THE CLAIMS INSTEAD
+
+🛑 **FIFTH CONSECUTIVE PASS WITH A STALE FIGURE, AND THE SECOND ONE AFTER I "FIXED" IT.**
+Pass 3 replaced typed numbers with generated ones. Pass 4 then added three lines and did
+not regenerate, so the plan asserted "these figures are GENERATED from the files at HEAD"
+while being wrong at HEAD. **Generating a number once is exactly as stale as typing it
+once. The fix addressed the wrong half.**
+
+⭐⭐ **A FIGURE DESCRIBING THIS REPO GOES STALE ON THE NEXT COMMIT BY CONSTRUCTION.** No
+amount of care, and no amount of automation applied at write time, changes that. The only
+two states that survive are **measure it at read time** or **do not state it**.
+
+✅ **SO THEY ARE DELETED, NOT REGENERATED**: the totals, the reduction, the ratios, two
+line numbers that had already gone stale twice, and a median that two measurements
+disagreed about. Replaced by the command that measures them, and by the one claim that
+cannot rot: **comment-stripped code is byte-identical**, asserted mechanically.
+
+📌 Also fixed: this file recorded a RED suite while the commits recorded green. Both runs
+are now stated, with the note that neither is the load-bearing evidence. **A change that
+cannot alter runtime cannot have caused a network timeout**, which is what the
+byte-identical proof establishes and what no suite run can.
+
+⚠️ **THIS IS THE SAME LESSON AS THE FROZEN SECTIONS ON #1606, ARRIVING FROM THE OTHER
+DIRECTION.** There I stopped correcting prose because each correction generated defects.
+Here I stopped stating figures because each statement generated staleness. **Both times
+the answer was to remove the surface, not to be more careful with it.**
 
 ## Not done here
 
