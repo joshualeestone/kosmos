@@ -1337,7 +1337,14 @@ test('#1277: the live-execution gate refuses a real installer spawn, and release
       + 'then return early doing nothing, so arms after this one would pass without running');
   } finally {
     u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
-    u.resetCache(); liveExec.allowLiveExecution();
+    /* 🛑 resetForTests(), NOT allowLiveExecution(). I wrote the latter meaning
+       "put it back", and the state I put it back to was OPEN: the pre-state in a
+       test process is fail-CLOSED, and nothing else in this file opens the gate.
+       So the arm I added to guard the installer hole DISARMED the guard for every
+       arm after it, and a reviewer proved it by planting one plausible arm that
+       then spawned the real production installer. Restoring to the wrong state is
+       not restoring. */
+    u.resetCache(); liveExec.resetForTests();
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
@@ -1436,4 +1443,52 @@ test('#1277: DRY_RUN is read as === "1", so a machine setting it to "0" still up
     u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
     u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
   }
+});
+
+test('#1277: a machine repaired and reinstalled BY HAND starts updating again', async () => {
+  /* 🛑 WITHOUT THIS THE STREAK CAP IS A ONE-WAY DOOR. logs/install.status is
+     written only by the wrapper this module spawns: `install.status` appears zero
+     times in install/setup.sh (control: `install.log` is present there). So the
+     recovery the product itself prescribes, the hand-pasted
+     `curl -fsSL .../setup | sh` that die() prints and that "install it by hand"
+     means to a reader, leaves the failure record on disk forever.
+
+     A person whose machine was broken, who fixed it and reinstalled by hand,
+     would otherwise never receive another unattended update, including a security
+     one, with no signal but one stderr line into a log nothing rotates.
+
+     Being on a version IS the evidence an install succeeded, whoever ran it. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const RUNNING = require('../package.json').version;
+  async function installsWith(recordVersion, offered) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-superseded-'));
+    fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+    let installs = 0;
+    u.resetCache();
+    u.setInstalledRoot(() => home);
+    u.setAutoPref(() => ({ on: true }));
+    u.setFetcher(async () => ({ ok: true, json: async () => ({ version: offered }) }));
+    u.setInstallRunner(() => { installs += 1; return { on() {}, unref() {}, stderr: { on() {} } }; });
+    try {
+      const old = new Date(Date.now() - 5 * 3600 * 1000);
+      const f = path.join(home, 'logs', 'install.status');
+      fs.writeFileSync(f, `1 ${old.toISOString()} ${recordVersion} 1 9 9\n`);   // way past both caps
+      fs.utimesSync(f, old, old);
+      await u.checkNow();
+    } finally {
+      u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+      u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+    }
+    return installs;
+  }
+  assert.equal(await installsWith(RUNNING, '99.0.0'), 1,
+    `a record naming ${RUNNING}, the version this board is RUNNING, still braked. That record is `
+    + 'history: being on this version proves an install succeeded, and the hand-install the product '
+    + 'tells people to run never clears the file');
+  assert.equal(await installsWith('0.0.1', '99.0.0'), 1,
+    'CONTROL: a record naming an OLDER version is superseded too, and must not brake');
+  assert.equal(await installsWith('99.0.0', '99.0.0'), 0,
+    'CONTROL: a record naming a version we are still BEHIND is a live verdict and must brake, or '
+    + 'this supersede rule has simply disabled the cap');
 });

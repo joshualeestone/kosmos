@@ -268,7 +268,26 @@ function maybeAutoInstall() {
        paces retries WITHIN a version; this is a floor that a version bump must
        not lift. A person pressing Install is never gated, because this whole
        function is only reached from the timer. */
-    if (durable && durable.endedAt && durable.code !== 0
+    /* 🛑 A FAILURE RECORD IS SUPERSEDED ONCE THE BOARD IS RUNNING THAT VERSION OR
+       NEWER, AND WITHOUT THIS THE STREAK CAP IS A ONE-WAY DOOR. install.status is
+       written ONLY by the wrapper this module spawns: measured, `install.status`
+       appears zero times in install/setup.sh, with `install.log` present there as
+       a control. So the recovery the product itself prescribes, the hand-pasted
+       `curl -fsSL .../setup | sh` that `die()` prints and that "install it by
+       hand" means to any reader, leaves `code 1, streak 6` on disk FOREVER.
+
+       A person whose machine was broken, who fixed it and reinstalled by hand,
+       would then never receive another unattended update, including a security
+       one, and the only signal was one stderr line per process into a log nothing
+       rotates and nothing surfaces. My own arm proved the consequence and I read
+       it as the feature working.
+
+       Being on this version IS the evidence that an install succeeded, whoever
+       ran it. So a record naming a version we are not behind is history, not a
+       verdict. Waiting for a `code 0` written by our own spawn was the mistake:
+       our spawn is not the only way software gets installed. */
+    const superseded = durable && durable.version && !newer(durable.version, RUNNING);
+    if (durable && !superseded && durable.endedAt && durable.code !== 0
         && (durable.streak || 0) >= MAX_TOTAL_ATTEMPTS) {
       if (gaveUpOn !== 'ALL') {
         gaveUpOn = 'ALL';

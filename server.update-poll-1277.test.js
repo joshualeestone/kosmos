@@ -239,7 +239,24 @@ test('#1277 convention: a test that opens installedRoot must inject an install r
     const parts = src.split(/\n(?=test\()/);
     for (const part of parts) {
       if (!OPENS.test(part) || !PREF_ON.test(part)) continue;
-      if (/setInstallRunner/.test(part)) continue;
+      /* 🛑 AN ACTUAL INJECTION, NOT THE SUBSTRING. `setInstallRunner(null)` CLEARS
+         the seam, which is exactly the state that reaches the real spawn, and it
+         matched the old bare-substring exemption. So the arm most likely to be
+         written by someone tidying up a leftover stub was the one this guard
+         waved through. Measured by a reviewer: a planted arm doing precisely that
+         spawned the real installer while this guard stayed green. */
+      if (/setInstallRunner\(\s*(?!null|undefined)/.test(part)) continue;
+      /* One arm legitimately has NO runner: the one guarding the live-execution
+         gate itself, which can only be reached with the seam empty.
+
+         ⚠️ MY FIRST EXCUSE FOR IT KEYED ON `resetForTests()` APPEARING IN THE
+         ARM, AND THAT WAS SATISFIED BY THE LEFTOVER CALL IN ITS OWN `finally`.
+         Deleting the precondition changed nothing, so the excuse could not fail.
+         Keyed instead on the property that actually makes the arm safe: it must
+         ASSERT the live-execution refusal. If the gate is not closed there is no
+         refusal to assert, so the arm fails on its own before this guard is even
+         consulted, and if somebody deletes the assertion this guard names it. */
+      if (/assert\.match\(/.test(part) && /inside a test process\|not authorized/.test(part)) continue;
       const name = (part.match(/^test\(\s*['"`](.{0,70})/) || [, '(module scope)'])[1];
       offenders.push(`${path.relative(root, f)} :: ${name}`);
     }
