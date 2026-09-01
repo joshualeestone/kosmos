@@ -326,3 +326,32 @@ test('#1697: a REGISTERED but NOT RUNNING agent still blocks, because a stopped 
     'the refusal must NAME the stopped agent, or the person is told no without being told which');
   assert.ok(fs.existsSync(r.target), 'the account directory moved despite the refusal');
 });
+
+/* 🛑 THE REMOVED-AGENT FILTER, WHICH THIS ROUTE SHIPPED UNGUARDED WHILE ITS
+   OPENAI TWIN HAS AN ARM. The #1697 union brings in REGISTERED agents, and a
+   profile file outlives a removal, so unioning raw would resurrect an agent the
+   person was already told was gone and refuse the account because of it. The
+   route's own comment calls that the trap and then had no test for the fix.
+   ⚠️ Measured before writing this: replacing `goneNames` with an empty Set left
+   all eleven arms green, while the identical mutation on the OpenAI route reds its
+   arm. The consequence is not abstract: without the filter this route answers 400
+   with "departed is set up to run on this account", naming an agent that no longer
+   exists and giving the person nothing they can act on. */
+test('#1697 CONTROL: a REMOVED agent does NOT block, so the union cannot resurrect one', () => {
+  const r = board((ctx) => {
+    const dir = account(ctx.home, 'ghosted');
+    account(ctx.home, 'default');
+    registeredNotRunning(ctx, 'departed', dir);
+    /* Recorded as removed the way the product does it, so this arm depends on the
+       same store `safeRoster` reads rather than on a flag invented here. */
+    const dataDir = nodePath.join(ctx.sb, 'data', 'AgentWorkforce');
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(nodePath.join(dataDir, 'removed.json'),
+      JSON.stringify([{ name: 'departed', removedAt: new Date().toISOString(), stopped: true }]));
+    return dir;
+  });
+  assert.equal(r.code, 200,
+    'a removed agent blocked the removal: the person was already told it was gone, so the refusal '
+    + 'names something they cannot act on. body: ' + JSON.stringify(r.json));
+  assert.equal(r.json && r.json.forgotten, true, 'the account was not forgotten despite the 200');
+});

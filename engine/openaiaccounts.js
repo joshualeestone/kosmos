@@ -230,11 +230,19 @@ function forgetAccount(dir, usedBy) {
      rejected for a copy string.
      ⚠️ AFTER the existence check on purpose, so a directory that is simply gone is
      reported as gone rather than as "not an account".
-     🛑 AND IT HAS A COST WORTH STATING, because it lands on the person least able
-     to work around it: an account whose `auth.json` is CORRUPTED or unparseable
-     answers null here too, so it can no longer be disconnected from Settings. That
-     is exactly when somebody would want to. The Claude sibling carries the same
-     trade for the same reason and neither is guarded against it.
+     🛑 I CLAIMED A COST HERE THAT DOES NOT EXIST, and the correction matters more
+     than the original claim. I wrote that an account with a CORRUPTED `auth.json`
+     answers null here too, so it could no longer be disconnected from Settings,
+     "exactly when somebody would want to".
+     ⇒ MEASURED, and it is false: `list()` gates on `identityOf` as well, so such an
+     account is never rendered and has no Disconnect control to begin with. Nothing
+     changed for that person. The Claude sibling's `list()` gates the same way.
+     ⚠️ AND THE SAME REASONING BOUNDS THE BENEFIT, so this is not a rescue of my own
+     guard: the page only ever sends a `dir` that `list()` emitted, so a
+     `.codex-notanaccount` cannot arrive from the button either.
+     ✅ WHAT THIS GUARD ACTUALLY IS: defence in depth on an unauthenticated local
+     HTTP endpoint that renames directories. Worth keeping for that reason and
+     stated as that reason, rather than as a user-facing trade nobody can reach.
      📌 Kept because the alternative is worse: without this, a name-shaped folder
      the person made gets renamed with its contents and the answer says it was
      forgotten. Refusing to move something we cannot identify is the safer error.
