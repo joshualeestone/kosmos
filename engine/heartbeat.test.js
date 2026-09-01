@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { tick } = require('./heartbeat');
+const { tick, step, rowsFrom } = require('./heartbeat');
 
 /* #1722. The heartbeat composes the board's already-classified states and asks a
  * check-in QUESTION when an agent is in an open stall. These cases pin the three
@@ -99,4 +99,28 @@ test('rows with no session name are skipped without throwing', () => {
   const t = tick([{ state: 'stopped' }, null, row('a', 'working', 'scraped')], new Map());
   assert.deepEqual(t.toAsk, []);
   assert.equal(t.next.get('a').prev, 'working');
+});
+
+test('rowsFrom maps the board stateConfidence field (not confidence) and tolerates null', () => {
+  assert.deepEqual(rowsFrom(null), []);
+  assert.deepEqual(rowsFrom(undefined), []);
+  const rows = rowsFrom([
+    { sessionName: 'a', name: 'Angel', state: 'unknown', stateConfidence: 'none' },
+    { name: 'noSession', state: 'working' }, // dropped: no sessionName
+  ]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].confidence, 'none', 'stateConfidence must be carried as confidence or every reading looks confident');
+  assert.equal(rows[0].name, 'Angel');
+});
+
+test('step ON runs the tick; step OFF resets the baseline so re-enabling cannot fabricate an edge', () => {
+  // Build a prev where the agent was working, then turn OFF, then a stall.
+  const working = step(new Map(), [{ sessionName: 'a', name: 'A', state: 'working', stateConfidence: 'scraped' }], true);
+  const off = step(working.next, [{ sessionName: 'a', name: 'A', state: 'stopped', stateConfidence: 'structured' }], false);
+  assert.deepEqual(off.toAsk, [], 'OFF asks nothing');
+  assert.equal(off.next.size, 0, 'OFF resets the baseline');
+  // Re-enabling: the reset baseline means the stall is a first sighting, not a
+  // working->stall edge, so no spurious ask on the very first on-tick.
+  const backOn = step(off.next, [{ sessionName: 'a', name: 'A', state: 'stopped', stateConfidence: 'structured' }], true);
+  assert.deepEqual(backOn.toAsk, [], 'the first on-tick after off is a fresh baseline, not a stale edge');
 });

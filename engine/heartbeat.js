@@ -168,4 +168,36 @@ function tick(roster, prev) {
   return { toAsk, next };
 }
 
-module.exports = { tick, stateOf, isStallState, ASK_ON_EXIT_TO, STARTUP_STALL_TICKS };
+/**
+ * Map the board's roster (snapshot().agents / safeRoster()) to the rows tick()
+ * reads. The board carries the classifier's confidence as `stateConfidence`, not
+ * `confidence`, so a straight pass would drop it and make every reading look
+ * fully confident. Tolerates a null roster (safeRoster returns null when tmux
+ * cannot be asked) by yielding [] -- a tick over nothing, never a throw.
+ * @param {Array|null} roster
+ * @returns {Array<{sessionName:string,state:string,confidence?:string,name?:string}>}
+ */
+function rowsFrom(roster) {
+  if (!Array.isArray(roster)) return [];
+  return roster
+    .filter((a) => a && a.sessionName)
+    .map((a) => ({ sessionName: a.sessionName, state: a.state, confidence: a.stateConfidence, name: a.name }));
+}
+
+/**
+ * One heartbeat step for the runner. When the setting is OFF, the baseline is
+ * reset (an empty `next`) so turning it back on starts fresh: a state carried
+ * across an off period would fabricate a stale working -> stall edge the moment
+ * the person re-enables the heartbeat. When ON, it is tick() over the mapped
+ * rows. The runner (server.js) supplies `on` from heartbeat-setting and does the
+ * notify + timing; this stays pure.
+ * @param {Map} prev
+ * @param {Array|null} roster  the board roster (unmapped)
+ * @param {boolean} on
+ */
+function step(prev, roster, on) {
+  if (!on) return { toAsk: [], next: new Map() };
+  return tick(rowsFrom(roster), prev);
+}
+
+module.exports = { tick, step, rowsFrom, stateOf, isStallState, ASK_ON_EXIT_TO, STARTUP_STALL_TICKS };
