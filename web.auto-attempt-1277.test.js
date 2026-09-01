@@ -178,3 +178,52 @@ test('#1277: with the switch OFF the card does not promise a retry that will not
   assert.match(onTerminal.textContent, /start again on their own/i,
     'CONTROL: with the switch on, the terminal sentence must still say recovery is automatic');
 });
+
+test('#1277: after a successful HAND repair the card stops announcing the old failure', () => {
+  /* 🛑 THE ADVERTISED RECOVERY USED TO LEAVE A PERMANENT LIE ON SCREEN. Three
+     failures of 0.7.0, the card says install it by hand, they do, IT SUCCEEDS,
+     the board boots on 0.7.0. install/setup.sh never writes logs/install.status
+     (zero occurrences, control install.log = 1), so the failure record survives
+     and the card announced forever that Kosmos gave up on the version they are
+     now running. It cleared only if a later AUTOMATIC install rewrote the file;
+     a hand reinstall never does.
+
+     The engine derives `superseded` once, where both brakes already compute it. */
+  const done = paintWith({ auto: true, endedAt: 'x', version: '0.7.0', attempts: 3, streak: 3, superseded: true });
+  assert.equal(done.hidden, true,
+    'a record for a version we are NOW RUNNING still rendered. The install worked and the card '
+    + 'says it gave up, permanently, and nothing the person does clears it');
+
+  /* CONTROL: a record for a version we are still BEHIND is a live verdict and
+     must still render, or this has simply switched the card off. */
+  const live = paintWith({ auto: true, endedAt: 'x', version: '9.9.9', attempts: 3, streak: 3, superseded: false });
+  assert.equal(live.hidden, false, 'CONTROL: a record we are still behind must still be shown');
+
+  /* CONTROL: superseded must not silence an ORDINARY failure either way round,
+     which is the same rule one branch down. */
+  assert.equal(paintWith({ auto: true, endedAt: 'x', version: '0.7.0', attempts: 1, streak: 1, superseded: true }).hidden,
+    true, 'CONTROL: an ordinary superseded failure is history too');
+});
+
+test('#1277: an UNREADABLE preference does not promise a retry, matching the engine', () => {
+  /* engine/autoupdate.js answers the same uncertainty with { on: false }. The
+     screen must not be more confident than the engine: promising an automatic
+     retry in the one state where we have just admitted we cannot read the setting
+     is the worst place to guess. */
+  const unknown = paintWith({ auto: true, endedAt: 'x', version: '0.7.0', attempts: 1, streak: 1 }, null);
+  assert.equal(unknown.hidden, false, 'the record should still be shown when the preference is unknown');
+  assert.doesNotMatch(unknown.textContent, /try again later/i,
+    'the preference could not be read and the card promised an automatic retry anyway');
+  const known = paintWith({ auto: true, endedAt: 'x', version: '0.7.0', attempts: 1, streak: 1 }, { on: true });
+  assert.match(known.textContent, /try again later/i,
+    'CONTROL: with a readable ON preference it must still say it will retry');
+});
+
+test('#1277: the per-version sentence is grammatical, which reading it never showed', () => {
+  /* `v` is " of <version>", built for a sentence ending in a noun, and it was
+     reused after a VERB: "stopped trying to install of 0.7.0". Present for as long
+     as that branch existed and invisible until somebody rendered it. */
+  const t = paintWith({ auto: true, endedAt: 'x', version: '0.7.0', attempts: 3, streak: 1 }).textContent;
+  assert.doesNotMatch(t, /install of /i, `reads ungrammatically: ${t}`);
+  assert.match(t, /install 0\.7\.0/i, 'it should still name the version it gave up on');
+});

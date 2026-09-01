@@ -789,7 +789,24 @@ function seedFromStatusFile() {
 }
 function lastAttemptView() {
   if (!lastAttempt) seedFromStatusFile();
-  return lastAttempt ? { ...lastAttempt } : null;
+  if (!lastAttempt) return null;
+  /* 🛑 SUPERSEDED IS DERIVED HERE, ONCE, BECAUSE THE PAGE MUST NOT NEED TO KNOW
+     `RUNNING`. Both brakes already compute this and neither shared it, so the
+     engine knew a record was history and the screen did not.
+
+     What that cost is the advertised recovery itself: three failures of 0.7.0,
+     the card says install it by hand, they do, IT SUCCEEDS, and the new board
+     boots on 0.7.0. install/setup.sh never writes logs/install.status (measured:
+     zero occurrences, with install.log present as a control), so the old failure
+     record survives intact, and the card announces PERMANENTLY that Kosmos gave
+     up on the version they are now happily running. It clears only if a later
+     AUTOMATIC install rewrites the file; a hand reinstall never does.
+
+     Being on this version is the evidence the install worked, whoever ran it,
+     which is the same reasoning the brake uses. Derived in one place so the two
+     cannot drift. */
+  const superseded = !!(lastAttempt.version && !newer(lastAttempt.version, RUNNING));
+  return { ...lastAttempt, superseded };
 }
 
 /**

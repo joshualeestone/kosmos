@@ -1968,3 +1968,39 @@ test('#1277: the give-up ADVICE stays true, which depends on the two brakes bein
     'the per-version line told the person to wait for a newer release and the newer release was '
     + 'NOT installed, so the advice this product prints is false');
 });
+
+test('#1277: the SERVED record carries superseded, or the page cannot know it', async () => {
+  /* 🛑 THE JOIN, WHICH EACH SIDE TESTED AGAINST ITSELF. The page arms hand
+     `superseded` in as a fixture, so they stay green even if the engine never
+     derives it; the engine arms never look at what /api/status ships. Perturbing
+     the derivation to `false` reddened nothing until this existed.
+
+     The page must not know RUNNING. Both brakes already compute this, so it is
+     derived once in lastAttemptView and travels with the record. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const RUNNING = require('../package.json').version;
+  function servedFor(version) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-served-'));
+    fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+    u.resetCache();
+    u.setInstalledRoot(() => home);
+    try {
+      fs.writeFileSync(path.join(home, 'logs', 'install.status'),
+        `1 ${new Date().toISOString()} ${version} 1 3 1 ${version}\n`);
+      return u.lastAttempt() || {};
+    } finally {
+      u.setInstalledRoot(null); u.resetCache();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  }
+  const repaired = servedFor(RUNNING);
+  assert.equal(repaired.superseded, true,
+    `a record naming ${RUNNING}, the version this board is RUNNING, is served without superseded. `
+    + 'The page cannot derive it (it never learns RUNNING), so it announces forever that Kosmos '
+    + 'gave up on the version the person is happily running');
+  assert.equal(servedFor('0.0.1').superseded, true, 'CONTROL: an OLDER version is superseded too');
+  assert.equal(servedFor('99.9.9').superseded, false,
+    'CONTROL: a version we are still BEHIND is a live verdict, not history, or this flag has '
+    + 'simply switched the card off');
+});

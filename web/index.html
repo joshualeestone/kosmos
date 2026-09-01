@@ -14415,8 +14415,18 @@ function autoAttemptPaint(attempt, pref) {
      did not. The `auto` gate survives only for the NON-terminal line, which the
      press overlay already covers for a manual attempt. */
   const ended = attempt && attempt.endedAt ? attempt : null;
-  const terminal = !!ended && (Number(ended.attempts) >= 3 || Number(ended.streak) >= 3);
-  const a = (terminal || (ended && ended.auto)) ? ended : null;
+  /* 🛑 A SUPERSEDED RECORD IS HISTORY, NOT A VERDICT, AND THAT IS THE WHOLE
+     POINT OF THE ADVERTISED RECOVERY. Three failures of 0.7.0, the card says
+     install it by hand, they do, IT SUCCEEDS, the board boots on 0.7.0, and
+     install/setup.sh never clears logs/install.status (measured: zero
+     occurrences, control install.log present). Without this the card announces
+     PERMANENTLY that Kosmos gave up on the version they are now running, and it
+     clears only if a later AUTOMATIC install happens to rewrite the file.
+     The flag is derived once in the engine, where both brakes already compute
+     it, so the page never has to know which version it is running. */
+  const terminal = !!ended && !ended.superseded
+    && (Number(ended.attempts) >= 3 || Number(ended.streak) >= 3);
+  const a = (terminal || (ended && ended.auto && !ended.superseded)) ? ended : null;
   if (!a) { el.hidden = true; el.textContent = ''; return; }
   const v = a.version ? (' of ' + a.version) : '';
   /* 🛑 THE TERMINAL STATE NEEDS ITS OWN SENTENCE, AND MY FIRST VERSION HAD NONE.
@@ -14437,13 +14447,23 @@ function autoAttemptPaint(attempt, pref) {
      their own" are false, and the way a person reaches that state is the obvious
      reaction to seeing a failure: switch it off. The record is still worth
      showing; only the forecast is wrong. */
-  const willRetry = !pref || pref.on === true;
+  /* ⚠️ FAILS TOWARD NOT PROMISING. When /api/autoupdate cannot be read the
+     preference arrives with ok:false, and this used to fall through to true, so
+     the card promised an automatic retry in the one state where we have just
+     admitted we do not know the setting. engine/autoupdate.js takes the
+     OPPOSITE posture on the same uncertainty and returns { on: false }. The
+     screen must not be more confident than the engine. */
+  const willRetry = !!pref && pref.on === true;
   if (doneMachine) {
     el.textContent = 'Automatic updates have stopped on this computer, because three different '
       + 'versions failed to install here. Press Install above to try one by hand.'
       + (willRetry ? ' If that works, automatic updates start again on their own.' : '');
   } else if (doneVersion) {
-    el.textContent = 'Kosmos stopped trying to install' + v + ' automatically after three '
+    /* `v` is ' of <version>', built for a sentence ending in a noun. After a VERB
+       it read "stopped trying to install of 0.6.20", which only surfaced when
+       somebody RENDERED this branch rather than reading it. */
+    el.textContent = 'Kosmos stopped trying to install'
+      + (a.version ? ' ' + a.version : '') + ' automatically after three '
       + 'attempts. Press Install above to try it by hand, or wait for the next version.';
   } else {
     el.textContent = 'The last automatic update' + v + ' did not finish, so this board '
