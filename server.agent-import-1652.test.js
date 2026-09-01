@@ -86,11 +86,13 @@ test('#1652 REFUSED WHOLE: a body that names nobody is refused', async () => {
   assert.match(noname.json.because, /do not name an agent/);
 });
 
-test('#1652: malformed JSON is a 400', async () => {
+test('#1652: malformed JSON is a 400 with a reason (not just a bare status)', async () => {
   const res = await fetch(`${base}/api/agent-import`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: '{not json',
   });
   assert.equal(res.status, 400);
+  const j = await res.json();
+  assert.match(j.error, /not something we can read/, 'a malformed request 400 should carry the reason, so the 400 is the JSON-parse path and not some other 400');
 });
 
 test.after(() => { try { server.close(); } catch { /* best effort */ } });
