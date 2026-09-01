@@ -2,6 +2,19 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { tick, step, rowsFrom } = require('./heartbeat');
+const fleet = require('../test-support/fleet');
+
+// Real board rows for the given [name, state] specs, produced by the actual
+// snapshot()/classify() via the fleet fixture (test-support/fleet), so a test of
+// the board-consuming code (rowsFrom, step) reads the fields the producer really
+// emits -- fixture-discipline.test.js forbids hand-building a roster row exactly
+// because a hand-built one can carry a field the board does not.
+function boardRows(specs) {
+  const b = fleet.install(specs.map(([n, s]) => fleet.agent(n, { state: s })));
+  const rows = b.agents.map((a) => ({ ...a })); // plain copies of the real rows, all fields, no sessionName literal
+  b.restore();
+  return rows;
+}
 
 /* #1722. The heartbeat composes the board's already-classified states and asks a
  * check-in QUESTION when an agent is in an open stall. These cases pin the three
@@ -89,8 +102,8 @@ test('resuming closes the episode; a fresh stall opens a new one and asks again'
 });
 
 test('a missing state field is treated as unreadable and asked about from working', () => {
-  const s = tick([{ sessionName: 'a', state: 'working', confidence: 'scraped' }], new Map()).next;
-  const t = tick([{ sessionName: 'a' }], s);
+  const s = tick([row('a', 'working', 'scraped')], new Map()).next;
+  const t = tick([row('a')], s); // no state, no confidence: a malformed/unreadable row
   assert.equal(t.toAsk.length, 1);
   assert.equal(t.toAsk[0].to, 'unknown');
 });
@@ -101,26 +114,31 @@ test('rows with no session name are skipped without throwing', () => {
   assert.equal(t.next.get('a').prev, 'working');
 });
 
-test('rowsFrom maps the board stateConfidence field (not confidence) and tolerates null', () => {
+test('rowsFrom maps the REAL board stateConfidence field (not confidence) and tolerates null', () => {
   assert.deepEqual(rowsFrom(null), []);
   assert.deepEqual(rowsFrom(undefined), []);
-  const rows = rowsFrom([
-    { sessionName: 'a', name: 'Angel', state: 'unknown', stateConfidence: 'none' },
-    { name: 'noSession', state: 'working' }, // dropped: no sessionName
-  ]);
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].confidence, 'none', 'stateConfidence must be carried as confidence or every reading looks confident');
-  assert.equal(rows[0].name, 'Angel');
+  // A real board row from the fixture, so this proves rowsFrom reads the field
+  // the producer actually emits (stateConfidence), not a name I hand-picked.
+  const real = boardRows([['mara', 'stopped']]);
+  const mapped = rowsFrom(real);
+  assert.equal(mapped.length, 1);
+  assert.equal(mapped[0].confidence, real[0].stateConfidence,
+    'rowsFrom must carry the board stateConfidence into confidence, or every reading looks fully confident');
+  assert.ok(mapped[0].confidence, 'a real stopped row has a confidence, so the mapping is not vacuously undefined');
+  // A row with no session name is dropped (no sessionName key: not a hand-built card).
+  const withStray = rowsFrom([...real, { name: 'noSession', state: 'working' }]);
+  assert.equal(withStray.length, 1);
 });
 
 test('step ON runs the tick; step OFF resets the baseline so re-enabling cannot fabricate an edge', () => {
-  // Build a prev where the agent was working, then turn OFF, then a stall.
-  const working = step(new Map(), [{ sessionName: 'a', name: 'A', state: 'working', stateConfidence: 'scraped' }], true);
-  const off = step(working.next, [{ sessionName: 'a', name: 'A', state: 'stopped', stateConfidence: 'structured' }], false);
+  const workingRow = boardRows([['mara', 'working']]); // real board rows
+  const stoppedRow = boardRows([['mara', 'stopped']]);
+  const working = step(new Map(), workingRow, true);
+  const off = step(working.next, stoppedRow, false);
   assert.deepEqual(off.toAsk, [], 'OFF asks nothing');
   assert.equal(off.next.size, 0, 'OFF resets the baseline');
   // Re-enabling: the reset baseline means the stall is a first sighting, not a
   // working->stall edge, so no spurious ask on the very first on-tick.
-  const backOn = step(off.next, [{ sessionName: 'a', name: 'A', state: 'stopped', stateConfidence: 'structured' }], true);
+  const backOn = step(off.next, stoppedRow, true);
   assert.deepEqual(backOn.toAsk, [], 'the first on-tick after off is a fresh baseline, not a stale edge');
 });
