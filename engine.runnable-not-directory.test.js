@@ -537,7 +537,7 @@ test('every site under the resolution rule resolves the claude binary its docume
       + 'PATH and its PRESENCE resolves ONCE and reads both off the one answer, because two '
       + 'resolutions can disagree across an await. If you added or removed one deliberately, '
       + 'change the rule and this table together, not one of them.');
-    
+
     /* 🛑 AND THE COUNT ALONE IS NOT ENOUGH EITHER. MEASURED: the ORIGINAL forbidden shape,
        `{ bin: claudeBinPath(), present: resolveBin('claude').present }`, KEEPS THE COUNT
        IDENTICAL (it replaces the call, it does not add one) and passes the assertion above
@@ -554,6 +554,35 @@ test('every site under the resolution rule resolves the claude binary its docume
       `${site.fn} derives the claude path with claudeBinPath() while asking resolveBin for `
       + 'presence. That is two resolutions of one fact by a different route than a second '
       + 'call, and the count above cannot see it because the call count does not move.');
+
+        /* 🛑 AND start() NEEDS A THIRD CHECK, BECAUSE A COUNT OF 2 ABSORBS A SUBSTITUTION.
+           The other three sites are documented at 1, so ANY extra resolution moves their
+           count. start() is documented at 2 (the pair, plus the binaryOnDisk exclusion), so
+           an edit that REPLACES one resolution with another leaves it at 2.
+           MEASURED, two edits each an ordinary refactor:
+             binaryOnDisk = claudeHatchAvailable()          (near-identical, never throws)
+             claudeResolved split into two separate resolveBin calls
+           -> start() resolves the pair TWICE across the --version probe, count still 2,
+              guard 20 pass 0 fail, full suite green. Exactly the shape the rule forbids.
+           ✅ So the pair's binding is pinned by exact text. That is brittle to reformatting
+           and it is the trade this file already takes for becomeStuck: a reformat reds with
+           a message naming the rule, which is a two-line fix, and the alternative is a site
+           the rule covers and nothing enforces.
+           ⚠️ WHAT THIS ARM DETECTS, STATED INSTEAD OF CLAIMED: at willInstall,
+           claudeHatchAvailable and the gate, any ADDED resolution (count moves) and the
+           claudeBinPath spelling. At start(), those two plus a SUBSTITUTION of the pair's
+           binding. It does NOT cover a NEW function in connect.js that resolves twice; the
+           SITES table is a fixed list and the prose rule says every site. That gap is
+           recorded with the other residuals rather than implied away. */
+        if (site.fn === 'async function start(') {
+          const binding = (code.match(/const claudeResolved = require\('\.\/runners'\)\.resolveBin\('claude'\);/g) || []);
+          assert.strictEqual(binding.length, 1,
+            'start() no longer binds the pair with a single '
+            + "`const claudeResolved = require('./runners').resolveBin('claude');`. Its count of "
+            + '2 is the documented pair-plus-binaryOnDisk, so a SUBSTITUTION of one resolution '
+            + 'for another does not move it and only this binding check sees it. If you '
+            + 'reformatted the line, restore the single binding or update this pin and say why.');
+        }
   }
 });
 
