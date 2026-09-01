@@ -55,6 +55,20 @@ fi
 # runner you point it at — it cannot know — but the trap is worth stating: a
 # shell break "proved" against a node test file goes green for the same reason
 # the mutation used to not apply at all.
+#
+# 🔑 AND WHEN YOU CANNOT USE THIS TOOL AND MUST PERTURB BY HAND, ASSERT THE PLANT
+# TOOK (kosmos#1759). A perturbation that never applied returns GREEN, and GREEN
+# is what a working guard looks like: a broken guard and an edit that never landed
+# produce the SAME output, and nothing in the run separates them. ⇒ AN ARM SUPPOSED
+# TO FAIL IS WORTH MORE THAN ONE SUPPOSED TO PASS -- a no-op perturbation cannot
+# fake a red, but a green is equally consistent with the guard working, the edit
+# not applying, the edit tool failing, or the file not being the one you think.
+# For a hand edit this tool cannot run (a sed/perl/python on a workflow, a .rs in
+# another repo): `assert old in s` / `grep -q` BEFORE writing, so a missed target
+# fails LOUD instead of writing the file unchanged; keep perl/shell-special syntax
+# (`${`, `$`, backticks) OUT of a `perl -e` pattern (prefer python3 + an assert);
+# and when a should-be-RED arm comes back GREEN, suspect the perturbation before
+# the guard. Both #1759 instances were hand plants that silently never applied.
 before="$(git rev-parse HEAD)"
 echo "── $LABEL"
 node -e "

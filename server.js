@@ -39,10 +39,14 @@ const {
      the offline rows below. `register.survey`'s shownAs cannot answer it --
      shownName falls back to the machine name, so it is never empty. */
   readIdentity,
+  /* #1652: the body-names-somebody check the import parse endpoint injects into
+     agentfile.importAgent, the same call adoption uses. */
+  identityFromText,
 } = require('./engine/status');
 const removal = require('./engine/remove');
 const leftover = require('./engine/delete-leftover');
 const firstrun = require('./engine/firstrun');
+const platformGate = require('./engine/platform');
 const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');
 const connect = require('./engine/connect');
@@ -124,6 +128,8 @@ function engineFreshness() {
   return { startedAt: ENGINE_STARTED_AT.toISOString(), staleSince: engineLook.staleSince };
 }
 const store = require('./engine/store');
+const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
+const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 /* Sandboxed whole or not at all (#634): refused before anything listens or
    writes. In-process (a test requiring this file) it throws; as the program it
    says the sentence and exits 2. */
@@ -137,6 +143,7 @@ const store = require('./engine/store');
   }
 }
 const create = require('./engine/create');
+const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for
    the agents it can see; this is the same question asked about an agent with no
@@ -173,6 +180,8 @@ const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const ping = require('./engine/ping');
 const notify = require('./engine/notify');
+const heartbeat = require('./engine/heartbeat');
+const heartbeatSetting = require('./engine/heartbeat-setting');
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
@@ -1315,6 +1324,136 @@ function crossSiteWrite(req) {
   return null;
 }
 
+/**
+ * The peers that count as loopback. `req.socket.remoteAddress` for a local
+ * connection is one of these; a network connection carries the peer's real
+ * address. An IPv4 loopback tunnelled over IPv6 shows as `::ffff:127.0.0.1`, so
+ * it is here too.
+ *
+ * 🔑 THIS IS DELIBERATELY THE SOCKET PEER, NOT A HEADER. `crossSiteWrite` reads
+ * `Origin`/`Host`, which a client controls -- right for the drive-by-page threat
+ * it names. Reachability is a different question: WHO is actually on the other
+ * end of this connection, which only the socket can answer and a client cannot
+ * forge.
+ *
+ * ⚠️ Only the three canonical loopback spellings are listed; the rest of
+ * 127.0.0.0/8 and non-canonical IPv4-mapped forms (`::ffff:7f00:1`) are treated
+ * as remote. That is deliberate and fails CLOSED -- a local caller on a non-.1
+ * loopback address is held to the agent surface, never granted more -- and Node
+ * hands us the canonical dotted forms in practice, so no real local caller is
+ * affected.
+ */
+const LOOPBACK_PEERS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+function isLoopbackPeer(req) {
+  const a = req && req.socket && req.socket.remoteAddress;
+  // An undefined peer (a destroyed socket) is NOT loopback: fail closed, so a
+  // request we cannot place is held to the remote rules, not the local ones.
+  return !!a && LOOPBACK_PEERS.has(String(a));
+}
+
+/**
+ * The ONLY routes a remote (non-loopback) peer may reach, and only with a valid
+ * agent token. This is the whole network surface of the board: an agent reports
+ * its own state and sends messages as itself. Everything else -- the page, the
+ * connections shelf, avatars, settings, and above all `POST /api/agents`, which
+ * installs a launchd job running Claude with `--dangerously-skip-permissions` --
+ * is reachable only from loopback, ALWAYS.
+ *
+ * 🛑 ADDING A ROUTE HERE IS A SECURITY DECISION, NOT A REFACTOR (#1764). The
+ * socket-peer guard is the only thing standing in front of these routes, and a
+ * local reverse proxy defeats it (it terminates loopback; see the BOUNDARY note
+ * in `remoteWriteGuard` and #1762). So a WRITE route added here turns a
+ * documented read disclosure into a network write bypass. This set is pinned by
+ * `server.remote-bind-1112.test.js` -- an exact-set assertion catches ANY
+ * addition, and a behavioural reach test, keyed to every STATIC-PATH write route
+ * derived from this file's own dispatch, refuses a valid-token remote peer at each
+ * but report/reply. Only a fixed `METHOD /api/x` string can be an entry in this
+ * exact-match Set, so a parameterized route is structurally out of the threat and
+ * the exact-set pin is its backstop -- and a static-path WRITE route added here
+ * goes red in the reach test even if the exact-set list is reflexively updated.
+ */
+const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
+
+/**
+ * What makes opening the bind safe (#1112 phase 2).
+ *
+ * `crossSiteWrite` is a browser guard: a request with no `Origin` and a JSON
+ * content type passes it entirely, so it does NOT contain a direct network
+ * client. Today the only thing that does is the loopback bind at `start()`. When
+ * that bind is opened to the network (KOSMOS_BIND_HOST), this is what keeps the
+ * board's write surface -- including the agent-installing `POST /api/agents` --
+ * unreachable from the network.
+ *
+ * 🔑 A remote peer may reach ONLY `REMOTE_AGENT_ROUTES`, and only with a token
+ * the store recognises. A loopback peer is unaffected: this returns null and the
+ * request proceeds exactly as before, so nothing changes for the operator, the
+ * board UI, or any local process. Because it keys on the socket peer, opening
+ * the bind does NOT expose the board UI to the network either: a browser from
+ * another machine is a remote peer with no token, refused everywhere but
+ * report/reply, which it cannot reach without one.
+ *
+ * ⚠️ ONE REFUSAL SENTENCE, for the same reason `sendertoken` keeps one: a
+ * network probe must not learn from the answer whether a route exists or a token
+ * is valid. Wrong route, missing token, unknown token -- one reply.
+ *
+ * 📌 BOUNDARY, DOCUMENTED NOT SOLVED: a reverse proxy or tunnel terminates
+ * locally, so its socket peer is loopback while the real client is remote (the
+ * Funnel arm of the `start()` warning). Trusting `X-Forwarded-For` to recover
+ * the real client is its own footgun and is not done here. This guard protects a
+ * DIRECT network bind, which is the approved Windows-agent case.
+ *
+ * 📌 ACCEPTED, KNOWN TRADEOFF: on an open bind, an unauthenticated remote peer
+ * hitting `POST /api/report`/`/api/reply` with any token string forces
+ * `resolveName` (a readdirSync + per-file scan) before the handler runs. That
+ * filesystem work is inherent to validating a presented token -- you cannot
+ * authenticate without looking it up -- is bounded by the agent count, and is no
+ * worse in kind than the per-request work a loopback report already does.
+ * Rate-limiting or caching the token set is a separate, larger change; opening
+ * the bind is itself an explicit operator opt-in, so this is documented and
+ * accepted rather than mitigated here.
+ */
+function remoteWriteGuard(req, pathname) {
+  if (isLoopbackPeer(req)) return null;
+  const NOPE = 'this board only accepts agent reports from the network';
+  if (!REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`)) return NOPE;
+  const presented = req.headers && req.headers['x-kosmos-agent-token'];
+  // Validate existence constant-time via the store, WITHOUT the roster: the
+  // route's own resolveAgentSender then enforces liveness + tie. This is an
+  // early reject of network noise, not the identity decision.
+  if (!presented || !sendertoken.resolveName(presented).ok) return NOPE;
+  return null;
+}
+
+/**
+ * Where the server binds. Loopback by default; a network host ONLY when the
+ * operator explicitly opts in with KOSMOS_BIND_HOST (#1112 phase 2). An
+ * un-opted-in board binds byte-identically to before this change.
+ *
+ * 🔑 SAFE ONLY BECAUSE `remoteWriteGuard` EXISTS. Opening this bind exposes the
+ * board's port to the network; the guard is what keeps every write except the
+ * token-gated agent surface unreachable from it. The two are one change -- do
+ * not read KOSMOS_BIND_HOST anywhere the guard is not also in force.
+ *
+ * Read at listen time (boot). A Settings toggle would need a restart to take
+ * effect, so the env is the honest mechanism.
+ *
+ * ⚠️ OPENING THE BIND IS A TWO-PART OPT-IN, AND THIS IS THE SECOND PART. A
+ * remote agent connects with `Host: <mac-ip>` (or a hostname), and `pathOf`'s
+ * DNS-rebind check 400s any request whose Host is neither loopback nor in
+ * `AGENT_WORKFORCE_ALLOWED_HOSTS` -- BEFORE `remoteWriteGuard` ever runs. So the
+ * operator must ALSO declare the reachable host in `AGENT_WORKFORCE_ALLOWED_HOSTS`,
+ * or a token-holding remote agent is refused at the door. This is deliberate,
+ * not an oversight: the Host check is DNS-rebind protection, a different layer
+ * from reachability, and it matters MOST when the board is network-reachable, so
+ * it is not relaxed just because the bind opened. Two explicit opt-ins to expose
+ * the board is the safer posture. (Fails closed: with only KOSMOS_BIND_HOST set,
+ * a remote agent gets a 400, never an unguarded surface.)
+ */
+function bindHost() {
+  const v = String(process.env.KOSMOS_BIND_HOST || '').trim();
+  return v || '127.0.0.1';
+}
+
 /* 🔑 THE INSTALL GATE'S REQUEST LOG (#908). On 2026-08-25 and again on
    2026-08-26 the gate went red because something loaded a sandboxed board's
    page (POST /api/whats-new/seen wrote seen-version.json, #891), and nothing
@@ -1362,6 +1501,16 @@ const server = http.createServer((req, res) => {
   const refusal = crossSiteWrite(req);
   if (refusal) {
     sendJson(res, 403, { error: refusal });
+    return;
+  }
+
+  // ⚠️ ALSO before every route, and for the same "covered by default" reason:
+  // when the bind is opened to the network, this is what keeps a remote peer to
+  // any route but the token-gated agent surface a 403. A loopback peer is
+  // unaffected (returns null).
+  const remoteRefusal = remoteWriteGuard(req, pathname);
+  if (remoteRefusal) {
+    sendJson(res, 403, { error: remoteRefusal });
     return;
   }
 
@@ -1730,13 +1879,22 @@ const server = http.createServer((req, res) => {
                        diagnosis. The agent has a job, is not removed (filtered
                        above) and is not switched off (the branch above), so
                        the launch model is the true next move: nothing to
-                       press, it comes back on its own -- and when it does
-                       not, this computer holds no reason, and saying THAT is
-                       still more than a full stop. Sentence shared with
+                       press, it comes back on its own                       -- it comes back on its own.
+                       🛑 #1663 CHANGED THE SECOND HALF AND THIS COMMENT JUSTIFIED THE
+                       OLD ONE. It read "this computer holds no reason, and saying THAT
+                       is still more than a full stop": true against a full stop, FALSE
+                       against the Terminal tab, which held Claude Code's trust prompt at
+                       the same moment this page called the cause unobtainable. Josh read
+                       it, stopped looking, and wiped his Mac. #671's intent survives (say
+                       something rather than stop at the diagnosis); only its claim that
+                       nothing can be known is gone. The clause now POINTS without
+                       promising: "where to look" holds whether or not the pane has
+                       content, and naming what the tab SHOWS would over-promise for an
+                       agent that genuinely has no session. Sentence shared with
                        remove.js's restart refusal via create.SELF_STARTS. */
                     ? 'this agent is not running: nothing on this computer has a session for it. '
                       + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
-                      + '; if it stays off, this computer is not saying why'
+                      + '; if it stays off, its Terminal tab is where to look'
                     : 'this agent is not running: nothing on this computer has a session for it',
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
                 profile,
@@ -3031,6 +3189,36 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* #1722: the heartbeat setting (Settings > Automation). GET returns the value
+     the runner reads each cycle -- the setting file IS the in-force value, there
+     is no second copy -- plus the closed interval choices so the UI selector and
+     the server cannot disagree about what is valid. PUT takes an on/off change,
+     an interval change, or both; a rejected interval leaves the stored value
+     unchanged, so a failed write shows as an unchanged displayed value. */
+  if (pathname === '/api/heartbeat-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = heartbeatSetting.read();
+      sendJson(res, 200, { on: r.on, intervalMinutes: r.intervalMinutes, intervals: heartbeatSetting.INTERVAL_CHOICES, ok: r.ok });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/heartbeat-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        // ONE validated write: an invalid interval beside a valid `on` must not
+        // persist the `on` and then report failure (server.heartbeat-1722.test.js
+        // pins that a rejected interval leaves the stored value unchanged).
+        const saved = heartbeatSetting.set(body);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        const r = heartbeatSetting.read();
+        sendJson(res, 200, { on: r.on, intervalMinutes: r.intervalMinutes, intervals: heartbeatSetting.INTERVAL_CHOICES, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
   if (pathname === '/api/history' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, forget.summary()); }
     catch { sendJson(res, 500, { error: 'we could not look at your history' }); }
@@ -3362,8 +3550,44 @@ const server = http.createServer((req, res) => {
            agent". Only a THROW, or an unreadable roster, is ignorance. */
         const roster = safeRoster();
         let complete = roster !== null;
+        /* 🛑 THE ROSTER ALONE CANNOT SEE A STOPPED AGENT, AND THIS GUARD IS WHAT
+           MAKES THE RENAME SAFE (kosmos#1689). `safeRoster()` is
+           `status.snapshot()`, whose `panelessKeys` does
+           `if (liveness.alive(key) !== true) continue;` - so an agent that exists
+           but is not running is invisible here. Its plist still names this
+           account's directory by absolute path, so the rename proceeds and the
+           agent comes back pointed at a path that is not there.
+           ⚠️ THE CHECK BELOW WAS NEVER THE PROBLEM: `readJob` reads the PLIST,
+           which is true whether or not the agent runs. Only the ENUMERATION was
+           liveness-gated, so this unions in the names Kosmos has written a
+           profile for - its own record that an agent exists, independent of any
+           process being up.
+           📌 `known()` separates "nothing has ever been written" (ok, empty) from
+           "we could not look" (not ok), so an unreadable profiles directory makes
+           this INCOMPLETE rather than quietly shortening the list. Same
+           fail-closed posture the `complete` flag already keeps for an unreadable
+           launch file. */
+        const knownNames = register.known();
+        if (!knownNames || knownNames.ok !== true) complete = false;
+        /* 🛑 THE REMOVED-AGENT FILTER HAS TO BE APPLIED TO THESE TOO. `safeRoster`
+           drops agents the person has removed, for the reason its own comment
+           gives, and a profile file outlives that removal. Unioning the profile
+           names in RAW would resurrect a removed agent into this guard and refuse
+           the account because of one the person was already told was gone - the
+           same "two derivations of the fleet" habit that comment calls this
+           codebase's worst, arriving from the side that looks like a fix. */
+        let goneNames = null;
+        try { goneNames = new Set(removal.removedAgents().filter((r) => r && r.stopped !== false).map((r) => r.name)); }
+        catch { complete = false; goneNames = null; }
+        const names = new Set();
+        for (const a of (roster || [])) if (a && a.sessionName) names.add(a.sessionName);
+        if (goneNames) {
+          for (const n of (knownNames && Array.isArray(knownNames.names) ? knownNames.names : [])) {
+            if (!goneNames.has(n)) names.add(n);
+          }
+        }
         const usedBy = [];
-        for (const a of (roster || [])) {
+        for (const a of Array.from(names).map((sessionName) => ({ sessionName }))) {
           let job = null;
           try { job = create.readJob(a.sessionName); }
           catch { complete = false; continue; }
@@ -3391,7 +3615,7 @@ const server = http.createServer((req, res) => {
         }
         if (!complete) {
           sendJson(res, 400, {
-            error: 'we could not check which agents are running, so nothing was changed',
+            error: 'we could not check which agents are on this account, so nothing was changed',
             usedBy: [],
           });
           return;
@@ -3406,11 +3630,267 @@ const server = http.createServer((req, res) => {
            entitled to know which one they got. */
         sendJson(res, 200, {
           forgotten: out.forgotten === true,
+          /* 🛑 `movedTo` IS SURFACED HERE TOO, and #1659 is why. This engine has
+             always computed it and this route has always dropped it, which was
+             defensible while the two controls read different words. #1659 relabels
+             this one to "Disconnect" and puts the same word on the Claude row, and
+             at that point the SAME ACT under the SAME WORD answered with a
+             recoverable location on one provider and not the other.
+             ⚠️ I first deferred this to a separate card. A reviewer pointed out the
+             deferral was weaker than the precedent I had already set in the same
+             diff: this branch edits openaiaccounts.js's refusal for exactly this
+             consistency reason, and this is one concatenation. Deferring it would
+             have been drawing the line where the work got inconvenient rather than
+             where the argument stopped. */
           because: out.forgotten
             ? 'That account is off the list. Its sign-in file is still on this computer, '
               + 'so nothing was deleted.'
+              /* 🛑 THE HISTORY CLAUSE, AND ONLY FOR THE DEFAULT, because that is the
+                 only OpenAI account it is true of. `codexsession` reads sessions out
+                 of the DEFAULT home alone, so removing `~/.codex` costs the
+                 transcripts (measured: rollouts 1 before the rename, 0 after) while
+                 removing a labelled `.codex-<label>` costs none.
+                 ⇒ The Claude route says this unconditionally and is right to: its
+                 transcripts live under every account directory. Saying it here
+                 unconditionally would be the same false-for-most disclosure this
+                 branch removed from the uninstall transcript. */
+              + (out.wasDefault ? ' Kosmos stops looking inside it, so any history kept '
+                + 'only there will not appear any more.' : '')
+              + (out.movedTo ? ' It is in a hidden folder called ' + path.basename(out.movedTo)
+                + ' in your home folder.' : '')
             : 'That account was already gone from this computer.',
           accounts: openaiAccounts.list(),
+        });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /**
+   * Forget a Claude account (#1659).
+   *
+   * The Claude half of #1372. Josh, 2026-08-31: the button said "Disconnect is
+   * not built." It said so honestly -- the old title read "no way to tell agents
+   * on it to stop first" -- but that stopped being true when the OpenAI route
+   * shipped the enumeration. This is the same route for the other provider.
+   *
+   * ⭐ THE COUPLING LIVES HERE FOR THE SAME REASON IT DOES ABOVE. `accounts`
+   * cannot ask which agents are on a directory without requiring `create.js`,
+   * which requires it back. The route knows both.
+   *
+   * 🛑 THE ENUMERATION FAILS CLOSED, and that is inherited rather than
+   * rediscovered: Renet Tilley's review of #1447 caught the OpenAI version
+   * treating a null roster as "nobody is on it", which made an unreadable fleet
+   * into permission to rename a directory out from under a running agent. His
+   * sentence for it was AMBIGUITY WAS SILENTLY NONE. A Claude route written
+   * from the card alone would have had that bug, so it is copied deliberately.
+   *
+   * 📌 THE `isDefault` FALLBACK IS CARRIED FOR SYMMETRY WITH THE OPENAI ROUTE
+   * AND IS INERT HERE. A Claude job on the default account carries
+   * `configDir: null` (`create.js:734` writes `acct.isDefault ? null :
+   * acct.dir`), so absence falls back to the isDefault comparison rather than
+   * reading as "no account" -- but that branch can only ADD names to `usedBy`
+   * when `dir` IS the default, and `accounts.forgetAccount` refuses the default
+   * before it ever reads `usedBy`. So no test can exercise it and it cannot
+   * change this route's outcome. It is kept so the two routes stay diffable;
+   * it is not load-bearing, and this comment says so rather than implying it is.
+   * 📌 `readJob` normalises a MISSING runner to 'claude', because every plist
+   * written before runners existed carries no ninth argument -- so the filter
+   * below cannot silently skip an old Claude agent. That one IS load-bearing.
+   */
+  if (pathname === '/api/accounts/claude' && req.method === 'DELETE') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const dir = body && typeof body.dir === 'string' ? body.dir : '';
+        if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+
+        /* `=== true` because isDefaultDir answers NULL for an unresolvable path,
+           which would make this boolean|null. Both are falsy at the one use
+           site so no outcome changes, but the OpenAI sibling derives a strict
+           boolean and the docblock asks for diffability. */
+        let isDefault = false;
+        try { isDefault = accounts.isDefaultDir(dir) === true; } catch { isDefault = false; }
+
+        /* ⚠️ THE REFUSAL ONLY SEES AGENTS THAT ARE RUNNING, AND THAT BOUNDARY
+           IS STATED HERE RATHER THAN LEFT TO BE DISCOVERED. `safeRoster()`
+           reads `status.snapshot()`, whose agents are `listPanes()` plus
+           `panelessKeys()`, and `panelessKeys` requires `liveness.alive(key)`.
+           So an agent that EXISTS but is stopped keeps a launch file naming
+           this config dir and WAS invisible to this loop: removal proceeded, and
+           its next start points CLAUDE_CONFIG_DIR at a directory that has been
+           renamed away.
+           🛑 IT LANDS HARDER ON CLAUDE THAN ON OPENAI, because transcripts live
+           under the config directory, so that agent comes up signed out AND
+           with a blank history -- the shape this module's own header names:
+           "It looks like a working agent and behaves like a blank one."
+           ✅ CLOSED BELOW, and this paragraph said otherwise until it was. The
+           union with `register.known()` fifteen lines down is the #1697 port of
+           #1693, so a stopped-but-registered agent DOES block now. The old text
+           ("Carded as kosmos#1689 rather than fixed here") told the next reader a
+           safety hole was open and pointed at a card that had been done, which is
+           worse than saying nothing: it invites someone to re-open a closed gap.
+           ⚠️ THE RESIDUAL IS NARROWER AND DIFFERENT, so do not read the closure as
+           total: an agent with a LAUNCH FILE BUT NO PROFILE is in neither source.
+           `known()` reads profiles, `safeRoster()` reads the board, and a job
+           written outside Kosmos satisfies neither.
+           🛑 AND A SECOND, DIFFERENT BLIND SPOT, WHICH THIS COMMENT USED TO HIDE
+           BY NAMING ONLY THE FIRST: a Claude session running on this computer
+           that KOSMOS DID NOT CREATE. It IS in the roster, because the roster
+           comes from the panes, and it IS drawn on the board. But `readJob`
+           returns null for it and `jobMissing` correctly answers "no launch
+           file", so the loop `continue`s WITHOUT setting `complete = false`, and
+           the removal proceeds under a live process.
+           ⚠️ It is not #1689 wearing a different hat, and the difference decides
+           the fix: #1689 is an agent we know about and cannot see running, this
+           is a process we can see and know nothing about. We cannot even say
+           which account it is on, because its config dir exists only in its own
+           environment and never in a launch file.
+           📌 Refusing on ANY launch-file-less roster entry would fail closed and
+           make Disconnect unusable on any machine carrying a hand-started Claude,
+           which is most of ours. Named here rather than quietly fixed the wrong
+           way, because a guard that refuses honest users gets deleted.
+           ⚠️ AND THE "different card" FRAMING UNDERSTATED HOW CHEAP IT IS, so
+           do not read it as hard: the primitives already exist in this repo -
+           `create.disabledJobs()` and `create.runningJobs()` alongside
+           `plistPath`/`readJob` (all five verified present). Enumerating from
+           launch files is a compose, not a build.
+           🛑 ONE TRAP IF YOU DO IT, found by PigeonPete on #1693: `safeRoster()`
+           FILTERS OUT REMOVED AGENTS. Unioning `register.known()` raw to catch
+           the stopped ones RESURRECTS a removed agent into this guard, so a
+           removal is refused on behalf of an agent that no longer exists.
+           Filter, do not union.
+           ⚠️ And whatever replaces the roster walk must keep `jobMissing`
+           separating "no launch file" from "could not READ one". A version that
+           reads launch files but treats an unreadable one as absence is #1447
+           arriving from the other side: it looks like a better check and is a
+           worse one. */
+        const roster = safeRoster();
+        let complete = roster !== null;
+        /* 🛑 REGISTERED AGENTS, NOT ONLY RUNNING ONES (kosmos#1693, ported here per
+           kosmos#1697). `safeRoster()` answers who is RUNNING. An agent that exists
+           and is stopped keeps a launch file naming this directory, so removing the
+           account under it means its next start points CLAUDE_CONFIG_DIR at a path
+           that no longer exists, and it comes up signed out AND with no transcripts:
+           the shape this module's own header calls "a working agent that behaves
+           like a blank one".
+           📌 `known()` separates "nothing has ever been written" (ok, empty) from
+           "we could not look" (not ok), so an unreadable profiles directory makes
+           this INCOMPLETE rather than quietly shortening the list.
+           ⚠️ AND THE REMOVED-AGENT FILTER APPLIES TO THESE TOO. A profile file
+           outlives a removal, so unioning the profile names RAW would resurrect an
+           agent the person was already told was gone and refuse the account because
+           of it. This is the OpenAI route's exact shape rather than a second
+           derivation of it: two derivations of the fleet is what that route's own
+           comment calls this codebase's worst habit.
+           ✅ GUARDED, and the paragraph that used to sit here was WRONG about why
+           it could not be. It said the state was UNREACHABLE in this harness
+           because `safeRoster()` returns anything with a launch file. IT READS
+           PANES. Every fixture happened to write one, because the `agentOn` helper
+           appends a pane line, so roster-only and the union agreed on every case
+           the suite could build and I recorded a correct conclusion (uncovered)
+           from a false mechanism, then stopped looking.
+           ⭐ A reviewer measured both arms instead of believing the comment: seed a
+           plist and a profile with NO pane and they separate cleanly. The guard was
+           four fixture lines away the whole time.
+           📌 `server.forget-claude-1659.test.js` now carries
+           `registeredNotRunning()` and an arm that reds by name when this union is
+           removed, verified by perturbation with the mutation confirmed applied. */
+        const knownNames = register.known();
+        if (!knownNames || knownNames.ok !== true) complete = false;
+        let goneNames = null;
+        try { goneNames = new Set(removal.removedAgents().filter((r) => r && r.stopped !== false).map((r) => r.name)); }
+        catch { complete = false; goneNames = null; }
+        const names = new Set();
+        for (const a of (roster || [])) if (a && a.sessionName) names.add(a.sessionName);
+        if (goneNames) {
+          for (const nm of (knownNames && Array.isArray(knownNames.names) ? knownNames.names : [])) {
+            if (!goneNames.has(nm)) names.add(nm);
+          }
+        }
+        const usedBy = [];
+        for (const a of Array.from(names).map((sessionName) => ({ sessionName }))) {
+          let job = null;
+          try { job = create.readJob(a.sessionName); }
+          catch { complete = false; continue; }
+          if (!job) {
+            let absent = true;
+            try { absent = create.jobMissing(a.sessionName); } catch { absent = false; }
+            if (!absent) complete = false;
+            continue;
+          }
+          if (job.runner !== 'claude') continue;
+          const home = job.configDir || null;
+          let onIt = false;
+          try { onIt = home ? path.resolve(home) === path.resolve(dir) : isDefault; }
+          catch { complete = false; continue; }
+          if (onIt) usedBy.push(a.sessionName);
+        }
+        if (!complete) {
+          sendJson(res, 400, {
+            error: 'we could not check which agents are on this account, so nothing was changed',
+            usedBy: [],
+          });
+          return;
+        }
+
+        const out = accounts.forgetAccount(dir, usedBy);
+        if (!out.ok) {
+          sendJson(res, 400, { error: out.because, usedBy: out.usedBy || [] });
+          return;
+        }
+        /* "Removed" and "deleted" are different promises and the person is
+           entitled to know which one they got.
+           🛑 AND ON THE CLAUDE SIDE "nothing was deleted" IS TRUE OF THE
+           CREDENTIAL AND NOT OF THE HISTORY, which the OpenAI wording carries for
+           its DEFAULT account only.
+           🛑 THAT CLAUSE USED TO READ "which the OpenAI wording does not have to
+           carry", and it is wrong in the one case that route uniquely allows:
+           removing `~/.codex` itself. MEASURED with a real rollout tree
+           (`sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl`, the shape
+           `codexsession.rollouts()` actually reads): 1 before the rename, 0 after.
+           So that removal has the same stops-looking-inside consequence and its
+           sentence omits it.
+           ⚠️ My first probe used a FLAT file, read 0 both times, and nearly let me
+           dismiss a correct finding as unreproducible. The fixture was wrong, not
+           the claim.
+           📌 The original wording is right for a labelled `.codex-<label>`, because
+           codexsession only ever reads the default home. `status.js:198` finds transcript roots by accepting
+           only `.claude` and `.claude-*`; the rename produces
+           `.removed-claude-*`, which that rule skips. Measured both arms:
+           `.claude-solo` SCANNED, `.removed-claude-solo` SKIPPED. So an account
+           that kept its OWN `projects` tree stops being findable by the product
+           the moment it is forgotten, while the files sit on disk.
+           📌 Worded generally on purpose: an account whose `projects` is
+           symlinked into the shared tree loses nothing. It says what Kosmos
+           STOPS DOING rather than asserting a loss that is only sometimes real,
+           which is the conditional-stated-as-fact error this card already made
+           once in the refusal copy. */
+        sendJson(res, 200, {
+          forgotten: out.forgotten === true,
+          because: out.forgotten
+            ? 'That account is off the list. Its sign-in file is still on this computer, '
+              + 'so nothing was deleted. Kosmos stops looking inside it, so any history '
+              + 'kept only there will not appear any more.'
+              /* 🔑 NAME WHERE IT WENT. "Still on this computer" is true and
+                 unactionable on its own: the engine computes `movedTo` and the
+                 route was dropping it, so the one fact that makes a removal
+                 recoverable was the one fact withheld from the person who might
+                 need it. Guarded, because `movedTo` is absent on the
+                 already-gone branch. */
+              /* 📌 "IT IS IN .removed-claude-walk" IS NOT AN ANSWER TO "WHERE
+                 DID IT GO" for the person this product is written for. A bare
+                 hidden-directory name is a fact, not a location. Naming the home
+                 folder costs four words and makes the sentence actionable, which
+                 was the whole point of surfacing `movedTo` at all. */
+              + (out.movedTo ? ' It is in a hidden folder called ' + path.basename(out.movedTo)
+                  + ' in your home folder.' : '')
+            : 'That account was already gone from this computer.',
+          /* Carried for diffability with the OpenAI route. The page repaints
+             through GET /api/accounts, which uses listLive(), so no caller
+             reads this: it is a second, non-live derivation of the same list. */
+          accounts: accounts.list(),
         });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
@@ -3720,6 +4200,52 @@ const server = http.createServer((req, res) => {
    * screen with no answers at all is worse than three that say "we could not
    * tell". The catch turns that into exactly that.
    */
+  /* #1668: the operator's account-level settings. Today just the timezone, which
+     the delivery path reads (5086) to tell each agent the operator's local time.
+     Never 500s for a state question, same contract as /api/machine below: a store
+     that cannot be read answers with an unset timezone, not an error. */
+  if (pathname === '/api/settings' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let s;
+    try { s = store.readSettings(); } catch { s = {}; }
+    /* timezone is null until the operator sets one; the UI then defaults its
+       dropdown to the browser's own machine timezone (detected client-side,
+       the authoritative source for the operator's machine). */
+    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s) });
+    return;
+  }
+  if (pathname === '/api/settings' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
+        /* Per-field patch: validate each KNOWN setting present, so the timezone
+           route (#1668) and the auto-handoff route (#1724) share one endpoint and
+           neither clobbers the other's stored value (writeSettings merges). */
+        const patch = {};
+        if ('timezone' in body) {
+          if (!messages.validTimeZone(body.timezone)) {
+            sendJson(res, 400, { ok: false, because: 'that is not a timezone we recognise' });
+            return;
+          }
+          patch.timezone = body.timezone;
+        }
+        if ('autohandoff' in body) {
+          if (!autohandoff.validSetting(body.autohandoff)) {
+            sendJson(res, 400, { ok: false, because: 'that is not a valid auto-handoff setting' });
+            return;
+          }
+          patch.autohandoff = { enabled: body.autohandoff.enabled, threshold: body.autohandoff.threshold };
+        }
+        if (Object.keys(patch).length === 0) {
+          sendJson(res, 400, { ok: false, because: 'no known setting to save' });
+          return;
+        }
+        const saved = store.writeSettings(patch);
+        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved) });
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
   if (pathname === '/api/machine' && (req.method === 'GET' || req.method === 'HEAD')) {
     let checks;
     try { checks = machine.check(); }
@@ -4913,6 +5439,72 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* Issue a sender token for a remote agent (#1112 phase 2). LOOPBACK-ONLY: it
+     is not in REMOTE_AGENT_ROUTES, so `remoteWriteGuard` refuses a network peer,
+     and `crossSiteWrite` refuses another origin's page -- so this is reachable
+     only from the Mac itself, which is where an operator adds a Windows agent.
+     Minting a token for a name is not itself dangerous: the name does nothing
+     until it is live and reporting, where `resolveAgentSender` still enforces
+     the liveness + roster tie. The operator hands the returned token to the
+     remote agent as KOSMOS_AGENT_TOKEN. */
+  if (pathname === '/api/agent-token' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read');
+          bad.status = 400; throw bad;
+        }
+        const name = body && typeof body.name === 'string' ? body.name.trim() : '';
+        if (!name) { const bad = new Error('name a remote agent to issue a token for'); bad.status = 400; throw bad; }
+        // A name that survives trim but reduces to nothing under safeKey (all
+        // punctuation, e.g. "!!!") is a CLIENT error, not a server fault, so
+        // validate keyability up front and return 400 -- consistent with the
+        // empty-name 400 above. safeKey throws on an unkeyable name.
+        try { store.safeKey(name); } catch { const bad = new Error('that is not a name we can key a token on'); bad.status = 400; throw bad; }
+        const minted = sendertoken.mint(name);
+        // Past the keyability check, an ok:false from mint can only be a genuine
+        // server-side failure (the token file could not be written), so it is a 500.
+        if (!minted.ok) { sendJson(res, 500, { issued: false, because: minted.because }); return; }
+        sendJson(res, 200, { issued: true, name, token: minted.token, instance: minted.instance });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
+    return;
+  }
+
+  /* The parse half of the fourth create-an-agent option (#1652). Body {file: <text>}
+     -> agentfile.importAgent -> the validated material the create form pre-fills,
+     or a whole refusal. It does NOT create the agent: the fourth option hands the
+     returned name/instructions/provider to POST /api/agents like the other three
+     options, so import reuses the ONE canonical creation path (id mint, projects,
+     first-agent home, launchd, tmux) rather than becoming a second, thinner one.
+     Loopback-only: creating an agent is, and a parse that feeds it is too -- this
+     route is deliberately NOT in REMOTE_AGENT_ROUTES, so remoteWriteGuard refuses a
+     remote peer (the #1764 reach test asserts it). `body` is returned as
+     `instructions`, the field name the create form and POST /api/agents use. */
+  if (pathname === '/api/agent-import' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read');
+          bad.status = 400; throw bad;
+        }
+        const file = body && typeof body.file === 'string' ? body.file : '';
+        const parsed = agentfile.importAgent(file, { identityFromText, nameUsable: create.nameUsable });
+        if (!parsed.ok) { sendJson(res, 200, { ok: false, because: parsed.because }); return; }
+        sendJson(res, 200, {
+          ok: true,
+          name: parsed.name,
+          displayName: parsed.displayName,
+          provider: parsed.provider,
+          instructions: parsed.body,
+        });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
+    return;
+  }
+
   if (pathname === '/api/msg' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
@@ -5429,7 +6021,12 @@ const server = http.createServer((req, res) => {
            told the file's path in the bracketed line so the agent can open it. */
         const files = attachments.resolveForMessage(body, 'agent', name, 'that attachment is not one this conversation can send');
         if (!files.ok) throw new Error(files.because);
-        const delivery = chat.deliver(name, body.text, roster, messages.OPERATOR_DIRECT, attachments.wireNote(files.recs));
+        /* #1668: carry the operator's local time in the prefix when a timezone
+           has been set in Settings, so the agent is told the time on every direct
+           operator message rather than having to be instructed to know it. No
+           timezone set (or an unreadable id) yields the bare prefix, unchanged. */
+        const opPrefix = messages.operatorDirect(messages.operatorNowLabel(store.readSettings().timezone));
+        const delivery = chat.deliver(name, body.text, roster, opPrefix, attachments.wireNote(files.recs));
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...attachments.rowFields(files.recs),
           text: chose || body.text,
@@ -5878,38 +6475,60 @@ const server = http.createServer((req, res) => {
             const card = t && Array.isArray(roster) ? roster.find((c) => c && c.sessionName === t.agent) : null;
             return card && card.name ? { ...t, shownAs: card.name } : t;
           });
-          // The reports-to block names the person in its default form (#336),
-          // so a new name here has to reach it too. Same roster, same posture.
-          try { reports.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
-          /* #1034: the connections block rides the same sweep.
-             🛑 ITS WORDS DO CHANGE, and this branch is the proof: it rewrote
-             `connections.blockBody()` to add the `kosmos connections` paragraph.
-             🛑 THE COPY DOES CHANGE, so this is NOT a no-op for existing agents:
-             an edit to the block reaches them through this path and only this one.
-             ⚠️ WHERE THIS ACTUALLY FIRES, because it decides who learns the verb
-             exists: the connections block is written here by
-             `connections.syncEveryone` (POST /api/you, i.e. a person saving the
-             About-you form). `create.js` and `discover.js` also write it when an
-             agent is made or imported, but they call `blockBody()` +
-             `projects.spliceBlock` DIRECTLY rather than going through
-             `syncEveryone`: it runs at one of the three sites, not all of them.
-             ⇒ 🛑 AND THAT DELIVERY CONCLUSION WENT FALSE WHILE THIS BRANCH WAS
-             OPEN. It said an agent ALREADY RUNNING gets the paragraph "only when
-             somebody next saves that form". #1650 shipped on main and now calls
-             `connections.syncEveryone(safeRoster())` AT BOARD START, so every
-             agent file is refreshed on every boot. The merge that brought it in
-             was textually clean, because that call is nowhere near this line: a
-             comment can be falsified by a commit that never touches it.
-             ⚠️ AND THE FIX WAS TO THE CARD I FILED (#1649), so this sentence was
-             made false BY MY OWN REQUEST. Measured after merging: the boot call is
-             present at server.js:7731 and the unchanged path costs 3.3ms for 18
-             agents.
-             📌 What survives: a NEW or IMPORTED agent still gets it immediately by
-             a different route (`create.js`, `discover.js`), and a RUNNING session
-             still does not re-read its file, so the block reaches an agent at its
-             next session start rather than mid-session. That last part is a
-             property of the runtime, not of the delivery path. */
-          try { connections.syncEveryone(roster); } catch { /* carried by the marker, not here */ }
+          /* 🛑 kosmos#1684. THESE TWO USED TO DISCARD THEIR VERDICTS AND SWALLOW
+             THEIR THROWS ("carried by the marker, not here"). The marker is
+             real -- #323's stale-block marker -- but it marks a block as stale
+             IN THE AGENT'S FILE, FOUND LATER. It cannot tell the person who
+             just pressed Save that the write did not land, which is the only
+             question this route is answering.
+             ⇒ `told` is built from `you.syncEveryone` ALONE, so all three
+             blocks could fail for every agent and this route would still
+             answer a complete success. Not a missing detail: the wrong answer
+             to the one question asked.
+             📌 One row per agent is the UI contract, so the sibling verdicts
+             DOWNGRADE a row rather than being concatenated onto it -- three
+             lists would show each agent three times. A row can only ever move
+             TOLD -> not-TOLD here; nothing upgrades.
+             📌 Shapes are identical across the three modules (same guard, same
+             `isNamedOurs` filter, same `{ agent, ...tellAgent() }`), so this
+             merges on `agent` without a mapping step. Measured, not assumed.
+             📌 A `null` agent is the whole-roster verdict those modules return
+             when the roster is unreadable, so it downgrades EVERY row. */
+          const sideWork = [
+            // The reports-to block names the person in its default form (#336),
+            // so a new name here has to reach it too. Same roster, same posture.
+            ['who they report to', () => reports.syncEveryone(roster)],
+            /* #1034: the connections block rides the same sweep.
+               🛑 ITS WORDS DO CHANGE, and this branch is the proof: it rewrote
+               `connections.blockBody()` to add the `kosmos connections` paragraph,
+               so this is NOT a no-op for an agent that already has the block.
+               Delivery today: #1650 also calls `connections.syncEveryone` at
+               board start, and create.js / discover.js write the block directly
+               for a new or imported agent. A RUNNING session still does not
+               re-read its file, so the words reach it at its next start. */
+            ['how to connect a provider', () => connections.syncEveryone(roster)],
+          ];
+          for (const [what, run] of sideWork) {
+            let verdicts;
+            try { verdicts = run(); }
+            catch (e) {
+              verdicts = [{ agent: null, state: projects.TOLD.COULD_NOT,
+                            because: String((e && e.message) || 'we could not write it') }];
+            }
+            for (const v of (Array.isArray(verdicts) ? verdicts : [])) {
+              if (!v || v.state === projects.TOLD.TOLD) continue;
+              /* Name WHICH block failed. "we could not tell them" over a
+                 successful name change sends the person to look at the wrong
+                 thing; they need to know the reports-to block is what is
+                 stale. */
+              const because = `${what}: ${v.because || 'we could not write it'}`;
+              told = told.map((t) => (
+                (t && (v.agent === null || t.agent === v.agent) && t.state === projects.TOLD.TOLD)
+                  ? { ...t, state: v.state, because }
+                  : t
+              ));
+            }
+          }
         }
         catch (err2) { told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not tell the agents') }]; }
         sendJson(res, 200, { you: saved, told });
@@ -7573,8 +8192,16 @@ const server = http.createServer((req, res) => {
  *
  * THREE ways that protection is lost, and only the first is obvious:
  *
- *   1. Changing this to '0.0.0.0'. A one-line edit that looks harmless and
- *      exposes every write endpoint to whatever network the machine is on.
+ *   1. Opening the bind past loopback. `bindHost()` returns '127.0.0.1' unless
+ *      KOSMOS_BIND_HOST is set, and it is set on purpose to serve a remote
+ *      agent (#1112 phase 2). What makes that safe is `remoteWriteGuard`: a
+ *      remote peer reaches ONLY the token-gated agent surface (/api/report,
+ *      /api/reply), so every write below -- including POST /api/agents -- stays
+ *      loopback-only whether the bind is open or not. Opening the bind is no
+ *      longer the one-line footgun it was; the guard is why the two ship as one
+ *      change. ⚠️ Arms 2 and 3 below are NOT addressed by that guard: it keys
+ *      on the socket peer, and a proxy or tunnel makes the real client's peer
+ *      loopback (arm 2), while a browser vector is `crossSiteWrite`'s job (arm 3).
  *
  *   2. A reverse proxy or tunnel pointed at this port. **Binding to localhost
  *      is not sufficient on a machine running one.** Tailscale Funnel, for
@@ -7649,11 +8276,100 @@ function start(port = PORT) {
         try { messages.sweepUnanswered(safeRoster()); } catch { /* the line still shows */ }
       }, 60 * 1000);
       if (sweep && typeof sweep.unref === 'function') sweep.unref();
+      /* #1724: the auto-handoff sweep (the consume half). Sibling to the #185
+         nudge sweep above: its own ~1-min timer, unref'd, best-effort. When the
+         setting is on, it asks autohandoff.shouldPrompt per agent over the
+         board's live context fill and injects a handoff prompt when an agent
+         crosses a fill band. It advances the per-agent band ONLY on a confirmed
+         (PLACED) delivery, so an inject that never submitted is retried, never
+         silenced (engine/autohandoff-sweep.js). safeRoster(), never paneRoster():
+         chat.deliver needs full snapshot cards to address a pane. */
+      const autohandoffBands = new Map();
+      const ahSweep = setInterval(() => {
+        try {
+          const setting = autohandoff.settingFrom(store.readSettings());
+          if (!setting.enabled) return;
+          const roster = safeRoster();
+          autohandoffSweep.sweepOnce({
+            setting,
+            roster,
+            lastBand: autohandoffBands,
+            deliver: (session, textToSend) => {
+              try { return chat.deliver(session, textToSend, roster, undefined, undefined); }
+              catch { return { state: chat.DELIVERY.COULD_NOT }; }
+            },
+            pathFor: (session) => autohandoffSweep.handoffPathFor(store, session),
+            autohandoff,
+            DELIVERY: chat.DELIVERY,
+          });
+        } catch { /* best-effort, like the nudge sweep */ }
+      }, Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) : 60 * 1000); // the env is the test seam only
+      if (ahSweep && typeof ahSweep.unref === 'function') ahSweep.unref();
+      /* #1722: the product heartbeat. Its OWN self-rescheduling timer, because
+         the person's interval is adjustable: the period is re-read every cycle so
+         a Settings change takes effect at the next tick, and when off it polls the
+         setting on a base cadence so turning it on is picked up promptly. Off by
+         default. safeRoster(), NEVER paneRoster(): the sweep reads the board's
+         full snapshot cards (state + stateConfidence), the same reason the nudge
+         sweep above does. step() resets the baseline when off so re-enabling never
+         fabricates a stale working->stall edge. Best-effort and unref'd like the
+         nudge sweep; a missed tick is a missed nudge and the status/room surfaces
+         still show the truth. */
+      let heartbeatPrev = new Map();
+      const HEARTBEAT_OFF_POLL_MS = Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) > 0
+        ? Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) : 60 * 1000; // the env is the test seam only
+      const heartbeatTick = () => {
+        // Read the setting ONCE per tick and reuse it for both the sweep and the
+        // reschedule delay below -- no second disk read. A failed read is off, so
+        // the tick does nothing and the timer polls on the base cadence.
+        let setting = { on: false };
+        try { setting = heartbeatSetting.read(); } catch { /* off + base poll on a bad read */ }
+        try {
+          const roster = setting.on ? safeRoster() : null;
+          const outcome = heartbeat.step(heartbeatPrev, roster, setting.on);
+          heartbeatPrev = outcome.next;
+          if (setting.on && outcome.toAsk.length) {
+            const shown = new Map((roster || []).map((a) => [a.sessionName, a.name]));
+            for (const ask of outcome.toAsk) {
+              /* A QUESTION, not a verdict, and delivery is UNCONFIRMED:
+                 notify.happened is fire-and-forget with no receipt, so we do NOT
+                 mark the agent asked -- the next tick re-asks until a real receipt
+                 exists (engine/heartbeat.js). The app renders the question; the
+                 payload carries who + when, never the words.
+                 ⚠️ THE ID IS STABLE ACROSS RE-ASKS OF ONE STALL ON PURPOSE (session
+                 + arrived-state), so a coordinator MAY collapse a rapid double-fire
+                 into one alert -- but it MUST NOT treat the interval-cadence re-asks
+                 as duplicates to drop, because re-asking until delivery is confirmed
+                 is the whole design (an unconfirmed ask must not be silenced). When
+                 a receipt channel exists, the runner stops re-asking on its own. */
+              try {
+                notify.happened({
+                  kind: 'check_in',
+                  id: 'check_in:' + ask.session + ':' + ask.to,
+                  agent: shown.get(ask.session) || ask.session,
+                  session: ask.session,
+                  project: null,
+                });
+              } catch { /* notify never throws; belt and braces */ }
+            }
+          }
+        } catch { /* best-effort, like the nudge sweep */ }
+        const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
+        const t = setTimeout(heartbeatTick, delay);
+        if (t && typeof t.unref === 'function') t.unref();
+      };
+      // Defer the FIRST run off the synchronous listen path (parity with the
+      // sibling sweeps, whose setInterval defers their first fire): when the
+      // setting is on at boot, running the tick inline would block the listen
+      // callback on a snapshot() capture fan-out. unref'd so it never holds the
+      // process open.
+      const heartbeatFirst = setTimeout(heartbeatTick, 0);
+      if (heartbeatFirst && typeof heartbeatFirst.unref === 'function') heartbeatFirst.unref();
       resolve(server);
     };
     server.once('error', onError);
     server.once('listening', onListening);
-    server.listen(port, '127.0.0.1');
+    server.listen(port, bindHost());
   });
 }
 
@@ -7699,7 +8415,20 @@ if (require.main === module) {
      started:false rather than a silent success. It is here, not at module load,
      for the same reason as the port bind below: the routing tests require this
      module, and a load-time opt-in would arm live execution in every one of them. */
-  require('./engine/live-execution').allowLiveExecution();
+  /* kosmos macOS-only gate (Option A, cross-platform analysis 2026-09-01): only
+     arm live execution on a supported platform. On any other OS the Mac-only
+     substrate (launchctl agent lifecycle, the darwin binary downloads, the
+     /bin/sh installer) cannot work, so we leave live execution UNARMED and the
+     guarded operations (create/remove/delete-leftover/update) fail closed and
+     refuse honestly through the existing live-execution gate, rather than
+     attempting a Mac-only action on the wrong OS. The user-facing copy + screen
+     for an unsupported platform is the operator's to add (see engine/platform.js
+     and the PR); this is the mechanism only, and it invents no product copy. */
+  if (platformGate.isSupported()) {
+    require('./engine/live-execution').allowLiveExecution();
+  } else {
+    process.stderr.write('Kosmos: platform ' + process.platform + ' is not supported (macOS only); live execution not armed, agent operations will refuse.\n');
+  }
   /* 🛑 PINNED TO $HOME, NOT AT IMPORT, ONLY WHEN THIS IS THE REAL BOARD
      PROCESS (#923). Nothing anywhere in this file or engine/ ever calls
      process.chdir(), so this process's own cwd is whatever directory
@@ -7779,6 +8508,35 @@ if (require.main === module) {
    * instructions of an agent it has told the person is gone. `syncEveryone`
    * separately skips anything that is not `isNamedOurs`.
    */
+  /* The reports-to block is refreshed at boot for the same reason, and it had the
+   * same defect one module over (kosmos#1676). `reports.syncEveryone` has exactly
+   * ONE caller, `PUT /api/you` at the route above, so an edit to its `blockBody()`
+   * reached an agent that already existed only when the person happened to save
+   * their own About-you details. Measured on origin/main before wiring this:
+   * `reports.syncEveryone` 1 caller, against 3 for the identically-named
+   * `policyEngine.syncEveryone` - which is what makes this easy to misread as
+   * already covered, and I did misread it once.
+   *
+   * ⚠️ It writes the FILE, not the agent. `engine/instructions.js` reads an
+   * instruction file once at session start, so this does not change a running
+   * agent; what it buys is that the file is already right at the agent's next
+   * start. Same claim as the connections refresh below, and the same limit.
+   *
+   * The wording this delivers is kosmos#1673/#1676's: an agent with a `reportsTo`
+   * was greeting its manager in a reply meant for the person, because the block
+   * named exactly one human. The fix landed in `5be19009` and reached nobody who
+   * already existed.
+   */
+  try {
+    const told = reports.syncEveryone(safeRoster());
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) {
+      const why = (stuck[0] && stuck[0].because) || 'no reason given';
+      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about who they report to; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not refresh what agents know about who they report to: ${String(err && err.message)}\n`);
+  }
   try {
     const told = connections.syncEveryone(safeRoster());
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
@@ -7829,4 +8587,12 @@ module.exports = {
      only assertions on it went through the route, where the fixtures could not
      produce a null account and a known model at the same time (#1304). */
   sentenceForWhoami,
+  /* #1112 phase 2: the network-bind auth is exported so each arm can be driven
+     directly with a synthetic req. A real remote (non-loopback) socket peer is
+     not reachable from a same-machine test -- every local connection is
+     loopback -- so the security decision, which IS this function, is pinned as a
+     pure function with controls rather than through a bind nothing local can
+     reach. `bindHost` proves the default is unchanged; `REMOTE_AGENT_ROUTES` is
+     the allowlist under test. */
+  remoteWriteGuard, isLoopbackPeer, bindHost, REMOTE_AGENT_ROUTES,
 };

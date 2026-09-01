@@ -192,6 +192,15 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
   kosmos_refuse_if_cut_live "a second cut" || exit 1
 fi
+# The mirror (#1713): a cut started while an install HARNESS was ALREADY running
+# was unprotected -- the harness's own start-check cannot help once it has run,
+# and the two share the install gate's fixed port, so the collision fails a
+# release step and the failure lands on the cut rather than the harness. Ask
+# here, at the cut's start, where the decision to cut is made, rather than four
+# steps in at 4b's port bind. KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway.
+if [ "${KOSMOS_CUT_IGNORE_HARNESS:-0}" != 1 ]; then
+  kosmos_refuse_if_harness_live "this cut" || exit 1
+fi
 
 step "== 1. main, clean, and carrying what you mean to ship =="
 git -C "$REPO" fetch origin -q
@@ -408,7 +417,15 @@ step "== 3b. the page layer, headless (#39) =="
 # unchecked page.
 _page_log="$(mktemp)"
 _page_exit=0
-( cd "$REPO" && bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+# ENFORCE the Playwright version pin in the cut (#1708): the gate WARNS by
+# default (a developer running it by hand should not be hard-blocked over
+# drift), but a RELEASE must not ship a page-gate result rendered by a runtime
+# that has drifted off tools/provision-pw.sh's pin. A drifted build changes what
+# the checks see, so a green from it is a lie. KOSMOS_PW_STRICT_VERSION=1 turns
+# drift -- and an unverifiable version, which is not verified-pinned -- into a
+# hard stop: the gate exits 2 and the red-gate check below fails the cut.
+# Recover by re-provisioning: bash tools/provision-pw.sh.
+( cd "$REPO" && KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
 grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|retried:|all page' "$_page_log" || true
 if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page gate COULD NOT RUN (exit $_page_exit: bash, node or a program it needs is missing or not executable); this is not a red check. Full output: $_page_log"; exit 1; fi
 [ "$_page_exit" -eq 0 ] || { echo "the page checks are red (exit $_page_exit); full output: $_page_log"; exit 1; }
@@ -742,6 +759,28 @@ step "== 8. deploy, from an export of the COMMITTED site plus the named artifact
 # line below is the link from a deployment to its commit.
 . "$REPO/tools/lib/site-deploy.sh"
 _site_export="$BUILD_ROOT/site-export"
+# 🔑 #1664: WHAT THIS SHIPS, stated HERE because the name does not say it and an
+# experienced reader inferred the opposite from this line alone, filed a card,
+# and proposed a fix that would have broken every install.
+#
+#   PAGES AND EVERYTHING TRACKED  come from the COMMIT ($SITE_SHA), via
+#   `git archive`. A half-edited or uncommitted page in the shared site
+#   checkout CANNOT ship. This is not a hazard; it is the guarantee.
+#
+#   dist/*.tar.gz AND dist/*.tar.gz.sha256  come from the WORKING TREE, on
+#   purpose, because the release writes them there and git does not carry them.
+#   `_site_carry_allowed` REFUSES any such file that is tracked, so the carry is
+#   untracked-only, and `_site_left_behind` then prints everything the working
+#   tree held that did not ship.
+#
+# 🛑 SO DO NOT "FIX" THIS INTO A COMMIT-ONLY DEPLOY. That removes the only path
+# by which release artifacts reach the site.
+# ✅ You would not get far: tools/test-site-deploy-export.sh already asserts BOTH
+# halves, with controls -- "the versioned bundle pair ships" (the carry) and "the
+# untracked stray does not ship" (the archive). A commit-only change reds there.
+# This comment exists to stop the change being STARTED; that test exists to stop
+# it LANDING. The card that prompted both was filed by a careful reader who had
+# only this line to go on.
 site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }
 # The filter that ACTUALLY ships is the export's; 3c read HEAD's early, and
 # the sha can have moved since. Same evaluator, same refusal, on the real file.
@@ -885,3 +924,23 @@ step "== 10. the board on THIS Mac, if it runs from this repo =="
 # serving the previous code until somebody noticed (#360). Gated on the job
 # existing AND running from this repo; it says which case it found.
 bash "$MAIN_REPO/tools/restart-local-board.sh"
+
+step "== 11. the installed kosmos CLI on THIS Mac =="
+# 🛑 Same #360 shape as step 10, for the COMMAND rather than the board (#1758).
+# An in-app update swaps app/, never bin/, so the `kosmos` an agent runs stays
+# whatever the first install put there: #1674 (`kosmos reply --help` sent as a
+# message) merged, shipped in the bundle the comparator above already verifies,
+# and still bit an agent the next day, because agents run that binary, not the
+# repo or the bundle. This refreshes an installed CLI to install/kosmos and
+# byte-verifies it; it leaves the repo's own copy and a CLI-less Mac alone, and
+# REFUSES (reds the cut under set -e) if it finds a stale install it cannot
+# refresh -- a silent skip here is the exact defect. tools/test-refresh-local-cli.sh
+# proves both the refresh and the refusal arm.
+# 🔑 SOURCE IS THE FROZEN TREE, not the shared checkout. $BUILD is what step 7's
+# comparator verified the served bundle against, so sourcing from $BUILD/install/
+# kosmos makes the installed CLI byte-identical to what this cut published; a
+# shared-checkout source ($MAIN_REPO) could have been fast-forwarded past $SHA
+# mid-run (the freeze notice warns of exactly this) and install a CLI that does
+# not match the served bundle. The script still runs from $MAIN_REPO so its
+# repo-copy gate protects a dev whose `kosmos` is the shared checkout's own copy.
+REFRESH_CLI_SOURCE="$BUILD/install/kosmos" bash "$MAIN_REPO/tools/refresh-local-cli.sh"

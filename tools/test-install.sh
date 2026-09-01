@@ -187,7 +187,20 @@ while curl -s -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; do
   [ "$PORT" -lt 4500 ] || { echo "FAIL: no free port found in 4460-4499" >&2; exit 1; }
 done
 
-export KOSMOS_HOME="$SB/home" KOSMOS_BIN_DIR="$SB/bin" KOSMOS_APP_DIR="$SB/apps"
+# 🛑 #1582: AGENT_WORKFORCE_HOME sandboxes the HOOK-WIRING's target home too.
+# The gate sandboxes KOSMOS_HOME, but setup.sh's report-hook wiring resolves its
+# target settings.json through accounts.homeDir() = AGENT_WORKFORCE_HOME ||
+# os.homedir() (engine/accounts.js:53). Without this, homeDir() fell back to the
+# REAL $HOME, so the gate wrote its EPHEMERAL sandbox hook path
+# ($SB/home/app/bin/kosmos-report-hook.sh) into the REAL shared ~/.claude/settings.json
+# -- and $SB is deleted when the cut ends, leaving a dead report hook for all 18
+# agents (every cut re-poisoned it). Sandboxing it here points the wiring at
+# $SB/home/.claude/settings.json (deleted with $SB, harmless), the gate's
+# refused===0 check still passes (it wires the sandbox's own default settings.json,
+# and #1634's guard permits an ephemeral script in an ephemeral settings file), and
+# the real shared file is never touched. Scoped to accounts/home resolution, NOT
+# $HOME, so nothing else that reads $HOME is repointed.
+export KOSMOS_HOME="$SB/home" AGENT_WORKFORCE_HOME="$SB/home" KOSMOS_BIN_DIR="$SB/bin" KOSMOS_APP_DIR="$SB/apps"
 export KOSMOS_PROFILE_FILE="$SB/zprofile"
 # SHELL pinned for determinism only (belt and suspenders): with
 # KOSMOS_PROFILE_FILE exported above, setup.sh's non-zsh hedge is
@@ -221,6 +234,11 @@ export AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_LAUNCH="$SB/launch"
 # harness starts; the build's smoke test sandboxes both, so does this.
 # tools/test-build-smoke-sandbox.sh audits these exports against the gate.
 export AGENT_WORKFORCE_PROJECTS="$SB/projects" AGENT_WORKFORCE_WORKERS="$SB/workers" AGENT_WORKFORCE_DRY_RUN=1
+# 🛑 kosmos#1651. THE COMMENT ABOVE SAID IT: "the harness never sets TMUX_BIN, so
+# install/kosmos may hand a board the machine's tmux". DRY_RUN makes SENDS no-ops
+# and does nothing to READS, so those boards enumerated the real fleet. Naming a
+# stub makes the read inert too, which is what this block already intended.
+export AGENT_WORKFORCE_TMUX_BIN="$HERE/test-support/fake-tmux.sh"
 export AGENT_WORKFORCE_CLAUDE_CONFIG="$SB/claude.json" AGENT_WORKFORCE_CONFIG_ROOT="$SB/config"
 # A test that steals the operator's browser is a test nobody runs twice:
 # every pass suppresses the fresh-install open unless it deliberately
@@ -374,6 +392,20 @@ EXPECTED_SURVIVORS="$(printf '%s\n' "$DATA_FINGERPRINT" | while read -r _h _f; d
   printf '%s  %s\n' "$_h" "$_f"
 done)"
 ADDED="$(printf '%s\n' "$DATA_PATHS_BEFORE" > "$SB/.before.txt"; data_paths > "$SB/.after.txt"; comm -13 "$SB/.before.txt" "$SB/.after.txt")"
+# 🛑 EXPECTED_ADDS is what the INSTALL writes (installSupervisor: the supervisor,
+# the codex bridge, engine-path). It is NOT the place for what the app writes
+# during its own BOOT: #1494 makes the board write AgentWorkforce/wouldping/
+# needs-you.jsonl when it starts, which the smoke boot in this gate triggers, so
+# it lands in ADDED as an "unexpected" file and reds a correct cut. The
+# data-safety check below already exempts this same litter (its comment names
+# exactly this file, and it broke cut 0.6.06 at 4b on 2026-08-29). Filter the
+# CLASS -- the whole wouldping runtime dir -- not the one file, so a NEW
+# wouldping log added later does not re-break the cut the way a fixed filename
+# would. This narrows the gate to what it exists to catch (an install writing an
+# unexpected file into a person's home) and stops it firing on the app's own
+# runtime log. A file the UNINSTALL should have removed is a real but SEPARATE
+# product bug, carded on its own (see the data-safety note below).
+ADDED="$(printf '%s\n' "$ADDED" | grep -vE '^\./AgentWorkforce/wouldping/' | grep -v '^$' || true)"
 GONE="$(comm -23 "$SB/.before.txt" "$SB/.after.txt")"
 
 chk "installing over an existing home leaves the person's own files byte for byte" \

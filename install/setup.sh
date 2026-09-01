@@ -486,9 +486,293 @@ verify_download() {
 # A HEAD probe first, and a one-byte ranged GET before refusing: some static
 # origins reject HEAD (405) while serving GET fine, and "check your internet
 # connection" for a working connection is the wrong sentence.
+# ⚠️ A STATUS CODE CANNOT ANSWER "IS THE DOWNLOAD THERE". This used to accept
+# any response and therefore accepted every url ON AN HTTP ORIGIN WHOSE 404 PAGE
+# ANSWERS A RANGE REQUEST, including names that cannot exist. (Not literally
+# every url: a missing `file://` path already failed, rc 37, and there is an arm
+# for it.) The range arm asks a web server for the first byte of its own 404
+# page and gets `206 text/html, 1 byte`, which is a success. Measured
+# 2026-08-31 against a deliberately impossible name, which PASSED.
+#
+# The cost was not a wrong answer, it was SILENCE. The guard could never fire, so the sentence written for exactly this case ("could not reach
+# the download ... it is safe to re-run") was dead code, and a person whose
+# download was missing met a bare curl failure with no guidance instead. Every
+# caller here fetches a TARBALL, so the answer is knowable: assert the content
+# type, and an error page can no longer impersonate a download.
+#
+# 🛑 A FIX HERE IS ONLY PROVEN BY A URL THAT CANNOT EXIST RETURNING FALSE. The
+# broken version passed on real files too, so "it still finds the tarball" is
+# not evidence of anything. See install.reachable-1662.test.js, which asserts
+# both arms against a local server.
+_reachable_is_download() {
+  # $1 = curl's exit status, $2 = the content-type it reported.
+  #
+  # 🛑 REFUSE WHAT IS POSITIVELY TEXTUAL; DO NOT DEMAND A KNOWN BINARY. An
+  # allowlist of binary types looks stricter and is wrong here, because the
+  # cost is asymmetric: a false YES only means this pre-check did not help and
+  # curl fails a few lines later with its own error, which is the behaviour
+  # before this guard existed. A false NO stops the install outright behind
+  # "Check your internet connection", which is worse than the bug it is for.
+  #
+  # ⚠️ THAT ASYMMETRY HOLDS AT TWO OF THE THREE CALL SITES, NOT ALL THREE, and
+  # saying it unconditionally would be false. At the `TARGET_VERSION` probe
+  # this predicate is an EXISTENCE TEST, not an abort guard: a false NO there
+  # does not stop the install, it falls to the next branch. Downstream
+  # `verify_download` still checks the sha and the version refusal still fires.
+  #
+  # 🛑 AND THE COST OF THAT FALL-THROUGH IS SMALL FOR EVERY NETWORK INSTALL,
+  # which is the point most easily got wrong here.
+  # `BUST=yes` is set for any http/https base and
+  # `install_kosmos` runs after that, so the fallback is the `elif` arm, which
+  # fetches the cache-BUSTED `kosmos-$ARCH.tar.gz?v=...`. A cache treats that as
+  # a fresh resource, so there is no collision to inherit. The bare unversioned
+  # name is reached only when BUST is empty, i.e. `file://` bases, which have no
+  # cache to collide with in the first place. So a false NO here costs the
+  # version-named artifact, not a stale one.
+  #
+  # ⚠️ AND AN ALLOWLIST BREAKS THE PROJECT'S OWN INSTALL GATE. `curl` on a
+  # `file://` URL succeeds and reports an EMPTY content-type (measured: a real
+  # gzip gives content_type=[] with exit 0), and tools/test-install.sh drives
+  # the whole release path over `file://` on purpose. An allowlist refuses a
+  # genuine tarball there and aborts the download path.
+  #
+  # ⚠️ Media types are case-insensitive (RFC 9110 section 8.3), so the compare
+  # is lowercased. The case that matters is a CAPITALISED TEXTUAL type being
+  # refused (`Text/HTML`), not a capitalised binary one being accepted: unknown
+  # types are accepted anyway, so an `Application/GZIP` arm proves nothing.
+  #
+  # 🛑 `text/html` AND NOT `text/*`, DELIBERATELY. `text/plain` is nginx's
+  # compiled-in `default_type`, so a mirror that has not mapped `.gz` serves a
+  # genuine tarball as `text/plain`. Refusing it would block that install
+  # behind "Check your internet connection" -- the exact false NO this design
+  # is built to avoid, and `KOSMOS_RELEASE_BASE` is overridable, so a mirror is
+  # a real case rather than a hypothetical one. A plain-text error page passing
+  # is the harmless direction: curl fails a few lines later with its own error.
+  #
+  # The exit status is checked FIRST and separately, because an empty
+  # content-type from a FAILED connection must not read the same as an empty
+  # one from a local file that is genuinely there.
+  #
+  # 📌 THIS IS DELIBERATELY LOOSER THAN `serves_gzip()` in
+  # tools/kosmos-artifact-check.sh, which requires the type to CONTAIN gzip.
+  # They judge the same header for opposite stakes, so they should not match:
+  # that one gates a RELEASE, where a false NO safely blocks a bad cut and a
+  # false YES ships one; this one gates a PERSON'S INSTALL, where a false NO
+  # is an installer that refuses to run. Tightening this to match it would
+  # reintroduce the file:// break above.
+  [ "$1" = 0 ] || return 1
+  # /usr/bin/tr, matching the six other ABSOLUTE `tr` call sites in this file (a
+  # seventh, at the `_pids` line, is bare). The reason is
+  # narrow and worth stating so nobody generalises it: the design is fail-open,
+  # so a `tr` that did not resolve would empty the substitution, match no arm,
+  # and silently accept EVERY type. That is the harmless direction by this
+  # predicate's own asymmetry, but it would make the guard invisible rather
+  # than noisy. It is NOT a general absolute-path policy: `curl` two lines
+  # below is bare, as it is everywhere else in this file.
+  case "$(printf '%s' "$2" | /usr/bin/tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')" in
+    text/html*|application/xhtml*|application/json*|application/*+json*|application/xml*|application/*+xml*|text/xml*) return 1 ;;
+  esac
+  return 0
+}
+
+# ⚠️ THE NAME IS WIDER THAN THE CONTRACT. This answers "is this a NON-TEXTUAL
+# DOWNLOAD", not "is this URL reachable": a perfectly reachable JSON or XML URL
+# is refused on purpose. Every caller here fetches a tarball, so that is the
+# question they are asking -- but do not reuse this for a general reachability
+# test. `latest.json` is fetched by bare curl further down for exactly that
+# reason, and routing it through here would refuse it.
 reachable() {
-  curl -fsIL -m 15 "$1" >/dev/null 2>&1 && return 0
-  curl -fsL -r 0-0 -m 15 -o /dev/null "$1" >/dev/null 2>&1
+  # HEAD first; the range GET is the fallback for hosts that refuse HEAD.
+  # A 404 page answers a range request with 206 and its own HTML body, so the
+  # status alone cannot tell a download from an error page: the type must be
+  # judged too, on both arms.
+  # 🛑 `cmd && rc=0 || rc=$?`, NOT a bare assignment. This file runs under
+  # `set -euo pipefail`, set near the top of this file, where a plain
+  # `_r_ct=$(curl …)` is an UNPROTECTED SIMPLE COMMAND: a failing HEAD probe aborts the whole shell
+  # before the range-GET fallback can run. The pre-#1662 form happened to be
+  # safe because `curl … && return 0` was shielded by the `&&`.
+  # Both shapes were measured under `set -euo pipefail`; the transcript is in
+  # .claude/plans/reachable-1662.md rather than here.
+  # Latent rather than live today, because -e is suspended at all three call
+  # sites: the two guards in fetch_tmux and install_kosmos capture the status
+  # with `|| _r_why=$?`, and the probe that picks the versioned tarball is the
+  # right side of a `&&`. (This sentence used to describe the guards as
+  # `if ! reachable`, the shape THIS branch replaced. The conclusion held and
+  # the description had rotted, which is the failure the paragraph below is
+  # about.) It is still a trap,
+  # and it lands exactly on the fallback's reason for existing: a 405 on HEAD.
+  # The call sites are named by their surrounding code above rather than by
+  # position, because nothing checks a line number in a comment.
+  local _r_ct _r_rc _r_out _r_code _r_answered
+  # 🛑 ACCUMULATED ACROSS BOTH PROBES, NEVER OVERWRITTEN. The second probe used
+  # to clobber the first probe's status, so a HEAD that got a definite answer
+  # (a hard 404, or a 200 carrying HTML) followed by a range GET that failed to
+  # COMPLETE (reset, DNS blip, an origin that drops the second connection) left
+  # code 000 with a non-zero rc, and the caller told the user to check a
+  # connection about a server that had demonstrably answered. Same wrong-sentence
+  # class this card removes, pointed the other way.
+  #
+  # 📌 `if` rather than `{ …; } && _r_answered=1` is READABILITY ONLY, not
+  # safety. An AND-OR list is EXEMPT from `set -e` whether or not the left side
+  # fails, measured on /bin/sh with a control. This file uses that shape 14
+  # times, including the `= 63` remap in the range-GET arm below, so do not
+  # "fix" them. (Plan file has the measurement.) Named by its surrounding code
+  # rather than by a distance, per the rule stated on the `local` declaration
+  # that opens this function: the old reference said "twenty lines" and had
+  # become 82. I then wrote "twelve lines above" for the rule itself and that was
+  # wrong too, by three. A distance in a comment is wrong the moment anyone edits
+  # above it, which is the whole reason the rule exists.
+  _r_answered=0
+  # %{http_code} FIRST because a content type contains spaces ("text/html;
+  # charset=utf-8") and a status code never does, so the split is unambiguous.
+  _r_out=$(curl -fsIL -m 15 -o /dev/null -w '%{http_code} %{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
+  _r_code=${_r_out%% *}; _r_ct=${_r_out#* }
+  case "$_r_code" in ''|*[!0-9]*) _r_code=0 ;; esac
+  case "$_r_out" in *' '*) ;; *) _r_ct='' ;; esac
+  # 🛑 A METHOD REFUSAL IS NOT AN ANSWER ABOUT THE ARTIFACT. 405 and 501 mean
+  # "I do not do HEAD", which says nothing about whether the file exists, so
+  # they must not set _r_answered here. Without this, an origin that refuses
+  # HEAD and whose range GET then fails to COMPLETE (reset, DNS blip) got
+  # status 2 and was told to check the address, when the truth is a transient
+  # connection failure that wants "it is safe to re-run". That is this card's
+  # own wrong-sentence defect aimed at the shape the fallback exists for.
+  # A 405 followed by a SUCCESSFUL range GET is unaffected: the range arm sets
+  # the flag on its own rc.
+  # 🛑 rc 37 GETS ITS OWN STATUS, IT IS NOT "THE SERVER ANSWERED". 37 is
+  # FILE_COULDNT_READ_FILE: a `file://` path that is absent or unreadable. There
+  # is no server, no release and no network, so folding it into status 2 printed
+  # two false causes at a reader whose only true one is the path. Three separate
+  # reviewers found that sentence before it was split out.
+  [ "$_r_rc" = 37 ] && return 3
+  if [ "$_r_rc" = 0 ]; then
+    _r_answered=1
+  elif [ "$_r_code" -ge 400 ] && [ "$_r_code" != 405 ] && [ "$_r_code" != 501 ]; then
+    _r_answered=1
+  fi
+  _reachable_is_download "$_r_rc" "$_r_ct" && return 0
+  # 📌 This arm also runs when HEAD SUCCEEDED with a textual type, where the
+  # pre-#1662 code reached it only after a HEAD failure. Kept because refusing
+  # on a single mis-typed HEAD would be a false NO, and there is an arm
+  # asserting it buys that.
+  #
+  # ⚠️ THE COST, MEASURED ON BOTH ARMS. It is NOT the 30s hung-origin
+  # case: measured, the pre-#1662 predicate also ran both probes to full
+  # timeout there (HEAD times out, the `&&` falls through, the range GET runs),
+  # old 30s NO and new 30s NO, identical. And NO for a host that cannot be
+  # reached is the CORRECT answer, not a false one.
+  #
+  # The genuinely new cost is one extra request after a textual HEAD, normally
+  # fast. The real residual is narrower and worth naming: against an origin
+  # that IGNORES Range and answers 200 with the whole body, that request
+  # streams the tarball, and on a slow enough link `-m 15` expires and the
+  # predicate answers NO on a genuine download. That needs a mis-typed HEAD AND
+  # a Range-ignoring origin AND a slow link together. It is untested here: a
+  # faithful test would have to burn the full 15s timeout, which buys one
+  # narrow arm at the price of a slow and timing-dependent suite.
+  # --max-filesize bounds the residual named above: an origin that ignores
+  # Range answers with the WHOLE body, and without a cap this probe would
+  # stream a 48MB tarball into /dev/null until -m 15 expired.
+  #
+  # ⚠️ THAT BOUND IS CURL-VERSION DEPENDENT, SO DO NOT READ IT AS A GUARANTEE.
+  # The macOS manpage says "the transfer does not start", i.e. the decision is
+  # made from an ANNOUNCED content-length; and curl only began aborting an
+  # already-running transfer in 8.4.0. tools/macos-floor declares this
+  # installer's floor as 13.5, which ships curl 8.1.x. So against an origin that
+  # omits content-length, on the floor OS, the residual is bounded by -m 15 and
+  # not by this cap. Measured on curl 8.7.1 the cap DOES stop a length-less
+  # transfer mid-flight, which is why the test arm for that shape asserts the
+  # VERDICT and deliberately does not pin a byte count: the count is the part
+  # that legitimately differs across versions.
+  #
+  # ⚠️ THE HTML-ON-63 REFUSAL ALSO RESTS ON A CURL VERSION, and this comment is
+  # scrupulous about that everywhere else, so it should be here too. Refusing a
+  # capped HTML body needs curl to still REPORT a content-type alongside exit
+  # 63. Measured on 8.7.1 it does. On the 13.5 floor's curl 8.1.x the abort
+  # happens before the transfer starts, and if content_type is empty there that
+  # arm flips NO to YES. The shipped-code direction is the harmless one, a false
+  # YES that curl catches a few lines later; the cost is a red suite on a
+  # floor-OS runner rather than a broken install.
+  #
+  # 🛑 AND EXIT 63 MUST BE TREATED AS A SUCCESSFUL FETCH. Getting this wrong is
+  # a REGRESSION, not a missed improvement. curl exits 63 when the
+  # cap is hit, `_reachable_is_download` saw non-zero, and a GENUINE download
+  # from a HEAD-refusing Range-ignoring origin was refused with "could not
+  # reach the download". Measured against exactly that shape serving a real
+  # 5MB body: capped NO, uncapped YES. That is the false-NO direction this
+  # predicate's whole design says is the worst outcome.
+  #
+  # ⭐ A body that EXCEEDS the cap is affirmatively NOT a small error page, so
+  # 63 is evidence FOR a download rather than against one. curl still reports
+  # the content-type on 63 (measured, for both `application/gzip` and
+  # `text/html`), so mapping it to 0 hands the decision to the type rule rather
+  # than short-circuiting it: a 5MB gzip is accepted, a 5MB HTML page is still
+  # refused.
+  _r_out=$(curl -fsL -r 0-0 -m 15 --max-filesize 1048576 -o /dev/null -w '%{http_code} %{content_type}' "$1" 2>/dev/null) && _r_rc=0 || _r_rc=$?
+  [ "$_r_rc" = 63 ] && _r_rc=0
+  _r_code=${_r_out%% *}; _r_ct=${_r_out#* }
+  case "$_r_code" in ''|*[!0-9]*) _r_code=0 ;; esac
+  case "$_r_out" in *' '*) ;; *) _r_ct='' ;; esac
+  # 📌 NO 405/501 CARVE-OUT HERE, DELIBERATELY, and the asymmetry with the HEAD
+  # arm is the point. On HEAD a 405 is about the METHOD and says nothing about
+  # the artifact. On the range GET the request named the artifact, so any 4xx IS
+  # an answer about it: a 416 from a zero-length object means the file exists and
+  # is unusable, which is what status 2 says. If a future edit makes the two arms
+  # match "for consistency", it will be re-introducing the bug the HEAD carve-out
+  # fixed, backwards.
+  [ "$_r_rc" = 37 ] && return 3
+  if [ "$_r_rc" = 0 ] || [ "$_r_code" -ge 400 ]; then _r_answered=1; fi
+  _reachable_is_download "$_r_rc" "$_r_ct" && return 0
+  # 🛑 TWO DIFFERENT FAILURES, TWO DIFFERENT STATUSES, because they need
+  # different sentences. rc 0 here means the origin ANSWERED and served
+  # something textual. Anything else means the request did not complete at all.
+  #
+  # ⚠️ STATUS 2 HAS TWO CAUSES AND THIS LAYER CANNOT TELL THEM APART, so the
+  # sentence must not pick one. A half-published CDN and an intercepting network
+  # (captive portal, corporate proxy block page, ISP NXDOMAIN redirect) BOTH
+  # answer 200 with text/html, which is byte-for-byte the same signature here.
+  # An earlier version of this named only the CDN and told portal users to wait
+  # for a release that was already published, which is the same class of wrong
+  # advice as the "check your connection" it replaced, pointed the other way.
+  #
+  # ⚠️ Every caller uses `!`, `&&` or a `!= 0` test, all of which treat 1 and 2
+  # identically, so this changes no control flow anywhere. It only lets a caller
+  # pick its sentence.
+  [ "$_r_answered" = 1 ] && return 2
+  # 🛑 AN HTTP ERROR IS ALSO THE SERVER ANSWERING, AND rc ALONE MISSES IT. `-f`
+  # makes curl exit non-zero on a 4xx even though the request COMPLETED, so
+  # testing rc covered only origins whose error page answers 2xx (this site's
+  # 404 replies 206 with its own HTML, which is why the arms passed). S3, R2 and
+  # GitHub Releases return a HARD 404 for a not-yet-published object, the most
+  # common half-published shape, and those fell through to "check your internet
+  # connection". Measured: a GitHub Releases 404 gives exit 56, http_code 404.
+  return 1
+}
+
+# One copy of the refusal, because it carries four lines of user-facing text and
+# now branches three ways. It was duplicated verbatim in fetch_tmux and
+# install_kosmos, policed by a byte-identity assertion in the suite; a helper
+# makes that assertion unnecessary rather than load-bearing, and a wording edit
+# can no longer land in one caller and not the other.
+#
+# $1 = the status reachable() returned, $2 = the url.
+_reachable_refuse() {
+  case "$1" in
+    3)
+      info "the download at $2 is not there"
+      info "That path does not exist or cannot be read. Check the address it is installing from."
+      ;;
+    2)
+      # NOT "could not reach": the origin answered. Saying both contradicts itself.
+      info "the download at $2 is not usable"
+      info "The address it is downloading from did not give an installable file."
+      info "The release may still be publishing, something on your network may be intercepting the request, or the address may be wrong."
+      info "Try again in a few minutes; if it keeps happening, check the address."
+      ;;
+    *)
+      info "could not reach the download at $2"
+      info "Check your internet connection and paste the install line again; it is safe to re-run."
+      ;;
+  esac
 }
 
 # ⚠️ FETCHED INTO A FRESH STAGE AND SWAPPED, never merged over what is there.
@@ -545,9 +829,9 @@ fetch_tmux() {
     # actually hits (no network, a half-published CDN) refuse in a sentence
     # instead of a curl error code. The real download keeps its progress
     # bar, which lives on stderr and cannot be silenced without losing it.
-    if ! reachable "$url"; then
-      info "could not reach the download at $url"
-      info "Check your internet connection and paste the install line again; it is safe to re-run."
+    local _r_why=0; reachable "$url" || _r_why=$?
+    if [ "$_r_why" != 0 ]; then
+      _reachable_refuse "$_r_why" "$url"
       rm -rf "$stage"; return 1
     fi
     info "downloading from $url"
@@ -558,7 +842,7 @@ fetch_tmux() {
     tar -xzf "$stage/tmux.tar.gz" -C "$stage" || { rm -rf "$stage"; return 1; }
     rm -f "$stage/tmux.tar.gz"
   fi
-  [ -x "$stage/bin/tmux" ] || { rm -rf "$stage"; return 1; }
+  [ -f "$stage/bin/tmux" ] && [ -x "$stage/bin/tmux" ] || { rm -rf "$stage"; return 1; }
 
   # ⚠️ VERIFY THE THING WE JUST PLACED, rather than assuming the copy worked.
   # An arm64 binary with a broken signature does not run at all, and the failure
@@ -617,9 +901,9 @@ install_kosmos() {
       url="$KOSMOS_RELEASE_BASE/kosmos-$ARCH.tar.gz"
       shaurl="$url.sha256"
     fi
-    if ! reachable "$url"; then
-      info "could not reach the download at $url"
-      info "Check your internet connection and paste the install line again; it is safe to re-run."
+    local _r_why=0; reachable "$url" || _r_why=$?
+    if [ "$_r_why" != 0 ]; then
+      _reachable_refuse "$_r_why" "$url"
       rm -rf "$stage"; return 1
     fi
     info "downloading from $url"
@@ -638,13 +922,13 @@ install_kosmos() {
   # is stopped during the swap, every rename is same-filesystem, and the
   # recovery is the installer's own re-run, which `kosmos start` names when
   # the tree is incomplete.
-  [ -x "$stage/bin/kosmos" ] || { rm -rf "$stage"; return 1; }
-  [ -x "$stage/runtime/bin/node" ] || { rm -rf "$stage"; return 1; }
+  [ -f "$stage/bin/kosmos" ] && [ -x "$stage/bin/kosmos" ] || { rm -rf "$stage"; return 1; }
+  [ -f "$stage/runtime/bin/node" ] && [ -x "$stage/runtime/bin/node" ] || { rm -rf "$stage"; return 1; }
   [ -f "$stage/app/server.js" ] || { rm -rf "$stage"; return 1; }
   [ -f "$stage/app/web/index.html" ] || { rm -rf "$stage"; return 1; }
   # The Plus connector (#583) rides in the bundle; a Kosmos without it installs
   # fine and then cannot turn Plus on, so a missing one is a broken download.
-  [ -x "$stage/app/bin/kosmos-tunnel" ] || { rm -rf "$stage"; return 1; }
+  [ -f "$stage/app/bin/kosmos-tunnel" ] && [ -x "$stage/app/bin/kosmos-tunnel" ] || { rm -rf "$stage"; return 1; }
   # The runtime must RUN here, the same probe the tmux bundle gets: a
   # binary that will not load fails silently and baffling, and the floor
   # gate upstream makes that unlikely, not impossible.
@@ -756,15 +1040,15 @@ uninstall() {
   # Measured 2026-08-26 00:36 on the build Mac.
   _lsreg_u() {
     [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ] || return 0
-    [ -x "$_lsreg" ] && "$_lsreg" -u "$1" >/dev/null 2>&1 || true
+    [ -f "$_lsreg" ] && [ -x "$_lsreg" ] && "$_lsreg" -u "$1" >/dev/null 2>&1 || true
   }
   _lsreg_f() {
     [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ] || return 0
-    [ -x "$_lsreg" ] && "$_lsreg" -f "$1" >/dev/null 2>&1 || true
+    [ -f "$_lsreg" ] && [ -x "$_lsreg" ] && "$_lsreg" -f "$1" >/dev/null 2>&1 || true
   }
   # The board first, while the command that knows how still exists: deleting
   # the folder under a running server leaves it serving ghosts.
-  if [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
+  if [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
     info "stopping the board"
     "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
     # A refused stop (a board this command did not start) is NAMED rather
@@ -1103,7 +1387,7 @@ uninstall() {
     # session must carry @kosmos_agent naming itself, or a user's own
     # `tmux new -s notes` would die for sharing a name with an agent's
     # leftover plist.
-    if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then
+    if [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then
       _owner="$("$KOSMOS_HOME/tmux/bin/tmux" show-options -t "=$_name" -v @kosmos_agent 2>/dev/null)" || _owner=""
       if [ "$_owner" = "$_name" ]; then
         "$KOSMOS_HOME/tmux/bin/tmux" kill-session -t "=$_name" 2>/dev/null || true
@@ -1121,7 +1405,7 @@ uninstall() {
   # uninstall also asks tmux directly, and kills only sessions that name
   # THEMSELVES ours -- a user's `tmux new -s notes` carries no option and a
   # borrowed name fails the equality, the same two gates as above.
-  if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then
+  if [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then
     # 🛑 THE PIPELINE IS GUARDED, and the guard is load-bearing on EVERY
     # clean Mac: with no agents ever created there is no tmux server, so
     # `list-sessions` exits non-zero -- and under this script's pipefail
@@ -1164,7 +1448,7 @@ KOSMOS_SWEEP_LIST
     # enough that KOSMOS_HOME=$HOME plus a ~/VERSION would have deleted
     # the home folder); the VERSION leg exists for PARTIAL installs, and
     # a partial install always has one of our trees beside it.
-    if [ -x "$KOSMOS_HOME/bin/kosmos" ] \
+    if [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ] \
        || { [ -f "$KOSMOS_HOME/VERSION" ] && { [ -d "$KOSMOS_HOME/app" ] || [ -d "$KOSMOS_HOME/tmux" ]; }; }; then
       info "deleting $KOSMOS_HOME"
       # 🔑 RETIRE THIS MAC AT THE COORDINATOR WHILE IT CAN STILL SPEAK (#793).
@@ -1175,7 +1459,7 @@ KOSMOS_SWEEP_LIST
       # address on the account is how a name stays held forever.
       _remote_state="${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}/AgentWorkforce/remote"
       _tunnel="$KOSMOS_HOME/app/bin/kosmos-tunnel"
-      if [ -f "$_remote_state/mac_key" ] && [ -x "$_tunnel" ]; then
+      if [ -f "$_remote_state/mac_key" ] && [ -f "$_tunnel" ] && [ -x "$_tunnel" ]; then
         info "telling the Plus service this computer is going away"
         if "$_tunnel" retire --state-dir "$_remote_state" --coordinator "${AGENT_WORKFORCE_TUNNEL_COORDINATOR:-https://coordinator.kosmosplus.com}" >/dev/null 2>&1; then
           info "its Plus address is retired; the name is free again after a day"
@@ -1606,11 +1890,19 @@ KOSMOS_SWEEP_LIST
   # actually prove: the file MENTIONS the key. By this point the bundled Node is
   # gone, so there is nothing here that can parse the file, and a sentence that
   # counted entries would be a claim this code cannot support.
-  # ⚠️ AND THE SENTENCE THAT MAKES IT USEFUL IS "SO THE MARKS STILL APPLY".
-  # The block above has already told them their agents' FOLDERS were left alone,
-  # which means these entries are not stale: open one of those folders in Claude
-  # Code later and it will not ask. The naive reading is that uninstalling made
-  # them inert, and it did not. (Mona Lisa, 2026-08-21; she checked the folder
+  # 🛑 THIS PARAGRAPH USED TO END "SO THE MARKS STILL APPLY", AND #1659 MADE
+  # THAT FALSE FOR SOME OF THE LINES BELOW. Corrected here rather than left to
+  # contradict the sentence 84 lines down that already says so.
+  # It was true and useful when written: a LIVE account's folder is left alone, so
+  # its mark is not stale and opening that folder later will not ask.
+  # What changed: the sweep now also lists `.removed-claude-*`, and NOTHING points
+  # CLAUDE_CONFIG_DIR at a forgotten account. That is the entire point of the
+  # rename, and engine/status.js:198 skips the prefix deliberately. So for those
+  # lines the mark does NOT still apply, opening one of those folders WILL ask, and
+  # the `_trust_removed` sentence below is what tells the person which case is
+  # theirs. Two flags and two sentences on purpose: one sentence covering both
+  # would be false for whichever half the person actually has.
+  # (Mona Lisa, 2026-08-21; she checked the folder
   # fact against the notice above rather than assuming the two shapes matched.)
   #
   # ⚠️ THE PARENTHETICAL IS LOAD-BEARING, per the precedent above: a key name
@@ -1638,19 +1930,74 @@ KOSMOS_SWEEP_LIST
   # ⚠️ It also NAMED that one file in its sentence, so even when it did fire the
   # remedy pointed at the wrong place. It now names the files it actually found.
   _trust_marked=''
-  for _cfg in "$HOME/.claude.json" ${CLAUDE_CONFIG_DIR:+"$CLAUDE_CONFIG_DIR/.claude.json"} "$HOME"/.claude-*/.claude.json; do
+  # 🛑 TWO FLAGS, NOT ONE, AND THE ONE-FLAG VERSION WAS MINE. A single
+  # `_trust_removed` gated a pair of sentences that assert OPPOSITE things: "for a
+  # folder you still use, the mark applies" claims a LIVE mark, and the next line
+  # claims a REMOVED one. On a machine whose ONLY marked config belongs to a
+  # disconnected account, the first sentence is false, and the header above it is
+  # false of every file in the list. Reachable, not theoretical: this block's own
+  # comment records 19 of 22 configs on the fleet machine carrying `false`.
+  # Initialised here rather than relying on `${x:-no}`, so the two read like the
+  # list they sit beside.
+  _trust_live=no
+  _trust_removed=no
+  # 🛑 FORGOTTEN ACCOUNTS TOO (#1659). Removing an account RENAMES its directory
+  # to `.removed-claude-<label>` and deliberately KEEPS the config inside, so the
+  # trust mark survives in a file this sweep could not match. The person was then
+  # told their trust marks were accounted for while one sat in plain sight, which
+  # is the exact true-sounding silence the note above describes, arriving through
+  # a directory name that did not exist when that fix was written.
+  # 🛑 NO CODEX ENTRY, AND THAT IS DELIBERATE RATHER THAN AN OMISSION. An earlier
+  # version of this line added `.removed-codex-*/.claude.json` "for symmetry".
+  # IT IS A DEAD GLOB: codex homes store `auth.json` (openaiaccounts.js:58) and
+  # codex agents launch with CODEX_HOME, never CLAUDE_CONFIG_DIR, so no
+  # `.claude.json` can exist there. Adding it looked like completeness and was a
+  # pattern that can never match -- the same decoration this sweep exists to
+  # avoid. Note there is no live `.codex-*/.claude.json` in this loop either,
+  # which is the tell: the asymmetry is real, not an oversight.
+  for _cfg in "$HOME/.claude.json" ${CLAUDE_CONFIG_DIR:+"$CLAUDE_CONFIG_DIR/.claude.json"} "$HOME"/.claude-*/.claude.json "$HOME"/.removed-claude-*/.claude.json; do
     [ -f "$_cfg" ] || continue
     grep -q '"hasTrustDialogAccepted": true' "$_cfg" 2>/dev/null || continue
     case " $_trust_marked " in *" $_cfg "*) continue ;; esac
     _trust_marked="$_trust_marked $_cfg"
+    # 🛑 ONLY SAY THE DISCONNECTED-ACCOUNT SENTENCE IF THERE IS ONE. Without this
+    # flag those two lines printed on EVERY uninstall, so the overwhelmingly common
+    # machine (one ~/.claude.json mark, no account ever disconnected) was told about
+    # a state the person has never been in. That is the same "a reason that is true
+    # only sometimes, stated as fact" defect this block's own comments were rewritten
+    # twice to remove, arriving a third time from the side that looks like extra
+    # helpfulness.
+    case "$_cfg" in
+      "$HOME"/.removed-claude-*) _trust_removed=yes ;;
+      *) _trust_live=yes ;;
+    esac
   done
   if [ "$_agents_stopped" = "yes" ] && [ -n "$_trust_marked" ]; then
-    printf '  Trust marks were left in place: your agents'"'"' folders are recorded as\n'
-    printf '  trusted in these files (Claude Code will not ask before working in\n'
-    printf '  them):\n'
+    printf '  Trust marks were left in place. These files each carry a mark that\n'
+    printf '  records a folder as trusted:\n'
+    # ⚠️ UNQUOTED ON PURPOSE, and said so because it looks like the word-splitting
+    # bug this fleet keeps finding: `$_trust_marked` is a space-joined LIST built
+    # above, so it MUST split. What it cannot survive is a path containing a space,
+    # and #1659 adds another source of paths into that accumulator, so the hazard is
+    # now fed from two places rather than one. Pre-existing and not fixed here;
+    # named so the next person meets it as known rather than as a discovery.
     for _cfg in $_trust_marked; do printf '    %s\n' "$_cfg"; done
-    printf '  Those folders are still on your machine, so the marks still apply.\n'
-    printf '  Remove those entries if you want the question back.\n\n'
+    # 🛑 THE OLD SENTENCE SAID "the marks still apply" AND #1659 MADE THAT FALSE FOR
+    # SOME OF THE LINES ABOVE. The sweep now also lists `.removed-claude-*`, and
+    # nothing points CLAUDE_CONFIG_DIR at a forgotten account: that is the point of
+    # the rename, and engine/status.js skips the prefix deliberately. So the mark in
+    # a disconnected account's config is INERT, and telling someone it is in effect
+    # is the same true-sounding-but-wrong disclosure this block was fixed for twice
+    # before. Listing the leftover file is right; asserting it still bites is not.
+    if [ "$_trust_live" = yes ]; then
+      printf '  For a folder you still use, the mark applies, so Claude Code does not\n'
+      printf '  ask before working in it.\n'
+    fi
+    if [ "$_trust_removed" = yes ]; then
+      printf '  For an account you disconnected, the file is still there but nothing\n'
+      printf '  reads it, so you will be asked again if you reconnect that account.\n'
+    fi
+    printf '  Remove these entries if you want the question back everywhere.\n\n'
   fi
   exit 0
 }
@@ -1693,7 +2040,7 @@ esac
 # second run there is -- opened with "already installed here" on a machine
 # where Kosmos has never run. The launcher existing is what installed means.
 FRESH_INSTALL=yes
-[ -x "$KOSMOS_HOME/bin/kosmos" ] && FRESH_INSTALL=no
+[ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ] && FRESH_INSTALL=no
 
 start_log
 
@@ -2001,7 +2348,7 @@ mkdir -p "$KOSMOS_HOME" "$BIN_DIR" || die "Could not create $KOSMOS_HOME. Check 
 # board polls does not exist (every agent reads as unknown), and a version
 # change would strand the running tmux server on a protocol the new client
 # cannot speak.
-if [ "$FRESH_INSTALL" = "no" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
+if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   info "pausing Kosmos for the update"
   "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
@@ -2326,7 +2673,7 @@ make_app() {
     # NOT ruled out -- the next clean-machine run is the first real test.
     # -c so the only thing this line can ever do is bump a time.
     /usr/bin/touch -c "$app" 2>/dev/null || true
-    [ -x "$lsreg" ] && "$lsreg" -f "$app" >/dev/null 2>&1 || true
+    [ -f "$lsreg" ] && [ -x "$lsreg" ] && "$lsreg" -f "$app" >/dev/null 2>&1 || true
   fi
   return 0
 }
@@ -2399,7 +2746,7 @@ PLIST
   # Existence and executability checked before the copy: a bundle that
   # shipped app/ without it would otherwise fail silently here and
   # produce an Info.plist naming an executable that does not exist.
-  [ -x "$KOSMOS_HOME/app/bin/kosmos-app" ] || return 1
+  [ -f "$KOSMOS_HOME/app/bin/kosmos-app" ] && [ -x "$KOSMOS_HOME/app/bin/kosmos-app" ] || return 1
   cp "$KOSMOS_HOME/app/bin/kosmos-app" "$target/MacOS/Kosmos" || return 1
   chmod +x "$target/MacOS/Kosmos" || return 1
 
@@ -2568,14 +2915,14 @@ if [ "$APP_MADE" = "yes" ]; then
           # both skipped in a sandbox.
           _lsreg=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
           if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ]; then
-            [ -x "$_lsreg" ] && "$_lsreg" -u "$HOME_APP_DIR/Kosmos.app" >/dev/null 2>&1 || true
+            [ -f "$_lsreg" ] && [ -x "$_lsreg" ] && "$_lsreg" -u "$HOME_APP_DIR/Kosmos.app" >/dev/null 2>&1 || true
           fi
           if rm -rf "$HOME_APP_DIR/Kosmos.app" 2>/dev/null; then
             info "note: the Kosmos icon moved here from the Applications folder inside your home folder."
             info "If Kosmos was in your Dock, remove it and drag the new one in."
           else
             if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ]; then
-              [ -x "$_lsreg" ] && "$_lsreg" -f "$HOME_APP_DIR/Kosmos.app" >/dev/null 2>&1 || true
+              [ -f "$_lsreg" ] && [ -x "$_lsreg" ] && "$_lsreg" -f "$HOME_APP_DIR/Kosmos.app" >/dev/null 2>&1 || true
             fi
             info "note: an older Kosmos icon is still in the Applications folder inside your home folder; drag it to the Trash."
           fi
@@ -3320,7 +3667,7 @@ fi
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *)
-    if [ -x "$BIN_DIR/kosmos" ]; then
+    if [ -f "$BIN_DIR/kosmos" ] && [ -x "$BIN_DIR/kosmos" ]; then
       printf '  One more thing: typing "kosmos" works in a NEW Terminal window.\n'
       printf '  In this one, run:  export PATH="%s:$PATH"\n\n' "$BIN_DIR"
     fi

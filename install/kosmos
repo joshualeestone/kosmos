@@ -213,7 +213,7 @@ _kosmos_pick_tmux() {
   # is minimal. KOSMOS_TMUX_KNOWN is a harness seam ONLY: a test that pretends
   # to be a machine with no tmux must be able to hide this Mac's real one.
   for _cand in "$_sys" ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux}; do
-    [ -n "$_cand" ] && [ -x "$_cand" ] || continue
+    [ -n "$_cand" ] && [ -f "$_cand" ] && [ -x "$_cand" ] || continue
     [ "$_cand" = "$_bundled" ] && continue
     # `list-sessions`, not `-V`: the question is whether it can reach the
     # server, and a version string proves only that a binary exists.
@@ -303,9 +303,9 @@ cmd_start() {
   if _oldpid="$(running_pid)"; then
     die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. Stop it first with 'kosmos stop', then start again."
   fi
-  [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
-  [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   mkdir -p "$LOG_DIR"
   say "Bringing the board up."
   # Detached from this terminal, with everything it prints kept in a log so a
@@ -397,7 +397,7 @@ cmd_open() {
 # "command not found" at the exact moment somebody wants it; this runs the
 # tmux the board itself uses (resolved above), and says so.
 cmd_agents() {
-  if [ ! -x "$AGENT_WORKFORCE_TMUX_BIN" ]; then
+  if [ ! -f "$AGENT_WORKFORCE_TMUX_BIN" ] || [ ! -x "$AGENT_WORKFORCE_TMUX_BIN" ]; then
     say "Kosmos cannot find its tmux at $AGENT_WORKFORCE_TMUX_BIN"
     exit 1
   fi
@@ -427,7 +427,7 @@ cmd_agents() {
 }
 
 cmd_version() {
-  if [ -x "$NODE" ] && [ -f "$KOSMOS_HOME/app/package.json" ]; then
+  if [ -f "$NODE" ] && [ -x "$NODE" ] && [ -f "$KOSMOS_HOME/app/package.json" ]; then
     # The path travels as an environment variable, never interpolated into
     # the JS source: a quote or backslash in a path must stay a path.
     KOSMOS_PKG="$KOSMOS_HOME/app/package.json" "$NODE" -p 'JSON.parse(require("fs").readFileSync(process.env.KOSMOS_PKG,"utf8")).version'
@@ -1327,7 +1327,7 @@ cmd_adopt() {
     "") ;;
     *) say "kosmos adopt [--confirm]"; exit 2 ;;
   esac
-  if [ ! -x "$NODE" ] || [ ! -d "$KOSMOS_HOME/app" ]; then
+  if [ ! -f "$NODE" ] || [ ! -x "$NODE" ] || [ ! -d "$KOSMOS_HOME/app" ]; then
     say "Kosmos cannot find its own runtime, so it cannot vouch for anything."
     exit 2
   fi
@@ -1365,6 +1365,37 @@ cmd_adopt() {
     process.exit(bad ? 1 : 0);
   ' "$KOSMOS_HOME/app"
 }
+
+# kosmos#1674: -h / --help must never SEND.
+# `kosmos reply --help` did not print help. cmd_reply takes text="$*", so every
+# argument is the message: asking for help TRANSMITTED "--help" and answered
+# "Answered. It is in their conversation with you." `report --help` likewise
+# tried to record a state. msg and post looked safe only by ACCIDENT, needing
+# two arguments so a lone flag lands in their usage branch; `kosmos msg <agent>
+# --help` sends it just the same.
+#
+# ONE guard before the dispatch rather than a flag per verb, so a verb added
+# later is covered without anyone remembering. --help is what you type when you
+# do not yet know what a command does, which is exactly when it must not act.
+#
+# For an argument-taking verb this re-dispatches it with NONE, because those
+# already print their own usage in that case. Reusing that string is deliberate:
+# a second copy here would be two renderings of one sentence, free to disagree.
+_kosmos_help=0
+for _a in "$@"; do
+  case "$_a" in -h|--help) _kosmos_help=1 ;; esac
+done
+if [ "$_kosmos_help" = 1 ]; then
+  case "${1:-}" in
+    msg|reply|post|report|room|adopt|whoami) set -- "$1" ;;
+    *)
+      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | whoami\n\n'
+      printf '  Run any of them with no arguments to see what that one takes.\n'
+      printf '  The dashboard lives at %s once started.\n\n' "$URL"
+      exit 0
+      ;;
+  esac
+fi
 
 case "${1:-}" in
   start)   cmd_start ;;

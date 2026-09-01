@@ -51,13 +51,36 @@ const accounts = require('./accounts');
 
 const HOME = () => process.env.AGENT_WORKFORCE_HOME || os.homedir();
 
-function sh(cmd, args) {
-  try { return execFileSync(cmd, args, { encoding: 'utf8', timeout: 5000 }); } catch { return ''; }
+const CALL_MS = 5000;
+
+/* 🔑 ONE SHARED BUDGET FOR THE WHOLE LIVE READ (kosmos#1366), NOT THREE INDEPENDENT
+   TIMEOUTS. Every exec in this module goes through `sh`, so a deadline threaded
+   here bounds the whole read without making anything async and without changing
+   the call graph. The card's own note expected this to need restructuring; it does
+   not, because there is exactly one call site.
+   ⚠️ OPT-IN ON PURPOSE. `deadline` absent means today's behaviour exactly, so
+   `everyone()` and every other caller are unaffected until they ask to be bounded.
+   That keeps the per-call 5s default a separate decision, which is what the card
+   said it should be.
+   📌 A SPENT BUDGET RETURNS '' - the same value a failed read already returns - so
+   it lands on the fallback the callers ALREADY have rather than needing a new one.
+   That is why this is small: the handling exists, only the trigger was missing. */
+function sh(cmd, args, deadline) {
+  let ms = CALL_MS;
+  if (deadline != null) {
+    const left = deadline - Date.now();
+    /* Refuse rather than run with no time: a 0ms timeout is not a shorter read,
+       it is a read that cannot succeed, and spending the process spawn to learn
+       that is worse than answering from the record now. */
+    if (left <= 0) return '';
+    ms = Math.min(CALL_MS, left);
+  }
+  try { return execFileSync(cmd, args, { encoding: 'utf8', timeout: ms }); } catch { return ''; }
 }
 
 /** session name -> pane pid, from tmux. */
-function defaultPanes() {
-  const out = sh('tmux', ['list-panes', '-a', '-F', '#{session_name} #{pane_pid}']);
+function defaultPanes(deadline) {
+  const out = sh('tmux', ['list-panes', '-a', '-F', '#{session_name} #{pane_pid}'], deadline);
   const map = new Map();
   for (const line of String(out).split('\n')) {
     const m = line.match(/^(\S+)\s+(\d+)$/);
@@ -67,8 +90,8 @@ function defaultPanes() {
 }
 
 /** pid -> { ppid, command }, the whole table in one call. */
-function defaultProcs() {
-  const out = sh('ps', ['-eo', 'pid=,ppid=,command=']);
+function defaultProcs(deadline) {
+  const out = sh('ps', ['-eo', 'pid=,ppid=,command='], deadline);
   const map = new Map();
   for (const line of String(out).split('\n')) {
     const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
@@ -78,8 +101,8 @@ function defaultProcs() {
 }
 
 /** The ENVIRONMENT of one pid. `-E` is the whole point: see trap 3. */
-function defaultEnvOf(pid) {
-  return sh('ps', ['-Eww', '-o', 'command=', '-p', String(pid)]);
+function defaultEnvOf(pid, deadline) {
+  return sh('ps', ['-Eww', '-o', 'command=', '-p', String(pid)], deadline);
 }
 
 /**
@@ -123,9 +146,14 @@ function claudeUnder(panePid, procs) {
  * ever true.
  */
 function runningAs(session, deps = {}) {
-  const panes = deps.panes || defaultPanes();
-  const procs = deps.procs || defaultProcs();
-  const envOf = deps.envOf || defaultEnvOf;
+  /* `budgetMs` bounds the WHOLE live read, not each call (kosmos#1366). The route
+     wants "answer or fall back", and three independent 5s timeouts gave a worst
+     case equal to the client's own patience, so a slow reader produced NO answer
+     where the record answer was available the whole time. */
+  const deadline = deps.budgetMs != null ? Date.now() + deps.budgetMs : null;
+  const panes = deps.panes || defaultPanes(deadline);
+  const procs = deps.procs || defaultProcs(deadline);
+  const envOf = deps.envOf || ((pid) => defaultEnvOf(pid, deadline));
   const identityOf = deps.identityOf || accounts.identityOf;
 
   const panePid = panes.get(session);
@@ -161,12 +189,28 @@ function runningAs(session, deps = {}) {
 
 /** Every agent pane, so one call answers "who is on what". */
 function everyone(deps = {}) {
-  const panes = deps.panes || defaultPanes();
+  /* 🛑 `procs` IS HOISTED FOR THE SAME REASON `panes` ALWAYS WAS, AND ITS ABSENCE
+     HERE WAS COSTING A FULL PROCESS-TABLE READ PER SESSION. `runningAs` falls back
+     to `defaultProcs()` whenever `deps.procs` is missing, and this loop forwarded
+     `panes` but not `procs`, so N panes meant N executions of `ps -eo` where one
+     answers for all of them. The asymmetry is the tell: `panes` had to be hoisted
+     because it drives the loop, and `procs` has exactly the same shape and was not.
+     ⚠️ It compounds #1366 rather than merely being slow: each of those reads
+     carries its own timeout, so the worst case scaled with the number of panes. */
+  const deadline = deps.budgetMs != null ? Date.now() + deps.budgetMs : null;
+  const panes = deps.panes || defaultPanes(deadline);
+  const procs = deps.procs || defaultProcs(deadline);
   const out = [];
   for (const session of panes.keys()) {
-    out.push({ session, ...runningAs(session, { ...deps, panes }) });
+    out.push({ session, ...runningAs(session, { ...deps, panes, procs }) });
   }
   return out.sort((a, b) => a.session.localeCompare(b.session));
 }
 
-module.exports = { runningAs, everyone, claudeUnder };
+/* `_sh` is exported for TESTABILITY and for no other reason,
+   which is stated here so nobody reads them as API. kosmos#1366's budget is not
+   observable through `runningAs`: injecting a dep is exactly what suppresses the
+   behaviour under test, and a fake pid makes a real read return empty anyway, so
+   both arms agree for the wrong reason. Without these the guard cannot go red, and
+   a test that cannot go red is decoration. */
+module.exports = { runningAs, everyone, claudeUnder, _sh: sh };

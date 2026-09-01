@@ -51,7 +51,7 @@ test('the sweep survives a tmux with nothing to list, which is every clean Mac (
      its enclosing if: the first draft anchored the first if and lifted the
      plist loop's tail, whose loop variable is unbound in isolation. */
   const ls = SH.indexOf("list-sessions -F '#{session_name}'");
-  const at = SH.lastIndexOf('if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then', ls);
+  const at = SH.lastIndexOf('if [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then', ls);
   assert.ok(ls > -1 && at > -1, 'the sweep block moved; re-anchor this test');
   /* The guard is capture-then-loop: ONLY list-sessions is forgiven, so a
      future unguarded command in the loop body still fails loudly instead
@@ -91,7 +91,7 @@ test('the sweep flag reaches the shell that reads it, proven with a session to s
   fs.chmodSync(stub, 0o755);
 
   const ls = SH.indexOf("list-sessions -F '#{session_name}'");
-  const at = SH.lastIndexOf('if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then', ls);
+  const at = SH.lastIndexOf('if [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then', ls);
   const end = SH.indexOf('fi', SH.indexOf('\nKOSMOS_SWEEP_LIST', SH.indexOf('done <<KOSMOS_SWEEP_LIST', at)));
   assert.ok(ls > -1 && at > -1 && end > at, 'the sweep block moved; re-anchor this test');
   const region = SH.slice(at, end + 2);

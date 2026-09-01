@@ -12,7 +12,11 @@
  * lists by provider; no OpenAI row carries the Claude history arm (no
  * ruling for codex yet); on the create form, choosing OpenAI leaves the
  * account menu live and offers the new account while the model menu still
- * parks; and choosing Anthropic back shows no OpenAI account.
+ * parks; choosing Anthropic back shows no OpenAI account; and removal ASKS
+ * FIRST (#1683, #1702), so the first press only arms and leaves the account
+ * on the list, and the second press is what removes it; and the answer says
+ * the sign-in file is still on the computer and nothing was deleted, which is
+ * the promise the whole removal turns on and was never enumerated here.
  *
  * Computed-state only, so headless is sound. First run is completed
  * through the product's own route first: on a fresh board the first-run
@@ -149,8 +153,12 @@ let failed = 0;
      rename is the product decision; this line was left behind by it. */
   say('every box says Signed in (live check against the harness stub accepted the walk key)', rows.length > 0 && rows.every((r) => /Signed in/.test(r)), JSON.stringify(rows));
   /* 🛑 THIS ASSERTED "Disconnect is disabled everywhere" AND #1372 MADE IT
-     FALSE. The OpenAI arm has an engine route now, so its button is live and says
-     Remove; Claude's still has none (#1184) and keeps the honest dead Disconnect.
+     FALSE, THEN #1659 MADE THE REPLACEMENT FALSE TOO. Both providers now have an
+     engine route AND, since #1659, BOTH READ "Disconnect": one act, one word, in
+     one row builder. Both are live except on the default Claude row, which the
+     engine refuses. (An earlier version of this comment still said OpenAI says
+     "Remove" while the assertion below already required "Disconnect" -- a
+     comment contradicting the code beneath it, in this file.)
      ⚠️ THIS WOULD HAVE BEEN THE THIRD CUT THIS ONE FILE TOOK DOWN by an assertion
      that was correct when written: "Connected"->"Signed in" failed 0.5.88, the
      provider leaving the row failed 0.6.05. Each was green right up to the change
@@ -159,24 +167,66 @@ let failed = 0;
      tightened on the axis this change promises, kept on the axis it leaves alone
      -- and kept NON-VACUOUSLY, because under a blanket every() "the Claude button
      is dead" and "no Claude row rendered at all" are the same pass. */
+  /* 🛑 EACH BUTTON IS CAPTURED WITH ITS OWN ROW'S TEXT (#1659). Partitioning
+     the buttons by whether they carry `data-forget` cannot tell WHICH row is
+     which, so "default disabled + other live" and "default live + other
+     disabled" produced identical passes -- the feature fully inverted, arms
+     green. `row` ties each control to the account it belongs to. */
   const doors = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-prov')].map((g) => ({
     provider: ((g.querySelector('.acct-prov-name') || {}).innerText || '').trim(),
-    buttons: [...g.querySelectorAll('.acct-disconnect')].map((b) => ({
-      label: (b.innerText || '').trim(), disabled: !!b.disabled, forgets: !!b.dataset.forget,
-    })),
+    buttons: [...g.querySelectorAll('.acct-disconnect')].map((b) => {
+      const box = b.closest('.acct-box');
+      return {
+        /* 🛑 BOTH STATES, BECAUSE THEY ARE NOT THE SAME ONE. `b.disabled` is the
+           IDL property and reflects ONLY the `disabled` content attribute, so a
+           control marked `aria-disabled="true"` reads disabled:false. This arm
+           asserted `b.disabled` and went red the moment the markup moved to
+           aria-disabled for keyboard reachability. Capture both or the check
+           cannot tell "inert" from "natively disabled". */
+        label: (b.innerText || '').trim(), disabled: !!b.disabled, forgets: !!b.dataset.forget,
+        ariaDisabled: b.getAttribute('aria-disabled') === 'true',
+        row: ((box && box.innerText) || '').replace(/\s+/g, ' ').trim(),
+      };
+    }),
   })));
   const openaiDoors = doors.filter((g) => /OpenAI/.test(g.provider) && !/Codex/.test(g.provider)).flatMap((g) => g.buttons);
   const otherDoors = doors.filter((g) => !/OpenAI/.test(g.provider)).flatMap((g) => g.buttons);
-  say('the OpenAI account offers a live Remove (#1372)',
-    openaiDoors.length > 0 && openaiDoors.every((b) => !b.disabled && b.forgets && /^Remove$/.test(b.label)),
+  say('the OpenAI account offers a live Disconnect (#1372, relabelled #1659)',
+    openaiDoors.length > 0 && openaiDoors.every((b) => !b.disabled && b.forgets && /^Disconnect$/.test(b.label)),
     JSON.stringify(doors));
-  /* Reported, not asserted: this fixture adds no Claude account, so the #1184 arm
-     has nothing to say here and a silent pass would claim that it did. */
+  /* 📌 THE FIXTURE NOW SEEDS TWO CLAUDE ACCOUNTS (the default and one other), so
+     these arms RUN. The empty branch below is kept for a sandbox that does not,
+     because a silent pass would claim coverage it did not have.
+     🛑 THIS ARM ASSERTED THE OPPOSITE UNTIL #1659 and was dormant only because
+     `otherDoors` is empty in this sandbox -- a fourth stale assertion in this one
+     file, armed and waiting on whoever first seeded a Claude account. It now
+     asserts the LIVE control, so it fails if the button reverts to dead. */
   if (otherDoors.length === 0) {
-    console.log('NOTE  no non-OpenAI account in this fixture; the #1184 dead-Disconnect arm was not exercised');
+    console.log('NOTE  no non-OpenAI account in this fixture; the Claude Disconnect arms were not exercised');
   } else {
-    say('a non-OpenAI account keeps the dead Disconnect (#1184 unchanged)',
-      otherDoors.every((b) => b.disabled && !b.forgets && /^Disconnect$/.test(b.label)), JSON.stringify(otherDoors));
+    /* 🛑 TWO STATES ON ONE PROVIDER, ASSERTED SEPARATELY (#1659). The default
+       row's button is deliberately DISABLED (the engine refuses to move
+       ~/.claude, because prepare() symlinks every account's projects into it);
+       every other row is live. A single blanket arm over `otherDoors` would
+       pass on either state alone and could not tell them apart -- which is the
+       vacuity this file has already been bitten by three times.
+       📌 A LENGTH FLOOR ON EACH, not `some`: with two Claude rows seeded, a
+       bare `some` passes on one good button standing beside a broken one. */
+    /* Partitioned BY ROW IDENTITY, not by the attribute under test: the
+       sandbox seeds main@example.com as the default and walk@example.com as the
+       other, so each arm names the account it is about. Inverting the guard now
+       fails both arms instead of swapping two indistinguishable sets. */
+    const rowFor = (needle) => otherDoors.filter((b) => b.row.includes(needle));
+    const defaultRow = rowFor('main@example.com');
+    const otherRow = rowFor('walk@example.com');
+    say('the browser sees BOTH seeded Claude rows (or the two arms below are vacuous)',
+      defaultRow.length === 1 && otherRow.length === 1, JSON.stringify(otherDoors));
+    say('the NON-DEFAULT Claude account offers a live Disconnect (#1659)',
+      otherRow.length > 0 && otherRow.every((b) => !b.disabled && !b.ariaDisabled && b.forgets && /^Disconnect$/.test(b.label)),
+      JSON.stringify(otherRow));
+    say('the DEFAULT Claude account\'s Disconnect is disabled and not wired (#1659)',
+      defaultRow.length > 0 && defaultRow.every((b) => !b.disabled && b.ariaDisabled && !b.forgets && /^Disconnect$/.test(b.label)),
+      JSON.stringify(defaultRow));
   }
   // Create form: OpenAI provider -> account menu offers the new account
   await p.goto(BASE + '/?tab=create', { waitUntil: 'load' });
@@ -210,13 +260,158 @@ let failed = 0;
   }
   await p.evaluate(() => { try { settingsGo('accounts'); } catch (e) { const b = document.querySelector('[data-go="accounts"]'); if (b) b.click(); } });
   await p.waitForTimeout(800);
+  /* 🔑 THE SECTION-OPEN CONTROL, mirroring the first open at :49-50. The re-open
+     above navigates away and back, force-unhides #panel-settings and calls
+     settingsGo with a SILENT catch and a [data-go] fallback, and until now nothing
+     checked it worked. That mattered the moment the assertions below started
+     depending on RENDERED GEOMETRY: a section that failed to reopen makes every
+     row zero-height, and the arm assertion would red as "the FIRST press only
+     ARMS" while the real cause is a closed panel. A false red on a release gate
+     that points at the wrong component is worse than no assertion. Fail as
+     itself. */
+  const secAgain = await p.evaluate(() => { const s = document.getElementById('s-sec-accounts'); return s ? !s.hidden : null; });
+  say('the accounts section is open again', secAgain === true, String(secAgain));
+  /* Deliberately the LAX, unfiltered DOM read, kept even though `beforePress`
+     below asserts a strict superset of it. The PAIR is the diagnostic: this one
+     present and that one absent separates "in the DOM but zero-height" from
+     "never rendered at all", which are different bugs. Said out loud because the
+     comment 20 lines down argues AGAINST a DOM count, and a reader meeting the
+     two together would reasonably wonder why the lax read survived. */
   const rowsBefore = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-box')].map((r) => r.innerText.replace(/\s+/g, ' ').trim()));
   /* 🔑 THE ARM THAT MAKES THE ABSENCE BELOW MEAN ANYTHING. Without it,
      "the row went away" and "the row was never rendered" are the same pass. */
   say('before the click, the account is on the list',
     rowsBefore.some((r) => /API key ending WALK/.test(r)), JSON.stringify(rowsBefore));
-  const pressed = await p.evaluate(() => { const b = document.querySelector('#set-accounts [data-forget]'); if (!b) return false; b.click(); return true; });
-  say('the Remove button is there to press', pressed);
+  /* 🔑 MERGE OF #1711 AND #1659, AND BOTH HALVES ARE LOAD-BEARING.
+     #1711 (on main) made this a two-press confirm with a visibility guard and a
+     timing-independent arm signal. #1659 (this branch) makes the CLAUDE row carry
+     a `data-forget` button too, at which point a bare `[data-forget]` inside the
+     row is no longer unambiguous.
+     ⇒ Keep #1711's structure entirely and NARROW ITS LOOKUP BY PROVIDER. Row
+     scoping alone would have been enough today, because the WALK row is an
+     OpenAI row by construction, but that is an accident of the fixture rather
+     than a property anybody asserted, and this is the file whose last unrooted
+     selector took down a release. Both scopes, explicitly. */
+  /* 🛑 #1702 MADE REMOVAL A TWO-PRESS CONFIRM AND THIS CHECK STILL PRESSED ONCE,
+     so it red every cut from the moment #1702 landed: the single press only ARMED,
+     the row stayed, and both assertions below failed with the label reading
+     "Remove it?". It killed release 0.6.20 at step 3b.
+     ⭐ THE CLASS: when you change a rendered behaviour, the check you are THINKING
+     about is the one you are writing. The one that already exists is invisible
+     because it is passing, right up until it is not.
+     ✅ ASSERT THE ARM RATHER THAN TOLERATING IT. Pressing twice blindly would go
+     green whether or not the confirm exists, leaving #1683's whole promise (ask
+     first) unguarded at the page layer.
+     🔑 ONE `walkStep`, AND IT IS ONE COPY RATHER THAN A COMMENT SAYING SO. An
+     earlier version of this block claimed "one row predicate used by the press and
+     by both reads" while physically duplicating the four-line selection in two
+     evaluate bodies. Nothing bound them, the drift it warned about was one edit
+     away, and a reader would have trusted the comment instead of re-checking. It
+     now takes a boolean: read, or read-and-click, same selection either way.
+     Visible-only, matching the `groups` reader above and 1c5e2614 ("browser checks
+     assert rendered text, not DOM text"): a DOM count reads a merely HIDDEN row as
+     present, failing in the reassuring direction.
+     ⚠️ A REPAINT BETWEEN THE PRESSES WOULD DISARM THIS. The arm lives in a
+     per-button closure, so a repaint of #set-accounts rebuilds the buttons, resets
+     `armed`, and the second press only re-arms: the gate then reds as "the account
+     leaves the list" with the row still there, pointing at the wrong cause.
+     📌 The guards that make it unreachable, named precisely because an earlier
+     version of this comment said "every paintAccounts() caller is event-driven"
+     and THAT IS FALSE: acctFlowPaint() runs off a 1-second setInterval. It cannot
+     fire here for three narrower reasons a reader trusting that sentence would
+     never re-check: acctFlowWatch is started only by acctAddStart, the Claude
+     connect flow, which this check never reaches; acctFlowPaint early-returns on
+     the ACCT_FLOW_LAST dedup; and the connected arm calls acctFlowStop() before
+     repainting. That is materially more fragile than "event-driven", so an
+     accounts poll added later would make a RELEASE GATE intermittently red. */
+  const walkStep = (doClick) => p.evaluate((click) => {
+    const shown = [...document.querySelectorAll('#set-accounts .acct-box')]
+      .filter((r) => r.getBoundingClientRect().height > 0);
+    const row = shown.find((r) => /API key ending WALK/.test(r.innerText));
+    const b = row ? row.querySelector('[data-forget-provider="openai"]') : null;
+    const seen = {
+      /* textContent, not innerText: an EXACT-MATCH assertion on a label the page
+         sets itself, and innerText would move under a text-transform. CHECKED
+         rather than assumed, as README asks, and checked the ANCESTORS too because
+         text-transform INHERITS: an element's own declaration cannot settle it. The
+         only two text-transform rules anywhere near this markup are on
+         `#panel-settings .dbox .flabel` and `.acctag`, neither an ancestor of this
+         button, so the two reads are identical here and this is future-proofing
+         rather than a live difference. Stated
+         because docs/browser-checks/README.md (#687) asks every textContent read in
+         a wired check to say which it is, and because the `offers a live Remove`
+         assertion above reads this same element with innerText. */
+      label: b ? b.textContent.replace(/\s+/g, ' ').trim() : '(no button)',
+      listed: shown.some((r) => /API key ending WALK/.test(r.innerText)),
+      shownRows: shown.length,
+      /* 🔑 THE TIMING-INDEPENDENT ARM SIGNAL. The acting branch sets
+         `btn.disabled = true` SYNCHRONOUSLY, before its first await; the arming
+         branch returns before reaching it. So `disabled === false` after the first
+         press proves the handler did not REACH `btn.disabled = true`, whatever the
+         network did. Stated that way rather than "did not act", which overreaches:
+         a hybrid that armed and fired WITHOUT that assignment would fall through to
+         the weaker listed/timing signal. Without
+         this, the hybrid regression (arms AND fires the DELETE) is caught only if
+         the round trip plus repaint happens to land inside the 300ms window, and
+         goes GREEN on a slower machine. */
+      disabled: b ? !!b.disabled : null,
+      /* 🛑 THE BUTTON'S OWN VISIBILITY, not the row's. The `shown` filter above
+         guards the ROW's height and says nothing about the control inside it, so a
+         confirm shipped invisible (display:none, opacity:0, zero size) passed every
+         assertion here: textContent cannot see it, and b.click() fires on a hidden
+         element quite happily. innerText would not have helped either, because an
+         element that is not rendered returns its descendant text content, so the
+         two reads are equal exactly when it matters.
+         📌 The sibling render-projects.js does this and says why: "A confirmation
+         is exactly the control that can ship invisible." Measured in the page, not
+         judged from a picture. */
+      btnW: b ? b.getBoundingClientRect().width : 0,
+      btnH: b ? b.getBoundingClientRect().height : 0,
+      btnOpacity: b ? getComputedStyle(b).opacity : null,
+      btnVisibility: b ? getComputedStyle(b).visibility : null,
+      /* ⚠️ SCOPE, so nobody reads this as more than it is: `visibility` inherits
+         and `display:none` zeroes the rect, so both ancestor cases ARE caught. An
+         ancestor with `opacity: 0` is NOT: the button's own computed opacity stays
+         1. The sibling render-projects.js has the identical limitation, so this
+         matches the house rather than falling short of it. */
+      found: !!b,
+    };
+    seen.visible = !!(seen.btnW && seen.btnH && seen.btnOpacity !== '0' && seen.btnVisibility !== 'hidden');
+    if (click && b) { b.click(); return Object.assign({}, seen, { clicked: true }); }
+    return Object.assign({}, seen, { clicked: false });
+  }, doClick);
+  /* 🔑 THE BEFORE ARM. Without it this asserts a STATE, not a TRANSITION: a
+     regression rendering the button as "Remove it?" AT REST would pass for the
+     wrong reason. The `offers a live Remove` assertion is two full navigations
+     earlier against a destroyed page, so it is not an arm for this one. */
+  const beforePress = await walkStep(false);
+  /* 🛑 "Disconnect", NOT "Remove", AND #1659 IS WHY. This arm was written on the
+     branch that fixed the confirm, against a main where the OpenAI control still
+     said "Remove". #1659 relabels it so both providers read the same word, which
+     is the whole point of that card, so the assertion encoded a label its own
+     merge target was about to change.
+     ⚠️ It failed here and nowhere else, because the gate had not been re-run on
+     this tree since twelve commits earlier: the stale evidence hid a stale
+     assertion. That is the pairing worth remembering, not the label. */
+  say('before the press, the button rests on "Disconnect" and is VISIBLE',
+    beforePress.label === 'Disconnect' && beforePress.listed === true && beforePress.visible === true,
+    JSON.stringify(beforePress));
+  const pressOne = await walkStep(true);
+  say('the Disconnect button is there to press', pressOne.clicked === true, JSON.stringify(pressOne));
+  await p.waitForTimeout(300);
+  const firstPress = await walkStep(false);
+  say('the FIRST press only ARMS, it does not remove (#1683, #1702)',
+    firstPress.label === 'Remove it?' && firstPress.listed === true
+      && firstPress.disabled === false && firstPress.visible === true,
+    JSON.stringify({ before: beforePress, after: firstPress }));
+  /* Guarded like the first press, and it reports the PAGE rather than repeating
+     the boolean being asserted. A bare `if (b) b.click()` no-ops silently, and
+     then "the account leaves the list" fails without distinguishing "we pressed
+     and it did not remove" from "we never pressed at all". */
+  const pressTwo = await walkStep(true);
+  say('the second press lands on the armed button',
+    pressTwo.clicked === true && pressTwo.label === 'Remove it?',
+    JSON.stringify({ afterFirst: firstPress, atSecondPress: pressTwo }));
   await p.waitForTimeout(1500);
   const after = await p.evaluate(() => ({
     rows: [...document.querySelectorAll('#set-accounts .acct-box')].map((r) => r.innerText.replace(/\s+/g, ' ').trim()),

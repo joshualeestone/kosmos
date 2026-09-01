@@ -310,6 +310,36 @@ function agentId(name) {
 }
 
 /**
+ * Account-level settings (#1668), NOT keyed by agent: one operator, one install.
+ * A single settings.json in the data root, with the same write-then-rename
+ * durability as writeProfile so an interrupted write cannot leave a half-file
+ * that parses empty and silently drops the operator's choices. The operator's
+ * timezone lives here so the engine can READ it when it composes a message,
+ * rather than every agent having to carry it as an instruction.
+ */
+function settingsPath() {
+  return path.join(root(), 'settings.json');
+}
+
+function readSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeSettings(patch) {
+  ensure(root());
+  const had = readSettings();
+  const next = { ...had, ...patch, updatedAt: new Date().toISOString() };
+  const tmp = settingsPath() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
+  fs.renameSync(tmp, settingsPath());
+  return next;
+}
+
+/**
  * ⚠️ `profilePath` is NOT exported, and the reason belongs here because this
  * branch exported it and then justified it by saying it had no caller.
  *
@@ -321,7 +351,7 @@ function agentId(name) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, agentId };
+module.exports = { dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, agentId, readSettings, writeSettings };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

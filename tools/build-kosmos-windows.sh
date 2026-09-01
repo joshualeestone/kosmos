@@ -41,6 +41,32 @@ OUT="${1:-dist}"
 NODE_VERSION="${KOSMOS_NODE_VERSION:-24.19.0}"
 ARCH="${KOSMOS_WIN_ARCH:-x64}"
 
+# ---- source provenance (#1749) --------------------------------------------
+# The artifact must be able to say WHICH commit built it and whether that tree
+# was clean. Without it a dirty, behind-origin PREVIEW build is byte-for-byte
+# indistinguishable from a reproducible origin/main cut -- which is exactly how a
+# 2-behind, 27-file-dirty zip nearly shipped as the real one on 2026-09-01.
+# 🔑 STAMP, DO NOT REFUSE. A dirty preview ("ship one unsigned to see it
+# function") is a legitimate build, so blocking it would break the workflow Josh
+# asked for. Instead every zip is made self-describing, and a dirty tree WARNS
+# loudly HERE -- before the ~35 MB Node download -- so the builder is told at
+# build time rather than left to read a manifest nobody opens.
+# ⚠️ source_dirty is only meaningful when source_sha is a real commit. If git is
+# absent or this is not a repo, rev-parse fails to `unknown` and the dirty check
+# defaults to false -- so a manifest reader must treat `source_dirty: false` as
+# "clean" ONLY when source_sha is a sha, and as "could not determine" when it is
+# `unknown`. The ambiguous middle (sha resolves but status fails) does not occur
+# in practice: if rev-parse can read the repo, status can too.
+SOURCE_SHA="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)"
+if [ -n "$(git -C "$REPO" status --porcelain 2>/dev/null)" ]; then
+  SOURCE_DIRTY=true
+  echo "⚠️  build-kosmos-windows: the source tree is DIRTY (uncommitted changes)." >&2
+  echo "    The zip is NOT reproducible and manifest.source_dirty=true. For a real" >&2
+  echo "    cut, build from a clean worktree off origin/main." >&2
+else
+  SOURCE_DIRTY=false
+fi
+
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/app" "$STAGE/runtime"
@@ -204,6 +230,8 @@ cat > "$STAGE/manifest.json" <<JSON
   "platform": "win32",
   "arch": "$ARCH",
   "version": "$_ver",
+  "source_sha": "$SOURCE_SHA",
+  "source_dirty": $SOURCE_DIRTY,
   "signed": false,
   "node": { "version": "v$NODE_VERSION", "download_sha256": "$NODE_SHA" },
   "agents_supported": false

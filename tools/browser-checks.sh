@@ -2,6 +2,15 @@
 #
 # The page-layer gate (#39).
 #
+# 🛑 SWEEPING FOR A BROWSER-CHECK ASSERTION? IT IS NOT IN THIS FILE (#1720). This
+# driver only NAMES and runs the checks; every assertion lives in the scripts under
+# docs/browser-checks/ (63 checks). A grep of THIS file returns hits and looks
+# thorough while missing every assertion that matters -- and that gap killed a cut:
+# a rendered-markup change (#1702) was swept against this driver, but the assertion
+# it broke was in docs/browser-checks/render-accounts-openai.js, so 3b red'd from
+# the moment it landed. Before you change rendered markup, sweep docs/browser-checks/
+# for the id, class or text you are moving, and read what each hit ASSERTS.
+#
 # 🛑 DO NOT RUN THIS, OR ANY BROWSER CHECK, WHILE A RELEASE CUT IS RUNNING.
 # Measured 2026-08-26, and it cost a cut. Four concurrent Playwright boards
 # during a cut's page layer starved it of CPU, and render-github-door failed
@@ -220,6 +229,54 @@ if [ -z "$PW_NODE_PATH" ]; then
   exit 2
 fi
 log "Playwright: $PW_NODE_PATH"
+
+# --- Is it the PINNED version? (#1708) --------------------------------------
+# 🛑 RESOLVING IS NOT PINNING. resolve_pw accepts ANY node_modules that has a
+# `playwright`, and the launch check below proves it can START a browser -- but
+# neither proves it is the version tools/provision-pw.sh pinned. A drifted
+# pw-runtime (a bare `npm i` there resolves a newer 1.6x) launches fine and
+# SILENTLY changes the browser build: the exact #1594 skew, one layer up (#1594
+# stopped the PROVISION drifting with --save-exact; the gate never re-checked at
+# run time). So read the pin from its single source of truth and compare.
+#
+# ⚠️ WARN by default, do not block: the launch check below still gates on a
+# working browser, and a mismatch during an intentional pin bump (PW_VERSION
+# updated, runtime not yet re-provisioned, or vice versa) should be VISIBLE, not
+# a hard stop. The whole defect this fixes is that drift was SILENT; a loud warn
+# cures that. KOSMOS_PW_STRICT_VERSION=1 makes it a hard stop -- and, because
+# "cannot verify the pin" is not "verified pinned", STRICT hard-stops on an
+# UNREADABLE version too, not only on a detected mismatch (a fail-closed flag
+# must not fail open).
+# Read the pin from its single source of truth via the freeze-aware $REPO (not a
+# re-derivation from $0, which a bare-basename invocation would misresolve), and
+# read the resolved version by PARSING its package.json with node (a greedy sed
+# would grab the last "version" in a minified file); PW_PKG is passed in env so a
+# path with odd characters cannot break the node expression.
+# 📌 playwright's package.json .version is a PROXY for the browser build, which
+# is actually pinned by playwright-core. A hand-mismatched runtime (playwright
+# 1.62.1 wrapping a different playwright-core) would pass this compare, but
+# provision-pw.sh installs them together with --save-exact, and the launch check
+# below is the backstop: it starts the browser build this Playwright wants.
+_pw_pin="$(sed -n 's/^PW_VERSION="\([^"]*\)".*/\1/p' "$REPO/tools/provision-pw.sh" 2>/dev/null | head -1)"
+_pw_got="$(PW_PKG="$PW_NODE_PATH/playwright/package.json" node -e "try{process.stdout.write(String(require(require('path').resolve(process.env.PW_PKG)).version||''))}catch(e){}" 2>/dev/null)"
+if [ -z "$_pw_pin" ] || [ -z "$_pw_got" ]; then
+  # Cannot VERIFY the pin. Loud, and under STRICT a hard stop (unverified is not pinned).
+  if [ -z "$_pw_pin" ]; then _why="could not read PW_VERSION from tools/provision-pw.sh"; else _why="could not read the resolved Playwright's version"; fi
+  log "‼️  Could not VERIFY the Playwright version pin: $_why (#1708). The launch check still runs."
+  if [ "${KOSMOS_PW_STRICT_VERSION:-0}" = "1" ]; then
+    log "🛑 KOSMOS_PW_STRICT_VERSION=1: cannot verify the pin, which is not the same as verified-pinned; refusing to run the page gate."
+    exit 2
+  fi
+elif [ "$_pw_got" != "$_pw_pin" ]; then
+  log "‼️  Playwright version DRIFT: resolved $_pw_got, but the pin (tools/provision-pw.sh) is $_pw_pin."
+  log "‼️  A drifted runtime changes the browser build silently (#1594/#1708). Re-provision: bash tools/provision-pw.sh"
+  if [ "${KOSMOS_PW_STRICT_VERSION:-0}" = "1" ]; then
+    log "🛑 KOSMOS_PW_STRICT_VERSION=1: refusing to run the page gate on an unpinned build."
+    exit 2
+  fi
+else
+  log "Playwright version: $_pw_got (matches the pin)"
+fi
 
 # --- Can it actually LAUNCH? (#1594) ----------------------------------------
 # 🛑 A DIRECTORY IS A PROXY; A LAUNCH IS THE THING. `resolve_pw` above accepts any
@@ -582,11 +639,65 @@ cat > "$sb4/fake-claude" <<'FAKE'
 # command answers {"loggedIn": false, "authMethod": "none"} and exits 1;
 # both halves are copied here, per the repo's fixture-discipline rule that a
 # fixture is a capture and not a guess.
-[ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
+# 🛑 SIGNED IN FOR THE SEEDED ACCOUNTS, NOT SIGNED IN FOR ANYTHING ELSE (#1659).
+# This answered "not signed in" unconditionally, which was the honest fixture
+# WHILE this sandbox had no Claude account. It now seeds two, and an
+# unconditional false renders "Anthropic says this account is not signed in"
+# in their badges -- lowercase "signed in", which the case-sensitive /Signed in/
+# arm does NOT match. Seeding an account would then have turned a passing check
+# red for a reason having nothing to do with what that arm tests.
+# ⚠️ THE DEFAULT ACCOUNT ARRIVES WITH CLAUDE_CONFIG_DIR UNSET. So "unset" IS the
+# default row, and it is answered signed-in on purpose rather than by omission.
+# 🛑 AND THE MECHANISM IS `engine/subscription.js:338`, NOT create.js. Nothing
+# reaches this stub through a launch file. `engine/accounts.js` listLiveNow calls
+# `checkLive()` with NO configDir for the default row, and subscription's
+# `else delete env.CLAUDE_CONFIG_DIR` is what actually leaves it unset.
+# This comment used to cite create.js (`acct.isDefault ? null : acct.dir`). That
+# code exists and reads as quoted, and it governs the AGENT-LAUNCH path, which
+# this stub is not on. Both mechanisms independently produce "unset", so the
+# fixture was correct and its stated reason was not the one operating here.
+# The cost is directional and worth naming: anyone changing subscription.js:338
+# breaks this stub's DEFAULT arm and every "Signed in" assertion in
+# render-accounts-openai.js, and the old comment sent them to a different file.
+[ "$1" = auth ] && [ "$2" = status ] && {
+  case "${CLAUDE_CONFIG_DIR:-DEFAULT}" in
+    # ⚠️ `authMethod` HERE IS A GUESS AND THE FALSE ARM ABOVE IS A CAPTURE. It is
+    # inert (checkLive reads only `loggedIn`), but the fixture-discipline comment
+    # at the top of this stub claims capture for the whole thing, so this says
+    # which half it does not cover rather than letting the claim stand.
+    DEFAULT|*/.claude-walk) echo '{"loggedIn": true, "authMethod": "claudeai"}'; exit 0;;
+    *) echo '{"loggedIn": false, "authMethod": "none"}'; exit 1;;
+  esac
+}
 exit 0
 FAKE
 chmod +x "$sb4/fake-claude"
 write_fleet "$sb4"
+# #1659: a NON-DEFAULT Claude account, so the Claude Disconnect arm in
+# render-accounts-openai is EXERCISED rather than skipped. Before this the
+# sandbox held only OpenAI accounts, `otherDoors` was empty, and that arm
+# printed a NOTE and asserted nothing -- which is how its assertion sat stale
+# and green across two changes that contradicted it. A non-default label on
+# purpose: the default row's button is deliberately disabled (the engine
+# refuses to move ~/.claude), so seeding only the default would leave the live
+# control untested for a second time.
+# The DEFAULT account too, so the row every user sees is rendered and its
+# deliberately-disabled Disconnect is exercised. list() emits the default from
+# home/.claude.json, which is where configFile() puts it.
+printf '{"oauthAccount":{"emailAddress":"main@example.com"}}' > "$sb4/home/.claude.json"
+# The directory too, not only the config beside it: list() renders the row from
+# ~/.claude.json alone, but a real machine always has ~/.claude/projects, and a
+# fixture that is the MINIMUM which renders leaves memoryReadable false, a state
+# no real install reaches. A fixture is a capture, not the least that passes.
+mkdir -p "$sb4/home/.claude/projects"
+mkdir -p "$sb4/home/.claude-walk"
+printf '{"oauthAccount":{"emailAddress":"walk@example.com"}}' > "$sb4/home/.claude-walk/.claude.json"
+# ...and its projects symlinked into the primary tree, which is what prepare()
+# does for every account Kosmos makes. Without it sharesMemory() is false and the
+# row renders "An agent moved here would start with no history. Fix this" -- a
+# state no Kosmos-created account reaches. The capture-not-minimum standard two
+# lines above was applied to the default row and not to this one.
+ln -s "$sb4/home/.claude/projects" "$sb4/home/.claude-walk/projects"
 # A stand-in for api.openai.com/v1/models (#962): the badge now checks a key
 # live, and a page gate must not send a fake key to OpenAI, nor depend on
 # OpenAI answering. The stub accepts exactly the walk's key and refuses any
@@ -675,6 +786,7 @@ sb8="$(new_sandbox)"
 AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
   AGENT_WORKFORCE_LAUNCH="$sb8/launch" AGENT_WORKFORCE_PROJECTS="$sb8/projects" \
   AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
+  AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" \
   PORT="$P10" node ./server.js > "$sb8/server.log" 2>&1 &
 SERVER_PIDS+=("$!")
 if wait_up "$P10" "$sb8/server.log"; then
@@ -981,7 +1093,9 @@ sb_ok="$(new_sandbox)"; sb_bad="$(new_sandbox)"
 cat > "$sb_ok/fake-claude" <<'STUBOK'
 #!/bin/sh
 # 1573-pair stub. This marker exists so a block-scoped mutation can anchor here:
-# the sb4 stub earlier in this file is byte-identical without it, and two blind
+# the sb4 stub earlier in this file was byte-identical without it until #1659
+# gave sb4 a per-account case (it now answers signed-in for its two seeded
+# accounts), so compare by PURPOSE rather than by bytes, and two blind
 # reviewers independently anchored on the shared text and mutated the wrong one.
 [ "$1" = --version ] && { echo "claude 0.0.0-fake"; exit 0; }
 [ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
@@ -993,7 +1107,9 @@ STUBOK
 cat > "$sb_bad/fake-claude" <<'STUBBAD'
 #!/bin/sh
 # 1573-pair stub. This marker exists so a block-scoped mutation can anchor here:
-# the sb4 stub earlier in this file is byte-identical without it, and two blind
+# the sb4 stub earlier in this file was byte-identical without it until #1659
+# gave sb4 a per-account case (it now answers signed-in for its two seeded
+# accounts), so compare by PURPOSE rather than by bytes, and two blind
 # reviewers independently anchored on the shared text and mutated the wrong one.
 [ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
 exit 1

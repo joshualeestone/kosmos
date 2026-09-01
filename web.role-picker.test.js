@@ -63,5 +63,31 @@ test('a role\'s limit is said on step one, under the dropdown, the moment it is 
   assert.equal(run('ea', true, 'It never sends anything.').hidden, true, 'the line shows while the dropdown is closed');
   assert.equal(run('own', false, 'x').hidden, true, 'describe-it-yourself has no limit to say');
   assert.match(SCRIPT, /PICKED = document\.getElementById\('rolesel'\)\.value;\n  paintPickLimit\(\);/);
-  assert.match(SCRIPT, /getElementById\('role-next'\)\.disabled = false;\n  paintPickLimit\(\);\n\}/);
+  assert.match(SCRIPT, /getElementById\('role-next'\)\.disabled = importing;\n  paintPickLimit\(\);\n\}/);
+});
+
+test('the fourth option imports an agent from a file: its own panel, the shared Continue hidden, a client-side read into the textarea, and a parse-only post', () => {
+  const body = PAGE.replace(/<!--[\s\S]*?-->/g, '');
+  // The row is a real pick option: radio for the keyboard, check mark when chosen.
+  const at = body.indexOf('id="pick-import"');
+  const row = body.slice(at, body.indexOf('</label>', at));
+  assert.match(row, /<input type="radio" name="rmode" value="import"/, 'pick-import lost its radio');
+  assert.match(row, /<span class="pickmark" aria-hidden="true">&#10003;<\/span>/, 'pick-import has no check mark');
+  // Its panel holds a paste box, a file picker, and its own advance button.
+  assert.match(body, /<textarea id="import-text"/);
+  assert.match(body, /<input type="file" id="import-file"[^>]*hidden>/);
+  assert.match(body, /<button class="btn uprime" type="button" id="import-load">/);
+  // Gated exactly like `own` (both use the own role key), so it never offers a
+  // path whose create would refuse.
+  assert.match(SCRIPT, /getElementById\('pick-import'\)\.hidden = !OWN_ROLE;/);
+  // pickMode routes 'import' to its own panel and takes the shared Continue out
+  // of the flow -- the panel's own button is the advance.
+  assert.match(SCRIPT, /const importing = mode === 'import';/);
+  assert.match(SCRIPT, /getElementById\('importpick'\)\.hidden = !importing;/);
+  assert.match(SCRIPT, /getElementById\('role-next'\)\.hidden = importing;/);
+  // Import PARSES then reuses the one create path: it reads the file client-side,
+  // posts it to the parse endpoint, and a refusal is shown rather than advanced past.
+  assert.match(SCRIPT, /readAsText\(f\)/);
+  assert.match(SCRIPT, /fetch\('\/api\/agent-import'/);
+  assert.match(SCRIPT, /importMsg\(data\.because/);
 });

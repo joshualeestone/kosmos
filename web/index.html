@@ -571,6 +571,18 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-disconnect { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
   color: var(--label-2); text-decoration: underline; cursor: pointer; min-height: 24px; }
 .acct-disconnect[disabled] { cursor: not-allowed; text-decoration: none; opacity: .7; }
+/* 🛑 THE aria-disabled ARM GETS ITS OWN OPACITY, AND THE REASON IS WCAG RATHER
+   THAN TASTE. WCAG 1.4.3 exempts "inactive user interface components", which
+   covers a natively `disabled` control. This one is deliberately FOCUSABLE and
+   carries a click handler that writes into a live region, so it is not inactive
+   in that sense and the exemption does not reach it.
+   MEASURED ON THE LIGHT SCHEME, and named as such because a ratio quoted
+   without its background reads as though one theme were the whole answer:
+   --label-2 #4a4f57 on the light surface is 8.24:1 at full opacity, 3.76:1 at
+   .7 (AA needs 4.5 for 13px text) and 4.83:1 at .8. The dark and
+   prefers-contrast arms clear AA at .8 by a wider margin. It still reads as
+   unavailable via cursor, the removed underline and the announced label. */
+.acct-disconnect[aria-disabled="true"] { cursor: not-allowed; text-decoration: none; opacity: .8; }
 /* #770: "underneath it we just have a large one that's the same exact
    size that says Add a provider." Same width as a box, no fixed height
    assumption -- .btn already matches a box's padding rhythm closely
@@ -813,6 +825,16 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    connected state, which this file already measured at 5.32:1 for white on
    #1f7a4d. One vocabulary for one outcome. */
 .acct-ok { color: var(--ok, #1f7a4d); font-weight: 700; margin-right: 6px; }
+/* kosmos#1656: the connect-success panel reuses .acct-ok's green (no second
+   check). .acct-ok-big shows that same glyph at hero size with a scale-in;
+   reduced motion drops the motion, not the check. */
+.acct-success { text-align: center; padding: 8px 0 4px; }
+.acct-ok-big { display: block; margin: 0 auto 10px; font-size: 44px; line-height: 1;
+  animation: acct-pop .32s cubic-bezier(.2,.7,.3,1.2) both; }
+.acct-success-t { margin: 0 0 4px; font-size: 1.15rem; font-weight: 700; color: var(--k-ink); }
+.acct-success-say { margin: 0 auto; color: var(--k-ink-2); max-width: 40ch; }
+@keyframes acct-pop { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .acct-ok-big { animation: none; } }
 .fmsg.is-connected, .dhint.is-connected { color: var(--ok, #1f7a4d); font-weight: 600; }
 .dwarn-m { color: var(--danger, #b3261e); font-weight: 700; margin-right: 6px; }
 /* #727: the provider choice on Accounts; the pressed one reads pressed. */
@@ -4381,6 +4403,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    it here is what made this control and #create-model drift apart in the first
    place: two copies of one appearance, edited on different days. */
 .rolepick select { width: 100%; }
+/* #1652 import panel: the paste box fills the panel like the select does, and
+   the file / load buttons sit on one row. */
+#import-text { width: 100%; box-sizing: border-box; }
+.importrow { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
 /* The limit on a role that has one, read while choosing rather than discovered
    afterwards. Weight and a rule, never hue: it has to survive greyscale like
    every other signal on this board. (The old flat list's `.pick .caution`
@@ -5090,7 +5116,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 .fr-body p:last-child { margin-bottom: 0; }
 .fr-body p b { color: var(--label); }
 
-/* The progress segments. `aria-hidden`, because the spoken "Step N of 5" crumb
+/* The progress segments. `aria-hidden`, because the spoken "Step N of 6" crumb
    says the same thing in words — two announcements of one fact is noise. */
 .fr-segs { display: flex; gap: var(--space-3); margin-bottom: var(--space-7); }
 .fr-seg { height: 4px; flex: 1; border-radius: 2px; background: var(--separator); }
@@ -6624,6 +6650,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <pre class="pj-screen" id="d-window" tabindex="0" hidden
          role="region" aria-labelledby="d-window-label"></pre>
     <p class="dhint" id="d-window-msg" hidden></p>
+    <!-- #967: a respond-in-context box, so a person watching the live pane can
+         answer the agent without switching to the Talk tab. It reuses the SAME
+         delivery path the Talk composer uses (POST the agent's thread), so it is
+         a surface addition, not a new mechanism: paintTalk drives both this and
+         the Talk composer from one presence read, so they gate identically, and
+         the receipt is the same honest verdict. The full conversation still
+         lives on the Talk tab; this is a quick line into the window. -->
+    <div class="dmbar composerbox" id="d-term-composer" style="margin-top:14px;">
+      <input type="text" class="cinput" id="d-term-say" maxlength="2000"
+             aria-label="Send a message into this agent's window"
+             placeholder="Send a message into this window&hellip;">
+      <button class="btn uprime cpost" id="d-term-send" type="button">Send</button>
+    </div>
+    <p class="dhint" id="d-term-say-msg" role="status" aria-live="polite" style="margin:6px 0 0;"></p>
   </section>
   <!-- Two sentences for the box being hidden, and `data-tied` on the section
        says which is true: a tied agent's first capture is in flight (the box
@@ -6898,10 +6938,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      browser sign-in, OpenAI pasted key) are unchanged, just reached
      through a dialog instead of always sitting on the page. -->
 <div class="rm-back" id="acct-add-modal" hidden>
-  <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="acct-add-t" aria-describedby="acct-add-in">
+  <div class="rm-box rm-box-form" id="acct-add-dialog" role="dialog" aria-modal="true" aria-labelledby="acct-add-t" aria-describedby="acct-add-in">
     <h2 class="rm-title" id="acct-add-t">Add a provider</h2>
     <p class="rm-small" id="acct-add-in">Pick which AI provider you want to connect. Anthropic Claude and OpenAI work today; the rest are listed so you can see what is coming.</p>
-    <div class="field">
+    <div class="field" id="acct-provider-field">
       <label class="flabel tk-lab" id="acct-provider-lab" for="acct-provider-pick">Provider</label>
       <!-- #770: "list all the others so people can see that they're
            coming" -- a placeholder roster, not Josh's own list, since he
@@ -7026,7 +7066,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       </div>
       <p class="dhint" id="acct-openai-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
-    <div class="rm-acts" style="margin-top: var(--space-6);">
+    <!-- kosmos#1656 (Josh, 2026-08-31, from a screenshot): a real success state.
+         On a known-good connect the modal stops showing the sign-in controls and
+         shows this: the connect flow's own green check (.acct-ok, reused not
+         rebuilt) at size with a scale-in, the account it connected to, and a way
+         out. Painted by acctShowSuccess(); the provider field, both flows and the
+         plain Close row are hidden alongside. Reusable: #1659's disconnect confirm
+         can consume the same panel rather than drawing a second that drifts. -->
+    <div id="acct-success" class="acct-success" role="status" aria-live="polite" hidden>
+      <span class="acct-ok acct-ok-big" aria-hidden="true">&#10003;</span>
+      <h3 class="acct-success-t" id="acct-success-t">Success!</h3>
+      <p class="acct-success-say" id="acct-success-say"></p>
+      <div class="rm-acts" style="margin-top: var(--space-6);">
+        <button class="btn" id="acct-success-close" type="button">Close</button>
+      </div>
+    </div>
+    <div class="rm-acts" style="margin-top: var(--space-6);" id="acct-add-acts">
       <button class="btn" id="acct-add-close" type="button">Close</button>
     </div>
   </div>
@@ -7359,6 +7414,28 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
       </div>
 
+      <!-- 5. Accessibility (kosmos#1214). An OFFER, not a requirement (Josh ruled
+           offer-not-require, 2026-09-01): the button opens the setting, Continue
+           proceeds whether or not it was turned on, and the optional sentence
+           points at where to do it later. It reuses the SAME action the Settings
+           box uses (/api/open-accessibility-settings) and, like that box, does
+           NOT and CANNOT grant the permission itself (TCC), so it claims no state
+           and shows no tick. The named place ("Settings, under Keeping agents
+           running") is pinned by a test against the box that actually holds the
+           button, so a Settings reorganisation cannot leave this pointing at a
+           pane that has moved.
+           📌 Placed right after the model pane (pane-3) in FILE order on purpose:
+           web.firstrun-model.test.js slices pane-3 to pane-5 to isolate the model
+           step, so this pane must remain the one that follows pane-3. -->
+      <div class="fr-pane" id="fr-pane-5" hidden>
+        <p>Kosmos agents can work in your other applications on this computer, not
+           just inside Kosmos. Turning on accessibility is what lets them.</p>
+        <button class="btn" id="fr-a11y-open" type="button">Open Accessibility settings</button>
+        <p class="fr-msg" id="fr-a11y-msg" role="status" aria-live="polite"></p>
+        <p class="fr-next">This one is optional. You can turn it on now, or later in
+           Settings, under Keeping agents running.</p>
+      </div>
+
       <!-- 4. About you. The pack's step, its copy verbatim: two required
            answers and one genuinely optional one. ⚠️ NO SKIP, at Josh's call
            ("if they don't want to tell what they wanna be called and who they
@@ -7368,7 +7445,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            difference between asking and pretending to ask. The wizard's own
            quiet exit stays: that is the trap-escape for a wrong detection,
            not a skip of this question. -->
-      <div class="fr-pane" id="fr-pane-5" hidden>
+      <div class="fr-pane" id="fr-pane-6" hidden>
         <div id="fr-you"></div>
         <div class="fr-msg" id="fr-you-msg" role="status" aria-live="polite"></div>
       </div>
@@ -7377,7 +7454,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            this machine is already on the board, because the board is built from
            `tmux list-panes`. So this screen SHOWS them rather than migrating
            them, and there is no progress bar here because there is no work. -->
-      <div class="fr-pane" id="fr-pane-6" hidden>
+      <div class="fr-pane" id="fr-pane-7" hidden>
         <div id="fr-fleet"></div>
         <!-- ⚠️ THE WAY BACK, AND IT IS THE LAST STEP ON PURPOSE. It opened the
              flow until 2026-08-22, which put an instruction in front of a
@@ -7592,6 +7669,30 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <span class="p2d">Write the job in your own words</span>
         <span class="p2full">We will start you off with an example you can change, rather than an empty page.</span>
       </label>
+      <!-- ⚠️ FOURTH OPTION: bring in an agent you already have as a file (#1652).
+           It is the "describe it yourself" path sourced from a .agent.md rather
+           than typed, so a successful read maps it to the SAME `own` role and the
+           SAME create call -- import parses, it never creates. Gated on OWN_ROLE
+           exactly like `pick-own`, because it uses that role's key. -->
+      <label class="pick2 own" hidden id="pick-import">
+        <input type="radio" name="rmode" value="import">
+        <span class="pickmark" aria-hidden="true">&#10003;</span>
+        <span class="p2n">Import an agent you already have</span>
+        <span class="p2d">Bring one in from a file</span>
+        <span class="p2full">Choose a file you saved before, or paste it, and we will fill this in from it. Your sign-in and keys are never in that file and never travel.</span>
+      </label>
+      <!-- The panel only exists once its radio is chosen (mirrors #rolepick),
+           so the screen stays the options tall until someone asks to import. -->
+      <div class="rolepick" id="importpick" hidden>
+        <label class="flabel" for="import-text">Agent file</label>
+        <textarea id="import-text" rows="6" placeholder="Paste the agent file here, or choose one below."></textarea>
+        <div class="importrow">
+          <button class="btn" type="button" id="import-file-btn">Choose a file</button>
+          <input type="file" id="import-file" accept=".md,text/markdown,text/plain" hidden>
+          <button class="btn uprime" type="button" id="import-load">Bring it in</button>
+        </div>
+        <p class="rolelimit" id="import-msg" role="status" aria-live="polite" hidden></p>
+      </div>
       </fieldset>
     </div>
     <div class="fmsg" id="roles-msg" role="status" aria-live="polite"></div>
@@ -8920,6 +9021,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="policy" aria-controls="s-sec-policy">AI Policies</button>
     <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents Talking</button>
     <button type="button" data-go="mac" aria-controls="s-sec-mac">This computer</button>
+    <button type="button" data-go="automation" aria-controls="s-sec-automation">Automation</button>
     <button type="button" data-go="usage" aria-controls="s-sec-usage">Token Usage</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
     <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Plus Account</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
@@ -8967,6 +9069,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         </div>
         <p class="fmsg" id="you-name-msg" role="status" aria-live="polite"></p>
       </div>
+      <!-- #1668: the operator's time zone. Its ONLY job is so an agent knows
+           the operator's local time when they write, so it lives beside the
+           name (the other thing agents are told about the person). The dropdown
+           defaults to this computer's own time zone; saving it makes each
+           direct message carry the local time. -->
+      <div class="field" style="margin-top:18px;">
+        <label class="flabel" for="you-tz">Your time zone</label>
+        <div class="fhint">So your agents know your local time when you write to them.</div>
+        <div class="frow">
+          <select id="you-tz" aria-label="Your time zone" disabled></select>
+          <button class="btn uprime" type="button" id="you-tz-save" aria-label="Save your time zone" disabled>Save</button>
+        </div>
+        <p class="fmsg" id="you-tz-msg" role="status" aria-live="polite"></p>
+      </div>
     </section>
   </section>
   <section class="dsec" id="s-sec-accounts" data-sec="accounts" tabindex="-1" aria-label="AI Models" hidden>
@@ -8993,8 +9109,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            🔑 THE LIST IS READ, NOT ASSERTED. `accounts.list()` finds every
            config directory on the machine that carries a login record, so the
            screen cannot disagree with what is actually there. -->
-      <div id="set-accounts"></div>
-      <p class="dhint" id="set-accounts-msg" role="status" style="margin:10px 0 0;"></p>
+      <!-- ⚠️ `tabindex="-1"` so this list can take focus PROGRAMMATICALLY after a
+           removal repaints it, without joining the tab order. It is the focus
+           target on purpose and #set-accounts-msg is NOT: that paragraph is a
+           `role="status"` live region, and focusing a live region makes assistive
+           tech read it a second time, on top of the announcement the textContent
+           write already queued. Focus a container, let the live region speak. -->
+      <div id="set-accounts" tabindex="-1"></div>
+      <p class="dhint" id="set-accounts-msg" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
       <!-- #248, LIVE: the browser sign-in the first run already has, on this
            button. POST /api/connect/start { another: true } (Angel's frozen
            contract): the engine picks the next free work directory itself
@@ -9399,6 +9521,64 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         and the agent gets on with the job. Don&rsquo;t Allow and that one job
         stops, nothing else. Kosmos only does what you asked an agent to do.
       </p>
+    </section>
+  </section>
+  <section class="dsec" id="s-sec-automation" data-sec="automation" tabindex="-1" aria-label="Automation" hidden>
+    <section class="dbox">
+      <!-- #1724 (Josh, 2026-08-31): auto-save a handoff when an agent's context
+           window fills, so a long piece of work is not lost as it nears the limit.
+           First control in the Automation section; the heartbeat (#1722) is a later
+           addition to the same section. -->
+      <h3 class="dlab">Auto-save</h3>
+      <div class="field" style="margin-top:14px;">
+        <label class="flabel" for="ah-enabled">Save your agents' progress</label>
+        <div class="fhint">When an agent's context is nearly full, Kosmos asks it to write its progress to a file, so a long piece of work is not lost as it reaches the limit. Off by default.</div>
+        <div class="frow" style="align-items:center; gap:10px;">
+          <input type="checkbox" id="ah-enabled">
+          <label for="ah-enabled" style="margin:0;">Ask agents to save their progress as their context fills</label>
+        </div>
+        <div class="frow" style="margin-top:12px; align-items:center; gap:10px;">
+          <label class="flabel" for="ah-threshold" style="margin:0;">Save when context reaches</label>
+          <select id="ah-threshold" aria-label="Context fill level to save at">
+            <option value="75">75%</option>
+            <option value="80">80%</option>
+            <option value="85">85%</option>
+            <option value="90">90%</option>
+            <option value="95">95%</option>
+          </select>
+          <button class="btn uprime" type="button" id="ah-save" aria-label="Save automation settings">Save</button>
+        </div>
+        <p class="fmsg" id="ah-msg" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+    <section class="dbox">
+      <!-- #1722 (Josh, 2026-08-31): a heartbeat that checks which agents are
+           working and asks you to chase anyone that has stopped. The later
+           addition the auto-save control above (#1724) reserved a slot for. Off
+           by default; the interval is adjustable. This is wired: the runner is
+           live (server.js), so the control is not a dead toggle. -->
+      <h3 class="dlab">Heartbeat</h3>
+      <div class="field" style="margin-top:14px;">
+        <label class="flabel" for="hb-enabled">Check on your agents</label>
+        <div class="fhint">Every so often, Kosmos looks at which of your agents are working and asks you to check on any that have stopped. It asks a question, never assumes, because an agent may be mid-something. Off by default.</div>
+        <div class="frow" style="align-items:center; gap:10px;">
+          <input type="checkbox" id="hb-enabled">
+          <label for="hb-enabled" style="margin:0;">Ask me to check on any agent that has stopped</label>
+        </div>
+        <!-- #1722: the heartbeat reaches the person through notifications, so if
+             the notify master switch is OFF this toggle does nothing, silently.
+             This conditional hint (Mona Lisa's voice) is shown ONLY when
+             notifications are off, keyed on the notify-master state in
+             paintHeartbeat -- a dedicated element, NOT hb-msg (which is the save
+             status). Hidden by default; unhidden only when notify is off. -->
+        <p class="fhint" id="hb-needs-notify" hidden>Notifications are off, so this cannot reach you. Turn them on and Kosmos will let you know when an agent has stopped.</p>
+        <div class="frow" style="margin-top:12px; align-items:center; gap:10px;">
+          <label class="flabel" for="hb-interval" style="margin:0;">Check every</label>
+          <select id="hb-interval" aria-label="How often to check on your agents"></select>
+          <button class="btn uprime" type="button" id="hb-save" aria-label="Save heartbeat settings">Save</button>
+        </div>
+        <p class="fmsg" id="hb-msg" role="status" aria-live="polite"></p>
+      </div>
     </section>
   </section>
   <!-- #853. Josh asked for real per-model, per-day token usage. The ENGINE
@@ -12995,8 +13175,171 @@ document.getElementById('you-name-save').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+/* #1668: the operator's time zone. The dropdown lists the runtime's IANA zones
+   and defaults to this computer's own, so a person who never opens Settings
+   still has the right one; saving it is what makes each direct message carry the
+   local time (server.js reads it at delivery). */
+const YOU_TZ_FALLBACK = ['America/Chicago', 'America/New_York', 'America/Denver', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu', 'UTC', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Asia/Kolkata', 'Asia/Shanghai', 'Asia/Tokyo', 'Australia/Sydney'];
+function youTzMachine() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
+}
+async function paintYouTz() {
+  const sel = document.getElementById('you-tz');
+  const btn = document.getElementById('you-tz-save');
+  const msg = document.getElementById('you-tz-msg');
+  if (!sel.options.length) {
+    let zones;
+    try { zones = (typeof Intl.supportedValuesOf === 'function') ? Intl.supportedValuesOf('timeZone') : YOU_TZ_FALLBACK.slice(); }
+    catch { zones = YOU_TZ_FALLBACK.slice(); }
+    for (const z of zones) {
+      const o = document.createElement('option'); o.value = z; o.textContent = z; sel.appendChild(o);
+    }
+  }
+  let saved = null;
+  try {
+    const r = await (await fetch('/api/settings', { cache: 'no-store' })).json();
+    saved = r && r.timezone ? r.timezone : null;
+  } catch { /* fall through to this computer's own time zone */ }
+  const want = saved || youTzMachine();
+  /* the machine's zone is not always in the enumerated list; make it selectable */
+  if (want && !Array.from(sel.options).some((o) => o.value === want)) {
+    const o = document.createElement('option'); o.value = want; o.textContent = want; sel.insertBefore(o, sel.firstChild);
+  }
+  if (document.activeElement !== sel) sel.value = want;
+  sel.disabled = false; btn.disabled = false;
+  msg.textContent = saved ? '' : "Set to this computer's time zone. Save to confirm.";
+}
+document.getElementById('you-tz-save').addEventListener('click', async () => {
+  const sel = document.getElementById('you-tz');
+  const btn = document.getElementById('you-tz-save');
+  const msg = document.getElementById('you-tz-msg');
+  const timezone = sel.value;
+  if (!timezone) { msg.textContent = 'Pick a time zone first.'; return; }
+  btn.disabled = true;
+  msg.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ timezone }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = out.because || 'That did not save.'; return; }
+    msg.textContent = 'Saved. Your agents will see your local time.';
+  } catch {
+    msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally {
+    btn.disabled = false;
+  }
+});
+/* #1724: the auto-handoff control in Settings > Automation. Loads the stored
+   setting (off/85 by default) and saves {enabled, threshold} to /api/settings. */
+async function paintAutomation() {
+  const en = document.getElementById('ah-enabled');
+  const th = document.getElementById('ah-threshold');
+  const btn = document.getElementById('ah-save');
+  const msg = document.getElementById('ah-msg');
+  try {
+    const r = await (await fetch('/api/settings', { cache: 'no-store' })).json();
+    const a = (r && r.autohandoff) || { enabled: false, threshold: 85 };
+    if (document.activeElement !== en) en.checked = a.enabled === true;
+    if (document.activeElement !== th) th.value = String(a.threshold || 85);
+    /* #1724: the sweep (engine/autohandoff-sweep.js, wired in server.js) now acts on
+       this setting, so the control is live: enabled, and honoured by the monitor as an
+       agent's context fills. The not-yet-active note was true only while the sweep was
+       missing; shipping it now would be a false statement. */
+    en.disabled = false; th.disabled = false; btn.disabled = false;
+    msg.textContent = '';
+  } catch {
+    en.disabled = true; th.disabled = true; btn.disabled = true;
+    msg.textContent = 'We could not read the automation settings just now.';
+  }
+}
+document.getElementById('ah-save').addEventListener('click', async () => {
+  const en = document.getElementById('ah-enabled');
+  const th = document.getElementById('ah-threshold');
+  const btn = document.getElementById('ah-save');
+  const msg = document.getElementById('ah-msg');
+  btn.disabled = true;
+  msg.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autohandoff: { enabled: en.checked, threshold: Number(th.value) } }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = out.because || 'That did not save.'; return; }
+    msg.textContent = en.checked
+      ? 'Saved. Kosmos will ask agents to save progress at ' + th.value + '%.'
+      : 'Saved. Auto-save is off.';
+  } catch {
+    msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally {
+    btn.disabled = false;
+  }
+});
+/* #1722: the heartbeat control in Settings > Automation, a later addition to the
+   section #1724 created. Reads the in-force setting (off/17 by default; the runner
+   reads the same file, so read == in force) and saves {on, intervalMinutes} to PUT
+   /api/heartbeat-setting. The interval choices are rendered from the server so the
+   select and the engine cannot disagree about what is valid (same shape as the
+   theme select). A failed save repaints the in-force value, never a lost pick. */
+async function paintHeartbeat() {
+  const en = document.getElementById('hb-enabled');
+  const iv = document.getElementById('hb-interval');
+  const btn = document.getElementById('hb-save');
+  const msg = document.getElementById('hb-msg');
+  const needsNotify = document.getElementById('hb-needs-notify');
+  if (!en || !iv || !btn) return;
+  try {
+    const r = await (await fetch('/api/heartbeat-setting', { cache: 'no-store' })).json();
+    if (Array.isArray(r.intervals)) {
+      const html = r.intervals.map((m) => '<option value="' + m + '">' + m + ' minutes</option>').join('');
+      if (iv.innerHTML !== html) iv.innerHTML = html;
+    }
+    if (document.activeElement !== en) en.checked = r.on === true;
+    if (document.activeElement !== iv) iv.value = String(r.intervalMinutes || 17);
+    en.disabled = false; iv.disabled = false; btn.disabled = false;
+    if (msg) msg.textContent = '';
+  } catch {
+    en.disabled = true; iv.disabled = true; btn.disabled = true;
+    if (msg) msg.textContent = 'We could not read the heartbeat setting just now.';
+  }
+  /* The heartbeat reaches the person through notifications, so show the notify-off
+     hint ONLY when the notify master switch is off. Best-effort and separate from
+     the setting read above: a failed read HIDES the hint (never show a false
+     "notifications off" warning), and it keys its own element, not hb-msg. */
+  if (needsNotify) {
+    try {
+      const n = await (await fetch('/api/notify-setting', { cache: 'no-store' })).json();
+      needsNotify.hidden = n.on === true;
+    } catch { needsNotify.hidden = true; }
+  }
+}
+document.getElementById('hb-save') && document.getElementById('hb-save').addEventListener('click', async () => {
+  const en = document.getElementById('hb-enabled');
+  const iv = document.getElementById('hb-interval');
+  const btn = document.getElementById('hb-save');
+  const msg = document.getElementById('hb-msg');
+  btn.disabled = true; if (msg) msg.textContent = 'Saving...';
+  try {
+    const res = await fetch('/api/heartbeat-setting', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ on: en.checked, intervalMinutes: Number(iv.value) }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { if (msg) msg.textContent = out.error || 'That did not save.'; paintHeartbeat(); return; }
+    if (msg) msg.textContent = out.on
+      ? 'Saved. Kosmos will check on your agents every ' + out.intervalMinutes + ' minutes.'
+      : 'Saved. The heartbeat is off.';
+  } catch {
+    if (msg) msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally { btn.disabled = false; }
+});
 async function paintSettings() {
   paintYouName();
+  paintYouTz();
+  paintAutomation();
+  paintHeartbeat();
   const loc = document.getElementById('set-applocation');
   const mach = document.getElementById('set-machine');
   try {
@@ -13221,9 +13564,21 @@ function accountGroupsHtml(list, rowHtml) {
   }).join('');
 }
 
+/* 🛑 ONE TIMER, MODULE SCOPE, CANCELLED BY EVERY WRITER TO #set-accounts-msg.
+   The disabled default Disconnect defers its refusal by 60ms so a status region
+   re-announces an unchanged sentence. That deferred write can land on top of a
+   newer message, and an earlier version of this held the id as an EXPANDO ON THE
+   BUTTON -- which `paintAccounts` destroys wholesale via `box.innerHTML = ...`,
+   so after any repaint NOTHING COULD CANCEL IT. Module scope outlives the node. */
+let acctSayTimer = null;
+function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctSayTimer = null; } }
+
 async function paintAccounts() {
   const box = document.getElementById('set-accounts');
   const msg = document.getElementById('set-accounts-msg');
+  /* A repaint is itself a writer to that line ("Checking your accounts..."), so
+     it cancels too: otherwise a refusal scheduled 60ms ago lands over it. */
+  acctCancelSay();
   if (!box) return;
   /* #881: GET /api/accounts now confirms each account live with Anthropic
      (a real check per account, not an instant directory stat), so this
@@ -13256,6 +13611,13 @@ async function paintAccounts() {
     if (mine !== ACCT_EPOCH) return;
   } catch {
     if (mine !== ACCT_EPOCH) return;
+    /* 🛑 CANCEL HERE TOO. The cancel at the top of this function runs BEFORE the
+       await, so these two writes were the third and fourth exceptions to the
+       "every writer cancels" claim above, and this diff has already corrected
+       that claim twice. The window is not milliseconds: that fetch is a live
+       per-account check, so pressing the disabled default Disconnect during a
+       repaint shows the deferred refusal at 60ms and then wipes it. */
+    acctCancelSay();
     if (msg) msg.textContent = '';
     // ⚠️ Never "one account": a failed read must not shrink the list.
     box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">We could not read the accounts on this computer.</p>';
@@ -13265,6 +13627,7 @@ async function paintAccounts() {
     return;
   }
   accountsRead(list);
+  acctCancelSay();  /* post-await writer, same reason as the catch above */
   if (msg) msg.textContent = '';
   /* 🔑 GROUPED BY PROVIDER (kosmos#1393). Josh, twice on 2026-08-28: the Claude
      Max 20x line "is still not in that bounding box that it's supposed to be in,
@@ -13288,6 +13651,22 @@ async function paintAccounts() {
     /* Empty for every row whose name is already unique, which is nearly all of
        them. Present only where two rows would otherwise read alike. */
     const qual = acctQual.get(String(a.dir || '')) || '';
+    /* 🛑 THE PROVIDER IS THE FALLBACK QUALIFIER, AND #1659 IS WHY IT HAS TO BE.
+       `accountQualifiers` keys on `email || keyTail`, so a row yielding NEITHER
+       gets `qual = ''` and its name falls back to the label. This file already
+       records that as deferred finding 8 and says outright it goes live the moment
+       such a row exists.
+       ⚠️ WHAT #1659 CHANGED IS THE CONSEQUENCE, NOT THE CAUSE. Until this branch
+       the two controls read "Disconnect work1" and "REMOVE work1", so the VERB was
+       doing disambiguation work by accident. Relabelling OpenAI to Disconnect
+       removed that accident, and `~/.claude-work1` beside `~/.codex-work1` would
+       give two buttons whose accessible name is exactly "Disconnect work1".
+       ⇒ The provider is what actually differs between them, so it is what the
+       parenthetical falls back to. Always present, so there is no branch that can
+       render an unqualified name. The VISIBLE qualifier tag below is unchanged:
+       this is the accessible name only, where the ambiguity is unrecoverable
+       because a screen reader user cannot see which group the row sits under. */
+    const qualName = qual || (isOpenai ? 'OpenAI' : 'Claude');
     const qualTag = qual
       ? '<span class="acct-qual" title="' + esc('Two accounts on this computer are signed in as ' + (a.email || 'this login') + '. This one is ' + qual + '.') + '">' + esc(qual) + '</span>'
       : '';
@@ -13315,13 +13694,35 @@ async function paintAccounts() {
        below is unaffected: that is the account's organisation, a different fact. */
     /* #770 (Josh, 2026-08-24 22:31): one box per account, a green
        Connected mark, a Disconnect link at the bottom that asks first.
-       ⚠️ DISCONNECT IS DISABLED, not wired to a confirm modal that opens
-       onto nothing: the engine has no route that ends an account's
-       connection yet (only `accounts.list()`/`share`, which read and
-       relink history -- neither closes anything), so a live button here
-       would be exactly the "nothing that looks live may do nothing"
+       ✅ DISCONNECT IS LIVE (#1659). It was disabled here for as long as
+       the engine had no route that ended an account's connection, which was
+       the honest state rather than a gap: a live button opening onto nothing
+       is exactly the "nothing that looks live may do nothing"
        shape this file already refuses for the external-person/agent
-       doors. Wire the modal when that route exists. */
+       doors.
+       ✅ IT ASKS FIRST NOW, on both providers, and this paragraph used to say the
+       opposite. #1702 (card #1683) landed the arm-in-place confirm and it is bound
+       over `[data-forget]` below, which this card is what puts on Claude rows, so
+       the Claude half arrived with the merge exactly as predicted. The claim that
+       "removal is one click" was true when written and was falsified by a merge
+       rather than by an edit, which is why nobody caught it: a stale comment does
+       not fail a test.
+       🛑 BUT DO NOT READ THAT AS "MERELY INHERITED". The exposure is larger
+       here: undoing an OpenAI removal costs a re-paste of an API key, undoing a
+       Claude one costs an OAuth sign-in, and this is the provider every user
+       has. That is WHY the confirm mattering here is not a formality, and it is
+       a reason to keep it rather than a reason to expect its absence.
+       ⚠️ THIS SENTENCE USED TO CALL THE CONFIRM "an open gap rather than
+       fixed on this card", which contradicted the paragraph above it the moment
+       #1702 merged. Both described the same control, in the same block, and a
+       reader trusting this one would have concluded a Claude row removes on a
+       single click. `web.ask-first-1683.test.js` proves it arms on the first
+       press. Kept as a marker: this is the SECOND time this comment went stale
+       by a merge rather than by an edit. The confirm is kosmos#1683's, landing as #1702, and it
+       binds generically over `[data-forget]` -- which this card is what puts on
+       Claude rows, so the Claude half arrives on the rebase rather than as new
+       code. An earlier version of this comment said the browser gate could not
+       run here; that was a bad measurement and the gate runs and passes. */
     /* #881: THREE STATES, NOT A HARDCODED ONE. This badge used to be
        unconditional markup -- every account row said "Connected" no
        matter what. GET /api/accounts now confirms each Claude row live
@@ -13370,14 +13771,21 @@ async function paintAccounts() {
       + '</b>' + qualTag + org + '</div>'
       + connBadge + '</div>'
       + shared
-      /* 🛑 LIVE FOR OPENAI (#1372), STILL DEAD FOR CLAUDE (#1184), AND THE
-         SPLIT IS DELIBERATE. The old title said disconnecting "has no way to
-         tell agents on it to stop first". For OpenAI that is now FALSE: the
-         route enumerates the agents on an account and REFUSES while any is on
-         it, NAMING them. For Claude nothing has changed, so its button keeps
-         the honest dead label rather than inheriting a capability it does not
-         have. Two providers, two states, one row builder; the wrong move is to
-         enable both because one of them works. */
+      /* ✅ LIVE FOR BOTH PROVIDERS (#1372 OpenAI, #1659 Claude). Each route
+         enumerates the agents on an account and REFUSES while any is on it,
+         NAMING them, so the old "has no way to tell agents on it to stop first"
+         is false on both sides now.
+         📌 THE SPLIT THAT USED TO BE HERE WAS RIGHT WHILE IT LASTED and the
+         reason is worth keeping: two providers were in two states, and the
+         wrong move would have been enabling both because one of them worked.
+         What changed is that the Claude half was built, not that the rule
+         relaxed.
+         ⚠️ THE TWO ARE NOT IDENTICAL, and the difference is one refusal.
+         `accounts.forgetAccount` REFUSES THE DEFAULT `~/.claude`, which its
+         OpenAI counterpart allows for `.codex`. `prepare()` symlinks every
+         account Kosmos makes at `~/.claude/projects`, so moving the default
+         strands the history of accounts that are not being removed. The words
+         differ; the act does not. */
       /* 🛑 A WAY BACK INTO AN ACCOUNT YOU ALREADY HAVE (#1492). Josh's sister's
          Claude login expired, Settings correctly said not connected, and the only
          affordance on the screen was "Add a provider" -- which signs in to a NEW
@@ -13397,14 +13805,100 @@ async function paintAccounts() {
          sign-in, which is the shape #1372 kept these two providers apart for. */
       + (isOpenai ? ''
         : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
+          /* 🔑 CONDITIONAL HERE, UNCONDITIONAL ON DISCONNECT, AND THE ASYMMETRY IS THE
+             POINT. `qualName` falls back to the provider name so a Disconnect always
+             says WHICH account it removes, because Disconnect appears on both
+             providers and a wrong press is expensive. Reauth appears on CLAUDE ROWS
+             ONLY, so an appended "(Claude)" cannot disambiguate anything: it lands on
+             every ordinary machine as pure verbosity, on the surface where verbosity
+             costs most. When `qual` IS set the two agree, so the disambiguating case
+             is untouched. Pinned below so this is a decision rather than a leftover. */
           + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
           + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>')
       + (isOpenai
+        /* 🔑 ONE WORD FOR ONE ACT (#1659). This said "Remove" while the Claude
+           row said "Disconnect", for the same act in the same row builder --
+           the exact divergence this card exists to close, one layer up from
+           the handler. "Disconnect" is the operator's own word for it. The
+           engine, the route and the sentence are unchanged; only the label is. */
+        /* 🔑 THE SAME ACT UNDER THE SAME WORD EXPLAINS ITSELF THE SAME WAY. The
+           Claude button carries a title and this one carried none, so a person read a
+           reassurance before pressing on one provider and nothing at all on the other.
+           That is the identical asymmetry this branch already closed one layer down
+           when it ported `movedTo` onto this route.
+           ⚠️ ONLY THE SHARED HALF. The history clause is DEFAULT-ONLY for OpenAI,
+           because `codexsession` reads the default home alone, so repeating it here
+           would assert for every labelled account a thing that is false of it.
+           "Nothing is deleted" is true of both. */
         ? '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
-          + 'aria-label="Remove ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '">Remove</button>'
-        : '<button class="acct-disconnect" type="button" disabled '
-          + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
-          + 'title="Not built yet: disconnecting an account here has no way to tell agents on it to stop first">Disconnect</button>')
+          + 'data-forget-provider="openai" '
+          + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '" '
+          /* 🛑 PER-ROW, BECAUSE THE CONSEQUENCE IS PER-ROW. An unconditional tooltip
+             here told the person that disconnecting the DEFAULT `~/.codex` was
+             consequence-free BEFORE the press, and then the route added "Kosmos stops
+             looking inside it" AFTER it. Gaining a consequence you were not warned
+             about is worse than never being told, and it is the exact asymmetry this
+             branch keeps closing. `a.isDefault` was in scope the whole time; the
+             Claude branch on the next line already keys on it.
+             The Claude side needs no conditional because its clause is true of every
+             Claude row. Here it is true of the default alone, since `codexsession`
+             reads transcripts out of `defaultHome()` only. */
+          + 'title="Takes this account off the list. Its sign-in file stays on this '
+          + 'computer, so nothing is deleted.'
+          + (a.isDefault ? ' Kosmos stops looking inside it, so any history kept only '
+            + 'there will not appear any more.' : '')
+          + '"'
+          + '>Disconnect</button>'
+        : (a.isDefault
+          /* 🛑 THE DEFAULT ROW GETS A DISABLED BUTTON, BECAUSE THE ENGINE
+             REFUSES IT. `accounts.forgetAccount` will not move `~/.claude`:
+             `prepare()` symlinks every account Kosmos makes at
+             `~/.claude/projects`, so removing it strands the history of
+             accounts nobody asked to remove. `list()` emits the default row
+             first WHENEVER it is signed in (it is skipped when
+             `identityOf(~/.claude.json)` is null, so a machine signed in only
+             on a named account renders none), so a live button here is one
+             nearly every user sees and NONE can use -- the "nothing that looks live may do nothing" shape this
+             file refuses elsewhere, and it would carry a title promising an act
+             it cannot perform. The title states the refusal.
+            🛑 IT DOES NOT STATE A WAY OUT, and this clause used to claim it did.
+            The engine says outright that the default refusal deliberately names
+            none, because both candidate remedies were removed as unreachable: one
+            implies the button then works, the other names an affordance this page
+            does not have. A leftover promise like that invites the next reader to
+            add a remedy that does not exist. */
+          /* ⚠️ THE REASON RIDES THE aria-label, NOT ONLY THE title. A `title`
+             on a DISABLED control is not announced, so a screen-reader user got
+             "Disconnect main@example.com" with no hint it is unavailable or
+             why. Repo rule is WCAG AA, and this same function already states
+             the principle for the connection badge: the real sentence is the
+             visible text AND the label, never a reason hidden in a hover. */
+          /* 🛑 `aria-disabled`, NOT `disabled`. A `disabled` button is removed
+             from the tab order, so a keyboard user tabbing this row never lands
+             on it and never hears the reason -- and the repo's own rule names
+             non-focusable controls as a WCAG AA failure. aria-disabled keeps it
+             focusable and announces the state.
+             ✅ IT CANNOT ACT, and the reason stated here used to be WRONG in a way
+             that invited deleting live code. It said "there is no listener to
+             fire". There IS one: the same diff binds a click handler to
+             `.acct-disconnect[aria-disabled="true"]` below, precisely so a press
+             says WHY instead of doing nothing.
+             ⇒ What actually makes softening the attribute safe is that this row
+             carries no `data-forget`, so the REMOVAL handler never selects it. The
+             refusal is enforced by the absence of that attribute, not by the
+             absence of all wiring.
+             ⚠️ The distinction is not pedantry: a reader who believed the old
+             sentence would conclude the default row has no handlers and delete the
+             no-op refusal as dead code, which is the exact "pressable but silent"
+             failure the handler exists to prevent. */
+          ? '<button class="acct-disconnect" type="button" aria-disabled="true" '
+            + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')'
+              + '. Unavailable: Kosmos does not remove this computer\u2019s main Claude folder." '
+            + 'title="Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.">Disconnect</button>'
+          : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
+            + 'data-forget-provider="claude" '
+            + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '" '
+            + 'title="Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted, and Kosmos stops looking inside it, so any history kept only there will not appear any more.">Disconnect</button>'))
       + '</div>';
   };
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
@@ -13426,12 +13920,156 @@ async function paintAccounts() {
       openAcctReauth(btn.dataset.reauth, (row && row.email) || '');
     });
   }
+  /* 🛑 THE OTHER HALF OF `aria-disabled`, WITHOUT WHICH IT IS WORSE THAN
+     `disabled`. Making the default row's control focusable so a keyboard user
+     can reach the reason ALSO makes it pressable, and the shared handler below
+     binds only `[data-forget]`, which this branch deliberately lacks. So Enter
+     or Space did nothing at all, with no feedback -- the exact
+     nothing-that-looks-live-may-do-nothing shape, newly reachable by keyboard
+     because of the accessibility fix.
+     ✅ IT READS THE BUTTON'S OWN `title` FIRST, so the normal path repeats
+        nothing.
+     🛑 BUT IT DOES CARRY A COPY, AND THIS COMMENT USED TO DENY IT. The fallback
+        sixteen lines below is a literal of the same sentence, and the comment
+        there argues FOR it: an empty fallback would clear the region and produce
+        exactly the silence this handler exists to prevent. Both are right, and
+        together they made one handler whose two comments described it oppositely.
+     📌 The honest count is FOUR copies (the aria-label short form, the title,
+        that fallback, and the engine), of which a test pinned exactly ONE PAIR,
+        because `pull()` anchors on `title="`. The fallback is pinned to the
+        engine now too, so the copy this comment used to deny cannot drift. */
+  for (const btn of box.querySelectorAll('.acct-disconnect[aria-disabled="true"]')) {
+    btn.addEventListener('click', () => {
+      /* 📌 NO `preventDefault`: a `<button type="button">` defaults to nothing,
+         so calling it read as though IT were what suppresses the removal. What
+         suppresses the removal is the absent `data-forget`, and a line that
+         looks like the guard but is not is the shape this branch keeps finding.
+         ⚠️ CLEARED FIRST, THEN SET, because an unchanged `textContent` in a
+         status region is not reliably re-announced: pressing twice would be
+         silent for a screen-reader user, which is a smaller version of the
+         defect this handler exists to fix. */
+      if (!msg) return;
+      /* 📌 NO EMPTY FALLBACK. `btn.title || ''` would clear the region and
+         produce exactly the silence this handler exists to prevent, on the day
+         somebody drops the title from that branch. If there is nothing to say,
+         say the short form rather than nothing. */
+      const say = btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.';
+      /* ⚠️ setTimeout, NOT requestAnimationFrame: rAF is throttled or suspended
+         outright in a hidden or background tab, so the clear-then-set would
+         leave the region BLANK there -- worse than the unchanged text it is
+         working around. A frame is also arguably too fast for assistive tech to
+         register the change. */
+      /* 🛑 THE TWO WRITERS TO THIS LINE CAN RACE, AND THE TIMER IS WHAT
+         INTRODUCED IT. Press the disabled default row, then a live Disconnect
+         within 60ms: the deferred refusal lands DURING the in-flight removal and
+         shows the wrong sentence over a request that is still running. The timer
+         id is the MODULE-SCOPE `acctSayTimer`, NOT a button expando. This comment
+         said "held on the button" while the code four hundred lines up says the
+         expando version was the bug and why: `paintAccounts` destroys the node via
+         `box.innerHTML`, so nothing could cancel after a repaint. One file, one
+         mechanism, two comments describing it oppositely. */
+      acctCancelSay();
+      msg.textContent = '';
+      acctSayTimer = setTimeout(() => {
+        acctSayTimer = null;
+        msg.textContent = say;
+        /* 🛑 THE DEFAULT ROW IS EMITTED FIRST AND THIS MESSAGE LINE SITS AFTER
+           THE WHOLE LIST (`#set-accounts` is emitted
+               before `#set-accounts-msg`; located by ID rather than by line,
+               because the numbers this carried were wrong in BOTH trees, and a
+               dead citation reads exactly like a live one). On a multi-account machine the
+           feedback for pressing the TOPMOST button renders below every other
+           account box, possibly off-screen at the moment the person acts. The
+           tooltip and aria-label cover hover and screen readers; a mouse user
+           who clicks and looks gets nothing where they are looking. */
+        if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+      }, 60);
+    });
+  }
   for (const btn of box.querySelectorAll('[data-forget]')) {
+    /* #1683: ASK FIRST. Josh asked for exactly this in #770: "a
+       Disconnect link at the bottom that asks first". It shipped without
+       the asking half, so one click removed an account with no confirm.
+       📌 The arm-in-place idiom already in this file (17800, 18285,
+       20522): first press arms and relabels, second press acts, blur
+       disarms. No modal, no state outside this closure, no repaint.
+       🛑 THE LABEL DELIBERATELY DOES NOT SAY "for good", WHICH THE
+       SIBLING IDIOMS DO. The engine FORGETS rather than deletes: it
+       renames the directory and the sign-in file survives, and the
+       success sentence below is careful to say so, because "removed"
+       and "deleted" are different promises. Copying "Remove it for
+       good?" would make the confirm contradict the sentence after it. */
+    let armed = false;
+    const REST = btn.textContent;
+    /* 🛑 THE ARMED STATE WAS INVISIBLE TO ASSISTIVE TECH, AND THE CONFIRM IS THE
+       SAFETY STEP OF A DESTRUCTIVE ACTION. `aria-label` WINS over name-from-content
+       in accessible-name computation, so relabelling `textContent` to "Remove it?"
+       changed what a sighted person sees and NOTHING a screen reader announces: the
+       name was identical before and after arming, both presses. So the whole "ask
+       first" promise of #1683 was sighted-only on a control whose cost is an OAuth
+       sign-in.
+       ⚠️ AND IT IS NOT FIXED BY DROPPING THE LABEL: the resting name carries the
+       account identity, which is what tells two rows apart. Keep the identity and
+       APPEND the state, so the armed name says both which account and what the next
+       press does.
+       📌 Inherited from the OpenAI control and fixed for both here, because #1659 is
+       the change that makes this button live on Claude rows too. */
+    const REST_LABEL = btn.getAttribute && btn.getAttribute('aria-label');
+    const armLabel = (on) => {
+      if (!REST_LABEL || !btn.setAttribute) return;
+      /* 🛑 THE VISIBLE WORDS COME FIRST, AND THAT IS WCAG 2.5.3 (Label in Name,
+         Level A), NOT A STYLE CHOICE. My first version of this said
+         `REST_LABEL + ', press again to remove'`, so the armed button SHOWED
+         "Remove it?" while its accessible name contained no such string. A speech
+         input user saying "click Remove it?" could not operate the confirm step of
+         a destructive control: I fixed the state being unannounced and introduced a
+         different failure on the same element, one iteration later.
+         ⇒ The armed name now STARTS with the visible text and keeps the account
+         identity after it, so it satisfies both: the words on screen are sayable,
+         and the row is still identified. */
+      btn.setAttribute('aria-label', on ? 'Remove it? ' + REST_LABEL : REST_LABEL);
+    };
+    btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false); } });
     btn.addEventListener('click', async () => {
+      /* 🛑 THE PROVIDER GUARD RUNS BEFORE THE ARMING, and it did not until now even
+         though the plan said it must. An unmarked button used to ARM on the first
+         press and only refuse on the second, so a wiring fault showed the person a
+         control reading "Remove it?" that could never remove anything: the confirm
+         promised a pending action that did not exist.
+         ⚠️ It was safe, and safe is not the same as honest. Refusing on the FIRST
+         press is what the plan documented, and a decision recorded in the plan that
+         the code does not implement is a stale comment with extra steps. */
+      const marked = btn.dataset.forgetProvider;
+      if (marked !== 'claude' && marked !== 'openai') {
+        /* `acctCancelSay()` because this is a WRITER to #set-accounts-msg, and the
+           module comment above claims EVERY writer cancels the timer. It was the
+           one that did not, so a deferred announcement could land on top of this
+           wiring-fault message and replace it. A comment that says "every" is
+           falsified by one exception, and this was the exception. */
+        acctCancelSay();
+        if (msg) msg.textContent = 'we could not tell which provider that account belongs to, so nothing was changed';
+        return;
+      }
+      if (!armed) { armed = true; btn.textContent = 'Remove it?'; btn.classList.add('armed'); armLabel(true); return; }
       btn.disabled = true;
+      acctCancelSay();
       if (msg) msg.textContent = '';
       try {
-        const res = await fetch('/api/accounts/openai', {
+        /* #1659: ONE handler, two providers. The endpoint is the only
+           difference, and it is read off the button rather than branched on
+           here, so the two rows cannot drift apart in behaviour -- which is the
+           thing that made this card necessary in the first place. */
+        /* ⚠️ AN UNMARKED BUTTON IS A BUG, NOT AN OPENAI ONE. Defaulting a
+           missing attribute to 'openai' would send a dropped-attribute or a
+           third provider to the wrong endpoint and surface as "that is not an
+           OpenAI account on this computer", which reads as a data problem
+           rather than as the wiring fault it is. */
+        /* The provider was already validated at the TOP of this handler, before
+           the arming, so an unmarked button cannot reach here. `marked` is the
+           outer one; this used to redeclare it and repeat the refusal, which was
+           dead the moment the guard moved. */
+        const provider = marked;
+        const res = await fetch('/api/accounts/' + provider, {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ dir: btn.dataset.forget }),
@@ -13448,16 +14086,78 @@ async function paintAccounts() {
            right words and every server test passes on them; nothing below the
            page can see a sentence that is written and then wiped. */
         await paintAccounts();
-        if (msg) msg.textContent = (out && out.because) || 'Removed.';
+        if (msg) {
+          /* THE FOURTH WRITER, and the count in the module comment has now been
+             wrong three times. This one lands after TWO awaits, so the cancel at
+             the top of the handler cannot reach it, and `paintAccounts()` has its
+             own cancel that runs BEFORE this line rather than after. A press on the
+             still-pressable default row during the repaint schedules a 60ms
+             deferred write that replaces THIS sentence, which is the one carrying
+             `movedTo`, the fact that makes the removal recoverable. */
+          acctCancelSay();
+          msg.textContent = (out && out.because) || 'Removed.';
+          /* Same reason as the disabled-row handler: this line sits AFTER the
+             whole account list, so feedback for a row near the top can render
+             off-screen at the moment the person acts. The class was found once
+             and fixed at one of its call sites. */
+          if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+          /* 🛑 AND MOVE FOCUS. THE STATED CAUSE USED TO BE THE REPAINT AND THAT WAS
+             WRONG: `btn.disabled = true` at the TOP of this handler already drops
+             focus to `<body>`, because a focused element that becomes disabled loses
+             focus. That happens before any fetch and on BOTH paths, so the repaint is
+             the second cause, not the first.
+             ⚠️ FOCUS THE LIST, NOT THE MESSAGE. #set-accounts-msg is a role="status"
+             live region: focusing it makes assistive tech read the sentence a second
+             time on top of the announcement the write above already queued. */
+          const acctBox = document.getElementById('set-accounts');
+          if (acctBox && acctBox.focus) acctBox.focus({ preventScroll: true });
+        }
       } catch (err) {
         btn.disabled = false;
-        if (msg) msg.textContent = String((err && err.message) || 'we could not remove that account');
+        if (msg) {
+          /* `acctCancelSay()` HERE, not only before the fetch. The cancel at the
+             top of this handler runs BEFORE the await, and the default row's
+             aria-disabled button stays pressable during the request: a press
+             inside that window schedules a 60ms deferred write that lands ON TOP
+             of this sentence. This one names the agents blocking the removal,
+             which the comment below calls the one message they must act on.
+             🛑 The plan called the provider early return "the ONE exception" to
+             the every-writer-cancels rule. It was not. This was the second and
+             the share handler was the third. A count in a comment is a claim. */
+          acctCancelSay();
+          msg.textContent = String((err && err.message) || 'we could not remove that account');
+          /* 🛑 THIS ONE MATTERS MOST OF THE THREE. On the failure path the
+             sentence is a REFUSAL that names the agents blocking the removal
+             ("marlowe is running on this account"), which the person has to read
+             to know what to do next. Rendering it below every other account box
+             is the worst place for the one message they must act on. */
+          if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+        }
+        /* Restore the resting label, or a refused remove leaves the button
+           reading "Remove it?" and the NEXT single click acts. */
+        armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
+        /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH GETS AND
+           THIS ONE DID NOT. `btn.disabled = true` at the top of this handler
+           dropped focus to `<body>` before the request went out, so without this a
+           keyboard or screen-reader user is left at the top of the document while
+           the refusal that names the blocking agents renders far below them.
+           ⚠️ AFTER THE DISARM ON PURPOSE, so the name announced on arrival is the
+           resting one, which is what the button will actually do if pressed again.
+           🛑 THE REASON I FIRST GAVE FOR THIS ORDER WAS WRONG and is corrected here
+           rather than swapped quietly: I wrote that focusing first would announce
+           "Remove it?". It would not have. `aria-label` WINS over
+           name-from-content, so the textContent swap was never announced at all,
+           in either order. That was not a nitpick about my reasoning, it was a
+           real defect hiding behind it: the confirm was sighted-only until
+           `armLabel` above started carrying the state into the accessible name. */
+        if (btn.focus) btn.focus({ preventScroll: true });
       }
     });
   }
   for (const btn of box.querySelectorAll('[data-share]')) {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
+      acctCancelSay();
       if (msg) msg.textContent = '';
       try {
         const res = await fetch('/api/accounts/share', {
@@ -13470,6 +14170,9 @@ async function paintAccounts() {
         await paintAccounts();
       } catch (err) {
         btn.disabled = false;
+        /* Same reason as the forget catch above: this write lands after an await,
+           so the pre-fetch cancel cannot protect it. */
+        acctCancelSay();
         if (msg) msg.textContent = String((err && err.message) || 'we could not change that');
       }
     });
@@ -13548,6 +14251,7 @@ function acctFlowPaint(st) {
     note.innerHTML = '<span class="acct-ok" aria-hidden="true">\u2713</span> Connected';
     note.classList.add('is-connected');
     paintAccounts();
+    acctShowSuccess('your Claude account');
   } else if (phase === 'stuck' || phase === 'interrupted' || phase === 'failed') {
     /* ⚠️ EVERY OTHER ARM PUTS THE GREEN BACK. A recheck can move from connected
        to a failure, and a note left wearing the tick after that is the same
@@ -13872,6 +14576,30 @@ function openAcctReauth(dir, email) {
   acctPick('claude', { focus: false });
   document.getElementById('acct-add').focus();
 }
+/* kosmos#1656: switch the add-a-provider modal into a success state. acctShowSuccess
+   hides the sign-in controls (subtitle, provider field, both flows, the plain Close
+   row) and shows the reused green check + the account it connected to + a way out.
+   closeAcctAdd puts the modal back to its form state on the way out, so the next open
+   is clean. */
+function acctShowSuccess(accountLabel) {
+  /* kosmos#1656: only paint success while the modal is actually open. The Claude path
+     is poll-driven (acctFlowWatch), so a sign-in that completes AFTER the person has
+     dismissed the modal must not mutate a hidden modal's state, which would strand a
+     stale "Success!" with no provider form on the next open. closeAcctAdd has already
+     put the modal back to its form state by then, so a no-op here is the clean outcome. */
+  if (document.getElementById('acct-add-modal').hidden) return;
+  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-add-acts']
+    .forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
+  /* Unhide the role="status" region BEFORE writing its text: a polite live region
+     mutated while hidden is not reliably announced, so the order is what makes a
+     screen reader hear the success, not just show it. */
+  document.getElementById('acct-success').hidden = false;
+  document.getElementById('acct-success-say').textContent = 'Successfully connected to ' + accountLabel + '.';
+  /* Name the dialog by its "Success!" heading, not the form title we just hid, so a
+     screen reader entering the dialog on success does not hear "Add a provider". */
+  document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-success-t');
+  document.getElementById('acct-success-close').focus();
+}
 function openAcctAdd() {
   const modal = document.getElementById('acct-add-modal');
   const sel = document.getElementById('acct-provider-pick');
@@ -13905,11 +14633,20 @@ function closeAcctAdd() {
      disabled Start button behind a stale confirm panel for the next open, so
      the confirm is reset on the way out (#1587 review). */
   acctAddConfirmReset();
+  /* kosmos#1656: return the modal to its form state on the way out, so the next
+     open is clean: the success panel gone and the sign-in controls back. */
+  const success = document.getElementById('acct-success');
+  if (success) success.hidden = true;
+  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts'].forEach((id) => {
+    const el = document.getElementById(id); if (el) el.hidden = false;
+  });
+  document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-add-t');
   document.getElementById('acct-add-modal').hidden = true;
   document.getElementById('acct-add-open').focus();
 }
 document.getElementById('acct-add-open').addEventListener('click', openAcctAdd);
 document.getElementById('acct-add-close').addEventListener('click', closeAcctAdd);
+document.getElementById('acct-success-close').addEventListener('click', closeAcctAdd);
 document.getElementById('acct-add-modal').addEventListener('click', (e) => { if (e.target.id === 'acct-add-modal') closeAcctAdd(); });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
@@ -13946,11 +14683,13 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
       throw e;
     }
     // The key leaves the field the moment it is stored: nothing on screen keeps it.
+    const enteredLabel = labelField.value.trim();
     keyField.value = '';
     labelField.value = '';
     const a = out && out.account;
     msg.textContent = 'Added' + (a && a.keyTail ? ': API key ending ' + a.keyTail : '') + '.';
     await paintAccounts();
+    acctShowSuccess(enteredLabel || (a && a.keyTail ? 'your OpenAI account (key ending ' + a.keyTail + ')' : 'your OpenAI account'));
   } catch (err) {
     msg.textContent = String((err && err.message) || 'We could not add that account.');
     /* kosmos#979: the runner can go missing between opening this form and
@@ -14825,41 +15564,20 @@ function paintOrg() {
   }
   orgLiveStart(map, placed, cx, cy, size);
   const unplaced = agents.length - placed.size;
-  /**
-   * The flat-fleet line (Mona Lisa, after #137 shipped). Everybody's first org
-   * chart is a wheel of spokes, because nobody has answered the question yet,
-   * and the view had no words for that state in the build OR in the drawing.
-   *
-   * ⚠️ THE SHOW RULE IS WRITTEN SO IT CAN FAIL, not as an intention:
-   *   SHOW   at least one agent AND not one of them has a reportsTo
-   *   HIDE   the moment any agent has one, and it does not come back unless
-   *          every one is cleared again
-   *   NEVER  with no agents at all -- the board's own empty state owns that
-   *          screen, and two empty states on one view is exactly the busy-ness
-   *          Settings was cut down to avoid.
-   * The at-least-one clause is the one that earns its keep: without it the line
-   * greets somebody on a fresh install who has no agents and therefore no
-   * possible use for it.
-   *
-   * 🔑 "You can change that" rather than "set up your team": a flat fleet is a
-   * legitimate way to run this, and the line must not read as a chore list. It
-   * echoes the field's own label so the words match the control.
-   */
-  const anyManaged = agents.some((a) => a && a.profile && typeof a.profile.reportsTo === 'string'
-    && a.profile.reportsTo.trim());
+  /* The flat-fleet hint that used to sit here is gone (Josh, 2026-08-31). It read
+     "Assign agents to each other to create a hierarchy." on a board whose agents all
+     report to nobody. The reasoning is kept for whoever considers adding one back: the
+     drawing already shows the cause (nobody reports, so everyone is on one ring), so
+     the only thing a hint could add was the action, and Josh's read is that a flat
+     fleet is a legitimate way to run this, not a state to nag about. The line was cut
+     to the action alone on 2026-08-22 and to nothing on 2026-08-31.
+     🔑 THE unplaced BRANCH BELOW STAYS: "could not be placed" is a real state the
+     drawing cannot show on its own, unlike the flat-fleet case which the ring already
+     tells. Only render at least one agent AND none placed, never on the empty board
+     (its own empty state owns that screen). */
   note.textContent = unplaced > 0
     ? 'One or more agents could not be placed, so they are not drawn.'
-    : (!anyManaged
-      /* 🔑 JOSH'S OWN WORDS, 2026-08-22, replacing two sentences of mine: "I
-         don't know that we need that much text. Let's say centered something
-         like 'assign agents to each other to create a hierarchy'".
-         ⚠️ WHAT THE LONGER VERSION WAS DOING was explaining the CAUSE (nobody
-         reports to anyone, so everyone is on one ring) before naming the
-         action. Under a picture that already shows one ring, the cause is on
-         screen and only the action is missing. His version is shorter because
-         it drops the half the drawing already says. */
-      ? 'Assign agents to each other to create a hierarchy.'
-      : '');
+    : '';
 }
 
 /* Build the live state from what was just painted, seeded from the last
@@ -16008,6 +16726,10 @@ let TALK_FLIGHT = null;
  * words exist only in the DOM.
  */
 const TALK_DRAFTS = {};
+/* #967: the Terminal tab's respond-in-context box parks its draft per agent too,
+   so switching agents never loses a half-typed reply and never carries it onto
+   the next agent's window. Mirrors TALK_DRAFTS. */
+const TERM_DRAFTS = {};
 /**
  * The question this person has just answered, per agent, and when.
  *
@@ -16789,8 +17511,37 @@ async function paintTalk(sessionName, agentName) {
     ? name + ' cannot be reached right now'
     : 'Message ' + name + '\u2026';
   document.getElementById('d-send').disabled = body.presence === 'off' || flying;
+  /* #967: the Terminal tab's respond-in-context box shares this one presence
+     read, so it gates identically to the composer above rather than computing
+     reachability a second way. paintTalk runs on the detail poll whichever
+     sub-tab is open, so this stays current while the person watches the pane. */
+  const termSay = document.getElementById('d-term-say');
+  const termSend = document.getElementById('d-term-send');
+  if (termSay && termSend) {
+    termSay.disabled = body.presence === 'off';
+    termSay.placeholder = termSay.disabled
+      ? name + ' cannot be reached right now'
+      : 'Send a message into this window…';
+    /* Two reasons the Terminal Send is held, and they match exactly what blocks
+       an Enter press, so the button's look never disagrees with what Enter does:
+       the agent is unreachable (presence -- the box itself is disabled, so Enter
+       cannot fire either), and a Terminal send of its own is in flight to this
+       agent (TERM_SENDING && TERM_FLIGHT, the same flag Enter's sendTerm checks).
+       It deliberately does NOT gate on a Talk send in flight: a concurrent
+       Talk+Terminal send is accepted as harmless (each re-entrant-guarded by its
+       own flag and its own flightMoved()), and Enter does not block on it, so the
+       button must not either -- otherwise a screen reader would hear "disabled"
+       while Enter still sent. The TERM_FLIGHT term is also why the live-pane poll
+       can keep running without the button flickering back on mid-send: unlike
+       sendTalk the Terminal tab does not skip the poll (it must keep painting the
+       pane), so it holds the button by name instead. */
+    termSend.disabled = body.presence === 'off' || (TERM_SENDING && TERM_FLIGHT === sessionName);
+  }
   // The parked draft comes back, and never over words already in the box.
   if (!say.disabled && !say.value && TALK_DRAFTS[sessionName]) say.value = TALK_DRAFTS[sessionName];
+  // #967: the Terminal box's own draft comes back the same way, gated on its own
+  // presence read so it is never restored into a box that cannot be sent from.
+  if (termSay && !termSay.disabled && !termSay.value && TERM_DRAFTS[sessionName]) termSay.value = TERM_DRAFTS[sessionName];
   attachPaint(ATTACH_AGENT);   // this agent's pending files, not the last one's
 }
 
@@ -17350,6 +18101,13 @@ function openDetail(sessionName, section) {
        words are not lost: the input handler parks them under their own agent
        on every keystroke. */
     document.getElementById('d-say').value = '';
+    /* #967: the Terminal-tab box belongs to the agent being LEFT exactly as the
+       composer above does, so it is cleared on switch and paintTalk restores the
+       one being opened from TERM_DRAFTS. Without this a reply typed for one agent
+       is delivered to the next, and a landed receipt lingers under the wrong
+       pane -- the cross-agent misdelivery this block exists to close. */
+    { const t = document.getElementById('d-term-say'); if (t) t.value = ''; }
+    { const t = document.getElementById('d-term-say-msg'); if (t) t.textContent = ''; }
   }
   paintTalk(a.sessionName, a.name);
   /* Cleared BEFORE the paint's awaits: opening B with A's captured pane
@@ -23448,6 +24206,11 @@ async function changeModelNow(say) {
 let OWN_ROLE = null;       // the third radio's prefill entry, served whole
 let PICKED = null;         // the role key the person chose
 let CREATING = false;      // a create is in flight; guards the double-click
+/* #1652 import generation, in the spirit of WATCH above: bumped by pickMode on
+   every mode (re)pick, captured by importLoad, and re-checked after each await so
+   a mode switch mid-import supersedes the resolution before it can touch PICKED,
+   the form, or the screen. */
+let IMPORT_GEN = 0;
 
 function cstep(which) {
   ['role', 'name', 'made'].forEach((s) => {
@@ -23493,7 +24256,7 @@ async function loadRoles() {
     // no-hardcoded-list rule exists for, arriving through a stale cache).
     OWN_ROLE = null;
     CREATE_MODELS = [];
-    ['pick-pm', 'pick-list', 'pick-own', 'rolepick'].forEach((id) => {
+    ['pick-pm', 'pick-list', 'pick-own', 'pick-import', 'rolepick', 'importpick'].forEach((id) => {
       document.getElementById(id).hidden = true;
     });
     // Not `esc()`: this goes into textContent, which does its own escaping, so
@@ -23547,6 +24310,9 @@ function buildPicker() {
   // Continue silently does nothing (roleByKey('own') -> null -> return) is
   // worse than the option being absent from an older server.
   document.getElementById('pick-own').hidden = !OWN_ROLE;
+  // Import uses the `own` role's key, so it is offered on exactly the same
+  // condition the `own` option is.
+  document.getElementById('pick-import').hidden = !OWN_ROLE;
 }
 
 /**
@@ -23604,16 +24370,30 @@ function pickMode(mode) {
   const input = document.querySelector(`input[name="rmode"][value="${mode}"]`);
   if (input) input.checked = true;
   document.getElementById('rolepick').hidden = mode !== 'list';
+  /* Import shows its own panel and advances with its own button, so the shared
+     Continue is hidden for it and shown for every other mode. */
+  const importing = mode === 'import';
+  document.getElementById('importpick').hidden = !importing;
+  document.getElementById('role-next').hidden = importing;
+  /* Supersede any import still in flight so its resolution cannot yank the screen
+     after the person moved on, and give the panel a fresh enabled button whenever
+     it is shown. */
+  IMPORT_GEN += 1;
+  if (importing) document.getElementById('import-load').disabled = false;
   if (mode === 'pm') {
     PICKED = (roleByKey('pm') || ROLES[0]).key;
   } else if (mode === 'own') {
     // Not in the fetched menu on purpose; the key is the contract with the
     // engine, which holds the example text and the label gate.
     PICKED = 'own';
+  } else if (importing) {
+    // No role yet: a successful read of the file sets 'own'. Continue stays
+    // hidden; the panel's own button is the advance.
+    PICKED = null;
   } else {
     PICKED = document.getElementById('rolesel').value;
   }
-  document.getElementById('role-next').disabled = false;
+  document.getElementById('role-next').disabled = importing;
   paintPickLimit();
 }
 
@@ -23655,6 +24435,14 @@ function openCreate() {
      is the control lying, so it gets fixed rather than inherited. */
   document.querySelectorAll('input[name="rmode"]').forEach((r) => { r.checked = false; });
   document.getElementById('rolepick').hidden = true;
+  /* Import panel back to closed and the shared Continue back to shown, and the
+     pasted/loaded file cleared -- a reopened form must not carry the last one. */
+  document.getElementById('importpick').hidden = true;
+  document.getElementById('role-next').hidden = false;
+  document.getElementById('import-text').value = '';
+  document.getElementById('import-load').disabled = false;
+  const importMsgEl = document.getElementById('import-msg');
+  importMsgEl.textContent = ''; importMsgEl.hidden = true;
   CREATING = false;
   WATCH += 1;
   document.getElementById('create-name').value = '';
@@ -23787,6 +24575,120 @@ document.getElementById('role-next').addEventListener('click', () => {
 document.getElementById('create-name').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('create-go').click();
 });
+
+/* #1652: bring in an agent from a file. This PARSES only -- POST /api/agent-import
+   validates and echoes back fields DERIVED FROM THE FILE the person provided; the
+   actual create is the same POST /api/agents the other three options use, reached by
+   mapping a successful import to the `own` role and letting the person review the
+   pre-filled form. There is no second creation path, and no sign-in or key ever lives
+   in the file, so none can travel through this. */
+function importMsg(text) {
+  const el = document.getElementById('import-msg');
+  el.textContent = text || '';
+  el.hidden = !text;
+}
+document.getElementById('import-file-btn').addEventListener('click', () => {
+  document.getElementById('import-file').click();
+});
+document.getElementById('import-file').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  // Cleared so choosing the SAME file again still fires `change` (mirrors the
+  // avatar/detail file pickers). Read client-side into the textarea; nothing is
+  // uploaded here -- the parse endpoint is the only thing that ever sees it.
+  e.target.value = '';
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.getElementById('import-text').value = String(reader.result || '');
+    importMsg(f.name + ' loaded. Press Bring it in.');
+  };
+  reader.onerror = () => importMsg('We could not read that file.');
+  reader.readAsText(f);
+});
+document.getElementById('import-load').addEventListener('click', importLoad);
+
+async function importLoad() {
+  const btn = document.getElementById('import-load');
+  if (btn.disabled) return;
+  const text = document.getElementById('import-text').value;
+  if (!text.trim()) { importMsg('Paste the agent file, or choose one, first.'); return; }
+  // A generation token, in the spirit of the create WATCH: if the person picks
+  // another mode while this import is in flight, pickMode bumps IMPORT_GEN and the
+  // checks below bail before touching PICKED, the form, or the screen.
+  const gen = ++IMPORT_GEN;
+  btn.disabled = true;
+  importMsg('Reading it…');
+  let data;
+  try {
+    const r = await fetch('/api/agent-import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ file: text }),
+    });
+    data = await r.json().catch(() => null);
+  } catch (err) {
+    // Only if this attempt still owns the panel; a superseded one leaves the
+    // button to whichever flow the person moved to.
+    if (gen === IMPORT_GEN) { btn.disabled = false; importMsg('We could not reach the board to read it. (' + err.message + ')'); }
+    return;
+  }
+  if (gen !== IMPORT_GEN) return;   // superseded during the fetch
+  // The stay-on-panel outcomes re-enable the button; the success advance below
+  // leaves it disabled (cstep hides this panel) and pickMode/openCreate re-enable
+  // it whenever the panel is shown again.
+  if (!data) { btn.disabled = false; importMsg('We could not read the reply.'); return; }
+  /* importAgent refuses a hostile or non-Kosmos file WHOLE and says why; show that
+     reason verbatim and stay on the panel rather than advancing with half a form. */
+  if (!data.ok) { btn.disabled = false; importMsg(data.because || 'That is not an agent file we can bring in.'); return; }
+  // Import maps to the `own` role; without that entry (an older engine) the create
+  // it feeds would refuse, so say so here rather than advancing into a dead end.
+  if (!roleByKey('own')) { btn.disabled = false; importMsg('This board is too old to import into.'); return; }
+  importMsg('');
+
+  try {
+    // Build the menus first (awaited), THEN commit the imported state -- so a
+    // supersede during the load leaves PICKED and the form untouched. Awaiting
+    // also rebuilds the model menu BEFORE the provider change below disables it
+    // and writes its caption; an un-awaited loadCreateExtras would resume after
+    // and overwrite that caption with the default model's (wrong for an imported
+    // OpenAI agent).
+    const role = roleByKey('own');
+    await loadCreateExtras();
+    if (gen !== IMPORT_GEN) return;   // superseded during the menu load
+
+    // The file is the person describing the agent themselves, so it IS the `own`
+    // path -- same role, same create call. Lay the imported fields on top and mark
+    // them dirty so a later refill keeps the person's words, not the role template.
+    PICKED = 'own';
+    FILLED_ROLE = 'own';
+    document.getElementById('create-meet').textContent = 'Set up your ' + ((role && role.label) || 'agent');
+    document.getElementById('create-blurb').textContent = role && role.blurb ? role.blurb + '.' : '';
+    document.getElementById('create-name').value = data.name || '';
+    document.getElementById('create-label').value = data.displayName || '';
+    LABEL_DIRTY = true;
+    document.getElementById('create-instr').value = data.instructions || '';
+    INSTR_DIRTY = true;
+    document.getElementById('create-instr-note').textContent = '';
+    LAST_TYPED_NAME = (data.name || '').trim() || 'your agent';
+
+    /* Honour the imported provider only when it maps to an ENABLED option; an unknown
+       or coming-soon provider leaves the default and lets the person choose, never
+       blocking the import. Setting the value fires the provider `change` handler so the
+       account/model menus refill for that provider. */
+    const provEl = document.getElementById('create-provider');
+    const wanted = String(data.provider || '').toLowerCase();
+    const okProv = wanted && Array.prototype.some.call(provEl.options, (o) => o.value === wanted && !o.disabled);
+    if (okProv) { provEl.value = wanted; provEl.dispatchEvent(new Event('change')); }
+
+    if (!AVATAR_FILE) drawCreateMark();
+    cstep('name');
+    document.getElementById('create-name').focus();
+  } catch (err) {
+    // Building or filling the form failed: leave the person on the import panel
+    // with a usable button and a plain message, never a stuck screen.
+    if (gen === IMPORT_GEN) { btn.disabled = false; importMsg('We could not open the form. (' + err.message + ')'); }
+  }
+}
 
 /** One tick line. `state` is 'done' | 'fail' | 'undone' | 'waiting'. */
 function tickLine(state, text) {
@@ -29609,6 +30511,116 @@ document.getElementById('d-send').addEventListener('click', () => {
   if (text) sendTalk(text);
   else if (attachList(ATTACH_AGENT).length) sendTalk(attachList(ATTACH_AGENT).map((r) => r.name).join(', '));
 });
+
+/* #967: the Terminal tab's respond-in-context send. Reuses the SAME endpoint as
+   sendTalk (POST the agent's thread), so it is the one delivery mechanism
+   surfaced beneath the live pane, not a second one. It keeps its own small
+   sending guard and receipt line rather than borrowing the Talk composer's
+   elements, which live on a different tab. Clear-on-placed and silent-when-worked
+   (#402) match sendTalk exactly. Keep-on-doubt is deliberately MORE conservative:
+   the Terminal box keeps an unconfirmed message unconditionally, where sendTalk
+   clears it once it is recorded in the thread. This box has no thread row of its
+   own on the Terminal tab to fall back to, so keeping the words is the safe copy,
+   at the cost of a possible duplicate if the person retries a message that did in
+   fact land. */
+let TERM_SENDING = false;
+/* Which agent a Terminal send is in flight to, so paintTalk can keep THIS
+   button disabled while the live-pane poll keeps running. sendTalk instead skips
+   the poll during its flight; the Terminal tab must not, because its whole job is
+   showing the live pane, so it keeps polling and holds the button by name. */
+let TERM_FLIGHT = null;
+async function sendTerm() {
+  const say = document.getElementById('d-term-say');
+  const send = document.getElementById('d-term-send');
+  const msg = document.getElementById('d-term-say-msg');
+  if (!say || !CURRENT) return;
+  const text = (say.value || '').trim();
+  if (!text) return;
+  if (TERM_SENDING) { if (msg) msg.textContent = 'Still sending your last message. Try again in a moment.'; return; }
+  TERM_SENDING = true;
+  const sentName = CURRENT.sessionName;
+  const name = CURRENT.name || sentName;
+  TERM_FLIGHT = sentName;
+  /* ⚠️ THE FLIGHT CAN MOVE. A send takes real time, and the person can open
+     another agent inside that window, at which point this one shared box and its
+     receipt line belong to somebody else. Every write below is gated on the
+     flight not having moved, exactly as sendTalk guards #d-say / #d-say-msg. */
+  const flightMoved = () => !CURRENT || CURRENT.sessionName !== sentName;
+  /* Disabling the focused Send moves focus to <body> synchronously (measured in
+     Chromium), so a keyboard or screen-reader person who pressed Send is stranded
+     on the document. Captured here, moved into the box for the flight (below), and
+     put back on Send at finally if it is still reachable -- as sendTalk does. The
+     Enter path is unaffected: focus stays in the input, which never disables. */
+  const sendHadFocus = !!(send && document.activeElement === send);
+  if (send) send.disabled = true;
+  // Move focus into the box for the flight, as sendTalk does, so disabling the
+  // focused Send does not strand a keyboard or screen-reader user on <body>
+  // until the send completes; finally puts it back on Send if still reachable.
+  if (sendHadFocus && say) say.focus();
+  if (msg) msg.textContent = 'Sending…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { if (!flightMoved() && msg) msg.textContent = body.error || (name + ' could not be reached right now.'); return; }
+    const d = body.delivery || {};
+    const note = d.paneNote ? ' (' + d.paneNote + ')' : '';
+    if (d.state === 'placed') {
+      /* Reached the agent, so the box is not the only copy: clear it and its
+         parked draft, but only if the flight has not moved and the box still
+         holds exactly this text. Anything typed on top belongs to the next
+         message, and a box that now belongs to another agent is not ours. */
+      if (!flightMoved() && say.value.trim() === text) say.value = '';
+      if ((TERM_DRAFTS[sentName] || '').trim() === text) delete TERM_DRAFTS[sentName];
+      /* 🛑 SILENT WHEN IT WORKED (#402): placedWords returns '' on an idle pane,
+         so a clean placed clears the "Sending…" line and says nothing, matching
+         sendTalk and the thread rows. It speaks only when the note says something
+         about what happens next (queued behind the agent's work, say). */
+      if (!flightMoved() && msg) msg.textContent = placedWords(d);
+    } else if (d.state === 'unconfirmed') {
+      /* May not have arrived: the words stay for a retry. */
+      if (!flightMoved() && msg) msg.textContent = 'Sent, but we could not confirm it arrived' + note + '. Your message is kept here to try again.';
+    } else {
+      /* could_not: nothing reached the pane; keep the words. */
+      if (!flightMoved() && msg) msg.textContent = (d.because || (name + ' could not be handed the message')) + note + '.';
+    }
+  } catch {
+    if (!flightMoved() && msg) msg.textContent = 'We could not send that just now. Your message is kept here to try again.';
+  } finally {
+    TERM_SENDING = false;
+    TERM_FLIGHT = null;
+    /* Re-derive the button from a fresh presence read, exactly as sendTalk does
+       at its own finally. Force-enabling here would put a live Send over a box
+       whose agent went offline mid-flight; and with the flight moved the button
+       belongs to another agent whose own poll already owns it. paintTalk repaints
+       both boxes from one presence read, so the Terminal Send lands correct. */
+    if (!flightMoved()) {
+      await paintTalk(sentName, name);
+      // Put the keyboard back where it was: the button if the agent is still
+      // reachable (paintTalk left it enabled), otherwise the box.
+      if (sendHadFocus && send && !send.disabled) send.focus();
+      else if (sendHadFocus && say && document.activeElement === document.body) say.focus();
+    }
+  }
+}
+document.getElementById('d-term-send').addEventListener('click', sendTerm);
+document.getElementById('d-term-say').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  sendTerm();
+});
+/* #967: the Terminal box parks under the open agent on every keystroke, the same
+   way the composer above does, so a switch never loses a half-typed reply and
+   paintTalk restores it to the right agent. */
+document.getElementById('d-term-say').addEventListener('input', (e) => {
+  if (!CURRENT) return;
+  const v = e.target.value;
+  if (v.trim()) TERM_DRAFTS[CURRENT.sessionName] = v;
+  else delete TERM_DRAFTS[CURRENT.sessionName];
+});
 /* The park itself: every keystroke files the draft under the open agent, so no
    navigation order can lose it. */
 document.getElementById('d-say').addEventListener('input', (e) => {
@@ -30710,13 +31722,13 @@ setInterval(() => {
        thirteen running agents looks broken.
    ========================================================================== */
 
-// 6 since the About-you step landed at slot 4 (the PIN below predates it and counted five) (PIN-2026-08-14-1913CDT: "five setup
+// 7 since #1214 added the Accessibility offer (6 when About-you landed at slot 4; the PIN below predates both and counted five) (PIN-2026-08-14-1913CDT: "five setup
 // steps -- welcome, model, this computer, your agents, getting back").
-const FR_STEPS = 6;
+const FR_STEPS = 7;
 // The return pane's step number, named and used by the generation bump and
 // every navigation into the step. (The paint branch is the clamped chain's
 // final else, exhaustive by construction: step is clamped to [1, FR_STEPS],
-// so a sixth step must add its pane AND its branch -- said here because the
+// so a further step must add its pane AND its branch -- said here because the
 // constant cannot reach an else.)
 // 🛑 THE MACHINE-LOOK/ORIENTATION CONTENT IS STEP 1, AND TWO WRITTEN RULINGS
 // PLACE IT LAST. This comment used to justify the position by saying the
@@ -30743,7 +31755,11 @@ const FR_STEPS = 6;
 //
 // The constant keeps its name so the generation-guard pins keep reading.
 const FR_STEP_RETURN = 1;
-const FR_STEP_YOU = 5;
+// #1214 inserted the Accessibility offer as step 5, so About-you moved from 5 to
+// 6 (and the fleet ending from 6 to 7). This constant is the single source the
+// About-you generation guard and its "next step" read from, so moving the step
+// is this one edit plus the eyebrow map and the frGo branch below.
+const FR_STEP_YOU = 6;
 // ⚠️ The About-you step's generation, same contract as FR_RETURN_GEN: a
 // continuation captured under one generation must do NOTHING once the
 // generation moves -- a bare step-number check cannot tell "still here"
@@ -30786,7 +31802,7 @@ function frActions(primary, alt) {
   next.textContent = primary.label;
   next.onclick = primary.go;
   next.disabled = false;
-  // ⚠️ And the ARIA mirror with it. Step 5's gate sets aria-disabled on this
+  // ⚠️ And the ARIA mirror with it. Step 6's gate (About-you) sets aria-disabled on this
   // shared button; without clearing it here, any later paint of the shared
   // Continue announced "dimmed" while enabled (first caught through the old
   // Back button; the reset matters for every repaint, so it stays).
@@ -30853,11 +31869,11 @@ function frGo(step) {
     document.getElementById('fr-pane-' + i).hidden = (i !== step);
   }
   // Spoken counts match the drawn segments: the intro stands outside the
-  // count (no segments), and Welcome..agents are five.
+  // count (no segments), and Welcome..agents are six.
   document.getElementById('fr-step').textContent =
     (step === 1) ? 'Kosmos setup' : 'Step ' + (step - 1) + ' of ' + (FR_STEPS - 1);
   // The intro carries no segments (the pack's Success screen stands outside
-  // the count it opens); steps 2..6 share five.
+  // the count it opens); steps 2..7 share six.
   document.getElementById('fr-segs').innerHTML = (step === 1) ? '' :
     Array.from({ length: FR_STEPS - 1 }, (_, i) => {
       const n = i + 2;
@@ -30866,7 +31882,7 @@ function frGo(step) {
 
 
   // The pack's eyebrow, one per screen; the endings keep 'Your agents'.
-  const FR_EYEBROWS = { 1: 'Success', 2: 'Welcome', 3: 'Model', 4: 'This computer', 5: 'About you', 6: 'Your agents' };
+  const FR_EYEBROWS = { 1: 'Success', 2: 'Welcome', 3: 'Model', 4: 'This computer', 5: 'Accessibility', 6: 'About you', 7: 'Your agents' };
   document.getElementById('fr-eyebrow').textContent = FR_EYEBROWS[step] || '';
   if (step === 1) {
     document.getElementById('fr-title').textContent = 'Kosmos is now installed on this computer.';
@@ -30891,6 +31907,14 @@ function frGo(step) {
       { label: 'Check again', go: frPaintMachine });
     frPaintMachine();
   } else if (step === 5) {
+    // #1214: the Accessibility offer. Continue proceeds whether or not the person
+    // opened the setting (Josh ruled offer-not-require, 2026-09-01); the in-pane
+    // button is the offer and the "later in Settings" sentence is the out. The
+    // pane claims no state because accessibility (TCC) cannot be read, so there
+    // is nothing to gate Continue on and no "you already did this" to show.
+    document.getElementById('fr-title').textContent = 'Let your agents work in your other apps.';
+    frActions({ label: 'Continue', go: () => frGo(6) });
+  } else if (step === 6) {
     document.getElementById('fr-title').textContent = 'Who are your agents working for?';
     frPaintYou();
   } else {
@@ -30912,7 +31936,7 @@ function frGo(step) {
 }
 
 /* --------------------------------------------------------------------------
-   Step 5 — about you
+   Step 6 - about you (was step 5 before #1214 inserted the Accessibility step)
    -------------------------------------------------------------------------- */
 
 /**
@@ -30946,7 +31970,16 @@ async function frPaintYou() {
        one; it just stops being a person connected to the product. */
     '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Alex" aria-required="true"></div>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-do">What do you do?</label>' +
-    '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>';
+    '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>' +
+    /* #1772: make the reach VISIBLE at the moment of the action. Saving here runs
+       you.syncEveryone(), which writes this into the instruction file of every
+       agent already set up on this computer, all at once. Before this the reach
+       was invisible: a QA walk or a demo silently reconfigured the whole fleet.
+       Stated in words rather than a live count, so it cannot go stale or read
+       zero before the board has polled; the point the person needs is "all of
+       them", not the exact number. Next to Continue, the control that triggers
+       the write, per the card. */
+    '<p class="fr-next" id="fr-you-reach">Continue saves this into every agent already set up on this computer, so they all address you the same way.</p>';
   const nameEl = document.getElementById('fr-you-name');
   const doEl = document.getElementById('fr-you-do');
   /* 🛑 THE BOX IS GONE, THE VALUE IS NOT (#1345). Josh asked for two fields, and
@@ -31093,6 +32126,25 @@ document.getElementById('fr-checks').addEventListener('click', async (e) => {
     document.getElementById('fr-machine-msg').textContent = 'we could not open System Settings';
   } finally {
     b.disabled = false;
+  }
+});
+
+/* #1214: the Accessibility offer's button, wired once (the pane is always in the
+   DOM, just hidden). Same action as the Settings box's Open Accessibility
+   settings, and the same rule its siblings state: the pane opening IS the
+   feedback, so only a failure speaks, in the step's own message line. It opens
+   the setting; it cannot grant it (TCC), which is why Continue never waits on it. */
+document.getElementById('fr-a11y-open').addEventListener('click', async () => {
+  // Shaped exactly like the Settings sibling (set-a11y-open): it does not disable
+  // the button, so it never moves focus off it to <body>, and opening System
+  // Settings twice on a double-press just re-fronts the same window. Only a
+  // failure speaks, in the step's own message line.
+  const msg = document.getElementById('fr-a11y-msg');
+  try {
+    const r = await fetch('/api/open-accessibility-settings', { method: 'POST' });
+    msg.textContent = r.ok ? '' : 'We could not open the accessibility settings just now.';
+  } catch {
+    msg.textContent = 'We could not open the accessibility settings just now.';
   }
 });
 
@@ -31732,13 +32784,13 @@ function frPaintConnect(st) {
      *
      * 📌 AND THE FIRST SENTENCE SURVIVES EITHER WAY. "Nothing is broken by this"
      * is true whether or not there is a fallback, and it is the sentence doing
-     * the most work for somebody stuck on step 3 of six.
+     * the most work for somebody stuck on step 3 of seven.
      */
     /**
      * 🛑 THE WIZARD NO LONGER INSTRUCTS ANYBODY TO OPEN A TERMINAL (#996 item 1).
      * The north star is that someone non-technical gets from nothing to a
      * working agent WITHOUT one, and this sentence fired at the least technical
-     * moment in the product: step 3 of six, on a first run, to a person who has
+     * moment in the product: step 3 of seven, on a first run, to a person who has
      * installed Kosmos, connected nothing, and just watched it fail. For them
      * the escape hatch was a wall with a helpful sign on it.
      *
@@ -32477,7 +33529,7 @@ function frPaintSubscription() {
 }
 
 /* --------------------------------------------------------------------------
-   Step 6 — the agents already here
+   Step 7 - the agents already here (was step 6 before #1214 inserted the Accessibility step)
    -------------------------------------------------------------------------- */
 
 /**
@@ -32507,8 +33559,8 @@ async function frFindAgents() {
     ? out
     : { ok: false, agents: [], because: 'we could not look for the agents on this computer' };
   /* 🛑 THE SAME CONDITION THE DISPATCHER USES, NOT A NUMBER I REMEMBERED. The
-     fleet screen is the ELSE arm of `frGo` -- steps 1 to 5 are named and this is
-     what is left -- so keying on `4` (the machine check) meant the answer never
+     fleet screen is the ELSE arm of `frGo` -- steps 1 to 6 are named and step 7
+     is what is left -- so keying on `4` (the machine check) meant the answer never
      repainted and the screen sat on "Looking for agents already here" forever.
      Found by opening it. Nothing that reads source could have: the test harness
      sets the step itself, so it agreed with whatever number I wrote. */
@@ -33181,7 +34233,7 @@ function frPaintFleet() {
      * ⚠️ THREE CASES, NOT TWO, and the declaration of `FR_MACHINE` says so while
      * the first version of this line collapsed them: `(FR_MACHINE && ...) || []`
      * made "we never checked" identical to "we checked and it was fine". Somebody
-     * who arrived on `?fr-step=6`, or whose check route failed at step 4, got the
+     * who arrived on `?fr-step=7`, or whose check route failed at step 4, got the
      * unhedged promise.
      *
      * ⚠️ AND `unknown` COUNTS. Filtering only `attention` dropped three "we could
@@ -33331,7 +34383,7 @@ function frForkActions() {
 }
 
 /* --------------------------------------------------------------------------
-   Step 6 -- getting back
+   Step 1 - getting back (the return content, rendered on the orientation step, FR_STEP_RETURN)
    -------------------------------------------------------------------------- */
 
 /**

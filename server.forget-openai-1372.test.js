@@ -64,6 +64,11 @@ function board(seed) {
       PATH: `${bin}:${process.env.PATH}`,
       FORGET_DIR: target,
       AGENT_WORKFORCE_DRY_RUN: '1',
+      /* kosmos#1651: DRY_RUN stops tmux WRITES; the roster is a READ. This file
+         already sandboxes tmux by putting its own stub first on PATH, so naming
+         that same stub satisfies the guard. The conditional spread below still
+         overrides it with fake-tmux.sh for the panes case. */
+      AGENT_WORKFORCE_TMUX_BIN: nodePath.join(bin, 'tmux'),
       AGENT_WORKFORCE_HOME: home,
       AGENT_WORKFORCE_DATA: nodePath.join(sb, 'data'),
       AGENT_WORKFORCE_WORKERS: workers,
@@ -102,6 +107,18 @@ test('#1372 route: an unused account is forgotten, and the answer says nothing w
   assert.ok(!fs.existsSync(r.target), 'the account directory moved');
   assert.ok(fs.existsSync(nodePath.join(r.home, '.removed-codex-lonely', 'auth.json')),
     'and its credential survived the move');
+  /* 🛑 THE ANSWER NAMES WHERE IT WENT, and this arm exists because it did NOT and
+     nothing noticed. #1659 relabels this control to "Disconnect" and puts the same
+     word on the Claude row, so the same act under the same word was answering with
+     a recoverable location on one provider and not the other. When that was fixed,
+     the whole suite stayed green: the assertion above matches a PREFIX, so an
+     appended clause is invisible to it.
+     ⇒ Changing a user-facing sentence and watching nothing go red is how you learn
+     the sentence is unguarded. Guarded now, including that it says the folder is
+     HIDDEN, which is the difference between a fact and a place somebody can find:
+     a dotfile is invisible in Finder. */
+  assert.match(r.json.because, /hidden folder called \.removed-codex-lonely/,
+    'the answer does not say WHERE the account went, so the removal is not recoverable by reading it');
 });
 
 test('#1372 route CONTROL: a path that is not an account is refused, and nothing moves', () => {

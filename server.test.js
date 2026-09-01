@@ -4976,7 +4976,9 @@ test('the fleet screen shows no name chips, and the fork is guarded (static pins
 test('the "we could not remember that" message lives outside the step panes', () => {
   /**
    * ⚠️ Skip is on EVERY step, and this message started inside the fork
-   * pane (fr-pane-5 since About-you landed at 4)
+   * pane (fr-pane-6; #1214 moved About-you off fr-pane-5, which is now the
+   * Accessibility offer. The check below holds for whatever fr-pane-5 is, because
+   * #fr-forgot sits after every pane.)
    * — so somebody who skipped from the welcome screen, on a machine where the
    * flag would not stick, was told nothing at all: the sentence was written into
    * a hidden div. Found by clicking Skip from step 1 rather than by reading it.
@@ -9076,7 +9078,7 @@ test('a message to an agent’s own page arrives saying how to answer, and the e
    * person's own messages arrived as bare text. Johnson, Rick and Bob each
    * diagnosed this independently in Josh's room on 2026-08-21, having each just
    * failed at it — Johnson twice, the second time after writing the
-   * explanation. See `OPERATOR_DIRECT` in engine/messages.js.
+   * explanation. See `operatorDirect` in engine/messages.js.
    */
   const chatEngine = require('./engine/chat');
   const board = fleet.install([fleet.agent('leo', { state: 'idle' })]);
@@ -12097,5 +12099,92 @@ test('#761 round 6: failed deliveries do not spend the shared pane-notify budget
   } finally {
     chatEngine.setRunner(null);
     board.restore();
+  }
+});
+
+/**
+ * #1668: the operator's timezone, captured over HTTP. Driven through the ROUTE
+ * because the engine round-trip (engine/timezone-1668.test.js) does not prove
+ * the route is wired -- the POST parses a body, validates, and writes, and a
+ * mistake in any of those three would leave the engine test green.
+ *
+ * This test resets the setting in a finally so it cannot leak a timezone into a
+ * later delivery assertion (the operator-line route test above pins the bare
+ * prefix, which only holds while no timezone is stored).
+ */
+test('#1668: the settings route captures a valid timezone and refuses a bad one', async () => {
+  const store = require('./engine/store');
+  try {
+    store.writeSettings({ timezone: null });
+
+    const start = await req('/api/settings');
+    assert.equal(start.status, 200, start.body);
+    assert.equal(JSON.parse(start.body).timezone, null, 'no timezone set yet');
+
+    // A garbage id is refused, not persisted -- defense in depth on the write path.
+    const bad = await req('/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ timezone: 'Not/AZone' }),
+    });
+    assert.equal(bad.status, 400, 'a bad timezone was accepted');
+    assert.match(JSON.parse(bad.body).because, /timezone/);
+    assert.equal(JSON.parse((await req('/api/settings')).body).timezone, null,
+      'a refused write must not persist');
+
+    // A malformed body answers cleanly rather than throwing.
+    const broken = await req('/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: '{not json',
+    });
+    assert.equal(broken.status, 400, 'a malformed body did not answer cleanly');
+
+    // A real IANA id is captured and reads back.
+    const ok = await req('/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ timezone: 'America/Chicago' }),
+    });
+    assert.equal(ok.status, 200, ok.body);
+    assert.equal(JSON.parse(ok.body).timezone, 'America/Chicago');
+    assert.equal(JSON.parse((await req('/api/settings')).body).timezone, 'America/Chicago',
+      'the capture persisted');
+  } finally {
+    store.writeSettings({ timezone: null });
+  }
+});
+
+test('#1724: the settings route captures the auto-handoff setting and refuses a bad one', async () => {
+  const store = require('./engine/store');
+  try {
+    store.writeSettings({ autohandoff: null });
+    // Default when unset: off, threshold 85 (opt-in).
+    const start = JSON.parse((await req('/api/settings')).body);
+    assert.equal(start.autohandoff.enabled, false, 'off by default');
+    assert.equal(start.autohandoff.threshold, 85, 'default threshold 85');
+
+    // A bad threshold is refused, not persisted.
+    const bad = await req('/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autohandoff: { enabled: true, threshold: 42 } }),
+    });
+    assert.equal(bad.status, 400, 'a bad threshold was accepted');
+    assert.match(JSON.parse(bad.body).because, /auto-handoff/);
+
+    // A valid setting is captured and reads back.
+    const ok = await req('/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autohandoff: { enabled: true, threshold: 90 } }),
+    });
+    assert.equal(ok.status, 200, ok.body);
+    assert.deepEqual(JSON.parse((await req('/api/settings')).body).autohandoff,
+      { enabled: true, threshold: 90 }, 'the capture persisted');
+
+    // Per-field patch: writing auto-handoff must not clobber the timezone.
+    await req('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ timezone: 'America/Chicago' }) });
+    await req('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ autohandoff: { enabled: false, threshold: 80 } }) });
+    const both = JSON.parse((await req('/api/settings')).body);
+    assert.equal(both.timezone, 'America/Chicago', 'auto-handoff write did not clobber timezone');
+    assert.equal(both.autohandoff.enabled, false, 'and the auto-handoff write applied');
+  } finally {
+    store.writeSettings({ autohandoff: null, timezone: null });
   }
 });

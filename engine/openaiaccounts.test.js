@@ -439,3 +439,46 @@ test('#1372: forgetting something already gone is a quiet success', () => {
   assert.equal(got.ok, true);
   assert.equal(got.forgotten, false);
 });
+
+/* 🛑 THE NAME IS NOT THE ACCOUNT. Every guard in `forgetAccount` above the
+   identity check keys on the NAME (inside home, called `.codex` or `.codex-*`), so
+   a real directory that codex never wrote passed all of them and was renamed with
+   its contents, while the answer said `forgotten: true`.
+   ⚠️ MEASURED BEFORE THE GUARD WAS WRITTEN, not argued from the Claude sibling: a
+   planted `~/.codex-notanaccount` holding one user file was moved to
+   `.removed-codex-notanaccount`, file and all.
+   📌 Three arms, because the fix has two ways to be wrong: refusing a real account
+   (a regression), and answering "not an account" for a directory that is merely
+   absent (the reason the guard sits AFTER the existence check). */
+test('#1659: forgetAccount refuses a .codex-* directory that codex never wrote, and keeps its files', () => {
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-openai-identity-'));
+  process.env.AGENT_WORKFORCE_HOME = home;
+  try {
+    const notAnAccount = nodePath.join(home, '.codex-notanaccount');
+    fs.mkdirSync(notAnAccount, { recursive: true });
+    fs.writeFileSync(nodePath.join(notAnAccount, 'important.txt'), 'a file the person made');
+
+    const real = nodePath.join(home, '.codex-real');
+    fs.mkdirSync(real, { recursive: true });
+    fs.writeFileSync(nodePath.join(real, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: 'sk-test-abcdefghijklmnop' }));
+
+    const refused = openai.forgetAccount(notAnAccount, []);
+    assert.equal(refused.forgotten, false,
+      'a directory codex never wrote was renamed: the name-based guards passed it and nothing checked identity');
+    assert.match(String(refused.because), /not an OpenAI account/);
+    assert.ok(fs.existsSync(nodePath.join(notAnAccount, 'important.txt')),
+      'the file inside it moved, which is the harm this guard exists to prevent');
+
+    /* CONTROL, and it must be able to return the dangerous answer: a REAL account
+       still has to be forgettable, or the guard has traded one failure for another. */
+    const ok = openai.forgetAccount(real, []);
+    assert.equal(ok.forgotten, true, 'a real OpenAI account can no longer be disconnected');
+
+    /* CONTROL on the ORDERING: absent is "already gone", not "not an account". */
+    const absent = openai.forgetAccount(nodePath.join(home, '.codex-never'), []);
+    assert.match(String(absent.because), /already gone/,
+      'a directory that is simply missing is reported as not-an-account, so the guard runs before the existence check');
+  } finally {
+    process.env.AGENT_WORKFORCE_HOME = SANDBOX;
+  }
+});

@@ -111,6 +111,30 @@ site_deploy_export() {
   # What the working tree holds that this export does NOT ship, named, so a
   # person who expected a file to go live sees why it did not.
   _site_left_behind "$site" "$out" || { rm -rf "$out"; return 1; }
+  # kosmos#1669: mark this directory as a release export.
+  #
+  # WHY A MARKER AND NOT AN INFERENCE. The 2026-08-31 outage was a production deploy made
+  # to publish one source file. It was well-formed, authorised, and did exactly what
+  # `vercel deploy --prod` does; it simply ran somewhere that had not carried the binaries,
+  # so it replaced the full site with the tracked-only one and took the front door down for
+  # about thirteen hours. Nothing refused it and nothing could have, because "is this
+  # directory a release export?" was not an answerable question.
+  #
+  # It is answerable now. This file is the ONLY positive evidence that the carry step ran,
+  # so a guard can require it rather than guessing from a path name, which any checkout
+  # could imitate.
+  #
+  # ⚠️ A MISTAKE-GUARD, NOT A SECURITY BOUNDARY. Anyone can create this file. That is the
+  # right strength for the failure it addresses: a careful agent doing a reasonable thing
+  # in the wrong directory, not an adversary.
+  #
+  # Best-effort: a failure to write the marker must not fail a release. The guard that
+  # consumes it fails toward permitting for the same reason - a check that blocks releases
+  # when it breaks is worse than the defect it prevents.
+  { printf 'kosmos-release-export\ncommit=%s\nexported=%s\n' \
+      "$head" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$out/.kosmos-release-export"
+  } 2>/dev/null || true
+  echo "   marked:  .kosmos-release-export (commit $head)"
   return 0
 }
 

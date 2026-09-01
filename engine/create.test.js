@@ -4296,3 +4296,47 @@ test('#1414 CONTROL: the seam-scoped tidy still runs where it should', () => {
   assert.ok(after.includes('/w/first') && after.includes('/w/last'), 'neighbours survive');
   assert.ok(!/\n{3,}/.test(after), 'the seam left behind is tidied, so gaps do not accumulate');
 });
+
+test('#1672: when the working-rules block cannot be added, creation SAYS SO and still makes the agent', () => {
+  /**
+   * The block carries `kosmos post` and `kosmos msg`, so an agent born without it
+   * does not know how to answer a person at all. Creation used to report success
+   * anyway: the `catch` swallowed the failure and nothing was pushed to `steps`.
+   *
+   * ⚠️ BOTH HALVES MATTER AND THEY PULL OPPOSITE WAYS. The agent must still be
+   * CREATED - refusing somebody their agent because the product wanted to teach
+   * it something is the worse failure, and that posture is deliberate. What
+   * changes is only that the loss is now named.
+   *
+   * 📌 A code-level break is already caught: making `appendTo` throw reds 6 of
+   * this file's other tests. The case this step exists for is the DEPLOYMENT one,
+   * a partially synced install where the shipped code is fine and the file on
+   * disk is not, which no test can see.
+   */
+  recorder();
+  create.setDryRun(false);
+  const defaults = require('./defaults');
+  const orig = defaults.appendTo;
+  defaults.appendTo = () => { throw new Error('#1672 simulated: defaults unavailable'); };
+  try {
+    const r = create.createAgent({ ...BINS, name: 'Pete Defaults', role: 'pm' });
+    assert.equal(r.outcome, create.OUTCOME.CREATED,
+      'non-gating: the agent is still made when the block cannot be added');
+    const said = (r.steps || []).some((s) => s && s.ok === false && /operating instructions/.test(s.label || ''));
+    assert.equal(said, true,
+      'creation must NAME the loss: without this the person is told it worked and the agent cannot reply');
+  } finally {
+    defaults.appendTo = orig;
+  }
+});
+
+test('#1672 CONTROL: a normal create reports no such failure', () => {
+  /* Without this, the assertion above could pass on a step that is always pushed,
+     which would be a permanent false alarm rather than a guard. */
+  recorder();
+  create.setDryRun(false);
+  const r = create.createAgent({ ...BINS, name: 'Pete Defaults Ok', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because || '');
+  const said = (r.steps || []).some((s) => s && s.ok === false && /operating instructions/.test(s.label || ''));
+  assert.equal(said, false, 'a healthy create must not claim the working rules failed');
+});

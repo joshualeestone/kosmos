@@ -41,6 +41,19 @@
 const MARK = 'kosmos';
 const KIND = 'agent';
 
+/* A display name is a name, not a paragraph. `identityFromText` bounds the role
+   but not the name, and `create.nameProblem`'s 32-char cap is on the machine
+   name, not this human-visible field -- so import bounds it itself. Generous
+   (well past any real name) so it refuses a wall of text, not a long name. */
+const MAX_DISPLAY = 64;
+
+/* A coarse ceiling on the whole file, so a pathological huge input is refused
+   before any parsing work rather than allocated and scanned. Well above a real
+   agent file: the instructions body alone is capped at 256 KB downstream
+   (workerfile.MAX_BYTES), and this leaves ample room for that plus a header, so
+   it never rejects a file the create flow would accept -- it only stops abuse. */
+const MAX_FILE = 512 * 1024;
+
 /**
  * The contract an importer must enforce. Stated here, beside the writer, so
  * whoever builds the import half is not inferring it from examples.
@@ -61,13 +74,27 @@ const IMPORT_CONTRACT = Object.freeze({
   bodyMustName: true,
 });
 
-/* Frontmatter values are one line. A newline in a value would end the block
-   early and silently change what the next line means, so they are refused
-   rather than escaped: there is no legitimate agent name with a newline in it,
-   and refusing is honest where escaping invents a syntax nobody else parses. */
 function safeValue(v) {
   const s = String(v == null ? '' : v).trim();
-  if (!s || /[\r\n]/.test(s)) return null;
+  /* A value is ONE LINE OF CLEAN TEXT, refused (never escaped) if it carries:
+       - a control character (C0, C1 or DEL): a newline ends the block early, and
+         none belongs in a name, a display name or a provider;
+       - any Unicode Bidi_Control character (U+061C, U+200E/200F, U+202A-202E,
+         U+2066-2069): these reorder how text renders and are the display-name
+         SPOOFING vector this import surface exists to refuse;
+       - a line or paragraph separator (U+2028/U+2029);
+       - an invisible separator with no legitimate use in a name: soft hyphen
+         (U+00AD), zero-width space (U+200B), word joiner (U+2060), and a stray
+         zero-width no-break space (U+FEFF) that is not the leading BOM importAgent
+         strips.
+     DELIBERATELY NOT refused: the zero-width joiners U+200C/U+200D, which ARE
+     legitimate in Arabic/Persian/Indic scripts and in emoji sequences, so a
+     display name may carry them. And this is NOT a homoglyph/confusable defence,
+     which is unbounded: the identity boundary is the machine `name`, whose strict
+     [a-z0-9_-] allowlist (create.nameProblem) admits none of the above. This is a
+     boundary hardening of a bounded preview field; export names are already clean,
+     so it trips nothing there. */
+  if (!s || /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b\u200e\u200f\u2028\u2029\u202a-\u202e\u2060\u2066-\u2069\ufeff]/.test(s)) return null;
   return s;
 }
 
@@ -117,4 +144,136 @@ function exportAgent(name, deps) {
   return { ok: true, text, filename: `${agentName}.agent.md` };
 }
 
-module.exports = { exportAgent, IMPORT_CONTRACT, MARK, KIND };
+/**
+ * Read a portable agent file into the material a creator needs (#1652).
+ *
+ * The inverse of `exportAgent` at the FORMAT level: `exportAgent` BUILDS the file
+ * from the machine, this READS and VALIDATES the file. It does NOT create the
+ * agent. The fourth create-an-agent option hands the returned material to the
+ * SAME `createAgent` path the other three options use, so import reuses all of
+ * create's correctness -- a fresh `id` above all -- rather than half-applying it.
+ * `engine/create.js` is the one canonical creation path; a parser that also
+ * created would be a second, thinner one, which is the defect this file avoids.
+ *
+ * 🛑 REFUSES ANY OTHER FILE WHOLE, per IMPORT_CONTRACT. This surface takes input
+ * from OUTSIDE the machine: a file that parses half way is the one that leaves an
+ * agent with somebody else's instructions and no name. Every failure returns
+ * `{ok:false}` with a reason, never a partial result.
+ *
+ * 🔑 THE IDENTITY ANCHOR CANNOT ENTER. This returns only name/displayName/
+ * provider/body; an `id:` a hostile file might carry is never read, and the
+ * create flow's `store.writeProfile` mints a fresh id anyway -- so two people who
+ * import one file become two separate agents, the same guarantee the export side
+ * proves by absence.
+ *
+ * 📌 THE NAME GUARANTEE IS PATH-SAFETY AND CLEAN TEXT, NOT the full agent-name
+ * policy. Both the machine `name` AND the human-visible `displayName` are refused
+ * if they carry a control or bidi character (`safeValue`), and the `name` is also
+ * refused if it is unsafe as a path/session/label (`create.nameUsable`). The
+ * fuller rules -- length, character set, reserved names like `-discord` -- are
+ * `create.nameProblem`'s, applied when this material flows through `createAgent`.
+ * So a caller MUST route the material through `createAgent` and must NOT treat
+ * `ok:true` as a fully-validated agent name. That is why import does not create.
+ *
+ * @param {string} text the file contents
+ * @param {{identityFromText: (s: string) => object|null, nameUsable: (s: string) => boolean}} deps
+ *   injected so this module stays dependency-free (it requires nothing) and cannot
+ *   form a require cycle with status.js/create.js, where these live. Pass the real
+ *   functions: `status.identityFromText` and `create.nameUsable`.
+ * @returns {{ok: boolean, name?: string, displayName?: string, provider?: string|null, body?: string, because?: string}}
+ */
+function importAgent(text, deps) {
+  const identityFromText = deps && deps.identityFromText;
+  const nameUsable = deps && deps.nameUsable;
+  if (typeof identityFromText !== 'function' || typeof nameUsable !== 'function') {
+    return { ok: false, because: 'import needs the identity parser and the name check' };
+  }
+  const raw = String(text == null ? '' : text);
+  // Refuse a pathological huge input BEFORE the normalise/parse work touches it.
+  if (raw.length > MAX_FILE) return { ok: false, because: 'that file is too large to be an agent file' };
+  /* Input hygiene, NOT a new format: a file that travelled by email or chat can
+     pick up a leading BOM or CRLF line endings. Strip/normalise them before
+     parsing so a valid agent file is not refused for surviving the trip. The
+     format itself is still the LF `---` frontmatter `skills.readMeta` reads. */
+  const src = raw.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+  if (!src.trim()) return { ok: false, because: 'that file is empty' };
+
+  // (1) the `---` frontmatter block, the same shape `skills.readMeta` reads.
+  const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!m) return { ok: false, because: 'this is not a Kosmos agent file: it has no header' };
+  const head = m[1];
+  const field = (key) => {
+    // `[ \t]*`, NOT `\s*`: `\s` matches a newline, so an empty `key:` line would
+    // cross the break and adopt the NEXT line's text as the value. A value is
+    // always on its key's own line (matches the `namePresent` guard below).
+    // `[^\n]+`, NOT `.+`: in JS regex `.` does not match a line terminator
+    // (U+2028, U+2029, or a lone CR that survives the \r\n normalisation above)
+    // and, under /m, `$` matches BEFORE one -- so `.+` truncates a value at the
+    // terminator and hands safeValue only the prefix, letting a
+    // `name: ang<U+2028>evil` through as "ang" instead of refusing the whole file,
+    // even though safeValue refuses all three (U+2028/9 explicitly, CR as a C0
+    // control). `[^\n]` matches them, so the full value reaches safeValue, which
+    // refuses it. (Found by Shredder, #1652 audit.)
+    const f = head.match(new RegExp('^' + key + ':[ \\t]*([^\\n]+)$', 'm'));
+    return f ? safeValue(f[1]) : null;
+  };
+
+  // (2) the self-identifying marker. Anything else is not ours; refuse whole.
+  if (field('kosmos') !== KIND) {
+    return { ok: false, because: 'this file is not a Kosmos agent file' };
+  }
+  // (3) a name present and usable.
+  const name = field('name');
+  if (!name) {
+    /* Precise reason, as on the display-name path: `field` returns null both for
+       an absent name line and for one safeValue rejected. A `name:` line with a
+       non-space value present means the latter -- a control or bidi character. */
+    const namePresent = /^name:[ \t]*\S/m.test(head);
+    return { ok: false, because: namePresent
+      ? 'the agent file’s name carries a control or bidi character'
+      : 'the agent file has no usable name' };
+  }
+  /* 🛑 PATH-SAFETY IS THIS SURFACE'S JOB, and it is where the collision concern
+     and the safety concern part ways. A NAME COLLISION with a running agent is
+     machine state the create flow decides; PATH-SAFETY is a pure property of the
+     string itself (`..`, a slash, a NUL would become a folder, a tmux session
+     and a launchd label), so a file carrying one is a hostile file and is
+     refused WHOLE here rather than passed downstream trusting create to catch
+     it. Injected so there is ONE answer (create.nameUsable), never a second copy
+     that guards less -- the exact defect that file's own comment warns about. */
+  if (!nameUsable(name)) {
+    return { ok: false, because: 'the agent file’s name is not a usable agent name' };
+  }
+
+  // (4) the body must name somebody, the same call adoption uses.
+  const body = src.slice(m[0].length);
+  if (!body.trim()) return { ok: false, because: 'the agent file has no instructions' };
+  // identityFromText returns `{displayName, role}` or null -- the same parser
+  // adoption uses. The contract is that the body NAMES somebody, so a display
+  // name is what must be present.
+  const identity = identityFromText(body);
+  if (!identity || !identity.displayName) {
+    return { ok: false, because: 'the agent file’s instructions do not name an agent (expected a line like “You are X”)' };
+  }
+  /* 🛑 THE DISPLAY NAME IS THE SPOOFING TARGET, so it goes through safeValue too.
+     It comes from the untrusted body and is the human-visible name; a bidi
+     override in it renders as a different name than it is. Unlike the machine
+     `name` (which create.nameProblem's allowlist re-checks), the display name is
+     shown as-is, so if it carries a control or bidi character the file is refused
+     here rather than passed on. */
+  const displayName = safeValue(identity.displayName);
+  if (!displayName) {
+    return { ok: false, because: 'the agent file’s display name carries a control or bidi character' };
+  }
+  if (displayName.length > MAX_DISPLAY) {
+    return { ok: false, because: 'the agent file’s display name is too long to be a name' };
+  }
+
+  // A HINT, never a gate: the receiver may not have this provider connected, so
+  // import states what the file wants and lets the create flow choose.
+  const provider = field('provider');
+
+  return { ok: true, name, displayName, provider: provider || null, body };
+}
+
+module.exports = { exportAgent, importAgent, IMPORT_CONTRACT, MARK, KIND };

@@ -114,7 +114,7 @@ async function withRelease(t, over = {}, opts = {}) {
   // injected runner, which is a guard worth keeping and worth ordering around.
   //
   // ⚠️ THE DEFAULT RUNNER MUST ACTUALLY CREATE THE BINARY. A stub that merely
-  // reports `{ok:true}` leaves the sequence's own `fs.accessSync(..., X_OK)`
+  // reports `{ok:true}` leaves the sequence's own runnability check
   // check failing, so the SUCCESS arm silently becomes a failure arm and a
   // control asserting `ok === true` cannot pass. Found by that control failing.
   connect.setRunner(opts.runner || ((file, args) => {
@@ -136,6 +136,104 @@ async function withRelease(t, over = {}, opts = {}) {
   });
   return connect.installClaudeCode(stubs(over));
 }
+
+// ── the post-install resolver gate ──────────────────────────────────────────
+// 📌 PLACEMENT IS DELIBERATE, #1606 iteration 44. These two are FAILURE-SHAPE arms,
+// not return-shape arms, and they sat under the `three return shapes` header ahead of
+// the three tests it describes. The header moved rather than the tests: a one-line
+// move cannot damage a test body, and the sibling file's rule is that the next arm
+// added by analogy inherits its neighbour's context.
+
+test('a resolver that THROWS at the post-install gate fails cleanly instead of escaping', async (t) => {
+  /* 🛑 THIS PINS THE ONE PRODUCTION BEHAVIOUR THIS BRANCH CHANGED WITHOUT AN ARM.
+     The post-install gate used to build its failure message with `claudeBinPath()`,
+     which is `resolveBin('claude').bin`. If the try entered the catch BECAUSE
+     `resolveBin` threw, that same call threw again FROM INSIDE THE HANDLER and
+     escaped `installClaudeCode` entirely: no `fail()` returned.
+     ⚠️ AND A SECOND CLAUSE HERE WAS FALSE AND IS WITHDRAWN. It used to add "and the
+     downloaded file never unlinked". MEASURED on origin/main: the unlink is a COMPLETE
+     STATEMENT ON THE LINE BEFORE the failing return, so the file WAS removed even on
+     this path. Only the no-fail() half was ever true.
+     ⇒ The fix is still right and the harm it repairs was OVERSTATED, and the same wrong
+     sentence stood in two places, so correcting one would have left the other.
+     The path is now captured defensively before the guard.
+
+     ⚠️ A reviewer found this was the only changed production behaviour on the branch
+     with zero coverage, on a branch that added a both-directions arm for every other
+     changed site. Found by grep: neither this file nor connect.hookwiring-1569
+     drove that path, with a passing control (the same search finds willInstall in many files, so it can return a populated answer).
+
+     The failure is a RESOLVER throw, so the arm has to make the resolver throw. */
+  const runners = require('./runners.js');
+  const origResolve = runners.resolveBin;
+  runners.resolveBin = () => { throw new Error('simulated resolver failure'); };
+  try {
+    const res = await withRelease(t, {});
+    assert.equal(res.ok, false, 'a throwing resolver must produce a failure, not a success');
+    assert.notEqual(res.cancelled, true, 'a resolver failure is not a cancellation');
+    const text = String(res.detail || res.because || JSON.stringify(res)) + ' ' + String(res.message || '');
+    assert.match(text, /could not work out where to look for it/,
+      'the failure message did not carry the defensive fallback, so the handler probably '
+      + 'rebuilt the path with the same call that threw');
+    /* 🛑 AND IT MUST NOT BLAME THE INSTALLER. A resolver throw is no evidence the
+       install failed; one copy used to cover both and sent the operator to reinstall
+       something that may be fine. This arm pins the DISTINCTION, not just the words. */
+    assert.doesNotMatch(text, /cannot find anything runnable/,
+      'a RESOLVER failure is being reported with the INSTALL failure copy, which blames '
+      + 'the wrong component and gives the operator no action');
+    /* 🛑 AGENT_WORKFORCE_HOME, NOT ..._CLAUDE_BIN. An earlier version of this arm pinned
+       CLAUDE_BIN and PASSED, because the string was present, not because the advice was
+       usable: that variable makes this branch UNREACHABLE (set, resolveBin returns on the
+       env rung before anything that can throw). The arm was holding the wrong copy in
+       place. Pinning the home derivation is what ties the message to the only condition
+       that reaches it. */
+    /* 🛑 THIS ARM PINS THAT NO ENV VAR IS NAMED, and that is stronger than pinning a
+       phrase. TWO successive versions of this copy named a variable, and BOTH times the
+       named variable made the branch UNREACHABLE when set: CLAUDE_BIN returns on the env
+       rung before anything can throw, and HOME supplies the value whose absence is the
+       only way in. Measured both. ⇒ A branch reached by a FAILURE TO DERIVE something
+       can never be advised with a variable that supplies it, so the assertion is on the
+       CLASS rather than on whichever name is wrong this week. */
+    assert.doesNotMatch(text, /AGENT_WORKFORCE_[A-Z_]+/,
+      'the resolver-failure detail ADVISES an AGENT_WORKFORCE_* variable. Any variable that '
+      + 'could supply the missing value also PREVENTS this branch, so advising one is always '
+      + 'wrong here. Describe the condition instead.');
+    /* 🛑 THE PIN ABOVE COVERS ONE OF THE TWO MEASURED NAMES, NOT THE CLASS ITS MESSAGE USED
+       TO CLAIM. AGENT_WORKFORCE_CLAUDE_BIN matches it; HOME does not, and HOME is named in
+       the live copy at connect.js:1517 and :1626. That gap made a green test assert, falsely,
+       that no variable was named at all.
+       ⚠️ SCOPE, MEASURED, BECAUSE THE ARM BELOW DOES NOT COVER BOTH SITES: this test's `text`
+       is the :1626 copy only. Mutating :1517 to the advice form leaves it GREEN (measured:
+       20 pass 0 fail), mutating :1626 turns it RED (19 pass 1 fail). The :1517 copy is
+       reached by a different failure and is NOT guarded here. Do not read this arm as
+       covering the class across the file.
+       ✅ HOME IS DELIBERATELY PERMITTED, and the distinction is DIAGNOSIS vs ADVICE. The copy
+       says 'HOME is unset', which tells a service-account reader what is actually wrong and
+       is worth keeping. What must never appear is the ADVICE form, so that is what is pinned
+       below rather than the bare name.
+       📌 Both arms measured: the live diagnosis copy does NOT match, 'try setting HOME to ...'
+       and 'set $HOME and retry' both DO. A pin that cannot separate them would force the
+       diagnosis out of the copy to stay green, which is the worse outcome. */
+    assert.doesNotMatch(text, /\bset(?:ting)?\s+\$?HOME\b/i,
+      'the resolver-failure detail ADVISES setting HOME. HOME supplies the value whose '
+      + 'absence is the only way into this branch, so a reader who could act on it would '
+      + 'never see the message. Naming HOME as the CONDITION is fine and is why this pins '
+      + 'the advice form only.');
+    assert.match(text, /home directory/i,
+      'the detail does not name the condition that actually reaches this branch');
+  } finally {
+    runners.resolveBin = origResolve;
+  }
+});
+
+test('CONTROL: the same flow with a working resolver succeeds', async (t) => {
+  /* Without this, the arm above passes for any reason at all, including a flow that
+     fails long before the post-install gate. */
+  const res = await withRelease(t, {});
+  assert.equal(res.ok, true,
+    'the control install failed, so the throwing-resolver arm above proves nothing');
+});
+
 
 // ── the three return shapes ─────────────────────────────────────────────────
 
@@ -372,8 +470,10 @@ test('an install that reports success but leaves no runnable binary is caught', 
      is exactly right in kind but not what this test is about. It is about the
      ARM, so it matches the part that identifies the arm. */
   /* 🛑 #1570: THE SECOND ALTERNATIVE WAS DEAD AND IT IS GONE. It was the pre-#1580
-     wording, kept when the message widened. Measured against the three `fail()`
-     calls in `installClaudeCode`: none emits it, so that arm could never match.
+     wording, kept when the message widened. Measured against EVERY `fail()` call
+     in `installClaudeCode`: none emits it, so that arm could never match. Stated as
+     a mechanism rather than a count deliberately: this branch itself took that
+     function from 3 `return fail(` calls to 5, which would have staled a number.
      A regex alternative that cannot fire is not harmless - it makes the assertion
      LOOK like it covers two messages when one of them does not exist, which is the
      same use-versus-mention confusion the card is about, one layer along.
@@ -460,6 +560,39 @@ test('CONTROL: maySweepDownloads FALSE leaves that partial in place', async (t) 
   const res = await withRelease(t, { maySweepDownloads: () => false }, { dieMidStream: true });
   assert.equal(res.ok, false);
   assert.ok(partialsIn().length > 0, 'a false maySweepDownloads must suppress the sweep');
+});
+
+
+test('a home directory we cannot resolve fails cleanly and strands no download', async (t) => {
+  /* 🛑 THIS ARM DRIVES A STATE PRODUCTION CANNOT PRODUCE, AND IT IS KEPT AND LABELLED
+     RATHER THAN DELETED. It stubs `runners.homeDir` on the MODULE OBJECT, which faults
+     only connect.js's explicit call. `store.ROOT` calls `os.homedir()` directly and keeps
+     working, so this drives "connect's home lookup broken, the store's healthy".
+     ⚠️ IN PRODUCTION os.homedir() THROWING KILLS store.ROOT, SO download() FAILS FIRST
+     and this branch is never reached. Measured on every arm, including with
+     AGENT_WORKFORCE_DATA and AGENT_WORKFORCE_HOME set: both still throw.
+     ⇒ What this arm honestly pins: IF the guard is reached, it cleans up and names the
+     condition. It does NOT show that anything reaches it.
+     ⭐ I originally wrote this arm believing it demonstrated a ~281MB leak. It reddens
+     when the guard is removed, and I read that as proof the leak was real. A mutation
+     reddening an arm proves the arm SEES the mutation, not that the state can occur. */
+  const runners = require('./runners.js');
+  const realHome = runners.homeDir;
+  runners.homeDir = () => { throw new Error('no home directory'); };
+  try {
+    const res = await withRelease(t, {});
+    assert.equal(res.ok, false, 'an unresolvable home must fail, not throw out of installClaudeCode');
+    assert.notEqual(res.cancelled, true, 'an unresolvable home is not a cancellation');
+    assert.match(String(res.message || '') + ' ' + String(res.detail || res.because || ''),
+      /home directory/i,
+      'the failure does not name the condition that caused it');
+    assert.deepEqual(downloadsMatching(/^claude-/), [],
+      'the guard did not clean up after itself. NOTE: this arm drives a state production '
+      + 'cannot produce (see the docblock above), so this asserts the guard behaves correctly '
+      + 'IF reached, not that anything reaches it.');
+  } finally {
+    runners.homeDir = realHome;
+  }
 });
 
 test('the cancel check runs BEFORE the wantsProgress gate, not behind it', async (t) => {

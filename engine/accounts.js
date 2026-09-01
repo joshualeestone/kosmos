@@ -95,7 +95,14 @@ function isDefaultDir(dir) {
      rather than a throw would notice.
      ⇒ The catch is for an unreadable path, not for a coding mistake. Keeping one
      derivation means using the accessor the rest of this file uses. */
-  try { return path.resolve(String(dir)) === path.join(homeDir(), '.claude'); } catch { return null; }
+  /* 🛑 BOTH SIDES RESOLVED. This compared a RESOLVED left against an UNRESOLVED
+     `path.join(homeDir(), '.claude')`, so under a relative AGENT_WORKFORCE_HOME it
+     answered FALSE for a directory that IS the default. `forgetAccount` refused it
+     correctly anyway because it compares resolved paths, which meant the exported
+     helper and the engine disagreed about the one fact this helper exists to make
+     un-re-derivable. `path.resolve` is a no-op on an already absolute path, so the
+     ordinary case is unchanged. */
+  try { return path.resolve(String(dir)) === path.resolve(homeDir(), '.claude'); } catch { return null; }
 }
 
 function configFile(dir) {
@@ -103,8 +110,12 @@ function configFile(dir) {
      default dir must not silently fall to the inside-the-dir branch,
      which is the wrong-path bug this helper exists to prevent. */
   const clean = path.resolve(String(dir || ''));
-  const isDefault = clean === path.join(homeDir(), '.claude');
-  return isDefault ? path.join(homeDir(), '.claude.json') : path.join(clean, '.claude.json');
+  const isDefault = clean === path.resolve(homeDir(), '.claude');  /* same both-sides fix as isDefaultDir */
+  /* Both branches return an ABSOLUTE path. The default branch used to return
+     `path.join(homeDir(), ...)` unresolved, so a relative AGENT_WORKFORCE_HOME
+     made this one branch cwd-dependent while the other was not: the same input
+     class the resolve fix above was written for. */
+  return isDefault ? path.resolve(homeDir(), '.claude.json') : path.join(clean, '.claude.json');
 }
 
 /**
@@ -175,7 +186,19 @@ function sharesMemory(dir, isDefault) {
 function share(dir) {
   const primary = path.join(homeDir(), '.claude', 'projects');
   const here = path.join(dir, 'projects');
-  if (sharesMemory(dir, dir === path.join(homeDir(), '.claude'))) return { ok: true, already: true };
+  /* 🛑 `isDefaultDir(dir)`, NOT A THIRD HAND-ROLLED COMPARISON. This read
+     `dir === path.join(homeDir(), '.claude')`: raw string equality, NEITHER side
+     resolved, which is the exact pattern the helper at :87 exists to end.
+     ⚠️ AND THIS ONE IS THE DESTRUCTIVE CALLER, which is why it matters more than
+     the other two. A trailing slash made `share('<home>/.claude/')` classify the
+     DEFAULT as non-default, take the mutation path, `rmSync` ~/.claude/projects
+     and symlink it TO ITSELF: realpath and readdir then throw ELOOP and
+     `sharesMemory` answers false for every account on the machine, while the
+     return value is a cheerful { ok: true }.
+     📌 Not reachable through /api/accounts/share, which looks the row up in
+     `list()` and passes the canonical spelling. But `share` is exported, and this
+     branch is the one asserting that the two derivations can no longer disagree. */
+  if (sharesMemory(dir, isDefaultDir(dir) === true)) return { ok: true, already: true };
   let st = null;
   try { st = fs.lstatSync(here); } catch { st = null; }
   if (st && !st.isSymbolicLink()) {
@@ -451,5 +474,170 @@ function nextWorkDir() {
    accounts sharing MEMORY and the collision of names would be a nasty one. */
 const listLive = inflight.collapse(listLiveNow);
 
-module.exports = { list, listLive, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+const FORGOTTEN_PREFIX = '.removed-claude-';
+
+/**
+ * Take a Claude account off the list (#1659).
+ *
+ * The Claude half of the OpenAI removal shipped in #1372. Same act, same shape,
+ * same refusal, deliberately: two buttons sitting in one row builder, under one
+ * word, must not mean two different things depending on a provider the person
+ * is not thinking about.
+ *
+ * 🔑 IT FORGETS RATHER THAN DELETES. The directory is renamed out of the way, so
+ * the sign-in file is still on this computer and a removal is recoverable by
+ * somebody who knows where to look. "Removed" and "deleted" are different
+ * promises and the caller is told which one it got.
+ *
+ * 🛑 THE DEFAULT ACCOUNT IS REFUSED, AND THAT IS ONE OF TWO PLACES THIS DIVERGES
+ * FROM THE OPENAI SIDE. The other is the `|| 'unnamed'` label fallback, where
+ * `.codex` maps to `'default'`.
+ * ⚠️ THIS PARAGRAPH HAS NOW BEEN WRONG IN BOTH DIRECTIONS, which is why it names
+ * a count at all. It first called the default refusal THE one divergence, which
+ * would send the next reader to `openaiaccounts.js` expecting a parity that was
+ * not there. It was then corrected to THREE, listing the `identityOf` check as a
+ * divergence because the OpenAI sibling had none and would rename a `.codex-*`
+ * directory carrying no auth.json on request.
+ * ⇒ THE SAME COMMIT THAT SHIPPED THAT SENTENCE ADDED THE GUARD to
+ * `openaiaccounts.js`, with a three-arm test asserting the rename can no longer
+ * happen. So the count went to two the moment it was written, and the
+ * parenthetical described behaviour the diff had just removed.
+ * 📌 A count in a comment is a claim, and this file has now paid for that twice.
+ * If you change either engine, re-derive it rather than editing the number.
+ *
+ * ⚠️ WHY THE DEFAULT IS REFUSED, STATED NARROWLY, BECAUSE AN EARLIER VERSION OF
+ * THIS DOCBLOCK OVERCLAIMED IT AND THE OVERCLAIM WAS COPIED INTO THREE OTHER
+ * PLACES. That version said: `prepare()` symlinks EVERY account Kosmos makes at
+ * `~/.claude/projects`, so renaming that directory strands the transcripts of
+ * accounts nobody asked to remove (measured: two accounts on the fleet machine
+ * had both `projects` AND `settings.json` linked in). **All true, and it reads
+ * as "removing the default is impossible". It is not.**
+ * 🛑 The default's account record is `~/.claude.json`, a SIBLING FILE OUTSIDE
+ * the directory (`configFile()`), and `list()` emits the default row from that
+ * file. So taking the default off the list never required moving `~/.claude`.
+ * ⇒ THE HONEST REASON IS A PRODUCT CALL, NOT AN IMPOSSIBILITY, and it is two
+ * facts rather than one: moving `~/.claude.json` would sign the person out of
+ * their own terminal Claude Code, which is not this button's business; and
+ * moving the DIRECTORY would strand history belonging to accounts they did not
+ * touch. Both fail in the quiet direction, so the refusal stands. What does not
+ * stand is the claim that the act cannot be done.
+ * 📌 AND THE SENTENCE SAYS "MAY" FOR A MEASURED REASON. It said "any other
+ * accounts here KEEP their history inside it", which is vacuously true on a
+ * single-account machine and true when memory is shared, but AFFIRMATIVELY
+ * FALSE for an account with its own `projects` directory -- a state this module
+ * models explicitly (`sharesMemory`, `memoryShared: false`) and the page renders
+ * its own arm for. Three cases, and the earlier wording was right about two.
+ * "May" is true in all three, and this is the third time this one sentence has
+ * been narrowed: it is easier to assert a condition than to check it.
+ * ⚠️ THAT LAST SENTENCE USED TO SAY the refusal 'names the way forward rather
+ * than being a dead end'. The DEFAULT refusal deliberately names none: the
+ * comment below records that both candidate remedies were removed because
+ * neither was reachable (one implies the button then works, the other names an
+ * affordance the page does not have). The sentence outlived the wording it was
+ * written for and contradicted both the code and the plan.
+ */
+function forgetAccount(dir, usedBy) {
+  const home = path.resolve(homeDir());
+  const clean = path.resolve(String(dir == null ? '' : dir));
+  const base = path.basename(clean);
+
+  /* Only ever a Claude account directly inside this computer's home. A path
+     from anywhere else is not ours to move, and saying so beats moving it. */
+  if (path.dirname(clean) !== home || !(base === '.claude' || base.startsWith('.claude-'))) {
+    return { ok: false, forgotten: false, because: 'that is not a Claude account on this computer' };
+  }
+
+  if (base === '.claude') {
+    return {
+      ok: false,
+      forgotten: false,
+      /* 🛑 THE REASON IS UNCONDITIONAL BECAUSE THE REFUSAL IS. An earlier
+         version said "Remove the other accounts first, or sign out of this one
+         instead": the first implies the button becomes usable, which it never
+         does, and the second names an affordance the product does not have
+         (measured: no sign-out control exists on the page). It also claimed
+         other accounts keep their history here, which is FALSE on a
+         single-account machine -- the common install, and the row list() always
+         emits. A reason that is true only sometimes, stated as fact, on a
+         refusal that is always.
+         📌 PRECISELY WHAT THE REWRITE ACHIEVED, because the earlier version of
+         this comment overstated it. The clause now reads "other accounts here
+         MAY keep their history inside it", which is true in all three cases the
+         module models: none exist, they share the primary tree, or they keep
+         their own (`sharesMemory` / `memoryShared: false`).
+         ⚠️ AND THIS COMMENT WAS ITSELF STALE FOR ONE ITERATION: it described an
+         intermediate wording ("ANY other accounts", vacuously true) that the
+         next rewrite replaced, so two comments about one sentence disagreed
+         while the sentence sat three lines below both of them. The genuinely unconditional half is
+         the first sentence (this is the folder Claude Code uses when nothing
+         says otherwise), and that is what carries the refusal. */
+      because: 'Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.',
+    };
+  }
+
+  /* 🛑 REFUSED WHILE AN AGENT IS ON IT, AND THE AGENTS ARE NAMED. The agent's
+     launch file points at this directory by absolute path, so the refusal is
+     not politeness, it is what makes the rename safe. And a refusal a person
+     cannot act on is a dead end: they need to know WHICH agents. */
+  const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
+  if (agents.length) {
+    return {
+      ok: false,
+      forgotten: false,
+      usedBy: agents,
+      /* 🛑 "IS SET UP TO RUN ON", NOT "IS RUNNING", AND THE CHANGE IS A TRUTH FIX
+         RATHER THAN A WORDING PREFERENCE. This said "is running on this account",
+         which was accurate while only the live roster could populate `agents`. The
+         #1693/#1697 union now includes REGISTERED-BUT-STOPPED agents, so the
+         sentence started sending people to look for a running agent that is not
+         running, on the exact path that exists to stop them losing one.
+         📌 Reworded in openaiaccounts.js too: same sentence, same defect, and the
+         two buttons now sit in one row builder under one word. */
+      because: agents.length === 1
+        ? `${agents[0]} is set up to run on this account. Move it to another account or remove it first.`
+        : `${agents.length} agents are set up to run on this account: ${agents.join(', ')}. `
+          + 'Move them to another account or remove them first.',
+    };
+  }
+
+  if (!fs.existsSync(clean)) {
+    return { ok: true, forgotten: false, because: 'that account is already gone from this computer' };
+  }
+
+  /* 🛑 THE NAME IS NOT THE ACCOUNT, AND THIS FUNCTION IS THE ONE PLACE THAT
+     MATTERED. The docblock at the top of this module states the invariant and
+     `list()` enforces it: a `.claude-*` directory is an account only if it
+     carries a `.claude.json` with an `oauthAccount`. Measured on the fleet
+     machine, `.claude-workers` carries none and is the workers/inbox tree.
+     Without this check `forgetAccount` renamed it, because every guard above
+     keys on the NAME.
+     ⚠️ AFTER the existence check on purpose: `identityOf` answers null for a
+     missing directory too, so checking earlier would turn "already gone" into
+     "not an account" and lose the quiet-success arm. */
+  if (!identityOf(clean)) {
+    return { ok: false, forgotten: false, because: 'that is not a Claude account on this computer' };
+  }
+
+  const label = base.slice('.claude-'.length) || 'unnamed';
+  let target = path.join(home, FORGOTTEN_PREFIX + label);
+  /* A second removal of the same label must not clobber the first one's
+     credential, which would delete the thing this function exists not to
+     delete. */
+  for (let n = 2; fs.existsSync(target) && n < 500; n += 1) {
+    target = path.join(home, `${FORGOTTEN_PREFIX}${label}-${n}`);
+  }
+  if (fs.existsSync(target)) {
+    return { ok: false, forgotten: false, because: 'we could not find a free name to move that account to' };
+  }
+  try { fs.renameSync(clean, target); }
+  catch { return { ok: false, forgotten: false, because: 'we could not move that account out of the way' }; }
+
+  /* `wasDefault` is a constant here and there is no branch that sets it true:
+     the default is refused above, so it can never reach this line. Kept so the
+     success shape matches `openaiaccounts.forgetAccount`, whose default CAN be
+     forgotten. Said out loud to save the next reader hunting for the branch. */
+  return { ok: true, forgotten: true, movedTo: target, wasDefault: false, because: null };
+}
+
+module.exports = { list, listLive, forgetAccount, FORGOTTEN_PREFIX, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };

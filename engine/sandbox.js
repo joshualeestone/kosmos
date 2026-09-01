@@ -12,9 +12,12 @@
  *
  * So the rule is one decision, not five: if ANY of the four directories is
  * sandboxed, all four must be, and tmux must be inert (AGENT_WORKFORCE_TMUX_BIN
- * pointing at a stub, or AGENT_WORKFORCE_DRY_RUN=1, which makes every tmux
- * call a no-op). Otherwise the board refuses to start and names what is still
- * live. An unsandboxed board (nothing set) is the product and is allowed.
+ * pointing at a stub). Otherwise the board refuses to start and names what is
+ * still live. An unsandboxed board (nothing set) is the product and is allowed.
+ *
+ * ⚠️ DRY_RUN=1 IS NOT ENOUGH AND USED TO BE ACCEPTED HERE (kosmos#1651). It
+ * stops tmux WRITES; the roster is a READ, and a board that passed this guard
+ * on DRY_RUN alone enumerated the real fleet by name.
  *
  * AGENT_WORKFORCE_HALF_SANDBOX_OK=1 overrides, for the person who has read this
  * and means it. It is a sentence in the environment, not a default.
@@ -39,8 +42,17 @@ const DIRS = [
 function audit(env) {
   const set = DIRS.filter(([k]) => env[k]).map(([k]) => k);
   const live = DIRS.filter(([k]) => !env[k]);
-  const tmuxInert = Boolean(env.AGENT_WORKFORCE_TMUX_BIN) || env.AGENT_WORKFORCE_DRY_RUN === '1';
-  if (!tmuxInert) live.push(['tmux', "tmux, so a send would type into a real agent's live terminal (set AGENT_WORKFORCE_TMUX_BIN to a stub or AGENT_WORKFORCE_DRY_RUN=1)"]);
+  /* 🛑 kosmos#1651. `DRY_RUN=1` USED TO SATISFY THIS AND IT MUST NOT.
+     DRY_RUN neuters tmux WRITES. A roster is a READ, and the module that
+     performs it never consults DRY_RUN at all: measured in engine/status.js,
+     `AGENT_WORKFORCE_DRY_RUN` 0 references and `AGENT_WORKFORCE_FAKE_PANES` 0,
+     against 104 mentions of tmux. It resolves the binary as
+     `AGENT_WORKFORCE_TMUX_BIN || 'tmux'` and nothing else.
+     ⇒ A board sandboxed with DRY_RUN and no TMUX_BIN passed this guard AND
+     enumerated the real fleet: 18 of 18 agents by name, which is how #1651 was
+     found. Only TMUX_BIN redirects a read, so only TMUX_BIN counts here. */
+  const tmuxInert = Boolean(env.AGENT_WORKFORCE_TMUX_BIN);
+  if (!tmuxInert) live.push(['tmux', "tmux, so this board would read the real fleet's terminals and a send would type into one (set AGENT_WORKFORCE_TMUX_BIN to a stub; DRY_RUN is not enough, it stops writes and not reads)"]);
   const partial = set.length > 0 && live.length > 0 && env.AGENT_WORKFORCE_HALF_SANDBOX_OK !== '1';
   return { partial, set, live: live.map(([k, what]) => ({ key: k, what })), tmuxInert };
 }

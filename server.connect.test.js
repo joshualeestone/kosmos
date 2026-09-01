@@ -771,7 +771,7 @@ test('the stuck screen offers the Terminal way out only when there is something 
    * found`.**
    *
    * ⚠️ A STRANGER WALKS THIS PATH TONIGHT. Josh is demoing to people who will
-   * install it themselves, so a dead end on step 3 of six is a first impression
+   * install it themselves, so a dead end on step 3 of seven is a first impression
    * rather than a screenshot.
    *
    * 📌 THE FLAG IS ASKED OF THE DISK BY THE ENGINE, never inferred from which
@@ -898,7 +898,7 @@ test('a first-time installer meets the port precondition before anything is down
 
   /* And the update path keeps its own check AFTER the stop, where it means
      "the stop did not work" rather than "somebody else is here". */
-  const updGate = setup.indexOf('if [ "$FRESH_INSTALL" = "no" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then');
+  const updGate = setup.indexOf('if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then');
   const stop = setup.indexOf('"$KOSMOS_HOME/bin/kosmos" stop', updGate);
   const verify = setup.indexOf('_pausebody="$(curl', updGate);
   assert.ok(updGate > -1 && verify > stop, 'the update no longer verifies that its pause worked');
@@ -1134,7 +1134,7 @@ test('#996: the first-run wizard never INSTRUCTS anybody to open a Terminal', ()
   /**
    * 🛑 THE NORTH STAR THIS IS MEASURED AGAINST: someone non-technical gets from
    * nothing to a working agent without a Terminal. This sentence fired at the
-   * least technical moment in the product -- step 3 of six, first run, after a
+   * least technical moment in the product -- step 3 of seven, first run, after a
    * failure -- so for the person it was written for it was a wall with a
    * helpful sign on it.
    *
