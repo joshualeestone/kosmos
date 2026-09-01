@@ -172,9 +172,12 @@ const REPO = __dirname;
  * ⭐ AND `runners.js`'s own docblock cites setup.sh's check_claude_code as WHERE THIS
  * TRAP CAME FROM, so shell is not an unrelated surface. It is where the class started.
  * ⚠️ DELIBERATELY NOT FIXED HERE: that is a different card, and widening this branch to
- * the shell installer is the scope creep the plan argues against. NOT CARDED YET EITHER,
- * which is stated plainly rather than implied, because "carded separately" would be a
- * comfortable sentence that is not true.
+ * the shell installer is the scope creep the plan argues against. CARDED AS #1716,
+ * which measured 17 bare `[ -x ]` sites against 3 correct `[ -f ] && [ -x ]` ones.
+ * 📌 This sentence read "NOT CARDED YET EITHER" for about ten minutes, deliberately,
+ * rather than the comfortable "carded separately" that would have been false at the
+ * time. Then I filed the card and came back. Say the true thing, then make it stop
+ * being true.
  * ⇒ Named because the list above reads as complete on a file that argues at length that
  * a partial list is the worse failure. It was partial.
  */
