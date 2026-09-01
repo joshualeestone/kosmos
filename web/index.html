@@ -24617,14 +24617,17 @@ async function importLoad() {
     importMsg('We could not reach the board to read it. (' + err.message + ')');
     return;
   }
-  btn.disabled = false;
-  if (!data) { importMsg('We could not read the reply.'); return; }
+  // Re-enabled only on the paths that STAY on this panel. The success path leaves
+  // it disabled: it advances to the form (cstep hides this panel) and openCreate
+  // re-enables it on the next open. That closes the re-entrancy window across the
+  // awaited loadCreateExtras below.
+  if (!data) { btn.disabled = false; importMsg('We could not read the reply.'); return; }
   /* importAgent refuses a hostile or non-Kosmos file WHOLE and says why; show that
      reason verbatim and stay on the panel rather than advancing with half a form. */
-  if (!data.ok) { importMsg(data.because || 'That is not an agent file we can bring in.'); return; }
+  if (!data.ok) { btn.disabled = false; importMsg(data.because || 'That is not an agent file we can bring in.'); return; }
   // Import maps to the `own` role; without that entry (an older engine) the create
   // it feeds would refuse, so say so here rather than advancing into a dead end.
-  if (!roleByKey('own')) { importMsg('This board is too old to import into.'); return; }
+  if (!roleByKey('own')) { btn.disabled = false; importMsg('This board is too old to import into.'); return; }
   importMsg('');
 
   // The file is the person describing the agent themselves, so it IS the `own`
