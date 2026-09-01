@@ -143,7 +143,10 @@ else
   ( bash -c 'sleep 4; : tools/test-install.sh' ) & mention=$!
   sleep 1
   # Prove the mention is actually VISIBLE to pgrep (else this arm is vacuous):
-  pgrep -fl 'test-install\.sh' 2>/dev/null | grep -q "$mention" \
+  # Anchor the pid at line start (pgrep -fl prints '<pid> <cmdline>'), so a pid
+  # that is a SUBSTRING of another process's pid cannot false-satisfy the very
+  # check that exists to prove this arm is not vacuous.
+  pgrep -fl 'test-install\.sh' 2>/dev/null | grep -qE "^$mention " \
     && pass "the mention is present in the process table (the filter arm is not vacuous)" \
     || fail "the mention did not survive in argv, so the filter arm below proves nothing"
   out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
