@@ -457,28 +457,40 @@ test('isRunnable ignores the extra arguments .find and .some pass it', () => {
      would keep working and anyone removing one would break a door with a green suite. */
   const runners = require('./engine/runners.js');
   const f = fixture('arity-real');
-  const bin = path.join(f.dir, 'realbin');
-  fs.writeFileSync(bin, '#!/bin/sh\n');
-  fs.chmodSync(bin, 0o755);
-  /* 🛑 INDEX 1, NOT 0, AND THAT IS THE WHOLE ARM. The first version passed
-     `(bin, 0, [bin])`, and ZERO IS THE ONE FALSY INDEX, so a second parameter consulted
-     for truthiness slipped straight through. MEASURED: `isRunnable(p, strict)` with
-     `if (strict) return false` REDDENED NOTHING, while this arm's comment
-     AND githubdevice.js both claimed it pinned exactly that condition.
-     ⚠️ AND THE CONDITION IS REAL. With the wrappers replaced by `const runnable =
-     isRunnable`, measured: a gh at candidate index 1 resolves to NULL while index 0
-     resolves correctly. The real default candidate lists hold THREE entries, so two of
-     the three sit at truthy indexes.
-     ⭐ Every candidate-scan arm in this file uses a SINGLE-ELEMENT list, so index 0 was
-     the only index the file ever exercised. The arm tested the one case that cannot
-     fail, which is this file's own smallest-satisfying-input defect. */
-  assert.strictEqual(runners.isRunnable(bin, 1, [f.dir, bin]), runners.isRunnable(bin),
-    'isRunnable now behaves differently when .find/.some pass it (element, index, array). '
-    + 'The `(p) => isRunnable(p)` wrappers in devicedoor.js and githubdevice.js are no '
-    + 'longer cosmetic: they are load-bearing, and their comments say they are not.');
-  assert.strictEqual(runners.isRunnable(f.dir, 1, [bin, f.dir]), runners.isRunnable(f.dir),
-    'same, on the DIRECTORY case, which is the one this whole card is about');
-  f.cleanup();
+  try {
+    const bin = path.join(f.dir, 'realbin');
+    fs.writeFileSync(bin, '#!/bin/sh\n');
+    fs.chmodSync(bin, 0o755);
+    /* 🛑 INDEX 1, NOT 0, AND THAT IS THE WHOLE ARM. The first version passed
+       `(bin, 0, [bin])`, and ZERO IS THE ONE FALSY INDEX, so a second parameter consulted
+       for truthiness slipped straight through. MEASURED: `isRunnable(p, strict)` with
+       `if (strict) return false` REDDENED NOTHING, while this arm's comment
+       AND githubdevice.js both claimed it pinned exactly that condition.
+       ⚠️ AND THE CONDITION IS CONDITIONAL, WHICH THE PREVIOUS VERSION OF THIS SENTENCE GOT
+       WRONG. It said: "with the wrappers replaced by `const runnable = isRunnable`, measured,
+       a gh at candidate index 1 resolves to NULL". FALSE. Re-measured one mutation at a time:
+           wrapper removed ONLY            -> index 0 resolves, index 1 resolves. Nothing breaks.
+           wrapper removed AND isRunnable
+           given a truthy 2nd parameter    -> index 1 resolves to NULL.
+       ⇒ The wrapper matters ONLY IF isRunnable gains a second parameter. githubdevice.js says
+       the true version beside its own wrapper: nothing depends on it right now.
+       🛑 HOW I GOT IT WRONG: I NEVER RESTORED runners.js BETWEEN MUTATION ARMS. The
+       second-parameter mutation was still in place when I probed ghBin(), so I attributed a
+       TWO-MUTATION result to ONE mutation, and wrote "measured" on it. Restore between arms,
+       or measure absolutes rather than a delta against a tree you have already changed.
+       the three sit at truthy indexes.
+       ⭐ Every candidate-scan arm in this file uses a SINGLE-ELEMENT list, so index 0 was
+       the only index the file ever exercised. The arm tested the one case that cannot
+       fail, which is this file's own smallest-satisfying-input defect. */
+    assert.strictEqual(runners.isRunnable(bin, 1, [f.dir, bin]), runners.isRunnable(bin),
+      'isRunnable now behaves differently when .find/.some pass it (element, index, array). '
+      + 'The `(p) => isRunnable(p)` wrappers in devicedoor.js and githubdevice.js are no '
+      + 'longer cosmetic: they are load-bearing, and their comments say they are not.');
+    assert.strictEqual(runners.isRunnable(f.dir, 1, [bin, f.dir]), runners.isRunnable(f.dir),
+      'same, on the DIRECTORY case, which is the one this whole card is about');
+  } finally {
+    f.cleanup();
+  }
 });
 
 test('isRunnable rejects a directory and accepts a real executable', () => {
@@ -678,7 +690,7 @@ test("':' asks for NO candidates explicitly, and does not fall back to the real 
     "argument while meaning unset from the env: the SAME value, opposite answers, and the " +
     'opposite one reachable through the obvious call ghCandidateList(process.env.X). ' +
     "':'.split(':').filter(Boolean) already yields [], so '' never needed the second meaning. " +
-    "That '' now means unset BOTH ways is pinned by its own arm below and is intended."
+    "That '' now means unset BOTH ways is pinned by TWO arms below, one per arrival route, and is intended."
   );
   // Control: undefined MUST still give the real defaults, or "[]" above would be
   // the answer to everything and would prove nothing.
@@ -968,7 +980,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      ✅ So this classifies nothing. It keys on `writeState`, a property of the
      CODE rather than of the comment syntax: exactly one line may both mention the
      flag and write state. Measured on this file: 1 line has both, and although 9
-     prose lines mention writeState, ZERO prose lines have both. Prose stays editable
+     prose lines mention writeState, and ZERO prose lines have both. Prose stays editable
      in practice, which the unfiltered-set version cost.
 
      ⚠️ "FULLY" WAS OVERSTATED AND IS CORRECTED HERE. The token-pair check is
@@ -977,7 +989,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      sentence mentioning canRunClaude and writeState together turns a #1592 test red,
      in connect.js, where three branches are live right now. It holds today by one line and
      it is a live tripwire, not a guarantee. Re-measured while writing this: 1 line
-     has both, and 27 lines carry writeState without it.
+     has both, and the rest carry writeState without it.
 
      ⚠️ Its one gap, covered by the exact-text pin below: a multi-line writeState
      call with the property on its own line would have neither token together.
@@ -1116,11 +1128,21 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      against exactly that.
 
      📌 SO THE THIRD RESIDUAL, RECORDED WITH THE OTHER TWO: a second writer placed
-     OUTSIDE becomeStuck, multi-line, with the property comment-prefixed, is not
-     caught. That needs a new writeState call AND multi-line formatting AND an
-     inline comment on the property, the same deliberate multi-property shape as
-     the concatenated key and the alias, and I am holding all three to one
-     threshold rather than guarding whichever I happened to see last.
+     OUTSIDE becomeStuck AND MULTI-LINE is not caught. TWO ordinary properties.
+     🛑 THIS RESIDUAL WAS PRICED AT THREE AND IT IS TWO. It used to add "with the property
+     comment-prefixed", and a reviewer showed the comment is NOT required: a plain
+     multi-line second writer, no comment anywhere, left this file at 19 pass 0 fail. The
+     control is that the identical writer COLLAPSED ONTO ONE LINE reds, so the mechanism is
+     the multi-line formatting alone.
+     ⚠️ THAT CHANGES WHICH BUCKET IT BELONGS IN, and I am saying so rather than quietly
+     keeping the verdict. This file's own realism test three paragraphs up says a multi-line
+     writeState is ORDINARY FORMATTING and therefore a plausible regression, not a
+     deliberate evasion. At two ordinary properties this sits in the bucket the file says it
+     FIXES, not the one it says it accepts.
+     📌 Held as accepted for now on the SAME friction argument as the scoping decision above
+     (three conflicting branches live in connect.js), not on the three-property price, which
+     was wrong. ⭐ An over-priced residual reads as "somebody would have to be trying", and
+     that is what stops the next maintainer from re-examining it.
 
      ⚠️ WHAT WOULD CHANGE MY MIND: a second writeState carrying canRunClaude
      appearing in real review, or those conflicting branches landing so the
@@ -1173,9 +1195,17 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      a test named for #1592 over a change belonging to another card.
      ⚠️ That is precisely the coupling the comment above says scoping removed, so
      the claim was true of the file axis and false of the boundary. Top-level
-     functions close at column 0, so the last `\n}` in the slice is this one's. */
+     functions close at column 0.
+     🛑 AND THE BOUND'S OWN REASON WAS INVERTED. It said "so the LAST `\n}` in the slice is
+     this one's". That is true only while nothing in the FOLLOWING function's docblock has a
+     column-0 brace, and this slice deliberately runs into that docblock, which is what the
+     paragraph above is about. indexOf is true BY CONSTRUCTION, because becomeStuck's own
+     body has no column-0 brace; lastIndexOf was true by luck.
+     📌 Measured today: exactly one column-0 brace in the slice, so both agreed and nothing
+     was broken. Switched anyway, because a bound that holds by luck is a bound nobody can
+     check. */
   const looseBody = src.slice(fnAt, nextFn);
-  const closeAt = looseBody.lastIndexOf('\n}');
+  const closeAt = looseBody.indexOf('\n}');
   assert.ok(closeAt > 0, 'becomeStuck has no column-0 closing brace; this bound is unanchored');
   const body = looseBody.slice(0, closeAt + 2);
   /* A bound that sliced to nothing would make a PLANTED writeState redden for the
@@ -1497,7 +1527,7 @@ test('an EMPTY env var means UNSET, not "no candidates", or gh reads as missing'
      A STYLE CHOICE" AND WHICH NOTHING GUARDED. Measured: deleting `|| undefined`
      from the default parameter left the WHOLE SUITE green at EXIT_CODE=0.
 
-     The arm above drives `ghCandidateList('')` as an ARGUMENT, which exercises the
+     An arm below now drives `ghCandidateList('')` as an ARGUMENT, exercising the
      `typeof` branch INSIDE the function. It never touches the default-parameter
      expression, so it cannot see this. Two different rules, and only one was pinned.
 
@@ -1515,6 +1545,27 @@ test('an EMPTY env var means UNSET, not "no candidates", or gh reads as missing'
       + "The one rule in github.js is: anything that is not a non-empty string means unset. Use ':' "
       + 'to ask for no candidates. 📌 Do not restore a `|| undefined` on the default parameter to '
       + 'fix a failure here; that spelling is gone and reintroducing it recreates the two-meanings bug.');
+    /* 🛑 THE ARGUMENT HALF, WHICH THREE PLACES CLAIMED WAS PINNED AND NOTHING ENFORCED.
+       The collapse gave '' ONE meaning: unset, whichever way it arrives. The arm above
+       drives the ENV route. This drives the ARGUMENT route, and until now the repo never
+       called ghCandidateList('') anywhere except in two comments describing it.
+       MEASURED with a FAITHFUL revert (both halves of the old shape, the `|| undefined`
+       default AND the `=== undefined` test): argument '' -> [] , the original bug, while
+       env '' stays correct so the arm above stays GREEN. Nothing reddened. 19 pass 0 fail.
+       ⚠️ My first revert attempt was NOT faithful: it changed only the body test, which
+       also broke the env half and reddened the arm above. A red from the wrong arm reads
+       exactly like coverage. The gap only appears once the revert is faithful.
+       ⭐ This matters because ghCandidateList is now EXPORTED PUBLIC API and the whole
+       argument for collapsing was that ghCandidateList(process.env.X) must not answer the
+       opposite of production. That property was asserted in three places, enforced in none. */
+    assert.deepStrictEqual(
+      gh.ghCandidateList(''), gh.ghCandidateList(),
+      "ghCandidateList('') as an ARGUMENT no longer means unset. The one rule is that " +
+      'anything which is not a non-empty string yields the defaults, whichever way it ' +
+      "arrives. Use ':' to ask for no candidates. Do NOT restore a `|| undefined` on the " +
+      'default parameter to fix a failure here; that spelling is gone and reintroducing it ' +
+      'recreates the two-meanings bug this collapse removed.'
+    );
     /* CONTROL: a real value must still be honoured, or the assertion above would
        pass for a function that ignores the env entirely. */
     process.env.AGENT_WORKFORCE_GH_CANDIDATES = '/a:/b';
