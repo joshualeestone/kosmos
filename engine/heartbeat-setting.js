@@ -76,7 +76,11 @@ function setOn(on) {
   return write({ on });
 }
 
-function setInterval(minutes) {
+// Named setIntervalMinutes, NOT setInterval: the bare name shadows the global
+// setInterval, and a timer added to this module later would silently resolve to
+// this function instead. This module holds no timer today; the name keeps it
+// that way safely.
+function setIntervalMinutes(minutes) {
   if (!isValidInterval(minutes)) {
     return { ok: false, because: 'the interval must be one of ' + INTERVAL_CHOICES.join(', ') + ' minutes' };
   }
@@ -107,9 +111,4 @@ function set(patch) {
   return write(next);
 }
 
-/** The interval in milliseconds, for the runner. */
-function intervalMs() {
-  return read().intervalMinutes * 60 * 1000;
-}
-
-module.exports = { FILE, INTERVAL_CHOICES, DEFAULT_INTERVAL, isValidInterval, read, setOn, setInterval, set, intervalMs };
+module.exports = { FILE, INTERVAL_CHOICES, DEFAULT_INTERVAL, isValidInterval, read, setOn, setIntervalMinutes, set };

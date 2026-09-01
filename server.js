@@ -7494,8 +7494,12 @@ function start(port = PORT) {
       const HEARTBEAT_OFF_POLL_MS = Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) > 0
         ? Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) : 60 * 1000; // the env is the test seam only
       const heartbeatTick = () => {
+        // Read the setting ONCE per tick and reuse it for both the sweep and the
+        // reschedule delay below -- no second disk read. A failed read is off, so
+        // the tick does nothing and the timer polls on the base cadence.
+        let setting = { on: false };
+        try { setting = heartbeatSetting.read(); } catch { /* off + base poll on a bad read */ }
         try {
-          const setting = heartbeatSetting.read();
           const roster = setting.on ? safeRoster() : null;
           const outcome = heartbeat.step(heartbeatPrev, roster, setting.on);
           heartbeatPrev = outcome.next;
@@ -7525,9 +7529,7 @@ function start(port = PORT) {
             }
           }
         } catch { /* best-effort, like the nudge sweep */ }
-        let delay = HEARTBEAT_OFF_POLL_MS;
-        try { const s = heartbeatSetting.read(); if (s.on) delay = s.intervalMinutes * 60 * 1000; }
-        catch { /* fall back to the base poll */ }
+        const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
         const t = setTimeout(heartbeatTick, delay);
         if (t && typeof t.unref === 'function') t.unref();
       };

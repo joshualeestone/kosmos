@@ -13209,10 +13209,7 @@ async function paintHeartbeat() {
     if (document.activeElement !== en) en.checked = r.on === true;
     if (document.activeElement !== iv) iv.value = String(r.intervalMinutes || 17);
     en.disabled = false; iv.disabled = false; btn.disabled = false;
-    /* A read that came back but could not be parsed (ok:false) shows the safe
-       default AND says so, rather than presenting a corrupt file as a real
-       off/17 state -- the plan wanted a read failure visible, not silent. */
-    if (msg) msg.textContent = r.ok === false ? 'We could not read the saved heartbeat setting, so this shows the default.' : '';
+    if (msg) msg.textContent = '';
   } catch {
     en.disabled = true; iv.disabled = true; btn.disabled = true;
     if (msg) msg.textContent = 'We could not read the heartbeat setting just now.';

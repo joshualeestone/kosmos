@@ -38,10 +38,10 @@ test('setOn refuses a non-boolean', () => {
 
 test('setInterval accepts every choice in the closed set and refuses others', () => {
   for (const m of hb.INTERVAL_CHOICES) {
-    assert.equal(hb.setInterval(m).ok, true, `${m} should be accepted`);
+    assert.equal(hb.setIntervalMinutes(m).ok, true, `${m} should be accepted`);
     assert.equal(hb.read().intervalMinutes, m);
   }
-  const bad = hb.setInterval(7);
+  const bad = hb.setIntervalMinutes(7);
   assert.equal(bad.ok, false, '7 is not a choice');
   assert.ok(bad.because);
   // the refused write did not change the stored value
@@ -49,11 +49,11 @@ test('setInterval accepts every choice in the closed set and refuses others', ()
 });
 
 test('setInterval refuses a string that looks numeric', () => {
-  assert.equal(hb.setInterval('17').ok, false);
+  assert.equal(hb.setIntervalMinutes('17').ok, false);
 });
 
 test('on and interval persist independently (a patch does not reset the sibling)', () => {
-  hb.setInterval(60);
+  hb.setIntervalMinutes(60);
   hb.setOn(true);
   const s = hb.read();
   assert.equal(s.on, true);
@@ -98,9 +98,3 @@ test('set leaves an omitted field untouched', () => {
   assert.equal(s.intervalMinutes, 17);
 });
 
-test('intervalMs reflects the stored minutes', () => {
-  hb.setInterval(5);
-  assert.equal(hb.intervalMs(), 5 * 60 * 1000);
-  hb.setInterval(60);
-  assert.equal(hb.intervalMs(), 60 * 60 * 1000);
-});
