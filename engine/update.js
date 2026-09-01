@@ -397,7 +397,12 @@ function startAutoPoll(opts = {}) {
      this direction, and I had guarded only one end. Clamped, a year becomes
      ~24.8 days, which is what the operator wanted anyway. */
   const TIMER_MAX = 2147483647;
-  const floored = envMs > 0 ? Math.min(Math.max(envMs, 1000), TIMER_MAX) : POLL_EVERY;
+  /* The ceiling is applied ONCE, on the line below, which clamps this value
+   again. Clamping here as well was dead: removing it left the suite green
+   INCLUDING the arm named for the ceiling, which is how a reviewer found it. Two
+   clamps on one axis means neither is pinned, and the surviving one is the one
+   the arm actually reaches. */
+  const floored = envMs > 0 ? Math.max(envMs, 1000) : POLL_EVERY;
   /* The FLOOR is scoped to the env path deliberately (an env var a user can
      reach, versus an in-process argument). The CEILING is not: the wrap above
      2147483647 is a property of the VALUE rather than of who supplied it, so
@@ -626,12 +631,18 @@ function seedFromStatusFile() {
     log: installLog(),
     version: m[3] && m[3] !== '-' ? m[3] : null,
     auto: m[4] === '1',
-    attempts: Number.isFinite(Number(m[5])) ? Number(m[5]) : 0,
+    /* ⚠️ FLOORED AT 0. A negative value parses fine and makes the cap
+   UNREACHABLE: measured with `-9` in the file, the brake never fires and the
+   next attempt records -8, counting UP toward a cap it can never reach. Only our
+   own installer writes this file, so it needs local tampering rather than
+   truncation (every truncation shape was checked and is safe), but the direction
+   of the failure is unbounded unattended installs and a floor costs one call. */
+    attempts: Math.max(0, Number.isFinite(Number(m[5])) ? Number(m[5]) : 0),
     /* Consecutive failures across ALL versions. Optional like the pair above, so
        a record written before this field existed reads 0 rather than failing to
        parse. 0 is the safe default: it under-counts rather than braking a machine
        that has not earned it. */
-    streak: Number.isFinite(Number(m[6])) ? Number(m[6]) : 0,
+    streak: Math.max(0, Number.isFinite(Number(m[6])) ? Number(m[6]) : 0),
   };
 }
 function lastAttemptView() {
@@ -774,12 +785,20 @@ function beginInstall(opts) {
      it; the installer's own refusal to run under a live board did, which is
      somebody else's last line of defence.
 
-     ⚠️ ORDER, checked rather than assumed: server.js opens this gate at :7462
-     and starts the poll at :7411, so the gate opens AFTER the poll starts. That
-     is safe only because this check is at SPAWN time: the first tick is `every`
-     ms away (60s by default) and an install additionally needs a fetch, an offer
-     and the preference, while the gate opens synchronously in the same startup.
-     Gating startAutoPoll instead would be a real race.
+     🛑 ORDER. THE PARAGRAPH THAT USED TO BE HERE WAS BACKWARDS, AND IT SAID
+     "checked rather than assumed" WHILE BEING NEITHER. I compared LINE NUMBERS
+     and called that reading the code: :7462 opens the gate, :7411 starts the
+     poll, so I concluded the gate opens after the poll and reasoned about a race.
+     Execution order is not line order. `:7462` is inside `if (require.main ===
+     module)` at server.js:7454 and runs AT LOAD; `:7411` is inside the
+     `listening` callback, and `start()` is not called until :7586. So the gate
+     opens STRICTLY BEFORE the poll starts, and the race I described does not
+     exist. A reviewer read the enclosing scopes I did not.
+
+     The check still belongs at spawn time rather than at poll start, but for a
+     plainer reason than the one I invented: this is the statement that runs the
+     installer, and a gate belongs at the thing it guards. Gating startAutoPoll
+     would guard the timer instead, which is not the dangerous part.
 
      In a test process refuseOrWarn THROWS, so this class is loud rather than
      silent. In production it warns and we decline to spawn, which is the right

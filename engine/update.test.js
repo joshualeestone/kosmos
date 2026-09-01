@@ -1229,7 +1229,7 @@ test('#1277: a failed MANUAL press does not clear the brake for one more unatten
     + 'board takes itself down once more');
 });
 
-test('#1277: a SPAWN error does not consume one of the three automatic chances', async () => {
+test('#1277: a SPAWN error consumes no DURABLE chance, because the installer never ran', async () => {
   /* This arm exists to give `durable.code !== null` a guard of its own. A
      reviewer measured that removing either that clause or `durable.endedAt`
      alone left the suite green, because an in-flight record satisfies both, so
@@ -1257,6 +1257,9 @@ test('#1277: a SPAWN error does not consume one of the three automatic chances',
       unref() {}, stderr: { on() {} },
     };
   });
+  const statusFile = path.join(home, 'logs', 'install.status');
+  fs.writeFileSync(statusFile, 'sentinel\n');
+  const before = fs.readFileSync(statusFile, 'utf8');
   try {
     await u.checkNow();
     await new Promise((r) => setImmediate(r));
@@ -1265,9 +1268,30 @@ test('#1277: a SPAWN error does not consume one of the three automatic chances',
     assert.ok(rec.endedAt, 'precondition: a spawn error ENDS the record, which is what makes it '
       + 'distinct from an in-flight attempt');
     assert.equal(rec.code, null, 'precondition: a spawn error carries no exit code');
+    /* 🛑 THE NAME OF THIS TEST USED TO CLAIM MORE THAN IT ASSERTED, AND THE
+       ASSERTION WAS THE HONEST HALF. It was called "does not consume one of the
+       three automatic chances" while checking `attempts === 1`, which IS a
+       consumed chance. A reviewer measured the gap: on top of a durable record at
+       2, a spawn error takes the in-memory record to 3, the cap itself.
+
+       What is actually true is a different and narrower sentence, and it is now
+       the name: no DURABLE chance is consumed. The installer wrapper writes
+       logs/install.status only when the child exits, and a spawn error means no
+       child, so the file is untouched. Asserted directly below rather than
+       inferred.
+
+       The in-memory count DOES climb, and that is left alone deliberately: a
+       spawn error means nothing ran, so the board was never stopped, and the
+       worst case is that this process declines to auto-update until it restarts
+       while the person's board keeps working normally. The hour window paces it
+       either way. What would change my mind is evidence that boards run long
+       enough for a transient EMFILE to suppress a wanted update for days; then
+       the fix is to roll the count back in wireChild's error handler. */
     assert.equal(rec.attempts, 1,
-      `a spawn error was counted as attempt ${rec.attempts}. The installer never ran, so nothing `
-      + 'stopped the board, and it must not consume one of three chances');
+      `the in-memory attempt count is ${rec.attempts}, not the 1 this arm expects`);
+    assert.equal(fs.readFileSync(statusFile, 'utf8'), before,
+      'a spawn error changed the DURABLE record. The shell never ran, so nothing should have '
+      + 'written to logs/install.status, and a chance was consumed that cost the person nothing');
   } finally {
     u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
     u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
@@ -1358,4 +1382,58 @@ test('#1277: a NEW RELEASE does not hand a machine that cannot install three mor
     + 'stop the board again. Those failures are not about the tarball');
   assert.equal(await installsWhenOffered('9.9.9', 0, 0, '9.9.10'), 1,
     'CONTROL: a healthy machine must still install a new release');
+});
+
+test('#1277: DRY_RUN is read as === "1", so a machine setting it to "0" still updates', async () => {
+  /* The exact spelling carried a paragraph of rationale and no arm: a reviewer
+     measured that loosening it to a truthiness check left the suite green.
+
+     The failure the rationale describes is real and would have been silent. A
+     person or a wrapper script setting AGENT_WORKFORCE_DRY_RUN=0, meaning "no,
+     this is not a dry run", would under a truthiness check disable automatic
+     updates on that machine FOREVER, with no message anywhere: the board simply
+     stops updating and nothing says why. '0' is the natural way to write "off",
+     which is exactly what makes it dangerous. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const prev = process.env.AGENT_WORKFORCE_DRY_RUN;
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-dryspell-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  let fetches = 0;
+  u.resetCache();
+  u.setInstalledRoot(() => home);
+  u.setAutoPref(() => ({ on: true }));
+  u.setFetcher(async () => { fetches += 1; return { ok: true, json: async () => ({ version: '99.0.0' }) }; });
+  u.setInstallRunner(() => ({ on() {}, unref() {}, stderr: { on() {} } }));
+  try {
+    /* ⚠️ THE TICK, NOT checkNow(). The DRY_RUN gate lives in the interval
+       callback, so checkNow() walks straight past it: my first version of this
+       arm used checkNow and its own CONTROL caught that, by fetching with the
+       variable set to '1'. */
+    process.env.AGENT_WORKFORCE_DRY_RUN = '0';
+    u.startAutoPoll({ every: 1000 });
+    await new Promise((r) => setTimeout(r, 2400));
+    u.stopAutoPoll();
+    assert.ok(fetches > 0,
+      'with AGENT_WORKFORCE_DRY_RUN="0" the tick did not fetch. Under a truthiness check "0" reads '
+      + 'as set, so a machine whose owner wrote 0 meaning "not a dry run" would silently never '
+      + 'update again, with no signal anywhere');
+    /* CONTROL: the real value must still stop it, or the assertion above is
+       satisfied by a gate that never blocks anything. */
+    fetches = 0;
+    u.resetCache();
+    u.setInstalledRoot(() => home);
+    u.setAutoPref(() => ({ on: true }));
+    u.setFetcher(async () => { fetches += 1; return { ok: true, json: async () => ({ version: '99.0.0' }) }; });
+    process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+    u.startAutoPoll({ every: 1000 });
+    await new Promise((r) => setTimeout(r, 2400));
+    u.stopAutoPoll();
+    assert.equal(fetches, 0, 'CONTROL: with the variable set to "1" the tick must NOT fetch');
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_DRY_RUN;
+    else process.env.AGENT_WORKFORCE_DRY_RUN = prev;
+    u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+    u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+  }
 });

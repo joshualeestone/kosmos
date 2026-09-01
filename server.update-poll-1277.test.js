@@ -160,6 +160,31 @@ test('#1277: every test file that boots the server sets DRY_RUN, so none can rea
       + 'stopAutoPoll() immediately after start(), so it boots the server without leaving a live '
       + 'poll behind. An excuse that only says why a file cannot comply leaves the hole open.',
   };
+  /* 🛑 AN EXCUSE MUST BE CHECKED, NOT JUST WRITTEN. The entry above says the
+     exposure is closed because that file calls stopAutoPoll() right after
+     start(), and NOTHING VERIFIED THAT. A reviewer deleted the line and both
+     files stayed green, so the excuse closed its hole in prose only. Same defect
+     as an unrun "checkable" claim, one layer up: the more carefully an excuse is
+     argued, the less likely anyone re-reads it. Each excused file must now name a
+     mitigation the guard actually checks. */
+  const MITIGATION = {
+    'server.switch-account-1373.test.js': {
+      pattern: /\.stopAutoPoll\(\)/,
+      says: 'calls stopAutoPoll() after start(), so it boots the server without leaving a live poll',
+    },
+  };
+  const unmitigated = Object.keys(EXCUSED).filter((f) => {
+    const m = MITIGATION[f];
+    if (!m) return true;
+    let src = '';
+    try { src = fs.readFileSync(path.join(root, f), 'utf8'); } catch { return true; }
+    return !m.pattern.test(src);
+  });
+  assert.deepEqual(unmitigated, [],
+    'these files are EXCUSED from the DRY_RUN convention on the strength of a mitigation that is no '
+    + 'longer present, so the excuse is now just an exemption: '
+    + unmitigated.map((f) => `${f} (claimed: ${(MITIGATION[f] || {}).says || 'unstated'})`).join(', '));
+
   const missing = boots.filter((f) => !EXCUSED[f]
     && !SETS_IT.test(fs.readFileSync(path.join(root, f), 'utf8')));
   assert.deepEqual(missing, [],
