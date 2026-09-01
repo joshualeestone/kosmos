@@ -168,3 +168,21 @@ test('#1616 addWithKey refuses a directory or a stripped file at the codex path 
   const ok = openai.addWithKey({ key: 'sk-proj-fineleng-thkeyhereeeee', codexBin: realBin });
   assert.notEqual(ok.because, openai.MISSING_RUNNER_SENTENCE, 'a real codex executable was refused as missing by addWithKey');
 });
+
+/* The early OpenAI gate and the late loop gate refuse a directory with the SAME
+   sentence, so the arm above cannot tell which one fired: measured, reverting the
+   early gate to existsSync left that arm GREEN and only the source sweep went red.
+   The observable that differs is ORDER. The early gate sits before nameProblem, so
+   with a directory at the codex path AND no name, the runner refusal must win. With
+   the early gate reverted, the name refusal wins instead. */
+test('#1616 the early OpenAI runner gate refuses a directory BEFORE the name is judged, which is what separates it from the loop gate', () => {
+  for (const [label, bad] of WRONG) {
+    const r = create.createAgent({ claudeBin: realBin, tmuxBin: TMUX, codexBin: bad, name: '', role: 'pm', provider: 'openai' });
+    assert.equal(r.outcome, create.OUTCOME.REFUSED);
+    assert.match(r.because, /could not find the OpenAI runner/,
+      label + ' at the codex path was judged AFTER the name, so the early gate let it through: ' + r.because);
+  }
+  const named = create.createAgent({ claudeBin: realBin, tmuxBin: TMUX, codexBin: realBin, name: '', role: 'pm', provider: 'openai' });
+  assert.match(String(named.because), /give the agent a name/,
+    'with a REAL runner the name refusal should be what fires, or the ordering above proves nothing: ' + named.because);
+});
