@@ -192,7 +192,11 @@ if [ "$(run capgetter)" = "1" ]; then ok "capturing another module's lazy getter
 else bad "blind to a captured cross-module getter"; fi
 
 # ---- arm 17: and NOT on a getter that is not path-shaped ------------------
-# The counterweight to the captured-getter arm. DRY_RUN and HOME_FOR_TEST are real getters;
+# The counterweight to the captured-getter arm. DRY_RUN really is a boolean.
+# ⚠️ THIS LINE USED TO CITE HOME_FOR_TEST TOO, and check-frozen-roots.js retracts
+# that: it returns homeDir(), so the tool now deliberately FIRES on it (arm 54).
+# Two files asserting opposite things about one identifier is the retraction
+# landing in one artifact and not its sibling.
 # firing on them would be a guard that reports correct code.
 fixture capnonpath "const m = require('./remove');
 const D = m.DRY_RUN;"
@@ -490,17 +494,24 @@ else bad "a narrowed run reported a stale entry" "rc=$rc_scope"; fi
 WALK="$T/walk"
 mkdir -p "$WALK/sub"
 printf "const store = require('./store');\nconst DEEP = path.join(store.ROOT, 'x');\n" > "$WALK/sub/deep.js"
-node "$TOOL" "$WALK" >/dev/null 2>&1; rc_walk=$?
-if [ "$rc_walk" = "1" ]; then ok "the directory walk RECURSES into a subdirectory"
-else bad "a freeze in a subdirectory was not found" "rc=$rc_walk; a flat readdir would do this"; fi
+# 🛑 GREP THE OUTPUT, NOT THE BARE EXIT CODE. This read `rc = 1` and an uncaught
+# exception also exits 1, so with a ReferenceError planted in scan() this check
+# still reported PASS while 65 other arms went red. That is the defect run() was
+# fixed for, in the arms that bypass run().
+out_walk="$(node "$TOOL" "$WALK" 2>&1)"; rc_walk=$?
+if [ "$rc_walk" = "1" ] && printf '%s' "$out_walk" | grep -q 'resolves a root at require time'; then
+  ok "the directory walk RECURSES into a subdirectory"
+else bad "a freeze in a subdirectory was not found" "rc=$rc_walk out=$(printf '%s' "$out_walk" | head -1)"; fi
 
 mv "$WALK/sub/deep.js" "$WALK/sub/deep.test.js"
-node "$TOOL" "$WALK" >/dev/null 2>&1; rc_skip=$?
-if [ "$rc_skip" = "0" ]; then ok "and it excludes .test.js while recursing"
+out_skip="$(node "$TOOL" "$WALK" 2>&1)"; rc_skip=$?
+if [ "$rc_skip" = "0" ] && ! printf '%s' "$out_skip" | grep -qE 'ReferenceError|^    at '; then
+  ok "and it excludes .test.js while recursing"
 else bad "a .test.js file was scanned" "rc=$rc_skip"; fi
 
-node "$TOOL" "$T/definitely-not-here-9999" >/dev/null 2>&1; rc_missing=$?
-if [ "$rc_missing" = "2" ]; then ok "an unreadable target exits 2, not a stack trace"
+out_missing="$(node "$TOOL" "$T/definitely-not-here-9999" 2>&1)"; rc_missing=$?
+if [ "$rc_missing" = "2" ] && printf '%s' "$out_missing" | grep -q 'cannot read target'; then
+  ok "an unreadable target exits 2, not a stack trace"
 else bad "a missing target did not exit 2" "rc=$rc_missing"; fi
 
 # ---- arm 44: an odd quote inside a REGEX must not blind the rest of the file
@@ -597,19 +608,73 @@ if [ "$(node "$TOOL" "$T/barewordforeign.js" 2>&1 | grep -c 'const X ')" = "0" ]
   ok "and MAX_FILE_SIZE is not a use of a destructured FILE"
 else bad "a foreign bare source matched as a substring"; fi
 
-# ---- arm 51: the harness itself must not read a CRASH as a finding --------
-# 🛑 THIS IS WHY THE ARM ABOVE EXISTS AT ALL. A ReferenceError exits 1, which is what
-# an arm expecting a finding asserts, so three arms reported PASS while the rule they
-# tested had never run once. run() now returns CRASH for a stack trace and NOFINDING
-# for an exit-1 with no finding line, and both differ from "1".
-printf 'throw new Error("boom");\n' > "$T/crashy.js"
+# ---- arm 51: run() itself must report a CRASH, not a finding ---------------
+# 🛑 THE PREVIOUS VERSION OF THIS ARM DID NOT TEST ITS OWN HEADING. It asserted
+# that an ordinary fixture reads clean, which duplicates arm 5, and left the CRASH
+# branch of run() covered by nothing: deleting its grep would have gone unnoticed.
+# This drives a deliberately broken COPY of the tool, so the real one is untouched.
 CRASHTOOL="$T/crashtool.js"
-printf 'require("%s");\n' "$TOOL" > "$CRASHTOOL"
-out_crash="$(node "$TOOL" "$T/crashy.js" 2>&1; true)"
-# a file that merely THROWS at require time is not scanned by the tool, so use the
-# harness's own verdict on a deliberately broken invocation instead:
-if [ "$(run crashy)" = "0" ]; then ok "a syntactically valid fixture with no freeze is a clean 0"
-else bad "an ordinary fixture did not read as clean" "got $(run crashy)"; fi
+printf 'throw new ReferenceError("planted crash");\n' > "$CRASHTOOL"
+printf 'const store = require("./store");\nconst F = path.join(store.ROOT, "x");\n' > "$T/forcrash.js"
+out_c="$(node "$CRASHTOOL" "$T/forcrash.js" 2>&1)"; rc_c=$?
+if [ "$rc_c" = "1" ] && printf '%s' "$out_c" | grep -qE 'ReferenceError'; then
+  ok "a crashing tool exits 1, which is why the exit code alone cannot be trusted"
+else bad "the crash fixture did not behave as expected" "rc=$rc_c"; fi
+
+crash_verdict() {
+  node "$CRASHTOOL" "$T/$1.js" >"$T/out" 2>&1
+  rc=$?
+  if grep -qE 'ReferenceError|TypeError|SyntaxError|RangeError|^    at ' "$T/out"; then echo "CRASH"; return; fi
+  if [ "$rc" = "1" ] && ! grep -qE 'resolves a root at require time|^STALE|^UNREADABLE' "$T/out"; then
+    echo "NOFINDING"; return
+  fi
+  echo "$rc"
+}
+if [ "$(crash_verdict forcrash)" = "CRASH" ]; then ok "run()'s own logic reports CRASH rather than 1"
+else bad "run()'s crash detection did not fire" "got $(crash_verdict forcrash)"; fi
+
+# ---- arm 52: the DEPTH-aware declaration terminator ------------------------
+# Load-bearing and previously unguarded: replacing `depth <= 0 && terminated(...)`
+# with `terminated(...)` alone left the suite ALL PASS while a real freeze went
+# silent. Arm 13 looks like it covers this and does not: it exercises
+# functionNamesReaching's adepth rule, a different half.
+fixture depthterm "const store = require('./store');
+const M = {
+  fn() {
+    return 1;
+  },
+  file: path.join(store.ROOT, 'x'),
+};"
+if [ "$(run depthterm)" = "1" ]; then ok "a freeze after a nested block inside a declaration is found"
+else bad "the depth-aware terminator stopped at an interior semicolon"; fi
+
+# ---- arm 53: reported LINE NUMBERS are true --------------------------------
+# Three comment blocks argue for the width- and newline-preserving normalisation
+# and nothing tested it. Replacing padAfter/padBefore with a plain replacement
+# left the suite ALL PASS while positions drifted. The tool gates CI on a 434KB
+# server.js, where a drifting line number sends a reader to the wrong place.
+fixture lineno "const a = 1;
+const store = require('./store');
+const b = 2;
+const { ROOT } = store;
+const d = () => path.join(ROOT, 'x');"
+line_reported=$(node "$TOOL" "$T/lineno.js" 2>&1 | grep -o ':[0-9]*  const { ROOT }' | grep -o '[0-9]*')
+if [ "$line_reported" = "4" ]; then ok "the destructure on line 4 is reported at line 4"
+else bad "a reported line number drifted" "said line $line_reported, the destructure is on line 4"; fi
+
+# ---- arm 54: HOME_FOR_TEST is a real root ---------------------------------
+# It was cited in this file as a getter that must NOT be swept in, as evidence the
+# filter avoids false positives. It returns homeDir(). Both engine/accounts.js and
+# engine/openaiaccounts.js export it. Half the example was the defect.
+fixture homefortest "const accounts = require('./accounts');
+const H = accounts.HOME_FOR_TEST;"
+if [ "$(run homefortest)" = "1" ]; then ok "capturing HOME_FOR_TEST is flagged, it resolves a real root"
+else bad "HOME_FOR_TEST captured silently, it returns homeDir()"; fi
+
+fixture homesuffix "const m = require('./limits');
+const H = m.SOMETHING_HOME;"
+if [ "$(run homesuffix)" = "1" ]; then ok "and the _HOME suffix is path-shaped"
+else bad "a _HOME getter capture went silent"; fi
 
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,

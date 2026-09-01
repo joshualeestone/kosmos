@@ -166,6 +166,23 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
    a top-level `if` block is not a function body: its contents DO run at require
    time.
 
+   📌 SIX MORE SILENCES, MEASURED, EACH AGAINST A PASSING CONTROL, and none of them
+   was listed even though the block above carves out function bodies specifically:
+     class X { static DIR = path.join(store.ROOT,'x'); }        rc 0
+     for (const n of L) { P.push(path.join(store.ROOT,n)); }    rc 0
+     const [A, B] = [path.join(store.ROOT,'a'), 1];             rc 0
+     const { a } = { a: path.join(store.ROOT,'x') };            rc 0
+     const F = path.join(store . ROOT, 'x');                    rc 0   (spaced dot)
+     const F = path.join(store?.ROOT, 'x');                     rc 0   (optional chain)
+   ⚠️ THE CLASS STATIC FIELD IS THE NOTABLE ONE: it is evaluated when the class is,
+   i.e. AT REQUIRE TIME, so it is a genuine freeze sitting inside the very category
+   the factory-body argument says it does not cover. A top-level `for` block is the
+   same: its contents run at require time, and "indented means lazy" is only true of
+   FUNCTION bodies.
+   None is live in the enforced scope today: 0 class static fields, 0 `store?.`,
+   0 spaced dots. Listed rather than fixed for the reason on kosmos#1773, and listed
+   AT ALL because the omission is what makes an incomplete list read as complete.
+
    ⇒ The blind spot is REAL, is NOT closed, and is covered instead by the
    behavioural probe in engine.lateseam-1443.test.js, which loads each module and
    inspects resolved values rather than source text. Two instruments with
@@ -967,7 +984,11 @@ function scan(file) {
          getter, and a guard that fires on correct code gets excused by name until
          the debt list is decoration. Caught by re-running the repo-wide sweep
          after widening, which is the only reason it did not ship. */
-      if (m[1] === 'env') continue;
+      /* The `env` name check that stood here is REMOVED. `requiredLocals` already
+         excludes it (nothing binds `env` with require()), so it was dead, and it was
+         also a SKIP BY NAME: a module writing `const env = require('./env')` with a
+         path-shaped getter would have been excluded because of what its variable is
+         called. That is the failure this file argues against everywhere else. */
       if (!requiredLocals.has(m[1])) continue;
       if (PATH_SHAPED.test(m[2])) return m[2];
     }
