@@ -772,8 +772,8 @@ test('"connections" refuses arguments instead of paying for a sweep to ignore th
    * request per OpenAI account. `kosmos connections --help` used to pay all of
    * that and then print the report anyway.
    */
-  const run = (arg) => new Promise((resolve) => {
-    execFile('bash', [CLI, 'connections', arg],
+  const run = (...args) => new Promise((resolve) => {
+    execFile('bash', [CLI, 'connections', ...args],
       { env: { ...process.env, KOSMOS_PORT: '1', KOSMOS_HOME: FAKE_HOME } },
       (err, stdout, stderr) => resolve({ code: err ? err.code : 0, out: String(stdout) + String(stderr) }));
   });
@@ -789,8 +789,10 @@ test('"connections" refuses arguments instead of paying for a sweep to ignore th
      with an error status is the one refusal that reads as the tool being broken
      rather than the caller being wrong, and it costs nothing to answer from the
      same branch. Both spellings, because -h alone is the easy one to forget. */
-  for (const flag of ['--help', '-h']) {
-    const h = await run(flag);
+  /* And a help flag beside a stray argument is still a request for help, not
+     an unexpected argument: the person typed the word "help". */
+  for (const flag of ['--help', '-h', ['extra', '--help']]) {
+    const h = await run(...[].concat(flag));
     assert.equal(h.code, 0, `${flag} exited ${h.code}: asking for help is not an error`);
     /* Case-insensitive deliberately: the help text opens the sentence with a
        capital and the refusal does not. A case-sensitive match here failed

@@ -272,12 +272,8 @@ function list() {
  * against, worse. This function is for DEMAND-PACED reads: asked for, never
  * ticked, and worth a real check's cost because something is waiting on the
  * answer.
- * (It said PERSON-PACED. server.js retracted that word for exactly the caller
- * named below, because an agent reaching this with curl is not a person pressing
- * something. My first correction spliced the retraction into the MIDDLE of the
- * sentence, which left "opened deliberately, never ticked" dangling off a noun
- * that had been removed, and shipped "ON-DEMAND, DEMAND-PACED" as a redundant
- * pair. Editing half a comment, in the branch that names it.)
+ * (DEMAND-paced, not PERSON-paced: an agent reaching this with curl is not a
+ * person pressing something, and it is a demand all the same.)
  *
  * Two routes call it today: `GET /api/accounts` (Settings >
  * Accounts, the first-run wizard) and `GET /api/agent/connections` (#1034, an

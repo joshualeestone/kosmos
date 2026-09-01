@@ -148,6 +148,11 @@ here rather than leaving a reader to find them and conclude they were sneaked in
   the same defect the argument is about.
 - **A comment-only correction in `engine/accounts.js`**, fixing a claim that went false
   on this branch.
+- **`install/kosmos`: `_kosmos_verbs` and the `connections` arm of the #1674 help
+  intercept.** Merge-interaction fixes: main's help guard landed while this branch was open
+  and answered `connections --help` from a second copy of the verb list that did not know
+  the verb. One rendering now serves both sites, and the intercept falls through for this
+  verb because a no-argument re-dispatch would run the paid sweep.
 ⇒ Both are in scope as of now. A plan that argues a reversal in its body while its Scope
 line still says the old thing is a plan disagreeing with itself.
 

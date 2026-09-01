@@ -1387,7 +1387,7 @@ cmd_adopt() {
 # intercept's copy never learned `connections`). A verb added to this line is
 # added everywhere the line is shown.
 _kosmos_verbs() {
-  printf '\n  kosmos start | stop | restart | status | open | agents | connections | version | msg | post | reply | report | room | whoami\n\n'
+  printf '\n  kosmos start | stop | restart | status | open | agents | adopt | connections | version | msg | post | reply | report | room | whoami\n\n'
 }
 _kosmos_help=0
 for _a in "$@"; do
@@ -1429,15 +1429,15 @@ case "${1:-}" in
     # sweep behind it is a subprocess per Claude account plus an authenticated
     # request per OpenAI account. `kosmos connections --help` used to pay all of
     # that and then print the report anyway.
-    # --help is answered from the refusal branch itself: it costs nothing, and
+    # A help flag ANYWHERE in the arguments is answered here, before the
+    # refusal (the #1674 scan above already found it): it costs nothing, and
     # refusing a request for help with an error is the one refusal that reads as
     # the tool being broken rather than the caller being wrong.
-    case "${1:-}" in
-      --help|-h)
-        say "connections: say what this computer is connected to."
-        say "Takes no options. Run: \"$SELF\" connections"
-        exit 0 ;;
-    esac
+    if [ "$_kosmos_help" = 1 ]; then
+      say "connections: say what this computer is connected to."
+      say "Takes no options. Run: \"$SELF\" connections"
+      exit 0
+    fi
     if [ "$#" -gt 0 ]; then
       say "\"connections\" takes no options. Run: \"$SELF\" connections"
       exit 2

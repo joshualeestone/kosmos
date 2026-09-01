@@ -48,9 +48,6 @@
  * key tails). So the paragraph above remains true of these WORDS and is no
  * longer true of where they lead, and this header is the first thing the next
  * editor reads.
- * ⚠️ An earlier version of this correction was spliced into the MIDDLE of the
- * sentence above, leaving it reading "must not be tempted to pass / one in"
- * across a paragraph break. Editing half a comment is its own defect.
  *
  * ⚠️ ONLY WHAT WAS READ OFF THE PRODUCT. Nothing below is remembered from
  * training or inferred from how such flows usually look. A wrong step in an
@@ -114,8 +111,8 @@ function cliAdvice(cli) {
     : 'Kosmos did not put a path in that line, so the command may not be on your path.';
   return [
     first,
-    'If that command says Kosmos is not running, that is the whole problem: it',
-    'needs to be started, and the command itself tells you how.',
+    'If that command says Kosmos is not running, that is the whole problem, and',
+    'starting it is theirs to do, not yours: say so, and ask them to open Kosmos.',
     'If it prints a list of commands instead of answering, the copy on this',
     'computer is older than these instructions.',
     'In any of those cases, do not guess at another path and do not conclude the',

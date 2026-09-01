@@ -13,12 +13,10 @@
  *   accounts/openaiaccounts    carry `email`, `dir` and `keyTail`
  *   runners.status()           carries `bin`, a filesystem path
  *
- * ⚠️ `keyTail` WAS MISSING FROM THIS LIST UNTIL ITERATION 13, AND IT IS THE ONE
- * THE PROOF ORIGINALLY MISSED. The leak test's first fixture had no keyTail, so
- * it passed while saying nothing about that field; the fixture was corrected and
- * this list, which is what a future reader consults, was not. The plan names its
- * own weakest premise as "the allowlist is only as good as its list", so a
- * sensitive field absent from the list is that premise failing quietly.
+ * ⚠️ KEEP THIS LIST COMPLETE, AND KEEP THE LEAK TEST'S FIXTURE IN STEP WITH IT.
+ * The plan names its own weakest premise as "the allowlist is only as good as
+ * its list": a sensitive field absent here is that premise failing quietly, and
+ * a fixture that omits the field passes while saying nothing about it.
  *
  * A live sign-in URL is a BEARER CREDENTIAL for its window: an agent holding
  * one can complete a sign-in as the person. So the default is do not expose,

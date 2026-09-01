@@ -129,24 +129,30 @@ test('HEAD answers 200 without paying for the live per-account sweep', async () 
    * the short-circuit at server.js would have left that test green while every
    * HEAD paid a live `claude auth status` per account plus every door call.
    *
-   * ⇒ Cheapness is a TIMING property, so it is timed. The short-circuit returns
-   * before any subprocess; the GET does not. The threshold is deliberately loose
-   * (a multiple, not a millisecond count) because this runs on a contended box.
+   * ⇒ Cheapness is COUNTED, not timed. An earlier version timed HEAD against
+   * GET with a loose multiple; on this box suites run at load 15-21 and a
+   * wall-clock race fails with no defect present, on a test that gates a cut.
+   * The sweep's first observable step is entering the github door, and
+   * `server.js` calls `github.state()` off the module object, so replacing the
+   * property counts entries: HEAD must enter it zero times, and the GET must
+   * enter it at least once or the zero is vacuous.
    */
-  const t0 = Date.now();
-  const res = await fetch(base + '/api/agent/connections', { method: 'HEAD' });
-  const headMs = Date.now() - t0;
-  assert.equal(res.status, 200);
+  const github = require('./engine/github');
+  const real = github.state;
+  let entries = 0;
+  github.state = async () => { entries += 1; return { connected: false }; };
+  try {
+    const res = await fetch(base + '/api/agent/connections', { method: 'HEAD' });
+    assert.equal(res.status, 200);
+    assert.equal(entries, 0, `HEAD entered the github door ${entries} time(s), so it paid for the sweep`);
 
-  const t1 = Date.now();
-  const g = await fetch(base + '/api/agent/connections');
-  await g.text();
-  const getMs = Date.now() - t1;
-
-  // control: the GET must actually be doing work, or the comparison is vacuous
-  assert.ok(getMs > 5, `control: the GET took ${getMs}ms, too fast to be doing the sweep`);
-  assert.ok(headMs * 4 < getMs || headMs < 5,
-    `HEAD (${headMs}ms) is not materially cheaper than GET (${getMs}ms), so it is paying for the sweep`);
+    // control: the same counter must see the GET do the work
+    const g = await fetch(base + '/api/agent/connections');
+    await g.text();
+    assert.ok(entries >= 1, 'control: the GET never entered the github door, so the HEAD zero proves nothing');
+  } finally {
+    github.state = real;
+  }
 });
 
 test('every provider answers with the three-state vocabulary and a real sentence', async () => {

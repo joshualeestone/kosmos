@@ -3303,13 +3303,10 @@ const server = http.createServer((req, res) => {
          something, or an agent asked a question and is waiting for the answer.
          A TIMER IS NOT, whatever the count. That property is checkable at each
          call site on its own, without knowing the others.
-         🛑 "A PERSON PRESSING SOMETHING" WAS TOO NARROW AND I SHIPPED IT ON #1373.
-         That wording named `/api/agent/connections` among the person-paced
-         callers. It is not one: `install/kosmos` reaches it with curl, so the
-         caller is an AGENT. Worse, the route did not exist on main when that
-         comment landed: it is added by THIS diff, below. So the comment listed a
-         caller that was not there and then described it wrongly. Both halves are
-         the defect this comment is about, committed inside it.
+         ⚠️ "A person pressing something" is too narrow on its own:
+         `/api/agent/connections` is reached by `install/kosmos` with curl, so
+         that caller is an AGENT waiting on an answer, and it is demand-paced
+         all the same.
          📌 The callers as of #1034, illustrative and NOT a set to maintain:
          paintAccounts (Settings > Accounts), paintConnLive (the Connections
          section opening), paintAccountPicker (the agent panel picker),
@@ -4572,15 +4569,20 @@ const server = http.createServer((req, res) => {
        it is user-visible (the CLI has to say the age in words a person reads), and
        this branch is deep enough in review that the newest code is where defects
        have been landing. It goes in a follow-up the day this merges, and the
-       reasoning is recorded on #1645 rather than left as a silence. The route
-       serves nobody today, so waiting costs nothing. */
+       reasoning is recorded on #1645 rather than left as a silence. The cost of
+       waiting is bounded: every caller is demand-paced, and `/api/accounts`
+       already carries this exact unthrottled shape for the Settings screen. */
     /* Every arm is already fail-soft, so one unreachable service degrades to
        `cannot tell` for that door rather than failing the whole answer.
        `readFirstPartyDoors` is fail-soft per door in the same way, and it
        cannot reject as a whole, so it needs no `.catch` of its own. */
     Promise.all([
-      accounts.listLive().catch(() => null),
-      openaiAccounts.listLive().catch(() => null),
+      /* `.then(...)` rather than a bare call, so a reader that THROWS
+         synchronously becomes a rejection this arm catches, instead of escaping
+         the request listener. Both readers are async today; this makes the
+         "every arm is fail-soft" claim hold by construction. */
+      Promise.resolve().then(() => accounts.listLive()).catch(() => null),
+      Promise.resolve().then(() => openaiAccounts.listLive()).catch(() => null),
       readFirstPartyDoors(),
     ]).then(([claudeRows, openaiRows, doors]) => {
       /* A reader that threw is NOT an empty machine: null becomes no rows,
