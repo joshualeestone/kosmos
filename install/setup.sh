@@ -1922,6 +1922,17 @@ KOSMOS_SWEEP_LIST
   # ⚠️ It also NAMED that one file in its sentence, so even when it did fire the
   # remedy pointed at the wrong place. It now names the files it actually found.
   _trust_marked=''
+  # 🛑 TWO FLAGS, NOT ONE, AND THE ONE-FLAG VERSION WAS MINE. A single
+  # `_trust_removed` gated a pair of sentences that assert OPPOSITE things: "for a
+  # folder you still use, the mark applies" claims a LIVE mark, and the next line
+  # claims a REMOVED one. On a machine whose ONLY marked config belongs to a
+  # disconnected account, the first sentence is false, and the header above it is
+  # false of every file in the list. Reachable, not theoretical: this block's own
+  # comment records 19 of 22 configs on the fleet machine carrying `false`.
+  # Initialised here rather than relying on `${x:-no}`, so the two read like the
+  # list they sit beside.
+  _trust_live=no
+  _trust_removed=no
   # 🛑 FORGOTTEN ACCOUNTS TOO (#1659). Removing an account RENAMES its directory
   # to `.removed-claude-<label>` and deliberately KEEPS the config inside, so the
   # trust mark survives in a file this sweep could not match. The person was then
@@ -1948,11 +1959,14 @@ KOSMOS_SWEEP_LIST
     # only sometimes, stated as fact" defect this block's own comments were rewritten
     # twice to remove, arriving a third time from the side that looks like extra
     # helpfulness.
-    case "$_cfg" in "$HOME"/.removed-claude-*) _trust_removed=yes ;; esac
+    case "$_cfg" in
+      "$HOME"/.removed-claude-*) _trust_removed=yes ;;
+      *) _trust_live=yes ;;
+    esac
   done
   if [ "$_agents_stopped" = "yes" ] && [ -n "$_trust_marked" ]; then
-    printf '  Trust marks were left in place. These files record a folder as\n'
-    printf '  trusted, so Claude Code does not ask before working in it:\n'
+    printf '  Trust marks were left in place. These files each carry a mark that\n'
+    printf '  records a folder as trusted:\n'
     # ⚠️ UNQUOTED ON PURPOSE, and said so because it looks like the word-splitting
     # bug this fleet keeps finding: `$_trust_marked` is a space-joined LIST built
     # above, so it MUST split. What it cannot survive is a path containing a space,
@@ -1967,8 +1981,11 @@ KOSMOS_SWEEP_LIST
     # a disconnected account's config is INERT, and telling someone it is in effect
     # is the same true-sounding-but-wrong disclosure this block was fixed for twice
     # before. Listing the leftover file is right; asserting it still bites is not.
-    if [ "${_trust_removed:-no}" = yes ]; then
-      printf '  For a folder you still use, the mark applies.\n'
+    if [ "$_trust_live" = yes ]; then
+      printf '  For a folder you still use, the mark applies, so Claude Code does not\n'
+      printf '  ask before working in it.\n'
+    fi
+    if [ "$_trust_removed" = yes ]; then
       printf '  For an account you disconnected, the file is still there but nothing\n'
       printf '  reads it, so you will be asked again if you reconnect that account.\n'
     fi

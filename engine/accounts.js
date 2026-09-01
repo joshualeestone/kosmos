@@ -508,7 +508,12 @@ const FORGOTTEN_PREFIX = '.removed-claude-';
  * its own arm for. Three cases, and the earlier wording was right about two.
  * "May" is true in all three, and this is the third time this one sentence has
  * been narrowed: it is easier to assert a condition than to check it.
- * The refusal names the way forward rather than being a dead end.
+ * ⚠️ THAT LAST SENTENCE USED TO SAY the refusal 'names the way forward rather
+ * than being a dead end'. The DEFAULT refusal deliberately names none: the
+ * comment below records that both candidate remedies were removed because
+ * neither was reachable (one implies the button then works, the other names an
+ * affordance the page does not have). The sentence outlived the wording it was
+ * written for and contradicted both the code and the plan.
  */
 function forgetAccount(dir, usedBy) {
   const home = path.resolve(homeDir());

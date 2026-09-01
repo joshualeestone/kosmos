@@ -13596,10 +13596,19 @@ async function paintAccounts() {
              on it and never hears the reason -- and the repo's own rule names
              non-focusable controls as a WCAG AA failure. aria-disabled keeps it
              focusable and announces the state.
-             ✅ IT CANNOT ACT: the shared handler binds only `[data-forget]`, and
-             this branch deliberately carries none, so there is no listener to
-             fire. The refusal is enforced by the absence of wiring, not by the
-             attribute, which is why softening the attribute is safe. */
+             ✅ IT CANNOT ACT, and the reason stated here used to be WRONG in a way
+             that invited deleting live code. It said "there is no listener to
+             fire". There IS one: the same diff binds a click handler to
+             `.acct-disconnect[aria-disabled="true"]` below, precisely so a press
+             says WHY instead of doing nothing.
+             ⇒ What actually makes softening the attribute safe is that this row
+             carries no `data-forget`, so the REMOVAL handler never selects it. The
+             refusal is enforced by the absence of that attribute, not by the
+             absence of all wiring.
+             ⚠️ The distinction is not pedantry: a reader who believed the old
+             sentence would conclude the default row has no handlers and delete the
+             no-op refusal as dead code, which is the exact "pressable but silent"
+             failure the handler exists to prevent. */
           ? '<button class="acct-disconnect" type="button" aria-disabled="true" '
             + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')'
               + '. Unavailable: Kosmos does not remove this computer\u2019s main Claude folder." '
@@ -13739,6 +13748,12 @@ async function paintAccounts() {
          the code does not implement is a stale comment with extra steps. */
       const marked = btn.dataset.forgetProvider;
       if (marked !== 'claude' && marked !== 'openai') {
+        /* `acctCancelSay()` because this is a WRITER to #set-accounts-msg, and the
+           module comment above claims EVERY writer cancels the timer. It was the
+           one that did not, so a deferred announcement could land on top of this
+           wiring-fault message and replace it. A comment that says "every" is
+           falsified by one exception, and this was the exception. */
+        acctCancelSay();
         if (msg) msg.textContent = 'we could not tell which provider that account belongs to, so nothing was changed';
         return;
       }

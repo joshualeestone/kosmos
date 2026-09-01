@@ -491,3 +491,61 @@ iteration later.** The armed name now leads with the visible words.
 - `movedTo` is returned by `openaiaccounts.forgetAccount` and dropped by its
   route, so the same act now gives a recoverable answer on one provider and not
   the other. Cross-provider, belongs on its own card rather than in this branch.
+
+## Challenge loop, iteration 20 (2026-08-31)
+
+Five WARNINGs, six NITs. NOT converged. Sixth consecutive non-empty pass.
+
+### A real logic bug in iteration 19's fix
+
+Iteration 19 made the uninstall transcript's disconnected-account paragraph
+conditional. **One flag gated two sentences that assert opposite things**: "for a
+folder you still use, the mark applies" claims a LIVE mark, and the next line
+claims a REMOVED one. On a machine whose ONLY marked config belongs to a
+disconnected account, the first sentence is false, and the header above it is
+false of every file it lists.
+
+Reachable rather than theoretical: this block's own comment records 19 of 22
+configs on the fleet machine carrying `false`. Two flags now, `_trust_live` and
+`_trust_removed`, each sentence on its own, all arms measured.
+
+### A comment whose wrong mechanism invited deleting live code
+
+The `aria-disabled` justification said the default row is safe because "there is
+no listener to fire". **There is one**: the same diff binds a click handler to
+`.acct-disconnect[aria-disabled="true"]` so a press says WHY instead of doing
+nothing. What actually makes it safe is that the row carries no `data-forget`, so
+the removal handler never selects it.
+
+⇒ Not pedantry. A reader who believed the old sentence would delete the no-op
+refusal as dead code, which is exactly the pressable-but-silent failure that
+handler exists to prevent.
+
+### I took the reviewer's challenge to my own deferral
+
+I had deferred surfacing `movedTo` on the OpenAI route to a separate card. The
+reviewer pointed out the deferral was weaker than the precedent I had set IN THE
+SAME DIFF: this branch already edits `openaiaccounts.js`'s refusal for exactly
+that consistency argument, and the counterpart is one concatenation.
+
+**That was drawing the line where the work got inconvenient rather than where the
+argument stopped.** Done on both providers, and both now say the folder is
+HIDDEN, which is the difference between a fact and a place somebody can find.
+
+### ⭐ And that change found an unguarded sentence, by accident
+
+Changing the OpenAI success copy broke NOTHING. The existing arm matches a
+PREFIX, so an appended clause is invisible to it.
+
+⇒ **Changing a user-facing sentence and watching nothing go red is how you learn
+the sentence is unguarded.** Guarded now, perturbation-verified: removing the
+clause reds that arm by name.
+
+### The rest
+
+- The fail-closed error still said "which agents are running", the same untruth
+  the refusals were reworded to remove, and diverged from its sibling.
+- `forgetAccount`'s docblock still promised "the refusal names the way forward"
+  when the default refusal deliberately names none.
+- The provider early return wrote the message without cancelling the announcement
+  timer, and it was the ONE exception to a comment claiming EVERY writer does.

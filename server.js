@@ -3305,9 +3305,23 @@ const server = http.createServer((req, res) => {
            entitled to know which one they got. */
         sendJson(res, 200, {
           forgotten: out.forgotten === true,
+          /* 🛑 `movedTo` IS SURFACED HERE TOO, and #1659 is why. This engine has
+             always computed it and this route has always dropped it, which was
+             defensible while the two controls read different words. #1659 relabels
+             this one to "Disconnect" and puts the same word on the Claude row, and
+             at that point the SAME ACT under the SAME WORD answered with a
+             recoverable location on one provider and not the other.
+             ⚠️ I first deferred this to a separate card. A reviewer pointed out the
+             deferral was weaker than the precedent I had already set in the same
+             diff: this branch edits openaiaccounts.js's refusal for exactly this
+             consistency reason, and this is one concatenation. Deferring it would
+             have been drawing the line where the work got inconvenient rather than
+             where the argument stopped. */
           because: out.forgotten
             ? 'That account is off the list. Its sign-in file is still on this computer, '
               + 'so nothing was deleted.'
+              + (out.movedTo ? ' It is in a hidden folder called ' + path.basename(out.movedTo)
+                + ' in your home folder.' : '')
             : 'That account was already gone from this computer.',
           accounts: openaiAccounts.list(),
         });
@@ -3479,7 +3493,7 @@ const server = http.createServer((req, res) => {
         }
         if (!complete) {
           sendJson(res, 400, {
-            error: 'we could not check which agents are running, so nothing was changed',
+            error: 'we could not check which agents are on this account, so nothing was changed',
             usedBy: [],
           });
           return;
@@ -3522,7 +3536,7 @@ const server = http.createServer((req, res) => {
                  hidden-directory name is a fact, not a location. Naming the home
                  folder costs four words and makes the sentence actionable, which
                  was the whole point of surfacing `movedTo` at all. */
-              + (out.movedTo ? ' It is in a folder called ' + path.basename(out.movedTo)
+              + (out.movedTo ? ' It is in a hidden folder called ' + path.basename(out.movedTo)
                   + ' in your home folder.' : '')
             : 'That account was already gone from this computer.',
           /* Carried for diffability with the OpenAI route. The page repaints
