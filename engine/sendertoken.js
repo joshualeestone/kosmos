@@ -121,6 +121,24 @@ function writeTokens(sessionName, tokens) {
   const file = fileFor(sessionName);
   fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, JSON.stringify({ tokens }), { mode: FILE_MODE });
+  /* 🛑 THE `mode:` OPTIONS ABOVE APPLY ON CREATE ONLY. On a path that already
+     exists they are SILENTLY IGNORED, so a token file or directory that is
+     already loose STAYS loose through every later mint. Measured, all four arms:
+
+       fresh create with mode 0600            -> 600
+       pre-existing 644, rewritten with 0600  -> 644   <- ignored
+       then chmodSync 0600                    -> 600   <- the fix
+       mkdirSync recursive 0700 on an existing 755 dir -> 755   <- ignored
+
+     ⚠️ SO A TEST THAT MINTS INTO A FRESH DIRECTORY AND ASSERTS 0600 PASSES
+     WITHOUT THIS FIX. The arm that fails is the one that PLANTS loose modes
+     first. Both are pinned below, and each was perturbed on its own.
+
+     📌 The directory matters as much as the file: 0755 on the directory lets
+     anyone list and read the token filenames even when each file is 0600. Ten
+     sibling modules chmod the FILE after writing; none chmods the DIR. */
+  try { fs.chmodSync(DIR, 0o700); } catch { /* best effort: mode set at mkdir */ }
+  try { fs.chmodSync(file, FILE_MODE); } catch { /* best effort: mode set at write */ }
 }
 
 /**

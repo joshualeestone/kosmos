@@ -210,6 +210,38 @@ test('the token is kept owner-only, because it is the agent\'s ability to speak 
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
 
+/* 🛑 #1761. THE ARM ABOVE PASSES WITHOUT THE FIX, AND THAT IS THE WHOLE POINT.
+   `writeFileSync(..., { mode })` and `mkdirSync(..., { mode })` apply the mode ON
+   CREATE ONLY. On a path that already exists they are SILENTLY IGNORED, so a fresh
+   mint lands at 0600 whether or not anything chmods, and an assertion built on one
+   cannot fail for the bug it appears to guard.
+
+   ⇒ The arms below PLANT A LOOSE MODE FIRST. Each was perturbed on its own: removing
+   the file chmod reddens the file arm only, removing the dir chmod reddens the dir
+   arm only, so neither is standing in for the other. */
+
+test('#1761: a token file that is ALREADY loose is tightened on the next mint', () => {
+  sendertoken.mint('loose-file');
+  const file = path.join(sendertoken.DIR, 'loose-file.json');
+  fs.chmodSync(file, 0o644);
+  // PRECONDITION: if the plant did not take, the assertion below proves nothing.
+  assert.equal(fs.statSync(file).mode & 0o777, 0o644,
+    'the loose mode was not planted, so this arm cannot fail for the right reason');
+  sendertoken.mint('loose-file');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600,
+    'a pre-existing world-readable token file survived a mint: anyone on the box can read this agent\'s ability to speak as itself');
+});
+
+test('#1761: a token DIRECTORY that is already loose is tightened too', () => {
+  sendertoken.mint('loose-dir');
+  fs.chmodSync(sendertoken.DIR, 0o755);
+  assert.equal(fs.statSync(sendertoken.DIR).mode & 0o777, 0o755,
+    'the loose dir mode was not planted, so this arm cannot fail for the right reason');
+  sendertoken.mint('loose-dir');
+  assert.equal(fs.statSync(sendertoken.DIR).mode & 0o777, 0o700,
+    'a world-readable token DIRECTORY survived a mint: 0600 on each file still lets anyone list whose tokens exist');
+});
+
 /* --------------------------------------------------------------------------
    resolveName: the roster-free reading, for the caller trying to establish
    that a paneless agent exists at all (#1112 phase 1).
