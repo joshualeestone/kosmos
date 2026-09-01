@@ -93,8 +93,13 @@
  *      this file now contains a FIFTH, with the same blind spots (a `/*` inside a string
  *      literal, an unterminated `/*`, a template literal, `//` inside a URL).
  *      ⇒ So the honest contract is not "we refuse this" but "we do it, we know what it
- *      costs, and every such arm carries a per-region control that fails if the strip ate
- *      the region". A blanket refusal that the file then violates is worse than a stated
+ and each such arm protects itself against the strip eating its region.
+ ⚠️ NOT ALL BY THE SAME MECHANISM, which an earlier "every such arm carries a per-region
+ control" over-claimed across the very list it had just enumerated. The resolution-count
+ and becomeStuck arms do carry a per-region control. The unconditional-true sweep does
+ NOT: it runs its matcher over RAW and STRIPPED source and fails if either matches, plus
+ a mustCatch control list. That is adequate and arguably stronger for an ABSENCE
+ assertion, but it is a different mechanism and naming one covers only two of three.
  *      cost, because it tells the next author the precedent does not exist.
  *
  * ⚠️ THE COST, STATED: writing a NEW comment that mentions `accessSync(..., X_OK)`
@@ -296,8 +301,9 @@ function walkJs(dir, base = dir, out = []) {
    live-1560-pete and live-check-1560 are all live on origin right now (control: a branch
    that cannot exist returns 0). ⭐ A right conclusion resting on a false citation is worse
    than a wrong one, because a citation looks checked.
-   argument used above to scope the `writeState(` count to `becomeStuck` rather
-   than the whole file; the argument was right there and was not applied here.
+   That friction is the identical argument used above to scope the `writeState(` count to
+   `becomeStuck` rather than the whole file; the argument was right there and was not
+   applied here.
 
    Keying on `line.match(WEAK_CALL)[0]` keeps set equality and identity intact and
    makes only the CALL significant FOR A PROSE ROW, so the sentence around it stays

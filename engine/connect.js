@@ -38,7 +38,13 @@
 /* 📌 THE RESOLUTION RULE, STATED ONCE BECAUSE IT WAS STATED FOUR TIMES.
    Every site that needs both a PATH and its PRESENCE resolves `runners.resolveBin`
    ONCE and reads both off the one answer. Two resolutions can disagree across an
-   await, and that disagreement is what #1592 is about.
+   await.
+   ⚠️ NOT YET, AND NOT #1592. This used to say "that disagreement is what #1592 is about".
+   #1592 is the DIRECTORY defect; the resolution rule is a derived concern this branch
+   introduced. And the disagreement is BEHAVIOUR-NEUTRAL TODAY at all four sites: nothing
+   but comments separates the paired reads, so the two spellings cannot disagree yet.
+   ⇒ What makes this a rule is a future await landing between them. The guard file carries
+   that qualification; the version a maintainer meets FIRST carried neither.
    ⚠️ Four comments used to name the membership of this set BY HAND, and all four
    disagreed: "the neighbouring site", "willInstall and claudeHatchAvailable",
    "willInstall, claudeHatchAvailable and start()", "willInstall above". Adding or
@@ -1492,7 +1498,13 @@ async function installClaudeCode(hooks) {
      ⇒ Resolving the home here is correct and costs nothing, and it is NOT reachable
      today. That is its honest status.
      📌 The full retraction, both wrong reasons I gave, and why the arm for it proved
-     nothing, are in the branch plan (kosmos#1592). Thirty lines of that
+     nothing, are in .claude/plans/runnable-dir-1592-20260830.md (tracked on main; kosmos#1592 for the card). Thirty lines of that
+     📌 The PATH is given as well as the card, and that is a considered exception to this
+     file's cite-the-card rule. MEASURED on #1592, body and both comments, with controls:
+     the moved material returns ZERO hits (`281MB` 0, `eager argument` 0, `claudeBinPath` 0,
+     `four routes` 0; controls `isRunnable` 3, `accessSync` 6). It exists ONLY in the plan.
+     ⇒ A card number survives a rename, which is the rule's argument, but a card that does
+     not contain the material is an empty pointer. Both are given until the card does.
      history lived here and became the thing every reviewer flagged. */
   let installHome;
   try { installHome = require('./runners').homeDir(); }
