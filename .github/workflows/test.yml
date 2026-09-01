@@ -42,9 +42,14 @@ on:
 permissions:
   contents: read
 
-# One run per ref, and cancel a superseded run when a newer push lands: push +
-# pull_request would otherwise double-run every branch that has an open PR, and
-# rapid pushes queue redundant runs across the six-agent roster.
+# Cancel a superseded run of the SAME event+ref: a rapid re-push to a branch, or a
+# successive sync of a PR, cancels its in-flight predecessor instead of queuing a
+# redundant run. It does NOT collapse the push-and-PR pair: on a push github.ref is
+# refs/heads/<branch>, on a pull_request it is refs/pull/<N>/merge, so those land in
+# different groups and a branch with an open PR runs the suite twice. That double-run
+# is accepted as harmless (kosmos is public, so Actions minutes are free); gating
+# push to a subset of branches to avoid it would leave a pushed-but-unPRd branch
+# untested, which is the worse trade.
 concurrency:
   group: test-${{ github.ref }}
   cancel-in-progress: true
