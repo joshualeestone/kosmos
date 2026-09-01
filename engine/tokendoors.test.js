@@ -118,3 +118,35 @@ test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place
     await d.forget();
   }
 });
+
+/* 🛑 A WRITER THROW MUST COME BACK AS A REFUSAL, NOT PROPAGATE. The route's
+   `.catch(() => …)` in server.js DISCARDS the error and answers "we could not read
+   that request", so without this the operator is told their paste was unreadable on
+   a token the service just verified. Pins the SENTENCE: a verify failure also sets
+   `refused`, so a truthiness check would pass while the bug is live. */
+test('#1787: a writer throw comes back as a refusal, not an unreadable-request error', async () => {
+  const d = byName('Discord');
+  const securewrite = require('./securewrite');
+  const realWriteSecret = securewrite.writeSecret;
+  securewrite.writeSecret = () => {
+    const e = new Error('refusing to write a secret through a symlink at /x');
+    e.code = 'ELOOP';
+    throw e;
+  };
+  d.setFetcher(async () => ({ ok: true, status: 200, body: { username: 'kittybot' } }));
+  let st = null;
+  let threw = null;
+  try {
+    st = await d.connect('fake-discord-token-for-the-throw-arm-0123456789');
+  } catch (e) {
+    threw = e;
+  } finally {
+    securewrite.writeSecret = realWriteSecret;
+    d.setFetcher(null);
+  }
+
+  assert.equal(threw, null, 'connect() threw instead of refusing');
+  assert.match(String((st && st.refused) || ''), /could not save the token/,
+    'the write failure was not reported as a refusal');
+  assert.equal(st.connected, false, 'a failed write reported as connected');
+});

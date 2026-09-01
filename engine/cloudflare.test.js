@@ -94,3 +94,37 @@ test('#1787: a pre-existing loose credential file is REPLACED, not rewritten in 
     try { fs.unlinkSync(cloudflare.FILE); } catch { /* nothing stored */ }
   }
 });
+
+/* 🛑 A WRITER THROW MUST COME BACK AS A REFUSAL, NOT PROPAGATE. The route's
+   `.catch(() => …)` in server.js DISCARDS the error and answers "we could not read
+   that request", so without this the operator is told their paste was unreadable on
+   a token Cloudflare just verified.
+   ⭐ The arm pins the SENTENCE, not merely `refused` being truthy: a verify failure
+   also sets `refused`, so a bare truthiness check would pass while the bug is live. */
+test('#1787: a writer throw comes back as a refusal, not an unreadable-request error', async () => {
+  const securewrite = require('./securewrite');
+  const realWriteSecret = securewrite.writeSecret;
+  securewrite.writeSecret = () => {
+    const e = new Error('refusing to write a secret through a symlink at /x');
+    e.code = 'ELOOP';
+    throw e;
+  };
+  cloudflare.setFetcher(fake(good));
+  let st = null;
+  let threw = null;
+  try {
+    st = await cloudflare.connect('cf_test_token_abcdefghijklmnopqrstuvwxyz');
+  } catch (e) {
+    threw = e;
+  } finally {
+    securewrite.writeSecret = realWriteSecret;
+    cloudflare.setFetcher(null);
+  }
+
+  assert.equal(threw, null,
+    'connect() threw instead of refusing, so server.js answers "we could not read that '
+    + 'request" on a token Cloudflare accepted');
+  assert.match(String((st && st.refused) || ''), /could not save the token/,
+    'the write failure was not reported as a refusal');
+  assert.equal(st.connected, false, 'a failed write reported as connected');
+});

@@ -136,7 +136,10 @@ function refuseSymlinkTarget(file, nofollow) {
  */
 function secureDir(dir, mode) {
   fs.mkdirSync(dir, { recursive: true, mode });
-  try { fs.chmodSync(dir, mode); } catch { /* best effort, see below */ }
+  /* Best effort on purpose: a directory we cannot chmod is still better than
+     refusing the write outright. (Not the same rationale as the chmod on the temp
+     below, which is about a restrictive umask clearing the owner bits.) */
+  try { fs.chmodSync(dir, mode); } catch { /* see above */ }
 }
 
 /**
@@ -153,6 +156,7 @@ function writeSecret(file, data, mode) {
      fix, an EEXIST from a PLANTED file, cannot recur on the next name. This is
      what keeps the destructive fallback essentially unreachable rather than
      merely rare. */
+  let lastAtomicError = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const tmp = tempPath(file);
     let created = false;
@@ -175,7 +179,13 @@ function writeSecret(file, data, mode) {
          following it. */
       fs.renameSync(tmp, file);
       return;
-    } catch {
+    } catch (err) {
+      /* Keep WHY the atomic path was abandoned. Without this a persistent EXDEV or
+         EPERM is invisible forever: the destructive fallback succeeds, the caller sees
+         a normal write, and nothing ever says the atomic path stopped working. It is
+         attached as `cause` below rather than thrown, because a fallback that SUCCEEDS
+         is still a success. */
+      lastAtomicError = err;
       /* ⚠️ ONLY REMOVE A TEMP WE CREATED. `wx` means a pre-existing file makes
          the write throw, and unlinking then would delete somebody else's file.
          `created` is the FACT; an `err.code !== 'EEXIST'` test is a PROXY for
@@ -208,6 +218,11 @@ function writeSecret(file, data, mode) {
     try { fs.fchmodSync(fd, mode); } catch { /* best effort */ }
     fs.writeFileSync(fd, data);
     wrote = true;
+  } catch (err) {
+    /* The fallback failed too. Attach why the ATOMIC path was abandoned, so a
+       persistent EXDEV or EPERM is not lost behind the fallback's own error. */
+    if (lastAtomicError && err && !err.cause) { try { err.cause = lastAtomicError; } catch { /* frozen */ } }
+    throw err;
   } finally {
     /* Close FIRST, then restore: the descriptor above is the one that truncated
        the file. Best effort by design, because whatever brought us here may also

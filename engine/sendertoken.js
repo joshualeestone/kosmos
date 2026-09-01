@@ -121,8 +121,9 @@ function readTokens(sessionName) {
 /* #1787: the temp-then-rename writer, the symlink refusal and the directory
    tightening now live in `engine/securewrite.js`, extracted from THIS file after
    #1776 so that three more call sites could use one implementation rather than a
-   fourth copy. `refuseSymlinkTarget` is re-exported below because this module's
-   arms call it directly and it is the same function, not a wrapper. */
+   fourth copy. `refuseSymlinkTarget` is NOT re-exported
+   here: this module no longer calls it, and re-exporting a function it does not use
+   would imply an ownership it does not have. Its arms call the owning module. */
 function writeTokens(sessionName, tokens) {
   const file = fileFor(sessionName);
   /* The directory is tightened BEFORE anything is written, not after: chmodding
