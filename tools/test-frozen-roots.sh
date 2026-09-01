@@ -447,6 +447,25 @@ const F = () => wrap(1)(store.ROOT);"
 if [ "$(run curried)" = "0" ]; then ok "a curried call inside a stored arrow stays deferred"
 else bad "fired on a correctly deferred curried call"; fi
 
+# ---- arm 42: the STALE allowlist path, both directions ---------------------
+# The newest exit-1 route shipped with no arm. Its over-broad failure mode is armed
+# by side effect (a regression reds nine arms); the FIRING direction was not, and
+# the documented regression it replaced (setting process.exitCode under an explicit
+# process.exit(main())) printed its warnings and still exited 0.
+FAKE="$T/fakerepo"
+mkdir -p "$FAKE/tools"
+cp "$TOOL" "$FAKE/tools/check.js"
+printf 'const x = 1;\n' > "$FAKE/server.js"
+out_stale="$(cd "$FAKE" && node tools/check.js server.js 2>&1)"; rc_stale=$?
+if [ "$rc_stale" = "1" ] && printf '%s' "$out_stale" | grep -q '^STALE'; then
+  ok "an allowlist entry that matches nothing is named AND exits 1"
+else bad "the STALE path did not fire" "rc=$rc_stale out=$(printf '%s' "$out_stale" | head -1)"; fi
+
+printf 'const y = 2;\n' > "$FAKE/other.js"
+out_scope="$(cd "$FAKE" && node tools/check.js other.js 2>&1)"; rc_scope=$?
+if [ "$rc_scope" = "0" ]; then ok "and an entry whose file was NOT scanned is not called stale"
+else bad "a narrowed run reported a stale entry" "rc=$rc_scope"; fi
+
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,
 # once by renumbering and stranding every "counterweight to arm N" reference. A

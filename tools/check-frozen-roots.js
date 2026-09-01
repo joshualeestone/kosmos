@@ -101,6 +101,28 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
    instrument, and it is this one, whose factory-body gap below is open. Stated here
    rather than left for a reader to infer from two files.
 
+   📌 AND ONE MORE, OPEN AND DELIBERATE: the destructure scans accept `= store` or
+   `= require(...store...)`, but NOT a store bound under another local name, so
+   `const st = require('./store'); const { ROOT } = st;` is silent while the DOTTED
+   form `st.ROOT` is tracked. The alias arm and the destructure arm do not cross.
+   Measured, both arms. It is listed rather than fixed on purpose: there is no
+   instance in the tree (every module binds it as `store`), and the fix needs a
+   computed regex threaded through two scans in a file whose interacting rules have
+   already produced four cross-rule gaps in one review. Naming a gap a reader can
+   see beats a clever change nobody can follow.
+
+   📌 AND `module.exports = { X: <init> }` IS NOT SEEN. `declarations()` takes
+   const/let/var and the `exports.X =` forms, but not a property inside the object
+   literal, which is this repo's universal export idiom (76 files). Measured, with a
+   control: `module.exports = { FILE: path.join(store.ROOT,'x') }` exited 0 while
+   `exports.FILE = path.join(store.ROOT,'x')` exited 1. For engine/ the behavioural
+   probe covers it, since it is an exported string; for server.js nothing does, and
+   server.js is the file with one instrument. Listed rather than fixed for the same
+   reason as the alias gap above: swept the tree and the ONLY root-valued match in
+   that idiom is prose inside a comment, so there is no live instance to catch, and
+   a seventh interacting rule in this file has a worse expected value than a named
+   gap. Both belong on the follow-up card with the complexity note.
+
    ⇒ The blind spot is REAL, is NOT closed, and is covered instead by the
    behavioural probe in engine.lateseam-1443.test.js, which loads each module and
    inspects resolved values rather than source text. Two instruments with
@@ -267,19 +289,48 @@ const blankStrings = (src) => {
    `path.join(require('./store').ROOT)` left every downstream freeze SILENT, while
    prose in a string and a code SAMPLE in a template both FIRED on correct code.
    The fix is not another member: it is to collapse the surface so there is one. */
+/* 🛑 WIDTH- AND NEWLINE-PRESERVING, LIKE ITS TWO SIBLINGS. `blankComments` and
+   `blankStrings` both promise that reported line numbers stay true; this stage runs
+   BEFORE them inside `scanText` and did neither, so every rewrite shifted the
+   offsets the destructure scan reports from. Measured, with controls:
+     `const store = require('./store')` earlier in the file: a destructure on line 5
+     was reported at line 4, and with a require spanning three lines a freeze on
+     line 6 was reported at line 4.
+   EVERY engine module opens with `const store = require('./store');`, so this
+   misfired on the ordinary file shape rather than an exotic one. The replacement is
+   padded to the original width and carries the original's newlines, so offsets and
+   line counts are unchanged. A pipeline whose first stage breaks the invariant its
+   later stages document is the odd-sibling shape again, in the invariant rather
+   than in the treatment. */
+/* 🛑 THE FILL MUST NOT SPLIT THE TOKEN IT IS CREATING, and which side is safe
+   depends on what the match abuts. `require(store).` -> `store.` is FOLLOWED by the
+   property, so padding after it produced `store.        ROOT` and the two arms for
+   inline-require access went red instantly. `['ROOT']` -> `.ROOT` is PRECEDED by
+   the receiver, so its fill has to go after. Hence two helpers rather than one
+   clever one. */
+const padAfter = (orig, repl) => {
+  const nl = (orig.match(/\n/g) || []).length;
+  return repl + ' '.repeat(Math.max(0, orig.length - repl.length - nl)) + '\n'.repeat(nl);
+};
+const padBefore = (orig, repl) => {
+  const nl = (orig.match(/\n/g) || []).length;
+  return '\n'.repeat(nl) + ' '.repeat(Math.max(0, orig.length - repl.length - nl)) + repl;
+};
 const normaliseAccess = (src) => String(src)
-  /* 🛑 THE MODULE PATH IS INSIDE A STRING and string-blanking runs after this, so
-     `require('./store')` is rewritten to something an identifier-shaped regex can
-     still see once the quotes are emptied. Without this, extending string-blanking
-     to the scans silently broke the destructure arms. */
-  .replace(/require\(\s*['"][^'"]*store[^'"]*['"]\s*\)/g, 'require(store)')
-  .replace(/require\(store\)\s*\./g, 'store.')
-  .replace(/\[\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*\]/g, '.$1')
-  .replace(/\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]/g, '.$1');
+  /* The module path lives inside a string and string-blanking runs after this, so
+     `require('./store')` becomes something an identifier-shaped regex can still see
+     once the quotes are emptied. */
+  .replace(/require\(\s*['"][^'"]*store[^'"]*['"]\s*\)/g, (m) => padAfter(m, 'require(store)'))
+  .replace(/require\(store\)\s*\./g, (m) => padBefore(m, 'store.'))
+  .replace(/\[\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*\]/g, (m, n) => padAfter(m, '.' + n))
+  .replace(/\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]/g, (m, n) => padAfter(m, '.' + n));
 const scanText = (src) => blankStrings(blankComments(normaliseAccess(src)));
 
 const isLazy = (init) => !invokedNow(init)
-  && (/^\s*(\(\s*\)|\([^)]*\))\s*=>/.test(init) || /^\s*function\b/.test(init));
+  && (/^\s*\([^)]*\)\s*=>/.test(init) || /^\s*function\b/.test(init));
+/* One arrow alternative, not two: `\(\s*\)` is a strict subset of `\([^)]*\)` and
+   could never match anything it does not. The same redundancy this file removes for
+   the `function` form further down. */
 
 /* A CONTAINER whose every root reference already sits inside an arrow is lazy too,
    and the check above cannot see that: it asks whether the WHOLE initializer is a
@@ -586,6 +637,10 @@ function scan(file) {
      `const st = require('./store'); path.join(st.ROOT,'x')` exited 0 while the
      identical code using `store` exited 1. Every engine module happens to import
      it as `store` today, which is exactly why this went unnoticed. */
+  /* Built before the destructure scans so they can accept `const { ROOT } = st`
+     where `st` is a store bound under another name. The alias arm and the
+     destructure arm did not cross: the store-alias case was tracked for dotted
+     access and silent for destructuring, measured both ways. */
   const storeLocals = [];
   for (const m of scanSrc.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\([^)]*store[^)]*\)/g)) {
     if (m[1] !== 'store') storeLocals.push(m[1]);
@@ -717,8 +772,23 @@ function scan(file) {
        An arrow written in a COMMENT satisfied the arrow-scope rule for a source that
        is not deferred at all, and the engine modules on this branch all carry heavy
        inline comments, so both arms are reachable in ordinary house style. */
+    /* 🛑 THE CAPTURED-GETTER ACCESSES ARE MARKS TOO. `everyRootIsDeferred` builds
+       its marks from SOURCES plus resolver names and runs BEFORE `capturedGetter`,
+       so a `limits.FILE` capture carried no mark and one correctly-deferred sibling
+       exempted the whole declaration. Measured, both arms:
+         { live: () => store.ROOT, file: path.join(limits.FILE,'x') } -> exited 0
+         {                         file: path.join(limits.FILE,'x') } -> exited 1
+       So adding a deferred sibling LAUNDERED a real capture. That is the identical
+       laundering this branch closed three times for SOURCES (some->every,
+       first-occurrence->every-occurrence, arrow scope); the fourth axis, added on
+       this branch, is the one it had not been applied to. */
+    const capturedMarks = [];
+    for (const m of initCode.matchAll(/\b([A-Za-z_$][\w$]*)\.([A-Z][A-Z0-9_]*)\b/g)) {
+      if (m[1] !== 'env' && requiredLocals.has(m[1]) && PATH_SHAPED.test(m[2])) capturedMarks.push(m[0]);
+    }
+    const deferMarks = SRC_SOURCES.concat(capturedMarks);
     if (!invokedNow(initCode)
-      && (isLazy(initCode) || everyRootIsDeferred(initCode, resolvers, SRC_SOURCES))) continue;
+      && (isLazy(initCode) || everyRootIsDeferred(initCode, resolvers, deferMarks))) continue;
     /* 🛑 AGAINST THE STRING-BLANKED INITIALIZER. A source name written inside a
        STRING LITERAL is data, not a freeze, and this file proved it on itself:
        `check-frozen-roots.js tools` reported its own SOURCES and KNOWN arrays,

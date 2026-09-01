@@ -93,7 +93,7 @@ it is not in this diff. This branch is the CONSUMER sweep plus the guard that ke
 it true, and the plan did not describe either until the second challenge-loop
 iteration said so.
 
-**The consumer sweep.** 22 engine modules held module-level constants derived from
+**The consumer sweep.** 23 engine modules held module-level constants derived from
 a root, so they froze at require time even though `store.ROOT` had become lazy. Each
 is now a per-call resolver, with every export kept as a getter (`get FILE() { return
 file(); }`) so no consumer changed.
