@@ -187,7 +187,20 @@ while curl -s -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; do
   [ "$PORT" -lt 4500 ] || { echo "FAIL: no free port found in 4460-4499" >&2; exit 1; }
 done
 
-export KOSMOS_HOME="$SB/home" KOSMOS_BIN_DIR="$SB/bin" KOSMOS_APP_DIR="$SB/apps"
+# 🛑 #1582: AGENT_WORKFORCE_HOME sandboxes the HOOK-WIRING's target home too.
+# The gate sandboxes KOSMOS_HOME, but setup.sh's report-hook wiring resolves its
+# target settings.json through accounts.homeDir() = AGENT_WORKFORCE_HOME ||
+# os.homedir() (engine/accounts.js:53). Without this, homeDir() fell back to the
+# REAL $HOME, so the gate wrote its EPHEMERAL sandbox hook path
+# ($SB/home/app/bin/kosmos-report-hook.sh) into the REAL shared ~/.claude/settings.json
+# -- and $SB is deleted when the cut ends, leaving a dead report hook for all 18
+# agents (every cut re-poisoned it). Sandboxing it here points the wiring at
+# $SB/home/.claude/settings.json (deleted with $SB, harmless), the gate's
+# refused===0 check still passes (it wires the sandbox's own default settings.json,
+# and #1634's guard permits an ephemeral script in an ephemeral settings file), and
+# the real shared file is never touched. Scoped to accounts/home resolution, NOT
+# $HOME, so nothing else that reads $HOME is repointed.
+export KOSMOS_HOME="$SB/home" AGENT_WORKFORCE_HOME="$SB/home" KOSMOS_BIN_DIR="$SB/bin" KOSMOS_APP_DIR="$SB/apps"
 export KOSMOS_PROFILE_FILE="$SB/zprofile"
 # SHELL pinned for determinism only (belt and suspenders): with
 # KOSMOS_PROFILE_FILE exported above, setup.sh's non-zsh hedge is
