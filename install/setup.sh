@@ -1047,13 +1047,20 @@ start_log() {
 # every install older than #570 the literal IS the path, not a safety net, and
 # writing it any other way would be a claim this cannot support.
 #
-# 🛑 AND IT MUST BE CALLED BEFORE `rm -rf "$KOSMOS_HOME"`, which is why the two
-# call sites capture it early rather than resolving late: that line deletes
-# `runtime/bin/node`, and `uninstall()` needs this value 176 lines afterwards.
-# The uninstall would otherwise be asking an interpreter it had just removed.
+# 🛑 AND IT MUST BE CALLED BEFORE `rm -rf "$KOSMOS_HOME"`, which is why it is
+# called EXACTLY ONCE, at the top of `uninstall()` into `_support`, and every
+# consumer reads that one value: that `rm` deletes `runtime/bin/node`, and the
+# supervisor and litter removals need the answer hundreds of lines afterwards.
+# ⚠️ The first version of this captured it at each consumer instead, and the one
+# after the `rm` was asking an interpreter it had just removed, so it silently
+# got the literal while the `remote/` removal above it got the product's answer.
+# Two answers in one run is the inverse of this helper's purpose. The test
+# asserts the single call site and its position, because a second call is the
+# natural thing to add and it re-opens exactly that.
 _kosmos_data_root() {
   _kdr=""
-  if [ -x "$KOSMOS_HOME/runtime/bin/node" ] && [ -f "$KOSMOS_HOME/app/engine/store.js" ]; then
+  if [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ] \
+     && [ -f "$KOSMOS_HOME/app/engine/store.js" ]; then
     _kdr="$(KOSMOS_STORE="$KOSMOS_HOME/app/engine/store.js" "$KOSMOS_HOME/runtime/bin/node" -e '
       const s = require(process.env.KOSMOS_STORE);
       if (typeof s.dataRootFor !== "function") process.exit(3);
@@ -1167,6 +1174,12 @@ uninstall() {
   if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ] && [ "$_resolved_support" = "$_default_support" ]; then
     die "refusing to touch $_default_support: this uninstall is for a sandboxed install ($KOSMOS_HOME), and the real Application Support folder is not part of it. If you meant to remove the real install, run --uninstall with KOSMOS_HOME unset. If you meant to remove the sandboxed install, point AGENT_WORKFORCE_DATA at its own data root instead of the real one."
   fi
+  # 🔑 THE DATA ROOT, RESOLVED ONCE, BEFORE ANYTHING IS DELETED (#1511). Every
+  # consumer below (the Plus key, the shared supervisor, the remembered answers,
+  # the litter sweep, the closing sentence) reads this variable and none calls
+  # the helper again: after `rm -rf "$KOSMOS_HOME"` the interpreter it consults
+  # is gone and a fresh call would quietly return the literal instead.
+  _support="$(_kosmos_data_root)"
   _board_label=com.kosmos.board
   if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
     _board_label="com.kosmos.board.$(printf '%s' "$KOSMOS_HOME" | shasum -a 256 | cut -c1-8)"
@@ -1514,7 +1527,7 @@ KOSMOS_SWEEP_LIST
       # signed-in phone can retire it. Best-effort with a short timeout, and
       # the outcome is said either way: an uninstall that silently leaves an
       # address on the account is how a name stays held forever.
-      _remote_state="$(_kosmos_data_root)/remote"
+      _remote_state="$_support/remote"
       _tunnel="$KOSMOS_HOME/app/bin/kosmos-tunnel"
       if [ -f "$_remote_state/mac_key" ] && [ -f "$_tunnel" ] && [ -x "$_tunnel" ]; then
         info "telling the Plus service this computer is going away"
@@ -1701,8 +1714,8 @@ KOSMOS_SWEEP_LIST
   fi
   # The shared supervisor is app plumbing (the same argument as the launchd
   # jobs) and goes; the STORE next to it is the user's agent records and
-  # stays, and the closing sentence names where.
-  _support="$(_kosmos_data_root)"
+  # stays, and the closing sentence names where. `_support` was resolved once at
+  # the top of this function, before the app tree (and its interpreter) went.
   if [ -d "$_support/bin" ]; then
     info "removing the shared supervisor"
     rm -rf "$_support/bin"

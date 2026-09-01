@@ -8,8 +8,17 @@ runs JavaScript through its own bundled runtime in two places already.
 What is true is narrower, and nobody had written it down. `uninstall()` does
 `rm -rf "$KOSMOS_HOME"` and then needs the data root **176 lines later in the same
 function**, so it deletes its own interpreter before the point where it would ask.
-**The constraint is ORDERING, not language.** That is why the two call sites capture
-the value early rather than resolving it late.
+**The constraint is ORDERING, not language.** That is why `uninstall()` calls the
+helper exactly once, at its top, before anything is deleted, and every consumer reads
+that one `_support` value.
+
+> 📌 CORRECTED after the first blind review. This said "the two call sites capture the
+> value early". They did not: the supervisor-and-litter capture sat 176 lines after
+> `rm -rf "$KOSMOS_HOME"`, so on every real uninstall it ran with the interpreter
+> already gone and silently took the literal, while the `remote/` capture above the
+> delete took the product's answer. Two derivations in one run, which is the defect
+> this card exists to remove. Now one call, and the test pins both its count and its
+> position, each proven able to go red.
 
 ## A second constraint, found by measuring an installed copy rather than reading
 

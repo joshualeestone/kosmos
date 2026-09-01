@@ -74,6 +74,24 @@ r=$(run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA")
 # 8. never empty, on any arm: an empty root would make "$root/bin" mean "/bin"
 [ -n "$r" ] && ok "the helper never returns empty" || bad "the helper never returns empty" "<empty>"
 
+# 9. ONE CALL SITE. The first version captured at each consumer, and the one after
+#    `rm -rf "$KOSMOS_HOME"` silently got the literal while the one before it got the
+#    product's answer: two derivations in one run, the defect this card removes.
+n=$(grep -c '\$(_kosmos_data_root)' "$SETUP")
+[ "$n" -eq 1 ] && ok "uninstall resolves the data root exactly once" \
+  || bad "uninstall resolves the data root exactly once" "$n call sites"
+
+# 10. AND THAT ONE CALL COMES BEFORE THE DELETE THAT REMOVES ITS INTERPRETER, inside
+#     uninstall(). Line numbers, because the property IS an ordering.
+fn=$(grep -n '^uninstall() {' "$SETUP" | head -1 | cut -d: -f1)
+call=$(grep -n '\$(_kosmos_data_root)' "$SETUP" | head -1 | cut -d: -f1)
+del=$(grep -n 'rm -rf "\$KOSMOS_HOME"$' "$SETUP" | head -1 | cut -d: -f1)
+if [ -n "$fn" ] && [ -n "$call" ] && [ -n "$del" ] && [ "$fn" -lt "$call" ] && [ "$call" -lt "$del" ]; then
+  ok "the one call sits inside uninstall() and above rm -rf KOSMOS_HOME ($fn < $call < $del)"
+else
+  bad "the one call sits inside uninstall() and above rm -rf KOSMOS_HOME" "uninstall=$fn call=$call delete=$del"
+fi
+
 rm -rf "$FAKE" "$HELPER"
 printf '\n%s\n' "$([ "$FAIL" -eq 0 ] && echo "ALL PASS ($PASS arms)" || echo "$FAIL FAILED, $PASS passed")"
 [ "$FAIL" -eq 0 ]
