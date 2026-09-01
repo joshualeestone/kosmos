@@ -13132,12 +13132,12 @@ async function paintAutomation() {
     const a = (r && r.autohandoff) || { enabled: false, threshold: 85 };
     if (document.activeElement !== en) en.checked = a.enabled === true;
     if (document.activeElement !== th) th.value = String(a.threshold || 85);
-    /* #1724: the setting captures, but the monitor sweep that ACTS on it is not
-       built yet (handed off). Ship the control VISIBLY NOT-YET-ACTIVE rather than
-       as a toggle that saves a preference nothing honours, which is the dead-control
-       defect. When the sweep lands, enable these three and clear the note. */
-    en.disabled = true; th.disabled = true; btn.disabled = true;
-    msg.textContent = 'Not active yet. Kosmos will save agent progress automatically as the context fills once this is finished.';
+    /* #1724: the sweep (engine/autohandoff-sweep.js, wired in server.js) now acts on
+       this setting, so the control is live: enabled, and honoured by the monitor as an
+       agent's context fills. The not-yet-active note was true only while the sweep was
+       missing; shipping it now would be a false statement. */
+    en.disabled = false; th.disabled = false; btn.disabled = false;
+    msg.textContent = '';
   } catch {
     en.disabled = true; th.disabled = true; btn.disabled = true;
     msg.textContent = 'We could not read the automation settings just now.';
