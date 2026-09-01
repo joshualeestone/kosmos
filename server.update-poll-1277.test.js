@@ -145,7 +145,15 @@ test('#1277: every test file that boots the server sets DRY_RUN', () => {
          rather than enforced. The next file written in this shape passes
          silently. Verified after widening by planting a spawn-shaped file with
          no DRY_RUN and confirming it is NAMED. */
-      return /server\.js['"]/.test(src) && /\b(spawn|fork|execFile)\s*\(/.test(src);
+      /* ⚠️ `\w*` MATTERS: the first version was /(spawn|fork|execFile)\s*\(/, which
+         cannot match `execFileSync(`, and server.agent-id.test.js boots the server
+         exactly that way, by requiring server.js inside a child-script STRING run
+         through execFileSync. So a file the reviewer measured making real requests
+         to the release host was invisible to a detector whose test name claimed to
+         find every file that boots the server. Found by chasing a control that
+         returned 0: commenting out that file's DRY_RUN assignment did not name it,
+         and the reason was that the guard had never seen the file at all. */
+      return /server\.js['"]/.test(src) && /\b(spawn|fork|exec)\w*\s*\(/.test(src);
   }).map((f) => path.relative(root, f));
   assert.ok(boots.length >= 10,
     `only ${boots.length} files looked like they boot the server; the detector is probably wrong, `
@@ -218,8 +226,11 @@ test('#1277: every test file that boots the server sets DRY_RUN', () => {
     + 'longer present, so the excuse is now just an exemption: '
     + unmitigated.map((f) => `${f} (claimed: ${(MITIGATION[f] || {}).says || 'unstated'})`).join(', '));
 
+  /* LIVE_CODE here too: a commented-out assignment satisfied SETS_IT, so a file
+   could read as compliant on the strength of a line that never runs. Third
+   place in this one file that judged source as characters rather than code. */
   const missing = boots.filter((f) => !EXCUSED[f]
-    && !SETS_IT.test(fs.readFileSync(path.join(root, f), 'utf8')));
+    && !SETS_IT.test(LIVE_CODE(fs.readFileSync(path.join(root, f), 'utf8'))));
   assert.deepEqual(missing, [],
     `these files boot the server without setting AGENT_WORKFORCE_DRY_RUN: ${missing.join(', ')}. `
     + 'Booting the server starts the update poll, and without the gate that poll uses the real '
