@@ -230,16 +230,16 @@ test('#1787: a planted file at a temp path is never deleted, and the write still
   const f = path.join(d, 'secret');
 
   let planted = null;
-  const realWrite = fs.writeFileSync;
-  fs.writeFileSync = function (target, data, opts) {
-    if (typeof target === 'string' && target.endsWith('.tmp') && planted === null) {
+  const realOpen = fs.openSync;
+  fs.openSync = function (target, flags, ...rest) {
+    if (typeof target === 'string' && target.endsWith('.tmp') && flags === 'wx' && planted === null) {
       planted = target;
-      realWrite.call(fs, target, 'SOMEBODY ELSE FILE');
-      const e = new Error('forced'); e.code = 'EEXIST'; throw e;
+      fs.writeFileSync(target, 'SOMEBODY ELSE FILE');
+      /* Then the REAL wx open, which the kernel refuses with EEXIST. */
     }
-    return realWrite.call(fs, target, data, opts);
+    return realOpen.call(fs, target, flags, ...rest);
   };
-  try { securewrite.writeSecret(f, 'SECRET', 0o600); } finally { fs.writeFileSync = realWrite; }
+  try { securewrite.writeSecret(f, 'SECRET', 0o600); } finally { fs.openSync = realOpen; }
 
   assert.notEqual(planted, null, 'no temp write was attempted, so this arm proves nothing');
   assert.equal(fs.existsSync(planted), true, 'the writer deleted a file it did not create');
@@ -288,21 +288,21 @@ test('#1787: a chmod failure on the temp costs ZERO retries, because it is not f
   fs.chmodSync(f, 0o644);
 
   let temps = 0;
-  const realWrite = fs.writeFileSync;
-  const realChmod = fs.chmodSync;
-  fs.writeFileSync = function (target, ...rest) {
-    if (typeof target === 'string' && target.endsWith('.tmp')) temps += 1;
-    return realWrite.call(fs, target, ...rest);
+  const realOpen = fs.openSync;
+  const realFchmod = fs.fchmodSync;
+  fs.openSync = function (target, flags, ...rest) {
+    if (typeof target === 'string' && target.endsWith('.tmp') && flags === 'wx') temps += 1;
+    return realOpen.call(fs, target, flags, ...rest);
   };
-  fs.chmodSync = function (target, mode) {
-    if (typeof target === 'string' && target.endsWith('.tmp')) {
-      const e = new Error('operation not permitted'); e.code = 'EPERM'; throw e;
-    }
-    return realChmod.call(fs, target, mode);
+  /* The temp is chmodded on its fd now (no path to swap under it), so the failure is
+     planted on fchmodSync. The atomic path succeeds here, so the fallback's own
+     fchmod is never reached and the stub cannot fire twice for two reasons. */
+  fs.fchmodSync = function () {
+    const e = new Error('operation not permitted'); e.code = 'EPERM'; throw e;
   };
   try { securewrite.writeSecret(f, 'SECRET', 0o600); } finally {
-    fs.writeFileSync = realWrite;
-    fs.chmodSync = realChmod;
+    fs.openSync = realOpen;
+    fs.fchmodSync = realFchmod;
   }
 
   assert.equal(temps, 1,
@@ -434,4 +434,163 @@ test('#1787: a fallback that fails PART WAY through still restores the previous 
   assert.equal(after.toString(), prior.toString(),
     'the restored bytes are not the previous secret');
   assert.equal(after[0], prior[0], 'the restore is NUL-prefixed');
+});
+
+/* ==========================================================================
+   ITERATION 9: THE THREE MUTATIONS THAT REDDENED NOTHING.
+   A mutation battery over this module found eight behaviours the suite sees and
+   three it cannot: drop O_NOFOLLOW from the fallback open, restore through a PATH
+   instead of the descriptor, and drop `mode` from secureDir's mkdir. The first two
+   are the module's two symlink defences. Each arm below was measured red BY NAME
+   against exactly that mutation and green against the shipped code.
+   ========================================================================== */
+
+/* The ordering in the fallback is: path check, then readFileSync(prior), then the
+   open. So a symlink planted from INSIDE readFileSync lands after the path check has
+   passed and before the open: a real TOCTOU, and `O_NOFOLLOW` is the only defence
+   left. The kernel refuses with ELOOP; without the flag it follows the link, fchmods
+   the VICTIM to 0600 and writes the new secret into it. Both are observable. */
+test('#1787: the fallback OPEN refuses a symlink swapped in AFTER the path check, which only O_NOFOLLOW can do', (t) => {
+  if (fs.constants.O_NOFOLLOW === undefined) { t.skip('no O_NOFOLLOW on this platform; the path check is the only defence here'); return; }
+  const f = fresh('toctou');
+  fs.writeFileSync(f, 'PREVIOUS');
+  fs.chmodSync(f, 0o600);
+  const victim = fresh('toctou-victim');
+  fs.writeFileSync(victim, 'VICTIM-BYTES');
+  fs.chmodSync(victim, 0o644);
+
+  const realRename = fs.renameSync;
+  const realRead = fs.readFileSync;
+  let swapped = false;
+  fs.renameSync = () => { const e = new Error('forced'); e.code = 'EXDEV'; throw e; };
+  fs.readFileSync = function (target, ...rest) {
+    const out = realRead.call(fs, target, ...rest);
+    if (target === f && !swapped) {
+      /* After the read, so `prior` is real and the restore path stays live too. */
+      fs.unlinkSync(f);
+      fs.symlinkSync(victim, f);
+      swapped = true;
+    }
+    return out;
+  };
+  let caught = null;
+  try { securewrite.writeSecret(f, 'NEW-SECRET', 0o600); } catch (e) { caught = e; } finally {
+    fs.renameSync = realRename;
+    fs.readFileSync = realRead;
+  }
+
+  assert.equal(swapped, true, 'the symlink was never planted, so nothing was tested');
+  assert.notEqual(caught, null, 'the write through a swapped-in symlink SUCCEEDED');
+  assert.equal(caught.code, 'ELOOP',
+    `refused with ${caught.code}, not the kernel's ELOOP: the path check cannot have seen a link `
+    + 'planted after it ran, so this is not the O_NOFOLLOW refusal');
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'VICTIM-BYTES',
+    'the new secret was written THROUGH the swapped-in link into the victim');
+  assert.equal(modeOf(victim), 0o644, 'the victim was fchmod-ed to 0600 through the followed link');
+});
+
+/* The restore must go through the descriptor the open proved was not a link. A
+   path-addressed restore can be redirected by a link swapped in AFTER the open: the
+   previous secret then lands in the victim, and the real inode stays truncated. The
+   swap happens from inside the failing write, which is the realistic moment: the
+   file is open and empty, the process is mid-failure. A hard link keeps the original
+   inode reachable by name so the arm can read what the descriptor wrote. */
+test('#1787: the restore writes through the DESCRIPTOR, so a link swapped in after the open cannot redirect the previous secret', () => {
+  const f = fresh('restore-fd');
+  fs.writeFileSync(f, 'PREVIOUS-SECRET');
+  fs.chmodSync(f, 0o600);
+  const victim = fresh('restore-victim');
+  fs.writeFileSync(victim, 'VICTIM-BYTES');
+  const kept = fresh('restore-kept'); // will hard-link the original inode
+
+  const realRename = fs.renameSync;
+  const realWrite = fs.writeFileSync;
+  let swapped = false;
+  fs.renameSync = () => { const e = new Error('forced'); e.code = 'EXDEV'; throw e; };
+  fs.writeFileSync = function (target, ...rest) {
+    if (typeof target === 'number') {
+      fs.linkSync(f, kept);      // the open inode keeps a name
+      fs.unlinkSync(f);
+      fs.symlinkSync(victim, f); // the PATH now points elsewhere
+      swapped = true;
+      const e = new Error('no space left on device'); e.code = 'ENOSPC'; throw e;
+    }
+    return realWrite.call(fs, target, ...rest);
+  };
+  let threw = false;
+  try { securewrite.writeSecret(f, 'NEW-SECRET', 0o600); } catch { threw = true; } finally {
+    fs.renameSync = realRename;
+    fs.writeFileSync = realWrite;
+  }
+
+  assert.equal(swapped, true, 'the swap never happened, so nothing was tested');
+  assert.equal(threw, true, 'the forced failure did not fail');
+  assert.equal(fs.readFileSync(kept, 'utf8'), 'PREVIOUS-SECRET',
+    'the restore did not reach the inode the descriptor was open on: the previous secret is gone from it');
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'VICTIM-BYTES',
+    'the restore was PATH-addressed and wrote the previous secret through the swapped-in link into the victim');
+});
+
+/* A directory created loose and tightened afterwards is the directory-shaped twin of
+   the defect this module exists for: for the length of the window it lists the
+   credential filenames to everybody. The end state is 0700 either way, so the arm
+   observes the mode AT THE MOMENT chmod is called, before chmod applies. */
+test('#1787: secureDir creates the directory AT the mode, not loose and then tightened', () => {
+  const d = fresh('dir-at-mode');
+  const realChmod = fs.chmodSync;
+  let seenAtChmod = null;
+  fs.chmodSync = function (target, ...rest) {
+    if (target === d && seenAtChmod === null) seenAtChmod = modeOf(d);
+    return realChmod.call(fs, target, ...rest);
+  };
+  try { securewrite.secureDir(d, 0o700); } finally { fs.chmodSync = realChmod; }
+
+  const expected = 0o700 & ~process.umask();
+  assert.notEqual(seenAtChmod, null, 'chmod was never called on the directory, so the window was not observed');
+  assert.equal(seenAtChmod, expected,
+    `the directory sat at ${seenAtChmod.toString(8)} before the chmod tightened it; mkdir was asked for `
+    + `no mode, so it was created at the umask default and every name in it was listable meanwhile`);
+  assert.equal(modeOf(d), 0o700, 'CONTROL: the end state is not 0700, so the arm above is measuring the wrong thing');
+});
+
+/* Finding from the iteration-8 read half: create and write were ONE call and the
+   `created` flag flipped after it, so a write that failed after the create (ENOSPC
+   mid-write) left the temp behind, three times per call, each holding the first
+   bytes of the NEW secret at 0600, and then the fallback succeeded so the caller saw
+   a clean write. The module's header said litter needed a process death; it did not.
+   The stub lands four real bytes on the temp's fd and then throws, which is what a
+   full disk does. */
+test('#1787: a temp whose write fails part way is removed, not left holding the new secret', () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'partial-temp-'));
+  const f = path.join(dir, 'secret');
+  fs.writeFileSync(f, 'PREVIOUS');
+  fs.chmodSync(f, 0o600);
+
+  const realOpen = fs.openSync;
+  const realWriteSync = fs.writeSync;
+  const tempFds = new Set();
+  let creates = 0;
+  fs.openSync = function (target, flags, ...rest) {
+    const fd = realOpen.call(fs, target, flags, ...rest);
+    if (typeof target === 'string' && target.includes('.kosmos-') && flags === 'wx') { tempFds.add(fd); creates += 1; }
+    return fd;
+  };
+  fs.writeSync = function (fd, buf, ...rest) {
+    if (tempFds.has(fd)) {
+      realWriteSync.call(fs, fd, Buffer.from('NEW-'));
+      const e = new Error('no space left on device'); e.code = 'ENOSPC'; throw e;
+    }
+    return realWriteSync.call(fs, fd, buf, ...rest);
+  };
+  let outcome = 'returned';
+  try { securewrite.writeSecret(f, 'NEW-SECRET', 0o600); } catch (e) { outcome = 'threw ' + e.code; } finally {
+    fs.openSync = realOpen;
+    fs.writeSync = realWriteSync;
+  }
+
+  assert.equal(creates, 3, `the atomic path made ${creates} temp(s), not three: the stub missed the create and this arm measured nothing`);
+  const left = fs.readdirSync(dir).filter((n) => n.includes('.kosmos-'));
+  assert.deepEqual(left, [],
+    `${left.length} temp(s) left behind after a write that failed part way (outcome: ${outcome}): each holds the `
+    + 'first bytes of the NEW secret, and nothing will ever remove them');
 });
