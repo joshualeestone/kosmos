@@ -103,6 +103,16 @@ out="$(REFRESH_CLI_TARGET="$gitrepo2/.local/bin/kosmos" REFRESH_CLI_SOURCE="$FRE
 if [ "$rc" -eq 0 ] && has "$out" "refreshed the installed CLI"; then pass "a real install inside a git repo is still refreshed, not silently skipped"; else fail "install-under-repo arm (rc=$rc, out=$out)"; fi
 if cmp -s "$FRESH" "$gitrepo2/.local/bin/kosmos"; then pass "the install under a git repo got the fresh bytes"; else fail "the install under a git repo was skipped"; fi
 
+# 6d. GUARD_REPO reached through a SYMLINKED path component. resolve() returns REAL
+#     as a physical path, so GUARD_REPO must be canonicalized (pwd -P) too or the
+#     gate would miss a genuine repo copy reached via a symlink and overwrite it.
+#     This arm goes red if that canonicalization regresses; arm 1 is the control.
+realrepo="$T/realrepo"; mkdir -p "$realrepo/install"; make_stale "$realrepo/install/kosmos"
+ln -s "$realrepo" "$T/linkrepo"
+out="$(REFRESH_CLI_TARGET="$T/linkrepo/install/kosmos" REFRESH_CLI_SOURCE="$FRESH" REFRESH_CLI_REPO="$T/linkrepo" bash "$SCRIPT" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && has "$out" "leaving it alone"; then pass "a repo copy reached through a symlinked path is left alone (GUARD_REPO canonicalized)"; else fail "symlinked-repo-path arm (rc=$rc, out=$out)"; fi
+if ! cmp -s "$FRESH" "$realrepo/install/kosmos"; then pass "the symlink-reached repo copy was not overwritten"; else fail "the symlink-reached repo copy was overwritten"; fi
+
 # 7. --check reports but never writes.
 tgt7="$T/chk/kosmos"; mkdir -p "$(dirname "$tgt7")"; make_stale "$tgt7"
 out="$(REFRESH_CLI_TARGET="$tgt7" REFRESH_CLI_SOURCE="$FRESH" REFRESH_CLI_REPO="$T/norepo" bash "$SCRIPT" --check 2>&1)"; rc=$?
