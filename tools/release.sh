@@ -924,3 +924,16 @@ step "== 10. the board on THIS Mac, if it runs from this repo =="
 # serving the previous code until somebody noticed (#360). Gated on the job
 # existing AND running from this repo; it says which case it found.
 bash "$MAIN_REPO/tools/restart-local-board.sh"
+
+step "== 11. the installed kosmos CLI on THIS Mac =="
+# 🛑 Same #360 shape as step 10, for the COMMAND rather than the board (#1758).
+# An in-app update swaps app/, never bin/, so the `kosmos` an agent runs stays
+# whatever the first install put there: #1674 (`kosmos reply --help` sent as a
+# message) merged, shipped in the bundle the comparator above already verifies,
+# and still bit an agent the next day, because agents run that binary, not the
+# repo or the bundle. This refreshes an installed CLI to the tree's install/kosmos
+# and byte-verifies it; it leaves the repo's own copy and a CLI-less Mac alone,
+# and REFUSES (reds the cut under set -e) if it finds a stale install it cannot
+# refresh -- a silent skip here is the exact defect. tools/test-refresh-local-cli.sh
+# proves both the refresh and the refusal arm.
+bash "$MAIN_REPO/tools/refresh-local-cli.sh"
