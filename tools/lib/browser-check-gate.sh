@@ -47,7 +47,7 @@
 kosmos_browser_check_gate() {
   # NB: dstat/dpath, NOT status/path -- zsh ties `path` to PATH (emptying it) and
   # `status` to $?, and this lib is sourced, sometimes into a zsh shell.
-  local base files msgs f dstat dpath tab touched_web touched_bc reason oldifs
+  local base files msgs f dstat dpath tab touched_web touched_bc reason
   base="${KOSMOS_BCG_BASE:-origin/main}"
 
   if [ -n "${KOSMOS_BCG_FILES:-}" ]; then
@@ -71,23 +71,26 @@ kosmos_browser_check_gate() {
 
   touched_web=0; touched_bc=0
   tab="$(printf '\t')"
-  oldifs="$IFS"; IFS='
-'
-  for f in $files; do
+  # `while IFS= read`, NOT `for f in $files`: zsh does NOT word-split an unquoted
+  # expansion, so `for f in $files` would iterate ONCE over the whole blob and this
+  # gate (sourced, sometimes into zsh) would false-REFUSE every change. `read` splits
+  # on newlines in every shell; IFS= keeps spaces in a path, -r keeps backslashes.
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
     dstat="${f%%"$tab"*}"   # A / M / D (etc.) from --name-status
     dpath="${f#*"$tab"}"    # the path after the TAB
     # A web/ change of ANY kind is a rendered change to guard -- add, edit OR delete.
     # Per-path so docs/webhooks/x never matches web/.
     case "$dpath" in web/*) touched_web=1 ;; esac
-    # A docs/browser-checks/ path counts as coverage ONLY when ADDED or MODIFIED. A
-    # DELETE (or rename-away, which --no-renames shows as a D) is the REMOVAL of an
-    # assertion, not coverage -- otherwise an author could delete the very check that
-    # covered a surface and ship the change green, the gap this gate exists to catch.
+    # A docs/browser-checks/ *.js ASSERTION counts as coverage ONLY when ADDED or
+    # MODIFIED. A DELETE (or rename-away, which --no-renames shows as a D) is the
+    # REMOVAL of an assertion, not coverage; and a NON-.js file in that dir (a README)
+    # is not an assertion either, so neither excuses a web/ change. Both are the gap
+    # this gate exists to catch.
     case "$dstat" in
-      A*|M*) case "$dpath" in docs/browser-checks/*) touched_bc=1 ;; esac ;;
+      A*|M*) case "$dpath" in docs/browser-checks/*.js) touched_bc=1 ;; esac ;;
     esac
-  done
-  IFS="$oldifs"
+  done <<< "$files"
 
   [ "$touched_web" -eq 0 ] && return 0   # no rendered change: nothing to guard
   [ "$touched_bc"  -eq 1 ] && return 0   # a real browser-check assertion was updated: pass

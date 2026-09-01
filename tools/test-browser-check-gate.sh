@@ -68,6 +68,11 @@ run "$(ns M web/index.html M docs/browser-checks/render-accounts-openai.js)" "re
 run "$(ns M web/index.html D docs/browser-checks/gone.js)" "drop the row and its check" \
   ; check "web/ change + DELETED assertion (not coverage) -> REFUSED" 1 "$RC"
 
+# THE README GUARD (iter-2 WARNING): a NON-.js file in docs/browser-checks/ (a README)
+# is not an assertion, so it does not excuse a web/ change.
+run "$(ns M web/index.html M docs/browser-checks/README.md)" "touch the readme, not a check" \
+  ; check "web/ change + non-.js docs/browser-checks file -> REFUSED" 1 "$RC"
+
 # PASS: an explicit override trailer with a non-empty reason.
 run "$(ns M web/index.html)" "copy fix
 
@@ -97,6 +102,20 @@ run "$(ns M docs/webhooks/notes.md)" "unrelated docs" \
 # and, on a checkout without origin/main, the fail-soft branch (also rc 0).
 ( kosmos_browser_check_gate >/dev/null 2>&1 ); RC=$? \
   ; check "real git path on this branch (no web/) -> pass" 0 "$RC"
+
+# ZSH SAFETY (iter-2 WARNING): the lib is sourced into zsh in some contexts, and zsh
+# does not word-split an unquoted expansion. A `for f in $files` loop would iterate
+# ONCE over the whole blob under zsh and false-REFUSE a change that HAS its assertion.
+# Run the exact valid case under a real zsh and require a pass -- a non-zsh-safe loop
+# reds this. Skipped (not failed) where zsh is unavailable.
+if command -v zsh >/dev/null 2>&1; then
+  ns M web/index.html M docs/browser-checks/render-x.js > "$tmp/zfiles"
+  printf 'reflow and update the check\n' > "$tmp/zmsgs"
+  zsh -c ". \"$HERE/lib/browser-check-gate.sh\" && KOSMOS_BCG_FILES=\"$tmp/zfiles\" KOSMOS_BCG_MSGS=\"$tmp/zmsgs\" kosmos_browser_check_gate" >/dev/null 2>&1
+  check "zsh: web/ change WITH assertion PASSES (the loop is zsh-safe)" 0 "$?"
+else
+  echo "SKIP  zsh not available -- cannot verify the zsh-safe loop"
+fi
 
 echo "---"
 if [ "$fails" -eq 0 ]; then
