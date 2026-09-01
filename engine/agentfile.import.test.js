@@ -24,10 +24,11 @@ const agentfile = require('./agentfile');
 const store = require('./store');
 const instructions = require('./instructions');
 const status = require('./status');
+const create = require('./create');
 
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
-const deps = { identityFromText: status.identityFromText };
+const deps = { identityFromText: status.identityFromText, nameUsable: create.nameUsable };
 const BODY = '# You are Casey Jones\n\nYou answer one question, and you answer it well.\n';
 
 /** A valid exported file to import, produced by the REAL export half. */
@@ -121,8 +122,39 @@ test('#1652: input that travelled (CRLF line endings and a leading BOM) still im
   assert.equal(out.displayName, 'Travelled');
 });
 
-test('#1652: missing the identity parser is refused, not thrown (mirrors export)', () => {
+test('#1652: missing the injected deps is refused, not thrown (mirrors export)', () => {
   const out = agentfile.importAgent(exportedFile('nodeps'), {});
   assert.equal(out.ok, false);
   assert.match(out.because, /identity parser/);
+});
+
+test('#1652 REFUSED WHOLE: a path-unsafe name (a security property, not machine state)', () => {
+  /* A `..`, a slash or a NUL would become a folder, a tmux session and a launchd
+     label. This surface takes outside input, so it refuses such a name HERE
+     rather than trusting the create flow to re-check. Uses the canonical
+     create.nameUsable, so import cannot guard less than create does. */
+  for (const bad of ['../../etc/passwd', '..', '.', 'a/b', 'a\\b']) {
+    const out = agentfile.importAgent(`---\nkosmos: agent\nname: ${bad}\n---\n\n# You are Evil\n`, deps);
+    assert.equal(out.ok, false, `a path-unsafe name was accepted: ${JSON.stringify(bad)}`);
+    assert.match(out.because, /not a usable agent name/);
+  }
+  // CONTROL: a safe name with the identical shape is accepted, so the refusal is about the name.
+  assert.equal(agentfile.importAgent('---\nkosmos: agent\nname: safe-name\n---\n\n# You are Safe\n', deps).ok, true);
+});
+
+test('#1652: the kosmos marker is read from the HEADER only, never the body', () => {
+  /* A file whose header lacks the marker but whose BODY contains a `kosmos:
+     agent` line must be refused: field() searches the frontmatter block only. */
+  const out = agentfile.importAgent('---\nname: sneaky\n---\n\nkosmos: agent\n# You are Sneaky\n', deps);
+  assert.equal(out.ok, false, 'a kosmos line in the body was mistaken for the header marker');
+  assert.match(out.because, /not a Kosmos agent file/);
+});
+
+test('#1652: only the FIRST frontmatter block is the header; a second block is body', () => {
+  /* The non-greedy match takes the first `---...---`. A second block later in
+     the body (or a horizontal rule) must not override the real header. */
+  const text = '---\nkosmos: agent\nname: firstblock\n---\n\n# You are First\n\n---\nkosmos: fake\nname: evil\n---\n';
+  const out = agentfile.importAgent(text, deps);
+  assert.equal(out.ok, true, out.because);
+  assert.equal(out.name, 'firstblock', 'a second --- block overrode the real header');
 });
