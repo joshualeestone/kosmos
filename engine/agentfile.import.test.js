@@ -81,6 +81,31 @@ test('#1652 REFUSED WHOLE: no usable name', () => {
   assert.match(emptyName.because, /no usable name/);
 });
 
+test('#1652 REFUSED WHOLE: a name carrying a U+2028/U+2029/CR line terminator is not truncated', () => {
+  /* The bug this guards (found by Shredder in the #1652 audit): field() used
+     `(.+)`, and in JS regex `.` does not match a line terminator while `$` under
+     /m matches BEFORE one, so `name: ang<U+2028>evil` was captured as "ang" and
+     accepted -- a silent TRUNCATION, when safeValue lists these precisely to
+     refuse them. The value must reach safeValue whole and be refused whole.
+     The re-admitted set is exactly {CR, U+2028, U+2029}: a lone CR survives the
+     \r\n normalisation and truncated too (safeValue refuses it as a C0 control).
+     Built with escapes on purpose: a literal U+2028/9 in this source file is
+     itself a line terminator and would corrupt the file (the same bug). */
+  for (const cp of [0x2028, 0x2029, 0x000d]) {
+    const sep = String.fromCharCode(cp);
+    const text = '---\nkosmos: agent\nname: ang' + sep + 'evil\n---\n\n# You are Casey Jones\n';
+    const out = agentfile.importAgent(text, deps);
+    assert.equal(out.ok, false, 'U+' + cp.toString(16) + ' in the name must refuse the whole file, not truncate it');
+    assert.match(out.because, /control or bidi character/);
+    assert.notEqual(out.name, 'ang', 'the truncated prefix must never be accepted as the name');
+  }
+  // CONTROL: the identical shape with a clean name is accepted, so the refusal is
+  // about the separator and not the surrounding fixture.
+  const ok = agentfile.importAgent('---\nkosmos: agent\nname: angevil\n---\n\n# You are Casey Jones\n', deps);
+  assert.equal(ok.ok, true, ok.because);
+  assert.equal(ok.name, 'angevil');
+});
+
 test('#1652 REFUSED WHOLE: a body that names nobody', () => {
   const out = agentfile.importAgent('---\nkosmos: agent\nname: quiet\n---\n\nJust some notes, no name here.\n', deps);
   assert.equal(out.ok, false);
