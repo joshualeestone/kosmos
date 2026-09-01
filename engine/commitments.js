@@ -50,7 +50,7 @@ const store = require('./store');
 // mirror the production tree, which is fine for isolation and misleading if you
 // go looking for the files.
 const base = () => process.env.AGENT_WORKFORCE_DATA || store.ROOT;
-const dir = () => path.join(base(), 'commitments');
+const dirPath = () => path.join(base(), 'commitments');
 
 /**
  * Three states, never two. `unknown` is the default for anything we have not
@@ -107,7 +107,7 @@ function ensure(dir) {
 }
 
 function recordPath(agent) {
-  return path.join(dir(), store.safeKey(agent) + '.json');
+  return path.join(dirPath(), store.safeKey(agent) + '.json');
 }
 
 // ⚠️ store.safeKey() STRIPS unsafe characters rather than rejecting, so
@@ -475,7 +475,7 @@ function writeRecord(key, rawName, clean, reportedAt) {
     // Inside the try: mkdir has its own errno, and it carries the absolute
     // store path. Leaving it outside meant the comment below about never
     // surfacing a raw errno was false for the most likely failure of the two.
-    ensure(dir());
+    ensure(dirPath());
     fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
     fs.renameSync(tmp, dest);
   } catch {
@@ -604,7 +604,7 @@ function readAll() {
   const out = Object.create(null);
   let files = [];
   try {
-    files = fs.readdirSync(dir());
+    files = fs.readdirSync(dirPath());
   } catch {
     return out;
   }
@@ -616,4 +616,4 @@ function readAll() {
   return out;
 }
 
-module.exports = { get DIR() { return dir(); }, STATE, STALE_AFTER_MS, FUTURE_TOLERANCE_MS, MAX_COMMITMENTS, MAX_RECORD_BYTES, read, report, add, resolve, readAll, recordPath };
+module.exports = { get DIR() { return dirPath(); }, STATE, STALE_AFTER_MS, FUTURE_TOLERANCE_MS, MAX_COMMITMENTS, MAX_RECORD_BYTES, read, report, add, resolve, readAll, recordPath };

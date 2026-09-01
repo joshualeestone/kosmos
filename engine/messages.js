@@ -57,7 +57,7 @@ const chat = require('./chat');
 const store = require('./store');
 const limits = require('./limits');
 
-const log = () => path.join(store.ROOT, 'messages.jsonl');
+const logPath = () => path.join(store.ROOT, 'messages.jsonl');
 
 /* #670: the per-project read cursor. One person per Kosmos install, so the
    cursor is keyed by project alone. "Unread" is every post to that room
@@ -68,11 +68,11 @@ const log = () => path.join(store.ROOT, 'messages.jsonl');
    reload and a restart. A cursor file we cannot read is UNKNOWN, never
    "never opened": the count answers null and the page draws nothing, the
    same rule the record itself follows. */
-const seen = () => path.join(store.ROOT, 'room-seen.json');
+const seenPath = () => path.join(store.ROOT, 'room-seen.json');
 
 function seenRead() {
   let raw;
-  try { raw = fs.readFileSync(seen(), 'utf8'); } catch (err) {
+  try { raw = fs.readFileSync(seenPath(), 'utf8'); } catch (err) {
     if (err && err.code === 'ENOENT') return {};
     return null;
   }
@@ -88,10 +88,10 @@ function markSeen(projectId, now) {
   if (!id) throw new Error('say which project was opened');
   const cur = seenRead() || {};
   cur[id] = new Date(Number.isFinite(now) ? now : Date.now()).toISOString();
-  fs.mkdirSync(path.dirname(seen()), { recursive: true });
-  const tmp = seen() + '.tmp';
+  fs.mkdirSync(path.dirname(seenPath()), { recursive: true });
+  const tmp = seenPath() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(cur, null, 2) + '\n');
-  fs.renameSync(tmp, seen());
+  fs.renameSync(tmp, seenPath());
   return cur[id];
 }
 
@@ -417,7 +417,7 @@ function parseLinesInto(text, rows, parsed) {
 }
 
 function readBytes(from, to) {
-  const fd = fs.openSync(log(), 'r');
+  const fd = fs.openSync(logPath(), 'r');
   try {
     const buf = Buffer.alloc(to - from);
     let got = 0;
@@ -434,7 +434,7 @@ function readBytes(from, to) {
 
 function record() {
   let st;
-  try { st = fs.statSync(log()); } catch (err) {
+  try { st = fs.statSync(logPath()); } catch (err) {
     if (err && err.code === 'ENOENT') { READ_CACHE = null; return { ok: true, rows: [], parsed: [] }; }
     return { ok: false, rows: [], parsed: [] };
   }
@@ -547,8 +547,8 @@ function readLog() {
 }
 
 function appendLog(entry) {
-  fs.mkdirSync(path.dirname(log()), { recursive: true });
-  fs.appendFileSync(log(), JSON.stringify(entry) + '\n');
+  fs.mkdirSync(path.dirname(logPath()), { recursive: true });
+  fs.appendFileSync(logPath(), JSON.stringify(entry) + '\n');
 }
 
 function pairKey(a, b) {
@@ -1587,9 +1587,9 @@ module.exports = {
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   operatorDirect, operatorNowLabel, validTimeZone,
   START, END, blockBody,
-  get LOG() { return log(); },
+  get LOG() { return logPath(); },
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
   resolveSender, send, sendPost, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
-  unreadAll, unread, markSeen, seenRead, get SEEN() { return seen(); },
+  unreadAll, unread, markSeen, seenRead, get SEEN() { return seenPath(); },
   setRunner, resetForTests,
 };
