@@ -54,17 +54,21 @@ function withEnv(val, fn) {
 
 test('#1582: with AGENT_WORKFORCE_HOME sandboxed (what test-install.sh now sets), NO wiring target is the real shared settings.json', () => {
   const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-1582-'));
-  const sbHome = path.join(SB, 'home');
-  withEnv(sbHome, () => {
-    assert.equal(accounts.HOME_FOR_TEST, sbHome, 'HOME_FOR_TEST must follow AGENT_WORKFORCE_HOME');
-    const targets = wiringTargets();
-    assert.equal(targets[0], path.join(sbHome, '.claude', 'settings.json'), 'the default target is the sandbox settings.json');
-    for (const t of targets) {
-      assert.notEqual(t, REAL_DEFAULT_SETTINGS,
-        'a wiring target is the REAL ~/.claude/settings.json -- the cut would poison the shared file (#1582): ' + t);
-      assert.ok(t.startsWith(SB), 'every wiring target must be under the sandbox: ' + t);
-    }
-  });
+  try {
+    const sbHome = path.join(SB, 'home');
+    withEnv(sbHome, () => {
+      assert.equal(accounts.HOME_FOR_TEST, sbHome, 'HOME_FOR_TEST must follow AGENT_WORKFORCE_HOME');
+      const targets = wiringTargets();
+      assert.equal(targets[0], path.join(sbHome, '.claude', 'settings.json'), 'the default target is the sandbox settings.json');
+      for (const t of targets) {
+        assert.notEqual(t, REAL_DEFAULT_SETTINGS,
+          'a wiring target is the REAL ~/.claude/settings.json -- the cut would poison the shared file (#1582): ' + t);
+        assert.ok(t.startsWith(SB), 'every wiring target must be under the sandbox: ' + t);
+      }
+    });
+  } finally {
+    fs.rmSync(SB, { recursive: true, force: true }); // no leaked temp dir per run
+  }
 });
 
 test('#1582 CONTROL: WITHOUT the sandbox var (the pre-fix state), the default target IS the real shared settings.json', () => {
@@ -81,6 +85,10 @@ test('#1582 CONTROL: WITHOUT the sandbox var (the pre-fix state), the default ta
 
 test('#1582: test-install.sh exports AGENT_WORKFORCE_HOME="$SB/home" alongside KOSMOS_HOME (the actual fix)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'tools', 'test-install.sh'), 'utf8');
-  assert.match(src, /export KOSMOS_HOME="\$SB\/home" AGENT_WORKFORCE_HOME="\$SB\/home"/,
+  // Match the var + sandbox value on an export line, tolerant of order (KOSMOS_HOME
+  // and AGENT_WORKFORCE_HOME can be in either order, or on separate export lines) so
+  // a correctness-preserving reorder does not false-fail; still red-capable (reverting
+  // the fix removes the assignment entirely).
+  assert.match(src, /^\s*export\b[^\n]*\bAGENT_WORKFORCE_HOME="\$SB\/home"/m,
     'test-install.sh must export AGENT_WORKFORCE_HOME="$SB/home" so the gate sandboxes the hook-wiring target home (#1582)');
 });
