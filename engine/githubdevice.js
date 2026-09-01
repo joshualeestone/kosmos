@@ -150,7 +150,7 @@ function setClientId(id) {
    candidates override"): a real executable returns it, a DIRECTORY returns null.
    Verified to redden when the getter is reverted to the bare literal.
 
-   ✅ NO TEST REACHES THE OPERATOR'S REAL gh through the door: `github.test.js` pins
+   ✅ NO TEST REACHES THE OPERATOR'S REAL gh through the door: `engine/github.test.js` pins
    `AGENT_WORKFORCE_GH_BIN = '/bin/echo'` in `beforeEach`, so `ghBin()` returns before
    the candidate scan is consulted.
    🛑 SO DO NOT ADD THE OBVIOUS CONTROL ARM. "With no override the control still finds
