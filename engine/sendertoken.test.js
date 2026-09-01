@@ -662,3 +662,171 @@ test('both resolve paths refuse an empty token with the SAME sentence', () => {
     }
   } finally { board.restore(); }
 });
+
+/* 🛑 A FAILED MINT MUST NOT DESTROY THE TOKENS IT FAILED TO REPLACE. The fallback opens
+   the token file with `O_TRUNC`, so it is EMPTY from the moment of the open. A write that
+   then fails leaves nothing at all, and ENOSPC is both the realistic trigger for that
+   write failing AND a realistic reason the atomic path failed in the first place.
+   Measured on the code before the fix: live 3 -> 0, bytes 435 -> 0, and a token minted
+   seconds earlier stopped resolving. `live()` is the duplicate-run detector this module
+   exists for, so it reported zero at exactly the moment it mattered.
+   ⚠️ THE PRECONDITION IS LOAD-BEARING: if the BEFORE arm does not resolve, the AFTER arm
+   passing proves nothing, because a token that never resolved cannot stop resolving. */
+test('#1761: a mint that fails on the fallback does not destroy the existing tokens', () => {
+  const board = fleet.install([fleet.agent('nospc', { state: 'idle' })]);
+  try {
+    const first = sendertoken.mint('nospc');
+    sendertoken.mint('nospc');
+    sendertoken.mint('nospc');
+    const file = path.join(sendertoken.DIR, 'nospc.json');
+
+    assert.equal(sendertoken.live('nospc').length, 3, 'the three mints did not take');
+    assert.equal(sendertoken.resolve(first.token, board.roster).ok, true,
+      'the first token did not resolve BEFORE the failure, so this arm cannot fail for the right reason');
+    const bytesBefore = fs.statSync(file).size;
+
+    const realRename = fs.renameSync;
+    const realWrite = fs.writeFileSync;
+    fs.renameSync = () => { const e = new Error('forced'); e.code = 'EXDEV'; throw e; };
+    fs.writeFileSync = function (target, ...rest) {
+      /* fail only the FALLBACK's write, which is the one addressed by a numeric fd */
+      if (typeof target === 'number') { const e = new Error('no space left on device'); e.code = 'ENOSPC'; throw e; }
+      return realWrite.call(fs, target, ...rest);
+    };
+    let res;
+    try { res = sendertoken.mint('nospc'); } finally {
+      fs.renameSync = realRename;
+      fs.writeFileSync = realWrite;
+    }
+
+    assert.equal(res.ok, false, 'the forced failure did not actually fail, so nothing was tested');
+    assert.equal(sendertoken.live('nospc').length, 3,
+      'a failed mint destroyed the agent\'s existing tokens, so live() reports zero runs');
+    assert.equal(fs.statSync(file).size, bytesBefore,
+      'the token file was left truncated by a write that failed');
+    assert.equal(sendertoken.resolve(first.token, board.roster).ok, true,
+      'a previously valid token stopped resolving because a LATER mint failed');
+  } finally { board.restore(); }
+});
+
+/* 🛑 THE CHMOD ON THE TEMP IS BEST EFFORT, LIKE THE OTHER TWO IN THAT FUNCTION. It was
+   the only one that was fatal to the atomic path, and nothing explained why. When it
+   threw, the write was abandoned for the fallback and the token landed in a pre-existing
+   0644 file with `ok:true` and no signal anywhere: THIS CARD'S EXACT DEFECT, reached
+   through the fix for it.
+   It buys nothing, which is what makes the old behaviour indefensible rather than merely
+   cautious: the temp is created `flag:'wx', mode:FILE_MODE`, so it is already at most
+   0600 and this chmod only ever restores owner bits a restrictive umask cleared. */
+test('#1761: a chmod failure on the temp costs ZERO retries, because it is not fatal', () => {
+  const file = path.join(sendertoken.DIR, 'chmod-eperm.json');
+  fs.mkdirSync(sendertoken.DIR, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, JSON.stringify({ tokens: [] }));
+  fs.chmodSync(file, 0o644);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o644,
+    'the loose plant did not take, so this arm would pass without the fix');
+
+  /* 🛑 COUNT THE TEMPS, DO NOT ASSERT THE MODE. An earlier version of this arm asserted
+     the file ended at 0600, and it PASSED with the fix reverted, because the retry loop
+     added in the same change silently covered for it: attempt 1 died on the fatal chmod,
+     attempt 2 wrapped its own and succeeded. The outcome was identical and the arm could
+     not tell the two apart. What the wrap actually changes is whether the FIRST attempt
+     survives, so that is what this counts. */
+  let temps = 0;
+  const realWrite = fs.writeFileSync;
+  const realChmod = fs.chmodSync;
+  fs.writeFileSync = function (target, ...rest) {
+    if (typeof target === 'string' && target.endsWith('.tmp')) temps += 1;
+    return realWrite.call(fs, target, ...rest);
+  };
+  fs.chmodSync = function (target, mode) {
+    if (typeof target === 'string' && target.endsWith('.tmp')) {
+      const e = new Error('operation not permitted'); e.code = 'EPERM'; throw e;
+    }
+    return realChmod.call(fs, target, mode);
+  };
+  let res;
+  try { res = sendertoken.mint('chmod-eperm'); } finally {
+    fs.writeFileSync = realWrite;
+    fs.chmodSync = realChmod;
+  }
+
+  assert.equal(res.ok, true, 'the mint failed outright, which is not what this arm is about');
+  assert.equal(temps, 1,
+    `a chmod failure on the temp abandoned attempt ${temps > 1 ? '1 and forced a retry' : 'the path'}: `
+    + 'the chmod is best effort like the other two, so it must not cost an attempt');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600,
+    'the pre-existing loose file was left loose');
+});
+/* 🛑 THE RETRY IS WHAT KEEPS AN EEXIST OFF THE DESTRUCTIVE PATH, AND IT WAS UNGUARDED.
+   Disabling the loop entirely left the suite fully green, which is this branch's third
+   correct-fix-with-nothing-watching-it.
+   ⭐ ASSERT THE INODE, NOT THE CONTENT. Both paths end with the right tokens in the file,
+   so no assertion about content can tell them apart. `rename` REPLACES the inode; the
+   fallback writes in place and KEEPS it. That is the only observable difference, and it
+   is exactly the property the retry exists to preserve. */
+test('#1761: a planted temp is retried on a fresh name, not dropped to the fallback', () => {
+  sendertoken.mint('retry-eexist');
+  const file = path.join(sendertoken.DIR, 'retry-eexist.json');
+  const inodeBefore = fs.statSync(file).ino;
+
+  let planted = null;
+  const realWrite = fs.writeFileSync;
+  fs.writeFileSync = function (target, data, opts) {
+    if (typeof target === 'string' && target.endsWith('.tmp') && planted === null) {
+      planted = target;
+      realWrite.call(fs, target, 'SOMEBODY ELSE FILE');
+      const e = new Error('forced'); e.code = 'EEXIST'; throw e;
+    }
+    return realWrite.call(fs, target, data, opts);
+  };
+  let res;
+  try { res = sendertoken.mint('retry-eexist'); } finally { fs.writeFileSync = realWrite; }
+
+  assert.notEqual(planted, null,
+    'no temp write was attempted, so this arm proves nothing');
+  assert.equal(res.ok, true, 'the mint failed outright, which is not what this arm is about');
+  assert.notEqual(fs.statSync(file).ino, inodeBefore,
+    'an EEXIST on the temp dropped the mint onto the in-place fallback instead of retrying '
+    + 'a fresh name: same inode means no rename happened, and the fallback is the path that '
+    + 'destroys existing tokens when it fails');
+  assert.equal(sendertoken.live('retry-eexist').length, 2,
+    'the retried write lost a token');
+  fs.unlinkSync(planted);
+});
+
+/* 🛑 THE PLAN SAID THIS WAS NOT GUARDABLE AND THAT WAS FALSE. It read: "Catching it
+   needs observation from inside the write, and the fd is not reachable from a stub."
+   THE FD IS THE FIRST ARGUMENT TO `fs.writeFileSync`, and this suite already uses exactly
+   this technique for the directory mode. So the honest status of that line was never
+   "hard to guard", it was "not attempted", and stating the first is what stopped anyone
+   trying. A reviewer swapped the two lines and the whole suite stayed green.
+   ⚠️ A two-line swap renders as a ONE-LINE git diff and reads like a comment change, so
+   confirm the region with `sed -n '/fd = fs.openSync/,/} finally/p'` rather than trusting
+   the diff shape. */
+test('#1761: the FALLBACK tightens BEFORE the bytes land, observed from inside the write', () => {
+  const file = path.join(sendertoken.DIR, 'fb-order.json');
+  fs.mkdirSync(sendertoken.DIR, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, JSON.stringify({ tokens: [] }));
+  fs.chmodSync(file, 0o644);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o644,
+    'the loose plant did not take, so this arm would pass without the fix');
+
+  let observed = null;
+  const realRename = fs.renameSync;
+  const realWrite = fs.writeFileSync;
+  fs.renameSync = () => { const e = new Error('forced'); e.code = 'EXDEV'; throw e; };
+  fs.writeFileSync = function (target, data, opts) {
+    if (typeof target === 'number' && observed === null) observed = fs.fstatSync(target).mode & 0o777;
+    return realWrite.call(fs, target, data, opts);
+  };
+  try { sendertoken.mint('fb-order'); } finally {
+    fs.renameSync = realRename;
+    fs.writeFileSync = realWrite;
+  }
+
+  assert.notEqual(observed, null,
+    'the fallback never wrote through an fd, so this arm proves nothing');
+  assert.equal(observed, 0o600,
+    `the token bytes landed while the file was still ${observed === null ? 'unknown' : '0' + observed.toString(8)}: `
+    + 'the fallback chmodded AFTER the write, which is the exact defect this card exists for');
+});

@@ -205,7 +205,18 @@ function writeTokens(sessionName, tokens) {
   try {
     fs.writeFileSync(tmp, JSON.stringify({ tokens }), { flag: 'wx', mode: FILE_MODE });
     created = true;
-    fs.chmodSync(tmp, FILE_MODE);
+    /* 🛑 BEST EFFORT, LIKE THE OTHER TWO CHMODS IN THIS FUNCTION. This one was fatal to
+       the atomic path and nothing explained why. Measured with `chmodSync` and
+       `fchmodSync` stubbed to EPERM (NFS foreign owner, some FUSE/SMB mounts):
+
+           mint.ok=true  because=(none)   file stayed 0644, dir 0755, NO signal anywhere
+
+       ⇒ A chmod failure discarded the atomic, symlink-safe, no-window path and produced
+       THIS CARD'S EXACT DEFECT. And it bought nothing: the temp is created `flag:'wx',
+       mode:FILE_MODE`, so it is already at most 0600 and this chmod only ever RESTORES
+       owner bits a restrictive umask cleared. Failing it is strictly worse than skipping
+       it. */
+    try { fs.chmodSync(tmp, FILE_MODE); } catch { /* best effort, see above */ }
     fs.renameSync(tmp, file);
   } catch (err) {
     /* ⚠️ ONLY REMOVE A TEMP WE CREATED. The `wx` above means a pre-existing temp
@@ -214,6 +225,32 @@ function writeTokens(sessionName, tokens) {
        the `wx` write can yield EEXIST today, but an EEXIST from the chmod or the rename
        would have leaked a temp we did create. */
     if (created) { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+
+    /* 🛑 RETRY BEFORE ABANDONING THE ATOMIC PATH, BECAUSE THE FALLBACK IS DESTRUCTIVE.
+       Measured on this branch: a fallback whose write fails leaves the token file EMPTY,
+       so every previously-minted token for that agent stops resolving.
+
+           BEFORE  live=3  bytes=435  resolves=true
+           AFTER   live=0  bytes=0    resolves=false
+
+       ⇒ Falling back on the first stumble trades a total loss for a retry that costs
+       nothing. `++SEQ` gives a fresh name every attempt, so the one realistic trigger
+       left after the unique-name fix, an EEXIST from a PLANTED temp, cannot recur on the
+       next name. This makes the fallback essentially unreachable rather than merely
+       rare. */
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const retryTmp = `${file}.kosmos-${process.pid}-${STARTED}-${++SEQ}.tmp`;
+      let retryCreated = false;
+      try {
+        fs.writeFileSync(retryTmp, JSON.stringify({ tokens }), { flag: 'wx', mode: FILE_MODE });
+        retryCreated = true;
+        try { fs.chmodSync(retryTmp, FILE_MODE); } catch { /* best effort */ }
+        fs.renameSync(retryTmp, file);
+        return;
+      } catch {
+        if (retryCreated) { try { fs.unlinkSync(retryTmp); } catch { /* nothing to clean */ } }
+      }
+    }
     /* Fall back to the direct write rather than failing a mint: an agent that cannot
        mint cannot speak at all. The chmod below is what tightens a pre-existing loose
        file on this path, and if IT throws the token stays loose WITH NO SIGNAL. */
@@ -246,7 +283,15 @@ function writeTokens(sessionName, tokens) {
        `openSync` below: the kernel check is atomic and this one is not, so they are belt
        and braces rather than alternatives. */
     refuseSymlinkTarget(file, undefined);
+    /* 🛑 CAPTURE WHAT WE ARE ABOUT TO TRUNCATE. `O_TRUNC` empties the token file at OPEN,
+       so a write that then fails (ENOSPC is the realistic one, and it is also what sent
+       us down this path) leaves NOTHING. Measured: live 3 -> 0, and a token minted
+       minutes earlier stops resolving. `live()` is the duplicate-run detector this whole
+       module exists for, so it reports zero at exactly the moment it matters. */
+    let prior = null;
+    try { prior = fs.readFileSync(file); } catch { /* absent: nothing to preserve */ }
     let fd = null;
+    let wrote = false;
     try {
       fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT
         | fs.constants.O_TRUNC | (NOFOLLOW || 0), FILE_MODE);
@@ -257,8 +302,20 @@ function writeTokens(sessionName, tokens) {
          fd has no TOCTOU, so there is no reason to do it second. */
       try { fs.fchmodSync(fd, FILE_MODE); } catch { /* best effort */ }
       fs.writeFileSync(fd, JSON.stringify({ tokens }));
+      wrote = true;
     } finally {
       if (fd !== null) { try { fs.closeSync(fd); } catch { /* already closed */ } }
+      /* Close FIRST, then restore: the descriptor above is the one that truncated the
+         file, and writing through a second one while it is open is needless. Best effort
+         by design, because the failure that brought us here may also defeat the restore,
+         and a mint that cannot report its own failure is worse than one that cannot
+         restore. The original error still propagates. */
+      if (!wrote && prior !== null) {
+        try {
+          fs.writeFileSync(file, prior);
+          try { fs.chmodSync(file, FILE_MODE); } catch { /* best effort */ }
+        } catch { /* the restore failed too; the caller still gets the real error */ }
+      }
     }
   }
 }
