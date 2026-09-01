@@ -85,14 +85,19 @@ const isLazy = (init) => /^\s*(\(\s*\)|\([^)]*\))\s*=>/.test(init) || /^\s*funct
    sitting beside it: that shape failed toward SILENCE, which is the direction
    this guard exists to prevent. A stated safety property is worth nothing until
    somebody constructs the case it forbids, and a reviewer did. */
-const everyRootIsDeferred = (init) => {
-  const lines = init.split('\n').filter((l) => SOURCES.some((s) => l.includes(s)));
+const everyRootIsDeferred = (init, resolverNames, sources) => {
+  /* 🛑 RESOLVER CALLS ARE OCCURRENCES TOO. This ran BEFORE the viaHelper test and
+     only inspected lines carrying a LITERAL source, so a line whose freeze is
+     `path.join(base(), 'b')` was never examined and the exemption skipped the
+     resolver check entirely. Adding CORRECT lazy code beside a freeze hid it. */
+  const marks = (sources || SOURCES).concat([...(resolverNames || [])].map((n) => n + '('));
+  const lines = init.split('\n').filter((l) => marks.some((s) => l.includes(s)));
   /* EVERY source on the line, not SOME. With `some`, one deferred source LAUNDERS
      a frozen one beside it. Measured, both arms:
        { live: () => store.ROOT, file: path.join(process.env.AGENT_WORKFORCE_DATA,'x') }  -> silent
        {                         file: path.join(process.env.AGENT_WORKFORCE_DATA,'x') }  -> reported
      so adding a harmless deferred reference hid a real freeze. */
-  return lines.length > 0 && lines.every((l) => SOURCES.filter((s) => l.includes(s))
+  return lines.length > 0 && lines.every((l) => marks.filter((s) => l.includes(s))
     .every((s) => {
       /* 🛑 EVERY OCCURRENCE, NOT THE FIRST. `indexOf` examines only the first
          appearance of each source on the line, so a SECOND appearance of the same
@@ -129,13 +134,27 @@ function declarations(src) {
   const lines = src.split('\n');
   const out = [];
   for (let i = 0; i < lines.length; i += 1) {
-    const m = /^const ([A-Za-z_][A-Za-z0-9_]*) =(.*)$/.exec(lines[i]);
+    /* 🛑 `let`, `var` AND `exports.X =` TOO. The scan matched `const` only, so
+       `let DIR = path.join(store.ROOT, 'x')` and `exports.DIR = ...` froze a root
+       in silence while the identical `const` was reported. A guard that depends on
+       which keyword somebody typed is not checking the property it names. */
+    const m = /^(?:const|let|var) ([A-Za-z_][A-Za-z0-9_]*) =(.*)$/.exec(lines[i])
+      || /^exports\.([A-Za-z_][A-Za-z0-9_]*) =(.*)$/.exec(lines[i])
+      || /^module\.exports\.([A-Za-z_][A-Za-z0-9_]*) =(.*)$/.exec(lines[i]);
     if (!m) continue;
     let init = m[2];
     let j = i;
     /* Continue while the declaration has not been terminated. A cap keeps a
        missing semicolon from swallowing the rest of the file. */
-    while (!/;\s*$/.test(lines[j]) && j - i < 12 && j + 1 < lines.length) {
+    /* 🛑 THE TERMINATOR TEST IGNORES A TRAILING LINE COMMENT. `let fetcher = null;
+       // test seam` does not END with `;`, so the capture ran on and swallowed ten
+       more lines including a resolver call, reporting a mutable test seam as a
+       frozen root. Three false positives appeared the moment `let` was accepted,
+       and a guard that fires on correct code teaches people to excuse it.
+       Comments are stripped for the TERMINATOR TEST ONLY, never from the captured
+       text, so a `//` inside a string cannot corrupt what is scanned. */
+    const ends = (t) => /;\s*$/.test(String(t).replace(/\/\/[^\n]*$/, ''));
+    while (!ends(lines[j]) && j - i < 12 && j + 1 < lines.length) {
       j += 1;
       init += '\n' + lines[j];
     }
@@ -192,11 +211,43 @@ function functionNamesReaching(src, sources) {
 
 function scan(file) {
   const src = fs.readFileSync(file, 'utf8');
-  const resolvers = functionNamesReaching(src, SOURCES);
+  /* 🛑 A NAME BOUND OUT OF THE STORE IS THE SAME ROOT UNDER ANOTHER SPELLING, AND
+     `const { ROOT } = store;` DEFEATED ALL THREE INSTRUMENTS AT ONCE. The
+     destructuring never became a declaration here, the consuming line
+     `path.join(ROOT, 'x')` carries no literal source and calls no known resolver,
+     and the behavioural probe cannot see a module-internal value. Proved a real
+     freeze in engine/messages.js, which is the worst case in tree because it
+     exports LOG and SEEN but NOT spillDir, so the probe is structurally blind.
+     Every destructured name becomes a source for the rest of this file. */
+  const aliases = [];
+  for (const m of src.matchAll(/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:store|require\([^)]*store[^)]*\))/g)) {
+    for (const part of m[1].split(',')) {
+      const name = part.split(':').pop().trim();
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) aliases.push(name);
+    }
+  }
+  const SRC_SOURCES = SOURCES.concat(aliases);
+  /* 🛑 THE DESTRUCTURING IS ITSELF THE FREEZE, AND MARKING ITS USES WAS NOT
+     ENOUGH. `const { ROOT } = store` captures the getter's VALUE at require
+     time, so a later `const d = () => path.join(ROOT, 'x')` looks lazy and is
+     not: the arrow defers the join, never the root. Measured in engine/messages.js,
+     where `isLazy` correctly exempted the arrow and the freeze one line above it
+     went unreported. Only the value getters count; destructuring a FUNCTION like
+     `dataRootFor` freezes nothing. */
+  const GETTERS = ['ROOT', 'AVATARS', 'PROFILES'];
+  const destructured = [];
+  src.split('\n').forEach((l, n) => {
+    const dm = /^(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:store|require\([^)]*store[^)]*\))/.exec(l);
+    if (!dm) return;
+    const names = dm[1].split(',').map((x) => x.split(':')[0].trim()).filter(Boolean);
+    const frozen = names.filter((x) => GETTERS.includes(x));
+    if (frozen.length) destructured.push({ name: '{ ' + frozen.join(', ') + ' }', line: n + 1, how: 'destructured out of store at require time', lines: 1 });
+  });
+  const resolvers = functionNamesReaching(src, SRC_SOURCES);
   const findings = [];
   for (const d of declarations(src)) {
-    if (isLazy(d.init) || everyRootIsDeferred(d.init)) continue;
-    const direct = SOURCES.some((s) => d.init.includes(s));
+    if (isLazy(d.init) || everyRootIsDeferred(d.init, resolvers, SRC_SOURCES)) continue;
+    const direct = SRC_SOURCES.some((s) => d.init.includes(s));
     const viaHelper = [...resolvers].some((n) => new RegExp(`\\b${n}\\s*\\(`).test(d.init));
     if (direct || viaHelper) {
       findings.push({
@@ -207,7 +258,7 @@ function scan(file) {
       });
     }
   }
-  return findings;
+  return destructured.concat(findings);
 }
 
 function main(argv) {
