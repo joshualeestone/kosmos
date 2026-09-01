@@ -45,13 +45,20 @@ if has "$out" "refreshed the installed CLI"; then pass "refresh arm says what it
 # 2. The refusal arm (the perturbation that must go red): the install dir is not
 #    writable, so the copy cannot land. It must exit 1 and leave the stale bytes,
 #    NOT skip quietly -- a silent skip here is the defect the card closes.
-rodir="$T/ro"; mkdir -p "$rodir"; rotgt="$rodir/kosmos"; make_stale "$rotgt"
-chmod 555 "$rodir"
-out="$(REFRESH_CLI_TARGET="$rotgt" REFRESH_CLI_SOURCE="$FRESH" REFRESH_CLI_REPO="$T/norepo" bash "$SCRIPT" 2>&1)"; rc=$?
-chmod 755 "$rodir"
-if [ "$rc" -eq 1 ]; then pass "refusal arm: an unwritable install dir is a refusal (exit 1), not a skip"; else fail "refusal arm exit 1 (rc=$rc, out=$out)"; fi
-if has "$out" "COULD NOT REFRESH"; then pass "refusal arm names the failure"; else fail "refusal arm message: $out"; fi
-if cmp -s "$STALE0" "$rotgt"; then pass "refusal arm left the stale CLI untouched"; else fail "refusal arm altered the target it could not verify"; fi
+#    Skipped under root, which bypasses directory permissions: the missing-source
+#    and symlink-cycle arms below prove the refusal path UID-independently, so this
+#    arm's UID-dependence costs no coverage.
+if [ "$(id -u)" -ne 0 ]; then
+  rodir="$T/ro"; mkdir -p "$rodir"; rotgt="$rodir/kosmos"; make_stale "$rotgt"
+  chmod 555 "$rodir"
+  out="$(REFRESH_CLI_TARGET="$rotgt" REFRESH_CLI_SOURCE="$FRESH" REFRESH_CLI_REPO="$T/norepo" bash "$SCRIPT" 2>&1)"; rc=$?
+  chmod 755 "$rodir"
+  if [ "$rc" -eq 1 ]; then pass "refusal arm: an unwritable install dir is a refusal (exit 1), not a skip"; else fail "refusal arm exit 1 (rc=$rc, out=$out)"; fi
+  if has "$out" "COULD NOT REFRESH"; then pass "refusal arm names the failure"; else fail "refusal arm message: $out"; fi
+  if cmp -s "$STALE0" "$rotgt"; then pass "refusal arm left the stale CLI untouched"; else fail "refusal arm altered the target it could not verify"; fi
+else
+  echo "SKIP  unwritable-dir refusal arm (running as root bypasses dir perms; missing-source + cycle arms cover refusal)"
+fi
 
 # 3. Missing source is a refusal too: the release cannot claim fresh from nothing.
 tgt3="$T/miss/kosmos"; mkdir -p "$(dirname "$tgt3")"; make_stale "$tgt3"
