@@ -85,7 +85,7 @@ test('kosmos#967: the terminal composer is wired -- markup, endpoint, gating', (
   // job is the pane), so the button is held disabled by name via TERM_FLIGHT
   // rather than by skipping the poll. This pins that gate and the flight marker.
   assert.match(SCRIPT, /TERM_FLIGHT = sentName/, 'sendTerm records which agent its send is in flight to');
-  assert.match(SCRIPT, /termSend\.disabled = body\.presence === 'off' \|\| flying \|\| \(TERM_SENDING && TERM_FLIGHT === sessionName\)/, 'paintTalk holds the Terminal Send disabled during its own flight, so the poll cannot flicker it back on');
+  assert.match(SCRIPT, /termSend\.disabled = body\.presence === 'off' \|\| \(TERM_SENDING && TERM_FLIGHT === sessionName\)/, 'paintTalk holds the Terminal Send disabled during its own flight (matching Enter), so the poll cannot flicker it back on and the visual never disagrees with Enter');
 });
 
 /** Lift sendTerm and run it against a stub fetch + DOM, injecting CURRENT.

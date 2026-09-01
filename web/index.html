@@ -17472,18 +17472,20 @@ async function paintTalk(sessionName, agentName) {
     termSay.placeholder = termSay.disabled
       ? name + ' cannot be reached right now'
       : 'Send a message into this window…';
-    /* Three reasons the Terminal Send is held: the agent is unreachable
-       (presence); a Talk send to this agent is in flight (`flying`, a mild
-       belt-and-suspenders -- the two composers are otherwise independent and a
-       concurrent Talk+Terminal send is accepted as harmless, each re-entrant-
-       guarded by its own flag and its own flightMoved()); and a Terminal send of
-       its own is in flight to this agent (TERM_SENDING && TERM_FLIGHT). That last
-       term is why the live-pane poll can keep running without the button flickering
-       back on mid-send: unlike sendTalk, the Terminal tab does NOT skip the poll
-       (it must keep painting the pane), so it holds the button by name instead.
-       TERM_SENDING alone still blocks a second Terminal send synchronously; this
-       only keeps the button's look honest across a repaint. */
-    termSend.disabled = body.presence === 'off' || flying || (TERM_SENDING && TERM_FLIGHT === sessionName);
+    /* Two reasons the Terminal Send is held, and they match exactly what blocks
+       an Enter press, so the button's look never disagrees with what Enter does:
+       the agent is unreachable (presence -- the box itself is disabled, so Enter
+       cannot fire either), and a Terminal send of its own is in flight to this
+       agent (TERM_SENDING && TERM_FLIGHT, the same flag Enter's sendTerm checks).
+       It deliberately does NOT gate on a Talk send in flight: a concurrent
+       Talk+Terminal send is accepted as harmless (each re-entrant-guarded by its
+       own flag and its own flightMoved()), and Enter does not block on it, so the
+       button must not either -- otherwise a screen reader would hear "disabled"
+       while Enter still sent. The TERM_FLIGHT term is also why the live-pane poll
+       can keep running without the button flickering back on mid-send: unlike
+       sendTalk the Terminal tab does not skip the poll (it must keep painting the
+       pane), so it holds the button by name instead. */
+    termSend.disabled = body.presence === 'off' || (TERM_SENDING && TERM_FLIGHT === sessionName);
   }
   // The parked draft comes back, and never over words already in the box.
   if (!say.disabled && !say.value && TALK_DRAFTS[sessionName]) say.value = TALK_DRAFTS[sessionName];
