@@ -275,3 +275,19 @@ landing on main. Backend (setting/runner/routes/29 tests) done + pushed e1c5d72b
   challenge-loop + proof + PR against main. The gate-watcher (background) fires when
   s-sec-automation hits origin/main = the rebase trigger.
 - Recovery: pre-stack verified tip was d3a99561 (main-based, green).
+
+## VOICE PASS (01:14) -- supersedes the STATE-00:20 "touched none of her markup" note
+Splinter authorised a section voice pass (2026-09-01 ~01:03): Mona Lisa owns the
+Automation section voice, she supplied exact strings, and I FOLD THEM IN (she does
+not touch my branch -- two writers on one branch during the loop is the collision we
+avoided). So this branch now DOES edit #1724's auto-save copy, by design and by her
+strings, on the superset branch (her voice-pass file says it lands here):
+  - Automation -> Auto-save (heading), Auto-save progress -> Save your agents'
+    progress (label), "You can turn this off." -> "Off by default." (hint)
+  - my heartbeat label "chase agents that have stopped" -> "check on any agent that
+    has stopped" (fixes the "me" ambiguity)
+All four verified test-safe (no test asserts them; settings-nav asserts the nav KEY
+'automation', not the heading text). The earlier STATE-00:20 "Touched NONE of her
+markup" is therefore superseded: it was true at 00:20, before the voice pass was
+authorised. The rebase onto merged main applies cleanly (acf7da25 changed
+paintAutomation JS, not these markup lines).
