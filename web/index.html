@@ -6646,6 +6646,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <pre class="pj-screen" id="d-window" tabindex="0" hidden
          role="region" aria-labelledby="d-window-label"></pre>
     <p class="dhint" id="d-window-msg" hidden></p>
+    <!-- #967: a respond-in-context box, so a person watching the live pane can
+         answer the agent without switching to the Talk tab. It reuses the SAME
+         delivery path the Talk composer uses (POST the agent's thread), so it is
+         a surface addition, not a new mechanism: paintTalk drives both this and
+         the Talk composer from one presence read, so they gate identically, and
+         the receipt is the same honest verdict. The full conversation still
+         lives on the Talk tab; this is a quick line into the window. -->
+    <div class="dmbar composerbox" id="d-term-composer" style="margin-top:14px;">
+      <input type="text" class="cinput" id="d-term-say" maxlength="2000"
+             aria-label="Send a message into this agent's window"
+             placeholder="Send a message into this window&hellip;">
+      <button class="btn uprime cpost" id="d-term-send" type="button">Send</button>
+    </div>
+    <p class="dhint" id="d-term-say-msg" role="status" aria-live="polite" style="margin:6px 0 0;"></p>
   </section>
   <!-- Two sentences for the box being hidden, and `data-tied` on the section
        says which is true: a tied agent's first capture is in flight (the box
@@ -16662,6 +16676,10 @@ let TALK_FLIGHT = null;
  * words exist only in the DOM.
  */
 const TALK_DRAFTS = {};
+/* #967: the Terminal tab's respond-in-context box parks its draft per agent too,
+   so switching agents never loses a half-typed reply and never carries it onto
+   the next agent's window. Mirrors TALK_DRAFTS. */
+const TERM_DRAFTS = {};
 /**
  * The question this person has just answered, per agent, and when.
  *
@@ -17443,8 +17461,37 @@ async function paintTalk(sessionName, agentName) {
     ? name + ' cannot be reached right now'
     : 'Message ' + name + '\u2026';
   document.getElementById('d-send').disabled = body.presence === 'off' || flying;
+  /* #967: the Terminal tab's respond-in-context box shares this one presence
+     read, so it gates identically to the composer above rather than computing
+     reachability a second way. paintTalk runs on the detail poll whichever
+     sub-tab is open, so this stays current while the person watches the pane. */
+  const termSay = document.getElementById('d-term-say');
+  const termSend = document.getElementById('d-term-send');
+  if (termSay && termSend) {
+    termSay.disabled = body.presence === 'off';
+    termSay.placeholder = termSay.disabled
+      ? name + ' cannot be reached right now'
+      : 'Send a message into this window…';
+    /* Two reasons the Terminal Send is held, and they match exactly what blocks
+       an Enter press, so the button's look never disagrees with what Enter does:
+       the agent is unreachable (presence -- the box itself is disabled, so Enter
+       cannot fire either), and a Terminal send of its own is in flight to this
+       agent (TERM_SENDING && TERM_FLIGHT, the same flag Enter's sendTerm checks).
+       It deliberately does NOT gate on a Talk send in flight: a concurrent
+       Talk+Terminal send is accepted as harmless (each re-entrant-guarded by its
+       own flag and its own flightMoved()), and Enter does not block on it, so the
+       button must not either -- otherwise a screen reader would hear "disabled"
+       while Enter still sent. The TERM_FLIGHT term is also why the live-pane poll
+       can keep running without the button flickering back on mid-send: unlike
+       sendTalk the Terminal tab does not skip the poll (it must keep painting the
+       pane), so it holds the button by name instead. */
+    termSend.disabled = body.presence === 'off' || (TERM_SENDING && TERM_FLIGHT === sessionName);
+  }
   // The parked draft comes back, and never over words already in the box.
   if (!say.disabled && !say.value && TALK_DRAFTS[sessionName]) say.value = TALK_DRAFTS[sessionName];
+  // #967: the Terminal box's own draft comes back the same way, gated on its own
+  // presence read so it is never restored into a box that cannot be sent from.
+  if (termSay && !termSay.disabled && !termSay.value && TERM_DRAFTS[sessionName]) termSay.value = TERM_DRAFTS[sessionName];
   attachPaint(ATTACH_AGENT);   // this agent's pending files, not the last one's
 }
 
@@ -18004,6 +18051,13 @@ function openDetail(sessionName, section) {
        words are not lost: the input handler parks them under their own agent
        on every keystroke. */
     document.getElementById('d-say').value = '';
+    /* #967: the Terminal-tab box belongs to the agent being LEFT exactly as the
+       composer above does, so it is cleared on switch and paintTalk restores the
+       one being opened from TERM_DRAFTS. Without this a reply typed for one agent
+       is delivered to the next, and a landed receipt lingers under the wrong
+       pane -- the cross-agent misdelivery this block exists to close. */
+    { const t = document.getElementById('d-term-say'); if (t) t.value = ''; }
+    { const t = document.getElementById('d-term-say-msg'); if (t) t.textContent = ''; }
   }
   paintTalk(a.sessionName, a.name);
   /* Cleared BEFORE the paint's awaits: opening B with A's captured pane
@@ -30262,6 +30316,116 @@ document.getElementById('d-send').addEventListener('click', () => {
   const text = say.value.trim();
   if (text) sendTalk(text);
   else if (attachList(ATTACH_AGENT).length) sendTalk(attachList(ATTACH_AGENT).map((r) => r.name).join(', '));
+});
+
+/* #967: the Terminal tab's respond-in-context send. Reuses the SAME endpoint as
+   sendTalk (POST the agent's thread), so it is the one delivery mechanism
+   surfaced beneath the live pane, not a second one. It keeps its own small
+   sending guard and receipt line rather than borrowing the Talk composer's
+   elements, which live on a different tab. Clear-on-placed and silent-when-worked
+   (#402) match sendTalk exactly. Keep-on-doubt is deliberately MORE conservative:
+   the Terminal box keeps an unconfirmed message unconditionally, where sendTalk
+   clears it once it is recorded in the thread. This box has no thread row of its
+   own on the Terminal tab to fall back to, so keeping the words is the safe copy,
+   at the cost of a possible duplicate if the person retries a message that did in
+   fact land. */
+let TERM_SENDING = false;
+/* Which agent a Terminal send is in flight to, so paintTalk can keep THIS
+   button disabled while the live-pane poll keeps running. sendTalk instead skips
+   the poll during its flight; the Terminal tab must not, because its whole job is
+   showing the live pane, so it keeps polling and holds the button by name. */
+let TERM_FLIGHT = null;
+async function sendTerm() {
+  const say = document.getElementById('d-term-say');
+  const send = document.getElementById('d-term-send');
+  const msg = document.getElementById('d-term-say-msg');
+  if (!say || !CURRENT) return;
+  const text = (say.value || '').trim();
+  if (!text) return;
+  if (TERM_SENDING) { if (msg) msg.textContent = 'Still sending your last message. Try again in a moment.'; return; }
+  TERM_SENDING = true;
+  const sentName = CURRENT.sessionName;
+  const name = CURRENT.name || sentName;
+  TERM_FLIGHT = sentName;
+  /* ⚠️ THE FLIGHT CAN MOVE. A send takes real time, and the person can open
+     another agent inside that window, at which point this one shared box and its
+     receipt line belong to somebody else. Every write below is gated on the
+     flight not having moved, exactly as sendTalk guards #d-say / #d-say-msg. */
+  const flightMoved = () => !CURRENT || CURRENT.sessionName !== sentName;
+  /* Disabling the focused Send moves focus to <body> synchronously (measured in
+     Chromium), so a keyboard or screen-reader person who pressed Send is stranded
+     on the document. Captured here, moved into the box for the flight (below), and
+     put back on Send at finally if it is still reachable -- as sendTalk does. The
+     Enter path is unaffected: focus stays in the input, which never disables. */
+  const sendHadFocus = !!(send && document.activeElement === send);
+  if (send) send.disabled = true;
+  // Move focus into the box for the flight, as sendTalk does, so disabling the
+  // focused Send does not strand a keyboard or screen-reader user on <body>
+  // until the send completes; finally puts it back on Send if still reachable.
+  if (sendHadFocus && say) say.focus();
+  if (msg) msg.textContent = 'Sending…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { if (!flightMoved() && msg) msg.textContent = body.error || (name + ' could not be reached right now.'); return; }
+    const d = body.delivery || {};
+    const note = d.paneNote ? ' (' + d.paneNote + ')' : '';
+    if (d.state === 'placed') {
+      /* Reached the agent, so the box is not the only copy: clear it and its
+         parked draft, but only if the flight has not moved and the box still
+         holds exactly this text. Anything typed on top belongs to the next
+         message, and a box that now belongs to another agent is not ours. */
+      if (!flightMoved() && say.value.trim() === text) say.value = '';
+      if ((TERM_DRAFTS[sentName] || '').trim() === text) delete TERM_DRAFTS[sentName];
+      /* 🛑 SILENT WHEN IT WORKED (#402): placedWords returns '' on an idle pane,
+         so a clean placed clears the "Sending…" line and says nothing, matching
+         sendTalk and the thread rows. It speaks only when the note says something
+         about what happens next (queued behind the agent's work, say). */
+      if (!flightMoved() && msg) msg.textContent = placedWords(d);
+    } else if (d.state === 'unconfirmed') {
+      /* May not have arrived: the words stay for a retry. */
+      if (!flightMoved() && msg) msg.textContent = 'Sent, but we could not confirm it arrived' + note + '. Your message is kept here to try again.';
+    } else {
+      /* could_not: nothing reached the pane; keep the words. */
+      if (!flightMoved() && msg) msg.textContent = (d.because || (name + ' could not be handed the message')) + note + '.';
+    }
+  } catch {
+    if (!flightMoved() && msg) msg.textContent = 'We could not send that just now. Your message is kept here to try again.';
+  } finally {
+    TERM_SENDING = false;
+    TERM_FLIGHT = null;
+    /* Re-derive the button from a fresh presence read, exactly as sendTalk does
+       at its own finally. Force-enabling here would put a live Send over a box
+       whose agent went offline mid-flight; and with the flight moved the button
+       belongs to another agent whose own poll already owns it. paintTalk repaints
+       both boxes from one presence read, so the Terminal Send lands correct. */
+    if (!flightMoved()) {
+      await paintTalk(sentName, name);
+      // Put the keyboard back where it was: the button if the agent is still
+      // reachable (paintTalk left it enabled), otherwise the box.
+      if (sendHadFocus && send && !send.disabled) send.focus();
+      else if (sendHadFocus && say && document.activeElement === document.body) say.focus();
+    }
+  }
+}
+document.getElementById('d-term-send').addEventListener('click', sendTerm);
+document.getElementById('d-term-say').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  sendTerm();
+});
+/* #967: the Terminal box parks under the open agent on every keystroke, the same
+   way the composer above does, so a switch never loses a half-typed reply and
+   paintTalk restores it to the right agent. */
+document.getElementById('d-term-say').addEventListener('input', (e) => {
+  if (!CURRENT) return;
+  const v = e.target.value;
+  if (v.trim()) TERM_DRAFTS[CURRENT.sessionName] = v;
+  else delete TERM_DRAFTS[CURRENT.sessionName];
 });
 /* The park itself: every keystroke files the draft under the open agent, so no
    navigation order can lose it. */
