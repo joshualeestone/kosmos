@@ -31550,7 +31550,7 @@ setInterval(() => {
        thirteen running agents looks broken.
    ========================================================================== */
 
-// 6 since the About-you step landed at slot 4 (the PIN below predates it and counted five) (PIN-2026-08-14-1913CDT: "five setup
+// 7 since #1214 added the Accessibility offer (6 when About-you landed at slot 4; the PIN below predates both and counted five) (PIN-2026-08-14-1913CDT: "five setup
 // steps -- welcome, model, this computer, your agents, getting back").
 const FR_STEPS = 7;
 // The return pane's step number, named and used by the generation bump and
@@ -31630,7 +31630,7 @@ function frActions(primary, alt) {
   next.textContent = primary.label;
   next.onclick = primary.go;
   next.disabled = false;
-  // ⚠️ And the ARIA mirror with it. Step 5's gate sets aria-disabled on this
+  // ⚠️ And the ARIA mirror with it. Step 6's gate (About-you) sets aria-disabled on this
   // shared button; without clearing it here, any later paint of the shared
   // Continue announced "dimmed" while enabled (first caught through the old
   // Back button; the reset matters for every repaint, so it stays).
@@ -31697,11 +31697,11 @@ function frGo(step) {
     document.getElementById('fr-pane-' + i).hidden = (i !== step);
   }
   // Spoken counts match the drawn segments: the intro stands outside the
-  // count (no segments), and Welcome..agents are five.
+  // count (no segments), and Welcome..agents are six.
   document.getElementById('fr-step').textContent =
     (step === 1) ? 'Kosmos setup' : 'Step ' + (step - 1) + ' of ' + (FR_STEPS - 1);
   // The intro carries no segments (the pack's Success screen stands outside
-  // the count it opens); steps 2..6 share five.
+  // the count it opens); steps 2..7 share six.
   document.getElementById('fr-segs').innerHTML = (step === 1) ? '' :
     Array.from({ length: FR_STEPS - 1 }, (_, i) => {
       const n = i + 2;
@@ -34052,7 +34052,7 @@ function frPaintFleet() {
      * ⚠️ THREE CASES, NOT TWO, and the declaration of `FR_MACHINE` says so while
      * the first version of this line collapsed them: `(FR_MACHINE && ...) || []`
      * made "we never checked" identical to "we checked and it was fine". Somebody
-     * who arrived on `?fr-step=6`, or whose check route failed at step 4, got the
+     * who arrived on `?fr-step=7`, or whose check route failed at step 4, got the
      * unhedged promise.
      *
      * ⚠️ AND `unknown` COUNTS. Filtering only `attention` dropped three "we could
