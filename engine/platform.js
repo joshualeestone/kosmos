@@ -29,7 +29,11 @@
 // cross-platform analysis), not an entry here.
 const SUPPORTED = Object.freeze(['darwin']);
 
-/** True only on a platform whose agent substrate runs. Defaults to this process. */
+/** True only on a platform whose agent substrate runs. Defaults to this process.
+ *  ⚠️ Only the DEFAULT (called with no argument, or explicit `undefined`) reads the
+ *  process. Every real platform VALUE fails closed: `null`, `''`, and any unknown
+ *  string return false. Callers pass either nothing or a real platform string, so
+ *  the default-parameter asymmetry never surfaces a false positive in practice. */
 function isSupported(platform = process.platform) {
   return SUPPORTED.includes(platform);
 }

@@ -15,10 +15,16 @@ test('macOS is supported; Windows and Linux are not (the whole point of the gate
   assert.equal(platform.isSupported('linux'), false, 'Linux is not supported today');
 });
 
-test('an unknown/empty platform is not supported (fail closed, never open)', () => {
+test('an unknown/empty/null platform is not supported (fail closed, never open)', () => {
   assert.equal(platform.isSupported('aix'), false);
+  assert.equal(platform.isSupported('sunos'), false);
+  assert.equal(platform.isSupported('win32'), false);
   assert.equal(platform.isSupported(''), false);
-  assert.equal(platform.isSupported(undefined === undefined ? 'sunos' : ''), false);
+  assert.equal(platform.isSupported(null), false);
+  // Explicit `undefined` == "no argument", so the default parameter fires and it
+  // reads THIS process (see platform.js). Every real platform VALUE fails closed;
+  // only "call with nothing" reads the process, which is the intended default.
+  assert.equal(platform.isSupported(undefined), platform.SUPPORTED.includes(process.platform));
 });
 
 test('isSupported() with no argument reads this process and agrees with SUPPORTED', () => {
