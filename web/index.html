@@ -7665,6 +7665,30 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <span class="p2d">Write the job in your own words</span>
         <span class="p2full">We will start you off with an example you can change, rather than an empty page.</span>
       </label>
+      <!-- ⚠️ FOURTH OPTION: bring in an agent you already have as a file (#1652).
+           It is the "describe it yourself" path sourced from a .agent.md rather
+           than typed, so a successful read maps it to the SAME `own` role and the
+           SAME create call -- import parses, it never creates. Gated on OWN_ROLE
+           exactly like `pick-own`, because it uses that role's key. -->
+      <label class="pick2 own" hidden id="pick-import">
+        <input type="radio" name="rmode" value="import">
+        <span class="pickmark" aria-hidden="true">&#10003;</span>
+        <span class="p2n">Import an agent you already have</span>
+        <span class="p2d">Bring one in from a file</span>
+        <span class="p2full">Choose a file you saved before, or paste it, and we will fill this in from it. Your sign-in and keys are never in that file and never travel.</span>
+      </label>
+      <!-- The panel only exists once its radio is chosen (mirrors #rolepick),
+           so the screen stays the options tall until someone asks to import. -->
+      <div class="rolepick" id="importpick" hidden>
+        <label class="flabel" for="import-text">Agent file</label>
+        <textarea id="import-text" rows="6" placeholder="Paste the agent file here, or choose one below."></textarea>
+        <div class="importrow">
+          <button class="btn" type="button" id="import-file-btn">Choose a file</button>
+          <input type="file" id="import-file" accept=".md,text/markdown,text/plain" hidden>
+          <button class="btn uprime" type="button" id="import-load">Bring it in</button>
+        </div>
+        <p class="rolelimit" id="import-msg" role="status" aria-live="polite" hidden></p>
+      </div>
       </fieldset>
     </div>
     <div class="fmsg" id="roles-msg" role="status" aria-live="polite"></div>
@@ -24223,7 +24247,7 @@ async function loadRoles() {
     // no-hardcoded-list rule exists for, arriving through a stale cache).
     OWN_ROLE = null;
     CREATE_MODELS = [];
-    ['pick-pm', 'pick-list', 'pick-own', 'rolepick'].forEach((id) => {
+    ['pick-pm', 'pick-list', 'pick-own', 'pick-import', 'rolepick', 'importpick'].forEach((id) => {
       document.getElementById(id).hidden = true;
     });
     // Not `esc()`: this goes into textContent, which does its own escaping, so
@@ -24277,6 +24301,9 @@ function buildPicker() {
   // Continue silently does nothing (roleByKey('own') -> null -> return) is
   // worse than the option being absent from an older server.
   document.getElementById('pick-own').hidden = !OWN_ROLE;
+  // Import uses the `own` role's key, so it is offered on exactly the same
+  // condition the `own` option is.
+  document.getElementById('pick-import').hidden = !OWN_ROLE;
 }
 
 /**
@@ -24334,16 +24361,25 @@ function pickMode(mode) {
   const input = document.querySelector(`input[name="rmode"][value="${mode}"]`);
   if (input) input.checked = true;
   document.getElementById('rolepick').hidden = mode !== 'list';
+  /* Import shows its own panel and advances with its own button, so the shared
+     Continue is hidden for it and shown for every other mode. */
+  const importing = mode === 'import';
+  document.getElementById('importpick').hidden = !importing;
+  document.getElementById('role-next').hidden = importing;
   if (mode === 'pm') {
     PICKED = (roleByKey('pm') || ROLES[0]).key;
   } else if (mode === 'own') {
     // Not in the fetched menu on purpose; the key is the contract with the
     // engine, which holds the example text and the label gate.
     PICKED = 'own';
+  } else if (importing) {
+    // No role yet: a successful read of the file sets 'own'. Continue stays
+    // hidden; the panel's own button is the advance.
+    PICKED = null;
   } else {
     PICKED = document.getElementById('rolesel').value;
   }
-  document.getElementById('role-next').disabled = false;
+  document.getElementById('role-next').disabled = importing;
   paintPickLimit();
 }
 
@@ -24385,6 +24421,13 @@ function openCreate() {
      is the control lying, so it gets fixed rather than inherited. */
   document.querySelectorAll('input[name="rmode"]').forEach((r) => { r.checked = false; });
   document.getElementById('rolepick').hidden = true;
+  /* Import panel back to closed and the shared Continue back to shown, and the
+     pasted/loaded file cleared -- a reopened form must not carry the last one. */
+  document.getElementById('importpick').hidden = true;
+  document.getElementById('role-next').hidden = false;
+  document.getElementById('import-text').value = '';
+  const importMsgEl = document.getElementById('import-msg');
+  importMsgEl.textContent = ''; importMsgEl.hidden = true;
   CREATING = false;
   WATCH += 1;
   document.getElementById('create-name').value = '';
@@ -24517,6 +24560,100 @@ document.getElementById('role-next').addEventListener('click', () => {
 document.getElementById('create-name').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('create-go').click();
 });
+
+/* #1652: bring in an agent from a file. This PARSES only -- POST /api/agent-import
+   validates and echoes back fields DERIVED FROM THE FILE the person provided; the
+   actual create is the same POST /api/agents the other three options use, reached by
+   mapping a successful import to the `own` role and letting the person review the
+   pre-filled form. There is no second creation path, and no sign-in or key ever lives
+   in the file, so none can travel through this. */
+function importMsg(text) {
+  const el = document.getElementById('import-msg');
+  el.textContent = text || '';
+  el.hidden = !text;
+}
+document.getElementById('import-file-btn').addEventListener('click', () => {
+  document.getElementById('import-file').click();
+});
+document.getElementById('import-file').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  // Cleared so choosing the SAME file again still fires `change` (mirrors the
+  // avatar/detail file pickers). Read client-side into the textarea; nothing is
+  // uploaded here -- the parse endpoint is the only thing that ever sees it.
+  e.target.value = '';
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.getElementById('import-text').value = String(reader.result || '');
+    importMsg(f.name + ' loaded. Press Bring it in.');
+  };
+  reader.onerror = () => importMsg('We could not read that file.');
+  reader.readAsText(f);
+});
+document.getElementById('import-load').addEventListener('click', importLoad);
+
+async function importLoad() {
+  const btn = document.getElementById('import-load');
+  if (btn.disabled) return;
+  const text = document.getElementById('import-text').value;
+  if (!text.trim()) { importMsg('Paste the agent file, or choose one, first.'); return; }
+  btn.disabled = true;
+  importMsg('Reading it…');
+  let data;
+  try {
+    const r = await fetch('/api/agent-import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ file: text }),
+    });
+    data = await r.json().catch(() => null);
+  } catch (err) {
+    btn.disabled = false;
+    importMsg('We could not reach the board to read it. (' + err.message + ')');
+    return;
+  }
+  btn.disabled = false;
+  if (!data) { importMsg('We could not read the reply.'); return; }
+  /* importAgent refuses a hostile or non-Kosmos file WHOLE and says why; show that
+     reason verbatim and stay on the panel rather than advancing with half a form. */
+  if (!data.ok) { importMsg(data.because || 'That is not an agent file we can bring in.'); return; }
+  // Import maps to the `own` role; without that entry (an older engine) the create
+  // it feeds would refuse, so say so here rather than advancing into a dead end.
+  if (!roleByKey('own')) { importMsg('This board is too old to import into.'); return; }
+  importMsg('');
+
+  // The file is the person describing the agent themselves, so it IS the `own`
+  // path -- same role, same create call. Run the normal `own` setup (menus,
+  // template), then lay the imported fields ON TOP and mark them dirty so a later
+  // refill keeps the person's imported words rather than the role template.
+  PICKED = 'own';
+  const role = roleByKey('own');
+  document.getElementById('create-meet').textContent = 'Set up your ' + ((role && role.label) || 'agent');
+  document.getElementById('create-blurb').textContent = role && role.blurb ? role.blurb + '.' : '';
+  loadCreateExtras();
+  FILLED_ROLE = 'own';
+
+  document.getElementById('create-name').value = data.name || '';
+  document.getElementById('create-label').value = data.displayName || '';
+  LABEL_DIRTY = true;
+  document.getElementById('create-instr').value = data.instructions || '';
+  INSTR_DIRTY = true;
+  document.getElementById('create-instr-note').textContent = '';
+  LAST_TYPED_NAME = (data.name || '').trim() || 'your agent';
+
+  /* Honour the imported provider only when it maps to an ENABLED option; an unknown
+     or coming-soon provider leaves the default and lets the person choose, never
+     blocking the import. Setting the value fires the provider `change` handler so the
+     account/model menus refill for that provider. */
+  const provEl = document.getElementById('create-provider');
+  const wanted = String(data.provider || '').toLowerCase();
+  const ok = wanted && Array.prototype.some.call(provEl.options, (o) => o.value === wanted && !o.disabled);
+  if (ok) { provEl.value = wanted; provEl.dispatchEvent(new Event('change')); }
+
+  if (!AVATAR_FILE) drawCreateMark();
+  cstep('name');
+  document.getElementById('create-name').focus();
+}
 
 /** One tick line. `state` is 'done' | 'fail' | 'undone' | 'waiting'. */
 function tickLine(state, text) {

@@ -32,7 +32,7 @@ const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
 
 /* The families this flow owns. Anything outside them belongs to another screen
    and is that screen's to guard. */
-const MINE = /^(create-|cstep-|pick-|role-|roles-|made-|genav|rolesel|rolepick)/;
+const MINE = /^(create-|cstep-|pick-|role-|roles-|made-|genav|rolesel|rolepick|import-|importpick)/;
 
 function idsInMarkup() {
   const found = new Set();
