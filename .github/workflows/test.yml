@@ -1,0 +1,72 @@
+# The first CI this repo has ever had (#835).
+#
+# 🛑 WHAT THIS IS AND IS NOT. It runs the full suite (tools/run-tests.sh) on every
+# push and every PR and reports red or green. It is ADVISORY: nothing here blocks a
+# merge, because gh pr merge is server-side and no workflow can gate it without
+# branch protection with a required check. Branch protection is a separate decision
+# (#835): it is available on THIS repo (public) but was deliberately not made
+# required, because it gates every merge for the whole Kosmos roster and fights the
+# beta "merge fast" posture, and gh pr merge --admin bypasses it anyway. So the real
+# gate stays the interim control -- run the suite, read the EXIT CODE (not the
+# human summary, since a file-level failure reports as skipped, not failed), do not
+# merge red -- and this workflow is the second, visible signal the create-pr CI-watch
+# already honors.
+#
+# WHAT A GREEN TICK CERTIFIES, AND WHAT IT DOES NOT (the card's three warnings,
+# answered for this repo rather than assumed to transfer):
+#   1. COVERAGE. tools/run-tests.sh runs `node --test engine/*.test.js *.test.js`,
+#      naming BOTH trees, so it is the whole unit suite, not a top-level glob that
+#      silently drops engine/. It does NOT cover the deployed binary, the live board,
+#      or the page in a real browser. A green here is not a statement about production.
+#   2. STALENESS. A test can assert a string the product correctly renamed. Only a
+#      reader catches that; CI cannot.
+#   3. THE HARNESS SWALLOWING A FAILURE. run-tests.sh gates on `node --test`'s EXIT
+#      CODE, not on parsing its reporter output, so a format quirk cannot read as a
+#      pass. (Contrast the summary line, which can say "0 failed" when whole files
+#      failed at the hook level and their tests never ran -- skipped, not failed.)
+#
+# ⚠️ AND IT WAS PROVEN ABLE TO GO RED before it was trusted, on a throwaway branch
+# with a deliberately failing test. A CI that has only ever been green is a check
+# nobody has watched fail.
+
+name: test
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # PIN THE NODE, because the suite's output format is node-version-dependent
+      # and nothing else here declares a version. #1462 was that dependency biting
+      # on kosmos-relay: the runner's node emitted TAP where a developer Mac emitted
+      # the spec form, a guard counting the spec prefix read zero, and a green suite
+      # failed. Pinned to the 22 major line (the fleet's proven CI node, matching
+      # kosmos-relay), verified green here: the suite passes on node 22 by exit code
+      # even though 22 emits TAP.
+      #
+      # ⚠️ A KNOWN GAP TO KEEP LEGIBLE: developer Macs now run node 26 (spec format),
+      # so dev and CI are a major line apart again. The suite tolerates it today
+      # because run-tests.sh reads the EXIT CODE, not the format -- but if you ever
+      # add a guard that counts the spec prefix, verify it on BOTH 22 and 26, or it
+      # will pass on a Mac and read zero here. Pin CI to match dev if that trade changes.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Say which node this is, so drift within the pinned line arrives here as a
+      # legible line rather than later as an unrelated red.
+      - name: which node is this
+        run: |
+          echo "node:  $(node --version 2>&1 || echo ABSENT)"
+          echo "npm:   $(npm --version 2>&1 || echo ABSENT)"
+          echo "image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+      # No install step: this repo has zero dependencies (empty deps/devDeps, no
+      # lockfile, empty node_modules), so the suite runs on the Node standard library
+      # alone. Adding `yarn install` here would install nothing and only add a way to
+      # fail. run-tests.sh invokes `node --test` directly.
+      - name: the suite
+        run: bash tools/run-tests.sh
