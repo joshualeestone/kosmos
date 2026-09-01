@@ -356,7 +356,23 @@ function maybeAutoInstall() {
        recording success must never produce a durable failure record. */
     const superseded = durable && durable.version && !newer(durable.version, RUNNING);
     if (durable && !superseded && durable.endedAt
-        && (durable.streak || 0) >= MAX_FAILED_VERSIONS) {
+        /* 🛑 READS THE SET, NOT THE COUNT, AND THE COUNT WOULD HAVE RE-CREATED
+           THE ONE-WAY DOOR. An OLD six-field record carries a number produced by
+           the increment logic, which an oscillation could inflate. Measured: such
+           a record reports streak 6 with an empty set, so braking on the number
+           would stop the machine immediately, the attempt would never run, the
+           record would never update, and it would be stuck forever on a count that
+           may never have been true.
+
+           My own comment two screens up already claimed the old count is "not
+           inherited"; it was not, at the WRITE end, and the brake was still
+           reading it at the READ end. Same read-end/write-end split as the
+           supersede bug, in the same function, one commit later.
+
+           So an old record cannot trip THIS cap, which is the fresh budget the
+           comment promises. The per-version cap still holds every release to
+           three, so the machine is not unprotected while its set fills in. */
+        && (durable.failedVersions || []).length >= MAX_FAILED_VERSIONS) {
       if (gaveUpOn !== 'ALL') {
         gaveUpOn = 'ALL';
         try {
@@ -716,6 +732,10 @@ function noteAttemptEnd(owner, code, why) {
        here would silently reset the one brake that exists precisely because a
        version change must NOT reset it. */
     streak: (lastAttempt && lastAttempt.streak) || 0,
+    /* And the SET, for the same reason as every other field this rebuild has
+       forgotten: it regresses on the one path where this server survives a
+       failed install, and it is now what the brake actually reads. */
+    failedVersions: (lastAttempt && lastAttempt.failedVersions) || [],
   };
 }
 function seedFromStatusFile() {
@@ -726,7 +746,7 @@ function seedFromStatusFile() {
   /* The trailing pair is OPTIONAL on purpose: a file written by a release
      before this change has two fields, and refusing to parse it would lose the
      failure record entirely rather than lose two of its fields. */
-  const m = /^(-?\d+)\s+(\S+)(?:\s+(\S+)\s+(\S+)(?:\s+(\S+)(?:\s+(\S+))?)?)?/.exec(raw.trim());
+  const m = /^(-?\d+)\s+(\S+)(?:\s+(\S+)\s+(\S+)(?:\s+(\S+)(?:\s+(\S+)(?:\s+(\S+))?)?)?)?/.exec(raw.trim());
   if (!m) return;
   const code = Number(m[1]);
   if (code === 0) return;
@@ -750,6 +770,21 @@ function seedFromStatusFile() {
        parse. 0 is the safe default: it under-counts rather than braking a machine
        that has not earned it. */
     streak: Math.max(0, Number.isFinite(Number(m[6])) ? Number(m[6]) : 0),
+    failedVersions: String(m[7] || '').split(',').filter((x) => x && x !== '-'),
+    /* 🛑 THE SET, NOT JUST THE COUNT, AND THE COUNT ALONE WAS WRONG. The counter
+   incremented whenever the version being attempted DIFFERED from the last
+   failure, which is version CHANGE rather than distinct versions. Measured: a
+   rollback-then-republish (1.2.0, 1.1.0, 1.2.0) climbed to 3 and braked while
+   announcing "3 DIFFERENT versions failed", when there were TWO. Two edge caches
+   disagreeing on latest.json produce the same oscillation, and the per-version
+   cap never engages because no single version reaches three tries.
+
+   An OLD record has no list, and the list is what decides now. Its numeric count
+   is deliberately NOT inherited: it could have been inflated by exactly this
+   oscillation, and over-braking costs unbounded time (permanent, silent, security
+   fixes included) while under-braking costs a bounded count (the per-version cap
+   still holds each release to three). So a machine upgrading into this version
+   gets one fresh budget, once. */
   };
 }
 function lastAttemptView() {
@@ -854,13 +889,24 @@ function beginInstall(opts) {
          read end skips the BRAKE, it never cleared the COUNT. */
   const priorFailed = prior && prior.code !== 0;
   const priorSuperseded = prior && prior.version && !newer(prior.version, RUNNING);
-  const carriedStreak = (priorFailed && !priorSuperseded) ? (prior.streak || 0) : 0;
-  const sameVersionAsPrior = priorFailed && !priorSuperseded && prior.version
-    && targetVersion && prior.version === targetVersion;
-  const streak = (opts && opts.auto)
-    ? (sameVersionAsPrior ? Math.max(carriedStreak, 1) : carriedStreak + 1)
-    : carriedStreak;
-  lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null, version: targetVersion, auto: !!(opts && opts.auto), attempts, streak };
+  /* 🛑 THE SET, NOT AN INCREMENT. Counting up whenever the version differed from
+     the last failure is version CHANGE, not distinct versions. Measured: a
+     rollback-then-republish (1.2.0, 1.1.0, 1.2.0) reached the cap and announced
+     "3 DIFFERENT versions failed" when there were TWO, and the per-version cap
+     never engaged because no single release reached three tries. Two edge caches
+     disagreeing on latest.json produce the same oscillation. Third time on this
+     branch that a sentence asserted what the arithmetic denied.
+  
+     Holding the actual set cannot climb on an oscillation, by construction.
+     Capped so the record stays one short line, far above the brake so the cap
+     cannot mask it. */
+  const carriedFailed = (priorFailed && !priorSuperseded && Array.isArray(prior.failedVersions))
+    ? prior.failedVersions.slice() : [];
+  const failedVersions = (opts && opts.auto && targetVersion && !carriedFailed.includes(targetVersion))
+    ? carriedFailed.concat(targetVersion).slice(-8)
+    : carriedFailed;
+  const streak = (opts && opts.auto) ? Math.max(failedVersions.length, 1) : failedVersions.length;
+  lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null, version: targetVersion, auto: !!(opts && opts.auto), attempts, streak, failedVersions };
   if (opts && opts.auto) {
     try { process.stderr.write(`update: starting an automatic install of ${targetVersion || 'an unnamed version'} at ${lastAttempt.startedAt}\n`); } catch { /* a log line must never break an install */ }
   }
@@ -888,6 +934,24 @@ function beginInstall(opts) {
      happens to this server; the file is the only witness a failed update
      leaves for the next board. Positional parameters, never interpolated
      into the one command in this product that ends in `| sh`. */
+  /* 🛑 `exit "$code"` AT THE END, AND WITHOUT IT THE NON-ZERO EXIT BRANCH WAS
+   UNREACHABLE IN PRODUCTION. `sh -c` exits with its LAST command's status, and
+   that was the `printf`, which succeeds. So every failed install reported exit 0
+   to this process.
+
+   The status FILE was always correct, which is what hid it: the durable path
+   recovers on the next boot, and the three arms covering this failure path drove
+   wireChild with a hand-made child emitting a non-zero exit the real wrapper could
+   never produce. Writer and reader are declared in two places and hand-matched,
+   which is exactly where it hid.
+
+   What it cost whenever the board SURVIVES the failure, which is every curl-side
+   failure, since `kosmos stop` never ran: single-flight was never released so
+   Install was dead for the life of the board, the press overlay spun on a record
+   that never ended, and the Settings sentence added for unattended failures
+   rendered NOTHING, because it is gated on endedAt.
+
+   Measured both arms offline with a stub curl: 22 stays 22, 0 stays 0. */
   const statusFile = installStatusFile() || '/dev/null';
   /* 🛑 THE STATUS FILE IS THE DURABLE CHANNEL AND IT MUST CARRY THE ANSWER.
      On an update the installer runs `kosmos stop` before downloading a byte, so
@@ -960,7 +1024,7 @@ function beginInstall(opts) {
     liveExec.refuseOrWarn('engine/update.js', '/bin/sh', ['-c', 'curl -fsSL <setupUrl> | sh']);
     return;
   }
-  const child = spawn('/bin/sh', ['-c', 'set -o pipefail; curl -fsSL "$1" | sh; code=$?; printf "%s %s %s %s %s %s\n" "$code" "$3" "$4" "$5" "$6" "$7" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, lastAttempt.version || '-', lastAttempt.auto ? '1' : '0', String(lastAttempt.attempts || 0), String(lastAttempt.streak || 0)], {
+  const child = spawn('/bin/sh', ['-c', 'set -o pipefail; curl -fsSL "$1" | sh; code=$?; printf "%s %s %s %s %s %s %s\n" "$code" "$3" "$4" "$5" "$6" "$7" "$8" > "$2"; exit "$code"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, lastAttempt.version || '-', lastAttempt.auto ? '1' : '0', String(lastAttempt.attempts || 0), String(lastAttempt.streak || 0), (lastAttempt.failedVersions || []).join(',') || '-'], {
     detached: true,
     stdio: 'ignore',
     env: { ...process.env, KOSMOS_RELEASE_BASE: base },

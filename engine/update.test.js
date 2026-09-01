@@ -339,12 +339,12 @@ test('the installer URL is a positional parameter, never interpolated into the s
        not reset has to survive the restart the installer causes, which means it
        has to live in this file. Re-pinned rather than loosened, and this guard is
        exactly why the change got read: it went red the moment the field landed. */
-  assert.match(call, /'-c',\s*'set -o pipefail; curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s %s %s %s %s\\n" "\$code" "\$3" "\$4" "\$5" "\$6" "\$7" > "\$2"',\s*'sh',\s*setupUrl\(\)/,
+  assert.match(call, /'-c',\s*'set -o pipefail; curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s %s %s %s %s %s\\n" "\$code" "\$3" "\$4" "\$5" "\$6" "\$7" "\$8" > "\$2"; exit "\$code"',\s*'sh',\s*setupUrl\(\)/,
     'the installer command is no longer the reviewed shape: ' + call);
   /* The two trailing positionals, asserted on the wider source since the
      slice above stops at the URL: the status file is $2, the stamp is $3,
      neither interpolated. */
-  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt,\s*lastAttempt\.version \|\| '-',\s*lastAttempt\.auto \? '1' : '0',\s*String\(lastAttempt\.attempts \|\| 0\),\s*String\(lastAttempt\.streak \|\| 0\)\]/.test(SRC),
+  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt,\s*lastAttempt\.version \|\| '-',\s*lastAttempt\.auto \? '1' : '0',\s*String\(lastAttempt\.attempts \|\| 0\),\s*String\(lastAttempt\.streak \|\| 0\),\s*\(lastAttempt\.failedVersions \|\| \[\]\)\.join\(','\) \|\| '-'\]/.test(SRC),
     'the status file, stamp, version, auto flag, attempt count and cross-version streak no longer all '
       + 'ride as positionals');
 
@@ -1385,7 +1385,12 @@ test('#1277: a NEW RELEASE does not hand a machine that cannot install three mor
     try {
       const old = new Date(Date.now() - 5 * 3600 * 1000);   // window long expired
       const f = path.join(home, 'logs', 'install.status');
-      fs.writeFileSync(f, `1 ${old.toISOString()} ${recordVersion} 1 ${attempts} ${streak}\n`);
+      /* The last field is the SET of versions that have failed here, which is what
+         the brake reads. `streak` is kept for older readers and is the set's size.
+         A six-field record deliberately cannot trip the cross-version cap, so a
+         fixture that omitted the set would measure nothing. */
+      const set = Array.from({ length: streak }, (_, n) => `9.0.${n}`).join(',') || '-';
+      fs.writeFileSync(f, `1 ${old.toISOString()} ${recordVersion} 1 ${attempts} ${streak} ${set}\n`);
       fs.utimesSync(f, old, old);
       await u.checkNow();
     } finally {
@@ -1690,7 +1695,9 @@ test('#1277: the streak survives the restart-free path, where this server outliv
   try {
     const old = new Date(Date.now() - 5 * 3600 * 1000);
     const f = path.join(home, 'logs', 'install.status');
-    fs.writeFileSync(f, `1 ${old.toISOString()} 99.0.0 1 1 2\n`);   // 2 distinct versions failed
+    /* Two distinct versions already failed, written in the CURRENT format: the set
+       is what the brake reads now, and a six-field record deliberately under-counts. */
+    fs.writeFileSync(f, `1 ${old.toISOString()} 99.0.0 1 1 2 98.0.0,99.0.0\n`);
     fs.utimesSync(f, old, old);
     await u.checkNow();
     assert.ok(child, 'precondition: an automatic attempt started');
@@ -1730,7 +1737,7 @@ test('#1277: an in-flight attempt does not trigger the CROSS-VERSION give-up eit
        attempt then starts and does not finish. */
     const old = new Date(Date.now() - 5 * 3600 * 1000);
     const f = path.join(home, 'logs', 'install.status');
-    fs.writeFileSync(f, `1 ${old.toISOString()} 98.0.0 1 1 2\n`);
+    fs.writeFileSync(f, `1 ${old.toISOString()} 98.0.0 1 1 2 97.0.0,98.0.0\n`);
     fs.utimesSync(f, old, old);
     await u.checkNow();
     const mid = u.lastAttempt() || {};
@@ -1748,4 +1755,158 @@ test('#1277: an in-flight attempt does not trigger the CROSS-VERSION give-up eit
   assert.equal(said.length, 0,
     `the board said "${(said[0] || '').trim()}" about an attempt that had not finished. It might `
     + 'yet succeed, and the sentence LATCHES, so the truth would never arrive');
+});
+
+test('#1277: the REAL wrapper reports the installer failure, it does not exit 0', async () => {
+  /* 🛑 THE ARM THAT WOULD HAVE CAUGHT IT, AND WHY THERE WAS NONE. `sh -c` exits
+     with its LAST command's status, which was the printf, so every failed install
+     reported exit 0 to this process. Every existing arm on this path drove
+     wireChild with a hand-made child emitting a non-zero exit THE REAL WRAPPER
+     COULD NEVER PRODUCE, so all of them were green while production could not
+     reach the branch they tested. The writer and the reader are declared in two
+     places and matched by hand, which is where it hid.
+
+     This runs the real spawn, offline: a stub `curl` first on PATH and a base
+     pointing at an invalid host, so nothing can reach the network. The stub's own
+     log is the control proving the path ran, because "no network traffic" and
+     "the code never executed" produce the same silence. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-wrapper-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  const bin = path.join(home, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const stubLog = path.join(home, 'curl-called.log');
+  fs.writeFileSync(path.join(bin, 'curl'),
+    `#!/bin/sh\nprintf '%s\\n' "STUB CURL $*" >> ${JSON.stringify(stubLog)}\nexit 22\n`);
+  fs.chmodSync(path.join(bin, 'curl'), 0o755);
+  const prevPath = process.env.PATH;
+  const liveExec = require('./live-execution');
+  u.resetCache();
+  u.setInstalledRoot(() => home);
+  u.setBase('https://example.invalid');
+  u.setInstallRunner(null);                 // the REAL spawn, deliberately
+  try {
+    /* 🛑 THIS ARM OPENS THE FAIL-CLOSED GATE ON PURPOSE, AND IT IS THE ONLY ONE
+       THAT MAY. The gate exists to stop a test spawning the real installer, and
+       the defect being measured here is IN the real wrapper, so nothing else can
+       reach it. Two independent things make that safe, and neither is a promise:
+
+         a stub `curl` FIRST on PATH, which exits 22 without a network call
+         a base of https://example.invalid, which cannot resolve
+
+       So even if both the gate and the stub failed, the URL points nowhere. The
+       finally restores the gate to CLOSED with resetForTests(), NOT to open: I
+       previously wrote allowLiveExecution() there meaning "put it back", which
+       left the gate open for every later arm in the file and let a planted arm
+       spawn the real installer. */
+    liveExec.allowLiveExecution();
+    process.env.PATH = bin + ':' + prevPath;
+    u.beginInstall({ auto: true });
+    const exited = await new Promise((r) => setTimeout(() => r(true), 2000));
+    assert.ok(exited);
+    assert.ok(fs.existsSync(stubLog),
+      'CONTROL: the stub curl was never called, so this arm measured nothing. Silence from the '
+      + 'network and code that never ran look identical');
+    assert.equal(u.alreadyInstalling(), false,
+      'single-flight was never released after the installer failed. The wrapper exited 0, so the '
+      + 'non-zero branch never ran, and Install is now dead for the life of this board');
+    const rec = u.lastAttempt() || {};
+    assert.ok(rec.endedAt,
+      'the record never ended, so the press overlay spins forever and the Settings sentence for '
+      + 'unattended failures renders nothing, because it is gated on endedAt');
+  } finally {
+    process.env.PATH = prevPath;
+    liveExec.resetForTests();               // CLOSED, which is the pre-state in a test process
+    u.setInstalledRoot(null); u.setBase(null); u.setInstallRunner(null); u.resetCache();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('#1277: a rollback cannot climb the cap, because the SET of failed versions is held', async () => {
+  /* The counter used to increment whenever the version differed from the last
+     failure, which is version CHANGE and not distinct versions. Measured before
+     the fix: 1.2.0, 1.1.0, 1.2.0 reached the cap and announced "3 DIFFERENT
+     versions failed" when there were TWO, while the per-version cap never engaged
+     because no single release reached three tries. A rollback-then-republish does
+     this, and so do two edge caches disagreeing on latest.json. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  async function walk(sequence) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-osc-'));
+    fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+    const f = path.join(home, 'logs', 'install.status');
+    const out = [];
+    try {
+      for (const v of sequence) {
+        let installs = 0;
+        u.resetCache();
+        u.setInstalledRoot(() => home);
+        u.setAutoPref(() => ({ on: true }));
+        u.setFetcher(async () => ({ ok: true, json: async () => ({ version: v }) }));
+        u.setInstallRunner(() => { installs += 1; return { on() {}, unref() {}, stderr: { on() {} } }; });
+        await u.checkNow();
+        const rec = u.lastAttempt() || {};
+        if (installs) {
+          const old = new Date(Date.now() - 5 * 3600 * 1000);
+          fs.writeFileSync(f, `1 ${old.toISOString()} ${v} 1 ${rec.attempts} ${rec.streak} `
+            + `${(rec.failedVersions || []).join(',') || '-'}\n`);
+          fs.utimesSync(f, old, old);
+        }
+        out.push(installs);
+      }
+    } finally {
+      u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+      u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+    }
+    return out;
+  }
+  assert.deepEqual(await walk(['1.2.0', '1.1.0', '1.2.0', '1.1.0']), [1, 1, 1, 1],
+    'an oscillation between TWO versions reached the cap. The set of failed versions never grew '
+    + 'past two, so the brake fired on a count the arithmetic does not support');
+  assert.deepEqual(await walk(['1.1.0', '1.2.0', '1.3.0', '1.4.0']), [1, 1, 1, 0],
+    'CONTROL: THREE genuinely different versions failing must still brake, or holding the set has '
+    + 'simply disabled the cross-version cap');
+});
+
+test('#1277: an OLD record cannot trip the cross-version cap on a count it may have inflated', async () => {
+  /* The brake reads the SET. A six-field record predates the set and carries a
+     number produced by the old increment logic, which an oscillation could inflate
+     to the cap on two versions. Braking on that number would stop the machine
+     immediately, the attempt would never run, the record would never update, and
+     it would be stuck forever on a count that may never have been true.
+
+     Over-braking costs unbounded time (permanent, silent, security fixes
+     included); under-braking costs a bounded count, because the per-version cap
+     still holds every release to three. So an old record gets one fresh budget. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  async function installsFor(line) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-oldrec-'));
+    fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+    let installs = 0;
+    u.resetCache();
+    u.setInstalledRoot(() => home);
+    u.setAutoPref(() => ({ on: true }));
+    u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+    u.setInstallRunner(() => { installs += 1; return { on() {}, unref() {}, stderr: { on() {} } }; });
+    try {
+      const old = new Date(Date.now() - 5 * 3600 * 1000);
+      const f = path.join(home, 'logs', 'install.status');
+      fs.writeFileSync(f, line + '\n');
+      fs.utimesSync(f, old, old);
+      await u.checkNow();
+    } finally {
+      u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+      u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+    }
+    return installs;
+  }
+  assert.equal(await installsFor('1 2026-01-01T00:00:00Z 9.9.9 1 3 6'), 1,
+    'a SIX-field record, carrying a count of 6 from the old increment logic and no set, braked. '
+    + 'That count could have come from an oscillation between two versions, and braking on it '
+    + 'locks the machine forever because the record can then never update');
+  assert.equal(await installsFor('1 2026-01-01T00:00:00Z 9.9.9 1 3 3 7.7.7,8.8.8,9.9.9'), 0,
+    'CONTROL: a SEVEN-field record naming three distinct failed versions must still brake, or the '
+    + 'old-record allowance has simply disabled the cap');
 });
