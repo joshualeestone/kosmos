@@ -48,11 +48,14 @@
    📌 The one deliberate EXCLUSION is `binaryOnDisk` in `start()`. It is not computed at
    all on the common path, being inside the CONNECTED arm, and where it IS computed the
    disk can change before this pair reads. The full reason is at that site.
-     ⚠️ "and it is behind an await" WAS DELETED FROM THIS SENTENCE. The head-of-file summary
-     already said that phrase had been withdrawn, and it was still standing HERE: one copy
-     fixed, its sibling left, which is the class this branch is named for. It is also false by
-     this block's own reading two paragraphs down, where the await count is "AT MOST ONE and
-     often zero". The load-bearing half is CONDITIONAL, and it never needed the await claim.
+     ⚠️ "and it is behind an await" was removed from the exclusion sentence, here and at
+     the site. It was false by the site's own control-flow reading, where the await count
+     is at most one and often zero, and the load-bearing half is CONDITIONAL.
+     📌 An earlier version of this note was written for the SITE and left standing HERE,
+     so it told the reader the head-of-file summary already said something, while BEING
+     that summary, and pointed at a reading "two paragraphs down" that lives 1000 lines
+     away in a different block. Positional pointers are rejected elsewhere in this file
+     for exactly that reason.
    ⚠️ This summary used to say "conditional and behind an await", which kept the await-count
    evidence THE SITE ITSELF WITHDRAWS as "the wrong KIND of argument". Two copies of one
    rationale, diverged, in the comment written to stop exactly that. */
