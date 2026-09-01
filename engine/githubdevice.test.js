@@ -190,6 +190,7 @@ test('the pasted client id survives to a fresh read, and a spaced one is refused
    pre-existing tests, everything stayed green. */
 test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place', async () => {
   process.env.KOSMOS_GITHUB_CLIENT_ID = 'Iv1.testclient';
+  try {
   fs.mkdirSync(path.dirname(gd.FILE), { recursive: true });
   fs.writeFileSync(gd.FILE, 'OLD-TOKEN\n');
   fs.chmodSync(gd.FILE, 0o644);
@@ -207,6 +208,10 @@ test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place
   assert.notEqual(fs.statSync(gd.FILE).ino, inodeBefore,
     'the credential was written IN PLACE into the pre-existing loose file: same inode '
     + 'means no rename, so the access_token bytes were on disk at 0644 before the chmod');
-  assert.equal(fs.statSync(gd.FILE).mode & 0o777, 0o600, 'the credential was left loose');
-  delete process.env.KOSMOS_GITHUB_CLIENT_ID;
+    assert.equal(fs.statSync(gd.FILE).mode & 0o777, 0o600, 'the credential was left loose');
+  } finally {
+    /* Restore on EVERY path. A failing assertion above would otherwise leak this
+       env var into any test added after this one. */
+    delete process.env.KOSMOS_GITHUB_CLIENT_ID;
+  }
 });

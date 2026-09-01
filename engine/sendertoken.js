@@ -50,9 +50,9 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const securewrite = require('./securewrite');
 const path = require('node:path');
 const store = require('./store');
+const securewrite = require('./securewrite');
 
 const DIR = path.join(store.ROOT, 'sendertokens');
 
@@ -118,22 +118,6 @@ function readTokens(sessionName) {
   return [];
 }
 
-/* Start time and a counter, so a temp name is never reused across a crash. Same
-   scheme and same reason as `engine/trust.js`'s `tempPath`, which is not exported. */
-
-/* 🛑 EXTRACTED SO IT CAN BE TESTED, and that is the whole reason it is a function.
-   `O_NOFOLLOW` is UNDEFINED on win32, and `x | undefined` is `x`, so the flag would
-   silently vanish there: no error, no signal, on the one platform this module serves.
-   Where the constant is missing we check by hand instead of pretending it was applied.
-
-   ⚠️ IT HAD ZERO COVERAGE UNTIL IT WAS A SEAM. `fs.constants.O_NOFOLLOW` is
-   non-configurable, so no test can delete it from the environment; the suite stayed
-   fully green with this entire branch removed. A row in a matrix that says "with the
-   constant forced undefined" describes a MANUAL mutation, not something the suite does,
-   and crediting it was overclaiming.
-
-   📌 TOCTOU is accepted: this checks, then the caller opens. The window is narrower than
-   having no check at all, and on win32 creating a symlink needs privilege. */
 /* #1787: the temp-then-rename writer, the symlink refusal and the directory
    tightening now live in `engine/securewrite.js`, extracted from THIS file after
    #1776 so that three more call sites could use one implementation rather than a

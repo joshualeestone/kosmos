@@ -37,9 +37,9 @@
  */
 
 const fs = require('node:fs');
-const securewrite = require('./securewrite');
 const path = require('node:path');
 const store = require('./store');
+const securewrite = require('./securewrite');
 /* 🛑 MODULE SCOPE, AND THE REASON IS NOT devicedoor's REASON.
    `ghPresent()` is reached from `async function state()`, which wraps its whole body
    in try/catch. A call-time require failure here is therefore NOT a rejection, it is

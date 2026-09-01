@@ -84,4 +84,7 @@ test('#1787: a pre-existing loose credential file is REPLACED, not rewritten in 
     + 'means no rename, so the token bytes were on disk at 0644 before the chmod');
   assert.equal(fs.statSync(cloudflare.FILE).mode & 0o777, 0o600,
     'the credential was left loose');
+  /* The other arms in this file set their own fetcher, but leaving a live one here
+     makes this arm's state depend on ordering. Reset it. */
+  cloudflare.setFetcher(null);
 });
