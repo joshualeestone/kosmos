@@ -143,20 +143,29 @@ test('🛑 every STATIC-PATH write route is remotely unreachable except the agen
      dispatched from a matched variable and CANNOT be expressed as a fixed entry,
      so they are structurally outside what could create the #1764 bypass; the
      exact-set pin above is their backstop for any change. Every addable route is
-     a static-path route, and every static-path write route uses the inline form
-     this scan captures. Prior art: relay claims.rs:473 pins gate::admit to one
-     call site so the mint cannot become token-only. */
+     a static-path route, and every static-path write route -- single-method or
+     the `(req.method === 'A' || 'B')` multi-method form -- is captured by this
+     scan. Prior art: relay claims.rs:473 pins gate::admit to one call site so the
+     mint cannot become token-only. */
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const routes = new Set();
-  const re = /pathname === '(\/api\/[^']+)' && req\.method === '(POST|PUT|DELETE|PATCH)'/g;
+  /* Match BOTH dispatch forms so no static-path write route is missed: the
+     single-method `pathname === 'X' && req.method === 'M'` AND the multi-method
+     `pathname === 'X' && (req.method === 'A' || req.method === 'B')` (e.g.
+     PUT|DELETE /api/you/avatar). Capture the path and its whole method clause,
+     then add one entry per write method in it. */
+  const re = /pathname === '(\/api\/[^']+)' && \(?(req\.method === '(?:POST|PUT|DELETE|PATCH)'(?:\s*\|\|\s*req\.method === '(?:POST|PUT|DELETE|PATCH)')*)/g;
   let m;
-  while ((m = re.exec(src))) routes.add(`${m[2]} ${m[1]}`);
-  /* A TIGHT floor near the real count (~59 static-path write routes), so a
+  while ((m = re.exec(src))) {
+    const p = m[1];
+    for (const method of m[2].match(/POST|PUT|DELETE|PATCH/g) || []) routes.add(`${method} ${p}`);
+  }
+  /* A TIGHT floor near the real count (~61 static-path write route entries), so a
      dispatch-style refactor that made the scan go narrow (method-first order, a
      route() helper, reflowed conditions) reds here instead of quietly checking
      far fewer than it claims. Removing a handful of routes legitimately is
      tolerated; a collapse to a fraction is not. */
-  assert.ok(routes.size >= 55, `the write-route scan found only ${routes.size} (expected ~59); the scan or the dispatch changed shape -- do not trust this test until it is re-derived`);
+  assert.ok(routes.size >= 55, `the write-route scan found only ${routes.size} (expected ~61); the scan or the dispatch changed shape -- do not trust this test until it is re-derived`);
 
   const good = sendertoken.mint('reach-probe-1764');
   assert.equal(good.ok, true, good.because);
@@ -178,7 +187,7 @@ test('🛑 every STATIC-PATH write route is remotely unreachable except the agen
       checkedRefused++;
     }
   }
-  assert.ok(checkedRefused >= 53, `only ${checkedRefused} static-path write routes were checked as refused (expected ~57); coverage regressed`);
+  assert.ok(checkedRefused >= 53, `only ${checkedRefused} static-path write routes were checked as refused (expected ~59); coverage regressed`);
 });
 
 test('🛑 issuance is loopback-only: a remote peer to POST /api/agent-token is refused', () => {
