@@ -1321,6 +1321,16 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
  * Funnel arm of the `start()` warning). Trusting `X-Forwarded-For` to recover
  * the real client is its own footgun and is not done here. This guard protects a
  * DIRECT network bind, which is the approved Windows-agent case.
+ *
+ * 📌 ACCEPTED, KNOWN TRADEOFF: on an open bind, an unauthenticated remote peer
+ * hitting `POST /api/report`/`/api/reply` with any token string forces
+ * `resolveName` (a readdirSync + per-file scan) before the handler runs. That
+ * filesystem work is inherent to validating a presented token -- you cannot
+ * authenticate without looking it up -- is bounded by the agent count, and is no
+ * worse in kind than the per-request work a loopback report already does.
+ * Rate-limiting or caching the token set is a separate, larger change; opening
+ * the bind is itself an explicit operator opt-in, so this is documented and
+ * accepted rather than mitigated here.
  */
 function remoteWriteGuard(req, pathname) {
   if (isLoopbackPeer(req)) return null;
