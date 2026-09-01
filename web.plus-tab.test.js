@@ -47,8 +47,35 @@ test('the holding place has NO controls, and the flow starts hidden (no dead but
   const holding = SEC.slice(SEC.indexOf('id="plus-state1"'), SEC.indexOf('id="plus-state2"'));
   assert.ok(holding.length > 200,
     'the state 1 slice is empty or tiny; re-anchor before trusting the assertion below');
-  assert.doesNotMatch(holding, /<button|<input|<select/,
-    'state 1 grew a control. It is marketing and a link; the sign-in belongs in state 2');
+  /* 🛑 NARROWED AGAIN, BECAUSE THE SPEC MOVED, NOT BECAUSE IT WAS INCONVENIENT.
+     This forbade EVERY control in state 1. `/design/journeys` and `/design/first-step`,
+     which are now the spec and supersede the older mocks, both draw TWO DOORS on the
+     first screen: join on the site, sign in here.
+     ⇒ What the rule actually protects is "do not ship a button the service cannot
+     honour". A control that NAVIGATES to another screen honours exactly what it says. So
+     the prohibition moves from "no controls" to "no control that promises a service",
+     which is what it always meant.
+     ⚠️ AND STATE 2 IS OTHERWISE UNREACHABLE: paintPlus shows it only for a configured
+     machine and nothing signals payment yet, so without this door the designed sign-in
+     screen cannot be seen at all. Deleting the rule wholesale would have been wrong, and
+     so would keeping it and hiding a designed screen. */
+  const controls = holding.match(/<(button|input|select)[^>]*/g) || [];
+  for (const c of controls) {
+    assert.match(c, /id="plus-signin-open"/,
+      'state 1 grew a control that is not the sign-in door: ' + c
+      + '. State 1 is marketing, a link, and the door to state 2. Anything that promises '
+      + 'a service belongs in state 2, which is where the service lives.');
+  }
+  /* PAGE, not SEC: the markup is in the section and the handler is in the script far
+     below it. My first version searched SEC and reported a missing handler that was
+     present, which is the same wrong-window mistake this file keeps catching. */
+  /* ⚠️ ANCHOR ON THE BINDING, NOT THE ID. My first version matched the id string
+     followed by any addEventListener within 1200 characters, and the id appears in the
+     MARKUP with unrelated handlers nearby, so removing the real handler left it green.
+     Measured. The variable name only exists where the handler is. */
+  assert.match(PAGE, /plusSignInOpen\.addEventListener/,
+    'the state 1 sign-in door has no handler, so it is exactly the dead button this rule '
+    + 'exists to prevent');
   assert.match(SEC, /id="plus-flow" hidden/, 'the flow does not start hidden');
   /* #1615 re-anchored `plus-holding` -> `plus-state1` when the pane became three states.
      THE ASSERTION IS UNCHANGED AND DELIBERATELY SO: signup is still not open (Stripe is in

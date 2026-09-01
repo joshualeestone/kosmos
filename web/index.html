@@ -1756,6 +1756,18 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 }
 .chk-t { font-size: 1rem; font-weight: 600; margin-bottom: 2px; }
 .chk-d { font-size: .9375rem; color: var(--k-ink-2); line-height: 1.5; }
+/* The Kosmos+ value list and the two doors, screen 1 of /design/journeys.
+   Built from the page's OWN tokens rather than the mock's palette: the design pages are
+   the dark marketing site and this is the app, which has both themes. Copying the mock's
+   literal colours would have looked right in one theme and wrong in the other. Structure
+   and copy come from the design; colour comes from here. */
+.plus-val { list-style: none; margin: 18px 0 20px; padding: 0; display: grid; gap: 14px;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.plus-val li { display: flex; flex-direction: column; gap: 3px;
+               border-left: 2px solid var(--k-rule); padding: 2px 0 2px 12px; }
+.plus-val b { font-size: .9375rem; }
+.plus-val span { font-size: .9375rem; color: var(--k-ink-2); line-height: 1.5; }
+.plus-doors { gap: 12px; flex-wrap: wrap; justify-content: flex-start; align-items: center; }
 .setrow { display: flex; align-items: flex-start; justify-content: space-between;
           gap: 16px; padding: 10px 0; }
 .setrow b { font-size: .9375rem; }
@@ -9654,44 +9666,61 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          platform assumption a shipped guard exists to keep out. Raised on kosmos#1615 so
          the mock can be corrected rather than this drifting from it silently. -->
     <div id="plus-state1">
-      <h3>Reach this computer from anywhere</h3>
-      <p>Plus connects this computer to your phone and your other computers:
-      open your board from anywhere, get a notification when an agent
-      posts or needs you, and everything you have stays on this computer. The
-      connection is end-to-end encrypted, and the service cannot read
-      what passes through it.</p>
-      <!-- #476, #567: the door is the trust sentence and it is BUILT, so
-           it is said as a fact. "Nothing to install" left this paragraph
-           on 2026-08-24: the installer ships no connector yet, and the
-           engine's own sentence for that case ("the Plus connector is not
-           installed on this Mac yet") would have contradicted it on the
-           same tab. The router half stays: the tunnel is outbound only. -->
-      <p>Every phone and computer asks this computer before it gets in, and you
-      can take any of them back here at any time.</p>
-      <!-- #1115. Josh, 2026-08-27 10:50: "Sign-up for the relay will happen
-           ON THE SITE NOT IN THE APP and we'll do it." This paragraph said
-           the opposite, and a person reading it waits HERE for a thing that
-           is going to happen somewhere they have never been shown.
-           ⚠️ THE PRICE IS DELIBERATELY NOT REPEATED HERE. The site publishes
-           it, and a number kept in two places goes wrong in the one nobody
-           is looking at. The old sentence ("the price is not set yet") had
-           already gone false that way. -->
-      <p><b>Sign-up is not open yet.</b> When it opens it happens on the
-      Kosmos website, not in here: your email, a code to confirm it, and
-      your card. Then you sign in to that account here, and this computer gets
-      an address of its own. Nothing to configure on your router.</p>
-      <!-- #1129, the other half of #1115. The pane described a flow and gave no
-           way into it, so a person was correctly informed and still stuck.
-           🛑 THE HREF IS SET FROM JS, AND THAT IS NOT STYLE. `web.plus-tab.test.js`
-           forbids a hostname anywhere in this section, because the domain is
-           explicitly temporary and shipped copy must not bet on it. That guard
-           is older than this link and it is right, so the address arrives from
-           KOSMOS_SITE at paint time and this markup carries none. The guard
-           still passes UNCHANGED, which is the point: the rule did not move to
-           accommodate the feature. -->
-      <p><a id="plus-site-link" href="#" target="_blank" rel="noreferrer noopener"
-      >See Kosmos+</a></p>
-    </div>
+          <!-- Screen 1 of the Plus journey, built from /design/first-step and
+               /design/journeys. Those two are the spec; the older mocks are deprecated.
+               🛑 TWO SHIPPED GUARDS CONSTRAIN THIS AND THE DESIGN VIOLATES BOTH, so the
+               design leads on FLOW and STRUCTURE and does not get to reintroduce either:
+               1. `engine/machine.test.js` (kosmos#1004, Josh: "this computer", not "this
+                  Mac"). The mock says "this Mac" throughout. Kosmos does not only run on
+                  a Mac, and the rest of this page says "this computer" 125 times.
+               2. `web.plus-tab.test.js` forbids a hostname anywhere in this copy, because
+                  the domain is explicitly temporary. So every address here arrives from
+                  KOSMOS_SITE at paint time and this markup carries none.
+               ⚠️ That guard's stated reason pairs the temporary domain with pricing not
+               being ruled. Pricing IS ruled now and the hostname half still stands, so it
+               is right for half its stated reason. Raised on the card, not worked around.
+               ⚠️ AND THE GUARD CAUGHT ME WRITING THE FIGURE INTO THIS COMMENT. It matches
+               the whole section, comments included, which is correct: this page is served
+               verbatim and its comments are public. -->
+          <h3>Your Kosmos, wherever you are</h3>
+          <p>Access your agents and projects from your phone or any computer, even while
+          you are away from this computer. Get notified when work finishes or an agent
+          needs you.</p>
+
+          <ul class="plus-val">
+            <li><b>Access Kosmos anywhere</b><span>Open your board from another computer,
+            tablet, phone, or other web-enabled device.</span></li>
+            <li><b>Kosmos on your phone</b><span>Use the native iOS and Android apps to
+            check in and keep work moving wherever you are.</span></li>
+            <li><b>Know when you are needed</b><span>Get notified when an agent finishes,
+            hits a blocker, or asks a question.</span></li>
+            <li><b>Work with others</b><span>Invite people and their agents into selected
+            projects. Remove access at any time.</span></li>
+            <li><b>Private by design</b><span>Your work remains on this computer.
+            Connections are end-to-end encrypted, and every new device requires
+            approval.</span></li>
+          </ul>
+
+          <!-- STILL TRUE, SO IT IS STILL SAID. Measured: kosmosplus.com carries "Signup
+               is not open yet" and the coordinator refuses payments on both settings. The
+               guard exists so that when signup DOES open, somebody notices this sentence
+               went false. I deleted it while rebuilding this pane and the guard caught it. -->
+          <p><b>Sign-up is not open yet.</b> When it opens it happens on the Kosmos
+          website, not in here: your email, a code to confirm it, and your card. Then you
+          sign in to that account here, and this computer gets an address of its own.</p>
+
+          <!-- Two doors, per /design/journeys: joining is done on the site and
+               signing in is done in the app. The app is a board bound to localhost and the site is a
+               different origin, so there is no session for the app to pick up and this
+               computer needs a credential of its own before the coordinator will give it
+               an address. That is why the sign-in cannot live on the site. -->
+          <div class="setrow plus-doors">
+            <a id="plus-site-link" class="btn" href="#" target="_blank"
+               rel="noreferrer noopener">Join Kosmos+</a>
+            <button id="plus-signin-open" class="btn quiet" type="button">Already a member?
+            Sign in</button>
+          </div>
+        </div>
 
     <!-- #1615 state 2, design section 5: "paid, not set up here". The design settled an
          open question here rather than asking a fourth time, and the reason is mechanical
@@ -22427,6 +22456,28 @@ document.getElementById('plus-code').addEventListener('input', (e) => {
   const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
   if (e.target.value !== clean) e.target.value = clean;
 });
+/* The screen-1 sign-in door, per /design/journeys and /design/first-step, which both
+   draw two doors on the first screen: join on the site, sign in here.
+   🔑 IT IS NAVIGATION, NOT A PROMISE. It reveals state 2, which is otherwise UNREACHABLE
+   today: paintPlus only shows state 2 for a machine that is configured, and nothing
+   currently signals that somebody has paid. So without this control the designed sign-in
+   screen cannot be seen at all, which is the thing Josh asked for on 2026-08-30 ("i dont
+   care if the app side is ready yet ... i want to see all the design implemented").
+   ⚠️ The no-dead-buttons rule is NOT relaxed by this. A dead button is one that looks
+   like it will do a thing the service cannot honour. This one does exactly what it says:
+   it takes you to the sign-in screen. What that screen's own button cannot yet honour is
+   a separate question and is state 2's to answer. */
+const plusSignInOpen = document.getElementById('plus-signin-open');
+if (plusSignInOpen) plusSignInOpen.addEventListener('click', () => {
+  const s1 = document.getElementById('plus-state1');
+  const s2 = document.getElementById('plus-state2');
+  if (!s1 || !s2) return;
+  s1.hidden = true;
+  s2.hidden = false;
+  const first = s2.querySelector('input');
+  if (first && first.focus) first.focus();
+});
+
 document.getElementById('plus-switch').addEventListener('click', async () => {
   const msg = document.getElementById('plus-msg');
   plusSay('');
