@@ -469,6 +469,32 @@ const blankingDesync = (src) => {
   return lastBlankMode;
 };
 
+/* 🛑 A BARE IDENTIFIER SOURCE MUST MATCH ON A WORD BOUNDARY, NOT AS A SUBSTRING.
+   Every source used to be dotted or parenthesised (`store.ROOT`, `os.homedir()`), so
+   `includes` was safe. This branch added BARE names to the source list: the
+   destructured `ROOT`/`AVATARS`/`PROFILES` aliases and the foreign getters
+   (`FILE`, `DIR`, `LOG`, ...). Measured, with a control:
+     const { ROOT } = require('./store');
+     const DOC_ROOT_LABEL = 'x';
+     const LABEL = DOC_ROOT_LABEL;      -> REPORTED, because the name contains ROOT
+     (the same two lines without the destructure)  -> silent
+   And on the foreign arm, `const X = MAX_FILE_SIZE * 2;` was reported purely because
+   a `{ FILE }` destructure appeared earlier in the file. That is firing on correct
+   code, which this file argues is the worse direction, and the tool now gates CI. */
+const isBareName = (s) => /^[A-Za-z_$][\w$]*$/.test(s);
+const sourceOccurrences = (text, s) => {
+  const out = [];
+  if (isBareName(s)) {
+    const re = new RegExp('\\b' + s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g');
+    let m = re.exec(text);
+    while (m) { out.push(m.index); m = re.exec(text); }
+    return out;
+  }
+  for (let at = text.indexOf(s); at > -1; at = text.indexOf(s, at + 1)) out.push(at);
+  return out;
+};
+const hasSource = (text, s) => sourceOccurrences(text, s).length > 0;
+
 const isLazy = (init) => !invokedNow(init)
   && (/^\s*\([^)]*\)\s*=>/.test(init) || /^\s*function\b/.test(init));
 /* One arrow alternative, not two: `\(\s*\)` is a strict subset of `\([^)]*\)` and
@@ -498,13 +524,13 @@ const everyRootIsDeferred = (init, resolverNames, sources) => {
      `path.join(base(), 'b')` was never examined and the exemption skipped the
      resolver check entirely. Adding CORRECT lazy code beside a freeze hid it. */
   const marks = (sources || SOURCES).concat([...(resolverNames || [])].map((n) => n + '('));
-  const lines = init.split('\n').filter((l) => marks.some((s) => l.includes(s)));
+  const lines = init.split('\n').filter((l) => marks.some((s) => hasSource(l, s)));
   /* EVERY source on the line, not SOME. With `some`, one deferred source LAUNDERS
      a frozen one beside it. Measured, both arms:
        { live: () => store.ROOT, file: path.join(process.env.AGENT_WORKFORCE_DATA,'x') }  -> silent
        {                         file: path.join(process.env.AGENT_WORKFORCE_DATA,'x') }  -> reported
      so adding a harmless deferred reference hid a real freeze. */
-  return lines.length > 0 && lines.every((l) => marks.filter((s) => l.includes(s))
+  return lines.length > 0 && lines.every((l) => marks.filter((s) => hasSource(l, s))
     .every((s) => {
       /* 🛑 EVERY OCCURRENCE, NOT THE FIRST. `indexOf` examines only the first
          appearance of each source on the line, so a SECOND appearance of the same
@@ -514,7 +540,7 @@ const everyRootIsDeferred = (init, resolverNames, sources) => {
          Same class as the some/every fix one level down: that moved from "some
          SOURCES" to "every SOURCE", and left "every OCCURRENCE". */
       const positions = [];
-      for (let at = l.indexOf(s); at > -1; at = l.indexOf(s, at + 1)) positions.push(at);
+      for (const at of sourceOccurrences(l, s)) positions.push(at);
       if (!positions.length) return false;
       return positions.every((at) => {
         const arrow = l.lastIndexOf('=>', at);
@@ -825,6 +851,12 @@ function scan(file) {
      because a lazy USE looks deferred while the destructure already evaluated the
      getter. Both are real require-time freezes, and this card mints 28 new path
      getters into a tree where destructured require is house style in 76 files. */
+  /* Declared HERE, above the loop that fills it. It was declared 16 lines BELOW its
+     own push and every scan of a file containing a foreign destructure died with a
+     temporal-dead-zone ReferenceError, so this whole arm never produced a finding.
+     It shipped green because the suite read only the exit code and a ReferenceError
+     exits 1, which is what an arm expecting a finding asserts. */
+  const destructuredForeign = [];
   const foreignGetters = [];
   for (const m of scanSrc.matchAll(/^(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\(([^)]*)\)/gm)) {
     if (/\bstore\b/.test(m[2])) continue; // the store form is handled below, with its own names
@@ -854,7 +886,6 @@ function scan(file) {
      went unreported. Only the value getters count; destructuring a FUNCTION like
      `dataRootFor` freezes nothing. */
   const GETTERS = GETTER_VALUE_NAMES;
-  const destructuredForeign = [];
   const destructured = [];
   /* 🛑 WHOLE-SOURCE `matchAll`, NOT A PER-LINE SCAN, AND THE REASON IS THAT THE
      ALIAS SCAN ABOVE ALREADY IS ONE. This was `src.split('\n').forEach` with a
@@ -996,7 +1027,7 @@ function scan(file) {
        regex collects; the second is a bracket access, and every source in SOURCES
        is spelled with a dot. Rewriting them to the dotted form costs two replaces
        and closes both without widening what counts as a source. */
-    const direct = SRC_SOURCES.some((s) => initCode.includes(s));
+    const direct = SRC_SOURCES.some((s) => hasSource(initCode, s));
     /* The same blanked text for every source test, so a name written in a string
        cannot be read as code by one check after another check learned better. */
     const viaHelper = [...resolvers].some((n) => new RegExp(`\\b${n}\\s*\\(`).test(initCode));

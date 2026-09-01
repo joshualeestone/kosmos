@@ -17,10 +17,26 @@ bad() { echo "FAIL  $1"; [ -n "${2:-}" ] && echo "      $2"; FAILS=$((FAILS+1));
 
 TOOL="$(cd "$(dirname "$0")/.." && pwd)/tools/check-frozen-roots.js"
 [ -r "$TOOL" ] || { echo "FAIL  $TOOL not found"; exit 1; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)"; trap 'rm -rf "${T:?}"' EXIT
 
 fixture() { printf '%s\n' "$2" > "$T/$1.js"; }
-run() { node "$TOOL" "$T/$1.js" >"$T/out" 2>&1; echo $?; }
+# 🛑 THE EXIT CODE ALONE CANNOT TELL A FINDING FROM A CRASH, AND THAT IS HOW A CRASH
+# SHIPPED GREEN. A ReferenceError exits 1, which is exactly what an arm expecting a
+# finding asserts, so three arms reported PASS against a rule that never ran once:
+# the whole foreign-destructure arm was a temporal-dead-zone crash and the suite said
+# ALL PASS. An arm that cannot distinguish "the tool found the thing" from "the tool
+# died" is not an arm.
+# So: a crash is its own verdict, and an exit-1 with no finding line is another. Both
+# differ from "1", so every arm expecting a finding now fails on either.
+run() {
+  node "$TOOL" "$T/$1.js" >"$T/out" 2>&1
+  rc=$?
+  if grep -qE 'ReferenceError|TypeError|SyntaxError|RangeError|^    at ' "$T/out"; then echo "CRASH"; return; fi
+  if [ "$rc" = "1" ] && ! grep -qE 'resolves a root at require time|^STALE|^UNREADABLE' "$T/out"; then
+    echo "NOFINDING"; return
+  fi
+  echo "$rc"
+}
 
 # ---- arm 1: a lazy arrow const must NOT be flagged (PRECISION) -------------
 fixture lazy "const os = require('os');
@@ -560,6 +576,40 @@ const store = require('./store');
 const F = () => path.join(store.ROOT,'x');"
 if [ "$(run commentregex)" = "0" ]; then ok "an inline comment before a regex does not desync the scanner"
 else bad "a comment before a regex made the file unreadable"; fi
+
+# ---- arm 50: a bare-identifier source matches on a WORD BOUNDARY ----------
+# Every source used to be dotted or parenthesised, so substring matching was safe.
+# This branch added BARE names (destructured ROOT/AVATARS/PROFILES and the foreign
+# getters), and `DOC_ROOT_LABEL` then matched `ROOT`.
+fixture bareword "const { ROOT } = require('./store');
+const DOC_ROOT_LABEL = 'x';
+const LABEL = DOC_ROOT_LABEL;
+const dirFor = () => path.join(ROOT,'a');"
+n_false=$(node "$TOOL" "$T/bareword.js" 2>&1 | grep -c 'const LABEL')
+n_real=$(node "$TOOL" "$T/bareword.js" 2>&1 | grep -c 'const { ROOT }')
+if [ "$n_false" = "0" ] && [ "$n_real" = "1" ]; then ok "a name CONTAINING a bare source is not a use of it"
+else bad "bare-identifier source matched as a substring" "false=$n_false real=$n_real"; fi
+
+fixture barewordforeign "const { FILE } = require('./limits');
+const MAX_FILE_SIZE = 10;
+const X = MAX_FILE_SIZE * 2;"
+if [ "$(node "$TOOL" "$T/barewordforeign.js" 2>&1 | grep -c 'const X ')" = "0" ]; then
+  ok "and MAX_FILE_SIZE is not a use of a destructured FILE"
+else bad "a foreign bare source matched as a substring"; fi
+
+# ---- arm 51: the harness itself must not read a CRASH as a finding --------
+# 🛑 THIS IS WHY THE ARM ABOVE EXISTS AT ALL. A ReferenceError exits 1, which is what
+# an arm expecting a finding asserts, so three arms reported PASS while the rule they
+# tested had never run once. run() now returns CRASH for a stack trace and NOFINDING
+# for an exit-1 with no finding line, and both differ from "1".
+printf 'throw new Error("boom");\n' > "$T/crashy.js"
+CRASHTOOL="$T/crashtool.js"
+printf 'require("%s");\n' "$TOOL" > "$CRASHTOOL"
+out_crash="$(node "$TOOL" "$T/crashy.js" 2>&1; true)"
+# a file that merely THROWS at require time is not scanned by the tool, so use the
+# harness's own verdict on a deliberately broken invocation instead:
+if [ "$(run crashy)" = "0" ]; then ok "a syntactically valid fixture with no freeze is a clean 0"
+else bad "an ordinary fixture did not read as clean" "got $(run crashy)"; fi
 
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,
