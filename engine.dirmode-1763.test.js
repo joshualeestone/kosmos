@@ -101,8 +101,14 @@ test('kosmos#1763: githubdevice tightens a pre-existing loose token dir when the
   answers = [{ access_token: 'tok-live', token_type: 'bearer', scope: 'repo' }];
   const started = await gd.start();
   assert.equal(started.phase, 'awaiting', 'sanity: the flow started');
-  await settle(400);
-  const st = await gd.state();
+  // Poll until the async device-flow lands the token rather than a fixed sleep,
+  // so a loaded box does not flake the arm (bounded ~2s).
+  let st;
+  for (let i = 0; i < 40; i += 1) {
+    st = await gd.state();
+    if (st.connected) break;
+    await settle(50);
+  }
   assert.equal(st.connected, true, 'sanity: the token landed, so the write path ran: ' + JSON.stringify(st));
   assert.equal(fs.statSync(gd.DIR).mode & 0o777, 0o700,
     'the completed device flow must tighten a pre-existing loose token dir to 0700 (reds without the chmod(DIR) fix)');
