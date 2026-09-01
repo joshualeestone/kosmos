@@ -301,23 +301,36 @@ function noteAttemptEnd(owner, code, why) {
     log: installLog(),
   };
 }
-function readStatusRecord() {
+/* The raw last-status record ({code, startedAt, endedAt}) with no code filter,
+   so both the failure reader and the marker reader can consult it. */
+function readStatusRaw() {
   const file = installStatusFile();
   if (!file) return null;
   let raw = '';
   try { raw = fs.readFileSync(file, 'utf8'); } catch { return null; }
   const m = /^(-?\d+)\s+(\S+)/.exec(raw.trim());
   if (!m) return null;
-  const code = Number(m[1]);
-  if (code === 0) return null;   // a success seeds nothing: success is the board coming back changed
   let endedAt = null;
   try { endedAt = fs.statSync(file).mtime.toISOString(); } catch { endedAt = new Date().toISOString(); }
-  return { startedAt: m[2], endedAt, code, because: 'the installer stopped before it could restart the board', log: installLog() };
+  return { code: Number(m[1]), startedAt: m[2], endedAt };
+}
+function readStatusRecord() {
+  const s = readStatusRaw();
+  if (!s) return null;
+  if (s.code === 0) return null;   // a success seeds nothing: success is the board coming back changed
+  return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the installer stopped before it could restart the board', log: installLog() };
 }
 /* #1728. A surviving start marker (see markInstallStarted) means the attempt
    never reached its finish line -- the shell removes the marker on finish. The
    code is null because we do not know the outcome, only that it was in flight
-   and did not complete. */
+   and did not complete.
+   🛑 SAME-ATTEMPT SUPPRESSION: if a status record exists for the SAME start stamp,
+   the shell reached its status write, so that attempt was NOT interrupted before
+   finishing -- the marker is only residue from the tiny window between the status
+   write and the `rm -f "$4"` (a board killed there). Suppress it in that case, or
+   a successful-then-killed install would falsely read as interrupted. A status for
+   a DIFFERENT (earlier) attempt does not suppress: the marker is then a genuine
+   later interruption, and seedFromDisk's newest-wins picks it. */
 function readStartedRecord() {
   const file = installStartedFile();
   if (!file) return null;
@@ -325,6 +338,8 @@ function readStartedRecord() {
   try { raw = fs.readFileSync(file, 'utf8'); } catch { return null; }
   const startedAt = raw.trim();
   if (!startedAt) return null;
+  const s = readStatusRaw();
+  if (s && String(s.startedAt) === String(startedAt)) return null; // same attempt finished; marker is residue
   let endedAt = null;
   try { endedAt = fs.statSync(file).mtime.toISOString(); } catch { endedAt = new Date().toISOString(); }
   return { startedAt, endedAt, code: null, because: 'the update was interrupted before it could finish', log: installLog() };

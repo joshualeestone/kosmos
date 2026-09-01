@@ -316,18 +316,21 @@ test('the installer URL is a positional parameter, never interpolated into the s
   assert.ok(at > -1, 'the installer spawn is gone or no longer uses /bin/sh directly');
   const call = SRC.slice(at, SRC.indexOf(')', SRC.indexOf('setupUrl()', at)) + 1);
 
-  /* The safe shape, asserted positively first: the command references `$1`,
-     `$2` and `$3` only, and the URL, the status file and the stamp ride as
-     their own argv elements after the `sh` argv[0] filler (#553 added the
-     two trailing positionals so the installer's exit code and start stamp
-     land in logs/install.status whatever happens to this server). */
-  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s\\n" "\$code" "\$3" > "\$2"',\s*'sh',\s*setupUrl\(\)/,
+  /* The safe shape, asserted positively first: the command references `$1`
+     through `$4` only, and the URL, the status file, the stamp and the marker
+     ride as their own argv elements after the `sh` argv[0] filler (#553 added
+     the status file and start stamp so the installer's exit code and start
+     stamp land in logs/install.status whatever happens to this server; #1728
+     added `; rm -f "$4"` and the marker positional so the shell removes the
+     in-flight marker on finish -- a surviving marker means an interrupted
+     install). The URL is still $1 and still never interpolated. */
+  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s\\n" "\$code" "\$3" > "\$2"; rm -f "\$4"',\s*'sh',\s*setupUrl\(\)/,
     'the installer command is no longer the reviewed shape: ' + call);
-  /* The two trailing positionals, asserted on the wider source since the
-     slice above stops at the URL: the status file is $2, the stamp is $3,
-     neither interpolated. */
-  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt\]/.test(SRC),
-    'the status file and the start stamp no longer ride as positionals');
+  /* The three trailing positionals, asserted on the wider source since the
+     slice above stops at the URL: the status file is $2, the stamp is $3, the
+     marker is $4, none interpolated. */
+  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt,\s*startedMarker\]/.test(SRC),
+    'the status file, the start stamp and the marker no longer ride as positionals');
 
   /* And the unsafe shapes, by name. A template literal or a concatenation
      inside the `-c` string is the whole failure: it turns a release base into

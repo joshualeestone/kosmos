@@ -144,3 +144,30 @@ test('#1728: a successful status (code 0) with no marker seeds nothing, as befor
 
   assert.equal(update.lastAttempt(), null, 'success is the board coming back changed, not a record');
 });
+
+test('#1728 WARNING fix: a success killed before rm (SAME-attempt marker) does NOT read as interrupted', () => {
+  // The shell wrote a code-0 status, then the board was killed in the tiny window
+  // before `rm -f "$4"`. The marker survives but the attempt DID finish -- it must
+  // not be reported as interrupted (same start stamp => same, finished attempt).
+  const root = freshRoot();
+  fs.mkdirSync(path.join(root, 'logs'), { recursive: true });
+  const startedAt = '2026-09-01T05:00:00.000Z';
+  fs.writeFileSync(statusPath(root), '0 ' + startedAt + '\n');
+  fs.writeFileSync(startedPath(root), startedAt + '\n'); // same-attempt residue
+  assert.equal(update.lastAttempt(), null, 'a finished (successful) attempt is never reported as interrupted');
+});
+
+test('#1728 CONTROL: a marker from a LATER attempt than an older SUCCESS is a genuine interruption', () => {
+  // The suppression is same-attempt only: a newer marker after an older success
+  // is a real later interruption and must still surface (proves suppression is
+  // keyed on the start stamp, not "any success suppresses any marker").
+  const root = freshRoot();
+  fs.mkdirSync(path.join(root, 'logs'), { recursive: true });
+  fs.writeFileSync(statusPath(root), '0 2026-09-01T04:00:00.000Z\n'); // older successful attempt
+  fs.writeFileSync(startedPath(root), '2026-09-01T05:00:00.000Z\n');   // newer attempt, interrupted
+  const view = update.lastAttempt();
+  assert.ok(view, 'a newer interrupted attempt after an older success is reported');
+  assert.equal(view.startedAt, '2026-09-01T05:00:00.000Z');
+  assert.equal(view.code, null);
+  assert.match(view.because, /interrupted/i);
+});
