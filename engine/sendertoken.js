@@ -120,25 +120,24 @@ function readTokens(sessionName) {
 function writeTokens(sessionName, tokens) {
   const file = fileFor(sessionName);
   fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
+  /* 🛑 THE DIRECTORY IS TIGHTENED BEFORE THE WRITE, NOT AFTER. The `mode:` options
+     here apply ON CREATE ONLY: on a path that already exists they are SILENTLY
+     IGNORED, which is the whole bug. Chmodding the directory afterwards would leave
+     the fresh secret sitting in a world-readable directory for the duration of the
+     write, on exactly the path this fix exists for, and would leave a window for a
+     symlink plant in a loose directory. Same shape and same rationale as
+     `engine/remote.js`, which already does mkdir-then-chmod on its state dir. */
+  try { fs.chmodSync(DIR, 0o700); } catch { /* see the note below */ }
   fs.writeFileSync(file, JSON.stringify({ tokens }), { mode: FILE_MODE });
-  /* 🛑 THE `mode:` OPTIONS ABOVE APPLY ON CREATE ONLY. On a path that already
-     exists they are SILENTLY IGNORED, so a token file or directory that is
-     already loose STAYS loose through every later mint. Measured, all four arms:
-
-       fresh create with mode 0600            -> 600
-       pre-existing 644, rewritten with 0600  -> 644   <- ignored
-       then chmodSync 0600                    -> 600   <- the fix
-       mkdirSync recursive 0700 on an existing 755 dir -> 755   <- ignored
-
-     ⚠️ SO A TEST THAT MINTS INTO A FRESH DIRECTORY AND ASSERTS 0600 PASSES
-     WITHOUT THIS FIX. The arm that fails is the one that PLANTS loose modes
-     first. Both are pinned below, and each was perturbed on its own.
-
-     📌 The directory matters as much as the file: 0755 on the directory lets
-     anyone list and read the token filenames even when each file is 0600. Ten
-     sibling modules chmod the FILE after writing; none chmods the DIR. */
-  try { fs.chmodSync(DIR, 0o700); } catch { /* best effort: mode set at mkdir */ }
-  try { fs.chmodSync(file, FILE_MODE); } catch { /* best effort: mode set at write */ }
+  /* ⚠️ BEST EFFORT, AND WHAT THAT COSTS, STATED HONESTLY. A fresh create is already
+     0600 from the `mode:` above, so this chmod is redundant there. On a PRE-EXISTING
+     loose path it is the only thing that tightens anything, and if it throws the
+     token stays world-readable WITH NO SIGNAL. Not thrown because a failed chmod
+     must not stop an agent minting, which is the same trade `remote.js` makes.
+     📌 Do NOT reword this to say the mode option covers it. It does not, and an
+     earlier version of this comment said exactly that: it asserted the false premise
+     the fix removes. */
+  try { fs.chmodSync(file, FILE_MODE); } catch { /* see the note above */ }
 }
 
 /**
