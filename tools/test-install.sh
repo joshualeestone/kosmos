@@ -640,8 +640,15 @@ _kosmos_expected_port() { # $1 = uid
 if kosmos_app_selftest_current "$KOS_SRC/app/bin/kosmos-app" "$(_kosmos_expected_port 501)" "${KOSMOS_SELFTEST_TIMEOUT:-10}"; then
   for _uid in 501 502 1000 4999 5000; do
     _expected="$(_kosmos_expected_port "$_uid")"
-    _swift_got="$(bounded_run "${KOSMOS_SELFTEST_TIMEOUT:-10}" "$KOS_SRC/app/bin/kosmos-app" --kosmos-app-port-selftest "$_uid")"
-    chk "uid $_uid: Swift's kosmosDefaultPort agrees with the shell formula ($_expected)" "[ \"$_swift_got\" = \"$_expected\" ]"
+    # Gate the assignment: bounded_run returns 124 if THIS uid hangs, and a bare
+    # `_swift_got=$(...)` returning non-zero would abort the whole harness under the
+    # file's `set -e`. Testing it in the `if` condition suspends errexit, so a hung uid
+    # records a chk FAIL for that uid instead of killing the run (#955).
+    if _swift_got="$(bounded_run "${KOSMOS_SELFTEST_TIMEOUT:-10}" "$KOS_SRC/app/bin/kosmos-app" --kosmos-app-port-selftest "$_uid")"; then
+      chk "uid $_uid: Swift's kosmosDefaultPort agrees with the shell formula ($_expected)" "[ \"$_swift_got\" = \"$_expected\" ]"
+    else
+      chk "uid $_uid: the selftest returned a port within the bound" "false"
+    fi
   done
 else
   chk "the bundle implements --kosmos-app-port-selftest (a #910-aware build)" "false"

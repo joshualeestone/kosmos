@@ -18,13 +18,28 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/apst-test.XXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 fails=0
 T=2                 # short bound: fast, and a real hang is caught quickly
-FORK=918273001      # a distinctive sleep the stub FORKS: orphaned by a naive kill, reaped
+FORK="9552$$"     # a distinctive sleep the stub FORKS: orphaned by a naive kill, reaped
                     # only by the group-kill -- this is what makes the no-orphan arm real.
-LAUNCH=918273002    # the stub's launcher sleep
+                    # $$ makes it unique per run so a CONCURRENT run of this test on the
+                    # same fleet box cannot match our marker and false-FAIL the count.
+LAUNCH="9553$$"   # the stub's launcher sleep (also unique per run)
 
 check() {  # check <name> <expected> <actual>
   if [ "$2" = "$3" ]; then echo "PASS  $1"
   else echo "FAIL  $1 (expected $2, got $3)"; fails=$((fails + 1)); fi
+}
+
+# wait_gone <pgrep-pattern>: the group-kill lands asynchronously, so poll (up to ~5s)
+# for our (unique) marker to disappear rather than assuming a fixed delay; echo the
+# final match count (0 = reaped).
+wait_gone() {
+  local c=0
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    c="$(pgrep -f "$1" | wc -l | tr -d ' ')"
+    [ "$c" = 0 ] && break
+    sleep 0.5
+  done
+  echo "$c"
 }
 
 # CURRENT: answers the real flag with the pinned uid-501 port and exits; anything else
@@ -63,11 +78,10 @@ check "bounded_run returns 124 on a hanging bundle" 124 "$rc"
 # ceiling well under the 999s hang catches a far-too-slow bound without flaking on load.
 if [ "$elapsed" -le 60 ]; then check "bounded_run did not hang (bounded)" ok ok
 else check "bounded_run did not hang (bounded)" ok "SLOW-${elapsed}s"; fi
-sleep 1   # let the group-kill land
 # The FORKED child (not the launcher) is the real test: a naive kill "$pid" reaps the
 # launcher but ORPHANS this; only kill -- -"$pid" (the group) reaps it. So this arm reds
-# a regression back to a launcher-only kill.
-check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$(pgrep -f "sleep $FORK" | wc -l | tr -d ' ')"
+# a regression back to a launcher-only kill. Poll for our unique marker to disappear.
+check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$(wait_gone "sleep $FORK")"
 
 # --- bounded_run returns a quick command's output and rc --------------------------
 out="$(bounded_run "$T" "$cur" --kosmos-app-port-selftest 501)"; rc=$?
@@ -82,8 +96,7 @@ kosmos_app_selftest_current "$bwrong" 16180 "$T"; check "a bundle answering the 
 
 # The CURRENT premise check exits fast on the real flag (starts no app, forks nothing),
 # and every BEHIND arm above was group-killed. Prove nothing leaked across the whole run.
-sleep 1
-check "no selftest child leaked across the run" 0 "$(pgrep -f "sleep $FORK" | wc -l | tr -d ' ')"
+check "no selftest child leaked across the run" 0 "$(wait_gone "sleep $FORK")"
 
 echo "---"
 if [ "$fails" -eq 0 ]; then echo "app-port-selftest: all checks passed"; exit 0; fi
