@@ -41,6 +41,12 @@
 const MARK = 'kosmos';
 const KIND = 'agent';
 
+/* A display name is a name, not a paragraph. `identityFromText` bounds the role
+   but not the name, and `create.nameProblem`'s 32-char cap is on the machine
+   name, not this human-visible field -- so import bounds it itself. Generous
+   (well past any real name) so it refuses a wall of text, not a long name. */
+const MAX_DISPLAY = 64;
+
 /**
  * The contract an importer must enforce. Stated here, beside the writer, so
  * whoever builds the import half is not inferring it from examples.
@@ -66,10 +72,12 @@ function safeValue(v) {
   /* A value is ONE LINE OF CLEAN TEXT. It refuses (never escapes):
        - control characters (C0, C1 and DEL): a newline ends the block early, and
          no control character belongs in a name, a display name or a provider;
-       - ALL bidi FORMATTING: the LRM/RLM marks (U+200E/200F), the embeddings and
-         overrides (U+202A-202E) and the isolates (U+2066-2069). These reorder how
-         text renders and are the display-name SPOOFING vector this import surface
-         exists to refuse;
+       - EVERY Unicode Bidi_Control character: the Arabic Letter Mark (U+061C), the
+         LRM/RLM marks (U+200E/200F), the embeddings and overrides (U+202A-202E)
+         and the isolates (U+2066-2069). These reorder how text renders and are the
+         display-name SPOOFING vector this import surface exists to refuse;
+       - the line and paragraph separators U+2028/U+2029, which are line
+         terminators no single-line value should carry;
        - a stray zero-width no-break space (U+FEFF) that is not the leading BOM
          importAgent already strips.
      This is a BOUNDARY hardening, NOT the full agent-name character policy: the
@@ -77,7 +85,7 @@ function safeValue(v) {
      material flows through createAgent, which is also where the ambiguous
      zero-width joiners (legitimate in emoji and some scripts) are refused. Export
      names are already clean, so this trips nothing there. */
-  if (!s || /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]/.test(s)) return null;
+  if (!s || /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/.test(s)) return null;
   return s;
 }
 
@@ -225,6 +233,9 @@ function importAgent(text, deps) {
   const displayName = safeValue(identity.displayName);
   if (!displayName) {
     return { ok: false, because: 'the agent file’s display name carries a control or bidi character' };
+  }
+  if (displayName.length > MAX_DISPLAY) {
+    return { ok: false, because: 'the agent file’s display name is too long to be a name' };
   }
 
   // A HINT, never a gate: the receiver may not have this provider connected, so

@@ -169,15 +169,29 @@ test('#1652 REFUSED WHOLE: a DISPLAY name (from the body) carrying a bidi overri
      machine name check does not cover it. Built with fromCharCode so the test
      source carries no literal bidi byte. */
   /* The bidi enters the display name through the BOLD "You are **X**" arm (the
-     heading/prose arms stop at it), which is exactly the reviewer's case. */
-  const BIDI = String.fromCharCode(0x202e);
-  const spoofed = agentfile.importAgent(`---\nkosmos: agent\nname: cleanmachinename\n---\n\nYou are **Ann${BIDI}EVIL**\n`, deps);
-  assert.equal(spoofed.ok, false, 'a bidi-spoofed display name was accepted');
-  assert.match(spoofed.because, /display name/);
+     heading/prose arms stop at it). Cover the strong override (U+202E) AND the
+     Arabic Letter Mark (U+061C), a Bidi_Control char the "all bidi" claim covers. */
+  for (const code of [0x202e, 0x061c]) {
+    const bad = String.fromCharCode(code);
+    const spoofed = agentfile.importAgent(`---\nkosmos: agent\nname: cleanmachinename\n---\n\nYou are **Ann${bad}EVIL**\n`, deps);
+    assert.equal(spoofed.ok, false, `a bidi-spoofed (U+${code.toString(16)}) display name was accepted`);
+    assert.match(spoofed.because, /display name/);
+  }
   // CONTROL: the identical file with a clean bold display name is accepted and returned.
   const clean = agentfile.importAgent('---\nkosmos: agent\nname: cleanmachinename\n---\n\nYou are **Ann Clean**\n', deps);
   assert.equal(clean.ok, true, clean.because);
   assert.equal(clean.displayName, 'Ann Clean');
+});
+
+test('#1652 REFUSED WHOLE: a display name too long to be a name', () => {
+  /* The display name is shown as-is and is never re-bounded downstream, so a
+     wall of text as a name is refused here. */
+  const wall = 'A'.repeat(200);
+  const out = agentfile.importAgent(`---\nkosmos: agent\nname: cleanmachinename\n---\n\nYou are **${wall}**\n`, deps);
+  assert.equal(out.ok, false, 'an arbitrarily long display name was accepted');
+  assert.match(out.because, /too long/);
+  // CONTROL: a normal-length display name in the same shape is accepted.
+  assert.equal(agentfile.importAgent('---\nkosmos: agent\nname: cleanmachinename\n---\n\nYou are **A Normal Name**\n', deps).ok, true);
 });
 
 test('#1652: enforcement matches IMPORT_CONTRACT (.required, .marker, .bodyMustName)', () => {
