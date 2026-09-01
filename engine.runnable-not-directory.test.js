@@ -117,7 +117,6 @@
  * `*.test.js`, not comment-blindness.
  */
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
 /* 🛑 SANDBOX THE STORE BEFORE ANY ENGINE REQUIRE. THIS IS NOT DEFENSIVE
@@ -417,8 +416,15 @@ test('the set of lines matching the weak call is exactly what we audited', () =>
       '           looser key for prose meant judging which lines are comments, and\n' +
       '           that judgement let a LIVE call opening with an inline block comment\n' +
       '           pass as prose.\n' +
-      '  THE KEY is {file, call, fn}: the matched call (line.match(WEAK_CALL_ALL)[0],\n' +
-      '           NOT the trimmed line) plus the ENCLOSING FUNCTION. fn sees a same-file\n' +
+      '  THE KEY is {file, call, fn}: the matched call, NOT the trimmed line, plus\n' +
+      '           the ENCLOSING FUNCTION. Build the calls with\n' +
+      '           [...line.matchAll(WEAK_CALL_ALL)].map(m => m[0]) -- ONE ROW PER\n' +
+      '           MATCH. Not line.match(...)[0]: with a /g regex that returns every\n' +
+      '           match and [0] keeps only the FIRST, so a line holding two weak\n' +
+      '           calls (the case matchAll is kept for above) gets one row against\n' +
+      '           two found, and the sweep stays red with no explanation. It also\n' +
+      '           returns null on a non-matching line, so [0] throws.\n' +
+      '           fn sees a same-file\n' +
       '           DIFFERENT-FUNCTION swap; {file, call} alone cannot, and neither can a\n' +
       '           trimmed line, because the planted line was byte-identical.\n' +
       '  ⚠️ IT DOES NOT SEE A SAME-FUNCTION SWAP, and an earlier version of this message\n' +
