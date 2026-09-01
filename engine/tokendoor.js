@@ -94,6 +94,11 @@ function makeTokenDoor(spec) {
     const v = await verify(token);
     if (!v.ok) return { ...(await state()), refused: v.because };
     fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
+    // #1763: mkdirSync's mode applies on create ONLY, so a pre-existing loose dir
+    // (an upgrade, a restore, an rsync/tar without -p) keeps 0755 and leaks the
+    // token filenames. Re-assert it, best-effort, like the file chmod below and
+    // remote.js's precedent.
+    try { fs.chmodSync(DIR, 0o700); } catch { /* best-effort; mode set at mkdir on create */ }
     fs.writeFileSync(FILE, String(token).trim() + '\n', { mode: 0o600 });
     try { fs.chmodSync(FILE, 0o600); } catch { /* mode set at write */ }
     return state();

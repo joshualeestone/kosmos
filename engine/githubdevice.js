@@ -338,6 +338,11 @@ async function pollOnce(id, deviceCode, delayMs) {
     FLOW = { ...FLOW, phase: PHASE.COMPLETING };
     /* Straight to the 600 file, the Cloudflare shape. */
     fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
+    // #1763: mkdirSync's mode applies on create ONLY, so a pre-existing loose dir
+    // (an upgrade, a restore, an rsync/tar without -p) keeps 0755 and leaks the
+    // token filenames. Re-assert it, best-effort, like the file chmod below and
+    // remote.js's precedent.
+    try { fs.chmodSync(DIR, 0o700); } catch { /* best-effort; mode set at mkdir on create */ }
     fs.writeFileSync(FILE, String(b.access_token).trim() + '\n', { mode: 0o600 });
     try { fs.chmodSync(FILE, 0o600); } catch { /* mode set at write */ }
     FLOW = { phase: PHASE.IDLE, code: null, url: null, because: null, expiresAt: 0 };
