@@ -119,7 +119,26 @@ const everyRootIsDeferred = (init, resolverNames, sources) => {
          exempted the frozen half on the strength of the lazy half's arrow. A
          comma between the arrow and the source means they belong to different
          members, so the arrow does not defer this one. */
-        return !l.slice(arrow, at).includes(',');
+      /* 🛑 ONLY A COMMA AT DEPTH ZERO SEPARATES MEMBERS. The first version of
+         this asked whether ANY comma sat between the arrow and the source, which
+         also matched the arrow's OWN call:
+           () => path.join(BASE, store.ROOT)   <- correct code, REPORTED as frozen
+         The comma there is inside parentheses opened after the arrow, so it is an
+         argument separator, not a member separator. Measured, both arms, after
+         this change: the line above is silent, and the laundering shape
+           { live: () => store.ROOT, file: path.join(process.env.AGENT_WORKFORCE_DATA,'x') }
+         is still REPORTED, because ITS comma is at depth zero.
+         ⚠️ Depth is clamped at zero: a member that CLOSES its own call before the
+         next source (`{ live: () => f(store.ROOT), file: ... }`) returns to depth
+         zero and the following comma still separates, which is the safe direction. */
+        const between = l.slice(arrow, at);
+        let depth = 0;
+        for (const ch of between) {
+          if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+          else if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
+          else if (ch === ',' && depth <= 0) return false;
+        }
+        return true;
       });
     }));
 };
