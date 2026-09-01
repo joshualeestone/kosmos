@@ -163,6 +163,28 @@ function maybeAutoInstall() {
     if (!installedRoot()) return;
     if (!(autoPref() || {}).on) return;
     if (autoFailedAt && Date.now() - autoFailedAt < AUTO_RETRY_AFTER) return;
+    /* 🛑 THE IN-MEMORY BRAKE IS DESTROYED BY THE FAILURE IT GUARDS, so read the
+       DURABLE one too. `install/setup.sh` runs `kosmos stop` before it downloads
+       a byte, so a 404, a dropped download or a checksum refusal kills THIS
+       process, and `autoFailedAt` dies with it. The launchd job is RunAtLoad
+       with no KeepAlive, deliberately, so the board then stays down until the
+       next login.
+
+       ⚠️ WITHOUT THIS, #1277 TURNS "STALE BUT UP" INTO "DOWN" on exactly the
+       machines it exists for: an unattended board with a persistently failing
+       installer would boot, poll about a minute later, stop itself to install,
+       fail, and stay stopped. Before this branch it never reached that path at
+       all, because nothing polled with nobody watching.
+
+       Same version and same window as the in-memory brake, and the manual
+       Install button is unaffected because it does not come through here. */
+    const durable = lastAttemptView();
+    const offer = available();
+    if (durable && durable.auto && durable.code !== 0 && offer
+        && durable.version && durable.version === offer.version) {
+      const endedMs = Date.parse(durable.endedAt || '');
+      if (Number.isFinite(endedMs) && Date.now() - endedMs < AUTO_RETRY_AFTER) return;
+    }
     beginInstall({ auto: true });
   } catch { /* an update that cannot start must not break the one that shows */ }
 }
@@ -275,7 +297,12 @@ function startAutoPoll(opts = {}) {
          poll starts at boot, so the gate sits on the fetch. 39 test files
          already set this variable, so it is the established seam rather than
          a new one. */
-      if (process.env.AGENT_WORKFORCE_DRY_RUN) return;
+      /* `=== '1'`, the fleet-wide spelling (remove.js, connect.js, create.js,
+         delete-leftover.js, chat.js all read it that way). A truthiness gate
+         meant `AGENT_WORKFORCE_DRY_RUN=0`, the natural way to say NOT a dry
+         run, left every other subsystem live and silently switched the update
+         poll off for good on a production machine, with no signal anywhere. */
+      if (process.env.AGENT_WORKFORCE_DRY_RUN === '1') return;
       if (!installedRoot()) return;
       /* 🛑 GATED ON THE PREFERENCE, AND MY FIRST REASON FOR NOT DOING THIS WAS
          FALSE. I argued the tick must run regardless because the Settings card

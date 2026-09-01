@@ -89,16 +89,31 @@ test('#1277: every test file that boots the server sets DRY_RUN, so none can rea
      a red test: it is a test run that reaches installkosmos.com and, from an
      installed layout, spawns a real curl-pipe-sh installer. */
   const fs = require('node:fs'); const path = require('node:path');
-  const dir = path.resolve(__dirname);
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.test.js'));
-  const boots = files.filter((f) => {
-    const src = fs.readFileSync(path.join(dir, f), 'utf8');
-    return /require\((['"])\.\/server\1\)/.test(src) && /\bstart\s*\(/.test(src);
+  /* 🛑 THE RUNNER RUNS `engine/*.test.js` TOO, and the first version of this
+     guard read only the repo root. There are over a hundred files under
+     engine/, any of which could `require('../server')`, boot it, start this
+     poll, and be invisible to a root-only scan. That is the exact "the next
+     file somebody writes inherits nothing" case this arm's own reason names,
+     one directory across. Measured today: zero engine tests require the
+     server, so the exposure was latent rather than live. Matched on
+     `require('...server')` rather than the literal './server' for the same
+     reason. */
+  const root = path.resolve(__dirname);
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => {
+    if (e.name === 'node_modules' || e.name.startsWith('.')) return [];
+    const full = path.join(d, e.name);
+    if (e.isDirectory()) return walk(full);
+    return e.name.endsWith('.test.js') ? [full] : [];
   });
+  const files = walk(root);
+  const boots = files.filter((f) => {
+    const src = fs.readFileSync(f, 'utf8');
+    return /require\((['"])[^'"]*server\1\)/.test(src) && /\bstart\s*\(/.test(src);
+  }).map((f) => path.relative(root, f));
   assert.ok(boots.length >= 10,
     `only ${boots.length} files looked like they boot the server; the detector is probably wrong, `
     + 'and a detector that finds nothing would make this arm pass for the wrong reason');
-  const missing = boots.filter((f) => !/AGENT_WORKFORCE_DRY_RUN/.test(fs.readFileSync(path.join(dir, f), 'utf8')));
+  const missing = boots.filter((f) => !/AGENT_WORKFORCE_DRY_RUN/.test(fs.readFileSync(path.join(root, f), 'utf8')));
   assert.deepEqual(missing, [],
     `these files boot the server without setting AGENT_WORKFORCE_DRY_RUN: ${missing.join(', ')}. `
     + 'Booting the server starts the update poll, and without the gate that poll uses the real '

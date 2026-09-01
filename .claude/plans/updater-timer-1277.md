@@ -342,3 +342,51 @@ and `/api/status`, and I am saying that here rather than implying a screen
 exists. Wiring a line into the Settings update card for an ended automatic
 attempt is a follow-up, not this card: this one is about the machine asking at
 all. Recorded so the gap is a decision rather than an oversight.
+
+## Iteration 6
+
+**The most serious finding on this branch: without a durable brake, #1277 turns
+"stale but up" into "DOWN" on the machines it exists for.**
+
+`install/setup.sh` runs `kosmos stop` before it downloads a byte, so a 404, a
+dropped download or a checksum refusal kills this process, and `autoFailedAt`,
+the module-level brake designed for exactly this scenario, dies with it. The
+launchd job is `RunAtLoad` with no `KeepAlive`, deliberately and documented at
+`install/setup.sh:3155`, so the board then stays down until the next login.
+
+The sequence on an unattended machine with a persistently failing installer:
+boot, poll about a minute later, find an offer, stop the board to install, fail,
+stay stopped. Before this branch nothing polled with nobody watching, so that
+path was never reached.
+
+`maybeAutoInstall()` now reads the DURABLE record as well, and skips the
+automatic path when the last recorded attempt was automatic, failed, targeted
+the same version, and is younger than `AUTO_RETRY_AFTER`. The channel already
+existed and iteration 5 widened it to carry the version and the auto flag, so
+this is the payoff for that work rather than new machinery. The manual Install
+button is untouched, because it does not come through here.
+
+⭐ The arm carries a control: a failure recorded for a DIFFERENT version must
+still allow the install, or the arm would pass for a predicate that never
+installs at all.
+
+**My DRY_RUN gate was the only truthiness read in the repo.** `remove.js`,
+`connect.js`, `create.js`, `delete-leftover.js` and `chat.js` all use
+`=== '1'`. So `AGENT_WORKFORCE_DRY_RUN=0`, the natural way to say NOT a dry run,
+left every other subsystem live and silently switched the update poll off for
+good on a production machine, with no signal anywhere. It now matches the fleet.
+
+**My convention guard scanned the wrong tree.** It read only the repo root, but
+`tools/run-tests.sh` runs `engine/*.test.js` too, and there are over a hundred
+files there. It now walks the tree the runner actually runs, and matches
+`require('...server')` rather than the literal `./server`. Verified by planting
+a probe under `engine/` that genuinely boots the server: the guard named it.
+Measured today: zero engine tests require the server, so the exposure was
+latent rather than live.
+
+**And the cadence arm was reading the ambient environment.** It reasons about
+the `POLL_EVERY` constant but called `startAutoPoll()` with no options, so it
+picked up `AGENT_WORKFORCE_UPDATE_POLL_MS` if an operator had set it. On any
+machine with that above `TTL/10` the suite went red for a configuration choice
+rather than a code change. It now clears the variable for the duration and
+restores it. Verified: the suite passes with a hostile 10-minute ambient value.

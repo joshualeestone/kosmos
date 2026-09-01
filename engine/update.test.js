@@ -527,9 +527,22 @@ test('#1277: the poll tick stays small against TTL, so a missed boundary costs l
      the repo's own engine.reachable guard exists to catch. It caught me in the
      full suite while the single-file run stayed green. */
   u.resetCache();
-  const t = u.startAutoPoll();
-  const interval = t && (t._repeat || t._idleTimeout);
-  u.stopAutoPoll();
+  /* ⚠️ The ambient env var must be OUT OF THE WAY. This arm reasons about the
+     POLL_EVERY constant, but startAutoPoll() reads AGENT_WORKFORCE_UPDATE_POLL_MS
+     when it is set, and the source calls that a live production variable. On a
+     machine where an operator has set it above TTL/10 this arm went red for a
+     configuration choice rather than a code change, which is the false-red the
+     runner exists to stop people re-running past. */
+  const prevPoll = process.env.AGENT_WORKFORCE_UPDATE_POLL_MS;
+  delete process.env.AGENT_WORKFORCE_UPDATE_POLL_MS;
+  let interval;
+  try {
+    const t = u.startAutoPoll();
+    interval = t && (t._repeat || t._idleTimeout);
+    u.stopAutoPoll();
+  } finally {
+    if (prevPoll !== undefined) process.env.AGENT_WORKFORCE_UPDATE_POLL_MS = prevPoll;
+  }
   assert.ok(interval > 0, 'could not read the default interval off the started timer');
   /* 🛑 THE PROPERTY IS GRANULARITY, NOT DIVISIBILITY, AND I ASSERTED THE WRONG
      ONE FIRST. My first version of this arm required the interval not to divide
@@ -779,5 +792,48 @@ test('#1277: the DURABLE record carries the version and the auto flag, not just 
   } finally {
     u.setInstalledRoot(null); u.resetCache();
     fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('#1277: a failed automatic install does NOT retry after a restart, so a board cannot boot-loop itself down', async () => {
+  /* The whole reason this matters: install/setup.sh runs `kosmos stop` before
+     downloading, so a real failure kills the process and takes autoFailedAt
+     with it. The launchd job is RunAtLoad with no KeepAlive, so the board then
+     stays down until the next login. Without a durable brake this card turns
+     "stale but up" into "down" on exactly the unattended machines it is for:
+     boot, poll a minute later, stop to install, fail, stay stopped. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-loop-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  u.resetCache();
+  let installs = 0;
+  u.setInstalledRoot(() => home);
+  u.setAutoPref(() => ({ on: true }));
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+  u.setInstallRunner(() => { installs += 1; return { on() {}, unref() {}, stderr: { on() {} } }; });
+  try {
+    /* A FRESH process, exactly as launchd would start one: nothing in memory,
+       and a durable record saying the last automatic attempt for THIS version
+       failed a moment ago. */
+    fs.writeFileSync(path.join(home, 'logs', 'install.status'),
+      `1 ${new Date().toISOString()} 99.0.0 1\n`);
+    await u.refresh();
+    assert.equal(installs, 0,
+      `the board started an automatic install ${installs} time(s) despite a durable record of the `
+      + 'same version failing minutes ago. On a machine with nobody at it that is a boot loop that '
+      + 'ends with the board down, because the installer stops it and launchd does not bring it back');
+
+    /* CONTROL: the same shape but the failure was for a DIFFERENT version, so
+       the brake must not apply and the install must proceed. Without this the
+       arm above would pass for a predicate that never installs. */
+    u.resetCache();
+    fs.writeFileSync(path.join(home, 'logs', 'install.status'),
+      `1 ${new Date().toISOString()} 98.0.0 1\n`);
+    await u.refresh();
+    assert.ok(installs > 0, 'CONTROL: a failure recorded for a different version must not block this one');
+  } finally {
+    u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+    u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
   }
 });
