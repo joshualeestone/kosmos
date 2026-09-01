@@ -316,6 +316,68 @@ test('#1761: the FALLBACK path also refuses a symlink, not just the rename path'
     'the forced-failure path left a temp behind');
 });
 
+/* 🛑 THE FALLBACK'S OWN TIGHTENING STEP. Deleting `fchmodSync` there left the suite
+   fully green: measured, the fallback produced mode 644, THE EXACT BUG THIS CARD
+   EXISTS TO FIX, on a path nothing watched. */
+test('#1761: the FALLBACK tightens a pre-existing loose file, not just the rename path', () => {
+  sendertoken.mint('fb-loose');
+  const file = path.join(sendertoken.DIR, 'fb-loose.json');
+  fs.chmodSync(file, 0o644);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o644,
+    'the loose mode was not planted, so this arm cannot fail for the right reason');
+
+  const realRename = fs.renameSync;
+  fs.renameSync = () => { const e = new Error('forced'); e.code = 'EXDEV'; throw e; };
+  let res;
+  try { res = sendertoken.mint('fb-loose'); } finally { fs.renameSync = realRename; }
+
+  assert.equal(res.ok, true, 'the forced fallback failed to mint at all');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600,
+    'the FALLBACK left a pre-existing token world-readable');
+  assert.deepEqual(fs.readdirSync(sendertoken.DIR).filter((f) => f.endsWith('.tmp')), [],
+    'the fallback left a temp behind');
+});
+
+/* 🛑 TWO STATED PROPERTIES THAT NOTHING WATCHED, both of them prior passes' findings.
+   The DIRECTORY must be tightened BEFORE anything is written (pass 1's hoist), and the
+   temp name must be UNIQUE PER RUN so a crash cannot wedge it (pass 3's finding).
+   Both were reported GREEN under mutation, so this arm observes them from inside the
+   write itself rather than from the end state, which cannot distinguish them. */
+test('#1761: the directory is already tight WHEN the token is written, and the temp name is unique', () => {
+  sendertoken.mint('observe');
+  fs.chmodSync(sendertoken.DIR, 0o755);
+
+  const realWrite = fs.writeFileSync;
+  const seen = { dirMode: null, names: [], flags: [] };
+  fs.writeFileSync = function (target, data, opts) {
+    if (typeof target === 'string' && target.startsWith(sendertoken.DIR)) {
+      if (seen.dirMode === null) seen.dirMode = fs.statSync(sendertoken.DIR).mode & 0o777;
+      seen.names.push(path.basename(target));
+      seen.flags.push(opts && opts.flag);
+    }
+    return realWrite.call(fs, target, data, opts);
+  };
+  try {
+    sendertoken.mint('observe');
+    sendertoken.mint('observe');
+  } finally { fs.writeFileSync = realWrite; }
+
+  assert.equal(seen.dirMode, 0o700,
+    'the token was written while the directory was still world-readable: the hoist is undone');
+  const temps = seen.names.filter((n) => n.endsWith('.tmp'));
+  assert.equal(temps.length, 2, 'expected one temp per mint');
+  assert.notEqual(temps[0], temps[1],
+    'two mints reused the same temp name, so one stale file from a crash wedges every later mint');
+
+  /* 🛑 `wx` IS OBSERVED AS A CALL FLAG, not grepped from source. It is the only thing
+     that refuses a file already sitting at the temp path, and a planted file there is
+     one we must NOT overwrite. Dropping it left every other arm green, because a
+     unique name makes a collision essentially unreachable in a test: the flag's whole
+     value is for the case a test cannot easily construct. */
+  assert.deepEqual(seen.flags, ['wx', 'wx'],
+    'the temp was written without the wx flag, so a planted file at that path would be overwritten');
+});
+
 test('#1761: a token DIRECTORY that is already loose is tightened too', () => {
   sendertoken.mint('loose-dir');
   fs.chmodSync(sendertoken.DIR, 0o755);
