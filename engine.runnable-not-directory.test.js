@@ -656,11 +656,11 @@ test('every site under the resolution rule resolves the claude binary its docume
     if (site.fn === 'async function start(') {
       const binding = (code.match(/const claudeResolved = require\('\.\/runners'\)\.resolveBin\('claude'\);/g) || []);
       assert.strictEqual(binding.length, 1,
-      'start() no longer binds the pair with a single '
-      + "`const claudeResolved = require('./runners').resolveBin('claude');`. Its count of "
-      + '2 is the documented pair-plus-binaryOnDisk, so a SUBSTITUTION of one resolution '
-      + 'for another does not move it and only this binding check sees it. If you '
-      + 'reformatted the line, restore the single binding or update this pin and say why.');
+        'start() no longer binds the pair with a single '
+        + "`const claudeResolved = require('./runners').resolveBin('claude');`. Its count of "
+        + '2 is the documented pair-plus-binaryOnDisk, so a SUBSTITUTION of one resolution '
+        + 'for another does not move it and only this binding check sees it. If you '
+        + 'reformatted the line, restore the single binding or update this pin and say why.');
     }
   }
 });
