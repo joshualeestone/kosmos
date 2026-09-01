@@ -232,6 +232,29 @@ test('#1761: a token file that is ALREADY loose is tightened on the next mint', 
     'a pre-existing world-readable token file survived a mint: anyone on the box can read this agent\'s ability to speak as itself');
 });
 
+test('#1761: the secret never occupies the loose file, because the write is temp-then-rename', () => {
+  sendertoken.mint('no-window');
+  const file = path.join(sendertoken.DIR, 'no-window.json');
+  fs.chmodSync(file, 0o644);
+  const before = fs.statSync(file).ino;
+  assert.equal(fs.statSync(file).mode & 0o777, 0o644,
+    'the loose mode was not planted, so this arm cannot fail for the right reason');
+
+  sendertoken.mint('no-window');
+
+  /* 🛑 THE INODE IS THE OBSERVABLE FOR "NO WINDOW". A write-then-chmod REUSES the
+     inode, so the freshly minted secret sits in the old, loose file until the chmod
+     lands. Measured on that shape: 644 immediately after the write, secret readable.
+     A temp-then-rename REPLACES the inode, so the target is never briefly loose and
+     never partially written. Asserting the mode alone cannot tell those apart: both
+     end at 0600. */
+  assert.notEqual(fs.statSync(file).ino, before,
+    'the token was written in place, so the secret sat in the pre-existing loose file until the chmod');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.deepEqual(fs.readdirSync(sendertoken.DIR).filter((f) => f.includes('.tmp-')), [],
+    'a temp file was left behind');
+});
+
 test('#1761: a token DIRECTORY that is already loose is tightened too', () => {
   sendertoken.mint('loose-dir');
   fs.chmodSync(sendertoken.DIR, 0o755);

@@ -120,24 +120,51 @@ function readTokens(sessionName) {
 function writeTokens(sessionName, tokens) {
   const file = fileFor(sessionName);
   fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
-  /* 🛑 THE DIRECTORY IS TIGHTENED BEFORE THE WRITE, NOT AFTER. The `mode:` options
-     here apply ON CREATE ONLY: on a path that already exists they are SILENTLY
-     IGNORED, which is the whole bug. Chmodding the directory afterwards would leave
-     the fresh secret sitting in a world-readable directory for the duration of the
-     write, on exactly the path this fix exists for, and would leave a window for a
-     symlink plant in a loose directory. Same shape and same rationale as
-     `engine/remote.js`, which already does mkdir-then-chmod on its state dir. */
-  try { fs.chmodSync(DIR, 0o700); } catch { /* see the note below */ }
-  fs.writeFileSync(file, JSON.stringify({ tokens }), { mode: FILE_MODE });
-  /* ⚠️ BEST EFFORT, AND WHAT THAT COSTS, STATED HONESTLY. A fresh create is already
-     0600 from the `mode:` above, so this chmod is redundant there. On a PRE-EXISTING
-     loose path it is the only thing that tightens anything, and if it throws the
-     token stays world-readable WITH NO SIGNAL. Not thrown because a failed chmod
-     must not stop an agent minting, which is the same trade `remote.js` makes.
-     📌 Do NOT reword this to say the mode option covers it. It does not, and an
-     earlier version of this comment said exactly that: it asserted the false premise
-     the fix removes. */
-  try { fs.chmodSync(file, FILE_MODE); } catch { /* see the note above */ }
+  /* 🛑 THE DIRECTORY IS TIGHTENED BEFORE ANYTHING IS WRITTEN. The `mode:` option
+     above applies ON CREATE ONLY: on a directory that already exists it is SILENTLY
+     IGNORED, which is half the bug. Chmodding afterwards would leave the fresh
+     secret sitting in a world-readable directory for the duration of the write.
+     Same shape and rationale as `engine/remote.js`, which already does
+     mkdir-then-chmod on its state dir. */
+  try { fs.chmodSync(DIR, 0o700); } catch { /* best effort, see the note below */ }
+
+  /* 🛑 TEMP, CHMOD, RENAME. NOT write-then-chmod, and the difference is the whole
+     point of this card one layer down.
+
+     `writeFileSync(target, ..., { mode })` on a PRE-EXISTING loose file ignores the
+     mode, so the secret lands on disk at the OLD permissions and stays there until a
+     later chmod. Measured on exactly the path this fix exists for:
+
+       planted 0644, then writeFileSync(..., { mode: 0600 })
+         -> 644 IMMEDIATELY AFTER THE WRITE, secret bytes readable
+       control: a fresh path -> 600, no window
+       (umask 022, so the umask is not what is masking it)
+
+     ⚠️ AN EARLIER VERSION OF THIS FUNCTION HOISTED THE DIRECTORY CHMOD FOR EXACTLY
+     THIS REASON AND LEFT THE FILE ONE LINE BELOW IT UNFIXED, on the more sensitive
+     object. The argument was made and not applied.
+
+     ✅ Writing a fresh temp and renaming means the target is NEVER briefly loose and
+     never partially written: `rename` is atomic. `flag: 'wx'` fails rather than
+     following or reusing anything already at the temp path, which also refuses a
+     planted symlink there. Same pattern as `engine/trust.js` and `engine/create.js`.
+     📌 `chmodSync` on the temp is not belt and braces: a loose umask can widen a
+     create-time mode, which is the reason `trust.js` states beside its own copy. */
+  const tmp = `${file}.tmp-${process.pid}`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify({ tokens }), { flag: 'wx', mode: FILE_MODE });
+    fs.chmodSync(tmp, FILE_MODE);
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    /* ⚠️ ONLY REMOVE A TEMP WE CREATED. The `wx` above means a pre-existing temp
+       makes the write throw, and unlinking then would delete somebody else's file. */
+    if (err && err.code !== 'EEXIST') { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+    /* Fall back to the direct write rather than failing a mint: an agent that cannot
+       mint cannot speak at all. The chmod below is what tightens a pre-existing loose
+       file on this path, and if IT throws the token stays loose WITH NO SIGNAL. */
+    fs.writeFileSync(file, JSON.stringify({ tokens }), { mode: FILE_MODE });
+    try { fs.chmodSync(file, FILE_MODE); } catch { /* best effort */ }
+  }
 }
 
 /**
