@@ -1229,7 +1229,7 @@ test('#1277: a failed MANUAL press does not clear the brake for one more unatten
     + 'board takes itself down once more');
 });
 
-test('#1277: a SPAWN error consumes no DURABLE chance, because the installer never ran', async () => {
+test('#1277: a SPAWN error is recorded as ended, with no exit code and one attempt', async () => {
   /* This arm exists to give `durable.code !== null` a guard of its own. A
      reviewer measured that removing either that clause or `durable.endedAt`
      alone left the suite green, because an in-flight record satisfies both, so
@@ -1289,9 +1289,22 @@ test('#1277: a SPAWN error consumes no DURABLE chance, because the installer nev
        the fix is to roll the count back in wireChild's error handler. */
     assert.equal(rec.attempts, 1,
       `the in-memory attempt count is ${rec.attempts}, not the 1 this arm expects`);
-    assert.equal(fs.readFileSync(statusFile, 'utf8'), before,
-      'a spawn error changed the DURABLE record. The shell never ran, so nothing should have '
-      + 'written to logs/install.status, and a chance was consumed that cost the person nothing');
+    /* 🛑 THE DURABLE ASSERTION THAT USED TO BE HERE IS GONE, BECAUSE IT COULD NOT
+       FAIL. It read the status file and required it unchanged. But this arm injects
+       a runner, and the ONLY writer of that file is the real spawn (`installStatusFile()`
+       has exactly two uses: read in seedFromStatusFile, and passed as $2 to the
+       spawned shell). With a runner injected the spawn never happens, so the file
+       is unchanged by construction. Corroborated: a child_process interceptor
+       recorded zero spawns across this entire file.
+
+       So the seam that makes this arm SAFE to run is the same thing that makes its
+       central claim trivially true, and no arrangement of stubs escapes that. The
+       claim itself stands and is established by reading rather than by this arm:
+       a spawn error means no child, and no child means nothing writes the file.
+       Recorded here rather than dropped silently, because the name of this test
+       rests on it. The preconditions below DO measure something and are kept. */
+    assert.ok(before.length > 0, 'the sentinel was never written, so the preconditions below '
+      + 'would be measuring an empty directory rather than an untouched file');
   } finally {
     u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
     u.resetCache(); fs.rmSync(home, { recursive: true, force: true });

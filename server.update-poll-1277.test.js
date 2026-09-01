@@ -165,6 +165,13 @@ test('#1277: every test file that boots the server sets DRY_RUN', () => {
      sets AGENT_WORKFORCE_DRY_RUN to '' in a child env. A guard whose stated
      purpose is "none can reach the release host" must check the thing the
      product checks. */
+  /* ⚠️ PARTLY CLOSED, AND SAYING WHICH HALF. LIVE_CODE strips comments before this
+     runs, so a commented-out assignment no longer satisfies it, which was the half
+     measured. The other half is NOT closed: this still matches the literal inside a
+     STRING, such as an assertion message naming the variable. No file exploits that
+     today, and I am recording it rather than claiming the guard is airtight, because
+     the comment two paragraphs up names this exact class one level up and then the
+     code reproduced it at the value level. */
   const SETS_IT = /AGENT_WORKFORCE_DRY_RUN\s*[:=]\s*['"]1['"]/;
   /* Excused BY NAME WITH A REASON, the same shape engine.reachable.test.js uses.
      An entry here is a claim someone can check, not a way to quiet the guard. */

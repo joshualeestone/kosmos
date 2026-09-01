@@ -96,7 +96,7 @@ async function refresh() {
   /* TWO LOCKS, BECAUSE THEY COVER DIFFERENT HALVES AND NEITHER COVERS BOTH.
 
      (a) inTestProcess() keys on `process.execArgv` containing `--test`, which is
-     PER-PROCESS AND NOT INHERITED (live-execution.js:57). So it is true in the
+     PER-PROCESS AND NOT INHERITED (see its docblock). So it is true in the
      test process itself and false in production BY CONSTRUCTION, with no reliance
      on an environment variable a person might set on a real machine. It throws
      rather than returning, the same posture as refuseOrWarn: a test that
@@ -268,7 +268,7 @@ function maybeAutoInstall() {
        both, so the guard could not fail for the clause its own comment named. I
        tried to give the second clause an arm of its own, aimed at the spawn-error
        state (wireChild's 'error' handler ends the record with a null code at
-       :591, so endedAt IS set and the code is null, which is genuinely a
+       (wireChild's 'error' handler), so endedAt IS set and the code is null, which is genuinely a
        different state). The arm passed with the clause removed too, so it did not
        pin it either.
 
@@ -910,7 +910,7 @@ function beginInstall(opts) {
      direction for the one command in this product that ends in `| sh`. */
   if (!liveExec.liveExecutionAllowed()) {
     /* 🛑 RELEASE SINGLE-FLIGHT *BEFORE* THE REFUSAL. THE ORDER IS THE WHOLE POINT.
-       `refuseOrWarn` THROWS in a test process (live-execution.js:71), so with the
+       `refuseOrWarn` THROWS in a test process (live-execution.js, in refuseOrWarn), so with the
        release written after the call it was UNREACHABLE on exactly the branch
        that needed it, and the comment here claimed a release that never happened.
        maybeAutoInstall swallows the throw, so the flag stayed set.
