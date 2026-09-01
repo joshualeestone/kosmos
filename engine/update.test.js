@@ -1579,3 +1579,70 @@ test('#1277: a CHILD-process server under DRY_RUN also makes no real request', a
     `a child-process server under DRY_RUN made ${got.hits} real request(s) to the release host. `
     + 'inTestProcess() is false there by design, so DRY_RUN is the only lock covering these boots');
 });
+
+test('#1277 INVARIANT: a status file recording SUCCESS never becomes a durable failure', async () => {
+  /* Two brakes dropped a `durable.code !== 0` clause that was provably dead,
+     because durable.code can never be 0. That deadness rests on THIS invariant,
+     and deleting dead code silently moves a load-bearing invariant into nobody's
+     care. If a later change lets a code-0 record through, both brakes start
+     treating a SUCCESSFUL install as a failure, and this arm is what says so. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-inv-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  u.resetCache();
+  u.setInstalledRoot(() => home);
+  try {
+    fs.writeFileSync(path.join(home, 'logs', 'install.status'),
+      `0 ${new Date().toISOString()} 99.0.0 1 3 6\n`);       // code 0, both counters past their caps
+    assert.equal(u.lastAttempt(), null,
+      'a status file recording SUCCESS produced a durable failure record. Both brakes now assume '
+      + 'durable.code is never 0, so a code-0 record would make them treat a successful install '
+      + 'as a failure and stop updating the machine');
+    /* CONTROL: a non-zero code MUST still produce a record, or this arm passes
+       because nothing is ever seeded. */
+    u.resetCache();
+    u.setInstalledRoot(() => home);
+    fs.writeFileSync(path.join(home, 'logs', 'install.status'),
+      `1 ${new Date().toISOString()} 99.0.0 1 3 6\n`);
+    const rec = u.lastAttempt();
+    assert.ok(rec && rec.code === 1, 'CONTROL: a FAILED install must still seed a durable record');
+  } finally {
+    u.setInstalledRoot(null); u.resetCache();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('#1277: the streak survives the restart-free path, where this server outlives the failure', async () => {
+  /* noteAttemptEnd REBUILDS the record, and every field it forgets regresses on
+     the one path where this server survives a failed install. `attempts` is
+     tested twice over; `streak` had the same named harm and no arm, and it is the
+     one counter whose entire reason for existing is that it must NOT reset. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-carry-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  u.resetCache();
+  u.setInstalledRoot(() => home);
+  u.setAutoPref(() => ({ on: true }));
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+  let child = null;
+  u.setInstallRunner(() => { child = { handlers: {}, on(e, cb) { this.handlers[e] = cb; }, unref() {}, stderr: { on() {} } }; return child; });
+  try {
+    const old = new Date(Date.now() - 5 * 3600 * 1000);
+    const f = path.join(home, 'logs', 'install.status');
+    fs.writeFileSync(f, `1 ${old.toISOString()} 99.0.0 1 1 4\n`);   // streak already 4
+    fs.utimesSync(f, old, old);
+    await u.checkNow();
+    assert.ok(child, 'precondition: an automatic attempt started');
+    assert.equal((u.lastAttempt() || {}).streak, 5, 'precondition: the attempt carried the streak to 5');
+    child.handlers.exit(1);                       // the installer fails, this server LIVES
+    assert.equal((u.lastAttempt() || {}).streak, 5,
+      `the rebuilt record reports streak ${(u.lastAttempt() || {}).streak} instead of 5. The `
+      + 'cross-version counter regressed on the exact path it exists for, so a machine that '
+      + 'cannot install would count toward its cap forever without reaching it');
+  } finally {
+    u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+    u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+  }
+});

@@ -9532,6 +9532,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <button class="toggle" id="auto-toggle" role="switch" aria-label="Update Kosmos automatically" hidden><i></i></button>
       </div>
       <p class="dhint" id="auto-msg" role="status" style="margin:8px 0 0;"></p>
+      <!-- 🛑 WHAT AN UNATTENDED ATTEMPT DID, WHERE THE PERSON CAN SEE IT. Until #1277
+           an install could only happen with somebody at the board, so the post-press
+           overlay was the only place a result needed to appear. This card makes the
+           unattended path the normal one, and the record was rendered ONLY inside that
+           overlay, gated on the attempt being the one this tab started, so an install
+           that failed at 03:00 and left the board down until the next login said
+           nothing at all on screen. The give-up states wrote to stderr only. -->
+      <p class="dhint" id="auto-attempt" role="status" style="margin:8px 0 0;" hidden></p>
     </section>
   </section>
   <!-- ============ PLUS ACCOUNT (#Josh 19:15, the relay service's home) ====
@@ -14373,8 +14381,33 @@ function autoPaint(r) {
     ? 'We could not read this setting just now.'
     : (r.ok === false ? 'We could not read this setting, so updates will wait for you to press Install.' : '');
 }
+/**
+ * What the last UNATTENDED attempt did, in a sentence, on the card that owns
+ * the preference which caused it.
+ *
+ * 🔑 Gated on `auto`, NOT on whether this tab started it. The press overlay
+ * asks "is this MY attempt", which is right for a press and wrong for
+ * everything this card is about, because nobody was here. A record with no
+ * endedAt is still running and says nothing: a half-finished install is not
+ * news, and saying so would be the in-flight mistake one layer up.
+ */
+function autoAttemptPaint(attempt) {
+  const el = document.getElementById('auto-attempt');
+  if (!el) return;
+  const a = attempt && attempt.auto && attempt.endedAt ? attempt : null;
+  if (!a) { el.hidden = true; el.textContent = ''; return; }
+  const v = a.version ? (' of ' + a.version) : '';
+  el.textContent = 'The last automatic update' + v + ' did not finish, so this board '
+    + 'restarted without it. Press Install above to try again.';
+  el.hidden = false;
+}
 async function refreshAutoUpdate() {
   const mine = ++AUTO_EPOCH;
+  /* Best effort and deliberately NOT awaited into the preference read: a status
+     hiccup must not stop the switch painting. */
+  fetch('/api/status').then((r) => r.json()).then((st) => {
+    if (mine === AUTO_EPOCH) autoAttemptPaint(st && st.updateAttempt);
+  }).catch(() => {});
   try {
     const r = await (await fetch('/api/autoupdate')).json();
     if (mine !== AUTO_EPOCH) return;

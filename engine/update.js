@@ -332,8 +332,20 @@ function maybeAutoInstall() {
        ran it. So a record naming a version we are not behind is history, not a
        verdict. Waiting for a `code 0` written by our own spawn was the mistake:
        our spawn is not the only way software gets installed. */
+    /* 🛑 NO `durable.code !== 0` CLAUSE, AND IT IS NOT AN OVERSIGHT. It was DEAD,
+       not merely unpinned: durable.code can never be 0. Traced all three writers,
+       measured rather than read: the exit handler calls noteAttemptEnd only when
+       `code !== 0` (:749), the spawn-error path passes null (:733), and
+       seedFromStatusFile returns early on `code === 0` (:690). So the clause was
+       always true. Same decision as `durable.code !== null` earlier on this
+       branch, for a stronger reason: that one merely could not be pinned, this one
+       cannot change any outcome.
+
+       ⚠️ Deleting dead code silently transfers a load-bearing invariant into
+       nobody's care, so the invariant now has an arm of its own: a status file
+       recording success must never produce a durable failure record. */
     const superseded = durable && durable.version && !newer(durable.version, RUNNING);
-    if (durable && !superseded && durable.endedAt && durable.code !== 0
+    if (durable && !superseded && durable.endedAt
         && (durable.streak || 0) >= MAX_TOTAL_ATTEMPTS) {
       if (gaveUpOn !== 'ALL') {
         gaveUpOn = 'ALL';
@@ -345,7 +357,9 @@ function maybeAutoInstall() {
       }
       return;
     }
-    if (durable && durable.endedAt && durable.code !== 0
+    /* No `durable.code !== 0` here either, for the same measured reason as the
+       streak brake above: durable.code is never 0. */
+    if (durable && durable.endedAt
         && offer && durable.version && durable.version === offer.version) {
       /* The window still helps inside one process life. */
       const endedMs = Date.parse(durable.endedAt || '');
@@ -595,8 +609,26 @@ function setupUrl() {
      machine the PREVIOUS release's installer, which then fetches the
      previous release's bytes and reports success. Keyed on the version
      the update is FOR, so the same update retried hits the same cache
-     entry rather than minting one per attempt. Harmless to any origin:
-     a query on a static file is ignored where there is no cache. */
+     entry rather than minting one per attempt.
+     ⚠️ THAT WAS AN ASSERTION AND IS NOW A MEASUREMENT, taken against the real
+     origin on 2026-09-01, because the first time this query would have been sent
+     for real was on the unattended path with nobody watching. On main it was
+     always empty (`.version` read off a string), so no production install has
+     ever sent it. If the origin answered a query with anything but the installer,
+     EVERY automatic install would fail, each running `kosmos stop` first, on a job
+     that is RunAtLoad with no KeepAlive: a board down until the next login, up to
+     three times per version.
+     
+         /setup           200 text/plain  sha256 db404c438a0c31f8...
+         /setup?v=9.9.99  200 text/plain  sha256 db404c438a0c31f8...
+         bodies byte-identical, 201025 bytes each
+     
+     🛑 Scope, so nobody over-reads it: that measures THIS origin today, not a law
+     about static hosts. A CDN or host change can falsify it, and the failure would
+     be silent and unattended. The old wording was "harmless to any origin", and
+     the word doing the damage was ANY: it generalised one host's behaviour into a
+     property of the web, which is exactly the shape that cannot be checked.
+     */
   /* 🛑 `cache.latest` IS A STRING, NOT AN OBJECT, so `.version` was always
      undefined and this buster has never once been appended. Pre-existing, and
      #1277 is what makes it bite: the comment above says the buster exists
