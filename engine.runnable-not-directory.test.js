@@ -16,8 +16,17 @@
  * other two places that state it. Fixed as a class.
  *
  * ============================================================================
- * 🛑 NINE REVIEW PASSES, 44 FINDINGS, EVERY SINGLE ONE IN THIS GUARD AND NOT
+ * 🛑 MOST FINDINGS ON THIS BRANCH HAVE LANDED IN THIS GUARD RATHER THAN IN
  * ONE IN THOSE FOUR SITES. READ THIS BEFORE ADDING ANYTHING HERE.
+ * 🛑 THIS LINE USED TO READ "NINE REVIEW PASSES, 44 FINDINGS, EVERY SINGLE ONE IN THIS
+ * GUARD AND NOT ONE IN THOSE FOUR SITES", and it was the first thing a maintainer read.
+ * BOTH HALVES WERE FALSE. The count was stale, and four later iterations changed the
+ * production sites in response to findings: a unification regression, three module-scope
+ * guards that would have killed the boot, a production fix nothing guarded, and a home
+ * resolution moved out of an env object.
+ * ⭐ A superlative in the most-read position is the cheapest claim there is to falsify,
+ * and the counts elsewhere in this file disagreed with it AND with each other. State the
+ * property, never the tally.
  * ============================================================================
  *
  * The guard reached 630 lines defending a 60-line change, and it was defeated
@@ -100,7 +109,7 @@ const path = require('node:path');
    ⚠️ IT IS DORMANT ON THIS MACHINE ONLY BECAUSE `secrets/` DOES NOT EXIST
    YET. It arms itself the first time the operator connects GitHub through the very
    feature githubdevice.js implements, which is a trap that springs later and
-   silently. A blind reviewer found it; eighteen non-blind passes read these arms
+   silently. A blind reviewer found it; many non-blind passes read these arms
    repeatedly and did not.
 
    📌 The repo already states this rule in two places, and I broke it anyway:
@@ -137,6 +146,17 @@ const REPO = __dirname;
  * branch fixes, and reverting that fix left every test green.
  *
  * ⚠️ WHAT IT STILL CANNOT SEE, IN FULL. Each accepts a directory exactly as the
+ * 🛑 AND THE LIST WAS NOT FULL WHEN IT SAID IN FULL. It omitted
+ *     fs.statSync(p).mode & 0o111
+ *   which accepts a directory exactly as X_OK does. MEASURED: WEAK_CALL does not match
+ *   it (control: it does match a real accessSync call), and a reviewer planted a live
+ *   helper using it and the guard stayed fully green.
+ *   ⭐ WORSE THAN AN ORDINARY OMISSION, because runners.js's own docblock DISCUSSES that
+ *   spelling ("X_OK, not mode & 0o111"), which is exactly what makes it the idea a
+ *   maintainer here reaches for. The list omitted the one alternative the codebase had
+ *   already thought about out loud.
+ *   ⇒ This is the failure the paragraph below names: a reader takes the caveat as the
+ *   complete list. Written by the person who wrote that paragraph.
  * fixed form did, and none exists in the repo today:
  *   - a call split across two lines (this is line-based)
  *   - `fs.accessSync(bin, X)` where `const X = fs.constants.X_OK`
@@ -173,7 +193,7 @@ const REPO = __dirname;
  * TRAP CAME FROM, so shell is not an unrelated surface. It is where the class started.
  * ⚠️ DELIBERATELY NOT FIXED HERE: that is a different card, and widening this branch to
  * the shell installer is the scope creep the plan argues against. CARDED AS #1716,
- * which measured 17 bare `[ -x ]` sites against 3 correct `[ -f ] && [ -x ]` ones.
+ * which measured 27 BARE sites against 2 guarded on the SAME path, across 3 files` ones.
  * 📌 This sentence read "NOT CARDED YET EITHER" for about ten minutes, deliberately,
  * rather than the comfortable "carded separately" that would have been false at the
  * time. Then I filed the card and came back. Say the true thing, then make it stop
@@ -767,7 +787,7 @@ test('claudeHatchAvailable answers NO for a directory, which is what the stuck s
      Every fix moved one edge and exposed the other. The logic is one exported
      function now, so there is nothing to bound and this arm can simply RUN IT.
 
-     📌 No new test seam and no export of becomeStuck: claudeBinPath() already
+     📌 No new test seam and no export of becomeStuck: the resolver already
      honours AGENT_WORKFORCE_CLAUDE_BIN, the same override the willInstall arm
      uses. */
   const connect = require('./engine/connect.js');
@@ -854,7 +874,12 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      Anything appended here changes this string.
 
      ⚠️ Mona Lisa's finding is now guarded by the function's own try rather than
-     by a shape assertion here: claudeBinPath() can throw, and becomeStuck's
+     by a shape assertion here: resolveBin('claude') can throw, and becomeStuck's
+     ⚠️ BOTH THIS AND THE SIBLING TWENTY LINES UP SAID `claudeBinPath()`. That name was
+     corrected on a THIRD arm in this same file, with a note saying it would have sent a
+     maintainer to preserve the wrong thing, and the correction was not carried to these
+     two. claudeHatchAvailable calls resolveBin('claude') directly.
+     ⇒ Fixed one site, left its siblings, INSIDE THE FIX FOR THAT CLASS.
      docblock promises any error answers false.
      🛑 THIS USED TO SAY THE BEHAVIOURAL CONSEQUENCE IS "untested ... a known gap
      rather than a covered one". THAT IS STALE, AND AN ARM SIXTY LINES ABOVE
@@ -1043,7 +1068,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      exact class that has failed on this branch five times: it catches
      `const w = writeState` and misses `const { writeState: w } = ...` or
      `obj.w = writeState`. Adding it buys a narrow spelling and re-arms the trap
-     this file spent eighteen passes disarming. Recorded beside the
+     this file spent many passes disarming. Recorded beside the
      concatenated-key residual above: both are deliberate-evasion shapes needing
      several unusual choices at once, neither is a plausible regression, and no
      source assertion closes either. */
