@@ -140,10 +140,20 @@ if [ "$(run avatarslazy)" = "0" ]; then ok "a DEFERRED store.AVATARS is not flag
 else bad "widening SOURCES made the tool fire on correct lazy code"; fi
 
 # ---- arm 11: a `//` INSIDE A STRING must not end the declaration -----------
-# The terminator strips a trailing line comment. Stripping it without knowing
-# about strings cut `const U = 'https://x/a';` at the URL's `//`, so the line no
-# longer ended in `;`, the capture ran on, and the NEXT line's freeze was
-# attributed to U. Nine such lines exist in engine/ today.
+# Stripping a trailing line comment without knowing about strings cut
+# `const U = 'https://x/a';` at the URL's `//`, so the line no longer ended in `;`,
+# the capture ran on, and the NEXT line's freeze was attributed to U. Nine such
+# lines exist in engine/ today.
+# ⚠️ MECHANISM CORRECTED. This arm and its counterweight used to say the TERMINATOR
+# strips the comment. It does not, at this call site: `declarations()` runs
+# `scanText(rawSrc)` first, so comments and strings are already blanked before
+# `terminated()` ever sees a line, and `terminated`'s own `lineInfo(t).code` is
+# redundant there. Measured: replacing it with a bare `/;\s*$/` test leaves the
+# suite ALL PASS, and so does restoring the string-unaware strip these arms were
+# written against. THE ARMS ARE STILL RIGHT AND STILL WANTED: they assert the
+# end-to-end property, which is what anyone cares about. What was wrong was the
+# sentence naming which line delivers it, and an arm that misnames its own
+# mechanism sends the next reader to defend the wrong code.
 fixture urlrunon "const store = require('./store');
 const U = 'https://example.com/a';
 const FROZEN = path.join(store.ROOT, 'x');"
@@ -155,6 +165,8 @@ else bad "the real freeze after a URL line was not reported" "$(run urlrunon)"; 
 
 # ---- arm 12: and a REAL trailing comment must still terminate --------------
 # The counterweight to the string-// arm: this is the bug the strip was added for.
+# Same mechanism note as that arm: the blanking upstream is what delivers this, not
+# the terminator's own strip.
 fixture trailcomment "const store = require('./store');
 let fetcher = null; // test seam: (req, token) => Promise
 const OK = () => path.join(store.ROOT, 'x');"
@@ -970,6 +982,67 @@ node "$TOOL" engine server.js >/dev/null 2>&1
 perf_ms=$(( $(date +%s) - perf_start ))
 if [ "$perf_ms" -le 20 ]; then ok "the enforced scope completes well inside 20s (${perf_ms}s)"
 else bad "the enforced scope got dramatically slower" "${perf_ms}s, baseline is under 1s"; fi
+
+# ---- arm 77: a NON path-shaped foreign destructure is not reported --------
+# The PATH_SHAPED filter inside the foreign-destructure loop had no arm: removing it
+# left the suite green while every `const { thing } = require(...)` in the repo
+# became a finding. Precision, and the direction that fires on correct code.
+fixture foreign_plain "const { thing, helper } = require('./util');
+const A = thing;
+const B = helper();"
+fp=$(node "$TOOL" "$T/foreign_plain.js" 2>&1 | grep -c 'resolves a root at require time')
+if [ "$fp" = "0" ]; then ok "a foreign destructure of non-path names is not a freeze"
+else bad "the PATH_SHAPED filter is not guarding the foreign loop" "$fp findings, want 0"; fi
+
+# ---- arm 78: a foreign getter's LOCAL name is tracked downstream ----------
+# `foreignGetters.push(local)` is what makes the ALIASED name a source for the rest
+# of the file. Without it the destructure is still reported and every later use of
+# the alias goes silent, which is the half that matters for a renamed import.
+fixture foreign_alias "const { FILE: F } = require('./limits');
+const P = path.join(F, 'x');"
+fa=$(node "$TOOL" "$T/foreign_alias.js" 2>&1 | grep -c 'resolves a root at require time')
+if [ "$fa" -ge 2 ]; then ok "a foreign getter's local alias is tracked downstream ($fa)"
+else bad "the alias registration is unguarded: downstream use went silent" "$fa findings, want >= 2"; fi
+
+# ---- arm 79: a file that cannot be READ is reported, not crashed on -------
+# The pre-pass used to `continue` on a read failure and the scan loop then re-read
+# the same file with no guard, so the tool died with an uncaught stack rather than
+# the named error main() produces. A file we cannot open is exactly what the
+# UNREADABLE report is for: a clean result for it means "I could not look".
+# ⚠️ NAMED SKIP rather than a silent pass: a context that can still read a mode-000
+# file (root, or a filesystem ignoring the bit) cannot exercise this, and an arm that
+# quietly passes there would assert coverage it does not have.
+fixture unreadable_io "const os = require('os');
+const HOME = os.homedir();"
+chmod 000 "$T/unreadable_io.js" 2>/dev/null || true
+if cat "$T/unreadable_io.js" >/dev/null 2>&1; then
+  ok "SKIPPED: this context can read a mode-000 file, so the IO path is unexercisable here"
+else
+  io_out=$(node "$TOOL" "$T/unreadable_io.js" 2>&1); io_rc=$?
+  if printf '%s' "$io_out" | grep -qE 'ReferenceError|TypeError|^    at '; then
+    bad "an unreadable file crashed the tool" "rc=$io_rc"
+  elif printf '%s' "$io_out" | grep -q '^UNREADABLE'; then
+    ok "an unreadable file is reported as UNREADABLE rather than crashing"
+  else
+    bad "an unreadable file was neither reported nor crashed on" "rc=$io_rc: $(printf '%s' "$io_out" | head -1)"
+  fi
+fi
+chmod 644 "$T/unreadable_io.js" 2>/dev/null || true
+
+# ---- arm 80: both destructure arms NAME an alias the same way ------------
+# The store arm printed `{ ROOT }` for `const { ROOT: R } = store` while the foreign
+# arm printed `{ FILE: F }` for the same shape. A reader who greps the named file for
+# `{ ROOT }` finds nothing. Display only: the store arm still MATCHES on the source
+# name, which is a deliberate decision documented at that loop.
+fixture alias_store "const store = require('./store');
+const { ROOT: R } = store;
+const P = path.join(R, 'x');"
+fixture alias_foreign "const { FILE: F } = require('./limits');
+const P = path.join(F, 'x');"
+as=$(node "$TOOL" "$T/alias_store.js" 2>&1 | grep -c '{ ROOT: R }')
+af=$(node "$TOOL" "$T/alias_foreign.js" 2>&1 | grep -c '{ FILE: F }')
+if [ "$as" = "1" ] && [ "$af" = "1" ]; then ok "both destructure arms report an alias as source: local"
+else bad "the two destructure arms name an alias differently" "store=$as foreign=$af, want 1 and 1"; fi
 
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,

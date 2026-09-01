@@ -167,7 +167,13 @@ test('#1443: no engine module exposes a path frozen to the require-time root', (
     + `measured floor of ${RESOLVING_FLOOR} (live=${live} resolved paths across ${looked} `
     + `modules). The floor sits ON the measured value, so ANY drop reds here, including a `
     + `removal unrelated to this card. A module whose conversion stopped resolving entirely `
-    + `looks exactly like this. Currently resolving:\n  ${resolving.join('\n  ')}`);
+    + `looks exactly like this. WHAT TO DO: if you removed or merged a path-exporting engine `
+    + `module for reasons unrelated to #1443, that is not a regression -- lower this floor to `
+    + `the new measured count IN THE SAME COMMIT and say so in the message. If you did not `
+    + `remove one, a module stopped resolving lazily and that IS this card's regression. `
+    + `The floor is deliberately tight rather than padded, because a padded floor would let `
+    + `several modules silently stop resolving before anything went red. Currently resolving:`
+    + `\n  ${resolving.join('\n  ')}`);
   /* The aggregate `live > 0` that stood here is REMOVED, not forgotten: the
      per-module floor above subsumes it (24 modules each resolving at least one
      path cannot happen with live === 0), so it could no longer fail independently

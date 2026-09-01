@@ -989,8 +989,19 @@ function scan(file) {
      That is the exact `engine/messages.js` shape the note above calls the one that
      defeated all three instruments at once. */
   for (const dm of scanSrc.matchAll(/^(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:store|require\([^)]*store[^)]*\))/gm)) {
-    const names = dm[1].split(',').map((x) => x.split(':')[0].trim()).filter(Boolean);
-    const frozen = names.filter((x) => GETTERS.includes(x));
+    /* 🛑 DISPLAY ONLY. The MATCH still tests the SOURCE name, which is the decision
+       the note above argues for and must not change. What changed is what gets
+       PRINTED: `const { ROOT: R } = store` used to report as `{ ROOT }`, while the
+       foreign arm reports the same shape as `{ FILE: F }`. A reader who greps the
+       named file for `{ ROOT }` finds nothing, and two arms of one tool disagreeing
+       about how to name a thing is how a reader concludes the tool is wrong. */
+    const pairs = dm[1].split(',').map((x) => {
+      const source = x.split(':')[0].trim();
+      const local = x.split(':').pop().trim();
+      return { source, local };
+    }).filter((x) => x.source);
+    const frozen = pairs.filter((x) => GETTERS.includes(x.source))
+      .map((x) => (x.source === x.local ? x.source : `${x.source}: ${x.local}`));
     if (!frozen.length) continue;
     const line = src.slice(0, dm.index).split('\n').length;
     const spanned = dm[0].split('\n').length;
@@ -1185,9 +1196,17 @@ function main(argv) {
      (clipath, reporthook, unfurl), each because of an odd quote inside a regex
      literal. */
   const unreadable = [];
+  const unreadableIO = new Set();
   for (const f of files) {
     let mode = null;
-    try { mode = blankingDesync(fs.readFileSync(f, 'utf8')); } catch { continue; }
+    /* 🛑 A READ FAILURE USED TO `continue` SILENTLY HERE, AND THE SCAN LOOP BELOW
+       THEN RE-READ THE SAME FILE WITH NO GUARD. So the tool skipped the file
+       quietly, walked back into it seconds later, and died with an uncaught stack
+       instead of the named error `main()` produces for a bad target. Worse, a file
+       we cannot open is exactly the case the UNREADABLE report exists for: a clean
+       result for it means "I could not look", not "there is nothing there". */
+    try { mode = blankingDesync(fs.readFileSync(f, 'utf8')); }
+    catch (e) { unreadable.push({ f, mode: `unreadable file (${e.code || e.message})` }); unreadableIO.add(f); continue; }
     if (mode) unreadable.push({ f, mode });
   }
   if (unreadable.length) {
@@ -1198,6 +1217,7 @@ function main(argv) {
     console.log('"I could not look", not "there is nothing there". Usually an odd quote inside a regex literal.');
   }
   for (const f of files.sort()) {
+    if (unreadableIO.has(f)) continue; // already reported above; re-reading it is what used to crash
     for (const hit of scan(f)) {
       const key = `${path.relative(path.join(__dirname, '..'), f)}:${hit.name}`;
       if (KNOWN.has(key)) {
