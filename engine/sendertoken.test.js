@@ -255,6 +255,29 @@ test('#1761: the secret never occupies the loose file, because the write is temp
     'a temp file was left behind');
 });
 
+/* 🛑 THE PROPERTY, NOT THE PATH. The fallback is now nearly unreachable by design:
+   the temp name carries pid + start time + counter, so `wx` fails only for a planted
+   file at an unpredictable path. Contriving reachability would test the contrivance.
+   ⇒ This arm asserts what BOTH paths must guarantee instead: a symlink at the token
+   path never causes a write through it. `renameSync` replaces the link on the main
+   path; `O_NOFOLLOW` makes the fallback throw rather than follow. */
+test('#1761: a symlink planted at the token path is never written through', () => {
+  const victim = path.join(SANDBOX, 'victim.txt');
+  fs.writeFileSync(victim, 'ORIGINAL');
+  const linked = path.join(sendertoken.DIR, 'linked.json');
+  fs.mkdirSync(sendertoken.DIR, { recursive: true, mode: 0o700 });
+  fs.symlinkSync(victim, linked);
+  assert.equal(fs.lstatSync(linked).isSymbolicLink(), true,
+    'the symlink was not planted, so this arm cannot fail for the right reason');
+
+  sendertoken.mint('linked');
+
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'ORIGINAL',
+    'the token was written THROUGH the symlink into another file');
+  assert.equal(fs.lstatSync(linked).isSymbolicLink(), false,
+    'the token path is still a symlink, so a later write would follow it');
+});
+
 test('#1761: a token DIRECTORY that is already loose is tightened too', () => {
   sendertoken.mint('loose-dir');
   fs.chmodSync(sendertoken.DIR, 0o755);

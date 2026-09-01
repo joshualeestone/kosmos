@@ -117,6 +117,11 @@ function readTokens(sessionName) {
   return [];
 }
 
+/* Start time and a counter, so a temp name is never reused across a crash. Same
+   scheme and same reason as `engine/trust.js`'s `tempPath`, which is not exported. */
+const STARTED = Date.now();
+let SEQ = 0;
+
 function writeTokens(sessionName, tokens) {
   const file = fileFor(sessionName);
   fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
@@ -150,7 +155,17 @@ function writeTokens(sessionName, tokens) {
      planted symlink there. Same pattern as `engine/trust.js` and `engine/create.js`.
      📌 `chmodSync` on the temp is not belt and braces: a loose umask can widen a
      create-time mode, which is the reason `trust.js` states beside its own copy. */
-  const tmp = `${file}.tmp-${process.pid}`;
+  /* 🛑 THE CLOCK AND A COUNTER ARE IN THE NAME, NOT JUST THE PID, and this file
+     originally got that wrong while citing `trust.js` as its pattern. `trust.js`
+     documents the exact failure at its own `tempPath`: with pid alone, a process that
+     died between create and rename leaves the temp behind, and the next process to
+     draw that pid hits `wx` -> EEXIST FOREVER. Measured by a reviewer: one planted
+     stale temp sent every later mint for that agent down the fallback, in place,
+     permanently reopening the window this card exists to close, WITH NO SIGNAL.
+     🔑 With the start time and a counter, a leftover is inert: nothing ever asks for
+     that name again, so `wx` only fails for a PLANTED file, and a planted file is one
+     we must not delete. */
+  const tmp = `${file}.kosmos-${process.pid}-${STARTED}-${++SEQ}.tmp`;
   try {
     fs.writeFileSync(tmp, JSON.stringify({ tokens }), { flag: 'wx', mode: FILE_MODE });
     fs.chmodSync(tmp, FILE_MODE);
@@ -162,8 +177,21 @@ function writeTokens(sessionName, tokens) {
     /* Fall back to the direct write rather than failing a mint: an agent that cannot
        mint cannot speak at all. The chmod below is what tightens a pre-existing loose
        file on this path, and if IT throws the token stays loose WITH NO SIGNAL. */
-    fs.writeFileSync(file, JSON.stringify({ tokens }), { mode: FILE_MODE });
-    try { fs.chmodSync(file, FILE_MODE); } catch { /* best effort */ }
+    /* ⚠️ O_NOFOLLOW, BECAUSE THIS PATH DOES NOT GET RENAME'S SYMLINK SAFETY.
+       `renameSync` above REPLACES whatever is at the token path, so a symlink there
+       is destroyed rather than followed. A plain `writeFileSync` here would follow
+       it: measured by a reviewer, the minted token was written THROUGH the link into
+       another file, which was then chmodded to 0600. O_NOFOLLOW makes that throw
+       instead. */
+    let fd = null;
+    try {
+      fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT
+        | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW, FILE_MODE);
+      fs.writeFileSync(fd, JSON.stringify({ tokens }));
+      try { fs.fchmodSync(fd, FILE_MODE); } catch { /* best effort */ }
+    } finally {
+      if (fd !== null) { try { fs.closeSync(fd); } catch { /* already closed */ } }
+    }
   }
 }
 
