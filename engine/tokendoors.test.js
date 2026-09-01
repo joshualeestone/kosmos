@@ -109,6 +109,12 @@ test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place
   assert.notEqual(fs.statSync(file).ino, inodeBefore,
     'the credential was written IN PLACE into the pre-existing loose file: same inode '
     + 'means no rename, so the token bytes were on disk at 0644 before the chmod');
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'the credential was left loose');
-  await d.forget();
+  try {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'the credential was left loose');
+  } finally {
+    /* Restore on EVERY path: a failing assertion above would leave a stored token
+       and a live fetcher for whatever test runs next. */
+    d.setFetcher(null);
+    await d.forget();
+  }
 });

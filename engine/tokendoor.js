@@ -26,9 +26,9 @@
  *   proven     true only after a real token was checked through this door
  */
 const fs = require('node:fs');
-const securewrite = require('./securewrite');
 const path = require('node:path');
 const store = require('./store');
+const securewrite = require('./securewrite');
 
 const DIR = path.join(store.ROOT, 'secrets', 'env');
 

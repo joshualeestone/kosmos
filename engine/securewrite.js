@@ -20,7 +20,13 @@
  * chmodded the destination after every rename also ends correct and PASSES.
  * Catching it needs observation from INSIDE the write, and the fd is the first
  * argument to `fs.writeFileSync`, so a stub can read `fs.fstatSync(fd).mode` at
- * the instant the bytes land. That is what the arms for this module do.
+ * the instant the bytes land. That is what `engine/securewrite.test.js` does.
+ *
+ * 📌 THE ARMS FOR THIS MODULE LIVE IN `engine/securewrite.test.js`, DIRECTLY,
+ * rather than only reaching it through a consumer. `engine/sendertoken.test.js`
+ * also exercises it through `mint()`, and that is useful, but coverage attached to
+ * one consumer disappears silently if that consumer stops calling this module,
+ * taking the other three callers' guarantees with it.
  *
  * Extracted from `engine/sendertoken.js` after #1776, rather than copied, so
  * there is one implementation and not two to drift. `trust.js` and `create.js`
@@ -28,6 +34,53 @@
  */
 
 const fs = require('node:fs');
+
+/* ⚠️ A KNOWN RESIDUE, DOCUMENTED RATHER THAN SWEPT, because the sweep is worse.
+   A process that dies between the `wx` create and the rename leaves
+   `<FILE>.kosmos-<pid>-<started>-<seq>.tmp` behind, holding the secret.
+
+   ⚠️ THE ARGUMENT IS LIFECYCLE, NOT DISCLOSURE, and the disclosure framing is the
+   weak half: the temp is 0600, owner-only, exactly the protection the credential
+   file sitting legitimately beside it has, so a permissions objection can be waved
+   away and the reviewer would be right.
+
+   🛑 THE REAL PROBLEM IS THAT A SECRET OUTLIVES ITS OWN REVOCATION. `forget()`
+   unlinks `FILE` and nothing else, so a stale temp holds the OLD token past a
+   revoke, past a re-connect, and past an uninstall (`install.uninstall-litter-1547
+   .test.js` preserves `secrets/` deliberately), and NO CODE PATH WILL EVER REMOVE
+   IT. That is genuinely new for these three modules: the old write-in-place code
+   made no second copy. `sendertoken` has carried the identical exposure since #1776.
+
+   📌 Real, and NARROW: it needs death in the window between `writeFileSync(tmp)` and
+   `renameSync`. Carded against this module rather than ridden onto the card that
+   introduced it, because folding a reaper in here would ship an unreviewed delete
+   path alongside a security fix.
+
+   🛑 NOT SWEPT IN `secureDir`, AND THE REASON IS STRONGER THAN "we cannot prove we
+   created it". A glob sweep would RECREATE THE DEFECT THIS MODULE EXISTS TO PREVENT.
+   `secureDir` acts on the DIRECTORY, and a glob throws away the one thing the temp
+   name carries. Two concurrent writers into `secrets/` (the board and a CLI, or two
+   provider connects) then race:
+
+       A's secureDir unlinks B's in-flight temp, between B's `wx` create and B's rename
+       -> B's renameSync fails ENOENT
+       -> B burns all three attempts
+       -> B lands in the DESTRUCTIVE in-place fallback
+
+   ⇒ That trades INERT litter for a LIVE path into the exact write this card closed.
+   It is also why the unlink below is guarded on `created`, a flag meaning "this call
+   made this file" - precisely what a directory sweep can never establish.
+
+   ✅ THE HAZARD IS THE GLOB, NOT THE IDEA. The temp name is self-identifying, so a
+   reaper CAN be safe: match the anchored `<file>.kosmos-<pid>-<started>-<seq>.tmp`
+   shape and delete only entries whose `pid` is not alive (`process.kill(pid, 0)`
+   throwing ESRCH), or whose pid is ours but whose `started` is not this process's.
+   That is a checkable predicate rather than a guess. If it lands it belongs HERE,
+   once per process, best-effort and never fatal - not on every `secureDir` call.
+   Out of scope for this card.
+
+   📌 The unique name makes a leftover inert meanwhile: nothing ever asks for that
+   name again, so it is a disclosure question and never a correctness one. */
 
 /* 🔑 pid ALONE IS NOT ENOUGH AND THIS REPO HAS PAID FOR LEARNING IT TWICE.
    `trust.js` documents it at its own `tempPath`: a process that dies between
@@ -49,6 +102,18 @@ const tempPath = (target) => `${target}.kosmos-${process.pid}-${STARTED}-${++SEQ
  * function left #1776's suite fully green: on the platform we test, the call did
  * nothing, so no assertion about behaviour could see it. `O_NOFOLLOW` is
  * UNDEFINED on win32, where this hand check is the entire defence.
+ *
+ * ⚠️ IT HAD ZERO COVERAGE UNTIL IT WAS A FUNCTION, and that is the whole reason it
+ * is one. `fs.constants.O_NOFOLLOW` is NON-CONFIGURABLE, so no test can delete it
+ * from the environment: the suite stayed fully green with this entire branch
+ * removed. A matrix row reading "with the constant forced undefined" describes a
+ * MANUAL mutation, not something the suite performs, and crediting it was
+ * overclaiming. Extracting it is what let an arm call it directly with `undefined`.
+ *
+ * 📌 TOCTOU IS ACCEPTED HERE, deliberately: this checks, then the caller opens. The
+ * window is narrower than having no check at all, and on win32 creating a symlink
+ * needs privilege. `O_NOFOLLOW` on the open is the atomic half where it exists;
+ * this is the portable half where it does not.
  */
 function refuseSymlinkTarget(file, nofollow) {
   if (nofollow !== undefined) return; // the kernel enforces it via O_NOFOLLOW
@@ -156,4 +221,8 @@ function writeSecret(file, data, mode) {
   }
 }
 
-module.exports = { writeSecret, secureDir, refuseSymlinkTarget, tempPath };
+/* `tempPath` is deliberately NOT exported. It has no consumer outside this module,
+   and `engine/trust.js` keeps its equivalent private for the same reason: a name
+   generator is an implementation detail of the writer, and exporting it invites a
+   caller to build a temp path the writer will not clean up. */
+module.exports = { writeSecret, secureDir, refuseSymlinkTarget };

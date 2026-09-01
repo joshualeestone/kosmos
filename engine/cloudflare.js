@@ -14,9 +14,9 @@
  * file's existence: a revoked token shows here as revoked.
  */
 const fs = require('node:fs');
-const securewrite = require('./securewrite');
 const path = require('node:path');
 const store = require('./store');
+const securewrite = require('./securewrite');
 
 const DIR = path.join(store.ROOT, 'secrets');
 const FILE = path.join(DIR, 'cloudflare.token');

@@ -1,0 +1,178 @@
+'use strict';
+
+/**
+ * #1787: direct arms for the shared secret writer.
+ *
+ * 🛑 WHY THIS FILE EXISTS SEPARATELY FROM `sendertoken.test.js`. The writer's
+ * five mutation-verified guards arrived with #1776 and all of them live in
+ * `engine/sendertoken.test.js`, reaching the writer THROUGH `mint()`. That was
+ * fine while `sendertoken.js` was the only caller. It is not fine now: four
+ * modules share this writer, and if `sendertoken.js` ever stops using it the
+ * other three lose their coverage SILENTLY, with nothing going red to say so.
+ *
+ * ⭐ That is the same call-site-coverage shape this branch already paid for once
+ * (deleting the production call to `refuseSymlinkTarget` left the suite fully
+ * green), arriving one layer further out: coverage attached to a CONSUMER rather
+ * than to the thing being guarded.
+ *
+ * These arms call `writeSecret` and `secureDir` directly, so they hold whatever
+ * happens to the consumers.
+ */
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const securewrite = require('./securewrite');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-securewrite-'));
+test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+const fresh = (name) => path.join(SANDBOX, `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+const modeOf = (p) => fs.statSync(p).mode & 0o777;
+
+/* 🛑 THE DEFECT THIS WRITER EXISTS FOR, ASSERTED ON THE INODE RATHER THAN THE MODE.
+   Both the old shape (write in place, then chmod) and this one END at 0600, so a
+   mode assertion passes either way and cannot be the guard. `rename` REPLACES the
+   inode; a write in place REUSES it. That is the only observable that differs. */
+test('#1787: writeSecret REPLACES a pre-existing loose file rather than rewriting it', () => {
+  const f = fresh('replace');
+  fs.writeFileSync(f, 'OLD');
+  fs.chmodSync(f, 0o644);
+  assert.equal(modeOf(f), 0o644, 'the loose plant did not take, so this arm would pass without the fix');
+  const inodeBefore = fs.statSync(f).ino;
+
+  securewrite.writeSecret(f, 'NEW-SECRET', 0o600);
+
+  assert.notEqual(fs.statSync(f).ino, inodeBefore,
+    'the secret was written IN PLACE: same inode means no rename, so the bytes were '
+    + 'on disk at 0644 before any chmod');
+  assert.equal(modeOf(f), 0o600, 'the file was left loose');
+  assert.equal(fs.readFileSync(f, 'utf8'), 'NEW-SECRET');
+});
+
+/* The create-time mode is a real mechanism and it is NOT what this module is for:
+   this arm is the CONTROL that the fresh-create case was never broken, so a reader
+   can see which case the inode arm above is actually about. */
+test('#1787: CONTROL, a fresh path was never the broken case', () => {
+  const f = fresh('fresh');
+  securewrite.writeSecret(f, 'SECRET', 0o600);
+  assert.equal(modeOf(f), 0o600);
+  assert.equal(fs.readFileSync(f, 'utf8'), 'SECRET');
+});
+
+/* #1763: mkdirSync's mode is create-only too, so a directory that already exists at
+   0755 stays there. A loose directory discloses the FILENAMES even when every file
+   inside is 0600. */
+test('#1787: secureDir tightens a pre-existing loose directory, not just a fresh one', () => {
+  const d = fresh('dir');
+  fs.mkdirSync(d, { recursive: true });
+  fs.chmodSync(d, 0o755);
+  assert.equal(modeOf(d), 0o755, 'the loose plant did not take, so this arm would pass without the fix');
+
+  securewrite.secureDir(d, 0o700);
+
+  assert.equal(modeOf(d), 0o700, 'a pre-existing loose directory stayed loose');
+});
+
+/* 🛑 THE WIN32 PATH, WHICH A GREEN macOS SUITE CANNOT OTHERWISE SPEAK ABOUT.
+   `refuseSymlinkTarget` is called with `undefined` on purpose so the hand check runs
+   on EVERY platform. On macOS `O_NOFOLLOW` would make the kernel refuse instead, so
+   without this arm the guard is dead code here and its deletion is invisible.
+   The guard is the SENTENCE: a kernel refusal says ELOOP, ours says so in words. */
+test('#1787: a symlink planted at the target is REFUSED, by our code and not the kernel', () => {
+  const victim = fresh('victim');
+  fs.writeFileSync(victim, 'ORIGINAL');
+  const link = fresh('linked');
+  fs.symlinkSync(victim, link);
+  assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'the symlink was not planted');
+
+  assert.throws(
+    () => securewrite.refuseSymlinkTarget(link, undefined),
+    /refusing to write a secret through a symlink/,
+    'a planted symlink was not refused',
+  );
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'ORIGINAL', 'the victim was written through');
+});
+
+test('#1787: CONTROLS for the refusal, so it is not refusing everything', () => {
+  const plain = fresh('plain');
+  fs.writeFileSync(plain, 'x');
+  assert.doesNotThrow(() => securewrite.refuseSymlinkTarget(plain, undefined),
+    'a plain file was refused');
+  assert.doesNotThrow(() => securewrite.refuseSymlinkTarget(fresh('absent'), undefined),
+    'an absent path was refused, but there is nothing there to follow');
+  const link = fresh('linked2');
+  fs.symlinkSync(fresh('anything'), link);
+  assert.doesNotThrow(() => securewrite.refuseSymlinkTarget(link, 256),
+    'the check ran even though a real O_NOFOLLOW was passed, which is the kernel\'s job');
+});
+
+/* 🛑 A FAILED WRITE MUST NOT DESTROY WHAT IT FAILED TO REPLACE. The fallback opens
+   with O_TRUNC, so the target is EMPTY from the moment of the open; a write that
+   then fails leaves nothing. ENOSPC is both the realistic reason that write fails
+   and a realistic reason the atomic path failed, so they are correlated. */
+test('#1787: a failed fallback preserves the previous contents', () => {
+  const f = fresh('preserve');
+  fs.writeFileSync(f, 'PREVIOUS-SECRET');
+  fs.chmodSync(f, 0o600);
+
+  const realRename = fs.renameSync;
+  const realWrite = fs.writeFileSync;
+  fs.renameSync = () => { const e = new Error('forced'); e.code = 'EXDEV'; throw e; };
+  fs.writeFileSync = function (target, ...rest) {
+    if (typeof target === 'number') { const e = new Error('no space left on device'); e.code = 'ENOSPC'; throw e; }
+    return realWrite.call(fs, target, ...rest);
+  };
+  let threw = false;
+  try { securewrite.writeSecret(f, 'NEW', 0o600); } catch { threw = true; } finally {
+    fs.renameSync = realRename;
+    fs.writeFileSync = realWrite;
+  }
+
+  assert.equal(threw, true, 'the forced failure did not fail, so nothing was tested');
+  assert.equal(fs.readFileSync(f, 'utf8'), 'PREVIOUS-SECRET',
+    'a failed write destroyed the secret it failed to replace');
+});
+
+/* The atomic path must not leave its scratch file behind, in a directory that holds
+   credentials and that an uninstall deliberately preserves. */
+test('#1787: a successful write leaves no temp behind', () => {
+  const d = fresh('tmpdir');
+  fs.mkdirSync(d, { recursive: true });
+  const f = path.join(d, 'secret');
+  securewrite.writeSecret(f, 'SECRET', 0o600);
+  assert.deepEqual(fs.readdirSync(d).filter((n) => n.endsWith('.tmp')), [],
+    'the write left its temp file in a credential directory');
+  assert.deepEqual(fs.readdirSync(d), ['secret']);
+});
+
+/* ⚠️ NEVER DELETE A FILE WE DID NOT CREATE. `wx` means a pre-existing file at the
+   temp path makes the write throw, and unlinking then would destroy somebody else's
+   file. The retry uses a fresh name instead, which is what keeps the destructive
+   fallback essentially unreachable. */
+test('#1787: a planted file at a temp path is never deleted, and the write still succeeds', () => {
+  const d = fresh('planted');
+  fs.mkdirSync(d, { recursive: true });
+  const f = path.join(d, 'secret');
+
+  let planted = null;
+  const realWrite = fs.writeFileSync;
+  fs.writeFileSync = function (target, data, opts) {
+    if (typeof target === 'string' && target.endsWith('.tmp') && planted === null) {
+      planted = target;
+      realWrite.call(fs, target, 'SOMEBODY ELSE FILE');
+      const e = new Error('forced'); e.code = 'EEXIST'; throw e;
+    }
+    return realWrite.call(fs, target, data, opts);
+  };
+  try { securewrite.writeSecret(f, 'SECRET', 0o600); } finally { fs.writeFileSync = realWrite; }
+
+  assert.notEqual(planted, null, 'no temp write was attempted, so this arm proves nothing');
+  assert.equal(fs.existsSync(planted), true, 'the writer deleted a file it did not create');
+  assert.equal(fs.readFileSync(planted, 'utf8'), 'SOMEBODY ELSE FILE',
+    'the writer overwrote a file it did not create');
+  assert.equal(fs.readFileSync(f, 'utf8'), 'SECRET', 'the retry did not complete the write');
+});
