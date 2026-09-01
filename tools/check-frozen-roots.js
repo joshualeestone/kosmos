@@ -85,17 +85,24 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
    defect this whole class is about. So every entry is printed on every run and
    the list is meant to shrink to nothing.
 
-   `store.ROOT` is a real instance, confirmed frozen on main. It is excluded
-   from #1432 because it has 20+ consumers across server.js and four engine
-   modules, so converting it is its own change with its own review, not a
-   rider on a seven-module sweep. Tracked separately. */
-/* ✅ `engine/store.js:ROOT` WAS THE ONE ENTRY AND IT IS GONE (#1443, fixed).
+   ✅ `engine/store.js:ROOT` WAS THE ORIGINAL ENTRY AND IT IS GONE (#1443, fixed).
    Removed rather than kept with a "fixed" note: an allowlist that carries
-   resolved entries stops being a debt list and becomes decoration, and the
-   design here is that it shrinks to nothing.
+   resolved entries stops being a debt list and becomes decoration.
    ⚠️ AND REMOVING IT IS WHAT MAKES THE FIX ENFORCED. While the entry stood,
-   re-freezing that root would have been SKIPPED BY NAME. Now it fails here. */
-const KNOWN = new Map([]);
+   re-freezing that root would have been SKIPPED BY NAME. Now it fails here.
+
+   📌 `server.js:GATE_LOG` is the one entry, and it is DELIBERATE rather than debt
+   to pay down. The install gate's request log must OUTLIVE the sandbox the gate
+   deletes on exit, so it resolves `os.homedir()` on purpose and writes outside
+   the seam. It is also inert unless KOSMOS_INSTALL_GATE=1 or the log path is set.
+   It is listed here rather than left unenforced because the alternative was
+   running the guard on `engine/` only, which confined the check to one directory
+   while server.js is this file's own example of the largest store.ROOT consumer. */
+const KNOWN = new Map([
+  ['server.js:GATE_LOG',
+    'deliberate: the install-gate request log must outlive the sandbox the gate deletes on exit, '
+    + 'so it resolves os.homedir() on purpose; inert unless KOSMOS_INSTALL_GATE=1'],
+]);
 
 /* A declaration that is an arrow function is LAZY and fine: `const T = () => …`
    resolves per call. This is the distinction the whole check turns on. */

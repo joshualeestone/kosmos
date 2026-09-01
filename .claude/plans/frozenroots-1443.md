@@ -1,4 +1,12 @@
-# lazyroot-1443: the data root was frozen at require time
+# frozenroots-1443: the data root was frozen at require time
+
+> 📌 Renamed from `lazyroot-1443.md` when the branch was renamed to
+> `frozenroots-1443`. The plan did not follow the branch, so
+> `find .claude/plans -name '*<branch>*'` found nothing and the branch read as
+> having no plan at all. The stale `lazyroot-1443-pre-challenge.md` beside it is
+> a proof for the OLD branch name: its hash cannot match this branch and the
+> gate ignores it. A fresh proof is written as `frozenroots-1443-pre-challenge.md`.
+
 
 ## The defect, and it makes a sandbox seam a lie
 
