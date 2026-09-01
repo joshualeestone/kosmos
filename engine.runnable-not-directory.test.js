@@ -64,7 +64,7 @@
  * ⇒ EACH SHAPE WAS DEFEATED BY THE THING IT STILL TRIED TO CLASSIFY, AND IT
  * STOPPED FALLING WHEN IT STOPPED CLASSIFYING. That generalises well past #1592.
  *
- * ✅ SO THIS FILE NOW DOES TWO THINGS AND REFUSES A THIRD:
+ * ✅ SO THIS FILE DOES THREE THINGS, AND THE THIRD IS ONE IT USED TO REFUSE:
  *
  *   1. A SET SWEEP that strips NOTHING. Every line in the repo matching the weak
  *      shape must be in KNOWN_WEAK_CALLS, keyed on {file, call, ENCLOSING FUNCTION}.
@@ -84,8 +84,18 @@
  *      ⇒ Every row is now keyed identically and the helper is deleted, so there is
  *      no comment judgement left to get wrong.
  *   2. BEHAVIOURAL ARMS that run the real code with a real directory.
- *   3. It does NOT try to read a call site and decide whether it is correct.
- *      That is the thing that failed nine times.
+ *   3. SOURCE ASSERTIONS THAT JUDGE A CALL SITE. THIS FILE USED TO SAY IT REFUSED THIS,
+ *      AND THE SENTENCE WAS FALSE BY THE TIME ANYONE READ IT. Three arms do it now: the
+ *      per-site resolution counts, the becomeStuck region check, and the unconditional-
+ *      true sweep. The last commit to add one was the commit that falsified the refusal.
+ *      🛑 THE REFUSAL WAS WRITTEN BECAUSE READING A CALL SITE FAILED NINE TIMES, AND THAT
+ *      HISTORY IS REAL: the graveyard above lists FOUR defeated comment strippers, and
+ *      this file now contains a FIFTH, with the same blind spots (a `/*` inside a string
+ *      literal, an unterminated `/*`, a template literal, `//` inside a URL).
+ *      ⇒ So the honest contract is not "we refuse this" but "we do it, we know what it
+ *      costs, and every such arm carries a per-region control that fails if the strip ate
+ *      the region". A blanket refusal that the file then violates is worse than a stated
+ *      cost, because it tells the next author the precedent does not exist.
  *
  * ⚠️ THE COST, STATED: writing a NEW comment that mentions `accessSync(..., X_OK)`
  * turns this red until the line is listed. Deliberate, loud, a two-line fix. The
@@ -192,10 +202,13 @@ const REPO = __dirname;
  * 🛑 SO HERE IS THE GAP THE LIST ABOVE WAS MISSING, AND IT IS THE ORIGIN OF THE CLASS:
  * THIS SWEEP READS JAVASCRIPT ONLY, AND THE SAME DECISION IS MADE IN SHIPPED SHELL.
  * `[ -x "$p" ]` succeeds on a directory exactly as `accessSync(p, X_OK)` does, and
- * `install/kosmos` and `install/setup.sh` use it to decide whether a runtime, a tmux
- it twice in setup.sh. ⚠️ FIGURES REMOVED: this said "twice" and the guarded count is
- THREE, and a sibling sentence attributed to card #1716 two numbers the card does not
- contain. The card holds the measurement; this comment holds the property.
+ * `install/kosmos` and `install/setup.sh` use it to decide whether a runtime, a tmux and
+ * the kosmos binary are present. The repo already knows the correct form and uses it in
+ * setup.sh; #1716 holds how many, deliberately not restated here.
+ * ⚠️ THIS PARAGRAPH LOST ITS ` * ` PREFIX ON THREE LINES AND ITS FIRST SENTENCE STOPPED
+ * MID-CLAUSE, from a figures-removal edit that replaced one line of a wrapped sentence.
+ * It is the paragraph announcing the shell-surface gap, which is the part of this
+ * docblock a reader most needs to be able to parse.
  * ⭐ AND `runners.js`'s own docblock cites setup.sh's check_claude_code as WHERE THIS
  * TRAP CAME FROM, so shell is not an unrelated surface. It is where the class started.
  * ⚠️ DELIBERATELY NOT FIXED HERE: that is a different card, and widening this branch to
@@ -454,31 +467,31 @@ function fixture(name) {
 
 
 
-test('start() and willInstall do not derive the claude PATH separately from its PRESENCE', () => {
-  /* 🛑 THIS PINS THE RULE THE BRANCH IS NAMED FOR, AND NOTHING PINNED IT UNTIL NOW.
-     connect.js states it at the head of the file, four sites point at it instead of
-     enumerating each other, and it carries an explicit carve-out ("Collapsing it would be
-     a real bug, not a tidy-up"). MEASURED: revert start() to
-         { bin: claudeBinPath(), present: resolveBin('claude').present }
-     and NOTHING REDS across 103 tests in four files.
+test('every site under the resolution rule resolves the claude binary its documented number of times', () => {
+  /* 🛑 THIS PINS THE RULE AT THE HEAD OF connect.js. AN EARLIER VERSION OF THIS ARM PINNED
+     ONE SPELLING OF VIOLATING IT AND ITS DOCBLOCK CLAIMED TO PIN THE RULE.
+     That version keyed on `claudeBinPath(` and looped over only start() and willInstall.
+     MEASURED, both escapes green at 20 pass 0 fail:
+       start() -> { bin: resolveBin('claude').bin, present: resolveBin('claude').present }
+         a GENUINE double resolution, no claudeBinPath anywhere, invisible to it.
+         ⭐ And it is the most PLAUSIBLE regression on the file: that exact spelling
+         already sits 100 lines above IN THE SAME FUNCTION, as `binaryOnDisk`. Copying the
+         neighbouring line is the natural edit.
+       claudeHatchAvailable -> isRunnable(claudeBinPath())
+         uses the very token the old arm keyed on, and passed, because the function was
+         outside the loop. Two of the four sites that carry "ONE RESOLUTION, per the
+         resolution rule" comments were never covered at all.
 
-     ⚠️ TWO WRONG PINS WERE TRIED FIRST AND BOTH ARE INSTRUCTIVE.
-     (a) "exactly one resolveBin call per function" is FALSE of the shipped code. start()
-         legitimately has TWO: the pair, plus `binaryOnDisk`, which the head comment names
-         as a DELIBERATE EXCLUSION. An arm asserting 1 fails on correct code.
-     (b) counting `resolveBin(` at all counts COMMENT MENTIONS. Raw counts are 7 and 4;
-         code-only they are 2 and 1. A string search cannot tell a call from prose quoting
-         it, which is this branch's own use-versus-mention defect.
-     ⇒ AND NEITHER WOULD HAVE CAUGHT THE MUTATION, because the forbidden shape KEEPS the
-     resolveBin call and adds a separate path lookup. The count does not move.
+     ✅ SO: A PER-SITE COUNT, NOT A UNIFORM ONE. The earlier docblock rejected "exactly one
+     call per function" as false of start(), and it IS false, because start() carries the
+     documented `binaryOnDisk` exclusion as a second resolution. But the honest form was a
+     count PER SITE, not the abandonment of counting. Each number below is the documented
+     truth for that function, and a violation moves it in either direction.
 
-     ✅ THE DISCRIMINATOR IS `claudeBinPath()`. The rule is that a site needing both a PATH
-     and its PRESENCE reads both off ONE answer; deriving the path separately is exactly
-     what claudeBinPath() does, and it is what every reverted shape used. Measured on the
-     shipped code: zero in both functions.
-
-     📌 Comments are stripped before matching, and each function is bounded, so neither a
-     prose mention nor an unrelated call elsewhere in connect.js reds a #1592 test. */
+     📌 Counting is sound here for the reason this file argues elsewhere: the population is
+     homogeneous (calls to one function, in code, inside one bounded body) and the count is
+     of the thing the rule is about. Comments are stripped first, because a string search
+     cannot tell a call from prose quoting it. */
   const src = fs.readFileSync(path.join(REPO, 'engine', 'connect.js'), 'utf8');
   const stripComments = (s) => {
     let out = ''; let i = 0;
@@ -489,26 +502,58 @@ test('start() and willInstall do not derive the claude PATH separately from its 
     }
     return out;
   };
-  /* CONTROL: the stripper must not eat code. A known call survives it. Verified to fire:
-     breaking the stripper so it drops everything reds THIS line, not the assertions below. */
-  assert.match(stripComments(src), /resolveBin\s*\(/,
-    'the comment stripper removed live code; every assertion below would pass vacuously');
 
-  for (const fn of ['async function start(', 'async function willInstall(']) {
-    const at = src.indexOf(fn);
-    assert.ok(at > 0, `${fn} not found in connect.js; this arm is unanchored`);
+  /* Each site, with the number of resolutions its own comment documents.
+     start() is 2 BY DESIGN: the pair, plus `binaryOnDisk`, the exclusion named at the
+     head of the file. Every other site resolves exactly once. */
+  const SITES = [
+    { fn: 'async function start(', resolutions: 2, note: 'the pair, plus the documented binaryOnDisk exclusion' },
+    { fn: 'async function willInstall(', resolutions: 1, note: 'one resolution, both reads off it' },
+    { fn: 'function claudeHatchAvailable(', resolutions: 1, note: 'one resolution, both reads off it' },
+    { fn: 'async function installClaudeCode(', resolutions: 1, note: 'the post-install gate resolves once' },
+  ];
+
+  for (const site of SITES) {
+    const at = src.indexOf(site.fn);
+    assert.ok(at > 0, `${site.fn} not found in connect.js; this arm is unanchored`);
     const loose = src.slice(at);
     const close = loose.indexOf('\n}');
-    assert.ok(close > 0, `${fn} has no column-0 closing brace; this bound is unanchored`);
+    assert.ok(close > 0, `${site.fn} has no column-0 closing brace; this bound is unanchored`);
     const code = stripComments(loose.slice(0, close + 2));
-    assert.ok(/resolveBin\s*\(/.test(code),
-      `${fn} does not call resolveBin at all, so this arm is aimed at the wrong function`);
+
+    /* CONTROL, PER SITE AND NOT FILE-WIDE. The previous version asserted the stripper left
+       `resolveBin(` somewhere in the WHOLE FILE, which a stripper that ate this function
+       entirely would still satisfy. Over-stripping fails in the hiding direction, so the
+       control has to be scoped to the region actually being asserted over. */
+    assert.match(code, /resolveBin\s*\(/,
+      `${site.fn} contains no resolveBin call after comment stripping. Either the stripper `
+      + 'ate the region, in which case the count below is vacuous, or this arm is aimed at '
+      + 'a function that no longer resolves anything.');
+
+    const calls = code.match(/resolveBin\s*\(/g) || [];
+    assert.strictEqual(calls.length, site.resolutions,
+      `${site.fn} calls resolveBin ${calls.length} times; ${site.resolutions} is documented `
+      + `(${site.note}). The rule at the head of connect.js is that a site needing both a `
+      + 'PATH and its PRESENCE resolves ONCE and reads both off the one answer, because two '
+      + 'resolutions can disagree across an await. If you added or removed one deliberately, '
+      + 'change the rule and this table together, not one of them.');
+    
+    /* 🛑 AND THE COUNT ALONE IS NOT ENOUGH EITHER. MEASURED: the ORIGINAL forbidden shape,
+       `{ bin: claudeBinPath(), present: resolveBin('claude').present }`, KEEPS THE COUNT
+       IDENTICAL (it replaces the call, it does not add one) and passes the assertion above
+       at 20 pass 0 fail. The previous arm caught that shape and missed the double
+       resolution; this count catches the double resolution and misses that shape.
+       ⇒ NEITHER DISCRIMINATOR COVERS THE RULE. They catch different halves of it, so both
+       are asserted. The rule is "resolve once AND read both off the one answer"; a count
+       sees the first half and claudeBinPath sees the second.
+       📌 That is why the earlier docblock's confident "THE DISCRIMINATOR IS claudeBinPath()"
+       was wrong in the same way its predecessor was: each fix found one more shape and
+       declared the search over. */
     const derived = code.match(/claudeBinPath\s*\(/g) || [];
     assert.strictEqual(derived.length, 0,
-      `${fn} derives the claude path with claudeBinPath() while also asking resolveBin ` +
-      'for presence. That is two resolutions of one fact, and they can disagree across an ' +
-      'await. The rule is at the head of connect.js: resolve ONCE, read both off the one ' +
-      'answer. If you added this deliberately, change the rule and its carve-out, not this arm.');
+      `${site.fn} derives the claude path with claudeBinPath() while asking resolveBin for `
+      + 'presence. That is two resolutions of one fact by a different route than a second '
+      + 'call, and the count above cannot see it because the call count does not move.');
   }
 });
 

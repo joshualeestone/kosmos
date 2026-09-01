@@ -48,6 +48,11 @@
    📌 The one deliberate EXCLUSION is `binaryOnDisk` in `start()`. It is not computed at
    all on the common path, being inside the CONNECTED arm, and where it IS computed the
    disk can change before this pair reads. The full reason is at that site.
+     ⚠️ "and it is behind an await" WAS DELETED FROM THIS SENTENCE. The head-of-file summary
+     already said that phrase had been withdrawn, and it was still standing HERE: one copy
+     fixed, its sibling left, which is the class this branch is named for. It is also false by
+     this block's own reading two paragraphs down, where the await count is "AT MOST ONE and
+     often zero". The load-bearing half is CONDITIONAL, and it never needed the await claim.
    ⚠️ This summary used to say "conditional and behind an await", which kept the await-count
    evidence THE SITE ITSELF WITHDRAWS as "the wrong KIND of argument". Two copies of one
    rationale, diverged, in the comment written to stop exactly that. */
@@ -1111,13 +1116,8 @@ async function start(opts) {
      head of this file.
 
      🛑 `binaryOnDisk` NEAR THE TOP OF THIS FUNCTION IS DELIBERATELY EXCLUDED AND
-     MUST NOT BE FOLDED IN. It is CONDITIONAL, so it is not
-     ⚠️ "and it is behind an await" WAS DELETED FROM THIS SENTENCE. The head-of-file summary
-     already said that phrase had been withdrawn, and it was still standing HERE: one copy
-     fixed, its sibling left, which is the class this branch is named for. It is also false by
-     this block's own reading two paragraphs down, where the await count is "AT MOST ONE and
-     often zero". The load-bearing half is CONDITIONAL, and it never needed the await claim.
-     a value this pair can reuse: it is computed only inside
+     MUST NOT BE FOLDED IN. It is CONDITIONAL, so it is not a value this pair can reuse:
+     it is computed only inside
      `if (sub.state === subscription.STATE.CONNECTED)`, so on the common path it is
      never computed at all, and where it IS computed the disk can change before this
      pair reads. Collapsing it would be a real bug, not a tidy-up.
