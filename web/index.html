@@ -13604,8 +13604,21 @@ async function paintAccounts() {
         ? '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
           + 'data-forget-provider="openai" '
           + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '" '
+          /* 🛑 PER-ROW, BECAUSE THE CONSEQUENCE IS PER-ROW. An unconditional tooltip
+             here told the person that disconnecting the DEFAULT `~/.codex` was
+             consequence-free BEFORE the press, and then the route added "Kosmos stops
+             looking inside it" AFTER it. Gaining a consequence you were not warned
+             about is worse than never being told, and it is the exact asymmetry this
+             branch keeps closing. `a.isDefault` was in scope the whole time; the
+             Claude branch on the next line already keys on it.
+             The Claude side needs no conditional because its clause is true of every
+             Claude row. Here it is true of the default alone, since `codexsession`
+             reads transcripts out of `defaultHome()` only. */
           + 'title="Takes this account off the list. Its sign-in file stays on this '
-          + 'computer, so nothing is deleted."'
+          + 'computer, so nothing is deleted.'
+          + (a.isDefault ? ' Kosmos stops looking inside it, so any history kept only '
+            + 'there will not appear any more.' : '')
+          + '"'
           + '>Disconnect</button>'
         : (a.isDefault
           /* 🛑 THE DEFAULT ROW GETS A DISABLED BUTTON, BECAUSE THE ENGINE

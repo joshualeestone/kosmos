@@ -478,7 +478,17 @@ test('#1659: EVERY live Disconnect explains itself before the press, on both pro
      requiring the identical sentence would force a claim that is false for every labelled
      account. */
   const SHARED = 'so nothing is deleted';
-  const live = PAGE.match(/<button class="acct-disconnect" type="button" data-forget=[\s\S]{0,900}?<\/button>/g) || [];
+  /* 🛑 STRIP COMMENTS FIRST, AND DO NOT MEASURE THE GAP IN CHARACTERS. The first
+     version of this matched a fixed 900-character window from the anchor, so adding a
+     comment between the anchor and the title pushed the title out of range and the test
+     went red on a change that improved the code. A window measured in characters is a
+     window measured in prose. */
+  /* BOTH comment forms. Stripping only block comments left the adjacency lookback
+     below spanning a long `//` block, so the first writer read as unguarded when its
+     cancel was merely further away in PROSE than in code. Line comments are removed
+     only when the line STARTS with `//`, so a `https://` inside a string survives. */
+  const CODE = PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const live = CODE.match(/<button class="acct-disconnect" type="button" data-forget=[\s\S]*?<\/button>/g) || [];
   assert.ok(live.length >= 2,
     'fewer than two live Disconnect branches were found, so this test is not looking at '
     + 'what it claims to look at. found: ' + live.length);
@@ -491,4 +501,68 @@ test('#1659: EVERY live Disconnect explains itself before the press, on both pro
       'the ' + provider + ' Disconnect no longer says nothing is deleted, which is the '
       + 'half that is true of both providers');
   }
+});
+
+test('#1659: the OpenAI tooltip carries the history clause PER ROW, not unconditionally', () => {
+  /* The consequence is default-only for OpenAI, so both directions are wrong in a way
+     a person feels: unconditional tells a labelled account it loses history it never
+     had, and absent lets the DEFAULT row read as consequence-free before the press and
+     then gain a consequence after it. The route already decides this per row; the
+     tooltip is the surface read FIRST and must agree. */
+  /* BOTH comment forms. Stripping only block comments left the adjacency lookback
+     below spanning a long `//` block, so the first writer read as unguarded when its
+     cancel was merely further away in PROSE than in code. Line comments are removed
+     only when the line STARTS with `//`, so a `https://` inside a string survives. */
+  const CODE = PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const openai = CODE.match(/data-forget-provider="openai"[\s\S]*?>Disconnect<\/button>/);
+  assert.ok(openai, 'the OpenAI Disconnect branch was not found, so this test asserts nothing');
+  assert.match(openai[0], /a\.isDefault \?[\s\S]{0,160}stops looking inside it/,
+    'the OpenAI tooltip states the history consequence unconditionally or not at all. '
+    + 'Unconditional is false for every labelled account; absent means the default row '
+    + 'reads consequence-free before the press and gains one after it');
+});
+
+test('#1659: the repaint path CANCELS the pending announcement, all writers', () => {
+  /* 🛑 THE UNCOVERED HALF. The handler-side cancels are pinned by ask-first-1683
+     (it records the stub rather than no-oping it), and the paintAccounts-side ones were
+     guarded by nothing: deleting all three left the web suite green at 911 pass. That is
+     the same mechanism this branch already had to fix mid-review, and the comment above
+     it claims EVERY writer cancels, a claim that has been wrong three times.
+     Pinned as a floor on the count, matching how this file already pins the other
+     browser-only properties: they catch DELETION, which is the failure that actually
+     happened to their siblings. */
+  /* BOTH comment forms. Stripping only block comments left the adjacency lookback
+     below spanning a long `//` block, so the first writer read as unguarded when its
+     cancel was merely further away in PROSE than in code. Line comments are removed
+     only when the line STARTS with `//`, so a `https://` inside a string survives. */
+  const CODE = PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  /* 🛑 COUNT BRACES, DO NOT REGEX A FUNCTION BODY. My first version matched to the
+     next `\n}` and swallowed 11396 characters containing TEN cancels, so deleting the
+     three that matter left the count at seven and the guard green. That is the exact
+     defect this test was written to catch, in the test written to catch it. A brace
+     scan cannot drift. */
+  const start = CODE.indexOf('async function paintAccounts()');
+  assert.ok(start > -1, 'paintAccounts was not found, so this test asserts nothing');
+  let i = CODE.indexOf('{', start), depth = 0, end = -1;
+  for (let k = i; k < CODE.length; k++) {
+    if (CODE[k] === '{') depth++;
+    else if (CODE[k] === '}') { depth--; if (depth === 0) { end = k; break; } }
+  }
+  assert.ok(end > -1, 'could not find the end of paintAccounts, so the window is unbounded');
+  const body = CODE.slice(start, end);
+  /* 🛑 ASSERT THE ADJACENCY, NOT A COUNT. A floor on the count is the wrong
+     instrument: this body legitimately holds ten cancels, so deleting the three that
+     matter still cleared a floor of three. The property the comment above the module
+     actually claims is that EVERY writer to the message line cancels first, so assert
+     exactly that, per writer, and name the one that does not. */
+  const writers = [...body.matchAll(/msg\.textContent\s*=/g)];
+  assert.ok(writers.length >= 3,
+    'fewer than three writers to the message line were found in paintAccounts, so this '
+    + 'test is not looking at what it claims. found ' + writers.length);
+  const unguarded = writers.filter((m) => !/acctCancelSay\(\)/.test(body.slice(Math.max(0, m.index - 400), m.index)));
+  assert.equal(unguarded.length, 0,
+    unguarded.length + ' of ' + writers.length + ' writers to #set-accounts-msg inside '
+    + 'paintAccounts do not cancel the pending announcement first, so a deferred refusal '
+    + 'can be written after a repaint has already wiped the line. First unguarded write: '
+    + JSON.stringify(body.slice(Math.max(0, (unguarded[0] || {}).index - 90), ((unguarded[0] || {}).index || 0) + 40)));
 });
