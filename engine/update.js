@@ -19,6 +19,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const liveExec = require('./live-execution');
 const { version: RUNNING } = require('../package.json');
 
 const DEFAULT_BASE = 'https://installkosmos.com/dist';
@@ -372,6 +373,29 @@ function beginInstall(opts) {
      leaves for the next board. Positional parameters, never interpolated
      into the one command in this product that ends in `| sh`. */
   const statusFile = installStatusFile() || '/dev/null';
+  /* 🛑 #1726: THE GATE GOES HERE, AND THIS CALL SITE NEEDS IT MORE THAN THE ONES
+     THAT ALREADY HAD IT. `create.js` (#1598), `remove.js` and `delete-leftover.js`
+     all gate an exec whose child this process still holds. THIS ONE IS
+     `detached: true` + `unref()` + `stdio: 'ignore'`, so the moment it spawns it
+     has LEFT: a killed board, an aborted test or a Ctrl-C stops nothing, and no
+     stream records what it did.
+     ⇒ Every other gate prevents an action that is merely wrong. This one prevents
+     an action THAT CANNOT BE RECALLED, which is why it is fail-closed BEFORE the
+     spawn rather than anywhere after it.
+     📌 The gate keys on an EXPLICIT production opt-in - `server.js`'s real-start
+     path calls `allowLiveExecution()` - not on inferring intent from the
+     environment, so a test process cannot satisfy it by accident and a real board
+     cannot be refused by one. Verified before writing this: server.js:7452 makes
+     that call, and live-execution.js requires nothing, so there is no cycle. */
+  if (!liveExec.liveExecutionAllowed()) {
+    /* In a test process this THROWS, which is the point: a suite that reaches
+       here has spawned the real production installer, and failing loudly is
+       better than a green run that curled a remote script into sh. In production
+       it WARNS and we return without spawning, leaving the update un-started
+       rather than half-started. */
+    liveExec.refuseOrWarn('engine/update.js', '/bin/sh', ['-c', 'curl | sh (installer)']);
+    return;
+  }
   const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s\n" "$code" "$3" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt], {
     detached: true,
     stdio: 'ignore',
