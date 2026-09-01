@@ -574,7 +574,7 @@ test('every site under the resolution rule resolves the claude binary its docume
            apostrophe went straight through it.
            ⇒ THE STRIPPER TRACKS STRING STATE, so a comment opener inside a string, a template
            literal, or a URL cannot fool it. Measured: all four red at 19 pass 1 fail.
-           
+
            🛑 IT IS STILL FOOLABLE, AND AN EARLIER VERSION OF THIS PARAGRAPH SAID IT WAS NOT.
            It claimed "the input cannot fool it at all and there is no trigger left to assert
            absent", AND THE PREVIOUS GUARD WAS DELETED ON THAT CLAIM. A reviewer defeated it in one
@@ -583,14 +583,23 @@ test('every site under the resolution rule resolves the claude binary its docume
            treated as real and eats live code. MEASURED, the regex line the only difference:
                with    const re = /it's/;   before the planted pair -> 20 pass 0 fail
                without that one line                                -> 19 pass 1 FAIL
-           ⚠️ NOT A LIVE DEFECT TODAY: connect.js holds one regex literal and it contains no quote
-           character. But it is a file of screen-text matchers and /don't/i is an ordinary edit.
+           ⚠️ NOT A LIVE DEFECT TODAY: NO regex literal in connect.js contains a quote character.
+           📌 No count here. An earlier draft said "connect.js holds ONE regex literal" and it holds
+           FOURTEEN. The conclusion was right and its citation was off by an order of magnitude, on
+           the very figure the residual's pricing rests on.
            ⇒ RECORDED AS A RESIDUAL RATHER THAN CHASED. Closing it needs regex-literal state, which
            is lexing, and this file already argues that is a parser's job and not a test's.
            ⭐ EIGHT VERSIONS OF THIS ARM. Seven keyed on the last shape somebody demonstrated; the
            eighth made the instrument correct for a whole class and then OVERCLAIMED THAT IT WAS
            CORRECT FOR ALL OF THEM. Making an instrument better is not the same as making it sound,
            and the sentence that followed the improvement is what deleted the fallback.
+           🛑 AND THIS COMMENT LOST ITS CLOSER TWICE, THE SECOND TIME SWALLOWING A LIVE ASSERTION.
+           The runaway block ran to the NEXT closer 51 lines down and ate the per-site resolution
+           count, so a second resolution in claudeHatchAvailable was INVISIBLE at 20 pass 0 fail
+           while the arm reported green. Restoring the closer makes the same plant 19 pass 1 FAIL.
+           ⚠️ The file still PARSED and still required cleanly, and the surviving control and
+           spelling check kept the arm at 20, so nothing in the run said anything was missing.
+           ⇒ A GUARD CAN BE DISABLED BY PUNCTUATION AND STILL REPORT PASS. */
 
     const calls = code.match(/resolveBin\s*\(/g) || [];
     assert.strictEqual(calls.length, site.resolutions,
@@ -645,13 +654,13 @@ test('every site under the resolution rule resolves the claude binary its docume
            SITES table is a fixed list and the prose rule says every site. That gap is
            recorded with the other residuals rather than implied away. */
     if (site.fn === 'async function start(') {
-          const binding = (code.match(/const claudeResolved = require\('\.\/runners'\)\.resolveBin\('claude'\);/g) || []);
-          assert.strictEqual(binding.length, 1,
-            'start() no longer binds the pair with a single '
-            + "`const claudeResolved = require('./runners').resolveBin('claude');`. Its count of "
-            + '2 is the documented pair-plus-binaryOnDisk, so a SUBSTITUTION of one resolution '
-            + 'for another does not move it and only this binding check sees it. If you '
-            + 'reformatted the line, restore the single binding or update this pin and say why.');
+      const binding = (code.match(/const claudeResolved = require\('\.\/runners'\)\.resolveBin\('claude'\);/g) || []);
+      assert.strictEqual(binding.length, 1,
+      'start() no longer binds the pair with a single '
+      + "`const claudeResolved = require('./runners').resolveBin('claude');`. Its count of "
+      + '2 is the documented pair-plus-binaryOnDisk, so a SUBSTITUTION of one resolution '
+      + 'for another does not move it and only this binding check sees it. If you '
+      + 'reformatted the line, restore the single binding or update this pin and say why.');
     }
   }
 });
