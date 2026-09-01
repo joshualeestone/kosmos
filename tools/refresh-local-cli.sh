@@ -92,15 +92,22 @@ case "$REAL" in
     exit 0 ;;
 esac
 
-# Belt-and-suspenders beyond the single-root GUARD_REPO: a genuine install lives
-# OUTSIDE any git repo, so if the resolved CLI sits inside ANY git working tree it
-# is a checked-out copy -- the main checkout OR any worktree (this box carries 100+)
-# -- never an install. Overwriting it would dirty a tracked file, so leave it alone.
-# Fails open when git is absent (an install machine has no repo anyway), and the
-# test drives the git-independent GUARD_REPO gate above, this arm with a real repo.
-if _top="$(git -C "$(dirname "$REAL")" rev-parse --show-toplevel 2>/dev/null)" && [ -n "$_top" ]; then
-  echo "   $REAL is inside a git worktree ($_top), so it is a checked-out copy, not an install; leaving it alone"
-  exit 0
+# Beyond the single-root GUARD_REPO: a checked-out SOURCE copy is a repo's tracked
+# install/kosmos (the main checkout OR any of this box's 100+ worktrees), and
+# refreshing it would dirty a tracked file. But a genuine INSTALL can also sit inside
+# a git repo -- a dev whose $HOME is a dotfiles repo, with kosmos at ~/.local/bin/
+# kosmos -- and silently skipping THAT install is the exact pre-#1758 defect this
+# step closes. So the gate is PRECISE, not "inside any repo": leave alone only a
+# repo's tracked install/kosmos, never an install that merely lives under a repo
+# root. Fails open when git is absent (an install machine has no repo anyway).
+_dir="$(dirname "$REAL")"
+if _top="$(git -C "$_dir" rev-parse --show-toplevel 2>/dev/null)" && [ -n "$_top" ]; then
+  _top="$(cd "$_top" 2>/dev/null && pwd -P || printf '%s' "$_top")"
+  _rel="${REAL#"$_top"/}"
+  if [ "$_rel" = "install/kosmos" ] && git -C "$_top" ls-files --error-unmatch install/kosmos >/dev/null 2>&1; then
+    echo "   $REAL is a repo's tracked install/kosmos source ($_top), not an install; leaving it alone"
+    exit 0
+  fi
 fi
 
 # A missing or unreadable source is a real failure, not a skip: the release cannot
