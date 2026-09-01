@@ -34,8 +34,11 @@ check() {  # check <name> <expected> <actual>
 # final match count (0 = reaped).
 wait_gone() {
   local c=0
+  # `$` anchors the pattern to the END of the command line: our marker `sleep 9552<pid>`
+  # is a PREFIX of a concurrent run's `sleep 9552<longerpid>`, so an UNanchored match could
+  # count another run's live child and false-FAIL. Anchored, only our exact marker matches.
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    c="$(pgrep -f "$1" | wc -l | tr -d ' ')"
+    c="$(pgrep -f "$1\$" | wc -l | tr -d ' ')"
     [ "$c" = 0 ] && break
     sleep 0.5
   done
