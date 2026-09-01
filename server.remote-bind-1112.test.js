@@ -143,29 +143,41 @@ test('🛑 every STATIC-PATH write route is remotely unreachable except the agen
      dispatched from a matched variable and CANNOT be expressed as a fixed entry,
      so they are structurally outside what could create the #1764 bypass; the
      exact-set pin above is their backstop for any change. Every addable route is
-     a static-path route, and every static-path write route -- single-method or
-     the `(req.method === 'A' || 'B')` multi-method form -- is captured by this
-     scan. Prior art: relay claims.rs:473 pins gate::admit to one call site so the
-     mint cannot become token-only. */
+     a fixed-string route, and the scan below derives them from the two dispatch
+     forms that produce one -- exact `pathname === 'X'` (single- or multi-method)
+     and fixed-alternation `.exec(pathname)` -- with the exact-set pin as the
+     universal backstop for any form the scan does not recognize. Prior art: relay
+     claims.rs:473 pins gate::admit to one call site so the mint cannot become
+     token-only. */
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  /* Derive every ADDABLE static-path write route from server.js's dispatch, over
+     a 2-line window (so a method on the line after its path is caught) and
+     order-independently (so a read-first multi-method clause does not drop the
+     write). Two dispatch forms produce an addable, fixed-string route:
+       - exact:  `pathname === '/api/x'` (single- or multi-method), and
+       - fixed alternation: `/^\/api\/base\/(a|b|c)$/.exec(pathname)` -- each verb
+         is a fixed route (e.g. the device-pairing allow/deny/remove at :3051).
+     A free capture param (`([^/]+)`, `([a-z0-9-]+)`) is PARAMETERIZED and cannot
+     be a fixed exact-match entry, so it is structurally out of the threat and is
+     correctly not derived. Any dispatch form this scan does not recognize is
+     still caught by the exact-set pin above, which is the universal backstop. */
+  const lines = src.split('\n');
   const routes = new Set();
-  /* Match BOTH dispatch forms so no static-path write route is missed: the
-     single-method `pathname === 'X' && req.method === 'M'` AND the multi-method
-     `pathname === 'X' && (req.method === 'A' || req.method === 'B')` (e.g.
-     PUT|DELETE /api/you/avatar). Capture the path and its whole method clause,
-     then add one entry per write method in it. */
-  const re = /pathname === '(\/api\/[^']+)' && \(?(req\.method === '(?:POST|PUT|DELETE|PATCH)'(?:\s*\|\|\s*req\.method === '(?:POST|PUT|DELETE|PATCH)')*)/g;
-  let m;
-  while ((m = re.exec(src))) {
-    const p = m[1];
-    for (const method of m[2].match(/POST|PUT|DELETE|PATCH/g) || []) routes.add(`${method} ${p}`);
+  for (let i = 0; i < lines.length; i++) {
+    const win = lines[i] + ' ' + (lines[i + 1] || '');
+    const paths = [];
+    const exact = lines[i].match(/pathname === '(\/api\/[^']+)'/);
+    if (exact) paths.push(exact[1]);
+    const alt = lines[i].match(/\/\^\\\/(api(?:\\\/[\w-]+)+)\\\/\(([a-z][a-z|-]*)\)\$\//);
+    if (alt) { const base = '/' + alt[1].replace(/\\\//g, '/'); for (const a of alt[2].split('|')) paths.push(`${base}/${a}`); }
+    if (!paths.length) continue;
+    for (const p of paths) for (const meth of [...win.matchAll(/req\.method === '(POST|PUT|DELETE|PATCH)'/g)].map((x) => x[1])) routes.add(`${meth} ${p}`);
   }
-  /* A TIGHT floor near the real count (~61 static-path write route entries), so a
-     dispatch-style refactor that made the scan go narrow (method-first order, a
-     route() helper, reflowed conditions) reds here instead of quietly checking
-     far fewer than it claims. Removing a handful of routes legitimately is
-     tolerated; a collapse to a fraction is not. */
-  assert.ok(routes.size >= 55, `the write-route scan found only ${routes.size} (expected ~61); the scan or the dispatch changed shape -- do not trust this test until it is re-derived`);
+  /* A TIGHT floor near the real count (~64 addable static-path write route
+     entries), so a dispatch-style refactor that made the scan go narrow reds here
+     instead of quietly checking far fewer than it claims. Removing a handful of
+     routes legitimately is tolerated; a collapse to a fraction is not. */
+  assert.ok(routes.size >= 60, `the write-route scan found only ${routes.size} (expected ~64); the dispatch changed shape -- do not trust this test until it is re-derived`);
 
   const good = sendertoken.mint('reach-probe-1764');
   assert.equal(good.ok, true, good.because);
@@ -187,7 +199,7 @@ test('🛑 every STATIC-PATH write route is remotely unreachable except the agen
       checkedRefused++;
     }
   }
-  assert.ok(checkedRefused >= 53, `only ${checkedRefused} static-path write routes were checked as refused (expected ~59); coverage regressed`);
+  assert.ok(checkedRefused >= 58, `only ${checkedRefused} static-path write routes were checked as refused (expected ~62); coverage regressed`);
 });
 
 test('🛑 issuance is loopback-only: a remote peer to POST /api/agent-token is refused', () => {
