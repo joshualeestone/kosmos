@@ -3285,109 +3285,18 @@ const server = http.createServer((req, res) => {
        file's shape implies -- one badge vocabulary, one meaning, across
        providers.
        ⚠️ listLive(), NOT list(): a live per-account check is safe to pay for
-       here because the callers are demand-paced rather than the 5-second tick.
-       🛑 CORRECTED: this used to say "THE ONE PLACE" and "person-paced moments",
-       and both halves went false on this branch. There are TWO callers now
-       (this route and /api/agent/connections), and the second is called by
-       AGENTS, not by a hand on a screen. The same over-narrow claim was fixed in
-       engine/accounts.js and this copy four lines above the rewritten block was
-       missed, which is the drift this branch is about. The 5-second board-status
-       tick still calls the plain, fast list() elsewhere in this file, untouched.
-         🛑 THE INVARIANT IS THE JUSTIFICATION, NOT A LIST. An earlier version of
-         this comment made a caller enumeration NORMATIVE ("this list is the
-         justification, so it has to stay complete") and shipped INCOMPLETE the
-         same day: it omitted `paintConnLive` and `loadCreateExtras`, both of
-         which already called this route. A list that must stay complete is a
-         promise nobody can keep and it goes false silently.
-         => WHAT MUST HOLD: every call is DEMAND-PACED. Either a person pressed
-         something, or an agent asked a question and is waiting for the answer.
-         A TIMER IS NOT, whatever the count. That property is checkable at each
-         call site on its own, without knowing the others.
-         ⚠️ "A person pressing something" is too narrow on its own:
-         `/api/agent/connections` is reached by `install/kosmos` with curl, so
-         that caller is an AGENT waiting on an answer, and it is demand-paced
-         all the same.
-         📌 The callers as of #1034, illustrative and NOT a set to maintain:
-         paintAccounts (Settings > Accounts), paintConnLive (the Connections
-         section opening), paintAccountPicker (the agent panel picker),
-         loadCreateExtras (a create-form role change), frPaintOpenai (the
-         first-run wizard model step, which can re-fire on a back/forward pass),
-         and /api/agent/connections (an agent, through the CLI). The list shows
-         what demand-paced looks like; it is not a set to keep complete.
-         ⚠️ AND THE INVARIANT IS NOW STRETCHED, WHICH IS WORTH SAYING RATHER
-         THAN LEAVING FOR SOMEBODY TO DISCOVER. `/api/agent/connections` is called
-         by AGENTS, and the instruction block tells every agent the verb exists.
-         An agent is not a hand on a screen: nothing here rate-limits, caches or
-         debounces it, and EACH CALL IS A LIVE `claude auth status` PER CLAUDE
-         ACCOUNT, A LIVE AUTHENTICATED REQUEST TO api.openai.com PER OPENAI
-         ACCOUNT, PLUS THREE FIRST-PARTY DOOR CHECKS.
-         🛑 UP TO THREE REQUESTS LEAVE THIS MACHINE PER CALL, EACH ONLY WHEN A
-         CREDENTIAL IS HELD, PLUS A `gh auth status` SUBPROCESS WHEN gh IS
-         INSTALLED. This paragraph has now been wrong in BOTH directions: it
-         named one request when there are three, and then said three
-         unconditionally when all three are credential-gated. On a machine with
-         nothing connected, ZERO leave: `cloudflare.state()` returns at
-         engine/cloudflare.js:66 without a request when no token is held, the
-         github device fallback returns the same way, and `checkLive` returns
-         before `askModels` for an account with no key.
-         ⇒ The honest claim is a CEILING, not a count, and the ceiling is what
-         matters for a route an agent can poll. Three calls leave the machine, not
-         one: `cloudflare.state()` issues an uncached
-         GET https://api.cloudflare.com/client/v4/user/tokens/verify with the
-         person's token (engine/cloudflare.js:22,37), and the github arm's
-         `gh === 'missing'` fallback reaches `githubdevice.state()` ->
-         `getUser(tok)` against https://api.github.com/user, also with their
-         token (engine/githubdevice.js:49,254). Measured: the string `cache`
-         appears ZERO times in either module (controls: `async` 6 and 7).
-         ⇒ "first-party and not metered per auth check" is true about BILLING and
-         was being read as "stays local". None of the three is billed, so the
-         money decision to drop the token doors stands unchanged. What was wrong
-         is the accounting, in the paragraph whose only job is the accounting.
-
-         THE OPENAI CALL, FOUND FIRST AND STILL THE LARGEST:
-         `openaiAccounts.listLive()` ->
-         `checkLive` -> `askModels` issues an uncached
-         `GET https://api.openai.com/v1/models` carrying the person's REAL KEY as
-         a bearer token, once per apikey account, on every call. Measured: the
-         only occurrence of `cache` in engine/openaiaccounts.js is line 470's
-         `Not a cache`, describing #1618's in-flight collapse (control: `async`
-         appears 5 times, so the grep works). Collapsing concurrent callers is
-         not caching: nothing is held after it settles, so every call is live.
-         ⚠️ This read ZERO until #1618 merged in mid-branch and added that
-         comment. The conclusion never moved; the MEASUREMENT went stale, in a
-         comment on the branch about measurements going stale. Cite what the hit
-         IS, not that there are none: a count of zero is one edit from wrong.
-         ⚠️ NOT the Brave/Exa/Tavily money case: /v1/models is not token-billed,
-         which is why it was not swept out with the token doors. It is still a
-         third-party authenticated round trip per agent call, and a paragraph
-         accounting for this route's cost that names only the local subprocess
-         understates what actually happens. Named rather than removed, because
-         the OpenAI rows are what the card is FOR (an agent helping somebody
-         connect GPT), unlike the token doors which bought nothing. Carded at
-         #1618 with the rest of the fan-out. (It said EVERY DOOR CHECK until the
-         token doors were removed from the agent route; see below.)
-
-         It is still demand-paced rather than a tick, an
-         agent asks to answer a question, but the phrase is doing more work than
-         it did. If this route ever appears in a polling loop, THE CACHE BELONGS
-         HERE, NOT IN THE CALLER.
-         🛑 THE COST THAT WAS NOT ONLY THIS MACHINE'S, AND WHAT WAS DONE ABOUT IT.
-         A token door's `state()` makes a LIVE AUTHENTICATED REQUEST, and several
-         of those METER AGAINST THE PERSON'S OWN PAID QUOTA (Brave Search, Exa,
-         Tavily, Serper), so an agent in a poll loop would spend somebody's paid
-         allowance with NO LOCAL MEASUREMENT SHOWING IT.
-         ✅ FIXED rather than merely named: the token doors are no longer swept by
-         `/api/agent/connections` at all. This paragraph described the sweep in
-         the present tense for two commits after that stopped being true, and it
-         contradicted the agent route's own comment ("THE TOKEN DOORS ARE
-         DELIBERATELY NOT SWEPT HERE"). Two comments in one file giving opposite
-         answers about one route is the exact defect this branch exists to fix.
-         📌 The remaining first-party fan-out was carded as #1618, and #1618 has
-         since SHIPPED as `engine/inflight.js`. Both routes now share one
-         in-flight sweep via `readFirstPartyDoors`, so this file no longer holds
-         two copies of it. Kept as a pointer rather than deleted, because the
-         paragraph above is a record of a stale comment and deleting the sentence
-         that went stale would take the evidence with it.
+       here because every caller is DEMAND-PACED. Either a person pressed
+       something (Settings > Accounts, the Connections section opening, the
+       agent panel picker, a create-form role change, the first-run wizard
+       model step) or an agent asked a question and is waiting on the answer
+       (`/api/agent/connections`, through the CLI). A TIMER IS NOT, whatever
+       the count: the 5-second board-status tick calls the plain, fast list()
+       elsewhere in this file. That property is checkable at each call site on
+       its own; the caller list is illustrative, not a set to keep complete.
+       📌 What ONE call costs (a `claude auth status` subprocess per Claude
+       account, up to three credential-gated first-party requests, and why the
+       metered token doors are not swept by the agent route) is accounted for
+       once, at `/api/agent/connections`, not here.
        ⚠️ HEAD SKIPS THE LIVE CHECK. Nothing in web/index.html sends one
        today, but a HEAD is conventionally cheap/side-effect-light, and
        nothing about it needs a per-account subprocess/network call to
@@ -4466,6 +4375,20 @@ const server = http.createServer((req, res) => {
        carrying the person's real key per OpenAI account, plus the Cloudflare
        and GitHub calls. A drive-by page cannot read the answer and can still
        burn the person's third-party quota.
+       📌 THE HONEST COST IS A CEILING, NOT A COUNT, and it is accounted for here
+       and nowhere else. Up to THREE requests leave this machine per call, each
+       only when a credential is held, plus a `gh auth status` subprocess when gh
+       is installed: `cloudflare.state()` issues an uncached GET to
+       api.cloudflare.com `user/tokens/verify` with the person's token; the
+       github arm's `gh === 'missing'` fallback reaches `githubdevice.state()` ->
+       `getUser` against api.github.com/user with theirs; and
+       `openaiAccounts.listLive()` -> `checkLive` -> `askModels` issues an
+       uncached GET to api.openai.com/v1/models carrying the person's REAL KEY,
+       once per apikey account. None of the three is metered, which is why they
+       stay while the token doors below do not. With nothing connected, ZERO
+       leave: each returns at its no-credential early return. Collapsing
+       concurrent callers (#1618) is not caching: nothing is held after it
+       settles, so every call is live.
 
        `crossSiteRead` is this file's existing answer, and it covers the
        BROWSER-SIGNALLED part of that class rather than the whole class: it
