@@ -1910,3 +1910,61 @@ test('#1277: an OLD record cannot trip the cross-version cap on a count it may h
     'CONTROL: a SEVEN-field record naming three distinct failed versions must still brake, or the '
     + 'old-record allowance has simply disabled the cap');
 });
+
+test('#1277: the give-up ADVICE stays true, which depends on the two brakes being in this order', async () => {
+  /* 🛑 A SENTENCE WHOSE TRUTH RESTS ON STATEMENT ORDER, WITH NOTHING SAYING SO.
+     The per-version line ends "install it by hand or wait for a newer release".
+     That is false whenever the cross-version brake is also engaged, because a
+     newer release will not be tried either. It is true today only because the
+     cross-version brake is checked FIRST and returns, so the per-version sentence
+     is never reached in that state.
+
+     Swap the two blocks and the code still works, every other arm stays green, and
+     a person on a failing machine is told to wait for something that will never
+     come. That is the class this branch keeps producing: copy that outlived its
+     truth. This arm pins the ordering by pinning the PROMISE. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  async function say(record, offered) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-advice-'));
+    fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+    const said = []; let installs = 0;
+    const realWrite = process.stderr.write.bind(process.stderr);
+    u.resetCache();
+    u.setInstalledRoot(() => home);
+    u.setAutoPref(() => ({ on: true }));
+    u.setFetcher(async () => ({ ok: true, json: async () => ({ version: offered }) }));
+    u.setInstallRunner(() => { installs += 1; return { on() {}, unref() {}, stderr: { on() {} } }; });
+    try {
+      const old = new Date(Date.now() - 5 * 3600 * 1000);
+      const f = path.join(home, 'logs', 'install.status');
+      fs.writeFileSync(f, `1 ${old.toISOString()} ${record}\n`);
+      fs.utimesSync(f, old, old);
+      process.stderr.write = (c) => { said.push(String(c)); return true; };
+      await u.checkNow();
+    } finally {
+      process.stderr.write = realWrite;
+      u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+      u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+    }
+    return { line: said.find((s) => /giving up/.test(s)) || '', installs };
+  }
+  /* Cross-version brake engaged: the machine sentence must be the one that speaks,
+     and it must NOT tell anybody to wait for a newer release. */
+  const stopped = await say('9.9.9 1 3 3 7.7.7,8.8.8,9.9.9', '99.9.9');
+  assert.match(stopped.line, /DIFFERENT versions/,
+    'with three distinct versions failed, the per-version sentence spoke instead of the machine '
+    + 'one, so the person is told to wait for a newer release that will never be tried');
+  assert.doesNotMatch(stopped.line, /wait for a newer release/,
+    'a stopped machine was told waiting would help');
+  assert.equal(stopped.installs, 0, 'precondition: a newer release really is braked in this state');
+
+  /* Per-version cap only: the advice IS given, and it must be TRUE, which means a
+     newer release must actually install. */
+  const perVersion = await say('9.9.9 1 3 2 8.8.8,9.9.9', '9.9.9');
+  assert.match(perVersion.line, /wait for a newer release/, 'precondition: the advice is given here');
+  const newer = await say('9.9.9 1 3 2 8.8.8,9.9.9', '99.9.9');
+  assert.equal(newer.installs, 1,
+    'the per-version line told the person to wait for a newer release and the newer release was '
+    + 'NOT installed, so the advice this product prints is false');
+});
