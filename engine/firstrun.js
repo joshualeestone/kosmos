@@ -202,7 +202,7 @@ async function state() {
      📌 Three earlier drafts of this paragraph were wrong in three different ways, and a
      fourth defect was structural: it carried "Measured, with a control" on what is a READING
      of which lines call what, not a behavioural measurement. All four are recorded in
-     .claude/plans/runnable-dir-1592-20260830.md (in .claude/plans, which is tracked on main with 597 entries; kosmos#1592 for the card) rather than here, because this is a comment
+     .claude/plans/runnable-dir-1592-20260830.md (in .claude/plans, which is tracked on main; kosmos#1592 for the card) rather than here, because this is a comment
      on a dead `.catch` and it had grown to twenty-six lines of its own history.
 
      It stays because the property it defends is the one that matters (an unknown
@@ -214,7 +214,7 @@ async function state() {
      32k-line file drifts):
      saying a function can return null when it cannot is how a dead branch gets pinned by a
      test that can never fail for the reason it states.
-     📌 Path AND card, deliberately: the card does not contain this material (measured,
+     📌 Path AND card, deliberately: the card does not contain the three .catch drafts (measured,
      zero hits with live controls), so the card alone is an empty pointer today. */
   const willInstall = await willInstallSoon;
 
