@@ -1381,6 +1381,13 @@ cmd_adopt() {
 # For an argument-taking verb this re-dispatches it with NONE, because those
 # already print their own usage in that case. Reusing that string is deliberate:
 # a second copy here would be two renderings of one sentence, free to disagree.
+# ONE rendering of the verb list. The #1674 intercept and the unknown-verb
+# fallback both print it; as two literals they disagreed within a week (the
+# intercept's copy never learned `connections`). A verb added to this line is
+# added everywhere the line is shown.
+_kosmos_verbs() {
+  printf '\n  kosmos start | stop | restart | status | open | agents | connections | version | msg | post | reply | report | room | whoami\n\n'
+}
 _kosmos_help=0
 for _a in "$@"; do
   case "$_a" in -h|--help) _kosmos_help=1 ;; esac
@@ -1388,8 +1395,13 @@ done
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
     msg|reply|post|report|room|adopt|whoami) set -- "$1" ;;
+    # connections answers its own -h/--help at its dispatch arm. It is NOT
+    # re-dispatched with none, because for this verb "no arguments" means run
+    # the report, and the sweep behind it is exactly what a help request must
+    # not pay for.
+    connections) ;;
     *)
-      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | whoami\n\n'
+      _kosmos_verbs
       printf '  Run any of them with no arguments to see what that one takes.\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
       exit 0
@@ -1433,7 +1445,7 @@ case "${1:-}" in
   whoami)  shift; cmd_whoami "$@" ;;
   room)    shift; cmd_room "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | connections | version | msg | post | reply | report | room | whoami\n\n'
+    _kosmos_verbs
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;

@@ -1262,3 +1262,25 @@ test('a count of Infinity from a skewed board never reaches a person', async () 
     assert.match(line, /3 sign-ins working/, `a finite count stopped rendering: ${JSON.stringify(line)}`);
   });
 });
+
+test('"connections" is in the verb list, and --help and an unknown verb print the SAME list', async () => {
+  /**
+   * Main's #1674 help intercept and the unknown-verb fallback each carried their
+   * own copy of the verb list, and within a week the copies disagreed: the
+   * intercept never learned `connections`, so `kosmos connections --help`
+   * printed a list without the verb the person had just typed. One rendering
+   * now serves both, and this pins that they cannot drift apart again.
+   */
+  const run = (args) => new Promise((resolve) => {
+    execFile('bash', [CLI, ...args],
+      { env: { ...process.env, KOSMOS_PORT: '1', KOSMOS_HOME: FAKE_HOME } },
+      (err, stdout, stderr) => resolve({ code: err ? err.code : 0, out: String(stdout) + String(stderr) }));
+  });
+  const listOf = (out) => (out.match(/kosmos [a-z |]+\n/) || [''])[0];
+  const help = await run(['--help']);
+  const bogus = await run(['definitely-not-a-verb']);
+  assert.equal(help.code, 0, 'bare --help is not an error');
+  assert.equal(bogus.code, 2, 'an unknown verb is refused');
+  assert.match(listOf(help.out), /\| connections \|/, 'the help verb list does not know connections');
+  assert.equal(listOf(help.out), listOf(bogus.out), 'the two renderings of the verb list differ');
+});
