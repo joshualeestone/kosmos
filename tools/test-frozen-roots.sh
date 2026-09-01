@@ -325,6 +325,49 @@ const K = [{ dir: () => path.join(store.ROOT,'a') }, { dir: () => path.join(stor
 if [ "$(run everyoccurrencelazy)" = "0" ]; then ok "and both-deferred stays silent"
 else bad "fired when every occurrence was deferred"; fi
 
+# ---- arm 33: an arrow written in a COMMENT defers nothing ------------------
+# The deferral exemption was handed the RAW initializer while every other source
+# test got the blanked one, so a `=>` inside a comment satisfied the arrow-scope
+# rule for a source that is not deferred at all. Silent direction.
+fixture arrowincomment "const store = require('./store');
+const FILE = /* was () => */ path.join(store.ROOT, 'x');"
+if [ "$(run arrowincomment)" = "1" ]; then ok "an arrow inside a comment does not exempt a freeze"
+else bad "a commented-out arrow exempted a real freeze"; fi
+
+# ---- arm 34: and a comment or string must not make correct code fire -------
+# The counterweight to the arrow-in-comment arm: the same raw-vs-blanked mismatch
+# fired on correct code, and the engine modules here all carry inline comments.
+fixture lazywithcomment "const store = require('./store');
+const M = { dir: () => path.join(store.ROOT,'x') }; // store.ROOT is lazy"
+if [ "$(run lazywithcomment)" = "0" ]; then ok "a trailing comment does not make a lazy member fire"
+else bad "fired on correct code because of a trailing comment"; fi
+
+fixture lazywithstring "const store = require('./store');
+const M = { note: 'store.ROOT', dir: () => path.join(store.ROOT,'x') };"
+if [ "$(run lazywithstring)" = "0" ]; then ok "a source name in a sibling string does not make it fire"
+else bad "fired on correct code because of a string literal"; fi
+
+# ---- arm 35: `${...}` in a template is CODE -------------------------------
+# blankStrings treated a backtick like any other quote, so every source class went
+# silent behind a template literal, including the one this file's header is about.
+fixture tplinterp "const store = require('./store');
+const F = \`\${store.ROOT}/messages.jsonl\`;"
+if [ "$(run tplinterp)" = "1" ]; then ok "a freeze inside a template interpolation is flagged"
+else bad "template interpolation hid a freeze"; fi
+
+fixture tplinterplazy "const store = require('./store');
+const F = () => \`\${store.ROOT}/x\`;"
+if [ "$(run tplinterplazy)" = "0" ]; then ok "and a DEFERRED template interpolation is not flagged"
+else bad "fired on a correctly deferred template"; fi
+
+# ---- arm 36: the captured-getter receiver must be a required module --------
+# The rule constrained the property name and left the receiver open, so any object
+# with a path-shaped property fired. CI now runs this on server.js.
+fixture recvnotrequired "const tree = { ROOT: 'not a store' };
+const HEAD = tree.ROOT;"
+if [ "$(run recvnotrequired)" = "0" ]; then ok "a path-shaped property on a plain object is not a capture"
+else bad "fired on an object that is not a required module"; fi
+
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,
 # once by renumbering and stranding every "counterweight to arm N" reference. A

@@ -7,7 +7,9 @@
 > it has been REMOVED: it was a proof for the old branch name, its hash could not
 > match this branch, and leaving it meant `find .claude/plans -name '*1443*'`
 > surfaced a proof that cannot apply. The `lazyroot-1443` branch keeps its own copy.
-> A fresh proof is written as `frozenroots-1443-pre-challenge.md`.
+> A fresh proof WILL BE written as `frozenroots-1443-pre-challenge.md` by the
+> challenge-loop gate at PR time. It does not exist yet; this sentence used to
+> read as though it did.
 
 
 ## The defect, and it makes a sandbox seam a lie

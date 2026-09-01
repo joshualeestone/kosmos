@@ -38,8 +38,14 @@ const path = require('node:path');
    below claimed that removing its debt entry "is what makes the fix enforced".
    It did not: store.ROOT was never a SOURCE, so this guard could only ever fail
    on a module freezing os.homedir(). Measured on main before this change, with
-   store.ROOT added: 29 findings across 21 engine modules, every one of them
+   store.ROOT added: 27 findings across 23 engine modules, every one of them
    invisible while the guard reported clean and printed nothing.
+   📌 That pair read "29 findings across 21 modules" until a reviewer could not
+   reproduce it. Re-measured three ways against `git archive origin/main engine`:
+   27 findings, 23 modules, in every configuration constructible. The argument is
+   unaffected (the guard was blind to the class it is named for); only the figures
+   were stale, and a figure nobody can reproduce is what makes a reader distrust
+   the ones that ARE right.
 
    `store.ROOT` is a getter. Capturing it into a module-level const evaluates it
    ONCE at require time and throws the laziness away, which is the same freeze in
@@ -198,6 +204,27 @@ const blankStrings = (src) => {
     if (q) {
       if (c === '\\') { out += '  '; i += 1; continue; }
       if (c === q) { q = null; out += c; continue; }
+      /* 🛑 `${...}` INSIDE A TEMPLATE IS CODE, NOT STRING DATA. Blanking it made
+         every source class silent behind a backtick, including the one this file's
+         own header is about. Measured, each against a passing control:
+           const F = `${store.ROOT}/messages.jsonl`   -> exited 0
+           const HOME = `${os.homedir()}/Library`     -> exited 0
+           const F = `${dirp()}/x`                    -> exited 0  (via a resolver)
+           const F = `${limits.FILE}.tmp`             -> exited 0  (captured getter)
+         Copied through verbatim, with brace depth tracked so a nested object or a
+         nested template inside the hole does not end it early. */
+      if (q === '`' && c === '$' && src[i + 1] === '{') {
+        let depth = 0;
+        let j = i;
+        for (; j < src.length; j += 1) {
+          const d = src[j];
+          if (d === '{') depth += 1;
+          else if (d === '}') { depth -= 1; if (depth === 0) break; }
+        }
+        out += src.slice(i, j + 1);
+        i = j;
+        continue;
+      }
       out += (c === '\n' ? c : ' ');
       continue;
     }
@@ -501,7 +528,7 @@ function scan(file) {
      identical code using `store` exited 1. Every engine module happens to import
      it as `store` today, which is exactly why this went unnoticed. */
   const storeLocals = [];
-  for (const m of src.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\([^)]*store[^)]*\)/g)) {
+  for (const m of scanSrc.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\([^)]*store[^)]*\)/g)) {
     if (m[1] !== 'store') storeLocals.push(m[1]);
   }
   const GETTER_NAMES = GETTER_VALUE_NAMES;
@@ -563,6 +590,20 @@ function scan(file) {
      HOME_FOR_TEST are real exported getters and must not be swept in), and the
      laziness check upstream still exempts a deferred use. Re-verified to add zero
      findings across every non-test .js in the repo after widening. */
+  /* 🛑 THE RECEIVER MUST BE A REQUIRED MODULE. The rule constrained the PROPERTY
+     name (path-shaped) and left the receiver open apart from a literal `env`, so it
+     fired on any object with a path-shaped property. Measured, each against a
+     passing control:
+       const HEAD = tree.ROOT;    -> exited 1   (a parse tree)
+       const L = levels.LOG;      -> exited 1   (a log-level map)
+     The zero-findings-repo-wide claim was true and was a property of TODAY'S TREE,
+     not of the rule, and CI now enforces this on server.js where a `.ROOT` or a
+     `.LOG` on some local object would red the build with a message about filesystem
+     roots. Restricted to names this file binds with require(). */
+  const requiredLocals = new Set();
+  for (const m of scanSrc.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\(/g)) {
+    requiredLocals.add(m[1]);
+  }
   const capturedGetter = (init) => {
     for (const m of String(init).matchAll(/\b([A-Za-z_$][\w$]*)\.([A-Z][A-Z0-9_]*)\b/g)) {
       /* 🛑 NOT `process.env.X`. Widening this rule to match anywhere in the
@@ -574,6 +615,7 @@ function scan(file) {
          the debt list is decoration. Caught by re-running the repo-wide sweep
          after widening, which is the only reason it did not ship. */
       if (m[1] === 'env') continue;
+      if (!requiredLocals.has(m[1])) continue;
       if (PATH_SHAPED.test(m[2])) return m[2];
     }
     return null;
@@ -588,8 +630,26 @@ function scan(file) {
        initializer that runs at require time can defer anything, so the question is
        settled before either exemption is asked. Measured, both arms: the IIFE forms
        exit 1, the stored arrow and stored function forms exit 0. */
-    if (!invokedNow(d.init)
-      && (isLazy(d.init) || everyRootIsDeferred(d.init, resolvers, SRC_SOURCES))) continue;
+    /* 🛑 NORMALISE BEFORE BLANKING, and the order is the whole fix. Both rewrites
+       key on text that lives INSIDE string literals (`require('./store')` and
+       `store['ROOT']`), so running them after blankStrings matched nothing: the
+       first version of this did exactly that and both arms stayed silent. */
+    const initCode = blankStrings(blankComments(d.init)
+      .replace(/require\([^)]*store[^)]*\)\s*\./g, 'store.')
+      .replace(/\[\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*\]/g, '.$1')
+      .replace(/\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]/g, '.$1'));
+    /* 🛑 THE SAME BLANKED TEXT AS EVERY OTHER SOURCE TEST. This exemption was handed
+       the RAW initializer while `direct`, `viaHelper` and `captured` below got the
+       blanked one, and it failed in BOTH directions. Measured, each against a
+       passing control:
+         const FILE = /* was () => * / path.join(store.ROOT,'x');   -> exited 0, SILENT
+         const M = { dir: () => path.join(store.ROOT,'x') }; // note -> exited 1, on correct code
+         const M = { note: 'store.ROOT', dir: () => ... };          -> exited 1, on correct code
+       An arrow written in a COMMENT satisfied the arrow-scope rule for a source that
+       is not deferred at all, and the engine modules on this branch all carry heavy
+       inline comments, so both arms are reachable in ordinary house style. */
+    if (!invokedNow(initCode)
+      && (isLazy(initCode) || everyRootIsDeferred(initCode, resolvers, SRC_SOURCES))) continue;
     /* 🛑 AGAINST THE STRING-BLANKED INITIALIZER. A source name written inside a
        STRING LITERAL is data, not a freeze, and this file proved it on itself:
        `check-frozen-roots.js tools` reported its own SOURCES and KNOWN arrays,
@@ -605,14 +665,6 @@ function scan(file) {
        regex collects; the second is a bracket access, and every source in SOURCES
        is spelled with a dot. Rewriting them to the dotted form costs two replaces
        and closes both without widening what counts as a source. */
-    /* 🛑 NORMALISE BEFORE BLANKING, and the order is the whole fix. Both rewrites
-       key on text that lives INSIDE string literals (`require('./store')` and
-       `store['ROOT']`), so running them after blankStrings matched nothing: the
-       first version of this did exactly that and both arms stayed silent. */
-    const initCode = blankStrings(blankComments(d.init)
-      .replace(/require\([^)]*store[^)]*\)\s*\./g, 'store.')
-      .replace(/\[\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*\]/g, '.$1')
-      .replace(/\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]/g, '.$1'));
     const direct = SRC_SOURCES.some((s) => initCode.includes(s));
     /* The same blanked text for every source test, so a name written in a string
        cannot be read as code by one check after another check learned better. */
