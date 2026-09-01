@@ -206,7 +206,13 @@ function importAgent(text, deps) {
     // `[ \t]*`, NOT `\s*`: `\s` matches a newline, so an empty `key:` line would
     // cross the break and adopt the NEXT line's text as the value. A value is
     // always on its key's own line (matches the `namePresent` guard below).
-    const f = head.match(new RegExp('^' + key + ':[ \\t]*(.+)$', 'm'));
+    // `[^\n]+`, NOT `.+`: in JS regex `.` does not match U+2028/U+2029 and, under
+    // /m, `$` matches BEFORE them, so `.+` truncates a value at a line- or
+    // paragraph-separator and hands safeValue only the prefix -- letting a
+    // `name: ang<U+2028>evil` through as "ang" instead of refusing the whole file,
+    // even though safeValue lists U+2028/9. `[^\n]` matches them, so the full value
+    // reaches safeValue, which refuses it. (Found by Shredder, #1652 audit.)
+    const f = head.match(new RegExp('^' + key + ':[ \\t]*([^\\n]+)$', 'm'));
     return f ? safeValue(f[1]) : null;
   };
 
