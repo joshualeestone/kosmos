@@ -134,6 +134,18 @@ function refuseSymlinkTarget(file, nofollow) {
  * 0755 stays there. That is #1763, and it matters even when every file inside is
  * 0600: a loose directory discloses the FILENAMES.
  */
+/* ⚠️ A SYMLINKED DIRECTORY IS NOT REFUSED HERE, AND THAT IS A DELIBERATE GAP.
+   `mkdirSync(dir, { recursive: true })` is a no-op when `dir` is an existing symlink
+   to a directory, and `chmodSync` follows it, so the secret is written inside an
+   attacker-chosen directory. `writeSecret`'s `lstat` only inspects the FINAL path
+   component, so it does not notice.
+   ⇒ NOT refused, because a deliberately symlinked store is a plausible real
+   deployment (an operator moving `~/Library/Application Support/...` to another
+   volume), and refusing would break it with no way to opt back in. Refusing a
+   symlinked FILE is safe because nothing legitimately does that; refusing a
+   symlinked DIRECTORY is not the same call.
+   📌 Pre-existing at all four call sites, and now concentrated in one place, which
+   is the argument for fixing it here rather than four times. Carded. */
 function secureDir(dir, mode) {
   fs.mkdirSync(dir, { recursive: true, mode });
   /* Best effort on purpose: a directory we cannot chmod is still better than
@@ -180,11 +192,15 @@ function writeSecret(file, data, mode) {
       fs.renameSync(tmp, file);
       return;
     } catch (err) {
-      /* Keep WHY the atomic path was abandoned. Without this a persistent EXDEV or
-         EPERM is invisible forever: the destructive fallback succeeds, the caller sees
-         a normal write, and nothing ever says the atomic path stopped working. It is
-         attached as `cause` below rather than thrown, because a fallback that SUCCEEDS
-         is still a success. */
+      /* Keep WHY the atomic path was abandoned, so it is not lost behind the
+         fallback's own error when BOTH fail.
+         ⚠️ SCOPED HONESTLY, because an earlier version of this comment claimed more
+         than the code does: when the fallback SUCCEEDS this reason is still
+         discarded, so a persistent EXDEV or EPERM remains invisible to the caller.
+         Attaching it there would mean reporting an error on a successful write, which
+         is worse. Surfacing it needs a channel this function does not have (a warning
+         on the result, or a log line), and that is a caller-shaped change rather than
+         a writer-shaped one. Not done here. */
       lastAtomicError = err;
       /* ⚠️ ONLY REMOVE A TEMP WE CREATED. `wx` means a pre-existing file makes
          the write throw, and unlinking then would delete somebody else's file.
@@ -224,15 +240,29 @@ function writeSecret(file, data, mode) {
     if (lastAtomicError && err && !err.cause) { try { err.cause = lastAtomicError; } catch { /* frozen */ } }
     throw err;
   } finally {
-    /* Close FIRST, then restore: the descriptor above is the one that truncated
-       the file. Best effort by design, because whatever brought us here may also
-       defeat the restore, and the original error still propagates. */
-    if (fd !== null) { try { fs.closeSync(fd); } catch { /* already closed */ } }
-    if (!wrote && prior !== null) {
-      try {
-        fs.writeFileSync(file, prior);
-        try { fs.chmodSync(file, mode); } catch { /* best effort */ }
-      } catch { /* the restore failed too; the caller still gets the real error */ }
+    /* 🛑 GATE THE RESTORE ON `fd`, NOT ON `wrote`. If `openSync` threw, NOTHING was
+       truncated and there is nothing to put back, but the old code restored anyway
+       through a bare `writeFileSync(file, prior)` with no `O_NOFOLLOW` and no
+       `refuseSymlinkTarget`. A symlink planted at `file` between the check above and
+       the open, or present on win32 where `NOFOLLOW` is undefined and that check is
+       the only defence, would then have made the RECOVERY write the previous secret
+       through the link and chmod the victim to 0600.
+       ⇒ That is the exact write this module refuses a few lines earlier, reached via
+       error handling. `fd !== null` is the fact that the file was really opened and
+       really truncated; `wrote` is not. */
+    if (fd !== null) {
+      /* Restore THROUGH the descriptor, before closing it. `O_NOFOLLOW` already
+         proved this fd is not a symlink at open time, so it cannot be redirected;
+         a path-based write here could be, by a link swapped in after the close.
+         Best effort by design: whatever brought us here may defeat the restore too,
+         and the original error still propagates. */
+      if (!wrote && prior !== null) {
+        try {
+          fs.ftruncateSync(fd, 0);
+          fs.writeSync(fd, prior, 0);
+        } catch { /* the restore failed too; the caller still gets the real error */ }
+      }
+      try { fs.closeSync(fd); } catch { /* already closed */ }
     }
   }
 }

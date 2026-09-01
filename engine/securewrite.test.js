@@ -270,3 +270,53 @@ test('#1787: the fallback tightens BEFORE the bytes land, observed from inside t
     `the secret bytes landed while the file was still 0${(observed || 0).toString(8)}: `
     + 'the fallback chmodded AFTER the write, which is the exact defect this module exists for');
 });
+
+/* 🛑 WHEN THE OPEN ITSELF FAILS, NOTHING WAS TRUNCATED, SO THERE MUST BE NO RESTORE.
+   The restore used to be gated on `wrote`, which is true in that case too, and it was
+   a bare `writeFileSync(file, prior)` with no `O_NOFOLLOW` and no symlink refusal. A
+   link planted at `file` after the check, or present on win32 where the hand check is
+   the only defence, would have made the RECOVERY write the previous secret through it
+   and chmod the victim to 0600: the exact write this module refuses, reached through
+   error handling.
+   ⭐ The observable is that no PATH-ADDRESSED write to the target happens at all. An
+   assertion about the file's contents cannot see it, because on this platform the
+   restore would put back the same bytes that are already there. */
+test('#1787: a failed OPEN performs no path-addressed restore write', () => {
+  const f = fresh('noopen');
+  fs.writeFileSync(f, 'PREVIOUS-SECRET');
+  fs.chmodSync(f, 0o600);
+
+  const realRename = fs.renameSync;
+  const realOpen = fs.openSync;
+  const realWrite = fs.writeFileSync;
+  let pathWritesToTarget = 0;
+  fs.renameSync = () => { const e = new Error('forced'); e.code = 'EXDEV'; throw e; };
+  /* ⚠️ THROW ONLY FOR THE FALLBACK'S OWN OPEN. A blanket `openSync` stub also breaks
+     `fs.readFileSync`, so `prior` comes back null and the restore never runs at all:
+     the arm then passes for the wrong reason, measuring an absent restore rather than
+     a gated one. Second effect from one stub, which is the fixture defect this branch
+     has now hit three times. `O_TRUNC` is only on the fallback's write open. */
+  fs.openSync = function (target, flags, ...rest) {
+    if ((flags & fs.constants.O_TRUNC) !== 0) {
+      const e = new Error('simulated open failure'); e.code = 'ELOOP'; throw e;
+    }
+    return realOpen.call(fs, target, flags, ...rest);
+  };
+  fs.writeFileSync = function (target, ...rest) {
+    if (target === f) pathWritesToTarget += 1;
+    return realWrite.call(fs, target, ...rest);
+  };
+  let threw = false;
+  try { securewrite.writeSecret(f, 'NEW', 0o600); } catch { threw = true; } finally {
+    fs.renameSync = realRename;
+    fs.openSync = realOpen;
+    fs.writeFileSync = realWrite;
+  }
+
+  assert.equal(threw, true, 'the forced open failure did not throw, so nothing was tested');
+  assert.equal(pathWritesToTarget, 0,
+    `the recovery made ${pathWritesToTarget} path-addressed write(s) to the target after `
+    + 'the open failed: nothing had been truncated, so there was nothing to restore, and '
+    + 'a path write there has no symlink refusal');
+  assert.equal(fs.readFileSync(f, 'utf8'), 'PREVIOUS-SECRET', 'the previous secret was lost');
+});

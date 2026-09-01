@@ -102,11 +102,9 @@ test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place
 
   d.setFetcher(async () => ({ ok: true, status: 200, body: { username: 'kittybot' } }));
   const token = 'fake-discord-token-for-the-1787-arm-0123456789';
-  const st = await d.connect(token);
-  d.setFetcher(null);
-  assert.equal(st.connected, true, 'the connect failed, so nothing was tested');
-
   try {
+    const st = await d.connect(token);
+    assert.equal(st.connected, true, 'the connect failed, so nothing was tested');
     assert.notEqual(fs.statSync(file).ino, inodeBefore,
       'the credential was written IN PLACE into the pre-existing loose file: same inode '
       + 'means no rename, so the token bytes were on disk at 0644 before the chmod');
