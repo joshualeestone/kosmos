@@ -144,7 +144,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     }
 
     /* ---- 1. A READER WHO SCROLLED BACK STAYS PUT across a wording-only repaint. */
-    const moved = await p.evaluate(async () => {
+    const moved = await p.evaluate(async (growMs) => {
       const el = document.getElementById('pj-room');
       el.scrollTop = Math.floor(el.scrollHeight * 0.35);
       const before = el.scrollTop;
@@ -158,9 +158,23 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
          nothing reports "the reader did not move" and passes on any product. */
       const liveBefore = el.__lastLive;
       window.paintRoom(body);
-      await new Promise((r) => setTimeout(r, 120));
+      /* #1712: measure on the FIRST synchronous iteration, not after a fixed
+         120ms. setLive writes innerHTML and __lastLive synchronously, so this
+         client-only aging is on screen the instant paintRoom returns. The old
+         120ms wait was a window in which the background loadRoom poll (~5s, and
+         a post's own reload) could re-fetch the server body -- which has none of
+         this aging -- and REVERT it: __lastLive back to liveBefore, rewrote:false,
+         a correct release reded with the same signature as arm 6. Break the
+         instant the write is visible (immediate, unloaded) so the injected state
+         is captured before any poll can revert it; a genuine no-repaint still
+         ends unsatisfied and fails the rewrote arm below. */
+      const deadline = Date.now() + growMs;
+      while (Date.now() < deadline) {
+        if (el.__lastLive !== liveBefore) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
       return { before, after: el.scrollTop, rewrote: el.__lastLive !== liveBefore };
-    });
+    }, GROW_MS);
     if (!moved.rewrote) bad('THE REPAINT ACTUALLY REWROTE THE ROOM', 'the wording did not change, so setLive skipped the write and the arm below proves nothing');
     else ok('THE REPAINT ACTUALLY REWROTE THE ROOM');
     if (Math.abs(moved.after - moved.before) <= 4) ok('a reader who scrolled back is not moved by a wording-only repaint');
@@ -345,7 +359,10 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
     await p.locator('#pj-list').getByText('Scroll Repro').first().click().catch(() => {});
     await p.waitForSelector('#pj-room', { state: 'visible' });
-    await p.waitForTimeout(900);
+    /* #1712: bounded wait for the consolidated layout to apply, not a fixed
+       900ms -- the same fixed-wait-before-a-measurement pattern this change
+       removes elsewhere. consOn below still reports it if it never switches. */
+    await p.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: GROW_MS }).catch(() => {});
 
     const consOn = await p.evaluate(() => document.body.classList.contains('consolidated'));
     if (consOn) ok('consolidated: the layout actually switched');
@@ -373,7 +390,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       bad('consolidated: the room is actually scrollable', JSON.stringify(consScroll) + ' -- did not reach a scrollable height within ' + GROW_MS + 'ms; the arms below would pass trivially');
     }
 
-    const consMoved = await p.evaluate(async () => {
+    const consMoved = await p.evaluate(async (growMs) => {
       const el = document.getElementById('pj-room');
       el.scrollTop = Math.floor(el.scrollHeight * 0.35);
       const before = el.scrollTop;
@@ -383,9 +400,16 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         if (row.at) row.at = new Date(new Date(row.at).getTime() - 3600e3).toISOString();
       }
       window.paintRoom(body);
-      await new Promise((r) => setTimeout(r, 120));
+      /* #1712: same as arm 1 -- measure on the first synchronous iteration so a
+         background loadRoom revert during a fixed wait cannot turn a correct
+         release into rewrote:false. */
+      const deadline = Date.now() + growMs;
+      while (Date.now() < deadline) {
+        if (el.__lastLive !== liveBefore) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
       return { before, after: el.scrollTop, rewrote: el.__lastLive !== liveBefore };
-    });
+    }, GROW_MS);
     if (!consMoved.rewrote) bad('consolidated: THE REPAINT ACTUALLY REWROTE', 'setLive skipped the write, so the arm below proves nothing');
     else ok('consolidated: THE REPAINT ACTUALLY REWROTE');
     if (Math.abs(consMoved.after - consMoved.before) <= 4) ok('consolidated: a reader who scrolled back is not moved');
@@ -451,16 +475,20 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       body.unanswered[last.id] = ['roomer'];
       const liveBefore = el.__lastLive;
       window.paintRoom(body);
-      /* #1712: BOUNDED wait for the repaint and the reflow to land, instead of a
-         fixed 150ms that lost the race under concurrent load and read an
-         unrepainted, ungrown thread -- the "nothing was added, h unchanged,
-         rewrote:false" flake this file was reported for. Poll for the write AND
-         the growth up to the bound passed in (GROW_MS: the full window when the
-         fixture is healthy, short when the posted control already failed so a
-         setup failure does not burn it). A real "it never repainted or never
-         grew" still ends unsatisfied and fails below, now told apart from the
-         timing artifact. Breaks early the instant both land, so an unloaded run
-         is as fast as before. */
+      /* #1712: measure on the FIRST synchronous iteration, not after a fixed
+         150ms. setLive writes innerHTML and __lastLive synchronously, so the
+         unanswered marker and the height it adds are on screen the instant
+         paintRoom returns. The old 150ms wait was a window in which the
+         background loadRoom poll (~5s, and a post's own reload) could re-fetch
+         the server body -- which carries no unanswered marker -- and REVERT it:
+         __lastLive back to liveBefore, scrollHeight back to before.h, the
+         "nothing was added, h:4715, rewrote:false" flake this file was reported
+         for. Poll for the write AND the growth up to the bound (GROW_MS: the full
+         window when the fixture is healthy, short when the posted control already
+         failed so a setup failure does not burn it), breaking the instant both
+         are visible so the injected state is captured before any poll can revert
+         it. A real "it never repainted or never grew" still ends unsatisfied and
+         fails below. */
       const deadline = Date.now() + growMs;
       while (Date.now() < deadline) {
         if (el.__lastLive !== liveBefore && el.scrollHeight > before.h) break;

@@ -29,14 +29,31 @@ GROWTH (the class the card names):
    bounded at 15s.
 3. The consolidated "room is actually scrollable" measurement -- same as (2).
 
-The two `rewrote`-after-120ms repaint arms are a DIFFERENT measurement (the write
-landed + reader position, not growth), they passed under load, and they are not
-the class the card names -- left untouched to keep the diff to the reported flake.
-Those 120ms waits are now the only fixed waits left before a repaint measurement;
-they measure `__lastLive` changing (set synchronously by `setLive`) plus a
-synchronous `scrollTop` restore, so they are not exposed to the async-growth race.
-They would flake identically only if `setLive` ever became rAF-batched -- a known,
-documented residual, not an oversight.
+### Mechanism, corrected after tracing the product (iteration 2)
+
+The first framing here was wrong and is corrected in place. `paintRoom` ->
+`setLive` writes `innerHTML` and `__lastLive` SYNCHRONOUSLY (web/index.html:18883),
+so for the arms that inject a CLIENT-ONLY change (an unanswered marker in arm 6,
+aged timestamps in arms 1 and consMoved) the injected state is on screen the
+instant `paintRoom` returns -- nothing is "slow to paint". The real flake is that
+the fixed wait after `paintRoom` was a window in which the background `loadRoom`
+poll (~5s, and a post's own reload) could re-fetch the SERVER body -- which
+carries none of the client-only injection -- and REVERT it: `__lastLive` back to
+`liveBefore`, `scrollHeight` back, `rewrote:false`. The fix measures on the FIRST
+synchronous iteration, before any await, capturing the injected state before a
+poll can revert it.
+
+That means arms 1 and consMoved (the `rewrote`-after-120ms repaint arms) share
+the EXACT race, not a different one -- so they are now FIXED with the same pattern,
+not scoped out. My earlier rationale ("safe unless setLive became rAF-batched")
+misnamed the mechanism and is withdrawn.
+
+The scrollable-growth arms are a genuinely different case: the room's INITIAL
+population is an async loadRoom fetch + paint, so a fixed wait there really could
+measure before it grew. Those use `waitForFunction(scrollHeight > clientHeight+50)`.
+
+After this change there is no fixed wait before any repaint or growth measurement
+in the file.
 
 ## Must keep
 
