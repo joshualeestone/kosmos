@@ -38,8 +38,21 @@ identically (both hang). So:
    asserts both the detect-current arm and the detect-behind arm.
 4. Wire `tools/test-app-port-selftest.sh` into package.json test:shell (bash -n + run).
 
-Not doing fix-shape #2 (VERSION sha compare) unless the loop asks -- the real/fake premise
-check is the rigorous half and directly matches the bulletin.
+Not doing fix-shape #2 (VERSION sha compare) unless the loop asks.
+
+## Update after challenge-loop iteration 1 (design changed, for the record)
+The first cut used a fake-flag contrast arm. Iteration 1's review showed two real problems:
+(a) `bounded_run` killed only the launcher, orphaning the started app/sleep to init (it
+left leaked processes holding port 16180); (b) the fake-flag arm is FUNDAMENTALLY expensive
+and leaky for this binary: kosmos-app treats an UNKNOWN flag as "just run the app", so a
+fake flag STARTS the app on every current bundle. Final design:
+- `bounded_run` kills the whole PROCESS GROUP (`perl setpgrp` + `kill -- -pgid`; macOS has
+  no setsid), so nothing is orphaned.
+- The premise check drops the fake arm and instead requires the real flag to return the
+  EXACT expected uid-501 port fast (exit 0, not the 124 timeout). That is the cheaper,
+  non-perturbing equivalent of the bulletin's contrast, and strictly stronger: it proves
+  the flag returns the RIGHT value, not merely that it differs from a fake one. It never
+  starts the app on a current bundle. The test proves no child survives the kill.
 
 ## Checklist
 - [ ] tools/lib/app-port-selftest.sh (bounded_run + kosmos_app_selftest_current)

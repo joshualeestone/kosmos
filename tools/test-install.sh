@@ -636,7 +636,7 @@ _kosmos_expected_port() { # $1 = uid
 # like progress. Prove the flag is real by contrast BEFORE trusting it (a #910-aware
 # bundle answers the real flag and NOT a fake one; a behind bundle treats both the
 # same), and bound every call so a future regression cannot hang either.
-if kosmos_app_selftest_current "$KOS_SRC/app/bin/kosmos-app" "${KOSMOS_SELFTEST_TIMEOUT:-10}"; then
+if kosmos_app_selftest_current "$KOS_SRC/app/bin/kosmos-app" "$(_kosmos_expected_port 501)" "${KOSMOS_SELFTEST_TIMEOUT:-10}"; then
   for _uid in 501 502 1000 4999 5000; do
     _expected="$(_kosmos_expected_port "$_uid")"
     _swift_got="$(bounded_run "${KOSMOS_SELFTEST_TIMEOUT:-10}" "$KOS_SRC/app/bin/kosmos-app" --kosmos-app-port-selftest "$_uid")"
