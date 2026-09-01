@@ -58,6 +58,17 @@ test('kosmos#967: the terminal composer is wired -- markup, endpoint, gating', (
 
   // Gated from paintTalk's single presence read, not a second reachability check.
   assert.match(SCRIPT, /termSay\.disabled = body\.presence === 'off'/, 'the terminal box gates on the same presence read as the composer');
+
+  // #967 cross-agent safety: the draft lifecycle is wired like the Talk box's --
+  // parked per agent on input, restored by paintTalk, and cleared (box + receipt)
+  // on agent switch -- so a reply typed for one agent never carries onto or is
+  // delivered to the next. These pin the wiring the behavioural harness cannot
+  // drive end-to-end (paintTalk/openDetail are not lifted).
+  assert.match(SCRIPT, /getElementById\('d-term-say'\)\.addEventListener\('input'/, 'the terminal box parks its draft on input');
+  assert.match(SCRIPT, /TERM_DRAFTS\[CURRENT\.sessionName\] = v/, 'it parks the draft under the open agent');
+  assert.match(SCRIPT, /if \(termSay && !termSay\.disabled && !termSay\.value && TERM_DRAFTS\[sessionName\]\)/, 'paintTalk restores the parked terminal draft, gated on presence');
+  assert.match(SCRIPT, /getElementById\('d-term-say'\); if \(t\) t\.value = ''/, 'the agent-switch clear resets the terminal box');
+  assert.match(SCRIPT, /getElementById\('d-term-say-msg'\); if \(t\) t\.textContent = ''/, 'the agent-switch clear resets the terminal receipt');
 });
 
 /** Lift sendTerm and run it against a stub fetch + DOM, injecting CURRENT.

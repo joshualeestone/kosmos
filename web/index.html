@@ -17472,6 +17472,12 @@ async function paintTalk(sessionName, agentName) {
     termSay.placeholder = termSay.disabled
       ? name + ' cannot be reached right now'
       : 'Send a message into this window…';
+    /* `flying` is the Talk composer's in-flight state, on purpose: both boxes
+       POST the same agent thread, so a Talk send in flight holds the Terminal
+       Send too, keeping the one-send-at-a-time rule across the two entry points.
+       The coupling is one-way (a Terminal send does not disable Talk) and only
+       refreshed on the poll, which is enough here -- TERM_SENDING already blocks
+       a second Terminal send synchronously. */
     termSend.disabled = body.presence === 'off' || flying;
   }
   // The parked draft comes back, and never over words already in the box.
@@ -30363,7 +30369,11 @@ async function sendTerm() {
     if (!flightMoved() && msg) msg.textContent = 'We could not send that just now. Your message is kept here to try again.';
   } finally {
     TERM_SENDING = false;
-    if (send) send.disabled = false;
+    /* Re-enable only while we are still on the agent this send left from. If the
+       flight moved, the button belongs to another agent and paintTalk drives its
+       state from that agent's presence read, so re-enabling here would fight the
+       gate (and could show Send live under an offline agent until the next poll). */
+    if (send && !flightMoved()) send.disabled = false;
   }
 }
 document.getElementById('d-term-send').addEventListener('click', sendTerm);
