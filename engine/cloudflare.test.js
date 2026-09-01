@@ -55,3 +55,33 @@ test('a token Cloudflare rejects is not stored, and an unreachable Cloudflare sa
   const off = await cloudflare.connect('cf_any_token_abcdefghijklmnopqrstuvwxyz');
   assert.match(off.refused, /could not reach Cloudflare/);
 });
+
+/* 🛑 #1787: THE MODE ASSERTION ABOVE PASSES WHETHER OR NOT THIS IS FIXED, and that
+   is why the defect survived. Both shapes end at 0600: the old one wrote the
+   credential into a pre-existing 0644 file (where the `mode:` option is silently
+   IGNORED) and chmodded it afterwards, so the secret bytes sat readable in
+   between. No END-STATE assertion can separate them.
+   ⭐ THE INODE CAN. `rename` REPLACES the target's inode; a write in place REUSES
+   it. That is the only observable difference and it is exactly the property the
+   temp-then-rename writer exists to provide.
+   ⚠️ VERIFIED BY REVERTING THIS CALL SITE to the old shape: with only the tests
+   that existed before this arm, everything stayed green. A guard on the writer is
+   NOT a guard on its invocation. */
+test('#1787: a pre-existing loose credential file is REPLACED, not rewritten in place', async () => {
+  fs.mkdirSync(path.dirname(cloudflare.FILE), { recursive: true });
+  fs.writeFileSync(cloudflare.FILE, 'OLD-TOKEN\n');
+  fs.chmodSync(cloudflare.FILE, 0o644);
+  assert.equal(fs.statSync(cloudflare.FILE).mode & 0o777, 0o644,
+    'the loose plant did not take, so this arm would pass without the fix');
+  const inodeBefore = fs.statSync(cloudflare.FILE).ino;
+
+  cloudflare.setFetcher(fake(good));
+  const s = await cloudflare.connect('cf_test_token_abcdefghijklmnopqrstuvwxyz');
+  assert.equal(s.connected, true, 'the connect failed, so nothing was tested');
+
+  assert.notEqual(fs.statSync(cloudflare.FILE).ino, inodeBefore,
+    'the credential was written IN PLACE into the pre-existing loose file: same inode '
+    + 'means no rename, so the token bytes were on disk at 0644 before the chmod');
+  assert.equal(fs.statSync(cloudflare.FILE).mode & 0o777, 0o600,
+    'the credential was left loose');
+});

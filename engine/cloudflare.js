@@ -14,6 +14,7 @@
  * file's existence: a revoked token shows here as revoked.
  */
 const fs = require('node:fs');
+const securewrite = require('./securewrite');
 const path = require('node:path');
 const store = require('./store');
 
@@ -74,14 +75,20 @@ async function state() {
 async function connect(token) {
   const v = await verify(token);
   if (!v.ok) return { ...(await state()), refused: v.because };
-  fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
-  // #1763: mkdirSync's mode applies on create ONLY, so a pre-existing loose dir
-  // (an upgrade, a restore, an rsync/tar without -p) keeps 0755 and leaks the
-  // token filenames. Re-assert it, best-effort, like the file chmod below and
-  // remote.js's precedent.
-  try { fs.chmodSync(DIR, 0o700); } catch { /* best-effort; mode set at mkdir on create */ }
-  fs.writeFileSync(FILE, String(token).trim() + '\n', { mode: 0o600 });
-  try { fs.chmodSync(FILE, 0o600); } catch { /* mode set at write */ }
+  /* #1787: this WAS `writeFileSync(FILE, secret, { mode: 0o600 })` followed by a
+     chmod, and the mode argument is SILENTLY IGNORED on a file that already
+     exists, so the credential landed at the OLD permissions and was tightened
+     only afterwards. The catch on that chmod read `mode set at write`, which is
+     the belief #1761 disproved: true on a fresh create, false on the only path
+     that matters. Measured:
+  
+         fresh create with mode 0600                 -> 600
+         pre-existing 644, rewritten with mode 0600  -> 644   IGNORED
+  
+     `writeSecret` writes a fresh temp and renames over the target, so the
+     credential is never briefly loose and never partially written. */
+  securewrite.secureDir(DIR, 0o700);
+  securewrite.writeSecret(FILE, String(token).trim() + '\n', 0o600);
   return state();
 }
 
