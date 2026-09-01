@@ -31954,16 +31954,16 @@ document.getElementById('fr-checks').addEventListener('click', async (e) => {
    feedback, so only a failure speaks, in the step's own message line. It opens
    the setting; it cannot grant it (TCC), which is why Continue never waits on it. */
 document.getElementById('fr-a11y-open').addEventListener('click', async () => {
+  // Shaped exactly like the Settings sibling (set-a11y-open): it does not disable
+  // the button, so it never moves focus off it to <body>, and opening System
+  // Settings twice on a double-press just re-fronts the same window. Only a
+  // failure speaks, in the step's own message line.
   const msg = document.getElementById('fr-a11y-msg');
-  const btn = document.getElementById('fr-a11y-open');
-  btn.disabled = true;
   try {
     const r = await fetch('/api/open-accessibility-settings', { method: 'POST' });
     msg.textContent = r.ok ? '' : 'We could not open the accessibility settings just now.';
   } catch {
     msg.textContent = 'We could not open the accessibility settings just now.';
-  } finally {
-    btn.disabled = false;
   }
 });
 

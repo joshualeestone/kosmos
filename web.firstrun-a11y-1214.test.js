@@ -45,7 +45,7 @@ test('kosmos#1214: the first-run Accessibility pane offers the button and an out
 test('kosmos#1214: the offer reuses the SAME action as the Settings button, not a new mechanism', () => {
   // The firstrun button and the Settings button both open the one endpoint.
   const handler = SCRIPT.slice(SCRIPT.indexOf("getElementById('fr-a11y-open')"),
-    SCRIPT.indexOf("getElementById('fr-a11y-open')") + 500);
+    SCRIPT.indexOf("getElementById('fr-a11y-open')") + 800);
   assert.match(handler, /fetch\('\/api\/open-accessibility-settings', \{ method: 'POST' \}\)/,
     'the firstrun button POSTs the same open-accessibility-settings endpoint the Settings button does');
   // And the Settings button still exists and uses the same endpoint (the source of truth).
