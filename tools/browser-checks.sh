@@ -221,6 +221,54 @@ if [ -z "$PW_NODE_PATH" ]; then
 fi
 log "Playwright: $PW_NODE_PATH"
 
+# --- Is it the PINNED version? (#1708) --------------------------------------
+# 🛑 RESOLVING IS NOT PINNING. resolve_pw accepts ANY node_modules that has a
+# `playwright`, and the launch check below proves it can START a browser -- but
+# neither proves it is the version tools/provision-pw.sh pinned. A drifted
+# pw-runtime (a bare `npm i` there resolves a newer 1.6x) launches fine and
+# SILENTLY changes the browser build: the exact #1594 skew, one layer up (#1594
+# stopped the PROVISION drifting with --save-exact; the gate never re-checked at
+# run time). So read the pin from its single source of truth and compare.
+#
+# ⚠️ WARN by default, do not block: the launch check below still gates on a
+# working browser, and a mismatch during an intentional pin bump (PW_VERSION
+# updated, runtime not yet re-provisioned, or vice versa) should be VISIBLE, not
+# a hard stop. The whole defect this fixes is that drift was SILENT; a loud warn
+# cures that. KOSMOS_PW_STRICT_VERSION=1 makes it a hard stop -- and, because
+# "cannot verify the pin" is not "verified pinned", STRICT hard-stops on an
+# UNREADABLE version too, not only on a detected mismatch (a fail-closed flag
+# must not fail open).
+# Read the pin from its single source of truth via the freeze-aware $REPO (not a
+# re-derivation from $0, which a bare-basename invocation would misresolve), and
+# read the resolved version by PARSING its package.json with node (a greedy sed
+# would grab the last "version" in a minified file); PW_PKG is passed in env so a
+# path with odd characters cannot break the node expression.
+# 📌 playwright's package.json .version is a PROXY for the browser build, which
+# is actually pinned by playwright-core. A hand-mismatched runtime (playwright
+# 1.62.1 wrapping a different playwright-core) would pass this compare, but
+# provision-pw.sh installs them together with --save-exact, and the launch check
+# below is the backstop: it starts the browser build this Playwright wants.
+_pw_pin="$(sed -n 's/^PW_VERSION="\([^"]*\)".*/\1/p' "$REPO/tools/provision-pw.sh" 2>/dev/null | head -1)"
+_pw_got="$(PW_PKG="$PW_NODE_PATH/playwright/package.json" node -e "try{process.stdout.write(String(require(require('path').resolve(process.env.PW_PKG)).version||''))}catch(e){}" 2>/dev/null)"
+if [ -z "$_pw_pin" ] || [ -z "$_pw_got" ]; then
+  # Cannot VERIFY the pin. Loud, and under STRICT a hard stop (unverified is not pinned).
+  if [ -z "$_pw_pin" ]; then _why="could not read PW_VERSION from tools/provision-pw.sh"; else _why="could not read the resolved Playwright's version"; fi
+  log "‼️  Could not VERIFY the Playwright version pin: $_why (#1708). The launch check still runs."
+  if [ "${KOSMOS_PW_STRICT_VERSION:-0}" = "1" ]; then
+    log "🛑 KOSMOS_PW_STRICT_VERSION=1: cannot verify the pin, which is not the same as verified-pinned; refusing to run the page gate."
+    exit 2
+  fi
+elif [ "$_pw_got" != "$_pw_pin" ]; then
+  log "‼️  Playwright version DRIFT: resolved $_pw_got, but the pin (tools/provision-pw.sh) is $_pw_pin."
+  log "‼️  A drifted runtime changes the browser build silently (#1594/#1708). Re-provision: bash tools/provision-pw.sh"
+  if [ "${KOSMOS_PW_STRICT_VERSION:-0}" = "1" ]; then
+    log "🛑 KOSMOS_PW_STRICT_VERSION=1: refusing to run the page gate on an unpinned build."
+    exit 2
+  fi
+else
+  log "Playwright version: $_pw_got (matches the pin)"
+fi
+
 # --- Can it actually LAUNCH? (#1594) ----------------------------------------
 # 🛑 A DIRECTORY IS A PROXY; A LAUNCH IS THE THING. `resolve_pw` above accepts any
 # node_modules containing a `playwright` directory, and browser builds live in a
