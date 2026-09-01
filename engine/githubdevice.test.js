@@ -250,14 +250,20 @@ test('#1787: a writer throw on the completing path is reported, not swallowed in
        the failure was indistinguishable from the real bug. Poll for a terminal phase
        instead, with a bounded number of tries so a genuine hang still fails. */
     let st = null;
-    for (let i = 0; i < 40; i += 1) {
+    /* ⚠️ THE BUDGET IS GENEROUS ON PURPOSE. This arm failed once at load average ~8
+       with a 1s budget and passed 5/5 at 4.67, which is a flake that fails IN THE
+       DIRECTION OF THE BUG: a slow poll looks exactly like the silent hang. The cost
+       of a large budget is paid ONLY when the flow genuinely never settles, which is
+       the case this arm exists to catch and the one where waiting is correct. */
+    for (let i = 0; i < 200; i += 1) {
       st = await gd.state();
       if (st.phase !== 'awaiting' && st.phase !== 'completing') break;
       await settle(25);
     }
     assert.notEqual(st, null, 'the flow never reported a state at all');
     assert.notEqual(st.phase, 'completing',
-      'the flow is STILL at completing after a second: that is the silent hang this arm '
+      'the flow is STILL at completing after five seconds: that is the silent hang this '
+      + 'arm '
       + 'exists for, with schedulePoll having swallowed the throw');
     assert.equal(st.connected, false, 'a refused write reported as connected');
     /* Pin the SENTENCE, not merely `connected === false`: a hung flow is also not

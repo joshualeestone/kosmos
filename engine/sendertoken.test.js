@@ -323,7 +323,11 @@ test('#1761: the FALLBACK path also refuses a symlink, not just the rename path'
      is for. The property being pinned is UNCHANGED: the refusal must come from
      OUR code and not from the kernel's ELOOP, and the sentence is the only thing
      that separates them. */
-  assert.match(res.because, /refusing to write a secret through a symlink/,
+  /* ⚠️ PINS THE CODE, NOT THE SENTENCE, AND THAT CHANGED FOR A REASON. `mint` now
+     reports `e.code` rather than `e.message`, because the message carries the
+     absolute path of the token file. The code still discriminates ours from the
+     kernel's because ours is deliberately NOT `ELOOP`: see securewrite.js. */
+  assert.match(res.because, /ERR_KOSMOS_SYMLINK/,
     'the refusal came from the kernel, not from refuseSymlinkTarget: on win32 there is no '
     + 'kernel to refuse, so this path would follow the symlink');
   assert.equal(fs.readFileSync(victim, 'utf8'), 'ORIGINAL',

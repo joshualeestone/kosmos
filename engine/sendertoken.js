@@ -148,7 +148,11 @@ function mint(sessionName) {
     tokens.push({ token, instance, mintedAt: new Date().toISOString() });
     writeTokens(sessionName, tokens.slice(-MAX_LIVE));
   } catch (e) {
-    return { ok: false, because: 'we could not keep the token for that agent (' + (e && e.message ? e.message : 'no reason given') + ')' };
+    /* The CODE, not the message. The extracted writer's refusals read "refusing to
+       write a secret through a symlink at <absolute path>", and this string is shown
+       to the operator. The three token-door sites already report the code for exactly
+       this reason; this was the fourth and it was inverted. */
+    return { ok: false, because: 'we could not keep the token for that agent' + ((e && e.code) ? ' (' + e.code + ')' : '') };
   }
   return { ok: true, token, instance };
 }

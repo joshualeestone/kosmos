@@ -39,7 +39,9 @@
  * service just verified. Report it as a refusal in the caller's own shape instead.
  * ⚠️ Pre-existing for ENOSPC and EACCES, WIDENED by this module:
  * `refuseSymlinkTarget` raises ELOOP, a throw source the old in-place writes did not
- * have. Every call site in the tree does this; the reasoning lives here, once. `trust.js` and `create.js`
+ * have. The three token-door call sites catch it directly; `sendertoken.writeTokens`
+ * does NOT, and relies on `mint` and `retire` catching one level up, which is true at
+ * one remove and worth knowing before you check the call site and find nothing. `trust.js` and `create.js`
  * carry older variants of the same pattern and are the precedent for it.
  */
 
@@ -131,7 +133,17 @@ function refuseSymlinkTarget(file, nofollow) {
   try { st = fs.lstatSync(file); } catch { return; } // absent: nothing to follow
   if (st.isSymbolicLink()) {
     const e = new Error(`refusing to write a secret through a symlink at ${file}`);
-    e.code = 'ELOOP';
+    /* 🛑 A DISTINCT CODE, NOT `ELOOP`, AND THE REASON IS A CONFLICT BETWEEN TWO
+       REQUIREMENTS THAT ONLY SHOWED UP WHEN BOTH WERE SATISFIED.
+       The operator-facing strings report `err.code` and NOT `err.message`, because
+       the message carries the absolute path of the credential file. But on macOS the
+       KERNEL also refuses a symlink, with `ELOOP` - so if ours were `ELOOP` too, the
+       code could no longer tell our refusal from the kernel's, and that distinction
+       is the entire guard for the win32 path where there IS no kernel refusal.
+       ⇒ A distinct code satisfies both: it discriminates, and it leaks nothing. The
+       MESSAGE keeps the path, because it goes to logs and to `cause`, not to a
+       person. */
+    e.code = 'ERR_KOSMOS_SYMLINK';
     throw e;
   }
 }
@@ -222,7 +234,15 @@ function writeSecret(file, data, mode) {
   /* The in-place fallback. It exists so a write that cannot take the atomic path
      fails soft rather than outright, and every line of it is defensive. */
   const NOFOLLOW = fs.constants.O_NOFOLLOW;
-  refuseSymlinkTarget(file, undefined);
+  /* ⚠️ THIS THROWS, AND IT USED TO THROW FROM OUTSIDE THE try BELOW, so on the symlink
+     branch `lastAtomicError` was silently dropped and the comment above claiming it is
+     attached "when BOTH fail" was untrue of exactly that path. Attach it here. */
+  try {
+    refuseSymlinkTarget(file, undefined);
+  } catch (err) {
+    if (lastAtomicError && err && !err.cause) { try { err.cause = lastAtomicError; } catch { /* frozen */ } }
+    throw err;
+  }
 
   /* 🛑 CAPTURE WHAT WE ARE ABOUT TO TRUNCATE. `O_TRUNC` empties the file at
      OPEN, so a write that then fails leaves NOTHING. Measured on #1776 before

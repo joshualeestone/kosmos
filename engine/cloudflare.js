@@ -78,7 +78,7 @@ async function connect(token) {
   /* #1787: was writeFileSync-then-chmod, and the mode is IGNORED on a file that
      already exists. A throw MUST come back as a refusal rather than propagate: the
      route's catch discards it. Both reasons live in `engine/securewrite.js`. */
- try {
+  try {
     securewrite.secureDir(DIR, 0o700);
     securewrite.writeSecret(FILE, String(token).trim() + '\n', 0o600);
   } catch (err) {

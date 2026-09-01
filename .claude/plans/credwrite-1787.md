@@ -48,7 +48,7 @@ arm did break for a different reason (below), which is evidence the arms were li
 **A passing suite proves nothing if the arms point at a file that no longer holds the
 code.** That is the real risk of moving code, and it is the step most likely to be skipped.
 
-All 37 arms pass against the moved code, **and all five of #1776's mutation-verified guards
+All of #1776's arms pass against the moved code (37 at the time; 36 now, one having been relocated to `engine/securewrite.test.js` where the code it tests lives), **and all five of #1776's mutation-verified guards
 still redden when the code is mutated in `securewrite.js`**, checked one at a time:
 
 | mutation, in the NEW location | arm that fires |
@@ -126,8 +126,12 @@ already considered and rejected what you are about to add.**
 
 ## Verification
 
-- Full suite **`EXIT_CODE=0`, 3601 pass, 0 fail**, read from the log rather than a tally
-  line, on a **committed** tree.
+- Full suite **`EXIT_CODE=0`**, read from the log rather than a tally line, on a
+  **committed** tree. The count is deliberately not quoted: it moved from 3601 to 3615
+  across seven review iterations, and a number in a plan about a branch still under
+  review is stale by construction.
+- ⚠️ **The final full-suite gate is HELD**, at another agent's request while she gates a
+  release cut. Per-file runs are green throughout; the closing run happens on her signal.
 - Every fix perturbed individually, each reddening only its own arm.
 - Two of my own mutations failed to apply during this work and produced meaningless greens
   until I checked. Both caught by asserting the mutation applied before trusting its
