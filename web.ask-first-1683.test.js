@@ -48,9 +48,18 @@ function world(fetchImpl, provider) {
   assert.ok(start > 0 && end > start, 'the remove-account binding moved; re-anchor this test');
 
   const btn = {
-    textContent: 'Remove',
+    textContent: 'Disconnect',
     disabled: false,
-    /* 🔑 `forgetProvider` IS SET EVEN THOUGH TODAY'S HANDLER IGNORES IT.
+    /* 🔑 `forgetProvider` IS THE ROUTING KEY, AND THE HANDLER REFUSES WITHOUT IT.
+       ⚠️ This used to open "EVEN THOUGH TODAY'S HANDLER IGNORES IT" and to predict that
+       "two of these four go RED the moment #1659 is rebased on". Both were true when
+       written and are false here: the handler routes on it (`'/api/accounts/' + provider`),
+       refuses on the first press without it, and this file now holds nine tests, not four.
+       It contradicted the comment directly above it, and a reader taking it at face value
+       would conclude the fixture's `forgetProvider` is decorative.
+       Kept as a marker rather than deleted: it is the same stale-scope class this branch
+       already corrected in this file's own header, surviving one line above the line the
+       branch edited.
        #1659 makes the Claude row live and its handler REFUSES a button
        without this attribute ("we could not tell which provider that
        account belongs to"), correctly, because an unmarked button is a
@@ -151,7 +160,7 @@ test('#1683: blur disarms, so a half-taken click does not linger', async () => {
   const w = world(async (u, o) => { calls.push([u, (o || {}).method]); return { ok: true, json: async () => ({}) }; });
   await w.click();
   w.blur();
-  assert.equal(w.btn.textContent, 'Remove', 'blur must restore the resting label');
+  assert.equal(w.btn.textContent, 'Disconnect', 'blur must restore the resting label');
   await w.click();
   assert.deepEqual(calls, [], 'after a blur the next click must ARM again, not fire');
 });
@@ -166,7 +175,7 @@ test('#1683: a refused remove disarms, so the next single click cannot fire blin
   await w.click();
   await w.click();
   assert.equal(asked, 1, 'the second click should have tried once');
-  assert.equal(w.btn.textContent, 'Remove', 'a refusal must restore the resting label');
+  assert.equal(w.btn.textContent, 'Disconnect', 'a refusal must restore the resting label');
 
   await w.click();
   assert.equal(asked, 1, 'STILL ARMED AFTER A REFUSAL: the third click fired blind');
@@ -209,7 +218,7 @@ test('#1659: a button with no provider marker refuses on the FIRST press and nev
   const w = world(async () => { throw new Error('the engine must not be reached'); });
   delete w.btn.dataset.forgetProvider;
   w.btn.listeners.click();
-  assert.equal(w.btn.textContent, 'Remove',
+  assert.equal(w.btn.textContent, 'Disconnect',
     'an unmarked button ARMED, so the guard is still running after the arming rather than before it');
   assert.equal(w.btn.classList.has.has('armed'), false, 'it took the armed class despite refusing');
   assert.match(w.msg.textContent, /which provider/,

@@ -179,9 +179,15 @@ test('#1659: the tooltip and the route make the SAME history promise', () => {
   assert.ok(flat(server).includes('so nothing was deleted. ' + CLAIM),
     'the CLAUDE route no longer makes the history promise, so the tooltip promises '
     + 'something the person is never told actually happened');
-  assert.ok(flat(PAGE).includes(CLAIM),
-    'the tooltip no longer makes the history promise the route reports, so the two copies '
-    + 'of one claim have drifted with nothing to say so');
+  /* 🛑 PREFIX-ANCHOR THE PAGE HALF TOO. The flattened page holds this CLAIM TWICE, at
+     the OpenAI tooltip's conditional clause and at the Claude live row's title, so a bare
+     includes() was kept green by the OpenAI copy: deleting the clause from the Claude
+     title measured 913 pass, 0 fail. The sibling assertion above was prefix-anchored for
+     EXACTLY this collision on the server half, and its comment says so. I fixed one half
+     of a two-sided pin and left the other bare. */
+  assert.ok(flat(PAGE).includes('so nothing is deleted, and ' + CLAIM),
+    'the CLAUDE tooltip no longer makes the history promise the route reports, so the two '
+    + 'copies of one claim have drifted with nothing to say so');
 });
 
 test('#1659: the engine refusal and the page tooltip say the SAME thing', () => {
@@ -371,8 +377,19 @@ test('#1659: the disabled default row explains itself IN THE ACCESSIBLE NAME, no
   assert.ok(at > -1, 'the default-vs-live ternary is gone; re-anchor this test');
   const endAt = PAGE.indexOf(">Disconnect</button>'))", at);
   const body = PAGE.slice(at + 2, endAt + ">Disconnect</button>'".length + 1);
-  assert.match(body, /Unavailable: /,
-    'the default row no longer says WHY in its accessible name, so a screen-reader user hears a name with no reason');
+  /* 🛑 SLICE THE aria-label, DO NOT MATCH THE WHOLE TERNARY. `body` contains BOTH the
+         aria-label and the title, so this matched either one and could not tell them apart,
+         which is the entire distinction its own name asserts. Measured: moving the clause
+         out of the aria-label and appending it to the TITLE left 913 pass, 0 fail, while
+         restoring exactly the WCAG defect the block above describes, since a title on a
+         disabled control is not announced. */
+      const ariaAt = body.indexOf('aria-label="Disconnect ');
+      assert.ok(ariaAt > -1, 'the default row has no aria-label at all; re-anchor this test');
+      const ariaEnd = body.indexOf('"', body.indexOf('aria-label="') + 'aria-label="'.length + 1);
+      const ariaLabel = body.slice(ariaAt, ariaEnd > ariaAt ? ariaEnd : undefined);
+      assert.match(ariaLabel, /Unavailable: /,
+        'the default row no longer says WHY in its ACCESSIBLE NAME. A title on a disabled '
+        + 'control is not announced, so a screen-reader user hears a name with no reason')
   /* Paired with the engine, so the two cannot drift into saying different things. */
   const un = (x) => x.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
   /* Ends at `."` because the clause closes an HTML ATTRIBUTE, not a JS string.
@@ -516,7 +533,14 @@ test('#1659: the OpenAI tooltip carries the history clause PER ROW, not uncondit
   const CODE = PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const openai = CODE.match(/data-forget-provider="openai"[\s\S]*?>Disconnect<\/button>/);
   assert.ok(openai, 'the OpenAI Disconnect branch was not found, so this test asserts nothing');
-  assert.match(openai[0], /a\.isDefault \?[\s\S]{0,160}stops looking inside it/,
+  /* 🛑 ANCHOR ON THE OPENING PAREN. `/a\.isDefault \?/` MATCHES INSIDE
+     `!a.isDefault ?`, so the inversion this test's own message calls out ("both
+     directions are wrong in a way a person feels") sailed through: measured at 34 pass,
+     0 fail, no named test red, while the shipped effect was the default row reading
+     consequence-free before the press and every labelled account being told it lost
+     transcripts codex never kept there. The Claude sibling got this right by accident,
+     anchoring on `': (a.isDefault'`. */
+  assert.match(openai[0], /\(a\.isDefault \?[\s\S]{0,160}stops looking inside it/,
     'the OpenAI tooltip states the history consequence unconditionally or not at all. '
     + 'Unconditional is false for every labelled account; absent means the default row '
     + 'reads consequence-free before the press and gains one after it');
