@@ -31798,7 +31798,16 @@ async function frPaintYou() {
        one; it just stops being a person connected to the product. */
     '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Alex" aria-required="true"></div>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-do">What do you do?</label>' +
-    '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>';
+    '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>' +
+    /* #1772: make the reach VISIBLE at the moment of the action. Saving here runs
+       you.syncEveryone(), which writes this into the instruction file of every
+       agent already set up on this computer, all at once. Before this the reach
+       was invisible: a QA walk or a demo silently reconfigured the whole fleet.
+       Stated in words rather than a live count, so it cannot go stale or read
+       zero before the board has polled; the point the person needs is "all of
+       them", not the exact number. Next to Continue, the control that triggers
+       the write, per the card. */
+    '<p class="fr-next" id="fr-you-reach">Continue saves this into every agent already set up on this computer, so they all address you the same way.</p>';
   const nameEl = document.getElementById('fr-you-name');
   const doEl = document.getElementById('fr-you-do');
   /* 🛑 THE BOX IS GONE, THE VALUE IS NOT (#1345). Josh asked for two fields, and
