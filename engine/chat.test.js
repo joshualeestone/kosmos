@@ -2451,21 +2451,54 @@ test('#1629: the trust dialog is findable as a question, options and all, and ge
   assert.match(found.text, /❯ No, exit/, 'the highlighted answer is visible, which is the whole point');
   assert.match(found.text, /Yes, I trust this folder/);
   assert.match(found.text, /Accessing workspace:/, 'the run-up says which folder');
-  /* Unnumbered options: a button types a digit, and nobody has measured what
-     this dialog does with one. No buttons is the deliberate answer until
-     somebody does. */
+  /* Null because the options carry no digits and optionsIn only reads numbered
+     menus; nothing REFUSES this dialog. That is the deliberate outcome today (a
+     button types a digit, and nobody has measured what this dialog does with
+     one), and this line is what goes red if a numbered variant ever appears or
+     optionsIn learns unnumbered menus, so that somebody decides on purpose. */
   assert.equal(chat.optionsIn(found.text), null);
 });
 
 test('#1629: a box-framed trust dialog is still findable as a question', () => {
+  // A GUESSED shape, both edges, mirroring engine/status.test.js's framed arm:
+  // no box-drawn instance of this dialog has been observed. What is pinned is
+  // that the finder's marker and the detector's strip agree.
   const pane = [
     'Worked for 3m',
-    '│ Quick safety check: Is this a project you created or one you trust?',
-    '│ ❯ No, exit',
-    '│   Yes, I trust this folder',
-    '│ Enter to confirm · Esc to cancel',
+    '│ Quick safety check: Is this a project you created or one you trust?   │',
+    '│ ❯ No, exit                                                             │',
+    '│   Yes, I trust this folder                                             │',
+    '│ Enter to confirm · Esc to cancel                                       │',
   ].join('\n');
   const found = chat.questionIn(pane);
   assert.ok(found, 'the frame does not hide the question from the page');
   assert.match(found.text, /No, exit/);
+});
+
+test('#1629: a pasted copy of the trust dialog ABOVE a live question does not hijack the finder', () => {
+  // The finder anchors on the LAST marker. A live prompt is the bottom of the
+  // screen, so a paste of the dialog (a tool result quoting the card) can only
+  // sit above it, and the last match must still be the live question.
+  const pane = [
+    '⏺ Bash(gh issue view 1629 --repo joshualeestone/kosmos)',
+    '  ⎿  He was not unresponsive, he was stopped here:',
+    '      Quick safety check: Is this a project you created or one you trust?',
+    '      ❯ No, exit',
+    '        Yes, I trust this folder',
+    '',
+    'Delete the old build folder?',
+    'Do you want to proceed?',
+    '❯ 1. Yes',
+    '  2. No',
+  ].join('\n');
+  const found = chat.questionIn(pane);
+  assert.ok(found);
+  assert.match(found.text, /Do you want to proceed\?/, 'the live question is the anchor');
+  // The slice runs from the anchor to the END of the pane, so the live menu is
+  // its tail; the six rows of run-up above the anchor may reach into the paste,
+  // which is the finder's documented run-up and not a hijack.
+  assert.match(found.text, /2\. No\s*$/, 'the slice ends on the live menu');
+  const menu = chat.optionsIn(found.text);
+  assert.ok(menu && menu.length === 2, 'and the live menu still gets its two buttons');
+  assert.deepEqual(menu.map((o) => o.label), ['Yes', 'No']);
 });

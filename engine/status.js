@@ -1422,15 +1422,10 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
 ]);
 
 /**
- * Every runner's needs-you shapes, for consumers that read a PANE without
- * knowing which runner drew it (chat.js's question finder). The per-runner
- * classifiers keep using their own lists; this union exists so a question
- * on any runner's screen can be found and sliced for display.
- */
-/**
  * Claude Code's workspace-trust dialog (#1629, point 3). OBSERVED, per this
  * file's rule that a guessed wording is 0 for 1: captured from a live pane on
- * this machine, 2026-09-01, by starting `claude` in a folder it had never seen:
+ * this machine, 2026-09-01, Claude Code 2.1.258, by starting `claude` in a
+ * folder it had never seen:
  *
  *    Accessing workspace:
  *    /path/to/the/folder
@@ -1498,12 +1493,28 @@ const TRUST_PROMPT_CONFIRM = /^Enter to confirm/;
 const TRUST_PROMPT_REACH = 12;
 
 /* Tested on the RAW pane row by `questionIn`, so it carries the same leading
-   class the detector strips (indentation, tree glyphs, a box frame, a selector
-   glyph): the two halves of this feature must agree on what a row looks like,
-   or the card says needs_you while the page cannot find the question. Some
-   Claude Code versions draw prompts inside a box (see engine/chat.js). */
+   class the detector strips: the two halves of this feature must agree on
+   what a row looks like, or the card says needs_you while the page cannot
+   find the question. The class is `authFailed`'s (indentation, tree glyphs,
+   a selector glyph, a left frame edge). No box-drawn instance of THIS dialog
+   has been observed; the frame tolerance is inherited from that class, not a
+   claim about how this dialog is drawn. */
 const TRUST_PROMPT_MARKER = /^[\s>│├└─*❯›]*Quick safety check:/;
 
+/**
+ * Every runner's needs-you shapes, for consumers that read a PANE without
+ * knowing which runner drew it (chat.js's question finder). The per-runner
+ * classifiers keep using their own lists; this union exists so a question
+ * on any runner's screen can be found and sliced for display.
+ *
+ * TRUST_PROMPT_MARKER is here for `questionIn` only: no classifier list holds
+ * it, because `classify` reaches the trust dialog through `trustPrompt`, which
+ * demands three rows where the finder needs one row to anchor a slice. That
+ * asymmetry is safe because the finder runs only once `classify` has said
+ * needs_you, and a live prompt is the bottom of the screen, so a pasted copy
+ * of the dialog can only sit ABOVE the live question and the finder's
+ * last-match rule still lands on the live one (tested in chat.test.js).
+ */
 const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEEDS_YOU_MARKERS, TRUST_PROMPT_MARKER]);
 
 /**
@@ -1911,8 +1922,12 @@ function authFailed(tail) {
  * glyph is among them on purpose: `❯ No, exit` and `  Yes, I trust this folder`
  * must both read as option rows whichever one is highlighted.
  *
- * The strip tolerates any mix of indentation, tree glyphs, a box frame and a
- * selector glyph before the row's text; the question anchor then sits at 0.
+ * The left strip is `authFailed`'s class (indentation, tree glyphs, a selector
+ * glyph, a left frame edge); the right strip is `optionsIn`'s (`[\s│]+$`), so a
+ * row framed on both sides still ends at its label and the `$` anchors hold.
+ * Neither is a claim that this dialog is drawn in a box: none has been
+ * observed. They are the classes the two neighbours already use, kept equal
+ * so the card and the page agree on what a row is.
  *
  * Evidence is the question row alone, trimmed and capped, on its way to a
  * screen: the same one-line rule the rate-limit and auth cases follow.
@@ -1920,7 +1935,7 @@ function authFailed(tail) {
 function trustPrompt(tail) {
   const rows = String(tail == null ? '' : tail)
     .split('\n')
-    .map((line) => line.replace(/^[\s>│├└─*❯›]+/, '').replace(/\s+$/, ''));
+    .map((line) => line.replace(/^[\s>│├└─*❯›]+/, '').replace(/[\s│]+$/, ''));
   /* The last non-blank row of the screen: a real dialog ends the screen, a
      paste of one does not (see TRUST_PROMPT_QUESTION). */
   let last = rows.length - 1;
@@ -3953,7 +3968,7 @@ function reconcileReport(reported, scraped, nowMs) {
        whose last report was an earlier question and then met the dialog would
        otherwise render the OLD question with no evidence. The report keeps the
        state and its words; the screen's row rides along when it has one. */
-    const evidence = (scraped && scraped.state === STATE.NEEDS_YOU && scraped.evidence)
+    const evidence = (scraped.state === STATE.NEEDS_YOU && scraped.evidence)
       ? { evidence: scraped.evidence } : {};
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said('it is asking you something'), reported: true, conflict: null, project: (typeof reported.project === 'string' && reported.project) ? reported.project : null, projectInferred: reported.projectInferred === true, ...evidence };
   }

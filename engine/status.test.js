@@ -3707,8 +3707,10 @@ test('#1629: prose about the trust dialog is not the dialog', () => {
   const cases = [
     ['an agent quoting the sentence',
       'The pane said "Quick safety check: Is this a project you created or one you trust?" and I pressed Down.\n'],
-    ['the question row with nothing beneath it',
+    ['the question row with a non-dialog row beneath it and no option row',
       ' Quick safety check: Is this a project you created or one you trust?\nWorked for 2m\n'],
+    ['the question row alone at the bottom of the screen, no option row',
+      ' Quick safety check: Is this a project you created or one you trust?\n'],
     ['a label inside a sentence',
       'I chose Yes, I trust this folder and it started.\n'],
     ['a label on its own row with no question above it',
@@ -3789,18 +3791,21 @@ test('#1629: the reach boundary goes red in both directions', () => {
 
 test('#1629: a box-framed dialog reads the same on both halves of the feature', () => {
   const { trustPrompt, ALL_NEEDS_YOU_MARKERS } = require('./status');
-  // engine/chat.js records that some Claude Code versions draw prompts inside a
-  // box. The detector strips the frame; the marker questionIn tests on the RAW
-  // row must tolerate it too, or the card says needs_you while the page cannot
-  // find the question.
+  // ⚠️ A GUESSED SHAPE, said so: no box-drawn instance of THIS dialog has been
+  // observed. The frame comes from engine/chat.js's record that some Claude
+  // Code versions draw prompts inside a box, with BOTH edges, the way optionsIn
+  // strips them. What this arm pins is that the detector and the marker
+  // questionIn uses apply the same strip, or the card says needs_you while the
+  // page cannot find the question. If a framed dialog is ever observed, replace
+  // this fixture with the capture.
   const framed = [
-    '│ Quick safety check: Is this a project you created or one you trust?',
-    '│ ❯ No, exit',
-    '│   Yes, I trust this folder',
-    '│ Enter to confirm · Esc to cancel',
+    '│ Quick safety check: Is this a project you created or one you trust?   │',
+    '│ ❯ No, exit                                                             │',
+    '│   Yes, I trust this folder                                             │',
+    '│ Enter to confirm · Esc to cancel                                       │',
     '',
   ].join('\n');
-  assert.ok(trustPrompt(framed), 'the detector sees through the frame');
+  assert.ok(trustPrompt(framed), 'the detector sees through a frame on both edges');
   assert.ok(ALL_NEEDS_YOU_MARKERS.some((re) => re.test('│ Quick safety check: Is this a project')), 'so does the marker questionIn uses');
   assert.ok(ALL_NEEDS_YOU_MARKERS.some((re) => re.test(' Quick safety check: Is this a project')), 'and the plain row');
   assert.ok(!ALL_NEEDS_YOU_MARKERS.some((re) => re.test('The pane said Quick safety check: and I moved on')), 'but not the sentence');

@@ -67,3 +67,18 @@ on this branch; the suite's new arms are red on main by construction.
   dialog and seen the question, both options and the highlight. The browser gate was held by
   another agent during this build. The card stays open at "words shipped and mechanism built,
   behaviour not yet measured" until that walk happens; it is listed in the PR body.
+
+## Challenge-loop iteration 2: one claim narrowed, one surface named
+
+- **"No web change" was wrong in one respect.** `stateEvidence` is generic (status.js maps
+  `evidence` for any state) and the agent page renders it under "X's screen said:" through
+  `textContent`. So the agent page WILL now show the trust question row, through a renderer
+  that already exists. That is the card's ask, and it is unverified in a browser (the walk
+  above is still owed).
+- **The frame tolerance is inherited, not observed.** The detector uses `authFailed`'s left
+  strip and `optionsIn`'s right strip so both halves of the feature agree on what a row is.
+  No box-drawn instance of this dialog has been observed; the framed test arms say so.
+- Observed version named in the docblock: Claude Code 2.1.258, 2026-09-01. The
+  bottom-of-screen rule was measured on that version; a later version that draws a footer
+  under the confirm row would read unknown, which is the honest default and the thing to
+  re-check on a version bump.
