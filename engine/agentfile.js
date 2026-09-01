@@ -47,6 +47,13 @@ const KIND = 'agent';
    (well past any real name) so it refuses a wall of text, not a long name. */
 const MAX_DISPLAY = 64;
 
+/* A coarse ceiling on the whole file, so a pathological huge input is refused
+   before any parsing work rather than allocated and scanned. Well above a real
+   agent file: the instructions body alone is capped at 256 KB downstream
+   (workerfile.MAX_BYTES), and this leaves ample room for that plus a header, so
+   it never rejects a file the create flow would accept -- it only stops abuse. */
+const MAX_FILE = 512 * 1024;
+
 /**
  * The contract an importer must enforce. Stated here, beside the writer, so
  * whoever builds the import half is not inferring it from examples.
@@ -181,11 +188,14 @@ function importAgent(text, deps) {
   if (typeof identityFromText !== 'function' || typeof nameUsable !== 'function') {
     return { ok: false, because: 'import needs the identity parser and the name check' };
   }
+  const raw = String(text == null ? '' : text);
+  // Refuse a pathological huge input BEFORE the normalise/parse work touches it.
+  if (raw.length > MAX_FILE) return { ok: false, because: 'that file is too large to be an agent file' };
   /* Input hygiene, NOT a new format: a file that travelled by email or chat can
      pick up a leading BOM or CRLF line endings. Strip/normalise them before
      parsing so a valid agent file is not refused for surviving the trip. The
      format itself is still the LF `---` frontmatter `skills.readMeta` reads. */
-  const src = String(text == null ? '' : text).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+  const src = raw.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
   if (!src.trim()) return { ok: false, because: 'that file is empty' };
 
   // (1) the `---` frontmatter block, the same shape `skills.readMeta` reads.
@@ -193,7 +203,10 @@ function importAgent(text, deps) {
   if (!m) return { ok: false, because: 'this is not a Kosmos agent file: it has no header' };
   const head = m[1];
   const field = (key) => {
-    const f = head.match(new RegExp('^' + key + ':\\s*(.+)$', 'm'));
+    // `[ \t]*`, NOT `\s*`: `\s` matches a newline, so an empty `key:` line would
+    // cross the break and adopt the NEXT line's text as the value. A value is
+    // always on its key's own line (matches the `namePresent` guard below).
+    const f = head.match(new RegExp('^' + key + ':[ \\t]*(.+)$', 'm'));
     return f ? safeValue(f[1]) : null;
   };
 
