@@ -195,7 +195,7 @@ async function state() {
      conclusion that is TRUE and no longer FOLLOWS from its stated premises. The cost is
      specific: somebody who later removes that inner catch falsifies the conclusion while
      every premise written here still holds, and nothing points them at this comment.
-     
+
      ⇒ THE CLAIM THIS BLOCK EXISTS TO STATE: nothing after either try can reject, so the
      `.catch` cannot fire today.
 
