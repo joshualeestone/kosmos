@@ -129,24 +129,34 @@ test('the remote allowlist is exactly report + reply, nothing else (#1764)', () 
     'REMOTE_AGENT_ROUTES changed: adding a route moves it behind the socket-peer guard only, which a local reverse proxy defeats -- see the remoteWriteGuard docblock and kosmos#1762/#1764');
 });
 
-test('🛑 EVERY write route is remotely unreachable except the agent surface, even with a valid token (#1764, bounds #1762)', () => {
-  /* REACH, not presence, and it CANNOT SILENTLY GO NARROW. It reads the guard's
-     BEHAVIOUR (not the REMOTE_AGENT_ROUTES literal) against EVERY write route
-     DERIVED FROM server.js's own dispatch -- so a write route added to
+test('🛑 every STATIC-PATH write route is remotely unreachable except the agent surface, even with a valid token (#1764, bounds #1762)', () => {
+  /* REACH, not presence. It reads the guard's BEHAVIOUR (not the
+     REMOTE_AGENT_ROUTES literal) against every STATIC-PATH write route DERIVED
+     FROM server.js's own dispatch -- so a write route added to
      REMOTE_AGENT_ROUTES is caught here EVEN IF someone reflexively updated the
      exact-set assertion above, because the probe set comes from the source, not a
-     curated list a future edit could sit outside of. The socket-peer guard is all
-     that stands in front of these routes and a reverse proxy defeats it, so a
-     write route on the remote surface is a network write bypass. Prior art: relay
-     claims.rs:473 pins gate::admit to one call site so the mint cannot become
-     token-only. */
+     curated list a future edit could sit outside of.
+     🔑 STATIC-PATH IS THE RIGHT AND COMPLETE SCOPE FOR THE THREAT, NOT A GAP.
+     REMOTE_AGENT_ROUTES is an EXACT-MATCH set (`has(`${method} ${pathname}`)`), so
+     only a fixed `METHOD /api/x` string can ever be added to it. Parameterized
+     write routes (`POST /api/agent/<n>/skills`, `PUT /api/project/<id>`, ...) are
+     dispatched from a matched variable and CANNOT be expressed as a fixed entry,
+     so they are structurally outside what could create the #1764 bypass; the
+     exact-set pin above is their backstop for any change. Every addable route is
+     a static-path route, and every static-path write route uses the inline form
+     this scan captures. Prior art: relay claims.rs:473 pins gate::admit to one
+     call site so the mint cannot become token-only. */
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const routes = new Set();
   const re = /pathname === '(\/api\/[^']+)' && req\.method === '(POST|PUT|DELETE|PATCH)'/g;
   let m;
   while ((m = re.exec(src))) routes.add(`${m[2]} ${m[1]}`);
-  // Floor, so a broken scan cannot pass vacuously (there are ~28 write routes).
-  assert.ok(routes.size >= 20, `the write-route scan found only ${routes.size}; the scan is broken, not the server`);
+  /* A TIGHT floor near the real count (~59 static-path write routes), so a
+     dispatch-style refactor that made the scan go narrow (method-first order, a
+     route() helper, reflowed conditions) reds here instead of quietly checking
+     far fewer than it claims. Removing a handful of routes legitimately is
+     tolerated; a collapse to a fraction is not. */
+  assert.ok(routes.size >= 55, `the write-route scan found only ${routes.size} (expected ~59); the scan or the dispatch changed shape -- do not trust this test until it is re-derived`);
 
   const good = sendertoken.mint('reach-probe-1764');
   assert.equal(good.ok, true, good.because);
@@ -168,7 +178,7 @@ test('🛑 EVERY write route is remotely unreachable except the agent surface, e
       checkedRefused++;
     }
   }
-  assert.ok(checkedRefused >= 18, `only ${checkedRefused} write routes were checked as refused; expected the full dispatch minus report/reply`);
+  assert.ok(checkedRefused >= 53, `only ${checkedRefused} static-path write routes were checked as refused (expected ~57); coverage regressed`);
 });
 
 test('🛑 issuance is loopback-only: a remote peer to POST /api/agent-token is refused', () => {
