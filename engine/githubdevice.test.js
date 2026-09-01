@@ -191,21 +191,21 @@ test('the pasted client id survives to a fresh read, and a spaced one is refused
 test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place', async () => {
   process.env.KOSMOS_GITHUB_CLIENT_ID = 'Iv1.testclient';
   try {
-  fs.mkdirSync(path.dirname(gd.FILE), { recursive: true });
-  fs.writeFileSync(gd.FILE, 'OLD-TOKEN\n');
-  fs.chmodSync(gd.FILE, 0o644);
-  assert.equal(fs.statSync(gd.FILE).mode & 0o777, 0o644,
+    fs.mkdirSync(path.dirname(gd.FILE), { recursive: true });
+    fs.writeFileSync(gd.FILE, 'OLD-TOKEN\n');
+    fs.chmodSync(gd.FILE, 0o644);
+    assert.equal(fs.statSync(gd.FILE).mode & 0o777, 0o644,
     'the loose plant did not take, so this arm would pass without the fix');
-  const inodeBefore = fs.statSync(gd.FILE).ino;
+    const inodeBefore = fs.statSync(gd.FILE).ino;
 
-  answers = [{ access_token: 'tok-1787', token_type: 'bearer', scope: 'repo' }];
-  const started = await gd.start();
-  assert.equal(started.phase, 'awaiting', 'the flow did not start, so nothing was tested');
-  await settle(400);
+    answers = [{ access_token: 'tok-1787', token_type: 'bearer', scope: 'repo' }];
+    const started = await gd.start();
+    assert.equal(started.phase, 'awaiting', 'the flow did not start, so nothing was tested');
+    await settle(400);
 
-  assert.equal(fs.readFileSync(gd.FILE, 'utf8').trim(), 'tok-1787',
+    assert.equal(fs.readFileSync(gd.FILE, 'utf8').trim(), 'tok-1787',
     'the new token was not stored, so this arm is not testing the write');
-  assert.notEqual(fs.statSync(gd.FILE).ino, inodeBefore,
+    assert.notEqual(fs.statSync(gd.FILE).ino, inodeBefore,
     'the credential was written IN PLACE into the pre-existing loose file: same inode '
     + 'means no rename, so the access_token bytes were on disk at 0644 before the chmod');
     assert.equal(fs.statSync(gd.FILE).mode & 0o777, 0o600, 'the credential was left loose');
