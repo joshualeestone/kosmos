@@ -131,6 +131,7 @@ one invented by somebody who did not write them.
 | `render-theme-toggle.js` | The light and dark control: two options, gold active, same geometry as the view toggle (#284) |
 | `render-thread.js` | Render and DRIVE the project thread in a real browser |
 | `render-url-state.js` | The view survives a refresh (#374): agent, project, task; and the overview writes a clean URL. |
+| `render-auto-attempt-1277.js` | What the Settings update card says after an UNATTENDED attempt (#1277): three branches that must read differently (an ordinary failure, this version out of attempts, three different versions failed here), plus two controls that must render nothing (an attempt still running, and a manual one the press overlay owns). |
 | `render-update-toast.js` | **no header sentence.** Read it before running it, and give it one. |
 | `thread-server.js` | A server for looking at the project thread, with NOTHING pointed at the real |
 

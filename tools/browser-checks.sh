@@ -815,6 +815,19 @@ fi
 # everything else rather than only when somebody remembers it (#1072).
 run_one "render-update-toast" env SHOT_DIR="$RUN_DIR/shots-toast" node docs/browser-checks/render-update-toast.js
 
+# --- render-auto-attempt-1277: SELF-CONTAINED, same reason as the toast above.
+# #1277 makes the UNATTENDED install the normal path, and the Settings card grew
+# three message branches where it had one. The engine arms for it run the paint
+# function pulled out of the file, which is better than a copy and still cannot
+# see a broken element id, a hidden ancestor, or a sentence that renders and is
+# invisible. This drives the real page in a real browser and asserts the three
+# branches are DISTINCT, plus two controls that must render nothing (an attempt
+# still running, and a manual one, which the press overlay owns).
+# Verified standalone 2026-09-01 (exit 0, "AUTO-ATTEMPT DRIVE OK") and verified
+# able to FAIL: a broken element id, collapsing the branches into one sentence,
+# and rendering for every record each turn it red, and restoring turns it green.
+run_one "render-auto-attempt-1277" node docs/browser-checks/render-auto-attempt-1277.js
+
 # --- click-first-run: the whole wizard, clicked like a person -------------
 # 🛑 ITS OWN BOARD, NOT THE SHARED RICH ONE. `fresh()` deletes the first-run
 # flag and the you.json before EVERY section, and the walk completes onboarding
