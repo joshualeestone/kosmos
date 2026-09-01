@@ -597,11 +597,24 @@ test('#1277: DRY_RUN stops the FETCH but leaves the timer, so the suite cannot i
   u.setFetcher(async () => { fetches += 1; return { ok: true, json: async () => ({ version: '9.9.9' }) }; });
   u.setInstalledRoot(() => '/tmp/pretend-installed');
   /* 🛑 STUB THE PREFERENCE TOO, OR THIS ARM CANNOT BE TRUSTED TO FAIL. The tick
-     has three gates and this one only stubbed two. autoupdate.js reads an
-     absent or unreadable autoupdate.json as { on: false }, so on a machine
-     where the ambient file says off, DELETING the DRY_RUN gate under test would
-     still produce zero fetches and this arm would stay green for the wrong
-     reason. */
+     has three gates and this one only stubbed two.
+
+     ⚠️ CORRECTED. This comment used to say autoupdate.js reads an absent OR
+     unreadable file as { on: false }. That is wrong about the absent case and
+     wrong in the flattering direction, so it is worth stating plainly rather
+     than quietly editing: engine/autoupdate.js:43 returns { ...DEFAULTS,
+     ok: true } on ENOENT, so ABSENT READS AS ON. Only PRESENT-BUT-UNREADABLE
+     (or corrupt) fails toward off, at :46. On a machine with no autoupdate.json
+     the ambient preference is therefore ON, deleting the DRY_RUN gate WOULD
+     have produced a fetch, and this arm WOULD have failed. My stated hazard did
+     not exist on the machine I was describing.
+
+     The hazard is real for the other two states: a file that is present and off,
+     or one that is unreadable. Stubbing autoPref removes the dependence on the
+     ambient machine entirely, which is why the fix stands even though the
+     reasoning printed under it did not. server.switch-account-1373.test.js:143
+     on this same branch already stated it correctly, so the branch contradicted
+     itself and the wrong half is the one that was load-bearing here. */
   u.setAutoPref(() => ({ on: true }));
   const prev = process.env.AGENT_WORKFORCE_DRY_RUN;
   process.env.AGENT_WORKFORCE_DRY_RUN = '1';
@@ -1038,4 +1051,121 @@ test('#1277: a manifest version with whitespace still matches the durable record
     u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
     u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
   }
+});
+
+test('#1277: the give-up sentence is said ONCE per version, not once per TTL forever', async () => {
+  /* refresh() runs once per TTL for as long as the offer stands, so an
+     unlatched line wrote the same terminal-state sentence about 96 times a day
+     into logs/board.log, which nothing in this repo rotates. The start line is
+     one per attempt and bounded; this one was not. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-latch-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  const long_ago = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  const written = [];
+  const realWrite = process.stderr.write.bind(process.stderr);
+  u.resetCache();
+  u.setInstalledRoot(() => home);
+  u.setAutoPref(() => ({ on: true }));
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+  u.setInstallRunner(() => ({ on() {}, unref() {}, stderr: { on() {} } }));
+  try {
+    const f = path.join(home, 'logs', 'install.status');
+    fs.writeFileSync(f, `1 ${long_ago} 99.0.0 1 3\n`);
+    fs.utimesSync(f, new Date(Date.now() - 48 * 3600 * 1000), new Date(Date.now() - 48 * 3600 * 1000));
+    process.stderr.write = (c, ...r) => { written.push(String(c)); return realWrite(c, ...r); };
+    await u.checkNow();
+    await u.checkNow();
+    await u.checkNow();
+  } finally {
+    process.stderr.write = realWrite;
+    u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+    u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+  }
+  const said = written.filter((l) => /giving up on automatic install of 99\.0\.0/.test(l)).length;
+  assert.equal(said, 1,
+    `the board said it was giving up ${said} times across three looks. Unlatched that is about 96 `
+    + 'lines a day forever, into a log nothing rotates');
+});
+
+test('#1277: pressing Install by hand does not erase the automatic-failure count', async () => {
+  /* The brake is gated on durable.auto, and the manual route calls
+     beginInstall() with no opts. Zeroing attempts there wrote `0 0` over the
+     record, so the next boot skipped the brake and re-armed three more
+     unattended shutdowns. The realistic sequence is not exotic: three automatic
+     failures reach the cap, a person logs in, sees the board dying, presses
+     Install, that fails too, and walking away restarts the whole loop. A manual
+     attempt is not evidence the automatic path started working. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-manual-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  u.resetCache();
+  u.setInstalledRoot(() => home);
+  u.setInstallRunner(() => ({ on() {}, unref() {}, stderr: { on() {} } }));
+  try {
+    // three automatic failures on 99.0.0 have already happened
+    fs.writeFileSync(path.join(home, 'logs', 'install.status'),
+      `1 ${new Date().toISOString()} 99.0.0 1 3\n`);
+    // a real offer has to stand, because beginInstall reads cache.latest, not opts
+    u.setAutoPref(() => ({ on: false }));
+    u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+    await u.checkNow();
+    // the person presses Install by hand: no opts, which is the manual route
+    u.beginInstall();
+    const after = u.lastAttempt() || {};
+    assert.equal(after.auto, false, 'a manual press is a manual attempt');
+    assert.equal(after.attempts, 3,
+      `the manual press wrote attempts=${after.attempts}. Zeroing it here rearms three `
+      + 'more unattended self-shutdowns, because the brake is gated on durable.auto '
+      + 'and skips a manual record entirely');
+  } finally {
+    u.setInstalledRoot(null); u.setInstallRunner(null); u.setAutoPref(null); u.setFetcher(null);
+    u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('#1277: an install still running is not counted as a failure', async () => {
+  /* `durable.code !== 0` is TRUE for `code: null`, which is exactly what an
+     IN-FLIGHT attempt carries. So the board could announce it was giving up
+     "after 3 failed attempts" while the third was still running and might yet
+     succeed, and the latch then suppressed the truth when it finished. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-inflight-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  const written = []; const realWrite = process.stderr.write.bind(process.stderr);
+  u.resetCache();
+  u.setInstalledRoot(() => home);
+  u.setAutoPref(() => ({ on: true }));
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+  u.setInstallRunner(() => ({ on() {}, unref() {}, stderr: { on() {} } }));
+  try {
+    /* ⚠️ The in-flight state CANNOT be hand-written into the status file: the
+       installer wrapper writes that file only when the child exits, so a record
+       with no exit code exists ONLY in memory. A first version of this arm wrote
+       `- <ts> ...` into the file and passed with the guard removed, i.e. it was
+       decoration. The state has to be reached by actually starting an install. */
+    const f = path.join(home, 'logs', 'install.status');
+    // two automatic failures already, the last one long enough ago to retry
+    const old_ts = new Date(Date.now() - 2 * 3600 * 1000).toISOString();
+    fs.writeFileSync(f, `1 ${old_ts} 99.0.0 1 2\n`);
+    fs.utimesSync(f, new Date(Date.now() - 2 * 3600 * 1000), new Date(Date.now() - 2 * 3600 * 1000));
+    process.stderr.write = (c, ...r) => { written.push(String(c)); return realWrite(c, ...r); };
+    await u.checkNow();               // starts attempt 3; the runner never exits
+    const mid = u.lastAttempt() || {};
+    assert.equal(mid.code, null, 'precondition: attempt 3 is in flight with no exit code');
+    assert.equal(mid.attempts, 3, `precondition: this is the third attempt, got ${mid.attempts}`);
+    written.length = 0;               // only what is said AFTER it is in flight counts
+    await u.checkNow();
+  } finally {
+    process.stderr.write = realWrite;
+    u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+    u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+  }
+  const gaveUp = written.filter((l) => /giving up/.test(l));
+  assert.equal(gaveUp.length, 0,
+    `the board said "${(gaveUp[0] || '').trim()}" about an attempt that had not finished. `
+    + 'An unfinished install is not a failed one, and it might yet succeed');
 });

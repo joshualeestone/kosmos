@@ -171,6 +171,9 @@ const AUTO_RETRY_AFTER = 60 * 60 * 1000;
    automatic failures for the SAME version, stop offering to install it; a new
    version resets the count on its own, because the count is per version. */
 const MAX_AUTO_ATTEMPTS = 3;
+/* The version this board has already announced it is giving up on, so the
+   sentence is said once rather than once per TTL forever. */
+let gaveUpOn = null;
 let autoFailedAt = 0;
 
 function maybeAutoInstall() {
@@ -196,8 +199,12 @@ function maybeAutoInstall() {
        Install button is unaffected because it does not come through here. */
     const durable = lastAttemptView();
     const offer = available();
-    if (durable && durable.auto && durable.code !== 0 && offer
-        && durable.version && durable.version === offer.version) {
+    /* ⚠️ `durable.code !== 0` is TRUE for `code: null`, which is what an
+       IN-FLIGHT attempt carries, so an unfinished install read as a failure and
+       could print "giving up after 3 failed attempts" while the third was still
+       running and might yet succeed. Require the record to have ENDED. */
+    if (durable && durable.auto && durable.endedAt && durable.code !== null && durable.code !== 0
+        && offer && durable.version && durable.version === offer.version) {
       /* The window still helps inside one process life. */
       const endedMs = Date.parse(durable.endedAt || '');
       if (Number.isFinite(endedMs) && Date.now() - endedMs < AUTO_RETRY_AFTER) return;
@@ -208,10 +215,18 @@ function maybeAutoInstall() {
            one wrote nothing, and the update overlay renders only a record
            belonging to a press the viewer just made, so the TERMINAL state of
            this whole mechanism reached no human anywhere. */
-        try {
-          process.stderr.write(`update: giving up on automatic install of ${offer.version} after `
-            + `${durable.attempts} failed attempts; install it by hand or wait for a newer release\n`);
-        } catch { /* a log line must never break the board */ }
+        /* LATCHED PER VERSION. refresh() runs once per TTL for as long as the
+           offer stands, so an unlatched line wrote the same sentence about 96
+           times a day, forever, into logs/board.log, which nothing rotates. The
+           start line is one per attempt and bounded; this one is not, and the
+           plan called it "mirroring the start line", which it was not. */
+        if (gaveUpOn !== offer.version) {
+          gaveUpOn = offer.version;
+          try {
+            process.stderr.write(`update: giving up on automatic install of ${offer.version} after `
+              + `${durable.attempts} failed attempts; install it by hand or wait for a newer release\n`);
+          } catch { /* a log line must never break the board */ }
+        }
         return;
       }
     }
@@ -598,9 +613,18 @@ function beginInstall(opts) {
   /* Count consecutive AUTOMATIC failures for this exact version, read from the
      durable record so it survives the restart the installer causes. */
   const prior = lastAttemptView();
-  const sameVersionFailure = prior && prior.auto && prior.code !== 0
+  const sameVersionFailure = prior && prior.code !== 0
     && prior.version && targetVersion && prior.version === targetVersion;
-  const attempts = (opts && opts.auto) ? ((sameVersionFailure ? (prior.attempts || 0) : 0) + 1) : 0;
+  /* 🛑 A MANUAL PRESS MUST NOT ERASE THE AUTOMATIC COUNT. The manual route
+     calls beginInstall() with no opts, and zeroing here wrote `0 0` over the
+     durable record, so the next boot skipped the brake entirely (it is gated on
+     durable.auto) and re-armed three more unattended shutdowns. The realistic
+     sequence: three automatic failures reach the cap, a person logs in, sees
+     the board dying, presses Install, that fails too, and walking away restarts
+     the whole loop. A manual attempt is not evidence that the automatic path
+     started working, so it carries the count forward rather than resetting it. */
+  const carried = sameVersionFailure ? (prior.attempts || 0) : 0;
+  const attempts = (opts && opts.auto) ? carried + 1 : carried;
   lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null, version: targetVersion, auto: !!(opts && opts.auto), attempts };
   if (opts && opts.auto) {
     try { process.stderr.write(`update: starting an automatic install of ${targetVersion || 'an unnamed version'} at ${lastAttempt.startedAt}\n`); } catch { /* a log line must never break an install */ }
@@ -662,6 +686,11 @@ function setFetcher(f) { fetcher = f; }
 function resetCache() {
   cache = { at: 0, latest: null, reached: false, readable: false };
   inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null;
+  /* The give-up latch is module state too, and iteration 1 established that a
+     reset leaving something behind does not mean what its name says. Left
+     uncleared it leaked between tests: one arm announced 99.0.0 and the next
+     arm's identical scenario then said nothing. */
+  gaveUpOn = null;
   stopAutoPoll();
 }
 

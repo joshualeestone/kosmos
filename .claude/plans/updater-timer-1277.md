@@ -418,11 +418,23 @@ that removes it are not the same claim.
 **Two of my own guards could not be trusted to fail.**
 
 The DRY_RUN arm stubbed two of the tick's three gates and left `autoPref` real.
-`autoupdate.js` reads an absent or unreadable preference as off, so on a machine
-where the ambient file says off, deleting the gate under test would still give
-zero fetches and the arm would stay green for the wrong reason. It now stubs all
-three and carries a negative control: with the variable unset the tick MUST
-fetch, or the assertion above proves only that this poll never fetches.
+⚠️ **This paragraph carried a false claim about `autoupdate.js` and the
+correction is recorded here rather than made silently.** It said an absent or
+unreadable preference reads as off. `engine/autoupdate.js:43` returns
+`{ ...DEFAULTS, ok: true }` on `ENOENT`, so **absent reads as ON**; only
+present-but-unreadable or corrupt fails toward off, at `:46`. So on a machine
+with no `autoupdate.json` the ambient preference was ON, deleting the gate under
+test would have produced a fetch, and the arm would have failed. **The hazard I
+described did not exist in the state I described it in.**
+
+The hazard is real for the other two states, a file present and off or one that
+is unreadable, so the fix is unchanged: the arm stubs all three gates and carries
+a negative control, with the variable unset the tick MUST fetch, or the assertion
+proves only that this poll never fetches. **The fix was right and its stated
+reason was wrong**, which is the third time on this branch, and it is the harder
+error to catch because a passing arm does not invite anyone to read the sentence
+above it. `server.switch-account-1373.test.js:143` stated it correctly on this
+same branch the whole time.
 
 The convention guard tested for MENTION, not VALUE, while the product gate is
 `=== '1'`. A file setting `''` or `'0'`, or naming the variable only in prose,
