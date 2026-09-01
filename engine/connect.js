@@ -1464,13 +1464,19 @@ async function installClaudeCode(hooks) {
 
   hooks.onPhase(PHASE.INSTALLING);
   /**
-   * ⚠️ HOME IS PASSED, and it is not cosmetic. `claudeBinPath()` now
-   * resolves through `runners.resolveBin('claude')`, which honours the
+ * ⚠️ HOME IS PASSED, and it is not cosmetic. The post-install gate
+ * resolves through `runners.resolveBin('claude')`, which honours the
    * AGENT_WORKFORCE_HOME sandbox seam. Without passing the same home to
    * the child, WHERE WE LOOK and WHERE THE VENDOR WRITES key on different
    * variables: under a sandbox the install would land in the operator's
    * real home and the presence check below would then report a SUCCESSFUL
    * install as a failure, through the `fail()` at the end of this function.
+ * ⚠️ THIS NAMED `claudeBinPath()`, A WRAPPER THIS FUNCTION NO LONGER CALLS. Measured:
+ * both occurrences of that name in installClaudeCode's body are in COMMENTS, and the
+ * resolution arm's own assertion confirms zero calls after stripping. The conclusion
+ * survives because the gate calls resolveBin('claude') directly, honouring the same seam.
+ * 📌 The identical staleness was corrected at willInstall, at claudeHatchAvailable and in
+ * two firstrun test files, and left standing here. Fixed one site, left its siblings.
    * 🛑 #1570: THIS COMMENT DELIBERATELY QUOTES NO PART OF THAT SENTENCE, and the
    * reason is worth the two lines. It used to PARAPHRASE the message inside
    * quotation marks. The product never emitted that wording, so the paraphrase was
@@ -1498,14 +1504,10 @@ async function installClaudeCode(hooks) {
      ⇒ Resolving the home here is correct and costs nothing, and it is NOT reachable
      today. That is its honest status.
      📌 The full retraction, both wrong reasons I gave, and why the arm for it proved
-     nothing, are in .claude/plans/runnable-dir-1592-20260830.md (tracked on main; kosmos#1592 for the card). Thirty lines of that
-     📌 The PATH is given as well as the card, and that is a considered exception to this
-     file's cite-the-card rule. MEASURED on #1592, body and both comments, with controls:
-     the moved material returns ZERO hits (`281MB` 0, `eager argument` 0, `claudeBinPath` 0,
-     `four routes` 0; controls `isRunnable` 3, `accessSync` 6). It exists ONLY in the plan.
-     ⇒ A card number survives a rename, which is the rule's argument, but a card that does
-     not contain the material is an empty pointer. Both are given until the card does.
-     history lived here and became the thing every reviewer flagged. */
+     nothing, are in .claude/plans/runnable-dir-1592-20260830.md (in .claude/plans, which is tracked on main with 597 entries; kosmos#1592 for the card). Thirty lines of that
+     history lived here and became the thing every reviewer flagged.
+     📌 Path AND card, deliberately: the card does not contain this material (measured,
+     zero hits with live controls), so the card alone is an empty pointer today. */
   let installHome;
   try { installHome = require('./runners').homeDir(); }
   catch {

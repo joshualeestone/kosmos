@@ -93,14 +93,16 @@
  *      this file now contains a FIFTH, with the same blind spots (a `/*` inside a string
  *      literal, an unterminated `/*`, a template literal, `//` inside a URL).
  *      ⇒ So the honest contract is not "we refuse this" but "we do it, we know what it
- and each such arm protects itself against the strip eating its region.
- ⚠️ NOT ALL BY THE SAME MECHANISM, which an earlier "every such arm carries a per-region
- control" over-claimed across the very list it had just enumerated. The resolution-count
- and becomeStuck arms do carry a per-region control. The unconditional-true sweep does
- NOT: it runs its matcher over RAW and STRIPPED source and fails if either matches, plus
- a mustCatch control list. That is adequate and arguably stronger for an ABSENCE
- assertion, but it is a different mechanism and naming one covers only two of three.
- *      cost, because it tells the next author the precedent does not exist.
+ *      costs, and each such arm protects itself against the strip eating its region".
+ *      A blanket refusal that the file then violates is worse than a stated cost,
+ *      because it tells the next author the precedent does not exist.
+ *      ⚠️ NOT ALL BY THE SAME MECHANISM. An earlier version said "every such arm carries
+ *      a per-region control", which over-claimed uniformity across the very list it had
+ *      just enumerated. The resolution-count and becomeStuck arms do carry one. The
+ *      unconditional-true sweep does NOT: it runs its matcher over RAW and STRIPPED
+ *      source and fails if either matches, plus a mustCatch control list. That is
+ *      adequate, and arguably stronger for an ABSENCE assertion, but it is a different
+ *      mechanism and naming one covers two of three.
  *
  * ⚠️ THE COST, STATED: writing a NEW comment that mentions `accessSync(..., X_OK)`
  * turns this red until the line is listed. Deliberate, loud, a two-line fix. The

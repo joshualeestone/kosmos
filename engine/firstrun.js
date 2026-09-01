@@ -176,8 +176,8 @@ async function state() {
    * ⚠️ THE FORK IS ONLY OFFERED WHEN WE CAN ACTUALLY COUNT. If tmux could not
    * be asked we do not know whether they have agents, and guessing "create
    * your first one" at somebody with a running fleet is the version of this
-   * mistake that looks broken.
-   */
+   * mistake that looks broken. */
+
   const path_ = !here.known ? 'unknown' : (here.count > 0 ? 'adopt' : 'create');
 
   /* ⚠️ THE CATCH IS BELT AND BRACES, AND IT IS CURRENTLY UNREACHABLE. Say that
@@ -202,13 +202,7 @@ async function state() {
      📌 Three earlier drafts of this paragraph were wrong in three different ways, and a
      fourth defect was structural: it carried "Measured, with a control" on what is a READING
      of which lines call what, not a behavioural measurement. All four are recorded in
-     .claude/plans/runnable-dir-1592-20260830.md (tracked on main; kosmos#1592 for the card) rather than here, because this is a comment
-     📌 The PATH is given as well as the card, and that is a considered exception to this
-     file's cite-the-card rule. MEASURED on #1592, body and both comments, with controls:
-     the moved material returns ZERO hits (`281MB` 0, `eager argument` 0, `claudeBinPath` 0,
-     `four routes` 0; controls `isRunnable` 3, `accessSync` 6). It exists ONLY in the plan.
-     ⇒ A card number survives a rename, which is the rule's argument, but a card that does
-     not contain the material is an empty pointer. Both are given until the card does.
+     .claude/plans/runnable-dir-1592-20260830.md (in .claude/plans, which is tracked on main with 597 entries; kosmos#1592 for the card) rather than here, because this is a comment
      on a dead `.catch` and it had grown to twenty-six lines of its own history.
 
      It stays because the property it defends is the one that matters (an unknown
@@ -219,7 +213,9 @@ async function state() {
      web/index.html (named rather than line-numbered, because a line number in a
      32k-line file drifts):
      saying a function can return null when it cannot is how a dead branch gets pinned by a
-     test that can never fail for the reason it states. */
+     test that can never fail for the reason it states.
+     📌 Path AND card, deliberately: the card does not contain this material (measured,
+     zero hits with live controls), so the card alone is an empty pointer today. */
   const willInstall = await willInstallSoon;
 
   return {
