@@ -229,7 +229,23 @@ function writeTokens(sessionName, tokens) {
        constant is read explicitly and, where it does not exist, the check is done by
        hand with `lstatSync` instead of pretending it was applied. */
     const NOFOLLOW = fs.constants.O_NOFOLLOW;
-    refuseSymlinkTarget(file, NOFOLLOW);
+    /* 🛑 `undefined` IS DELIBERATE AND IT IS THE WHOLE POINT. Passing NOFOLLOW here makes
+       this call RETURN IMMEDIATELY on macOS, because the kernel enforces the flag at open
+       time instead. That is why deleting this entire line left the suite GREEN: on the one
+       platform we test, the call did nothing, so no assertion about behaviour could see it.
+       Measured on the shipped code, fallback forced with a symlink planted at the token
+       path:
+
+           because = "ELOOP: too many symbolic links encountered, open '...'"   <- THE KERNEL
+
+       Nothing in that refusal came from here. On win32 there is no kernel refusal, because
+       `O_NOFOLLOW` is undefined there, and this line was the ENTIRE symlink defence.
+       ⇒ Forcing the hand check on every platform costs one `lstat` on an already-failing
+       path and makes the macOS suite exercise the code win32 actually depends on, rather
+       than simulating win32 through a test-only seam. `O_NOFOLLOW` is still passed to
+       `openSync` below: the kernel check is atomic and this one is not, so they are belt
+       and braces rather than alternatives. */
+    refuseSymlinkTarget(file, undefined);
     let fd = null;
     try {
       fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT

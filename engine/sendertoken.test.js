@@ -312,6 +312,14 @@ test('#1761: the FALLBACK path also refuses a symlink, not just the rename path'
 
   assert.equal(res.ok, false,
     'the fallback wrote a token through a symlink instead of refusing');
+  /* 🛑 WHICH REFUSAL. `ok:false` alone passes when the KERNEL refuses via O_NOFOLLOW, which
+     is what happens on macOS and is why deleting the production call to
+     `refuseSymlinkTarget` left this arm GREEN. On win32 there is no kernel refusal. Pinning
+     the SENTENCE is what makes this arm speak about the platform we ship to and cannot run
+     here: our own refusal says so in words, the kernel's says ELOOP. */
+  assert.match(res.because, /refusing to write a token through a symlink/,
+    'the refusal came from the kernel, not from refuseSymlinkTarget: on win32 there is no '
+    + 'kernel to refuse, so this path would follow the symlink');
   assert.equal(fs.readFileSync(victim, 'utf8'), 'ORIGINAL',
     'the fallback followed the symlink and overwrote another file');
   assert.deepEqual(fs.readdirSync(sendertoken.DIR).filter((f) => f.endsWith('.tmp')), [],
