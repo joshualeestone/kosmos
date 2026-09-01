@@ -82,13 +82,19 @@ kosmos_browser_check_gate() {
     # A web/ change of ANY kind is a rendered change to guard -- add, edit OR delete.
     # Per-path so docs/webhooks/x never matches web/.
     case "$dpath" in web/*) touched_web=1 ;; esac
-    # A docs/browser-checks/ *.js ASSERTION counts as coverage ONLY when ADDED or
-    # MODIFIED. A DELETE (or rename-away, which --no-renames shows as a D) is the
-    # REMOVAL of an assertion, not coverage; and a NON-.js file in that dir (a README)
-    # is not an assertion either, so neither excuses a web/ change. Both are the gap
-    # this gate exists to catch.
+    # A docs/browser-checks/*.js ASSERTION counts as coverage ONLY when ADDED or
+    # MODIFIED, and ONLY at the top level -- matching the driver's own enumeration
+    # (tools/browser-checks.sh globs `docs/browser-checks/*.js`, which does NOT descend
+    # into subdirs like shots/). A DELETE (a rename-away shows as a D under
+    # --no-renames), a NON-.js file (a README), or a NESTED .js the driver never runs
+    # are none of them coverage -- each is the gap this gate exists to catch. (If the
+    # driver's glob ever broadens, e.g. to .mjs or subdirs, broaden this in lockstep.)
     case "$dstat" in
-      A*|M*) case "$dpath" in docs/browser-checks/*.js) touched_bc=1 ;; esac ;;
+      A*|M*)
+        case "$dpath" in
+          docs/browser-checks/*/*) : ;;            # nested: not a top-level assertion
+          docs/browser-checks/*.js) touched_bc=1 ;;
+        esac ;;
     esac
   done <<< "$files"
 

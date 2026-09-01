@@ -73,6 +73,11 @@ run "$(ns M web/index.html D docs/browser-checks/gone.js)" "drop the row and its
 run "$(ns M web/index.html M docs/browser-checks/README.md)" "touch the readme, not a check" \
   ; check "web/ change + non-.js docs/browser-checks file -> REFUSED" 1 "$RC"
 
+# THE SUBDIR GUARD (iter-3 WARNING): a .js NESTED in a docs/browser-checks/ subdir
+# (e.g. shots/) is not a top-level assertion the driver runs, so it is not coverage.
+run "$(ns M web/index.html A docs/browser-checks/shots/helper.js)" "add a nested helper" \
+  ; check "web/ change + NESTED .js (driver never runs it) -> REFUSED" 1 "$RC"
+
 # PASS: an explicit override trailer with a non-empty reason.
 run "$(ns M web/index.html)" "copy fix
 

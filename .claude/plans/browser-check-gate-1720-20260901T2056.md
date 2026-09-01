@@ -31,7 +31,10 @@ cut until #1711 repaired it) and the gap that killed a release.
 The gate fires at **branch/suite time** (`bash tools/run-tests.sh` / `yarn test`), against
 `origin/main...HEAD`. Reasoning:
 - **Not release time.** By release the web/ change is already on main and `origin/main...HEAD`
-  is empty, so a release-time gate is vacuous. The gap must be caught BEFORE merge.
+  is empty, so a release-time gate is vacuous. The gap must be caught BEFORE merge. The cut
+  DOES run `yarn test` (release.sh), which now includes the gate, but there `origin/main...HEAD`
+  is near-empty (the cut sha vs the tracking ref), so the gate is near-vacuous-but-harmless at
+  cut time; the tight, effective enforcement is the per-PR branch run.
 - **Repo-local, not the fleet hook** (Josh's ruling, and the lib's header): the fleet
   pre-challenge-gate hook runs across every repo, so a bug there breaks PR creation
   fleet-wide; this gate is about THIS repo's web/ and docs/browser-checks/, so its radius is
