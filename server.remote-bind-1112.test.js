@@ -168,6 +168,15 @@ test('POST /api/agent-token refuses an empty name', async () => {
   assert.equal(res.status, 400);
 });
 
+test('POST /api/agent-token: an unkeyable (all-punctuation) name is a 400, not a 500', async () => {
+  // "!!!" survives trim but reduces to nothing under safeKey; that is a CLIENT
+  // error and must be 400, not a server 500.
+  const res = await fetch(`${base}/api/agent-token`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: '!!!' }),
+  });
+  assert.equal(res.status, 400, 'an unkeyable name was reported as a server fault instead of a client error');
+});
+
 /* ---------- the second opt-in: the pathOf Host check the guard sits behind ----------
  *
  * A remote agent connects with a non-loopback Host, and pathOf's DNS-rebind

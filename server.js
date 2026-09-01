@@ -1268,6 +1268,13 @@ function crossSiteWrite(req) {
  * it names. Reachability is a different question: WHO is actually on the other
  * end of this connection, which only the socket can answer and a client cannot
  * forge.
+ *
+ * ⚠️ Only the three canonical loopback spellings are listed; the rest of
+ * 127.0.0.0/8 and non-canonical IPv4-mapped forms (`::ffff:7f00:1`) are treated
+ * as remote. That is deliberate and fails CLOSED -- a local caller on a non-.1
+ * loopback address is held to the agent surface, never granted more -- and Node
+ * hands us the canonical dotted forms in practice, so no real local caller is
+ * affected.
  */
 const LOOPBACK_PEERS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 function isLoopbackPeer(req) {
@@ -5077,10 +5084,14 @@ const server = http.createServer((req, res) => {
         }
         const name = body && typeof body.name === 'string' ? body.name.trim() : '';
         if (!name) { const bad = new Error('name a remote agent to issue a token for'); bad.status = 400; throw bad; }
+        // A name that survives trim but reduces to nothing under safeKey (all
+        // punctuation, e.g. "!!!") is a CLIENT error, not a server fault, so
+        // validate keyability up front and return 400 -- consistent with the
+        // empty-name 400 above. safeKey throws on an unkeyable name.
+        try { store.safeKey(name); } catch { const bad = new Error('that is not a name we can key a token on'); bad.status = 400; throw bad; }
         const minted = sendertoken.mint(name);
-        // A mint failure is a server-side problem (the token file could not be
-        // keyed or written), so it is a 500, not a 200 -- consistent with the
-        // 400 for a client-side empty name above.
+        // Past the keyability check, an ok:false from mint can only be a genuine
+        // server-side failure (the token file could not be written), so it is a 500.
         if (!minted.ok) { sendJson(res, 500, { issued: false, because: minted.because }); return; }
         sendJson(res, 200, { issued: true, name, token: minted.token, instance: minted.instance });
       })
