@@ -13802,6 +13802,14 @@ async function paintAccounts() {
            page can see a sentence that is written and then wiped. */
         await paintAccounts();
         if (msg) {
+          /* THE FOURTH WRITER, and the count in the module comment has now been
+             wrong three times. This one lands after TWO awaits, so the cancel at
+             the top of the handler cannot reach it, and `paintAccounts()` has its
+             own cancel that runs BEFORE this line rather than after. A press on the
+             still-pressable default row during the repaint schedules a 60ms
+             deferred write that replaces THIS sentence, which is the one carrying
+             `movedTo`, the fact that makes the removal recoverable. */
+          acctCancelSay();
           msg.textContent = (out && out.because) || 'Removed.';
           /* Same reason as the disabled-row handler: this line sits AFTER the
              whole account list, so feedback for a row near the top can render

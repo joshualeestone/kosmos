@@ -215,6 +215,35 @@ function forgetAccount(dir, usedBy) {
     return { ok: true, forgotten: false, because: 'that account is already gone from this computer' };
   }
 
+  /* 🛑 THE NAME IS NOT THE ACCOUNT, and every guard above keys on the NAME. A
+     directory called `.codex-anything` inside home passes all of them, so this
+     route would rename a real folder that codex never wrote and report
+     `forgotten: true`.
+     ⚠️ MEASURED BEFORE BEING ADDED, not argued: a planted `~/.codex-notanaccount`
+     holding one user file was renamed to `.removed-codex-notanaccount` with the
+     file carried along, and the answer said it had been forgotten.
+     📌 The Claude sibling has carried this guard since #1659, added after the same
+     measurement found `.claude-workers` (a real non-account tree on this machine)
+     inside its blast radius. This is the same exposure on the provider that has
+     had a live Disconnect since #1372, and it is here rather than on its own card
+     because deferring a SAFETY guard is a worse version of an argument I already
+     rejected for a copy string.
+     ⚠️ AFTER the existence check on purpose, so a directory that is simply gone is
+     reported as gone rather than as "not an account".
+     🛑 AND IT HAS A COST WORTH STATING, because it lands on the person least able
+     to work around it: an account whose `auth.json` is CORRUPTED or unparseable
+     answers null here too, so it can no longer be disconnected from Settings. That
+     is exactly when somebody would want to. The Claude sibling carries the same
+     trade for the same reason and neither is guarded against it.
+     📌 Kept because the alternative is worse: without this, a name-shaped folder
+     the person made gets renamed with its contents and the answer says it was
+     forgotten. Refusing to move something we cannot identify is the safer error.
+     Measured, so the cost is a known size rather than a guess: `{label}` -> null,
+     `{auth_mode, OPENAI_API_KEY}` -> an identity, unparseable -> null. */
+  if (!identityOf(clean)) {
+    return { ok: false, forgotten: false, because: 'that is not an OpenAI account on this computer' };
+  }
+
   const label = base === '.codex' ? 'default' : base.slice('.codex-'.length);
   let target = path.join(home, FORGOTTEN_PREFIX + label);
   /* A second removal of the same label must not clobber the first one's

@@ -35,7 +35,16 @@ const REPO = __dirname;
 function codexAccount(home, label) {
   const dir = nodePath.join(home, label === 'default' ? '.codex' : '.codex-' + label);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ label }));
+  /* 🛑 A REAL-SHAPED CREDENTIAL, matching the 1372 sibling. This wrote
+     `{ label }`, which codex never produces and `identityOf` correctly answers
+     null for, so this fixture was modelling a DIRECTORY THAT IS NOT AN ACCOUNT
+     while its tests asserted that accounts are removable. It passed only because
+     nothing checked identity; the moment the engine gained the guard that stops it
+     renaming a folder codex never wrote, two controls here went red for the right
+     reason. Measured: `{label}` -> null, `{auth_mode, OPENAI_API_KEY}` -> an
+     identity, unparseable -> null. */
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'),
+    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-FAKE-' + label }));
   return dir;
 }
 

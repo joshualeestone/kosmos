@@ -73,6 +73,8 @@ function world(fetchImpl, provider) {
     setAttribute(k, v) { this.attrs[k] = String(v); },
   };
   const msg = { textContent: '' };
+  /* The focus target the success path moves to, so the move is observable. */
+  const acctBox = { focused: false, focus() { this.focused = true; } };
   const box = { querySelectorAll: () => [btn] };
   const ctx = {
     box, msg, fetch: fetchImpl, console,
@@ -88,9 +90,26 @@ function world(fetchImpl, provider) {
        dependency is real, so the fixture should model it rather than the
        product hiding it. */
     acctCancelSay: () => {},
+    /* 🛑 A `document` STUB, BECAUSE WITHOUT IT EVERY "SUCCESS" IN THIS FIXTURE RAN
+       THE CATCH. #1659's success path calls
+       `document.getElementById('set-accounts')` to move focus after the repaint,
+       and this sandbox defined no `document`, so a successful two-press removal
+       ended with `msg.textContent === "document is not defined"` and the tests
+       above still passed: they assert what was FETCHED, not what was SAID.
+       ⇒ The success sentence, the scrollIntoView and the focus move were exercised
+       by nothing at any layer, and the next person to assert the success message
+       would have been measuring the error path.
+       ⚠️ THIS IS THE SECOND DEPENDENCY THIS FIXTURE MISSED. It modelled
+       `acctCancelSay` and missed `document`, both added in the same diff, and its
+       own comment states the principle it broke: the dependency is real, so the
+       fixture should model it rather than the product hiding it behind a guard. */
+    document: {
+      getElementById: (id) => (id === 'set-accounts' ? acctBox : null),
+    },
   };
   vm.runInNewContext(SCRIPT.slice(start, end), ctx);
   return {
+    acctBox,
     btn, msg,
     click: () => btn.listeners.click(),
     blur: () => btn.listeners.blur && btn.listeners.blur(),
@@ -209,4 +228,22 @@ test('#1659: a CLAUDE button removes through /api/accounts/claude, not the OpenA
   await w.click();
   assert.deepEqual(calls, [['/api/accounts/claude', 'DELETE']],
     'a Claude row did not remove through the Claude route, so the provider routing is wrong');
+});
+
+/* 🛑 THE SUCCESS PATH, WHICH WAS EXERCISED BY NOTHING AT ANY LAYER. This fixture
+   defined no `document`, so every "successful" removal in this file actually ran
+   the CATCH and ended with `msg.textContent === "document is not defined"`. The
+   arms above still passed because they assert what was FETCHED, not what was SAID.
+   ⇒ Three things the branch added were therefore covered by no test: the success
+   sentence the route returns, the scroll, and the focus move to #set-accounts that
+   exists because the repaint destroys the button the person was standing on. */
+test('#1659: a successful removal SAYS the answer and moves focus off the destroyed button', async () => {
+  const w = world(async () => ({ ok: true, json: async () => ({ because: 'That account is off the list.' }) }), 'claude');
+  await w.click();
+  await w.click();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(w.msg.textContent, 'That account is off the list.',
+    'the success path did not say the route answer; if this reads like an error, the fixture is running the catch again');
+  assert.equal(w.acctBox.focused, true,
+    'focus did not move to the account list after the repaint destroyed the button, so a keyboard user is left on <body>');
 });

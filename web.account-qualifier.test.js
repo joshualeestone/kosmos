@@ -316,3 +316,33 @@ test('#1659: the aria-disabled handler fallback says the SAME thing as the engin
   assert.ok(engine.indexOf(fallback.slice(0, 48)) > -1,
     'the handler fallback and the engine refusal have drifted: a person pressing the disabled row hears one sentence and the engine says another. fallback: ' + fallback);
 });
+
+/* 🛑 THE ONE SENTENCE A SCREEN-READER USER HEARS ABOUT THE DISABLED ROW, AND IT
+   WAS PINNED BY NOTHING. The default row's aria-label carries the reason as a
+   suffix, because a `title` on a control announced as unavailable is not read out.
+   The qualifier assertion above matches only the label's PREFIX, so the appended
+   clause is invisible to it, and the browser gate captures innerText, disabled,
+   ariaDisabled, data-forget and the row text but never aria-label.
+   ⇒ Measured before this was written: deleting the clause left every web test
+   green. Same prefix-match shape this branch found on the OpenAI success sentence,
+   in the half that only a screen-reader user experiences. */
+test('#1659: the disabled default row explains itself IN THE ACCESSIBLE NAME, not only in a title', () => {
+  const at = PAGE.indexOf(': (a.isDefault');
+  assert.ok(at > -1, 'the default-vs-live ternary is gone; re-anchor this test');
+  const endAt = PAGE.indexOf(">Disconnect</button>'))", at);
+  const body = PAGE.slice(at + 2, endAt + ">Disconnect</button>'".length + 1);
+  assert.match(body, /Unavailable: /,
+    'the default row no longer says WHY in its accessible name, so a screen-reader user hears a name with no reason');
+  /* Paired with the engine, so the two cannot drift into saying different things. */
+  const un = (x) => x.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  /* Ends at `."` because the clause closes an HTML ATTRIBUTE, not a JS string.
+     My first version anchored on `.'` and failed, and the failure read exactly
+     like the clause being absent. Third time today a test of mine has failed in a
+     way that looked like a finding: check the raw text before believing your own
+     assertion. */
+  const m = un(body).match(/Unavailable: ([^"']+?)\."/);
+  assert.ok(m, 'the Unavailable clause is no longer a literal this test can read; re-anchor it');
+  const engine = un(require('fs').readFileSync(require('path').join(__dirname, 'engine', 'accounts.js'), 'utf8'));
+  assert.ok(engine.indexOf(m[1].slice(0, 40)) > -1,
+    'the accessible-name reason and the engine refusal have drifted: ' + m[1]);
+});
