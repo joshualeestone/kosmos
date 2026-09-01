@@ -24,6 +24,7 @@ const codexupdate = require('./codexupdate');
 const { spawnSync } = require('node:child_process');
 const subscription = require('./subscription');
 const inflight = require('./inflight');
+const runners = require('./runners');
 
 /* 🛑 A FUNCTION, NOT A CONST (#1337, found by Angel reviewing this branch).
    Frozen at require time, this made `list()` DISAGREE WITH ITSELF: the default
@@ -337,7 +338,10 @@ function addWithKey({ key, label, codexBin }) {
   const problem = keyProblem(key);
   if (problem) return { ok: false, because: problem };
   const bin = String(codexBin || '');
-  if (!bin || !fs.existsSync(bin)) return { ok: false, because: MISSING_RUNNER_SENTENCE };
+  /* #1616: runnable, not merely present. existsSync says yes to a folder at the codex
+     path, and the spawn below then fails with a worse message than this one. Same
+     definition as the first-run screen and every gate in create.js. */
+  if (!bin || !runners.isRunnable(bin)) return { ok: false, because: MISSING_RUNNER_SENTENCE };
   let spot;
   if (label != null && String(label).trim()) {
     const clean = cleanLabel(label);

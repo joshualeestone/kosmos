@@ -198,9 +198,13 @@ const REPO = __dirname;
  * DIRECTORY, AND THIS MATCHER CANNOT SEE IT. `WEAK_CALL` requires `X_OK`, which
  * `existsSync` never carries. Live instances exist TODAY on the creation path
  * (`engine/create.js` in `setProvider`, `installJob` and `createAgentInner`, and
- * `engine/openaiaccounts.js`), carded as #1616 and deliberately out of scope here.
- *   ⇒ EXCLUDED BY DESIGN, NOT MISSED: widening to presence-checks generally would
- *   sweep hundreds of legitimate `existsSync` calls that have nothing to do with
+ * `engine/openaiaccounts.js`), carded as #1616. #1616 CLOSED THEM: every one of
+ * those sites now asks `runners.isRunnable`, and EXISTS_ON_BIN below sweeps for the
+ * spelling so it cannot come back unseen. That matcher is keyed on the NAMES this
+ * repo gives runner paths, not on every `existsSync`, and its own gap is disclosed
+ * at its definition.
+ *   ⇒ A GENERAL presence-check sweep is still excluded by design: it would return
+ *   hundreds of legitimate `existsSync` calls that have nothing to do with
  *   runnability, and the set would stop being a list somebody can audit.
  *   ⚠️ The four bullets above are all `accessSync` spellings, so a reader takes
  *   the class to BE accessSync. Naming this here is the file's own rule applied to
@@ -254,6 +258,19 @@ const WEAK_CALL = /(accessSync|access)\s*\(.*\bX_OK\b/;
    does not run, which is this file's own concern one level up. Deriving makes
    divergence impossible. */
 const WEAK_CALL_ALL = new RegExp(WEAK_CALL.source, 'g');
+
+/* #1616: THE SECOND SPELLING OF THE SAME WRONG QUESTION. `fs.existsSync(bin)` says
+   yes to a directory exactly as X_OK does, and carries no X_OK token, so WEAK_CALL
+   is blind to it BY CONSTRUCTION rather than by oversight. This matcher is keyed on
+   the identifiers this repo uses for runner paths, because a sweep of every
+   existsSync in the tree returns hundreds of honest presence checks.
+   ITS GAP, STATED AT THE DEFINITION: an existsSync over a variable with another
+   name, or over `path.join(dir, 'claude')`, or a `statSync(bin)` that never asks
+   isFile, is invisible here. A guard keyed on a literal cannot enforce a property;
+   this one enforces the literals that were live on 2026-08-30 and leaves the
+   behavioural arms (create.runner-dir-1616.test.js) to enforce the property. */
+const EXISTS_ON_BIN = /\bexistsSync\s*\(\s*(?:[A-Za-z_$][\w$]*\.)?(?:runnerBin|codexBin|claudeBin|tmuxBin|bin)\s*\)/;
+const EXISTS_ON_BIN_ALL = new RegExp(EXISTS_ON_BIN.source, 'g');
 
 /** Every non-test .js file in the repo, relative to REPO. */
 function walkJs(dir, base = dir, out = []) {
@@ -1867,5 +1884,63 @@ test('an EMPTY env var means UNSET, not "no candidates", or gh reads as missing'
   } finally {
     if (before === undefined) delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
     else process.env.AGENT_WORKFORCE_GH_CANDIDATES = before;
+  }
+});
+
+/* ==========================================================================
+   #1616: THE existsSync SWEEP. Same walk, same {file, call, fn} key, same rule
+   that prose and code are keyed identically. The audited set is EMPTY: every
+   site the card named now asks runners.isRunnable.
+   ========================================================================== */
+const KNOWN_EXISTS_ON_BIN = [];
+
+test('#1616: no non-test source asks existsSync of a runner-path identifier', () => {
+  const files = walkJs(REPO);
+  assert.ok(files.length > 100, `only ${files.length} files scanned; the sweep is broken`);
+  const found = [];
+  for (const rel of files) {
+    const key = rel.split(path.sep).join('/');
+    const lines = fs.readFileSync(path.join(REPO, rel), 'utf8').split('\n');
+    lines.forEach((line, i) => {
+      for (const m of line.matchAll(EXISTS_ON_BIN_ALL)) {
+        found.push({ file: key, call: m[0], fn: enclosingFn(lines, i) });
+      }
+    });
+  }
+  const sortKey = (e) => e.file + ' ' + e.call + ' ' + (e.fn || '');
+  const seen = found.sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
+  const want = [...KNOWN_EXISTS_ON_BIN].sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
+  assert.deepStrictEqual(seen, want,
+    'a runner path is being asked existsSync, which says yes to a DIRECTORY and to a ' +
+    'file with no exec bit (#1616). A folder at that path then reaches a spawn that ' +
+    'fails later with a worse message. Ask require("./runners").isRunnable(p) instead, ' +
+    'or, if presence really is the question at this site, pin it here AND say why in a ' +
+    'comment at the site. Prose is keyed identically to code, on purpose.');
+});
+
+test('#1616: the existsSync sweep can see every spelling that was live on 2026-08-30, so an empty result means something', () => {
+  /* The five lines from the card, verbatim, plus the alternative-offer line that
+     hung off one of them. All must match, or the empty set above is a blind sweep. */
+  const planted = [
+    'if (!DRY_RUN && !fs.existsSync(runnerBin)) {',
+    'if (!DRY_RUN && !fs.existsSync(codexBin)) {',
+    'if (!fs.existsSync(bin)) {',
+    'if (!bin || !fs.existsSync(bin)) return { ok: false, because: MISSING_RUNNER_SENTENCE };',
+    'const codexPresent = fs.existsSync(codexBin);',
+    'existsSync( tmuxBin )',
+  ];
+  for (const line of planted) {
+    assert.ok(EXISTS_ON_BIN.test(line), 'the #1616 matcher is blind to: ' + line);
+  }
+  /* And it must NOT fire on the honest presence checks that share a file with the
+     gates, or the audited set stops being auditable. */
+  for (const line of [
+    'if (fs.existsSync(plistPath(clean))) {',
+    'const hasFolder = fs.existsSync(workerDir(name));',
+    "fs.existsSync(path.join(codexHomeDir(), 'auth.json'))",
+    'if (!fs.existsSync(spot.dir)) return { label, dir };',
+    'fs.existsSync(binDir)',
+  ]) {
+    assert.ok(!EXISTS_ON_BIN.test(line), 'the #1616 matcher over-fires on: ' + line);
   }
 });
