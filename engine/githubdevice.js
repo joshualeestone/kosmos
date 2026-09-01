@@ -269,6 +269,16 @@ function readToken() {
 let FLOW = { phase: PHASE.IDLE, code: null, url: null, because: null, expiresAt: 0 };
 let POLL = null;
 function stopPolling() { if (POLL) { clearTimeout(POLL); POLL = null; } }
+/* #1799: WHICH FLOW A POLL BELONGS TO. `stopPolling` clears a timer that has not
+   fired; it cannot reach a poll whose fetch is already in flight. That poll came
+   back and acted on whatever FLOW was by then: measured, it consumed the NEXT
+   flow's token two milliseconds before that flow had even asked for a device code,
+   and the next flow's start() then overwrote the failure it produced with a fresh
+   awaiting, so the sign-in silently started over. One integer closes it: every flow
+   boundary bumps GEN, pollOnce captures it before the round trip and bails after if
+   it moved. A reschedule is the SAME flow continuing, so schedulePoll does not bump. */
+let GEN = 0;
+function endFlow() { GEN += 1; stopPolling(); }
 
 /**
  * Start the device flow. Never rejects: the unconfigured state answers
@@ -280,7 +290,7 @@ async function start() {
   try {
     const id = clientId();
     if (!id) return { ...(await state()), refused: NO_APP };
-    stopPolling();
+    endFlow();
     FLOW = { phase: PHASE.STARTING, code: null, url: null, because: null, expiresAt: 0 };
     let r;
     try { r = await post(DEVICE_URL(), { client_id: id, scope: SCOPE }); }
@@ -322,6 +332,7 @@ function schedulePoll(id, deviceCode, delayMs) {
 }
 
 async function pollOnce(id, deviceCode, delayMs) {
+  const gen = GEN; // #1799: the flow this poll belongs to
   if (FLOW.phase !== PHASE.AWAITING && FLOW.phase !== PHASE.COMPLETING) return;
   if (Date.now() > FLOW.expiresAt) {
     FLOW = { ...FLOW, phase: PHASE.FAILED, because: 'the code expired before it was entered on GitHub; start again for a fresh one' };
@@ -333,7 +344,10 @@ async function pollOnce(id, deviceCode, delayMs) {
       client_id: id, device_code: deviceCode,
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
     });
-  } catch { schedulePoll(id, deviceCode, delayMs); return; }
+  } catch { if (gen === GEN) schedulePoll(id, deviceCode, delayMs); return; }
+  /* #1799: the flow moved on while this round trip was out. Whatever came back
+     belongs to a device code the person already left. Touch nothing. */
+  if (gen !== GEN) return;
   const b = (r && r.body) || {};
   if (b.access_token) {
     FLOW = { ...FLOW, phase: PHASE.COMPLETING };
@@ -415,14 +429,14 @@ async function state() {
 
 /** Stop a flow in flight; the held token, if any, stays. Never rejects. */
 async function cancel() {
-  stopPolling();
+  endFlow();
   FLOW = { phase: PHASE.IDLE, code: null, url: null, because: null, expiresAt: 0 };
   return state();
 }
 
 /** Forget the held token (and any flow in flight), Cloudflare's word. */
 async function forget() {
-  stopPolling();
+  endFlow();
   FLOW = { phase: PHASE.IDLE, code: null, url: null, because: null, expiresAt: 0 };
   try { fs.unlinkSync(FILE); } catch { /* nothing held */ }
   return state();
