@@ -743,7 +743,7 @@ async function download(onProgress, track, platform = process.platform) {
      parameter (default process.platform) so the refusal is testable on a Mac. The
      polished user-facing wording is the operator's to refine (see engine/platform.js). */
   if (!platformGate.isSupported(platform)) {
-    throw new Error('this platform (' + platform + ') is not supported; the agent runner is a macOS build and was not downloaded');
+    throw new Error('this platform (' + platform + ') is not supported; the Claude Code binary is a macOS build and was not downloaded');
   }
   const base = downloadBase();
   const version = (await fetchText(`${base}/latest`, undefined, track)).trim();
