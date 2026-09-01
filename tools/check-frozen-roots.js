@@ -130,7 +130,7 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
      { get DIR() { return path.join(store.ROOT,'x'); } }  -> rc 1
      { dir() { return path.join(store.ROOT,'x'); } }      -> rc 1
      { dir: function () { ... } }                         -> rc 1
-   ⇒ THE GETTER FORM IS THE IDIOM THIS BRANCH INTRODUCES 25 TIMES. It is silent today
+   ⇒ THE GETTER FORM IS THE IDIOM THIS BRANCH INTRODUCES 28 TIMES. It is silent today
    only because `module.exports = { ... }` is the gap directly above, so the two
    gaps are cancelling each other out. Close that one on its own and all 23 converted
    modules go RED ON THEIR OWN CORRECT CODE. Teach the non-arrow lazy forms FIRST.
@@ -258,6 +258,27 @@ const invokedNow = (init) => {
    module that DOCUMENTS the frozen shape would red CI, and every module on this
    branch carries long explanatory comments. Blanks comment bodies while preserving
    every newline and the file's length, so reported line numbers stay true. */
+/* THE PREVIOUS TOKEN, FROM THE BLANKED OUTPUT, BOUNDED. Deciding whether a slash
+   opens a regex needs the token before it, and the first version took
+   `src.slice(0, i)` trimmed, which was wrong twice.
+   PERFORMANCE: it materialises the whole prefix for EVERY slash, in both blankers,
+   and scanText runs several times per file. Measured: the CI invocation went from
+   0.1s to 53s, quadratic in the number of slashes.
+   CORRECTNESS: it read the RAW source, so after an inline block comment the tail
+   was the comment's closing delimiter, which is not in the regex-can-follow class.
+   The regex was then read as code, its quote opened a string mode that never
+   closed, and the whole file was reported UNREADABLE. An inline comment placed
+   before a regex reds the build on correct code, and this repo's house style is
+   heavy inline comments.
+   Reading the already-emitted blanked text fixes both: comments are spaces by then,
+   and only a bounded tail is inspected. */
+const prevToken = (out) => {
+  let k = out.length - 1;
+  while (k >= 0 && /\s/.test(out[k])) k -= 1;
+  if (k < 0) return '';
+  return out.slice(Math.max(0, k - 11), k + 1);
+};
+
 let lastBlankMode = null;
 const blankComments = (src) => {
   let out = '';
@@ -286,7 +307,7 @@ const blankComments = (src) => {
        including both division cases before being wired in. Inside the literal a
        `[...]` class is tracked, because `/` is literal there. */
     if (c === '/') {
-      const before = src.slice(0, i).replace(/\s+$/, '');
+      const before = prevToken(out);
       const isRegex = before === ''
         || /[=(,:[!&|?{};+\-*%~^<>]$/.test(before)
         || /\b(return|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)$/.test(before);
@@ -359,7 +380,7 @@ const blankStrings = (src) => {
        them was STILL silent, because blankStrings desynchronised where
        blankComments no longer did. */
     if (c === '/') {
-      const before = src.slice(0, i).replace(/\s+$/, '');
+      const before = prevToken(out);
       const isRegex = before === ''
         || /[=(,:[!&|?{};+\-*%~^<>]$/.test(before)
         || /\b(return|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)$/.test(before);
@@ -639,7 +660,21 @@ function declarations(rawSrc) {
        bracket depth zero. */
     let depth = lineInfo(lines[i]).delta;
     const terminated = (t) => /;\s*$/.test(lineInfo(t).code);
-    while (!(depth <= 0 && terminated(lines[j])) && j - i < 12 && j + 1 < lines.length) {
+    /* 🛑 THE CAP WAS 12 LINES AND IT SILENTLY DROPPED REAL FREEZES. Measured
+       boundary: a freeze on declaration line 13 was reported, line 14 was SILENT.
+       22 module-level declarations in the enforced scope span more than 13 lines
+       today, up to 201, including `engine/tokendoors.js`'s 127-line SPECS, which is
+       the module this branch's headline finding is about. Planting a freeze there
+       past the cap produced NOTHING.
+       ⚠️ AND IT DEFEATED MY OWN VERIFICATION METHOD, which is the part worth
+       keeping: I checked coverage by planting a freeze at the END of every scanned
+       file, and an end-of-file plant is always a SHORT declaration. The method could
+       not see this by construction, and it reported 69 of 69 files sighted.
+       The cap was written so a missing semicolon could not swallow the rest of the
+       file. The depth-aware terminator added on this branch is what actually
+       prevents that now, so this is a backstop rather than the mechanism, and it is
+       set well past the longest real declaration. */
+    while (!(depth <= 0 && terminated(lines[j])) && j - i < 500 && j + 1 < lines.length) {
       j += 1;
       init += '\n' + lines[j];
       depth += lineInfo(lines[j]).delta;
@@ -671,7 +706,7 @@ function functionNamesReaching(rawSrc, sources) {
   const bodies = [];
   for (let i = 0; i < lines.length; i += 1) {
     /* 🛑 ARROW RESOLVERS TOO, AND WITHOUT THIS THE GUARD WAS BLIND TO THE
-   CODEBASE'S OWN CONVENTION. #1443 converted 22 modules to exactly
+   CODEBASE'S OWN CONVENTION. #1443 converted 23 modules to exactly
    `const dir = () => path.join(store.ROOT, ...)`, and this scan saw only
    `function NAME(`, so `const X = path.join(dir(), 'x')` was invisible:
    planted in engine/liveness.js it produced rc=0 and named nothing.
@@ -779,13 +814,36 @@ function scan(file) {
      does, and `const { NO_READING } = require('./status')` is live house style here
      (76 files), so this is reachable the first time somebody destructures one of the
      new getters. Filtered by PATH_SHAPED so a destructured FUNCTION is not swept in. */
+  /* 🛑 MIRRORS THE STORE ARM, and for a round it did not, which left two silent
+     shapes. The store arm tests the SOURCE name (`split(':')[0]`) and treats the
+     DESTRUCTURE ITSELF as the freeze; this one tested the LOCAL name
+     (`split(':').pop()`) and only marked the uses. Measured, with the store form as
+     a passing control:
+       const { FILE: F } = require('./limits'); path.join(F,'x')      -> exited 0
+       const { FILE } = require('./limits'); () => path.join(FILE,'x') -> exited 0
+     The first drops out because the local name `F` is not path-shaped; the second
+     because a lazy USE looks deferred while the destructure already evaluated the
+     getter. Both are real require-time freezes, and this card mints 28 new path
+     getters into a tree where destructured require is house style in 76 files. */
   const foreignGetters = [];
   for (const m of scanSrc.matchAll(/^(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\(([^)]*)\)/gm)) {
-    if (/\bstore\b/.test(m[2])) continue; // the store form is handled above, with its own names
+    if (/\bstore\b/.test(m[2])) continue; // the store form is handled below, with its own names
+    const frozen = [];
     for (const part of m[1].split(',')) {
-      const name = part.split(':').pop().trim();
-      if (PATH_SHAPED.test(name)) foreignGetters.push(name);
+      const source = part.split(':')[0].trim();
+      const local = part.split(':').pop().trim();
+      if (!PATH_SHAPED.test(source)) continue;
+      foreignGetters.push(local);
+      frozen.push(source === local ? source : `${source}: ${local}`);
     }
+    if (!frozen.length) continue;
+    const line = src.slice(0, m.index).split('\n').length;
+    destructuredForeign.push({
+      name: '{ ' + frozen.join(', ') + ' }',
+      line,
+      how: 'destructured out of another module at require time',
+      lines: m[0].split('\n').length,
+    });
   }
   const SRC_SOURCES = SOURCES.concat(aliases, localSources, foreignGetters);
   /* 🛑 THE DESTRUCTURING IS ITSELF THE FREEZE, AND MARKING ITS USES WAS NOT
@@ -796,6 +854,7 @@ function scan(file) {
      went unreported. Only the value getters count; destructuring a FUNCTION like
      `dataRootFor` freezes nothing. */
   const GETTERS = GETTER_VALUE_NAMES;
+  const destructuredForeign = [];
   const destructured = [];
   /* 🛑 WHOLE-SOURCE `matchAll`, NOT A PER-LINE SCAN, AND THE REASON IS THAT THE
      ALIAS SCAN ABOVE ALREADY IS ONE. This was `src.split('\n').forEach` with a
@@ -885,6 +944,7 @@ function scan(file) {
   };
   const resolvers = functionNamesReaching(src, SRC_SOURCES);
   const findings = [];
+  findings.push(...destructuredForeign);
   for (const d of declarations(src)) {
     /* 🛑 `invokedNow` GATES BOTH EXEMPTIONS, not just isLazy. Putting it only in
        isLazy left the arrow form silent: in `(() => path.join(store.ROOT,'x'))()`

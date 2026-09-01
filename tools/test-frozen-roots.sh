@@ -517,6 +517,50 @@ if [ "$rc_unread" != "0" ] && printf '%s' "$out_unread" | grep -q '^UNREADABLE';
   ok "a file the scanner cannot finish reading is NAMED and gates"
 else bad "an unreadable file reported clean" "rc=$rc_unread"; fi
 
+# ---- arm 47: a freeze deep inside a long declaration ----------------------
+# The capture cap was 12 lines, so a freeze on declaration line 14 was SILENT while
+# line 13 was reported. 22 module-level declarations in the enforced scope are
+# longer than that, up to 201 lines, including tokendoors.js's own 127-line SPECS.
+# ⚠️ AND THE END-OF-FILE PLANT SWEEP COULD NOT SEE THIS BY CONSTRUCTION: a plant at
+# EOF is always a SHORT declaration. The method reported 69 of 69 files sighted.
+{ printf "const store = require('./store');\nconst BIG = [\n"
+  i=1; while [ "$i" -le 40 ]; do printf "  'filler%s',\n" "$i"; i=$((i+1)); done
+  printf "  path.join(store.ROOT, 'x'),\n];\n"; } > "$T/deepdecl.js"
+if [ "$(run deepdecl)" = "1" ]; then ok "a freeze 40 lines into a declaration is still found"
+else bad "a freeze past the capture cap went silent"; fi
+
+{ printf "const store = require('./store');\nconst BIG = [\n"
+  i=1; while [ "$i" -le 40 ]; do printf "  'filler%s',\n" "$i"; i=$((i+1)); done
+  printf "  () => path.join(store.ROOT, 'x'),\n];\n"; } > "$T/deepdecllazy.js"
+if [ "$(run deepdecllazy)" = "0" ]; then ok "and a DEFERRED one that deep stays silent"
+else bad "fired on a deferred entry deep in a declaration"; fi
+
+# ---- arm 48: a destructured foreign getter, renamed or used lazily ---------
+# The foreign arm marked the USES and did not treat the destructure as the freeze,
+# unlike its store sibling. A renamed binding dropped out (the LOCAL name is not
+# path-shaped) and a lazy-only use looked deferred though the getter had already
+# been evaluated by the destructure itself.
+fixture foreignrenamed "const { FILE: F } = require('./limits');
+const P = path.join(F,'x');"
+if [ "$(run foreignrenamed)" = "1" ]; then ok "a RENAMED destructured getter is flagged"
+else bad "a renamed binding dropped out of the path-shaped test"; fi
+
+fixture foreignlazyuse "const { FILE } = require('./limits');
+const P = () => path.join(FILE,'x');"
+if [ "$(run foreignlazyuse)" = "1" ]; then ok "a destructured getter used only lazily is still flagged"
+else bad "a lazy USE hid a destructure that already evaluated the getter"; fi
+
+# ---- arm 49: an inline block comment before a regex is not a desync --------
+# `before` was computed from RAW source, so after an inline comment it ended in the
+# comment's closing delimiter, the regex was read as code, and its quote opened a
+# string mode that never closed. That reds the build on correct code, in a repo
+# whose house style is heavy inline comments.
+fixture commentregex "const ok = /* note */ /[\"]/.test('a');
+const store = require('./store');
+const F = () => path.join(store.ROOT,'x');"
+if [ "$(run commentregex)" = "0" ]; then ok "an inline comment before a regex does not desync the scanner"
+else bad "a comment before a regex made the file unreadable"; fi
+
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,
 # once by renumbering and stranding every "counterweight to arm N" reference. A
