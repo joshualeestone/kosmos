@@ -113,3 +113,60 @@ NEXT CONCRETE STEP for a post-compaction me:
 ## PROGRESS (23:16)
 - Part 1 Arm A DONE + committed: engine/agent-activity.js (spinnerActive, SPINNER_RE) + engine/agent-activity.test.js (4 cases, red-capable vs the idle-footer regression). All pass, 0 em dashes.
 - NEXT: Arm B (pane delta) + the periodic check-and-notify job (part 2) composing Arm A over safeRoster/snapshot + the 6s delta, machine-scoped, in the product runtime (NOT ~/.claude/launchd). Then Settings > Automation (part 3). Wire agent-activity.test.js into the suite. Full yarn test before merge.
+
+## RETRACTION + CORRECTED DESIGN (23:40) -- READ THIS OVER THE PART-1 ABOVE
+
+🛑 Arm A/Arm B port (commit 5cfcaa00) is RETRACTED (073415fe removed the files).
+The product ALREADY detects each agent's state. Do NOT build a new detector.
+
+- `classify(pane, paneText)` at engine/status.js:1927 is the board's per-agent
+  detector: STATE.WORKING / IDLE / STOPPED / NEEDS_YOU / RATE_LIMITED / AUTH_FAILED,
+  keyed on the Braille SPINNER in the pane TITLE + per-runner "esc to interrupt"
+  chrome + marker lists. It never had the idle-footer bug -- that was the FLEET
+  shell script builder-progress-check.sh, fixed separately in #1657.
+- `snapshot()` stamps every board agent with that classified `state`.
+  `safeRoster()` (server.js:684) = snapshot().agents minus removed agents.
+- Composing this is NOT "a control for a lie": classify() is the detector the
+  whole product already trusts. A SECOND spinner classifier IS the "two
+  derivations of the fleet" habit safeRoster's comment calls the worst here.
+
+### CORRECTED build (three parts):
+
+1. DETECTION = compose the existing classification. The heartbeat reads
+   snapshot()/safeRoster() and each agent's `state`. NO new detector.
+   PRODUCT DECISION to settle: which states does "chase anyone stopped" cover?
+   Candidates: STOPPED (Claude process gone) and IDLE (Claude up, sat at prompt
+   having finished) -- both are "not working and not waiting on YOU", which is
+   the "finished a step, never started the next" shape. NOT needs_you (that is
+   the person's to act on and already has its own notify path). NOT working.
+   Confidence-gated: only chase a state at STRUCTURED/SCRAPED confidence, never
+   UNKNOWN (fail toward not-nagging). This is the ONE genuinely new judgement.
+
+2. PERIODIC CHECK-AND-NOTIFY (new). Compose over the notify seam that exists:
+   - engine/notify.js `notify.happened({kind,...})` is the off-by-default
+     outbound ping, closed KINDS list {posted, replied, needs_you}. ADD a kind
+     (e.g. 'stalled') so the payload's kind stays a closed list.
+   - Fire once per stall EDGE (a working->stopped/idle transition), not every
+     tick, or a stopped agent pings forever. Reuse the wouldping.js edge shape
+     (it already suppresses re-fires: was===X returns false).
+   - A new interval loop in the product runtime (server.js has setInterval
+     precedent at 7381/7390), machine-scoped, whose period is the Settings value.
+     NOT a ~/.claude launchd job. Off unless the Settings toggle is on.
+
+3. SETTINGS > AUTOMATION UI (web/index.html). On/off + interval Off/5/10/17/60.
+   Show the interval IN FORCE (read from the live job), not just the stored pref.
+
+### Testing
+- Unit-test the SWEEP over synthetic snapshot rows (fake classify states):
+  a working->stopped edge fires once; a still-stopped agent does not re-fire;
+  an UNKNOWN agent is never chased; toggle off => no fire. Use the notify
+  sender-injection seam (engine/notify.js injects a sender for tests) so no
+  suite reaches the internet.
+- Do NOT re-test classify() here (status.test.js already owns it, round 29+).
+- Settings row drives the interval + displays the LIVE value.
+
+### Status
+- 073415fe removed the duplicate detector. Next: settle the "which states"
+  decision (ask the person/Splinter if unsure -- it is a product call), then
+  build the sweep composing snapshot()+notify, then Settings. Full yarn test
+  before merge. Challenge-loop + proof + PR. Confirm merge with Splinter (size).
