@@ -36,27 +36,36 @@
 #   REFRESH_CLI_REPO    repo root for the "is it the repo copy?" gate
 #                       (default: this script's repo)
 set -euo pipefail
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
+REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
 CHECK=0
 [ "${1:-}" = "--check" ] && CHECK=1
 
 SOURCE="${REFRESH_CLI_SOURCE:-$REPO/install/kosmos}"
+# Canonicalize the repo-gate root to a PHYSICAL path so the "is this the repo's
+# own copy?" test below compares like against like: REAL is fully symlink-resolved,
+# so the guard root must be too, or a repo reached through a symlinked path
+# component would slip the gate.
 GUARD_REPO="${REFRESH_CLI_REPO:-$REPO}"
+GUARD_REPO="$(cd "$GUARD_REPO" 2>/dev/null && pwd -P || printf '%s' "$GUARD_REPO")"
 
 # Follow symlinks to the real file the install owns, so the copy lands on the file
 # and not on the ~/.local/bin link. Portable on purpose: readlink -f is not on
 # every macOS, and the loop also passes a plain (non-symlink) file straight through,
-# which is what the sandbox test hands it.
+# which is what the sandbox test hands it. Bounded at 40 hops so a symlink CYCLE
+# is a refusal, not an infinite loop that would hang the cut; the final path is
+# canonicalized to a physical path to match GUARD_REPO above.
 resolve() {
-  local p="$1" t
+  local p="$1" t hops=0
   while [ -L "$p" ]; do
+    hops=$((hops + 1))
+    [ "$hops" -gt 40 ] && return 1
     t="$(readlink "$p")"
     case "$t" in
       /*) p="$t" ;;
-      *)  p="$(cd "$(dirname "$p")" && cd "$(dirname "$t")" && pwd)/$(basename "$t")" ;;
+      *)  p="$(cd "$(dirname "$p")" && cd "$(dirname "$t")" && pwd -P)/$(basename "$t")" ;;
     esac
   done
-  printf '%s' "$p"
+  printf '%s' "$(cd "$(dirname "$p")" 2>/dev/null && pwd -P || dirname "$p")/$(basename "$p")"
 }
 
 # The installed command, found on PATH exactly as an agent would find it. The
@@ -73,7 +82,7 @@ if [ -z "$TARGET" ]; then
   exit 0
 fi
 
-REAL="$(resolve "$TARGET")"
+REAL="$(resolve "$TARGET")" || { echo "COULD NOT REFRESH THE INSTALLED CLI: $TARGET is a symlink cycle (over 40 hops)"; exit 1; }
 
 # A kosmos that IS this repo's own copy runs from source and is never stale; the
 # board check (step 10) leaves an install alone for the mirror reason.
@@ -120,6 +129,15 @@ fi
 # this step exists to prevent, so it reds the cut rather than passing quietly.
 if ! cmp -s "$SOURCE" "$REAL"; then
   echo "THE INSTALLED CLI DID NOT REFRESH: $REAL still differs from the tree after the copy"
+  exit 1
+fi
+
+# The bytes are right; the CLI must also be runnable. cp does not preserve mode
+# and the chmod above is tolerant (|| true), so a silent chmod failure would land
+# a non-executable CLI that the byte check alone would pass. An unrunnable command
+# is exactly what this step exists to prevent, so it reds the cut too.
+if [ ! -x "$REAL" ]; then
+  echo "COULD NOT REFRESH THE INSTALLED CLI: $REAL is not executable after the copy (chmod failed)"
   exit 1
 fi
 
