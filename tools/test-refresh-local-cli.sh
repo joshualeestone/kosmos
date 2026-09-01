@@ -80,6 +80,17 @@ out="$(REFRESH_CLI_TARGET="$repo/install/kosmos" REFRESH_CLI_SOURCE="$FRESH" REF
 if [ "$rc" -eq 0 ] && has "$out" "leaving it alone"; then pass "the repo's own install/kosmos is left alone, exit 0"; else fail "repo-copy arm (rc=$rc, out=$out)"; fi
 if ! cmp -s "$FRESH" "$repo/install/kosmos"; then pass "the repo copy was not overwritten"; else fail "the repo copy was overwritten"; fi
 
+# 6b. A CLI inside ANY git worktree is left alone, not just one under GUARD_REPO.
+#     REFRESH_CLI_REPO points elsewhere ($T/norepo), so ONLY the any-git-repo net
+#     can catch this -- protects the 100+ worktrees on this box. Arm 1 (a non-repo
+#     dir that DOES get refreshed) is this arm's negative control.
+gitrepo="$T/gitrepo"; mkdir -p "$gitrepo/install"
+( cd "$gitrepo" && git init -q && git config user.email t@t.test && git config user.name t ) >/dev/null 2>&1
+make_stale "$gitrepo/install/kosmos"
+out="$(REFRESH_CLI_TARGET="$gitrepo/install/kosmos" REFRESH_CLI_SOURCE="$FRESH" REFRESH_CLI_REPO="$T/norepo" bash "$SCRIPT" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && has "$out" "inside a git worktree"; then pass "a CLI inside ANY git worktree is left alone, not just GUARD_REPO"; else fail "any-git-repo gate arm (rc=$rc, out=$out)"; fi
+if ! cmp -s "$FRESH" "$gitrepo/install/kosmos"; then pass "the worktree copy was not overwritten"; else fail "the worktree copy was overwritten"; fi
+
 # 7. --check reports but never writes.
 tgt7="$T/chk/kosmos"; mkdir -p "$(dirname "$tgt7")"; make_stale "$tgt7"
 out="$(REFRESH_CLI_TARGET="$tgt7" REFRESH_CLI_SOURCE="$FRESH" REFRESH_CLI_REPO="$T/norepo" bash "$SCRIPT" --check 2>&1)"; rc=$?
