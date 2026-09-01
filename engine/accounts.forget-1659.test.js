@@ -226,6 +226,17 @@ test('#1659: the default is recognised under a RELATIVE home, which is the input
     /* CONTROL, and it must be able to return the dangerous answer. */
     assert.equal(accounts.isDefaultDir(nodePath.resolve(rel, '.claude-walk')), false,
       'a non-default reads as the default, so the assertion above passes for the wrong reason');
+    /* 🔑 configFile() TOO, because it carries the SAME both-sides-resolve fix and had
+       no arm. Measured with the fix reverted: under a relative home the default's
+       record resolves to <home>/.claude/.claude.json instead of <home>/.claude.json,
+       and `list()` returns []. The sibling got a dedicated arm on this input class
+       and this one did not, so the diff covered one of two instances of a class it
+       names. */
+    fs.writeFileSync(nodePath.join(nodePath.resolve(rel), '.claude.json'),
+      JSON.stringify({ oauthAccount: { emailAddress: 'rel@example.com' } }));
+    assert.equal(accounts.list().length > 0, true,
+      'under a relative home the default account vanished from list(), which is what the '
+      + 'configFile resolve fix exists to prevent');
   } finally {
     process.chdir(cwd);
     process.env.AGENT_WORKFORCE_HOME = SANDBOX;

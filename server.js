@@ -3320,6 +3320,17 @@ const server = http.createServer((req, res) => {
           because: out.forgotten
             ? 'That account is off the list. Its sign-in file is still on this computer, '
               + 'so nothing was deleted.'
+              /* 🛑 THE HISTORY CLAUSE, AND ONLY FOR THE DEFAULT, because that is the
+                 only OpenAI account it is true of. `codexsession` reads sessions out
+                 of the DEFAULT home alone, so removing `~/.codex` costs the
+                 transcripts (measured: rollouts 1 before the rename, 0 after) while
+                 removing a labelled `.codex-<label>` costs none.
+                 ⇒ The Claude route says this unconditionally and is right to: its
+                 transcripts live under every account directory. Saying it here
+                 unconditionally would be the same false-for-most disclosure this
+                 branch removed from the uninstall transcript. */
+              + (out.wasDefault ? ' Kosmos stops looking inside it, so any history kept '
+                + 'only there will not appear any more.' : '')
               + (out.movedTo ? ' It is in a hidden folder called ' + path.basename(out.movedTo)
                 + ' in your home folder.' : '')
             : 'That account was already gone from this computer.',

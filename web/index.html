@@ -13382,6 +13382,13 @@ async function paintAccounts() {
     if (mine !== ACCT_EPOCH) return;
   } catch {
     if (mine !== ACCT_EPOCH) return;
+    /* 🛑 CANCEL HERE TOO. The cancel at the top of this function runs BEFORE the
+       await, so these two writes were the third and fourth exceptions to the
+       "every writer cancels" claim above, and this diff has already corrected
+       that claim twice. The window is not milliseconds: that fetch is a live
+       per-account check, so pressing the disabled default Disconnect during a
+       repaint shows the deferred refusal at 60ms and then wipes it. */
+    acctCancelSay();
     if (msg) msg.textContent = '';
     // ⚠️ Never "one account": a failed read must not shrink the list.
     box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">We could not read the accounts on this computer.</p>';
@@ -13391,6 +13398,7 @@ async function paintAccounts() {
     return;
   }
   accountsRead(list);
+  acctCancelSay();  /* post-await writer, same reason as the catch above */
   if (msg) msg.textContent = '';
   /* 🔑 GROUPED BY PROVIDER (kosmos#1393). Josh, twice on 2026-08-28: the Claude
      Max 20x line "is still not in that bounding box that it's supposed to be in,
@@ -13584,7 +13592,13 @@ async function paintAccounts() {
              on a named account renders none), so a live button here is one
              nearly every user sees and NONE can use -- the "nothing that looks live may do nothing" shape this
              file refuses elsewhere, and it would carry a title promising an act
-             it cannot perform. The title states the refusal and the way out. */
+             it cannot perform. The title states the refusal.
+            🛑 IT DOES NOT STATE A WAY OUT, and this clause used to claim it did.
+            The engine says outright that the default refusal deliberately names
+            none, because both candidate remedies were removed as unreachable: one
+            implies the button then works, the other names an affordance this page
+            does not have. A leftover promise like that invites the next reader to
+            add a remedy that does not exist. */
           /* ⚠️ THE REASON RIDES THE aria-label, NOT ONLY THE title. A `title`
              on a DISABLED control is not announced, so a screen-reader user got
              "Disconnect main@example.com" with no hint it is unavailable or
