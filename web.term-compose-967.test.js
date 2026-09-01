@@ -102,7 +102,7 @@ function runSendTerm({ deliveryState, delivery, ok = true, errorBody, throws = f
   const fetch = async (url, opts) => {
     posts += 1;
     posted = { url, opts };
-    if (duringFetch) duringFetch();
+    if (duringFetch) duringFetch(els);
     if (hang) return new Promise(() => {});   // never resolves: the send stays in flight
     if (throws) throw new Error('network down');
     return {
@@ -154,6 +154,16 @@ test('kosmos#967: if the flight moves to another agent, nothing is written to th
     'and the receipt line is not overwritten under the new agent (it keeps the "Sending" line, not a placed verdict)');
   assert.deepEqual(getPaintCalls(), [],
     'and paintTalk is NOT called for the agent we left -- its own poll owns its controls');
+});
+
+test('kosmos#967: a placed verdict does not wipe words typed on top of the sent message', async () => {
+  const { sendTerm, els } = runSendTerm({
+    deliveryState: 'placed',
+    duringFetch: (e) => { e['d-term-say'].value = 'hello world and more'; },   // typed on top mid-send
+  });
+  await sendTerm();
+  assert.equal(els['d-term-say'].value, 'hello world and more',
+    'the box clears only if it still holds exactly the sent text; anything typed on top is kept');
 });
 
 test('kosmos#967: UNCONFIRMED keeps the words for a retry', async () => {
