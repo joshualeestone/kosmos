@@ -28,7 +28,9 @@ const GH_CANDIDATES = Object.freeze(['/opt/homebrew/bin/gh', '/usr/local/bin/gh'
  * OPPOSITE of what production does with the same value. Measured: production 3 paths,
  * that call []. The delimiter alone already yields [] through
  * `.split(path.delimiter).filter(Boolean)`, so '' never needed a second meaning.
- * 📌 The measurements that forced each step are on kosmos#1606 and #1730. */
+ * 📌 The measurements that forced each step are in
+ * `.claude/plans/runnable-dir-1592-20260830.md` (in-repo, needs no network) and on
+ * kosmos#1606 and #1730. */
 function ghCandidateList(override = process.env.AGENT_WORKFORCE_GH_CANDIDATES) {
   /* One rule. '' is unset whichever way it arrives, which is what `export FOO=$UNSET`
      produces and what a caller passing the env value expects. */
@@ -67,7 +69,7 @@ module.exports = Object.assign(makeDoor({
   deviceUrl: 'https://github.com/login/device',
 }), { PHASE, ghCandidateList });
 /* 📌 `GH_CANDIDATES` is deliberately NOT exported. It had zero consumers outside
-   this file, and `githubdevice.js` named that export as the residual divergence
+   this file, and it was the residual divergence
    hazard the branch had chosen not to close ("separately referenceable, so
    somebody could scan it a second way"). Removing the identifier closes it at zero
    cost, which is better than the documented caveat it replaces. */
