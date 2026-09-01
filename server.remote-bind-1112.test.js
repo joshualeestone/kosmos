@@ -117,6 +117,20 @@ test('the remote allowlist is exactly report + reply, nothing else', () => {
   assert.deepEqual([...REMOTE_AGENT_ROUTES].sort(), ['POST /api/report', 'POST /api/reply'].sort());
 });
 
+test('🛑 issuance is loopback-only: a remote peer to POST /api/agent-token is refused', () => {
+  // Explicit arm so the loopback-only claim is self-evident, not merely derived
+  // from the allowlist. Even with a valid token, /api/agent-token is not on the
+  // remote allowlist, so a remote peer never reaches the mint.
+  const good = sendertoken.mint('probe-issue');
+  assert.ok(remoteWriteGuard(req('POST', { peer: REMOTE }), '/api/agent-token'),
+    'a remote peer reached the token-issuance endpoint');
+  assert.ok(remoteWriteGuard(req('POST', { peer: REMOTE, token: good.token }), '/api/agent-token'),
+    'a remote peer with a valid token reached the token-issuance endpoint');
+  // control: from loopback the guard lets it through (issuance is a local action)
+  assert.equal(remoteWriteGuard(req('POST', { peer: '127.0.0.1' }), '/api/agent-token'), null,
+    'a loopback peer was refused at issuance (the control cannot reach the mint)');
+});
+
 /* ---------- the bind opt-in ---------- */
 
 test('bindHost defaults to loopback and opens ONLY on an explicit opt-in', () => {
