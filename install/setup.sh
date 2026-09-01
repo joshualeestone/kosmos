@@ -1064,11 +1064,26 @@ _kosmos_data_root() {
   _kdr=""
   if [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ] \
      && [ -f "$KOSMOS_HOME/app/engine/store.js" ]; then
-    _kdr="$(KOSMOS_STORE="$KOSMOS_HOME/app/engine/store.js" "$KOSMOS_HOME/runtime/bin/node" -e '
-      const s = require(process.env.KOSMOS_STORE);
-      if (typeof s.dataRootFor !== "function") process.exit(3);
-      process.stdout.write(String(s.dataRootFor(process.platform, require("os").homedir(), process.env)));
-    ' 2>/dev/null)" || _kdr=""
+    # ⚠️ BOUNDED. This runs whatever store.js is INSTALLED, and a require that never
+    # returns would hang the uninstall silently at the capture, which this file
+    # names as the worst outcome (a hang with no sentence). macOS has no `timeout`,
+    # so a shell watchdog kills the consult after KOSMOS_DATA_ROOT_CONSULT_SECONDS
+    # (default 10; the test sets it low) and a killed consult falls through to the
+    # literal exactly like the exit-3 path. A JS-side timer cannot do this: a
+    # synchronous hang blocks the loop that would fire it.
+    _kdr="$(
+      KOSMOS_STORE="$KOSMOS_HOME/app/engine/store.js" "$KOSMOS_HOME/runtime/bin/node" -e '
+        const s = require(process.env.KOSMOS_STORE);
+        if (typeof s.dataRootFor !== "function") process.exit(3);
+        process.stdout.write(String(s.dataRootFor(process.platform, require("os").homedir(), process.env)));
+      ' 2>/dev/null &
+      _kdr_pid=$!
+      ( sleep "${KOSMOS_DATA_ROOT_CONSULT_SECONDS:-10}"; kill "$_kdr_pid" 2>/dev/null ) >/dev/null 2>&1 &
+      _kdr_wd=$!
+      wait "$_kdr_pid" 2>/dev/null; _kdr_rc=$?
+      kill "$_kdr_wd" 2>/dev/null
+      exit "$_kdr_rc"
+    )" || _kdr=""
   fi
   case "$_kdr" in
     /*) ;;
@@ -1089,16 +1104,38 @@ _kosmos_data_root() {
   #                    checked here rather than assumed.
   #   the system Library   HOME="" (set -u does not catch empty), HOME=/ and HOME=//
   #                    all resolve to /Library/Application Support, which no
-  #                    per-user install owns. Refused by RESULT so every spelling
-  #                    of a stripped HOME lands in one case.
+  #                    per-user install owns. Refused by RESULT, and the parent is
+  #                    canonicalised first (`pwd -P`) so a symlink to it is refused
+  #                    too. ⚠️ NOT COVERED: a case variant of that folder on a
+  #                    case-insensitive filesystem; the string check cannot see it.
+  #   a . or .. component   `/.`, `/x/..` and friends are the same folders by other
+  #                    spellings, and every string comparison here is blind to them.
+  #                    Refused outright rather than resolved.
+  #   a shell-significant character   the value is spliced into a `grep -F` pattern
+  #                    that gates `launchctl bootout` and `rm -f` on every agent
+  #                    job, and grep -F treats a NEWLINE in the pattern as a
+  #                    pattern SEPARATOR (the same mechanism KOSMOS_HOME is refused
+  #                    for at the top of this file). Quote, backtick, dollar and
+  #                    backslash are refused with it, the same posture.
   # Under this file's `set -e` a refusal aborts the uninstall at the capture,
   # before any rm, with the reason on stderr where a terminal shows it.
+  _kdr_nl="$(printf '\n_')"; _kdr_nl="${_kdr_nl%_}"
+  _kdr_canon="$_kdr"
+  if [ -d "${_kdr%/*}" ]; then
+    _kdr_canon="$(cd "${_kdr%/*}" 2>/dev/null && pwd -P)/${_kdr##*/}"
+  fi
   case "$_kdr" in
-    "/Library/Application Support/AgentWorkforce")
-      _kdr_why="that is the system-wide Library, which no per-user install owns (an empty or / HOME resolves here)" ;;
-    /*/AgentWorkforce) printf '%s' "$_kdr"; return 0 ;;
-    /*) _kdr_why="it does not end in /AgentWorkforce, the folder name every removal below is bounded by" ;;
-    *)  _kdr_why="it is not an absolute path" ;;
+    *"$_kdr_nl"*|*\'*|*\"*|*\`*|*\$*|*\\*)
+      _kdr_why="it carries a newline, quote, backtick, dollar or backslash, which the ownership checks below cannot be trusted with" ;;
+    */./*|*/../*|*/.|*/..)
+      _kdr_why="it carries a . or .. component, which is the same folder under a spelling none of the checks here can see" ;;
+    *) case "$_kdr_canon" in
+         "/Library/Application Support/AgentWorkforce")
+           _kdr_why="that is the system-wide Library, which no per-user install owns (an empty or / HOME resolves here)" ;;
+         /*/AgentWorkforce) printf '%s' "$_kdr"; return 0 ;;
+         /*) _kdr_why="it does not end in /AgentWorkforce, the folder name every removal below is bounded by" ;;
+         *)  _kdr_why="it is not an absolute path" ;;
+       esac ;;
   esac
   printf 'refusing to uninstall: the data folder resolved to "%s", and %s. Check HOME and AGENT_WORKFORCE_DATA.\n' "$_kdr" "$_kdr_why" >&2
   return 1
@@ -1860,9 +1897,9 @@ KOSMOS_SWEEP_LIST
   #
   # 🛑 ALREADY REMOVED ABOVE, SO DO NOT ADD THEM HERE: `first-run.json`,
   # `seen-version.json`, `found-agents-dismissed.json` and `found-agents-declined.json`
-  # go at line 1397.
+  # go at the `rm -f` of the four remembered-answer files ("the app's own remembered answers").
   # 🛑 `remote/` IS DIFFERENT AND THIS ROW USED TO CALL IT SIMPLY HANDLED. It is
-  # removed at line 1186, but only inside FOUR nested conditions: KOSMOS_HOME exists, the
+  # removed at `rm -rf "$_remote_state"`, but only inside FOUR nested conditions: KOSMOS_HOME exists, the
   # ownership gate passes, `remote/mac_key` exists, AND the tunnel binary is executable.
   # On a partial install, a second --uninstall, a bundle without the tunnel, or any run
   # failing the ownership gate, `remote/` SURVIVES.
@@ -1873,7 +1910,7 @@ KOSMOS_SWEEP_LIST
   # reads this table as a map of the folder.
   # 📌 Distinct from the `remote.json` and `remote-status.json` FILES, which are
   # left alone above; unsaid, the two files' row reads as covering the directory.
-  # 📌 `bin/` is removed at line 1367 ("removing the shared supervisor"), 140 up.
+  # 📌 `bin/` is removed at `rm -rf "$_support/bin"` ("removing the shared supervisor"), above.
   # put two contradictory rulings about the same four files in one function, and the
   # newer one was wrong. A maintainer reading this table to decide whether a fifth
   # decision-record is safe would have got the wrong answer.
@@ -1899,7 +1936,7 @@ KOSMOS_SWEEP_LIST
   # "Claim only what was observed". Announcing before the attempt and swallowing the
   # failure with `|| true` (required here, the file is `set -euo pipefail`) told the
   # person records were removed when a permission error meant they were not. The
-  # neighbouring leftover-folder code at line 1350 already does it this way.
+  # neighbouring leftover-folder code ("removing the shared supervisor") already does it this way.
   _swept=no
   _swept_left=""
   for _litter in downloads usage sendertokens selfreports wouldping liveness; do
@@ -1918,7 +1955,7 @@ KOSMOS_SWEEP_LIST
   # The biggest thing this removes was being announced as something it is not.
   # ⚠️ AND IT MUST NOT MENTION AGENTS, because it fires on machines that have none:
   # `downloads/` is written by the provider-connect flow and `usage/` from the person's
-  # own ~/.claude dirs, both before any agent exists. The rule is stated at setup.sh:1405
+  # own ~/.claude dirs, both before any agent exists. The rule is stated beside the four remembered-answer files
   # -- on a machine with no agents, say nothing about agents at all.
   if [ "$_swept" = yes ]; then
     # ⚠️ NOT AN UNQUALIFIED PAST TENSE, AND DELIBERATELY NOT GATED ON

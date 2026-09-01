@@ -133,6 +133,58 @@ r=$(run 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=/tmp//sbx-1511/')
   && ok "the fallback squeezes // and drops a trailing /, as path.join does" \
   || bad "the fallback squeezes // and drops a trailing /, as path.join does" "$r"
 
+# 9d. A . OR .. COMPONENT IS REFUSED OUTRIGHT. HOME=/. reaches the system Library by
+#     a spelling the string check cannot see, and /x/.. is any folder by another name.
+for inp in 'KOSMOS_HOME=/nonexistent; unset AGENT_WORKFORCE_DATA; HOME=/.' \
+           'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=/tmp/sbx-1511/x/..' \
+           'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=/tmp/sbx-1511/.'; do
+  r=$(run "$inp"); rc=$?
+  [ -z "$r" ] && [ "$rc" -ne 0 ] && ok "a . or .. component is refused ($inp)" \
+    || bad "a . or .. component is refused ($inp)" "rc=$rc out=[$r]"
+done
+
+# 9e. A SYMLINK TO THE SYSTEM LIBRARY IS REFUSED, because the parent is canonicalised
+#     before the comparison. Control: a symlink to an ordinary folder is accepted.
+LNK="$(mktemp -d)"; ln -s "/Library/Application Support" "$LNK/lnk"; mkdir -p "$LNK/plain"; ln -s "$LNK/plain" "$LNK/ok"
+r=$(run "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$LNK/lnk"); rc=$?
+[ -z "$r" ] && [ "$rc" -ne 0 ] && ok "a symlink to the system Library is refused (parent canonicalised)" \
+  || bad "a symlink to the system Library is refused (parent canonicalised)" "rc=$rc out=[$r]"
+r=$(run "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$LNK/ok"); rc=$?
+[ "$rc" -eq 0 ] && [ "$r" = "$LNK/ok/AgentWorkforce" ] && ok "CONTROL: a symlink to an ordinary folder is still accepted" \
+  || bad "CONTROL: a symlink to an ordinary folder is still accepted" "rc=$rc out=[$r]"
+rm -rf "${LNK:?}"
+
+# 9f. A NEWLINE (OR QUOTE, BACKTICK, DOLLAR, BACKSLASH) IS REFUSED. The value feeds a
+#     grep -F pattern that gates launchctl bootout and rm -f on every agent job, and
+#     grep -F reads a newline in the pattern as a pattern SEPARATOR: measured, a
+#     two-line pattern matched a plist naming a DIFFERENT root. Same mechanism
+#     KOSMOS_HOME is refused for at the top of setup.sh.
+NL="$(printf '\n_')"; NL="${NL%_}"
+# The value travels in an exported variable, not inline: a quote inlined into the
+# preamble breaks the preamble's own quoting, and a syntax error reads as a refusal.
+for v in "/tmp/a${NL}/tmp/b" "/tmp/it's" '/tmp/$x' '/tmp/back\\slash'; do
+  export KDR_V="$v"
+  r=$(run 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA="$KDR_V"'); rc=$?
+  [ -z "$r" ] && [ "$rc" -ne 0 ] && ok "a shell-significant character is refused ($(printf '%s' "$v" | tr '\n' '|'))" \
+    || bad "a shell-significant character is refused ($(printf '%s' "$v" | tr '\n' '|'))" "rc=$rc out=[$r]"
+done
+
+# 9g. THE CONSULT IS BOUNDED. A store.js that never returns from require would hang
+#     the uninstall silently at the capture; the watchdog kills it and the helper
+#     falls through to the literal. The arm is itself bounded, so a broken watchdog
+#     reds rather than hangs the suite.
+printf '%s\n' "while (true) {}" > "$FAKE/app/engine/store.js"
+( run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA; KOSMOS_DATA_ROOT_CONSULT_SECONDS=1" > "$FAKE/hang.out" 2>/dev/null; printf '\nrc=%s\n' "$?" >> "$FAKE/hang.out" ) &
+HP=$!; i=0
+while kill -0 "$HP" 2>/dev/null && [ "$i" -lt 8 ]; do sleep 1; i=$((i+1)); done
+if kill -0 "$HP" 2>/dev/null; then kill "$HP" 2>/dev/null; pkill -f 'while \(true\) \{\}' 2>/dev/null; bad "a hanging store.js is killed by the watchdog and the helper falls back" "still running after ${i}s"
+else
+  hr=$(head -1 "$FAKE/hang.out"); [ "$hr" = "$EXP_DEFAULT" ] && grep -q '^rc=0$' "$FAKE/hang.out" \
+    && ok "a hanging store.js is killed by the watchdog and the helper falls back (${i}s)" \
+    || bad "a hanging store.js is killed by the watchdog and the helper falls back" "$(tr '\n' ' ' < "$FAKE/hang.out")"
+fi
+pkill -f 'while \(true\) \{\}' 2>/dev/null || true
+
 # 11b. THE VALUE THAT REACHES A DELETING CONSUMER CAME FROM THE CONSULT, BEFORE THE
 #      DELETE. The two static arms below pin the call's count and position; they
 #      cannot see control flow, and a capture under a false condition satisfies both.
@@ -190,15 +242,16 @@ rm -rf "${B:?}"
 # 12. ONE CALL SITE. The first version captured at each consumer, and the one after
 #    `rm -rf "$KOSMOS_HOME"` silently got the literal while the one before it got the
 #    product's answer: two derivations in one run, the defect this card removes.
-n=$(grep -c '\$(_kosmos_data_root)' "$SETUP")
+n=$(/usr/bin/grep -cF '$(_kosmos_data_root)' "$SETUP")
 [ "$n" -eq 1 ] && ok "uninstall resolves the data root exactly once" \
   || bad "uninstall resolves the data root exactly once" "$n call sites"
 
 # 13. AND THAT ONE CALL COMES BEFORE THE DELETE THAT REMOVES ITS INTERPRETER, inside
 #     uninstall(). Line numbers, because the property IS an ordering.
-fn=$(grep -n '^uninstall() {' "$SETUP" | head -1 | cut -d: -f1)
-call=$(grep -n '\$(_kosmos_data_root)' "$SETUP" | head -1 | cut -d: -f1)
-del=$(grep -n 'rm -rf "\$KOSMOS_HOME"$' "$SETUP" | head -1 | cut -d: -f1)
+fn=$(/usr/bin/grep -nF 'uninstall() {' "$SETUP" | head -1 | cut -d: -f1)
+call=$(/usr/bin/grep -nF '$(_kosmos_data_root)' "$SETUP" | head -1 | cut -d: -f1)
+# The CODE line, not a comment quoting it: anchored to the line's start and end.
+del=$(/usr/bin/grep -n '^ *rm -rf "\$KOSMOS_HOME"$' "$SETUP" | head -1 | cut -d: -f1)
 if [ -n "$fn" ] && [ -n "$call" ] && [ -n "$del" ] && [ "$fn" -lt "$call" ] && [ "$call" -lt "$del" ]; then
   ok "the one call sits inside uninstall() and above rm -rf KOSMOS_HOME ($fn < $call < $del)"
 else

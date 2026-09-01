@@ -3,7 +3,8 @@
 ## The card's premise was wrong, and checking it is what shaped the change
 
 The card says `install/setup.sh` CANNOT call `dataRootFor`. It can: the installer
-runs JavaScript through its own bundled runtime in two places already.
+runs JavaScript through its own bundled runtime in three places already (an earlier
+draft said two; `grep -n 'KOSMOS_HOME/runtime/bin/node"'` on main finds three).
 
 What is true is narrower, and nobody had written it down. `uninstall()` does
 `rm -rf "$KOSMOS_HOME"` and then needs the data root **176 lines later in the same
@@ -34,8 +35,20 @@ Writing it as a mere fallback would be a claim the code cannot support.
 
 `_kosmos_data_root` is the shell's answer to the question `dataRootFor` answers, in
 one place instead of several. It prefers the product's own answer when the install
-can give one, and returns an absolute path or nothing, because a partial or odd
-answer must not steer a delete.
+can give one, and refuses on the RESULT rather than the input, because a partial or
+odd answer must not steer a delete.
+
+> 📌 CORRECTED after the third blind review, which covers iterations 2 and 3. "Returns
+> an absolute path or nothing" is what iteration 1 built. The helper now applies six
+> refusals on the final answer, each with an arm proven red: not absolute; no
+> `/AgentWorkforce` leaf (every removal is bounded by that leaf, and the consult's
+> answer is whatever the installed `store.js` returns); the system-wide Library by
+> result, with the parent canonicalised so a symlink to it is caught (a case variant
+> on a case-insensitive filesystem is NOT caught, and the code says so); a `.` or `..`
+> component; a newline or shell-significant character (the value feeds a `grep -F`
+> that gates `launchctl bootout` and `rm -f` on every agent job, the same mechanism
+> KOSMOS_HOME is refused for). And the consult is bounded by a shell watchdog, because
+> it runs whatever JavaScript is installed and a hang at the capture would be silent.
 
 One call, captured into `_support` before anything is removed; `_remote_state`,
 the supervisor-ownership proof, the supervisor removal, the remembered answers, the
@@ -70,6 +83,14 @@ product" from "used the literal and got lucky".
 
 Every arm exists because the value steers an `rm -rf`. An arm that cannot fail is
 worse than no arm on a delete path.
+
+> 📌 ADDED in iteration 2, the arm that matters most: the two static ordering arms
+> (one call site, above the delete) were satisfied by a call under `if false`. Arm 11b
+> runs the REAL `uninstall()` inside a box with every root pinned, shapes the install
+> so `rm -rf "$KOSMOS_HOME"` actually runs, and measures what was DELETED: the
+> supervisor under the consult's root goes, the literal's survives, and the agent job
+> naming the consult's supervisor is removed. The control reverses all three with the
+> runtime absent. That arm reds on the iteration-0 defect; the static ones could not.
 
 ## Scope
 
