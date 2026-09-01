@@ -356,7 +356,9 @@ async function pollOnce(id, deviceCode, delayMs) {
     } catch (err) {
       FLOW = {
         phase: PHASE.FAILED, code: null, url: null,
-        because: 'we could not save the token: ' + String((err && err.message) || err),
+        /* The code, not the message: an ELOOP or EACCES message carries the absolute
+           path of the credential file, and this string is rendered to the operator. */
+        because: 'we could not save the token' + ((err && err.code) ? ' (' + err.code + ')' : ''),
         expiresAt: 0,
       };
       return;

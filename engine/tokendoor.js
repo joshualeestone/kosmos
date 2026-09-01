@@ -95,20 +95,13 @@ function makeTokenDoor(spec) {
     const v = await verify(token);
     if (!v.ok) return { ...(await state()), refused: v.because };
     /* #1787: was writeFileSync-then-chmod, and the mode is IGNORED on a file that
-       already exists. Mechanism, measurements and why a mode assertion cannot catch
-       it live in `engine/securewrite.js`, once.
-       🛑 AND A THROW HERE MUST BE REPORTED AS A REFUSAL, NOT LEFT TO PROPAGATE. The
-       route's `.catch(() => …)` in `server.js` DISCARDS the error and answers
-       `we could not read that request`, so a write failure would be shown to the
-       operator as an unreadable paste, on a token the service just verified.
-       ⚠️ Pre-existing for ENOSPC and EACCES, WIDENED here: `refuseSymlinkTarget`
-       raises ELOOP, a throw source the old in-place write never had. Same reasoning
-       and same shape as the completing path in `githubdevice.js`. */
-    try {
+       already exists. A throw MUST come back as a refusal rather than propagate: the
+       route's catch discards it. Both reasons live in `engine/securewrite.js`. */
+   try {
       securewrite.secureDir(DIR, 0o700);
       securewrite.writeSecret(FILE, String(token).trim() + '\n', 0o600);
     } catch (err) {
-      return { ...(await state()), refused: 'we could not save the token: ' + String((err && err.message) || err) };
+      return { ...(await state()), refused: 'we could not save the token' + ((err && err.code) ? ' (' + err.code + ')' : '') };
     }
     return state();
   }
