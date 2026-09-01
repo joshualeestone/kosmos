@@ -20,7 +20,12 @@ io.open(sys.argv[2],'w',encoding='utf-8').write(s[i:j])
 PY
 [ -s "$HELPER" ] || { echo "FAIL  could not extract _kosmos_data_root from setup.sh"; exit 1; }
 
-run() { ( eval "$1"; . "$HELPER"; _kosmos_data_root ); }
+# 🛑 UNDER THE FILE'S OWN INTERPRETER AND OPTIONS. setup.sh is `#!/bin/sh` with
+# `set -euo pipefail`; the first version of this harness ran the helper in bash with
+# no -e, so dropping the `|| _kdr=""` on the consult left all arms green while the
+# real uninstall aborted with rc=3 on every pre-#570 install. Same shell, same
+# options, or the harness is testing a different program.
+run() { /bin/sh -euc "$1; . '$HELPER'; _kosmos_data_root" 2>/dev/null; }
 
 # 1. no runtime: the literal, which for every install older than #570 IS the path
 r=$(run 'KOSMOS_HOME=/nonexistent; unset AGENT_WORKFORCE_DATA')
@@ -71,17 +76,45 @@ r=$(run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA")
 [ "$r" = "$HOME/Library/Application Support/AgentWorkforce" ] \
   && ok "a throwing store.js falls back rather than emptying" || bad "a throwing store.js falls back rather than emptying" "$r"
 
-# 8. never empty, on any arm: an empty root would make "$root/bin" mean "/bin"
-[ -n "$r" ] && ok "the helper never returns empty" || bad "the helper never returns empty" "<empty>"
+# 8. A RELATIVE OVERRIDE IS REFUSED ON THE FINAL ANSWER, not only on the consult.
+#    The first version refused node's relative answer and then emitted the same
+#    relative string from the fallback, so arm 6 protected nothing in the one case
+#    that actually produces a relative root. Refusal = nothing on stdout AND non-zero.
+r=$(run 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=rel/sbx-1511'); rc=$?
+[ -z "$r" ] && [ "$rc" -ne 0 ] && ok "a relative AGENT_WORKFORCE_DATA is refused, non-zero, nothing on stdout" \
+  || bad "a relative AGENT_WORKFORCE_DATA is refused, non-zero, nothing on stdout" "rc=$rc out=[$r]"
 
-# 9. ONE CALL SITE. The first version captured at each consumer, and the one after
+# 9. HOME EMPTY IS REFUSED. `set -u` does not catch empty, and the old fallback
+#    resolved it to /Library/Application Support/AgentWorkforce, the SYSTEM folder,
+#    with the sandbox guard silent because both of its sides derive from the same HOME.
+r=$(run 'KOSMOS_HOME=/nonexistent; unset AGENT_WORKFORCE_DATA; HOME=""'); rc=$?
+[ -z "$r" ] && [ "$rc" -ne 0 ] && ok "an empty HOME is refused rather than steering a delete under /Library" \
+  || bad "an empty HOME is refused rather than steering a delete under /Library" "rc=$rc out=[$r]"
+
+# 10. THE CONSULT HONOURS THE SANDBOX SEAM, through the REAL store.js. The #924
+#     shape: runtime present AND an override set. Replacing process.env with {} in
+#     the node call left every earlier arm green. Exported, because node reads the
+#     environment and setup.sh always exports this variable.
+cp "$(dirname "$SETUP")/../engine/store.js" "$FAKE/app/engine/store.js"
+r=$(run "KOSMOS_HOME=$FAKE; export AGENT_WORKFORCE_DATA=/tmp/sbx-1511")
+[ "$r" = "/tmp/sbx-1511/AgentWorkforce" ] \
+  && ok "the consult, through the real store.js, honours an exported sandbox seam" \
+  || bad "the consult, through the real store.js, honours an exported sandbox seam" "$r"
+
+# 11. AND THE FALLBACK NORMALISES LIKE THE ENGINE: trailing and doubled slashes.
+r=$(run 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=/tmp//sbx-1511/')
+[ "$r" = "/tmp/sbx-1511/AgentWorkforce" ] \
+  && ok "the fallback squeezes // and drops a trailing /, as path.join does" \
+  || bad "the fallback squeezes // and drops a trailing /, as path.join does" "$r"
+
+# 12. ONE CALL SITE. The first version captured at each consumer, and the one after
 #    `rm -rf "$KOSMOS_HOME"` silently got the literal while the one before it got the
 #    product's answer: two derivations in one run, the defect this card removes.
 n=$(grep -c '\$(_kosmos_data_root)' "$SETUP")
 [ "$n" -eq 1 ] && ok "uninstall resolves the data root exactly once" \
   || bad "uninstall resolves the data root exactly once" "$n call sites"
 
-# 10. AND THAT ONE CALL COMES BEFORE THE DELETE THAT REMOVES ITS INTERPRETER, inside
+# 13. AND THAT ONE CALL COMES BEFORE THE DELETE THAT REMOVES ITS INTERPRETER, inside
 #     uninstall(). Line numbers, because the property IS an ordering.
 fn=$(grep -n '^uninstall() {' "$SETUP" | head -1 | cut -d: -f1)
 call=$(grep -n '\$(_kosmos_data_root)' "$SETUP" | head -1 | cut -d: -f1)

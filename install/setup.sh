@@ -1067,11 +1067,34 @@ _kosmos_data_root() {
       process.stdout.write(String(s.dataRootFor(process.platform, require("os").homedir(), process.env)));
     ' 2>/dev/null)" || _kdr=""
   fi
-  # An absolute path or nothing: a partial or odd answer must not steer a delete.
+  case "$_kdr" in
+    /*) ;;
+    *)
+      if [ -z "${AGENT_WORKFORCE_DATA:-}" ] && [ -z "${HOME:-}" ]; then
+        # An empty HOME is absolute by accident: it resolves to
+        # /Library/Application Support, the SYSTEM folder, and the sandbox guard
+        # below cannot see it because both of its operands derive from HOME.
+        _kdr=""
+      else
+        # The fallback, normalised the way the guard below normalises its own
+        # operands (`//` squeezed, trailing `/` dropped), so the two derivations
+        # agree on the string and not only on the directory.
+        _kdr="$(printf '%s' "${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}" | /usr/bin/tr -s '/')"
+        _kdr="${_kdr%/}/AgentWorkforce"
+      fi ;;
+  esac
+  # 🛑 AN ABSOLUTE PATH OR A REFUSAL, ON THE FINAL ANSWER, NOT ONLY ON THE CONSULT.
+  # The first version filtered node's answer and then emitted the fallback
+  # unconditionally, so `AGENT_WORKFORCE_DATA=rel` deleted relative to the cwd and
+  # `HOME=""` (set -u does not catch empty) steered every rm under
+  # /Library/Application Support, the system folder. Both are refused here, and
+  # under this file's `set -e` a refusal aborts the uninstall at the capture
+  # rather than steering a delete.
   case "$_kdr" in
     /*) printf '%s' "$_kdr"; return 0 ;;
   esac
-  printf '%s' "${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}/AgentWorkforce"
+  printf 'refusing to uninstall: the data folder resolved to "%s", which is not an absolute path. Check HOME and AGENT_WORKFORCE_DATA.\n' "$_kdr" >&2
+  return 1
 }
 
 
