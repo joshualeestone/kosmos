@@ -291,3 +291,45 @@ All four verified test-safe (no test asserts them; settings-nav asserts the nav 
 markup" is therefore superseded: it was true at 00:20, before the voice pass was
 authorised. The rebase onto merged main applies cleanly (acf7da25 changed
 paintAutomation JS, not these markup lines).
+
+## CHALLENGE-LOOP LEDGER (converged iter 5, 01:50) -- for the post-rebase proof
+5 fresh blind reviewers. Fixes-per-iteration: 4 -> 2 -> 1 -> 2 -> 0 actionable.
+Full suite 3408/3408. Converged: zero new BLOCKER/WARNING/CONVENTION at iter 5.
+
+Iter 1:
+- [WARNING] /api/heartbeat-setting PUT non-atomic -> FIXED (heartbeat-setting.set()
+  validates both fields before any write; route + engine tests)
+- [WARNING] step() wiped stall memory on a null (read-failure) roster -> FIXED
+  (null preserves prev, skips the tick; test)
+- [NIT] stable check_in id -> FIXED (documented the coordinator re-ask/dedup contract)
+- [WARNING] notify-master-switch dependency -> DEFERRED then RESOLVED by voice-pass
+  edit 5 (Mona's hb-needs-notify hint, shown only when notify is off)
+- [NIT] working<->idle flicker (2-tick refinement) -> DEFERRED (documented v1 choice)
+Iter 2:
+- [CONVENTION] setInterval shadows global -> FIXED (renamed setIntervalMinutes)
+- [NIT] double read per tick + unused intervalMs -> FIXED (read once; removed intervalMs)
+- [NIT] corrupt-read message (added iter1) -> REVERTED per Splinter (copy is Mona's voice)
+- [WARNING] permanent per-interval re-ask, no backoff -> DEFERRED (product call, moot
+  until the relay/receipt channel ships)
+Iter 3:
+- [WARNING] auth_failed not chased -> FIXED (added to ASK_ON_EXIT_TO; both-direction tests)
+- [WARNING] branch edits #1724 copy vs "ADD ONLY" -> DEFERRED (AUTHORISED voice pass;
+  plan STATE-00:20 superseded by the VOICE PASS note)
+- [NIT] interval-shortening latency -> DEFERRED (documented, bounded by one interval)
+- [NIT] hb-save guard inconsistency -> DEFERRED (harmless, defensive)
+Iter 4:
+- [WARNING] STATE.blocked left out of the enumeration -> FIXED (named as intentionally
+  not-chased: a reported wait; test)
+- [NIT] first heartbeatTick blocked the listen path -> FIXED (deferred first run, unref'd)
+- [NIT] check_in id can drift within an episode -> DEFERRED (no impact; no receipt channel)
+Voice pass (Mona's 5 edits, all applied): Automation->Auto-save, label, hint
+"Off by default", heartbeat label chase->check-on, and edit-5 notify-off hint.
+Iter 5: CONVERGED. 1 NIT (hb-needs-notify trigger keys on notify-master only, shows
+when heartbeat off too) -> DEFERRED (Mona's specified trigger; surfaced to her/Splinter).
+
+NEXT (post #1724->main, per Splinter's order): rebase --onto origin/main; re-run
+challenge-loop (clean rebase = unchanged code = immediate re-converge); write the proof
+(.claude/plans/heartbeat-automation-1722-pre-challenge.md) with diff_hash of
+main...HEAD; /create-pr. Do NOT write the proof before the rebase (hash would be stale).
+Commits: e91c2a20 (iter1), 2d7c4e9c (iter2), 19bd4674 (iter3), 75296cb2 (iter4),
+a6d35f3b (edit5), + plan notes.
