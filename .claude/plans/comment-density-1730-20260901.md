@@ -28,8 +28,20 @@ closed it, and two corrections bolted onto sentences instead of rewriting them, 
 of which spliced itself between a subject and its verb while explaining that
 splicing was the problem.
 
-All of it is preserved verbatim on kosmos#1730, and the surviving comments point
-there. **The pointer was made true before the code claimed it.**
+All of it is preserved verbatim on kosmos#1730, and the surviving comments point there.
+
+🛑 **THAT SENTENCE USED TO END "The pointer was made true before the code claimed it",
+AND A BLIND REVIEWER FOUND IT FALSE AS A BLOCKER.** It was true for the first batch,
+archived at 02:49 before the first commit. **It was false for the block cut in pass 3
+at 03:16**, which was never added, so `githubdevice.js` pointed at a card that did not
+contain it. Measured at the time: 0 hits for every distinctive phrase, against a control
+phrase from the first batch reading 1. A second comment now carries it, re-asserted with
+the same probes reading 1 and a must-not-exist control reading 0.
+
+⭐ **The archive is a SEPARATE ARTIFACT from the cut, so every later cut silently
+invalidates it.** Making the pointer true once does not keep it true. That is the
+branch's own defect class, committed inside the fix for it, and boasted about in the
+sentence that was wrong.
 
 ## What was kept
 
@@ -131,9 +143,10 @@ restored it.** Two orphaned short lines ("and it was the residual divergence",
 rewriting the SENTENCE, in a diff whose own Method section forbids exactly that. Both
 paragraphs rewrapped whole.
 
-⚠️ **Two pre-existing prose defects were found and DELIBERATELY NOT FIXED**:
-`githubdevice.js:119-120`, a `/**` block whose continuation lines lack the ` * `
-prefix. Verified present on `origin/main` (line 147), in a block this branch never
+⚠️ **A pre-existing prose defect was found and DELIBERATELY NOT FIXED**:
+`githubdevice.js:119-120`, ONE defect spanning two lines, a `/**` block whose
+continuation lines lack the ` * ` prefix. (This sentence said "two defects" until a
+reviewer counted them.) Verified present on `origin/main` (line 147), in a block this branch never
 touched. Fixing them would be scope this card did not ask for.
 
 ## Review pass 3: THE THIRD CONSECUTIVE PASS TO FIND A CLAIM THAT OUTRAN ITS FIX
@@ -162,6 +175,40 @@ this card exists to remove, sitting in one of the two files the card names**, an
 exclusions list below did not mention it, so a reader would have taken that list as
 complete. The operative facts above it (the wrapper is cosmetic today, kept because
 `isRunnable` may gain a parameter, and a guard arm pins that) are unchanged.
+
+## Review pass 4: a BLOCKER, and the structural lesson under it
+
+🛑 **THE ARCHIVE IS A SEPARATE ARTIFACT FROM THE CUT, SO EVERY LATER CUT SILENTLY
+INVALIDATES IT.** I archived the removed text at 02:49 and then cut more at 03:16. The
+surviving comment said the history "is on kosmos#1730" and it was not. **Making a
+pointer true once does not keep it true**, and nothing in the code, the diff, or the
+suite can tell you it has gone stale.
+
+✅ Fixed: a second comment carries the pass-3 block, re-asserted with four distinctive
+phrases reading 1 each against a must-not-exist control reading 0.
+
+✅ **AND A CHECK, SO THE NEXT CUT CANNOT REPEAT IT.** For every line this branch
+removes, confirm it appears in the card. Two arms:
+
+    removed prose lines examined   194
+    not found in the card            5
+    control (a string that cannot be there)   correctly DETECTED as missing
+
+⚠️ **KNOWN FALSE-POSITIVE MODE, AND IT FIRED IMMEDIATELY: the check flags REWRITTEN
+lines as unarchived.** All 5 hits were one paragraph that was rephrased, not cut. Every
+element of its substance survives in `github.js` (measured, 1 each against a control of
+0), and that site makes no `#1730` claim at all. ⇒ **The narrow question is the real
+one: does every site that POINTS at the card have its content there?** The broad
+version is a useful prompt and must not be read as a verdict.
+
+📌 One live constraint was restored, having been cut as archaeology in error: **"do not
+add the obvious control arm, because 'with no override the control still finds the real
+gh' would EXEC THE OPERATOR'S OWN gh."** That is a DO-NOT, not a retraction, and without
+it a maintainer reading "no test reaches the operator's real gh" has every reason to add
+the arm that breaks it.
+
+📌 The rule table also mixed spellings across adjacent rows (`path.delimiter` then
+`'/a:/b'`). Every row is POSIX now, which is what the table's own preamble says.
 
 ## Not done here
 

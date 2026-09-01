@@ -19,7 +19,7 @@ const GH_CANDIDATES = Object.freeze(['/opt/homebrew/bin/gh', '/usr/local/bin/gh'
  *    ghCandidateList()                     unset -> the 3 defaults
  *    AGENT_WORKFORCE_GH_CANDIDATES=''            -> the 3 defaults  ('' is unset, both ways)
  *    ghCandidateList('')                         -> the 3 defaults
- *    ghCandidateList(path.delimiter)             -> []   ask for NONE explicitly
+ *    ghCandidateList(':')                        -> []   ask for NONE explicitly
  *    ghCandidateList('/a:/b')                    -> ['/a','/b']
  *
  * 🛑 THE DELIMITER ALONE IS HOW A CALLER ASKS FOR NONE, NOT ''. An earlier revision
