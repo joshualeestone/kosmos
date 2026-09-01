@@ -75,6 +75,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const store = require('./store');
+const platformGate = require('./platform');
 const subscription = require('./subscription');
 
 
@@ -731,7 +732,19 @@ function platformKey() {
  * way, but restart is simpler to reason about and the file downloads once
  * (measured: 281MB, 9 seconds on this machine's connection).
  */
-async function download(onProgress, track) {
+async function download(onProgress, track, platform = process.platform) {
+  /* kosmos macOS-only gate (Option A, extended to the provider-binary download at
+     Splinter's ruling 2026-09-01): the binary this fetches is a `darwin-${arch}`
+     build (see platformKey), so on any other OS it would download ~281MB of a Mac
+     binary that cannot run -- the exact "attempt a Mac-only action on the wrong OS
+     and half-succeed" this gate exists to prevent. Refuse BEFORE any bytes move.
+     This is the gate (refuse), NOT the Option C fix (it does not fetch a Windows
+     build, so it makes no part of Windows look functional). `platform` is a
+     parameter (default process.platform) so the refusal is testable on a Mac. The
+     polished user-facing wording is the operator's to refine (see engine/platform.js). */
+  if (!platformGate.isSupported(platform)) {
+    throw new Error('this platform (' + platform + ') is not supported; the Claude Code binary is a macOS build and was not downloaded');
+  }
   const base = downloadBase();
   const version = (await fetchText(`${base}/latest`, undefined, track)).trim();
   activeRequest = null; // finished; "set" must keep meaning "in flight"

@@ -30,6 +30,7 @@ const store = require('./store');
 const status = require('./status');
 const subscription = require('./subscription');
 const connect = require('./connect');
+const platform = require('./platform');
 
 const FLAG = path.join(store.ROOT, 'first-run.json');
 
@@ -260,6 +261,11 @@ async function state() {
      * which is the same count-in-a-comment defect this branch corrects elsewhere.
      */
     connect: { willInstall },
+    /* kosmos macOS-only gate (Option A): machine facts only -- { platform, supported }
+       -- so a future gate screen can tell an unsupported-OS visitor the product
+       runs on macOS. Deliberately NO user-facing copy here: the wording and the
+       screen are the operator's to add (see engine/platform.js and the PR). */
+    platform: platform.describe(),
   };
 }
 
