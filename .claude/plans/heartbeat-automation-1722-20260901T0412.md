@@ -170,3 +170,93 @@ The product ALREADY detects each agent's state. Do NOT build a new detector.
   decision (ask the person/Splinter if unsure -- it is a product call), then
   build the sweep composing snapshot()+notify, then Settings. Full yarn test
   before merge. Challenge-loop + proof + PR. Confirm merge with Splinter (size).
+
+## PART 3 UI -- READY DROP-IN PATCH (do NOT create the section; #1724 owns it)
+
+🛑 Mona Lisa's autohandoff-1724 ALREADY has Settings > Automation: nav button
+`data-go="automation"` and `<section id="s-sec-automation">`, and its comment
+(web/index.html:9448) says "the heartbeat #1722 is a later addition to the same
+section." Creating it again = conflict + duplicate. SEQUENCE: #1724 merges first,
+then rebase #1722 onto main and add ONLY the control below into s-sec-automation
+(a NEW sibling `<section class="dbox">` AFTER her auto-save dbox, so no edit
+inside her markup). It calls my own /api/heartbeat-setting (already built+tested).
+
+MARKUP -- new dbox inside `<section class="dsec" id="s-sec-automation">`, after her dbox:
+```html
+    <section class="dbox">
+      <!-- #1722 (Josh, 2026-08-31): a heartbeat that checks which agents are
+           working and asks you to chase anyone that has stopped. A later addition
+           to the Automation section (auto-save above is #1724). Off by default;
+           the interval is adjustable. -->
+      <h3 class="dlab">Heartbeat</h3>
+      <div class="field" style="margin-top:14px;">
+        <label class="flabel" for="hb-enabled">Check on your agents</label>
+        <div class="fhint">Every so often, Kosmos looks at which of your agents are working and asks you to check on any that have stopped. It asks a question, never assumes, because an agent may be mid-something. Off by default.</div>
+        <div class="frow" style="align-items:center; gap:10px;">
+          <input type="checkbox" id="hb-enabled">
+          <label for="hb-enabled" style="margin:0;">Ask me to chase agents that have stopped</label>
+        </div>
+        <div class="frow" style="margin-top:12px; align-items:center; gap:10px;">
+          <label class="flabel" for="hb-interval" style="margin:0;">Check every</label>
+          <select id="hb-interval" aria-label="How often to check on your agents"></select>
+          <button class="btn uprime" type="button" id="hb-save" aria-label="Save heartbeat settings">Save</button>
+        </div>
+        <p class="fmsg" id="hb-msg" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+```
+
+JS -- beside her paintAutomation(); add `paintHeartbeat();` inside paintSettings():
+```js
+/* #1722: the heartbeat control in Settings > Automation. Reads the in-force
+   setting (off/17 by default; the runner reads the same file, so read == in
+   force) and saves {on, intervalMinutes} to PUT /api/heartbeat-setting. The
+   interval choices are rendered from the server so the select and the engine
+   cannot disagree about what is valid (same shape as the theme select). */
+async function paintHeartbeat() {
+  const en = document.getElementById('hb-enabled');
+  const iv = document.getElementById('hb-interval');
+  const btn = document.getElementById('hb-save');
+  const msg = document.getElementById('hb-msg');
+  if (!en || !iv || !btn) return;
+  try {
+    const r = await (await fetch('/api/heartbeat-setting', { cache: 'no-store' })).json();
+    if (Array.isArray(r.intervals)) {
+      const html = r.intervals.map((m) => '<option value="' + m + '">' + m + ' minutes</option>').join('');
+      if (iv.innerHTML !== html) iv.innerHTML = html;
+    }
+    if (document.activeElement !== en) en.checked = r.on === true;
+    if (document.activeElement !== iv) iv.value = String(r.intervalMinutes || 17);
+    en.disabled = false; iv.disabled = false; btn.disabled = false;
+    if (msg) msg.textContent = '';
+  } catch {
+    en.disabled = true; iv.disabled = true; btn.disabled = true;
+    if (msg) msg.textContent = 'We could not read the heartbeat setting just now.';
+  }
+}
+document.getElementById('hb-save') && document.getElementById('hb-save').addEventListener('click', async () => {
+  const en = document.getElementById('hb-enabled');
+  const iv = document.getElementById('hb-interval');
+  const btn = document.getElementById('hb-save');
+  const msg = document.getElementById('hb-msg');
+  btn.disabled = true; if (msg) msg.textContent = 'Saving...';
+  try {
+    const res = await fetch('/api/heartbeat-setting', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ on: en.checked, intervalMinutes: Number(iv.value) }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { if (msg) msg.textContent = out.error || 'That did not save.'; paintHeartbeat(); return; }
+    if (msg) msg.textContent = out.on
+      ? 'Saved. Kosmos will check on your agents every ' + out.intervalMinutes + ' minutes.'
+      : 'Saved. The heartbeat is off.';
+  } catch {
+    if (msg) msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally { btn.disabled = false; }
+});
+```
+
+Then a web/*.test.js mirroring web.* patterns: the control renders the server's
+interval choices, PUT drives /api/heartbeat-setting, a failed save repaints the
+in-force value. STATUS: markup + JS ready; blocked ONLY on #1724's section
+landing on main. Backend (setting/runner/routes/29 tests) done + pushed e1c5d72b.
