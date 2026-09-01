@@ -1102,19 +1102,25 @@ else bad "the store alias registration is unguarded: downstream use went silent"
 # `dir` plus the ubiquitous `path.dirname` makes a substring match fire on correct
 # code; the enforced scope goes red with two false positives, but a red scope is a
 # backstop and not an arm, and it names nothing.
+# 🛑 THE DECOY MUST END IN THE RESOLVER'S NAME. The first fixture used
+# `path.dirname(`, a PREFIX decoy, which the trailing `\s*\(` in the regex already
+# rejects on its own, so the word boundary was never exercised and removing it from
+# either call site left this arm green. `mkdir(` ends in `dir` and is followed by
+# `(`, so only the boundary separates it from a call to `dir`.
 fixture callword "const store = require('./store');
 const dir = () => path.join(store.ROOT, 'x');
-const NAME = path.dirname('/a/b/c');"
-cw=$(node "$TOOL" "$T/callword.js" 2>&1 | grep -c 'const NAME')
-if [ "$cw" = "0" ]; then ok "path.dirname does not count as a call to a resolver named dir"
-else bad "the resolver-call match is not word-bounded" "$cw hits on const NAME"; fi
+const NAME = mkdir('/a/b/c');
+const ALSO = path.dirname('/a/b/c');"
+cw=$(node "$TOOL" "$T/callword.js" 2>&1 | grep -c 'const NAME\|const ALSO')
+if [ "$cw" = "0" ]; then ok "mkdir( and path.dirname( do not count as calls to a resolver named dir"
+else bad "the resolver-call match is not word-bounded" "$cw hits on const NAME/ALSO"; fi
 # ⚠️ TWO CALL SITES, AND THE FIXTURE ABOVE ONLY REACHES ONE. The identical regex
 # lives in the declaration scan AND in functionNamesReaching's closure round, and
 # mutating the second left the arm above green. A second fixture, where the decoy is
 # itself a HELPER whose body carries the substring, is what reaches the closure.
 fixture callword_closure "const store = require('./store');
 const dir = () => path.join(store.ROOT, 'x');
-const NAME = () => path.dirname('/a/b');
+const NAME = () => mkdir('/a/b');
 const A = NAME();"
 cwc=$(node "$TOOL" "$T/callword_closure.js" 2>&1 | grep -c 'const A')
 if [ "$cwc" = "0" ]; then ok "a helper whose body merely CONTAINS a resolver name is not a resolver"

@@ -67,7 +67,14 @@ const frozen=[]; const live=[]; const seen=new Set();
        the check able to tell "moved" from "gone". */
     else if(typeof v==='string'&&v.includes(B)) live.push(p+k);
     else if(v&&typeof v==='object'&&d<3) walk(v,p+k+'.',d+1); } })(m,'',0);
-console.log(frozen.length?('FROZEN '+frozen.join(',')):('OK '+live.length));
+/* 🛑 THE VERDICT IS THE LAST LINE AND CARRIES A SENTINEL. The parent used to read
+   the FIRST line of stdout, so a module that wrote anything at require time
+   (a console.log of 'boot') turned a FROZEN verdict into OK 0 and a frozen leaf
+   passed GREEN; when the noisy module was one others require, every importer's
+   verdict was corrupted too and the run redded through the floor with the
+   REMOVAL message, never naming the freeze. No engine module writes to stdout at
+   require time today (68 of 68), which is exactly why it was latent. */
+console.log('LATESEAM '+(frozen.length?('FROZEN '+frozen.join(',')):('OK '+live.length)));
 clean();
 `;
 
@@ -91,8 +98,13 @@ function probe(file) {
        defect it looks for"); the behavioural half had none. A timeout kills the
        child, execFileSync throws, and the module lands in `skipped`, which is now
        asserted empty and NAMED rather than silently dropped. */
-    return String(execFileSync(process.execPath, ['-e', PROBE, file],
-      { encoding: 'utf8', timeout: 20000, env: { ...process.env, LATESEAM_TMP_ROOT: TMP_ROOT } })).trim();
+    const out = String(execFileSync(process.execPath, ['-e', PROBE, file],
+      { encoding: 'utf8', timeout: 20000, env: { ...process.env, LATESEAM_TMP_ROOT: TMP_ROOT } }));
+    /* The LAST sentinel line, never the first line: anything a module prints at
+       require time comes before the verdict, and a child that printed no verdict
+       at all (crashed after its own output) is SKIP, which is asserted empty. */
+    const lines = out.split('\n').filter((l) => l.startsWith('LATESEAM '));
+    return lines.length ? lines[lines.length - 1].slice('LATESEAM '.length).trim() : 'SKIP';
   } catch { return 'SKIP'; }
 }
 
