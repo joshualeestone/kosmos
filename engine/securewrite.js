@@ -63,8 +63,11 @@ const fs = require('node:fs');
    IT. That is genuinely new for these three modules: the old write-in-place code
    made no second copy. `sendertoken` has carried the identical exposure since #1776.
 
-   📌 Real, and NARROW: it needs death in the window between `writeFileSync(tmp)` and
-   `renameSync`. Carded against this module rather than ridden onto the card that
+   📌 Real, and NARROW: it needs death in the window between the `wx` create and
+   `renameSync`. (It was WIDER than that for eight review iterations: a write that
+   failed after the create left the temp behind with no death at all, because the
+   create-and-write was one call and `created` flipped after it. Fixed at the
+   create; the arm "a temp whose write fails part way is removed" holds it.) Carded against this module rather than ridden onto the card that
    introduced it, because folding a reaper in here would ship an unreviewed delete
    path alongside a security fix.
 
@@ -196,18 +199,35 @@ function writeSecret(file, data, mode) {
     try {
       /* `wx` refuses rather than following or reusing anything already at the
          temp path, which also refuses a symlink planted there. */
-      fs.writeFileSync(tmp, data, { flag: 'wx', mode });
+      /* 🛑 CREATE AND WRITE ARE TWO CALLS, ON PURPOSE. This was one
+         `writeFileSync(tmp, data, { flag: 'wx', mode })` with `created = true`
+         AFTER it, and that call both creates and writes: a write that fails after
+         the create (ENOSPC mid-write, the realistic case) left `created` false, so
+         the catch below never unlinked the temp. Measured on a scratch copy: three
+         attempts, three 0600 temps each holding the first bytes of the NEW secret,
+         then the fallback succeeded and the caller saw a clean write. The header's
+         "needs death in the window" claim was false until this: no death needed.
+         The flag flips the instant the inode exists, which is the only moment
+         "we created it" is a fact rather than a proxy. */
+      const tfd = fs.openSync(tmp, 'wx', mode);
       created = true;
-      /* 🛑 BEST EFFORT, AND IT MUST NOT BE FATAL. A chmod failure here (NFS
-         foreign owner, some FUSE and SMB mounts) once discarded the atomic
-         path for the in-place fallback and produced the exact defect this
-         module exists to prevent, with `ok:true` and no signal. It also buys
-         nothing: the temp was created `wx` at `mode`, so it is already at most
-         `mode` and this only ever restores owner bits a restrictive umask
-         cleared. Measured, four umasks with `flag:'wx', mode:0600`:
-         0000 -> 600, 0022 -> 600, 0077 -> 600, and 0600 -> 0. The last case is
-         the real job. */
-      try { fs.chmodSync(tmp, mode); } catch { /* best effort, see above */ }
+      try {
+        /* 🛑 BEST EFFORT, AND IT MUST NOT BE FATAL. A chmod failure here (NFS
+           foreign owner, some FUSE and SMB mounts) once discarded the atomic
+           path for the in-place fallback and produced the exact defect this
+           module exists to prevent, with `ok:true` and no signal. It also buys
+           nothing: the temp was created `wx` at `mode`, so it is already at most
+           `mode` and this only ever restores owner bits a restrictive umask
+           cleared. Measured, four umasks with `flag:'wx', mode:0600`:
+           0000 -> 600, 0022 -> 600, 0077 -> 600, and 0600 -> 0. The last case is
+           the real job. On the fd now, so there is no path to swap under it. */
+        try { fs.fchmodSync(tfd, mode); } catch { /* best effort, see above */ }
+        const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data));
+        let off = 0;
+        while (off < buf.length) off += fs.writeSync(tfd, buf, off, buf.length - off, off);
+      } finally {
+        fs.closeSync(tfd);
+      }
       /* rename is atomic, and it REPLACES a symlink at the target rather than
          following it. */
       fs.renameSync(tmp, file);
@@ -225,8 +245,10 @@ function writeSecret(file, data, mode) {
       lastAtomicError = err;
       /* ⚠️ ONLY REMOVE A TEMP WE CREATED. `wx` means a pre-existing file makes
          the write throw, and unlinking then would delete somebody else's file.
-         `created` is the FACT; an `err.code !== 'EEXIST'` test is a PROXY for
-         it and misses an EEXIST from the chmod or the rename. */
+         `created` is the FACT, and it is set the instant the open returns so a
+         failure in the write, the chmod or the rename all find it true; an
+         `err.code !== 'EEXIST'` test is a PROXY for it and misses an EEXIST from
+         the chmod or the rename. */
       if (created) { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
     }
   }

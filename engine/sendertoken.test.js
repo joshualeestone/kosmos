@@ -367,20 +367,24 @@ test('#1761: the directory is already tight WHEN the token is written, and the t
   sendertoken.mint('observe');
   fs.chmodSync(sendertoken.DIR, 0o755);
 
-  const realWrite = fs.writeFileSync;
+  /* The temp is CREATED by openSync('wx') and written through its fd (#1787's
+     iteration-9 fix), so the create is where the directory's mode is observed. */
+  const realOpen = fs.openSync;
   const seen = { dirMode: null, names: [], flags: [] };
-  fs.writeFileSync = function (target, data, opts) {
+  fs.openSync = function (target, flags, ...rest) {
+    /* EVERY open under DIR, whatever the flags: filtering on 'wx' here would make
+       the flags assertion below tautological. */
     if (typeof target === 'string' && target.startsWith(sendertoken.DIR)) {
       if (seen.dirMode === null) seen.dirMode = fs.statSync(sendertoken.DIR).mode & 0o777;
       seen.names.push(path.basename(target));
-      seen.flags.push(opts && opts.flag);
+      seen.flags.push(flags);
     }
-    return realWrite.call(fs, target, data, opts);
+    return realOpen.call(fs, target, flags, ...rest);
   };
   try {
     sendertoken.mint('observe');
     sendertoken.mint('observe');
-  } finally { fs.writeFileSync = realWrite; }
+  } finally { fs.openSync = realOpen; }
 
   assert.equal(seen.dirMode, 0o700,
     'the token was written while the directory was still world-readable: the hoist is undone');
@@ -404,17 +408,17 @@ test('#1761: the directory is already tight WHEN the token is written, and the t
    plants a file at the exact temp path and asserts it survives. */
 test('#1761: a planted file at the temp path is never deleted by the cleanup', () => {
   sendertoken.mint('eexist');
-  const realWrite = fs.writeFileSync;
+  const realOpen = fs.openSync;
   let planted = null;
-  fs.writeFileSync = function (target, data, opts) {
-    if (typeof target === 'string' && target.endsWith('.tmp') && planted === null) {
+  fs.openSync = function (target, flags, ...rest) {
+    if (typeof target === 'string' && target.endsWith('.tmp') && flags === 'wx' && planted === null) {
       planted = target;
-      realWrite.call(fs, target, 'SOMEBODY ELSE FILE');
-      const e = new Error('forced'); e.code = 'EEXIST'; throw e;
+      fs.writeFileSync(target, 'SOMEBODY ELSE FILE');
+      /* then the REAL wx open, which the kernel refuses with EEXIST */
     }
-    return realWrite.call(fs, target, data, opts);
+    return realOpen.call(fs, target, flags, ...rest);
   };
-  try { sendertoken.mint('eexist'); } finally { fs.writeFileSync = realWrite; }
+  try { sendertoken.mint('eexist'); } finally { fs.openSync = realOpen; }
 
   assert.notEqual(planted, null, 'the temp write was never attempted, so this arm proves nothing');
   assert.equal(fs.existsSync(planted), true,
@@ -721,22 +725,20 @@ test('#1761: a chmod failure on the temp costs ZERO retries, because it is not f
      not tell the two apart. What the wrap actually changes is whether the FIRST attempt
      survives, so that is what this counts. */
   let temps = 0;
-  const realWrite = fs.writeFileSync;
-  const realChmod = fs.chmodSync;
-  fs.writeFileSync = function (target, ...rest) {
-    if (typeof target === 'string' && target.endsWith('.tmp')) temps += 1;
-    return realWrite.call(fs, target, ...rest);
+  const realOpen = fs.openSync;
+  const realFchmod = fs.fchmodSync;
+  fs.openSync = function (target, flags, ...rest) {
+    if (typeof target === 'string' && target.endsWith('.tmp') && flags === 'wx') temps += 1;
+    return realOpen.call(fs, target, flags, ...rest);
   };
-  fs.chmodSync = function (target, mode) {
-    if (typeof target === 'string' && target.endsWith('.tmp')) {
-      const e = new Error('operation not permitted'); e.code = 'EPERM'; throw e;
-    }
-    return realChmod.call(fs, target, mode);
+  /* The temp is chmodded on its fd now, so the failure is planted on fchmodSync. */
+  fs.fchmodSync = function () {
+    const e = new Error('operation not permitted'); e.code = 'EPERM'; throw e;
   };
   let res;
   try { res = sendertoken.mint('chmod-eperm'); } finally {
-    fs.writeFileSync = realWrite;
-    fs.chmodSync = realChmod;
+    fs.openSync = realOpen;
+    fs.fchmodSync = realFchmod;
   }
 
   assert.equal(res.ok, true, 'the mint failed outright, which is not what this arm is about');
@@ -759,17 +761,17 @@ test('#1761: a planted temp is retried on a fresh name, not dropped to the fallb
   const inodeBefore = fs.statSync(file).ino;
 
   let planted = null;
-  const realWrite = fs.writeFileSync;
-  fs.writeFileSync = function (target, data, opts) {
-    if (typeof target === 'string' && target.endsWith('.tmp') && planted === null) {
+  const realOpen = fs.openSync;
+  fs.openSync = function (target, flags, ...rest) {
+    if (typeof target === 'string' && target.endsWith('.tmp') && flags === 'wx' && planted === null) {
       planted = target;
-      realWrite.call(fs, target, 'SOMEBODY ELSE FILE');
-      const e = new Error('forced'); e.code = 'EEXIST'; throw e;
+      fs.writeFileSync(target, 'SOMEBODY ELSE FILE');
+      /* then the REAL wx open, which the kernel refuses with EEXIST */
     }
-    return realWrite.call(fs, target, data, opts);
+    return realOpen.call(fs, target, flags, ...rest);
   };
   let res;
-  try { res = sendertoken.mint('retry-eexist'); } finally { fs.writeFileSync = realWrite; }
+  try { res = sendertoken.mint('retry-eexist'); } finally { fs.openSync = realOpen; }
 
   assert.notEqual(planted, null,
     'no temp write was attempted, so this arm proves nothing');
