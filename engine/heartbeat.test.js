@@ -76,6 +76,19 @@ test('working -> needs_you does NOT ask (the person\'s own path)', () => {
   assert.deepEqual(t.toAsk, []);
 });
 
+test('working -> auth_failed ASKS (a rejected token is dead until reconnect, no other path)', () => {
+  const s = tick([row('a', 'working', 'scraped')], new Map()).next;
+  const t = tick([row('a', 'auth_failed', 'scraped')], s);
+  assert.equal(t.toAsk.length, 1, 'a working agent whose auth broke must be surfaced, not silently closed');
+  assert.equal(t.toAsk[0].to, 'auth_failed');
+});
+
+test('working -> rate_limited does NOT ask (transient, the account recovers on its own)', () => {
+  const s = tick([row('a', 'working', 'scraped')], new Map()).next;
+  const t = tick([row('a', 'rate_limited', 'scraped')], s);
+  assert.deepEqual(t.toAsk, [], 'a transient rate limit is not the "stopped working" this feature chases');
+});
+
 test('a came-up-stalled agent that NEVER worked is asked after STARTUP_STALL_TICKS (Splinter, 21:31 dead-on-boot)', () => {
   // No working frame ever -- the edge can never fire. The persistent-stall opener
   // must still ask, or a bot dead from the moment it started is never chased.

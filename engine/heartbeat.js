@@ -74,9 +74,16 @@
  * synthetic rows.
  */
 
-// Leaving WORKING for one of these is a stall worth a check-in. UNKNOWN is in the
-// set on purpose: a working agent gone unreadable is asked about, not passed over.
-const ASK_ON_EXIT_TO = new Set(['stopped', 'idle', 'unknown']);
+// Leaving WORKING for one of these is a stall worth a check-in: not working, with
+// no OTHER notify path, and not merely transient. UNKNOWN is in the set on purpose
+// (a working agent gone unreadable is asked about, not passed over). AUTH_FAILED is
+// too: a rejected token means the agent is dead until the person reconnects, and
+// unlike needs_you it has NO other path to the person -- silently closing its
+// episode would leave exactly the "agent stopped working" this feature exists to
+// surface un-surfaced. NEEDS_YOU (its own notify path) and RATE_LIMITED (transient,
+// the account works again on its own) are deliberately NOT here -- see the else
+// branch in tick().
+const ASK_ON_EXIT_TO = new Set(['stopped', 'idle', 'unknown', 'auth_failed']);
 
 // Consecutive stall ticks a NEVER-worked agent must show before a persistent
 // stall opens an episode for it (see "TWO WAYS AN EPISODE OPENS", case 2). Two
@@ -153,9 +160,11 @@ function tick(roster, prev) {
         }
       }
     } else {
-      // needs_you / rate_limited / auth_failed: not a stall this sweep chases.
-      // needs_you already reaches the person on its own path; close the episode
-      // so we neither chase it nor, later, count it as a fresh stall.
+      // needs_you / rate_limited: not a stall this sweep chases. needs_you already
+      // reaches the person on its own notify path; rate_limited is transient (the
+      // account works again on its own). Close the episode so we neither chase them
+      // nor, later, count them as a fresh stall. (auth_failed is NOT here -- it is
+      // in ASK_ON_EXIT_TO, because it is dead-until-reconnect with no other path.)
       open = false;
       asked = false;
       streak = 0;
