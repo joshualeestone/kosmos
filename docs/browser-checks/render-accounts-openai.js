@@ -385,8 +385,16 @@ let failed = 0;
      wrong reason. The `offers a live Remove` assertion is two full navigations
      earlier against a destroyed page, so it is not an arm for this one. */
   const beforePress = await walkStep(false);
-  say('before the press, the button rests on "Remove" and is VISIBLE',
-    beforePress.label === 'Remove' && beforePress.listed === true && beforePress.visible === true,
+  /* 🛑 "Disconnect", NOT "Remove", AND #1659 IS WHY. This arm was written on the
+     branch that fixed the confirm, against a main where the OpenAI control still
+     said "Remove". #1659 relabels it so both providers read the same word, which
+     is the whole point of that card, so the assertion encoded a label its own
+     merge target was about to change.
+     ⚠️ It failed here and nowhere else, because the gate had not been re-run on
+     this tree since twelve commits earlier: the stale evidence hid a stale
+     assertion. That is the pairing worth remembering, not the label. */
+  say('before the press, the button rests on "Disconnect" and is VISIBLE',
+    beforePress.label === 'Disconnect' && beforePress.listed === true && beforePress.visible === true,
     JSON.stringify(beforePress));
   const pressOne = await walkStep(true);
   say('the Remove button is there to press', pressOne.clicked === true, JSON.stringify(pressOne));

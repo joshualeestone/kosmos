@@ -346,3 +346,20 @@ test('#1659: the disabled default row explains itself IN THE ACCESSIBLE NAME, no
   assert.ok(engine.indexOf(m[1].slice(0, 40)) > -1,
     'the accessible-name reason and the engine refusal have drifted: ' + m[1]);
 });
+
+/* 🛑 THE FOCUS TARGET MUST BE FOCUSABLE, and nothing checked. After a removal the
+   repaint destroys the button the person was standing on, so the handler moves
+   focus to #set-accounts. In a real browser `.focus()` on a div with NO tabindex
+   is a silent no-op, and the unit fixture cannot catch that: its stub records
+   `focused: true` unconditionally, whatever the markup says.
+   ⇒ Two ends pinned, join uncovered: removing the attribute left every web test
+   green while the post-repaint focus recovery silently stopped working. */
+test('#1659: the post-removal focus target carries tabindex, or .focus() is a silent no-op', () => {
+  assert.match(PAGE, /<div id="set-accounts" tabindex="-1"><\/div>/,
+    'the account list is no longer programmatically focusable, so focus stays on <body> after the repaint '
+    + 'and a keyboard user loses their place, while the unit fixture still reports focused:true');
+  /* Paired with the handler, so the attribute cannot outlive the code that uses
+     it, which is how the previous tabindex on the message line became dead. */
+  assert.match(PAGE, /getElementById\('set-accounts'\)[\s\S]{0,200}?\.focus\(/,
+    'nothing focuses #set-accounts any more, so the tabindex above is dead weight');
+});

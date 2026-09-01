@@ -75,6 +75,7 @@ function world(fetchImpl, provider) {
   const msg = { textContent: '' };
   /* The focus target the success path moves to, so the move is observable. */
   const acctBox = { focused: false, focus() { this.focused = true; } };
+  const cancels = [];
   const box = { querySelectorAll: () => [btn] };
   const ctx = {
     box, msg, fetch: fetchImpl, console,
@@ -89,7 +90,11 @@ function world(fetchImpl, provider) {
        ⚠️ A no-op rather than a defensive `typeof` guard in the handler: the
        dependency is real, so the fixture should model it rather than the
        product hiding it. */
-    acctCancelSay: () => {},
+    /* RECORDED, not a no-op. Stubbing this as `() => {}` meant deleting every
+       acctCancelSay() call in the page produced zero failures, so the whole
+       announce-timer mechanism was covered by nothing: the module-scope-vs-expando
+       bug this branch found and fixed would go straight back in green. */
+    acctCancelSay: () => { cancels.push(1); },
     /* 🛑 A `document` STUB, BECAUSE WITHOUT IT EVERY "SUCCESS" IN THIS FIXTURE RAN
        THE CATCH. #1659's success path calls
        `document.getElementById('set-accounts')` to move focus after the repaint,
@@ -110,6 +115,7 @@ function world(fetchImpl, provider) {
   vm.runInNewContext(SCRIPT.slice(start, end), ctx);
   return {
     acctBox,
+    cancels,
     btn, msg,
     click: () => btn.listeners.click(),
     blur: () => btn.listeners.blur && btn.listeners.blur(),
@@ -246,4 +252,20 @@ test('#1659: a successful removal SAYS the answer and moves focus off the destro
     'the success path did not say the route answer; if this reads like an error, the fixture is running the catch again');
   assert.equal(w.acctBox.focused, true,
     'focus did not move to the account list after the repaint destroyed the button, so a keyboard user is left on <body>');
+});
+
+/* 🛑 THE ANNOUNCE TIMER IS CANCELLED BEFORE EVERY WRITE, and this arm exists
+   because the mechanism was covered by nothing: with the stub as a no-op, deleting
+   every acctCancelSay() call in the page produced zero failures across the whole
+   web suite. The race is real: the disabled default row stays pressable during an
+   in-flight removal, and its 60ms deferred write lands on top of the success
+   sentence, which is the one carrying where the account went. */
+test('#1659: the removal path cancels the pending announcement before it writes', async () => {
+  const w = world(async () => ({ ok: true, json: async () => ({ because: 'gone' }) }), 'claude');
+  await w.click();
+  await w.click();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(w.cancels.length >= 2,
+    'the removal wrote to the message line without cancelling the pending announcement first, so a deferred '
+    + 'refusal can replace the answer. cancels seen: ' + w.cancels.length);
 });

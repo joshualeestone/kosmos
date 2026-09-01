@@ -184,3 +184,43 @@ test('#1659: two removals of the same label keep BOTH sign-ins', () => {
   assert.ok(fs.existsSync(nodePath.join(first.movedTo, '.claude.json')), 'the FIRST sign-in survives');
   assert.ok(fs.existsSync(nodePath.join(second.movedTo, '.claude.json')), 'the second sign-in survives');
 });
+
+/* 🛑 THE share() DEFAULT CHECK, WHICH WAS DESTRUCTIVE AND COVERED BY NOTHING.
+   `share()` decided "is this the default account" with raw string equality against
+   `path.join(homeDir(), '.claude')`, neither side resolved. A trailing slash
+   therefore classified the DEFAULT as non-default, took the mutation path, removed
+   `~/.claude/projects` and symlinked it to itself: `readdir` then throws ELOOP and
+   `sharesMemory` answers false for every account on the machine, while the return
+   value is a cheerful { ok: true }.
+   ⚠️ Measured as uncovered before this was written: reverting the fix left every
+   accounts test green, and no other test file calls share(). A destructive path
+   with a cheerful return value and zero coverage.
+   📌 Asserted through `isDefaultDir`, which is the exported helper share() now
+   uses, so the arm fails if anyone re-derives that comparison by hand again. */
+test('#1659: the default is recognised under a RELATIVE home, which is the input class the fix exists for', () => {
+  /* 🛑 A RELATIVE HOME, AND THE FIRST VERSION OF THIS ARM WAS VACUOUS WITHOUT ONE.
+     With an ABSOLUTE home, `path.join(home, '.claude')` and
+     `path.resolve(home, '.claude')` are identical, so reverting the fix left this
+     green. Every other test in this repo assigns AGENT_WORKFORCE_HOME from an
+     absolute mkdtemp path, which is exactly why the relative class went uncovered
+     in the first place. Perturbation-checked: reverting `resolve` to `join` now
+     reds THIS arm. */
+  const cwd = process.cwd();
+  const abs = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-claude-relhome-'));
+  const rel = nodePath.basename(abs);
+  process.chdir(nodePath.dirname(abs));
+  process.env.AGENT_WORKFORCE_HOME = rel;
+  try {
+    const def = nodePath.resolve(rel, '.claude');
+    fs.mkdirSync(nodePath.join(def, 'projects'), { recursive: true });
+    assert.equal(accounts.isDefaultDir(def), true,
+      'under a relative home the DEFAULT reads as non-default, which is how share() took the mutation path on it: '
+      + 'it removed ~/.claude/projects and symlinked it to itself, and answered ok:true');
+    /* CONTROL, and it must be able to return the dangerous answer. */
+    assert.equal(accounts.isDefaultDir(nodePath.resolve(rel, '.claude-walk')), false,
+      'a non-default reads as the default, so the assertion above passes for the wrong reason');
+  } finally {
+    process.chdir(cwd);
+    process.env.AGENT_WORKFORCE_HOME = SANDBOX;
+  }
+});

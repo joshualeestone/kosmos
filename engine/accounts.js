@@ -476,13 +476,21 @@ const FORGOTTEN_PREFIX = '.removed-claude-';
  * somebody who knows where to look. "Removed" and "deleted" are different
  * promises and the caller is told which one it got.
  *
- * 🛑 THE DEFAULT ACCOUNT IS REFUSED, AND THAT IS ONE OF THREE PLACES THIS
- * DIVERGES FROM THE OPENAI SIDE. The others: the `identityOf` check below (the
- * OpenAI sibling has none, so a `.codex-*` directory carrying no auth.json is
- * renamed on request), and the `|| 'unnamed'` label fallback where `.codex`
- * maps to `'default'`. An earlier version of this docblock called the default
- * refusal THE one divergence, which would send the next reader to
- * `openaiaccounts.js` expecting a parity that is not there.
+ * 🛑 THE DEFAULT ACCOUNT IS REFUSED, AND THAT IS ONE OF TWO PLACES THIS DIVERGES
+ * FROM THE OPENAI SIDE. The other is the `|| 'unnamed'` label fallback, where
+ * `.codex` maps to `'default'`.
+ * ⚠️ THIS PARAGRAPH HAS NOW BEEN WRONG IN BOTH DIRECTIONS, which is why it names
+ * a count at all. It first called the default refusal THE one divergence, which
+ * would send the next reader to `openaiaccounts.js` expecting a parity that was
+ * not there. It was then corrected to THREE, listing the `identityOf` check as a
+ * divergence because the OpenAI sibling had none and would rename a `.codex-*`
+ * directory carrying no auth.json on request.
+ * ⇒ THE SAME COMMIT THAT SHIPPED THAT SENTENCE ADDED THE GUARD to
+ * `openaiaccounts.js`, with a three-arm test asserting the rename can no longer
+ * happen. So the count went to two the moment it was written, and the
+ * parenthetical described behaviour the diff had just removed.
+ * 📌 A count in a comment is a claim, and this file has now paid for that twice.
+ * If you change either engine, re-derive it rather than editing the number.
  *
  * ⚠️ WHY THE DEFAULT IS REFUSED, STATED NARROWLY, BECAUSE AN EARLIER VERSION OF
  * THIS DOCBLOCK OVERCLAIMED IT AND THE OVERCLAIM WAS COPIED INTO THREE OTHER
