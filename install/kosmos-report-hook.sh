@@ -90,11 +90,11 @@ HERE="$(cd "$(dirname "$SELF")" && pwd)"
 resolve_kosmos() {
   if [ -n "${KOSMOS_REPORT_CLI:-}" ]; then printf '%s' "$KOSMOS_REPORT_CLI"; return; fi
   # Installed layout: app/bin -> $KOSMOS_HOME two levels up, CLI in bin/.
-  if [ -x "$HERE/../../bin/kosmos" ] && [ -f "$HERE/../server.js" ]; then
+  if [ -f "$HERE/../../bin/kosmos" ] && [ -x "$HERE/../../bin/kosmos" ] && [ -f "$HERE/../server.js" ]; then
     printf '%s' "$HERE/../../bin/kosmos"; return
   fi
   # Source layout: the CLI is this script's sibling.
-  if [ -x "$HERE/kosmos" ]; then printf '%s' "$HERE/kosmos"; return; fi
+  if [ -f "$HERE/kosmos" ] && [ -x "$HERE/kosmos" ]; then printf '%s' "$HERE/kosmos"; return; fi
   # 🛑 DEPLOYED ELSEWHERE (#1467). Both rungs above are RELATIVE to $HERE, so a
   # copy of this hook placed anywhere else -- which is how a fix was deployed on
   # 2026-08-28 -- resolved to EMPTY and every report returned success while doing
@@ -119,9 +119,9 @@ resolve_kosmos() {
   # ⚠️ Cost is bounded to the case where we are guessing: a real installed or
   # source layout returns above and never reaches these lines, so no properly
   # deployed machine pays a subprocess on its hot path.
-  speaks_report() { [ -x "$1" ] || command -v "$1" >/dev/null 2>&1 || return 1
+  speaks_report() { [ -f "$1" ] && [ -x "$1" ] || command -v "$1" >/dev/null 2>&1 || return 1
                     "$1" report 2>&1 | grep -q needs_you; }
-  if [ -x "$HOME/.local/bin/kosmos" ] && speaks_report "$HOME/.local/bin/kosmos"; then
+  if [ -f "$HOME/.local/bin/kosmos" ] && [ -x "$HOME/.local/bin/kosmos" ] && speaks_report "$HOME/.local/bin/kosmos"; then
     printf '%s' "$HOME/.local/bin/kosmos"; return
   fi
   if command -v kosmos >/dev/null 2>&1 && speaks_report kosmos; then printf 'kosmos'; return; fi
@@ -132,7 +132,7 @@ resolve_kosmos() {
 KOSMOS="$(resolve_kosmos)"
 
 JQ="$(command -v jq 2>/dev/null || true)"
-if [ -z "$JQ" ] && [ -x /opt/homebrew/bin/jq ]; then JQ=/opt/homebrew/bin/jq; fi
+if [ -z "$JQ" ] && [ -f /opt/homebrew/bin/jq ] && [ -x /opt/homebrew/bin/jq ]; then JQ=/opt/homebrew/bin/jq; fi
 
 INPUT=$(cat 2>/dev/null || true)
 if [ -n "$JQ" ]; then
@@ -210,7 +210,7 @@ say_loudly() {
 
 case "$EVENT" in
   SessionStart)
-    if [ -z "$KOSMOS" ] || [ ! -x "$KOSMOS" ]; then
+    if [ -z "$KOSMOS" ] || [ ! -f "$KOSMOS" ] || [ ! -x "$KOSMOS" ]; then
       say_loudly "Kosmos reporting is OFF for this session: no runnable kosmos CLI was found beside the reporting hook${KOSMOS:+ (looked at $KOSMOS)}. The board is falling back to reading the screen."
       exit 0
     fi
