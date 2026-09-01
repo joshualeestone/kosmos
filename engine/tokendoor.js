@@ -33,13 +33,31 @@ const dir = () => path.join(store.ROOT, 'secrets', 'env');
 
 function makeTokenDoor(spec) {
   if (!/^[A-Z][A-Z0-9_]*$/.test(spec.envVar)) throw new Error('envVar must be an environment variable name: ' + spec.envVar);
-  const FILE = path.join(dir(), spec.envVar);
+  /* 🛑 PER CALL, AND THIS ONE IS THE SECRETS PATH (#1443). `dir()` is already lazy,
+     and capturing its result here re-froze it: `makeTokenDoor` is called at
+     require time by engine/tokendoors.js, so all 18 doors held a path to whatever
+     root existed when the module loaded.
+
+     Measured before this change, with the seam set after require:
+       tokendoor.DIR -> <sandbox>/secrets/env        (followed)
+       door.FILE     -> <REAL>/secrets/env/DISCORD_BOT_TOKEN   (frozen)
+
+     That is worse than the other 22 because of WHAT it points at: connect()
+     writes a token there and forget() unlinks it, so a late-seam test would
+     overwrite or DELETE an operator's real API token, silently, and pass.
+
+     ⚠️ BOTH GUARDS ON THIS BRANCH REPORTED CLEAN ON IT, which is the finding
+     worth more than the fix. check-frozen-roots anchors its declaration regex to
+     column 0, so a const inside a factory is invisible; and the behavioural probe
+     walks Object.keys, while DOORS is a Map, whose keys enumerate as []. Two
+     instruments, one blind spot each, and this sat in the overlap. */
+  const file = () => path.join(dir(), spec.envVar);
   let fetcher = null; // test seam: (req, token) => Promise<{ok, status, body}>
   const setFetcher = (fn) => { fetcher = typeof fn === 'function' ? fn : null; };
   const url = () => (spec.verifyUrlEnv && process.env[spec.verifyUrlEnv]) || spec.verify.url;
 
   function readToken() {
-    try { return fs.readFileSync(FILE, 'utf8').trim() || null; } catch { return null; }
+    try { return fs.readFileSync(file(), 'utf8').trim() || null; } catch { return null; }
   }
 
   async function ask(token) {
@@ -94,17 +112,17 @@ function makeTokenDoor(spec) {
     const v = await verify(token);
     if (!v.ok) return { ...(await state()), refused: v.because };
     fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(FILE, String(token).trim() + '\n', { mode: 0o600 });
-    try { fs.chmodSync(FILE, 0o600); } catch { /* mode set at write */ }
+    fs.writeFileSync(file(), String(token).trim() + '\n', { mode: 0o600 });
+    try { fs.chmodSync(file(), 0o600); } catch { /* mode set at write */ }
     return state();
   }
 
   async function forget() {
-    try { fs.unlinkSync(FILE); } catch { /* nothing held */ }
+    try { fs.unlinkSync(file()); } catch { /* nothing held */ }
     return state();
   }
 
-  return { spec, state, connect, forget, verify, setFetcher, FILE };
+  return { spec, state, connect, forget, verify, setFetcher, get FILE() { return file(); } };
 }
 
 module.exports = { makeTokenDoor, get DIR() { return dir(); } };

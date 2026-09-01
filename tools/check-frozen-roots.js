@@ -77,14 +77,36 @@ const isLazy = (init) => /^\s*(\(\s*\)|\([^)]*\))\s*=>/.test(init) || /^\s*funct
    list is decoration.
 
    ⚠️ Line-wise, and the limit is real: a root reference on a different line from
-   its `=>` still counts as frozen. That fails toward REPORTING, which is the safe
-   direction here, and it is stated rather than left to be discovered. */
+   its `=>` still counts as frozen. That direction fails toward REPORTING.
+
+   🛑 AND THE ORIGINAL VERSION OF THIS NOTE CLAIMED THAT WAS THE ONLY DIRECTION IT
+   COULD FAIL, WHICH WAS FALSE. It used `SOURCES.some`, so a single deferred
+   reference on a line exempted the whole line and laundered a frozen source
+   sitting beside it: that shape failed toward SILENCE, which is the direction
+   this guard exists to prevent. A stated safety property is worth nothing until
+   somebody constructs the case it forbids, and a reviewer did. */
 const everyRootIsDeferred = (init) => {
   const lines = init.split('\n').filter((l) => SOURCES.some((s) => l.includes(s)));
-  return lines.length > 0 && lines.every((l) => SOURCES.some((s) => {
-    const at = l.indexOf(s);
-    return at > -1 && l.lastIndexOf('=>', at) > -1;
-  }));
+  /* EVERY source on the line, not SOME. With `some`, one deferred source LAUNDERS
+     a frozen one beside it. Measured, both arms:
+       { live: () => store.ROOT, file: path.join(process.env.AGENT_WORKFORCE_DATA,'x') }  -> silent
+       {                         file: path.join(process.env.AGENT_WORKFORCE_DATA,'x') }  -> reported
+     so adding a harmless deferred reference hid a real freeze. */
+  return lines.length > 0 && lines.every((l) => SOURCES.filter((s) => l.includes(s))
+    .every((s) => {
+      const at = l.indexOf(s);
+      if (at < 0) return false;
+      const arrow = l.lastIndexOf('=>', at);
+      if (arrow < 0) return false;
+      /* 🛑 THE ARROW MUST SCOPE THIS SOURCE, and my first two attempts did not
+         check that. `lastIndexOf('=>')` finds ANY earlier arrow on the line,
+         including one belonging to a DIFFERENT member, so
+           { live: () => store.ROOT, file: path.join(process.env.AGENT_WORKFORCE_DATA,'x') }
+         exempted the frozen half on the strength of the lazy half's arrow. A
+         comma between the arrow and the source means they belong to different
+         members, so the arrow does not defer this one. */
+      return !l.slice(arrow, at).includes(',');
+    }));
 };
 
 function declarations(src) {
@@ -123,12 +145,27 @@ function functionNamesReaching(src, sources) {
   const lines = src.split('\n');
   const bodies = [];
   for (let i = 0; i < lines.length; i += 1) {
-    const m = /^\s*function ([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(lines[i]);
+    /* 🛑 ARROW RESOLVERS TOO, AND WITHOUT THIS THE GUARD WAS BLIND TO THE
+   CODEBASE'S OWN CONVENTION. #1443 converted 22 modules to exactly
+   `const dir = () => path.join(store.ROOT, ...)`, and this scan saw only
+   `function NAME(`, so `const X = path.join(dir(), 'x')` was invisible:
+   planted in engine/liveness.js it produced rc=0 and named nothing.
+
+   That is this file's own header failure recurring one syntax down. The header
+   says the guard exists because a check keyed on os.homedir() went blind the
+   moment the fix moved it behind a homeDir() helper. The fix moved again, to an
+   arrow, and the guard went blind again. */
+    const m = /^\s*function ([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(lines[i])
+      || /^\s*const ([A-Za-z_][A-Za-z0-9_]*) = (?:\([^)]*\)|[A-Za-z_][A-Za-z0-9_]*)\s*=>/.exec(lines[i]);
     if (!m) continue;
     const buf = [];
     for (let j = i; j < lines.length && j - i < 400; j += 1) {
       buf.push(lines[j]);
-      if (/^\}/.test(lines[j]) && j > i) break;
+      if (j > i && /^\}/.test(lines[j])) break;
+      /* An arrow assigned to a const ends at its own `;`, not at a column-0 `}`.
+         Without this its body ran on to the next function and swept in references
+         belonging to somebody else. */
+      if (j > i && /=>/.test(lines[i]) && /;\s*$/.test(lines[j])) break;
     }
     bodies.push([m[1], buf.join('\n')]);
   }

@@ -29,10 +29,21 @@ process.env.AGENT_WORKFORCE_DATA=A;
 let m; try { m=require(process.argv[1]); } catch { console.log('SKIP'); process.exit(0); }
 process.env.AGENT_WORKFORCE_DATA=B;
 const frozen=[]; const seen=new Set();
-(function walk(o,p,d){ if(!o||d>2||seen.has(o))return; if(typeof o==='object')seen.add(o);
-  for(const k of Object.keys(o)){ let v; try{v=o[k];}catch{continue;}
+/* 🛑 Object.keys IS NOT ENOUGH, and the gap was real rather than theoretical.
+   engine/tokendoors.js exports DOORS as a MAP, whose keys enumerate as [], so
+   this probe returned OK on 18 doors each holding a frozen path into the
+   SECRETS directory. A Map, a Set and an array all hide their contents from
+   Object.keys, and the one module that used a Map is the one where a late seam
+   would have deleted an operator's real API token. */
+(function walk(o,p,d){ if(!o||d>3||seen.has(o))return; if(typeof o==='object')seen.add(o);
+  const entries=[];
+  if (o instanceof Map) { let i=0; for(const [k,v] of o) entries.push(['['+String(k)+']',v]); }
+  else if (o instanceof Set) { let i=0; for(const v of o) entries.push(['{'+(i++)+'}',v]); }
+  else if (Array.isArray(o)) o.forEach((v,i)=>entries.push(['['+i+']',v]));
+  else for(const k of Object.keys(o)) { let v; try{v=o[k];}catch{continue;} entries.push([k,v]); }
+  for(const [k,v] of entries){
     if(typeof v==='string'&&v.includes(A)) frozen.push(p+k);
-    else if(v&&typeof v==='object'&&d<2) walk(v,p+k+'.',d+1); } })(m,'',0);
+    else if(v&&typeof v==='object'&&d<3) walk(v,p+k+'.',d+1); } })(m,'',0);
 console.log(frozen.length?('FROZEN '+frozen.join(',')):'OK');
 fs.rmSync(A,{recursive:true,force:true}); fs.rmSync(B,{recursive:true,force:true});
 `;
