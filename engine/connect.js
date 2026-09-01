@@ -1485,7 +1485,13 @@ async function installClaudeCode(hooks) {
      with `os.homedir()` as an EAGER ARGUMENT, and `download()` needs `store.ROOT`. So if
      os.homedir() throws, store.ROOT THROWS AND THE DOWNLOAD DIES FIRST. There is never a
      verified file to strand. Neither AGENT_WORKFORCE_DATA nor AGENT_WORKFORCE_HOME
-     rescues it, because neither is what store.ROOT reads. Control: with homedir working,
+     rescues it. ⚠️ AND THE REASON FIRST GIVEN HERE WAS FALSE: it said "because
+     neither is what store.ROOT reads". store.ROOT DOES read AGENT_WORKFORCE_DATA, and
+     returns on it before touching home. The real reason is the eager argument named two
+     lines above: os.homedir() is evaluated before dataRootFor can consult anything.
+     📌 The sibling copy of this retraction in connect.install-997.test.js states it
+     correctly and carries no false mechanism. One copy right, one wrong, which is the
+     two-copies defect inside the retraction OF a two-copies defect.
      store.ROOT resolves normally.
   
      ⭐ AND THE ARM I WROTE FOR IT PROVED NOTHING, WHICH IS THE PART WORTH KEEPING. It
