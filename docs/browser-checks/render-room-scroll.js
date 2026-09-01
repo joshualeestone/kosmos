@@ -102,14 +102,39 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     await p.click('[data-tab="projects"]');
     await p.locator('#pj-list').getByText('Scroll Repro').first().click();
     await p.waitForSelector('#pj-room', { state: 'visible' });
-    await p.waitForTimeout(900);
-
-    const scrollable = await p.evaluate(() => {
-      const el = document.getElementById('pj-room');
-      return { h: el.scrollHeight, c: el.clientHeight };
-    });
-    if (scrollable.h > scrollable.c + 50) ok('the room is actually scrollable (' + scrollable.h + ' in ' + scrollable.c + ')');
-    else bad('the room is actually scrollable', JSON.stringify(scrollable) + ' -- every arm below would pass trivially');
+    /* #1712: WAIT for the room to grow, bounded, rather than measuring after a
+       fixed 900ms. The room paints the posted messages asynchronously, and under
+       concurrent load (a full suite on the same box) that paint can take well
+       over a second -- so a one-shot measure at 900ms read an UNGROWN room and
+       failed a correct release, then passed on retry. Poll scrollHeight against a
+       generous bound: a grown room resolves in well under a second unloaded and
+       within a few seconds under load, while a room that genuinely never scrolls
+       still fails -- now told apart from the 900ms timing artifact. Same idiom as
+       the other checks' waitForFunction (fn, null, { timeout }). */
+    let scrollable;
+    try {
+      await p.waitForFunction(() => {
+        const el = document.getElementById('pj-room');
+        return el && el.scrollHeight > el.clientHeight + 50;
+      }, null, { timeout: 15000 });
+      scrollable = await p.evaluate(() => {
+        const el = document.getElementById('pj-room');
+        return { h: el.scrollHeight, c: el.clientHeight };
+      });
+      ok('the room is actually scrollable (' + scrollable.h + ' in ' + scrollable.c + ')');
+    } catch {
+      /* Timed out. The posts succeeded (posted >= 20, asserted above), so the
+         messages are in the store; a room that has not grown to scrollable in
+         15s is not the old load flake, it is a room not painting them. Report it
+         as its own thing rather than as a silent one-shot failure, and keep the
+         post count so a reader can tell a paint failure from a delivery one. */
+      scrollable = await p.evaluate(() => {
+        const el = document.getElementById('pj-room');
+        return { h: el.scrollHeight, c: el.clientHeight };
+      });
+      bad('the room grew enough to scroll within 15s',
+        JSON.stringify(scrollable) + ' after ' + posted + ' posts -- the posts landed but the room did not paint them to a scrollable height; the arms below would test nothing');
+    }
 
     /* ---- 1. A READER WHO SCROLLED BACK STAYS PUT across a wording-only repaint. */
     const moved = await p.evaluate(async () => {
@@ -319,12 +344,27 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     if (consOn) ok('consolidated: the layout actually switched');
     else bad('consolidated: the layout actually switched', 'body is not .consolidated, so arms below re-test the tab view');
 
-    const consScroll = await p.evaluate(() => {
-      const el = document.getElementById('pj-room');
-      return { h: el.scrollHeight, c: el.clientHeight };
-    });
-    if (consScroll.h > consScroll.c + 50) ok('consolidated: the room is actually scrollable (' + consScroll.h + ' in ' + consScroll.c + ')');
-    else bad('consolidated: the room is actually scrollable', JSON.stringify(consScroll) + ' -- the arms below would pass trivially');
+    /* #1712: bounded wait for the consolidated room to grow, same as the tab
+       view above -- a one-shot measure after the fixed 900ms read an ungrown
+       room under load. */
+    let consScroll;
+    try {
+      await p.waitForFunction(() => {
+        const el = document.getElementById('pj-room');
+        return el && el.scrollHeight > el.clientHeight + 50;
+      }, null, { timeout: 15000 });
+      consScroll = await p.evaluate(() => {
+        const el = document.getElementById('pj-room');
+        return { h: el.scrollHeight, c: el.clientHeight };
+      });
+      ok('consolidated: the room is actually scrollable (' + consScroll.h + ' in ' + consScroll.c + ')');
+    } catch {
+      consScroll = await p.evaluate(() => {
+        const el = document.getElementById('pj-room');
+        return { h: el.scrollHeight, c: el.clientHeight };
+      });
+      bad('consolidated: the room grew enough to scroll within 15s', JSON.stringify(consScroll) + ' -- the arms below would pass trivially');
+    }
 
     const consMoved = await p.evaluate(async () => {
       const el = document.getElementById('pj-room');
@@ -404,7 +444,19 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       body.unanswered[last.id] = ['roomer'];
       const liveBefore = el.__lastLive;
       window.paintRoom(body);
-      await new Promise((r) => setTimeout(r, 150));
+      /* #1712: BOUNDED wait for the repaint and the reflow to land, instead of a
+         fixed 150ms that lost the race under concurrent load and read an
+         unrepainted, ungrown thread -- the "nothing was added, h unchanged,
+         rewrote:false" flake this file was reported for. Poll for the write AND
+         the growth up to a generous bound; a real "it never repainted or never
+         grew" still ends unsatisfied and fails below, now told apart from the
+         timing artifact. Breaks early the instant both land, so an unloaded run
+         is as fast as before. */
+      const deadline = Date.now() + 15000;
+      while (Date.now() < deadline) {
+        if (el.__lastLive !== liveBefore && el.scrollHeight > before.h) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
       return { before, rewrote: el.__lastLive !== liveBefore,
         after: { gap: el.scrollHeight - el.scrollTop - el.clientHeight, h: el.scrollHeight } };
     });
