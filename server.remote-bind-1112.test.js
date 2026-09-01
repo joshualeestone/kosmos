@@ -113,8 +113,50 @@ test('an undefined socket peer fails CLOSED (treated as remote)', () => {
     'an undefined-peer request to /api/agents was allowed');
 });
 
-test('the remote allowlist is exactly report + reply, nothing else', () => {
-  assert.deepEqual([...REMOTE_AGENT_ROUTES].sort(), ['POST /api/report', 'POST /api/reply'].sort());
+test('the remote allowlist is exactly report + reply, nothing else (#1764)', () => {
+  /* 🛑 PINNED ON PURPOSE, NOT A CHANGE-DETECTOR. A remote peer reaches ONLY the
+     routes in this set, and the socket-peer guard is the ONLY thing standing
+     there -- which a local reverse proxy DEFEATS (it terminates loopback and so
+     presents a loopback peer; see the remoteWriteGuard docblock and #1762).
+     report/reply are safe there because they are token-authed and cannot install,
+     mint, or write machine state. ADDING A ROUTE HERE is a security decision, not
+     a refactor: the moment a WRITE route joins this set, the proxy case stops
+     being a read disclosure and becomes a NETWORK WRITE BYPASS. If you are here
+     because this went red, do NOT just update the list -- read why the route must
+     not be remotely reachable (#1764); if it genuinely must be, it needs its own
+     guard, not a socket-peer a proxy defeats. */
+  assert.deepEqual([...REMOTE_AGENT_ROUTES].sort(), ['POST /api/report', 'POST /api/reply'].sort(),
+    'REMOTE_AGENT_ROUTES changed: adding a route moves it behind the socket-peer guard only, which a local reverse proxy defeats -- see the remoteWriteGuard docblock and kosmos#1762/#1764');
+});
+
+test('🛑 no dangerous write route is remotely reachable, even with a valid token (#1764, bounds #1762)', () => {
+  /* REACH, not presence: this reads the guard's BEHAVIOUR, not the set literal,
+     so it catches a dangerous route added to REMOTE_AGENT_ROUTES EVEN IF someone
+     reflexively updated the exact-set assertion above. These writes must never be
+     reachable from the network, because the socket-peer guard is all that stands
+     there and a reverse proxy defeats it. Prior art: relay claims.rs:473 pins
+     gate::admit to one call site so the mint cannot become token-only. */
+  const good = sendertoken.mint('reach-probe-1764');
+  assert.equal(good.ok, true, good.because);
+  const DANGEROUS = [
+    'POST /api/agents',       // installs a --dangerously-skip-permissions launchd job
+    'POST /api/agent-token',  // mints agent tokens (loopback-only issuance)
+    'POST /api/settings',     // writes machine settings
+    'PUT /api/you',           // writes the operator's own profile
+    'DELETE /api/history',    // destroys history
+  ];
+  for (const route of DANGEROUS) {
+    const sp = route.indexOf(' ');
+    const method = route.slice(0, sp);
+    const path = route.slice(sp + 1);
+    // A remote peer, even holding a VALID token, must be refused at every one.
+    assert.ok(remoteWriteGuard(req(method, { peer: REMOTE, token: good.token }), path),
+      `a remote peer with a valid token reached ${route}: adding it to REMOTE_AGENT_ROUTES turns a documented read disclosure into a network write bypass (#1764)`);
+  }
+  // CONTROL: the same probe reaches the token-authed agent surface (so a refusal
+  // above is the allowlist working, not the guard refusing everything).
+  assert.equal(remoteWriteGuard(req('POST', { peer: REMOTE, token: good.token }), '/api/report'), null,
+    'CONTROL: a valid-token remote report was refused; the reach test would then pass vacuously');
 });
 
 test('🛑 issuance is loopback-only: a remote peer to POST /api/agent-token is refused', () => {
