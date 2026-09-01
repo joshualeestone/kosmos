@@ -320,3 +320,47 @@ test('#1787: a failed OPEN performs no path-addressed restore write', () => {
     + 'a path write there has no symlink refusal');
   assert.equal(fs.readFileSync(f, 'utf8'), 'PREVIOUS-SECRET', 'the previous secret was lost');
 });
+
+/* 🛑 THE PARTIAL-WRITE CASE, WHICH THE ARM ABOVE CANNOT SEE. That one throws on the
+   FIRST fd write, so the descriptor's offset is still 0 and a restore that ignores
+   position happens to land correctly. ENOSPC mid-write is the realistic trigger and
+   it leaves the offset PAST the bytes already written; `ftruncateSync(fd, 0)` does
+   not rewind it.
+   ⭐ Measured before this arm existed: an 8-byte partial write, then truncate, then a
+   position-less restore put the secret after EIGHT NUL BYTES. For `sendertoken` that
+   file is JSON, so it stops parsing and every live token is lost, which is the exact
+   outcome the restore exists to prevent. It was also a REGRESSION against main, whose
+   path-addressed restore always started at zero. */
+test('#1787: a fallback that fails PART WAY through still restores the previous bytes exactly', () => {
+  const f = fresh('partial');
+  fs.writeFileSync(f, 'PREVIOUS-SECRET-EXACTLY');
+  fs.chmodSync(f, 0o600);
+  const prior = fs.readFileSync(f);
+
+  const realRename = fs.renameSync;
+  const realWrite = fs.writeFileSync;
+  fs.renameSync = () => { const e = new Error('forced'); e.code = 'EXDEV'; throw e; };
+  fs.writeFileSync = function (target, data, ...rest) {
+    if (typeof target === 'number') {
+      /* Write SOME of it, moving the descriptor's offset, then fail: this is what a
+         disk filling up mid-write does, and it is the case the sibling arm skips. */
+      fs.writeSync(target, Buffer.from('12345678'));
+      const e = new Error('no space left on device'); e.code = 'ENOSPC'; throw e;
+    }
+    return realWrite.call(fs, target, data, ...rest);
+  };
+  let threw = false;
+  try { securewrite.writeSecret(f, 'NEW-SECRET', 0o600); } catch { threw = true; } finally {
+    fs.renameSync = realRename;
+    fs.writeFileSync = realWrite;
+  }
+
+  assert.equal(threw, true, 'the forced failure did not fail, so nothing was tested');
+  const after = fs.readFileSync(f);
+  assert.equal(after.length, prior.length,
+    `the restore wrote ${after.length} bytes where the previous secret was ${prior.length}: `
+    + 'the descriptor offset was not reset, so the secret landed after the partial write');
+  assert.equal(after.toString(), prior.toString(),
+    'the restored bytes are not the previous secret');
+  assert.equal(after[0], prior[0], 'the restore is NUL-prefixed');
+});

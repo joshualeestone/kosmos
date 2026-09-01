@@ -30,7 +30,16 @@
  * taking the other three callers' guarantees with it.
  *
  * Extracted from `engine/sendertoken.js` after #1776, rather than copied, so
- * there is one implementation and not two to drift. `trust.js` and `create.js`
+ * there is one implementation and not two to drift.
+ *
+ * 🛑 CALLERS MUST CATCH. `writeSecret` throws, and on the token-door routes a throw
+ * is worse than useless: `server.js` wraps those handlers in `.catch(() => …)` with
+ * NO error binding, so a write failure reaches the operator as
+ * "we could not read that request" — an unreadable-paste error, on a credential the
+ * service just verified. Report it as a refusal in the caller's own shape instead.
+ * ⚠️ Pre-existing for ENOSPC and EACCES, WIDENED by this module:
+ * `refuseSymlinkTarget` raises ELOOP, a throw source the old in-place writes did not
+ * have. Every call site in the tree does this; the reasoning lives here, once. `trust.js` and `create.js`
  * carry older variants of the same pattern and are the precedent for it.
  */
 
@@ -259,7 +268,29 @@ function writeSecret(file, data, mode) {
       if (!wrote && prior !== null) {
         try {
           fs.ftruncateSync(fd, 0);
-          fs.writeSync(fd, prior, 0);
+          /* 🛑 PASS THE POSITION EXPLICITLY, AND LOOP. Two separate traps, and the
+             first one cost a real regression against `main`:
+
+             1. `fs.writeSync(fd, buf, offset)` takes an offset INTO THE BUFFER. The
+                file POSITION argument is the fifth, and omitting it means "current
+                position". `ftruncateSync(fd, 0)` does NOT rewind the descriptor
+                (POSIX), and `writeFileSync(fd, data)` above may have written some
+                bytes before throwing, which ENOSPC mid-write does. Measured: an
+                8-byte partial write, then truncate, then `writeSync(fd, prior, 0)`
+                lands the secret after EIGHT NUL BYTES. For `sendertoken` that file
+                is JSON, so it no longer parses and EVERY live token is lost, which
+                is the exact outcome this restore exists to prevent. `main`'s
+                path-addressed `writeFileSync(file, prior)` always started at 0.
+
+             2. `writeSync` can SHORT-WRITE and does not retry; `writeFileSync` looped
+                internally. On an already-degraded path a short write would silently
+                truncate the restored secret, so loop on the return value. */
+          let off = 0;
+          while (off < prior.length) {
+            const n = fs.writeSync(fd, prior, off, prior.length - off, off);
+            if (!(n > 0)) break;
+            off += n;
+          }
         } catch { /* the restore failed too; the caller still gets the real error */ }
       }
       try { fs.closeSync(fd); } catch { /* already closed */ }
