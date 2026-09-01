@@ -281,3 +281,64 @@ is the stronger claim and the one the surrounding comment always intended.
 📌 Found only by the FULL suite. My single-file runs stayed green through both
 this and the reachability-guard catch in iteration 1, because both defects live
 in the interaction rather than in the file I was editing.
+
+## Iteration 5
+
+**My iteration-4 fix covered the rare branch, not the one that matters.** On an
+update the installer runs `kosmos stop` before downloading a byte, so THIS
+server is dead for every real failure: a 404, a dropped download, a checksum
+refusal, a failed swap. The in-memory `noteAttemptEnd` path only ever sees
+preflight refusals and spawn errors. The record an operator actually reads after
+an unattended machine changed version by itself is seeded from
+`logs/install.status`, and that file carried an exit code and a start stamp and
+nothing else, so it answered `version: undefined`.
+
+The spawned shell now writes four fields instead of two, and
+`seedFromStatusFile` reads them with the trailing pair OPTIONAL, so a status
+file written by an older release still parses and loses two fields rather than
+the whole failure record.
+
+⚠️ That change tripped a SECURITY guard, correctly. The installer command is
+pinned to a reviewed shape because interpolating a release base into a shell
+string turns it into shell. The two new values ride as `$4` and `$5`, argv
+elements like the three before them, and nothing new enters the `-c` string. The
+guard was re-pinned rather than loosened, and it still catches an interpolated
+command: verified by planting one.
+
+**My reason for not gating the tick on the preference was false, so I gated
+it.** I had argued the tick must run regardless because the Settings card needs
+a fresh answer. It does not: opening the board hits `/api/status`, which already
+calls `poke()` at `server.js:1778`. Ungated, this was new unattended outbound
+traffic from machines whose owner had switched auto-update OFF, for no
+functional gain. The standing "off means do not install, not do not tell me"
+decision is untouched, because the status route still pokes on demand.
+
+**And I wrote a second false claim while fixing the first.** I said a null
+preference would throw, be swallowed by the tick's catch, and stop the poll for
+good. Measured: the catch is per-tick, so the interval keeps firing and the poll
+survives. My arm asserting "the poll still runs and does not fetch" could not
+tell the throwing form from the defensive one, so I deleted it and left the
+reason in its place. The defensive form stays for smaller and honest reasons:
+it matches its sibling, and it avoids throwing once per tick forever on a
+machine whose preference file is unreadable.
+
+**The DRY_RUN gate was a convention with nothing enforcing it.** All sixteen
+files that boot the server set it today, so the exposure is closed, but the next
+file inherits nothing. There is now an arm that finds every file which requires
+`./server` and calls `start(`, and fails naming any that does not set the
+variable. It carries a floor on the detector too, because a detector that finds
+nothing would make the arm pass for the wrong reason. Verified by planting a
+file that genuinely boots the server: the arm named it.
+
+### Named plainly rather than built: the new fields reach no screen
+
+`/api/status` ships `updateAttempt`, but the only consumer is the update
+overlay, which reads `log`, `code`, `startedAt` and `endedAt`, and gates on the
+record belonging to a press the viewer just made. An unattended attempt has no
+such press, so it is never surfaced there at all.
+
+So the intended surfaces for an unattended attempt are the board's stderr log
+and `/api/status`, and I am saying that here rather than implying a screen
+exists. Wiring a line into the Settings update card for an ended automatic
+attempt is a follow-up, not this card: this one is about the machine asking at
+all. Recorded so the gap is a decision rather than an oversight.

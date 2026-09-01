@@ -81,3 +81,26 @@ test('#1277: startAutoPoll unrefs its timer, so a poll cannot hold the process o
   assert.equal(t.hasRef(), false, 'a ref\'d poll would keep the board process alive forever');
   update.stopAutoPoll();
 });
+
+test('#1277: every test file that boots the server sets DRY_RUN, so none can reach the release host', () => {
+  /* The poll's fetch gate is a CONVENTION across sixteen files and nothing
+     enforced it. All sixteen set it today, so the exposure is closed, but the
+     next file somebody writes inherits nothing. The failure it prevents is not
+     a red test: it is a test run that reaches installkosmos.com and, from an
+     installed layout, spawns a real curl-pipe-sh installer. */
+  const fs = require('node:fs'); const path = require('node:path');
+  const dir = path.resolve(__dirname);
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.test.js'));
+  const boots = files.filter((f) => {
+    const src = fs.readFileSync(path.join(dir, f), 'utf8');
+    return /require\((['"])\.\/server\1\)/.test(src) && /\bstart\s*\(/.test(src);
+  });
+  assert.ok(boots.length >= 10,
+    `only ${boots.length} files looked like they boot the server; the detector is probably wrong, `
+    + 'and a detector that finds nothing would make this arm pass for the wrong reason');
+  const missing = boots.filter((f) => !/AGENT_WORKFORCE_DRY_RUN/.test(fs.readFileSync(path.join(dir, f), 'utf8')));
+  assert.deepEqual(missing, [],
+    `these files boot the server without setting AGENT_WORKFORCE_DRY_RUN: ${missing.join(', ')}. `
+    + 'Booting the server starts the update poll, and without the gate that poll uses the real '
+    + 'fetch against the real release host.');
+});

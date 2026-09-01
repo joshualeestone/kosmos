@@ -277,6 +277,27 @@ function startAutoPoll(opts = {}) {
          a new one. */
       if (process.env.AGENT_WORKFORCE_DRY_RUN) return;
       if (!installedRoot()) return;
+      /* 🛑 GATED ON THE PREFERENCE, AND MY FIRST REASON FOR NOT DOING THIS WAS
+         FALSE. I argued the tick must run regardless because the Settings card
+         needs a fresh answer to show. It does not: opening the board hits
+         /api/status, which already calls poke() (server.js:1778), so an
+         opted-out machine still gets a fresh answer the moment somebody looks.
+         Ungated, this was new unattended outbound traffic from machines whose
+         owner had switched auto-update OFF, for no functional gain.
+
+         ⚠️ This does NOT reverse the standing "off means do not install, not do
+         not tell me" decision: the status route still pokes on demand. It stops
+         only the unattended tick on a machine that opted out. */
+      /* `(autoPref() || {})`, matching maybeAutoInstall. ⚠️ NOT because a throw
+         would kill the poll: I wrote that and it is false. This tick's catch is
+         per-tick, so a throwing preference costs one tick and the interval
+         keeps firing. Measured: with the throwing form the poll still runs and
+         still does not fetch, which is why an arm asserting those two things
+         could not tell the forms apart and was deleted rather than kept.
+         The defensive form earns its place for smaller reasons: it matches its
+         sibling, and it does not throw once per tick forever on a machine whose
+         preference file is unreadable. */
+      if (!(autoPref() || {}).on) return;
       poke();
     } catch { /* an update that cannot be checked must not break the board */ }
   }, every);
@@ -428,13 +449,22 @@ function seedFromStatusFile() {
   if (!file) return;
   let raw = '';
   try { raw = fs.readFileSync(file, 'utf8'); } catch { return; }
-  const m = /^(-?\d+)\s+(\S+)/.exec(raw.trim());
+  /* The trailing pair is OPTIONAL on purpose: a file written by a release
+     before this change has two fields, and refusing to parse it would lose the
+     failure record entirely rather than lose two of its fields. */
+  const m = /^(-?\d+)\s+(\S+)(?:\s+(\S+)\s+(\S+))?/.exec(raw.trim());
   if (!m) return;
   const code = Number(m[1]);
   if (code === 0) return;
   let endedAt = null;
   try { endedAt = fs.statSync(file).mtime.toISOString(); } catch { endedAt = new Date().toISOString(); }
-  lastAttempt = { startedAt: m[2], endedAt, code, because: 'the installer stopped before it could restart the board', log: installLog() };
+  lastAttempt = {
+    startedAt: m[2], endedAt, code,
+    because: 'the installer stopped before it could restart the board',
+    log: installLog(),
+    version: m[3] && m[3] !== '-' ? m[3] : null,
+    auto: m[4] === '1',
+  };
 }
 function lastAttemptView() {
   if (!lastAttempt) seedFromStatusFile();
@@ -529,7 +559,16 @@ function beginInstall(opts) {
      leaves for the next board. Positional parameters, never interpolated
      into the one command in this product that ends in `| sh`. */
   const statusFile = installStatusFile() || '/dev/null';
-  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s\n" "$code" "$3" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt], {
+  /* 🛑 THE STATUS FILE IS THE DURABLE CHANNEL AND IT MUST CARRY THE ANSWER.
+     On an update the installer runs `kosmos stop` before downloading a byte, so
+     THIS server is dead for every real failure: a 404, a dropped download, a
+     checksum refusal, a failed swap. The in-memory noteAttemptEnd path only
+     ever sees preflight refusals and spawn errors, which is the RARE branch.
+     So the record an operator reads after an unattended machine changed
+     version by itself comes from this file, and it used to carry only an exit
+     code and a start stamp. Two more fields, and `-` stands in for an unknown
+     version so the field count stays fixed. */
+  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s %s %s\n" "$code" "$3" "$4" "$5" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, lastAttempt.version || '-', lastAttempt.auto ? '1' : '0'], {
     detached: true,
     stdio: 'ignore',
     env: { ...process.env, KOSMOS_RELEASE_BASE: base },

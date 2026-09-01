@@ -321,13 +321,19 @@ test('the installer URL is a positional parameter, never interpolated into the s
      their own argv elements after the `sh` argv[0] filler (#553 added the
      two trailing positionals so the installer's exit code and start stamp
      land in logs/install.status whatever happens to this server). */
-  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s\\n" "\$code" "\$3" > "\$2"',\s*'sh',\s*setupUrl\(\)/,
+  /* #1277 widened the printf from two fields to four so the DURABLE record
+     carries the target version and whether the machine chose the install. The
+     two new values ride as $4 and $5, argv elements like the three before them,
+     and nothing new enters the -c string. The shape is re-pinned rather than
+     loosened: this guard exists because interpolating a release base into a
+     shell string turns it into shell. */
+  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s %s %s\\n" "\$code" "\$3" "\$4" "\$5" > "\$2"',\s*'sh',\s*setupUrl\(\)/,
     'the installer command is no longer the reviewed shape: ' + call);
   /* The two trailing positionals, asserted on the wider source since the
      slice above stops at the URL: the status file is $2, the stamp is $3,
      neither interpolated. */
-  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt\]/.test(SRC),
-    'the status file and the start stamp no longer ride as positionals');
+  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt,\s*lastAttempt\.version \|\| '-',\s*lastAttempt\.auto \? '1' : '0'\]/.test(SRC),
+    'the status file, stamp, version and auto flag no longer all ride as positionals');
 
   /* And the unsafe shapes, by name. A template literal or a concatenation
      inside the `-c` string is the whole failure: it turns a release base into
@@ -705,4 +711,73 @@ test('#1277: the interval ceiling applies to the in-process seam too, not just t
   assert.ok(ms > 1000 && ms <= 2147483647,
     `an in-process interval of 1e12 resolved to ${ms}ms. Above 2147483647 setInterval wraps to 1ms, `
     + 'so a caller trying to slow the poll right down speeds it up to a thousand a second');
+});
+
+test('#1277: the tick respects the preference, so an opted-out machine stops phoning home', async () => {
+  /* My first reason for NOT gating this was false: I argued the Settings card
+     needs a fresh answer, but opening the board hits /api/status which already
+     pokes. Ungated, this was new unattended traffic from machines whose owner
+     switched auto-update off, for no functional gain. */
+  const u = require('./update');
+  u.resetCache();
+  let fetches = 0;
+  u.setFetcher(async () => { fetches += 1; return { ok: true, json: async () => ({ version: '9.9.9' }) }; });
+  u.setInstalledRoot(() => '/tmp/pretend-installed');
+  try {
+    u.setAutoPref(() => ({ on: false }));
+    u.startAutoPoll({ every: 20 });
+    await new Promise((r) => setTimeout(r, 200));
+    u.stopAutoPoll();
+    assert.equal(fetches, 0, `an opted-out machine fetched ${fetches} time(s) on the unattended tick`);
+
+    u.resetCache();
+    u.setAutoPref(() => ({ on: true }));
+    u.startAutoPoll({ every: 20 });
+    await new Promise((r) => setTimeout(r, 200));
+    u.stopAutoPoll();
+    assert.ok(fetches > 0, 'CONTROL: with the preference ON the tick must still fetch, or this proves nothing');
+  } finally {
+    u.setFetcher(null); u.setInstalledRoot(null); u.setAutoPref(null); u.resetCache();
+  }
+});
+
+/* An arm asserting "a null preference does not silently kill the poll" lived
+   here and was DELETED, because it could not fail. It checked that the poll
+   still runs and does not fetch, and both are true whether the preference
+   throws or returns early: the tick's catch is per-tick, so the interval
+   survives either way. Measured by perturbation, which is how it was caught.
+   The defensive `(autoPref() || {})` form stays for style and to avoid
+   throwing once per tick forever, not for a behaviour this suite can observe.
+   Recorded rather than silently removed, so nobody re-adds it. */
+
+test('#1277: the DURABLE record carries the version and the auto flag, not just the in-memory one', () => {
+  /* The path that matters. On an update the installer runs `kosmos stop` before
+     downloading, so THIS server is dead for every real failure and the
+     in-memory noteAttemptEnd path only sees preflight refusals and spawn
+     errors. The record an operator reads after an unattended machine changed
+     version by itself is seeded from logs/install.status, which carried only an
+     exit code and a start stamp. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-status-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  u.resetCache();
+  u.setInstalledRoot(() => home);
+  try {
+    fs.writeFileSync(path.join(home, 'logs', 'install.status'), '1 2026-09-01T00:00:00.000Z 9.9.9 1\n');
+    const a = u.lastAttempt();
+    assert.equal(a.version, '9.9.9', `the durable record says version=${a.version}`);
+    assert.equal(a.auto, true, 'the durable record must say the machine chose this');
+
+    /* And a file from a release BEFORE this change still parses, losing two
+       fields rather than the whole failure record. */
+    u.resetCache();
+    fs.writeFileSync(path.join(home, 'logs', 'install.status'), '1 2026-09-01T00:00:00.000Z\n');
+    const old = u.lastAttempt();
+    assert.ok(old && old.code === 1, 'a two-field status file from an older release must still parse');
+    assert.equal(old.version, null, 'an older file has no version, and null is the honest answer');
+  } finally {
+    u.setInstalledRoot(null); u.resetCache();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
