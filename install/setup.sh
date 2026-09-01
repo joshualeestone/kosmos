@@ -1036,8 +1036,11 @@ start_log() {
 # 🔑 WHAT THIS HELPER IS: the shell's answer to the SAME question `dataRootFor`
 # answers, in one place instead of several, so a future uninstaller for another
 # platform copies a named thing rather than a scattered literal. On macOS the two
-# agree exactly, measured: both give
-# `$HOME/Library/Application Support/AgentWorkforce`.
+# agree exactly for the default input, measured: both give
+# `$HOME/Library/Application Support/AgentWorkforce`. On an override carrying
+# `./` or `..` they agree on the DIRECTORY and not on the string (node normalises,
+# the shell squeezes slashes only), which is why the one captured value, and not
+# a second derivation, feeds every comparison below.
 #
 # ⚠️ IT PREFERS THE PRODUCT'S OWN ANSWER WHEN THE INSTALL CAN GIVE ONE, AND THAT
 # IS OFTEN NOT POSSIBLE. An uninstall runs against whatever version is installed,
@@ -1048,7 +1051,7 @@ start_log() {
 # writing it any other way would be a claim this cannot support.
 #
 # 🛑 AND IT MUST BE CALLED BEFORE `rm -rf "$KOSMOS_HOME"`, which is why it is
-# called EXACTLY ONCE, at the top of `uninstall()` into `_support`, and every
+# called EXACTLY ONCE, in `uninstall()` before anything is removed, into `_support`, and every
 # consumer reads that one value: that `rm` deletes `runtime/bin/node`, and the
 # supervisor and litter removals need the answer hundreds of lines afterwards.
 # ⚠️ The first version of this captured it at each consumer instead, and the one
@@ -1070,30 +1073,34 @@ _kosmos_data_root() {
   case "$_kdr" in
     /*) ;;
     *)
-      if [ -z "${AGENT_WORKFORCE_DATA:-}" ] && [ -z "${HOME:-}" ]; then
-        # An empty HOME is absolute by accident: it resolves to
-        # /Library/Application Support, the SYSTEM folder, and the sandbox guard
-        # below cannot see it because both of its operands derive from HOME.
-        _kdr=""
-      else
-        # The fallback, normalised the way the guard below normalises its own
-        # operands (`//` squeezed, trailing `/` dropped), so the two derivations
-        # agree on the string and not only on the directory.
-        _kdr="$(printf '%s' "${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}" | /usr/bin/tr -s '/')"
-        _kdr="${_kdr%/}/AgentWorkforce"
-      fi ;;
+      # The fallback, normalised the way the guard below normalises its own
+      # operands (`//` squeezed, trailing `/` dropped), so the two derivations
+      # agree on the string and not only on the directory.
+      _kdr="$(printf '%s' "${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}" | /usr/bin/tr -s '/')"
+      _kdr="${_kdr%/}/AgentWorkforce" ;;
   esac
-  # 🛑 AN ABSOLUTE PATH OR A REFUSAL, ON THE FINAL ANSWER, NOT ONLY ON THE CONSULT.
-  # The first version filtered node's answer and then emitted the fallback
-  # unconditionally, so `AGENT_WORKFORCE_DATA=rel` deleted relative to the cwd and
-  # `HOME=""` (set -u does not catch empty) steered every rm under
-  # /Library/Application Support, the system folder. Both are refused here, and
-  # under this file's `set -e` a refusal aborts the uninstall at the capture
-  # rather than steering a delete.
+  # 🛑 THE REFUSALS ARE ON THE RESULT, AND THERE ARE THREE. Every one is a delete
+  # that a bad input would have steered, and each was found by construction:
+  #   not absolute     `AGENT_WORKFORCE_DATA=rel` deleted relative to the cwd
+  #   no /AgentWorkforce leaf   every rm below is bounded by that leaf; a consult
+  #                    answer of "/" or "$HOME" would have made "$_support/bin"
+  #                    mean /bin or ~/bin. The trust boundary moved from a literal
+  #                    to whatever the installed store.js returns, so the leaf is
+  #                    checked here rather than assumed.
+  #   the system Library   HOME="" (set -u does not catch empty), HOME=/ and HOME=//
+  #                    all resolve to /Library/Application Support, which no
+  #                    per-user install owns. Refused by RESULT so every spelling
+  #                    of a stripped HOME lands in one case.
+  # Under this file's `set -e` a refusal aborts the uninstall at the capture,
+  # before any rm, with the reason on stderr where a terminal shows it.
   case "$_kdr" in
-    /*) printf '%s' "$_kdr"; return 0 ;;
+    "/Library/Application Support/AgentWorkforce")
+      _kdr_why="that is the system-wide Library, which no per-user install owns (an empty or / HOME resolves here)" ;;
+    /*/AgentWorkforce) printf '%s' "$_kdr"; return 0 ;;
+    /*) _kdr_why="it does not end in /AgentWorkforce, the folder name every removal below is bounded by" ;;
+    *)  _kdr_why="it is not an absolute path" ;;
   esac
-  printf 'refusing to uninstall: the data folder resolved to "%s", which is not an absolute path. Check HOME and AGENT_WORKFORCE_DATA.\n' "$_kdr" >&2
+  printf 'refusing to uninstall: the data folder resolved to "%s", and %s. Check HOME and AGENT_WORKFORCE_DATA.\n' "$_kdr" "$_kdr_why" >&2
   return 1
 }
 
@@ -1438,10 +1445,13 @@ uninstall() {
   # the proof has to come from INSIDE the file: engine/create.js's plistFor
   # writes this install's supervisor path into ProgramArguments, and that
   # path lives under the data root this uninstall resolved above
-  # (`_resolved_support`, derived from KOSMOS_HOME by #924's block). A job
-  # that names a different supervisor belongs to a different install and
-  # is left alone, by name, rather than silently.
-  _supervisor_ours="$_resolved_support/AgentWorkforce/bin/agent-supervisor.sh"
+  # (`_support`, the ONE resolution captured before anything is removed; this
+  # used to re-derive it from #924's base path, a second derivation that could
+  # disagree with the product on the string for the same directory, so the
+  # grep below missed and the job was left registered). A job that names a
+  # different supervisor belongs to a different install and is left alone,
+  # by name, rather than silently.
+  _supervisor_ours="$_support/bin/agent-supervisor.sh"
   for _plist in "$_agents_dir"/com.kosmos.agent.*.plist; do
     [ -e "$_plist" ] || continue
     _label="$(basename "$_plist" .plist)"

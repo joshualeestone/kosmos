@@ -37,8 +37,15 @@ one place instead of several. It prefers the product's own answer when the insta
 can give one, and returns an absolute path or nothing, because a partial or odd
 answer must not steer a delete.
 
-Two sites route through it, `_support` and `_remote_state`, so three literal
-definitions of the resolved root become one.
+One call, captured into `_support` before anything is removed; `_remote_state`,
+the supervisor-ownership proof, the supervisor removal, the remembered answers, the
+litter sweep and the closing sentence all read that value. Three literal definitions
+of the resolved root become one.
+
+> 📌 CORRECTED after the second blind review: this said "two sites route through
+> it" and "three become one", and the supervisor-ownership proof was still a THIRD
+> derivation from the base path, which can disagree with the product on the string
+> for one directory (an override carrying `./`). Now it reads `_support` too.
 
 ## The uninstall guard is deliberately NOT routed through it
 

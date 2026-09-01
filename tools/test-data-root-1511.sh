@@ -25,11 +25,17 @@ PY
 # no -e, so dropping the `|| _kdr=""` on the consult left all arms green while the
 # real uninstall aborted with rc=3 on every pre-#570 install. Same shell, same
 # options, or the harness is testing a different program.
-run() { /bin/sh -euc "$1; . '$HELPER'; _kosmos_data_root" 2>/dev/null; }
+run() { /bin/sh -euc "set -o pipefail; $1; . '$HELPER'; _kosmos_data_root" 2>/dev/null; }
+# The same, keeping stderr, for the refusal arms: the sentence is the only thing
+# that tells the person why the uninstall stopped, and 2>/dev/null hid its deletion.
+run_err() { /bin/sh -euc "set -o pipefail; $1; . '$HELPER'; _kosmos_data_root" 2>&1 >/dev/null; }
+# The default answer, normalised the way the helper normalises, so a HOME carrying a
+# trailing slash does not red five arms for a reason none of them names.
+EXP_DEFAULT="$(printf '%s' "$HOME/Library/Application Support" | /usr/bin/tr -s '/')"; EXP_DEFAULT="${EXP_DEFAULT%/}/AgentWorkforce"
 
 # 1. no runtime: the literal, which for every install older than #570 IS the path
 r=$(run 'KOSMOS_HOME=/nonexistent; unset AGENT_WORKFORCE_DATA')
-[ "$r" = "$HOME/Library/Application Support/AgentWorkforce" ] \
+[ "$r" = "$EXP_DEFAULT" ] \
   && ok "no runtime falls back to the default root" || bad "no runtime falls back to the default root" "$r"
 
 # 2. the sandbox seam is honoured in the fallback
@@ -53,7 +59,7 @@ r=$(run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA")
 # 4. CONTROL for arm 3: same store.js, runtime gone, must fall back
 rm -f "$FAKE/runtime/bin/node"
 r=$(run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA")
-[ "$r" = "$HOME/Library/Application Support/AgentWorkforce" ] \
+[ "$r" = "$EXP_DEFAULT" ] \
   && ok "CONTROL: no runtime means the literal, even with a willing store.js" \
   || bad "CONTROL: no runtime means the literal, even with a willing store.js" "$r"
 ln -sf "$(command -v node)" "$FAKE/runtime/bin/node"
@@ -61,35 +67,55 @@ ln -sf "$(command -v node)" "$FAKE/runtime/bin/node"
 # 5. a store.js with no dataRootFor: the real shape of every install before #570
 printf '%s\n' "module.exports = {};" > "$FAKE/app/engine/store.js"
 r=$(run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA")
-[ "$r" = "$HOME/Library/Application Support/AgentWorkforce" ] \
+[ "$r" = "$EXP_DEFAULT" ] \
   && ok "an install predating dataRootFor falls through" || bad "an install predating dataRootFor falls through" "$r"
 
 # 6. a relative answer must NOT steer a delete
 printf '%s\n' "module.exports = { dataRootFor: () => 'not-absolute' };" > "$FAKE/app/engine/store.js"
 r=$(run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA")
-[ "$r" = "$HOME/Library/Application Support/AgentWorkforce" ] \
+[ "$r" = "$EXP_DEFAULT" ] \
   && ok "a relative answer is refused" || bad "a relative answer is refused" "$r"
 
 # 7. a throwing store.js must not take the uninstall down or return empty
 printf '%s\n' 'throw new Error("boom");' > "$FAKE/app/engine/store.js"
 r=$(run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA")
-[ "$r" = "$HOME/Library/Application Support/AgentWorkforce" ] \
+[ "$r" = "$EXP_DEFAULT" ] \
   && ok "a throwing store.js falls back rather than emptying" || bad "a throwing store.js falls back rather than emptying" "$r"
 
 # 8. A RELATIVE OVERRIDE IS REFUSED ON THE FINAL ANSWER, not only on the consult.
 #    The first version refused node's relative answer and then emitted the same
 #    relative string from the fallback, so arm 6 protected nothing in the one case
-#    that actually produces a relative root. Refusal = nothing on stdout AND non-zero.
+#    that actually produces a relative root. Refusal = nothing on stdout, non-zero,
+#    AND the sentence on stderr (deleting the sentence used to leave every arm green).
 r=$(run 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=rel/sbx-1511'); rc=$?
-[ -z "$r" ] && [ "$rc" -ne 0 ] && ok "a relative AGENT_WORKFORCE_DATA is refused, non-zero, nothing on stdout" \
-  || bad "a relative AGENT_WORKFORCE_DATA is refused, non-zero, nothing on stdout" "rc=$rc out=[$r]"
+e=$(run_err 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=rel/sbx-1511' || true)
+[ -z "$r" ] && [ "$rc" -ne 0 ] && case "$e" in *"refusing to uninstall"*"not an absolute path"*) true ;; *) false ;; esac \
+  && ok "a relative AGENT_WORKFORCE_DATA is refused: non-zero, nothing on stdout, the reason on stderr" \
+  || bad "a relative AGENT_WORKFORCE_DATA is refused: non-zero, nothing on stdout, the reason on stderr" "rc=$rc out=[$r] err=[$e]"
 
-# 9. HOME EMPTY IS REFUSED. `set -u` does not catch empty, and the old fallback
-#    resolved it to /Library/Application Support/AgentWorkforce, the SYSTEM folder,
-#    with the sandbox guard silent because both of its sides derive from the same HOME.
+# 9. HOME EMPTY IS REFUSED, BY RESULT. `set -u` does not catch empty, and the old
+#    fallback resolved it to /Library/Application Support/AgentWorkforce, the SYSTEM
+#    folder, with the sandbox guard silent because both of its sides derive from HOME.
 r=$(run 'KOSMOS_HOME=/nonexistent; unset AGENT_WORKFORCE_DATA; HOME=""'); rc=$?
-[ -z "$r" ] && [ "$rc" -ne 0 ] && ok "an empty HOME is refused rather than steering a delete under /Library" \
-  || bad "an empty HOME is refused rather than steering a delete under /Library" "rc=$rc out=[$r]"
+e=$(run_err 'KOSMOS_HOME=/nonexistent; unset AGENT_WORKFORCE_DATA; HOME=""' || true)
+[ -z "$r" ] && [ "$rc" -ne 0 ] && case "$e" in *"refusing to uninstall"*"system-wide Library"*) true ;; *) false ;; esac \
+  && ok "an empty HOME is refused rather than steering a delete under /Library, with the reason on stderr" \
+  || bad "an empty HOME is refused rather than steering a delete under /Library, with the reason on stderr" "rc=$rc out=[$r] err=[$e]"
+
+# 9b. AND HOME=/ REACHES THE SAME FOLDER. The refusal is on the RESULT, so every
+#     spelling of a stripped HOME lands in one case; this arm pins the second spelling.
+r=$(run 'KOSMOS_HOME=/nonexistent; unset AGENT_WORKFORCE_DATA; HOME=/'); rc=$?
+[ -z "$r" ] && [ "$rc" -ne 0 ] && ok "HOME=/ is refused the same way, because the refusal reads the result" \
+  || bad "HOME=/ is refused the same way, because the refusal reads the result" "rc=$rc out=[$r]"
+
+# 9c. THE CONSULT'S ANSWER MUST CARRY THE LEAF. Every rm below the capture is bounded
+#     by /AgentWorkforce; an installed store.js returning "/" or "$HOME" would have
+#     made "$_support/bin" mean /bin or ~/bin. Arm 3's fake happens to include the
+#     leaf, so nothing else exercises this.
+printf '%s\n' "module.exports = { dataRootFor: () => '/tmp/ONLY-NODE-1511' };" > "$FAKE/app/engine/store.js"
+r=$(run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA"); rc=$?
+[ -z "$r" ] && [ "$rc" -ne 0 ] && ok "an absolute consult answer WITHOUT the /AgentWorkforce leaf is refused" \
+  || bad "an absolute consult answer WITHOUT the /AgentWorkforce leaf is refused" "rc=$rc out=[$r]"
 
 # 10. THE CONSULT HONOURS THE SANDBOX SEAM, through the REAL store.js. The #924
 #     shape: runtime present AND an override set. Replacing process.env with {} in
@@ -106,6 +132,60 @@ r=$(run 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=/tmp//sbx-1511/')
 [ "$r" = "/tmp/sbx-1511/AgentWorkforce" ] \
   && ok "the fallback squeezes // and drops a trailing /, as path.join does" \
   || bad "the fallback squeezes // and drops a trailing /, as path.join does" "$r"
+
+# 11b. THE VALUE THAT REACHES A DELETING CONSUMER CAME FROM THE CONSULT, BEFORE THE
+#      DELETE. The two static arms below pin the call's count and position; they
+#      cannot see control flow, and a capture under a false condition satisfies both.
+#      This runs the REAL uninstall on a fake install inside a box, every root pinned
+#      in the box, and measures WHAT WAS DELETED: the shared-supervisor removal reads
+#      "$_support/bin", so the bin under the consult's path (which the shell fallback
+#      can never produce) must be gone and the bin under the literal must survive.
+#      The install has runtime/bin/node and VERSION+app, so rm -rf "$KOSMOS_HOME" DOES
+#      run in the box; a capture placed after it would delete the literal's bin
+#      instead, which is exactly the iteration-0 defect this card records.
+B="$(mktemp -d)"
+box_build() {   # $1 = with-runtime | no-runtime
+  rm -rf "${B:?}"/*; mkdir -p "$B/home" "$B/launch" "$B/workers" "$B/apps" "$B/sysapps" "$B/homeapps" "$B/bin" \
+    "$B/data/AgentWorkforce/bin" "$B/ONLY-NODE/AgentWorkforce/bin" "$B/kh/app/engine"
+  : > "$B/data/AgentWorkforce/bin/x"; : > "$B/ONLY-NODE/AgentWorkforce/bin/x"
+  printf '0.0.0-test\n' > "$B/kh/VERSION"
+  printf '%s\n' "module.exports = { dataRootFor: () => '$B/ONLY-NODE/AgentWorkforce' };" > "$B/kh/app/engine/store.js"
+  if [ "$1" = with-runtime ]; then mkdir -p "$B/kh/runtime/bin"; ln -sf "$(command -v node)" "$B/kh/runtime/bin/node"; fi
+  # An agent job whose supervisor lives under the CONSULT's root. The ownership
+  # proof greps the plist for "$_support/bin/agent-supervisor.sh": with the consult
+  # it matches and the job is removed; with any other derivation it is "left alone".
+  printf '<plist><dict><key>ProgramArguments</key><array><string>%s/ONLY-NODE/AgentWorkforce/bin/agent-supervisor.sh</string></array></dict></plist>\n' "$B" \
+    > "$B/launch/com.kosmos.agent.boxagent.plist"
+}
+box_uninstall() {
+  ( cd "$B" && env -i PATH=/usr/bin:/bin HOME="$B/home" KOSMOS_HOME="$B/kh" AGENT_WORKFORCE_DATA="$B/data" \
+      AGENT_WORKFORCE_LAUNCH="$B/launch" AGENT_WORKFORCE_WORKERS="$B/workers" \
+      KOSMOS_APP_DIR="$B/apps" KOSMOS_SYS_APP_DIR="$B/sysapps" KOSMOS_HOME_APP_DIR="$B/homeapps" \
+      KOSMOS_PROFILE_FILE="$B/zprofile" KOSMOS_BIN_DIR="$B/bin" KOSMOS_PORT=65000 \
+      /bin/sh "$SETUP" --uninstall >"$B/out" 2>"$B/err" ); echo $?
+}
+box_state() { printf 'rc=%s kh=%s consult-bin=%s literal-bin=%s job=%s' "$1" "$([ -d "$B/kh" ] && echo present || echo gone)" \
+  "$([ -d "$B/ONLY-NODE/AgentWorkforce/bin" ] && echo present || echo gone)" "$([ -d "$B/data/AgentWorkforce/bin" ] && echo present || echo gone)" \
+  "$([ -e "$B/launch/com.kosmos.agent.boxagent.plist" ] && echo present || echo gone)"; }
+box_build with-runtime
+rc=$(box_uninstall)
+if [ "$rc" = "0" ] && [ ! -d "$B/kh" ] && [ ! -d "$B/ONLY-NODE/AgentWorkforce/bin" ] && [ -d "$B/data/AgentWorkforce/bin" ] \
+   && [ ! -e "$B/launch/com.kosmos.agent.boxagent.plist" ]; then
+  ok "the real uninstall deleted the supervisor under the CONSULT's root and removed the job that named it, after the app tree it consulted was gone"
+else
+  bad "the real uninstall deleted the supervisor under the CONSULT's root" "$(box_state "$rc") err=[$(tail -2 "$B/err" | tr '\n' ' ')]"
+fi
+# CONTROL: no runtime, so the consult cannot run and the LITERAL's bin must go
+# instead. Proves the arm above can tell the two apart.
+box_build no-runtime
+rc=$(box_uninstall)
+if [ "$rc" = "0" ] && [ ! -d "$B/data/AgentWorkforce/bin" ] && [ -d "$B/ONLY-NODE/AgentWorkforce/bin" ] \
+   && [ -e "$B/launch/com.kosmos.agent.boxagent.plist" ]; then
+  ok "CONTROL: without a runtime the literal's supervisor went instead and the job naming the other root was left alone"
+else
+  bad "CONTROL: without a runtime the literal's supervisor went instead" "$(box_state "$rc") err=[$(tail -2 "$B/err" | tr '\n' ' ')]"
+fi
+rm -rf "${B:?}"
 
 # 12. ONE CALL SITE. The first version captured at each consumer, and the one after
 #    `rm -rf "$KOSMOS_HOME"` silently got the literal while the one before it got the
