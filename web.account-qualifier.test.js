@@ -359,7 +359,12 @@ test('#1659: the aria-disabled handler fallback says the SAME thing as the engin
   const un = (x) => x.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
   const fallback = un(m[1]);
   const engine = un(require('fs').readFileSync(require('path').join(__dirname, 'engine', 'accounts.js'), 'utf8'));
-  assert.ok(engine.indexOf(fallback.slice(0, 48)) > -1,
+  /* 🛑 THE WHOLE SENTENCE, NOT A PREFIX. slice(0, 48) of a 58-character sentence left
+     its last ten characters unpinned on the fourth copy of the refusal: appending a word
+     to the page's fallback measured 34 pass, 0 fail, and only a wholesale replacement
+     went red. The full fallback IS a prefix of the engine sentence today, so matching it
+     entire pins all of it and costs nothing. */
+  assert.ok(engine.indexOf(fallback) > -1,
     'the handler fallback and the engine refusal have drifted: a person pressing the disabled row hears one sentence and the engine says another. fallback: ' + fallback);
 });
 
@@ -400,7 +405,10 @@ test('#1659: the disabled default row explains itself IN THE ACCESSIBLE NAME, no
   const m = un(body).match(/Unavailable: ([^"']+?)\."/);
   assert.ok(m, 'the Unavailable clause is no longer a literal this test can read; re-anchor it');
   const engine = un(require('fs').readFileSync(require('path').join(__dirname, 'engine', 'accounts.js'), 'utf8'));
-  assert.ok(engine.indexOf(m[1].slice(0, 40)) > -1,
+      /* Whole sentence, not a prefix, for the same reason as the fallback above:
+         17 of these 57 characters were unpinned. Measured that the FULL string is
+         present in the engine today, so this costs nothing. */
+  assert.ok(engine.indexOf(m[1]) > -1,
     'the accessible-name reason and the engine refusal have drifted: ' + m[1]);
 });
 
@@ -600,7 +608,30 @@ test('#1659: the repaint path CANCELS the pending announcement, all writers', ()
   assert.ok(writers.length >= 3,
     'fewer than three writers to the message line were found in paintAccounts, so this '
     + 'test is not looking at what it claims. found ' + writers.length);
-  const unguarded = writers.filter((m) => !/acctCancelSay\(\)/.test(body.slice(Math.max(0, m.index - 400), m.index)));
+  /* 🛑 CLIP THE LOOKBACK AT THE ENCLOSING BLOCK, NOT AT A CHARACTER COUNT. A flat
+     400-character window reaches BACKWARDS ACROSS A BRANCH BOUNDARY: for the post-await
+     success writer it ran back into the mutually-exclusive `catch` and matched THAT
+     branch's cancel, so the one call this branch added was pinned by nothing. Measured:
+     nine of the ten cancels red by name when deleted individually, and that one left
+     913 pass, 0 fail.
+     ⇒ A window measured in characters cannot see control flow. Cutting at the nearest
+     enclosing brace means a cancel on a path that DID NOT RUN cannot satisfy a writer on
+     the path that did. Third distinct failure of a character-counted window on this
+     branch: pushed out by a comment, spanning two things it could not tell apart, and
+     now crossing a branch boundary. */
+  const guardWindow = (idx) => {
+    const edge = Math.max(body.lastIndexOf('{', idx), body.lastIndexOf('}', idx));
+    return body.slice(edge > -1 ? edge : Math.max(0, idx - 400), idx);
+  };
+  /* ⚠️ EXCLUDE THE TIMER'S OWN WRITE. `msg.textContent = say` inside the setTimeout
+     callback IS the deferred announcement, so demanding a cancel before it is
+     nonsensical: it would be cancelling itself. It is identified structurally, by the
+     `acctSayTimer = null` the callback clears its handle with, not by position.
+     The property being asserted is that every writer which OVERWRITES the line cancels
+     the pending timer first. The timer's own write is not an overwrite. */
+  const isTimerWrite = (idx) => /acctSayTimer = null/.test(guardWindow(idx));
+  const unguarded = writers.filter((m) => !isTimerWrite(m.index)
+    && !/acctCancelSay\(\)/.test(guardWindow(m.index)));
   assert.equal(unguarded.length, 0,
     unguarded.length + ' of ' + writers.length + ' writers to #set-accounts-msg inside '
     + 'paintAccounts do not cancel the pending announcement first, so a deferred refusal '
