@@ -94,10 +94,19 @@ const everyRootIsDeferred = (init) => {
      so adding a harmless deferred reference hid a real freeze. */
   return lines.length > 0 && lines.every((l) => SOURCES.filter((s) => l.includes(s))
     .every((s) => {
-      const at = l.indexOf(s);
-      if (at < 0) return false;
-      const arrow = l.lastIndexOf('=>', at);
-      if (arrow < 0) return false;
+      /* 🛑 EVERY OCCURRENCE, NOT THE FIRST. `indexOf` examines only the first
+         appearance of each source on the line, so a SECOND appearance of the same
+         source was never checked:
+           [{ dir: () => path.join(store.ROOT,'a') }, { dir: path.join(store.ROOT,'b') }]
+         the first is deferred, the second is frozen, and the line was silent.
+         Same class as the some/every fix one level down: that moved from "some
+         SOURCES" to "every SOURCE", and left "every OCCURRENCE". */
+      const positions = [];
+      for (let at = l.indexOf(s); at > -1; at = l.indexOf(s, at + 1)) positions.push(at);
+      if (!positions.length) return false;
+      return positions.every((at) => {
+        const arrow = l.lastIndexOf('=>', at);
+        if (arrow < 0) return false;
       /* 🛑 THE ARROW MUST SCOPE THIS SOURCE, and my first two attempts did not
          check that. `lastIndexOf('=>')` finds ANY earlier arrow on the line,
          including one belonging to a DIFFERENT member, so
@@ -105,7 +114,8 @@ const everyRootIsDeferred = (init) => {
          exempted the frozen half on the strength of the lazy half's arrow. A
          comma between the arrow and the source means they belong to different
          members, so the arrow does not defer this one. */
-      return !l.slice(arrow, at).includes(',');
+        return !l.slice(arrow, at).includes(',');
+      });
     }));
 };
 

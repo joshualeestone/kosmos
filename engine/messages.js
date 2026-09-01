@@ -126,7 +126,7 @@ const spillDir = () => path.join(store.ROOT, 'messages');
    (Splinter, 2026-08-17, learned by failing six times in one night): long
    sends are the failure mode of pane transports -- they land collapsed
    and unsent while looking delivered -- and the reliable shape is three
-   lines and a path. The full text still goes in the log() (the screens
+   lines and a path. The full text still goes in the LOG (the screens
    draw conversations from the log, not from panes). */
 const SPILL_AT = 700;
 /* The ceiling past which a body is a document, not a message (spill

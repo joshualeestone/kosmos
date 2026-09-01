@@ -248,7 +248,7 @@ function syncEveryone(roster) {
  * the org hub and in every message row. It shows worst on the chart, where a
  * ring of faces surrounds one text label and the label is the person.
  *
- * 🛑 ITS OWN file(), NOT A ROW IN THE AGENT AVATAR STORE, and this is the one
+ * 🛑 ITS OWN FILE, NOT A ROW IN THE AGENT AVATAR STORE, and this is the one
  * trap in the feature. `engine/messages.js` already refuses to let a string
  * match promote an agent: *"'you' is a legal tmux session name, and the one
  * thing the screens must never do is promote an agent to operator on a string

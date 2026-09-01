@@ -52,7 +52,7 @@ function rememberedFiles() {
      red test rather than a silently vacuous one, which is what it was written
      against. Both shapes are accepted so the guard survives the next change in
      either direction. */
-  const re = /const\s+([A-Za-z_]+[Ff]ile)\s*=\s*(?:\(\)\s*=>\s*)?path\.join\(store\.ROOT,\s*'([^']+)'\)/g;
+  const re = /const\s+([A-Za-z_]+(?:[Ff]ile|FILE))\s*=\s*(?:\(\)\s*=>\s*)?path\.join\(store\.ROOT,\s*'([^']+)'\)/g;
   let m;
   while ((m = re.exec(DISCOVER)) !== null) out.push({ constant: m[1], basename: m[2] });
   return out;
@@ -108,4 +108,26 @@ test('#1531: the comment’s count matches what the rm line actually deletes', (
   assert.ok(SETUP.includes(`${words[n]} tiny files`),
     `the uninstall deletes ${n} remembered-answer files but the comment above it does not `
     + `say "${words[n]} tiny files". Change the word when you add one.`);
+});
+
+test('#1531: the derivation accepts BOTH shapes, which the comment used to only claim', () => {
+  /* The paragraph above asserted "both shapes are accepted" and that was untrue:
+     `[Ff]ile` cannot match the all-caps `DISMISS_FILE`. A claim about a guard's
+     reach is worth nothing until somebody constructs the case it forbids. */
+  /* 🛑 THE FILE'S OWN REGEX, LIFTED OUT OF THE SOURCE, NOT A COPY. My first
+     version of this arm inlined its own widened pattern and passed while the
+     derivation above still carried the narrow one, so it proved a property of the
+     test rather than of the guard. Each side testing its own copy is exactly the
+     shape that let the original false claim stand. */
+  const SELF = fs.readFileSync(__filename, 'utf8');
+  const m = SELF.match(/const re = (\/const[^\n]*\/g);/);
+  assert.ok(m, 'could not lift the derivation regex out of this file');
+  // eslint-disable-next-line no-new-func
+  const RE = () => new Function('return ' + m[1])();
+  const frozen = "const DISMISS_FILE = path.join(store.ROOT, 'found-agents-dismissed.json');";
+  const lazy = "const dismissFile = () => path.join(store.ROOT, 'found-agents-dismissed.json');";
+  assert.ok(RE().test(frozen), 'the FROZEN shape is not matched, so a revert would empty this list');
+  assert.ok(RE().test(lazy), 'the LAZY shape is not matched, so today it finds nothing');
+  assert.ok(!RE().test("const X = elsewhere('a.json');"),
+    'CONTROL: it matches something unrelated, so matching proves nothing');
 });

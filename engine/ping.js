@@ -51,7 +51,7 @@ const endpoint = () => process.env.AGENT_WORKFORCE_PING_URL || DEFAULT_ENDPOINT;
 /**
  * The preference and the install id, in one small file.
  *
- * ⚠️ AN UNREADABLE file() FAILS TO **OFF**, unlike the shipped default. Absent
+ * ⚠️ AN UNREADABLE FILE FAILS TO **OFF**, unlike the shipped default. Absent
  * means nobody has been asked yet, which is on; present-but-unreadable means
  * somebody may have turned it off and we cannot see which, and the only action
  * gated here is sending something off the machine. Same split as

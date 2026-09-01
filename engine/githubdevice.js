@@ -53,7 +53,7 @@ const store = require('./store');
    defends against a WRONG ANSWER, not against a rejection, and only the wrong answer is
    testable.
 
-   🛑 THIS file() CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK, DELIBERATELY.
+   🛑 THIS FILE CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK, DELIBERATELY.
    That cycle detector WARNS rather than throws, because throwing at import bricks the
    board: `server.js` requires this module with no try. Both are correct, because they
    are about DIFFERENT FAILURES:

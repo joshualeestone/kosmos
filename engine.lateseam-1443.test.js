@@ -40,7 +40,16 @@ const frozen=[]; const seen=new Set();
   if (o instanceof Map) { let i=0; for(const [k,v] of o) entries.push(['['+String(k)+']',v]); }
   else if (o instanceof Set) { let i=0; for(const v of o) entries.push(['{'+(i++)+'}',v]); }
   else if (Array.isArray(o)) o.forEach((v,i)=>entries.push(['['+i+']',v]));
-  else for(const k of Object.keys(o)) { let v; try{v=o[k];}catch{continue;} entries.push([k,v]); }
+  /* 🛑 getOwnPropertyNames, NOT Object.keys. \`Object.defineProperty\` defaults to
+     enumerable:false, so a module doing
+       Object.defineProperty(module.exports, 'FILE', { value: FILE })
+     is invisible to a keys walk while still handing every caller a frozen path.
+     That is not hypothetical here: engine/store.js:363 defines ROOT, AVATARS and
+     PROFILES with defineProperty, and the only thing keeping THIS probe sighted
+     on the module at the centre of the card is a comment there saying
+     enumerable:true. Nothing machine-checked that comment. This costs nothing and
+     removes the dependency on it. */
+  else for(const k of Object.getOwnPropertyNames(o)) { let v; try{v=o[k];}catch{continue;} entries.push([k,v]); }
   for(const [k,v] of entries){
     if(typeof v==='string'&&v.includes(A)) frozen.push(p+k);
     else if(v&&typeof v==='object'&&d<3) walk(v,p+k+'.',d+1); } })(m,'',0);
