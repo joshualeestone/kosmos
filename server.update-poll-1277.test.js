@@ -151,3 +151,59 @@ test('#1277: every test file that boots the server sets DRY_RUN, so none can rea
     + 'Booting the server starts the update poll, and without the gate that poll uses the real '
     + 'fetch against the real release host.');
 });
+
+test('#1277 convention: a test that opens installedRoot must inject an install runner', () => {
+  /* 🛑 THIS GUARD EXISTS BECAUSE THE SUITE RAN THE REAL PRODUCTION INSTALLER.
+     Two arms on this branch set setInstalledRoot() to a truthy path and opened
+     every other gate without injecting a runner, so `node --test` spawned
+     `curl -fsSL https://installkosmos.com/setup?v=9.9.9 | sh` twice per run, as
+     the developer, with their real HOME. Measured, not inferred: that endpoint
+     serves a real 201KB installer even for a version that does not exist, and
+     the only thing that stopped it was the installer's own refusal to run under
+     a live board, which is somebody else's last line of defence.
+
+     engine/update.js now also refuses at the spawn site via the shared
+     live-execution gate. This is the static half: the runtime gate stops it
+     happening, and this stops it being WRITTEN, which is the cheaper place to
+     catch it because it names the file and line for the author. */
+  const fs = require('node:fs'); const path = require('node:path');
+  const root = __dirname;
+  const files = [];
+  (function walk(d) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) walk(f);
+      else if (e.name.endsWith('.test.js')) files.push(f);
+    }
+  }(root));
+  assert.ok(files.length > 50, `only ${files.length} test files found, the walk is broken`);
+
+  /* ⚠️ THE PREDICATE IS NARROWED ON PURPOSE, AND THE FIRST VERSION WAS WRONG.
+     Flagging every test that opens installedRoot caught FOUR MORE than the
+     hazard, including two that predate this branch. The spawn probe measured
+     exactly TWO real installer spawns across the whole suite, so a guard on
+     installedRoot alone names a class wider than the defect and manufactures
+     work on safe tests, which is how a guard gets excused into uselessness.
+     Reaching the spawn needs installedRoot AND the preference open, because
+     maybeAutoInstall gates on both. Verified: this predicate yields exactly the
+     two arms the probe caught, and zero after they inject a runner. */
+  const OPENS = /setInstalledRoot\(\(\)\s*=>\s*['"`]?[/\w]/;
+  const PREF_ON = /setAutoPref\(\(\)\s*=>\s*\(\{\s*on:\s*true/;
+  const offenders = [];
+  for (const f of files) {
+    const src = fs.readFileSync(f, 'utf8');
+    if (!OPENS.test(src)) continue;
+    // split per test() so a runner in one arm does not excuse another
+    const parts = src.split(/\n(?=test\()/);
+    for (const part of parts) {
+      if (!OPENS.test(part) || !PREF_ON.test(part)) continue;
+      if (/setInstallRunner/.test(part)) continue;
+      const name = (part.match(/^test\(\s*['"`](.{0,70})/) || [, '(module scope)'])[1];
+      offenders.push(`${path.relative(root, f)} :: ${name}`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    'these tests open installedRoot without injecting an install runner, so they can spawn the '
+    + 'real production installer:\n  ' + offenders.join('\n  '));
+});

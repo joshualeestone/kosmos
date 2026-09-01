@@ -17,6 +17,7 @@
  * manifest cannot pop a toast asking somebody to install it.
  */
 const fs = require('node:fs');
+const liveExec = require('./live-execution');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { version: RUNNING } = require('../package.json');
@@ -663,6 +664,38 @@ function beginInstall(opts) {
      version by itself comes from this file, and it used to carry only an exit
      code and a start stamp. Two more fields, and `-` stands in for an unknown
      version so the field count stays fixed. */
+  /* 🛑 THE SHARED FAIL-CLOSED LIVE-EXECUTION GATE, AND THIS IS THE PLACE IN THE
+     PRODUCT THAT MOST NEEDED IT AND DID NOT HAVE IT. engine/create.js has run
+     every agent spawn through this gate since #1598. The line below runs
+     `curl -fsSL <url> | sh` detached, as the person, with their real HOME, and
+     the served installer stops the board and replaces the installed copy. It was
+     the more dangerous of the two spawns and the only ungated one.
+
+     Found by a challenge reviewer on #1277: two arms in this branch's own test
+     file opened every gate without injecting a runner, so `node --test` spawned
+     the REAL production installer against installkosmos.com twice per run.
+     Measured: that endpoint serves a real 201KB installer even for a version
+     that does not exist, so it was not a harmless 404. Nothing of OURS stopped
+     it; the installer's own refusal to run under a live board did, which is
+     somebody else's last line of defence.
+
+     ⚠️ ORDER, checked rather than assumed: server.js opens this gate at :7462
+     and starts the poll at :7411, so the gate opens AFTER the poll starts. That
+     is safe only because this check is at SPAWN time: the first tick is `every`
+     ms away (60s by default) and an install additionally needs a fetch, an offer
+     and the preference, while the gate opens synchronously in the same startup.
+     Gating startAutoPoll instead would be a real race.
+
+     In a test process refuseOrWarn THROWS, so this class is loud rather than
+     silent. In production it warns and we decline to spawn, which is the right
+     direction for the one command in this product that ends in `| sh`. */
+  if (!liveExec.liveExecutionAllowed()) {
+    liveExec.refuseOrWarn('engine/update.js', '/bin/sh', ['-c', 'curl -fsSL <setupUrl> | sh']);
+    /* Release single-flight, or one refusal answers every later attempt
+       "already updating" for the life of the process. */
+    installStarted = false;
+    return;
+  }
   const child = spawn('/bin/sh', ['-c', 'set -o pipefail; curl -fsSL "$1" | sh; code=$?; printf "%s %s %s %s %s\n" "$code" "$3" "$4" "$5" "$6" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, lastAttempt.version || '-', lastAttempt.auto ? '1' : '0', String(lastAttempt.attempts || 0)], {
     detached: true,
     stdio: 'ignore',

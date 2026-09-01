@@ -596,6 +596,14 @@ test('#1277: DRY_RUN stops the FETCH but leaves the timer, so the suite cannot i
   let fetches = 0;
   u.setFetcher(async () => { fetches += 1; return { ok: true, json: async () => ({ version: '9.9.9' }) }; });
   u.setInstalledRoot(() => '/tmp/pretend-installed');
+  /* 🛑 A RUNNER, OR THIS ARM SPAWNS THE REAL INSTALLER. Opening every gate is
+     the POINT of this control, and the last gate is a live `curl | sh` against
+     installkosmos.com. Measured before this line: two real installer spawns per
+     `node --test engine/update.test.js`, and that endpoint serves a real 201KB
+     installer even for a version that does not exist. The product gate added in
+     engine/update.js also refuses now; this is the second lock, because a test
+     must not depend on a product guard to be safe to run. */
+  u.setInstallRunner(() => ({ on() {}, unref() {}, stderr: { on() {} } }));
   /* 🛑 STUB THE PREFERENCE TOO, OR THIS ARM CANNOT BE TRUSTED TO FAIL. The tick
      has three gates and this one only stubbed two.
 
@@ -811,6 +819,14 @@ test('#1277: the tick respects the preference, so an opted-out machine stops pho
   let fetches = 0;
   u.setFetcher(async () => { fetches += 1; return { ok: true, json: async () => ({ version: '9.9.9' }) }; });
   u.setInstalledRoot(() => '/tmp/pretend-installed');
+  /* 🛑 A RUNNER, OR THIS ARM SPAWNS THE REAL INSTALLER. Opening every gate is
+     the POINT of this control, and the last gate is a live `curl | sh` against
+     installkosmos.com. Measured before this line: two real installer spawns per
+     `node --test engine/update.test.js`, and that endpoint serves a real 201KB
+     installer even for a version that does not exist. The product gate added in
+     engine/update.js also refuses now; this is the second lock, because a test
+     must not depend on a product guard to be safe to run. */
+  u.setInstallRunner(() => ({ on() {}, unref() {}, stderr: { on() {} } }));
   try {
     u.setAutoPref(() => ({ on: false }));
     u.startAutoPoll({ every: 20 });
