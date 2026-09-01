@@ -391,3 +391,26 @@ test('#1659: the aria-disabled control has its own styling, at the opacity the c
     'the aria-disabled rule is gone or its opacity changed: the dead control now looks identical to the live '
     + 'ones, or it dropped below the AA threshold the comment above it measured');
 });
+
+/* 🛑 BROWSER-ONLY BEHAVIOURS WITH NO FLOOR ANYWHERE. Measured: deleting the
+   catch-path `btn.focus(...)` AND all three `msg.scrollIntoView(...)` calls leaves
+   the entire suite green. Neither is observable to the unit fixtures (their stubs
+   have no layout and no focus model) and the browser gate asserts neither.
+   ⇒ Source pins, the same class already used for `tabindex="-1"`, the
+   aria-disabled opacity and the provider marker. They are floors, not proofs: they
+   catch deletion, which is the failure that actually happened to their siblings.
+   The catch-path focus restore matters most: it is what stops a keyboard or
+   screen-reader user being stranded on <body> while the refusal naming the
+   blocking agents renders below every account box. */
+test('#1659: the failure path restores focus, and every message write scrolls itself into view', () => {
+  /* Anchored on the call alone, not on adjacency to the disarm: a 15-line comment
+     sits between them, and my first version required them on consecutive lines and
+     failed. The call is unique in this file, so the looser anchor is not weaker. */
+  assert.match(PAGE, /if \(btn\.focus\) btn\.focus\(\{ preventScroll: true \}\)/,
+    'the catch path no longer restores focus, so a refused removal leaves a keyboard user on <body> '
+    + 'while the sentence naming the blocking agents renders far below them');
+  const scrolls = (PAGE.match(/msg\.scrollIntoView\(\{ block: 'nearest' \}\)/g) || []).length;
+  assert.ok(scrolls >= 3,
+    'a message write lost its scrollIntoView: the account list is long, so the line the person must '
+    + 'act on renders off-screen. found ' + scrolls + ', expected at least 3');
+});

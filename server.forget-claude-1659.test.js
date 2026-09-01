@@ -142,7 +142,7 @@ test('#1659 route: an unused Claude account is forgotten, and the answer says no
      and unactionable alone; the engine computes movedTo and the route used to
      drop it, so the one fact that makes a removal recoverable was withheld from
      the person who might need it. */
-  assert.match(r.json.because, /\.removed-claude-lonely/,
+  assert.match(r.json.because, /hidden folder called \.removed-claude-lonely in your home folder/,
     'the answer does not say where the account went, so the removal is not recoverable by anyone reading it');
   /* And it must say what Kosmos stops doing: the rename takes the directory out
      of status.js configRoots (which accepts only .claude and .claude-*), so an

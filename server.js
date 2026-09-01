@@ -3507,8 +3507,20 @@ const server = http.createServer((req, res) => {
         /* "Removed" and "deleted" are different promises and the person is
            entitled to know which one they got.
            🛑 AND ON THE CLAUDE SIDE "nothing was deleted" IS TRUE OF THE
-           CREDENTIAL AND NOT OF THE HISTORY, which the OpenAI wording does not
-           have to carry. `status.js:198` finds transcript roots by accepting
+           CREDENTIAL AND NOT OF THE HISTORY, which the OpenAI wording carries for
+           its DEFAULT account only.
+           🛑 THAT CLAUSE USED TO READ "which the OpenAI wording does not have to
+           carry", and it is wrong in the one case that route uniquely allows:
+           removing `~/.codex` itself. MEASURED with a real rollout tree
+           (`sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl`, the shape
+           `codexsession.rollouts()` actually reads): 1 before the rename, 0 after.
+           So that removal has the same stops-looking-inside consequence and its
+           sentence omits it.
+           ⚠️ My first probe used a FLAT file, read 0 both times, and nearly let me
+           dismiss a correct finding as unreproducible. The fixture was wrong, not
+           the claim.
+           📌 The original wording is right for a labelled `.codex-<label>`, because
+           codexsession only ever reads the default home. `status.js:198` finds transcript roots by accepting
            only `.claude` and `.claude-*`; the rename produces
            `.removed-claude-*`, which that rule skips. Measured both arms:
            `.claude-solo` SCANNED, `.removed-claude-solo` SKIPPED. So an account
