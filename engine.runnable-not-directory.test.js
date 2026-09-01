@@ -187,8 +187,7 @@ const REPO = __dirname;
  * exist), `*.test.js` excluded, any directory named `dist` skipped, and any
  * dot-directory.
  *
- (The maxim above applies here too; stated once, deliberately.)
- * caveat as the complete list.
+ * (The maxim above applies here too; stated once, deliberately.)
  *
  * 🛑 SO HERE IS THE GAP THE LIST ABOVE WAS MISSING, AND IT IS THE ORIGIN OF THE CLASS:
  * THIS SWEEP READS JAVASCRIPT ONLY, AND THE SAME DECISION IS MADE IN SHIPPED SHELL.
@@ -438,7 +437,7 @@ function fixture(name) {
      wrong test. A reviewer found the real window: the `rawSaysYes` assertion below
      runs AFTER the directory exists and BEFORE the caller receives the cleanup
      handle, so a failure there strands it with nothing registered to remove it.
-     ⚠️ And this file's own header forbids exactly this pattern twelve lines above,
+     ⚠️ And this file's own header forbids exactly this pattern,
      citing the measured cost. I applied that rule to SANDBOX and not to fixture. */
   const dir = mkTemp('runnable-1592-');
   const asDirectory = path.join(dir, name);
@@ -1151,7 +1150,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
 
      🛑 SUPERSEDED, AND KEPT ONLY AS HISTORY. THE SHIPPED CHECK IS SCOPED TO
      becomeStuck, NOT FILE-WIDE: it slices the function body and asserts exactly one
-     `writeState(` call. The block roughly thirty lines below records the trade
+     `writeState(` call. The block further down records the trade
      properly, including that a later blind reviewer priced the file-wide version and
      it lost, because four independent tripwires on connect.js drop to two and
      three conflicting branches are live in connect.js right now.
@@ -1619,7 +1618,7 @@ test('an EMPTY env var means UNSET, not "no candidates", or gh reads as missing'
      single rule: anything that is not a non-empty string means unset and yields the
      defaults. Two arms drive it, one per route, because the routes reach the same `if`
      by different paths and a revert can break either.
-  
+
      ⚠️ THE OPENING PARAGRAPH HERE USED TO DESCRIBE THE SUPERSEDED TWO-RULE SHAPE. It said
      this test pins a `|| undefined` on the default parameter, and that the argument arm
      "never touches the default-parameter expression, so it cannot see this. Two different
@@ -1628,7 +1627,7 @@ test('an EMPTY env var means UNSET, not "no candidates", or gh reads as missing'
      file's own failure messages, twenty lines down, tell a maintainer NOT to restore the
      construct this paragraph claimed to be pinning.
      ⇒ The arms were right and their stated reason described the code they replaced.
-  
+
      ⚠️ The harm the collapse prevents is user-visible: `export AGENT_WORKFORCE_GH_CANDIDATES=$UNSET`
      yields '' routinely, and under the old shape that made the real door return null on a
      machine where gh IS installed. */

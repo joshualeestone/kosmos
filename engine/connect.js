@@ -1111,7 +1111,12 @@ async function start(opts) {
      head of this file.
 
      🛑 `binaryOnDisk` NEAR THE TOP OF THIS FUNCTION IS DELIBERATELY EXCLUDED AND
-     MUST NOT BE FOLDED IN. It is CONDITIONAL and it is behind an await, so it is not
+     MUST NOT BE FOLDED IN. It is CONDITIONAL, so it is not
+     ⚠️ "and it is behind an await" WAS DELETED FROM THIS SENTENCE. The head-of-file summary
+     already said that phrase had been withdrawn, and it was still standing HERE: one copy
+     fixed, its sibling left, which is the class this branch is named for. It is also false by
+     this block's own reading two paragraphs down, where the await count is "AT MOST ONE and
+     often zero". The load-bearing half is CONDITIONAL, and it never needed the await claim.
      a value this pair can reuse: it is computed only inside
      `if (sub.state === subscription.STATE.CONNECTED)`, so on the common path it is
      never computed at all, and where it IS computed the disk can change before this

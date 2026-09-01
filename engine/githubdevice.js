@@ -45,14 +45,14 @@ const store = require('./store');
    ⚠️ THIS PARAGRAPH WAS A VERBATIM COPY OF devicedoor.js's AND EVERY MECHANISM IN IT WAS
    FALSE FOR THIS FILE. It cited `ghBin()`, `status()`, `makeDoor` and a Promise executor.
    NONE OF THEM APPEAR AS CODE HERE: every occurrence is a citation inside a comment.
-   
+
    🛑 STATED AS A PROPERTY, WITH NO INTEGERS, AND THE REASON IS INSTRUCTIVE. Two earlier
    drafts published counts. The first ("0, 0, 0, with ghPresent at 5 as a control") did
    not reproduce. The second was WRONG THE MOMENT IT WAS SAVED, because writing the
    sentence added one citation to each term, so the comment diagnosed that exact failure
    and then committed it. A count of a token in the file that contains the count is not a
    measurement of anything.
-   
+
    ⚠️ And `ghPresent` was a USELESS CONTROL: its hits are prose and code mixed, so it
    counted prose exactly as the subject did and could never separate "absent as code" from
    "absent entirely". A control sharing the subject's blindness is not a control.
