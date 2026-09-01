@@ -1339,6 +1339,18 @@ function remoteWriteGuard(req, pathname) {
  *
  * Read at listen time (boot). A Settings toggle would need a restart to take
  * effect, so the env is the honest mechanism.
+ *
+ * ⚠️ OPENING THE BIND IS A TWO-PART OPT-IN, AND THIS IS THE SECOND PART. A
+ * remote agent connects with `Host: <mac-ip>` (or a hostname), and `pathOf`'s
+ * DNS-rebind check 400s any request whose Host is neither loopback nor in
+ * `AGENT_WORKFORCE_ALLOWED_HOSTS` -- BEFORE `remoteWriteGuard` ever runs. So the
+ * operator must ALSO declare the reachable host in `AGENT_WORKFORCE_ALLOWED_HOSTS`,
+ * or a token-holding remote agent is refused at the door. This is deliberate,
+ * not an oversight: the Host check is DNS-rebind protection, a different layer
+ * from reachability, and it matters MOST when the board is network-reachable, so
+ * it is not relaxed just because the bind opened. Two explicit opt-ins to expose
+ * the board is the safer posture. (Fails closed: with only KOSMOS_BIND_HOST set,
+ * a remote agent gets a 400, never an unguarded surface.)
  */
 function bindHost() {
   const v = String(process.env.KOSMOS_BIND_HOST || '').trim();
@@ -5066,7 +5078,10 @@ const server = http.createServer((req, res) => {
         const name = body && typeof body.name === 'string' ? body.name.trim() : '';
         if (!name) { const bad = new Error('name a remote agent to issue a token for'); bad.status = 400; throw bad; }
         const minted = sendertoken.mint(name);
-        if (!minted.ok) { sendJson(res, 200, { issued: false, because: minted.because }); return; }
+        // A mint failure is a server-side problem (the token file could not be
+        // keyed or written), so it is a 500, not a 200 -- consistent with the
+        // 400 for a client-side empty name above.
+        if (!minted.ok) { sendJson(res, 500, { issued: false, because: minted.because }); return; }
         sendJson(res, 200, { issued: true, name, token: minted.token, instance: minted.instance });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
