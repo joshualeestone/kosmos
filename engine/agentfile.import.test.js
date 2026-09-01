@@ -115,7 +115,7 @@ test('#1652: input that travelled (CRLF line endings and a leading BOM) still im
   /* A file emailed or pasted through Windows can gain CRLF and a BOM. That is
      input hygiene, not a second format: a valid agent file must not be refused
      for surviving the trip. */
-  const crlf = '﻿' + '---\r\nkosmos: agent\r\nname: travelled\r\n---\r\n\r\n# You are Travelled\r\n';
+  const crlf = '\uFEFF' + '---\r\nkosmos: agent\r\nname: travelled\r\n---\r\n\r\n# You are Travelled\r\n';
   const out = agentfile.importAgent(crlf, deps);
   assert.equal(out.ok, true, 'a CRLF+BOM file was refused: ' + out.because);
   assert.equal(out.name, 'travelled');
@@ -181,6 +181,28 @@ test('#1652 REFUSED WHOLE: a DISPLAY name (from the body) carrying a bidi overri
   const clean = agentfile.importAgent('---\nkosmos: agent\nname: cleanmachinename\n---\n\nYou are **Ann Clean**\n', deps);
   assert.equal(clean.ok, true, clean.because);
   assert.equal(clean.displayName, 'Ann Clean');
+});
+
+test('#1652: zero-width chars in the display name -- no-use ones refused, script/emoji joiners kept', () => {
+  const mk = (code) => agentfile.importAgent(`---\nkosmos: agent\nname: zwname\n---\n\nYou are **Ann${String.fromCharCode(code)}Bee**\n`, deps);
+  // Invisible, no legitimate use in a name -> refused.
+  for (const code of [0x00ad, 0x200b, 0x2060]) {
+    assert.equal(mk(code).ok, false, `an invisible U+${code.toString(16)} in the display name was accepted`);
+  }
+  // ZWNJ / ZWJ are legitimate in Arabic/Persian/Indic scripts and emoji -> DELIBERATELY kept.
+  for (const code of [0x200c, 0x200d]) {
+    const out = mk(code);
+    assert.equal(out.ok, true, `a legitimate zero-width joiner U+${code.toString(16)} was wrongly refused: ${out.because}`);
+  }
+});
+
+test('#1652: a name carrying a control/bidi char gives a precise reason, not "no usable name"', () => {
+  const BIDI = String.fromCharCode(0x202e);
+  const out = agentfile.importAgent(`---\nkosmos: agent\nname: Ann${BIDI}EVIL\n---\n\n# You are X\n`, deps);
+  assert.equal(out.ok, false);
+  assert.match(out.because, /carries a control or bidi character/, 'a bidi-in-name should say why, not "no usable name"');
+  // CONTROL: an actually-absent name still says "no usable name".
+  assert.match(agentfile.importAgent('---\nkosmos: agent\n---\n\n# You are X\n', deps).because, /no usable name/);
 });
 
 test('#1652 REFUSED WHOLE: a display name too long to be a name', () => {

@@ -69,23 +69,25 @@ const IMPORT_CONTRACT = Object.freeze({
 
 function safeValue(v) {
   const s = String(v == null ? '' : v).trim();
-  /* A value is ONE LINE OF CLEAN TEXT. It refuses (never escapes):
-       - control characters (C0, C1 and DEL): a newline ends the block early, and
-         no control character belongs in a name, a display name or a provider;
-       - EVERY Unicode Bidi_Control character: the Arabic Letter Mark (U+061C), the
-         LRM/RLM marks (U+200E/200F), the embeddings and overrides (U+202A-202E)
-         and the isolates (U+2066-2069). These reorder how text renders and are the
-         display-name SPOOFING vector this import surface exists to refuse;
-       - the line and paragraph separators U+2028/U+2029, which are line
-         terminators no single-line value should carry;
-       - a stray zero-width no-break space (U+FEFF) that is not the leading BOM
-         importAgent already strips.
-     This is a BOUNDARY hardening, NOT the full agent-name character policy: the
-     complete allowlist ([a-z0-9_-] via create.nameProblem) is applied when the
-     material flows through createAgent, which is also where the ambiguous
-     zero-width joiners (legitimate in emoji and some scripts) are refused. Export
-     names are already clean, so this trips nothing there. */
-  if (!s || /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/.test(s)) return null;
+  /* A value is ONE LINE OF CLEAN TEXT, refused (never escaped) if it carries:
+       - a control character (C0, C1 or DEL): a newline ends the block early, and
+         none belongs in a name, a display name or a provider;
+       - any Unicode Bidi_Control character (U+061C, U+200E/200F, U+202A-202E,
+         U+2066-2069): these reorder how text renders and are the display-name
+         SPOOFING vector this import surface exists to refuse;
+       - a line or paragraph separator (U+2028/U+2029);
+       - an invisible separator with no legitimate use in a name: soft hyphen
+         (U+00AD), zero-width space (U+200B), word joiner (U+2060), and a stray
+         zero-width no-break space (U+FEFF) that is not the leading BOM importAgent
+         strips.
+     DELIBERATELY NOT refused: the zero-width joiners U+200C/U+200D, which ARE
+     legitimate in Arabic/Persian/Indic scripts and in emoji sequences, so a
+     display name may carry them. And this is NOT a homoglyph/confusable defence,
+     which is unbounded: the identity boundary is the machine `name`, whose strict
+     [a-z0-9_-] allowlist (create.nameProblem) admits none of the above. This is a
+     boundary hardening of a bounded preview field; export names are already clean,
+     so it trips nothing there. */
+  if (!s || /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b\u200e\u200f\u2028\u2029\u202a-\u202e\u2060\u2066-\u2069\ufeff]/.test(s)) return null;
   return s;
 }
 
@@ -183,7 +185,7 @@ function importAgent(text, deps) {
      pick up a leading BOM or CRLF line endings. Strip/normalise them before
      parsing so a valid agent file is not refused for surviving the trip. The
      format itself is still the LF `---` frontmatter `skills.readMeta` reads. */
-  const src = String(text == null ? '' : text).replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  const src = String(text == null ? '' : text).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
   if (!src.trim()) return { ok: false, because: 'that file is empty' };
 
   // (1) the `---` frontmatter block, the same shape `skills.readMeta` reads.
@@ -201,7 +203,15 @@ function importAgent(text, deps) {
   }
   // (3) a name present and usable.
   const name = field('name');
-  if (!name) return { ok: false, because: 'the agent file has no usable name' };
+  if (!name) {
+    /* Precise reason, as on the display-name path: `field` returns null both for
+       an absent name line and for one safeValue rejected. A `name:` line with a
+       non-space value present means the latter -- a control or bidi character. */
+    const namePresent = /^name:[ \t]*\S/m.test(head);
+    return { ok: false, because: namePresent
+      ? 'the agent file’s name carries a control or bidi character'
+      : 'the agent file has no usable name' };
+  }
   /* 🛑 PATH-SAFETY IS THIS SURFACE'S JOB, and it is where the collision concern
      and the safety concern part ways. A NAME COLLISION with a running agent is
      machine state the create flow decides; PATH-SAFETY is a pure property of the
