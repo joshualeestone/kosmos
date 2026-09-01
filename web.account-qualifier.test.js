@@ -363,3 +363,31 @@ test('#1659: the post-removal focus target carries tabindex, or .focus() is a si
   assert.match(PAGE, /getElementById\('set-accounts'\)[\s\S]{0,200}?\.focus\(/,
     'nothing focuses #set-accounts any more, so the tabindex above is dead weight');
 });
+
+/* 🛑 THE PROVIDER FALLBACK ITSELF, which the executed-ternary test cannot reach
+   because it PASSES qualName IN as a parameter: the derivation that computes it is
+   never run. Measured: replacing `qual || (isOpenai ? 'OpenAI' : 'Claude')` with
+   plain `qual` left every web test green, and the regression it ships is an
+   accessible name reading `Disconnect walk@example.com ()`.
+   📌 A SOURCE-level pin, and labelled as one. The rendered half is covered by the
+   executed ternary above; this covers the half that feeds it, which is the only
+   part a parameterised fixture structurally cannot see. */
+test('#1659: qualName falls back to the PROVIDER, so no row can render an empty parenthetical', () => {
+  assert.match(PAGE, /const qualName = qual \|\| \(isOpenai \? 'OpenAI' : 'Claude'\)/,
+    'the provider fallback is gone, so a row yielding neither an email nor a key tail renders '
+    + '"Disconnect <who> ()" and two such rows answer to the same name again');
+});
+
+/* 🛑 THE DISABLED ROW MUST LOOK DISABLED, and the rule was pinned by nothing.
+   Measured: deleting `.acct-disconnect[aria-disabled="true"]` left every web test
+   green, and the browser gate asserts the ATTRIBUTE rather than the appearance. The
+   default row would then inherit the base style, full opacity and underlined with a
+   pointer cursor, and render identically to the live controls next to it.
+   ⚠️ The opacity is load-bearing for contrast, not taste: .8 clears AA for 13px
+   text at 4.82:1 and .7 does not at 3.77:1, which is why this arm pins the VALUE
+   and not merely the selector. */
+test('#1659: the aria-disabled control has its own styling, at the opacity the contrast comment measured', () => {
+  assert.match(PAGE, /\.acct-disconnect\[aria-disabled="true"\][^}]*opacity: \.8/,
+    'the aria-disabled rule is gone or its opacity changed: the dead control now looks identical to the live '
+    + 'ones, or it dropped below the AA threshold the comment above it measured');
+});

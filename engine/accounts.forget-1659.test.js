@@ -193,10 +193,17 @@ test('#1659: two removals of the same label keep BOTH sign-ins', () => {
    `sharesMemory` answers false for every account on the machine, while the return
    value is a cheerful { ok: true }.
    ⚠️ Measured as uncovered before this was written: reverting the fix left every
-   accounts test green, and no other test file calls share(). A destructive path
-   with a cheerful return value and zero coverage.
+   accounts test green. A destructive path with a cheerful return value and no
+   coverage.
    📌 Asserted through `isDefaultDir`, which is the exported helper share() now
-   uses, so the arm fails if anyone re-derives that comparison by hand again. */
+   uses.
+   🛑 TWO CORRECTIONS TO THIS COMMENT, both mine and both the same kind of error.
+   It said "no other test file calls share()": FALSE, engine/accounts.test.js calls
+   it three times, and I asserted that about the repo without grepping. It also
+   said this arm fails if anyone re-derives the comparison by hand: it does not.
+   Asserting `isDefaultDir` is a DIFFERENT PROPOSITION from "share() calls it", and
+   reverting share()'s own line left this green. The arm that actually calls
+   share() is at the end of this file. */
 test('#1659: the default is recognised under a RELATIVE home, which is the input class the fix exists for', () => {
   /* 🛑 A RELATIVE HOME, AND THE FIRST VERSION OF THIS ARM WAS VACUOUS WITHOUT ONE.
      With an ABSOLUTE home, `path.join(home, '.claude')` and
@@ -221,6 +228,30 @@ test('#1659: the default is recognised under a RELATIVE home, which is the input
       'a non-default reads as the default, so the assertion above passes for the wrong reason');
   } finally {
     process.chdir(cwd);
+    process.env.AGENT_WORKFORCE_HOME = SANDBOX;
+  }
+});
+
+/* 🛑 THE ARM THAT ACTUALLY CALLS share(), because the two before it did not.
+   A trailing slash classified the DEFAULT as non-default, took the mutation path,
+   removed `~/.claude/projects` and symlinked it to itself. `readdir` then throws
+   ELOOP and `sharesMemory` answers false for every account on the machine, while
+   the return value is a cheerful { ok: true }.
+   ⇒ Two assertions, because the ANSWER alone is not the harm: the harm is what
+   happens to the directory, so that is checked directly. */
+test('#1659: share() recognises the default through a trailing slash, so it cannot mutate its projects tree', () => {
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-claude-share-'));
+  process.env.AGENT_WORKFORCE_HOME = home;
+  try {
+    const projects = nodePath.join(home, '.claude', 'projects');
+    fs.mkdirSync(projects, { recursive: true });
+    assert.deepEqual(accounts.share(nodePath.join(home, '.claude') + '/'), { ok: true, already: true },
+      'share() did not recognise the default through a trailing slash, so it took the MUTATION path on it');
+    const st = fs.lstatSync(projects);
+    assert.equal(st.isSymbolicLink(), false,
+      'the default projects tree was replaced by a symlink to itself: the ELOOP that makes sharesMemory answer false for every account');
+    assert.equal(st.isDirectory(), true, 'the default projects tree is no longer a real directory');
+  } finally {
     process.env.AGENT_WORKFORCE_HOME = SANDBOX;
   }
 });

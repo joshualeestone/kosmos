@@ -397,7 +397,7 @@ let failed = 0;
     beforePress.label === 'Disconnect' && beforePress.listed === true && beforePress.visible === true,
     JSON.stringify(beforePress));
   const pressOne = await walkStep(true);
-  say('the Remove button is there to press', pressOne.clicked === true, JSON.stringify(pressOne));
+  say('the Disconnect button is there to press', pressOne.clicked === true, JSON.stringify(pressOne));
   await p.waitForTimeout(300);
   const firstPress = await walkStep(false);
   say('the FIRST press only ARMS, it does not remove (#1683, #1702)',
