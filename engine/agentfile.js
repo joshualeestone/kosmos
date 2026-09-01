@@ -63,15 +63,21 @@ const IMPORT_CONTRACT = Object.freeze({
 
 function safeValue(v) {
   const s = String(v == null ? '' : v).trim();
-  /* A frontmatter value is ONE LINE OF CLEAN TEXT. A newline ends the block
-     early; a tab or any other control character, or a bidi override (U+202E and
-     its kin), is never a legitimate agent name or provider, and on this import
-     surface a file from outside the machine could carry one to spoof a displayed
-     name or break the block. Refuse rather than escape: there is no valid value
-     with one in it, and refusing invents no syntax nobody else parses. (This
-     also guards the export side, whose names are already clean, so it trips
-     nothing there.) */
-  if (!s || /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(s)) return null;
+  /* A value is ONE LINE OF CLEAN TEXT. It refuses (never escapes):
+       - control characters (C0, C1 and DEL): a newline ends the block early, and
+         no control character belongs in a name, a display name or a provider;
+       - ALL bidi FORMATTING: the LRM/RLM marks (U+200E/200F), the embeddings and
+         overrides (U+202A-202E) and the isolates (U+2066-2069). These reorder how
+         text renders and are the display-name SPOOFING vector this import surface
+         exists to refuse;
+       - a stray zero-width no-break space (U+FEFF) that is not the leading BOM
+         importAgent already strips.
+     This is a BOUNDARY hardening, NOT the full agent-name character policy: the
+     complete allowlist ([a-z0-9_-] via create.nameProblem) is applied when the
+     material flows through createAgent, which is also where the ambiguous
+     zero-width joiners (legitimate in emoji and some scripts) are refused. Export
+     names are already clean, so this trips nothing there. */
+  if (!s || /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]/.test(s)) return null;
   return s;
 }
 
@@ -144,12 +150,13 @@ function exportAgent(name, deps) {
  * proves by absence.
  *
  * 📌 THE NAME GUARANTEE IS PATH-SAFETY AND CLEAN TEXT, NOT the full agent-name
- * policy. This refuses a name unsafe as a path/session/label (`create.nameUsable`)
- * and one carrying a control or bidi character (`safeValue`). The fuller rules --
- * length, character set, reserved names like `-discord` -- are `create.nameProblem`'s,
- * applied when this material flows through `createAgent`. So a caller MUST route
- * the material through `createAgent` and must NOT treat `ok:true` as a
- * fully-validated agent name. That is the whole reason import does not create.
+ * policy. Both the machine `name` AND the human-visible `displayName` are refused
+ * if they carry a control or bidi character (`safeValue`), and the `name` is also
+ * refused if it is unsafe as a path/session/label (`create.nameUsable`). The
+ * fuller rules -- length, character set, reserved names like `-discord` -- are
+ * `create.nameProblem`'s, applied when this material flows through `createAgent`.
+ * So a caller MUST route the material through `createAgent` and must NOT treat
+ * `ok:true` as a fully-validated agent name. That is why import does not create.
  *
  * @param {string} text the file contents
  * @param {{identityFromText: (s: string) => object|null, nameUsable: (s: string) => boolean}} deps
@@ -209,12 +216,22 @@ function importAgent(text, deps) {
   if (!identity || !identity.displayName) {
     return { ok: false, because: 'the agent file’s instructions do not name an agent (expected a line like “You are X”)' };
   }
+  /* 🛑 THE DISPLAY NAME IS THE SPOOFING TARGET, so it goes through safeValue too.
+     It comes from the untrusted body and is the human-visible name; a bidi
+     override in it renders as a different name than it is. Unlike the machine
+     `name` (which create.nameProblem's allowlist re-checks), the display name is
+     shown as-is, so if it carries a control or bidi character the file is refused
+     here rather than passed on. */
+  const displayName = safeValue(identity.displayName);
+  if (!displayName) {
+    return { ok: false, because: 'the agent file’s display name carries a control or bidi character' };
+  }
 
   // A HINT, never a gate: the receiver may not have this provider connected, so
   // import states what the file wants and lets the create flow choose.
   const provider = field('provider');
 
-  return { ok: true, name, displayName: identity.displayName, provider: provider || null, body };
+  return { ok: true, name, displayName, provider: provider || null, body };
 }
 
 module.exports = { exportAgent, importAgent, IMPORT_CONTRACT, MARK, KIND };

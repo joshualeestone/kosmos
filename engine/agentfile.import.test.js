@@ -163,18 +163,45 @@ test('#1652 REFUSED WHOLE: a name carrying a control or bidi character', () => {
   assert.equal(agentfile.importAgent('---\nkosmos: agent\nname: cleanname\n---\n\n# You are Clean\n', deps).ok, true);
 });
 
-test('#1652: enforcement matches IMPORT_CONTRACT.required (a missing required key is refused)', () => {
-  /* Pins the declarative contract to the enforcement. If a key is added to
-     IMPORT_CONTRACT.required but importAgent does not enforce its presence, the
-     loop below fails -- catching the drift the hard-coded checks could hide. */
+test('#1652 REFUSED WHOLE: a DISPLAY name (from the body) carrying a bidi override', () => {
+  /* The display name is the human-visible field and the real spoofing target -- a
+     bidi override in the body's "You are X" renders the name deceptively, and the
+     machine name check does not cover it. Built with fromCharCode so the test
+     source carries no literal bidi byte. */
+  /* The bidi enters the display name through the BOLD "You are **X**" arm (the
+     heading/prose arms stop at it), which is exactly the reviewer's case. */
+  const BIDI = String.fromCharCode(0x202e);
+  const spoofed = agentfile.importAgent(`---\nkosmos: agent\nname: cleanmachinename\n---\n\nYou are **Ann${BIDI}EVIL**\n`, deps);
+  assert.equal(spoofed.ok, false, 'a bidi-spoofed display name was accepted');
+  assert.match(spoofed.because, /display name/);
+  // CONTROL: the identical file with a clean bold display name is accepted and returned.
+  const clean = agentfile.importAgent('---\nkosmos: agent\nname: cleanmachinename\n---\n\nYou are **Ann Clean**\n', deps);
+  assert.equal(clean.ok, true, clean.because);
+  assert.equal(clean.displayName, 'Ann Clean');
+});
+
+test('#1652: enforcement matches IMPORT_CONTRACT (.required, .marker, .bodyMustName)', () => {
+  /* Pins the declarative contract to the enforcement. If a contract field is
+     changed but importAgent does not follow, an arm below fails -- catching the
+     drift the hard-coded checks could otherwise hide. */
   const c = agentfile.IMPORT_CONTRACT;
   const full = { kosmos: 'agent', name: 'complete' };
   const build = (fields) => '---\n' + Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n') + '\n---\n\n# You are Complete\n';
   assert.equal(agentfile.importAgent(build(full), deps).ok, true, 'PRECONDITION: a file with every required key imports');
+  // .required: omitting any required key is refused.
   for (const key of c.required) {
     const missing = { ...full };
     delete missing[key];
     assert.equal(agentfile.importAgent(build(missing), deps).ok, false, `omitting required key "${key}" was not refused`);
+  }
+  // .marker: the exact declared marker line is accepted; a different marker is refused.
+  const withMarker = (marker) => agentfile.importAgent(`---\n${marker}\nname: m\n---\n\n# You are M\n`, deps);
+  assert.equal(withMarker(c.marker).ok, true, 'a file with IMPORT_CONTRACT.marker was not accepted');
+  assert.equal(withMarker('kosmos: notagent').ok, false, 'a file with a different marker was not refused');
+  // .bodyMustName: when true, a body naming nobody is refused.
+  if (c.bodyMustName) {
+    assert.equal(agentfile.importAgent(`---\n${c.marker}\nname: m\n---\n\nno name in this body\n`, deps).ok, false,
+      'bodyMustName is true but a nameless body was accepted');
   }
 });
 
