@@ -43,13 +43,17 @@ function makePaint(saved) {
   return { paint, ...d };
 }
 
-test('kosmos#1724: a saved auto-handoff setting loads into the controls and enables them', async () => {
+test('kosmos#1724: a saved setting LOADS into the controls, which ship not-yet-active', async () => {
   const { paint, els } = makePaint({ enabled: true, threshold: 90 });
   await paint();
   assert.equal(els['ah-enabled'].checked, true, 'enabled reflects the saved value');
   assert.equal(els['ah-threshold'].value, '90', 'threshold reflects the saved value');
-  assert.equal(els['ah-enabled'].disabled, false, 'controls enabled');
-  assert.equal(els['ah-save'].disabled, false, 'Save enabled');
+  // The monitor sweep that ACTS on the setting is not built yet (handed off), so the
+  // control ships disabled with a note rather than as a toggle that saves a preference
+  // nothing honours (the dead-control defect). Enable these when the sweep lands.
+  assert.equal(els['ah-enabled'].disabled, true, 'not-yet-active: the toggle is disabled');
+  assert.equal(els['ah-save'].disabled, true, 'not-yet-active: Save is disabled');
+  assert.match(els['ah-msg'].textContent, /not active yet/i, 'the control says it is not active yet');
 });
 
 test('kosmos#1724: defaults to off and 85% when nothing is saved', async () => {
