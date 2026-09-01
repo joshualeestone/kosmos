@@ -314,3 +314,58 @@ world" error the sibling drift test already avoids by normalising both sides.**
 
 ⇒ I nearly reported a drift that did not exist, from a test I had just written to
 detect drift.
+
+## Challenge loop, iteration 22 (2026-08-31)
+
+Six WARNINGs, six NITs. Eighth consecutive non-empty pass, and the last one run
+against a plan that still carried this ledger.
+
+### A data-safety gap on the sibling, measured rather than inherited
+
+`DELETE /api/accounts/openai` would rename ANY `~/.codex-*` directory, because
+every guard in that engine keys on the NAME. Measured before fixing: a planted
+`~/.codex-notanaccount` holding one user file was renamed with the file carried
+along, and the answer said `forgotten: true`.
+
+The Claude side has guarded this since this card. **OpenAI has had a live
+Disconnect since #1372 without it.**
+
+⇒ Fixed with three arms, and **the guard's cost is stated where the guard is**: an
+account with a CORRUPTED `auth.json` also answers null, so it can no longer be
+disconnected, which is exactly when somebody would want to. Kept because renaming
+a folder the person made and calling it forgotten is the worse error.
+
+### The fix broke two controls, and that was correct
+
+Their fixture wrote `auth.json` containing `{ label }`, which codex never produces.
+So it modelled a directory that is NOT an account while asserting that accounts
+are removable, and passed only because nothing checked identity.
+
+⭐ **A test that only passes because the guard is missing is not coverage of the
+feature, it is coverage of the gap.**
+
+### Every "success" in a fixture ran the catch
+
+`web.ask-first-1683.test.js` defined no `document`, and the success path calls
+`getElementById` to move focus after the repaint. Measured: a successful two-press
+removal ended with `msg.textContent === "document is not defined"`.
+
+The arms above still passed **because they assert what was FETCHED, not what was
+SAID**. So the success sentence, the scroll and the focus move were covered by
+nothing at any layer. Second dependency that fixture missed, after `acctCancelSay`,
+both added in the same diff.
+
+### The rest
+
+- The disabled row's reason lives in its `aria-label` because a `title` on a
+  control announced as unavailable is not read out. Deleting it left every web test
+  green: the qualifier assertion matches only the label's PREFIX. **The one
+  sentence a screen-reader user hears was the one part nothing pinned.**
+- The success write was the FOURTH uncancelled writer. The comment claiming EVERY
+  writer cancels has now been wrong four times.
+
+### Three of my own tests failed for the wrong reason today
+
+Each looked exactly like a real finding: a regex anchored on `.'` when the text
+ends `."`, a comparison that decoded one side and not the other, and a fixture
+missing a global. **Check the raw text before believing your own assertion.**
