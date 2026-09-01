@@ -22,6 +22,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const http = require('node:http');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -38,6 +39,11 @@ process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-r
 // touching the agent surface to sandbox Claude Code's own config file too, so a
 // boot never writes trust entries into the operator's real ~/.claude.json.
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(FAKE_HOME, 'claude.json');
+// Opening the network bind is a TWO-part opt-in: KOSMOS_BIND_HOST (listen) AND
+// AGENT_WORKFORCE_ALLOWED_HOSTS (the DNS-rebind allowlist pathOf checks BEFORE
+// the guard runs). Declare a reachable host here, read at module load, so the
+// HTTP-path tests below can show a remote Host being accepted vs 400'd.
+process.env.AGENT_WORKFORCE_ALLOWED_HOSTS = 'kosmos-remote.example';
 // The bind must default to loopback with no opt-in set: assert that here so the
 // integration boot below is genuinely testing the default path.
 delete process.env.KOSMOS_BIND_HOST;
@@ -160,6 +166,37 @@ test('POST /api/agent-token refuses an empty name', async () => {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: '   ' }),
   });
   assert.equal(res.status, 400);
+});
+
+/* ---------- the second opt-in: the pathOf Host check the guard sits behind ----------
+ *
+ * A remote agent connects with a non-loopback Host, and pathOf's DNS-rebind
+ * check 400s any Host that is neither loopback nor declared in
+ * AGENT_WORKFORCE_ALLOWED_HOSTS -- BEFORE remoteWriteGuard runs. So the feature
+ * needs BOTH env vars, and this is the layer the pure-function guard tests above
+ * cannot see. Driven over the real HTTP path with a spoofed Host header (a
+ * request's socket peer is always loopback in a same-machine test, so this
+ * exercises pathOf, not the remote-peer arm of the guard). */
+function getWithHost(hostHeader, urlPath) {
+  return new Promise((resolve, reject) => {
+    const port = server.address().port;
+    const r = http.request({ host: '127.0.0.1', port, path: urlPath, method: 'GET', headers: { host: hostHeader } },
+      (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    r.on('error', reject);
+    r.end();
+  });
+}
+
+test('a DECLARED reachable Host reaches a route; an UNDECLARED non-loopback Host is 400 at the door', async () => {
+  // declared in AGENT_WORKFORCE_ALLOWED_HOSTS (set at module load): pathOf accepts it
+  assert.equal(await getWithHost('kosmos-remote.example', '/api/status'), 200,
+    'a Host declared in AGENT_WORKFORCE_ALLOWED_HOSTS was refused; opening the bind would strand a remote agent');
+  // an undeclared, non-loopback Host: pathOf returns null -> 400, BEFORE the guard.
+  // This is exactly why KOSMOS_BIND_HOST alone is not enough.
+  assert.equal(await getWithHost('198.51.100.9', '/api/status'), 400,
+    'an undeclared non-loopback Host was NOT refused by the DNS-rebind check');
+  // loopback Host still works, unchanged
+  assert.equal(await getWithHost('127.0.0.1', '/api/status'), 200, 'a loopback Host was refused');
 });
 
 test.after(() => { try { server.close(); } catch { /* best effort */ } });
