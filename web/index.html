@@ -13843,43 +13843,43 @@ async function paintAccounts() {
         }
       } catch (err) {
         btn.disabled = false;
-          if (msg) {
-            /* `acctCancelSay()` HERE, not only before the fetch. The cancel at the
-               top of this handler runs BEFORE the await, and the default row's
-               aria-disabled button stays pressable during the request: a press
-               inside that window schedules a 60ms deferred write that lands ON TOP
-               of this sentence. This one names the agents blocking the removal,
-               which the comment below calls the one message they must act on.
-               🛑 The plan called the provider early return "the ONE exception" to
-               the every-writer-cancels rule. It was not. This was the second and
-               the share handler was the third. A count in a comment is a claim. */
-            acctCancelSay();
-            msg.textContent = String((err && err.message) || 'we could not remove that account');
-            /* 🛑 THIS ONE MATTERS MOST OF THE THREE. On the failure path the
-               sentence is a REFUSAL that names the agents blocking the removal
-               ("marlowe is running on this account"), which the person has to read
-               to know what to do next. Rendering it below every other account box
-               is the worst place for the one message they must act on. */
-            if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
-          }
-          /* Restore the resting label, or a refused remove leaves the button
-             reading "Remove it?" and the NEXT single click acts. */
-          armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
-          /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH GETS AND
-             THIS ONE DID NOT. `btn.disabled = true` at the top of this handler
-             dropped focus to `<body>` before the request went out, so without this a
-             keyboard or screen-reader user is left at the top of the document while
-             the refusal that names the blocking agents renders far below them.
-             ⚠️ AFTER THE DISARM ON PURPOSE, so the name announced on arrival is the
-             resting one, which is what the button will actually do if pressed again.
-             🛑 THE REASON I FIRST GAVE FOR THIS ORDER WAS WRONG and is corrected here
-             rather than swapped quietly: I wrote that focusing first would announce
-             "Remove it?". It would not have. `aria-label` WINS over
-             name-from-content, so the textContent swap was never announced at all,
-             in either order. That was not a nitpick about my reasoning, it was a
-             real defect hiding behind it: the confirm was sighted-only until
-             `armLabel` above started carrying the state into the accessible name. */
-          if (btn.focus) btn.focus({ preventScroll: true });
+        if (msg) {
+          /* `acctCancelSay()` HERE, not only before the fetch. The cancel at the
+             top of this handler runs BEFORE the await, and the default row's
+             aria-disabled button stays pressable during the request: a press
+             inside that window schedules a 60ms deferred write that lands ON TOP
+             of this sentence. This one names the agents blocking the removal,
+             which the comment below calls the one message they must act on.
+             🛑 The plan called the provider early return "the ONE exception" to
+             the every-writer-cancels rule. It was not. This was the second and
+             the share handler was the third. A count in a comment is a claim. */
+          acctCancelSay();
+          msg.textContent = String((err && err.message) || 'we could not remove that account');
+          /* 🛑 THIS ONE MATTERS MOST OF THE THREE. On the failure path the
+             sentence is a REFUSAL that names the agents blocking the removal
+             ("marlowe is running on this account"), which the person has to read
+             to know what to do next. Rendering it below every other account box
+             is the worst place for the one message they must act on. */
+          if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+        }
+        /* Restore the resting label, or a refused remove leaves the button
+           reading "Remove it?" and the NEXT single click acts. */
+        armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
+        /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH GETS AND
+           THIS ONE DID NOT. `btn.disabled = true` at the top of this handler
+           dropped focus to `<body>` before the request went out, so without this a
+           keyboard or screen-reader user is left at the top of the document while
+           the refusal that names the blocking agents renders far below them.
+           ⚠️ AFTER THE DISARM ON PURPOSE, so the name announced on arrival is the
+           resting one, which is what the button will actually do if pressed again.
+           🛑 THE REASON I FIRST GAVE FOR THIS ORDER WAS WRONG and is corrected here
+           rather than swapped quietly: I wrote that focusing first would announce
+           "Remove it?". It would not have. `aria-label` WINS over
+           name-from-content, so the textContent swap was never announced at all,
+           in either order. That was not a nitpick about my reasoning, it was a
+           real defect hiding behind it: the confirm was sighted-only until
+           `armLabel` above started carrying the state into the accessible name. */
+        if (btn.focus) btn.focus({ preventScroll: true });
       }
     });
   }

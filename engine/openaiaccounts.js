@@ -270,7 +270,19 @@ function forgetAccount(dir, usedBy) {
     ok: true,
     forgotten: true,
     movedTo: target,
-    wasDefault: base === '.codex',
+    /* 🛑 THE DEFAULT IS WHERE `defaultHome()` POINTS, NOT WHATEVER IS CALLED
+       `.codex`. `AGENT_WORKFORCE_CODEX_HOME` and `CODEX_HOME` both move it
+       (`codexupdate.js:46`), and the supervisor puts `CODEX_HOME` in a codex
+       agent's environment, so this is reachable outside a test.
+       ⇒ A basename check is wrong in BOTH directions, measured, both arms:
+         CODEX_HOME=<home>/.codex-work  the row `list()` marks isDefault:true is
+           disconnected with `wasDefault:false`, so the caller OMITS the history
+           sentence while the transcripts really are gone (rollouts 1 -> 0).
+         no override (control)  `.codex` reports true, so the flag can return
+           the other answer and this measurement means something.
+       The mirror is worse: with the home moved elsewhere, a leftover `.codex`
+       reports true and the caller states a history loss that did not happen. */
+    wasDefault: clean === path.resolve(defaultDir()),
     because: null,
   };
 }

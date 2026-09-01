@@ -152,6 +152,31 @@ test('#1659: the disabled default control has a handler, so a keypress is not si
     'the handler no longer writes the refusal into the message line, so pressing it is silent');
 });
 
+test('#1659: the tooltip and the route make the SAME history promise', () => {
+  const server = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  /* 🔑 PIN THE CLAIM, NOT THE SENTENCE. These two are deliberately NOT identical:
+     the tooltip PROMISES before the press ("Takes this account off the list") and
+     the route REPORTS after it ("That account is off the list"). Forcing them to
+     match whole would encode the wrong contract, exactly as pinning the aria-label
+     to the engine's full refusal would in the test above.
+     What must not drift is the consequence they both assert, which is the only part
+     a person acts on and the only part that can become false: it holds because
+     `status.js:198` skips anything not named `.claude` or `.claude-*`, so the
+     renamed `.removed-claude-*` really does stop being read. */
+  const CLAIM = 'Kosmos stops looking inside it, so any history kept only there will not appear any more.';
+  const flat = (t) => t.replace(/'\s*\+\s*'/g, '').replace(/\s+/g, ' ');
+  /* 🛑 ANCHOR ON THE CLAUDE ROUTE'S OWN WORDING. A bare `includes(CLAIM)` PASSES
+     ON THE OPENAI ROUTE'S COPY, which carries the same sentence for its default
+     account. Measured: breaking the Claude copy alone left this green until the
+     prefix was added, so the assertion was satisfied by a line it was not about. */
+  assert.ok(flat(server).includes('so nothing was deleted. ' + CLAIM),
+    'the CLAUDE route no longer makes the history promise, so the tooltip promises '
+    + 'something the person is never told actually happened');
+  assert.ok(flat(PAGE).includes(CLAIM),
+    'the tooltip no longer makes the history promise the route reports, so the two copies '
+    + 'of one claim have drifted with nothing to say so');
+});
+
 test('#1659: the engine refusal and the page tooltip say the SAME thing', () => {
   const engine = fs.readFileSync(path.join(__dirname, 'engine', 'accounts.js'), 'utf8');
   /* ⚠️ ANCHOR THE PAGE ON `title="`, NOT ON THE SENTENCE. The aria-label carries
