@@ -90,8 +90,15 @@
  *      true sweep. The last commit to add one was the commit that falsified the refusal.
  *      🛑 THE REFUSAL WAS WRITTEN BECAUSE READING A CALL SITE FAILED NINE TIMES, AND THAT
  *      HISTORY IS REAL: the graveyard above lists FOUR defeated comment strippers, and
- *      this file now contains a FIFTH, with the same blind spots (a `/*` inside a string
- *      literal, an unterminated `/*`, a template literal, `//` inside a URL).
+ *      this file now contains a FIFTH, and its blind spots are NOT the four originally listed
+ *      here. MEASURED against the current stripper: a comment opener inside a string literal,
+ *      inside a template literal, and `//` inside a URL are all HANDLED. Only an unterminated
+ *      opener survives from that list.
+ *      🛑 AND THE ONE TRIGGER THAT DOES STILL WORK WAS ON NEITHER LIST: a REGEX LITERAL with an
+ *      odd number of quote characters inverts the parity the stripper tracks. It is recorded
+ *      with the residuals at the arm itself.
+ *      ⚠️ So this list was stale in the SAFE direction and incomplete in the UNSAFE one, on a
+ *      file whose own maxim is that a partial list stated as complete is the worse failure.
  *      ⇒ So the honest contract is not "we refuse this" but "we do it, we know what it
  *      costs, and each such arm protects itself against the strip eating its region".
  *      A blanket refusal that the file then violates is worse than a stated cost,
@@ -565,12 +572,25 @@ test('every site under the resolution rule resolves the claude binary its docume
            no comment opener appeared inside a string literal, using a regex that required the
            surrounding quotes to be the only quotes on the line. A string containing an
            apostrophe went straight through it.
-           ⇒ THE STRIPPER ABOVE IS NOW QUOTE-AWARE, so the input cannot fool it at all and
-           there is no trigger left to assert absent. Measured, all four shapes red now:
-           single-quote, apostrophe-inside-double-quote, template literal, and a plain double
-           resolution with no string at all. Shipped stays 20 pass 0 fail.
-           ⭐ Seven versions of this arm keyed on the last shape somebody demonstrated. The
-           one that held keyed on nothing: it made the instrument correct instead. */
+           ⇒ THE STRIPPER TRACKS STRING STATE, so a comment opener inside a string, a template
+           literal, or a URL cannot fool it. Measured: all four red at 19 pass 1 fail.
+           
+           🛑 IT IS STILL FOOLABLE, AND AN EARLIER VERSION OF THIS PARAGRAPH SAID IT WAS NOT.
+           It claimed "the input cannot fool it at all and there is no trigger left to assert
+           absent", AND THE PREVIOUS GUARD WAS DELETED ON THAT CLAIM. A reviewer defeated it in one
+           pass with a REGEX LITERAL holding an odd number of quote characters, which inverts the
+           parity this stripper tracks; after that a comment opener inside a genuine string IS
+           treated as real and eats live code. MEASURED, the regex line the only difference:
+               with    const re = /it's/;   before the planted pair -> 20 pass 0 fail
+               without that one line                                -> 19 pass 1 FAIL
+           ⚠️ NOT A LIVE DEFECT TODAY: connect.js holds one regex literal and it contains no quote
+           character. But it is a file of screen-text matchers and /don't/i is an ordinary edit.
+           ⇒ RECORDED AS A RESIDUAL RATHER THAN CHASED. Closing it needs regex-literal state, which
+           is lexing, and this file already argues that is a parser's job and not a test's.
+           ⭐ EIGHT VERSIONS OF THIS ARM. Seven keyed on the last shape somebody demonstrated; the
+           eighth made the instrument correct for a whole class and then OVERCLAIMED THAT IT WAS
+           CORRECT FOR ALL OF THEM. Making an instrument better is not the same as making it sound,
+           and the sentence that followed the improvement is what deleted the fallback.
 
     const calls = code.match(/resolveBin\s*\(/g) || [];
     assert.strictEqual(calls.length, site.resolutions,
@@ -605,7 +625,7 @@ test('every site under the resolution rule resolves the claude binary its docume
       + 'presence. That is two resolutions of one fact by a different route than a second '
       + 'call, and the count above cannot see it because the call count does not move.');
 
-        /* 🛑 AND start() NEEDS A THIRD CHECK, BECAUSE A COUNT OF 2 ABSORBS A SUBSTITUTION.
+    /* 🛑 AND start() NEEDS A THIRD CHECK, BECAUSE A COUNT OF 2 ABSORBS A SUBSTITUTION.
            The other three sites are documented at 1, so ANY extra resolution moves their
            count. start() is documented at 2 (the pair, plus the binaryOnDisk exclusion), so
            an edit that REPLACES one resolution with another leaves it at 2.
@@ -624,7 +644,7 @@ test('every site under the resolution rule resolves the claude binary its docume
            binding. It does NOT cover a NEW function in connect.js that resolves twice; the
            SITES table is a fixed list and the prose rule says every site. That gap is
            recorded with the other residuals rather than implied away. */
-        if (site.fn === 'async function start(') {
+    if (site.fn === 'async function start(') {
           const binding = (code.match(/const claudeResolved = require\('\.\/runners'\)\.resolveBin\('claude'\);/g) || []);
           assert.strictEqual(binding.length, 1,
             'start() no longer binds the pair with a single '
@@ -632,7 +652,7 @@ test('every site under the resolution rule resolves the claude binary its docume
             + '2 is the documented pair-plus-binaryOnDisk, so a SUBSTITUTION of one resolution '
             + 'for another does not move it and only this binding check sees it. If you '
             + 'reformatted the line, restore the single binding or update this pin and say why.');
-        }
+    }
   }
 });
 
