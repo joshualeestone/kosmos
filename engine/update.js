@@ -204,7 +204,28 @@ function maybeAutoInstall() {
        IN-FLIGHT attempt carries, so an unfinished install read as a failure and
        could print "giving up after 3 failed attempts" while the third was still
        running and might yet succeed. Require the record to have ENDED. */
-    if (durable && durable.auto && durable.endedAt && durable.code !== null && durable.code !== 0
+    /* 🛑 NOT GATED ON `durable.auto`, AND THAT WAS THE HOLE. A previous fix made
+       a manual press CARRY the automatic failure count forward instead of
+       zeroing it, which was necessary and not sufficient: the count survived and
+       nothing read it, because this predicate skipped any record whose last
+       attempt was manual. Measured, with the record at the cap of 3:
+
+         auto-record   (auto=1, attempts=3) -> installs 0, brake holds
+         manual-record (auto=0, attempts=3) -> installs 1, attempts climbs to 4
+
+       So the realistic sequence still ended in an unattended shutdown: three
+       automatic failures reach the cap, a person logs in, sees the board dying,
+       presses Install, that fails too, and walking away lets the automatic path
+       take the machine down again. Fixing the STORAGE and leaving the READER is
+       a whole class of my own errors on this branch.
+
+       Widening it is safe because this entire block is inside maybeAutoInstall,
+       which only the timer calls. A person pressing Install goes to beginInstall
+       directly and is never gated here, so the brake still cannot lock somebody
+       out of their own machine. The retry window now also applies after a manual
+       failure, which is the behaviour you want: a version that failed by hand
+       five minutes ago is not a good candidate for an unattended retry. */
+    if (durable && durable.endedAt && durable.code !== null && durable.code !== 0
         && offer && durable.version && durable.version === offer.version) {
       /* The window still helps inside one process life. */
       const endedMs = Date.parse(durable.endedAt || '');

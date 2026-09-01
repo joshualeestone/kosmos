@@ -1185,3 +1185,39 @@ test('#1277: an install still running is not counted as a failure', async () => 
     `the board said "${(gaveUp[0] || '').trim()}" about an attempt that had not finished. `
     + 'An unfinished install is not a failed one, and it might yet succeed');
 });
+
+test('#1277: a failed MANUAL press does not clear the brake for one more unattended attempt', async () => {
+  /* Carrying the count forward on a manual press was necessary and not
+     sufficient. The brake read `durable.auto`, so a record whose last attempt
+     was manual was skipped entirely and the count nothing read did nothing.
+     Measured before the fix, with the record at the cap: an auto record gave
+     installs 0, a manual record gave installs 1 and attempts climbed to 4. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  async function attemptsUnderRecord(autoFlag) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-brake-'));
+    fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+    let installs = 0;
+    u.resetCache();
+    u.setInstalledRoot(() => home);
+    u.setAutoPref(() => ({ on: true }));
+    u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+    u.setInstallRunner(() => { installs += 1; return { on() {}, unref() {}, stderr: { on() {} } }; });
+    try {
+      const old = new Date(Date.now() - 2 * 3600 * 1000);
+      const f = path.join(home, 'logs', 'install.status');
+      fs.writeFileSync(f, `1 ${old.toISOString()} 99.0.0 ${autoFlag} 3\n`);
+      fs.utimesSync(f, old, old);
+      await u.checkNow();
+    } finally {
+      u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+      u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+    }
+    return installs;
+  }
+  assert.equal(await attemptsUnderRecord('1'), 0, 'CONTROL: the brake must hold on an automatic record at the cap');
+  assert.equal(await attemptsUnderRecord('0'), 0,
+    'a record at the cap whose last attempt was MANUAL let the automatic path install again. '
+    + 'That is the sequence where somebody presses Install, it fails, they walk away, and the '
+    + 'board takes itself down once more');
+});
