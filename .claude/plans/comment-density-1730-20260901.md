@@ -11,7 +11,7 @@ property rather than a branch property.
 
 Highest concentration, measured at the branch's merge base `fbb1caf4`:
 
-| file | raw | code | ratio |
+| file | non-blank | code | ratio |
 |---|---|---|---|
 | `engine/github.js` | 88 | 21 | 4.19, highest in `engine/` |
 | `engine/githubdevice.js` | 439 | 185 | 2.37 |
@@ -47,6 +47,12 @@ sentence that was wrong.
 
 ## What was kept
 
+📌 **Stated as facts about the file AS IT NOW STANDS, not as descriptions of what I
+changed.** Seven review passes each found a false summary of my own edit, including one
+here: "the table is now stated in terms of `path.delimiter`" when the table's rows were
+untouched and only a line above them was added. **A sentence about what I DID encodes
+what I believe I did. A sentence about what the file SAYS can be checked against it.**
+
 Every operative fact, including all four load-bearing ones:
 
 - why the `runners` require is hoisted: a call-time failure is swallowed by
@@ -56,8 +62,8 @@ Every operative fact, including all four load-bearing ones:
   top level with no try, so a throw means the board does not boot at all
 - why `ghCandidateList` lives in `github.js`: the mutual dependency gave
   `door.state()` a reject path against devicedoor's "Never rejects" contract
-- the one-rule table, now stated in terms of `path.delimiter` rather than a
-  hardcoded `':'`, which a leftover from #1606 had kept POSIX-only
+- the one-rule table. Its rows spell the separator `':'`, and a line above them says
+  the spellings are POSIX and become `';'` on Windows
 
 Also kept: the warning that `engine/vercel.js` keeps a bare literal so the switch
 does not generalise, and the deferred design note that passing candidates as a
@@ -77,8 +83,9 @@ rewrapping can.
   on the stripped text, with a control showing the instrument detects a
   one-character change. ⇒ This change CANNOT affect runtime behaviour.
 - Code line counts asserted unchanged: `githubdevice.js` 185, `github.js` 21.
-- **The totals that used to sit here are DELETED, not regenerated.** Five consecutive
-  review passes found them stale (78, 80, 85, 82), including twice after I "fixed" it by
+- **The totals that used to sit here are DELETED, not regenerated.** Review passes kept
+  finding them stale (78, 80, 85, 82: four measurements across five passes, the fifth
+  finding a figure I had claimed to have deleted), including twice after I "fixed" it by
   generating them instead of typing them. **Generating a number once is still a snapshot,
   and a figure describing this repo goes stale on the next commit BY CONSTRUCTION.**
   ✅ Measure it at read time instead, which cannot go stale:
