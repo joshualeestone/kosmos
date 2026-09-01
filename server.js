@@ -1291,6 +1291,15 @@ function isLoopbackPeer(req) {
  * connections shelf, avatars, settings, and above all `POST /api/agents`, which
  * installs a launchd job running Claude with `--dangerously-skip-permissions` --
  * is reachable only from loopback, ALWAYS.
+ *
+ * 🛑 ADDING A ROUTE HERE IS A SECURITY DECISION, NOT A REFACTOR (#1764). The
+ * socket-peer guard is the only thing standing in front of these routes, and a
+ * local reverse proxy defeats it (it terminates loopback; see the BOUNDARY note
+ * in `remoteWriteGuard` and #1762). So a WRITE route added here turns a
+ * documented read disclosure into a network write bypass. This set is pinned by
+ * `server.remote-bind-1112.test.js` -- both an exact-set assertion AND a
+ * behavioural reach test that refuses a valid-token remote peer at the dangerous
+ * writes, so a route added here goes red even if the exact-set list is updated.
  */
 const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
 
