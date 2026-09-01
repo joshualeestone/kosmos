@@ -82,6 +82,7 @@ test('#1443: no engine module exposes a path frozen to the require-time root', (
 
   const frozen = [];
   const skipped = [];
+  const resolving = [];
   let looked = 0;
   let live = 0;
   for (const f of files) {
@@ -89,7 +90,11 @@ test('#1443: no engine module exposes a path frozen to the require-time root', (
     if (r === 'SKIP') { skipped.push(path.basename(f)); continue; }
     looked += 1;
     if (r.startsWith('FROZEN')) frozen.push(`${path.basename(f)}: ${r.slice(7)}`);
-    else live += Number(r.slice(3)) || 0;
+    else {
+      const n = Number(r.slice(3)) || 0;
+      live += n;
+      if (n > 0) resolving.push(path.basename(f));
+    }
   }
   /* 🛑 NAME THE SKIPS, DO NOT FLOOR THEM. This was `looked > 30` against a
      population of 68, so THIRTY-SEVEN modules could have stopped loading while
@@ -108,10 +113,24 @@ test('#1443: no engine module exposes a path frozen to the require-time root', (
      resolving NOTHING. The frozen check only says "no export mentions the OLD
      root"; a module exporting null passes it. This says the conversion actually
      MOVED the paths rather than removing them. */
+  /* 🛑 PER-MODULE, NOT AN AGGREGATE, AND THE AGGREGATE COULD NOT SAY WHAT ITS OWN
+     COMMENT CLAIMED. This was `live > 0` summed across every module, so exactly the
+     failure it describes -- ONE module whose conversion stopped resolving a path --
+     was absorbed by the other 67 and the arm still passed. A module exporting
+     `{ FILE: null }` returns `OK 0` and vanished into the total.
+     The floor is the number of modules that each resolve at least one path, measured
+     at 24 of 68 (the 48 in an earlier draft of this comment was the SUM of resolved
+     strings, not a module count -- two different quantities one word apart, and the
+     wrong one makes the arm unsatisfiable). One module going dark drops it to 23 and
+     fails HERE, naming the set, while adding a module that legitimately resolves
+     nothing cannot break it. */
+  const RESOLVING_FLOOR = 24;
+  assert.ok(resolving.length >= RESOLVING_FLOOR,
+    `only ${resolving.length} engine modules resolve a path under the NEW root, below the `
+    + `measured floor of ${RESOLVING_FLOOR}. A module whose conversion stopped resolving `
+    + `entirely would look exactly like this. Currently resolving:\n  ${resolving.join('\n  ')}`);
   assert.ok(live > 0,
-    `no engine export resolved under the NEW root (live=${live} across ${looked} modules), so this `
-    + 'test proved only that nothing mentions the old one, which an empty or null export '
-    + 'satisfies vacuously');
+    `no engine export resolved under the NEW root (live=${live} across ${looked} modules)`);
 
   assert.deepEqual(frozen, [],
     'these modules resolve a data root at require time, so a sandbox seam installed afterwards is '

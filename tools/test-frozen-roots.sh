@@ -109,6 +109,76 @@ const OK = () => path.join(store.AVATARS, 'pics');"
 if [ "$(run avatarslazy)" = "0" ]; then ok "a DEFERRED store.AVATARS is not flagged"
 else bad "widening SOURCES made the tool fire on correct lazy code"; fi
 
+# ---- arm 12: a `//` INSIDE A STRING must not end the declaration -----------
+# The terminator strips a trailing line comment. Stripping it without knowing
+# about strings cut `const U = 'https://x/a';` at the URL's `//`, so the line no
+# longer ended in `;`, the capture ran on, and the NEXT line's freeze was
+# attributed to U. Nine such lines exist in engine/ today.
+fixture urlrunon "const store = require('./store');
+const U = 'https://example.com/a';
+const FROZEN = path.join(store.ROOT, 'x');"
+if [ "$(run urlrunon)" = "1" ]; then
+  n=$(node "$TOOL" "$T/urlrunon.js" 2>&1 | grep -c 'resolves a root')
+  if [ "$n" = "1" ]; then ok "a // inside a string does not run the capture on (exactly 1 finding)"
+  else bad "a // inside a string ran the capture on" "$n findings, expected 1"; fi
+else bad "the real freeze after a URL line was not reported" "$(run urlrunon)"; fi
+
+# ---- arm 13: and a REAL trailing comment must still terminate --------------
+# The counterweight to arm 12: this is the bug the strip was added for.
+fixture trailcomment "const store = require('./store');
+let fetcher = null; // test seam: (req, token) => Promise
+const OK = () => path.join(store.ROOT, 'x');"
+if [ "$(run trailcomment)" = "0" ]; then ok "a real trailing // comment still terminates the declaration"
+else bad "the trailing-comment terminator regressed"; fi
+
+# ---- arm 14: a BLOCK-BODIED arrow resolver is still a resolver -------------
+# Truncating its body at the first interior `;` meant it never reached the source,
+# so it was not recognised and every downstream freeze went silent.
+fixture blockbody "const store = require('./store');
+const dirp = () => {
+  const seg = 'liveness';
+  return path.join(store.ROOT, seg);
+};
+const FILE = path.join(dirp(), 'x.json');"
+if [ "$(run blockbody)" = "1" ]; then ok "a freeze via a BLOCK-BODIED resolver is flagged"
+else bad "block-bodied resolver not recognised, downstream freeze silent"; fi
+
+# ---- arm 15: and it does not fire when that chain is deferred --------------
+fixture blocklazy "const store = require('./store');
+const dirp = () => {
+  const seg = 'liveness';
+  return path.join(store.ROOT, seg);
+};
+const FILE = () => path.join(dirp(), 'x.json');"
+if [ "$(run blocklazy)" = "0" ]; then ok "a DEFERRED block-bodied chain is not flagged"
+else bad "fired on a correctly deferred block-bodied chain"; fi
+
+# ---- arm 16: a MULTI-LINE destructure is the same freeze -------------------
+# The alias scan was whole-source; this arm was per-line, so the two halves of one
+# idea disagreed and a wrapped destructure was silent.
+fixture multidestr "const {
+  ROOT,
+} = require('./store');
+const dirFor = () => path.join(ROOT, 'x');"
+if [ "$(run multidestr)" = "1" ]; then ok "a MULTI-LINE destructure of a getter is flagged"
+else bad "multi-line destructure silent while the single-line form is flagged"; fi
+
+# ---- arm 17: capturing ANOTHER module's lazy getter refreezes --------------
+# #1443 creates ~23 new getters; capturing one at module level is the same defect
+# one relocation further on.
+fixture capgetter "const limits = require('./limits');
+const F = limits.FILE;"
+if [ "$(run capgetter)" = "1" ]; then ok "capturing another module's lazy getter is flagged"
+else bad "blind to a captured cross-module getter"; fi
+
+# ---- arm 18: and NOT on a getter that is not path-shaped ------------------
+# The counterweight to arm 17. DRY_RUN and HOME_FOR_TEST are real exported getters;
+# firing on them would be a guard that reports correct code.
+fixture capnonpath "const m = require('./engmode');
+const D = m.DRY_RUN;"
+if [ "$(run capnonpath)" = "0" ]; then ok "a non-path-shaped getter capture is NOT flagged"
+else bad "fired on a getter that resolves no root"; fi
+
 echo
-if [ "$FAILS" -eq 0 ]; then echo "ALL PASS (11 arms)"; else echo "$FAILS FAILED"; fi
+if [ "$FAILS" -eq 0 ]; then echo "ALL PASS (18 arms)"; else echo "$FAILS FAILED"; fi
 exit "$FAILS"

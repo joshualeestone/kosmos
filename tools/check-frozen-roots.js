@@ -106,6 +106,28 @@ const KNOWN = new Map([
 
 /* A declaration that is an arrow function is LAZY and fine: `const T = () => …`
    resolves per call. This is the distinction the whole check turns on. */
+/* One pass per line, outside string literals: strip a trailing `//` comment AND
+   report the net bracket delta. Both answers need the same quote tracking, so
+   they are produced together rather than by two regexes that could disagree. */
+const lineInfo = (t) => {
+  const str = String(t);
+  let quote = null;
+  let delta = 0;
+  for (let i = 0; i < str.length; i += 1) {
+    const c = str[i];
+    if (quote) {
+      if (c === '\\') { i += 1; continue; }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') { quote = c; continue; }
+    if (c === '/' && str[i + 1] === '/') return { code: str.slice(0, i), delta };
+    if (c === '{' || c === '(' || c === '[') delta += 1;
+    else if (c === '}' || c === ')' || c === ']') delta -= 1;
+  }
+  return { code: str, delta };
+};
+
 const isLazy = (init) => /^\s*(\(\s*\)|\([^)]*\))\s*=>/.test(init) || /^\s*function\b/.test(init);
 
 /* A CONTAINER whose every root reference already sits inside an arrow is lazy too,
@@ -211,11 +233,40 @@ function declarations(src) {
        frozen root. Three false positives appeared the moment `let` was accepted,
        and a guard that fires on correct code teaches people to excuse it.
        Comments are stripped for the TERMINATOR TEST ONLY, never from the captured
-       text, so a `//` inside a string cannot corrupt what is scanned. */
-    const ends = (t) => /;\s*$/.test(String(t).replace(/\/\/[^\n]*$/, ''));
-    while (!ends(lines[j]) && j - i < 12 && j + 1 < lines.length) {
+       text.
+
+       🛑 AND THE STRIP MUST KNOW ABOUT STRINGS. This previously read
+       `.replace(/\/\/[^\n]*$/, '')`, and an earlier version of this very comment
+       claimed "a `//` inside a string cannot corrupt what is scanned". It can:
+       `const U = 'https://example.com/a';` was cut at the `//` inside the URL, so
+       the line no longer ended in `;`, the capture ran on for up to 12 more lines,
+       and a following freeze was attributed to `U` at the WRONG LINE. Measured: a
+       URL line followed by `const FROZEN = path.join(store.ROOT, 'x')` reported
+       TWO findings, the first of them false. Nine such run-on lines exist in
+       engine/ today (cloudflare.js, githubdevice.js, notify.js, ping.js,
+       remote.js, update.js); they were inert only because the lines they swallowed
+       happened to carry no source.
+       ⚠️ Known limit, stated rather than implied: a `//` inside a REGEX literal is
+       still treated as a comment. That shape does not occur in a module-level
+       declaration here, and the failure direction is a run-on capture, which
+       over-reports rather than going silent. */
+    /* 🛑 DEPTH, NOT JUST A SEMICOLON. The terminator was `ends(line)` alone, so a
+       BLOCK-BODIED resolver stopped at its first interior statement:
+         const dir = () => {
+           const seg = 'liveness';        <- ends in ';', capture stopped HERE
+           return path.join(store.ROOT, seg);
+         };
+       The captured text then held no source, so `dir` was never recognised as a
+       resolver and every downstream `path.join(dir(), ...)` went SILENT. Measured,
+       both arms: the block form exited 0 while the single-expression form of the
+       same code exited 1. A declaration is only terminated when a `;` appears at
+       bracket depth zero. */
+    let depth = lineInfo(lines[i]).delta;
+    const terminated = (t) => /;\s*$/.test(lineInfo(t).code);
+    while (!(depth <= 0 && terminated(lines[j])) && j - i < 12 && j + 1 < lines.length) {
       j += 1;
       init += '\n' + lines[j];
+      depth += lineInfo(lines[j]).delta;
     }
     out.push({ name: m[1], init, line: i + 1 });
   }
@@ -247,13 +298,25 @@ function functionNamesReaching(src, sources) {
       || /^\s*const ([A-Za-z_][A-Za-z0-9_]*) = (?:\([^)]*\)|[A-Za-z_][A-Za-z0-9_]*)\s*=>/.exec(lines[i]);
     if (!m) continue;
     const buf = [];
+    let adepth = 0;
     for (let j = i; j < lines.length && j - i < 400; j += 1) {
       buf.push(lines[j]);
+      adepth += lineInfo(lines[j]).delta;
       if (j > i && /^\}/.test(lines[j])) break;
       /* An arrow assigned to a const ends at its own `;`, not at a column-0 `}`.
          Without this its body ran on to the next function and swept in references
-         belonging to somebody else. */
-      if (j > i && /=>/.test(lines[i]) && /;\s*$/.test(lines[j])) break;
+         belonging to somebody else.
+         🛑 AT BRACKET DEPTH ZERO, or a BLOCK-BODIED arrow stops at its first
+         interior statement and its body never reaches the source:
+           const dir = () => {
+             const seg = 'liveness';       <- ends in ';', body stopped HERE
+             return path.join(store.ROOT, seg);
+           };
+         `dir` was then not a resolver, so every `path.join(dir(), ...)` downstream
+         went SILENT. Measured, both arms: block form rc=0, single-expression form
+         rc=1 on identical logic. Same defect as the one in `declarations()`, in a
+         second loop, which is why both now share `lineInfo`. */
+      if (j > i && /=>/.test(lines[i]) && adepth <= 0 && /;\s*$/.test(lineInfo(lines[j]).code)) break;
     }
     bodies.push([m[1], buf.join('\n')]);
   }
@@ -295,24 +358,58 @@ function scan(file) {
      `dataRootFor` freezes nothing. */
   const GETTERS = ['ROOT', 'AVATARS', 'PROFILES'];
   const destructured = [];
-  src.split('\n').forEach((l, n) => {
-    const dm = /^(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:store|require\([^)]*store[^)]*\))/.exec(l);
-    if (!dm) return;
+  /* 🛑 WHOLE-SOURCE `matchAll`, NOT A PER-LINE SCAN, AND THE REASON IS THAT THE
+     ALIAS SCAN ABOVE ALREADY IS ONE. This was `src.split('\n').forEach` with a
+     `^`-anchored regex, so the two halves of the same idea disagreed: a destructure
+     wrapped across lines
+       const {
+         ROOT,
+       } = require('./store');
+     registered as an ALIAS (so `ROOT` became a source) but not as a FREEZE, and
+     with every use inside an arrow nothing was reported at all. Measured, both
+     arms: the wrapped form exited 0 while the identical single-line form exited 1.
+     That is the exact `engine/messages.js` shape the note above calls the one that
+     defeated all three instruments at once. */
+  for (const dm of src.matchAll(/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:store|require\([^)]*store[^)]*\))/g)) {
     const names = dm[1].split(',').map((x) => x.split(':')[0].trim()).filter(Boolean);
     const frozen = names.filter((x) => GETTERS.includes(x));
-    if (frozen.length) destructured.push({ name: '{ ' + frozen.join(', ') + ' }', line: n + 1, how: 'destructured out of store at require time', lines: 1 });
-  });
+    if (!frozen.length) continue;
+    const line = src.slice(0, dm.index).split('\n').length;
+    const spanned = dm[0].split('\n').length;
+    destructured.push({ name: '{ ' + frozen.join(', ') + ' }', line, how: 'destructured out of store at require time', lines: spanned });
+  }
+  /* 🛑 THE FOURTH RELOCATION. This file's header says the guard exists because a
+     check keyed on `os.homedir()` went blind when the fix moved behind a helper.
+     It moved again to an arrow, again to a resolver, and #1443 has now created
+     ~23 NEW lazy getters (`limits.FILE`, `tokendoor.DIR`, `messages.LOG`, ...).
+     Capturing one of THOSE at module level re-freezes the root exactly as
+     capturing `store.ROOT` does, and the guard could not see it. Measured, with a
+     passing control: `const F = limits.FILE;` exited 0 while `const F = store.ROOT;`
+     exited 1.
+
+     ⚠️ NARROW ON PURPOSE, because a guard that fires on correct code gets excused
+     by name until the debt list is decoration. It requires all three: a BARE member
+     access with no call, a SCREAMING property, and a PATH-SHAPED name. That last
+     condition is why `DRY_RUN` and `HOME_FOR_TEST` (real exported getters in this
+     tree) are not swept in. Verified to add zero findings across every non-test
+     .js in the repo before it shipped. */
+  const PATH_SHAPED = /^(?:[A-Z][A-Z0-9_]*_(?:DIR|FILE|PATH)|FILE|DIR|LOG|SEEN|FLAG|ROOT|AVATARS|PROFILES)$/;
+  const capturedGetter = (init) => {
+    const m = /^\s*[A-Za-z_$][\w$]*\.([A-Z][A-Z0-9_]*)\s*;?\s*$/.exec(String(init));
+    return m && PATH_SHAPED.test(m[1]) ? m[1] : null;
+  };
   const resolvers = functionNamesReaching(src, SRC_SOURCES);
   const findings = [];
   for (const d of declarations(src)) {
     if (isLazy(d.init) || everyRootIsDeferred(d.init, resolvers, SRC_SOURCES)) continue;
     const direct = SRC_SOURCES.some((s) => d.init.includes(s));
     const viaHelper = [...resolvers].some((n) => new RegExp(`\\b${n}\\s*\\(`).test(d.init));
-    if (direct || viaHelper) {
+    const captured = capturedGetter(d.init);
+    if (direct || viaHelper || captured) {
       findings.push({
         name: d.name,
         line: d.line,
-        how: direct ? 'directly' : 'via a resolver helper',
+        how: direct ? 'directly' : (viaHelper ? 'via a resolver helper' : `by capturing another module's lazy getter .${captured}`),
         lines: d.init.split('\n').length,
       });
     }
