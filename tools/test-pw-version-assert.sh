@@ -88,4 +88,19 @@ grep -Eq 'KOSMOS_PW_STRICT_VERSION=1[[:space:]]+bash[[:space:]]+tools/browser-ch
   || fail "tools/release.sh does not invoke the page gate with KOSMOS_PW_STRICT_VERSION=1 (#1708 enforcement is dead in the cut)"
 pass "the release cut invokes the page gate with the version pin ENFORCED (STRICT)"
 
+# 6. STRICT + a MATCHING version must PASS the version block (not hard-stop).
+#    The missing arm of the STRICT matrix: drift-stop (3), unreadable-stop (4),
+#    match-proceed (6). Since the cut runs STRICT on EVERY release, a regression
+#    that made STRICT fire on the match path would red every properly-provisioned
+#    cut -- yet cases 1-5 would all still pass. rc cannot prove this (the fake
+#    cannot launch, so the launch check exits 2 regardless), so assert the
+#    version block CONFIRMED the match, did NOT print the refusal, and CONTINUED
+#    to the launch phase.
+M2="$(fake_pw "$PIN")"
+out="$(KOSMOS_PW_STRICT_VERSION=1 KOSMOS_PW_NODE_PATH="$M2" bash "$GATE" 2>&1 || true)"
+printf '%s' "$out" | grep -q 'matches the pin' || { printf '%s\n' "$out" | head -20; fail "STRICT wrongly failed a correctly-pinned build (no 'matches the pin')"; }
+printf '%s' "$out" | grep -q 'refusing to run the page gate' && { printf '%s\n' "$out" | head -20; fail "STRICT printed the refusal on a MATCHING version (must only fire on drift/unverifiable)"; }
+printf '%s' "$out" | grep -q 'engines the checks ask for' || { printf '%s\n' "$out" | head -20; fail "STRICT+match did not continue to the launch phase"; }
+pass "KOSMOS_PW_STRICT_VERSION=1 PASSES a correctly-pinned build (match-proceed arm)"
+
 printf '\nall pass\n'

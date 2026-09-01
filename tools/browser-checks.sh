@@ -243,6 +243,11 @@ log "Playwright: $PW_NODE_PATH"
 # read the resolved version by PARSING its package.json with node (a greedy sed
 # would grab the last "version" in a minified file); PW_PKG is passed in env so a
 # path with odd characters cannot break the node expression.
+# 📌 playwright's package.json .version is a PROXY for the browser build, which
+# is actually pinned by playwright-core. A hand-mismatched runtime (playwright
+# 1.62.1 wrapping a different playwright-core) would pass this compare, but
+# provision-pw.sh installs them together with --save-exact, and the launch check
+# below is the backstop: it starts the browser build this Playwright wants.
 _pw_pin="$(sed -n 's/^PW_VERSION="\([^"]*\)".*/\1/p' "$REPO/tools/provision-pw.sh" 2>/dev/null | head -1)"
 _pw_got="$(PW_PKG="$PW_NODE_PATH/playwright/package.json" node -e "try{process.stdout.write(String(require(require('path').resolve(process.env.PW_PKG)).version||''))}catch(e){}" 2>/dev/null)"
 if [ -z "$_pw_pin" ] || [ -z "$_pw_got" ]; then
