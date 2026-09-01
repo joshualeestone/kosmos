@@ -18,6 +18,14 @@
  * machinery is driven".
  */
 const os = require('node:os');
+
+/* Shared by both guards below: a mitigation or an exemption must be LIVE CODE.
+   Measured on the DRY_RUN guard: deleting the mitigation failed it, COMMENTING IT
+   OUT passed it. Both guards read source as characters while the machine reads it
+   as code, so both strip comments first. */
+const LIVE_CODE = (src) => String(src)
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
 const fs = require('node:fs');
 const path = require('node:path');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-update-poll-1277-'));
@@ -180,6 +188,18 @@ test('#1277: every test file that boots the server sets DRY_RUN', () => {
      as an unrun "checkable" claim, one layer up: the more carefully an excuse is
      argued, the less likely anyone re-reads it. Each excused file must now name a
      mitigation the guard actually checks. */
+  /* 🛑 A MITIGATION MUST BE LIVE CODE, NOT A COMMENT. Measured: DELETING the
+     mitigation line failed this guard, COMMENTING IT OUT passed it. The guard read
+     the file as characters while the machine reads it as code, which is the same
+     defect as an excuse argued in prose, one layer further down. Every mitigation
+     match now goes through this first.
+
+     Not a parser, deliberately: it strips block and line comments, which is
+     exactly the gap that was measured. A string literal containing "//" would
+     over-strip, and that fails toward NAMING a file rather than excusing one,
+     which is the safe direction for a guard to be wrong in. */
+  const liveCode = LIVE_CODE;
+
   const MITIGATION = {
     'server.switch-account-1373.test.js': {
       pattern: /\.stopAutoPoll\(\)/,
@@ -191,7 +211,7 @@ test('#1277: every test file that boots the server sets DRY_RUN', () => {
     if (!m) return true;
     let src = '';
     try { src = fs.readFileSync(path.join(root, f), 'utf8'); } catch { return true; }
-    return !m.pattern.test(src);
+    return !m.pattern.test(liveCode(src));
   });
   assert.deepEqual(unmitigated, [],
     'these files are EXCUSED from the DRY_RUN convention on the strength of a mitigation that is no '
@@ -213,8 +233,18 @@ test('#1277 convention: a test that opens installedRoot must inject an install r
      `curl -fsSL https://installkosmos.com/setup?v=9.9.9 | sh` twice per run, as
      the developer, with their real HOME. Measured, not inferred: that endpoint
      serves a real 201KB installer even for a version that does not exist, and
-     the only thing that stopped it was the installer's own refusal to run under
-     a live board, which is somebody else's last line of defence.
+     the only thing that stopped it was the installer's own refusal to run under a live
+     board did. ⚠️ AND THAT BACKSTOP IS NARROWER THAN I CREDITED, WHICH MAKES THE
+     INCIDENT WORSE RATHER THAN BETTER. That refusal is FRESH_INSTALL-gated:
+     install/setup.sh:1979 sets FRESH_INSTALL=yes unless $KOSMOS_HOME/bin/kosmos
+     is executable, and the die at :2297 is on the NOT-fresh path. On a CI runner
+     or a clean dev box, where no Kosmos is installed, the fresh path at :2242
+     finds nothing on the port and FINISHES THE INSTALL. So the thing that saved
+     this machine was that Kosmos happened to be installed and running on it, and
+     on a clean machine the suite would have installed Kosmos rather than been
+     refused.
+     A backstop that depends on the machine already having the product installed
+     is not a backstop for the case that matters.
 
      engine/update.js now also refuses at the spawn site via the shared
      live-execution gate. This is the static half: the runtime gate stops it
@@ -251,14 +281,15 @@ test('#1277 convention: a test that opens installedRoot must inject an install r
     // split per test() so a runner in one arm does not excuse another
     const parts = src.split(/\n(?=test\()/);
     for (const part of parts) {
-      if (!OPENS.test(part) || !PREF_ON.test(part)) continue;
+      const live = LIVE_CODE(part);
+      if (!OPENS.test(live) || !PREF_ON.test(live)) continue;
       /* 🛑 AN ACTUAL INJECTION, NOT THE SUBSTRING. `setInstallRunner(null)` CLEARS
          the seam, which is exactly the state that reaches the real spawn, and it
          matched the old bare-substring exemption. So the arm most likely to be
          written by someone tidying up a leftover stub was the one this guard
          waved through. Measured by a reviewer: a planted arm doing precisely that
          spawned the real installer while this guard stayed green. */
-      if (/setInstallRunner\(\s*(?!null|undefined)/.test(part)) continue;
+      if (/setInstallRunner\(\s*(?!null|undefined)/.test(live)) continue;
       /* One arm legitimately has NO runner: the one guarding the live-execution
          gate itself, which can only be reached with the seam empty.
 
@@ -269,7 +300,7 @@ test('#1277 convention: a test that opens installedRoot must inject an install r
          ASSERT the live-execution refusal. If the gate is not closed there is no
          refusal to assert, so the arm fails on its own before this guard is even
          consulted, and if somebody deletes the assertion this guard names it. */
-      if (/assert\.match\(/.test(part) && /inside a test process\|not authorized/.test(part)) continue;
+      if (/assert\.match\(/.test(live) && /inside a test process\|not authorized/.test(live)) continue;
       const name = (part.match(/^test\(\s*['"`](.{0,70})/) || [, '(module scope)'])[1];
       offenders.push(`${path.relative(root, f)} :: ${name}`);
     }

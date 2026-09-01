@@ -1493,7 +1493,7 @@ test('#1277: a machine repaired and reinstalled BY HAND starts updating again', 
     + 'this supersede rule has simply disabled the cap');
 });
 
-test('#1277: under DRY_RUN an un-stubbed refresh makes no real request to the release host', async () => {
+test('#1277: an un-stubbed refresh makes no real request to the release host', async () => {
   /* 🛑 THE SUITE WAS HITTING A PRODUCTION HOST ON EVERY RUN. The DRY_RUN gate sat
      on the interval callback only, and the /api/status route calls poke()
      directly (server.js:1778), so every test that boots the server walked past
@@ -1512,12 +1512,19 @@ test('#1277: under DRY_RUN an un-stubbed refresh makes no real request to the re
   let realCalls = 0;
   try {
     globalThis.fetch = async (...a) => { realCalls += 1; return realFetch(...a); };
+    /* LOCK (a): in a test process, no fetcher means a THROW, not a quiet skip, so
+       a test that genuinely wants an update answer has to say so. This arm runs
+       in a `node --test` process, so it exercises (a). */
     process.env.AGENT_WORKFORCE_DRY_RUN = '1';
     u.resetCache(); u.setFetcher(null);
-    await u.refresh();
+    let threw = null;
+    try { await u.refresh(); } catch (e) { threw = e; }
+    assert.ok(threw, 'refresh() did not refuse in a test process with no fetcher injected');
+    assert.match(String(threw.message), /no fetcher injected/,
+      'something threw, but not the refusal: ' + String(threw.message));
     assert.equal(realCalls, 0,
-      'refresh() reached the global fetch under DRY_RUN with no fetcher injected. That is our own '
-      + 'test suite making a real request to the production release host');
+      'refresh() reached the global fetch with no fetcher injected. That is our own test suite '
+      + 'making a real request to the production release host');
 
     /* CONTROL: an injected fetcher must STILL be called, or this gate has simply
        turned the module off in tests and the assertion above means nothing. */
@@ -1533,4 +1540,42 @@ test('#1277: under DRY_RUN an un-stubbed refresh makes no real request to the re
     else process.env.AGENT_WORKFORCE_DRY_RUN = prev;
     u.setFetcher(null); u.resetCache();
   }
+});
+
+test('#1277: a CHILD-process server under DRY_RUN also makes no real request', async () => {
+  /* ⚠️ THIS ARM SPAWNS A CHILD ON PURPOSE, BECAUSE THE IN-PROCESS ARM CANNOT
+     REACH THE CASE THAT WAS ACTUALLY LEAKING. `--test` lives in process.execArgv
+     and is NOT inherited, so inTestProcess() is FALSE in a server this suite
+     spawns, and seven test files boot the server exactly that way. Those are the
+     boots that hit /api/status, which calls poke() past the tick's gate.
+
+     So the DRY_RUN lock is the one that covers them, and a lock with no arm is
+     what this branch has been repeatedly caught shipping. The child reports what
+     it observed rather than being trusted. */
+  const { spawn } = require('node:child_process');
+  const path = require('node:path');
+  const script = `
+    const real = globalThis.fetch; let hits = 0;
+    globalThis.fetch = (...a) => { hits += 1; return Promise.reject(new Error('blocked')); };
+    const u = require(${JSON.stringify(path.join(__dirname, 'update.js'))});
+    u.setFetcher(null);
+    u.refresh().then(() => {
+      process.stdout.write(JSON.stringify({ hits, inTest: require(${JSON.stringify(path.join(__dirname, 'live-execution.js'))}).inTestProcess() }));
+    }).catch((e) => process.stdout.write(JSON.stringify({ hits, threw: String(e.message).slice(0, 60) })));
+  `;
+  const out = await new Promise((resolve) => {
+    const child = spawn(process.execPath, ['-e', script], {
+      env: { ...process.env, AGENT_WORKFORCE_DRY_RUN: '1' },
+    });
+    let buf = '';
+    child.stdout.on('data', (d) => { buf += d; });
+    child.on('close', () => resolve(buf));
+  });
+  const got = JSON.parse(out || '{}');
+  assert.equal(got.inTest, false,
+    'precondition: --test must NOT be inherited by the child, or this arm is measuring the wrong '
+    + 'lock and the DRY_RUN half stays untested');
+  assert.equal(got.hits, 0,
+    `a child-process server under DRY_RUN made ${got.hits} real request(s) to the release host. `
+    + 'inTestProcess() is false there by design, so DRY_RUN is the only lock covering these boots');
 });

@@ -93,8 +93,36 @@ async function refresh() {
      behaviour. Only the un-stubbed case, which is the one that reaches the real
      host, is refused. AGENT_WORKFORCE_DRY_RUN is never '1' in production, so this
      cannot affect a person's machine. */
-  if (!fetcher && process.env.AGENT_WORKFORCE_DRY_RUN === '1') {
-    return;
+  /* TWO LOCKS, BECAUSE THEY COVER DIFFERENT HALVES AND NEITHER COVERS BOTH.
+
+     (a) inTestProcess() keys on `process.execArgv` containing `--test`, which is
+     PER-PROCESS AND NOT INHERITED (live-execution.js:57). So it is true in the
+     test process itself and false in production BY CONSTRUCTION, with no reliance
+     on an environment variable a person might set on a real machine. It throws
+     rather than returning, the same posture as refuseOrWarn: a test that
+     genuinely wants an update answer must say so by injecting a fetcher. refresh()
+     is fail-soft at every call site, so a throw costs a status tick.
+
+     (b) The DRY_RUN check covers what (a) cannot: the seven files that boot the
+     server as a CHILD process. `--test` is not inherited, so inTestProcess() is
+     FALSE in that child, and those are exactly the boots that reach /api/status.
+     A reviewer proposed (a) alone and named this limit themselves.
+
+     ⚠️ (b) does have a product effect and it is small and coherent: a person who
+     sets AGENT_WORKFORCE_DRY_RUN=1 on a real machine already gets no automatic
+     installs, because the tick returns on the same variable, and now also gets no
+     update CHECK. Not surprising for a variable that means dry run. (a) alone
+     would avoid even that, which is why (a) is the one doing the work in the
+     normal case.
+
+     An injected fetcher beats both, the same ordering engine/create.js:266 uses
+     for its runner: a test that stubbed the seam has said what it wants. */
+  if (!fetcher) {
+    if (liveExec.inTestProcess()) {
+      throw new Error('engine/update.js: refresh() reached the real release host in a test '
+        + 'process with no fetcher injected. Inject one with setFetcher(fn).');
+    }
+    if (process.env.AGENT_WORKFORCE_DRY_RUN === '1') return;
   }
   const doFetch = fetcher || fetch;
   const ctl = new AbortController();
@@ -819,8 +847,16 @@ function beginInstall(opts) {
      the REAL production installer against installkosmos.com twice per run.
      Measured: that endpoint serves a real 201KB installer even for a version
      that does not exist, so it was not a harmless 404. Nothing of OURS stopped
-     it; the installer's own refusal to run under a live board did, which is
-     somebody else's last line of defence.
+     it; the installer's own refusal to run under a live
+     board did. ⚠️ AND THAT BACKSTOP IS NARROWER THAN I CREDITED, WHICH MAKES THE
+     INCIDENT WORSE RATHER THAN BETTER. That refusal is FRESH_INSTALL-gated:
+     install/setup.sh:1979 sets FRESH_INSTALL=yes unless $KOSMOS_HOME/bin/kosmos
+     is executable, and the die at :2297 is on the NOT-fresh path. On a CI runner
+     or a clean dev box, where no Kosmos is installed, the fresh path at :2242
+     finds nothing on the port and FINISHES THE INSTALL. So the thing that saved
+     this machine was that Kosmos happened to be installed and running on it, and
+     on a clean machine the suite would have installed Kosmos rather than been
+     refused.
 
      🛑 ORDER. THE PARAGRAPH THAT USED TO BE HERE WAS BACKWARDS, AND IT SAID
      "checked rather than assumed" WHILE BEING NEITHER. I compared LINE NUMBERS
