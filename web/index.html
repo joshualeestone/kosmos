@@ -4403,6 +4403,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    it here is what made this control and #create-model drift apart in the first
    place: two copies of one appearance, edited on different days. */
 .rolepick select { width: 100%; }
+/* #1652 import panel: the paste box fills the panel like the select does, and
+   the file / load buttons sit on one row. */
+#import-text { width: 100%; box-sizing: border-box; }
+.importrow { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
 /* The limit on a role that has one, read while choosing rather than discovered
    afterwards. Weight and a rule, never hue: it has to survive greyscale like
    every other signal on this board. (The old flat list's `.pick .caution`
@@ -24426,6 +24430,7 @@ function openCreate() {
   document.getElementById('importpick').hidden = true;
   document.getElementById('role-next').hidden = false;
   document.getElementById('import-text').value = '';
+  document.getElementById('import-load').disabled = false;
   const importMsgEl = document.getElementById('import-msg');
   importMsgEl.textContent = ''; importMsgEl.hidden = true;
   CREATING = false;
@@ -24630,7 +24635,11 @@ async function importLoad() {
   const role = roleByKey('own');
   document.getElementById('create-meet').textContent = 'Set up your ' + ((role && role.label) || 'agent');
   document.getElementById('create-blurb').textContent = role && role.blurb ? role.blurb + '.' : '';
-  loadCreateExtras();
+  // Awaited so the model/account menus are rebuilt BEFORE the provider change
+  // below runs: the provider handler disables the model and writes its caption,
+  // and an un-awaited loadCreateExtras would resume afterwards and overwrite that
+  // caption with the default model's (wrong for an imported OpenAI agent).
+  await loadCreateExtras();
   FILLED_ROLE = 'own';
 
   document.getElementById('create-name').value = data.name || '';

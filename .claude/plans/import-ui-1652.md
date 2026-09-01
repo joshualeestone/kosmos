@@ -17,7 +17,7 @@ IMPORT PARSES. THE EXISTING CREATE PATH CREATES. Do not add a second creation pa
 - `POST /api/agent-import` writes NO state. It only parses/validates and echoes back
   fields derived from the caller's own input. (This is Shredder's question: import itself
   writes nothing; the CONFIRM step reuses the existing `POST /api/agents`, which writes
-  the same state the other three options already write — dir, profile, launchd, tmux.)
+  the same state the other three options already write - dir, profile, launchd, tmux.)
 - So the fourth option adds exactly ONE new network write path: none. The parse is a
   read-shaped endpoint; creation stays the single canonical `POST /api/agents`.
 - Credentials do NOT travel in a `.agent.md` (Shredder's safe-default note). The file
@@ -32,11 +32,11 @@ The create flow presents several options and one shared create form. The Explore
   instructions textarea, provider selector, model selector.
 - Provider mapping: reuse whatever string the existing form uses (e.g. 'anthropic' /
   'openai'); map `importAgent`'s `provider` onto it. If provider is coming-soon/unknown,
-  leave the selector at its default and let the person pick — never block the import.
+  leave the selector at its default and let the person pick - never block the import.
 
 ## The flow, concretely
 1. Fourth option selected -> show an import sub-panel: a textarea to paste the file, plus
-   a "locate a file" affordance (`<input type=file>` read via FileReader.readAsText — no
+   a "locate a file" affordance (`<input type=file>` read via FileReader.readAsText - no
    upload, parsed client-side into the textarea) so both "paste" and "locate" work.
 2. On "Load"/"Continue": `fetch('/api/agent-import', {method:'POST', body: JSON.stringify({file: text})})`.
    - `{ok:false, because}` -> show `because` verbatim near the input, stay on the import
@@ -47,10 +47,10 @@ The create flow presents several options and one shared create form. The Explore
 3. Confirm -> existing `POST /api/agents` handler, unchanged.
 
 ## Client-side notes
-- No client-side re-validation of the file beyond what the endpoint returns — the endpoint
+- No client-side re-validation of the file beyond what the endpoint returns - the endpoint
   is the authority (importAgent). The UI only routes {ok/because} to the fields or the error.
 - Keep the fetch same-origin, no new headers; crossSiteWrite already guards it.
-- Do not send the operator's email or any credential in the body — only the file text.
+- Do not send the operator's email or any credential in the body - only the file text.
 
 ## Test / verify plan
 - I cannot render the UI. WRITING needs no Playwright; VERIFYING does. Shredder browser-
@@ -67,4 +67,4 @@ The create flow presents several options and one shared create form. The Explore
 - The Explore map of the create form (ids/functions) is the input the next builder needs;
   re-run it against web/index.html if lost.
 - #1720 (browser-check gate) is SEPARATE and already pushed by Splinter to
-  origin/browser-check-gate-1720 — DO NOT force-push over it; reconcile onto it when resumed.
+  origin/browser-check-gate-1720 - DO NOT force-push over it; reconcile onto it when resumed.
