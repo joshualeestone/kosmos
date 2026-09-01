@@ -333,13 +333,20 @@ test('the installer URL is a positional parameter, never interpolated into the s
      no record and no attempt count at all. Measured: piped 404 recorded 0,
      unpiped recorded 56, with pipefail 56. It changes the reviewed shape, so
      the shape is re-pinned rather than the guard loosened. */
-  assert.match(call, /'-c',\s*'set -o pipefail; curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s %s %s %s\\n" "\$code" "\$3" "\$4" "\$5" "\$6" > "\$2"',\s*'sh',\s*setupUrl\(\)/,
+    /* #1277 again: a SIXTH printf field, the cross-version failure streak, riding
+       as $7. The per-version cap is right for a bad tarball and was a hole for a
+       machine that cannot install anything, so a counter a version change does
+       not reset has to survive the restart the installer causes, which means it
+       has to live in this file. Re-pinned rather than loosened, and this guard is
+       exactly why the change got read: it went red the moment the field landed. */
+  assert.match(call, /'-c',\s*'set -o pipefail; curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s %s %s %s %s\\n" "\$code" "\$3" "\$4" "\$5" "\$6" "\$7" > "\$2"',\s*'sh',\s*setupUrl\(\)/,
     'the installer command is no longer the reviewed shape: ' + call);
   /* The two trailing positionals, asserted on the wider source since the
      slice above stops at the URL: the status file is $2, the stamp is $3,
      neither interpolated. */
-  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt,\s*lastAttempt\.version \|\| '-',\s*lastAttempt\.auto \? '1' : '0',\s*String\(lastAttempt\.attempts \|\| 0\)\]/.test(SRC),
-    'the status file, stamp, version and auto flag no longer all ride as positionals');
+  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt,\s*lastAttempt\.version \|\| '-',\s*lastAttempt\.auto \? '1' : '0',\s*String\(lastAttempt\.attempts \|\| 0\),\s*String\(lastAttempt\.streak \|\| 0\)\]/.test(SRC),
+    'the status file, stamp, version, auto flag, attempt count and cross-version streak no longer all '
+      + 'ride as positionals');
 
   /* And the unsafe shapes, by name. A template literal or a concatenation
      inside the `-c` string is the whole failure: it turns a release base into
@@ -1265,4 +1272,90 @@ test('#1277: a SPAWN error does not consume one of the three automatic chances',
     u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
     u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
   }
+});
+
+test('#1277: the live-execution gate refuses a real installer spawn, and releases single-flight', async () => {
+  /* 🛑 THIS ARM GUARDS THE GUARD. The gate at engine/update.js was added in
+     response to the suite spawning the real production installer, was verified
+     load-bearing with a four-arm matrix, and then had NO arm of its own, so
+     deleting it left the whole repo green. A verified guard with nothing keeping
+     it verified is one refactor from gone.
+
+     The runner seam is consulted well before the gate, so this arm deliberately
+     injects NO runner: that is the only way to reach the gate at all.
+
+     It also pins the ORDER of the two statements inside the refusal.
+     refuseOrWarn THROWS in a test process, so a release written after the call
+     is unreachable, the flag stays set, and every later beginInstall in the file
+     returns early doing nothing. That turns a loud guard into silent green for
+     every arm after the first. */
+  const u = require('./update');
+  const liveExec = require('./live-execution');
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-gate-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  u.resetCache();
+  liveExec.resetForTests();               // gate CLOSED, which is the production-unauthorized state
+  u.setInstalledRoot(() => home);
+  u.setAutoPref(() => ({ on: true }));
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+  u.setInstallRunner(null);               // no seam: the gate is the only thing left
+  try {
+    await u.refresh();
+    let threw = null;
+    try { u.beginInstall({ auto: true }); } catch (e) { threw = e; }
+    assert.ok(threw, 'the gate did not refuse. With no runner injected the next statement is a real '
+      + '`curl -fsSL <setupUrl> | sh`, so this arm failing means the suite can install Kosmos');
+    assert.match(String(threw.message), /inside a test process|not authorized/,
+      'something threw, but not the live-execution refusal: ' + String(threw.message));
+    assert.equal(u.alreadyInstalling(), false,
+      'single-flight was left set after the refusal. Every later beginInstall in this file would '
+      + 'then return early doing nothing, so arms after this one would pass without running');
+  } finally {
+    u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+    u.resetCache(); liveExec.allowLiveExecution();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('#1277: a NEW RELEASE does not hand a machine that cannot install three more shutdowns', async () => {
+  /* The per-version cap asks "has THIS version failed three times", which is the
+     right question for a bad tarball and the wrong one for a machine that cannot
+     install anything: no write permission on the install root, a full disk, a
+     proxy blocking the release host. Those persist across releases. Measured
+     before the cross-version counter existed: a record carrying 99 failures on
+     9.9.9 still installed when 9.9.10 was offered. Since the installer runs
+     `kosmos stop` before it downloads a byte, and launchd is RunAtLoad with no
+     KeepAlive, each of those is a board that stays down until the next login. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  async function installsWhenOffered(recordVersion, attempts, streak, offered) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-xver-'));
+    fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+    let installs = 0;
+    u.resetCache();
+    u.setInstalledRoot(() => home);
+    u.setAutoPref(() => ({ on: true }));
+    u.setFetcher(async () => ({ ok: true, json: async () => ({ version: offered }) }));
+    u.setInstallRunner(() => { installs += 1; return { on() {}, unref() {}, stderr: { on() {} } }; });
+    try {
+      const old = new Date(Date.now() - 5 * 3600 * 1000);   // window long expired
+      const f = path.join(home, 'logs', 'install.status');
+      fs.writeFileSync(f, `1 ${old.toISOString()} ${recordVersion} 1 ${attempts} ${streak}\n`);
+      fs.utimesSync(f, old, old);
+      await u.checkNow();
+    } finally {
+      u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+      u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+    }
+    return installs;
+  }
+  assert.equal(await installsWhenOffered('9.9.9', 3, 3, '9.9.10'), 1,
+    'CONTROL: three failures on ONE version must NOT brake a different version. A run of bad '
+    + 'releases is exactly what the per-version cap is for, and this counter must not steal that');
+  assert.equal(await installsWhenOffered('9.9.9', 3, 6, '9.9.10'), 0,
+    'a machine with six consecutive failures across versions took a new release as permission to '
+    + 'stop the board again. Those failures are not about the tarball');
+  assert.equal(await installsWhenOffered('9.9.9', 0, 0, '9.9.10'), 1,
+    'CONTROL: a healthy machine must still install a new release');
 });

@@ -172,6 +172,17 @@ const AUTO_RETRY_AFTER = 60 * 60 * 1000;
    automatic failures for the SAME version, stop offering to install it; a new
    version resets the count on its own, because the count is per version. */
 const MAX_AUTO_ATTEMPTS = 3;
+/* 🛑 A SECOND CAP THAT A NEW RELEASE DOES NOT RESET. MAX_AUTO_ATTEMPTS is keyed
+   on the offered version, which is right for a bad TARBALL and a hole for a bad
+   MACHINE. Measured before this existed: a record carrying 99 failed attempts on
+   9.9.9 still installed when 9.9.10 was offered. The failures this brake exists
+   for are mostly not version-specific (no write permission on the install root, a
+   full disk, a proxy that blocks the release host), they persist across releases,
+   and the installer runs `kosmos stop` before it downloads, so each attempt is a
+   board that stays down until the next login. With a weekly release that was
+   three unattended shutdowns a week, forever. Set higher than the per-version cap
+   because it must not fire on a run of genuinely bad releases. */
+const MAX_TOTAL_ATTEMPTS = 6;
 /* The version this board has already announced it is giving up on, so the
    sentence is said once rather than once per TTL forever. */
 let gaveUpOn = null;
@@ -244,6 +255,31 @@ function maybeAutoInstall() {
        out of their own machine. The retry window now also applies after a manual
        failure, which is the behaviour you want: a version that failed by hand
        five minutes ago is not a good candidate for an unattended retry. */
+    /* 🛑 THE CROSS-VERSION BRAKE, AND IT DELIBERATELY SITS OUTSIDE THE
+       SAME-VERSION BLOCK BELOW. That block asks "has THIS version failed three
+       times", which is the right question for a bad tarball and the wrong one
+       for a machine that cannot install anything: no write permission on the
+       install root, a full disk, a proxy blocking the release host. Those
+       persist across releases, so every new release handed such a machine three
+       more unattended shutdowns. Measured before this existed: a record carrying
+       99 failures on 9.9.9 still installed when 9.9.10 was offered.
+
+       No version comparison and no retry window here on purpose. The window
+       paces retries WITHIN a version; this is a floor that a version bump must
+       not lift. A person pressing Install is never gated, because this whole
+       function is only reached from the timer. */
+    if (durable && durable.endedAt && durable.code !== 0
+        && (durable.streak || 0) >= MAX_TOTAL_ATTEMPTS) {
+      if (gaveUpOn !== 'ALL') {
+        gaveUpOn = 'ALL';
+        try {
+          process.stderr.write(`update: giving up on automatic installs after ${durable.streak} `
+            + 'consecutive failures across versions; this machine cannot install, so a new release '
+            + 'will not be tried unattended until one succeeds by hand\n');
+        } catch { /* a log line must never break the board */ }
+      }
+      return;
+    }
     if (durable && durable.endedAt && durable.code !== 0
         && offer && durable.version && durable.version === offer.version) {
       /* The window still helps inside one process life. */
@@ -562,6 +598,12 @@ function noteAttemptEnd(owner, code, why) {
        returns it instead of re-seeding, and the next attempt computes 0+1=1 and
        writes 1 back over the durable 2. */
     attempts: (lastAttempt && lastAttempt.attempts) || 0,
+    /* ⚠️ AND `streak`, WHICH IS THE FOURTH FIELD THIS REBUILD WOULD HAVE
+       FORGOTTEN. Every field it drops regresses on the one path where this
+       server survives a failed install. Dropping the cross-version counter
+       here would silently reset the one brake that exists precisely because a
+       version change must NOT reset it. */
+    streak: (lastAttempt && lastAttempt.streak) || 0,
   };
 }
 function seedFromStatusFile() {
@@ -572,7 +614,7 @@ function seedFromStatusFile() {
   /* The trailing pair is OPTIONAL on purpose: a file written by a release
      before this change has two fields, and refusing to parse it would lose the
      failure record entirely rather than lose two of its fields. */
-  const m = /^(-?\d+)\s+(\S+)(?:\s+(\S+)\s+(\S+)(?:\s+(\S+))?)?/.exec(raw.trim());
+  const m = /^(-?\d+)\s+(\S+)(?:\s+(\S+)\s+(\S+)(?:\s+(\S+)(?:\s+(\S+))?)?)?/.exec(raw.trim());
   if (!m) return;
   const code = Number(m[1]);
   if (code === 0) return;
@@ -585,6 +627,11 @@ function seedFromStatusFile() {
     version: m[3] && m[3] !== '-' ? m[3] : null,
     auto: m[4] === '1',
     attempts: Number.isFinite(Number(m[5])) ? Number(m[5]) : 0,
+    /* Consecutive failures across ALL versions. Optional like the pair above, so
+       a record written before this field existed reads 0 rather than failing to
+       parse. 0 is the safe default: it under-counts rather than braking a machine
+       that has not earned it. */
+    streak: Number.isFinite(Number(m[6])) ? Number(m[6]) : 0,
   };
 }
 function lastAttemptView() {
@@ -666,7 +713,15 @@ function beginInstall(opts) {
      started working, so it carries the count forward rather than resetting it. */
   const carried = sameVersionFailure ? (prior.attempts || 0) : 0;
   const attempts = (opts && opts.auto) ? carried + 1 : carried;
-  lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null, version: targetVersion, auto: !!(opts && opts.auto), attempts };
+  /* The cross-version streak, deliberately NOT conditioned on the version. Same
+     carry-forward rule as `attempts` (a manual press preserves it rather than
+     resetting it) and the same reason: a manual attempt is not evidence that the
+     automatic path started working. A SUCCESS clears it, which is handled at the
+     read end, because this value is written by the installer wrapper at exit and
+     a record with code 0 is never treated as a failure. */
+  const carriedStreak = (prior && prior.code !== 0) ? (prior.streak || 0) : 0;
+  const streak = (opts && opts.auto) ? carriedStreak + 1 : carriedStreak;
+  lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null, version: targetVersion, auto: !!(opts && opts.auto), attempts, streak };
   if (opts && opts.auto) {
     try { process.stderr.write(`update: starting an automatic install of ${targetVersion || 'an unnamed version'} at ${lastAttempt.startedAt}\n`); } catch { /* a log line must never break an install */ }
   }
@@ -730,13 +785,27 @@ function beginInstall(opts) {
      silent. In production it warns and we decline to spawn, which is the right
      direction for the one command in this product that ends in `| sh`. */
   if (!liveExec.liveExecutionAllowed()) {
-    liveExec.refuseOrWarn('engine/update.js', '/bin/sh', ['-c', 'curl -fsSL <setupUrl> | sh']);
-    /* Release single-flight, or one refusal answers every later attempt
-       "already updating" for the life of the process. */
+    /* 🛑 RELEASE SINGLE-FLIGHT *BEFORE* THE REFUSAL. THE ORDER IS THE WHOLE POINT.
+       `refuseOrWarn` THROWS in a test process (live-execution.js:71), so with the
+       release written after the call it was UNREACHABLE on exactly the branch
+       that needed it, and the comment here claimed a release that never happened.
+       maybeAutoInstall swallows the throw, so the flag stayed set.
+
+       The consequence inverts what this gate is for. refresh() reaches
+       beginInstall on its own, so the FIRST refusal in a file stranded the flag,
+       and every later beginInstall returned early at the single-flight check
+       doing nothing. Arms after the first would then pass SILENTLY, because
+       nothing they asked for ever ran. A guard built to be loud made the tests
+       after it quietly green. Found by a reviewer, and then reproduced by my own
+       new arm failing for this reason rather than the one I wrote it for.
+
+       Not try/finally: a `return` inside `finally` swallows the throw, and the
+       throw is the loudness worth keeping. */
     installStarted = false;
+    liveExec.refuseOrWarn('engine/update.js', '/bin/sh', ['-c', 'curl -fsSL <setupUrl> | sh']);
     return;
   }
-  const child = spawn('/bin/sh', ['-c', 'set -o pipefail; curl -fsSL "$1" | sh; code=$?; printf "%s %s %s %s %s\n" "$code" "$3" "$4" "$5" "$6" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, lastAttempt.version || '-', lastAttempt.auto ? '1' : '0', String(lastAttempt.attempts || 0)], {
+  const child = spawn('/bin/sh', ['-c', 'set -o pipefail; curl -fsSL "$1" | sh; code=$?; printf "%s %s %s %s %s %s\n" "$code" "$3" "$4" "$5" "$6" "$7" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, lastAttempt.version || '-', lastAttempt.auto ? '1' : '0', String(lastAttempt.attempts || 0), String(lastAttempt.streak || 0)], {
     detached: true,
     stdio: 'ignore',
     env: { ...process.env, KOSMOS_RELEASE_BASE: base },
