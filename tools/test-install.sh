@@ -633,9 +633,10 @@ _kosmos_expected_port() { # $1 = uid
 # kosmos#955: a bundle that PREDATES --kosmos-app-port-selftest (a stale dist/ copied
 # rather than rebuilt) does not know the flag, starts the app, and hangs this section
 # forever with no verdict -- the log's last line staying the header above, so it reads
-# like progress. Prove the flag is real by contrast BEFORE trusting it (a #910-aware
-# bundle answers the real flag and NOT a fake one; a behind bundle treats both the
-# same), and bound every call so a future regression cannot hang either.
+# like progress. So BEFORE trusting the flag, require it to return the pinned uid-501
+# port FAST (a #910-aware bundle answers in milliseconds; a behind bundle starts the app
+# and times out, and is group-killed rather than orphaned). Then bound every per-uid call
+# too, so a future regression cannot hang either.
 if kosmos_app_selftest_current "$KOS_SRC/app/bin/kosmos-app" "$(_kosmos_expected_port 501)" "${KOSMOS_SELFTEST_TIMEOUT:-10}"; then
   for _uid in 501 502 1000 4999 5000; do
     _expected="$(_kosmos_expected_port "$_uid")"
@@ -644,7 +645,7 @@ if kosmos_app_selftest_current "$KOS_SRC/app/bin/kosmos-app" "$(_kosmos_expected
   done
 else
   chk "the bundle implements --kosmos-app-port-selftest (a #910-aware build)" "false"
-  echo "      this bundle's kosmos-app did not answer the selftest (the real flag behaved like a fake one), so dist/ predates #910: rebuild dist/ rather than copying an older build. Skipping the per-uid port checks instead of hanging on them (#955)." >&2
+  echo "      this bundle's kosmos-app did not return the pinned uid-501 port within the bound (it hung on the flag or answered the wrong value), so dist/ predates #910: rebuild dist/ rather than copying an older build. Skipping the per-uid port checks instead of hanging on them (#955)." >&2
 fi
 chk "uid 501 is pinned to the literal, unchanged default" "[ \"\$(_kosmos_expected_port 501)\" = 16180 ]"
 chk "uid 1000 and uid 4999 wrap the same modulo to the identical port (1000 % 3999 = 4999 % 3999)" "[ \"\$(_kosmos_expected_port 1000)\" = \"\$(_kosmos_expected_port 4999)\" ]"
