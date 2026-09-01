@@ -78,6 +78,24 @@ function poke() {
 }
 
 async function refresh() {
+  /* 🛑 NO REAL NETWORK IN A DRY RUN, AND THE INJECTED SEAM WINS OVER THIS CHECK.
+     The DRY_RUN gate was on the interval callback ONLY, and the /api/status route
+     calls poke() directly (server.js:1778), so every test that boots the server
+     walked straight past it: measured, a full suite run made a real request to
+     https://installkosmos.com/dist/latest.json, our own tests hitting a
+     production host on every run. The guard whose stated purpose was "so none can
+     reach the release host" was checked in the one place the traffic did not come
+     from.
+
+     Ordered deliberately, the same way engine/create.js:266 consults its runner
+     before reading DRY_RUN: an injected fetcher is a test that has SAID what it
+     wants, so it still gets called and nothing that stubs the seam changes
+     behaviour. Only the un-stubbed case, which is the one that reaches the real
+     host, is refused. AGENT_WORKFORCE_DRY_RUN is never '1' in production, so this
+     cannot affect a person's machine. */
+  if (!fetcher && process.env.AGENT_WORKFORCE_DRY_RUN === '1') {
+    return;
+  }
   const doFetch = fetcher || fetch;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT);

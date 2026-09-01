@@ -82,7 +82,20 @@ test('#1277: startAutoPoll unrefs its timer, so a poll cannot hold the process o
   update.stopAutoPoll();
 });
 
-test('#1277: every test file that boots the server sets DRY_RUN, so none can reach the release host', () => {
+/* 🛑 THE NAME OF THIS TEST USED TO END "so none can reach the release host", AND
+   THAT SECOND CLAUSE WAS FALSE ON EVERY RUN. Setting the variable was necessary
+   and not sufficient: the gate it feeds sat on the interval callback only, while
+   /api/status calls poke() directly (server.js:1778), so every file that booted
+   the server fetched the production host anyway. Measured with an interceptor
+   before the fix: a real request to https://installkosmos.com/dist/latest.json
+   per suite run, from files that all set the variable correctly.
+
+   The assertion here was always honest; the name drew a conclusion the assertion
+   could not support, which is worse than an over-broad assertion because nobody
+   re-reads a name. It now says only what it checks. The conclusion it used to
+   claim is now guarded for real, by an arm in engine/update.test.js that counts
+   calls to the global fetch. */
+test('#1277: every test file that boots the server sets DRY_RUN', () => {
   /* The poll's fetch gate is a CONVENTION across sixteen files and nothing
      enforced it. All sixteen set it today, so the exposure is closed, but the
      next file somebody writes inherits nothing. The failure it prevents is not

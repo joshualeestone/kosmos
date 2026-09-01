@@ -1492,3 +1492,45 @@ test('#1277: a machine repaired and reinstalled BY HAND starts updating again', 
     'CONTROL: a record naming a version we are still BEHIND is a live verdict and must brake, or '
     + 'this supersede rule has simply disabled the cap');
 });
+
+test('#1277: under DRY_RUN an un-stubbed refresh makes no real request to the release host', async () => {
+  /* 🛑 THE SUITE WAS HITTING A PRODUCTION HOST ON EVERY RUN. The DRY_RUN gate sat
+     on the interval callback only, and the /api/status route calls poke()
+     directly (server.js:1778), so every test that boots the server walked past
+     it. Measured with a fetch interceptor: a full suite run made a real request
+     to https://installkosmos.com/dist/latest.json. The guard whose stated purpose
+     was "so none can reach the release host" was checked in the one place the
+     traffic did not come from.
+
+     The injected seam still wins, the same ordering engine/create.js uses for its
+     runner: a test that stubs the fetcher has SAID what it wants and gets it.
+     Only the un-stubbed case, which is the one that reaches the real host, is
+     refused. */
+  const u = require('./update');
+  const prev = process.env.AGENT_WORKFORCE_DRY_RUN;
+  const realFetch = globalThis.fetch;
+  let realCalls = 0;
+  try {
+    globalThis.fetch = async (...a) => { realCalls += 1; return realFetch(...a); };
+    process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+    u.resetCache(); u.setFetcher(null);
+    await u.refresh();
+    assert.equal(realCalls, 0,
+      'refresh() reached the global fetch under DRY_RUN with no fetcher injected. That is our own '
+      + 'test suite making a real request to the production release host');
+
+    /* CONTROL: an injected fetcher must STILL be called, or this gate has simply
+       turned the module off in tests and the assertion above means nothing. */
+    let stubbed = 0;
+    u.resetCache();
+    u.setFetcher(async () => { stubbed += 1; return { ok: true, json: async () => ({ version: '99.0.0' }) }; });
+    await u.refresh();
+    assert.equal(stubbed, 1, 'CONTROL: an injected fetcher must still be used under DRY_RUN');
+    assert.equal(realCalls, 0, 'CONTROL: and it must not have reached the real fetch either');
+  } finally {
+    globalThis.fetch = realFetch;
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_DRY_RUN;
+    else process.env.AGENT_WORKFORCE_DRY_RUN = prev;
+    u.setFetcher(null); u.resetCache();
+  }
+});
