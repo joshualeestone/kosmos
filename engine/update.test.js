@@ -1707,3 +1707,45 @@ test('#1277: the streak survives the restart-free path, where this server outliv
     u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('#1277: an in-flight attempt does not trigger the CROSS-VERSION give-up either', async () => {
+  /* The per-version brake has an arm for this; the cross-version one did not, and
+     a reviewer measured that removing `durable.endedAt` there left every test
+     green. Without it a board announces it is giving up on automatic installs
+     across versions while an attempt is still running and may yet succeed, and the
+     announcement LATCHES for the life of the process, so the truth never arrives
+     even if that attempt works. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-xflight-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  const written = []; const realWrite = process.stderr.write.bind(process.stderr);
+  u.resetCache();
+  u.setInstalledRoot(() => home);
+  u.setAutoPref(() => ({ on: true }));
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+  u.setInstallRunner(() => ({ on() {}, unref() {}, stderr: { on() {} } }));
+  try {
+    /* Two distinct versions already failed, long enough ago to retry. The third
+       attempt then starts and does not finish. */
+    const old = new Date(Date.now() - 5 * 3600 * 1000);
+    const f = path.join(home, 'logs', 'install.status');
+    fs.writeFileSync(f, `1 ${old.toISOString()} 98.0.0 1 1 2\n`);
+    fs.utimesSync(f, old, old);
+    await u.checkNow();
+    const mid = u.lastAttempt() || {};
+    assert.equal(mid.code, null, 'precondition: the third attempt is in flight');
+    assert.equal(mid.streak, 3, `precondition: a THIRD distinct version is now failing, got ${mid.streak}`);
+    written.length = 0;
+    process.stderr.write = (c, ...r) => { written.push(String(c)); return realWrite(c, ...r); };
+    await u.checkNow();
+  } finally {
+    process.stderr.write = realWrite;
+    u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+    u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+  }
+  const said = written.filter((l) => /DIFFERENT versions failed/.test(l));
+  assert.equal(said.length, 0,
+    `the board said "${(said[0] || '').trim()}" about an attempt that had not finished. It might `
+    + 'yet succeed, and the sentence LATCHES, so the truth would never arrive');
+});
