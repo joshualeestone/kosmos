@@ -72,7 +72,13 @@ test('kosmos#967: the terminal composer is wired -- markup, endpoint, gating', (
   // The button is re-derived from presence via paintTalk at finally, exactly as
   // sendTalk does, rather than force-enabled (which could leave a live Send over
   // an agent that went offline mid-flight).
-  assert.match(SCRIPT, /if \(!flightMoved\(\)\) await paintTalk\(sentName, name\)/, 'sendTerm re-derives the Send button via paintTalk at finally');
+  assert.match(SCRIPT, /await paintTalk\(sentName, name\)/, 'sendTerm re-derives the Send button via paintTalk at finally');
+
+  // A button-click send disables the focused Send, moving focus to <body>; it is
+  // captured and restored at finally so a keyboard/screen-reader person is not
+  // stranded (the Enter path keeps focus in the never-disabled input).
+  assert.match(SCRIPT, /const sendHadFocus = !!\(send && document\.activeElement === send\)/, 'sendTerm captures whether Send had focus');
+  assert.match(SCRIPT, /if \(sendHadFocus && send && !send\.disabled\) send\.focus\(\)/, 'and restores focus to Send when the agent is still reachable');
 });
 
 /** Lift sendTerm and run it against a stub fetch + DOM, injecting CURRENT.

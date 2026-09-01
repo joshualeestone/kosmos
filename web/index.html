@@ -17472,12 +17472,16 @@ async function paintTalk(sessionName, agentName) {
     termSay.placeholder = termSay.disabled
       ? name + ' cannot be reached right now'
       : 'Send a message into this window…';
-    /* `flying` is the Talk composer's in-flight state, on purpose: both boxes
-       POST the same agent thread, so a Talk send in flight holds the Terminal
-       Send too, keeping the one-send-at-a-time rule across the two entry points.
-       The coupling is one-way (a Terminal send does not disable Talk) and only
-       refreshed on the poll, which is enough here -- TERM_SENDING already blocks
-       a second Terminal send synchronously. */
+    /* `flying` here is the Talk composer's in-flight state, carried from the line
+       above. It is NOT a cross-composer one-send-at-a-time guarantee and must not
+       be read as one: the detail poll skips paintTalk during a Talk flight and
+       sendTalk never disables this button, so a Talk send and a Terminal send can
+       be in flight at once. That is accepted and harmless -- each composer is
+       re-entrant-guarded by its own flag (TERM_SENDING here, TALK_SENDING there),
+       posts a distinct message, writes its own receipt line, and is guarded by its
+       own flightMoved(), so there is no misdelivery or loss. Keeping `|| flying`
+       is a mild belt-and-suspenders on the paths where paintTalk does run; the
+       real block on a second Terminal send is TERM_SENDING, synchronously. */
     termSend.disabled = body.presence === 'off' || flying;
   }
   // The parked draft comes back, and never over words already in the box.
@@ -30315,9 +30319,13 @@ document.getElementById('d-send').addEventListener('click', () => {
    sendTalk (POST the agent's thread), so it is the one delivery mechanism
    surfaced beneath the live pane, not a second one. It keeps its own small
    sending guard and receipt line rather than borrowing the Talk composer's
-   elements, which live on a different tab. The clear-on-placed / keep-on-doubt
-   rule matches sendTalk and pjSend, so the three composers agree about what a
-   send did. */
+   elements, which live on a different tab. Clear-on-placed and silent-when-worked
+   (#402) match sendTalk exactly. Keep-on-doubt is deliberately MORE conservative:
+   the Terminal box keeps an unconfirmed message unconditionally, where sendTalk
+   clears it once it is recorded in the thread. This box has no thread row of its
+   own on the Terminal tab to fall back to, so keeping the words is the safe copy,
+   at the cost of a possible duplicate if the person retries a message that did in
+   fact land. */
 let TERM_SENDING = false;
 async function sendTerm() {
   const say = document.getElementById('d-term-say');
@@ -30335,6 +30343,12 @@ async function sendTerm() {
      receipt line belong to somebody else. Every write below is gated on the
      flight not having moved, exactly as sendTalk guards #d-say / #d-say-msg. */
   const flightMoved = () => !CURRENT || CURRENT.sessionName !== sentName;
+  /* Disabling the focused Send moves focus to <body> synchronously (measured in
+     Chromium), so a keyboard or screen-reader person who pressed Send is
+     stranded on the document. Captured here and restored at finally, exactly as
+     sendTalk does. The Enter path is unaffected -- focus stays in the input,
+     which never disables. */
+  const sendHadFocus = !!(send && document.activeElement === send);
   if (send) send.disabled = true;
   if (msg) msg.textContent = 'Sending…';
   try {
@@ -30374,7 +30388,13 @@ async function sendTerm() {
        whose agent went offline mid-flight; and with the flight moved the button
        belongs to another agent whose own poll already owns it. paintTalk repaints
        both boxes from one presence read, so the Terminal Send lands correct. */
-    if (!flightMoved()) await paintTalk(sentName, name);
+    if (!flightMoved()) {
+      await paintTalk(sentName, name);
+      // Put the keyboard back where it was: the button if the agent is still
+      // reachable (paintTalk left it enabled), otherwise the box.
+      if (sendHadFocus && send && !send.disabled) send.focus();
+      else if (sendHadFocus && say && document.activeElement === document.body) say.focus();
+    }
   }
 }
 document.getElementById('d-term-send').addEventListener('click', sendTerm);
