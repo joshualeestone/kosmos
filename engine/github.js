@@ -1,5 +1,6 @@
 'use strict';
 /** GitHub, connected (#529): the spec behind the door. See devicedoor.js. */
+const path = require('node:path');
 const { makeDoor, PHASE } = require('./devicedoor');
 
 /* THE gh ROAD, SINGLE SOURCE. This comment block used to live in githubdevice.js
@@ -40,7 +41,8 @@ const GH_CANDIDATES = Object.freeze(['/opt/homebrew/bin/gh', '/usr/local/bin/gh'
  * an exported function, `ghCandidateList(process.env.AGENT_WORKFORCE_GH_CANDIDATES)`,
  * then returned the OPPOSITE of what production does with the same value. Measured:
  * production 3 paths, that call [].
- * ⇒ `':'` already yields [] through `.split(':').filter(Boolean)`, so a caller can
+ * ⇒ the delimiter alone already yields [] through `.split(path.delimiter).filter(Boolean)`,
+ * so a caller can
  * ask for "no candidates" without overloading ''. Collapsing removed the double
  * meaning, the `|| undefined` on the default, and the two arms needed to pin the
  * two halves. */
@@ -48,7 +50,14 @@ function ghCandidateList(override = process.env.AGENT_WORKFORCE_GH_CANDIDATES) {
   /* One rule. '' is unset whichever way it arrives, which is what `export FOO=$UNSET`
      produces and what a caller passing the env value expects. */
   if (typeof override !== 'string' || override === '') return GH_CANDIDATES;
-  return override.split(':').filter(Boolean);
+  /* 🛑 `path.delimiter`, NOT a hardcoded ':'. This repo is win32-aware (store.js
+     branches on process.platform), and on Windows a real override reads
+     `C:\\tools\\gh.exe;D:\\alt\\gh.exe`. Splitting THAT on ':' yields three
+     bogus fragments, every one fails `isRunnable`, and the door plus `ghPresent`
+     both report gh missing with no diagnostic. Measured: the ':' form returns
+     ['C', '\\tools\\gh.exe;D', '\\alt\\gh.exe'].
+     📌 No behaviour change on POSIX, where `path.delimiter` IS ':'. */
+  return override.split(path.delimiter).filter(Boolean);
 }
 
 module.exports = Object.assign(makeDoor({
