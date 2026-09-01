@@ -260,3 +260,18 @@ Then a web/*.test.js mirroring web.* patterns: the control renders the server's
 interval choices, PUT drives /api/heartbeat-setting, a failed save repaints the
 in-force value. STATUS: markup + JS ready; blocked ONLY on #1724's section
 landing on main. Backend (setting/runner/routes/29 tests) done + pushed e1c5d72b.
+
+## STATE 00:20: UI ADDED (ADD ONLY), branch STACKED on autohandoff-1724
+- Per Splinter (proceed, ADD ONLY, follow Mona's handoff): rebased
+  heartbeat-automation-1722 --onto origin/autohandoff-1724 (13 commits, clean, only
+  server.js overlapped and auto-merged). Added the heartbeat control as a NEW dbox
+  inside s-sec-automation AFTER her auto-save control, plus paintHeartbeat + a
+  paintSettings call + web.heartbeat-1722.test.js. Touched NONE of her markup/JS;
+  her web test stays green (3/3). Mine: 4/4.
+- SEQUENCING (the stacked-PR consequence): my branch now carries her commits until
+  #1724 merges to main. So the challenge-loop + PR WAIT for #1724 on main. When it
+  lands: `git rebase --onto origin/main <old-base> heartbeat-automation-1722`
+  (her commits drop as already-applied), then main...HEAD = MY changes only, then
+  challenge-loop + proof + PR against main. The gate-watcher (background) fires when
+  s-sec-automation hits origin/main = the rebase trigger.
+- Recovery: pre-stack verified tip was d3a99561 (main-based, green).
