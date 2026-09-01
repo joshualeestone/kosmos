@@ -13715,7 +13715,17 @@ async function paintAccounts() {
     const REST_LABEL = btn.getAttribute && btn.getAttribute('aria-label');
     const armLabel = (on) => {
       if (!REST_LABEL || !btn.setAttribute) return;
-      btn.setAttribute('aria-label', on ? REST_LABEL + ', press again to remove' : REST_LABEL);
+      /* 🛑 THE VISIBLE WORDS COME FIRST, AND THAT IS WCAG 2.5.3 (Label in Name,
+         Level A), NOT A STYLE CHOICE. My first version of this said
+         `REST_LABEL + ', press again to remove'`, so the armed button SHOWED
+         "Remove it?" while its accessible name contained no such string. A speech
+         input user saying "click Remove it?" could not operate the confirm step of
+         a destructive control: I fixed the state being unannounced and introduced a
+         different failure on the same element, one iteration later.
+         ⇒ The armed name now STARTS with the visible text and keeps the account
+         identity after it, so it satisfies both: the words on screen are sayable,
+         and the row is still identified. */
+      btn.setAttribute('aria-label', on ? 'Remove it? ' + REST_LABEL : REST_LABEL);
     };
     btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false); } });
     btn.addEventListener('click', async () => {

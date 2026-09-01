@@ -1657,6 +1657,14 @@ KOSMOS_SWEEP_LIST
     grep -q '"hasTrustDialogAccepted": true' "$_cfg" 2>/dev/null || continue
     case " $_trust_marked " in *" $_cfg "*) continue ;; esac
     _trust_marked="$_trust_marked $_cfg"
+    # 🛑 ONLY SAY THE DISCONNECTED-ACCOUNT SENTENCE IF THERE IS ONE. Without this
+    # flag those two lines printed on EVERY uninstall, so the overwhelmingly common
+    # machine (one ~/.claude.json mark, no account ever disconnected) was told about
+    # a state the person has never been in. That is the same "a reason that is true
+    # only sometimes, stated as fact" defect this block's own comments were rewritten
+    # twice to remove, arriving a third time from the side that looks like extra
+    # helpfulness.
+    case "$_cfg" in "$HOME"/.removed-claude-*) _trust_removed=yes ;; esac
   done
   if [ "$_agents_stopped" = "yes" ] && [ -n "$_trust_marked" ]; then
     printf '  Trust marks were left in place. These files record a folder as\n'
@@ -1675,9 +1683,11 @@ KOSMOS_SWEEP_LIST
     # a disconnected account's config is INERT, and telling someone it is in effect
     # is the same true-sounding-but-wrong disclosure this block was fixed for twice
     # before. Listing the leftover file is right; asserting it still bites is not.
-    printf '  For a folder you still use, the mark applies.\n'
-    printf '  For an account you disconnected, the file is still there but nothing\n'
-    printf '  reads it, so you will be asked again if you reconnect that account.\n'
+    if [ "${_trust_removed:-no}" = yes ]; then
+      printf '  For a folder you still use, the mark applies.\n'
+      printf '  For an account you disconnected, the file is still there but nothing\n'
+      printf '  reads it, so you will be asked again if you reconnect that account.\n'
+    fi
     printf '  Remove these entries if you want the question back everywhere.\n\n'
   fi
   exit 0

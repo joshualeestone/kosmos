@@ -109,6 +109,27 @@ function agentOn(ctx, name, configDir, runner) {
   ctx.seededPlist = fs.readFileSync(create.plistPath(name), 'utf8');
 }
 
+/* 🔑 REGISTERED BUT NOT RUNNING, which `agentOn` above CANNOT express because it
+   appends a pane line. That one line is why an earlier version of this file
+   claimed the #1693/#1697 state was unreachable here and shipped the port
+   uncovered: `safeRoster()` reads PANES, and every fixture happened to write one,
+   so the roster-only and union implementations agreed on everything the suite
+   could build. They separate cleanly the moment a fixture omits the pane.
+   A profile is what `register.known()` reads; the plist is what lets `readJob`
+   attribute the agent to an account. Both, and no pane. */
+function registeredNotRunning(ctx, name, configDir) {
+  const create = require('./engine/create');
+  process.env.AGENT_WORKFORCE_LAUNCH = ctx.launch;
+  fs.mkdirSync(nodePath.join(ctx.workers, name), { recursive: true });
+  fs.writeFileSync(create.plistPath(name),
+    create.plistFor(name, '/bin/claude', '/bin/tmux', null, configDir, 'claude'), 'utf8');
+  const profiles = nodePath.join(ctx.sb, 'data', 'AgentWorkforce', 'profiles');
+  fs.mkdirSync(profiles, { recursive: true });
+  fs.writeFileSync(nodePath.join(profiles, name + '.json'), JSON.stringify({ name }));
+  assert.ok(fs.existsSync(create.plistPath(name)), 'the launch file is missing, so the arm proves nothing');
+  assert.ok(!ctx.panesFile, 'this fixture must not write a pane, or it cannot tell the two enumerations apart');
+}
+
 test('#1659 route: an unused Claude account is forgotten, and the answer says nothing was deleted', () => {
   const r = board(({ home }) => account(home, 'lonely'));
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
@@ -199,7 +220,7 @@ test('#1659 route: an agent ON the account blocks removal and is NAMED', () => {
   });
   assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
   assert.deepEqual(r.json.usedBy, ['marlowe'], 'the person needs to know WHICH agent');
-  assert.match(String(r.json.error), /marlowe is running on this account/);
+  assert.match(String(r.json.error), /marlowe is set up to run on this account/);
   assert.ok(fs.existsSync(r.target), 'nothing moved');
 });
 
@@ -279,4 +300,29 @@ test('#1659 route DISCRIMINATOR: an agent on a DIFFERENT account does not block'
   assert.equal(r.code, 200, 'it must PROCEED: that agent is on another account. body: '
     + JSON.stringify(r.json));
   assert.equal(r.json.forgotten, true);
+});
+
+/* 🛑 THE ARM THAT ACTUALLY SEPARATES THE TWO ENUMERATIONS (kosmos#1697 porting
+   kosmos#1693). Measured both ways before being written, which is the only reason
+   it is here: with the `knownNames` union the route answers 400 and NAMES the
+   agent; with the union deleted it answers 200 forgotten:true and renames the
+   account out from under a configured agent.
+   ⚠️ An earlier version of this file said this state was UNREACHABLE in this
+   harness. That was wrong, and wrong for a specific reason worth keeping: I
+   believed `safeRoster()` returned anything with a launch file. It reads PANES.
+   Every fixture wrote one because `agentOn` appends one, so the two
+   implementations agreed on every case the suite could build, and I recorded a
+   correct conclusion (uncovered) from a false mechanism, then stopped looking. */
+test('#1697: a REGISTERED but NOT RUNNING agent still blocks, because a stopped agent keeps its launch file', () => {
+  const r = board((ctx) => {
+    const dir = account(ctx.home, 'walk');
+    account(ctx.home, 'default');
+    registeredNotRunning(ctx, 'ghosty', dir);
+    return dir;
+  });
+  assert.equal(r.code, 400,
+    'a stopped agent did not block, so the #1693 union is not doing its job. body: ' + JSON.stringify(r.json));
+  assert.deepEqual(r.json.usedBy, ['ghosty'],
+    'the refusal must NAME the stopped agent, or the person is told no without being told which');
+  assert.ok(fs.existsSync(r.target), 'the account directory moved despite the refusal');
 });

@@ -559,9 +559,17 @@ function forgetAccount(dir, usedBy) {
       ok: false,
       forgotten: false,
       usedBy: agents,
+      /* 🛑 "IS SET UP TO RUN ON", NOT "IS RUNNING", AND THE CHANGE IS A TRUTH FIX
+         RATHER THAN A WORDING PREFERENCE. This said "is running on this account",
+         which was accurate while only the live roster could populate `agents`. The
+         #1693/#1697 union now includes REGISTERED-BUT-STOPPED agents, so the
+         sentence started sending people to look for a running agent that is not
+         running, on the exact path that exists to stop them losing one.
+         📌 Reworded in openaiaccounts.js too: same sentence, same defect, and the
+         two buttons now sit in one row builder under one word. */
       because: agents.length === 1
-        ? `${agents[0]} is running on this account. Move it to another account or remove it first.`
-        : `${agents.length} agents are running on this account: ${agents.join(', ')}. `
+        ? `${agents[0]} is set up to run on this account. Move it to another account or remove it first.`
+        : `${agents.length} agents are set up to run on this account: ${agents.join(', ')}. `
           + 'Move them to another account or remove them first.',
     };
   }

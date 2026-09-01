@@ -205,8 +205,8 @@ function forgetAccount(dir, usedBy) {
       forgotten: false,
       usedBy: agents,
       because: agents.length === 1
-        ? `${agents[0]} is running on this account. Move it to another account or remove it first.`
-        : `${agents.length} agents are running on this account: ${agents.join(', ')}. `
+        ? `${agents[0]} is set up to run on this account. Move it to another account or remove it first.`
+        : `${agents.length} agents are set up to run on this account: ${agents.join(', ')}. `
           + 'Move them to another account or remove them first.',
     };
   }

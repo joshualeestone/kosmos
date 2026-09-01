@@ -13,11 +13,16 @@
  * nothing about whether the first click reaches the engine, which is the only
  * thing this card is about.
  *
- * 📌 SCOPE, measured on origin/main rather than taken from the card: the card
- * says both provider rows render a live Disconnect. On main only the OPENAI
- * one is live. The Claude button is `disabled` with the title "Not built yet",
- * and it becomes live in #1659, which is unmerged. So this fixes the half that
- * is actually live today and cannot fix the other half yet.
+ * 📌 SCOPE, AND IT HAS CHANGED SINCE THIS PARAGRAPH WAS WRITTEN. It used to say
+ * that only the OpenAI row rendered a live Disconnect, that the Claude button was
+ * `disabled` with the title "Not built yet", and that #1659 was unmerged. All
+ * three were measured and true then. #1659 is now THIS BRANCH: the Claude button
+ * is live, it carries `data-forget`, and the handler these tests extract is bound
+ * over both providers.
+ * ⚠️ So do not read this file as covering one provider. It drives the SHARED
+ * binding, and a reader who trusted the old paragraph would conclude the Claude
+ * arm needs no coverage. A scope note that goes stale is worse than none, because
+ * it is the sentence someone uses to decide what NOT to test.
  *
  *   node --test web.ask-first-1683.test.js
  */
@@ -151,9 +156,12 @@ test('#1683: arming changes the ACCESSIBLE NAME, not only the visible label', ()
   const armed = w.btn.getAttribute('aria-label');
   assert.notEqual(armed, rest,
     'the accessible name did not change on arming, so a screen-reader user cannot tell the confirm happened');
-  assert.match(armed, /press again to remove/,
-    'the armed name must say what the next press does');
-  assert.ok(armed.indexOf(rest) === 0,
+  /* WCAG 2.5.3 Label in Name: the accessible name must CONTAIN the visible words,
+     and starting with them is what makes "click Remove it?" work for speech input.
+     Asserted as a prefix rather than a substring because the order is the point. */
+  assert.ok(armed.indexOf('Remove it?') === 0,
+    'the armed name does not start with the VISIBLE label, so a speech-input user cannot say what they see (WCAG 2.5.3)');
+  assert.ok(armed.indexOf(rest) > 0,
     'the armed name dropped the account identity, which is what tells two rows apart');
   w.btn.listeners.blur();
   assert.equal(w.btn.getAttribute('aria-label'), rest, 'blur disarmed the label but did not restore the name');

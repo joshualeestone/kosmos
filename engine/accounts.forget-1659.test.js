@@ -134,7 +134,7 @@ test('#1659: refused while agents are on it, and the agents are NAMED', () => {
   const one = accounts.forgetAccount(dir, ['marlowe']);
   assert.equal(one.ok, false);
   assert.deepEqual(one.usedBy, ['marlowe']);
-  assert.match(one.because, /marlowe is running on this account/);
+  assert.match(one.because, /marlowe is set up to run on this account/);
 
   const many = accounts.forgetAccount(dir, ['marlowe', 'spade']);
   assert.equal(many.ok, false);

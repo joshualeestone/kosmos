@@ -3434,23 +3434,19 @@ const server = http.createServer((req, res) => {
            of it. This is the OpenAI route's exact shape rather than a second
            derivation of it: two derivations of the fleet is what that route's own
            comment calls this codebase's worst habit.
-           🛑 AND THIS PORT IS NOT PROVEN BY THIS REPO'S TESTS. Said plainly because
-           I wrote an arm for it, watched it pass, PERTURBED THE PORT AWAY, AND
-           WATCHED IT PASS AGAIN. The arm was vacuous and I nearly shipped it as
-           coverage.
-           Measured standalone, the gap is REAL: a profile plus a launch file with
-           NO pane gives `snapshot()` an empty list while `register.known()` returns
-           the agent, which is exactly the state this union exists to catch.
-           ⚠️ But inside `server.forget-claude-1659.test.js`'s harness that state is
-           UNREACHABLE: there `safeRoster()` already returns any agent that has a
-           launch file, so roster-only and the union agree on every fixture the
-           suite can build, and no assertion over them can tell the two apart. An
-           agent with a profile and NO launch file cannot be attributed to an
-           account either way, because `readJob` returns null.
-           ⇒ The change is justified by the standalone measurement and by #1697, and
-           its regression coverage is HONESTLY ABSENT rather than fake. Anyone
-           strengthening it should start by making the harness's roster reflect
-           panes rather than launch files. */
+           ✅ GUARDED, and the paragraph that used to sit here was WRONG about why
+           it could not be. It said the state was UNREACHABLE in this harness
+           because `safeRoster()` returns anything with a launch file. IT READS
+           PANES. Every fixture happened to write one, because the `agentOn` helper
+           appends a pane line, so roster-only and the union agreed on every case
+           the suite could build and I recorded a correct conclusion (uncovered)
+           from a false mechanism, then stopped looking.
+           ⭐ A reviewer measured both arms instead of believing the comment: seed a
+           plist and a profile with NO pane and they separate cleanly. The guard was
+           four fixture lines away the whole time.
+           📌 `server.forget-claude-1659.test.js` now carries
+           `registeredNotRunning()` and an arm that reds by name when this union is
+           removed, verified by perturbation with the mutation confirmed applied. */
         const knownNames = register.known();
         if (!knownNames || knownNames.ok !== true) complete = false;
         let goneNames = null;
