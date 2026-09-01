@@ -153,6 +153,9 @@ function setClientId(id) {
    ✅ NO TEST REACHES THE OPERATOR'S REAL gh through the door: `github.test.js` pins
    `AGENT_WORKFORCE_GH_BIN = '/bin/echo'` in `beforeEach`, so `ghBin()` returns before
    the candidate scan is consulted.
+   🛑 SO DO NOT ADD THE OBVIOUS CONTROL ARM. "With no override the control still finds
+   the real gh" would EXEC THE OPERATOR'S OWN gh, which is exactly what the sentence
+   above promises no test does. It is deliberately not written.
 
    🛑 IT LIVES IN `github.js` BECAUSE THE MOVE CLOSED A CONTRACT BREACH, not to tidy.
    When this file defined it and `github.js`'s door reached BACK through a getter, the
