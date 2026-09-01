@@ -281,7 +281,16 @@ function forgetAccount(dir, usedBy) {
          no override (control)  `.codex` reports true, so the flag can return
            the other answer and this measurement means something.
        The mirror is worse: with the home moved elsewhere, a leftover `.codex`
-       reports true and the caller states a history loss that did not happen. */
+       reports true and the caller states a history loss that did not happen.
+       ⚠️ SCOPE, SO THIS IS NOT READ AS COVERING THE WHOLE `CODEX_HOME` RANGE: it
+       fixes the flag for a named home INSIDE the person's home folder. Point
+       `CODEX_HOME` OUTSIDE it and `list()` still emits the row as `isDefault:true`
+       with a live Disconnect, while the first guard below refuses every press
+       because the parent is not home. Measured, both arms: an outside-home row
+       returns `that is not an OpenAI account on this computer`, while the control
+       inside home returns `ok:true`. That is a live control that can never act,
+       which is the shape this file refuses elsewhere. It PREDATES this change and
+       is not fixed here; it is carded rather than widened silently. */
     wasDefault: clean === path.resolve(defaultDir()),
     because: null,
   };

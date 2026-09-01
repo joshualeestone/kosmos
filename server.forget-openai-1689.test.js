@@ -218,3 +218,36 @@ test('#1689 FAIL-CLOSED: an unreadable launch file REFUSES instead of proceeding
     'and it must say it could not LOOK, not that nobody was there');
   assert.ok(fs.existsSync(r.target), 'refusing means nothing moved');
 });
+
+/*
+ * #1659: the ROUTE's use of `wasDefault`, which nothing pinned.
+ *
+ * 🛑 THE ENGINE FLAG WAS COVERED AND ITS CONSUMER WAS NOT. `wasDefault` is well
+ * tested in `engine/openaiaccounts.wasdefault-1659.test.js`, but the sentence the
+ * person actually reads is composed in the route, and deleting that whole clause
+ * from `server.js` left the entire suite green at 3395 pass. The Claude route's
+ * equivalent sentence IS pinned (`server.forget-claude-1659.test.js` asserts
+ * /stops looking inside it/), so this was a parity gap in the half that was ported
+ * rather than the half that was written.
+ *
+ * Both arms, because the clause is CONDITIONAL and a one-armed pin would pass just
+ * as well if it were made unconditional, which is the defect in the other direction:
+ * a labelled account loses no transcripts, so telling its owner they did would be
+ * a false statement rather than a missing one.
+ */
+test('#1659: disconnecting the DEFAULT openai account says the history stops appearing', () => {
+  const r = board((ctx) => codexAccount(ctx.home, 'default'));
+  assert.equal(r.code, 200, 'the default account did not disconnect, so the sentence below '
+    + 'is not being tested. body: ' + JSON.stringify(r.json));
+  assert.match(r.json.because, /stops looking inside it/,
+    'the person disconnected the account codex actually reads transcripts from and was '
+    + 'NOT told their history stops appearing. body: ' + JSON.stringify(r.json));
+});
+
+test('#1659 CONTROL: a LABELLED openai account does NOT claim a history loss', () => {
+  const r = board((ctx) => codexAccount(ctx.home, 'sidecar'));
+  assert.equal(r.code, 200, 'the labelled account did not disconnect. body: ' + JSON.stringify(r.json));
+  assert.doesNotMatch(r.json.because, /stops looking inside it/,
+    'a labelled account claimed the history consequence, so the person is told transcripts '
+    + 'stopped appearing when codex never read that folder. body: ' + JSON.stringify(r.json));
+});

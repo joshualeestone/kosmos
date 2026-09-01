@@ -13481,9 +13481,15 @@ async function paintAccounts() {
        🛑 BUT DO NOT READ THAT AS "MERELY INHERITED". The exposure is larger
        here: undoing an OpenAI removal costs a re-paste of an API key, undoing a
        Claude one costs an OAuth sign-in, and this is the provider every user
-       has. Extending a no-confirm destructive control to it is a bigger step
-       than inheriting one, and it is recorded as an open gap rather than
-       fixed on this card. The confirm is kosmos#1683's, landing as #1702, and it
+       has. That is WHY the confirm mattering here is not a formality, and it is
+       a reason to keep it rather than a reason to expect its absence.
+       ⚠️ THIS SENTENCE USED TO CALL THE CONFIRM "an open gap rather than
+       fixed on this card", which contradicted the paragraph above it the moment
+       #1702 merged. Both described the same control, in the same block, and a
+       reader trusting this one would have concluded a Claude row removes on a
+       single click. `web.ask-first-1683.test.js` proves it arms on the first
+       press. Kept as a marker: this is the SECOND time this comment went stale
+       by a merge rather than by an edit. The confirm is kosmos#1683's, landing as #1702, and it
        binds generically over `[data-forget]` -- which this card is what puts on
        Claude rows, so the Claude half arrives on the rebase rather than as new
        code. An earlier version of this comment said the browser gate could not
@@ -13570,7 +13576,15 @@ async function paintAccounts() {
          sign-in, which is the shape #1372 kept these two providers apart for. */
       + (isOpenai ? ''
         : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
-          + 'aria-label="Sign in again as ' + who + ' (' + esc(qualName) + ')' + '" '
+          /* 🔑 CONDITIONAL HERE, UNCONDITIONAL ON DISCONNECT, AND THE ASYMMETRY IS THE
+             POINT. `qualName` falls back to the provider name so a Disconnect always
+             says WHICH account it removes, because Disconnect appears on both
+             providers and a wrong press is expensive. Reauth appears on CLAUDE ROWS
+             ONLY, so an appended "(Claude)" cannot disambiguate anything: it lands on
+             every ordinary machine as pure verbosity, on the surface where verbosity
+             costs most. When `qual` IS set the two agree, so the disambiguating case
+             is untouched. Pinned below so this is a decision rather than a leftover. */
+          + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
           + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>')
       + (isOpenai
         /* 🔑 ONE WORD FOR ONE ACT (#1659). This said "Remove" while the Claude

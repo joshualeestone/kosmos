@@ -148,8 +148,15 @@ test('the Disconnect control carries the qualifier, escaped, because that is the
 test('#1659: the disabled default control has a handler, so a keypress is not silent', () => {
   assert.match(PAGE, /querySelectorAll\('\.acct-disconnect\[aria-disabled="true"\]'\)/,
     'the no-op handler binding is gone, so the focusable default button does nothing on Enter or Space with no feedback');
-  assert.match(PAGE, /msg\.textContent = say;/,
-    'the handler no longer writes the refusal into the message line, so pressing it is silent');
+  /* 🛑 ANCHOR IT TO THE DEFERRED WRITE. A bare /msg\.textContent = say;/ IS UNANCHORED
+     and the page holds THREE occurrences: this one, plus `dmsg.textContent = say;` and
+     `rmsg.textContent = say;` in unrelated code. Measured: deleting the real line left
+     every web*.test.js green at 909 pass, so the assertion could not fail for the
+     property its own message names. The sibling assertion above pins the loop's
+     EXISTENCE; only its body was unpinned. */
+  assert.match(PAGE, /acctSayTimer = setTimeout\([\s\S]{0,200}?msg\.textContent = say;/,
+    'the handler no longer writes the refusal into the message line on the deferred '
+    + 'timer, so pressing the disabled default button is silent');
 });
 
 test('#1659: the tooltip and the route make the SAME history promise', () => {
@@ -438,4 +445,17 @@ test('#1659: the failure path restores focus, and every message write scrolls it
   assert.ok(scrolls >= 3,
     'a message write lost its scrollIntoView: the account list is long, so the line the person must '
     + 'act on renders off-screen. found ' + scrolls + ', expected at least 3');
+});
+
+test('#1659: the reauth label is CONDITIONAL while Disconnect is not, on purpose', () => {
+  /* 🔑 PINNING AN ASYMMETRY, NOT A STRING. `qualName` falls back to the provider name
+     so a Disconnect always says which account it removes; reauth appears on Claude rows
+     ONLY, so the same fallback there is verbosity that can never disambiguate. That is a
+     decision, and an unpinned decision reads as a leftover to the next person, who will
+     "fix" the inconsistency in whichever direction they meet first. */
+  assert.match(PAGE, /Sign in again as ' \+ who \+ \(qual \?/,
+    'the reauth label no longer uses the conditional qualifier, so every ordinary machine '
+    + 'announces "(Claude)" on a control that only ever appears on Claude rows');
+  assert.doesNotMatch(PAGE, /Sign in again as ' \+ who \+ ' \(' \+ esc\(qualName\)/,
+    'the reauth label took the unconditional provider fallback that belongs on Disconnect');
 });
