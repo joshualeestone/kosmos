@@ -132,12 +132,20 @@ else
     && pass "no harness running: the cut proceeds through the real pgrep" \
     || fail "the cut refused with no harness running: rc=$rc out=$out"
 
-  # A MENTION: a shell whose argv contains tools/test-install.sh but is NOT a
-  # `bash tools/test-install.sh` (here `bash -c ... tools/test-install.sh`, the
-  # string as $0). A sibling of the caller, so ONLY the filter can exclude it --
-  # which is exactly what this arm exists to prove.
-  ( bash -c 'sleep 4' tools/test-install.sh ) & mention=$!
+  # A MENTION: a shell whose argv CONTAINS tools/test-install.sh but is NOT a
+  # `bash tools/test-install.sh`, so only the robust filter can exclude it.
+  # 🛑 The mention must SURVIVE in argv. `bash -c 'sleep 4' tools/test-install.sh`
+  # does NOT: bash's single-command exec optimization replaces the shell with
+  # `sleep 4`, dropping the string entirely, so pgrep finds nothing and the arm
+  # would pass on an empty process table rather than by the filter -- vacuous. A
+  # compound `-c` body defeats that optimization, so bash stays alive with the
+  # string in its own command line for pgrep to find and the filter to exclude.
+  ( bash -c 'sleep 4; : tools/test-install.sh' ) & mention=$!
   sleep 1
+  # Prove the mention is actually VISIBLE to pgrep (else this arm is vacuous):
+  pgrep -fl 'test-install\.sh' 2>/dev/null | grep -q "$mention" \
+    && pass "the mention is present in the process table (the filter arm is not vacuous)" \
+    || fail "the mention did not survive in argv, so the filter arm below proves nothing"
   out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
   { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
     && pass "a mere MENTION of test-install.sh in a command line does not count" \
