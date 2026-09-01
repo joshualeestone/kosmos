@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: browser-check-gate-1720
-diff_hash: 8dde9f67f7ccece523f167187b5580c62b898bd5f08f17b1a1a54f06e0c29cb2
+diff_hash: 9be99a96921c5b5523db04ed384020d5085e10660a9e74fb55262839ff84ee70
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-01T21:34:49Z
