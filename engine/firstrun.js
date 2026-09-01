@@ -188,13 +188,27 @@ async function state() {
      `resolveBin('claude')`, which can throw on its own account (it derives a home
      directory and joins paths) before it ever asks whether the file is runnable.
 
-     ⇒ THE CLAIM THIS BLOCK EXISTS TO STATE: nothing after that try can reject, so the
+     📌 AND THE SECOND TRY, WHICH THIS PARAGRAPH HAD LOST. `willInstall`'s `--version` probe
+     runs in its own IIFE with its OWN `try { ... } catch { ok = false; }`, and that IIFE
+     always RESOLVES. That is what makes the code AFTER the first try unable to reject.
+     ⚠️ The clause naming it was deleted in an edit that shortened this block, leaving a
+     conclusion that is TRUE and no longer FOLLOWS from its stated premises. The cost is
+     specific: somebody who later removes that inner catch falsifies the conclusion while
+     every premise written here still holds, and nothing points them at this comment.
+     
+     ⇒ THE CLAIM THIS BLOCK EXISTS TO STATE: nothing after either try can reject, so the
      `.catch` cannot fire today.
 
      📌 Three earlier drafts of this paragraph were wrong in three different ways, and a
      fourth defect was structural: it carried "Measured, with a control" on what is a READING
      of which lines call what, not a behavioural measurement. All four are recorded in
-     the branch plan (kosmos#1592) rather than here, because this is a comment
+     .claude/plans/runnable-dir-1592-20260830.md (tracked on main; kosmos#1592 for the card) rather than here, because this is a comment
+     📌 The PATH is given as well as the card, and that is a considered exception to this
+     file's cite-the-card rule. MEASURED on #1592, body and both comments, with controls:
+     the moved material returns ZERO hits (`281MB` 0, `eager argument` 0, `claudeBinPath` 0,
+     `four routes` 0; controls `isRunnable` 3, `accessSync` 6). It exists ONLY in the plan.
+     ⇒ A card number survives a rename, which is the rule's argument, but a card that does
+     not contain the material is an empty pointer. Both are given until the card does.
      on a dead `.catch` and it had grown to twenty-six lines of its own history.
 
      It stays because the property it defends is the one that matters (an unknown
