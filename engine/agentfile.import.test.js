@@ -150,6 +150,34 @@ test('#1652: the kosmos marker is read from the HEADER only, never the body', ()
   assert.match(out.because, /not a Kosmos agent file/);
 });
 
+test('#1652 REFUSED WHOLE: a name carrying a control or bidi character', () => {
+  /* A tab, a NUL, or a bidi override (U+202E, which can make a name display as
+     something else) is never a legitimate name and is a spoofing/block-break
+     vector on this outside-input surface. Written with JS escapes so the test
+     source carries no literal control bytes. */
+  for (const [label, bad] of [['tab', 'a\tb'], ['NUL', 'a\u0000b'], ['bidi override', 'a\u202eb']]) {
+    const out = agentfile.importAgent(`---\nkosmos: agent\nname: ${bad}\n---\n\n# You are X\n`, deps);
+    assert.equal(out.ok, false, `a name with a ${label} was accepted`);
+  }
+  // CONTROL: the clean name in the identical shape is accepted.
+  assert.equal(agentfile.importAgent('---\nkosmos: agent\nname: cleanname\n---\n\n# You are Clean\n', deps).ok, true);
+});
+
+test('#1652: enforcement matches IMPORT_CONTRACT.required (a missing required key is refused)', () => {
+  /* Pins the declarative contract to the enforcement. If a key is added to
+     IMPORT_CONTRACT.required but importAgent does not enforce its presence, the
+     loop below fails -- catching the drift the hard-coded checks could hide. */
+  const c = agentfile.IMPORT_CONTRACT;
+  const full = { kosmos: 'agent', name: 'complete' };
+  const build = (fields) => '---\n' + Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n') + '\n---\n\n# You are Complete\n';
+  assert.equal(agentfile.importAgent(build(full), deps).ok, true, 'PRECONDITION: a file with every required key imports');
+  for (const key of c.required) {
+    const missing = { ...full };
+    delete missing[key];
+    assert.equal(agentfile.importAgent(build(missing), deps).ok, false, `omitting required key "${key}" was not refused`);
+  }
+});
+
 test('#1652: only the FIRST frontmatter block is the header; a second block is body', () => {
   /* The non-greedy match takes the first `---...---`. A second block later in
      the body (or a horizontal rule) must not override the real header. */

@@ -61,13 +61,17 @@ const IMPORT_CONTRACT = Object.freeze({
   bodyMustName: true,
 });
 
-/* Frontmatter values are one line. A newline in a value would end the block
-   early and silently change what the next line means, so they are refused
-   rather than escaped: there is no legitimate agent name with a newline in it,
-   and refusing is honest where escaping invents a syntax nobody else parses. */
 function safeValue(v) {
   const s = String(v == null ? '' : v).trim();
-  if (!s || /[\r\n]/.test(s)) return null;
+  /* A frontmatter value is ONE LINE OF CLEAN TEXT. A newline ends the block
+     early; a tab or any other control character, or a bidi override (U+202E and
+     its kin), is never a legitimate agent name or provider, and on this import
+     surface a file from outside the machine could carry one to spoof a displayed
+     name or break the block. Refuse rather than escape: there is no valid value
+     with one in it, and refusing invents no syntax nobody else parses. (This
+     also guards the export side, whose names are already clean, so it trips
+     nothing there.) */
+  if (!s || /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(s)) return null;
   return s;
 }
 
@@ -139,10 +143,19 @@ function exportAgent(name, deps) {
  * import one file become two separate agents, the same guarantee the export side
  * proves by absence.
  *
+ * 📌 THE NAME GUARANTEE IS PATH-SAFETY AND CLEAN TEXT, NOT the full agent-name
+ * policy. This refuses a name unsafe as a path/session/label (`create.nameUsable`)
+ * and one carrying a control or bidi character (`safeValue`). The fuller rules --
+ * length, character set, reserved names like `-discord` -- are `create.nameProblem`'s,
+ * applied when this material flows through `createAgent`. So a caller MUST route
+ * the material through `createAgent` and must NOT treat `ok:true` as a
+ * fully-validated agent name. That is the whole reason import does not create.
+ *
  * @param {string} text the file contents
- * @param {{identityFromText: (s: string) => (string|null)}} deps injected so this
- *   module stays dependency-free (it requires nothing) and cannot form a require
- *   cycle with status.js, where `identityFromText` lives. Pass the real function.
+ * @param {{identityFromText: (s: string) => object|null, nameUsable: (s: string) => boolean}} deps
+ *   injected so this module stays dependency-free (it requires nothing) and cannot
+ *   form a require cycle with status.js/create.js, where these live. Pass the real
+ *   functions: `status.identityFromText` and `create.nameUsable`.
  * @returns {{ok: boolean, name?: string, displayName?: string, provider?: string|null, body?: string, because?: string}}
  */
 function importAgent(text, deps) {
