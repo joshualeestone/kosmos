@@ -63,12 +63,54 @@ rewrapping can.
   on the stripped text, with a control showing the instrument detects a
   one-character change. ⇒ This change CANNOT affect runtime behaviour.
 - Code line counts asserted unchanged: `githubdevice.js` 185, `github.js` 21.
-- Result: 527 raw lines to 440, a reduction of 87. Ratios 2.37 to 2.00 and
-  4.19 to 3.33.
+- Result: 527 raw lines to 449, a reduction of 78. Ratios 2.37 to 2.04 and
+  4.19 to 3.43.
 - Full suite: one failure, `TypeError: fetch failed` / `ECONNRESET` in a first-run
   route, on a run whose own diagnostics recorded a live board on :16180 and
   1-minute load 7.67 on 10 cores. `server.test.js` alone: 252 pass, 0 fail.
   **Contention, and the byte-identical proof above is the stronger evidence.**
+
+## Review pass 1: four findings, all about POINTERS, which is the risk of this change
+
+📌 **Not one was a lost constraint. All four were references.** That is the failure
+mode a cut like this actually has, and it is worth naming for the next person.
+
+- **A dropped cross-reference.** `githubdevice.js` kept "Safe because no cycle is
+  possible" but lost the pointer to `devicedoor.js`, which states the actual reason
+  (`runners.js` requires only node builtins). A bare safety assertion with its
+  condition removed. Restored, with the condition named inline.
+- **A DEAD CROSS-FILE POINTER I CREATED IN A FILE I NEVER OPENED.**
+  `engine.runnable-not-directory.test.js:831` says "`githubdevice.js` records why, in
+  the block above `ghPresent`", and I cut exactly that why. **Fixed by restoring the
+  clause it promises**, rather than by editing the guard, so the existing pointer
+  becomes true again. Verified: the clause is at line 135, `ghPresent` is defined at
+  206, so "the block above" resolves.
+- **A pointer downgrade.** The removed block cited this repo's own plan file, which
+  needs no network. My replacement cited only card numbers, which need network and
+  GitHub auth. The plan path is back beside them.
+- **A pre-existing dead quotation**, in scope for a dead-pointer branch: `github.js`
+  quoted `githubdevice.js` as saying "separately referenceable, so somebody could scan
+  it a second way". Measured 0 hits at BOTH `origin/main` and HEAD, with a control
+  phrase reading 1. The quotation marks and attribution are gone.
+
+⭐ **The lesson: cutting a comment is safe, cutting the thing another comment POINTS AT
+is not, and the pointer lives in a file your diff never touches.** A source sweep for
+the phrases you are removing would have caught it before review.
+
+✅ **SO I RAN THAT SWEEP RATHER THAN ONLY RECORDING THE LESSON, AND THE CLASS IS
+CLOSED.** Two arms, both with controls:
+
+- **Identifiers cited in the removed text and now absent from both files:** exactly
+  one, `GH_CANDIDATES_DEFAULT`, and **no other file references it.** Control: 471
+  files mention `require`, so the sweep sees.
+- **Narrative cross-file pointers into these two modules** (the shape that produced
+  the finding, which the identifier arm CANNOT catch because the pointer is prose):
+  **exactly one in the whole repo**, `engine.runnable-not-directory.test.js:832`,
+  which is the one found above and now resolves. Control: 8 files reference those
+  filenames at all.
+
+⇒ **Both arms were needed. An identifier sweep alone would have reported clean while
+the real dead pointer sat in prose.**
 
 ## Not done here
 

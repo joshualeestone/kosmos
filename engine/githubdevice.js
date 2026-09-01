@@ -44,7 +44,9 @@ const store = require('./store');
    in try/catch. A call-time require failure here is therefore NOT a rejection, it is
    SWALLOWED and served as `gh: 'missing'` -- a WRONG ANSWER rather than a loud one.
    Hoisting makes the same failure die at import instead of degrading into a
-   plausible-looking verdict. Safe because no cycle is possible.
+   plausible-looking verdict. Safe for the reason `devicedoor.js` states in full:
+   `runners.js` requires only node builtins, so there is no cycle. Anyone adding a
+   non-builtin require there invalidates this.
 
    🛑 THIS FILE CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK, DELIBERATELY.
    That cycle detector WARNS rather than throws, because throwing at import bricks the
@@ -129,7 +131,12 @@ function setClientId(id) {
 /* Where gh lives when nothing overrides it. ONE LITERAL, in `engine/github.js`,
    which this file requires.
 
-   🛑 THE SEAM CHOOSES DATA, NEVER A PREDICATE. The override is an env var carrying
+   🛑 THE SEAM CHOOSES DATA, NEVER A PREDICATE. The first shape was an exported
+   `setGhCandidatesForTests(list)`, a SUBSTITUTING seam: the test drove the list it
+   set while production's own default list was driven by nothing, so a reviewer could
+   weaken only the production side and every arm stayed green. That is the defeat
+   `engine.runnable-not-directory.test.js` points here for.
+   ✅ The override is instead an env var carrying
    PATHS, the same shape the rest of this file uses for its test seams, and there is
    exactly one unconditional scan below. The test drives real code with real data
    rather than swapping a list in, and no test-only function is exported from
