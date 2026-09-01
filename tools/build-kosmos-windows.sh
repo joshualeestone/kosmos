@@ -51,6 +51,12 @@ ARCH="${KOSMOS_WIN_ARCH:-x64}"
 # asked for. Instead every zip is made self-describing, and a dirty tree WARNS
 # loudly HERE -- before the ~35 MB Node download -- so the builder is told at
 # build time rather than left to read a manifest nobody opens.
+# ⚠️ source_dirty is only meaningful when source_sha is a real commit. If git is
+# absent or this is not a repo, rev-parse fails to `unknown` and the dirty check
+# defaults to false -- so a manifest reader must treat `source_dirty: false` as
+# "clean" ONLY when source_sha is a sha, and as "could not determine" when it is
+# `unknown`. The ambiguous middle (sha resolves but status fails) does not occur
+# in practice: if rev-parse can read the repo, status can too.
 SOURCE_SHA="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)"
 if [ -n "$(git -C "$REPO" status --porcelain 2>/dev/null)" ]; then
   SOURCE_DIRTY=true
