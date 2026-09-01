@@ -17,12 +17,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fleet = require('../test-support/fleet');
 const sendertoken = require('./sendertoken');
-/* #1787: the refusal moved to `engine/securewrite.js`. These arms are kept here
-   because they were #1761's proof and the history is worth reading beside the card
-   they belong to, but they call the OWNING module: `sendertoken` re-exporting a
-   function it no longer calls implied an ownership it does not have. The canonical
-   arms for the writer live in `engine/securewrite.test.js`. */
-const securewrite = require('./securewrite');
 
 test.after(() => {
   fleet.restore();
@@ -475,32 +469,11 @@ test('#1761: the FALLBACK truncates and creates tight, so a shrinking list canno
     'the fallback created the token at a loose mode');
 });
 
-/* 🛑 THE WINDOWS SYMLINK REFUSAL, WHICH HAD ZERO COVERAGE UNTIL IT WAS A SEAM.
-   `fs.constants.O_NOFOLLOW` is undefined on win32 and NON-CONFIGURABLE here, so no test
-   can delete it from the environment: the suite stayed fully green with the entire
-   branch removed. Calling the extracted function directly is the only way to drive the
-   win32 path from a macOS runner, and it is the platform this module exists for. */
-test('#1761: with O_NOFOLLOW absent, a symlink target is REFUSED by hand', () => {
-  const victim = path.join(SANDBOX, 'seam-victim.txt');
-  fs.writeFileSync(victim, 'ORIGINAL');
-  const linked = path.join(SANDBOX, 'seam-link.json');
-  fs.symlinkSync(victim, linked);
-
-  // The win32 shape: the constant does not exist, so the check must be done by hand.
-  assert.throws(() => securewrite.refuseSymlinkTarget(linked, undefined),
-    (e) => e.code === 'ELOOP',
-    'a symlink target was accepted on the platform with no O_NOFOLLOW');
-
-  // CONTROLS, or the throw above proves only that it throws at everything.
-  const plain = path.join(SANDBOX, 'seam-plain.json');
-  fs.writeFileSync(plain, '{}');
-  assert.doesNotThrow(() => securewrite.refuseSymlinkTarget(plain, undefined),
-    'a plain file was refused, so the check is not discriminating');
-  assert.doesNotThrow(() => securewrite.refuseSymlinkTarget(path.join(SANDBOX, 'seam-absent.json'), undefined),
-    'an absent path was refused: there is nothing there to follow');
-  assert.doesNotThrow(() => securewrite.refuseSymlinkTarget(linked, 256),
-    'the check ran even though the kernel would enforce O_NOFOLLOW, which is redundant work');
-});
+/* #1787: the refusal arms that were here now live in `engine/securewrite.test.js`,
+   beside the function they test. They were #1761's proof and are worth reading, but
+   keeping a second copy against the SAME module is two copies of one fact and would
+   drift: the copy there is also stronger, because it guards the CALL from
+   `writeSecret` as well as the function body, which this one never did. */
 
 test('#1761: a token DIRECTORY that is already loose is tightened too', () => {
   sendertoken.mint('loose-dir');
