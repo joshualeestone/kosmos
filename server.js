@@ -174,6 +174,8 @@ const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const ping = require('./engine/ping');
 const notify = require('./engine/notify');
+const heartbeat = require('./engine/heartbeat');
+const heartbeatSetting = require('./engine/heartbeat-setting');
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
@@ -2975,6 +2977,39 @@ const server = http.createServer((req, res) => {
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         const r = notify.read();
         sendJson(res, 200, { on: r.on, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* #1722: the heartbeat setting (Settings > Automation). GET returns the value
+     the runner reads each cycle -- the setting file IS the in-force value, there
+     is no second copy -- plus the closed interval choices so the UI selector and
+     the server cannot disagree about what is valid. PUT takes an on/off change,
+     an interval change, or both; a rejected interval leaves the stored value
+     unchanged, so a failed write shows as an unchanged displayed value. */
+  if (pathname === '/api/heartbeat-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = heartbeatSetting.read();
+      sendJson(res, 200, { on: r.on, intervalMinutes: r.intervalMinutes, intervals: heartbeatSetting.INTERVAL_CHOICES, ok: r.ok });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/heartbeat-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (Object.prototype.hasOwnProperty.call(body, 'on')) {
+          const saved = heartbeatSetting.setOn(body.on);
+          if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        }
+        if (Object.prototype.hasOwnProperty.call(body, 'intervalMinutes')) {
+          const saved = heartbeatSetting.setInterval(body.intervalMinutes);
+          if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        }
+        const r = heartbeatSetting.read();
+        sendJson(res, 200, { on: r.on, intervalMinutes: r.intervalMinutes, intervals: heartbeatSetting.INTERVAL_CHOICES, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
@@ -7448,6 +7483,52 @@ function start(port = PORT) {
         } catch { /* best-effort, like the nudge sweep */ }
       }, Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) : 60 * 1000); // the env is the test seam only
       if (ahSweep && typeof ahSweep.unref === 'function') ahSweep.unref();
+      /* #1722: the product heartbeat. Its OWN self-rescheduling timer, because
+         the person's interval is adjustable: the period is re-read every cycle so
+         a Settings change takes effect at the next tick, and when off it polls the
+         setting on a base cadence so turning it on is picked up promptly. Off by
+         default. safeRoster(), NEVER paneRoster(): the sweep reads the board's
+         full snapshot cards (state + stateConfidence), the same reason the nudge
+         sweep above does. step() resets the baseline when off so re-enabling never
+         fabricates a stale working->stall edge. Best-effort and unref'd like the
+         nudge sweep; a missed tick is a missed nudge and the status/room surfaces
+         still show the truth. */
+      let heartbeatPrev = new Map();
+      const HEARTBEAT_OFF_POLL_MS = Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) > 0
+        ? Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) : 60 * 1000; // the env is the test seam only
+      const heartbeatTick = () => {
+        try {
+          const setting = heartbeatSetting.read();
+          const roster = setting.on ? safeRoster() : null;
+          const outcome = heartbeat.step(heartbeatPrev, roster, setting.on);
+          heartbeatPrev = outcome.next;
+          if (setting.on && outcome.toAsk.length) {
+            const shown = new Map((roster || []).map((a) => [a.sessionName, a.name]));
+            for (const ask of outcome.toAsk) {
+              /* A QUESTION, not a verdict, and delivery is UNCONFIRMED:
+                 notify.happened is fire-and-forget with no receipt, so we do NOT
+                 mark the agent asked -- the next tick re-asks until a real receipt
+                 exists (engine/heartbeat.js). The app renders the question; the
+                 payload carries who + when, never the words. */
+              try {
+                notify.happened({
+                  kind: 'check_in',
+                  id: 'check_in:' + ask.session + ':' + ask.to,
+                  agent: shown.get(ask.session) || ask.session,
+                  session: ask.session,
+                  project: null,
+                });
+              } catch { /* notify never throws; belt and braces */ }
+            }
+          }
+        } catch { /* best-effort, like the nudge sweep */ }
+        let delay = HEARTBEAT_OFF_POLL_MS;
+        try { const s = heartbeatSetting.read(); if (s.on) delay = s.intervalMinutes * 60 * 1000; }
+        catch { /* fall back to the base poll */ }
+        const t = setTimeout(heartbeatTick, delay);
+        if (t && typeof t.unref === 'function') t.unref();
+      };
+      heartbeatTick();
       resolve(server);
     };
     server.once('error', onError);
