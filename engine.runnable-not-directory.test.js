@@ -145,8 +145,9 @@ const REPO = __dirname;
  * `fs.accessSync(claudeBinPath(), fs.constants.X_OK)`, one of the sites this
  * branch fixes, and reverting that fix left every test green.
  *
- * ⚠️ WHAT IT STILL CANNOT SEE, IN FULL (it was not, see below). Each accepts a directory exactly as the
- * fixed form did, and none exists in the repo today:
+ * ⚠️ WHAT IT STILL CANNOT SEE. NOT A COMPLETE LIST: two members were added below after
+ * this heading claimed completeness. Each accepts a directory exactly as the fixed form
+ * did, and none exists in the repo today:
  *   - a call split across two lines (this is line-based)
  *   - `fs.accessSync(bin, X)` where `const X = fs.constants.X_OK`
  *   - `fs.accessSync(bin, 1)`, the numeric mode
@@ -186,7 +187,7 @@ const REPO = __dirname;
  * exist), `*.test.js` excluded, any directory named `dist` skipped, and any
  * dot-directory.
  *
- * ⭐ Disclosing one gap is worse than disclosing none: a reader takes the single
+ (The maxim above applies here too; stated once, deliberately.)
  * caveat as the complete list.
  *
  * 🛑 SO HERE IS THE GAP THE LIST ABOVE WAS MISSING, AND IT IS THE ORIGIN OF THE CLASS:
@@ -984,10 +985,16 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
 
      ✅ So this classifies nothing. It keys on `writeState`, a property of the
      CODE rather than of the comment syntax: exactly one line may both mention the
-     flag and write state. Measured on this file: 1 line has both, and although 9
-     NO PROSE LINE CARRIES BOTH TOKENS. (Tally deleted: an earlier draft said "9 prose
-     lines mention writeState" and the file's own classifier returns 7. The 1 and the
-     in practice, which the unfiltered-set version cost.
+     flag and write state. EXACTLY ONE LINE IN connect.js CARRIES BOTH TOKENS, and NO PROSE
+     LINE CARRIES BOTH. Prose stays editable in practice, which the unfiltered-set version
+     cost.
+     ⚠️ NO TALLIES HERE, AND THE REASON IS THE STATE THIS PARAGRAPH WAS IN. It said "9 prose
+     lines mention writeState"; the true figure was 7; the note announcing that deletion then
+     cited BOTH numbers, left an unclosed parenthesis, and attributed the 7 to a classifier
+     this branch had already removed. Four defects in four lines, all from retracting a claim
+     IN PLACE instead of rewriting the paragraph.
+     ⇒ The property is what the shipped assertion rests on. A count of prose lines rests on a
+     classifier, and the classifier is gone.
 
      ⚠️ "FULLY" WAS OVERSTATED AND IS CORRECTED HERE. The token-pair check is
      FILE-WIDE and does not classify, which is its strength and also this cost: it
@@ -1093,16 +1100,17 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      KNOWN_WEAK_CALLS, which was re-keyed onto the matched call and is now immune to
      prose edits; this count is not.
 
-     📌 SECOND RESIDUAL, DOCUMENTED AND DELIBERATELY NOT GUARDED: ALIASING,
-     AND IT NEEDS ALL THREE PROPERTIES AT ONCE. Measured: an aliased call that is
-     ALSO multi-line AND comment-prefixed passes every check here, with all three
-     counter here unchanged. Any two of
-     ⚠️ NO FIGURES, DELIBERATELY. An earlier draft cited three, and TWO OF THEM DESCRIBED THE
-     FILE-WIDE DESIGN THIS BRANCH SUPERSEDED forty lines above, while the third matched
-     nothing at either scope. A maintainer cannot re-run an experiment against numbers that
-     do not exist, and this paragraph is the entire basis for ACCEPTING the residual.
-     the three is caught: the single-line aliased form reds on the exact-text pin,
-     and the un-aliased multi-line comment-prefixed form reds on the call count.
+     📌 SECOND RESIDUAL, DOCUMENTED AND DELIBERATELY NOT GUARDED: ALIASING, AND IT NEEDS ALL
+     THREE PROPERTIES AT ONCE. An aliased call that is ALSO multi-line AND comment-prefixed
+     passes every check here. ANY TWO of the three is caught: the single-line aliased form
+     reds on the exact-text pin, and the un-aliased multi-line comment-prefixed form reds on
+     the call count.
+     ⚠️ NO FIGURES, AND THE REASON MATTERS BECAUSE THIS PARAGRAPH IS THE ENTIRE BASIS FOR
+     ACCEPTING THE RESIDUAL. An earlier draft cited three counters. TWO OF THEM DESCRIBED THE
+     FILE-WIDE DESIGN THIS BRANCH SUPERSEDED forty lines above, and the third matched nothing
+     at either scope. A maintainer cannot re-run an experiment against numbers that do not
+     exist. ⇒ The property is that all three must coincide; that is checkable by reading the
+     three checks, and it does not age.
 
      ⚠️ I NEARLY RECORDED THIS AS COVERED. My first probe used the single-line
      aliased form, it went RED, and that red was for the WRONG REASON: the pin
@@ -1170,21 +1178,19 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
        "is listed with the other residuals" BEFORE it was. That is this file's own
        claim-outlives-the-guard defect, committed in the act of documenting a guard.
 
-       📌 FIFTH, AN ABSENCE RATHER THAN AN EVASION: githubdevice.js's hoist of
-       require('./runners') to module scope is ONE OF THREE PRODUCTION EDITS ON THIS BRANCH
-       WITH NO ARM. THE OTHER TWO ARE NAMED BELOW. Measured: reverting it to the lazy require REDS NOTHING
-       🛑 "THE ONE" WAS A SUPERLATIVE AND IT WAS FALSE. A superlative in a residual list is
-       the cheapest kind of claim to falsify, and a reviewer falsified this one in a minute.
-       THE OTHER TWO, both measured:
+       📌 FIFTH, AN ABSENCE RATHER THAN AN EVASION. THREE PRODUCTION EDITS ON THIS BRANCH HAVE
+       NO ARM, and all three are defence in depth:
+         - githubdevice.js's hoist of require('./runners') to module scope. Reverting it to
+           the lazy require REDS NOTHING. The sweep cannot see it (it keys on accessSync, not
+           isRunnable) and state()'s own catch upholds "never rejects" either way, which is
+           why the arm written for it was removed as undefeatable.
          - the ghCandidateList cycle DETECTOR added by this branch. Delete all three of its
-           lines and the FULL suite stays green (3275 pass, exit 0). Unpinned.
-         - the dropped re-export of ghCandidateList. This file says elsewhere that anybody
-           re-adding it re-opens the duplicate-surface problem and no source arm would see it.
-       ⇒ Three unpinned edits, not one. Each is defence in depth and none is guarded.
-       The sweep cannot see it (it keys on accessSync, not isRunnable) and
-       state()'s own catch upholds "never rejects" either way, which is why the arm
-       written for it was removed as undefeatable. It is defence in depth AND it is
-       unpinned; both are true, and the second was only in prose until now. */
+           lines and the FULL suite stays green.
+         - the dropped re-export of ghCandidateList. Anybody re-adding it re-opens the
+           duplicate-surface problem and no source arm would see it.
+       ⚠️ THIS LIST SAID "THE ONE" AND A REVIEWER FALSIFIED IT IN A MINUTE. A superlative in a
+       residual list is the cheapest kind of claim there is to falsify, and a residual list is
+       exactly where a reviewer looks. Say how many, or say several, never say the one. */
   const fnAt = src.indexOf('function becomeStuck(');
   assert.ok(fnAt > 0, 'becomeStuck was renamed or removed; re-aim this guard');
   /* Matches `async function` too. It was `\nfunction ` only, which is correct
@@ -1533,17 +1539,23 @@ test('the REAL gh door honours the candidates override, which is the branch head
 });
 
 test('an EMPTY env var means UNSET, not "no candidates", or gh reads as missing', () => {
-  /* 🛑 THIS PINS A PRODUCTION FIX WHOSE OWN COMMENT CALLS IT "A PRODUCTION FIX NOT
-     A STYLE CHOICE" AND WHICH NOTHING GUARDED. Measured: deleting `|| undefined`
-     from the default parameter left the WHOLE SUITE green at EXIT_CODE=0.
-
-     An arm below now drives `ghCandidateList('')` as an ARGUMENT, exercising the
-     `typeof` branch INSIDE the function. It never touches the default-parameter
-     expression, so it cannot see this. Two different rules, and only one was pinned.
-
-     ⚠️ The harm is user-visible: `export AGENT_WORKFORCE_GH_CANDIDATES=$UNSET`
-     yields '' routinely, and without the fix that makes the real door return null
-     on a machine where gh IS installed. */
+  /* 🛑 THIS PINS THE ONE-RULE COLLAPSE, ON BOTH ARRIVAL ROUTES. `ghCandidateList` has a
+     single rule: anything that is not a non-empty string means unset and yields the
+     defaults. Two arms drive it, one per route, because the routes reach the same `if`
+     by different paths and a revert can break either.
+  
+     ⚠️ THE OPENING PARAGRAPH HERE USED TO DESCRIBE THE SUPERSEDED TWO-RULE SHAPE. It said
+     this test pins a `|| undefined` on the default parameter, and that the argument arm
+     "never touches the default-parameter expression, so it cannot see this. Two different
+     rules, and only one was pinned." NONE OF THAT IS TRUE OF THE SHIPPED CODE: there is no
+     `|| undefined`, there is one rule, and both arms now traverse the same branch. The
+     file's own failure messages, twenty lines down, tell a maintainer NOT to restore the
+     construct this paragraph claimed to be pinning.
+     ⇒ The arms were right and their stated reason described the code they replaced.
+  
+     ⚠️ The harm the collapse prevents is user-visible: `export AGENT_WORKFORCE_GH_CANDIDATES=$UNSET`
+     yields '' routinely, and under the old shape that made the real door return null on a
+     machine where gh IS installed. */
   const gh = require('./engine/github.js');
   const before = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
   try {

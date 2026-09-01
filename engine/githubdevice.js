@@ -75,7 +75,7 @@ const store = require('./store');
 
    🛑 AND THIS FILE CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK,
    DELIBERATELY. That cycle detector WARNS rather than throws, on the stated ground that
-   throwing at import bricks the board because `server.js` requires this module with
+   throwing at import bricks the board because `server.js` requires this module with no try.
    Both are correct and they are not in tension, because they are about DIFFERENT FAILURES:
      a `runners` LOAD failure  -> a corrupt install. Nothing works anyway, and
                                   `server.js` already requires `./engine/runners` at

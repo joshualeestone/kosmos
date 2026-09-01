@@ -156,7 +156,7 @@ test('a resolver that THROWS at the post-install gate fails cleanly instead of e
      ⚠️ A reviewer found this was the only changed production behaviour on the branch
      with zero coverage, on a branch that added a both-directions arm for every other
      changed site. Found by grep: neither this file nor connect.hookwiring-1569
-     drove that path, with a passing control (12 files reference willInstall).
+     drove that path, with a passing control (the same search finds willInstall in many files, so it can return a populated answer).
 
      The failure is a RESOLVER throw, so the arm has to make the resolver throw. */
   const runners = require('./runners.js');
