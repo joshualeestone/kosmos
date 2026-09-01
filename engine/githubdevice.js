@@ -39,58 +39,29 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
-/* 🛑 MODULE SCOPE, AND THE REASON HERE IS NOT devicedoor's REASON.
-   This read `(p) => require('./runners').isRunnable(p)`, requiring at CALL time.
+/* 🛑 MODULE SCOPE, AND THE REASON IS NOT devicedoor's REASON.
+   `ghPresent()` is reached from `async function state()`, which wraps its whole body
+   in try/catch. A call-time require failure here is therefore NOT a rejection, it is
+   SWALLOWED and served as `gh: 'missing'` -- a WRONG ANSWER rather than a loud one.
+   Hoisting makes the same failure die at import instead of degrading into a
+   plausible-looking verdict. Safe because no cycle is possible.
 
-   ⚠️ THIS PARAGRAPH WAS A VERBATIM COPY OF devicedoor.js's AND EVERY MECHANISM IN IT WAS
-   FALSE FOR THIS FILE. It cited `ghBin()`, `status()`, `makeDoor` and a Promise executor.
-   NONE OF THEM APPEAR AS CODE HERE: every occurrence is a citation inside a comment.
-
-   🛑 STATED AS A PROPERTY, WITH NO INTEGERS, AND THE REASON IS INSTRUCTIVE. Two earlier
-   drafts published counts. The first ("0, 0, 0, with ghPresent at 5 as a control") did
-   not reproduce. The second was WRONG THE MOMENT IT WAS SAVED, because writing the
-   sentence added one citation to each term, so the comment diagnosed that exact failure
-   and then committed it. A count of a token in the file that contains the count is not a
-   measurement of anything.
-
-   ⚠️ And `ghPresent` was a USELESS CONTROL: its hits are prose and code mixed, so it
-   counted prose exactly as the subject did and could never separate "absent as code" from
-   "absent entirely". A control sharing the subject's blindness is not a control.
-   📌 The copied paragraph also cited devicedoor's own measurement, "`github.state()`
-   REJECTED", which is a DIFFERENT MODULE'S result and was never evidence about this one.
-   (That sentence stood here as a bare orphan clause after its subject was deleted, so it
-   read as an assertion about THIS file's state(), which is the opposite of the conclusion
-   four lines down.)
-
-   ✅ THE TRUE REASON, MEASURED FOR THIS FILE: `ghPresent()` is reached from
-   `async function state()`, which wraps its whole body in try/catch. A call-time
-   require failure here is therefore NOT a rejection, it is SWALLOWED and served as
-   `gh: 'missing'` -- a WRONG ANSWER rather than a loud one. Hoisting makes the same
-   failure die at import instead of degrading into a plausible-looking verdict.
-
-   📌 That is also why the contract arm written for this file was REMOVED as
-   undefeatable: `state()`'s own catch upholds "never rejects" here regardless of
-   the hoist. The hoist defends against a WRONG ANSWER, not against a rejection.
-   📌 Safe for the same reason devicedoor.js states in full: no cycle is possible.
-
-   🛑 AND THIS FILE CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK,
-   DELIBERATELY. That cycle detector WARNS rather than throws, on the stated ground that
-   throwing at import bricks the board because `server.js` requires this module with no try.
-   Both are correct and they are not in tension, because they are about DIFFERENT FAILURES:
-     a `runners` LOAD failure  -> a corrupt install. Nothing works anyway, and
-                                  `server.js` already requires `./engine/runners` at
-                                  top level with no try, so it kills boot on main too.
-                                  Dying loudly costs nothing that was not already lost.
-     a require CYCLE           -> a code-structure mistake in an otherwise working
-                                  install. Bricking the whole board over one door's
-                                  verdict is the wrong trade; degrade and stay visible.
-   📌 Named by MECHANISM rather than by distance. An earlier draft said "thirty lines
-   below" and the real distance is now about 180. ⚠️ THE PARENTHETICAL EXPLAINING THAT
-   WAS ITSELF SPLICED BETWEEN THIS SENTENCE'S SUBJECT AND ITS VERB, TWICE, INCLUDING IN
-   THE EDIT THAT CLAIMED TO UNSPLICE IT. Bolting a correction onto a sentence is what
-   produces that; rewriting the sentence is what fixes it.
-   ⚠️ Stated because a reader can otherwise apply either rule to the other site and be
-   told by this file that they are following it. */
+   🛑 THIS FILE CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK, DELIBERATELY.
+   That cycle detector WARNS rather than throws, because throwing at import bricks the
+   board: `server.js` requires this module with no try. Both are correct, because they
+   are about DIFFERENT FAILURES:
+     a `runners` LOAD failure  -> a corrupt install. Nothing works anyway, and `server.js`
+                                  already requires `./engine/runners` at top level with no
+                                  try, so it kills boot on main too. Dying loudly costs
+                                  nothing that was not already lost.
+     a require CYCLE           -> a code-structure mistake in an otherwise working install.
+                                  Bricking the board over one door's verdict is the wrong
+                                  trade; degrade and stay visible.
+   ⚠️ Stated because a reader can otherwise apply either rule to the other site and be told
+   by this file that they are following it.
+   📌 The history of how this paragraph was got wrong (a verbatim copy from devicedoor.js
+   whose every mechanism was false here, two withdrawn counts, a control that shared its
+   subject's blindness) is on kosmos#1730. It is not needed to read the code. */
 const { isRunnable } = require('./runners');
 
 const DIR = path.join(store.ROOT, 'secrets');
@@ -155,111 +126,63 @@ function setClientId(id) {
   } catch { return { ok: false, because: 'we could not save that' }; }
 }
 
-/* Where gh lives when nothing overrides it.
+/* Where gh lives when nothing overrides it. ONE LITERAL, in `engine/github.js`,
+   which this file requires.
 
-   🛑 THE SEAM CHOOSES DATA, NEVER A PREDICATE, AND THAT DISTINCTION IS THE WHOLE
-   HISTORY OF THIS BLOCK (#1592). It began as an exported
-   `setGhCandidatesForTests(list)`, which is a SUBSTITUTING seam: the test drove
-   the list it set and production's own default list was driven by nothing, so a
-   reviewer weakened only the production side and every arm stayed green.
+   🛑 THE SEAM CHOOSES DATA, NEVER A PREDICATE. The override is an env var carrying
+   PATHS, the same shape the rest of this file uses for its test seams, and there is
+   exactly one unconditional scan below. The test drives real code with real data
+   rather than swapping a list in, and no test-only function is exported from
+   production. `GH_CANDIDATES` is not exported; it had zero consumers outside
+   `github.js`. Anybody who re-adds that export re-opens the divergence hazard, and
+   no source arm would detect that.
 
-   Reshaping it to one variable removed the natural `||` fallback and did not
-   remove the possibility, and a source arm counting scan sites was then defeated
-   twice over, by a scan that is not `.some(` and by a scan placed outside the
-   region the arm looked at. Both axes belong to whoever writes the code.
+   ✅ SCOPE IS CLOSED: `github.js` reads its door candidates through a GETTER calling
+   `ghCandidateList()`, so `AGENT_WORKFORCE_GH_CANDIDATES` is a machine-wide "where is
+   gh" switch and the door cannot disagree with `ghPresent`. Pinned by an arm on the
+   REAL door (`engine.runnable-not-directory.test.js`, "the REAL gh door honours the
+   candidates override"): a real executable returns it, a DIRECTORY returns null.
+   Verified to redden when the getter is reverted to the bare literal.
 
-   ✅ So the override is an env var carrying PATHS, the same shape the rest of
-   this file uses for its test seams, and there is exactly one unconditional scan
-   below. The test drives real code with real data rather than swapping a list in.
-   It also removes an exported test-only function from production.
+   ✅ NO TEST REACHES THE OPERATOR'S REAL gh through the door: `github.test.js` pins
+   `AGENT_WORKFORCE_GH_BIN = '/bin/echo'` in `beforeEach`, so `ghBin()` returns before
+   the candidate scan is consulted.
 
-   ⚠️ NAMED LIMIT, because overclaiming is the failure this branch keeps finding:
-   this does not make divergence impossible IN PRINCIPLE, but the reachable name is
-   gone: `GH_CANDIDATES` is no longer exported, because it had zero consumers outside
-   `github.js`. ⚠️ THIS PARAGRAPH USED TO NAME THAT EXPORT AS AN OPEN RESIDUAL the
-   branch had chosen not to close. A reviewer pointed out it cost nothing to close,
-   which was true, so the caveat became a fix. Anybody who re-adds the export
-   re-opens it, and no source arm would detect that.
-   📌 This named `GH_CANDIDATES_DEFAULT`, a local alias that no longer exists: it was
-   imported here and never used, and dropping it left this paragraph pointing at a
-   deleted binding. The hazard is unchanged; only the reachable name is different.
-
-   📌 The genuinely closed form is devicedoor's: pass the candidates in as a
-   parameter production callers already supply, so there is no default to diverge
-   from. It is available here (`ghPresent` has exactly one caller) and costs a
-   parameter on the exported `state()`. Left undone deliberately: that is an API
-   change for a hazard nobody has hit, and it is Josh's product surface. */
-/* ⚠️ ONE LITERAL, IN `engine/github.js`, WHICH THIS REQUIRES. It used to be a
-   verbatim second copy under a comment saying it "mirrors" the door's list, and a
-   mirror nothing compares is just two facts that can drift.
-
-   ✅ AND THE SCOPE IS NOW CLOSED TOO: `github.js` reads its door candidates through
-   a GETTER that calls `ghCandidateList()`, so AGENT_WORKFORCE_GH_CANDIDATES is a
-   machine-wide "where is gh" switch, which is what a reader assumes it is. The door
-   and `ghPresent` cannot disagree. Pinned by an arm on the REAL door
-   (`engine.runnable-not-directory.test.js`, "the REAL gh door honours the candidates
-   override"): override to a real executable returns it, override to a DIRECTORY
-   returns null. Verified to redden when the getter is reverted to the bare literal.
-
-   ⚠️ THIS SENTENCE CLAIMED FOUR ARMS AND THERE WERE NONE. The measurement behind it
-   was ad hoc in a shell during development; every `ghBin()` assertion in the suite
-   drove a SYNTHETIC door built with a hand-passed candidates array, never this one.
-   Measured: reverting the getter passed the WHOLE SUITE at EXIT_CODE=0.
-   📌 And the fourth arm as described ("with no override the control still finds the
-   real gh") would EXEC THE OPERATOR'S OWN gh, which the paragraph below asserts no
-   test does. It is deliberately not written.
-
-   🛑 THIS PARAGRAPH USED TO SAY THE ASYMMETRY SURVIVED and was "documented, not
-   fixed". It was documented at THREE sites and in the plan, and that volume was the
-   signal: documentation is what gets written when a thing is believed unfixable.
-   Three independent reviewers flagged it before it was closed.
-
-   ✅ WHY THAT IS SMALL RATHER THAN A LEAK, AND THE MECHANISM CORRECTED:
-   no test reaches the operator's real `/opt/homebrew/bin/gh` through the door,
-   because `github.test.js` pins `AGENT_WORKFORCE_GH_BIN = '/bin/echo'` in
-   `beforeEach`, so `ghBin()` returns before the candidate scan is ever consulted.
-   ⚠️ THIS COMMENT PREVIOUSLY SAID the door's tests "pass their own lists". THEY DO
-   NOT: `github.test.js` contains no `candidates:` at all. The conclusion was right
-   and the named mechanism was wrong, which is this branch's own recurring defect
-   committed inside a comment added to fix that class. The control that produced it
-   found `candidates:` in the #1592 test file and generalised it to "the door's
-   tests", which is the wrong component. Re-measured with both arms. */
-/* 🛑 MOVED TO `engine/github.js`, WHICH OWNS THE gh ROAD, AND THE MOVE CLOSED A
-   CONTRACT BREACH RATHER THAN TIDYING ANYTHING.
-   This file defined `ghCandidateList` and `github.js`'s door reached BACK into it
-   through a getter, so the two modules were mutually dependent and `door.state()`
-   gained a REJECT PATH: `devicedoor.status()` calls `ghBin()` synchronously inside
-   `state()`'s promise executor, and `devicedoor`'s `state()` docblock promises "Never rejects".
-   Measured, both arms: with this module's exports replaced by `{}` (the shape a
-   failed load gives) `github.state()` REJECTED; control, module whole, resolved.
-   Before that getter the door held a literal array and COULD NOT throw.
-   ⇒ The dependency is now one-directional (this file -> github.js) and the door
+   🛑 IT LIVES IN `github.js` BECAUSE THE MOVE CLOSED A CONTRACT BREACH, not to tidy.
+   When this file defined it and `github.js`'s door reached BACK through a getter, the
+   two modules were mutually dependent and `door.state()` gained a REJECT PATH:
+   `devicedoor.status()` calls `ghBin()` synchronously inside `state()`'s promise
+   executor, and `devicedoor`'s `state()` docblock promises "Never rejects". Measured,
+   both arms: with this module's exports replaced by `{}` (the shape a failed load
+   gives) `github.state()` REJECTED; control, module whole, resolved.
+   ⇒ The dependency is now one-directional (this file -> `github.js`) and the door
    calls a function defined in its own module, so no load failure can reach it.
-   ⚠️ NOT re-exported here. `module.exports` below carries no `ghCandidateList` and
-   no `ghPresent`, and neither name was exported on main either, so no caller or
-   test is affected. THIS SENTENCE PREVIOUSLY CLAIMED A RE-EXPORT, contradicted by
-   the `module.exports` list at the foot of this file, after the re-export was dropped as new
-   public surface. Consumers require it from `github.js`, where it is defined. */
+   ⚠️ NOT re-exported here. `module.exports` below carries neither `ghCandidateList`
+   nor `ghPresent`, and neither was exported on main, so no caller is affected.
+
+   📌 LEFT UNDONE DELIBERATELY: the genuinely closed form is devicedoor's, passing the
+   candidates in as a parameter production callers already supply, so there is no
+   default to diverge from. It is available here (`ghPresent` has exactly one caller)
+   and costs a parameter on the exported `state()`. That is an API change for a hazard
+   nobody has hit, and it is Josh's product surface.
+   📌 The history of how these paragraphs were got wrong (a claim of four arms that did
+   not exist, an asymmetry documented at three sites and believed unfixable until three
+   reviewers closed it, and two corrections bolted onto sentences instead of rewriting
+   them) is on kosmos#1730. It is not needed to read the code. */
 const { ghCandidateList } = require('./github');
-/* ⚠️ DETECTED, NOT FATAL. If a require cycle is introduced the destructured name
-   is `undefined` during a partial load, the TypeError inside `ghPresent()` is
-   swallowed by `state()`'s outer catch, and the route answers `gh: 'missing'`
-   (NOT silently, and the earlier word here was wrong: that catch also returns
-   `phase: PHASE.FAILED` and `because: String(err.message)`, both of which the board
-   renders. What is wrong is the `gh` FIELD specifically, which is the field the door's
-   consumers read. The argument for hoisting survives the correction; "silent" did not.)
-   This warns so the failure is visible.
-   📌 THE WORD "silently." SURVIVED AS THE HEAD OF THIS LINE AFTER THE PARENTHETICAL
-   ABOVE RETRACTED IT, so the comment asserted the exact thing it had just withdrawn.
-   That is what bolting a retraction onto a sentence does instead of rewriting it.
-   🛑 IT USED TO THROW, AND THAT WAS THE WRONG TRADE. `server.js` requires this
-   module at top level with NO try (`github` and `githubdevice` both), so a throw means the
-   BOARD DOES NOT BOOT AT ALL, with a raw TypeError and no UI, where the same
-   degradation previously stayed confined to one door answering `gh: 'missing'`.
-   Measured: with the binding stubbed, requiring `github.js` gave BOOT FAILS.
-   ⇒ Two independent reviewers flagged it and neither of my comments stated that
-   "loudly" meant whole-app boot failure. `main` carried no such guard at all.
-   ⇒ Warning keeps the detection and returns the blast radius to one door. */
+/* ⚠️ DETECTED, NOT FATAL. If a require cycle is introduced the destructured name is
+   `undefined` during a partial load, the TypeError inside `ghPresent()` is swallowed by
+   `state()`'s outer catch, and the route answers `gh: 'missing'`. Not silently: that
+   catch also returns `phase: PHASE.FAILED` and `because: String(err.message)`, both of
+   which the board renders. What is wrong is the `gh` FIELD specifically, which is the
+   field the door's consumers read. This warns so the failure is visible.
+
+   🛑 IT USED TO THROW, AND THAT WAS THE WRONG TRADE. `server.js` requires this module at
+   top level with NO try (`github` and `githubdevice` both), so a throw means the BOARD
+   DOES NOT BOOT AT ALL, with a raw TypeError and no UI, where the same degradation
+   otherwise stays confined to one door answering `gh: 'missing'`. Measured: with the
+   binding stubbed, requiring `github.js` gave BOOT FAILS. `main` carried no such guard
+   at all. ⇒ Warning keeps the detection and returns the blast radius to one door. */
 if (typeof ghCandidateList !== 'function') {
   console.warn('githubdevice: ghCandidateList did not load from ./github; a require cycle would answer gh:"missing" with a FAILED phase but a wrong gh field');
 }
