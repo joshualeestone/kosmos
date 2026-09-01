@@ -109,3 +109,7 @@ NEXT CONCRETE STEP for a post-compaction me:
    notifies about stopped agents, on the configurable interval, machine-scoped, in the
    product runtime -- NOT ~/.claude, NOT launchd of the dev fleet.
 3. Then Settings > Automation (part 3).
+
+## PROGRESS (23:16)
+- Part 1 Arm A DONE + committed: engine/agent-activity.js (spinnerActive, SPINNER_RE) + engine/agent-activity.test.js (4 cases, red-capable vs the idle-footer regression). All pass, 0 em dashes.
+- NEXT: Arm B (pane delta) + the periodic check-and-notify job (part 2) composing Arm A over safeRoster/snapshot + the 6s delta, machine-scoped, in the product runtime (NOT ~/.claude/launchd). Then Settings > Automation (part 3). Wire agent-activity.test.js into the suite. Full yarn test before merge.
