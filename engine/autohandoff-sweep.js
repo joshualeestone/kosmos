@@ -1,4 +1,5 @@
 'use strict';
+const path = require('path');
 /* #1724 (the integration / consume half): the periodic sweep that turns the
  * auto-handoff SETTING into ACTION. Mona Lisa built the capture + decision core
  * (engine/autohandoff.js: shouldPrompt, handoffPrompt, fillBand, settingFrom),
@@ -78,4 +79,14 @@ function sweepOnce({ setting, roster, lastBand, deliver, pathFor, autohandoff, D
   return { prompted, lastBand: bands };
 }
 
-module.exports = { sweepOnce };
+/* The on-disk path a per-agent handoff is written to. Exported so the server
+ * wiring calls a TESTED unit rather than an inline lambda: the first inline
+ * version called store.root() (which does not exist -- store exposes ROOT, a
+ * string), so it threw on every sweep and the interval's best-effort catch
+ * swallowed it, leaving the whole consume half dead on arrival. store is passed
+ * in so this module keeps no hard dependency on it. */
+function handoffPathFor(store, session) {
+  return path.join(store.ROOT, 'handoffs', store.safeKey(session) + '.md');
+}
+
+module.exports = { sweepOnce, handoffPathFor };
