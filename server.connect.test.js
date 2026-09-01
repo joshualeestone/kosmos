@@ -898,7 +898,7 @@ test('a first-time installer meets the port precondition before anything is down
 
   /* And the update path keeps its own check AFTER the stop, where it means
      "the stop did not work" rather than "somebody else is here". */
-  const updGate = setup.indexOf('if [ "$FRESH_INSTALL" = "no" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then');
+  const updGate = setup.indexOf('if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then');
   const stop = setup.indexOf('"$KOSMOS_HOME/bin/kosmos" stop', updGate);
   const verify = setup.indexOf('_pausebody="$(curl', updGate);
   assert.ok(updGate > -1 && verify > stop, 'the update no longer verifies that its pause worked');

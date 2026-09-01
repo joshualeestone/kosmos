@@ -842,7 +842,7 @@ fetch_tmux() {
     tar -xzf "$stage/tmux.tar.gz" -C "$stage" || { rm -rf "$stage"; return 1; }
     rm -f "$stage/tmux.tar.gz"
   fi
-  [ -x "$stage/bin/tmux" ] || { rm -rf "$stage"; return 1; }
+  [ -f "$stage/bin/tmux" ] && [ -x "$stage/bin/tmux" ] || { rm -rf "$stage"; return 1; }
 
   # ⚠️ VERIFY THE THING WE JUST PLACED, rather than assuming the copy worked.
   # An arm64 binary with a broken signature does not run at all, and the failure
@@ -922,13 +922,13 @@ install_kosmos() {
   # is stopped during the swap, every rename is same-filesystem, and the
   # recovery is the installer's own re-run, which `kosmos start` names when
   # the tree is incomplete.
-  [ -x "$stage/bin/kosmos" ] || { rm -rf "$stage"; return 1; }
-  [ -x "$stage/runtime/bin/node" ] || { rm -rf "$stage"; return 1; }
+  [ -f "$stage/bin/kosmos" ] && [ -x "$stage/bin/kosmos" ] || { rm -rf "$stage"; return 1; }
+  [ -f "$stage/runtime/bin/node" ] && [ -x "$stage/runtime/bin/node" ] || { rm -rf "$stage"; return 1; }
   [ -f "$stage/app/server.js" ] || { rm -rf "$stage"; return 1; }
   [ -f "$stage/app/web/index.html" ] || { rm -rf "$stage"; return 1; }
   # The Plus connector (#583) rides in the bundle; a Kosmos without it installs
   # fine and then cannot turn Plus on, so a missing one is a broken download.
-  [ -x "$stage/app/bin/kosmos-tunnel" ] || { rm -rf "$stage"; return 1; }
+  [ -f "$stage/app/bin/kosmos-tunnel" ] && [ -x "$stage/app/bin/kosmos-tunnel" ] || { rm -rf "$stage"; return 1; }
   # The runtime must RUN here, the same probe the tmux bundle gets: a
   # binary that will not load fails silently and baffling, and the floor
   # gate upstream makes that unlikely, not impossible.
@@ -1040,15 +1040,15 @@ uninstall() {
   # Measured 2026-08-26 00:36 on the build Mac.
   _lsreg_u() {
     [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ] || return 0
-    [ -x "$_lsreg" ] && "$_lsreg" -u "$1" >/dev/null 2>&1 || true
+    [ -f "$_lsreg" ] && [ -x "$_lsreg" ] && "$_lsreg" -u "$1" >/dev/null 2>&1 || true
   }
   _lsreg_f() {
     [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ] || return 0
-    [ -x "$_lsreg" ] && "$_lsreg" -f "$1" >/dev/null 2>&1 || true
+    [ -f "$_lsreg" ] && [ -x "$_lsreg" ] && "$_lsreg" -f "$1" >/dev/null 2>&1 || true
   }
   # The board first, while the command that knows how still exists: deleting
   # the folder under a running server leaves it serving ghosts.
-  if [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
+  if [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
     info "stopping the board"
     "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
     # A refused stop (a board this command did not start) is NAMED rather
@@ -1387,7 +1387,7 @@ uninstall() {
     # session must carry @kosmos_agent naming itself, or a user's own
     # `tmux new -s notes` would die for sharing a name with an agent's
     # leftover plist.
-    if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then
+    if [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then
       _owner="$("$KOSMOS_HOME/tmux/bin/tmux" show-options -t "=$_name" -v @kosmos_agent 2>/dev/null)" || _owner=""
       if [ "$_owner" = "$_name" ]; then
         "$KOSMOS_HOME/tmux/bin/tmux" kill-session -t "=$_name" 2>/dev/null || true
@@ -1405,7 +1405,7 @@ uninstall() {
   # uninstall also asks tmux directly, and kills only sessions that name
   # THEMSELVES ours -- a user's `tmux new -s notes` carries no option and a
   # borrowed name fails the equality, the same two gates as above.
-  if [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then
+  if [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; then
     # 🛑 THE PIPELINE IS GUARDED, and the guard is load-bearing on EVERY
     # clean Mac: with no agents ever created there is no tmux server, so
     # `list-sessions` exits non-zero -- and under this script's pipefail
@@ -1448,7 +1448,7 @@ KOSMOS_SWEEP_LIST
     # enough that KOSMOS_HOME=$HOME plus a ~/VERSION would have deleted
     # the home folder); the VERSION leg exists for PARTIAL installs, and
     # a partial install always has one of our trees beside it.
-    if [ -x "$KOSMOS_HOME/bin/kosmos" ] \
+    if [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ] \
        || { [ -f "$KOSMOS_HOME/VERSION" ] && { [ -d "$KOSMOS_HOME/app" ] || [ -d "$KOSMOS_HOME/tmux" ]; }; }; then
       info "deleting $KOSMOS_HOME"
       # 🔑 RETIRE THIS MAC AT THE COORDINATOR WHILE IT CAN STILL SPEAK (#793).
@@ -1459,7 +1459,7 @@ KOSMOS_SWEEP_LIST
       # address on the account is how a name stays held forever.
       _remote_state="${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}/AgentWorkforce/remote"
       _tunnel="$KOSMOS_HOME/app/bin/kosmos-tunnel"
-      if [ -f "$_remote_state/mac_key" ] && [ -x "$_tunnel" ]; then
+      if [ -f "$_remote_state/mac_key" ] && [ -f "$_tunnel" ] && [ -x "$_tunnel" ]; then
         info "telling the Plus service this computer is going away"
         if "$_tunnel" retire --state-dir "$_remote_state" --coordinator "${AGENT_WORKFORCE_TUNNEL_COORDINATOR:-https://coordinator.kosmosplus.com}" >/dev/null 2>&1; then
           info "its Plus address is retired; the name is free again after a day"
@@ -2040,7 +2040,7 @@ esac
 # second run there is -- opened with "already installed here" on a machine
 # where Kosmos has never run. The launcher existing is what installed means.
 FRESH_INSTALL=yes
-[ -x "$KOSMOS_HOME/bin/kosmos" ] && FRESH_INSTALL=no
+[ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ] && FRESH_INSTALL=no
 
 start_log
 
@@ -2348,7 +2348,7 @@ mkdir -p "$KOSMOS_HOME" "$BIN_DIR" || die "Could not create $KOSMOS_HOME. Check 
 # board polls does not exist (every agent reads as unknown), and a version
 # change would strand the running tmux server on a protocol the new client
 # cannot speak.
-if [ "$FRESH_INSTALL" = "no" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
+if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   info "pausing Kosmos for the update"
   "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
@@ -2673,7 +2673,7 @@ make_app() {
     # NOT ruled out -- the next clean-machine run is the first real test.
     # -c so the only thing this line can ever do is bump a time.
     /usr/bin/touch -c "$app" 2>/dev/null || true
-    [ -x "$lsreg" ] && "$lsreg" -f "$app" >/dev/null 2>&1 || true
+    [ -f "$lsreg" ] && [ -x "$lsreg" ] && "$lsreg" -f "$app" >/dev/null 2>&1 || true
   fi
   return 0
 }
@@ -2746,7 +2746,7 @@ PLIST
   # Existence and executability checked before the copy: a bundle that
   # shipped app/ without it would otherwise fail silently here and
   # produce an Info.plist naming an executable that does not exist.
-  [ -x "$KOSMOS_HOME/app/bin/kosmos-app" ] || return 1
+  [ -f "$KOSMOS_HOME/app/bin/kosmos-app" ] && [ -x "$KOSMOS_HOME/app/bin/kosmos-app" ] || return 1
   cp "$KOSMOS_HOME/app/bin/kosmos-app" "$target/MacOS/Kosmos" || return 1
   chmod +x "$target/MacOS/Kosmos" || return 1
 
@@ -2915,14 +2915,14 @@ if [ "$APP_MADE" = "yes" ]; then
           # both skipped in a sandbox.
           _lsreg=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
           if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ]; then
-            [ -x "$_lsreg" ] && "$_lsreg" -u "$HOME_APP_DIR/Kosmos.app" >/dev/null 2>&1 || true
+            [ -f "$_lsreg" ] && [ -x "$_lsreg" ] && "$_lsreg" -u "$HOME_APP_DIR/Kosmos.app" >/dev/null 2>&1 || true
           fi
           if rm -rf "$HOME_APP_DIR/Kosmos.app" 2>/dev/null; then
             info "note: the Kosmos icon moved here from the Applications folder inside your home folder."
             info "If Kosmos was in your Dock, remove it and drag the new one in."
           else
             if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ]; then
-              [ -x "$_lsreg" ] && "$_lsreg" -f "$HOME_APP_DIR/Kosmos.app" >/dev/null 2>&1 || true
+              [ -f "$_lsreg" ] && [ -x "$_lsreg" ] && "$_lsreg" -f "$HOME_APP_DIR/Kosmos.app" >/dev/null 2>&1 || true
             fi
             info "note: an older Kosmos icon is still in the Applications folder inside your home folder; drag it to the Trash."
           fi
@@ -3667,7 +3667,7 @@ fi
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *)
-    if [ -x "$BIN_DIR/kosmos" ]; then
+    if [ -f "$BIN_DIR/kosmos" ] && [ -x "$BIN_DIR/kosmos" ]; then
       printf '  One more thing: typing "kosmos" works in a NEW Terminal window.\n'
       printf '  In this one, run:  export PATH="%s:$PATH"\n\n' "$BIN_DIR"
     fi

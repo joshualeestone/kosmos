@@ -213,7 +213,7 @@ _kosmos_pick_tmux() {
   # is minimal. KOSMOS_TMUX_KNOWN is a harness seam ONLY: a test that pretends
   # to be a machine with no tmux must be able to hide this Mac's real one.
   for _cand in "$_sys" ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux}; do
-    [ -n "$_cand" ] && [ -x "$_cand" ] || continue
+    [ -n "$_cand" ] && [ -f "$_cand" ] && [ -x "$_cand" ] || continue
     [ "$_cand" = "$_bundled" ] && continue
     # `list-sessions`, not `-V`: the question is whether it can reach the
     # server, and a version string proves only that a binary exists.
@@ -303,9 +303,9 @@ cmd_start() {
   if _oldpid="$(running_pid)"; then
     die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. Stop it first with 'kosmos stop', then start again."
   fi
-  [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
-  [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   mkdir -p "$LOG_DIR"
   say "Bringing the board up."
   # Detached from this terminal, with everything it prints kept in a log so a
@@ -427,7 +427,7 @@ cmd_agents() {
 }
 
 cmd_version() {
-  if [ -x "$NODE" ] && [ -f "$KOSMOS_HOME/app/package.json" ]; then
+  if [ -f "$NODE" ] && [ -x "$NODE" ] && [ -f "$KOSMOS_HOME/app/package.json" ]; then
     # The path travels as an environment variable, never interpolated into
     # the JS source: a quote or backslash in a path must stay a path.
     KOSMOS_PKG="$KOSMOS_HOME/app/package.json" "$NODE" -p 'JSON.parse(require("fs").readFileSync(process.env.KOSMOS_PKG,"utf8")).version'

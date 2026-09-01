@@ -78,6 +78,6 @@ test('it stays quiet when there is nothing for the person to do', () => {
      type into. */
   assert.match(TAIL, /case ":\$PATH:" in\n\s*\*":\$BIN_DIR:"\*\) ;;/,
     'the closing action is not gated on the bin directory being absent from PATH');
-  assert.match(TAIL, /if \[ -x "\$BIN_DIR\/kosmos" \]; then/,
+  assert.match(TAIL, /if \[ -f "\$BIN_DIR\/kosmos" \] && \[ -x "\$BIN_DIR\/kosmos" \]; then/,
     'it would tell a person to add a directory that has no kosmos in it');
 });
