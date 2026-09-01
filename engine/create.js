@@ -842,7 +842,7 @@ function setProvider(name, provider, opts) {
   }
   const { claudeBin, codexBin } = binPaths(opts);
   const runnerBin = runner === 'codex' ? codexBin : claudeBin;
-  if (!DRY_RUN && !fs.existsSync(runnerBin)) {
+  if (!DRY_RUN && !runnerPresent(runnerBin)) {
     return {
       outcome: OUTCOME.REFUSED,
       because: runner === 'codex'
@@ -1717,6 +1717,21 @@ function unusablePath(bin) {
  * creation refuses, on the screen whose entire job is telling them it will
  * work. One definition, or the two drift.
  */
+/**
+ * #1616: PRESENT MEANS RUNNABLE at the gates that LAUNCH, the same definition the
+ * screens that REPORT already use. Every runner gate in this file used to ask
+ * whether the path merely EXISTS, and that answers yes to a DIRECTORY and to a file
+ * with no exec bit. Measured on the card: a folder at ~/.local/bin/claude was
+ * refused by the first-run screen (runners.isRunnable) and ACCEPTED by creation,
+ * which then spawned a folder and failed later with a worse message.
+ *
+ * One definition, held by runners.js (#1592), reached lazily like the resolver
+ * below so this module keeps loading in the sandboxes that set env first.
+ * The guard for this class is engine.runnable-not-directory.test.js, which now
+ * sweeps for an existsSync aimed at a runner path as well as for X_OK.
+ */
+function runnerPresent(p) { return require('./runners').isRunnable(p); }
+
 function binPaths(opts) {
   return {
     // Claude's resolution moved to engine/runners.js (#979, same
@@ -1845,7 +1860,7 @@ function installJob(name, opts) {
      message about a program that agent does not use. Found by a test that
      removes the claude stub -- every other test in that file ships one, so the
      perturbation reverting the first gate stayed green. */
-  if (!DRY_RUN && !fs.existsSync(runnerBin)) {
+  if (!DRY_RUN && !runnerPresent(runnerBin)) {
     return { ok: false, because: runner === 'codex'
       ? 'we could not find Codex on this computer, so a job made now would never start'
       : 'we could not find Claude on this computer, so a job made now would never start' };
@@ -2024,7 +2039,7 @@ function createAgentInner(opts) {
     if (opts && opts.model !== undefined) {
       return { outcome: OUTCOME.REFUSED, because: 'an OpenAI agent picks its own model for now, so leave the model unchosen', steps };
     }
-    if (!DRY_RUN && !fs.existsSync(codexBin)) {
+    if (!DRY_RUN && !runnerPresent(codexBin)) {
       return { outcome: OUTCOME.REFUSED, because: 'we could not find the OpenAI runner on this computer, so an agent made now would never start', steps };
     }
   }
@@ -2412,9 +2427,13 @@ function createAgentInner(opts) {
       return { outcome: OUTCOME.REFUSED, because: `we cannot use that path for ${what}`, steps };
     }
     if (what === 'the agents folder') continue;
-    if (!fs.existsSync(bin)) {
+    /* #1616: runnerPresent, not existsSync, for the runner AND for tmux: a folder at
+       either path spawns nothing. And the OpenAI alternative below is offered only
+       when the codex runner is RUNNABLE, for the same reason it is offered only when
+       signed in: an alternative that dead-ends is a dead click in words. */
+    if (!runnerPresent(bin)) {
       if (what === runnerLabel && runner === 'claude') {
-        const codexPresent = fs.existsSync(codexBin);
+        const codexPresent = runnerPresent(codexBin);
         const codexConnected = codexPresent && fs.existsSync(path.join(codexHomeDir(), 'auth.json'));
         return {
           outcome: OUTCOME.REFUSED,
