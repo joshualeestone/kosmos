@@ -5,87 +5,90 @@
  * `state` classified by engine/status.js `classify()` (WORKING / IDLE / STOPPED
  * / NEEDS_YOU / RATE_LIMITED / AUTH_FAILED / UNKNOWN), the detector the whole
  * product trusts. This sweep COMPOSES that: given the roster's already-classified
- * states and the states it saw last tick, it decides who left the working state
- * and is worth a CHECK-IN. A second detector here would be the "two derivations
- * of the fleet" habit safeRoster's own comment (server.js:684) calls this
- * codebase's worst, and the detector #1722 warned about was the FLEET shell
- * script (fixed separately in #1657), not this one.
+ * states and what it saw last tick, it decides who is in an open STALL and worth
+ * a CHECK-IN. A second detector here would be the "two derivations of the fleet"
+ * habit safeRoster's own comment (server.js:684) calls this codebase's worst,
+ * and the detector #1722 warned about was the FLEET shell script (fixed in
+ * #1657), not this one.
  *
- * THE NUDGE IS A QUESTION, NEVER AN ACCUSATION, NEVER SILENCE (Splinter, and it
- * corrects an earlier draft of this file). "A question is cheap, an accusation
- * is expensive, and 'nagging' collapses the two." When an agent that WAS working
- * is now anything but clearly-still-working, the person is ASKED -- "are you
- * mid-something, finished, or stopped?" -- not told a verdict. The heartbeat
- * never asserts "it stopped"; it asks, and the app renders the question (the
- * notify payload carries who + when, never the words -- notify.js).
+ * THE NUDGE IS A QUESTION, NEVER AN ACCUSATION, NEVER SILENCE (Splinter). "A
+ * question is cheap, an accusation is expensive, and 'nagging' collapses the
+ * two." When an agent that WAS working is now anything but clearly-still-working,
+ * the person is ASKED -- "mid-something, finished, or stopped?" -- not told a
+ * verdict. The heartbeat never asserts "it stopped"; it asks, and the app renders
+ * the question (the notify payload carries who + when, never the words).
  *
- * WHY WE DO NOT FAIL TOWARD SILENCE. An unreadable pane is exactly the case an
- * earlier draft carried forward silently. That is Kitty's 70-minute stall: a
- * check that failed toward reassurance while an agent sat idle. Silence has a
- * cost too; it is just paid by somebody who is not in the room, and it collides
- * with Josh's "agents are never idle" ruling. So a working -> UNREADABLE edge is
- * asked about, same as working -> stopped. The "never-UNKNOWN" rule survives as
- * TONE: we never send a stopped/unknown VERDICT, only the question.
+ * WE DO NOT FAIL TOWARD SILENCE. An unreadable pane is asked about, same as a
+ * stop -- that is Kitty's 70-minute stall, a check that failed toward reassurance
+ * while an agent sat idle. Silence has a cost too; it is paid by somebody not in
+ * the room, and it collides with Josh's "agents are never idle" ruling. The
+ * "never-UNKNOWN" rule survives as TONE: no stopped/unknown VERDICT, only the
+ * question.
  *
- * WHY AN EDGE, NOT A LEVEL. A level ("is it non-working right now") re-asks every
- * tick for the same idle agent and trains the person to ignore the heartbeat.
- * The sweep asks once, on the working -> not-working TRANSITION, exactly as
- * wouldping.saw suppresses a re-fire with `was === state`: the next tick's `was`
- * is the new state, not 'working', so it cannot ask again until the agent works
- * and leaves working afresh.
+ * 🛑 AN UNCONFIRMED ASK MUST NOT BURN THE SLOT (Splinter, from #1724's measured
+ * finding). Injected/notified prompts do NOT reliably land: 278 of ~2479 sends
+ * on this box tonight (11%) pasted into a composer and were NEVER submitted, with
+ * no signal to the sender -- and our own notify.happened is fire-and-forget HTTP
+ * with NO delivery confirmation at all (the relay endpoint does not exist yet).
+ * A heartbeat that emits a check_in and ASSUMES it landed would mark the agent
+ * "asked", never ask again, and leave it sitting stopped while the monitor
+ * reports it handled -- the EXACT failure #1722 exists to remove. So the "asked"
+ * slot advances ONLY on CONFIRMED delivery, which is the RUNNER's job after the
+ * send returns (this pure module never sets it true). With no confirmation
+ * channel today, an open stall is re-asked every tick -- at the heartbeat's
+ * minute cadence that is the intended "chase anyone stopped", not a 5-second nag,
+ * and it fails toward asking. When a real receipt exists (the relay's notify
+ * ACK), the runner flips `asked` on receipt and the re-asking stops on its own.
  *
- * WHICH EXITS FROM WORKING WE ASK ABOUT. STOPPED (Claude process gone), IDLE
- * (finished, sitting at its prompt) and UNKNOWN/unreadable -- the "finished a
- * step, never started the next, or went dark" shapes. NOT needs_you: that is the
- * person's to act on and already has its own notify path (server.js:4569, kind
- * 'needs_you'). NOT rate_limited / auth_failed: account problems with their own
- * meaning, out of v1's "is this agent still moving" scope. NOT working.
+ * EDGE OPENS THE EPISODE, DELIVERY CLOSES THE ASK. An episode OPENS on the
+ * working -> not-working transition and stays open until the agent works again
+ * (or is handed to the person via needs_you). Within an open episode we ask
+ * until an ask is confirmed delivered. So a startup-idle agent (never worked, no
+ * episode) is never asked -- the WEAKEST PREMISE, named: an agent parked idle on
+ * purpose is left alone, matching Josh's "checks which agents ARE WORKING".
  *
- * WEAKEST PREMISE, named not buried: we only ask on a working -> not-working
- * EDGE, so an agent ALREADY idle when the sweep started (`was === undefined`) is
- * not asked about -- no working frame to leave. This matches Josh's intent
- * ("checks which agents ARE WORKING and prompts to chase anyone stopped") and
- * avoids nagging about agents parked idle on purpose. What would change it: to
- * also ask about a currently-idle agent on the first tick, drop the
- * `was === 'working'` guard to `was !== undefined && was === 'working'`-style
- * entry plus a first-sighting policy -- deliberately not taken in v1.
+ * SAMPLING. classify() warns a working pane can read non-working "between
+ * frames" -- a sub-second concern for the 5s status tick. The heartbeat samples
+ * MINUTES apart, where a non-working reading is a real state. If false check-ins
+ * appear, require two consecutive non-working ticks before opening -- a one-line
+ * refinement, noted.
  *
- * NOTE ON SAMPLING. classify()'s spinner comment warns a working pane can read
- * non-working "between frames". That is a sub-second concern for the 5s status
- * tick; the heartbeat samples MINUTES apart, where a non-working reading is a
- * real state, not a frame gap. If false check-ins ever appear, require two
- * consecutive non-working ticks before asking -- a one-line refinement, noted.
- *
- * PURE. This module holds NO timer, NO tmux, NO network, NO setting read. The
- * interval, the live roster capture (snapshot/safeRoster), the on/off setting
- * and the notify.happened call all live in the caller. That keeps the decision
- * unit-testable over synthetic rows.
+ * PURE. No timer, no tmux, no network, no setting read, and it never sets
+ * `asked` true (only the runner does, post-delivery). Unit-testable over
+ * synthetic rows.
  */
 
-// Leaving WORKING for one of these warrants a check-in question. UNKNOWN is in
-// the set on purpose: an agent that was working and is now unreadable is asked
-// about, not passed over in silence.
+// Leaving WORKING for one of these is a stall worth a check-in. UNKNOWN is in the
+// set on purpose: a working agent gone unreadable is asked about, not passed over.
 const ASK_ON_EXIT_TO = new Set(['stopped', 'idle', 'unknown']);
 
-// States that are NOT "still clearly working" for the purpose of the edge. Used
-// only to keep the carry-forward of `was` honest; the ask itself keys on
-// ASK_ON_EXIT_TO so needs_you / rate_limited / auth_failed never trigger it.
-function leftWorking(was, state) {
-  return was === 'working' && ASK_ON_EXIT_TO.has(state);
+function isStallState(state) { return ASK_ON_EXIT_TO.has(state); }
+
+/**
+ * Normalise a classified row to the state the sweep reasons about. An
+ * unreadable reading (missing state, or CONFIDENCE.NONE that is not 'working')
+ * becomes 'unknown' -- an ask target, never silently dropped.
+ */
+function stateOf(a) {
+  const noConf = !a.confidence || a.confidence === 'none';
+  if (a.state === undefined) return 'unknown';
+  if (noConf && a.state !== 'working') return 'unknown';
+  return a.state;
 }
 
 /**
- * One heartbeat tick. Pure: no timer, no tmux, no network.
+ * One heartbeat tick. Pure: no timer, no tmux, no network. NEVER sets a record's
+ * `asked` to true -- confirmed delivery is the runner's responsibility.
  *
  * @param {Array<{sessionName:string,state:string,confidence?:string}>} roster
- *   the board's agents, each already classified by status.js `classify()`. A
- *   missing/undefined `state` is treated as 'unknown' (unreadable), which is an
- *   ask target from working, never silently dropped.
- * @param {Map<string,string>} prev  sessionName -> the state seen last tick.
- * @returns {{toAsk: Array<{session:string,from:string,to:string}>, next: Map<string,string>}}
- *   toAsk: agents that left the working state this tick; the caller fires one
- *          question-shaped notify.happened per entry. next: the state map to
- *          carry into the next tick.
+ *   the board's agents, each already classified by status.js `classify()`.
+ * @param {Map<string,{prev?:string,open:boolean,asked:boolean}>} prev
+ *   per-agent record from last tick. `open` = in a stall episode that began from
+ *   working; `asked` = a CONFIRMED-delivered ask exists for this open episode.
+ * @returns {{toAsk: Array<{session:string,from?:string,to:string}>, next: Map}}
+ *   toAsk: agents to ask NOW (fire one question-shaped notify.happened each; on
+ *          CONFIRMED delivery the runner sets next.get(session).asked = true).
+ *   next: the record map to carry into the following tick.
  */
 function tick(roster, prev) {
   const previous = prev instanceof Map ? prev : new Map();
@@ -95,19 +98,35 @@ function tick(roster, prev) {
   for (const a of rows) {
     const key = a && a.sessionName;
     if (!key) continue;
-    // An unreadable reading (missing state, or CONFIDENCE.NONE) is 'unknown' --
-    // a real ask target from working, not a reason to go quiet.
-    const noConf = !a.confidence || a.confidence === 'none';
-    const state = (a.state === undefined || (noConf && a.state !== 'working'))
-      ? 'unknown'
-      : a.state;
-    const was = previous.get(key);
-    next.set(key, state);
-    if (leftWorking(was, state)) {
-      toAsk.push({ session: key, from: was, to: state });
+    const state = stateOf(a);
+    const rec = previous.get(key) || { prev: undefined, open: false, asked: false };
+    let open = rec.open;
+    let asked = rec.asked;
+    if (state === 'working') {
+      // Resumed: the episode is over, and any future stall is a fresh one.
+      open = false;
+      asked = false;
+    } else if (isStallState(state)) {
+      // Open a new episode only on the working -> stall EDGE. A still-open
+      // episode stays open (and keeps its `asked`); a startup-idle agent
+      // (rec.prev !== 'working') never opens one.
+      if (!open && rec.prev === 'working') {
+        open = true;
+        asked = false;
+      }
+    } else {
+      // needs_you / rate_limited / auth_failed: not a stall this sweep chases.
+      // needs_you already reaches the person on its own path; close the episode
+      // so we neither chase it nor, later, count it as a fresh stall.
+      open = false;
+      asked = false;
     }
+    if (open && !asked) {
+      toAsk.push({ session: key, from: rec.prev, to: state });
+    }
+    next.set(key, { prev: state, open, asked });
   }
   return { toAsk, next };
 }
 
-module.exports = { tick, leftWorking, ASK_ON_EXIT_TO };
+module.exports = { tick, stateOf, isStallState, ASK_ON_EXIT_TO };

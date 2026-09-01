@@ -34,7 +34,12 @@ const ping = require('./ping');
 const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
 const FILE = path.join(BASE, 'notify.json');
 const DEFAULT_ENDPOINT = 'https://installkosmos.com/api/happened';
-const KINDS = new Set(['posted', 'replied', 'needs_you']);
+/* 'check_in' (#1722): the product heartbeat's periodic nudge. It is a QUESTION,
+   not a verdict -- fired when an agent LEFT the working state (see
+   engine/heartbeat.js), so the app asks "mid-something, finished, or stopped?"
+   rather than asserting a stop. Same closed-list discipline as the others: named
+   here so `kind` stays a closed set, and it carries who + when, never the words. */
+const KINDS = new Set(['posted', 'replied', 'needs_you', 'check_in']);
 
 let sender = null;
 const endpoint = () => process.env.AGENT_WORKFORCE_NOTIFY_URL || DEFAULT_ENDPOINT;

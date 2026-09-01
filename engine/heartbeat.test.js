@@ -4,17 +4,19 @@ const assert = require('node:assert');
 const { tick } = require('./heartbeat');
 
 /* #1722. The heartbeat composes the board's already-classified states and asks a
- * check-in question once when an agent LEAVES the working state. These cases pin
- * the two decisions this module actually makes: the edge (ask once, not every
- * tick) and Splinter's correction (a working -> UNREADABLE agent is asked about,
- * never passed over in silence -- Kitty's 70-minute stall). Detection itself is
- * status.js classify()'s job and is not re-tested here. */
+ * check-in QUESTION when an agent is in an open stall. These cases pin the three
+ * decisions this module makes: the edge (an episode opens on working -> stall),
+ * Splinter's silence fix (working -> UNREADABLE is asked about, not passed over
+ * -- Kitty's 70-minute stall), and the delivery contract (an UNCONFIRMED ask
+ * must not burn the slot: an open stall keeps being asked until the runner marks
+ * `asked` on confirmed delivery). Detection is status.js classify()'s job and is
+ * not re-tested here. */
 
 const row = (sessionName, state, confidence) => ({ sessionName, state, confidence });
 
-test('working -> stopped asks once, on the edge', () => {
+test('working -> stopped opens an episode and asks', () => {
   const t1 = tick([row('a', 'working', 'scraped')], new Map());
-  assert.deepEqual(t1.toAsk, []); // still working: nothing to ask
+  assert.deepEqual(t1.toAsk, []);
   const t2 = tick([row('a', 'stopped', 'structured')], t1.next);
   assert.equal(t2.toAsk.length, 1);
   assert.equal(t2.toAsk[0].session, 'a');
@@ -22,18 +24,29 @@ test('working -> stopped asks once, on the edge', () => {
   assert.equal(t2.toAsk[0].to, 'stopped');
 });
 
-test('a still-stopped agent is NOT re-asked (suppression)', () => {
+test('an UNCONFIRMED ask does NOT burn the slot: a still-stopped agent is re-asked', () => {
   let s = tick([row('a', 'working', 'scraped')], new Map()).next;
-  s = tick([row('a', 'stopped', 'structured')], s).next; // asked here
-  const t = tick([row('a', 'stopped', 'structured')], s);
-  assert.deepEqual(t.toAsk, []); // was === stopped, not working: no re-ask
+  const t2 = tick([row('a', 'stopped', 'structured')], s); // asked, delivery unconfirmed
+  assert.equal(t2.toAsk.length, 1);
+  // The runner did NOT confirm delivery, so `asked` stays false in t2.next.
+  const t3 = tick([row('a', 'stopped', 'structured')], t2.next);
+  assert.equal(t3.toAsk.length, 1, 'unconfirmed => re-ask, never leave it sitting stopped un-asked');
 });
 
-test('working -> UNREADABLE asks (never fail toward silence -- the Splinter fix)', () => {
+test('a CONFIRMED-delivered ask suppresses re-asks within the episode', () => {
+  let s = tick([row('a', 'working', 'scraped')], new Map()).next;
+  const t2 = tick([row('a', 'stopped', 'structured')], s);
+  assert.equal(t2.toAsk.length, 1);
+  // The runner confirms delivery: it sets asked=true on the record it carries.
+  t2.next.get('a').asked = true;
+  const t3 = tick([row('a', 'stopped', 'structured')], t2.next);
+  assert.deepEqual(t3.toAsk, [], 'a confirmed ask holds until the agent resumes');
+});
+
+test('working -> UNREADABLE asks (never fail toward silence -- the Splinter fix, Kitty 70 min)', () => {
   const s = tick([row('a', 'working', 'scraped')], new Map()).next;
-  // classify() could not read the pane: state unknown at confidence none.
-  const t = tick([row('a', 'unknown', 'none')], s);
-  assert.equal(t.toAsk.length, 1, 'a working agent gone unreadable must be asked about, not silently carried');
+  const t = tick([row('a', 'unknown', 'none')], s); // classify could not read the pane
+  assert.equal(t.toAsk.length, 1, 'a working agent gone unreadable must be asked about');
   assert.equal(t.toAsk[0].to, 'unknown');
 });
 
@@ -50,22 +63,25 @@ test('working -> needs_you does NOT ask (the person\'s own path)', () => {
   assert.deepEqual(t.toAsk, []);
 });
 
-test('an agent already idle at first sighting is not asked about (no working frame to leave)', () => {
-  const t = tick([row('a', 'idle', 'scraped')], new Map());
+test('an agent already idle at first sighting is never asked about (no working frame to leave)', () => {
+  let s = tick([row('a', 'idle', 'scraped')], new Map());
+  assert.deepEqual(s.toAsk, []);
+  // and it stays quiet on subsequent ticks -- it never opened an episode.
+  const t = tick([row('a', 'idle', 'scraped')], s.next);
   assert.deepEqual(t.toAsk, []);
 });
 
-test('a fresh stall after resuming asks again', () => {
+test('resuming closes the episode; a fresh stall opens a new one and asks again', () => {
   let s = tick([row('a', 'working', 'scraped')], new Map()).next;
-  s = tick([row('a', 'idle', 'scraped')], s).next;    // asked
-  s = tick([row('a', 'working', 'scraped')], s).next; // back to work: episode over
-  const t = tick([row('a', 'idle', 'scraped')], s);   // stalls again
+  s = tick([row('a', 'idle', 'scraped')], s).next;    // asked (episode 1)
+  s = tick([row('a', 'working', 'scraped')], s).next; // back to work: episode closed
+  const t = tick([row('a', 'idle', 'scraped')], s);   // stalls again: episode 2
   assert.equal(t.toAsk.length, 1, 'a new working->stall episode is a new question');
 });
 
-test('a missing state field is treated as unreadable, and asked about from working', () => {
+test('a missing state field is treated as unreadable and asked about from working', () => {
   const s = tick([{ sessionName: 'a', state: 'working', confidence: 'scraped' }], new Map()).next;
-  const t = tick([{ sessionName: 'a' }], s); // no state at all
+  const t = tick([{ sessionName: 'a' }], s);
   assert.equal(t.toAsk.length, 1);
   assert.equal(t.toAsk[0].to, 'unknown');
 });
@@ -73,5 +89,5 @@ test('a missing state field is treated as unreadable, and asked about from worki
 test('rows with no session name are skipped without throwing', () => {
   const t = tick([{ state: 'stopped' }, null, row('a', 'working', 'scraped')], new Map());
   assert.deepEqual(t.toAsk, []);
-  assert.equal(t.next.get('a'), 'working');
+  assert.equal(t.next.get('a').prev, 'working');
 });
