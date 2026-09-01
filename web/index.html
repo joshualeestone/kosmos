@@ -8945,6 +8945,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="policy" aria-controls="s-sec-policy">AI Policies</button>
     <button type="button" data-go="talking" aria-controls="s-sec-talking">Agents Talking</button>
     <button type="button" data-go="mac" aria-controls="s-sec-mac">This computer</button>
+    <button type="button" data-go="automation" aria-controls="s-sec-automation">Automation</button>
     <button type="button" data-go="usage" aria-controls="s-sec-usage">Token Usage</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
     <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Plus Account</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
@@ -9438,6 +9439,35 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         and the agent gets on with the job. Don&rsquo;t Allow and that one job
         stops, nothing else. Kosmos only does what you asked an agent to do.
       </p>
+    </section>
+  </section>
+  <section class="dsec" id="s-sec-automation" data-sec="automation" tabindex="-1" aria-label="Automation" hidden>
+    <section class="dbox">
+      <!-- #1724 (Josh, 2026-08-31): auto-save a handoff when an agent's context
+           window fills, so a long piece of work is not lost as it nears the limit.
+           First control in the Automation section; the heartbeat (#1722) is a later
+           addition to the same section. -->
+      <h3 class="dlab">Automation</h3>
+      <div class="field" style="margin-top:14px;">
+        <label class="flabel" for="ah-enabled">Auto-save progress</label>
+        <div class="fhint">When an agent's context is nearly full, Kosmos asks it to write its progress to a file, so a long piece of work is not lost as it reaches the limit. You can turn this off.</div>
+        <div class="frow" style="align-items:center; gap:10px;">
+          <input type="checkbox" id="ah-enabled">
+          <label for="ah-enabled" style="margin:0;">Ask agents to save their progress as their context fills</label>
+        </div>
+        <div class="frow" style="margin-top:12px; align-items:center; gap:10px;">
+          <label class="flabel" for="ah-threshold" style="margin:0;">Save when context reaches</label>
+          <select id="ah-threshold" aria-label="Context fill level to save at">
+            <option value="75">75%</option>
+            <option value="80">80%</option>
+            <option value="85">85%</option>
+            <option value="90">90%</option>
+            <option value="95">95%</option>
+          </select>
+          <button class="btn uprime" type="button" id="ah-save" aria-label="Save automation settings">Save</button>
+        </div>
+        <p class="fmsg" id="ah-msg" role="status" aria-live="polite"></p>
+      </div>
     </section>
   </section>
   <!-- #853. Josh asked for real per-model, per-day token usage. The ENGINE
@@ -13090,9 +13120,52 @@ document.getElementById('you-tz-save').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+/* #1724: the auto-handoff control in Settings > Automation. Loads the stored
+   setting (off/85 by default) and saves {enabled, threshold} to /api/settings. */
+async function paintAutomation() {
+  const en = document.getElementById('ah-enabled');
+  const th = document.getElementById('ah-threshold');
+  const btn = document.getElementById('ah-save');
+  const msg = document.getElementById('ah-msg');
+  try {
+    const r = await (await fetch('/api/settings', { cache: 'no-store' })).json();
+    const a = (r && r.autohandoff) || { enabled: false, threshold: 85 };
+    if (document.activeElement !== en) en.checked = a.enabled === true;
+    if (document.activeElement !== th) th.value = String(a.threshold || 85);
+    en.disabled = false; th.disabled = false; btn.disabled = false;
+    msg.textContent = '';
+  } catch {
+    en.disabled = true; th.disabled = true; btn.disabled = true;
+    msg.textContent = 'We could not read the automation settings just now.';
+  }
+}
+document.getElementById('ah-save').addEventListener('click', async () => {
+  const en = document.getElementById('ah-enabled');
+  const th = document.getElementById('ah-threshold');
+  const btn = document.getElementById('ah-save');
+  const msg = document.getElementById('ah-msg');
+  btn.disabled = true;
+  msg.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autohandoff: { enabled: en.checked, threshold: Number(th.value) } }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = out.because || 'That did not save.'; return; }
+    msg.textContent = en.checked
+      ? 'Saved. Kosmos will ask agents to save progress at ' + th.value + '%.'
+      : 'Saved. Auto-save is off.';
+  } catch {
+    msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally {
+    btn.disabled = false;
+  }
+});
 async function paintSettings() {
   paintYouName();
   paintYouTz();
+  paintAutomation();
   const loc = document.getElementById('set-applocation');
   const mach = document.getElementById('set-machine');
   try {
