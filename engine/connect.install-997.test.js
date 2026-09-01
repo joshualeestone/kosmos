@@ -557,8 +557,9 @@ test('a home directory we cannot resolve fails cleanly and strands no download',
       /home directory/i,
       'the failure does not name the condition that caused it');
     assert.deepEqual(downloadsMatching(/^claude-/), [],
-      'an unresolvable home stranded the downloaded binary. That is ~281MB per attempt, '
-      + 'and it is the case a previous retraction wrongly declared impossible.');
+      'the guard did not clean up after itself. NOTE: this arm drives a state production '
+      + 'cannot produce (see the docblock above), so this asserts the guard behaves correctly '
+      + 'IF reached, not that anything reaches it.');
   } finally {
     runners.homeDir = realHome;
   }

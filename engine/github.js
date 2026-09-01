@@ -4,7 +4,7 @@ const { makeDoor, PHASE } = require('./devicedoor');
 
 /* THE gh ROAD, SINGLE SOURCE. This comment block used to live in githubdevice.js
    saying "mirrors github.js's spec candidates", and the mirroring was a verbatim
-   second literal that nothing compared. `githubdevice` now requires THIS array, so
+   second literal that nothing compared. `githubdevice` now requires the FUNCTION, not this array, so
    the authority the comment claimed is expressed in code rather than asserted.
    ⚠️ THIS PARAGRAPH USED TO SAY the unification "does NOT make
    AGENT_WORKFORCE_GH_CANDIDATES global" and that the override "still reaches only
