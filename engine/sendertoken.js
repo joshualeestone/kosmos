@@ -159,9 +159,13 @@ function writeTokens(sessionName, tokens) {
      FILE_MODE and this chmod can only ever widen it back. Measured, four umasks with
      `flag:'wx', mode:0600`: 0000 -> 600, 0022 -> 600, 0077 -> 600, and 0600 -> 0.
      ⇒ The real job is that LAST case: a restrictive umask can clear the OWNER bits
-     too, leaving a token the agent cannot read back. This restores them. `trust.js`
-     states the widening rationale beside its own copy and it does not transfer here,
-     because that path is not a guaranteed-fresh `wx` create. */
+     too, leaving a token the agent cannot read back. This restores them.
+     ⚠️ AN EARLIER VERSION OF THIS PARAGRAPH SAID `trust.js` GIVES A DIFFERENT REASON
+     THAT DOES NOT TRANSFER. BOTH HALVES WERE FALSE, and it is the second inverted
+     citation in this file. `trust.js` says "`mode` on the create is MASKED by the
+     umask", which is the same clearing direction, and its chmod sits directly after a
+     `flag: 'wx'` create, so it IS the same guaranteed-fresh case. The precedent agrees
+     with this line; it does not contradict it. */
   /* 🛑 THE CLOCK AND A COUNTER ARE IN THE NAME, NOT JUST THE PID, and this file
      originally got that wrong while citing `trust.js` as its pattern. `trust.js`
      documents the exact failure at its own `tempPath`: with pid alone, a process that
@@ -209,8 +213,13 @@ function writeTokens(sessionName, tokens) {
     try {
       fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT
         | fs.constants.O_TRUNC | (NOFOLLOW || 0), FILE_MODE);
-      fs.writeFileSync(fd, JSON.stringify({ tokens }));
+      /* 🛑 TIGHTEN BEFORE THE BYTES LAND, NOT AFTER. This is the same window this
+         card has now closed three times (the directory, the main path, and here):
+         measured on a planted 0644 file with the rename forced to fail, the token
+         bytes were written while the file was still 0644. `fchmodSync` on the SAME
+         fd has no TOCTOU, so there is no reason to do it second. */
       try { fs.fchmodSync(fd, FILE_MODE); } catch { /* best effort */ }
+      fs.writeFileSync(fd, JSON.stringify({ tokens }));
     } finally {
       if (fd !== null) { try { fs.closeSync(fd); } catch { /* already closed */ } }
     }

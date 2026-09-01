@@ -216,9 +216,11 @@ test('the token is kept owner-only, because it is the agent\'s ability to speak 
    mint lands at 0600 whether or not anything chmods, and an assertion built on one
    cannot fail for the bug it appears to guard.
 
-   ⇒ The arms below PLANT A LOOSE MODE FIRST. Each was perturbed on its own: removing
-   the file chmod reddens the file arm only, removing the dir chmod reddens the dir
-   arm only, so neither is standing in for the other. */
+   ⇒ The arms below PLANT A LOOSE MODE FIRST. Every line of the fix is perturbed
+   individually and the full matrix lives in the branch plan.
+   ⚠️ An earlier version of this comment described "removing the file chmod" and said
+   the dir chmod reddens one arm. THERE IS NO CHMOD ON THE TARGET any more, and the
+   dir chmod reddens TWO. Restate from the matrix, not from memory. */
 
 test('#1761: a token file that is ALREADY loose is tightened on the next mint', () => {
   sendertoken.mint('loose-file');
@@ -419,6 +421,38 @@ test('#1761: a restrictive umask cannot leave the token unreadable by its owner'
     assert.ok(JSON.parse(fs.readFileSync(file, 'utf8')).tokens.length >= 1,
       'the token could not be read back');
   } finally { process.umask(old); }
+});
+
+/* 🛑 O_TRUNC AND THE CREATE MODE ON THE FALLBACK, both previously unwatched.
+   Dropping O_TRUNC leaves trailing bytes when the token list SHRINKS, corrupting the
+   JSON and losing EVERY token, not just the removed one. Dropping the mode argument
+   creates at 0666 minus umask. */
+test('#1761: the FALLBACK truncates and creates tight, so a shrinking list cannot corrupt it', () => {
+  sendertoken.mint('trunc');
+  sendertoken.mint('trunc');
+  sendertoken.mint('trunc');
+  const file = path.join(sendertoken.DIR, 'trunc.json');
+  const big = fs.statSync(file).size;
+  /* 🛑 DO NOT UNLINK. An earlier version of this arm removed the file first, which made
+     the fallback a FRESH create where O_TRUNC is irrelevant: the arm was VACUOUS for the
+     line it was written to guard. The file must EXIST and be LARGER for truncation to
+     mean anything, so the token list is shrunk in place instead. */
+  fs.writeFileSync(file, JSON.stringify({ tokens: [] }) + 'X'.repeat(big + 2000));
+  const padded = fs.statSync(file).size;
+  assert.ok(padded > big, 'the file was not padded, so a truncation failure would be invisible');
+
+  const realRename = fs.renameSync;
+  fs.renameSync = () => { const e = new Error('forced'); e.code = 'EXDEV'; throw e; };
+  let res;
+  try { res = sendertoken.mint('trunc'); } finally { fs.renameSync = realRename; }
+
+  assert.equal(res.ok, true, 'the forced fallback failed to mint');
+  assert.ok(fs.statSync(file).size < padded,
+    'the fallback did not truncate: trailing bytes from the larger previous content survived');
+  assert.doesNotThrow(() => JSON.parse(fs.readFileSync(file, 'utf8')),
+    'the fallback left unparseable JSON, which loses EVERY token, not just the removed one');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600,
+    'the fallback created the token at a loose mode');
 });
 
 test('#1761: a token DIRECTORY that is already loose is tightened too', () => {
