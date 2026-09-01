@@ -155,6 +155,16 @@ async function refresh() {
  * nobody is there to see it failing.
  */
 const AUTO_RETRY_AFTER = 60 * 60 * 1000;
+/* 🛑 A TIME WINDOW CANNOT CLOSE THIS, IT ONLY DELAYS IT. The launchd job is
+   RunAtLoad with no KeepAlive, so a board that stops itself for a failing
+   install comes back only at the NEXT LOGIN, and by then the previous failure
+   is hours old and any window has expired. Traced: login, boot, poll a minute
+   later, install, stop, fail, dead until the next login. The board is up about
+   sixty seconds per login and the window never once applies.
+   A COUNT survives that, because it does not decay. After this many recorded
+   automatic failures for the SAME version, stop offering to install it; a new
+   version resets the count on its own, because the count is per version. */
+const MAX_AUTO_ATTEMPTS = 3;
 let autoFailedAt = 0;
 
 function maybeAutoInstall() {
@@ -182,8 +192,12 @@ function maybeAutoInstall() {
     const offer = available();
     if (durable && durable.auto && durable.code !== 0 && offer
         && durable.version && durable.version === offer.version) {
+      /* The window still helps inside one process life. */
       const endedMs = Date.parse(durable.endedAt || '');
       if (Number.isFinite(endedMs) && Date.now() - endedMs < AUTO_RETRY_AFTER) return;
+      /* And the COUNT is what actually closes the boot loop, because it does
+         not expire between logins the way the window does. */
+      if ((durable.attempts || 0) >= MAX_AUTO_ATTEMPTS) return;
     }
     beginInstall({ auto: true });
   } catch { /* an update that cannot start must not break the one that shows */ }
@@ -479,7 +493,7 @@ function seedFromStatusFile() {
   /* The trailing pair is OPTIONAL on purpose: a file written by a release
      before this change has two fields, and refusing to parse it would lose the
      failure record entirely rather than lose two of its fields. */
-  const m = /^(-?\d+)\s+(\S+)(?:\s+(\S+)\s+(\S+))?/.exec(raw.trim());
+  const m = /^(-?\d+)\s+(\S+)(?:\s+(\S+)\s+(\S+)(?:\s+(\S+))?)?/.exec(raw.trim());
   if (!m) return;
   const code = Number(m[1]);
   if (code === 0) return;
@@ -491,6 +505,7 @@ function seedFromStatusFile() {
     log: installLog(),
     version: m[3] && m[3] !== '-' ? m[3] : null,
     auto: m[4] === '1',
+    attempts: Number.isFinite(Number(m[5])) ? Number(m[5]) : 0,
   };
 }
 function lastAttemptView() {
@@ -557,7 +572,13 @@ function beginInstall(opts) {
      the second, and it is written ONLY for the automatic path because a person
      who pressed the button already knows. */
   const targetVersion = (cache && cache.latest) || null;
-  lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null, version: targetVersion, auto: !!(opts && opts.auto) };
+  /* Count consecutive AUTOMATIC failures for this exact version, read from the
+     durable record so it survives the restart the installer causes. */
+  const prior = lastAttemptView();
+  const sameVersionFailure = prior && prior.auto && prior.code !== 0
+    && prior.version && targetVersion && prior.version === targetVersion;
+  const attempts = (opts && opts.auto) ? ((sameVersionFailure ? (prior.attempts || 0) : 0) + 1) : 0;
+  lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null, version: targetVersion, auto: !!(opts && opts.auto), attempts };
   if (opts && opts.auto) {
     try { process.stderr.write(`update: starting an automatic install of ${targetVersion || 'an unnamed version'} at ${lastAttempt.startedAt}\n`); } catch { /* a log line must never break an install */ }
   }
@@ -595,7 +616,7 @@ function beginInstall(opts) {
      version by itself comes from this file, and it used to carry only an exit
      code and a start stamp. Two more fields, and `-` stands in for an unknown
      version so the field count stays fixed. */
-  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s %s %s\n" "$code" "$3" "$4" "$5" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, lastAttempt.version || '-', lastAttempt.auto ? '1' : '0'], {
+  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s %s %s %s\n" "$code" "$3" "$4" "$5" "$6" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, lastAttempt.version || '-', lastAttempt.auto ? '1' : '0', String(lastAttempt.attempts || 0)], {
     detached: true,
     stdio: 'ignore',
     env: { ...process.env, KOSMOS_RELEASE_BASE: base },

@@ -113,7 +113,27 @@ test('#1277: every test file that boots the server sets DRY_RUN, so none can rea
   assert.ok(boots.length >= 10,
     `only ${boots.length} files looked like they boot the server; the detector is probably wrong, `
     + 'and a detector that finds nothing would make this arm pass for the wrong reason');
-  const missing = boots.filter((f) => !/AGENT_WORKFORCE_DRY_RUN/.test(fs.readFileSync(path.join(root, f), 'utf8')));
+  /* 🛑 MATCH THE VALUE, NOT THE NAME. The production gate is `=== '1'`, so a
+     file that sets the variable to '' or '0', or that only names it in a
+     comment or an assertion string, satisfies a bare-name search while its
+     poll fetches for real. That is not hypothetical here: engine/remove.test.js
+     sets AGENT_WORKFORCE_DRY_RUN to '' in a child env. A guard whose stated
+     purpose is "none can reach the release host" must check the thing the
+     product checks. */
+  const SETS_IT = /AGENT_WORKFORCE_DRY_RUN\s*[:=]\s*['"]1['"]/;
+  /* Excused BY NAME WITH A REASON, the same shape engine.reachable.test.js uses.
+     An entry here is a claim someone can check, not a way to quiet the guard. */
+  const EXCUSED = {
+    'server.switch-account-1373.test.js':
+      'sets it DELIBERATELY NOT: its header records that DRY_RUN also disables the account block, '
+      + 'so a test that set it would measure a world where the feature never ran. It intercepts with '
+      + 'setRunner(fake) instead, which engine/create.js checks BEFORE DRY_RUN. It therefore relies '
+      + 'on installedRoot() being null in a checkout, which is the incidental guard this arm exists '
+      + 'to stop relying on, so the exception is narrow and named rather than silent. Checkable: '
+      + 'delete its setRunner(fake) and its own control at the bottom goes red.',
+  };
+  const missing = boots.filter((f) => !EXCUSED[f]
+    && !SETS_IT.test(fs.readFileSync(path.join(root, f), 'utf8')));
   assert.deepEqual(missing, [],
     `these files boot the server without setting AGENT_WORKFORCE_DRY_RUN: ${missing.join(', ')}. `
     + 'Booting the server starts the update poll, and without the gate that poll uses the real '

@@ -390,3 +390,70 @@ picked up `AGENT_WORKFORCE_UPDATE_POLL_MS` if an operator had set it. On any
 machine with that above `TTL/10` the suite went red for a configuration choice
 rather than a code change. It now clears the variable for the duration and
 restores it. Verified: the suite passes with a hostile 10-minute ambient value.
+
+## Iteration 7
+
+**My iteration-6 note said the boot loop was closed. It was DELAYED, not
+closed, and the difference is the whole point.**
+
+The durable brake I added was a TIME WINDOW, and `endedAt` is the status file's
+mtime. launchd is `RunAtLoad` with no `KeepAlive`, so a board that stopped
+itself for a failing install comes back only at the NEXT LOGIN, by which point
+the previous failure is hours old and the window has long expired. Traced:
+login, boot, poll a minute later, install, stop, fail, dead until the next
+login. **The board would be up about sixty seconds per login, forever**, and the
+window would never once apply. It only ever covered a manual `kosmos start`
+inside the hour.
+
+✅ A COUNT does not decay. `maybeAutoInstall()` now also stops after
+`MAX_AUTO_ATTEMPTS` recorded automatic failures for the SAME version, carried in
+the durable record, and a new version resets it because the count is per
+version. Two controls: one prior failure must still retry, and a failure
+recorded for a different version must not block a new release.
+
+⭐ Recorded as a correction rather than an addition, because the iteration-6
+entry read as if the outcome was closed. A fix that delays a failure and a fix
+that removes it are not the same claim.
+
+**Two of my own guards could not be trusted to fail.**
+
+The DRY_RUN arm stubbed two of the tick's three gates and left `autoPref` real.
+`autoupdate.js` reads an absent or unreadable preference as off, so on a machine
+where the ambient file says off, deleting the gate under test would still give
+zero fetches and the arm would stay green for the wrong reason. It now stubs all
+three and carries a negative control: with the variable unset the tick MUST
+fetch, or the assertion above proves only that this poll never fetches.
+
+The convention guard tested for MENTION, not VALUE, while the product gate is
+`=== '1'`. A file setting `''` or `'0'`, or naming the variable only in prose,
+satisfied it. Not hypothetical: `engine/remove.test.js` sets it to `''`.
+
+🛑 **And tightening it found a real file, which I nearly broke.**
+`server.switch-account-1373.test.js` boots the server and deliberately does NOT
+set the variable: its header records that DRY_RUN also disables the account
+block, so a test that set it would measure a world where the feature never ran.
+It intercepts with `setRunner(fake)` instead. I was one edit from "fixing" that
+file and destroying its purpose; reading the comment is what stopped me. It is
+now excused BY NAME WITH A REASON, the same shape `engine.reachable.test.js`
+uses, and the guard still catches a file setting the variable to `''`.
+
+**An arm's name promised a stderr assertion its body never made.** That matters
+here beyond naming: the new fields reach no screen, so that line is the ONLY
+artifact an unattended install produces for a human, and it was the one thing
+with no cover. Now asserted on both paths, and the first attempt captured
+nothing because `refresh()` ends by calling `maybeAutoInstall()`, which fires
+the install before a spy installed afterwards can see it.
+
+### One intermittent failure, recorded rather than swallowed
+
+The first full-suite run after iteration 7 failed one arm,
+`server.test.js:5582` ("the first-run routes answer"), with `TypeError: fetch
+failed`. It is not my change: that file passes 251/251 twice in isolation, the
+full suite passes 3369/3369 on re-run, and nothing in this diff touches
+first-run.
+
+📌 Written down anyway. An intermittent red that gets re-run to green teaches
+people to re-run rather than to look, and a suite nobody trusts is a permanent
+loss. The shape is a network-shaped failure under a full-suite run with many
+servers up at once, and it should be chased on its own rather than attributed
+to whatever branch happens to be in flight when it fires.

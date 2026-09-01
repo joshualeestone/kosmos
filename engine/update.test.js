@@ -327,12 +327,12 @@ test('the installer URL is a positional parameter, never interpolated into the s
      and nothing new enters the -c string. The shape is re-pinned rather than
      loosened: this guard exists because interpolating a release base into a
      shell string turns it into shell. */
-  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s %s %s\\n" "\$code" "\$3" "\$4" "\$5" > "\$2"',\s*'sh',\s*setupUrl\(\)/,
+  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s %s %s %s\\n" "\$code" "\$3" "\$4" "\$5" "\$6" > "\$2"',\s*'sh',\s*setupUrl\(\)/,
     'the installer command is no longer the reviewed shape: ' + call);
   /* The two trailing positionals, asserted on the wider source since the
      slice above stops at the URL: the status file is $2, the stamp is $3,
      neither interpolated. */
-  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt,\s*lastAttempt\.version \|\| '-',\s*lastAttempt\.auto \? '1' : '0'\]/.test(SRC),
+  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt,\s*lastAttempt\.version \|\| '-',\s*lastAttempt\.auto \? '1' : '0',\s*String\(lastAttempt\.attempts \|\| 0\)\]/.test(SRC),
     'the status file, stamp, version and auto flag no longer all ride as positionals');
 
   /* And the unsafe shapes, by name. A template literal or a concatenation
@@ -590,6 +590,13 @@ test('#1277: DRY_RUN stops the FETCH but leaves the timer, so the suite cannot i
   let fetches = 0;
   u.setFetcher(async () => { fetches += 1; return { ok: true, json: async () => ({ version: '9.9.9' }) }; });
   u.setInstalledRoot(() => '/tmp/pretend-installed');
+  /* 🛑 STUB THE PREFERENCE TOO, OR THIS ARM CANNOT BE TRUSTED TO FAIL. The tick
+     has three gates and this one only stubbed two. autoupdate.js reads an
+     absent or unreadable autoupdate.json as { on: false }, so on a machine
+     where the ambient file says off, DELETING the DRY_RUN gate under test would
+     still produce zero fetches and this arm would stay green for the wrong
+     reason. */
+  u.setAutoPref(() => ({ on: true }));
   const prev = process.env.AGENT_WORKFORCE_DRY_RUN;
   process.env.AGENT_WORKFORCE_DRY_RUN = '1';
   try {
@@ -600,10 +607,25 @@ test('#1277: DRY_RUN stops the FETCH but leaves the timer, so the suite cannot i
     assert.equal(fetches, 0,
       `the poll fetched ${fetches} time(s) under DRY_RUN with a truthy installedRoot. That is the `
       + 'shape where a test run reaches the real release host and can start a real installer');
+
+    /* NEGATIVE CONTROL: with the variable unset and every other gate open, the
+       tick MUST fetch. Without this the assertion above is satisfied by a poll
+       that never fetches under any conditions. */
+    u.stopAutoPoll();
+    delete process.env.AGENT_WORKFORCE_DRY_RUN;
+    u.resetCache();
+    u.setAutoPref(() => ({ on: true }));
+    u.setInstalledRoot(() => '/tmp/pretend-installed');
+    fetches = 0;
+    u.startAutoPoll({ every: 1000 });
+    await new Promise((r) => setTimeout(r, 2400));
+    assert.ok(fetches > 0,
+      'CONTROL: with DRY_RUN unset the tick must fetch, or the assertion above proves only that '
+      + 'this poll never fetches at all');
   } finally {
     u.stopAutoPoll();
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_DRY_RUN; else process.env.AGENT_WORKFORCE_DRY_RUN = prev;
-    u.setFetcher(null); u.setInstalledRoot(null); u.resetCache();
+    u.setFetcher(null); u.setInstalledRoot(null); u.setAutoPref(null); u.resetCache();
   }
 });
 
@@ -654,13 +676,47 @@ test('#1277: an automatic install records WHICH version and says so, a manual on
   u.setInstalledRoot(() => '/tmp/pretend-installed');
   u.setInstallRunner(() => ({ on() {}, unref() {}, stderr: { on() {} } }));
   try {
-    await u.refresh();
-    u.beginInstall({ auto: true });
+    /* 🛑 THE SPY MUST WRAP refresh(), NOT JUST beginInstall(). refresh() ends by
+       calling maybeAutoInstall(), which fires the automatic install itself, so a
+       spy installed afterwards captures nothing and the explicit call below
+       returns early on the single-flight flag. Measured: the first version of
+       this captured [] and read as "the code writes nothing".
+
+       It matters more than a naming slip that this is asserted at all: the new
+       fields reach NO SCREEN, because the update overlay renders only a record
+       belonging to a press the viewer just made. So this line is the only
+       artifact an unattended install produces for a human. */
+    const written = [];
+    const realWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk, ...rest) => { written.push(String(chunk)); return realWrite(chunk, ...rest); };
+    try {
+      await u.refresh();
+      u.beginInstall({ auto: true });
+    } finally { process.stderr.write = realWrite; }
+
     const a = u.lastAttempt();
     assert.equal(a.version, '9.9.9',
       `the attempt recorded version=${a.version}. After a machine changes version by itself, the `
       + 'first question is what it took, and nothing on the box answered it');
     assert.equal(a.auto, true, 'the record must say the machine chose this, not a person');
+    assert.ok(written.some((l) => /automatic install of 9\.9\.9/.test(l)),
+      `the automatic path wrote nothing naming the version. Got: ${JSON.stringify(written)}. With no `
+      + 'screen showing an unattended attempt, this line is the only thing a human can read');
+
+    /* And the manual path stays quiet, because whoever pressed the button
+       already knows. Paired, so neither half is vacuous. */
+    /* The manual path, with the automatic one switched OFF so maybeAutoInstall
+       cannot fire and claim the single-flight flag first. */
+    u.resetCache();
+    u.setAutoPref(() => ({ on: false }));
+    await u.refresh();
+    const written2 = [];
+    process.stderr.write = (chunk, ...rest) => { written2.push(String(chunk)); return realWrite(chunk, ...rest); };
+    try {
+      u.beginInstall();
+    } finally { process.stderr.write = realWrite; }
+    assert.ok(!written2.some((l) => /automatic install of/.test(l)),
+      `a manual install announced itself as automatic. Got: ${JSON.stringify(written2)}`);
   } finally {
     u.setFetcher(null); u.setInstalledRoot(null); u.setInstallRunner(null); u.resetCache();
   }
@@ -832,6 +888,56 @@ test('#1277: a failed automatic install does NOT retry after a restart, so a boa
       `1 ${new Date().toISOString()} 98.0.0 1\n`);
     await u.refresh();
     assert.ok(installs > 0, 'CONTROL: a failure recorded for a different version must not block this one');
+  } finally {
+    u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+    u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('#1277: after MAX_AUTO_ATTEMPTS recorded failures the board stops offering, however long ago they were', async () => {
+  /* A TIME WINDOW CANNOT CLOSE THE BOOT LOOP. launchd is RunAtLoad with no
+     KeepAlive, so a board that stopped itself for a failing install returns
+     only at the next login, by which point the previous failure is hours old
+     and any window has expired. The board would be up about sixty seconds per
+     login, forever. A count does not decay, so it survives the restart the
+     installer itself causes. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-cap-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  const long_ago = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  let installs = 0;
+  u.resetCache();
+  u.setInstalledRoot(() => home);
+  u.setAutoPref(() => ({ on: true }));
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+  u.setInstallRunner(() => { installs += 1; return { on() {}, unref() {}, stderr: { on() {} } }; });
+  try {
+    /* Three recorded automatic failures for this version, two days old, so the
+       window is long expired and only the count can stop it. */
+    const f = path.join(home, 'logs', 'install.status');
+    fs.writeFileSync(f, `1 ${long_ago} 99.0.0 1 3\n`);
+    fs.utimesSync(f, new Date(Date.now() - 48 * 60 * 60 * 1000), new Date(Date.now() - 48 * 60 * 60 * 1000));
+    await u.refresh();
+    assert.equal(installs, 0,
+      `the board tried again after 3 recorded failures two days old. The window had expired, which `
+      + 'is the normal case between logins, so only a count can stop this. Left unchecked the board '
+      + 'takes itself down about a minute after every login, forever');
+
+    /* CONTROL 1: the same age and version, but BELOW the cap, must still try. */
+    u.resetCache();
+    fs.writeFileSync(f, `1 ${long_ago} 99.0.0 1 1\n`);
+    fs.utimesSync(f, new Date(Date.now() - 48 * 60 * 60 * 1000), new Date(Date.now() - 48 * 60 * 60 * 1000));
+    await u.refresh();
+    assert.ok(installs > 0, 'CONTROL: one prior failure is under the cap and must not block the retry');
+
+    /* CONTROL 2: at the cap but for a DIFFERENT version, so a new release is
+       never blocked by an old version's failures. */
+    installs = 0; u.resetCache();
+    fs.writeFileSync(f, `1 ${long_ago} 98.0.0 1 9\n`);
+    fs.utimesSync(f, new Date(Date.now() - 48 * 60 * 60 * 1000), new Date(Date.now() - 48 * 60 * 60 * 1000));
+    await u.refresh();
+    assert.ok(installs > 0, 'CONTROL: a different version must reset the count, or one bad release blocks all future ones');
   } finally {
     u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
     u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
