@@ -1297,9 +1297,11 @@ function isLoopbackPeer(req) {
  * local reverse proxy defeats it (it terminates loopback; see the BOUNDARY note
  * in `remoteWriteGuard` and #1762). So a WRITE route added here turns a
  * documented read disclosure into a network write bypass. This set is pinned by
- * `server.remote-bind-1112.test.js` -- both an exact-set assertion AND a
- * behavioural reach test that refuses a valid-token remote peer at the dangerous
- * writes, so a route added here goes red even if the exact-set list is updated.
+ * `server.remote-bind-1112.test.js` -- an exact-set assertion catches ANY
+ * addition, and a behavioural reach test, keyed to EVERY write route derived from
+ * this file's own dispatch (not a curated list), refuses a valid-token remote
+ * peer at each one but report/reply -- so a WRITE route added here goes red even
+ * if the exact-set list is reflexively updated.
  */
 const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
 
