@@ -224,7 +224,13 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()',
    they exist in every checkout and cannot go missing by accident. A deletion is a
    deliberate act, and a gate that reds on it is giving the right answer rather than
    a false alarm. The benefit is that the first .js added to any of them is gated on
-   the day it lands rather than whenever somebody remembers to widen this list. */
+   the day it lands rather than whenever somebody remembers to widen this list.
+   ⚠️ AND WHY docs/ IS NOT IN THE LIST, because it is the one place outside scope
+   with findings: 21 across 18 files under docs/browser-checks/. Those are Playwright
+   drivers, each run as its own process by tools/browser-checks.sh with the sandbox
+   already in its environment before anything loads, and none is required by the
+   app. A require-time root there is a fixture path, not a leak. Say so here rather
+   than let a reader who runs the tool on `.` conclude the gate is missing them. */
 const KNOWN = new Map([
   ['server.js:GATE_LOG',
     'deliberate: the install-gate request log must outlive the sandbox the gate deletes on exit, '
@@ -762,8 +768,9 @@ function declarations(rawSrc) {
     const terminated = (t) => /;\s*$/.test(lineInfo(t).code);
     /* 🛑 THE CAP WAS 12 LINES AND IT SILENTLY DROPPED REAL FREEZES. Measured
        boundary: a freeze on declaration line 13 was reported, line 14 was SILENT.
-       10 module-level declarations in the enforced scope span more than 13 lines
-       (8 in engine/, 2 more in server.js), including `engine/tokendoors.js`'s
+       15 module-level declarations in the enforced scope span more than 13 lines
+       (8 in engine/, 2 in server.js, 5 in tools/ and bin/ since the scope widened;
+       an earlier count of 10 was the engine+server figure), including `engine/tokendoors.js`'s
        127-line SPECS, which is the module this branch's headline finding is about.
        📌 An earlier version of this sentence said 22, up to 201. Re-measured twice
        through this tool's own `declarations()`: 8 and 10, and the longest are far
@@ -857,7 +864,10 @@ function functionNamesReaching(rawSrc, sources) {
            const dirFor = () => path.join(store.ROOT, 'y');
          reported `const TITLE` as reaching a root "via a resolver helper". The
          one-line arrow const is the idiom this branch introduces 23 times, and the
-         enforced scope holds 81 one-line function declarations.
+         enforced scope holds dozens of one-line function declarations (95 by
+         `grep -hE '^\s*(async\s+)?function \w+\s*\(.*\)\s*\{.*\}\s*$'` over
+         engine, server.js, tools and bin; an earlier figure of 81 here named no
+         instrument and could not be reproduced).
          Depth back to zero AND the line ending in `}` or `;` is what says it closed
          here; `function f() {` and `const f = () => {` leave depth at 1, and a bare
          continuation line `const f = () =>` ends in neither. */
@@ -1250,7 +1260,10 @@ function main(argv) {
   }
   if (unreadable.length) {
     for (const u of unreadable) {
-      console.log(`UNREADABLE  ${path.relative(path.join(__dirname, '..'), u.f)}  the scanner finished inside an unterminated ${u.mode}, so the rest of the file was invisible to every check`);
+      const why = u.mode.startsWith('unreadable file')
+        ? `the file could not be read (${u.mode.slice('unreadable file ('.length, -1)}), so nothing in it was seen by any check`
+        : `the scanner finished inside an unterminated ${u.mode}, so the rest of the file was invisible to every check`;
+      console.log(`UNREADABLE  ${path.relative(path.join(__dirname, '..'), u.f)}  ${why}`);
     }
     console.log(`${unreadable.length} file(s) above could not be fully read. A clean result for them would mean`);
     console.log('"I could not look", not "there is nothing there". Usually an odd quote inside a regex literal.');

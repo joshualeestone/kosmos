@@ -204,8 +204,9 @@ test('#1443: no engine module exposes a path frozen to the require-time root', (
     + `The floor is deliberately tight rather than padded, because a padded floor would let `
     + `several modules silently stop resolving before anything went red. Currently resolving:`
     + `\n  ${resolving.join('\n  ')}`
-    + (frozen.length ? `\nA MODULE ALSO RE-FROZE, which is the likelier cause of this drop and is `
-      + `the real regression: ${frozen.join(', ')}` : ''));
+    + `module, lower the floor in the same commit and say why.`);
+  /* No "a module also re-froze" hint here: it was dead. The FROZEN assertion above
+     fires first, so this message can never print with a non-empty `frozen`. */
   /* The aggregate `live > 0` that stood here is REMOVED, not forgotten: the
      per-module floor above subsumes it (24 modules each resolving at least one
      path cannot happen with live === 0), so it could no longer fail independently

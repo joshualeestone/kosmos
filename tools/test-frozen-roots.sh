@@ -47,6 +47,17 @@ _verdict() {   # $1 = tool path, $2 = fixture name
   echo "$rc"
 }
 run() { _verdict "$TOOL" "$1"; }
+# 🛑 A COUNT OF ZERO IS NOT A VERDICT. Eleven precision arms grep the raw output for
+# a name and assert 0 hits, and never consult _verdict, so a tool that CRASHED on
+# every file satisfied all eleven (measured: a throw planted at the top of
+# functionNamesReaching left arms 50, 65, 66, 67, 77, 82, 83, 84, 85 and 86 PASS).
+# That is the defect _verdict was built to close, left open in the arms that bypass
+# run(). So every count-zero arm ALSO requires the verdict it expects on that same
+# fixture: "0" for a fixture with no freeze, "1" for one whose freeze is elsewhere.
+zero_alive() {   # $1 = fixture, $2 = the verdict this fixture must produce
+  _za=$(run "$1"); [ "$_za" = "$2" ] && return 0
+  printf 'verdict=%s (want %s)' "$_za" "$2"; return 1
+}
 
 # ---- arm 1: a lazy arrow const must NOT be flagged (PRECISION) -------------
 fixture lazy "const os = require('os');
@@ -631,13 +642,16 @@ const LABEL = DOC_ROOT_LABEL;
 const dirFor = () => path.join(ROOT,'a');"
 n_false=$(node "$TOOL" "$T/bareword.js" 2>&1 | grep -c 'const LABEL')
 n_real=$(node "$TOOL" "$T/bareword.js" 2>&1 | grep -c 'const { ROOT }')
-if [ "$n_false" = "0" ] && [ "$n_real" = "1" ]; then ok "a name CONTAINING a bare source is not a use of it"
-else bad "bare-identifier source matched as a substring" "false=$n_false real=$n_real"; fi
+za=$(zero_alive bareword 1)
+if [ "$n_false" = "0" ] && [ "$n_real" = "1" ] && [ -z "$za" ]; then ok "a name CONTAINING a bare source is not a use of it"
+elif [ "$n_false" != "0" ]; then bad "bare-identifier source matched as a substring" "false=$n_false real=$n_real $za"
+else bad "the store destructure was reported $n_real times, want 1: the foreign loop must skip store (or the tool died)" "false=$n_false real=$n_real $za"; fi
 
 fixture barewordforeign "const { FILE } = require('./limits');
 const MAX_FILE_SIZE = 10;
 const X = MAX_FILE_SIZE * 2;"
-if [ "$(node "$TOOL" "$T/barewordforeign.js" 2>&1 | grep -c 'const X ')" = "0" ]; then
+za=$(zero_alive barewordforeign 1)
+if [ "$(node "$TOOL" "$T/barewordforeign.js" 2>&1 | grep -c 'const X ')" = "0" ] && [ -z "$za" ]; then
   ok "and MAX_FILE_SIZE is not a use of a destructured FILE"
 else bad "a foreign bare source matched as a substring"; fi
 
@@ -744,6 +758,10 @@ fixture declexports "const store = require('./store');
 exports.DIR = path.join(store.ROOT,'x');"
 if [ "$(run declexports)" = "1" ]; then ok "declarations() sees an exports.X freeze"
 else bad "the exports.X form dropped out of declarations()"; fi
+# The DISPLAY too: two consecutive reviews raised that an exports.X freeze printed
+# as "const X", and nothing asserted the fix.
+if [ "$(node "$TOOL" "$T/declexports.js" 2>&1 | grep -c 'exports.DIR')" = "1" ]; then ok "and it is printed as exports.DIR, not const DIR"
+else bad "an exports.X freeze is displayed under the wrong keyword"; fi
 
 # ---- arm 59: the store under a local alias, via a RESOLVER -----------------
 # Arm 22 passes via capturedGetter, which only inspects declaration initializers.
@@ -841,7 +859,16 @@ fixture envmark "const store = require('./store');
 const env = require('./env');
 const M = { live: () => store.ROOT, file: path.join(env.DIR,'x') };"
 if [ "$(run envmark)" = "1" ]; then ok "a receiver named env is not skipped by name"
-else bad "capturedMarks still skips a receiver because of its name"; fi
+else bad "the env-receiver capture was not caught: a name skip, or captured marks dropped entirely (see the limits arm)"; fi
+# ⚠️ AND THE SAME LAUNDERING WITH A RECEIVER NOBODY EVER SKIPPED BY NAME. Removing
+# capturedMarks from deferMarks ENTIRELY used to red only the env arm above, with a
+# message about a name skip that no longer exists. This fixture cannot be explained
+# by a name skip, so its message names the actual rule.
+fixture limitsmark "const store = require('./store');
+const limits = require('./limits');
+const M = { live: () => store.ROOT, file: path.join(limits.FILE,'x') };"
+if [ "$(run limitsmark)" = "1" ]; then ok "a deferred sibling cannot launder a captured foreign getter"
+else bad "captured marks are not feeding deferMarks: a captured getter beside a lazy sibling went silent"; fi
 
 fixture procenv "const W = process.env.KOSMOS_WORKERS_DIR || path.join('a','b');"
 if [ "$(run procenv)" = "0" ]; then ok "and process.env is still not a captured getter"
@@ -869,8 +896,9 @@ const MAX_FILE_SIZE = 10;
 function budget() { return MAX_FILE_SIZE * 2; }
 const CAP = budget();"
 wb=$(node "$TOOL" "$T/wordb.js" 2>&1 | grep -c 'const CAP')
-if [ "$wb" = "0" ]; then ok "MAX_FILE_SIZE does not make a helper a resolver via bare FILE"
-else bad "a substring source match reported correct code" "$wb hits on const CAP"; fi
+za=$(zero_alive wordb 1)   # the destructured FILE is itself a finding; CAP must not be
+if [ "$wb" = "0" ] && [ -z "$za" ]; then ok "MAX_FILE_SIZE does not make a helper a resolver via bare FILE"
+else bad "a substring source match reported correct code" "$wb hits on const CAP $za"; fi
 
 # ---- arm 66: a ONE-LINE function does not swallow the next line ------------
 # Both body-capture breaks were guarded by `j > i`, so a definition that closes on
@@ -881,8 +909,9 @@ function label() { return 'x'; }
 const TITLE = label() + '!';
 const dirFor = () => path.join(store.ROOT, 'y');"
 of=$(node "$TOOL" "$T/oneline_fn.js" 2>&1 | grep -c 'const TITLE')
-if [ "$of" = "0" ]; then ok "a one-line function body stops at its own closing brace"
-else bad "a one-line function swallowed the following line" "$of hits on const TITLE"; fi
+za=$(zero_alive oneline_fn 0)
+if [ "$of" = "0" ] && [ -z "$za" ]; then ok "a one-line function body stops at its own closing brace"
+else bad "a one-line function swallowed the following line" "$of hits on const TITLE $za"; fi
 
 # ---- arm 67: a ONE-LINE arrow const does not swallow the next line ---------
 # The idiom this branch introduces 23 times. Its break required j > i, so it always
@@ -892,8 +921,9 @@ const label = () => 'x';
 const dirFor = () => path.join(store.ROOT, 'y');
 const TITLE = label() + '!';"
 oa=$(node "$TOOL" "$T/oneline_arrow.js" 2>&1 | grep -c 'const TITLE')
-if [ "$oa" = "0" ]; then ok "a one-line arrow const body stops at its own semicolon"
-else bad "a one-line arrow swallowed a following line" "$oa hits on const TITLE"; fi
+za=$(zero_alive oneline_arrow 0)
+if [ "$oa" = "0" ] && [ -z "$za" ]; then ok "a one-line arrow const body stops at its own semicolon"
+else bad "a one-line arrow swallowed a following line" "$oa hits on const TITLE $za"; fi
 
 # ---- arm 68: a MULTI-LINE definition still reaches its whole body ----------
 # The counterweight to the two arms above: having taught the capture to stop on the
@@ -964,7 +994,7 @@ const COPY = $nm;"
   v=$(node "$TOOL" "$T/pn_$nm.js" 2>&1 | grep -c "const { $nm }")
   [ "$v" = "1" ] || { pn_fail=$((pn_fail+1)); echo "      $nm not treated as path-shaped"; }
 done
-if [ "$pn_fail" = "0" ]; then ok "LOG, SEEN and FLAG are path-shaped names"
+if [ "$pn_fail" = "0" ]; then ok "LOG, SEEN, FLAG, ROOT, HOME, AVATARS and PROFILES are path-shaped names"
 else bad "$pn_fail of the names this branch mints are not path-shaped"; fi
 
 # ---- arm 75: SOURCES is DERIVED from the getter names ---------------------
@@ -1031,8 +1061,9 @@ fixture foreign_plain "const { thing, helper } = require('./util');
 const A = thing;
 const B = helper();"
 fp=$(node "$TOOL" "$T/foreign_plain.js" 2>&1 | grep -c 'resolves a root at require time')
-if [ "$fp" = "0" ]; then ok "a foreign destructure of non-path names is not a freeze"
-else bad "the PATH_SHAPED filter is not guarding the foreign loop" "$fp findings, want 0"; fi
+za=$(zero_alive foreign_plain 0)
+if [ "$fp" = "0" ] && [ -z "$za" ]; then ok "a foreign destructure of non-path names is not a freeze"
+else bad "the PATH_SHAPED filter is not guarding the foreign loop" "$fp findings, want 0 $za"; fi
 
 # ---- arm 78: a foreign getter's LOCAL name is tracked downstream ----------
 # `foreignGetters.push(local)` is what makes the ALIASED name a source for the rest
@@ -1112,8 +1143,9 @@ const dir = () => path.join(store.ROOT, 'x');
 const NAME = mkdir('/a/b/c');
 const ALSO = path.dirname('/a/b/c');"
 cw=$(node "$TOOL" "$T/callword.js" 2>&1 | grep -c 'const NAME\|const ALSO')
-if [ "$cw" = "0" ]; then ok "mkdir( and path.dirname( do not count as calls to a resolver named dir"
-else bad "the resolver-call match is not word-bounded" "$cw hits on const NAME/ALSO"; fi
+za=$(zero_alive callword 0)
+if [ "$cw" = "0" ] && [ -z "$za" ]; then ok "mkdir( and path.dirname( do not count as calls to a resolver named dir"
+else bad "the resolver-call match is not word-bounded" "$cw hits on const NAME/ALSO $za"; fi
 # ⚠️ TWO CALL SITES, AND THE FIXTURE ABOVE ONLY REACHES ONE. The identical regex
 # lives in the declaration scan AND in functionNamesReaching's closure round, and
 # mutating the second left the arm above green. A second fixture, where the decoy is
@@ -1123,8 +1155,9 @@ const dir = () => path.join(store.ROOT, 'x');
 const NAME = () => mkdir('/a/b');
 const A = NAME();"
 cwc=$(node "$TOOL" "$T/callword_closure.js" 2>&1 | grep -c 'const A')
-if [ "$cwc" = "0" ]; then ok "a helper whose body merely CONTAINS a resolver name is not a resolver"
-else bad "the closure-round call match is not word-bounded" "$cwc hits on const A"; fi
+za=$(zero_alive callword_closure 0)
+if [ "$cwc" = "0" ] && [ -z "$za" ]; then ok "a helper whose body merely CONTAINS a resolver name is not a resolver"
+else bad "the closure-round call match is not word-bounded" "$cwc hits on const A $za"; fi
 
 # ---- arm 83: the COLUMN-ZERO brace ends a function body ------------------
 # The four body terminators are: the one-line break, the 400-line cap, the column-0
@@ -1139,8 +1172,9 @@ function other() {
 }
 const A = helper();"
 cb=$(node "$TOOL" "$T/col0_break.js" 2>&1 | grep -c 'const A')
-if [ "$cb" = "0" ]; then ok "a function body ends at its column-zero brace, not at the next function"
-else bad "the column-zero terminator is unguarded" "$cb hits on const A"; fi
+za=$(zero_alive col0_break 0)
+if [ "$cb" = "0" ] && [ -z "$za" ]; then ok "a function body ends at its column-zero brace, not at the next function"
+else bad "the column-zero terminator is unguarded" "$cb hits on const A $za"; fi
 
 # ---- arm 84: the ARROW semicolon at depth zero ends a body ----------------
 # The fourth terminator. Without it a two-line arrow helper runs on into whatever
@@ -1151,8 +1185,9 @@ const label = (a) =>
 const dirFor = () => path.join(store.ROOT, 'y');
 const TITLE = label('a');"
 ab=$(node "$TOOL" "$T/arrow_break.js" 2>&1 | grep -c 'const TITLE')
-if [ "$ab" = "0" ]; then ok "a multi-line arrow body ends at its own semicolon"
-else bad "the arrow terminator is unguarded" "$ab hits on const TITLE"; fi
+za=$(zero_alive arrow_break 0)
+if [ "$ab" = "0" ] && [ -z "$za" ]; then ok "a multi-line arrow body ends at its own semicolon"
+else bad "the arrow terminator is unguarded" "$ab hits on const TITLE $za"; fi
 
 # ---- arm 85: capturedMarks checks its RECEIVER too ------------------------
 # Its sibling capturedGetter has an arm for exactly this rule. The rule exists in
@@ -1162,24 +1197,29 @@ fixture marks_recv "const store = require('./store');
 const TREE = { ROOT: 'a' };
 const M = { dir: () => path.join(store.ROOT,'x'), head: TREE.ROOT };"
 mr=$(node "$TOOL" "$T/marks_recv.js" 2>&1 | grep -c 'const M')
-if [ "$mr" = "0" ]; then ok "a plain object receiver is not treated as the store in capturedMarks"
-else bad "capturedMarks does not check its receiver" "$mr hits on const M"; fi
+za=$(zero_alive marks_recv 0)
+if [ "$mr" = "0" ] && [ -z "$za" ]; then ok "a plain object receiver is not treated as the store in capturedMarks"
+else bad "capturedMarks does not check its receiver" "$mr hits on const M $za"; fi
 
 # ---- arm 86: the ALIAS destructure scan is anchored ----------------------
 # The tool's own comment beside this scan lists "unanchored, it matched a destructure
 # INSIDE A FUNCTION BODY" as a measured defect of THIS scan, and the existing
 # anchoring arm bites the OTHER scan. A documented defect with its arm pointed at the
 # sibling is how a fixed bug comes back.
+# The decoy is a BARE use of a module-level ROOT that is a plain string. It used to
+# be TREE.ROOT, which the receiver check rejects on its own, so this arm fired on the
+# receiver mutation and could not tell the two rules apart.
 fixture alias_anchor "const store = require('./store');
-const TREE = { ROOT: 'a' };
 function dirFor() {
   const { ROOT } = store;
   return path.join(ROOT, 'x');
 }
-const B = TREE.ROOT;"
+const ROOT = 'label';
+const B = ROOT + '!';"
 aa=$(node "$TOOL" "$T/alias_anchor.js" 2>&1 | grep -c 'const B')
-if [ "$aa" = "0" ]; then ok "a destructure inside a function body is not a module-level alias"
-else bad "the alias destructure scan is unanchored" "$aa hits on const B"; fi
+za=$(zero_alive alias_anchor 0)
+if [ "$aa" = "0" ] && [ -z "$za" ]; then ok "a destructure inside a function body is not a module-level alias"
+else bad "the alias destructure scan is unanchored" "$aa hits on const B $za"; fi
 
 # ---- arm 87: blankStrings RECURSES into a template hole ------------------
 # The passthrough had an arm; the recursion did not. Without it an expression inside
