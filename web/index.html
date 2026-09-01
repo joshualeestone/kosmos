@@ -31556,7 +31556,7 @@ const FR_STEPS = 7;
 // The return pane's step number, named and used by the generation bump and
 // every navigation into the step. (The paint branch is the clamped chain's
 // final else, exhaustive by construction: step is clamped to [1, FR_STEPS],
-// so a sixth step must add its pane AND its branch -- said here because the
+// so a further step must add its pane AND its branch -- said here because the
 // constant cannot reach an else.)
 // 🛑 THE MACHINE-LOOK/ORIENTATION CONTENT IS STEP 1, AND TWO WRITTEN RULINGS
 // PLACE IT LAST. This comment used to justify the position by saying the
@@ -32603,13 +32603,13 @@ function frPaintConnect(st) {
      *
      * 📌 AND THE FIRST SENTENCE SURVIVES EITHER WAY. "Nothing is broken by this"
      * is true whether or not there is a fallback, and it is the sentence doing
-     * the most work for somebody stuck on step 3 of six.
+     * the most work for somebody stuck on step 3 of seven.
      */
     /**
      * 🛑 THE WIZARD NO LONGER INSTRUCTS ANYBODY TO OPEN A TERMINAL (#996 item 1).
      * The north star is that someone non-technical gets from nothing to a
      * working agent WITHOUT one, and this sentence fired at the least technical
-     * moment in the product: step 3 of six, on a first run, to a person who has
+     * moment in the product: step 3 of seven, on a first run, to a person who has
      * installed Kosmos, connected nothing, and just watched it fail. For them
      * the escape hatch was a wall with a helpful sign on it.
      *
@@ -33348,7 +33348,7 @@ function frPaintSubscription() {
 }
 
 /* --------------------------------------------------------------------------
-   Step 6 — the agents already here
+   Step 7 - the agents already here (was step 6 before #1214 inserted the Accessibility step)
    -------------------------------------------------------------------------- */
 
 /**
@@ -33378,8 +33378,8 @@ async function frFindAgents() {
     ? out
     : { ok: false, agents: [], because: 'we could not look for the agents on this computer' };
   /* 🛑 THE SAME CONDITION THE DISPATCHER USES, NOT A NUMBER I REMEMBERED. The
-     fleet screen is the ELSE arm of `frGo` -- steps 1 to 5 are named and this is
-     what is left -- so keying on `4` (the machine check) meant the answer never
+     fleet screen is the ELSE arm of `frGo` -- steps 1 to 6 are named and step 7
+     is what is left -- so keying on `4` (the machine check) meant the answer never
      repainted and the screen sat on "Looking for agents already here" forever.
      Found by opening it. Nothing that reads source could have: the test harness
      sets the step itself, so it agreed with whatever number I wrote. */
@@ -34202,7 +34202,7 @@ function frForkActions() {
 }
 
 /* --------------------------------------------------------------------------
-   Step 6 -- getting back
+   Step 1 - getting back (the return content, rendered on the orientation step, FR_STEP_RETURN)
    -------------------------------------------------------------------------- */
 
 /**
