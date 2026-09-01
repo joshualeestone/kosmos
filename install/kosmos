@@ -787,7 +787,8 @@ cmd_connections() {
     fi
     exit 1
   }
-  if [ ! -x "$NODE" ]; then
+  # Guarded form (#1716): a bare [ -x ] passes on a DIRECTORY named node.
+  if [ ! -f "$NODE" ] || [ ! -x "$NODE" ]; then
     # The runtime is how we PRINT the answer, not how we get it. Losing it
     # should cost formatting, not the answer, so the raw body goes out rather
     # than a locally-invented sentence. Same rule `whoami` states.
