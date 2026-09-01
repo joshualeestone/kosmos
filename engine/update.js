@@ -254,7 +254,11 @@ function startAutoPoll(opts = {}) {
      ~24.8 days, which is what the operator wanted anyway. */
   const TIMER_MAX = 2147483647;
   const floored = envMs > 0 ? Math.min(Math.max(envMs, 1000), TIMER_MAX) : POLL_EVERY;
-  const every = Number(opts.every) > 0 ? Number(opts.every) : floored;
+  /* The FLOOR is scoped to the env path deliberately (an env var a user can
+     reach, versus an in-process argument). The CEILING is not: the wrap above
+     2147483647 is a property of the VALUE rather than of who supplied it, so
+     an in-process `{ every: 1e12 }` would get the same 780-per-second spin. */
+  const every = Math.min(Number(opts.every) > 0 ? Number(opts.every) : floored, TIMER_MAX);
   stopAutoPoll();
   pollTimer = setInterval(() => {
     try {
@@ -353,7 +357,13 @@ function setupUrl() {
      the update is FOR, so the same update retried hits the same cache
      entry rather than minting one per attempt. Harmless to any origin:
      a query on a static file is ignored where there is no cache. */
-  const v = cache && cache.latest && cache.latest.version ? String(cache.latest.version) : '';
+  /* 🛑 `cache.latest` IS A STRING, NOT AN OBJECT, so `.version` was always
+     undefined and this buster has never once been appended. Pre-existing, and
+     #1277 is what makes it bite: the comment above says the buster exists
+     because an edge cache can hand an updating machine the PREVIOUS release's
+     installer, which then fetches the previous bytes and reports success. That
+     failure now happens on the unattended path, with nobody watching. */
+  const v = cache && cache.latest ? String(cache.latest) : '';
   return base.replace(/\/dist\/?$/, '') + '/setup' + (v ? '?v=' + encodeURIComponent(v) : '');
 }
 
@@ -402,6 +412,15 @@ function noteAttemptEnd(owner, code, why) {
     code: Number.isInteger(code) ? code : null,
     because: why || null,
     log: installLog(),
+    /* 🛑 CARRIED, NOT REBUILT. This builds the record from scratch and dropped
+       `version` and `auto` in the ONE case where the record survives to be
+       read: a successful install kills this server before anything is
+       recorded, so an ENDED attempt is always a failure, and that failure
+       record is exactly what an operator reads after a machine changed version
+       by itself. /api/status ships it to the page, so both fields vanished
+       from the API the instant the installer exited. */
+    version: lastAttempt && lastAttempt.version ? lastAttempt.version : null,
+    auto: !!(lastAttempt && lastAttempt.auto),
   };
 }
 function seedFromStatusFile() {

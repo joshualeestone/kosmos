@@ -3704,7 +3704,14 @@ test('update awareness: the status tick carries the verdict, and the install rou
     assert.equal(go.status, 200, JSON.parse(go.body).error || '');
     assert.equal(JSON.parse(go.body).updating, '99.0.0');
     assert.equal(ran, 1, 'the installer did not run');
-    assert.match(String(url), /\/setup$/, 'the runner was not handed the setup URL');
+    /* 🛑 THE VERSION BUSTER IS PART OF THE URL, and this assertion used to be
+       anchored to `/setup$`, which required it to be ABSENT. That was only ever
+       green because setupUrl() read `.version` off cache.latest, which is a
+       STRING, so the buster resolved to '' and was never appended. A passing
+       test was holding a broken guard in place (#1277). The buster exists
+       because an edge cache can hand an updating machine the PREVIOUS release's
+       installer, which then fetches the previous bytes and reports success. */
+    assert.match(String(url), /\/setup\?v=99\.0\.0$/, 'the runner was not handed the busted setup URL');
     /* #553: the press answers with its attempt's start stamp, and the
        status payload carries the same record, so the overlay can tell
        THIS attempt's verdict from any older one by exact equality. */

@@ -646,3 +646,63 @@ test('#1277: an automatic install records WHICH version and says so, a manual on
     u.setFetcher(null); u.setInstalledRoot(null); u.setInstallRunner(null); u.resetCache();
   }
 });
+
+test('#1277: the ENDED record still says which version and that it was automatic', async () => {
+  /* The in-flight record was covered; the ended one was not, and the ended one
+     is the only kind an operator ever reads. A successful install kills this
+     server before anything is recorded, so an attempt that HAS an endedAt is
+     always a failure, and /api/status ships that record to the page. */
+  const u = require('./update');
+  u.resetCache();
+  let onExit = null;
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '9.9.9' }) }));
+  u.setInstalledRoot(() => '/tmp/pretend-installed');
+  u.setInstallRunner(() => ({
+    on(ev, fn) { if (ev === 'exit') onExit = fn; },
+    unref() {}, stderr: { on() {} },
+  }));
+  try {
+    await u.refresh();
+    u.beginInstall({ auto: true });
+    assert.ok(onExit, 'precondition: the runner must have bound an exit handler');
+    onExit(1, null);
+    const a = u.lastAttempt();
+    assert.ok(a && a.endedAt, 'precondition: the attempt must have ended');
+    assert.equal(a.version, '9.9.9',
+      `the ended record says version=${a.version}. It is rebuilt from scratch, so the fields the `
+      + 'automatic path adds were dropped at exactly the moment the record starts mattering');
+    assert.equal(a.auto, true, 'the ended record must still say the machine chose this');
+  } finally {
+    u.setFetcher(null); u.setInstalledRoot(null); u.setInstallRunner(null); u.resetCache();
+  }
+});
+
+test('#1277: the installer URL carries the version buster, which had never once fired', async () => {
+  /* cache.latest is a STRING; the old code read `.version` off it, so the
+     buster resolved to '' every time. The comment above setupUrl says it exists
+     because an edge cache can hand an updating machine the PREVIOUS release's
+     installer, which then fetches the previous bytes and reports success. */
+  const u = require('./update');
+  u.resetCache();
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '9.9.9' }) }));
+  try {
+    assert.doesNotMatch(u.setupUrl(), /[?]v=/, 'CONTROL: with nothing cached there is no version to bust with');
+    await u.refresh();
+    assert.match(u.setupUrl(), /[?]v=9\.9\.9$/,
+      `setupUrl() is ${u.setupUrl()}. Without the buster an edge cache can serve the previous `
+      + 'release installer to a machine that is updating, and it reports success');
+  } finally { u.setFetcher(null); u.resetCache(); }
+});
+
+test('#1277: the interval ceiling applies to the in-process seam too, not just the env var', () => {
+  /* The FLOOR is scoped to the env path on purpose. The ceiling is not: the
+     setInterval wrap is a property of the value, not of who supplied it. */
+  const u = require('./update');
+  u.resetCache();
+  const t = u.startAutoPoll({ every: 1e12 });
+  const ms = t && (t._repeat || t._idleTimeout);
+  u.stopAutoPoll();
+  assert.ok(ms > 1000 && ms <= 2147483647,
+    `an in-process interval of 1e12 resolved to ${ms}ms. Above 2147483647 setInterval wraps to 1ms, `
+    + 'so a caller trying to slow the poll right down speeds it up to a thousand a second');
+});

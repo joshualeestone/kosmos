@@ -40,6 +40,7 @@ const EXCUSED = {
   setInstallRunner: 'test seam (update installer)',
   setInstalledRoot: 'test seam (update root)',
   setAutoPref: 'test seam (auto-update preference file)',
+  stopAutoPoll: 'test seam and lifecycle pair (#1277): no PRODUCT caller exists. Its only uses are inside engine/update.js itself, in startAutoPoll (single-flight) and in resetCache, which is under this module\'s own "Test hooks. Production code never calls these" banner. It therefore passes the mentions count only because a module\'s internal uses are counted, which is the same name-collision escape the setRelay entry calls out, so it is excused here BY NAME instead. Checkable: delete the stopAutoPoll() call from resetCache and engine/update.test.js goes red on the arm asserting a reset stops the poll, while nothing in the product changes.',
   autoPollRunning: 'test seam (#1277): the observer the WIRING guard uses to assert that booting the board actually starts the update poll. #1277 was this very class one layer down -- poke() worked, was well tested, and had exactly one caller, so a board nobody looked at never updated itself. Checkable: delete updates.startAutoPoll() from server.js and server.update-poll-1277.test.js goes red while engine/update.test.js stays fully green.',
   projectsFor: 'superseded reader: list()/get() carry the same join; kept for its tests until they migrate (#265 sweep)',
   currentChildPid: 'test seam: reads the tunnel supervisor child pid to assert its lifetime deterministically',

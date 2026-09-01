@@ -212,3 +212,72 @@ named here and it goes in the PR body.
 as SILENT, which is indistinguishable from a deliberate internal-only merge.
 This branch is user-visible on every installed machine, so that line has to be
 there.
+
+## Iteration 4
+
+**My iteration-3 fix was erased at exactly the moment it mattered.**
+`noteAttemptEnd` rebuilds `lastAttempt` from scratch, so it dropped the
+`version` and `auto` fields I had just added. And it drops them in the ONE case
+where the record survives to be read: a successful install kills this server
+before anything is recorded, so an attempt that has an `endedAt` is always a
+failure, and the failure record is precisely what an operator reads after a
+machine changed version by itself. `/api/status` ships it to the page, so both
+fields vanished from the API the instant the installer exited.
+
+⭐ My new arm never caught it because it only asserted while the install was in
+flight; the injected runner's `on()` was a no-op, so the exit path was never
+driven. Now carried through the rebuild, with an arm that fires the exit
+handler and re-reads the record.
+
+**A guard that had never once fired.** `setupUrl()` read `cache.latest.version`,
+but `cache.latest` is a STRING, so `.version` was always undefined and the
+cache-busting query was never appended. The comment above it explains the buster
+exists because an edge cache can hand an updating machine the PREVIOUS release's
+installer, which then fetches the previous release's bytes and reports success.
+
+This is pre-existing and I am fixing it here because this branch changes its
+consequence rather than its correctness: #1277 makes the unattended path the
+normal one, so that failure now happens with nobody watching. Measured before
+and after: `https://installkosmos.com/setup` became
+`https://installkosmos.com/setup?v=9.9.9`.
+
+**The ceiling was scoped like the floor, and it should not have been.** The
+floor is deliberately env-only, because an env variable is something a user can
+reach while `opts.every` is an in-process argument. That argument does not
+transfer to the ceiling: the `setInterval` wrap above 2147483647 is a property
+of the VALUE, not of who supplied it, so `{ every: 1e12 }` would have got the
+same 780-per-second spin in-process. Applied to both paths now.
+
+**`stopAutoPoll` is excused by name.** It has no product caller: its only uses
+are inside `engine/update.js` itself, in `startAutoPoll` and in `resetCache`,
+which sits under that module's own "Test hooks. Production code never calls
+these" banner. It passed the reachability guard only because a module's internal
+mentions are counted, which is the same name-collision escape the `setRelay`
+entry already calls out. The excuse carries a check, and the check works:
+deleting the call from `resetCache` reddens the arm asserting a reset stops the
+poll, while nothing in the product changes.
+
+### Accepted rather than fixed
+
+The two interval arms read Node internals (`t._repeat`). There is no public way
+to ask a timer its period, and adding an accessor is the export-only-tests-reach
+defect the repo's guard caught on this branch twice. The reviewer's own scoping
+is right: these fail LOUDLY rather than silently if the internals disappear, so
+they are version-fragile rather than unfalsifiable. Recorded so a future red
+there is read as a probe that stopped working rather than a cadence regression.
+
+### A green test was holding the broken guard in place
+
+Fixing the cache-buster broke `server.test.js`, which asserted the installer URL
+matched `/\/setup$/`. Anchored to the end, that assertion REQUIRED the buster to
+be absent, and it was only ever green because the buster was inert. So a passing
+test had been pinning the defect.
+
+⭐ Worth naming as a shape rather than an incident: a check written against
+observed behaviour rather than intended behaviour will hold a bug in place and
+look like coverage while doing it. The assertion now requires the buster, which
+is the stronger claim and the one the surrounding comment always intended.
+
+📌 Found only by the FULL suite. My single-file runs stayed green through both
+this and the reachability-guard catch in iteration 1, because both defects live
+in the interaction rather than in the file I was editing.
