@@ -53,7 +53,7 @@ which is Josh's decision and stays flagged. This change only adds a witness.
 
 ## Tests
 
-`engine/update.marker-1728.test.js` (11): marker written on a child-shaped spawn,
+`engine/update.marker-1728.test.js` (12): marker written on a child-shaped spawn,
 control that a non-child result writes none, surviving-marker -> interrupted,
 the real shell command lifted from source removes the marker + writes status,
 the `$4` wiring, newest-wins picker + its control, the pre-#1728 status behaviours
