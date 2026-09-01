@@ -87,6 +87,28 @@ const M = { live: () => store.ROOT, file: path.join(process.env.AGENT_WORKFORCE_
 if [ "$(run launder)" = "1" ]; then ok "a deferred reference does NOT launder a frozen one beside it"
 else bad "LAUNDERED: a depth-zero comma must still separate members"; fi
 
+# ---- arm 9: the DERIVED getters, not just ROOT ----------------------------
+# store.js defines ROOT, AVATARS and PROFILES in one defineProperty loop, and
+# this tool's own GETTERS list names all three. SOURCES listed only ROOT, so the
+# tool knew AVATARS was a getter when checking destructuring and did not know it
+# when checking freezes. store.PROFILES is live in engine/register.js.
+fixture avatars "const store = require('./store');
+const PICS = path.join(store.AVATARS, 'pics');"
+if [ "$(run avatars)" = "1" ]; then ok "a frozen store.AVATARS is flagged"
+else bad "missed a frozen derived getter: SOURCES is narrower than GETTERS"; fi
+
+fixture profiles "const store = require('./store');
+const P = path.join(store.PROFILES, 'x');"
+if [ "$(run profiles)" = "1" ]; then ok "a frozen store.PROFILES is flagged"
+else bad "missed a frozen derived getter: SOURCES is narrower than GETTERS"; fi
+
+# ---- arm 10: and the derived getters do not FALSE-fire when deferred -------
+# The counterweight to arm 9: widening SOURCES must not report correct code.
+fixture avatarslazy "const store = require('./store');
+const OK = () => path.join(store.AVATARS, 'pics');"
+if [ "$(run avatarslazy)" = "0" ]; then ok "a DEFERRED store.AVATARS is not flagged"
+else bad "widening SOURCES made the tool fire on correct lazy code"; fi
+
 echo
-if [ "$FAILS" -eq 0 ]; then echo "ALL PASS (8 arms)"; else echo "$FAILS FAILED"; fi
+if [ "$FAILS" -eq 0 ]; then echo "ALL PASS (11 arms)"; else echo "$FAILS FAILED"; fi
 exit "$FAILS"

@@ -28,7 +28,7 @@ const B=fs.mkdtempSync(path.join(os.tmpdir(),'seam-b-'));
 process.env.AGENT_WORKFORCE_DATA=A;
 let m; try { m=require(process.argv[1]); } catch { console.log('SKIP'); process.exit(0); }
 process.env.AGENT_WORKFORCE_DATA=B;
-const frozen=[]; const seen=new Set();
+const frozen=[]; const live=[]; const seen=new Set();
 /* 🛑 Object.keys IS NOT ENOUGH, and the gap was real rather than theoretical.
    engine/tokendoors.js exports DOORS as a MAP, whose keys enumerate as [], so
    this probe returned OK on 18 doors each holding a frozen path into the
@@ -52,8 +52,15 @@ const frozen=[]; const seen=new Set();
   else for(const k of Object.getOwnPropertyNames(o)) { let v; try{v=o[k];}catch{continue;} entries.push([k,v]); }
   for(const [k,v] of entries){
     if(typeof v==='string'&&v.includes(A)) frozen.push(p+k);
+    /* 🛑 THE POSITIVE ARM. Without it this probe only ever says "no export
+       mentions the OLD root", which a module exporting null, '' or nothing at all
+       satisfies vacuously. A botched conversion that stopped resolving a path
+       ENTIRELY would have passed silently, and that is the same false green the
+       whole card is about. Counting exports that resolve under the NEW root makes
+       the check able to tell "moved" from "gone". */
+    else if(typeof v==='string'&&v.includes(B)) live.push(p+k);
     else if(v&&typeof v==='object'&&d<3) walk(v,p+k+'.',d+1); } })(m,'',0);
-console.log(frozen.length?('FROZEN '+frozen.join(',')):'OK');
+console.log(frozen.length?('FROZEN '+frozen.join(',')):('OK '+live.length));
 fs.rmSync(A,{recursive:true,force:true}); fs.rmSync(B,{recursive:true,force:true});
 `;
 
@@ -74,17 +81,37 @@ test('#1443: no engine module exposes a path frozen to the require-time root', (
     + 'would pass over an empty list');
 
   const frozen = [];
+  const skipped = [];
   let looked = 0;
+  let live = 0;
   for (const f of files) {
     const r = probe(f);
-    if (r === 'SKIP') continue;
+    if (r === 'SKIP') { skipped.push(path.basename(f)); continue; }
     looked += 1;
     if (r.startsWith('FROZEN')) frozen.push(`${path.basename(f)}: ${r.slice(7)}`);
+    else live += Number(r.slice(3)) || 0;
   }
-  /* A SECOND FLOOR: if every module failed to load, every answer is SKIP and the
-     list above is empty for the wrong reason. */
-  assert.ok(looked > 30,
-    `only ${looked} of ${files.length} modules actually loaded, so this arm measured almost nothing`);
+  /* 🛑 NAME THE SKIPS, DO NOT FLOOR THEM. This was `looked > 30` against a
+     population of 68, so THIRTY-SEVEN modules could have stopped loading while
+     the frozen list emptied for the wrong reason and this still passed. A floor
+     set below half the population is not a floor, it is a formality.
+     Measured now: 68 of 68 load, 0 SKIP. So the honest assertion is that nothing
+     skipped, and any module that cannot load gets NAMED rather than silently
+     dropped -- a silent skip is exactly the false green this card is about. */
+  assert.deepEqual(skipped, [],
+    `these engine modules could not be loaded by the probe, so they were never checked:\n  `
+    + skipped.join('\n  '));
+  assert.ok(looked === files.length,
+    `only ${looked} of ${files.length} modules were probed`);
+
+  /* 🛑 THE POSITIVE ARM, and without it every assertion here is satisfiable by
+     resolving NOTHING. The frozen check only says "no export mentions the OLD
+     root"; a module exporting null passes it. This says the conversion actually
+     MOVED the paths rather than removing them. */
+  assert.ok(live > 0,
+    `no engine export resolved under the NEW root (live=${live} across ${looked} modules), so this `
+    + 'test proved only that nothing mentions the old one, which an empty or null export '
+    + 'satisfies vacuously');
 
   assert.deepEqual(frozen, [],
     'these modules resolve a data root at require time, so a sandbox seam installed afterwards is '

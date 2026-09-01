@@ -45,7 +45,40 @@ const path = require('node:path');
    ONCE at require time and throws the laziness away, which is the same freeze in
    a new place. `AGENT_WORKFORCE_DATA` is here for the same reason: the common
    shape was `const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT`. */
-const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'process.env.AGENT_WORKFORCE_DATA'];
+/* 🛑 ALL THREE VALUE GETTERS, NOT JUST ROOT. `store.js` defines ROOT, AVATARS and
+   PROFILES with one `defineProperty` loop, and the GETTERS list further down this
+   file already names all three -- so listing only ROOT here made the tool
+   INTERNALLY INCONSISTENT: it knew AVATARS was a getter when checking
+   destructuring, and did not know it when checking freezes. Measured, both arms:
+   `const PICS = path.join(store.AVATARS, 'pics')` exited 0 (blind) while the
+   identical line on store.ROOT exited 1. `store.PROFILES` is live in
+   engine/register.js:73, so this was a reachable shape rather than a hypothetical. */
+const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
+  'store.PROFILES', 'process.env.AGENT_WORKFORCE_DATA'];
+
+/* 🛑 WHAT THIS TOOL CANNOT SEE, STATED HERE BECAUSE AN EMPTY DEBT LIST READS AS
+   FULL COVERAGE AND THIS TOOL DOES NOT HAVE IT.
+   `declarations()` anchors to column 0, so it finds MODULE-LEVEL declarations
+   only. A root frozen inside a FACTORY BODY is invisible to it, and that is not
+   hypothetical: engine/tokendoor.js held
+       function makeTokenDoor(spec) { const FILE = path.join(DIR, spec.envVar); ... }
+   and `makeTokenDoor` is CALLED AT REQUIRE TIME by engine/tokendoors.js, so all
+   18 doors froze a path to the SECRETS directory. Measured then: door.FILE ->
+   <REAL>/secrets/env/DISCORD_BOT_TOKEN while the seam said sandbox. A late-seam
+   test would have deleted an operator's real API token and passed.
+
+   ⚠️ IT IS NOT FIXED BY SCANNING INDENTED CONSTS. A const inside a function body
+   is evaluated when that function is CALLED, so it is lazy BY CONSTRUCTION unless
+   the function itself runs at require time. Telling those apart needs call-graph
+   analysis; a naive indented scan would flag every correct per-call resolver this
+   card exists to promote, and a guard that fires on correct code gets excused by
+   name until the debt list is decoration.
+
+   ⇒ The blind spot is REAL, is NOT closed, and is covered instead by the
+   behavioural probe in engine.lateseam-1443.test.js, which loads each module and
+   inspects resolved values rather than source text. Two instruments with
+   different blind spots; neither alone is coverage. The tokendoor freeze sat in
+   the OVERLAP of both and was found by hand. */
 
 /* 🛑 KNOWN DEBT, NAMED AND PRINTED, NEVER SILENTLY SKIPPED.
    An allowlist that hides its entries becomes invisible coverage, which is the
