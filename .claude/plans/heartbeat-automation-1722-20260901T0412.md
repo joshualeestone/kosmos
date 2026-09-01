@@ -82,3 +82,30 @@ section, first control the heartbeat:
 - Run the FULL `yarn test` before any merge (a UI/detection change can break pinned tests).
 - Challenge-loop + proof + PR. This is a product feature (not high-blast-radius infra), so it
   can merge on the Kosmos beta norm once green -- but confirm with Splinter given its size.
+
+## INTEGRATION POINT (found 23:14, before compaction) -- start the detector HERE
+
+The product ALREADY enumerates the user's agents and reads their pane content:
+- `safeRoster()` in server.js (~4866, 5005) = one `list-panes` + a `capture-pane` PER agent.
+- `snapshot()` (server.js ~6582) fans out a real tmux `capture-pane` over the roster.
+- Tests drive pane content via the `AGENT_WORKFORCE_FAKE_PANES` / `test-support/fake-tmux.sh`
+  seam (see server.connections-refresh-1649.test.js:71, server.projects.test.js:1025), and
+  `AGENT_WORKFORCE_FAKE_SCREEN` for a pane's screen. This is the synthetic-pane seam for the
+  detector's unit tests -- NO real tmux, NO dev-fleet panes.
+
+⇒ The detector does NOT build pane-reading. It is a pure classifier over a pane capture
+string, applied to what safeRoster/snapshot already capture:
+- `detectWorking(paneText)` -- Arm A: the spinner regex (elapsed timer + token count form
+  ONLY; must NOT match `... /rc active` idle footer; must NOT anchor on `tokens)`).
+- Arm B (pane delta) needs TWO captures ~6s apart, so it lives in the periodic job (part 2),
+  not the pure classifier: capture, wait, capture, changed => working. The classifier (Arm A)
+  is pure and unit-testable now.
+
+NEXT CONCRETE STEP for a post-compaction me:
+1. Write the pure `detectWorking(paneText)` (Arm A spinner regex) as a small module, with a
+   unit test: a spinner string -> working; the `barondraxum · Opus 4.8 · ctx 83%   /rc active`
+   idle footer -> stopped (the exact regression, red-capable); a plain prompt -> stopped.
+2. Then the periodic job (part 2) composes Arm A over the roster + Arm B (the 6s delta) and
+   notifies about stopped agents, on the configurable interval, machine-scoped, in the
+   product runtime -- NOT ~/.claude, NOT launchd of the dev fleet.
+3. Then Settings > Automation (part 3).
