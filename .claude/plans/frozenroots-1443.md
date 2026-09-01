@@ -58,7 +58,6 @@ re-freezing that root would have been **skipped by name**.
 > CI invocation goes RED on server.js (exit 1); with the entry it exits 0 and
 > prints the entry. So the allowlist hides something that would otherwise fail,
 > which is the whole reason it is printed rather than silent.
-and **1** on a planted `const FROZEN2 = os.homedir()`, naming it.
 
 ## Perturbed, four arms
 

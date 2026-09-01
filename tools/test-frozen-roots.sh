@@ -8,7 +8,8 @@
 # instrument this replaces.
 set -u
 FAILS=0
-ok()  { echo "PASS  $1"; }
+PASS=0
+ok()  { PASS=$((PASS+1)); echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
 TOOL="$(cd "$(dirname "$0")/.." && pwd)/tools/check-frozen-roots.js"
@@ -79,7 +80,7 @@ if [ "$(run argcomma)" = "0" ]; then ok "a source after a comma INSIDE the arrow
 else bad "flagged correct lazy code: an argument separator is not a member separator"; fi
 
 # ---- arm 8: and the fix must not launder a real freeze (OVER-CORRECTION) ---
-# The counterweight to arm 7. Depth-zero commas DO separate members, so a
+# The counterweight to the arrow-own-call arm. Depth-zero commas DO separate members, so a
 # deferred reference must not exempt a frozen one sitting beside it. Without
 # this arm, "ignore commas" would pass arm 7 and reopen the hole the branch closed.
 fixture launder "const store = require('./store');
@@ -103,7 +104,7 @@ if [ "$(run profiles)" = "1" ]; then ok "a frozen store.PROFILES is flagged"
 else bad "missed a frozen derived getter: SOURCES is narrower than GETTERS"; fi
 
 # ---- arm 10: and the derived getters do not FALSE-fire when deferred -------
-# The counterweight to arm 9: widening SOURCES must not report correct code.
+# The counterweight to the derived-getter arm: widening SOURCES must not report correct code.
 fixture avatarslazy "const store = require('./store');
 const OK = () => path.join(store.AVATARS, 'pics');"
 if [ "$(run avatarslazy)" = "0" ]; then ok "a DEFERRED store.AVATARS is not flagged"
@@ -124,7 +125,7 @@ if [ "$(run urlrunon)" = "1" ]; then
 else bad "the real freeze after a URL line was not reported" "$(run urlrunon)"; fi
 
 # ---- arm 12: and a REAL trailing comment must still terminate --------------
-# The counterweight to arm 12: this is the bug the strip was added for.
+# The counterweight to the string-// arm: this is the bug the strip was added for.
 fixture trailcomment "const store = require('./store');
 let fetcher = null; // test seam: (req, token) => Promise
 const OK = () => path.join(store.ROOT, 'x');"
@@ -172,7 +173,7 @@ if [ "$(run capgetter)" = "1" ]; then ok "capturing another module's lazy getter
 else bad "blind to a captured cross-module getter"; fi
 
 # ---- arm 17: and NOT on a getter that is not path-shaped ------------------
-# The counterweight to arm 17. DRY_RUN and HOME_FOR_TEST are real exported getters;
+# The counterweight to the captured-getter arm. DRY_RUN and HOME_FOR_TEST are real getters;
 # firing on them would be a guard that reports correct code.
 fixture capnonpath "const m = require('./remove');
 const D = m.DRY_RUN;"
@@ -189,7 +190,7 @@ if [ "$(run arrowcall)" = "1" ]; then ok "an arrow passed to .map does NOT count
 else bad "a require-time freeze inside .map went silent"; fi
 
 # ---- arm 19: an unrelated arrow must not launder a freeze ------------------
-# The counterweight to arm 19, and the some/every defect one level further out:
+# The counterweight to the arrow-into-call arm, and the some/every defect further out:
 # inserting `.map((x) => x)` before a real freeze silenced it.
 fixture arrowlaunder "const store = require('./store');
 const FILE = ['a'].map((x) => x).concat(path.join(store.ROOT,'y'));"
@@ -230,7 +231,7 @@ const F = () => path.join(st.ROOT,'x');"
 if [ "$(run storealiaslazy)" = "0" ]; then ok "and a DEFERRED use under that name is not flagged"
 else bad "fired on a correctly deferred use of an aliased store"; fi
 
-# ---- arm 24: capturing a getter is the freeze whatever wraps it -----------
+# ---- arm 23: capturing a getter is the freeze whatever wraps it -----------
 # The rule first matched only a BARE member access, so the two most natural ways
 # to consume one of the ~23 getters this branch creates were silent.
 fixture capwrapped "const limits = require('./limits');
@@ -243,8 +244,8 @@ const F = limits.FILE + '.tmp';"
 if [ "$(run capconcat)" = "1" ]; then ok "a captured getter in a concatenation is flagged"
 else bad "a captured getter was silent because it was concatenated"; fi
 
-# ---- arm 25: and process.env is NOT a module getter -----------------------
-# The counterweight to arm 24. Widening the rule immediately false-positived on
+# ---- arm 24: and process.env is NOT a module getter -----------------------
+# The counterweight to the wrapped-capture arm. Widening it immediately false-positived on
 # `process.env.KOSMOS_WORKERS_DIR` in tools/check-block-delivery.js: the receiver
 # is `env` and the name is path-shaped. A guard that fires on correct code gets
 # excused by name until the debt list is decoration.
@@ -252,6 +253,100 @@ fixture capenv "const W = process.env.KOSMOS_WORKERS_DIR || path.join('a','b');"
 if [ "$(run capenv)" = "0" ]; then ok "process.env.X_DIR is not mistaken for a captured getter"
 else bad "fired on an environment variable read"; fi
 
+# ---- arm 25: an IMMEDIATELY-INVOKED function is not lazy -------------------
+# isLazy ran before everyRootIsDeferred and short-circuited it, so the arrow rule
+# that already knew "an arrow passed to a call runs NOW" never got to apply.
+fixture iifearrow "const store = require('./store');
+const FILE = (() => path.join(store.ROOT,'x'))();"
+if [ "$(run iifearrow)" = "1" ]; then ok "an IIFE arrow is a freeze, not a deferral"
+else bad "an immediately-invoked arrow was treated as lazy"; fi
+
+fixture iifefn "const store = require('./store');
+const FILE = (function(){ return path.join(store.ROOT,'x'); })();"
+if [ "$(run iifefn)" = "1" ]; then ok "an IIFE function is a freeze, not a deferral"
+else bad "an immediately-invoked function was treated as lazy"; fi
+
+# ---- arm 26: and a STORED function is still lazy --------------------------
+# The counterweight to the IIFE arm: the fix must not report correct code.
+fixture storedfn "const store = require('./store');
+const F = function(){ return path.join(store.ROOT,'x'); };"
+if [ "$(run storedfn)" = "0" ]; then ok "a stored function expression is still lazy"
+else bad "the IIFE fix fired on a correctly stored function"; fi
+
+# ---- arm 27: a destructure INSIDE a function body is lazy -----------------
+# The destructure scan was unanchored while declarations() is anchored, so it fired
+# on the per-call resolver shape this card exists to promote.
+fixture destrinfn "const store = require('./store');
+function dirFor(){ const { ROOT } = store; return path.join(ROOT,'x'); }"
+if [ "$(run destrinfn)" = "0" ]; then ok "a destructure inside a function body is not flagged"
+else bad "fired on a destructure that is lazy by construction"; fi
+
+# ---- arm 28: a destructured NON-getter resolves no root -------------------
+# aliases collected every destructured name, so safeKey became a bare substring
+# source and any call to it read as a freeze.
+fixture destrnongetter "const { safeKey } = require('./store');
+const DEFAULT_KEY = safeKey('kosmos');"
+if [ "$(run destrnongetter)" = "0" ]; then ok "a destructured non-getter is not a source"
+else bad "a name that resolves no root was treated as one"; fi
+
+# ---- arm 29: prose in a COMMENT is not code ------------------------------
+# The tool reported its own documentation: `const { ROOT } = store` written inside
+# a block comment. Any module DOCUMENTING the frozen shape would red CI.
+fixture prosecomment "const store = require('./store');
+/* documentation: const { ROOT } = store; is the frozen shape */
+const F = () => path.join(store.ROOT,'x');"
+if [ "$(run prosecomment)" = "0" ]; then ok "the frozen shape written in a comment is not a finding"
+else bad "fired on prose inside a comment"; fi
+
+# ---- arm 30: a source name in a STRING is data, not code -----------------
+fixture datastring "const S = ['store.ROOT','os.homedir()'];"
+if [ "$(run datastring)" = "0" ]; then ok "source names inside string literals are not findings"
+else bad "fired on a data array of source names"; fi
+
+# ---- arm 31: two more spellings of the same access ------------------------
+fixture inlinereq "const FILE = path.join(require('./store').ROOT,'x');"
+if [ "$(run inlinereq)" = "1" ]; then ok "an inline require('./store').ROOT is tracked"
+else bad "inline require access went silent"; fi
+
+fixture bracketaccess "const store = require('./store');
+const F = store['ROOT'];"
+if [ "$(run bracketaccess)" = "1" ]; then ok "bracket access store['ROOT'] is tracked"
+else bad "bracket access went silent"; fi
+
+# ---- arm 32: EVERY OCCURRENCE of a source on a line, not the first --------
+# The only widening on this branch that shipped without an arm.
+fixture everyoccurrence "const store = require('./store');
+const K = [{ dir: () => path.join(store.ROOT,'a') }, { dir: path.join(store.ROOT,'b') }];"
+if [ "$(run everyoccurrence)" = "1" ]; then ok "a SECOND occurrence on the line is still checked"
+else bad "only the first occurrence of a source on the line was examined"; fi
+
+fixture everyoccurrencelazy "const store = require('./store');
+const K = [{ dir: () => path.join(store.ROOT,'a') }, { dir: () => path.join(store.ROOT,'b') }];"
+if [ "$(run everyoccurrencelazy)" = "0" ]; then ok "and both-deferred stays silent"
+else bad "fired when every occurrence was deferred"; fi
+
+# ---- the arm labels check THEMSELVES ---------------------------------------
+# 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,
+# once by renumbering and stranding every "counterweight to arm N" reference. A
+# number maintained by hand in two places is a comment asserting a property the
+# file does not have, which is the exact defect this suite exists to catch. So the
+# labels are checked here, and cross-references cite arms by NAME rather than by
+# number, because names do not drift when an arm is inserted.
+LABELS=$(grep -c '^# ---- arm [0-9]' "$0")
+SEQ=$(grep -o '^# ---- arm [0-9]*' "$0" | grep -o '[0-9]*' | tr '\n' ' ')
+EXPECT=$(seq 1 "$LABELS" | tr '\n' ' ')
+if [ "$SEQ" = "$EXPECT" ]; then ok "the arm labels are sequential with no gaps ($LABELS)"
+else bad "arm labels are not sequential" "got [$SEQ] want [$EXPECT]"; fi
+# ⚠️ NOT `LABELS -eq PASS`. I wrote that first and it went red immediately: LABELS
+# counts ARMS and PASS counts CHECKS, and several arms run two fixtures. Two
+# different quantities one word apart, asserted as equal. Each labelled arm makes
+# at least one check, so the true relation is >=.
+if [ "$PASS" -ge "$LABELS" ]; then ok "every labelled arm ran at least one check ($LABELS labels, $PASS checks)"
+else bad "fewer checks than labelled arms" "$LABELS labels, $PASS checks"; fi
+if grep -q 'counterweight to arm [0-9]' "$0"; then
+  bad "a cross-reference cites an arm by NUMBER" "cite it by name; numbers drift when an arm is inserted"
+else ok "no cross-reference cites an arm by number"; fi
+
 echo
-if [ "$FAILS" -eq 0 ]; then echo "ALL PASS (28 arms)"; else echo "$FAILS FAILED"; fi
+if [ "$FAILS" -eq 0 ]; then echo "ALL PASS ($PASS checks across $LABELS arms)"; else echo "$FAILS FAILED"; fi
 exit "$FAILS"

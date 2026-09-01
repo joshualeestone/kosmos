@@ -23,8 +23,9 @@ const ENGINE = path.join(__dirname, 'engine');
    loaded under one root would answer from that cache and read as honest. */
 const PROBE = `
 const os=require('node:os'),fs=require('node:fs'),path=require('node:path');
-const A=fs.mkdtempSync(path.join(os.tmpdir(),'seam-a-'));
-const B=fs.mkdtempSync(path.join(os.tmpdir(),'seam-b-'));
+const ROOTDIR=process.env.LATESEAM_TMP_ROOT||os.tmpdir();
+const A=fs.mkdtempSync(path.join(ROOTDIR,'seam-a-'));
+const B=fs.mkdtempSync(path.join(ROOTDIR,'seam-b-'));
 process.env.AGENT_WORKFORCE_DATA=A;
 /* 🛑 CLEAN UP BEFORE EXITING. This did console.log('SKIP') then process.exit(0),
    which is BEFORE the cleanup at the end, so every module that failed to load leaked
@@ -70,6 +71,16 @@ console.log(frozen.length?('FROZEN '+frozen.join(',')):('OK '+live.length));
 clean();
 `;
 
+/* 🛑 THE PARENT OWNS THE TEMP DIRECTORIES. The child cleans up on its own paths,
+   but a child KILLED BY THE TIMEOUT cannot run its cleanup at all, so the two
+   mkdtemp dirs leaked exactly on the path that fires when something is broken.
+   That is the same argument the SKIP fix used, and the timeout path has the same
+   property. The child now makes them inside a root this file created, and this
+   file removes the root whatever happens to the child. */
+const os = require('node:os');
+const TMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'lateseam-1443-'));
+process.on('exit', () => { try { fs.rmSync(TMP_ROOT, { recursive: true, force: true }); } catch {} });
+
 function probe(file) {
   try {
     /* 🛑 A TIMEOUT, because this probe LOADS code and loading can hang. A module
@@ -80,7 +91,8 @@ function probe(file) {
        defect it looks for"); the behavioural half had none. A timeout kills the
        child, execFileSync throws, and the module lands in `skipped`, which is now
        asserted empty and NAMED rather than silently dropped. */
-    return String(execFileSync(process.execPath, ['-e', PROBE, file], { encoding: 'utf8', timeout: 20000 })).trim();
+    return String(execFileSync(process.execPath, ['-e', PROBE, file],
+      { encoding: 'utf8', timeout: 20000, env: { ...process.env, LATESEAM_TMP_ROOT: TMP_ROOT } })).trim();
   } catch { return 'SKIP'; }
 }
 

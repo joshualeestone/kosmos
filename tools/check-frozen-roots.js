@@ -53,6 +53,10 @@ const path = require('node:path');
    `const PICS = path.join(store.AVATARS, 'pics')` exited 0 (blind) while the
    identical line on store.ROOT exited 1. `store.PROFILES` is live in
    engine/register.js:73, so this was a reachable shape rather than a hypothetical. */
+/* The three VALUE getters store.js defines, in ONE place. This literal used to be
+   written out three times in this file, which is the exact divergence the SOURCES
+   note above describes, reintroduced within one file. */
+const GETTER_VALUE_NAMES = ['ROOT', 'AVATARS', 'PROFILES'];
 const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
   'store.PROFILES', 'process.env.AGENT_WORKFORCE_DATA'];
 
@@ -76,7 +80,7 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
 
    📌 TWO GAPS THAT USED TO BELONG IN THIS LIST ARE NOW CLOSED, recorded so the
    list stays a debt list rather than a museum: the store bound under a local name
-   other than `store` is now tracked (arm 23), and the directory walk now recurses,
+   other than `store` is now tracked (the store-alias arm), and the walk now recurses,
    so an `engine/<subdir>/*.js` cannot be skipped in silence. Both were reachable
    shapes that happened not to occur in the tree, which is the only reason nobody
    had met them.
@@ -142,7 +146,69 @@ const lineInfo = (t) => {
   return { code: str, delta };
 };
 
-const isLazy = (init) => /^\s*(\(\s*\)|\([^)]*\))\s*=>/.test(init) || /^\s*function\b/.test(init);
+/* 🛑 AN IMMEDIATELY-INVOKED FUNCTION IS NOT LAZY, AND THIS TEST RAN FIRST SO IT
+   SHORT-CIRCUITED THE RULE THAT ALREADY KNEW BETTER. Measured, with a passing
+   control:
+     const FILE = (() => path.join(store.ROOT, 'x'))();  -> exited 0  (a REAL freeze)
+     const FILE = path.join(store.ROOT, 'x');            -> exited 1
+   The leading `(() =>` satisfied the arrow test, so the whole initializer was
+   called deferred and `everyRootIsDeferred` never got to apply its "an arrow
+   passed to a call runs NOW" rule. Same defect as that one, a layer earlier.
+   The tell is a call applied to the closing paren of a function expression. */
+const invokedNow = (init) => /\)\s*\(\s*[^)]*\)\s*;?\s*$/.test(String(init))
+  && /=>|function\b/.test(String(init));
+/* 🛑 COMMENT-BLANKED SOURCE FOR THE SCANS THAT MATCH PROSE. The destructure scan
+   had no comment awareness and the proof was this file: `node check-frozen-roots.js
+   tools` exited 1, and three of its findings were SENTENCES inside these very block
+   comments, where `const { ROOT } = store` appears as documentation. Any engine
+   module that DOCUMENTS the frozen shape would red CI, and every module on this
+   branch carries long explanatory comments. Blanks comment bodies while preserving
+   every newline and the file's length, so reported line numbers stay true. */
+const blankComments = (src) => {
+  let out = '';
+  let mode = null; // 'line' | 'block' | 'sq' | 'dq' | 'tpl'
+  for (let i = 0; i < src.length; i += 1) {
+    const c = src[i];
+    const n = src[i + 1];
+    if (mode === 'line') { if (c === '\n') { mode = null; out += c; } else out += ' '; continue; }
+    if (mode === 'block') { if (c === '*' && n === '/') { mode = null; out += '  '; i += 1; } else out += (c === '\n' ? c : ' '); continue; }
+    if (mode) { // inside a string: copy verbatim, honour escapes
+      out += c;
+      if (c === '\\') { if (i + 1 < src.length) { out += src[i + 1]; i += 1; } continue; }
+      if ((mode === 'sq' && c === "'") || (mode === 'dq' && c === '"') || (mode === 'tpl' && c === '`')) mode = null;
+      continue;
+    }
+    if (c === '/' && n === '/') { mode = 'line'; out += '  '; i += 1; continue; }
+    if (c === '/' && n === '*') { mode = 'block'; out += '  '; i += 1; continue; }
+    if (c === "'") { mode = 'sq'; out += c; continue; }
+    if (c === '"') { mode = 'dq'; out += c; continue; }
+    if (c === '`') { mode = 'tpl'; out += c; continue; }
+    out += c;
+  }
+  return out;
+};
+
+/* Blank the CONTENTS of string literals, keeping the quotes and the length, so a
+   substring test sees code only. Pairs with blankComments above. */
+const blankStrings = (src) => {
+  let out = '';
+  let q = null;
+  for (let i = 0; i < src.length; i += 1) {
+    const c = src[i];
+    if (q) {
+      if (c === '\\') { out += '  '; i += 1; continue; }
+      if (c === q) { q = null; out += c; continue; }
+      out += (c === '\n' ? c : ' ');
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') { q = c; out += c; continue; }
+    out += c;
+  }
+  return out;
+};
+
+const isLazy = (init) => !invokedNow(init)
+  && (/^\s*(\(\s*\)|\([^)]*\))\s*=>/.test(init) || /^\s*function\b/.test(init));
 
 /* A CONTAINER whose every root reference already sits inside an arrow is lazy too,
    and the check above cannot see that: it asks whether the WHOLE initializer is a
@@ -362,8 +428,9 @@ function functionNamesReaching(src, sources) {
        dirp = () => path.join(store.ROOT,'x')` exited 0, and so did
        `const dirp = async () => ...`. An async resolver is still a resolver: the
        freeze is the CAPTURE at require time, not what the function returns. */
-    const m = /^\s*function ([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(lines[i])
-      || /^\s*(?:async\s+)?function ([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(lines[i])
+    /* One `function` alternative, not two: the plain form is a strict subset of the
+       async-optional one and could never match anything it does not. */
+    const m = /^\s*(?:async\s+)?function ([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(lines[i])
       || /^\s*(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_][A-Za-z0-9_]*)\s*=>/.exec(lines[i]);
     if (!m) continue;
     const buf = [];
@@ -410,11 +477,22 @@ function scan(file) {
      freeze in engine/messages.js, which is the worst case in tree because it
      exports LOG and SEEN but NOT spillDir, so the probe is structurally blind.
      Every destructured name becomes a source for the rest of this file. */
+  /* 🛑 ONLY THE VALUE GETTERS, and ANCHORED, and on COMMENT-BLANKED source. Three
+     defects in one scan, each measured with a passing control:
+       - it collected EVERY destructured name, so `const { safeKey } = require('./store')`
+         made `safeKey` a bare substring source and `const K = safeKey('kosmos')`
+         was reported as freezing a root it never touches. The narrower arm below
+         already filtered to GETTERS; this one did not, which is the same
+         internal-inconsistency defect as SOURCES-vs-GETTERS.
+       - unanchored, it matched a destructure INSIDE A FUNCTION BODY, which is lazy
+         by construction and is the per-call shape this card promotes.
+       - unblanked, it matched the shape written in PROSE in a comment. */
+  const scanSrc = blankComments(src);
   const aliases = [];
-  for (const m of src.matchAll(/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:store|require\([^)]*store[^)]*\))/g)) {
+  for (const m of scanSrc.matchAll(/^(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:store|require\([^)]*store[^)]*\))/gm)) {
     for (const part of m[1].split(',')) {
       const name = part.split(':').pop().trim();
-      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) aliases.push(name);
+      if (GETTER_VALUE_NAMES.includes(name)) aliases.push(name);
     }
   }
   /* 🛑 THE STORE UNDER ANY LOCAL NAME. Every source in SOURCES is spelled
@@ -426,7 +504,7 @@ function scan(file) {
   for (const m of src.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\([^)]*store[^)]*\)/g)) {
     if (m[1] !== 'store') storeLocals.push(m[1]);
   }
-  const GETTER_NAMES = ['ROOT', 'AVATARS', 'PROFILES'];
+  const GETTER_NAMES = GETTER_VALUE_NAMES;
   const localSources = storeLocals.flatMap((n) => GETTER_NAMES.map((g) => `${n}.${g}`));
   const SRC_SOURCES = SOURCES.concat(aliases, localSources);
   /* 🛑 THE DESTRUCTURING IS ITSELF THE FREEZE, AND MARKING ITS USES WAS NOT
@@ -436,7 +514,7 @@ function scan(file) {
      where `isLazy` correctly exempted the arrow and the freeze one line above it
      went unreported. Only the value getters count; destructuring a FUNCTION like
      `dataRootFor` freezes nothing. */
-  const GETTERS = ['ROOT', 'AVATARS', 'PROFILES'];
+  const GETTERS = GETTER_VALUE_NAMES;
   const destructured = [];
   /* 🛑 WHOLE-SOURCE `matchAll`, NOT A PER-LINE SCAN, AND THE REASON IS THAT THE
      ALIAS SCAN ABOVE ALREADY IS ONE. This was `src.split('\n').forEach` with a
@@ -450,7 +528,7 @@ function scan(file) {
      arms: the wrapped form exited 0 while the identical single-line form exited 1.
      That is the exact `engine/messages.js` shape the note above calls the one that
      defeated all three instruments at once. */
-  for (const dm of src.matchAll(/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:store|require\([^)]*store[^)]*\))/g)) {
+  for (const dm of scanSrc.matchAll(/^(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:store|require\([^)]*store[^)]*\))/gm)) {
     const names = dm[1].split(',').map((x) => x.split(':')[0].trim()).filter(Boolean);
     const frozen = names.filter((x) => GETTERS.includes(x));
     if (!frozen.length) continue;
@@ -503,10 +581,43 @@ function scan(file) {
   const resolvers = functionNamesReaching(src, SRC_SOURCES);
   const findings = [];
   for (const d of declarations(src)) {
-    if (isLazy(d.init) || everyRootIsDeferred(d.init, resolvers, SRC_SOURCES)) continue;
-    const direct = SRC_SOURCES.some((s) => d.init.includes(s));
-    const viaHelper = [...resolvers].some((n) => new RegExp(`\\b${n}\\s*\\(`).test(d.init));
-    const captured = capturedGetter(d.init);
+    /* 🛑 `invokedNow` GATES BOTH EXEMPTIONS, not just isLazy. Putting it only in
+       isLazy left the arrow form silent: in `(() => path.join(store.ROOT,'x'))()`
+       the wrapper is a GROUPING paren, not a call, so `everyRootIsDeferred`
+       correctly saw the arrow scoping the source and exempted it. Nothing inside an
+       initializer that runs at require time can defer anything, so the question is
+       settled before either exemption is asked. Measured, both arms: the IIFE forms
+       exit 1, the stored arrow and stored function forms exit 0. */
+    if (!invokedNow(d.init)
+      && (isLazy(d.init) || everyRootIsDeferred(d.init, resolvers, SRC_SOURCES))) continue;
+    /* 🛑 AGAINST THE STRING-BLANKED INITIALIZER. A source name written inside a
+       STRING LITERAL is data, not a freeze, and this file proved it on itself:
+       `check-frozen-roots.js tools` reported its own SOURCES and KNOWN arrays,
+       whose entries are the strings 'store.ROOT' and 'os.homedir()'. A real freeze
+       is CODE (`path.join(store.ROOT, ...)`), so blanking string contents cannot
+       hide one, and it is what makes the guard safe to point at a directory of
+       tooling rather than only at engine/. */
+    /* 🛑 NORMALISE TWO SPELLINGS OF THE SAME ACCESS. Both were silent, measured
+       against a control that exits 1:
+         const FILE = path.join(require('./store').ROOT, 'x');   -> exited 0
+         const F = store['ROOT'];                                -> exited 0
+       The first is neither `store.X` nor one of the named locals the storeLocals
+       regex collects; the second is a bracket access, and every source in SOURCES
+       is spelled with a dot. Rewriting them to the dotted form costs two replaces
+       and closes both without widening what counts as a source. */
+    /* 🛑 NORMALISE BEFORE BLANKING, and the order is the whole fix. Both rewrites
+       key on text that lives INSIDE string literals (`require('./store')` and
+       `store['ROOT']`), so running them after blankStrings matched nothing: the
+       first version of this did exactly that and both arms stayed silent. */
+    const initCode = blankStrings(blankComments(d.init)
+      .replace(/require\([^)]*store[^)]*\)\s*\./g, 'store.')
+      .replace(/\[\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*\]/g, '.$1')
+      .replace(/\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]/g, '.$1'));
+    const direct = SRC_SOURCES.some((s) => initCode.includes(s));
+    /* The same blanked text for every source test, so a name written in a string
+       cannot be read as code by one check after another check learned better. */
+    const viaHelper = [...resolvers].some((n) => new RegExp(`\\b${n}\\s*\\(`).test(initCode));
+    const captured = capturedGetter(initCode);
     if (direct || viaHelper || captured) {
       findings.push({
         name: d.name,
@@ -551,11 +662,13 @@ function main(argv) {
   }
   let total = 0;
   let known = 0;
+  const matchedKnown = new Set();
   for (const f of files.sort()) {
     for (const hit of scan(f)) {
       const key = `${path.relative(path.join(__dirname, '..'), f)}:${hit.name}`;
       if (KNOWN.has(key)) {
         console.log(`KNOWN  ${key}  (${KNOWN.get(key)})`);
+        matchedKnown.add(key);
         known += 1;
         continue;
       }
@@ -570,13 +683,40 @@ function main(argv) {
   if (known) {
     console.log(`${known} known instance(s) above are tracked debt, not new findings.`);
   }
+  /* 🛑 AN ALLOWLIST ENTRY THAT MATCHES NOTHING IS THE DEFECT THIS FILE IS ABOUT.
+     If GATE_LOG is later renamed or made lazy, its entry stops matching and the run
+     simply prints one fewer KNOWN line: the list silently becomes decoration, which
+     is the same "invisible coverage" the block at the top forbids. The list is meant
+     to SHRINK TO NOTHING, and nothing could tell you when an entry had earned
+     removal. Now it says so.
+
+     ⚠️ ONLY FOR FILES THIS RUN ACTUALLY SCANNED. The first version flagged every
+     unmatched entry, so ANY run over a subset (a single fixture, or `engine` alone)
+     reported server.js:GATE_LOG as stale and exited 1. That took nine arms red at
+     once: a check that punishes you for narrowing the target is not a debt check,
+     it is a scope check wearing one's clothes. */
+  const scannedRel = new Set(files.map((f) => path.relative(path.join(__dirname, '..'), f)));
+  const stale = [...KNOWN.keys()]
+    .filter((k) => scannedRel.has(k.split(':')[0]))
+    .filter((k) => !matchedKnown.has(k));
+  if (stale.length) {
+    console.log('');
+    for (const k of stale) console.log(`STALE  ${k}  is in KNOWN but matched nothing: remove it or fix the key`);
+    console.log(`${stale.length} allowlist entr(y/ies) above match nothing. An allowlist that no longer`);
+    console.log('describes the code is decoration, which is what this check exists to prevent.');
+  }
   if (total) {
     console.log('');
     console.log(`${total} module-level constant(s) resolve a filesystem root at require time.`);
     console.log('A caller that sets a sandbox seam AFTER requiring the module reads past it.');
     console.log('Make it a function and call it at each site (#1432).');
   }
-  return total === 0 ? 0 : 1;
+  /* 🛑 THE RETURN, not process.exitCode. The caller is
+     `process.exit(main(argv))`, so an exitCode set inside here is DISCARDED by the
+     explicit exit. The first version of the stale-entry check set process.exitCode
+     and printed its STALE lines while still exiting 0, which is a report nothing
+     gates on. Measured: the lines appeared, the exit was 0. */
+  return (total === 0 && stale.length === 0) ? 0 : 1;
 }
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));
