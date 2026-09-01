@@ -3340,11 +3340,267 @@ const server = http.createServer((req, res) => {
            entitled to know which one they got. */
         sendJson(res, 200, {
           forgotten: out.forgotten === true,
+          /* 🛑 `movedTo` IS SURFACED HERE TOO, and #1659 is why. This engine has
+             always computed it and this route has always dropped it, which was
+             defensible while the two controls read different words. #1659 relabels
+             this one to "Disconnect" and puts the same word on the Claude row, and
+             at that point the SAME ACT under the SAME WORD answered with a
+             recoverable location on one provider and not the other.
+             ⚠️ I first deferred this to a separate card. A reviewer pointed out the
+             deferral was weaker than the precedent I had already set in the same
+             diff: this branch edits openaiaccounts.js's refusal for exactly this
+             consistency reason, and this is one concatenation. Deferring it would
+             have been drawing the line where the work got inconvenient rather than
+             where the argument stopped. */
           because: out.forgotten
             ? 'That account is off the list. Its sign-in file is still on this computer, '
               + 'so nothing was deleted.'
+              /* 🛑 THE HISTORY CLAUSE, AND ONLY FOR THE DEFAULT, because that is the
+                 only OpenAI account it is true of. `codexsession` reads sessions out
+                 of the DEFAULT home alone, so removing `~/.codex` costs the
+                 transcripts (measured: rollouts 1 before the rename, 0 after) while
+                 removing a labelled `.codex-<label>` costs none.
+                 ⇒ The Claude route says this unconditionally and is right to: its
+                 transcripts live under every account directory. Saying it here
+                 unconditionally would be the same false-for-most disclosure this
+                 branch removed from the uninstall transcript. */
+              + (out.wasDefault ? ' Kosmos stops looking inside it, so any history kept '
+                + 'only there will not appear any more.' : '')
+              + (out.movedTo ? ' It is in a hidden folder called ' + path.basename(out.movedTo)
+                + ' in your home folder.' : '')
             : 'That account was already gone from this computer.',
           accounts: openaiAccounts.list(),
+        });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /**
+   * Forget a Claude account (#1659).
+   *
+   * The Claude half of #1372. Josh, 2026-08-31: the button said "Disconnect is
+   * not built." It said so honestly -- the old title read "no way to tell agents
+   * on it to stop first" -- but that stopped being true when the OpenAI route
+   * shipped the enumeration. This is the same route for the other provider.
+   *
+   * ⭐ THE COUPLING LIVES HERE FOR THE SAME REASON IT DOES ABOVE. `accounts`
+   * cannot ask which agents are on a directory without requiring `create.js`,
+   * which requires it back. The route knows both.
+   *
+   * 🛑 THE ENUMERATION FAILS CLOSED, and that is inherited rather than
+   * rediscovered: Renet Tilley's review of #1447 caught the OpenAI version
+   * treating a null roster as "nobody is on it", which made an unreadable fleet
+   * into permission to rename a directory out from under a running agent. His
+   * sentence for it was AMBIGUITY WAS SILENTLY NONE. A Claude route written
+   * from the card alone would have had that bug, so it is copied deliberately.
+   *
+   * 📌 THE `isDefault` FALLBACK IS CARRIED FOR SYMMETRY WITH THE OPENAI ROUTE
+   * AND IS INERT HERE. A Claude job on the default account carries
+   * `configDir: null` (`create.js:734` writes `acct.isDefault ? null :
+   * acct.dir`), so absence falls back to the isDefault comparison rather than
+   * reading as "no account" -- but that branch can only ADD names to `usedBy`
+   * when `dir` IS the default, and `accounts.forgetAccount` refuses the default
+   * before it ever reads `usedBy`. So no test can exercise it and it cannot
+   * change this route's outcome. It is kept so the two routes stay diffable;
+   * it is not load-bearing, and this comment says so rather than implying it is.
+   * 📌 `readJob` normalises a MISSING runner to 'claude', because every plist
+   * written before runners existed carries no ninth argument -- so the filter
+   * below cannot silently skip an old Claude agent. That one IS load-bearing.
+   */
+  if (pathname === '/api/accounts/claude' && req.method === 'DELETE') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const dir = body && typeof body.dir === 'string' ? body.dir : '';
+        if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+
+        /* `=== true` because isDefaultDir answers NULL for an unresolvable path,
+           which would make this boolean|null. Both are falsy at the one use
+           site so no outcome changes, but the OpenAI sibling derives a strict
+           boolean and the docblock asks for diffability. */
+        let isDefault = false;
+        try { isDefault = accounts.isDefaultDir(dir) === true; } catch { isDefault = false; }
+
+        /* ⚠️ THE REFUSAL ONLY SEES AGENTS THAT ARE RUNNING, AND THAT BOUNDARY
+           IS STATED HERE RATHER THAN LEFT TO BE DISCOVERED. `safeRoster()`
+           reads `status.snapshot()`, whose agents are `listPanes()` plus
+           `panelessKeys()`, and `panelessKeys` requires `liveness.alive(key)`.
+           So an agent that EXISTS but is stopped keeps a launch file naming
+           this config dir and WAS invisible to this loop: removal proceeded, and
+           its next start points CLAUDE_CONFIG_DIR at a directory that has been
+           renamed away.
+           🛑 IT LANDS HARDER ON CLAUDE THAN ON OPENAI, because transcripts live
+           under the config directory, so that agent comes up signed out AND
+           with a blank history -- the shape this module's own header names:
+           "It looks like a working agent and behaves like a blank one."
+           ✅ CLOSED BELOW, and this paragraph said otherwise until it was. The
+           union with `register.known()` fifteen lines down is the #1697 port of
+           #1693, so a stopped-but-registered agent DOES block now. The old text
+           ("Carded as kosmos#1689 rather than fixed here") told the next reader a
+           safety hole was open and pointed at a card that had been done, which is
+           worse than saying nothing: it invites someone to re-open a closed gap.
+           ⚠️ THE RESIDUAL IS NARROWER AND DIFFERENT, so do not read the closure as
+           total: an agent with a LAUNCH FILE BUT NO PROFILE is in neither source.
+           `known()` reads profiles, `safeRoster()` reads the board, and a job
+           written outside Kosmos satisfies neither.
+           🛑 AND A SECOND, DIFFERENT BLIND SPOT, WHICH THIS COMMENT USED TO HIDE
+           BY NAMING ONLY THE FIRST: a Claude session running on this computer
+           that KOSMOS DID NOT CREATE. It IS in the roster, because the roster
+           comes from the panes, and it IS drawn on the board. But `readJob`
+           returns null for it and `jobMissing` correctly answers "no launch
+           file", so the loop `continue`s WITHOUT setting `complete = false`, and
+           the removal proceeds under a live process.
+           ⚠️ It is not #1689 wearing a different hat, and the difference decides
+           the fix: #1689 is an agent we know about and cannot see running, this
+           is a process we can see and know nothing about. We cannot even say
+           which account it is on, because its config dir exists only in its own
+           environment and never in a launch file.
+           📌 Refusing on ANY launch-file-less roster entry would fail closed and
+           make Disconnect unusable on any machine carrying a hand-started Claude,
+           which is most of ours. Named here rather than quietly fixed the wrong
+           way, because a guard that refuses honest users gets deleted.
+           ⚠️ AND THE "different card" FRAMING UNDERSTATED HOW CHEAP IT IS, so
+           do not read it as hard: the primitives already exist in this repo -
+           `create.disabledJobs()` and `create.runningJobs()` alongside
+           `plistPath`/`readJob` (all five verified present). Enumerating from
+           launch files is a compose, not a build.
+           🛑 ONE TRAP IF YOU DO IT, found by PigeonPete on #1693: `safeRoster()`
+           FILTERS OUT REMOVED AGENTS. Unioning `register.known()` raw to catch
+           the stopped ones RESURRECTS a removed agent into this guard, so a
+           removal is refused on behalf of an agent that no longer exists.
+           Filter, do not union.
+           ⚠️ And whatever replaces the roster walk must keep `jobMissing`
+           separating "no launch file" from "could not READ one". A version that
+           reads launch files but treats an unreadable one as absence is #1447
+           arriving from the other side: it looks like a better check and is a
+           worse one. */
+        const roster = safeRoster();
+        let complete = roster !== null;
+        /* 🛑 REGISTERED AGENTS, NOT ONLY RUNNING ONES (kosmos#1693, ported here per
+           kosmos#1697). `safeRoster()` answers who is RUNNING. An agent that exists
+           and is stopped keeps a launch file naming this directory, so removing the
+           account under it means its next start points CLAUDE_CONFIG_DIR at a path
+           that no longer exists, and it comes up signed out AND with no transcripts:
+           the shape this module's own header calls "a working agent that behaves
+           like a blank one".
+           📌 `known()` separates "nothing has ever been written" (ok, empty) from
+           "we could not look" (not ok), so an unreadable profiles directory makes
+           this INCOMPLETE rather than quietly shortening the list.
+           ⚠️ AND THE REMOVED-AGENT FILTER APPLIES TO THESE TOO. A profile file
+           outlives a removal, so unioning the profile names RAW would resurrect an
+           agent the person was already told was gone and refuse the account because
+           of it. This is the OpenAI route's exact shape rather than a second
+           derivation of it: two derivations of the fleet is what that route's own
+           comment calls this codebase's worst habit.
+           ✅ GUARDED, and the paragraph that used to sit here was WRONG about why
+           it could not be. It said the state was UNREACHABLE in this harness
+           because `safeRoster()` returns anything with a launch file. IT READS
+           PANES. Every fixture happened to write one, because the `agentOn` helper
+           appends a pane line, so roster-only and the union agreed on every case
+           the suite could build and I recorded a correct conclusion (uncovered)
+           from a false mechanism, then stopped looking.
+           ⭐ A reviewer measured both arms instead of believing the comment: seed a
+           plist and a profile with NO pane and they separate cleanly. The guard was
+           four fixture lines away the whole time.
+           📌 `server.forget-claude-1659.test.js` now carries
+           `registeredNotRunning()` and an arm that reds by name when this union is
+           removed, verified by perturbation with the mutation confirmed applied. */
+        const knownNames = register.known();
+        if (!knownNames || knownNames.ok !== true) complete = false;
+        let goneNames = null;
+        try { goneNames = new Set(removal.removedAgents().filter((r) => r && r.stopped !== false).map((r) => r.name)); }
+        catch { complete = false; goneNames = null; }
+        const names = new Set();
+        for (const a of (roster || [])) if (a && a.sessionName) names.add(a.sessionName);
+        if (goneNames) {
+          for (const nm of (knownNames && Array.isArray(knownNames.names) ? knownNames.names : [])) {
+            if (!goneNames.has(nm)) names.add(nm);
+          }
+        }
+        const usedBy = [];
+        for (const a of Array.from(names).map((sessionName) => ({ sessionName }))) {
+          let job = null;
+          try { job = create.readJob(a.sessionName); }
+          catch { complete = false; continue; }
+          if (!job) {
+            let absent = true;
+            try { absent = create.jobMissing(a.sessionName); } catch { absent = false; }
+            if (!absent) complete = false;
+            continue;
+          }
+          if (job.runner !== 'claude') continue;
+          const home = job.configDir || null;
+          let onIt = false;
+          try { onIt = home ? path.resolve(home) === path.resolve(dir) : isDefault; }
+          catch { complete = false; continue; }
+          if (onIt) usedBy.push(a.sessionName);
+        }
+        if (!complete) {
+          sendJson(res, 400, {
+            error: 'we could not check which agents are on this account, so nothing was changed',
+            usedBy: [],
+          });
+          return;
+        }
+
+        const out = accounts.forgetAccount(dir, usedBy);
+        if (!out.ok) {
+          sendJson(res, 400, { error: out.because, usedBy: out.usedBy || [] });
+          return;
+        }
+        /* "Removed" and "deleted" are different promises and the person is
+           entitled to know which one they got.
+           🛑 AND ON THE CLAUDE SIDE "nothing was deleted" IS TRUE OF THE
+           CREDENTIAL AND NOT OF THE HISTORY, which the OpenAI wording carries for
+           its DEFAULT account only.
+           🛑 THAT CLAUSE USED TO READ "which the OpenAI wording does not have to
+           carry", and it is wrong in the one case that route uniquely allows:
+           removing `~/.codex` itself. MEASURED with a real rollout tree
+           (`sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl`, the shape
+           `codexsession.rollouts()` actually reads): 1 before the rename, 0 after.
+           So that removal has the same stops-looking-inside consequence and its
+           sentence omits it.
+           ⚠️ My first probe used a FLAT file, read 0 both times, and nearly let me
+           dismiss a correct finding as unreproducible. The fixture was wrong, not
+           the claim.
+           📌 The original wording is right for a labelled `.codex-<label>`, because
+           codexsession only ever reads the default home. `status.js:198` finds transcript roots by accepting
+           only `.claude` and `.claude-*`; the rename produces
+           `.removed-claude-*`, which that rule skips. Measured both arms:
+           `.claude-solo` SCANNED, `.removed-claude-solo` SKIPPED. So an account
+           that kept its OWN `projects` tree stops being findable by the product
+           the moment it is forgotten, while the files sit on disk.
+           📌 Worded generally on purpose: an account whose `projects` is
+           symlinked into the shared tree loses nothing. It says what Kosmos
+           STOPS DOING rather than asserting a loss that is only sometimes real,
+           which is the conditional-stated-as-fact error this card already made
+           once in the refusal copy. */
+        sendJson(res, 200, {
+          forgotten: out.forgotten === true,
+          because: out.forgotten
+            ? 'That account is off the list. Its sign-in file is still on this computer, '
+              + 'so nothing was deleted. Kosmos stops looking inside it, so any history '
+              + 'kept only there will not appear any more.'
+              /* 🔑 NAME WHERE IT WENT. "Still on this computer" is true and
+                 unactionable on its own: the engine computes `movedTo` and the
+                 route was dropping it, so the one fact that makes a removal
+                 recoverable was the one fact withheld from the person who might
+                 need it. Guarded, because `movedTo` is absent on the
+                 already-gone branch. */
+              /* 📌 "IT IS IN .removed-claude-walk" IS NOT AN ANSWER TO "WHERE
+                 DID IT GO" for the person this product is written for. A bare
+                 hidden-directory name is a fact, not a location. Naming the home
+                 folder costs four words and makes the sentence actionable, which
+                 was the whole point of surfacing `movedTo` at all. */
+              + (out.movedTo ? ' It is in a hidden folder called ' + path.basename(out.movedTo)
+                  + ' in your home folder.' : '')
+            : 'That account was already gone from this computer.',
+          /* Carried for diffability with the OpenAI route. The page repaints
+             through GET /api/accounts, which uses listLive(), so no caller
+             reads this: it is a second, non-live derivation of the same list. */
+          accounts: accounts.list(),
         });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));

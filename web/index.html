@@ -571,6 +571,18 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-disconnect { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
   color: var(--label-2); text-decoration: underline; cursor: pointer; min-height: 24px; }
 .acct-disconnect[disabled] { cursor: not-allowed; text-decoration: none; opacity: .7; }
+/* 🛑 THE aria-disabled ARM GETS ITS OWN OPACITY, AND THE REASON IS WCAG RATHER
+   THAN TASTE. WCAG 1.4.3 exempts "inactive user interface components", which
+   covers a natively `disabled` control. This one is deliberately FOCUSABLE and
+   carries a click handler that writes into a live region, so it is not inactive
+   in that sense and the exemption does not reach it.
+   MEASURED ON THE LIGHT SCHEME, and named as such because a ratio quoted
+   without its background reads as though one theme were the whole answer:
+   --label-2 #4a4f57 on the light surface is 8.24:1 at full opacity, 3.76:1 at
+   .7 (AA needs 4.5 for 13px text) and 4.83:1 at .8. The dark and
+   prefers-contrast arms clear AA at .8 by a wider margin. It still reads as
+   unavailable via cursor, the removed underline and the announced label. */
+.acct-disconnect[aria-disabled="true"] { cursor: not-allowed; text-decoration: none; opacity: .8; }
 /* #770: "underneath it we just have a large one that's the same exact
    size that says Add a provider." Same width as a box, no fixed height
    assumption -- .btn already matches a box's padding rhythm closely
@@ -9033,8 +9045,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            🔑 THE LIST IS READ, NOT ASSERTED. `accounts.list()` finds every
            config directory on the machine that carries a login record, so the
            screen cannot disagree with what is actually there. -->
-      <div id="set-accounts"></div>
-      <p class="dhint" id="set-accounts-msg" role="status" style="margin:10px 0 0;"></p>
+      <!-- ⚠️ `tabindex="-1"` so this list can take focus PROGRAMMATICALLY after a
+           removal repaints it, without joining the tab order. It is the focus
+           target on purpose and #set-accounts-msg is NOT: that paragraph is a
+           `role="status"` live region, and focusing a live region makes assistive
+           tech read it a second time, on top of the announcement the textContent
+           write already queued. Focus a container, let the live region speak. -->
+      <div id="set-accounts" tabindex="-1"></div>
+      <p class="dhint" id="set-accounts-msg" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
       <!-- #248, LIVE: the browser sign-in the first run already has, on this
            button. POST /api/connect/start { another: true } (Angel's frozen
            contract): the engine picks the next free work directory itself
@@ -13482,9 +13500,21 @@ function accountGroupsHtml(list, rowHtml) {
   }).join('');
 }
 
+/* 🛑 ONE TIMER, MODULE SCOPE, CANCELLED BY EVERY WRITER TO #set-accounts-msg.
+   The disabled default Disconnect defers its refusal by 60ms so a status region
+   re-announces an unchanged sentence. That deferred write can land on top of a
+   newer message, and an earlier version of this held the id as an EXPANDO ON THE
+   BUTTON -- which `paintAccounts` destroys wholesale via `box.innerHTML = ...`,
+   so after any repaint NOTHING COULD CANCEL IT. Module scope outlives the node. */
+let acctSayTimer = null;
+function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctSayTimer = null; } }
+
 async function paintAccounts() {
   const box = document.getElementById('set-accounts');
   const msg = document.getElementById('set-accounts-msg');
+  /* A repaint is itself a writer to that line ("Checking your accounts..."), so
+     it cancels too: otherwise a refusal scheduled 60ms ago lands over it. */
+  acctCancelSay();
   if (!box) return;
   /* #881: GET /api/accounts now confirms each account live with Anthropic
      (a real check per account, not an instant directory stat), so this
@@ -13517,6 +13547,13 @@ async function paintAccounts() {
     if (mine !== ACCT_EPOCH) return;
   } catch {
     if (mine !== ACCT_EPOCH) return;
+    /* 🛑 CANCEL HERE TOO. The cancel at the top of this function runs BEFORE the
+       await, so these two writes were the third and fourth exceptions to the
+       "every writer cancels" claim above, and this diff has already corrected
+       that claim twice. The window is not milliseconds: that fetch is a live
+       per-account check, so pressing the disabled default Disconnect during a
+       repaint shows the deferred refusal at 60ms and then wipes it. */
+    acctCancelSay();
     if (msg) msg.textContent = '';
     // ⚠️ Never "one account": a failed read must not shrink the list.
     box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">We could not read the accounts on this computer.</p>';
@@ -13526,6 +13563,7 @@ async function paintAccounts() {
     return;
   }
   accountsRead(list);
+  acctCancelSay();  /* post-await writer, same reason as the catch above */
   if (msg) msg.textContent = '';
   /* 🔑 GROUPED BY PROVIDER (kosmos#1393). Josh, twice on 2026-08-28: the Claude
      Max 20x line "is still not in that bounding box that it's supposed to be in,
@@ -13549,6 +13587,22 @@ async function paintAccounts() {
     /* Empty for every row whose name is already unique, which is nearly all of
        them. Present only where two rows would otherwise read alike. */
     const qual = acctQual.get(String(a.dir || '')) || '';
+    /* 🛑 THE PROVIDER IS THE FALLBACK QUALIFIER, AND #1659 IS WHY IT HAS TO BE.
+       `accountQualifiers` keys on `email || keyTail`, so a row yielding NEITHER
+       gets `qual = ''` and its name falls back to the label. This file already
+       records that as deferred finding 8 and says outright it goes live the moment
+       such a row exists.
+       ⚠️ WHAT #1659 CHANGED IS THE CONSEQUENCE, NOT THE CAUSE. Until this branch
+       the two controls read "Disconnect work1" and "REMOVE work1", so the VERB was
+       doing disambiguation work by accident. Relabelling OpenAI to Disconnect
+       removed that accident, and `~/.claude-work1` beside `~/.codex-work1` would
+       give two buttons whose accessible name is exactly "Disconnect work1".
+       ⇒ The provider is what actually differs between them, so it is what the
+       parenthetical falls back to. Always present, so there is no branch that can
+       render an unqualified name. The VISIBLE qualifier tag below is unchanged:
+       this is the accessible name only, where the ambiguity is unrecoverable
+       because a screen reader user cannot see which group the row sits under. */
+    const qualName = qual || (isOpenai ? 'OpenAI' : 'Claude');
     const qualTag = qual
       ? '<span class="acct-qual" title="' + esc('Two accounts on this computer are signed in as ' + (a.email || 'this login') + '. This one is ' + qual + '.') + '">' + esc(qual) + '</span>'
       : '';
@@ -13576,13 +13630,35 @@ async function paintAccounts() {
        below is unaffected: that is the account's organisation, a different fact. */
     /* #770 (Josh, 2026-08-24 22:31): one box per account, a green
        Connected mark, a Disconnect link at the bottom that asks first.
-       ⚠️ DISCONNECT IS DISABLED, not wired to a confirm modal that opens
-       onto nothing: the engine has no route that ends an account's
-       connection yet (only `accounts.list()`/`share`, which read and
-       relink history -- neither closes anything), so a live button here
-       would be exactly the "nothing that looks live may do nothing"
+       ✅ DISCONNECT IS LIVE (#1659). It was disabled here for as long as
+       the engine had no route that ended an account's connection, which was
+       the honest state rather than a gap: a live button opening onto nothing
+       is exactly the "nothing that looks live may do nothing"
        shape this file already refuses for the external-person/agent
-       doors. Wire the modal when that route exists. */
+       doors.
+       ✅ IT ASKS FIRST NOW, on both providers, and this paragraph used to say the
+       opposite. #1702 (card #1683) landed the arm-in-place confirm and it is bound
+       over `[data-forget]` below, which this card is what puts on Claude rows, so
+       the Claude half arrived with the merge exactly as predicted. The claim that
+       "removal is one click" was true when written and was falsified by a merge
+       rather than by an edit, which is why nobody caught it: a stale comment does
+       not fail a test.
+       🛑 BUT DO NOT READ THAT AS "MERELY INHERITED". The exposure is larger
+       here: undoing an OpenAI removal costs a re-paste of an API key, undoing a
+       Claude one costs an OAuth sign-in, and this is the provider every user
+       has. That is WHY the confirm mattering here is not a formality, and it is
+       a reason to keep it rather than a reason to expect its absence.
+       ⚠️ THIS SENTENCE USED TO CALL THE CONFIRM "an open gap rather than
+       fixed on this card", which contradicted the paragraph above it the moment
+       #1702 merged. Both described the same control, in the same block, and a
+       reader trusting this one would have concluded a Claude row removes on a
+       single click. `web.ask-first-1683.test.js` proves it arms on the first
+       press. Kept as a marker: this is the SECOND time this comment went stale
+       by a merge rather than by an edit. The confirm is kosmos#1683's, landing as #1702, and it
+       binds generically over `[data-forget]` -- which this card is what puts on
+       Claude rows, so the Claude half arrives on the rebase rather than as new
+       code. An earlier version of this comment said the browser gate could not
+       run here; that was a bad measurement and the gate runs and passes. */
     /* #881: THREE STATES, NOT A HARDCODED ONE. This badge used to be
        unconditional markup -- every account row said "Connected" no
        matter what. GET /api/accounts now confirms each Claude row live
@@ -13631,14 +13707,21 @@ async function paintAccounts() {
       + '</b>' + qualTag + org + '</div>'
       + connBadge + '</div>'
       + shared
-      /* 🛑 LIVE FOR OPENAI (#1372), STILL DEAD FOR CLAUDE (#1184), AND THE
-         SPLIT IS DELIBERATE. The old title said disconnecting "has no way to
-         tell agents on it to stop first". For OpenAI that is now FALSE: the
-         route enumerates the agents on an account and REFUSES while any is on
-         it, NAMING them. For Claude nothing has changed, so its button keeps
-         the honest dead label rather than inheriting a capability it does not
-         have. Two providers, two states, one row builder; the wrong move is to
-         enable both because one of them works. */
+      /* ✅ LIVE FOR BOTH PROVIDERS (#1372 OpenAI, #1659 Claude). Each route
+         enumerates the agents on an account and REFUSES while any is on it,
+         NAMING them, so the old "has no way to tell agents on it to stop first"
+         is false on both sides now.
+         📌 THE SPLIT THAT USED TO BE HERE WAS RIGHT WHILE IT LASTED and the
+         reason is worth keeping: two providers were in two states, and the
+         wrong move would have been enabling both because one of them worked.
+         What changed is that the Claude half was built, not that the rule
+         relaxed.
+         ⚠️ THE TWO ARE NOT IDENTICAL, and the difference is one refusal.
+         `accounts.forgetAccount` REFUSES THE DEFAULT `~/.claude`, which its
+         OpenAI counterpart allows for `.codex`. `prepare()` symlinks every
+         account Kosmos makes at `~/.claude/projects`, so moving the default
+         strands the history of accounts that are not being removed. The words
+         differ; the act does not. */
       /* 🛑 A WAY BACK INTO AN ACCOUNT YOU ALREADY HAVE (#1492). Josh's sister's
          Claude login expired, Settings correctly said not connected, and the only
          affordance on the screen was "Add a provider" -- which signs in to a NEW
@@ -13658,14 +13741,100 @@ async function paintAccounts() {
          sign-in, which is the shape #1372 kept these two providers apart for. */
       + (isOpenai ? ''
         : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
+          /* 🔑 CONDITIONAL HERE, UNCONDITIONAL ON DISCONNECT, AND THE ASYMMETRY IS THE
+             POINT. `qualName` falls back to the provider name so a Disconnect always
+             says WHICH account it removes, because Disconnect appears on both
+             providers and a wrong press is expensive. Reauth appears on CLAUDE ROWS
+             ONLY, so an appended "(Claude)" cannot disambiguate anything: it lands on
+             every ordinary machine as pure verbosity, on the surface where verbosity
+             costs most. When `qual` IS set the two agree, so the disambiguating case
+             is untouched. Pinned below so this is a decision rather than a leftover. */
           + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
           + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>')
       + (isOpenai
+        /* 🔑 ONE WORD FOR ONE ACT (#1659). This said "Remove" while the Claude
+           row said "Disconnect", for the same act in the same row builder --
+           the exact divergence this card exists to close, one layer up from
+           the handler. "Disconnect" is the operator's own word for it. The
+           engine, the route and the sentence are unchanged; only the label is. */
+        /* 🔑 THE SAME ACT UNDER THE SAME WORD EXPLAINS ITSELF THE SAME WAY. The
+           Claude button carries a title and this one carried none, so a person read a
+           reassurance before pressing on one provider and nothing at all on the other.
+           That is the identical asymmetry this branch already closed one layer down
+           when it ported `movedTo` onto this route.
+           ⚠️ ONLY THE SHARED HALF. The history clause is DEFAULT-ONLY for OpenAI,
+           because `codexsession` reads the default home alone, so repeating it here
+           would assert for every labelled account a thing that is false of it.
+           "Nothing is deleted" is true of both. */
         ? '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
-          + 'aria-label="Remove ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '">Remove</button>'
-        : '<button class="acct-disconnect" type="button" disabled '
-          + 'aria-label="Disconnect ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
-          + 'title="Not built yet: disconnecting an account here has no way to tell agents on it to stop first">Disconnect</button>')
+          + 'data-forget-provider="openai" '
+          + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '" '
+          /* 🛑 PER-ROW, BECAUSE THE CONSEQUENCE IS PER-ROW. An unconditional tooltip
+             here told the person that disconnecting the DEFAULT `~/.codex` was
+             consequence-free BEFORE the press, and then the route added "Kosmos stops
+             looking inside it" AFTER it. Gaining a consequence you were not warned
+             about is worse than never being told, and it is the exact asymmetry this
+             branch keeps closing. `a.isDefault` was in scope the whole time; the
+             Claude branch on the next line already keys on it.
+             The Claude side needs no conditional because its clause is true of every
+             Claude row. Here it is true of the default alone, since `codexsession`
+             reads transcripts out of `defaultHome()` only. */
+          + 'title="Takes this account off the list. Its sign-in file stays on this '
+          + 'computer, so nothing is deleted.'
+          + (a.isDefault ? ' Kosmos stops looking inside it, so any history kept only '
+            + 'there will not appear any more.' : '')
+          + '"'
+          + '>Disconnect</button>'
+        : (a.isDefault
+          /* 🛑 THE DEFAULT ROW GETS A DISABLED BUTTON, BECAUSE THE ENGINE
+             REFUSES IT. `accounts.forgetAccount` will not move `~/.claude`:
+             `prepare()` symlinks every account Kosmos makes at
+             `~/.claude/projects`, so removing it strands the history of
+             accounts nobody asked to remove. `list()` emits the default row
+             first WHENEVER it is signed in (it is skipped when
+             `identityOf(~/.claude.json)` is null, so a machine signed in only
+             on a named account renders none), so a live button here is one
+             nearly every user sees and NONE can use -- the "nothing that looks live may do nothing" shape this
+             file refuses elsewhere, and it would carry a title promising an act
+             it cannot perform. The title states the refusal.
+            🛑 IT DOES NOT STATE A WAY OUT, and this clause used to claim it did.
+            The engine says outright that the default refusal deliberately names
+            none, because both candidate remedies were removed as unreachable: one
+            implies the button then works, the other names an affordance this page
+            does not have. A leftover promise like that invites the next reader to
+            add a remedy that does not exist. */
+          /* ⚠️ THE REASON RIDES THE aria-label, NOT ONLY THE title. A `title`
+             on a DISABLED control is not announced, so a screen-reader user got
+             "Disconnect main@example.com" with no hint it is unavailable or
+             why. Repo rule is WCAG AA, and this same function already states
+             the principle for the connection badge: the real sentence is the
+             visible text AND the label, never a reason hidden in a hover. */
+          /* 🛑 `aria-disabled`, NOT `disabled`. A `disabled` button is removed
+             from the tab order, so a keyboard user tabbing this row never lands
+             on it and never hears the reason -- and the repo's own rule names
+             non-focusable controls as a WCAG AA failure. aria-disabled keeps it
+             focusable and announces the state.
+             ✅ IT CANNOT ACT, and the reason stated here used to be WRONG in a way
+             that invited deleting live code. It said "there is no listener to
+             fire". There IS one: the same diff binds a click handler to
+             `.acct-disconnect[aria-disabled="true"]` below, precisely so a press
+             says WHY instead of doing nothing.
+             ⇒ What actually makes softening the attribute safe is that this row
+             carries no `data-forget`, so the REMOVAL handler never selects it. The
+             refusal is enforced by the absence of that attribute, not by the
+             absence of all wiring.
+             ⚠️ The distinction is not pedantry: a reader who believed the old
+             sentence would conclude the default row has no handlers and delete the
+             no-op refusal as dead code, which is the exact "pressable but silent"
+             failure the handler exists to prevent. */
+          ? '<button class="acct-disconnect" type="button" aria-disabled="true" '
+            + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')'
+              + '. Unavailable: Kosmos does not remove this computer\u2019s main Claude folder." '
+            + 'title="Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.">Disconnect</button>'
+          : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
+            + 'data-forget-provider="claude" '
+            + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '" '
+            + 'title="Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted, and Kosmos stops looking inside it, so any history kept only there will not appear any more.">Disconnect</button>'))
       + '</div>';
   };
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
@@ -13687,6 +13856,72 @@ async function paintAccounts() {
       openAcctReauth(btn.dataset.reauth, (row && row.email) || '');
     });
   }
+  /* 🛑 THE OTHER HALF OF `aria-disabled`, WITHOUT WHICH IT IS WORSE THAN
+     `disabled`. Making the default row's control focusable so a keyboard user
+     can reach the reason ALSO makes it pressable, and the shared handler below
+     binds only `[data-forget]`, which this branch deliberately lacks. So Enter
+     or Space did nothing at all, with no feedback -- the exact
+     nothing-that-looks-live-may-do-nothing shape, newly reachable by keyboard
+     because of the accessibility fix.
+     ✅ IT READS THE BUTTON'S OWN `title` FIRST, so the normal path repeats
+        nothing.
+     🛑 BUT IT DOES CARRY A COPY, AND THIS COMMENT USED TO DENY IT. The fallback
+        sixteen lines below is a literal of the same sentence, and the comment
+        there argues FOR it: an empty fallback would clear the region and produce
+        exactly the silence this handler exists to prevent. Both are right, and
+        together they made one handler whose two comments described it oppositely.
+     📌 The honest count is FOUR copies (the aria-label short form, the title,
+        that fallback, and the engine), of which a test pinned exactly ONE PAIR,
+        because `pull()` anchors on `title="`. The fallback is pinned to the
+        engine now too, so the copy this comment used to deny cannot drift. */
+  for (const btn of box.querySelectorAll('.acct-disconnect[aria-disabled="true"]')) {
+    btn.addEventListener('click', () => {
+      /* 📌 NO `preventDefault`: a `<button type="button">` defaults to nothing,
+         so calling it read as though IT were what suppresses the removal. What
+         suppresses the removal is the absent `data-forget`, and a line that
+         looks like the guard but is not is the shape this branch keeps finding.
+         ⚠️ CLEARED FIRST, THEN SET, because an unchanged `textContent` in a
+         status region is not reliably re-announced: pressing twice would be
+         silent for a screen-reader user, which is a smaller version of the
+         defect this handler exists to fix. */
+      if (!msg) return;
+      /* 📌 NO EMPTY FALLBACK. `btn.title || ''` would clear the region and
+         produce exactly the silence this handler exists to prevent, on the day
+         somebody drops the title from that branch. If there is nothing to say,
+         say the short form rather than nothing. */
+      const say = btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.';
+      /* ⚠️ setTimeout, NOT requestAnimationFrame: rAF is throttled or suspended
+         outright in a hidden or background tab, so the clear-then-set would
+         leave the region BLANK there -- worse than the unchanged text it is
+         working around. A frame is also arguably too fast for assistive tech to
+         register the change. */
+      /* 🛑 THE TWO WRITERS TO THIS LINE CAN RACE, AND THE TIMER IS WHAT
+         INTRODUCED IT. Press the disabled default row, then a live Disconnect
+         within 60ms: the deferred refusal lands DURING the in-flight removal and
+         shows the wrong sentence over a request that is still running. The timer
+         id is the MODULE-SCOPE `acctSayTimer`, NOT a button expando. This comment
+         said "held on the button" while the code four hundred lines up says the
+         expando version was the bug and why: `paintAccounts` destroys the node via
+         `box.innerHTML`, so nothing could cancel after a repaint. One file, one
+         mechanism, two comments describing it oppositely. */
+      acctCancelSay();
+      msg.textContent = '';
+      acctSayTimer = setTimeout(() => {
+        acctSayTimer = null;
+        msg.textContent = say;
+        /* 🛑 THE DEFAULT ROW IS EMITTED FIRST AND THIS MESSAGE LINE SITS AFTER
+           THE WHOLE LIST (`#set-accounts` is emitted
+               before `#set-accounts-msg`; located by ID rather than by line,
+               because the numbers this carried were wrong in BOTH trees, and a
+               dead citation reads exactly like a live one). On a multi-account machine the
+           feedback for pressing the TOPMOST button renders below every other
+           account box, possibly off-screen at the moment the person acts. The
+           tooltip and aria-label cover hover and screen readers; a mouse user
+           who clicks and looks gets nothing where they are looking. */
+        if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+      }, 60);
+    });
+  }
   for (const btn of box.querySelectorAll('[data-forget]')) {
     /* #1683: ASK FIRST. Josh asked for exactly this in #770: "a
        Disconnect link at the bottom that asks first". It shipped without
@@ -13702,13 +13937,75 @@ async function paintAccounts() {
        good?" would make the confirm contradict the sentence after it. */
     let armed = false;
     const REST = btn.textContent;
-    btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; btn.textContent = REST; btn.classList.remove('armed'); } });
+    /* 🛑 THE ARMED STATE WAS INVISIBLE TO ASSISTIVE TECH, AND THE CONFIRM IS THE
+       SAFETY STEP OF A DESTRUCTIVE ACTION. `aria-label` WINS over name-from-content
+       in accessible-name computation, so relabelling `textContent` to "Remove it?"
+       changed what a sighted person sees and NOTHING a screen reader announces: the
+       name was identical before and after arming, both presses. So the whole "ask
+       first" promise of #1683 was sighted-only on a control whose cost is an OAuth
+       sign-in.
+       ⚠️ AND IT IS NOT FIXED BY DROPPING THE LABEL: the resting name carries the
+       account identity, which is what tells two rows apart. Keep the identity and
+       APPEND the state, so the armed name says both which account and what the next
+       press does.
+       📌 Inherited from the OpenAI control and fixed for both here, because #1659 is
+       the change that makes this button live on Claude rows too. */
+    const REST_LABEL = btn.getAttribute && btn.getAttribute('aria-label');
+    const armLabel = (on) => {
+      if (!REST_LABEL || !btn.setAttribute) return;
+      /* 🛑 THE VISIBLE WORDS COME FIRST, AND THAT IS WCAG 2.5.3 (Label in Name,
+         Level A), NOT A STYLE CHOICE. My first version of this said
+         `REST_LABEL + ', press again to remove'`, so the armed button SHOWED
+         "Remove it?" while its accessible name contained no such string. A speech
+         input user saying "click Remove it?" could not operate the confirm step of
+         a destructive control: I fixed the state being unannounced and introduced a
+         different failure on the same element, one iteration later.
+         ⇒ The armed name now STARTS with the visible text and keeps the account
+         identity after it, so it satisfies both: the words on screen are sayable,
+         and the row is still identified. */
+      btn.setAttribute('aria-label', on ? 'Remove it? ' + REST_LABEL : REST_LABEL);
+    };
+    btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false); } });
     btn.addEventListener('click', async () => {
-      if (!armed) { armed = true; btn.textContent = 'Remove it?'; btn.classList.add('armed'); return; }
+      /* 🛑 THE PROVIDER GUARD RUNS BEFORE THE ARMING, and it did not until now even
+         though the plan said it must. An unmarked button used to ARM on the first
+         press and only refuse on the second, so a wiring fault showed the person a
+         control reading "Remove it?" that could never remove anything: the confirm
+         promised a pending action that did not exist.
+         ⚠️ It was safe, and safe is not the same as honest. Refusing on the FIRST
+         press is what the plan documented, and a decision recorded in the plan that
+         the code does not implement is a stale comment with extra steps. */
+      const marked = btn.dataset.forgetProvider;
+      if (marked !== 'claude' && marked !== 'openai') {
+        /* `acctCancelSay()` because this is a WRITER to #set-accounts-msg, and the
+           module comment above claims EVERY writer cancels the timer. It was the
+           one that did not, so a deferred announcement could land on top of this
+           wiring-fault message and replace it. A comment that says "every" is
+           falsified by one exception, and this was the exception. */
+        acctCancelSay();
+        if (msg) msg.textContent = 'we could not tell which provider that account belongs to, so nothing was changed';
+        return;
+      }
+      if (!armed) { armed = true; btn.textContent = 'Remove it?'; btn.classList.add('armed'); armLabel(true); return; }
       btn.disabled = true;
+      acctCancelSay();
       if (msg) msg.textContent = '';
       try {
-        const res = await fetch('/api/accounts/openai', {
+        /* #1659: ONE handler, two providers. The endpoint is the only
+           difference, and it is read off the button rather than branched on
+           here, so the two rows cannot drift apart in behaviour -- which is the
+           thing that made this card necessary in the first place. */
+        /* ⚠️ AN UNMARKED BUTTON IS A BUG, NOT AN OPENAI ONE. Defaulting a
+           missing attribute to 'openai' would send a dropped-attribute or a
+           third provider to the wrong endpoint and surface as "that is not an
+           OpenAI account on this computer", which reads as a data problem
+           rather than as the wiring fault it is. */
+        /* The provider was already validated at the TOP of this handler, before
+           the arming, so an unmarked button cannot reach here. `marked` is the
+           outer one; this used to redeclare it and repeat the refusal, which was
+           dead the moment the guard moved. */
+        const provider = marked;
+        const res = await fetch('/api/accounts/' + provider, {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ dir: btn.dataset.forget }),
@@ -13725,19 +14022,78 @@ async function paintAccounts() {
            right words and every server test passes on them; nothing below the
            page can see a sentence that is written and then wiped. */
         await paintAccounts();
-        if (msg) msg.textContent = (out && out.because) || 'Removed.';
+        if (msg) {
+          /* THE FOURTH WRITER, and the count in the module comment has now been
+             wrong three times. This one lands after TWO awaits, so the cancel at
+             the top of the handler cannot reach it, and `paintAccounts()` has its
+             own cancel that runs BEFORE this line rather than after. A press on the
+             still-pressable default row during the repaint schedules a 60ms
+             deferred write that replaces THIS sentence, which is the one carrying
+             `movedTo`, the fact that makes the removal recoverable. */
+          acctCancelSay();
+          msg.textContent = (out && out.because) || 'Removed.';
+          /* Same reason as the disabled-row handler: this line sits AFTER the
+             whole account list, so feedback for a row near the top can render
+             off-screen at the moment the person acts. The class was found once
+             and fixed at one of its call sites. */
+          if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+          /* 🛑 AND MOVE FOCUS. THE STATED CAUSE USED TO BE THE REPAINT AND THAT WAS
+             WRONG: `btn.disabled = true` at the TOP of this handler already drops
+             focus to `<body>`, because a focused element that becomes disabled loses
+             focus. That happens before any fetch and on BOTH paths, so the repaint is
+             the second cause, not the first.
+             ⚠️ FOCUS THE LIST, NOT THE MESSAGE. #set-accounts-msg is a role="status"
+             live region: focusing it makes assistive tech read the sentence a second
+             time on top of the announcement the write above already queued. */
+          const acctBox = document.getElementById('set-accounts');
+          if (acctBox && acctBox.focus) acctBox.focus({ preventScroll: true });
+        }
       } catch (err) {
         btn.disabled = false;
-        if (msg) msg.textContent = String((err && err.message) || 'we could not remove that account');
+        if (msg) {
+          /* `acctCancelSay()` HERE, not only before the fetch. The cancel at the
+             top of this handler runs BEFORE the await, and the default row's
+             aria-disabled button stays pressable during the request: a press
+             inside that window schedules a 60ms deferred write that lands ON TOP
+             of this sentence. This one names the agents blocking the removal,
+             which the comment below calls the one message they must act on.
+             🛑 The plan called the provider early return "the ONE exception" to
+             the every-writer-cancels rule. It was not. This was the second and
+             the share handler was the third. A count in a comment is a claim. */
+          acctCancelSay();
+          msg.textContent = String((err && err.message) || 'we could not remove that account');
+          /* 🛑 THIS ONE MATTERS MOST OF THE THREE. On the failure path the
+             sentence is a REFUSAL that names the agents blocking the removal
+             ("marlowe is running on this account"), which the person has to read
+             to know what to do next. Rendering it below every other account box
+             is the worst place for the one message they must act on. */
+          if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+        }
         /* Restore the resting label, or a refused remove leaves the button
            reading "Remove it?" and the NEXT single click acts. */
-        armed = false; btn.textContent = REST; btn.classList.remove('armed');
+        armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
+        /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH GETS AND
+           THIS ONE DID NOT. `btn.disabled = true` at the top of this handler
+           dropped focus to `<body>` before the request went out, so without this a
+           keyboard or screen-reader user is left at the top of the document while
+           the refusal that names the blocking agents renders far below them.
+           ⚠️ AFTER THE DISARM ON PURPOSE, so the name announced on arrival is the
+           resting one, which is what the button will actually do if pressed again.
+           🛑 THE REASON I FIRST GAVE FOR THIS ORDER WAS WRONG and is corrected here
+           rather than swapped quietly: I wrote that focusing first would announce
+           "Remove it?". It would not have. `aria-label` WINS over
+           name-from-content, so the textContent swap was never announced at all,
+           in either order. That was not a nitpick about my reasoning, it was a
+           real defect hiding behind it: the confirm was sighted-only until
+           `armLabel` above started carrying the state into the accessible name. */
+        if (btn.focus) btn.focus({ preventScroll: true });
       }
     });
   }
   for (const btn of box.querySelectorAll('[data-share]')) {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
+      acctCancelSay();
       if (msg) msg.textContent = '';
       try {
         const res = await fetch('/api/accounts/share', {
@@ -13750,6 +14106,9 @@ async function paintAccounts() {
         await paintAccounts();
       } catch (err) {
         btn.disabled = false;
+        /* Same reason as the forget catch above: this write lands after an await,
+           so the pre-fetch cancel cannot protect it. */
+        acctCancelSay();
         if (msg) msg.textContent = String((err && err.message) || 'we could not change that');
       }
     });

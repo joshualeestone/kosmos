@@ -639,11 +639,65 @@ cat > "$sb4/fake-claude" <<'FAKE'
 # command answers {"loggedIn": false, "authMethod": "none"} and exits 1;
 # both halves are copied here, per the repo's fixture-discipline rule that a
 # fixture is a capture and not a guess.
-[ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
+# 🛑 SIGNED IN FOR THE SEEDED ACCOUNTS, NOT SIGNED IN FOR ANYTHING ELSE (#1659).
+# This answered "not signed in" unconditionally, which was the honest fixture
+# WHILE this sandbox had no Claude account. It now seeds two, and an
+# unconditional false renders "Anthropic says this account is not signed in"
+# in their badges -- lowercase "signed in", which the case-sensitive /Signed in/
+# arm does NOT match. Seeding an account would then have turned a passing check
+# red for a reason having nothing to do with what that arm tests.
+# ⚠️ THE DEFAULT ACCOUNT ARRIVES WITH CLAUDE_CONFIG_DIR UNSET. So "unset" IS the
+# default row, and it is answered signed-in on purpose rather than by omission.
+# 🛑 AND THE MECHANISM IS `engine/subscription.js:338`, NOT create.js. Nothing
+# reaches this stub through a launch file. `engine/accounts.js` listLiveNow calls
+# `checkLive()` with NO configDir for the default row, and subscription's
+# `else delete env.CLAUDE_CONFIG_DIR` is what actually leaves it unset.
+# This comment used to cite create.js (`acct.isDefault ? null : acct.dir`). That
+# code exists and reads as quoted, and it governs the AGENT-LAUNCH path, which
+# this stub is not on. Both mechanisms independently produce "unset", so the
+# fixture was correct and its stated reason was not the one operating here.
+# The cost is directional and worth naming: anyone changing subscription.js:338
+# breaks this stub's DEFAULT arm and every "Signed in" assertion in
+# render-accounts-openai.js, and the old comment sent them to a different file.
+[ "$1" = auth ] && [ "$2" = status ] && {
+  case "${CLAUDE_CONFIG_DIR:-DEFAULT}" in
+    # ⚠️ `authMethod` HERE IS A GUESS AND THE FALSE ARM ABOVE IS A CAPTURE. It is
+    # inert (checkLive reads only `loggedIn`), but the fixture-discipline comment
+    # at the top of this stub claims capture for the whole thing, so this says
+    # which half it does not cover rather than letting the claim stand.
+    DEFAULT|*/.claude-walk) echo '{"loggedIn": true, "authMethod": "claudeai"}'; exit 0;;
+    *) echo '{"loggedIn": false, "authMethod": "none"}'; exit 1;;
+  esac
+}
 exit 0
 FAKE
 chmod +x "$sb4/fake-claude"
 write_fleet "$sb4"
+# #1659: a NON-DEFAULT Claude account, so the Claude Disconnect arm in
+# render-accounts-openai is EXERCISED rather than skipped. Before this the
+# sandbox held only OpenAI accounts, `otherDoors` was empty, and that arm
+# printed a NOTE and asserted nothing -- which is how its assertion sat stale
+# and green across two changes that contradicted it. A non-default label on
+# purpose: the default row's button is deliberately disabled (the engine
+# refuses to move ~/.claude), so seeding only the default would leave the live
+# control untested for a second time.
+# The DEFAULT account too, so the row every user sees is rendered and its
+# deliberately-disabled Disconnect is exercised. list() emits the default from
+# home/.claude.json, which is where configFile() puts it.
+printf '{"oauthAccount":{"emailAddress":"main@example.com"}}' > "$sb4/home/.claude.json"
+# The directory too, not only the config beside it: list() renders the row from
+# ~/.claude.json alone, but a real machine always has ~/.claude/projects, and a
+# fixture that is the MINIMUM which renders leaves memoryReadable false, a state
+# no real install reaches. A fixture is a capture, not the least that passes.
+mkdir -p "$sb4/home/.claude/projects"
+mkdir -p "$sb4/home/.claude-walk"
+printf '{"oauthAccount":{"emailAddress":"walk@example.com"}}' > "$sb4/home/.claude-walk/.claude.json"
+# ...and its projects symlinked into the primary tree, which is what prepare()
+# does for every account Kosmos makes. Without it sharesMemory() is false and the
+# row renders "An agent moved here would start with no history. Fix this" -- a
+# state no Kosmos-created account reaches. The capture-not-minimum standard two
+# lines above was applied to the default row and not to this one.
+ln -s "$sb4/home/.claude/projects" "$sb4/home/.claude-walk/projects"
 # A stand-in for api.openai.com/v1/models (#962): the badge now checks a key
 # live, and a page gate must not send a fake key to OpenAI, nor depend on
 # OpenAI answering. The stub accepts exactly the walk's key and refuses any
@@ -1039,7 +1093,9 @@ sb_ok="$(new_sandbox)"; sb_bad="$(new_sandbox)"
 cat > "$sb_ok/fake-claude" <<'STUBOK'
 #!/bin/sh
 # 1573-pair stub. This marker exists so a block-scoped mutation can anchor here:
-# the sb4 stub earlier in this file is byte-identical without it, and two blind
+# the sb4 stub earlier in this file was byte-identical without it until #1659
+# gave sb4 a per-account case (it now answers signed-in for its two seeded
+# accounts), so compare by PURPOSE rather than by bytes, and two blind
 # reviewers independently anchored on the shared text and mutated the wrong one.
 [ "$1" = --version ] && { echo "claude 0.0.0-fake"; exit 0; }
 [ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
@@ -1051,7 +1107,9 @@ STUBOK
 cat > "$sb_bad/fake-claude" <<'STUBBAD'
 #!/bin/sh
 # 1573-pair stub. This marker exists so a block-scoped mutation can anchor here:
-# the sb4 stub earlier in this file is byte-identical without it, and two blind
+# the sb4 stub earlier in this file was byte-identical without it until #1659
+# gave sb4 a per-account case (it now answers signed-in for its two seeded
+# accounts), so compare by PURPOSE rather than by bytes, and two blind
 # reviewers independently anchored on the shared text and mutated the wrong one.
 [ "$1" = auth ] && [ "$2" = status ] && { echo '{"loggedIn": false, "authMethod": "none"}'; exit 1; }
 exit 1

@@ -1,0 +1,268 @@
+'use strict';
+/* #1659: the Claude half of account removal.
+ *
+ * Josh, 2026-08-31: "Right now it just gives me a message that says Disconnect
+ * is not built." It was disabled honestly rather than forgotten, and these
+ * drive the real function against real directories, the way the OpenAI half's
+ * tests do.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-claude-forget-'));
+process.env.AGENT_WORKFORCE_HOME = SANDBOX;
+const accounts = require('./accounts');
+
+test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+/* A signed-in Claude account: the default keeps its config at ~/.claude.json,
+   every other one inside its own directory. Mirrors configFile(). */
+function acct(label) {
+  const isDefault = label === 'default';
+  const dir = nodePath.join(SANDBOX, isDefault ? '.claude' : '.claude-' + label);
+  fs.mkdirSync(dir, { recursive: true });
+  const cfg = isDefault ? nodePath.join(SANDBOX, '.claude.json') : nodePath.join(dir, '.claude.json');
+  fs.writeFileSync(cfg, JSON.stringify({ oauthAccount: { emailAddress: label + '@example.com' } }));
+  return dir;
+}
+
+test('#1659: forgetting a Claude account hides it from list() and KEEPS the sign-in', () => {
+  const dir = acct('forgetme');
+  assert.ok(accounts.list().some((a) => a.dir === dir),
+    'it must be listed FIRST, or the removal proves nothing');
+
+  const got = accounts.forgetAccount(dir, []);
+  assert.equal(got.ok, true);
+  assert.equal(got.forgotten, true);
+
+  assert.ok(!accounts.list().some((a) => a.dir === dir), 'it is gone from the list');
+  assert.ok(fs.existsSync(nodePath.join(got.movedTo, '.claude.json')),
+    'THE SIGN-IN SURVIVES: this forgets, it does not delete');
+  /* Uses the EXPORTED prefix rather than a literal: a hardcoded '.removed-claude-'
+     here is a second derivation of a string the engine owns, and the export
+     existed with no consumer until this line. */
+  assert.ok(nodePath.basename(got.movedTo).startsWith(accounts.FORGOTTEN_PREFIX),
+    'the moved directory does not carry the engine\'s own prefix');
+});
+
+/* 🛑 THE ONE PLACE THIS IS NOT A MIRROR OF THE OPENAI SIDE, and the reason is
+   measured rather than assumed: prepare() symlinks every account Kosmos makes
+   at ~/.claude/projects, so moving the default strands the history of accounts
+   nobody asked to remove. */
+test('#1659: the DEFAULT account is refused, and it is still there afterwards', () => {
+  const dir = acct('default');
+  assert.ok(accounts.list().some((a) => a.dir === dir && a.isDefault),
+    'the default must be listed first, or the refusal proves nothing');
+
+  const got = accounts.forgetAccount(dir, []);
+  assert.equal(got.ok, false);
+  assert.equal(got.forgotten, false);
+  assert.match(got.because, /main Claude folder/);
+
+  assert.ok(accounts.list().some((a) => a.dir === dir), 'IT IS STILL THERE: nothing was moved');
+  assert.ok(fs.existsSync(dir), 'the directory itself is untouched');
+});
+
+test('#1659: a path that is not a Claude account on this computer is refused', () => {
+  const outside = nodePath.join(SANDBOX, 'somewhere', '.claude-elsewhere');
+  fs.mkdirSync(outside, { recursive: true });
+  const got = accounts.forgetAccount(outside, []);
+  assert.equal(got.ok, false);
+  assert.match(got.because, /not a Claude account/);
+  assert.ok(fs.existsSync(outside), 'a directory that is not ours is not moved');
+
+  const notClaude = nodePath.join(SANDBOX, '.somethingelse');
+  fs.mkdirSync(notClaude, { recursive: true });
+  assert.equal(accounts.forgetAccount(notClaude, []).ok, false);
+  assert.ok(fs.existsSync(notClaude));
+});
+
+/* A refusal a person cannot act on is the dead end this card came from: they
+   need to know WHICH agents, not that there are some. */
+/* 🛑 THE NAME IS NOT THE ACCOUNT. `.claude-workers` is a real directory on the
+   fleet machine and is NOT a login; before this guard, forgetAccount renamed it
+   because every other check keys on the name. The module's own docblock states
+   the invariant and list() enforces it; this is the destructive path enforcing
+   it too. */
+/* 🛑 THE UNINSTALLER MUST KNOW ABOUT THE SHAPE THIS MODULE CREATES, AND NOTHING
+   PINNED THAT. `forgetAccount` renames an account to FORGOTTEN_PREFIX + label
+   and deliberately KEEPS its config inside, so a "hasTrustDialogAccepted" mark
+   survives there. install/setup.sh's uninstall sweep globs the account configs
+   it warns about; before #1659 it could not match this prefix, and the person
+   was told their trust marks were accounted for while one sat in plain sight.
+   📌 PINNED IN SOURCE because that is how its three siblings are guarded
+   (install.uninstall-sweep / -litter-1547 / -remembered-1531 all read setup.sh
+   and assert on its text). Without this, dropping the glob restores a
+   true-sounding silence and nothing goes red. */
+test('#1659: the uninstall trust sweep covers the directory forgetAccount creates', () => {
+  const setup = fs.readFileSync(nodePath.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
+  const loop = setup.split('\n').find((l) => l.trim().startsWith('for _cfg in'));
+  assert.ok(loop, 'the uninstall trust-sweep loop is gone from install/setup.sh');
+  assert.ok(loop.includes(accounts.FORGOTTEN_PREFIX + '*/.claude.json'),
+    'the sweep no longer covers ' + accounts.FORGOTTEN_PREFIX + '*, so a trust mark in a forgotten account is invisible and the uninstaller says nothing');
+  /* CONTROL: the loop really does carry the ordinary account glob, so a pass
+     above means the assertion found a populated line rather than an empty one. */
+  assert.ok(loop.includes('.claude-*/.claude.json'),
+    'the sweep lost its ordinary account glob, so this test is asserting against the wrong line');
+});
+
+test('#1659: a .claude-* directory that is NOT signed in is refused, and survives', () => {
+  const notAnAccount = nodePath.join(SANDBOX, '.claude-workers');
+  fs.mkdirSync(nodePath.join(notAnAccount, 'inbox'), { recursive: true });
+  fs.writeFileSync(nodePath.join(notAnAccount, 'inbox', 'brief.md'), 'a colleague\'s work');
+  assert.ok(!accounts.list().some((a) => a.dir === notAnAccount),
+    'the premise: list() does not treat it as an account');
+
+  const got = accounts.forgetAccount(notAnAccount, []);
+  assert.equal(got.ok, false);
+  assert.match(got.because, /not a Claude account/);
+  assert.ok(fs.existsSync(nodePath.join(notAnAccount, 'inbox', 'brief.md')),
+    'THE FILES SURVIVE: a directory that is not an account is not ours to move');
+
+  /* CONTROL: the same call on a directory that IS signed in must still work,
+     or this guard could be refusing everything and the arm above would pass. */
+  const real = acct('stillworks');
+  assert.equal(accounts.forgetAccount(real, []).forgotten, true);
+});
+
+test('#1659: refused while agents are on it, and the agents are NAMED', () => {
+  const dir = acct('busy');
+
+  const one = accounts.forgetAccount(dir, ['marlowe']);
+  assert.equal(one.ok, false);
+  assert.deepEqual(one.usedBy, ['marlowe']);
+  assert.match(one.because, /marlowe is set up to run on this account/);
+
+  const many = accounts.forgetAccount(dir, ['marlowe', 'spade']);
+  assert.equal(many.ok, false);
+  assert.deepEqual(many.usedBy, ['marlowe', 'spade']);
+  assert.match(many.because, /marlowe, spade/);
+  assert.match(many.because, /2 agents/);
+
+  assert.ok(accounts.list().some((a) => a.dir === dir), 'still listed: the refusal moved nothing');
+  assert.ok(fs.existsSync(dir));
+});
+
+test('#1659: an account already gone answers ok WITHOUT claiming it forgot anything', () => {
+  const missing = nodePath.join(SANDBOX, '.claude-neverexisted');
+  assert.ok(!fs.existsSync(missing), 'the premise of this test is that it is absent');
+  const got = accounts.forgetAccount(missing, []);
+  assert.equal(got.ok, true);
+  assert.equal(got.forgotten, false, 'ok, but it did not forget anything: those are different promises');
+});
+
+/* A second removal of the same label must not clobber the first one's
+   credential, which would delete the thing this function exists not to delete. */
+/* The collision loop is bounded and REFUSES on exhaustion rather than falling
+   through to a rename. Covered at n=2 above; this is the other end, and it
+   matters because the fall-through would overwrite a sign-in this function
+   exists not to delete. */
+test('#1659: when no free name is left, it REFUSES rather than renaming over one', () => {
+  const dir = acct('crowded');
+  /* Occupy the whole search space the loop walks: the base name and -2..-499. */
+  fs.mkdirSync(nodePath.join(SANDBOX, accounts.FORGOTTEN_PREFIX + 'crowded'), { recursive: true });
+  for (let n = 2; n < 500; n += 1) {
+    fs.mkdirSync(nodePath.join(SANDBOX, `${accounts.FORGOTTEN_PREFIX}crowded-${n}`), { recursive: true });
+  }
+  const got = accounts.forgetAccount(dir, []);
+  assert.equal(got.ok, false);
+  assert.match(got.because, /could not find a free name/);
+  assert.ok(fs.existsSync(nodePath.join(dir, '.claude.json')),
+    'THE SIGN-IN SURVIVES: refusing means nothing was renamed over');
+});
+
+test('#1659: two removals of the same label keep BOTH sign-ins', () => {
+  const first = accounts.forgetAccount(acct('twice'), []);
+  assert.equal(first.forgotten, true);
+  const second = accounts.forgetAccount(acct('twice'), []);
+  assert.equal(second.forgotten, true);
+
+  assert.notEqual(first.movedTo, second.movedTo, 'the second must not land on the first');
+  assert.ok(fs.existsSync(nodePath.join(first.movedTo, '.claude.json')), 'the FIRST sign-in survives');
+  assert.ok(fs.existsSync(nodePath.join(second.movedTo, '.claude.json')), 'the second sign-in survives');
+});
+
+/* 🛑 THE share() DEFAULT CHECK, WHICH WAS DESTRUCTIVE AND COVERED BY NOTHING.
+   `share()` decided "is this the default account" with raw string equality against
+   `path.join(homeDir(), '.claude')`, neither side resolved. A trailing slash
+   therefore classified the DEFAULT as non-default, took the mutation path, removed
+   `~/.claude/projects` and symlinked it to itself: `readdir` then throws ELOOP and
+   `sharesMemory` answers false for every account on the machine, while the return
+   value is a cheerful { ok: true }.
+   ⚠️ Measured as uncovered before this was written: reverting the fix left every
+   accounts test green. A destructive path with a cheerful return value and no
+   coverage.
+   📌 Asserted through `isDefaultDir`, which is the exported helper share() now
+   uses.
+   🛑 TWO CORRECTIONS TO THIS COMMENT, both mine and both the same kind of error.
+   It said "no other test file calls share()": FALSE, engine/accounts.test.js calls
+   it three times, and I asserted that about the repo without grepping. It also
+   said this arm fails if anyone re-derives the comparison by hand: it does not.
+   Asserting `isDefaultDir` is a DIFFERENT PROPOSITION from "share() calls it", and
+   reverting share()'s own line left this green. The arm that actually calls
+   share() is at the end of this file. */
+test('#1659: the default is recognised under a RELATIVE home, which is the input class the fix exists for', () => {
+  /* 🛑 A RELATIVE HOME, AND THE FIRST VERSION OF THIS ARM WAS VACUOUS WITHOUT ONE.
+     With an ABSOLUTE home, `path.join(home, '.claude')` and
+     `path.resolve(home, '.claude')` are identical, so reverting the fix left this
+     green. Every other test in this repo assigns AGENT_WORKFORCE_HOME from an
+     absolute mkdtemp path, which is exactly why the relative class went uncovered
+     in the first place. Perturbation-checked: reverting `resolve` to `join` now
+     reds THIS arm. */
+  const cwd = process.cwd();
+  const abs = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-claude-relhome-'));
+  const rel = nodePath.basename(abs);
+  process.chdir(nodePath.dirname(abs));
+  process.env.AGENT_WORKFORCE_HOME = rel;
+  try {
+    const def = nodePath.resolve(rel, '.claude');
+    fs.mkdirSync(nodePath.join(def, 'projects'), { recursive: true });
+    assert.equal(accounts.isDefaultDir(def), true,
+      'under a relative home the DEFAULT reads as non-default, which is how share() took the mutation path on it: '
+      + 'it removed ~/.claude/projects and symlinked it to itself, and answered ok:true');
+    /* CONTROL, and it must be able to return the dangerous answer. */
+    assert.equal(accounts.isDefaultDir(nodePath.resolve(rel, '.claude-walk')), false,
+      'a non-default reads as the default, so the assertion above passes for the wrong reason');
+    /* 🔑 configFile() TOO, because it carries the SAME both-sides-resolve fix and had
+       no arm. Measured with the fix reverted: under a relative home the default's
+       record resolves to <home>/.claude/.claude.json instead of <home>/.claude.json,
+       and `list()` returns []. The sibling got a dedicated arm on this input class
+       and this one did not, so the diff covered one of two instances of a class it
+       names. */
+    fs.writeFileSync(nodePath.join(nodePath.resolve(rel), '.claude.json'),
+      JSON.stringify({ oauthAccount: { emailAddress: 'rel@example.com' } }));
+    assert.equal(accounts.list().length > 0, true,
+      'under a relative home the default account vanished from list(), which is what the '
+      + 'configFile resolve fix exists to prevent');
+  } finally {
+    process.chdir(cwd);
+    process.env.AGENT_WORKFORCE_HOME = SANDBOX;
+  }
+});
+
+/* 🛑 THE ARM THAT ACTUALLY CALLS share(), because the two before it did not.
+   A trailing slash classified the DEFAULT as non-default, took the mutation path,
+   removed `~/.claude/projects` and symlinked it to itself. `readdir` then throws
+   ELOOP and `sharesMemory` answers false for every account on the machine, while
+   the return value is a cheerful { ok: true }.
+   ⇒ Two assertions, because the ANSWER alone is not the harm: the harm is what
+   happens to the directory, so that is checked directly. */
+test('#1659: share() recognises the default through a trailing slash, so it cannot mutate its projects tree', () => {
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-claude-share-'));
+  process.env.AGENT_WORKFORCE_HOME = home;
+  try {
+    const projects = nodePath.join(home, '.claude', 'projects');
+    fs.mkdirSync(projects, { recursive: true });
+    assert.deepEqual(accounts.share(nodePath.join(home, '.claude') + '/'), { ok: true, already: true },
+      'share() did not recognise the default through a trailing slash, so it took the MUTATION path on it');
+    const st = fs.lstatSync(projects);
+    assert.equal(st.isSymbolicLink(), false,
+      'the default projects tree was replaced by a symlink to itself: the ELOOP that makes sharesMemory answer false for every account');
+    assert.equal(st.isDirectory(), true, 'the default projects tree is no longer a real directory');
+  } finally {
+    process.env.AGENT_WORKFORCE_HOME = SANDBOX;
+  }
+});

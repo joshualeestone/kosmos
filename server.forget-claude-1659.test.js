@@ -1,0 +1,357 @@
+'use strict';
+
+/**
+ * #1659: the DELETE /api/accounts/claude route.
+ *
+ * The Claude half of #1372. The enumeration is COPIED from the OpenAI route
+ * rather than re-derived, so the arms Renet Tilley's #1447 review bought are
+ * re-run here against the new route: a route written from the card alone would
+ * have treated an unreadable fleet as "nobody is on it".
+ */
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+const { execFileSync } = require('node:child_process');
+
+const REPO = __dirname;
+
+function board(seed) {
+  const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-forget-1659-'));
+  const home = nodePath.join(sb, 'home');
+  const launch = nodePath.join(sb, 'launch');
+  const workers = nodePath.join(sb, 'workers');
+  const bin = nodePath.join(sb, 'bin');
+  for (const d of [home, launch, workers, bin]) fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(nodePath.join(bin, 'tmux'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+
+  const ctx = { sb, home, launch, workers, bin };
+  const target = seed(ctx);
+
+  const script = `
+    const http = require('node:http');
+    const app = require(${JSON.stringify(nodePath.join(REPO, 'server.js'))});
+    const srv = app.server || app;
+    srv.listen(0, '127.0.0.1', () => {
+      const body = JSON.stringify({ dir: process.env.FORGET_DIR });
+      const req = http.request({
+        host: '127.0.0.1', port: srv.address().port,
+        path: '/api/accounts/claude', method: 'DELETE',
+        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
+      }, (res) => {
+        let s = ''; res.on('data', (d) => { s += d; }); res.on('end', () => {
+          process.stdout.write(JSON.stringify({ code: res.statusCode, body: s.slice(0, 900) }));
+          srv.close(); process.exit(0);
+        });
+      });
+      req.on('error', (e) => { process.stdout.write(JSON.stringify({ code: null, body: String(e.message) })); process.exit(0); });
+      req.end(body);
+    });
+  `;
+
+  const out = execFileSync(process.execPath, ['-e', script], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      FORGET_DIR: target,
+      AGENT_WORKFORCE_DRY_RUN: '1',
+      AGENT_WORKFORCE_HOME: home,
+      AGENT_WORKFORCE_DATA: nodePath.join(sb, 'data'),
+      AGENT_WORKFORCE_WORKERS: workers,
+      AGENT_WORKFORCE_LAUNCH: launch,
+      AGENT_WORKFORCE_PROJECTS: nodePath.join(sb, 'projects'),
+      /* 🛑 THE TMUX STUB IS UNCONDITIONAL AND MUST STAY THAT WAY (#634, Pete 1650).
+         It used to ride along inside this `ctx.panesFile` ternary, so the arms that
+         build no panes file left AGENT_WORKFORCE_TMUX_BIN UNSET - and `connect.js:94`,
+         `remove.js:714` and `remove.js:1327` fall back to an ABSOLUTE
+         `/opt/homebrew/bin/tmux`, which the sandbox `PATH` above cannot intercept.
+         A half-sandboxed board reads the real fleet's panes and a send types into one.
+         Measured: sandbox.audit() reports partial=true without this var, false with it. */
+      AGENT_WORKFORCE_TMUX_BIN: ctx.panesFile
+        ? nodePath.join(REPO, 'test-support', 'fake-tmux.sh')
+        : nodePath.join(bin, 'tmux'),
+      ...(ctx.panesFile ? { AGENT_WORKFORCE_FAKE_PANES: ctx.panesFile } : {}),
+    },
+  });
+  const parsed = JSON.parse(out);
+  let json = null;
+  try { json = JSON.parse(parsed.body); } catch { json = null; }
+  return { ...ctx, code: parsed.code, json, target };
+}
+
+function account(home, label) {
+  const isDefault = label === 'default';
+  const dir = nodePath.join(home, isDefault ? '.claude' : '.claude-' + label);
+  fs.mkdirSync(dir, { recursive: true });
+  const cfg = isDefault ? nodePath.join(home, '.claude.json') : nodePath.join(dir, '.claude.json');
+  fs.writeFileSync(cfg, JSON.stringify({ oauthAccount: { emailAddress: label + '@example.com' } }));
+  return dir;
+}
+
+/* An agent whose launch file Kosmos can actually parse, on a named account. */
+function agentOn(ctx, name, configDir, runner) {
+  const fleet = require('./test-support/fleet');
+  const create = require('./engine/create');
+  process.env.AGENT_WORKFORCE_LAUNCH = ctx.launch;
+  fs.mkdirSync(nodePath.join(ctx.workers, name), { recursive: true });
+  fs.writeFileSync(create.plistPath(name),
+    /* `runner` is passed THROUGH, not defaulted. `|| 'claude'` made a null
+       fixture byte-identical to a claude one, so the pre-runners test below was
+       a duplicate of the test above it and could not fail for its own reason. */
+    create.plistFor(name, '/bin/claude', '/bin/tmux', null, configDir, runner), 'utf8');
+  ctx.panesFile = ctx.panesFile || nodePath.join(ctx.sb, 'panes.txt');
+  fs.appendFileSync(ctx.panesFile, fleet.line({ session: name }) + '\n');
+  assert.ok(fs.existsSync(create.plistPath(name)),
+    'the seeded launch file is missing, so every assertion below would be right for the wrong reason');
+  ctx.seededPlist = fs.readFileSync(create.plistPath(name), 'utf8');
+}
+
+/* 🔑 REGISTERED BUT NOT RUNNING, which `agentOn` above CANNOT express because it
+   appends a pane line. That one line is why an earlier version of this file
+   claimed the #1693/#1697 state was unreachable here and shipped the port
+   uncovered: `safeRoster()` reads PANES, and every fixture happened to write one,
+   so the roster-only and union implementations agreed on everything the suite
+   could build. They separate cleanly the moment a fixture omits the pane.
+   A profile is what `register.known()` reads; the plist is what lets `readJob`
+   attribute the agent to an account. Both, and no pane. */
+function registeredNotRunning(ctx, name, configDir) {
+  const create = require('./engine/create');
+  process.env.AGENT_WORKFORCE_LAUNCH = ctx.launch;
+  fs.mkdirSync(nodePath.join(ctx.workers, name), { recursive: true });
+  fs.writeFileSync(create.plistPath(name),
+    create.plistFor(name, '/bin/claude', '/bin/tmux', null, configDir, 'claude'), 'utf8');
+  const profiles = nodePath.join(ctx.sb, 'data', 'AgentWorkforce', 'profiles');
+  fs.mkdirSync(profiles, { recursive: true });
+  fs.writeFileSync(nodePath.join(profiles, name + '.json'), JSON.stringify({ name }));
+  assert.ok(fs.existsSync(create.plistPath(name)), 'the launch file is missing, so the arm proves nothing');
+  assert.ok(!ctx.panesFile, 'this fixture must not write a pane, or it cannot tell the two enumerations apart');
+}
+
+test('#1659 route: an unused Claude account is forgotten, and the answer says nothing was deleted', () => {
+  const r = board(({ home }) => account(home, 'lonely'));
+  assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
+  assert.equal(r.json.forgotten, true);
+  assert.match(r.json.because, /still on this computer/);
+  assert.ok(!fs.existsSync(r.target), 'the account directory moved');
+  assert.ok(fs.existsSync(nodePath.join(r.home, '.removed-claude-lonely', '.claude.json')),
+    'and its sign-in survived the move');
+  /* 🔑 THE SENTENCE MUST NAME WHERE IT WENT. "Still on this computer" is true
+     and unactionable alone; the engine computes movedTo and the route used to
+     drop it, so the one fact that makes a removal recoverable was withheld from
+     the person who might need it. */
+  assert.match(r.json.because, /hidden folder called \.removed-claude-lonely in your home folder/,
+    'the answer does not say where the account went, so the removal is not recoverable by anyone reading it');
+  /* And it must say what Kosmos stops doing: the rename takes the directory out
+     of status.js configRoots (which accepts only .claude and .claude-*), so an
+     account with its own projects tree stops being findable. */
+  assert.match(r.json.because, /stops looking inside it/,
+    'the answer still promises "nothing was deleted" without saying the history stops appearing');
+});
+
+/* The route's FIRST branch had no arm: every other branch was covered. A body
+   with no usable `dir` must answer 400 rather than falling through to the
+   enumeration with an empty string, which the path guard would then refuse for
+   a misleading reason. */
+test('#1659 route: a request with no usable dir is refused before anything is enumerated', () => {
+  const r = board(({ home }) => {
+    account(home, 'bystander');
+    return '';
+  });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.match(String(r.json.error), /could not read that request/,
+    'it should say the REQUEST was unreadable, not that the path is not an account');
+  assert.ok(fs.existsSync(nodePath.join(r.home, '.claude-bystander')),
+    'and the real account beside it is untouched');
+});
+
+test('#1659 route CONTROL: a path that is not a Claude account is refused, and nothing moves', () => {
+  const r = board(({ home }) => {
+    account(home, 'bystander');
+    const outside = nodePath.join(home, 'not-an-account');
+    fs.mkdirSync(outside, { recursive: true });
+    return outside;
+  });
+  assert.equal(r.code, 400);
+  assert.match(String(r.json.error), /not a Claude account/);
+  assert.ok(fs.existsSync(r.target), 'it left the directory alone');
+  assert.ok(fs.existsSync(nodePath.join(r.home, '.claude-bystander')),
+    'and the real account beside it is untouched');
+});
+
+/* 🛑 THE ASYMMETRY WITH THE OPENAI ROUTE, AT THE ROUTE LEVEL. */
+test('#1659 route: the DEFAULT account is refused, and it is still there', () => {
+  const r = board(({ home }) => account(home, 'default'));
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.match(String(r.json.error), /main Claude folder/);
+  assert.ok(fs.existsSync(r.target), 'THE DEFAULT MUST STILL BE THERE');
+});
+
+test('#1659 route: a missing account is a quiet success, not an error', () => {
+  const r = board(({ home }) => nodePath.join(home, '.claude-neverexisted'));
+  assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
+  assert.equal(r.json.forgotten, false);
+  assert.match(r.json.because, /already gone/);
+});
+
+test('#1659 route FAIL-CLOSED: an unreadable launch file REFUSES instead of proceeding', () => {
+  const fleet = require('./test-support/fleet');
+  const r = board((ctx) => {
+    const dir = account(ctx.home, 'guarded');
+    ctx.panesFile = nodePath.join(ctx.sb, 'panes.txt');
+    fs.writeFileSync(ctx.panesFile, fleet.line({ session: 'ghost' }) + '\n');
+    fs.mkdirSync(nodePath.join(ctx.workers, 'ghost'), { recursive: true });
+    fs.mkdirSync(nodePath.join(ctx.launch, 'com.kosmos.agent.ghost.plist'), { recursive: true });
+    return dir;
+  });
+  assert.equal(r.code, 400, 'it must REFUSE, not proceed. body: ' + JSON.stringify(r.json));
+  assert.match(String(r.json.error), /could not check which agents/,
+    'and it must say it could not LOOK, not that nobody was there');
+  assert.ok(fs.existsSync(r.target), 'refusing means nothing moved');
+});
+
+test('#1659 route: an agent ON the account blocks removal and is NAMED', () => {
+  const r = board((ctx) => {
+    const dir = account(ctx.home, 'busy');
+    agentOn(ctx, 'marlowe', dir, 'claude');
+    return dir;
+  });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.deepEqual(r.json.usedBy, ['marlowe'], 'the person needs to know WHICH agent');
+  assert.match(String(r.json.error), /marlowe is set up to run on this account/);
+  assert.ok(fs.existsSync(r.target), 'nothing moved');
+});
+
+/* Without this the arm above could pass on a route that refuses whenever ANY
+   agent exists, which would make the button unpressable on a busy machine. */
+/* 🛑 THE RUNNER FILTER, PERTURBED BY DELETION RATHER THAN BY INVERSION.
+   Inverting `job.runner !== 'claude'` to `'codex'` goes red because every other
+   agent in this file is a Claude one. DELETING the line does NOT: with no
+   filter, all runners count, and since nothing here was a codex agent the
+   outcome never changed. So the guard was only half covered and the arm below
+   is the missing half -- a CODEX agent whose recorded home IS the target
+   directory, which the filter must skip. Delete the line and this goes red. */
+test('#1659 route: a CODEX agent on this directory does NOT block a Claude removal', () => {
+  const r = board((ctx) => {
+    const dir = account(ctx.home, 'mixed');
+    agentOn(ctx, 'codexer', dir, 'codex');
+    return dir;
+  });
+  assert.equal(r.code, 200, 'a codex agent is not on the Claude account; the filter must skip it. body: '
+    + JSON.stringify(r.json));
+  assert.equal(r.json.forgotten, true);
+});
+
+/* The other half of the same guard, and the route docblock calls it the
+   load-bearing one: `readJob` normalises a MISSING ninth argument to 'claude',
+   because every plist written before runners existed carries none. If that
+   default ever changed, an OLD Claude agent would stop being seen and its
+   account could be renamed out from under it. */
+test('#1659 route: an agent whose plist PREDATES runners still blocks (absent runner means claude)', () => {
+  const r = board((ctx) => {
+    const dir = account(ctx.home, 'legacy');
+    agentOn(ctx, 'oldtimer', dir, null);
+    return dir;
+  });
+  /* 🔑 ASSERT THE FIXTURE IS ACTUALLY PRE-RUNNERS. Without this the test reads
+     as covering the absent-runner default while in fact being indistinguishable
+     from the claude case: plistFor writes the ninth argument only for codex, so
+     plistFor(...,'claude') and plistFor(...,null) are byte-identical. The
+     assertion is what makes this arm about the DEFAULT rather than about a
+     spelling. */
+  /* 🛑 THIS ARM HAS NOW CARRIED TWO VACUOUS ASSERTIONS AND THE SECOND WAS MINE,
+     WRITTEN IN A COMMIT ABOUT REMOVING THE FIRST. Recorded in full because the
+     fact that kills both is stated three lines above and I wrote past it twice.
+       v1: matched /<string>claude<\/string>\s*<\/array>/. NO plist shape contains
+           that, so it could never fire. When I perturbed the fixture the suite
+           went red on the OUTCOME assertion below, and I read that as this arm
+           working. A perturbation that reds for a DIFFERENT reason proves nothing.
+       v2: counted <string> entries and asserted a runner-bearing plist carries
+           more. Measured: null -> 16, claude -> 16, codex -> 18, and
+           plistFor(null) === plistFor('claude') EXACTLY. So the count passes
+           identically whether this fixture is seeded null or 'claude', which is
+           the one distinction it claimed to make. The only substitution it could
+           catch is codex, and assert.equal(r.code, 400) below already catches it.
+     ⇒ THE FIXTURE'S "PRE-RUNNERS" PROPERTY IS UNPROVABLE FROM THE PLIST, BY
+     CONSTRUCTION, because the two constructions emit identical bytes. No
+     assertion over `seededPlist` can ever establish it, and writing one that
+     looks like it does is worse than writing none: it reads as coverage.
+     ✅ ASSERT THE MECHANISM INSTEAD, which IS falsifiable: `readJob` normalises a
+     MISSING runner to 'claude'. That is what makes this agent block a Claude
+     removal, and if the normalisation default ever changed this goes red. */
+  const seeded = require('./engine/create').readJob('oldtimer');
+  assert.ok(seeded, 'the seeded pre-runners agent has no readable launch file, so nothing below is about it');
+  assert.equal(seeded.runner, 'claude',
+    `a launch file with no runner argument must READ as claude, which is what makes it block; got ${JSON.stringify(seeded.runner)}`);
+  assert.equal(r.code, 400, 'a pre-runners plist must still read as a Claude agent. body: '
+    + JSON.stringify(r.json));
+  assert.deepEqual(r.json.usedBy, ['oldtimer']);
+});
+
+test('#1659 route DISCRIMINATOR: an agent on a DIFFERENT account does not block', () => {
+  const r = board((ctx) => {
+    const target = account(ctx.home, 'quiet');
+    const other = account(ctx.home, 'elsewhere');
+    agentOn(ctx, 'spade', other, 'claude');
+    return target;
+  });
+  assert.equal(r.code, 200, 'it must PROCEED: that agent is on another account. body: '
+    + JSON.stringify(r.json));
+  assert.equal(r.json.forgotten, true);
+});
+
+/* 🛑 THE ARM THAT ACTUALLY SEPARATES THE TWO ENUMERATIONS (kosmos#1697 porting
+   kosmos#1693). Measured both ways before being written, which is the only reason
+   it is here: with the `knownNames` union the route answers 400 and NAMES the
+   agent; with the union deleted it answers 200 forgotten:true and renames the
+   account out from under a configured agent.
+   ⚠️ An earlier version of this file said this state was UNREACHABLE in this
+   harness. That was wrong, and wrong for a specific reason worth keeping: I
+   believed `safeRoster()` returned anything with a launch file. It reads PANES.
+   Every fixture wrote one because `agentOn` appends one, so the two
+   implementations agreed on every case the suite could build, and I recorded a
+   correct conclusion (uncovered) from a false mechanism, then stopped looking. */
+test('#1697: a REGISTERED but NOT RUNNING agent still blocks, because a stopped agent keeps its launch file', () => {
+  const r = board((ctx) => {
+    const dir = account(ctx.home, 'walk');
+    account(ctx.home, 'default');
+    registeredNotRunning(ctx, 'ghosty', dir);
+    return dir;
+  });
+  assert.equal(r.code, 400,
+    'a stopped agent did not block, so the #1693 union is not doing its job. body: ' + JSON.stringify(r.json));
+  assert.deepEqual(r.json.usedBy, ['ghosty'],
+    'the refusal must NAME the stopped agent, or the person is told no without being told which');
+  assert.ok(fs.existsSync(r.target), 'the account directory moved despite the refusal');
+});
+
+/* 🛑 THE REMOVED-AGENT FILTER, WHICH THIS ROUTE SHIPPED UNGUARDED WHILE ITS
+   OPENAI TWIN HAS AN ARM. The #1697 union brings in REGISTERED agents, and a
+   profile file outlives a removal, so unioning raw would resurrect an agent the
+   person was already told was gone and refuse the account because of it. The
+   route's own comment calls that the trap and then had no test for the fix.
+   ⚠️ Measured before writing this: replacing `goneNames` with an empty Set left
+   all eleven arms green, while the identical mutation on the OpenAI route reds its
+   arm. The consequence is not abstract: without the filter this route answers 400
+   with "departed is set up to run on this account", naming an agent that no longer
+   exists and giving the person nothing they can act on. */
+test('#1697 CONTROL: a REMOVED agent does NOT block, so the union cannot resurrect one', () => {
+  const r = board((ctx) => {
+    const dir = account(ctx.home, 'ghosted');
+    account(ctx.home, 'default');
+    registeredNotRunning(ctx, 'departed', dir);
+    /* Recorded as removed the way the product does it, so this arm depends on the
+       same store `safeRoster` reads rather than on a flag invented here. */
+    const dataDir = nodePath.join(ctx.sb, 'data', 'AgentWorkforce');
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(nodePath.join(dataDir, 'removed.json'),
+      JSON.stringify([{ name: 'departed', removedAt: new Date().toISOString(), stopped: true }]));
+    return dir;
+  });
+  assert.equal(r.code, 200,
+    'a removed agent blocked the removal: the person was already told it was gone, so the refusal '
+    + 'names something they cannot act on. body: ' + JSON.stringify(r.json));
+  assert.equal(r.json && r.json.forgotten, true, 'the account was not forgotten despite the 200');
+});

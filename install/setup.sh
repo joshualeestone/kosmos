@@ -1890,11 +1890,19 @@ KOSMOS_SWEEP_LIST
   # actually prove: the file MENTIONS the key. By this point the bundled Node is
   # gone, so there is nothing here that can parse the file, and a sentence that
   # counted entries would be a claim this code cannot support.
-  # ⚠️ AND THE SENTENCE THAT MAKES IT USEFUL IS "SO THE MARKS STILL APPLY".
-  # The block above has already told them their agents' FOLDERS were left alone,
-  # which means these entries are not stale: open one of those folders in Claude
-  # Code later and it will not ask. The naive reading is that uninstalling made
-  # them inert, and it did not. (Mona Lisa, 2026-08-21; she checked the folder
+  # 🛑 THIS PARAGRAPH USED TO END "SO THE MARKS STILL APPLY", AND #1659 MADE
+  # THAT FALSE FOR SOME OF THE LINES BELOW. Corrected here rather than left to
+  # contradict the sentence 84 lines down that already says so.
+  # It was true and useful when written: a LIVE account's folder is left alone, so
+  # its mark is not stale and opening that folder later will not ask.
+  # What changed: the sweep now also lists `.removed-claude-*`, and NOTHING points
+  # CLAUDE_CONFIG_DIR at a forgotten account. That is the entire point of the
+  # rename, and engine/status.js:198 skips the prefix deliberately. So for those
+  # lines the mark does NOT still apply, opening one of those folders WILL ask, and
+  # the `_trust_removed` sentence below is what tells the person which case is
+  # theirs. Two flags and two sentences on purpose: one sentence covering both
+  # would be false for whichever half the person actually has.
+  # (Mona Lisa, 2026-08-21; she checked the folder
   # fact against the notice above rather than assuming the two shapes matched.)
   #
   # ⚠️ THE PARENTHETICAL IS LOAD-BEARING, per the precedent above: a key name
@@ -1922,19 +1930,74 @@ KOSMOS_SWEEP_LIST
   # ⚠️ It also NAMED that one file in its sentence, so even when it did fire the
   # remedy pointed at the wrong place. It now names the files it actually found.
   _trust_marked=''
-  for _cfg in "$HOME/.claude.json" ${CLAUDE_CONFIG_DIR:+"$CLAUDE_CONFIG_DIR/.claude.json"} "$HOME"/.claude-*/.claude.json; do
+  # 🛑 TWO FLAGS, NOT ONE, AND THE ONE-FLAG VERSION WAS MINE. A single
+  # `_trust_removed` gated a pair of sentences that assert OPPOSITE things: "for a
+  # folder you still use, the mark applies" claims a LIVE mark, and the next line
+  # claims a REMOVED one. On a machine whose ONLY marked config belongs to a
+  # disconnected account, the first sentence is false, and the header above it is
+  # false of every file in the list. Reachable, not theoretical: this block's own
+  # comment records 19 of 22 configs on the fleet machine carrying `false`.
+  # Initialised here rather than relying on `${x:-no}`, so the two read like the
+  # list they sit beside.
+  _trust_live=no
+  _trust_removed=no
+  # 🛑 FORGOTTEN ACCOUNTS TOO (#1659). Removing an account RENAMES its directory
+  # to `.removed-claude-<label>` and deliberately KEEPS the config inside, so the
+  # trust mark survives in a file this sweep could not match. The person was then
+  # told their trust marks were accounted for while one sat in plain sight, which
+  # is the exact true-sounding silence the note above describes, arriving through
+  # a directory name that did not exist when that fix was written.
+  # 🛑 NO CODEX ENTRY, AND THAT IS DELIBERATE RATHER THAN AN OMISSION. An earlier
+  # version of this line added `.removed-codex-*/.claude.json` "for symmetry".
+  # IT IS A DEAD GLOB: codex homes store `auth.json` (openaiaccounts.js:58) and
+  # codex agents launch with CODEX_HOME, never CLAUDE_CONFIG_DIR, so no
+  # `.claude.json` can exist there. Adding it looked like completeness and was a
+  # pattern that can never match -- the same decoration this sweep exists to
+  # avoid. Note there is no live `.codex-*/.claude.json` in this loop either,
+  # which is the tell: the asymmetry is real, not an oversight.
+  for _cfg in "$HOME/.claude.json" ${CLAUDE_CONFIG_DIR:+"$CLAUDE_CONFIG_DIR/.claude.json"} "$HOME"/.claude-*/.claude.json "$HOME"/.removed-claude-*/.claude.json; do
     [ -f "$_cfg" ] || continue
     grep -q '"hasTrustDialogAccepted": true' "$_cfg" 2>/dev/null || continue
     case " $_trust_marked " in *" $_cfg "*) continue ;; esac
     _trust_marked="$_trust_marked $_cfg"
+    # 🛑 ONLY SAY THE DISCONNECTED-ACCOUNT SENTENCE IF THERE IS ONE. Without this
+    # flag those two lines printed on EVERY uninstall, so the overwhelmingly common
+    # machine (one ~/.claude.json mark, no account ever disconnected) was told about
+    # a state the person has never been in. That is the same "a reason that is true
+    # only sometimes, stated as fact" defect this block's own comments were rewritten
+    # twice to remove, arriving a third time from the side that looks like extra
+    # helpfulness.
+    case "$_cfg" in
+      "$HOME"/.removed-claude-*) _trust_removed=yes ;;
+      *) _trust_live=yes ;;
+    esac
   done
   if [ "$_agents_stopped" = "yes" ] && [ -n "$_trust_marked" ]; then
-    printf '  Trust marks were left in place: your agents'"'"' folders are recorded as\n'
-    printf '  trusted in these files (Claude Code will not ask before working in\n'
-    printf '  them):\n'
+    printf '  Trust marks were left in place. These files each carry a mark that\n'
+    printf '  records a folder as trusted:\n'
+    # ⚠️ UNQUOTED ON PURPOSE, and said so because it looks like the word-splitting
+    # bug this fleet keeps finding: `$_trust_marked` is a space-joined LIST built
+    # above, so it MUST split. What it cannot survive is a path containing a space,
+    # and #1659 adds another source of paths into that accumulator, so the hazard is
+    # now fed from two places rather than one. Pre-existing and not fixed here;
+    # named so the next person meets it as known rather than as a discovery.
     for _cfg in $_trust_marked; do printf '    %s\n' "$_cfg"; done
-    printf '  Those folders are still on your machine, so the marks still apply.\n'
-    printf '  Remove those entries if you want the question back.\n\n'
+    # 🛑 THE OLD SENTENCE SAID "the marks still apply" AND #1659 MADE THAT FALSE FOR
+    # SOME OF THE LINES ABOVE. The sweep now also lists `.removed-claude-*`, and
+    # nothing points CLAUDE_CONFIG_DIR at a forgotten account: that is the point of
+    # the rename, and engine/status.js skips the prefix deliberately. So the mark in
+    # a disconnected account's config is INERT, and telling someone it is in effect
+    # is the same true-sounding-but-wrong disclosure this block was fixed for twice
+    # before. Listing the leftover file is right; asserting it still bites is not.
+    if [ "$_trust_live" = yes ]; then
+      printf '  For a folder you still use, the mark applies, so Claude Code does not\n'
+      printf '  ask before working in it.\n'
+    fi
+    if [ "$_trust_removed" = yes ]; then
+      printf '  For an account you disconnected, the file is still there but nothing\n'
+      printf '  reads it, so you will be asked again if you reconnect that account.\n'
+    fi
+    printf '  Remove these entries if you want the question back everywhere.\n\n'
   fi
   exit 0
 }

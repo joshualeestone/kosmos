@@ -153,8 +153,12 @@ let failed = 0;
      rename is the product decision; this line was left behind by it. */
   say('every box says Signed in (live check against the harness stub accepted the walk key)', rows.length > 0 && rows.every((r) => /Signed in/.test(r)), JSON.stringify(rows));
   /* 🛑 THIS ASSERTED "Disconnect is disabled everywhere" AND #1372 MADE IT
-     FALSE. The OpenAI arm has an engine route now, so its button is live and says
-     Remove; Claude's still has none (#1184) and keeps the honest dead Disconnect.
+     FALSE, THEN #1659 MADE THE REPLACEMENT FALSE TOO. Both providers now have an
+     engine route AND, since #1659, BOTH READ "Disconnect": one act, one word, in
+     one row builder. Both are live except on the default Claude row, which the
+     engine refuses. (An earlier version of this comment still said OpenAI says
+     "Remove" while the assertion below already required "Disconnect" -- a
+     comment contradicting the code beneath it, in this file.)
      ⚠️ THIS WOULD HAVE BEEN THE THIRD CUT THIS ONE FILE TOOK DOWN by an assertion
      that was correct when written: "Connected"->"Signed in" failed 0.5.88, the
      provider leaving the row failed 0.6.05. Each was green right up to the change
@@ -163,24 +167,66 @@ let failed = 0;
      tightened on the axis this change promises, kept on the axis it leaves alone
      -- and kept NON-VACUOUSLY, because under a blanket every() "the Claude button
      is dead" and "no Claude row rendered at all" are the same pass. */
+  /* 🛑 EACH BUTTON IS CAPTURED WITH ITS OWN ROW'S TEXT (#1659). Partitioning
+     the buttons by whether they carry `data-forget` cannot tell WHICH row is
+     which, so "default disabled + other live" and "default live + other
+     disabled" produced identical passes -- the feature fully inverted, arms
+     green. `row` ties each control to the account it belongs to. */
   const doors = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-prov')].map((g) => ({
     provider: ((g.querySelector('.acct-prov-name') || {}).innerText || '').trim(),
-    buttons: [...g.querySelectorAll('.acct-disconnect')].map((b) => ({
-      label: (b.innerText || '').trim(), disabled: !!b.disabled, forgets: !!b.dataset.forget,
-    })),
+    buttons: [...g.querySelectorAll('.acct-disconnect')].map((b) => {
+      const box = b.closest('.acct-box');
+      return {
+        /* 🛑 BOTH STATES, BECAUSE THEY ARE NOT THE SAME ONE. `b.disabled` is the
+           IDL property and reflects ONLY the `disabled` content attribute, so a
+           control marked `aria-disabled="true"` reads disabled:false. This arm
+           asserted `b.disabled` and went red the moment the markup moved to
+           aria-disabled for keyboard reachability. Capture both or the check
+           cannot tell "inert" from "natively disabled". */
+        label: (b.innerText || '').trim(), disabled: !!b.disabled, forgets: !!b.dataset.forget,
+        ariaDisabled: b.getAttribute('aria-disabled') === 'true',
+        row: ((box && box.innerText) || '').replace(/\s+/g, ' ').trim(),
+      };
+    }),
   })));
   const openaiDoors = doors.filter((g) => /OpenAI/.test(g.provider) && !/Codex/.test(g.provider)).flatMap((g) => g.buttons);
   const otherDoors = doors.filter((g) => !/OpenAI/.test(g.provider)).flatMap((g) => g.buttons);
-  say('the OpenAI account offers a live Remove (#1372)',
-    openaiDoors.length > 0 && openaiDoors.every((b) => !b.disabled && b.forgets && /^Remove$/.test(b.label)),
+  say('the OpenAI account offers a live Disconnect (#1372, relabelled #1659)',
+    openaiDoors.length > 0 && openaiDoors.every((b) => !b.disabled && b.forgets && /^Disconnect$/.test(b.label)),
     JSON.stringify(doors));
-  /* Reported, not asserted: this fixture adds no Claude account, so the #1184 arm
-     has nothing to say here and a silent pass would claim that it did. */
+  /* 📌 THE FIXTURE NOW SEEDS TWO CLAUDE ACCOUNTS (the default and one other), so
+     these arms RUN. The empty branch below is kept for a sandbox that does not,
+     because a silent pass would claim coverage it did not have.
+     🛑 THIS ARM ASSERTED THE OPPOSITE UNTIL #1659 and was dormant only because
+     `otherDoors` is empty in this sandbox -- a fourth stale assertion in this one
+     file, armed and waiting on whoever first seeded a Claude account. It now
+     asserts the LIVE control, so it fails if the button reverts to dead. */
   if (otherDoors.length === 0) {
-    console.log('NOTE  no non-OpenAI account in this fixture; the #1184 dead-Disconnect arm was not exercised');
+    console.log('NOTE  no non-OpenAI account in this fixture; the Claude Disconnect arms were not exercised');
   } else {
-    say('a non-OpenAI account keeps the dead Disconnect (#1184 unchanged)',
-      otherDoors.every((b) => b.disabled && !b.forgets && /^Disconnect$/.test(b.label)), JSON.stringify(otherDoors));
+    /* 🛑 TWO STATES ON ONE PROVIDER, ASSERTED SEPARATELY (#1659). The default
+       row's button is deliberately DISABLED (the engine refuses to move
+       ~/.claude, because prepare() symlinks every account's projects into it);
+       every other row is live. A single blanket arm over `otherDoors` would
+       pass on either state alone and could not tell them apart -- which is the
+       vacuity this file has already been bitten by three times.
+       📌 A LENGTH FLOOR ON EACH, not `some`: with two Claude rows seeded, a
+       bare `some` passes on one good button standing beside a broken one. */
+    /* Partitioned BY ROW IDENTITY, not by the attribute under test: the
+       sandbox seeds main@example.com as the default and walk@example.com as the
+       other, so each arm names the account it is about. Inverting the guard now
+       fails both arms instead of swapping two indistinguishable sets. */
+    const rowFor = (needle) => otherDoors.filter((b) => b.row.includes(needle));
+    const defaultRow = rowFor('main@example.com');
+    const otherRow = rowFor('walk@example.com');
+    say('the browser sees BOTH seeded Claude rows (or the two arms below are vacuous)',
+      defaultRow.length === 1 && otherRow.length === 1, JSON.stringify(otherDoors));
+    say('the NON-DEFAULT Claude account offers a live Disconnect (#1659)',
+      otherRow.length > 0 && otherRow.every((b) => !b.disabled && !b.ariaDisabled && b.forgets && /^Disconnect$/.test(b.label)),
+      JSON.stringify(otherRow));
+    say('the DEFAULT Claude account\'s Disconnect is disabled and not wired (#1659)',
+      defaultRow.length > 0 && defaultRow.every((b) => !b.disabled && b.ariaDisabled && !b.forgets && /^Disconnect$/.test(b.label)),
+      JSON.stringify(defaultRow));
   }
   // Create form: OpenAI provider -> account menu offers the new account
   await p.goto(BASE + '/?tab=create', { waitUntil: 'load' });
@@ -236,6 +282,16 @@ let failed = 0;
      "the row went away" and "the row was never rendered" are the same pass. */
   say('before the click, the account is on the list',
     rowsBefore.some((r) => /API key ending WALK/.test(r)), JSON.stringify(rowsBefore));
+  /* 🔑 MERGE OF #1711 AND #1659, AND BOTH HALVES ARE LOAD-BEARING.
+     #1711 (on main) made this a two-press confirm with a visibility guard and a
+     timing-independent arm signal. #1659 (this branch) makes the CLAUDE row carry
+     a `data-forget` button too, at which point a bare `[data-forget]` inside the
+     row is no longer unambiguous.
+     ⇒ Keep #1711's structure entirely and NARROW ITS LOOKUP BY PROVIDER. Row
+     scoping alone would have been enough today, because the WALK row is an
+     OpenAI row by construction, but that is an accident of the fixture rather
+     than a property anybody asserted, and this is the file whose last unrooted
+     selector took down a release. Both scopes, explicitly. */
   /* 🛑 #1702 MADE REMOVAL A TWO-PRESS CONFIRM AND THIS CHECK STILL PRESSED ONCE,
      so it red every cut from the moment #1702 landed: the single press only ARMED,
      the row stayed, and both assertions below failed with the label reading
@@ -272,7 +328,7 @@ let failed = 0;
     const shown = [...document.querySelectorAll('#set-accounts .acct-box')]
       .filter((r) => r.getBoundingClientRect().height > 0);
     const row = shown.find((r) => /API key ending WALK/.test(r.innerText));
-    const b = row ? row.querySelector('[data-forget]') : null;
+    const b = row ? row.querySelector('[data-forget-provider="openai"]') : null;
     const seen = {
       /* textContent, not innerText: an EXACT-MATCH assertion on a label the page
          sets itself, and innerText would move under a text-transform. CHECKED
@@ -329,11 +385,19 @@ let failed = 0;
      wrong reason. The `offers a live Remove` assertion is two full navigations
      earlier against a destroyed page, so it is not an arm for this one. */
   const beforePress = await walkStep(false);
-  say('before the press, the button rests on "Remove" and is VISIBLE',
-    beforePress.label === 'Remove' && beforePress.listed === true && beforePress.visible === true,
+  /* 🛑 "Disconnect", NOT "Remove", AND #1659 IS WHY. This arm was written on the
+     branch that fixed the confirm, against a main where the OpenAI control still
+     said "Remove". #1659 relabels it so both providers read the same word, which
+     is the whole point of that card, so the assertion encoded a label its own
+     merge target was about to change.
+     ⚠️ It failed here and nowhere else, because the gate had not been re-run on
+     this tree since twelve commits earlier: the stale evidence hid a stale
+     assertion. That is the pairing worth remembering, not the label. */
+  say('before the press, the button rests on "Disconnect" and is VISIBLE',
+    beforePress.label === 'Disconnect' && beforePress.listed === true && beforePress.visible === true,
     JSON.stringify(beforePress));
   const pressOne = await walkStep(true);
-  say('the Remove button is there to press', pressOne.clicked === true, JSON.stringify(pressOne));
+  say('the Disconnect button is there to press', pressOne.clicked === true, JSON.stringify(pressOne));
   await p.waitForTimeout(300);
   const firstPress = await walkStep(false);
   say('the FIRST press only ARMS, it does not remove (#1683, #1702)',

@@ -205,14 +205,51 @@ function forgetAccount(dir, usedBy) {
       forgotten: false,
       usedBy: agents,
       because: agents.length === 1
-        ? `${agents[0]} is running on this account. Move it to another account or remove it first.`
-        : `${agents.length} agents are running on this account: ${agents.join(', ')}. `
+        ? `${agents[0]} is set up to run on this account. Move it to another account or remove it first.`
+        : `${agents.length} agents are set up to run on this account: ${agents.join(', ')}. `
           + 'Move them to another account or remove them first.',
     };
   }
 
   if (!fs.existsSync(clean)) {
     return { ok: true, forgotten: false, because: 'that account is already gone from this computer' };
+  }
+
+  /* 🛑 THE NAME IS NOT THE ACCOUNT, and every guard above keys on the NAME. A
+     directory called `.codex-anything` inside home passes all of them, so this
+     route would rename a real folder that codex never wrote and report
+     `forgotten: true`.
+     ⚠️ MEASURED BEFORE BEING ADDED, not argued: a planted `~/.codex-notanaccount`
+     holding one user file was renamed to `.removed-codex-notanaccount` with the
+     file carried along, and the answer said it had been forgotten.
+     📌 The Claude sibling has carried this guard since #1659, added after the same
+     measurement found `.claude-workers` (a real non-account tree on this machine)
+     inside its blast radius. This is the same exposure on the provider that has
+     had a live Disconnect since #1372, and it is here rather than on its own card
+     because deferring a SAFETY guard is a worse version of an argument I already
+     rejected for a copy string.
+     ⚠️ AFTER the existence check on purpose, so a directory that is simply gone is
+     reported as gone rather than as "not an account".
+     🛑 I CLAIMED A COST HERE THAT DOES NOT EXIST, and the correction matters more
+     than the original claim. I wrote that an account with a CORRUPTED `auth.json`
+     answers null here too, so it could no longer be disconnected from Settings,
+     "exactly when somebody would want to".
+     ⇒ MEASURED, and it is false: `list()` gates on `identityOf` as well, so such an
+     account is never rendered and has no Disconnect control to begin with. Nothing
+     changed for that person. The Claude sibling's `list()` gates the same way.
+     ⚠️ AND THE SAME REASONING BOUNDS THE BENEFIT, so this is not a rescue of my own
+     guard: the page only ever sends a `dir` that `list()` emitted, so a
+     `.codex-notanaccount` cannot arrive from the button either.
+     ✅ WHAT THIS GUARD ACTUALLY IS: defence in depth on an unauthenticated local
+     HTTP endpoint that renames directories. Worth keeping for that reason and
+     stated as that reason, rather than as a user-facing trade nobody can reach.
+     📌 Kept because the alternative is worse: without this, a name-shaped folder
+     the person made gets renamed with its contents and the answer says it was
+     forgotten. Refusing to move something we cannot identify is the safer error.
+     Measured, so the cost is a known size rather than a guess: `{label}` -> null,
+     `{auth_mode, OPENAI_API_KEY}` -> an identity, unparseable -> null. */
+  if (!identityOf(clean)) {
+    return { ok: false, forgotten: false, because: 'that is not an OpenAI account on this computer' };
   }
 
   const label = base === '.codex' ? 'default' : base.slice('.codex-'.length);
@@ -233,7 +270,28 @@ function forgetAccount(dir, usedBy) {
     ok: true,
     forgotten: true,
     movedTo: target,
-    wasDefault: base === '.codex',
+    /* 🛑 THE DEFAULT IS WHERE `defaultHome()` POINTS, NOT WHATEVER IS CALLED
+       `.codex`. `AGENT_WORKFORCE_CODEX_HOME` and `CODEX_HOME` both move it
+       (`codexupdate.js:46`), and the supervisor puts `CODEX_HOME` in a codex
+       agent's environment, so this is reachable outside a test.
+       ⇒ A basename check is wrong in BOTH directions, measured, both arms:
+         CODEX_HOME=<home>/.codex-work  the row `list()` marks isDefault:true is
+           disconnected with `wasDefault:false`, so the caller OMITS the history
+           sentence while the transcripts really are gone (rollouts 1 -> 0).
+         no override (control)  `.codex` reports true, so the flag can return
+           the other answer and this measurement means something.
+       The mirror is worse: with the home moved elsewhere, a leftover `.codex`
+       reports true and the caller states a history loss that did not happen.
+       ⚠️ SCOPE, SO THIS IS NOT READ AS COVERING THE WHOLE `CODEX_HOME` RANGE: it
+       fixes the flag for a named home INSIDE the person's home folder. Point
+       `CODEX_HOME` OUTSIDE it and `list()` still emits the row as `isDefault:true`
+       with a live Disconnect, while the first guard below refuses every press
+       because the parent is not home. Measured, both arms: an outside-home row
+       returns `that is not an OpenAI account on this computer`, while the control
+       inside home returns `ok:true`. That is a live control that can never act,
+       which is the shape this file refuses elsewhere. It PREDATES this change and
+       is not fixed here; it is carded rather than widened silently. */
+    wasDefault: clean === path.resolve(defaultDir()),
     because: null,
   };
 }
