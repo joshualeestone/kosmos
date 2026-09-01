@@ -66,8 +66,15 @@ const path = require('node:path');
    rather than being written twice. */
 const PATH_SHAPED = /^(?:[A-Z][A-Z0-9_]*_(?:DIR|FILE|PATH|HOME)|HOME_FOR_TEST|FILE|DIR|LOG|SEEN|FLAG|ROOT|HOME|AVATARS|PROFILES)$/;
 const GETTER_VALUE_NAMES = ['ROOT', 'AVATARS', 'PROFILES'];
-const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
-  'store.PROFILES', 'process.env.AGENT_WORKFORCE_DATA'];
+/* 🛑 DERIVED, NOT RE-TYPED. The comment above says the three getter names live in
+   ONE place, and until now that was FALSE inside the very next statement: SOURCES
+   spelled `store.ROOT`, `store.AVATARS`, `store.PROFILES` out again, so narrowing
+   GETTER_VALUE_NAMES silently un-tracked a destructured or aliased AVATARS while
+   leaving the dotted form tracked, and the whole suite stayed green. A claim of one
+   source of truth is worth nothing while a second literal restates it. */
+const SOURCES = ['os.homedir()', 'os.tmpdir()',
+  ...GETTER_VALUE_NAMES.map((n) => 'store.' + n),
+  'process.env.AGENT_WORKFORCE_DATA'];
 
 /* 🛑 WHAT THIS TOOL CANNOT SEE, STATED HERE BECAUSE AN EMPTY DEBT LIST READS AS
    FULL COVERAGE AND THIS TOOL DOES NOT HAVE IT.
@@ -812,8 +819,25 @@ function functionNamesReaching(rawSrc, sources) {
     let adepth = 0;
     for (let j = i; j < lines.length && j - i < 400; j += 1) {
       buf.push(lines[j]);
-      adepth += lineInfo(lines[j]).delta;
-      if (j > i && /^\}/.test(lines[j])) break;
+      const info = lineInfo(lines[j]);
+      adepth += info.delta;
+      /* 🛑 A ONE-LINE DEFINITION CLOSES ON ITS OWN LINE, AND BOTH BREAKS BELOW ARE
+         GUARDED BY `j > i`, so every single-line helper swallowed the line after it
+         and any source in that line made the helper a resolver. Measured, n=3:
+           function label() { return 'x'; }
+           const TITLE = label() + '!';
+           const dirFor = () => path.join(store.ROOT, 'y');
+         reported `const TITLE` as reaching a root "via a resolver helper". The
+         one-line arrow const is the idiom this branch introduces 23 times, and the
+         enforced scope holds 81 one-line function declarations.
+         Depth back to zero AND the line ending in `}` or `;` is what says it closed
+         here; `function f() {` and `const f = () => {` leave depth at 1, and a bare
+         continuation line `const f = () =>` ends in neither. */
+      if (j === i) {
+        if (adepth <= 0 && /[};]\s*$/.test(info.code)) break;
+        continue;
+      }
+      if (/^\}/.test(lines[j])) break;
       /* An arrow assigned to a const ends at its own `;`, not at a column-0 `}`.
          Without this its body ran on to the next function and swept in references
          belonging to somebody else.
@@ -827,14 +851,24 @@ function functionNamesReaching(rawSrc, sources) {
          went SILENT. Measured, both arms: block form rc=0, single-expression form
          rc=1 on identical logic. Same defect as the one in `declarations()`, in a
          second loop, which is why both now share `lineInfo`. */
-      if (j > i && /=>/.test(lines[i]) && adepth <= 0 && /;\s*$/.test(lineInfo(lines[j]).code)) break;
+      if (/=>/.test(lines[i]) && adepth <= 0 && /;\s*$/.test(info.code)) break;
     }
     bodies.push([m[1], buf.join('\n')]);
   }
   const names = new Set();
   for (let round = 0; round < 2; round += 1) {
     for (const [name, body] of bodies) {
-      const reaches = sources.some((s) => body.includes(s))
+      /* 🛑 `body.includes(s)` HERE WAS THE ONE SOURCE-MATCH IN THE FAMILY WITHOUT A
+         WORD BOUNDARY, and this branch is what made that dangerous: it added BARE-NAME
+         sources (destructured ROOT/AVATARS/PROFILES, foreign FILE/DIR/LOG/...), so a
+         plain substring made an unrelated helper a "resolver". Measured:
+           const { FILE } = require('./limits');
+           const MAX_FILE_SIZE = 10;
+           function budget() { return MAX_FILE_SIZE * 2; }
+           const CAP = budget();        -> REPORTED, on correct code
+         `hasSource` is what the three siblings already used; the false positive its
+         own comment documents was living on, one layer down, in this line. */
+      const reaches = sources.some((s) => hasSource(body, s))
         || [...names].some((n) => new RegExp(`\\b${n}\\s*\\(`).test(body));
       if (reaches) names.add(name);
     }

@@ -28,15 +28,25 @@ fixture() { printf '%s\n' "$2" > "$T/$1.js"; }
 # died" is not an arm.
 # So: a crash is its own verdict, and an exit-1 with no finding line is another. Both
 # differ from "1", so every arm expecting a finding now fails on either.
-run() {
-  node "$TOOL" "$T/$1.js" >"$T/out" 2>&1
+# 🛑 ONE COPY OF THIS LOGIC, NOT TWO. `crash_verdict` below used to be a HAND COPY
+# of run()'s body, so the arm that verifies run()'s crash detection was verifying a
+# DIFFERENT FUNCTION that merely looked the same. A duplicated rule is one edit away
+# from a test that no longer tests the thing it names.
+# ⚠️ UNREADABLE IS ITS OWN VERDICT. It used to satisfy "the tool found the thing", so
+# a liveness arm asserting `1` passed on a file the scanner GAVE UP on rather than on
+# a finding. An arm that cannot tell a freeze from an abandoned parse is not an arm,
+# which is the same argument the crash case above is made of.
+_verdict() {   # $1 = tool path, $2 = fixture name
+  node "$1" "$T/$2.js" >"$T/out" 2>&1
   rc=$?
   if grep -qE 'ReferenceError|TypeError|SyntaxError|RangeError|^    at ' "$T/out"; then echo "CRASH"; return; fi
-  if [ "$rc" = "1" ] && ! grep -qE 'resolves a root at require time|^STALE|^UNREADABLE' "$T/out"; then
+  if grep -q '^UNREADABLE' "$T/out"; then echo "UNREADABLE"; return; fi
+  if [ "$rc" = "1" ] && ! grep -qE 'resolves a root at require time|^STALE' "$T/out"; then
     echo "NOFINDING"; return
   fi
   echo "$rc"
 }
+run() { _verdict "$TOOL" "$1"; }
 
 # ---- arm 1: a lazy arrow const must NOT be flagged (PRECISION) -------------
 fixture lazy "const os = require('os');
@@ -621,15 +631,7 @@ if [ "$rc_c" = "1" ] && printf '%s' "$out_c" | grep -qE 'ReferenceError'; then
   ok "a crashing tool exits 1, which is why the exit code alone cannot be trusted"
 else bad "the crash fixture did not behave as expected" "rc=$rc_c"; fi
 
-crash_verdict() {
-  node "$CRASHTOOL" "$T/$1.js" >"$T/out" 2>&1
-  rc=$?
-  if grep -qE 'ReferenceError|TypeError|SyntaxError|RangeError|^    at ' "$T/out"; then echo "CRASH"; return; fi
-  if [ "$rc" = "1" ] && ! grep -qE 'resolves a root at require time|^STALE|^UNREADABLE' "$T/out"; then
-    echo "NOFINDING"; return
-  fi
-  echo "$rc"
-}
+crash_verdict() { _verdict "$CRASHTOOL" "$1"; }
 if [ "$(crash_verdict forcrash)" = "CRASH" ]; then ok "run()'s own logic reports CRASH rather than 1"
 else bad "run()'s crash detection did not fire" "got $(crash_verdict forcrash)"; fi
 
@@ -768,6 +770,45 @@ const FROZEN = path.join(R,'x');"
 pb_line=$(node "$TOOL" "$T/padbefore.js" 2>&1 | grep -o ':[0-9]*  const R ' | grep -o '[0-9]*')
 if [ "$pb_line" = "2" ]; then ok "a multi-line require freeze is reported at its own line 2"
 else bad "padBefore lost a newline and the line drifted" "said $pb_line, want 2"; fi
+# 🛑 THE LINE ABOVE CANNOT SEE THE RULE THIS ARM IS NAMED FOR. `const R` sits BEFORE
+# the multi-line require, so a lost newline drifts every line AFTER it and leaves
+# this assertion at 2 either way. Deleting the newline preservation from padBefore
+# left the whole suite ALL PASS while reported lines moved by two. An arm whose
+# fixture is upstream of its own effect is decoration.
+# So assert a line DOWNSTREAM of the pad, where the drift actually lands.
+# ⚠️ AND THE FIXTURE HAD TO CHANGE, WHICH IS THE SECOND HALF OF THE SAME MISTAKE. My
+# first downstream assertion named `const FROZEN`, a line the tool does not report at
+# all: once `const R` is flagged, a later use of R is not a separate finding. An arm
+# asserting a finding that is never emitted reads empty and fails for the wrong
+# reason. The downstream line has to be an INDEPENDENT freeze.
+fixture padbefore_after "const a = 1;
+const R = require(
+  './store'
+).ROOT;
+const b = 2;
+const os = require('os');
+const HOME = os.homedir();"
+# 🛑 AND THIS FIXTURE TESTS padAfter, NOT padBefore, WHICH IS THE SAME MISNAMING ONE
+# LAYER ON. A multi-line `require(\n './store' \n)` is rewritten by the MODULE-PATH
+# rule, which pads AFTER. I wrote this arm under the padBefore heading and only found
+# out by mutating padAfter and watching THIS assertion go red. An arm that reds on a
+# rule it does not name is how a suite reports coverage it does not have.
+pa_after=$(node "$TOOL" "$T/padbefore_after.js" 2>&1 | grep -o ':[0-9]*  const HOME ' | grep -o '[0-9]*')
+if [ "$pa_after" = "7" ]; then ok "padAfter keeps a downstream line's number across a multi-line require path (7)"
+else bad "padAfter newline loss drifted a downstream line" "said $pa_after, want 7"; fi
+
+# The genuine padBefore path needs the newline between `require(store)` and `.ROOT`,
+# which is a different rewrite from the one above. Verified by mutating padBefore
+# alone: this line moves 6 -> 5 and the padAfter assertion above does not move.
+fixture padbefore_only "const a = 1;
+const R = require('./store')
+  .ROOT;
+const b = 2;
+const os = require('os');
+const HOME = os.homedir();"
+pb_only=$(node "$TOOL" "$T/padbefore_only.js" 2>&1 | grep -o ':[0-9]*  const HOME ' | grep -o '[0-9]*')
+if [ "$pb_only" = "6" ]; then ok "padBefore keeps a downstream line's number across a split member access (6)"
+else bad "padBefore newline loss drifted a downstream line" "said $pb_only, want 6"; fi
 
 # ---- arm 63: no SKIP BY NAME in either half of the captured-getter rule ----
 # capturedGetter dropped its `env` name check; capturedMarks kept it, so the two
@@ -794,6 +835,141 @@ const F = path.join(store.ROOT,'x');"
 n_rl=$(node "$TOOL" "$T/regexline.js" 2>&1 | grep -c 'resolves a root')
 if [ "$n_rl" = "1" ]; then ok "an apostrophe inside a regex does not run the capture on"
 else bad "a regex literal desynchronised the line walker" "$n_rl findings, want 1"; fi
+
+# ---- arm 65: the source match is WORD-BOUNDED, the odd sibling -------------
+# `functionNamesReaching` was the one member of the source-matching family using a
+# plain `body.includes(s)`; the other three go through hasSource/sourceOccurrences.
+# This branch is what made that dangerous, by adding BARE-NAME sources. A substring
+# hit then makes an unrelated helper a resolver, on correct code, in a CI gate.
+fixture wordb "const { FILE } = require('./limits');
+const MAX_FILE_SIZE = 10;
+function budget() { return MAX_FILE_SIZE * 2; }
+const CAP = budget();"
+wb=$(node "$TOOL" "$T/wordb.js" 2>&1 | grep -c 'const CAP')
+if [ "$wb" = "0" ]; then ok "MAX_FILE_SIZE does not make a helper a resolver via bare FILE"
+else bad "a substring source match reported correct code" "$wb hits on const CAP"; fi
+
+# ---- arm 66: a ONE-LINE function does not swallow the next line ------------
+# Both body-capture breaks were guarded by `j > i`, so a definition that closes on
+# its own line ran on and adopted whatever followed. Counterweight to the arm for
+# the arrow form below: this is the `function` half.
+fixture oneline_fn "const store = require('./store');
+function label() { return 'x'; }
+const TITLE = label() + '!';
+const dirFor = () => path.join(store.ROOT, 'y');"
+of=$(node "$TOOL" "$T/oneline_fn.js" 2>&1 | grep -c 'const TITLE')
+if [ "$of" = "0" ]; then ok "a one-line function body stops at its own closing brace"
+else bad "a one-line function swallowed the following line" "$of hits on const TITLE"; fi
+
+# ---- arm 67: a ONE-LINE arrow const does not swallow the next line ---------
+# The idiom this branch introduces 23 times. Its break required j > i, so it always
+# took at least one extra line.
+fixture oneline_arrow "const store = require('./store');
+const label = () => 'x';
+const dirFor = () => path.join(store.ROOT, 'y');
+const TITLE = label() + '!';"
+oa=$(node "$TOOL" "$T/oneline_arrow.js" 2>&1 | grep -c 'const TITLE')
+if [ "$oa" = "0" ]; then ok "a one-line arrow const body stops at its own semicolon"
+else bad "a one-line arrow swallowed a following line" "$oa hits on const TITLE"; fi
+
+# ---- arm 68: a MULTI-LINE definition still reaches its whole body ----------
+# The counterweight to the two arms above: having taught the capture to stop on the
+# definition line, a genuine multi-line helper must still be seen whole, or the fix
+# for a false positive becomes a false negative.
+fixture multiline_helper "const store = require('./store');
+function dirFor() {
+  const seg = 'liveness';
+  return path.join(store.ROOT, seg);
+}
+const CAP = dirFor();"
+mh=$(run multiline_helper)
+if [ "$mh" = "1" ]; then ok "a multi-line helper is still a resolver after the one-line fix"
+else bad "the one-line termination fix blinded the multi-line case" "verdict $mh, want 1"; fi
+
+# ---- arm 69: normaliseAccess handles the DOUBLE-quoted subscript ----------
+# `['X']` and `["X"]` are one idea with two spellings and only the single-quoted one
+# had an arm; removing the double-quoted rewrite left the suite green.
+fixture dq_sub "const store = require('./store');
+const HOME = store[\"ROOT\"];"
+if [ "$(run dq_sub)" = "1" ]; then ok "a double-quoted subscript access is normalised"
+else bad "store[\"ROOT\"] was not seen" "verdict $(run dq_sub)"; fi
+
+# ---- arm 70: declarations() sees module.exports.X --------------------------
+# const/let/var and exports.X had an arm; the third spelling did not.
+fixture mod_exports "const os = require('os');
+module.exports.HOME = os.homedir();"
+if [ "$(run mod_exports)" = "1" ]; then ok "module.exports.X is a declaration"
+else bad "module.exports.X was not scanned" "verdict $(run mod_exports)"; fi
+
+# ---- arm 71: an ASYNC FUNCTION declaration is a resolver body -------------
+# The async ARROW had an arm; the async function half did not.
+fixture async_fn "const store = require('./store');
+async function dirFor() {
+  return path.join(store.ROOT, 'y');
+}
+const CAP = dirFor();"
+if [ "$(run async_fn)" = "1" ]; then ok "an async function declaration is seen as a resolver"
+else bad "async function was not matched" "verdict $(run async_fn)"; fi
+
+# ---- arm 72: os.tmpdir() is a tracked source ------------------------------
+# A SOURCES member with no arm of its own.
+fixture tmpdir "const os = require('os');
+const SCRATCH = os.tmpdir();"
+if [ "$(run tmpdir)" = "1" ]; then ok "os.tmpdir() is a tracked root source"
+else bad "os.tmpdir() is in SOURCES but nothing asserts it" "verdict $(run tmpdir)"; fi
+
+# ---- arm 73: the DATA env seam is a tracked source ------------------------
+# Reached only through the laundering arm, so it had no direct assertion.
+fixture dataenv "const BASE = process.env.AGENT_WORKFORCE_DATA;
+const DIR = path.join(BASE, 'x');"
+if [ "$(run dataenv)" = "1" ]; then ok "the AGENT_WORKFORCE_DATA seam is tracked directly"
+else bad "the DATA seam has no direct coverage" "verdict $(run dataenv)"; fi
+
+# ---- arm 74: the PATH_SHAPED names THIS BRANCH mints ----------------------
+# FILE and DIR had arms. LOG, SEEN, FLAG and ROOT are exactly the names this branch
+# introduces (messages.LOG, messages.SEEN, firstrun.FLAG, attachments.ROOT) and
+# trimming PATH_SHAPED to FILE|DIR left the suite green.
+pn_fail=0
+for nm in LOG SEEN FLAG; do
+  fixture "pn_$nm" "const { $nm } = require('./messages');
+const COPY = $nm;"
+  v=$(node "$TOOL" "$T/pn_$nm.js" 2>&1 | grep -c "const { $nm }")
+  [ "$v" = "1" ] || { pn_fail=$((pn_fail+1)); echo "      $nm not treated as path-shaped"; }
+done
+if [ "$pn_fail" = "0" ]; then ok "LOG, SEEN and FLAG are path-shaped names"
+else bad "$pn_fail of the names this branch mints are not path-shaped"; fi
+
+# ---- arm 75: SOURCES is DERIVED from the getter names ---------------------
+# The comment above GETTER_VALUE_NAMES claims the three names live in one place, and
+# SOURCES used to spell them out again. Narrowing the list then un-tracked a
+# destructured or aliased AVATARS while the dotted form stayed tracked, with the
+# suite green throughout. Now that SOURCES maps over the list, narrowing it breaks
+# BOTH spellings and this arm sees it.
+fixture derived_src "const store = require('./store');
+const { AVATARS } = require('./store');
+const A = AVATARS;
+const B = store.PROFILES;"
+ds=$(node "$TOOL" "$T/derived_src.js" 2>&1 | grep -c 'resolves a root at require time')
+if [ "$ds" -ge 2 ]; then ok "both the destructured and dotted getter spellings are tracked ($ds)"
+else bad "a getter name is tracked in one spelling only" "$ds findings, want >= 2"; fi
+
+# ---- arm 76: the enforced scope stays FAST --------------------------------
+# ⚠️ HONEST PROVENANCE, because this arm is not what it might look like. A reviewer
+# reported that unbounding prevToken's prefix costs ~39s on engine/status.js alone.
+# I COULD NOT REPRODUCE THAT: replacing `out.slice(Math.max(0, k - 11), k + 1)` with
+# `out.slice(0, k + 1)` ran the real scope in 297ms against a 433ms baseline, i.e.
+# FASTER, and changed the tool's VERDICT (rc 0 -> 1), so that edit is a correctness
+# mutation rather than a performance one. The reported mechanism is unconfirmed.
+# The arm is still worth its two lines: this file's own commit log records a 53s
+# regression I introduced once, the gate runs on every commit, and a wall-clock
+# ceiling catches ANY future quadratic blowup regardless of which line causes it.
+# It is a REGRESSION FLOOR, not evidence for the reviewer's mechanism, and the bound
+# is deliberately loose so a busy machine does not red it.
+perf_start=$(date +%s)
+node "$TOOL" engine server.js >/dev/null 2>&1
+perf_ms=$(( $(date +%s) - perf_start ))
+if [ "$perf_ms" -le 20 ]; then ok "the enforced scope completes well inside 20s (${perf_ms}s)"
+else bad "the enforced scope got dramatically slower" "${perf_ms}s, baseline is under 1s"; fi
 
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,
