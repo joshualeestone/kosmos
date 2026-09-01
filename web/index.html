@@ -30369,11 +30369,12 @@ async function sendTerm() {
     if (!flightMoved() && msg) msg.textContent = 'We could not send that just now. Your message is kept here to try again.';
   } finally {
     TERM_SENDING = false;
-    /* Re-enable only while we are still on the agent this send left from. If the
-       flight moved, the button belongs to another agent and paintTalk drives its
-       state from that agent's presence read, so re-enabling here would fight the
-       gate (and could show Send live under an offline agent until the next poll). */
-    if (send && !flightMoved()) send.disabled = false;
+    /* Re-derive the button from a fresh presence read, exactly as sendTalk does
+       at its own finally. Force-enabling here would put a live Send over a box
+       whose agent went offline mid-flight; and with the flight moved the button
+       belongs to another agent whose own poll already owns it. paintTalk repaints
+       both boxes from one presence read, so the Terminal Send lands correct. */
+    if (!flightMoved()) await paintTalk(sentName, name);
   }
 }
 document.getElementById('d-term-send').addEventListener('click', sendTerm);

@@ -69,44 +69,60 @@ test('kosmos#967: the terminal composer is wired -- markup, endpoint, gating', (
   assert.match(SCRIPT, /if \(termSay && !termSay\.disabled && !termSay\.value && TERM_DRAFTS\[sessionName\]\)/, 'paintTalk restores the parked terminal draft, gated on presence');
   assert.match(SCRIPT, /getElementById\('d-term-say'\); if \(t\) t\.value = ''/, 'the agent-switch clear resets the terminal box');
   assert.match(SCRIPT, /getElementById\('d-term-say-msg'\); if \(t\) t\.textContent = ''/, 'the agent-switch clear resets the terminal receipt');
+  // The button is re-derived from presence via paintTalk at finally, exactly as
+  // sendTalk does, rather than force-enabled (which could leave a live Send over
+  // an agent that went offline mid-flight).
+  assert.match(SCRIPT, /if \(!flightMoved\(\)\) await paintTalk\(sentName, name\)/, 'sendTerm re-derives the Send button via paintTalk at finally');
 });
 
 /** Lift sendTerm and run it against a stub fetch + DOM, injecting CURRENT.
  * placedWords is lifted alongside it (sendTerm calls it for the #402 silent-
- * when-worked receipt), and TERM_DRAFTS is declared in the same scope so the
- * placed arm can clear the parked draft. `duringFetch` runs while the request
- * is in flight, so a test can simulate the person opening another agent. */
+ * when-worked receipt), TERM_DRAFTS is declared in the same scope so the placed
+ * arm can clear the parked draft, and paintTalk is injected as a spy (sendTerm
+ * re-derives the Send button from it at finally, exactly as sendTalk does).
+ * `duringFetch` runs while the request is in flight (simulate opening another
+ * agent); `hang: true` leaves the fetch pending so a re-entrant call can be
+ * observed hitting the TERM_SENDING guard. */
 function runSendTerm({ deliveryState, delivery, ok = true, errorBody, throws = false,
-                       boxText = 'hello world', current = CURRENT, duringFetch } = {}) {
+                       boxText = 'hello world', current = CURRENT, duringFetch, hang = false } = {}) {
   const els = {
     'd-term-say': { value: boxText },
     'd-term-send': { disabled: false },
     'd-term-say-msg': { textContent: '' },
   };
   const document = { getElementById(id) { if (!(id in els)) throw new Error('unstubbed #' + id); return els[id]; } };
+  let posts = 0;
   let posted = null;
   const fetch = async (url, opts) => {
+    posts += 1;
     posted = { url, opts };
     if (duringFetch) duringFetch();
+    if (hang) return new Promise(() => {});   // never resolves: the send stays in flight
     if (throws) throw new Error('network down');
     return {
       ok,
       json: async () => (ok ? { delivery: (delivery || { state: deliveryState }), recorded: true } : (errorBody || { error: 'nope' })),
     };
   };
-  const make = new Function('CURRENT', 'document', 'fetch',
+  const paintCalls = [];
+  const paintTalk = async (sessionName, agentName) => { paintCalls.push({ sessionName, agentName }); };
+  const make = new Function('CURRENT', 'document', 'fetch', 'paintTalk',
     'let TERM_SENDING = false;\nlet TERM_DRAFTS = {};\n'
     + lift(SCRIPT, 'placedWords') + '\n' + lift(SCRIPT, 'sendTerm') + '\nreturn sendTerm;');
-  const sendTerm = make(current, document, fetch);
-  return { sendTerm, els, getPosted: () => posted };
+  const sendTerm = make(current, document, fetch, paintTalk);
+  return { sendTerm, els, getPosted: () => posted, getPosts: () => posts, getPaintCalls: () => paintCalls };
 }
 
 test('kosmos#967: a clean PLACED clears the box and says nothing (#402 silent-when-worked)', async () => {
-  const { sendTerm, els, getPosted } = runSendTerm({ deliveryState: 'placed' });
+  const { sendTerm, els, getPosted, getPaintCalls } = runSendTerm({ deliveryState: 'placed' });
   await sendTerm();
   assert.equal(getPosted().url, '/api/agent/' + CURRENT.sessionName + '/thread', 'posted to the open agent thread');
   assert.equal(els['d-term-say'].value, '', 'a placed message clears the box (it reached the agent)');
   assert.equal(els['d-term-say-msg'].textContent, '', 'an idle placed says nothing, matching sendTalk and the thread rows');
+  const calls = getPaintCalls();
+  assert.equal(calls.length, 1, 'paintTalk is called once, to re-derive the Send button from a fresh presence read');
+  assert.equal(calls[0].sessionName, CURRENT.sessionName, 'it repaints the agent this send left from');
+  assert.equal(calls[0].agentName, CURRENT.name, 'and passes its display name');
 });
 
 test('kosmos#967: a PLACED with a consequential note speaks it', async () => {
@@ -121,7 +137,7 @@ test('kosmos#967: a PLACED with a consequential note speaks it', async () => {
 
 test('kosmos#967: if the flight moves to another agent, nothing is written to the box it left', async () => {
   const current = { ...CURRENT };            // a mutable copy, so the module CURRENT is untouched
-  const { sendTerm, els } = runSendTerm({
+  const { sendTerm, els, getPaintCalls } = runSendTerm({
     deliveryState: 'placed', current,
     duringFetch: () => { current.sessionName = 'someone-else'; },   // the person opened another agent mid-send
   });
@@ -130,6 +146,8 @@ test('kosmos#967: if the flight moves to another agent, nothing is written to th
     'the box now belongs to another agent, so a placed verdict must not clear it');
   assert.notEqual(els['d-term-say-msg'].textContent, '',
     'and the receipt line is not overwritten under the new agent (it keeps the "Sending" line, not a placed verdict)');
+  assert.deepEqual(getPaintCalls(), [],
+    'and paintTalk is NOT called for the agent we left -- its own poll owns its controls');
 });
 
 test('kosmos#967: UNCONFIRMED keeps the words for a retry', async () => {
@@ -173,4 +191,12 @@ test('kosmos#967: an empty box sends nothing', async () => {
   const { sendTerm, getPosted } = runSendTerm({ deliveryState: 'placed', boxText: '   ' });
   await sendTerm();
   assert.equal(getPosted(), null, 'whitespace-only does not POST');
+});
+
+test('kosmos#967: a second send while one is in flight is refused and does not POST twice', async () => {
+  const { sendTerm, els, getPosts } = runSendTerm({ deliveryState: 'placed', hang: true });
+  sendTerm();                 // in flight: the fetch never resolves, so TERM_SENDING stays true
+  await sendTerm();           // the re-entrant press hits the TERM_SENDING guard and returns
+  assert.match(els['d-term-say-msg'].textContent, /Still sending/i, 'the second press is told a send is in flight');
+  assert.equal(getPosts(), 1, 'only the first send POSTed -- the guard prevented a double delivery');
 });
