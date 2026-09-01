@@ -26,8 +26,8 @@ const PAGE = fs.readFileSync(path.join(REPO, 'web', 'index.html'), 'utf8');
    updateAttempt varies per case; everything else is a fixed floor, and if the
    page starts needing something new this check says so by going red rather than
    by silently rendering an empty card. */
-function apiBody(route, attempt) {
-  if (route.startsWith('/api/autoupdate')) return { on: true, ok: true };
+function apiBody(route, attempt, prefOn) {
+  if (route.startsWith('/api/autoupdate')) return { on: prefOn !== false, ok: true };
   if (route.startsWith('/api/status')) {
     return {
       agents: [], counts: {}, connection: {}, version: '0.6.20',
@@ -37,11 +37,11 @@ function apiBody(route, attempt) {
   return {};
 }
 
-async function paintFor(browser, attempt) {
+async function paintFor(browser, attempt, prefOn) {
   const server = http.createServer((req, res) => {
     if (req.url.startsWith('/api/')) {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify(apiBody(req.url, attempt)));
+      res.end(JSON.stringify(apiBody(req.url, attempt, prefOn)));
       return;
     }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -57,9 +57,9 @@ async function paintFor(browser, attempt) {
     /* Drive the real function through the real page rather than waiting on the
        board's own boot sequence, which needs far more of the product than this
        card. The element, its hidden flag and the branch logic are all the page's. */
-    const out = await page.evaluate((a) => {
+    const out = await page.evaluate(([a, on]) => {
       if (typeof autoAttemptPaint !== 'function') return { missing: true };
-      autoAttemptPaint(a);
+      autoAttemptPaint(a, { on });
       const el = document.getElementById('auto-attempt');
       if (!el) return { noElement: true };
       const cs = getComputedStyle(el);
@@ -69,7 +69,7 @@ async function paintFor(browser, attempt) {
         display: cs.display,
         visibility: cs.visibility,
       };
-    }, attempt);
+    }, [attempt, prefOn !== false]);
     return { ...out, errors };
   } finally {
     await page.close();
@@ -87,6 +87,12 @@ async function paintFor(browser, attempt) {
     const perMachine = await paintFor(browser, { auto: true, endedAt: ended, version: '0.7.0', attempts: 3, streak: 3 });
     const running = await paintFor(browser, { auto: true, endedAt: null, version: '0.7.0', attempts: 1, streak: 1 });
     const manual = await paintFor(browser, { auto: false, endedAt: ended, version: '0.7.0', attempts: 1, streak: 1 });
+    /* A failed HAND retry after the cap: the record is auto:false and the board is
+       still stopped, so this must render. It is the moment the card used to go
+       silent, exactly when the person did what it told them to do. */
+    const manualTerminal = await paintFor(browser, { auto: false, endedAt: ended, version: '0.7.0', attempts: 3, streak: 1 });
+    /* Switch OFF: the record is still worth showing and the retry FORECAST is not. */
+    const switchOff = await paintFor(browser, { auto: true, endedAt: ended, version: '0.7.0', attempts: 1, streak: 1 }, false);
 
     for (const [name, r] of [['live', live], ['perVersion', perVersion], ['perMachine', perMachine]]) {
       if (r.missing) fail.push(`${name}: autoAttemptPaint is not defined on the page`);
@@ -119,7 +125,15 @@ async function paintFor(browser, attempt) {
     /* CONTROLS: the two cases that must render NOTHING. Without these, every
        assertion above is satisfied by a card that always shows something. */
     if (running.hidden !== true) fail.push('CONTROL: an attempt still RUNNING was announced as a result');
-    if (manual.hidden !== true) fail.push('CONTROL: a MANUAL attempt was duplicated onto this card');
+    if (manual.hidden !== true) fail.push('CONTROL: an ordinary MANUAL attempt was duplicated onto this card');
+    if (manualTerminal.hidden !== false) {
+      fail.push('a failed HAND retry after the cap rendered nothing. The board is still stopped and '
+        + 'the person has no way to learn it, which is the moment this card exists for');
+    }
+    if (switchOff.hidden !== false) fail.push('with the switch off the record should still be shown');
+    if (switchOff.text && /try again later/i.test(switchOff.text)) {
+      fail.push('the switch says Off and the line beneath it promises an automatic retry');
+    }
 
     if (fail.length) {
       console.error('AUTO-ATTEMPT DRIVE FAILED:\n  ' + fail.join('\n  '));

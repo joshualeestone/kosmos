@@ -16,27 +16,40 @@ const path = require('node:path');
 
 const SRC = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 
-function paintWith(attempt) {
-  /* Run the real function out of the page rather than a copy of it, so this
-     cannot pass against a shape that merely resembles the shipped one. */
-  const at = SRC.indexOf('function autoAttemptPaint(attempt) {');
-  assert.ok(at > -1, 'autoAttemptPaint is gone from web/index.html, so nothing renders an unattended result');
-  /* Brace-matched, not regex-sliced. A lazy regex to the next `  }` cut the
-     function mid-body and threw a SyntaxError, which reads exactly like the
-     function being broken rather than the extractor being wrong. */
-  let depth = 0; let end = -1;
-  for (let i = SRC.indexOf('{', at); i < SRC.length; i += 1) {
+/**
+ * Pull a top-level declaration out of the page by brace matching.
+ *
+ * Brace-matched, not regex-sliced: a lazy regex to the next closing brace cuts a
+ * function mid-body and throws a SyntaxError, which reads exactly like the
+ * function being broken rather than the extractor being wrong.
+ */
+function pick(startsWith) {
+  const at = SRC.indexOf(startsWith);
+  assert.ok(at > -1, `web/index.html no longer contains: ${startsWith}`);
+  const semi = SRC.indexOf(';', at);
+  const brace = SRC.indexOf('{', at);
+  if (brace === -1 || (semi !== -1 && semi < brace)) return SRC.slice(at, semi + 1);
+  let depth = 0;
+  for (let i = brace; i < SRC.length; i += 1) {
     if (SRC[i] === '{') depth += 1;
-    else if (SRC[i] === '}') { depth -= 1; if (depth === 0) { end = i + 1; break; } }
+    else if (SRC[i] === '}') { depth -= 1; if (depth === 0) return SRC.slice(at, i + 1); }
   }
-  assert.ok(end > at, 'could not brace-match autoAttemptPaint out of the page');
-  const m = [SRC.slice(at, end)];
+  throw new Error(`could not brace-match: ${startsWith}`);
+}
+
+function paintWith(attempt, pref) {
+  /* Runs the REAL function out of the page rather than a copy, so this cannot
+     pass against a shape that merely resembles what ships. */
   const el = { hidden: null, textContent: null };
   const document = { getElementById: (id) => (id === 'auto-attempt' ? el : null) };
+  const src = pick('let AUTO_LAST_ATTEMPT') + '\n'
+    + pick('let AUTO_LAST_PREF') + '\n'
+    + pick('function autoAttemptPaint(attempt, pref) {');
   // eslint-disable-next-line no-new-func
-  new Function('document', m[0] + '\nreturn autoAttemptPaint;')(document)(attempt);
+  new Function('document', src + '\nreturn autoAttemptPaint;')(document)(attempt, pref === undefined ? { on: true } : pref);
   return el;
 }
+
 
 test('#1277: a finished UNATTENDED failure is shown on the card that owns the preference', () => {
   const el = paintWith({ auto: true, endedAt: '2026-09-01T03:00:00Z', version: '0.7.0', code: 1 });
@@ -56,9 +69,47 @@ test('#1277: an attempt STILL RUNNING says nothing, and a MANUAL one is left to 
   assert.equal(paintWith(null).hidden, true, 'no attempt at all rendered something');
 });
 
-test('#1277: the card is wired to /api/status, or the paint function is decoration', () => {
-  assert.match(SRC, /autoAttemptPaint\(st && st\.updateAttempt\)/,
-    'autoAttemptPaint exists but nothing calls it with the served record, so it renders never');
+test('#1277: the card is wired to /api/status, and a DEAD call is caught', async () => {
+  /* 🛑 THIS USED TO MATCH SOURCE TEXT AND COULD NOT FAIL. Measured by a reviewer:
+     changing the call to `if (false) autoAttemptPaint(...)` left it GREEN, and so
+     did wrapping the whole fetch block in a comment. In both cases nothing renders
+     and the card is silent again, which is the entire defect it exists to catch.
+
+     Worse, the sibling guard in server.update-poll-1277.test.js in this same
+     branch already documents this exact failure and fixes it with LIVE_CODE. I
+     fixed it there and not here, in the same afternoon.
+
+     It now DRIVES the real refreshAutoUpdate with a stub fetch, so a dead call or
+     a commented-out one produces no paint and this goes red. */
+  const el = { hidden: true, textContent: '' };
+  const doc = {
+    getElementById: (id) => (id === 'auto-attempt' ? el
+      : { textContent: '', setAttribute() {}, getAttribute: () => 'true', hidden: false, classList: { add() {}, remove() {} } }),
+  };
+  const fetched = [];
+  const stubFetch = async (url) => {
+    fetched.push(String(url));
+    const body = String(url).includes('/api/autoupdate')
+      ? { on: true, ok: true }
+      : { version: '0.6.20', updateAttempt: { auto: true, endedAt: 'x', version: '0.7.0', attempts: 3, streak: 3 } };
+    return { json: async () => body };
+  };
+  /* autoPaint is stubbed, not extracted: it reaches paintSwitch and a chain of
+     other page helpers, none of which this guard is about. What must be REAL is
+     the wiring from the status fetch to the paint, which is the thing a dead call
+     breaks. */
+  const src = [pick('let AUTO_LAST_ATTEMPT'), pick('let AUTO_LAST_PREF'),
+    pick('function autoAttemptPaint(attempt, pref) {'),
+    pick('async function refreshAutoUpdate() {')].join('\n');
+  const run = new Function('document', 'fetch', 'AUTO_EPOCH', 'autoPaint',
+    src + '\nreturn refreshAutoUpdate;');
+  await run(doc, stubFetch, 0, () => {})();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(fetched.some((u) => u.includes('/api/status')),
+    'refreshAutoUpdate never asked for the status, so the card can never learn what happened');
+  assert.equal(el.hidden, false,
+    'the served record reached nothing: the paint function exists and the wiring does not call it, '
+    + 'which is exactly what a dead or commented-out call looks like');
   assert.match(SRC, /id="auto-attempt"/, 'the slot it paints into is gone');
 });
 
@@ -83,4 +134,47 @@ test('#1277: the TERMINAL state says so, instead of telling a stopped board to t
   assert.match(live.textContent, /try again later|press install/i,
     'CONTROL: a single failure must still say the ordinary thing, or this arm passes by making '
     + 'every message terminal');
+});
+
+test('#1277: a failed MANUAL retry still shows the terminal state, because the brake still holds', () => {
+  /* 🛑 THE CARD USED TO GO SILENT EXACTLY WHEN THE PERSON DID WHAT IT TOLD THEM.
+     Three unattended failures, the card says press Install by hand, they press it,
+     that fails too. The record is now auto:false, the old gate hid the element,
+     and from then on the board never auto-updated again with no sentence anywhere.
+
+     The BRAKE was deliberately widened past `durable.auto` for exactly this
+     sequence. The screen was not, so the engine knew and the page did not. */
+  const manualTerminal = paintWith({ auto: false, endedAt: 'x', version: '0.7.0', attempts: 3, streak: 1 });
+  assert.equal(manualTerminal.hidden, false,
+    'a failed hand retry after the cap rendered nothing, so the board is silently stopped and the '
+    + 'person has no way to learn it');
+  assert.match(manualTerminal.textContent, /stopped trying|stopped on this computer/i);
+
+  /* CONTROL: a NON-terminal manual attempt is still the press overlay's, not this
+     card's, or this fix has simply duplicated every manual failure onto Settings. */
+  assert.equal(paintWith({ auto: false, endedAt: 'x', version: '0.7.0', attempts: 1, streak: 1 }).hidden, true,
+    'CONTROL: an ordinary manual failure was duplicated onto this card');
+});
+
+test('#1277: with the switch OFF the card does not promise a retry that will not happen', () => {
+  /* Reachable by the obvious reaction to seeing a failure: switch automatic
+     updates off. The record is still worth showing; only the forecast is wrong. */
+  const off = paintWith({ auto: true, endedAt: 'x', version: '0.7.0', attempts: 1, streak: 1 }, { on: false });
+  assert.equal(off.hidden, false, 'the record should still be shown when the switch is off');
+  assert.doesNotMatch(off.textContent, /try again later/i,
+    'the switch says Off and the line beneath it promises an automatic retry');
+  assert.match(off.textContent, /automatic updates are off/i,
+    'it should say why there will be no retry, not just omit the promise');
+
+  const offTerminal = paintWith({ auto: true, endedAt: 'x', version: '0.7.0', attempts: 3, streak: 3 }, { on: false });
+  assert.doesNotMatch(offTerminal.textContent, /start again on their own/i,
+    'with the switch off, automatic updates will NOT start again on their own');
+
+  /* CONTROL: with the switch ON both promises must come back, or this arm passes
+     by deleting the forecast entirely. */
+  const on = paintWith({ auto: true, endedAt: 'x', version: '0.7.0', attempts: 1, streak: 1 }, { on: true });
+  assert.match(on.textContent, /try again later/i, 'CONTROL: with the switch on it must still say it will retry');
+  const onTerminal = paintWith({ auto: true, endedAt: 'x', version: '0.7.0', attempts: 3, streak: 3 }, { on: true });
+  assert.match(onTerminal.textContent, /start again on their own/i,
+    'CONTROL: with the switch on, the terminal sentence must still say recovery is automatic');
 });

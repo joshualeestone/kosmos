@@ -14391,10 +14391,32 @@ function autoPaint(r) {
  * endedAt is still running and says nothing: a half-finished install is not
  * news, and saying so would be the in-flight mistake one layer up.
  */
-function autoAttemptPaint(attempt) {
+/* The last served record and the last preference, kept because EITHER changes
+   which sentence is true and they arrive from two different fetches. Without
+   this, flipping the switch left a stale forecast on screen until the next
+   status tick. `undefined` means "unchanged", which is why the two callers pass
+   it explicitly rather than omitting the argument. */
+let AUTO_LAST_ATTEMPT = null;
+let AUTO_LAST_PREF = null;
+function autoAttemptPaint(attempt, pref) {
+  if (attempt !== undefined) AUTO_LAST_ATTEMPT = attempt;
+  if (pref !== undefined) AUTO_LAST_PREF = pref;
+  attempt = AUTO_LAST_ATTEMPT;
+  pref = AUTO_LAST_PREF;
   const el = document.getElementById('auto-attempt');
   if (!el) return;
-  const a = attempt && attempt.auto && attempt.endedAt ? attempt : null;
+  /* 🛑 TERMINAL RECORDS RENDER WHATEVER PRESSED LAST, AND THE OLD GATE HID THE ONE
+     MOMENT THAT MATTERS MOST. Gating on `auto` meant the card went silent exactly
+     when the person did what it told them to: three unattended failures, the card
+     says press Install by hand, they press it, that fails too, the record is now
+     auto:false, and from then on the board never auto-updates again with no
+     sentence anywhere. The BRAKE was deliberately widened past `durable.auto` for
+     precisely this sequence; the screen was not, so the engine knew and the page
+     did not. The `auto` gate survives only for the NON-terminal line, which the
+     press overlay already covers for a manual attempt. */
+  const ended = attempt && attempt.endedAt ? attempt : null;
+  const terminal = !!ended && (Number(ended.attempts) >= 3 || Number(ended.streak) >= 3);
+  const a = (terminal || (ended && ended.auto)) ? ended : null;
   if (!a) { el.hidden = true; el.textContent = ''; return; }
   const v = a.version ? (' of ' + a.version) : '';
   /* 🛑 THE TERMINAL STATE NEEDS ITS OWN SENTENCE, AND MY FIRST VERSION HAD NONE.
@@ -14410,16 +14432,24 @@ function autoAttemptPaint(attempt) {
      about the machine rather than the release. */
   const doneVersion = Number(a.attempts) >= 3;
   const doneMachine = Number(a.streak) >= 3;
+  /* 🛑 DO NOT PROMISE A RETRY THE SWITCH HAS TURNED OFF. With automatic updates
+     Off, both "it will try again later" and "automatic updates start again on
+     their own" are false, and the way a person reaches that state is the obvious
+     reaction to seeing a failure: switch it off. The record is still worth
+     showing; only the forecast is wrong. */
+  const willRetry = !pref || pref.on === true;
   if (doneMachine) {
     el.textContent = 'Automatic updates have stopped on this computer, because three different '
-      + 'versions failed to install here. Press Install above to try one by hand; if that '
-      + 'works, automatic updates start again on their own.';
+      + 'versions failed to install here. Press Install above to try one by hand.'
+      + (willRetry ? ' If that works, automatic updates start again on their own.' : '');
   } else if (doneVersion) {
     el.textContent = 'Kosmos stopped trying to install' + v + ' automatically after three '
       + 'attempts. Press Install above to try it by hand, or wait for the next version.';
   } else {
     el.textContent = 'The last automatic update' + v + ' did not finish, so this board '
-      + 'restarted without it. It will try again later, or you can press Install above.';
+      + 'restarted without it.'
+        + (willRetry ? ' It will try again later, or you can press Install above.'
+          : ' Automatic updates are off, so it will not be retried until you press Install above.');
   }
   el.hidden = false;
 }
@@ -14428,12 +14458,15 @@ async function refreshAutoUpdate() {
   /* Best effort and deliberately NOT awaited into the preference read: a status
      hiccup must not stop the switch painting. */
   fetch('/api/status').then((r) => r.json()).then((st) => {
-    if (mine === AUTO_EPOCH) autoAttemptPaint(st && st.updateAttempt);
+    if (mine === AUTO_EPOCH) autoAttemptPaint(st && st.updateAttempt, undefined);
   }).catch(() => {});
   try {
     const r = await (await fetch('/api/autoupdate')).json();
     if (mine !== AUTO_EPOCH) return;
     autoPaint(r);
+    /* The preference decides whether the sentence below may promise a retry, so
+       the card repaints whenever it is learned or changed. */
+    autoAttemptPaint(undefined, r);
   } catch {
     // Same first-paint hole as the telemetry switch: no last position to keep.
     if (mine === AUTO_EPOCH) autoPaint(null);
