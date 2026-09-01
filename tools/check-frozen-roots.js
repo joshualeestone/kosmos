@@ -1088,6 +1088,17 @@ function scan(file) {
        initializer that runs at require time can defer anything, so the question is
        settled before either exemption is asked. Measured, both arms: the IIFE forms
        exit 1, the stored arrow and stored function forms exit 0. */
+    /* ⚠️ THIS IS A SECOND PASS AND IT CHANGES NOTHING. `declarations()` already
+       returns text produced by `scanText(rawSrc)`, so `d.init` arrives with comments
+       blanked, string bodies emptied and `store['ROOT']` normalised to `store.ROOT`.
+       Measured: replacing this with `d.init` is byte-identical on the enforced scope
+       and on a fixture built of a block comment, a quoted root name, a template hole
+       and a subscript access. It is kept as belt-and-braces against a future change
+       to `declarations()`, at no cost.
+       🛑 THE REASON THE NOTE MATTERS: the comment blocks below describe the blanking
+       as though it happens HERE. It does not, and a comment naming the wrong line
+       sends the next reader to defend code that is doing nothing. Same defect the
+       arms for the string-`//` case already had to correct in the test file. */
     const initCode = scanText(d.init);
     /* 🛑 THE SAME BLANKED TEXT AS EVERY OTHER SOURCE TEST. This exemption was handed
        the RAW initializer while `direct`, `viaHelper` and `captured` below got the

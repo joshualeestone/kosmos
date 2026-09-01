@@ -494,9 +494,20 @@ else bad "fired on a correctly deferred curried call"; fi
 # by side effect (a regression reds nine arms); the FIRING direction was not, and
 # the documented regression it replaced (setting process.exitCode under an explicit
 # process.exit(main())) printed its warnings and still exited 0.
+# 🛑 THE ARM PLANTS ITS OWN ALLOWLIST ENTRY RATHER THAN BORROWING THE REAL ONE.
+# It used to rely on the production KNOWN map holding a `server.js:` key that the
+# fake repo's file could not match. That coupling makes the arm red ON CORRECT CODE
+# the day the allowlist empties, and emptying it is the tool's STATED GOAL: the list
+# is meant to shrink to nothing. An arm that breaks when the thing it guards is
+# fixed is a trap for whoever does the fixing, and they will read it as their bug.
+# Measured before this change: with KNOWN emptied, the suite reported
+# "FAIL the STALE path did not fire".
 FAKE="$T/fakerepo"
 mkdir -p "$FAKE/tools"
-cp "$TOOL" "$FAKE/tools/check.js"
+sed "s|^const KNOWN = new Map(\[|const KNOWN = new Map([['server.js:ARM42_PLANTED','planted by arm 42 so this arm owns its own fixture'],|" "$TOOL" > "$FAKE/tools/check.js"
+planted=$(grep -c 'ARM42_PLANTED' "$FAKE/tools/check.js")
+if [ "$planted" = "1" ]; then ok "arm 42 planted its own allowlist entry (independent of the real map)"
+else bad "arm 42 could not plant its entry" "$planted occurrences, want 1"; fi
 printf 'const x = 1;\n' > "$FAKE/server.js"
 out_stale="$(cd "$FAKE" && node tools/check.js server.js 2>&1)"; rc_stale=$?
 if [ "$rc_stale" = "1" ] && printf '%s' "$out_stale" | grep -q '^STALE'; then
@@ -966,20 +977,40 @@ if [ "$ds" -ge 2 ]; then ok "both the destructured and dotted getter spellings a
 else bad "a getter name is tracked in one spelling only" "$ds findings, want >= 2"; fi
 
 # ---- arm 76: the enforced scope stays FAST --------------------------------
-# ⚠️ HONEST PROVENANCE, because this arm is not what it might look like. A reviewer
-# reported that unbounding prevToken's prefix costs ~39s on engine/status.js alone.
-# I COULD NOT REPRODUCE THAT: replacing `out.slice(Math.max(0, k - 11), k + 1)` with
-# `out.slice(0, k + 1)` ran the real scope in 297ms against a 433ms baseline, i.e.
-# FASTER, and changed the tool's VERDICT (rc 0 -> 1), so that edit is a correctness
-# mutation rather than a performance one. The reported mechanism is unconfirmed.
+# ⚠️ HONEST PROVENANCE, AND THE SECOND HALF OF IT IS A RETRACTION OF MY OWN.
+# A reviewer reported that unbounding prevToken's prefix costs ~39s on
+# engine/status.js alone. I could not reproduce that, and that half stands: measured
+# again in the correct layout, n=3 each, the mutant is not slower (316-369ms against
+# a 337-376ms base).
+# 🛑 BUT I ALSO WROTE THAT THE MUTATION "CHANGED THE TOOL'S VERDICT (rc 0 -> 1), so
+# that edit is a correctness mutation rather than a performance one". THAT IS FALSE.
+# In the correct layout the two runs are rc 0 BOTH and BYTE-IDENTICAL in output.
+# The rc 0 -> 1 I saw came from MY OWN HARNESS: it copied the tool to a temp dir and
+# ran it from OUTSIDE the repo, where `path.relative(path.join(__dirname, '..'), f)`
+# yields a different key, which stops matching the `server.js:GATE_LOG` allowlist
+# entry, which turns a KNOWN line into a finding. I attributed my harness's own
+# confound to the mutation.
+# ⭐ A MUTATION HARNESS THAT RELOCATES THE CODE UNDER TEST CHANGES ANY BEHAVIOUR THAT
+# DEPENDS ON ITS OWN LOCATION, and this tool derives its allowlist keys from
+# __dirname. Mutate in a copy that sits where the original sat.
+# ⇒ SO THE HONEST STATE IS: prevToken's 12-character bound is UNGUARDED, and removing
+# it is output-identical and not measurably slower at this repo size. It is a
+# performance optimisation whose benefit I cannot demonstrate here, NOT a correctness
+# rule. Nobody should read my earlier sentence as having closed the question, because
+# closing it falsely is worse than leaving it open.
 # The arm is still worth its two lines: this file's own commit log records a 53s
 # regression I introduced once, the gate runs on every commit, and a wall-clock
 # ceiling catches ANY future quadratic blowup regardless of which line causes it.
 # It is a REGRESSION FLOOR, not evidence for the reviewer's mechanism, and the bound
 # is deliberately loose so a busy machine does not red it.
 perf_start=$(date +%s)
-node "$TOOL" engine server.js >/dev/null 2>&1
+node "$TOOL" engine server.js >/dev/null 2>&1; perf_rc=$?
 perf_ms=$(( $(date +%s) - perf_start ))
+# ⭐ ASSERT THE EXIT CODE TOO. This arm ran the real gate and threw its verdict away.
+# Checking it costs nothing and catches every mutation that reds the enforced scope
+# without reding a fixture arm, which this round produced three of.
+if [ "$perf_rc" = "0" ]; then ok "the enforced scope still exits 0"
+else bad "the enforced scope is RED" "rc=$perf_rc -- run: node tools/check-frozen-roots.js engine server.js"; fi
 if [ "$perf_ms" -le 20 ]; then ok "the enforced scope completes well inside 20s (${perf_ms}s)"
 else bad "the enforced scope got dramatically slower" "${perf_ms}s, baseline is under 1s"; fi
 
@@ -1043,6 +1074,106 @@ as=$(node "$TOOL" "$T/alias_store.js" 2>&1 | grep -c '{ ROOT: R }')
 af=$(node "$TOOL" "$T/alias_foreign.js" 2>&1 | grep -c '{ FILE: F }')
 if [ "$as" = "1" ] && [ "$af" = "1" ]; then ok "both destructure arms report an alias as source: local"
 else bad "the two destructure arms name an alias differently" "store=$as foreign=$af, want 1 and 1"; fi
+
+# ---- arm 81: the STORE alias is a source downstream ----------------------
+# The mirror of the foreign-alias arm, and it was missing. Dropping `aliases` from
+# SRC_SOURCES left the whole suite green AND the enforced scope clean, while the
+# downstream use of a destructured getter went unreported. Of every unguarded rule
+# found this round it was the only one failing in the SILENT direction, which this
+# file argues is the worse one.
+fixture store_alias_src "const store = require('./store');
+const { ROOT } = store;
+const P = path.join(ROOT, 'x');"
+sa=$(node "$TOOL" "$T/store_alias_src.js" 2>&1 | grep -c 'resolves a root at require time')
+if [ "$sa" -ge 2 ]; then ok "a store alias is a source for later lines ($sa)"
+else bad "the store alias registration is unguarded: downstream use went silent" "$sa findings, want >= 2"; fi
+
+# ---- arm 82: the resolver-CALL match is word-bounded ----------------------
+# Two more members of the word-boundary family, both unguarded. A resolver named
+# `dir` plus the ubiquitous `path.dirname` makes a substring match fire on correct
+# code; the enforced scope goes red with two false positives, but a red scope is a
+# backstop and not an arm, and it names nothing.
+fixture callword "const store = require('./store');
+const dir = () => path.join(store.ROOT, 'x');
+const NAME = path.dirname('/a/b/c');"
+cw=$(node "$TOOL" "$T/callword.js" 2>&1 | grep -c 'const NAME')
+if [ "$cw" = "0" ]; then ok "path.dirname does not count as a call to a resolver named dir"
+else bad "the resolver-call match is not word-bounded" "$cw hits on const NAME"; fi
+# ⚠️ TWO CALL SITES, AND THE FIXTURE ABOVE ONLY REACHES ONE. The identical regex
+# lives in the declaration scan AND in functionNamesReaching's closure round, and
+# mutating the second left the arm above green. A second fixture, where the decoy is
+# itself a HELPER whose body carries the substring, is what reaches the closure.
+fixture callword_closure "const store = require('./store');
+const dir = () => path.join(store.ROOT, 'x');
+const NAME = () => path.dirname('/a/b');
+const A = NAME();"
+cwc=$(node "$TOOL" "$T/callword_closure.js" 2>&1 | grep -c 'const A')
+if [ "$cwc" = "0" ]; then ok "a helper whose body merely CONTAINS a resolver name is not a resolver"
+else bad "the closure-round call match is not word-bounded" "$cwc hits on const A"; fi
+
+# ---- arm 83: the COLUMN-ZERO brace ends a function body ------------------
+# The four body terminators are: the one-line break, the 400-line cap, the column-0
+# `}`, and the arrow `;` at depth zero. The first two have arms; these two did not.
+# Removing the column-0 break reds the enforced scope with a 501-line capture.
+fixture col0_break "const store = require('./store');
+function helper() {
+  return 1;
+}
+function other() {
+  return path.join(store.ROOT, 'x');
+}
+const A = helper();"
+cb=$(node "$TOOL" "$T/col0_break.js" 2>&1 | grep -c 'const A')
+if [ "$cb" = "0" ]; then ok "a function body ends at its column-zero brace, not at the next function"
+else bad "the column-zero terminator is unguarded" "$cb hits on const A"; fi
+
+# ---- arm 84: the ARROW semicolon at depth zero ends a body ----------------
+# The fourth terminator. Without it a two-line arrow helper runs on into whatever
+# follows and a later resolver is attributed to it.
+fixture arrow_break "const store = require('./store');
+const label = (a) =>
+  String(a);
+const dirFor = () => path.join(store.ROOT, 'y');
+const TITLE = label('a');"
+ab=$(node "$TOOL" "$T/arrow_break.js" 2>&1 | grep -c 'const TITLE')
+if [ "$ab" = "0" ]; then ok "a multi-line arrow body ends at its own semicolon"
+else bad "the arrow terminator is unguarded" "$ab hits on const TITLE"; fi
+
+# ---- arm 85: capturedMarks checks its RECEIVER too ------------------------
+# Its sibling capturedGetter has an arm for exactly this rule. The rule exists in
+# two places and was tested in one, so removing the receiver check here survived
+# both the suite and the enforced scope.
+fixture marks_recv "const store = require('./store');
+const TREE = { ROOT: 'a' };
+const M = { dir: () => path.join(store.ROOT,'x'), head: TREE.ROOT };"
+mr=$(node "$TOOL" "$T/marks_recv.js" 2>&1 | grep -c 'const M')
+if [ "$mr" = "0" ]; then ok "a plain object receiver is not treated as the store in capturedMarks"
+else bad "capturedMarks does not check its receiver" "$mr hits on const M"; fi
+
+# ---- arm 86: the ALIAS destructure scan is anchored ----------------------
+# The tool's own comment beside this scan lists "unanchored, it matched a destructure
+# INSIDE A FUNCTION BODY" as a measured defect of THIS scan, and the existing
+# anchoring arm bites the OTHER scan. A documented defect with its arm pointed at the
+# sibling is how a fixed bug comes back.
+fixture alias_anchor "const store = require('./store');
+const TREE = { ROOT: 'a' };
+function dirFor() {
+  const { ROOT } = store;
+  return path.join(ROOT, 'x');
+}
+const B = TREE.ROOT;"
+aa=$(node "$TOOL" "$T/alias_anchor.js" 2>&1 | grep -c 'const B')
+if [ "$aa" = "0" ]; then ok "a destructure inside a function body is not a module-level alias"
+else bad "the alias destructure scan is unanchored" "$aa hits on const B"; fi
+
+# ---- arm 87: blankStrings RECURSES into a template hole ------------------
+# The passthrough had an arm; the recursion did not. Without it an expression inside
+# `${...}` is treated as string text, so a mention of a root inside a template
+# literal fires on correct code while the identical expression outside one is silent.
+fixture tpl_recurse "const MSG = \`see \${label('store.ROOT')} here\`;"
+tr=$(run tpl_recurse)
+if [ "$tr" = "0" ]; then ok "a root name quoted inside a template hole is not a freeze"
+else bad "blankStrings does not recurse into the hole" "verdict $tr, want 0"; fi
 
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,
