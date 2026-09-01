@@ -79,6 +79,13 @@ test('kosmos#967: the terminal composer is wired -- markup, endpoint, gating', (
   // stranded (the Enter path keeps focus in the never-disabled input).
   assert.match(SCRIPT, /const sendHadFocus = !!\(send && document\.activeElement === send\)/, 'sendTerm captures whether Send had focus');
   assert.match(SCRIPT, /if \(sendHadFocus && send && !send\.disabled\) send\.focus\(\)/, 'and restores focus to Send when the agent is still reachable');
+  assert.match(SCRIPT, /if \(sendHadFocus && say\) say\.focus\(\)/, 'and moves focus into the box for the flight, as sendTalk does');
+
+  // The live-pane poll keeps running during a Terminal send (the Terminal tab's
+  // job is the pane), so the button is held disabled by name via TERM_FLIGHT
+  // rather than by skipping the poll. This pins that gate and the flight marker.
+  assert.match(SCRIPT, /TERM_FLIGHT = sentName/, 'sendTerm records which agent its send is in flight to');
+  assert.match(SCRIPT, /termSend\.disabled = body\.presence === 'off' \|\| flying \|\| \(TERM_SENDING && TERM_FLIGHT === sessionName\)/, 'paintTalk holds the Terminal Send disabled during its own flight, so the poll cannot flicker it back on');
 });
 
 /** Lift sendTerm and run it against a stub fetch + DOM, injecting CURRENT.
@@ -113,7 +120,7 @@ function runSendTerm({ deliveryState, delivery, ok = true, errorBody, throws = f
   const paintCalls = [];
   const paintTalk = async (sessionName, agentName) => { paintCalls.push({ sessionName, agentName }); };
   const make = new Function('CURRENT', 'document', 'fetch', 'paintTalk',
-    'let TERM_SENDING = false;\nlet TERM_DRAFTS = {};\n'
+    'let TERM_SENDING = false;\nlet TERM_FLIGHT = null;\nlet TERM_DRAFTS = {};\n'
     + lift(SCRIPT, 'placedWords') + '\n' + lift(SCRIPT, 'sendTerm') + '\nreturn sendTerm;');
   const sendTerm = make(current, document, fetch, paintTalk);
   return { sendTerm, els, getPosted: () => posted, getPosts: () => posts, getPaintCalls: () => paintCalls };

@@ -17472,17 +17472,18 @@ async function paintTalk(sessionName, agentName) {
     termSay.placeholder = termSay.disabled
       ? name + ' cannot be reached right now'
       : 'Send a message into this window…';
-    /* `flying` here is the Talk composer's in-flight state, carried from the line
-       above. It is NOT a cross-composer one-send-at-a-time guarantee and must not
-       be read as one: the detail poll skips paintTalk during a Talk flight and
-       sendTalk never disables this button, so a Talk send and a Terminal send can
-       be in flight at once. That is accepted and harmless -- each composer is
-       re-entrant-guarded by its own flag (TERM_SENDING here, TALK_SENDING there),
-       posts a distinct message, writes its own receipt line, and is guarded by its
-       own flightMoved(), so there is no misdelivery or loss. Keeping `|| flying`
-       is a mild belt-and-suspenders on the paths where paintTalk does run; the
-       real block on a second Terminal send is TERM_SENDING, synchronously. */
-    termSend.disabled = body.presence === 'off' || flying;
+    /* Three reasons the Terminal Send is held: the agent is unreachable
+       (presence); a Talk send to this agent is in flight (`flying`, a mild
+       belt-and-suspenders -- the two composers are otherwise independent and a
+       concurrent Talk+Terminal send is accepted as harmless, each re-entrant-
+       guarded by its own flag and its own flightMoved()); and a Terminal send of
+       its own is in flight to this agent (TERM_SENDING && TERM_FLIGHT). That last
+       term is why the live-pane poll can keep running without the button flickering
+       back on mid-send: unlike sendTalk, the Terminal tab does NOT skip the poll
+       (it must keep painting the pane), so it holds the button by name instead.
+       TERM_SENDING alone still blocks a second Terminal send synchronously; this
+       only keeps the button's look honest across a repaint. */
+    termSend.disabled = body.presence === 'off' || flying || (TERM_SENDING && TERM_FLIGHT === sessionName);
   }
   // The parked draft comes back, and never over words already in the box.
   if (!say.disabled && !say.value && TALK_DRAFTS[sessionName]) say.value = TALK_DRAFTS[sessionName];
@@ -30327,6 +30328,11 @@ document.getElementById('d-send').addEventListener('click', () => {
    at the cost of a possible duplicate if the person retries a message that did in
    fact land. */
 let TERM_SENDING = false;
+/* Which agent a Terminal send is in flight to, so paintTalk can keep THIS
+   button disabled while the live-pane poll keeps running. sendTalk instead skips
+   the poll during its flight; the Terminal tab must not, because its whole job is
+   showing the live pane, so it keeps polling and holds the button by name. */
+let TERM_FLIGHT = null;
 async function sendTerm() {
   const say = document.getElementById('d-term-say');
   const send = document.getElementById('d-term-send');
@@ -30338,18 +30344,23 @@ async function sendTerm() {
   TERM_SENDING = true;
   const sentName = CURRENT.sessionName;
   const name = CURRENT.name || sentName;
+  TERM_FLIGHT = sentName;
   /* ⚠️ THE FLIGHT CAN MOVE. A send takes real time, and the person can open
      another agent inside that window, at which point this one shared box and its
      receipt line belong to somebody else. Every write below is gated on the
      flight not having moved, exactly as sendTalk guards #d-say / #d-say-msg. */
   const flightMoved = () => !CURRENT || CURRENT.sessionName !== sentName;
   /* Disabling the focused Send moves focus to <body> synchronously (measured in
-     Chromium), so a keyboard or screen-reader person who pressed Send is
-     stranded on the document. Captured here and restored at finally, exactly as
-     sendTalk does. The Enter path is unaffected -- focus stays in the input,
-     which never disables. */
+     Chromium), so a keyboard or screen-reader person who pressed Send is stranded
+     on the document. Captured here, moved into the box for the flight (below), and
+     put back on Send at finally if it is still reachable -- as sendTalk does. The
+     Enter path is unaffected: focus stays in the input, which never disables. */
   const sendHadFocus = !!(send && document.activeElement === send);
   if (send) send.disabled = true;
+  // Move focus into the box for the flight, as sendTalk does, so disabling the
+  // focused Send does not strand a keyboard or screen-reader user on <body>
+  // until the send completes; finally puts it back on Send if still reachable.
+  if (sendHadFocus && say) say.focus();
   if (msg) msg.textContent = 'Sending…';
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
@@ -30383,6 +30394,7 @@ async function sendTerm() {
     if (!flightMoved() && msg) msg.textContent = 'We could not send that just now. Your message is kept here to try again.';
   } finally {
     TERM_SENDING = false;
+    TERM_FLIGHT = null;
     /* Re-derive the button from a fresh presence read, exactly as sendTalk does
        at its own finally. Force-enabling here would put a live Send over a box
        whose agent went offline mid-flight; and with the flight moved the button
