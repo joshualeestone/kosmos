@@ -137,14 +137,26 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
    Latent as it stands: 50 module-level object consts in the tree, none carrying a
    getter or method AND a root.
 
-   📌 AND REGEX LITERALS ARE NOT PARSED, so an ODD QUOTE inside one desynchronises
-   the blanker for the text after it. Measured, both arms: `const RE = /don't/;`
-   followed by `const FILE = path.join(store.ROOT,'x');` exited 0, while the same
-   file without the regex line exited 1. Odd-quote regexes are live in the enforced
-   scope today (engine/status.js, unfurl.js, clipath.js, reporthook.js, server.js),
-   but nothing is currently silenced by them because a later quote re-pairs. Listed
-   because the enforced scope contains the ingredient even though the tree does not
-   contain the outcome.
+   ✅ REGEX LITERALS ARE PARSED NOW, AND THE NOTE THAT SAT HERE WAS FALSE IN THE
+   MOST DANGEROUS WAY. It listed this gap and then reassured the reader that nothing
+   was actually silenced by it, "because a later quote re-pairs". Measured by
+   planting a freeze at the end of every file the CI invocation scans: THREE WERE
+   SILENT, engine/clipath.js, engine/reporthook.js and engine/unfurl.js. In
+   reporthook the trigger is a regex containing a double quote at line 89, which hid
+   131 of its 221 lines from every scan. The behavioural probe could not cover them
+   either, since none of the three exports a path string, so BOTH instruments were
+   blind over the same region, which is the overlap this branch calls its most
+   important finding.
+   ⚠️ A GAP THAT IS LISTED READS AS ACCOUNTED FOR. That is why the false
+   reassurance attached to it outlived several reviews after the gap itself was
+   named: naming a gap does not discharge it, and a mitigation claim inside the gap
+   list gets less scrutiny than a claim standing on its own.
+   Both blankers recognise regex literals now. Teaching only one of them left the
+   files no longer flagged unreadable while a planted freeze in them stayed silent,
+   which is the odd-sibling shape inside the two halves of a single walk. And
+   `blankingDesync` now refuses a clean result for any file the walk cannot finish,
+   so a future shape that desynchronises it fails loudly instead of reporting
+   nothing.
 
    📌 TWO MORE COLUMN-0 SILENCES, narrower than the factory-body rationale below
    covers and measured: a hoisted `var FILE;` assigned inside a top-level `if` block,
@@ -246,6 +258,7 @@ const invokedNow = (init) => {
    module that DOCUMENTS the frozen shape would red CI, and every module on this
    branch carries long explanatory comments. Blanks comment bodies while preserving
    every newline and the file's length, so reported line numbers stay true. */
+let lastBlankMode = null;
 const blankComments = (src) => {
   let out = '';
   let mode = null; // 'line' | 'block' | 'sq' | 'dq' | 'tpl'
@@ -262,11 +275,43 @@ const blankComments = (src) => {
     }
     if (c === '/' && n === '/') { mode = 'line'; out += '  '; i += 1; continue; }
     if (c === '/' && n === '*') { mode = 'block'; out += '  '; i += 1; continue; }
+    /* 🛑 A REGEX LITERAL IS CODE, AND ITS QUOTES ARE NOT STRING DELIMITERS. Without
+       this, an ODD QUOTE inside one opened a string mode that never closed and
+       blanked the REST OF THE FILE to whitespace: measured, three files in the
+       enforced scope were silently in that state (clipath, reporthook, unfurl),
+       reporthook via `if (/["\\$`]/.test(scriptPath))` at line 89, which hid 131 of
+       its 221 lines from EVERY scan.
+       Whether `/` opens a regex or is division is decided by the previous
+       non-space token, the standard heuristic; verified against six shapes
+       including both division cases before being wired in. Inside the literal a
+       `[...]` class is tracked, because `/` is literal there. */
+    if (c === '/') {
+      const before = src.slice(0, i).replace(/\s+$/, '');
+      const isRegex = before === ''
+        || /[=(,:[!&|?{};+\-*%~^<>]$/.test(before)
+        || /\b(return|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)$/.test(before);
+      if (isRegex) {
+        let j = i + 1;
+        let klass = false;
+        for (; j < src.length; j += 1) {
+          const d = src[j];
+          if (d === '\\') { j += 1; continue; }
+          if (d === '\n') break;
+          if (klass) { if (d === ']') klass = false; continue; }
+          if (d === '[') { klass = true; continue; }
+          if (d === '/') break;
+        }
+        out += src.slice(i, j + 1);
+        i = j;
+        continue;
+      }
+    }
     if (c === "'") { mode = 'sq'; out += c; continue; }
     if (c === '"') { mode = 'dq'; out += c; continue; }
     if (c === '`') { mode = 'tpl'; out += c; continue; }
     out += c;
   }
+  lastBlankMode = mode;
   return out;
 };
 /* Blank the CONTENTS of string literals, keeping the quotes and the length, so a
@@ -305,6 +350,34 @@ const blankStrings = (src) => {
       }
       out += (c === '\n' ? c : ' ');
       continue;
+    }
+    /* 🛑 THE SAME REGEX AWARENESS AS blankComments, and I shipped it to only one of
+       the two for a round. They are the same quote walk over the same text; teaching
+       one and not the other is the odd-sibling shape this file keeps producing. The
+       symptom was exact: with only blankComments fixed, the three previously
+       unreadable files stopped being flagged UNREADABLE while a planted freeze in
+       them was STILL silent, because blankStrings desynchronised where
+       blankComments no longer did. */
+    if (c === '/') {
+      const before = src.slice(0, i).replace(/\s+$/, '');
+      const isRegex = before === ''
+        || /[=(,:[!&|?{};+\-*%~^<>]$/.test(before)
+        || /\b(return|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)$/.test(before);
+      if (isRegex) {
+        let j = i + 1;
+        let klass = false;
+        for (; j < src.length; j += 1) {
+          const d = src[j];
+          if (d === '\\') { j += 1; continue; }
+          if (d === '\n') break;
+          if (klass) { if (d === ']') klass = false; continue; }
+          if (d === '[') { klass = true; continue; }
+          if (d === '/') break;
+        }
+        out += src.slice(i, j + 1);
+        i = j;
+        continue;
+      }
     }
     if (c === "'" || c === '"' || c === '`') { q = c; out += c; continue; }
     out += c;
@@ -356,6 +429,24 @@ const normaliseAccess = (src) => String(src)
   .replace(/\[\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*\]/g, (m, n) => padAfter(m, '.' + n))
   .replace(/\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]/g, (m, n) => padAfter(m, '.' + n));
 const scanText = (src) => blankStrings(blankComments(normaliseAccess(src)));
+
+/* 🛑 A GUARD THAT CAN RETURN ZERO FOR A FILE IT FAILED TO READ IS NOT A GUARD, and
+   this one could. Regex literals are not parsed, so an ODD QUOTE inside one opens a
+   string mode that never closes and blanks the REST OF THE FILE to whitespace.
+   Measured by planting a freeze at the end of every file the CI invocation scans:
+   REPORTED in the files whose blanking terminates, SILENT in engine/clipath.js,
+   engine/reporthook.js and engine/unfurl.js.
+   ⚠️ AN EARLIER VERSION OF THIS FILE LISTED THE REGEX GAP AND ASSERTED NOTHING WAS
+   SILENCED BY IT, "because a later quote re-pairs". That was FALSE, and the gap
+   being listed is exactly what made it read as accounted for.
+   ⇒ The fix is not a regex parser, which would be a fourth rule with its own edges.
+   It is to REFUSE A CLEAN RESULT for a file the blanker could not finish reading.
+   Same idea as the probe's named-skips floor: an unreadable input is a failure,
+   never a pass. */
+const blankingDesync = (src) => {
+  blankComments(normaliseAccess(src));
+  return lastBlankMode;
+};
 
 const isLazy = (init) => !invokedNow(init)
   && (/^\s*\([^)]*\)\s*=>/.test(init) || /^\s*function\b/.test(init));
@@ -895,6 +986,25 @@ function main(argv) {
   let total = 0;
   let known = 0;
   const matchedKnown = new Set();
+  /* 🛑 UNREADABLE FILES ARE NAMED AND GATE, they do not pass quietly. If the
+     blanker finishes mid-string the rest of that file was whitespace to every scan,
+     so a clean result for it means "I could not read this", not "there is nothing
+     here". Measured: three files in the enforced scope were silently in this state
+     (clipath, reporthook, unfurl), each because of an odd quote inside a regex
+     literal. */
+  const unreadable = [];
+  for (const f of files) {
+    let mode = null;
+    try { mode = blankingDesync(fs.readFileSync(f, 'utf8')); } catch { continue; }
+    if (mode) unreadable.push({ f, mode });
+  }
+  if (unreadable.length) {
+    for (const u of unreadable) {
+      console.log(`UNREADABLE  ${path.relative(path.join(__dirname, '..'), u.f)}  the scanner finished inside an unterminated ${u.mode}, so the rest of the file was invisible to every check`);
+    }
+    console.log(`${unreadable.length} file(s) above could not be fully read. A clean result for them would mean`);
+    console.log('"I could not look", not "there is nothing there". Usually an odd quote inside a regex literal.');
+  }
   for (const f of files.sort()) {
     for (const hit of scan(f)) {
       const key = `${path.relative(path.join(__dirname, '..'), f)}:${hit.name}`;
@@ -954,7 +1064,7 @@ function main(argv) {
      explicit exit. The first version of the stale-entry check set process.exitCode
      and printed its STALE lines while still exiting 0, which is a report nothing
      gates on. Measured: the lines appeared, the exit was 0. */
-  return (total === 0 && stale.length === 0) ? 0 : 1;
+  return (total === 0 && stale.length === 0 && unreadable.length === 0) ? 0 : 1;
 }
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));

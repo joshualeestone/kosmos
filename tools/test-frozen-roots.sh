@@ -487,6 +487,36 @@ node "$TOOL" "$T/definitely-not-here-9999" >/dev/null 2>&1; rc_missing=$?
 if [ "$rc_missing" = "2" ]; then ok "an unreadable target exits 2, not a stack trace"
 else bad "a missing target did not exit 2" "rc=$rc_missing"; fi
 
+# ---- arm 44: an odd quote inside a REGEX must not blind the rest of the file
+# This silenced THREE files in the enforced scope (clipath, reporthook, unfurl).
+# The quote inside the regex opened a string mode that never closed, so every
+# scan saw whitespace from there to EOF. reporthook lost 131 of its 221 lines.
+fixture regexquote "const store = require('./store');
+if (/[\"\\\\\$]/.test('x')) { /* nothing */ }
+const FILE = path.join(store.ROOT, 'x');"
+if [ "$(run regexquote)" = "1" ]; then ok "a freeze after an odd-quote regex is still found"
+else bad "an odd quote inside a regex blinded the rest of the file"; fi
+
+# ---- arm 45: and DIVISION is not mistaken for a regex ---------------------
+# The counterweight: treating every / as a regex would swallow to end of line.
+fixture divisionnotregex "const store = require('./store');
+const total = 10; const count = 2;
+const n = total / count;
+const FILE = path.join(store.ROOT, 'x');"
+if [ "$(run divisionnotregex)" = "1" ]; then ok "division is not read as a regex literal"
+else bad "a division swallowed the rest of the line"; fi
+
+# ---- arm 46: a file the blanker CANNOT finish is named, never clean -------
+# The belt to the braces above: if some future shape desynchronises the walk
+# again, a clean result must not be reported for a file that was not read.
+fixture unterminated "const store = require('./store');
+const S = 'this string never closes
+const FILE = path.join(store.ROOT, 'x');"
+out_unread="$(node "$TOOL" "$T/unterminated.js" 2>&1)"; rc_unread=$?
+if [ "$rc_unread" != "0" ] && printf '%s' "$out_unread" | grep -q '^UNREADABLE'; then
+  ok "a file the scanner cannot finish reading is NAMED and gates"
+else bad "an unreadable file reported clean" "rc=$rc_unread"; fi
+
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,
 # once by renumbering and stranding every "counterweight to arm N" reference. A
