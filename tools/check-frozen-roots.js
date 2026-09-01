@@ -348,7 +348,18 @@ const everyRootIsDeferred = (init, resolverNames, sources) => {
     }));
 };
 
-function declarations(src) {
+/* 🛑 THE WHOLE FAMILY READS COMMENT-BLANKED SOURCE, and this function and
+   `functionNamesReaching` were the two that did not. Four scans blanked, two split
+   raw `src`: the siblings were the spec, the omission was ABSENT rather than wrong,
+   and no test could assert on a line that is not there.
+   What it permitted, measured, both arms:
+     a declaration inside a multi-line block comment, content at column 0, was
+     REPORTED as a freeze; and a resolver defined only inside a comment registered
+     as a real resolver, so a later line was blamed "via a resolver helper".
+   Commented-out code is not code. Blanking preserves every newline, so the line
+   numbers this returns stay true. */
+function declarations(rawSrc) {
+  const src = blankComments(rawSrc);
   /* Multi-line aware, and LINEAR rather than a regex.
      🛑 The first version of this used /^const NAME =((?:[^;]|\n)*?);\s*$/m and
      HUNG for over two minutes on create.js. `[^;]` already matches a newline,
@@ -427,7 +438,10 @@ function declarations(src) {
   return out;
 }
 
-function functionNamesReaching(src, sources) {
+function functionNamesReaching(rawSrc, sources) {
+  /* Comment-blanked, for the same reason as `declarations` above: a resolver that
+     exists only inside a comment is not a resolver. */
+  const src = blankComments(rawSrc);
   /* One pass of transitive closure: a function whose body mentions a raw source
      is a resolver, and so is one that calls a resolver. Two rounds is enough
      for the shapes here and the tool says so rather than pretending to be a

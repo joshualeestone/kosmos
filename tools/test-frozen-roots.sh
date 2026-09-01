@@ -368,6 +368,27 @@ const HEAD = tree.ROOT;"
 if [ "$(run recvnotrequired)" = "0" ]; then ok "a path-shaped property on a plain object is not a capture"
 else bad "fired on an object that is not a required module"; fi
 
+# ---- arm 37: COMMENTED-OUT code is not code -------------------------------
+# Found by sweeping for the odd-sibling shape rather than by a failing test: four
+# scans read comment-blanked source and two split raw src. The siblings were the
+# spec, the omission was ABSENT rather than wrong, and nothing could assert on a
+# line that is not there.
+fixture declincomment "const store = require('./store');
+/*
+const FILE = path.join(store.ROOT, 'x');
+*/
+const F = () => path.join(store.ROOT, 'y');"
+if [ "$(run declincomment)" = "0" ]; then ok "a declaration inside a block comment is not a finding"
+else bad "reported commented-out code as a freeze"; fi
+
+fixture resolverincomment "const store = require('./store');
+/*
+const dirp = () => path.join(store.ROOT, 'x');
+*/
+const FILE = path.join(dirp(), 'a');"
+if [ "$(run resolverincomment)" = "0" ]; then ok "a resolver defined only in a comment is not a resolver"
+else bad "a commented-out resolver made a later line report via-a-helper"; fi
+
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,
 # once by renumbering and stranding every "counterweight to arm N" reference. A
