@@ -48,3 +48,22 @@ trust dialog must be visible in Kosmos as blocked-and-why, not silently unknown.
 
 The same fixtures classify `unknown` on main (measured before the change) and `needs_you`
 on this branch; the suite's new arms are red on main by construction.
+
+## Challenge-loop iteration 1 changed three things and recorded one follow-up
+
+- **A verbatim paste of the dialog is not the dialog.** The first detector matched a dialog
+  quoted inside a tool result (the card itself quotes it), and rule 3 would have stood that
+  false red over the agent's fresh working report. Fix: a third structural row. A real dialog
+  replaces the composer and is the bottom of the screen (observed in the probe: the confirm
+  row is the last non-blank row); a paste always has a footer, a working line or prose beneath
+  it. The detector now requires the tail's last non-blank row to be a dialog row. Cost: a
+  capture whose dialog is not at the bottom reads unknown, the honest default.
+- **"Default answer exits", not "highlighted".** The detector strips the selector glyph and
+  does not know where the caret is. The default is a fact about the dialog.
+- **The marker questionIn uses now carries the detector's strip class**, so a box-framed row
+  reads the same on the card and on the page. And a reported needs_you now carries the
+  screen's question row as evidence when the screen has one (rule 6 never decays it).
+- **Owed, not done: browser verification.** Nobody has opened an agent page over a real trust
+  dialog and seen the question, both options and the highlight. The browser gate was held by
+  another agent during this build. The card stays open at "words shipped and mechanism built,
+  behaviour not yet measured" until that walk happens; it is listed in the PR body.

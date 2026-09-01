@@ -2456,3 +2456,16 @@ test('#1629: the trust dialog is findable as a question, options and all, and ge
      somebody does. */
   assert.equal(chat.optionsIn(found.text), null);
 });
+
+test('#1629: a box-framed trust dialog is still findable as a question', () => {
+  const pane = [
+    'Worked for 3m',
+    '│ Quick safety check: Is this a project you created or one you trust?',
+    '│ ❯ No, exit',
+    '│   Yes, I trust this folder',
+    '│ Enter to confirm · Esc to cancel',
+  ].join('\n');
+  const found = chat.questionIn(pane);
+  assert.ok(found, 'the frame does not hide the question from the page');
+  assert.match(found.text, /No, exit/);
+});

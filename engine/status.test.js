@@ -3695,7 +3695,12 @@ test('#1629: the trust dialog is the same needs_you an ordinary prompt is, so th
   // `Yes, I trust this folder` highlighted instead: still the dialog, still needs you.
   const flipped = TRUST_DIALOG_LIVE.replace(' ❯ No, exit', '   No, exit').replace('   Yes, I trust this folder', ' ❯ Yes, I trust this folder');
   assert.notEqual(flipped, TRUST_DIALOG_LIVE, 'the fixture edit took');
-  assert.equal(classify(pane(), flipped).state, STATE.NEEDS_YOU);
+  const r = classify(pane(), flipped);
+  assert.equal(r.state, STATE.NEEDS_YOU);
+  // The reason names the DEFAULT, which is a fact about the dialog; it must not
+  // claim to know the highlight, which the detector does not read.
+  assert.match(r.because, /default answer exits/);
+  assert.doesNotMatch(r.because, /highlighted/);
 });
 
 test('#1629: prose about the trust dialog is not the dialog', () => {
@@ -3740,4 +3745,77 @@ test('#1629: a scraped trust dialog stands over a stale self-report of working, 
   // The arm can fail: the same fresh report DOES win over a scraped idle.
   const idle = reconcileReport(rep('working', { because: 'rebasing' }), scr(STATE.IDLE, CONFIDENCE.SCRAPED), T0 + 60_000);
   assert.equal(idle.state, STATE.WORKING, 'control: rule 3 is specific to needs_you');
+});
+
+test('#1629: a verbatim PASTE of the dialog is not the dialog, because a paste is never the bottom of the screen', () => {
+  const { trustPrompt } = require('./status');
+  const dialogRows = TRUST_DIALOG_LIVE.split('\n').filter((l) => l.trim());
+  // The card that motivates this detector quotes the dialog, so `gh issue view
+  // 1629` prints it into a tool result. Measured before the fix: needs_you, and
+  // rule 3 then stood it over the agent's own fresh `working` report.
+  const paste = [
+    '⏺ Bash(gh issue view 1629 --repo joshualeestone/kosmos)',
+    '  ⎿  He was not unresponsive, he was stopped here:',
+    ...dialogRows.map((l) => '     ' + l),
+    '     The default answer kills the agent.',
+    '',
+    '⏺ Reading the rest of the card now.',
+    '',
+  ];
+  const cases = [
+    ['paste with the composer footer beneath it', [...paste, '⏵⏵ accept edits on (shift+tab to cycle)'].join('\n')],
+    ['paste with a working line beneath it', [...paste, '· Reading… (12s · esc to interrupt)'].join('\n')],
+    ['paste with prose beneath it', [...paste, 'That capture is from 08-30.'].join('\n')],
+  ];
+  for (const [label, text] of cases) {
+    assert.equal(trustPrompt(text), null, label);
+    assert.notEqual(classify(pane(), text).state, STATE.NEEDS_YOU, label);
+  }
+  // Control: the same rows with nothing beneath them ARE the dialog.
+  assert.ok(trustPrompt(['Worked for 2m', ...dialogRows, ''].join('\n')), 'the real dialog still reads');
+  // And a capture clipped before the confirm row drew still reads: an option
+  // row is a dialog row too.
+  assert.ok(trustPrompt(['Worked for 2m', ...dialogRows.slice(0, -1)].join('\n')), 'clipped before the confirm row');
+});
+
+test('#1629: the reach boundary goes red in both directions', () => {
+  const { trustPrompt } = require('./status');
+  const q = ' Quick safety check: Is this a project you created or one you trust?';
+  const at = (n) => [q, ...Array(n - 1).fill('line'), ' ❯ No, exit', ''].join('\n');
+  // rows.slice(i + 1, i + 1 + REACH): the option row at exactly row +12 is inside.
+  assert.ok(trustPrompt(at(12)), 'option at row +12 is within reach');
+  assert.equal(trustPrompt(at(13)), null, 'option at row +13 is out of reach');
+});
+
+test('#1629: a box-framed dialog reads the same on both halves of the feature', () => {
+  const { trustPrompt, ALL_NEEDS_YOU_MARKERS } = require('./status');
+  // engine/chat.js records that some Claude Code versions draw prompts inside a
+  // box. The detector strips the frame; the marker questionIn tests on the RAW
+  // row must tolerate it too, or the card says needs_you while the page cannot
+  // find the question.
+  const framed = [
+    '│ Quick safety check: Is this a project you created or one you trust?',
+    '│ ❯ No, exit',
+    '│   Yes, I trust this folder',
+    '│ Enter to confirm · Esc to cancel',
+    '',
+  ].join('\n');
+  assert.ok(trustPrompt(framed), 'the detector sees through the frame');
+  assert.ok(ALL_NEEDS_YOU_MARKERS.some((re) => re.test('│ Quick safety check: Is this a project')), 'so does the marker questionIn uses');
+  assert.ok(ALL_NEEDS_YOU_MARKERS.some((re) => re.test(' Quick safety check: Is this a project')), 'and the plain row');
+  assert.ok(!ALL_NEEDS_YOU_MARKERS.some((re) => re.test('The pane said Quick safety check: and I moved on')), 'but not the sentence');
+});
+
+test('#1629: a REPORTED needs_you carries the screen\'s question row when the screen has one', () => {
+  // Rule 6: a reported needs_you never decays, so an agent whose last report
+  // was an earlier question and then met the dialog rendered the old question
+  // with no evidence. The report keeps its words; the row rides along.
+  const scraped = classify(pane(), TRUST_DIALOG_LIVE);
+  const got = reconcileReport(rep('needs_you', { because: 'may I merge?' }), scraped, T0 + 60_000);
+  assert.equal(got.state, STATE.NEEDS_YOU);
+  assert.equal(got.reported, true);
+  assert.match(got.evidence, /^Quick safety check/);
+  // Control: a scraped needs_you WITHOUT evidence adds no evidence key.
+  const plain = reconcileReport(rep('needs_you', { because: 'may I merge?' }), scr(STATE.NEEDS_YOU, CONFIDENCE.SCRAPED), T0 + 60_000);
+  assert.equal('evidence' in plain, false);
 });
