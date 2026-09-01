@@ -244,7 +244,16 @@ function startAutoPoll(opts = {}) {
      not the thing they guard existed. Measured: gate-null and gate-truthy both
      gave 0 fetches, indistinguishable, while a 1200ms window gave 1. A guard
      that cannot fail is not a guard. */
-  const floored = envMs > 0 ? Math.max(envMs, 1000) : POLL_EVERY;
+  /* 🛑 A CEILING TOO, AND IT MATTERS MORE THAN THE FLOOR. `setInterval`
+     collapses any delay above 2147483647 to 1ms, so setting this to a year,
+     which is the natural way an operator would try to DISABLE the poll, spins
+     installedRoot() about 780 times a second forever. Measured: 31536000000
+     gave _repeat=1 and 39 ticks in 50ms with a TimeoutOverflowWarning, against
+     0 ticks for the 60000 control. The floor's own argument applies verbatim to
+     this direction, and I had guarded only one end. Clamped, a year becomes
+     ~24.8 days, which is what the operator wanted anyway. */
+  const TIMER_MAX = 2147483647;
+  const floored = envMs > 0 ? Math.min(Math.max(envMs, 1000), TIMER_MAX) : POLL_EVERY;
   const every = Number(opts.every) > 0 ? Number(opts.every) : floored;
   stopAutoPoll();
   pollTimer = setInterval(() => {
@@ -276,7 +285,12 @@ function stopAutoPoll() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
-/** Is the poll running? For the tests, and for anyone diagnosing a frozen board. */
+/** Is the poll running? A TEST SEAM, and only that: no route, no CLI verb and
+ *  no Settings field exposes it, and engine.reachable excuses it as a seam. The
+ *  docstring used to add "and for anyone diagnosing a frozen board", which
+ *  named a use nothing supports. It would also answer true in the state a
+ *  diagnoser cares about most, since a timer that fires and returns early at
+ *  the DRY_RUN or installedRoot gate is still "running". */
 function autoPollRunning() { return pollTimer !== null; }
 
 /** What the last look established: for the screen's could-not-reach state.
@@ -458,7 +472,19 @@ function beginInstall(opts) {
   installStarted = true;
   /* A fresh press starts a fresh record: the previous attempt's failure
      is history, not a verdict on this one. */
-  lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null };
+  /* 🛑 RECORD WHAT IT IS INSTALLING, AND SAY SO WHEN NOBODY ASKED FOR IT.
+     Until #1277 an automatic install could only happen with somebody at the
+     board, so "what did it install" was answerable by the person who pressed
+     the button. This card makes the unattended path the normal one, and the
+     first question after a machine changes version by itself is what it took
+     and when. `version` answers the first half; the stderr line below answers
+     the second, and it is written ONLY for the automatic path because a person
+     who pressed the button already knows. */
+  const targetVersion = (cache && cache.latest) || null;
+  lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null, version: targetVersion, auto: !!(opts && opts.auto) };
+  if (opts && opts.auto) {
+    try { process.stderr.write(`update: starting an automatic install of ${targetVersion || 'an unnamed version'} at ${lastAttempt.startedAt}\n`); } catch { /* a log line must never break an install */ }
+  }
   /* 🛑 AN INJECTED RUNNER GOES THROUGH THE SAME WIRING, and it did not before.
      This returned immediately on `installRunner`, so the two handlers below --
      the ones that release the single-flight flag and stamp the automatic

@@ -597,3 +597,52 @@ test('#1277: resetCache stops the poll, so a reset means what its name says', ()
     'resetCache left the poll running. It clears five other pieces of module state, so a future '
     + 'test that starts the poll and calls only resetCache leaks a live interval into the suite');
 });
+
+test('#1277: the poll interval env var has a CEILING, so "disable it" cannot spin the machine', async () => {
+  /* setInterval collapses any delay above 2147483647 to 1ms. Setting this to a
+     year is the natural way to try to turn the poll off, and unclamped it ran
+     installedRoot() about 780 times a second forever, on exactly the unattended
+     machine this card is about. Measured before the clamp: _repeat=1 and 39
+     ticks in 50ms; the 60s control gave 0. The floor guarded one end only. */
+  const u = require('./update');
+  u.resetCache();
+  u.setInstalledRoot(() => null);
+  const prev = process.env.AGENT_WORKFORCE_UPDATE_POLL_MS;
+  process.env.AGENT_WORKFORCE_UPDATE_POLL_MS = '31536000000';
+  try {
+    const t = u.startAutoPoll();
+    const ms = t && (t._repeat || t._idleTimeout);
+    assert.ok(ms > 1000,
+      `a one-year interval resolved to ${ms}ms. Above 2147483647 setInterval wraps to 1ms, so the `
+      + 'operator who tried to switch the poll off got a thousand-per-second spin instead');
+    assert.ok(ms <= 2147483647, `interval ${ms}ms exceeds the setInterval maximum and will wrap`);
+  } finally {
+    u.stopAutoPoll();
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_UPDATE_POLL_MS;
+    else process.env.AGENT_WORKFORCE_UPDATE_POLL_MS = prev;
+    u.setInstalledRoot(null); u.resetCache();
+  }
+});
+
+test('#1277: an automatic install records WHICH version and says so, a manual one stays quiet', async () => {
+  /* Until this card an automatic install needed somebody at the board, so
+     "what did it install" was answerable by whoever pressed the button. The
+     unattended path is now the normal one, and the record carried a start
+     stamp, an exit code and no version at all. */
+  const u = require('./update');
+  u.resetCache();
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '9.9.9' }) }));
+  u.setInstalledRoot(() => '/tmp/pretend-installed');
+  u.setInstallRunner(() => ({ on() {}, unref() {}, stderr: { on() {} } }));
+  try {
+    await u.refresh();
+    u.beginInstall({ auto: true });
+    const a = u.lastAttempt();
+    assert.equal(a.version, '9.9.9',
+      `the attempt recorded version=${a.version}. After a machine changes version by itself, the `
+      + 'first question is what it took, and nothing on the box answered it');
+    assert.equal(a.auto, true, 'the record must say the machine chose this, not a person');
+  } finally {
+    u.setFetcher(null); u.setInstalledRoot(null); u.setInstallRunner(null); u.resetCache();
+  }
+});

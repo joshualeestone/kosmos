@@ -163,3 +163,52 @@ than papered over with an instrument that cannot fail.
 📌 The remaining WARNING, about nothing recording which version an automatic
 install targeted, arrived truncated and is carried into the next iteration
 rather than guessed at.
+
+## Iteration 3
+
+**My floor had no ceiling, and the overflow direction is the worse one.**
+`setInterval` collapses any delay above 2147483647 to 1ms, so setting
+`AGENT_WORKFORCE_UPDATE_POLL_MS` to a year, which is the natural way an
+operator would try to turn the poll OFF, spins `installedRoot()` about 780
+times a second forever. Measured, both arms: a one-year value gave `_repeat=1`
+and 39 ticks in 50ms with a TimeoutOverflowWarning, against 0 ticks for the
+60000 control.
+
+⭐ The floor's own justification applies verbatim to the other end, and I had
+written that justification while guarding only one side of it. Clamped now, so
+a year resolves to about 24.8 days, which is what the operator wanted anyway.
+
+**Nothing on the machine recorded what an unattended install took.** The
+attempt carried a start stamp, an exit code and no version. That was tolerable
+while an automatic install needed somebody at the board; this card makes the
+unattended path normal, and the first question after a machine changes version
+by itself is what it installed and when. The record now carries `version` and
+an `auto` flag, and the automatic path writes one stderr line. The manual path
+stays quiet, because a person who pressed the button already knows.
+
+**A docstring named a use nothing supports.** `autoPollRunning()` said it was
+"for anyone diagnosing a frozen board", when no route, CLI verb or Settings
+field exposes it, and it is excused elsewhere as a test seam. It would also
+answer true in the state a diagnoser cares about most, since a timer that fires
+and returns early at a gate is still running.
+
+### Named, not changed: the board now phones home even when auto-update is OFF
+
+The tick gates on `AGENT_WORKFORCE_DRY_RUN` and `installedRoot()`. The
+preference is consulted downstream inside `maybeAutoInstall()`, so an installed
+board contacts the release host on the timer regardless of the switch. Before
+this change an unattended board made zero outbound requests.
+
+I am leaving the behaviour as it is. The standing decision in
+`engine/update.test.js` is that off means do not install rather than do not
+tell me, and the Settings card needs a fresh answer to show. But the plan named
+only the INSTALL change under weakest premises, and unattended outbound traffic
+from a machine nobody is at is the half a reviewer would want named. It is
+named here and it goes in the PR body.
+
+### For the PR body, recorded so it is not forgotten
+
+`tools/check-ship-declaration.js` classifies a body with no `user-visible` line
+as SILENT, which is indistinguishable from a deliberate internal-only merge.
+This branch is user-visible on every installed machine, so that line has to be
+there.
