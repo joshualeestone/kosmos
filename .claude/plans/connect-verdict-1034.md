@@ -39,7 +39,7 @@ foreign string anywhere in the input, assert it does not appear in the serialize
 output, with a control asserting the planted string IS in the input.
 
 ⚠️ **The measurement that forced this.** A pass-through of `because` looks safe: 0 of
-the 23 in `connect.js` interpolate captured output. But `subscription.js:213` builds
+the 23 in `connect.js` interpolate captured output. But `subscription.js` (its `${org}` sentence) builds
 `` `...we do not recognise the plan of (${org})` `` from the person's Claude config.
 **One free-text field, two source modules, opposite answers.** A rule of "pass through
 the safe ones" would have been true when written and wrong on the next edit.

@@ -40,13 +40,17 @@ const CLI = path.join(__dirname, 'install', 'kosmos');
  * Measured: without this, the CLI emitted the payload verbatim and all seven
  * arms failed for the same uninformative reason.
  *
- * `KOSMOS_HOME` is overridable (`install/kosmos:41`), so the test supplies a
+ * `KOSMOS_HOME` is overridable (the `KOSMOS_HOME="${KOSMOS_HOME:-...}"` default near the
+ * top of install/kosmos), so the test supplies a
  * runtime pointing at the node already running it.
  */
 const FAKE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-1034-'));
 fs.mkdirSync(path.join(FAKE_HOME, 'runtime', 'bin'), { recursive: true });
 fs.symlinkSync(process.execPath, path.join(FAKE_HOME, 'runtime', 'bin', 'node'));
-test.after(() => fs.rmSync(FAKE_HOME, { recursive: true, force: true }));
+test.after(() => {
+  fs.rmSync(FAKE_HOME, { recursive: true, force: true });
+  fs.rmSync(NO_RUNTIME_HOME, { recursive: true, force: true });
+});
 
 /* Serves the board's identity page (so `healthy` passes) and whatever verdict
    payload the arm asks for. */
@@ -84,10 +88,12 @@ function kosmos(port, extraEnv = {}) {
  * KOSMOS_HOME at an empty dir makes that miss, which is the real shape on a
  * layout where the runtime is absent.
  */
+/* One bare home for every no-runtime arm, removed with FAKE_HOME rather than
+   left behind once per call. */
+const NO_RUNTIME_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-noruntime-'));
 function kosmosNoRuntime(port) {
-  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-noruntime-'));
   return new Promise((resolve) => {
-    execFile('bash', [CLI, 'connections'], { env: { ...process.env, KOSMOS_PORT: String(port), KOSMOS_HOME: bare } },
+    execFile('bash', [CLI, 'connections'], { env: { ...process.env, KOSMOS_PORT: String(port), KOSMOS_HOME: NO_RUNTIME_HOME } },
       (err, stdout, stderr) => resolve({ code: err ? err.code : 0, out: String(stdout), err: String(stderr) }));
   });
 }

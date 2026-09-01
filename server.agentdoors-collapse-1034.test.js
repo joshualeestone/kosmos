@@ -64,13 +64,20 @@ function countedGithub() {
   let entries = 0;
   let gate = null;
   let release = null;
+  let onEntry = null;
   github.state = async () => {
     entries += 1;
+    if (onEntry) { const fire = onEntry; onEntry = null; fire(); }
     if (gate) await gate;
     return { connected: false };
   };
   return {
     entries: () => entries,
+    /* Resolves at the NEXT entry into the door. The collapse assertions used to
+       sleep a fixed 150ms and read the counter; under the load this box runs
+       suites at (15-21) the first request can still be short of the door, the
+       count reads 0, and a test that gates a cut goes red with no defect. */
+    nextEntry: () => new Promise((r) => { onEntry = r; }),
     arm() { gate = new Promise((r) => { release = r; }); },
     release() { if (release) { release(); release = null; } gate = null; },
     restore() { github.state = real; },
@@ -78,6 +85,21 @@ function countedGithub() {
 }
 
 const hit = () => fetch(base + '/api/agent/connections').then((r) => r.json());
+
+/* Resolves when the board's HTTP server has RECEIVED a request for `pathname`,
+   then yields twice so its handler can run to the sweep call. Registered before
+   the request is fired, so it cannot miss it. This is the second caller's
+   arrival: without it, "swept once" is vacuous for a caller that has not arrived. */
+function arrival(pathname) {
+  return new Promise((resolve) => {
+    const on = (req) => {
+      if ((req.url || '').split('?')[0] !== pathname) return;
+      server.off('request', on);
+      setImmediate(() => setImmediate(resolve));
+    };
+    server.on('request', on);
+  });
+}
 
 test('#1618: two agents asking at once sweep the first-party doors ONCE', async () => {
   const g = countedGithub();
@@ -89,9 +111,12 @@ test('#1618: two agents asking at once sweep the first-party doors ONCE', async 
     assert.ok(warm >= 1, 'the route never reached the github door, so the counter measures nothing');
 
     g.arm();
+    const entered = g.nextEntry();
     const a = hit();
+    await entered;                                   // a is inside the door, held open
+    const arrivedB = arrival('/api/agent/connections');
     const b = hit();
-    await new Promise((r) => setTimeout(r, 150));
+    await arrivedB;                                  // b has reached the route
     const during = g.entries() - warm;
     assert.equal(during, 1,
       `the route swept the github door ${during} times for two concurrent agents, so the sweep was not shared`);
@@ -127,9 +152,12 @@ test('#1618: the BOARD SHELF and the AGENT ROUTE share one sweep, which is why t
     assert.ok(warm >= 1, 'the agent route never reached the github door, so the counter below measures nothing');
 
     g.arm();
+    const entered = g.nextEntry();
     const agent = hit();
+    await entered;                                   // the agent route is inside the door, held open
+    const arrivedBoard = arrival('/api/connections');
     const board = fetch(base + '/api/connections').then((r) => r.json());
-    await new Promise((r) => setTimeout(r, 150));
+    await arrivedBoard;                              // the board route has arrived
     const during = g.entries() - warm;
     assert.equal(during, 1,
       `the two routes swept the github door ${during} times between them, so they are NOT sharing one in-flight sweep and can drift apart`);

@@ -59,7 +59,8 @@ const gpt = (body) => (body.providers || []).find((p) => p.id === 'openai');
 
 /**
  * The shape `openaiaccounts.rowFor()` really produces, plus the `connection`
- * that `listLive()` attaches (openaiaccounts.js:457). Copied from the field set
+ * that `listLive()` attaches (`connection: await module.exports.checkLive(row.dir)`
+ * in openaiaccounts.js). Copied from the field set
  * in the source rather than invented.
  *
  * ⚠️ THE FIRST VERSION OF THIS FIXTURE WAS HAND-ROLLED AND MEASURED THE WRONG

@@ -4,11 +4,8 @@
 # app icon execs it. It is the one entry point that knows where everything
 # lives, so nothing else has to.
 #
-#   kosmos start     start the board if it is not already running
-#   kosmos stop      stop it
-#   kosmos status    say whether it is running, in a sentence
-#   kosmos open      start if needed, then open the dashboard in the browser
-#   kosmos version   print the app version
+# `kosmos --help` prints the verb list; `_kosmos_verbs` below is its one
+# rendering, so this header does not carry a second copy to go stale.
 #
 # ⚠️ WHO RUNS THIS, because it governs the voice: mostly nobody. The person
 # installs with one pasted line and lives in the icon and the browser tab from
@@ -687,7 +684,7 @@ cmd_connections() {
     # ⚠️ "$SELF start", NOT bare "kosmos start". Every sibling verb says the bare
     # form and this deliberately does not match them, for one reason: THIS verb's
     # primary caller is an AGENT that was handed an absolute path, and the bare
-    # form is what engine/connections.js:3 calls a measured lie on a stock
+    # form is what the header of engine/connections.js calls a measured lie on a stock
     # install (~/.local/bin is not on a default macOS PATH). A person in a
     # terminal usually has it working; an agent following instructions does not.
     # The siblings are reached by a person and are left alone on purpose:
@@ -716,7 +713,7 @@ cmd_connections() {
   # parallel so the real cost is bounded near the slowest one, but 15s left no
   # margin on a machine with several accounts and a slow network door.
   # 🛑 `|| { ... }`, NOT `; rc=$?`. This script runs under `set -euo pipefail`
-  # (line 24), and a failing command substitution in a plain assignment is a
+  # (`set -euo pipefail` at the top of this file), and a failing command substitution in a plain assignment is a
   # simple command: the shell EXITS THERE. An earlier version of this block wrote
   # `body=$(curl ...); rc=$?`, which made BOTH sentences below unreachable --
   # measured, with both arms: under `set -e` it printed nothing and exited with
@@ -726,7 +723,7 @@ cmd_connections() {
   # ⚠️ And no `2>&1`: folding curl's stderr into $body swallowed its own message
   # as well, so a person got silence from both halves at once.
   # ⭐ `2>/dev/null` is NOT the same mistake. (It is what ONE sibling uses:
-  # `cmd_msg` at :475. `cmd_whoami` at :662 uses `2>&1`, which is the form the
+  # `cmd_msg`. `cmd_whoami` uses `2>&1`, which is the form the
   # note above calls the mistake. "the sibling verbs use it" was true of one of
   # the two this block names three lines up.)
   # `2>&1` redirects INTO the variable, which is what ate the message. This
@@ -818,7 +815,7 @@ cmd_connections() {
   # The board composed every sentence; this prints them rather than inventing
   # its own, the same rule `whoami` states.
   # The resolved restart command goes in through the ENVIRONMENT, the same shape
-  # line 433 already uses for KOSMOS_PKG. It cannot be interpolated into the
+  # the KOSMOS_PKG read above already uses. It cannot be interpolated into the
   # script text: that is a single-quoted shell string, and a path with an
   # apostrophe in it would end the script (which is what the apostrophe guard
   # test in this file exists to catch).
@@ -946,7 +943,7 @@ cmd_connections() {
            machine vocabulary. `typeof` rather than `!= null` keeps the older-board
            case intact, because a board that OMITS the field is undefined, which is
            not a number, and so is still treated as did not say rather than as 0. */
-        /* 🛑 isFinite, NOT typeof. A JSON body carrying 1e400 parses to Infinity, and
+        /* 🛑 isInteger, NOT typeof, and not isFinite either: a count is whole, and 1.5 from a skewed board is not a number to print. A JSON body carrying 1e400 parses to Infinity, and
            typeof Infinity is "number", so these guards accepted it: a skewed board
            printed "Infinity sign-ins working" AT EXIT 0. Every other guard in this
            block exists for a board the CLI does not control; this was the one that
@@ -955,8 +952,8 @@ cmd_connections() {
            in a single-quoted shell string, so one quote truncates the program, and
            bash -n still PASSES because what is left is valid shell. The apostrophe
            guard test is what catches it, which is why that test exists. */
-        if (Number.isFinite(p.howMany)) {
-          var w = Number.isFinite(p.howManyWorking) ? p.howManyWorking : p.howMany;
+        if (Number.isInteger(p.howMany)) {
+          var w = Number.isInteger(p.howManyWorking) ? p.howManyWorking : p.howMany;
           /* The denominator is the READABLE rows, not every row. A row whose
              live check we could not read is neither working nor broken, and
              counting it against the person is a settled negative about
