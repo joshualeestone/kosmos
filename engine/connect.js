@@ -1,18 +1,5 @@
 'use strict';
 
-/* 📌 THE RESOLUTION RULE, STATED ONCE BECAUSE IT WAS STATED FOUR TIMES.
-   Every site that needs both a PATH and its PRESENCE resolves `runners.resolveBin`
-   ONCE and reads both off the one answer. Two resolutions can disagree across an
-   await, and that disagreement is what #1592 is about.
-   ⚠️ Four comments used to name the membership of this set BY HAND, and all four
-   disagreed: "the neighbouring site", "willInstall and claudeHatchAvailable",
-   "willInstall, claudeHatchAvailable and start()", "willInstall above". Adding or
-   removing a resolution site silently staled three of them. That is the
-   two-copies-of-one-fact defect this branch exists to remove, reproduced in prose.
-   ⇒ The sites now point HERE instead of enumerating each other.
-   📌 The one deliberate EXCLUSION is `binaryOnDisk` in `start()`, which is conditional
-   and behind an await; the reason is written at that site. */
-
 /**
  * Click-to-connect: install Claude Code and sign it in, from the app.
  *
@@ -47,6 +34,19 @@
  * of the product trusts -- not any sentence scraped off the terminal. The TUI
  * text is used to know what to press, never to declare victory.
  */
+
+/* 📌 THE RESOLUTION RULE, STATED ONCE BECAUSE IT WAS STATED FOUR TIMES.
+   Every site that needs both a PATH and its PRESENCE resolves `runners.resolveBin`
+   ONCE and reads both off the one answer. Two resolutions can disagree across an
+   await, and that disagreement is what #1592 is about.
+   ⚠️ Four comments used to name the membership of this set BY HAND, and all four
+   disagreed: "the neighbouring site", "willInstall and claudeHatchAvailable",
+   "willInstall, claudeHatchAvailable and start()", "willInstall above". Adding or
+   removing a resolution site silently staled three of them. That is the
+   two-copies-of-one-fact defect this branch exists to remove, reproduced in prose.
+   ⇒ The sites now point HERE instead of enumerating each other.
+   📌 The one deliberate EXCLUSION is `binaryOnDisk` in `start()`, which is conditional
+   and behind an await; the reason is written at that site. */
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -1471,31 +1471,46 @@ async function installClaudeCode(hooks) {
    * earlier version of this comment said "exactly as the old bare HOME
    * constant did", which described code that was not there.
    */
-  /* 🛑 GUARDED, AND THIS WAS A REAL LEAK PLUS A DEAD BRANCH IN ONE. `homeDir()` was
-     called INLINE in the env object below, at TRY-DEPTH ZERO (measured), so a throw
-     escaped `installClaudeCode` entirely. Two consequences, and I had written a comment
-     denying the second:
-       1. THE VERIFIED ~281MB DOWNLOAD WAS LEFT ON DISK. The unlink sits a few lines
-          BELOW this call, so the throw skipped it and nothing else cleans that path.
-       2. The post-install `expectedAt === null` branch could never be reached BY THE
-          CONDITION ITS OWN MESSAGE NAMES, because the only way resolveBin('claude') can
-          throw with CLAUDE_BIN unset is homeDir() throwing, which aborted here first.
-     ⚠️ AND THIS UN-RETRACTS SOMETHING I WITHDREW. A comment below withdrew the clause
-     "and the downloaded file never unlinked" as false. It is false for the CATCH path
-     that was measured and TRUE for THIS path, which was not. An over-broad retraction is
-     a wrong claim in the reassuring direction, and it deleted a true sentence.
-     ✅ Resolving it here, once, fixes both: the download is cleaned, and the branch below
-     becomes reachable by exactly the condition it describes. */
-    let installHome;
-    try { installHome = require('./runners').homeDir(); }
-    catch {
-      try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
-      return fail(
-        'Claude Code downloaded, but we have nowhere to install it',
-        'This account has no home directory we can resolve. It usually means HOME is unset '
-          + 'and the account has no passwd entry, which a service or container account can hit.'
-      );
-    }
+  /* 🛑 DEFENCE IN DEPTH, NOT A REACHABLE FIX. THE PREVIOUS VERSION OF THIS COMMENT
+     CLAIMED A ~281MB LEAK AND THAT CLAIM IS RETRACTED. Kept in full because the wrong
+     reasoning is more useful than the right conclusion here.
+  
+     WHAT I CLAIMED: `homeDir()` was called inline in the env object at try-depth zero,
+     so a throw escaped before the unlink below, stranding the verified download.
+  
+     WHY IT IS FALSE, MEASURED ON EVERY ARM: `store.ROOT` is
+         dataRootFor(process.platform, os.homedir(), process.env)
+     with `os.homedir()` as an EAGER ARGUMENT, and `download()` needs `store.ROOT`. So if
+     os.homedir() throws, store.ROOT THROWS AND THE DOWNLOAD DIES FIRST. There is never a
+     verified file to strand. Neither AGENT_WORKFORCE_DATA nor AGENT_WORKFORCE_HOME
+     rescues it, because neither is what store.ROOT reads. Control: with homedir working,
+     store.ROOT resolves normally.
+  
+     ⭐ AND THE ARM I WROTE FOR IT PROVED NOTHING, WHICH IS THE PART WORTH KEEPING. It
+     stubs `runners.homeDir` ON THE MODULE OBJECT, faulting only this file's explicit
+     call while `store.ROOT` keeps calling `os.homedir()` directly. That drives
+     "connect's home lookup broken while the store's is healthy", a state with NO
+     PRODUCTION CAUSE. IT REDDENED ON PERTURBATION AND I READ THAT AS PROOF.
+     ⇒ A mutation reddening an arm proves the arm SEES the mutation. It says nothing
+     about whether the mutated state can occur.
+  
+     ⚠️ It also UN-RETRACTED CORRECTLY-RETRACTED TEXT. I withdrew "the downloaded file
+     was never unlinked" as false, then un-withdrew it on this reasoning. THE ORIGINAL
+     RETRACTION WAS RIGHT, and I have now been wrong in both directions on one sentence.
+  
+     ✅ THE CODE STAYS. It is correct, it costs nothing, and it stops depending on
+     os.homedir() being reachable at a point where the function has already committed to
+     an install. It is NOT reachable today, and that is its honest status. */
+  let installHome;
+  try { installHome = require('./runners').homeDir(); }
+  catch {
+    try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
+    return fail(
+      'Claude Code downloaded, but we have nowhere to install it',
+      'This account has no home directory we can resolve. It usually means HOME is unset '
+        + 'and the account has no passwd entry, which a service or container account can hit.'
+    );
+  }
   const inst = await run(downloaded.path, ['install'], {
     timeout: 180000,
     env: { TERM: 'dumb', HOME: installHome },
@@ -2324,18 +2339,17 @@ async function finishConnected(owner, sub) {
  * the test guarding it had to bound a region of a mutable function. A region has
  * two edges and each one was independently wrong:
  *
- *   anchor + 600 chars   TOO BIG    a decoy in the next function satisfied it
- *   to the catch close   TOO SMALL  a fallback after the catch was invisible
- *   to `writeState(`     WRONG BOTH WAYS AT ONCE: an earlier writeState( call
- *                        truncates the region, and the widening that mattered
- *                        was INSIDE writeState's own argument list, written with
- *                        a COLON rather than an `=`, so no assignment check
- *                        could ever match it however the region was bounded
+ * 📌 THE THREE-ROW TABLE OF FAILED REGION BOUNDS THAT USED TO SIT HERE NOW LIVES IN
+ * ONE PLACE ONLY: engine.runnable-not-directory.test.js, beside the arm it justifies.
+ * ⚠️ It was in BOTH files and THE TWO COPIES HAD ALREADY DIVERGED IN WORDING ("however
+ * the region was bounded" against "at any boundary"). That is the same
+ * two-copies-of-one-fact defect as the resolution rule above, in the same file, found
+ * by a later reviewer after that one was fixed.
  *
  * ⇒ Every fix moved one edge and exposed the other. As one expression in one
  * function there is nothing to bound: the test asserts this call site exactly,
  * and asserts the BEHAVIOUR of this function against a real directory. A
- * behavioural arm is the only kind that has survived twelve review passes here.
+ * behavioural arm is the only kind that has reliably survived review here.
  *
  * ⚠️ THE TRY IS LOAD-BEARING AND MUST STAY. `resolveBin('claude')` can throw
  * (it derives a home directory and joins paths before it ever asks about the

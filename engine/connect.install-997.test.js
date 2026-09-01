@@ -534,16 +534,18 @@ test('CONTROL: maySweepDownloads FALSE leaves that partial in place', async (t) 
 
 
 test('a home directory we cannot resolve fails cleanly and strands no download', async (t) => {
-  /* 🛑 THIS PATH LEFT THE VERIFIED ~281MB DOWNLOAD ON DISK AND SILENTLY KILLED A BRANCH.
-     `homeDir()` was called INLINE in the install env object at TRY-DEPTH ZERO, so a throw
-     escaped `installClaudeCode` before the unlink a few lines below it. Two harms in one
-     line, and the second is the reason the post-install `expectedAt === null` branch
-     could never fire: the ONLY way resolveBin('claude') throws with CLAUDE_BIN unset is
-     homeDir() throwing, which aborted here first.
-     ⚠️ It also un-retracts a withdrawn sentence. A comment had withdrawn "and the
-     downloaded file never unlinked" as FALSE; it is false for the catch path that was
-     measured and TRUE for this one, which was not. An over-broad retraction is a wrong
-     claim in the reassuring direction. */
+  /* 🛑 THIS ARM DRIVES A STATE PRODUCTION CANNOT PRODUCE, AND IT IS KEPT AND LABELLED
+     RATHER THAN DELETED. It stubs `runners.homeDir` on the MODULE OBJECT, which faults
+     only connect.js's explicit call. `store.ROOT` calls `os.homedir()` directly and keeps
+     working, so this drives "connect's home lookup broken, the store's healthy".
+     ⚠️ IN PRODUCTION os.homedir() THROWING KILLS store.ROOT, SO download() FAILS FIRST
+     and this branch is never reached. Measured on every arm, including with
+     AGENT_WORKFORCE_DATA and AGENT_WORKFORCE_HOME set: both still throw.
+     ⇒ What this arm honestly pins: IF the guard is reached, it cleans up and names the
+     condition. It does NOT show that anything reaches it.
+     ⭐ I originally wrote this arm believing it demonstrated a ~281MB leak. It reddens
+     when the guard is removed, and I read that as proof the leak was real. A mutation
+     reddening an arm proves the arm SEES the mutation, not that the state can occur. */
   const runners = require('./runners.js');
   const realHome = runners.homeDir;
   runners.homeDir = () => { throw new Error('no home directory'); };
