@@ -99,20 +99,52 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     if (posted < 20) { bad('the fixture posted enough messages to scroll', 'only ' + posted + ' posted'); }
     else ok('the fixture posted enough messages to scroll');
 
+    /* #1712: a healthy fixture (posted >= 20) waits the full window for a
+       contended paint; a BROKEN fixture (posted < 20) can never grow, so the
+       growth polls below would each burn the full window for an answer already
+       known. Gate the bound on the control, so a setup failure still fails fast
+       (~old cost) while a real load-contended paint gets the generous window. */
+    const GROW_MS = posted >= 20 ? 15000 : 1000;
+
     await p.click('[data-tab="projects"]');
     await p.locator('#pj-list').getByText('Scroll Repro').first().click();
     await p.waitForSelector('#pj-room', { state: 'visible' });
-    await p.waitForTimeout(900);
-
-    const scrollable = await p.evaluate(() => {
-      const el = document.getElementById('pj-room');
-      return { h: el.scrollHeight, c: el.clientHeight };
-    });
-    if (scrollable.h > scrollable.c + 50) ok('the room is actually scrollable (' + scrollable.h + ' in ' + scrollable.c + ')');
-    else bad('the room is actually scrollable', JSON.stringify(scrollable) + ' -- every arm below would pass trivially');
+    /* #1712: WAIT for the room to grow, bounded, rather than measuring after a
+       fixed 900ms. The room paints the posted messages asynchronously, and under
+       concurrent load (a full suite on the same box) that paint can take well
+       over a second -- so a one-shot measure at 900ms read an UNGROWN room and
+       failed a correct release, then passed on retry. Poll scrollHeight against a
+       generous bound: a grown room resolves in well under a second unloaded and
+       within a few seconds under load, while a room that genuinely never scrolls
+       still fails -- now told apart from the 900ms timing artifact. Same idiom as
+       the other checks' waitForFunction (fn, null, { timeout }). */
+    let scrollable;
+    try {
+      await p.waitForFunction(() => {
+        const el = document.getElementById('pj-room');
+        return el && el.scrollHeight > el.clientHeight + 50;
+      }, null, { timeout: GROW_MS });
+      scrollable = await p.evaluate(() => {
+        const el = document.getElementById('pj-room');
+        return el ? { h: el.scrollHeight, c: el.clientHeight } : { h: 0, c: 0 };
+      });
+      ok('the room is actually scrollable (' + scrollable.h + ' in ' + scrollable.c + ')');
+    } catch {
+      /* Did not reach scrollable within the bound. KEEP THE SAME BASE NAME as the
+         pass above, so a signature match or a paired summary still tracks this one
+         arm across the flip; the diagnosis goes in the reason. The posts landed
+         (posted >= 20), so this is the room not painting them, not a delivery
+         failure -- the post count is kept so a reader can tell those apart. */
+      scrollable = await p.evaluate(() => {
+        const el = document.getElementById('pj-room');
+        return el ? { h: el.scrollHeight, c: el.clientHeight } : { h: 0, c: 0 };
+      });
+      bad('the room is actually scrollable',
+        JSON.stringify(scrollable) + ' -- did not reach a scrollable height within ' + GROW_MS + 'ms after ' + posted + ' posts; the arms below would pass trivially');
+    }
 
     /* ---- 1. A READER WHO SCROLLED BACK STAYS PUT across a wording-only repaint. */
-    const moved = await p.evaluate(async () => {
+    const moved = await p.evaluate(async (growMs) => {
       const el = document.getElementById('pj-room');
       el.scrollTop = Math.floor(el.scrollHeight * 0.35);
       const before = el.scrollTop;
@@ -126,9 +158,23 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
          nothing reports "the reader did not move" and passes on any product. */
       const liveBefore = el.__lastLive;
       window.paintRoom(body);
-      await new Promise((r) => setTimeout(r, 120));
+      /* #1712: measure on the FIRST synchronous iteration, not after a fixed
+         120ms. setLive writes innerHTML and __lastLive synchronously, so this
+         client-only aging is on screen the instant paintRoom returns. The old
+         120ms wait was a window in which the background loadRoom poll (~5s, and
+         a post's own reload) could re-fetch the server body -- which has none of
+         this aging -- and REVERT it: __lastLive back to liveBefore, rewrote:false,
+         a correct release reded with the same signature as arm 6. Break the
+         instant the write is visible (immediate, unloaded) so the injected state
+         is captured before any poll can revert it; a genuine no-repaint still
+         ends unsatisfied and fails the rewrote arm below. */
+      const deadline = Date.now() + growMs;
+      while (Date.now() < deadline) {
+        if (el.__lastLive !== liveBefore) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
       return { before, after: el.scrollTop, rewrote: el.__lastLive !== liveBefore };
-    });
+    }, GROW_MS);
     if (!moved.rewrote) bad('THE REPAINT ACTUALLY REWROTE THE ROOM', 'the wording did not change, so setLive skipped the write and the arm below proves nothing');
     else ok('THE REPAINT ACTUALLY REWROTE THE ROOM');
     if (Math.abs(moved.after - moved.before) <= 4) ok('a reader who scrolled back is not moved by a wording-only repaint');
@@ -313,20 +359,38 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
     await p.locator('#pj-list').getByText('Scroll Repro').first().click().catch(() => {});
     await p.waitForSelector('#pj-room', { state: 'visible' });
-    await p.waitForTimeout(900);
+    /* #1712: bounded wait for the consolidated layout to apply, not a fixed
+       900ms -- the same fixed-wait-before-a-measurement pattern this change
+       removes elsewhere. consOn below still reports it if it never switches. */
+    await p.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: GROW_MS }).catch(() => {});
 
     const consOn = await p.evaluate(() => document.body.classList.contains('consolidated'));
     if (consOn) ok('consolidated: the layout actually switched');
     else bad('consolidated: the layout actually switched', 'body is not .consolidated, so arms below re-test the tab view');
 
-    const consScroll = await p.evaluate(() => {
-      const el = document.getElementById('pj-room');
-      return { h: el.scrollHeight, c: el.clientHeight };
-    });
-    if (consScroll.h > consScroll.c + 50) ok('consolidated: the room is actually scrollable (' + consScroll.h + ' in ' + consScroll.c + ')');
-    else bad('consolidated: the room is actually scrollable', JSON.stringify(consScroll) + ' -- the arms below would pass trivially');
+    /* #1712: bounded wait for the consolidated room to grow, same as the tab
+       view above -- a one-shot measure after the fixed 900ms read an ungrown
+       room under load. */
+    let consScroll;
+    try {
+      await p.waitForFunction(() => {
+        const el = document.getElementById('pj-room');
+        return el && el.scrollHeight > el.clientHeight + 50;
+      }, null, { timeout: GROW_MS });
+      consScroll = await p.evaluate(() => {
+        const el = document.getElementById('pj-room');
+        return el ? { h: el.scrollHeight, c: el.clientHeight } : { h: 0, c: 0 };
+      });
+      ok('consolidated: the room is actually scrollable (' + consScroll.h + ' in ' + consScroll.c + ')');
+    } catch {
+      consScroll = await p.evaluate(() => {
+        const el = document.getElementById('pj-room');
+        return el ? { h: el.scrollHeight, c: el.clientHeight } : { h: 0, c: 0 };
+      });
+      bad('consolidated: the room is actually scrollable', JSON.stringify(consScroll) + ' -- did not reach a scrollable height within ' + GROW_MS + 'ms; the arms below would pass trivially');
+    }
 
-    const consMoved = await p.evaluate(async () => {
+    const consMoved = await p.evaluate(async (growMs) => {
       const el = document.getElementById('pj-room');
       el.scrollTop = Math.floor(el.scrollHeight * 0.35);
       const before = el.scrollTop;
@@ -336,9 +400,16 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         if (row.at) row.at = new Date(new Date(row.at).getTime() - 3600e3).toISOString();
       }
       window.paintRoom(body);
-      await new Promise((r) => setTimeout(r, 120));
+      /* #1712: same as arm 1 -- measure on the first synchronous iteration so a
+         background loadRoom revert during a fixed wait cannot turn a correct
+         release into rewrote:false. */
+      const deadline = Date.now() + growMs;
+      while (Date.now() < deadline) {
+        if (el.__lastLive !== liveBefore) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
       return { before, after: el.scrollTop, rewrote: el.__lastLive !== liveBefore };
-    });
+    }, GROW_MS);
     if (!consMoved.rewrote) bad('consolidated: THE REPAINT ACTUALLY REWROTE', 'setLive skipped the write, so the arm below proves nothing');
     else ok('consolidated: THE REPAINT ACTUALLY REWROTE');
     if (Math.abs(consMoved.after - consMoved.before) <= 4) ok('consolidated: a reader who scrolled back is not moved');
@@ -390,7 +461,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
        timestamp, a delivery verdict. paintRoom repositions only when the POST
        LIST changes, so a reader sitting on the floor is left above whatever
        just arrived, having touched nothing. */
-    const grew2 = await p.evaluate(async () => {
+    const grew2 = await p.evaluate(async (growMs) => {
       const el = document.getElementById('pj-room');
       el.scrollTop = el.scrollHeight;
       await new Promise((r) => setTimeout(r, 80));
@@ -404,10 +475,28 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       body.unanswered[last.id] = ['roomer'];
       const liveBefore = el.__lastLive;
       window.paintRoom(body);
-      await new Promise((r) => setTimeout(r, 150));
+      /* #1712: measure on the FIRST synchronous iteration, not after a fixed
+         150ms. setLive writes innerHTML and __lastLive synchronously, so the
+         unanswered marker and the height it adds are on screen the instant
+         paintRoom returns. The old 150ms wait was a window in which the
+         background loadRoom poll (~5s, and a post's own reload) could re-fetch
+         the server body -- which carries no unanswered marker -- and REVERT it:
+         __lastLive back to liveBefore, scrollHeight back to before.h, the
+         "nothing was added, h:4715, rewrote:false" flake this file was reported
+         for. Poll for the write AND the growth up to the bound (GROW_MS: the full
+         window when the fixture is healthy, short when the posted control already
+         failed so a setup failure does not burn it), breaking the instant both
+         are visible so the injected state is captured before any poll can revert
+         it. A real "it never repainted or never grew" still ends unsatisfied and
+         fails below. */
+      const deadline = Date.now() + growMs;
+      while (Date.now() < deadline) {
+        if (el.__lastLive !== liveBefore && el.scrollHeight > before.h) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
       return { before, rewrote: el.__lastLive !== liveBefore,
         after: { gap: el.scrollHeight - el.scrollTop - el.clientHeight, h: el.scrollHeight } };
-    });
+    }, GROW_MS);
     if (grew2.error) bad('a line arriving under the newest post keeps the reader on the floor', grew2.error);
     else {
       if (!grew2.rewrote) bad('THE ARRIVING LINE ACTUALLY REPAINTED', 'setLive skipped the write, so the arm below proves nothing');
