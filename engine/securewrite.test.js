@@ -176,3 +176,97 @@ test('#1787: a planted file at a temp path is never deleted, and the write still
     'the writer overwrote a file it did not create');
   assert.equal(fs.readFileSync(f, 'utf8'), 'SECRET', 'the retry did not complete the write');
 });
+
+/* 🛑 THE CALL, NOT THE BODY. The symlink arm above calls `refuseSymlinkTarget`
+   DIRECTLY, which guards the function and says nothing about whether `writeSecret`
+   still invokes it. Measured: deleting the call from the fallback left this file
+   fully green at 8/8 while `sendertoken.test.js` went red, so the guard for the
+   invocation lived only in a consumer. That is precisely the #1776 shape this file's
+   header cites, reproduced inside the file written to prevent it.
+   ⭐ On macOS the kernel refuses via `O_NOFOLLOW` with ELOOP whether or not our call
+   is there, so the SENTENCE is the guard: ours says so in words, the kernel's does
+   not. An `assert.throws` with no message matcher would pass either way. */
+test('#1787: writeSecret CALLS the refusal on its fallback, not merely defines it', () => {
+  const victim = fresh('call-victim');
+  fs.writeFileSync(victim, 'ORIGINAL');
+  const link = fresh('call-linked');
+  fs.symlinkSync(victim, link);
+  assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'the symlink was not planted');
+
+  const realRename = fs.renameSync;
+  fs.renameSync = () => { const e = new Error('forced'); e.code = 'EXDEV'; throw e; };
+  let err = null;
+  try { securewrite.writeSecret(link, 'SECRET', 0o600); } catch (e) { err = e; } finally {
+    fs.renameSync = realRename;
+  }
+
+  assert.notEqual(err, null, 'the forced fallback did not throw, so nothing was tested');
+  assert.match(String(err.message), /refusing to write a secret through a symlink/,
+    'the refusal came from the kernel, not from our call: on win32 there is no kernel '
+    + 'to refuse, so this path would follow the symlink');
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'ORIGINAL', 'the victim was written through');
+});
+
+/* 🛑 THE CHMOD ON THE TEMP MUST NOT BE FATAL, and counting ATTEMPTS is the only way
+   to see it. Both shapes end at the right mode, because a fatal chmod just costs an
+   attempt and the retry succeeds. What the wrap changes is whether the FIRST attempt
+   survives, so that is what this counts. */
+test('#1787: a chmod failure on the temp costs ZERO retries, because it is not fatal', () => {
+  const f = fresh('chmod-eperm');
+  fs.writeFileSync(f, 'OLD');
+  fs.chmodSync(f, 0o644);
+
+  let temps = 0;
+  const realWrite = fs.writeFileSync;
+  const realChmod = fs.chmodSync;
+  fs.writeFileSync = function (target, ...rest) {
+    if (typeof target === 'string' && target.endsWith('.tmp')) temps += 1;
+    return realWrite.call(fs, target, ...rest);
+  };
+  fs.chmodSync = function (target, mode) {
+    if (typeof target === 'string' && target.endsWith('.tmp')) {
+      const e = new Error('operation not permitted'); e.code = 'EPERM'; throw e;
+    }
+    return realChmod.call(fs, target, mode);
+  };
+  try { securewrite.writeSecret(f, 'SECRET', 0o600); } finally {
+    fs.writeFileSync = realWrite;
+    fs.chmodSync = realChmod;
+  }
+
+  assert.equal(temps, 1,
+    `a chmod failure on the temp cost ${temps} attempts: it is best effort like the `
+    + 'other two chmods, so it must not abandon the atomic path');
+  assert.equal(modeOf(f), 0o600, 'the pre-existing loose file was left loose');
+});
+
+/* 🛑 THE FALLBACK MUST TIGHTEN BEFORE THE BYTES LAND, and no end-state assertion can
+   see it: the file is 0600 either way. Catching it needs observation from INSIDE the
+   write, and the fd is the first argument to `fs.writeFileSync`, so a stub can read
+   `fs.fstatSync(fd).mode` at the instant the bytes land.
+   ⚠️ A two-line swap renders as a ONE-LINE git diff and reads like a comment change,
+   so confirm the region rather than trusting the diff shape. */
+test('#1787: the fallback tightens BEFORE the bytes land, observed from inside the write', () => {
+  const f = fresh('fb-order');
+  fs.writeFileSync(f, 'OLD');
+  fs.chmodSync(f, 0o644);
+  assert.equal(modeOf(f), 0o644, 'the loose plant did not take, so this arm would pass without the fix');
+
+  let observed = null;
+  const realRename = fs.renameSync;
+  const realWrite = fs.writeFileSync;
+  fs.renameSync = () => { const e = new Error('forced'); e.code = 'EXDEV'; throw e; };
+  fs.writeFileSync = function (target, data, opts) {
+    if (typeof target === 'number' && observed === null) observed = fs.fstatSync(target).mode & 0o777;
+    return realWrite.call(fs, target, data, opts);
+  };
+  try { securewrite.writeSecret(f, 'SECRET', 0o600); } finally {
+    fs.renameSync = realRename;
+    fs.writeFileSync = realWrite;
+  }
+
+  assert.notEqual(observed, null, 'the fallback never wrote through an fd, so this arm proves nothing');
+  assert.equal(observed, 0o600,
+    `the secret bytes landed while the file was still 0${(observed || 0).toString(8)}: `
+    + 'the fallback chmodded AFTER the write, which is the exact defect this module exists for');
+});

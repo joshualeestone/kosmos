@@ -20,7 +20,8 @@
  * chmodded the destination after every rename also ends correct and PASSES.
  * Catching it needs observation from INSIDE the write, and the fd is the first
  * argument to `fs.writeFileSync`, so a stub can read `fs.fstatSync(fd).mode` at
- * the instant the bytes land. That is what `engine/securewrite.test.js` does.
+ * the instant the bytes land. That is what the
+ * `tightens BEFORE the bytes land` arm in `engine/securewrite.test.js` does.
  *
  * 📌 THE ARMS FOR THIS MODULE LIVE IN `engine/securewrite.test.js`, DIRECTLY,
  * rather than only reaching it through a consumer. `engine/sendertoken.test.js`
