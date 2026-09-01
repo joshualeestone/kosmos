@@ -43,6 +43,7 @@ const {
 const removal = require('./engine/remove');
 const leftover = require('./engine/delete-leftover');
 const firstrun = require('./engine/firstrun');
+const platformGate = require('./engine/platform');
 const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');
 const connect = require('./engine/connect');
@@ -7590,7 +7591,20 @@ if (require.main === module) {
      started:false rather than a silent success. It is here, not at module load,
      for the same reason as the port bind below: the routing tests require this
      module, and a load-time opt-in would arm live execution in every one of them. */
-  require('./engine/live-execution').allowLiveExecution();
+  /* kosmos macOS-only gate (Option A, cross-platform analysis 2026-09-01): only
+     arm live execution on a supported platform. On any other OS the Mac-only
+     substrate (launchctl agent lifecycle, the darwin binary downloads, the
+     /bin/sh installer) cannot work, so we leave live execution UNARMED and the
+     guarded operations (create/remove/delete-leftover/update) fail closed and
+     refuse honestly through the existing live-execution gate, rather than
+     attempting a Mac-only action on the wrong OS. The user-facing copy + screen
+     for an unsupported platform is the operator's to add (see engine/platform.js
+     and the PR); this is the mechanism only, and it invents no product copy. */
+  if (platformGate.isSupported()) {
+    require('./engine/live-execution').allowLiveExecution();
+  } else {
+    process.stderr.write('Kosmos: platform ' + process.platform + ' is not supported (macOS only); live execution not armed, agent operations will refuse.\n');
+  }
   /* 🛑 PINNED TO $HOME, NOT AT IMPORT, ONLY WHEN THIS IS THE REAL BOARD
      PROCESS (#923). Nothing anywhere in this file or engine/ ever calls
      process.chdir(), so this process's own cwd is whatever directory
