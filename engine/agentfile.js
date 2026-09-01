@@ -117,4 +117,79 @@ function exportAgent(name, deps) {
   return { ok: true, text, filename: `${agentName}.agent.md` };
 }
 
-module.exports = { exportAgent, IMPORT_CONTRACT, MARK, KIND };
+/**
+ * Read a portable agent file into the material a creator needs (#1652).
+ *
+ * The inverse of `exportAgent` at the FORMAT level: `exportAgent` BUILDS the file
+ * from the machine, this READS and VALIDATES the file. It does NOT create the
+ * agent. The fourth create-an-agent option hands the returned material to the
+ * SAME `createAgent` path the other three options use, so import reuses all of
+ * create's correctness -- a fresh `id` above all -- rather than half-applying it.
+ * `engine/create.js` is the one canonical creation path; a parser that also
+ * created would be a second, thinner one, which is the defect this file avoids.
+ *
+ * 🛑 REFUSES ANY OTHER FILE WHOLE, per IMPORT_CONTRACT. This surface takes input
+ * from OUTSIDE the machine: a file that parses half way is the one that leaves an
+ * agent with somebody else's instructions and no name. Every failure returns
+ * `{ok:false}` with a reason, never a partial result.
+ *
+ * 🔑 THE IDENTITY ANCHOR CANNOT ENTER. This returns only name/displayName/
+ * provider/body; an `id:` a hostile file might carry is never read, and the
+ * create flow's `store.writeProfile` mints a fresh id anyway -- so two people who
+ * import one file become two separate agents, the same guarantee the export side
+ * proves by absence.
+ *
+ * @param {string} text the file contents
+ * @param {{identityFromText: (s: string) => (string|null)}} deps injected so this
+ *   module stays dependency-free (it requires nothing) and cannot form a require
+ *   cycle with status.js, where `identityFromText` lives. Pass the real function.
+ * @returns {{ok: boolean, name?: string, displayName?: string, provider?: string|null, body?: string, because?: string}}
+ */
+function importAgent(text, deps) {
+  const identityFromText = deps && deps.identityFromText;
+  if (typeof identityFromText !== 'function') {
+    return { ok: false, because: 'import needs the identity parser' };
+  }
+  /* Input hygiene, NOT a new format: a file that travelled by email or chat can
+     pick up a leading BOM or CRLF line endings. Strip/normalise them before
+     parsing so a valid agent file is not refused for surviving the trip. The
+     format itself is still the LF `---` frontmatter `skills.readMeta` reads. */
+  const src = String(text == null ? '' : text).replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  if (!src.trim()) return { ok: false, because: 'that file is empty' };
+
+  // (1) the `---` frontmatter block, the same shape `skills.readMeta` reads.
+  const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!m) return { ok: false, because: 'this is not a Kosmos agent file: it has no header' };
+  const head = m[1];
+  const field = (key) => {
+    const f = head.match(new RegExp('^' + key + ':\\s*(.+)$', 'm'));
+    return f ? safeValue(f[1]) : null;
+  };
+
+  // (2) the self-identifying marker. Anything else is not ours; refuse whole.
+  if (field('kosmos') !== KIND) {
+    return { ok: false, because: 'this file is not a Kosmos agent file' };
+  }
+  // (3) a name present and usable (safeValue rejects empty and newlines).
+  const name = field('name');
+  if (!name) return { ok: false, because: 'the agent file has no usable name' };
+
+  // (4) the body must name somebody, the same call adoption uses.
+  const body = src.slice(m[0].length);
+  if (!body.trim()) return { ok: false, because: 'the agent file has no instructions' };
+  // identityFromText returns `{displayName, role}` or null -- the same parser
+  // adoption uses. The contract is that the body NAMES somebody, so a display
+  // name is what must be present.
+  const identity = identityFromText(body);
+  if (!identity || !identity.displayName) {
+    return { ok: false, because: 'the agent file’s instructions do not name an agent (expected a line like “You are X”)' };
+  }
+
+  // A HINT, never a gate: the receiver may not have this provider connected, so
+  // import states what the file wants and lets the create flow choose.
+  const provider = field('provider');
+
+  return { ok: true, name, displayName: identity.displayName, provider: provider || null, body };
+}
+
+module.exports = { exportAgent, importAgent, IMPORT_CONTRACT, MARK, KIND };
