@@ -24206,6 +24206,11 @@ async function changeModelNow(say) {
 let OWN_ROLE = null;       // the third radio's prefill entry, served whole
 let PICKED = null;         // the role key the person chose
 let CREATING = false;      // a create is in flight; guards the double-click
+/* #1652 import generation, in the spirit of WATCH above: bumped by pickMode on
+   every mode (re)pick, captured by importLoad, and re-checked after each await so
+   a mode switch mid-import supersedes the resolution before it can touch PICKED,
+   the form, or the screen. */
+let IMPORT_GEN = 0;
 
 function cstep(which) {
   ['role', 'name', 'made'].forEach((s) => {
@@ -24370,6 +24375,11 @@ function pickMode(mode) {
   const importing = mode === 'import';
   document.getElementById('importpick').hidden = !importing;
   document.getElementById('role-next').hidden = importing;
+  /* Supersede any import still in flight so its resolution cannot yank the screen
+     after the person moved on, and give the panel a fresh enabled button whenever
+     it is shown. */
+  IMPORT_GEN += 1;
+  if (importing) document.getElementById('import-load').disabled = false;
   if (mode === 'pm') {
     PICKED = (roleByKey('pm') || ROLES[0]).key;
   } else if (mode === 'own') {
@@ -24602,6 +24612,10 @@ async function importLoad() {
   if (btn.disabled) return;
   const text = document.getElementById('import-text').value;
   if (!text.trim()) { importMsg('Paste the agent file, or choose one, first.'); return; }
+  // A generation token, in the spirit of the create WATCH: if the person picks
+  // another mode while this import is in flight, pickMode bumps IMPORT_GEN and the
+  // checks below bail before touching PICKED, the form, or the screen.
+  const gen = ++IMPORT_GEN;
   btn.disabled = true;
   importMsg('Reading it…');
   let data;
@@ -24613,14 +24627,15 @@ async function importLoad() {
     });
     data = await r.json().catch(() => null);
   } catch (err) {
-    btn.disabled = false;
-    importMsg('We could not reach the board to read it. (' + err.message + ')');
+    // Only if this attempt still owns the panel; a superseded one leaves the
+    // button to whichever flow the person moved to.
+    if (gen === IMPORT_GEN) { btn.disabled = false; importMsg('We could not reach the board to read it. (' + err.message + ')'); }
     return;
   }
-  // Re-enabled only on the paths that STAY on this panel. The success path leaves
-  // it disabled: it advances to the form (cstep hides this panel) and openCreate
-  // re-enables it on the next open. That closes the re-entrancy window across the
-  // awaited loadCreateExtras below.
+  if (gen !== IMPORT_GEN) return;   // superseded during the fetch
+  // The stay-on-panel outcomes re-enable the button; the success advance below
+  // leaves it disabled (cstep hides this panel) and pickMode/openCreate re-enable
+  // it whenever the panel is shown again.
   if (!data) { btn.disabled = false; importMsg('We could not read the reply.'); return; }
   /* importAgent refuses a hostile or non-Kosmos file WHOLE and says why; show that
      reason verbatim and stay on the panel rather than advancing with half a form. */
@@ -24630,41 +24645,49 @@ async function importLoad() {
   if (!roleByKey('own')) { btn.disabled = false; importMsg('This board is too old to import into.'); return; }
   importMsg('');
 
-  // The file is the person describing the agent themselves, so it IS the `own`
-  // path -- same role, same create call. Run the normal `own` setup (menus,
-  // template), then lay the imported fields ON TOP and mark them dirty so a later
-  // refill keeps the person's imported words rather than the role template.
-  PICKED = 'own';
-  const role = roleByKey('own');
-  document.getElementById('create-meet').textContent = 'Set up your ' + ((role && role.label) || 'agent');
-  document.getElementById('create-blurb').textContent = role && role.blurb ? role.blurb + '.' : '';
-  // Awaited so the model/account menus are rebuilt BEFORE the provider change
-  // below runs: the provider handler disables the model and writes its caption,
-  // and an un-awaited loadCreateExtras would resume afterwards and overwrite that
-  // caption with the default model's (wrong for an imported OpenAI agent).
-  await loadCreateExtras();
-  FILLED_ROLE = 'own';
+  try {
+    // Build the menus first (awaited), THEN commit the imported state -- so a
+    // supersede during the load leaves PICKED and the form untouched. Awaiting
+    // also rebuilds the model menu BEFORE the provider change below disables it
+    // and writes its caption; an un-awaited loadCreateExtras would resume after
+    // and overwrite that caption with the default model's (wrong for an imported
+    // OpenAI agent).
+    const role = roleByKey('own');
+    await loadCreateExtras();
+    if (gen !== IMPORT_GEN) return;   // superseded during the menu load
 
-  document.getElementById('create-name').value = data.name || '';
-  document.getElementById('create-label').value = data.displayName || '';
-  LABEL_DIRTY = true;
-  document.getElementById('create-instr').value = data.instructions || '';
-  INSTR_DIRTY = true;
-  document.getElementById('create-instr-note').textContent = '';
-  LAST_TYPED_NAME = (data.name || '').trim() || 'your agent';
+    // The file is the person describing the agent themselves, so it IS the `own`
+    // path -- same role, same create call. Lay the imported fields on top and mark
+    // them dirty so a later refill keeps the person's words, not the role template.
+    PICKED = 'own';
+    FILLED_ROLE = 'own';
+    document.getElementById('create-meet').textContent = 'Set up your ' + ((role && role.label) || 'agent');
+    document.getElementById('create-blurb').textContent = role && role.blurb ? role.blurb + '.' : '';
+    document.getElementById('create-name').value = data.name || '';
+    document.getElementById('create-label').value = data.displayName || '';
+    LABEL_DIRTY = true;
+    document.getElementById('create-instr').value = data.instructions || '';
+    INSTR_DIRTY = true;
+    document.getElementById('create-instr-note').textContent = '';
+    LAST_TYPED_NAME = (data.name || '').trim() || 'your agent';
 
-  /* Honour the imported provider only when it maps to an ENABLED option; an unknown
-     or coming-soon provider leaves the default and lets the person choose, never
-     blocking the import. Setting the value fires the provider `change` handler so the
-     account/model menus refill for that provider. */
-  const provEl = document.getElementById('create-provider');
-  const wanted = String(data.provider || '').toLowerCase();
-  const ok = wanted && Array.prototype.some.call(provEl.options, (o) => o.value === wanted && !o.disabled);
-  if (ok) { provEl.value = wanted; provEl.dispatchEvent(new Event('change')); }
+    /* Honour the imported provider only when it maps to an ENABLED option; an unknown
+       or coming-soon provider leaves the default and lets the person choose, never
+       blocking the import. Setting the value fires the provider `change` handler so the
+       account/model menus refill for that provider. */
+    const provEl = document.getElementById('create-provider');
+    const wanted = String(data.provider || '').toLowerCase();
+    const okProv = wanted && Array.prototype.some.call(provEl.options, (o) => o.value === wanted && !o.disabled);
+    if (okProv) { provEl.value = wanted; provEl.dispatchEvent(new Event('change')); }
 
-  if (!AVATAR_FILE) drawCreateMark();
-  cstep('name');
-  document.getElementById('create-name').focus();
+    if (!AVATAR_FILE) drawCreateMark();
+    cstep('name');
+    document.getElementById('create-name').focus();
+  } catch (err) {
+    // Building or filling the form failed: leave the person on the import panel
+    // with a usable button and a plain message, never a stuck screen.
+    if (gen === IMPORT_GEN) { btn.disabled = false; importMsg('We could not open the form. (' + err.message + ')'); }
+  }
 }
 
 /** One tick line. `state` is 'done' | 'fail' | 'undone' | 'waiting'. */
