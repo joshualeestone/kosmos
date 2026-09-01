@@ -537,6 +537,33 @@ test('every site under the resolution rule resolves the claude binary its docume
       `${site.fn} contains no resolveBin call after comment stripping. Either the stripper `
       + 'ate the region, in which case the count below is vacuous, or this arm is aimed at '
       + 'a function that no longer resolves anything.');
+    
+    /* 🛑 THE STRIPPER CAN BE MADE TO EAT A REAL CALL, AND THIS GUARDS ITS KNOWN TRIGGER.
+       MEASURED, with a control: insert `const h = 'the old /* form';` before the pinned
+       resolveBin and add a SECOND resolution after a block comment that closes the fake open.
+       stripComments swallows from the string to that `*/`, taking the FIRST call with it. The
+       count then reads 1, matches the documented 1, and the per-site control is satisfied by
+       the planted second call: 20 pass 0 fail, with willInstall resolving TWICE across the
+       probe. Control, the same second call WITHOUT the fake string: 19 pass 1 FAIL.
+       ⚠️ The per-site control above detects only a TOTAL region eat. A PARTIAL eat is exactly
+       what the header's named blind spot (a `/*` inside a string literal) produces, and the
+       file-level sentence claimed that hazard was handled.
+    
+       ✅ SO THE TRIGGER IS ASSERTED ABSENT, RATHER THAN THE DAMAGE BEING DETECTED AFTERWARDS.
+       ⚠️ AND A SECOND LINE-BASED COUNT WAS TRIED FIRST AND DISCARDED, which is worth keeping:
+       it counted 3/4/2/3 against the stripper's 2/1/1/1 on UNMUTATED code, because this
+       codebase's block comments continue WITHOUT a leading `*`, so every prose mention read as
+       a call. It was not an independent instrument, it was a worse one.
+       📌 THIS GUARDS THE KNOWN TRIGGER, NOT EVERY PARTIAL EAT. Said plainly because the
+       sentence this arm is fixing over-claimed in exactly that way. */
+    const region = loose.slice(0, close + 2);
+    const fakeOpener = region.split('\n').filter((ln) => /(['"`])[^'"`]*\/\*[^'"`]*\1/.test(ln));
+    assert.deepStrictEqual(fakeOpener, [],
+      `${site.fn} contains a comment opener INSIDE A STRING LITERAL. stripComments treats it `
+      + 'as a real `/*` and swallows everything up to the next `*/`, which can eat a live '
+      + 'resolveBin call and leave the count matching its documented value. Measured: that '
+      + 'makes a double resolution invisible. If the string is legitimate, this arm needs a '
+      + 'real parser rather than a regex, and that is the change to make.');
 
     const calls = code.match(/resolveBin\s*\(/g) || [];
     assert.strictEqual(calls.length, site.resolutions,
