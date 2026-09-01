@@ -3648,3 +3648,96 @@ test('#1315 CONTROL: the constant comes from selfreport, not this module', () =>
   assert.equal(got.because, 'we could not tell what it is doing',
     'an absent `because` was treated as never-reported: the comparison is against undefined again');
 });
+
+// ---------------------------------------------------------------------------
+// #1629 point 3: Claude Code's trust dialog is a question, not silence
+// ---------------------------------------------------------------------------
+
+/* OBSERVED 2026-09-01 on this machine (a fresh folder, `claude` started in it),
+   path shortened. The question row runs past its `?`, which is why the
+   `asksSomething` rule cannot see it -- see TRUST_PROMPT_QUESTION in status.js. */
+const TRUST_DIALOG_LIVE = [
+  ' Accessing workspace:',
+  ' /Users/somebody/work/workers/rosie',
+  ' Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source',
+  ' project, or work from your team). If not, take a moment to review what\'s in this folder first.',
+  ' Claude Code\'ll be able to read, edit, and execute files here.',
+  ' Security guide',
+  ' ❯ No, exit',
+  '   Yes, I trust this folder',
+  ' Enter to confirm · Esc to cancel',
+  '',
+].join('\n');
+
+/* The card's own capture, 2026-08-30 17:19 (Splinter's pane): the same dialog
+   with the question abbreviated to its first sentence. */
+const TRUST_DIALOG_CARD = [
+  ' Quick safety check: Is this a project you created or one you trust?',
+  ' ❯ No, exit',
+  '   Yes, I trust this folder',
+  ' Enter to confirm · Esc to cancel',
+  '',
+].join('\n');
+
+test('#1629: the trust dialog reads needs_you, with the question as evidence, on both observed shapes', () => {
+  for (const [label, text] of [['live 2026-09-01', TRUST_DIALOG_LIVE], ['card 2026-08-30', TRUST_DIALOG_CARD]]) {
+    const r = classify(pane(), 'Worked for 2m 10s\n' + text);
+    assert.equal(r.state, STATE.NEEDS_YOU, label);
+    assert.equal(r.confidence, CONFIDENCE.SCRAPED, label);
+    assert.match(r.because, /trust its folder/, `${label}: the reason names WHICH question`);
+    assert.match(r.evidence, /^Quick safety check: Is this a project you created or one you trust\?/, label);
+  }
+  // Positive control on the unchanged rule: an ordinary prompt is still a prompt.
+  assert.equal(classify(pane(), 'Do you want to proceed?\n').state, STATE.NEEDS_YOU);
+});
+
+test('#1629: the trust dialog is the same needs_you an ordinary prompt is, so the highlighted answer is chosen by nobody but the person', () => {
+  // `Yes, I trust this folder` highlighted instead: still the dialog, still needs you.
+  const flipped = TRUST_DIALOG_LIVE.replace(' ❯ No, exit', '   No, exit').replace('   Yes, I trust this folder', ' ❯ Yes, I trust this folder');
+  assert.notEqual(flipped, TRUST_DIALOG_LIVE, 'the fixture edit took');
+  assert.equal(classify(pane(), flipped).state, STATE.NEEDS_YOU);
+});
+
+test('#1629: prose about the trust dialog is not the dialog', () => {
+  const cases = [
+    ['an agent quoting the sentence',
+      'The pane said "Quick safety check: Is this a project you created or one you trust?" and I pressed Down.\n'],
+    ['the question row with nothing beneath it',
+      ' Quick safety check: Is this a project you created or one you trust?\nWorked for 2m\n'],
+    ['a label inside a sentence',
+      'I chose Yes, I trust this folder and it started.\n'],
+    ['a label on its own row with no question above it',
+      'Options I saw:\n  Yes, I trust this folder\n'],
+    ['the option row too far below to be this dialog',
+      ' Quick safety check: Is this a project you created or one you trust?\n'
+      + 'line\n'.repeat(12) + ' ❯ No, exit\n'],
+  ];
+  for (const [label, text] of cases) {
+    const r = classify(pane(), text);
+    assert.notEqual(r.state, STATE.NEEDS_YOU, label);
+  }
+});
+
+test('#1629: trustPrompt returns the question row alone, capped, and nothing for a non-dialog', () => {
+  const { trustPrompt } = require('./status');
+  assert.equal(trustPrompt(TRUST_DIALOG_LIVE),
+    'Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source');
+  assert.equal(trustPrompt(null), null);
+  assert.equal(trustPrompt('Worked for 2m\n'), null);
+  const long = ' Quick safety check: ' + 'x'.repeat(300) + '\n ❯ No, exit\n';
+  assert.equal(trustPrompt(long).length, 241, 'one line, capped at 240 plus the ellipsis');
+});
+
+test('#1629: a scraped trust dialog stands over a stale self-report of working, because the agent cannot know it is stuck', () => {
+  /* Built with the suite's own `rep()` and `T0`, not a hand-rolled object: a
+     fixture of the wrong shape routes into the no-report branch and answers a
+     different question accurately (the fleet bulletin of 2026-08-27). */
+  const scraped = classify(pane(), TRUST_DIALOG_LIVE);
+  const got = reconcileReport(rep('working', { because: 'rebasing' }), scraped, T0 + 60_000);
+  assert.equal(got.state, STATE.NEEDS_YOU, 'rule 3: a scraped needs_you is never suppressed by a fresh report');
+  assert.ok(got.conflict, 'and the disagreement is surfaced, not silently resolved');
+  assert.match(got.evidence, /^Quick safety check/, 'the question row survives reconciliation');
+  // The arm can fail: the same fresh report DOES win over a scraped idle.
+  const idle = reconcileReport(rep('working', { because: 'rebasing' }), scr(STATE.IDLE, CONFIDENCE.SCRAPED), T0 + 60_000);
+  assert.equal(idle.state, STATE.WORKING, 'control: rule 3 is specific to needs_you');
+});

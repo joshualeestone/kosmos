@@ -2430,3 +2430,29 @@ test('what may follow the run, and the reference is the option indent the cursor
   assert.equal(chat.optionsIn(nine + '\nPress esc to cancel\n  11. j').length, 9,
     'a number that is not the continuation is not evidence of truncation');
 });
+
+test('#1629: the trust dialog is findable as a question, options and all, and gets NO buttons', () => {
+  /* OBSERVED 2026-09-01; the same capture engine/status.test.js pins. */
+  const pane = [
+    'Worked for 3m',
+    ' Accessing workspace:',
+    ' /Users/somebody/work/workers/rosie',
+    ' Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source',
+    ' project, or work from your team). If not, take a moment to review what\'s in this folder first.',
+    ' Claude Code\'ll be able to read, edit, and execute files here.',
+    ' Security guide',
+    ' ❯ No, exit',
+    '   Yes, I trust this folder',
+    ' Enter to confirm · Esc to cancel',
+  ].join('\n');
+  const found = chat.questionIn(pane);
+  assert.ok(found, 'a pane the board calls needs_you must yield a region');
+  assert.match(found.text, /Quick safety check/);
+  assert.match(found.text, /❯ No, exit/, 'the highlighted answer is visible, which is the whole point');
+  assert.match(found.text, /Yes, I trust this folder/);
+  assert.match(found.text, /Accessing workspace:/, 'the run-up says which folder');
+  /* Unnumbered options: a button types a digit, and nobody has measured what
+     this dialog does with one. No buttons is the deliberate answer until
+     somebody does. */
+  assert.equal(chat.optionsIn(found.text), null);
+});

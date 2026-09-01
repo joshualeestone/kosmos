@@ -1427,7 +1427,60 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
  * classifiers keep using their own lists; this union exists so a question
  * on any runner's screen can be found and sliced for display.
  */
-const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEEDS_YOU_MARKERS]);
+/**
+ * Claude Code's workspace-trust dialog (#1629, point 3). OBSERVED, per this
+ * file's rule that a guessed wording is 0 for 1: captured from a live pane on
+ * this machine, 2026-09-01, by starting `claude` in a folder it had never seen:
+ *
+ *    Accessing workspace:
+ *    /path/to/the/folder
+ *    Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source
+ *    project, or work from your team). If not, take a moment to review what's in this folder first.
+ *    Claude Code'll be able to read, edit, and execute files here.
+ *    Security guide
+ *    ❯ No, exit
+ *      Yes, I trust this folder
+ *    Enter to confirm · Esc to cancel
+ *
+ * 🛑 THE QUESTION ROW DOES NOT END AT ITS QUESTION MARK. It runs on into a
+ * parenthetical, so `asksSomething`'s "marker opens the line and the line
+ * closes at ?" rule cannot see it -- measured: the shipped classifier read this
+ * whole screen as `unknown`. The card's own capture (2026-08-30) was the same
+ * dialog abbreviated to its first sentence, which DOES end at `?`; both shapes
+ * are in the tests. And the options are NOT numbered, so `optionsIn` cannot
+ * offer buttons for it (deliberate: a button types a digit, and nobody has
+ * measured what this dialog does with one). What Kosmos can do today is name
+ * the state and show the question, which is the half the card asked for: the
+ * agent stops reading as idle, and the person sees which answer is highlighted.
+ *
+ * ⚠️ WHY THIS ONE GETS ITS OWN DETECTOR AND NOT A MARKER ROW: the highlighted
+ * answer is `No, exit`, and Enter is the reflex that clears the far more common
+ * stuck-composer case. An agent sitting here looks exactly like an agent
+ * ignoring you (Splinter, 2026-08-30 17:19, reported unresponsive twice in
+ * seven minutes), and the pre-selected answer ends the session. So the
+ * question row rides along as evidence, the way `auth_failed` carries its line.
+ *
+ * 🔑 STRUCTURE, NOT VOCABULARY, separates the dialog from prose about it: the
+ * question row must OPEN a row, and one of the two option labels must sit on
+ * its own row beneath it within the dialog's height. Prose quoting the sentence
+ * has something in front of it or nothing beneath it; a mention of the label
+ * ("I chose Yes, I trust this folder") is not on a row of its own.
+ */
+const TRUST_PROMPT_QUESTION = /^Quick safety check:/;
+const TRUST_PROMPT_OPTIONS = Object.freeze([
+  /^No, exit$/,
+  /^Yes, I trust this folder$/,
+]);
+/* How many rows below the question an option row may sit. The observed dialog
+   puts the first option five rows down (two of them the question's own wrap);
+   a narrower pane wraps more. Twelve is generous and still shorter than a tail. */
+const TRUST_PROMPT_REACH = 12;
+
+/* Anchored on the ROW, not the stripped line, because `questionIn` tests raw
+   pane lines: a leading space is how tmux draws this dialog. */
+const TRUST_PROMPT_MARKER = /^\s*Quick safety check:/;
+
+const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEEDS_YOU_MARKERS, TRUST_PROMPT_MARKER]);
 
 /**
  * 🛑 THE FIRST FOUR WERE GUESSES AT WORDING AND CLAUDE CODE SAYS SOMETHING ELSE.
@@ -1827,6 +1880,31 @@ function authFailed(tail) {
 }
 
 /**
+ * Claude Code's trust dialog on screen (#1629, point 3): the question row, or
+ * null. See TRUST_PROMPT_QUESTION for the observed shape and why a marker row
+ * was not enough. Leading indentation and tree glyphs come off per row, as in
+ * `authFailed`, because they are drawing, not content -- and the selector
+ * glyph is among them on purpose: `❯ No, exit` and `  Yes, I trust this folder`
+ * must both read as option rows whichever one is highlighted.
+ *
+ * Evidence is the question row alone, trimmed and capped, on its way to a
+ * screen: the same one-line rule the rate-limit and auth cases follow.
+ */
+function trustPrompt(tail) {
+  const rows = String(tail == null ? '' : tail)
+    .split('\n')
+    .map((line) => line.replace(/^[\s>│├└─*❯›]+/, '').replace(/\s+$/, ''));
+  for (let i = 0; i < rows.length; i += 1) {
+    if (!TRUST_PROMPT_QUESTION.test(rows[i])) continue;
+    const below = rows.slice(i + 1, i + 1 + TRUST_PROMPT_REACH);
+    if (!below.some((row) => TRUST_PROMPT_OPTIONS.some((re) => re.test(row)))) continue;
+    const line = rows[i];
+    return line.length > 240 ? line.slice(0, 240) + '…' : line;
+  }
+  return null;
+}
+
+/**
  * Where the evidence should start: the envelope's opening brace, or the HTTP
  * status when one sits right in front of it, because "401" is the part a
  * person reads first. Bounded, so it cannot pick up prose that happens to end
@@ -2042,6 +2120,25 @@ function classify(pane, paneText) {
       confidence: CONFIDENCE.SCRAPED,
       because: 'its Claude sign-in is not working',
       evidence: authLine,
+    };
+  }
+  /**
+   * #1629 point 3. Before `asksSomething`, because that rule cannot see this
+   * dialog (its question row runs past the `?`), and because the reason has to
+   * say WHICH question: an agent stopped here reads as ignoring you, and the
+   * highlighted answer ends the session. Same state as any other question --
+   * the person is the one who can answer it -- with the row as evidence, the
+   * way `auth_failed` carries its line. `reconcileReport` rule 3 then keeps
+   * this over a stale self-report, which is what the card asked for: an agent
+   * that said "working" and then met this prompt is not working.
+   */
+  const trustLine = trustPrompt(tail);
+  if (trustLine !== null) {
+    return {
+      state: STATE.NEEDS_YOU,
+      confidence: CONFIDENCE.SCRAPED,
+      because: 'it is asking whether to trust its folder, and the highlighted answer exits',
+      evidence: trustLine,
     };
   }
   if (asksSomething(tail)) {
@@ -4281,6 +4378,7 @@ module.exports = {
   NEEDS_YOU_MARKERS,
   CODEX_NEEDS_YOU_MARKERS,
   ALL_NEEDS_YOU_MARKERS,
+  trustPrompt,
   SELECTOR_GLYPHS,
   isCodexCommand,
 };
