@@ -1478,6 +1478,10 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
  * the confirm row drew). That is the same residual `authFailed` names and
  * trades; here it is closed rather than traded, at the cost of a capture whose
  * dialog is not at the bottom reading `unknown`, which is the honest default.
+ * "Closed" means closed on every observed shape: a capture clipped
+ * mid-redraw, before the footer repaints under a tool result quoting the
+ * dialog, could still put a pasted option row at the bottom. Nobody has seen
+ * one; if somebody does, that capture is the next fixture.
  */
 const TRUST_PROMPT_QUESTION = /^Quick safety check:/;
 const TRUST_PROMPT_OPTIONS = Object.freeze([
@@ -1488,8 +1492,11 @@ const TRUST_PROMPT_OPTIONS = Object.freeze([
    it draws) but when present it is where the dialog, and the screen, end. */
 const TRUST_PROMPT_CONFIRM = /^Enter to confirm/;
 /* How many rows below the question an option row may sit. The observed dialog
-   puts the first option five rows down (two of them the question's own wrap);
-   a narrower pane wraps more. Twelve is generous and still shorter than a tail. */
+   puts the first option five rows down, two of them the question's own wrap.
+   That wrap is Claude Code's, drawn at its own layout width with real line
+   breaks, so `-J` at the capture (which joins only what the TERMINAL wrapped)
+   does not fold it back; a narrower layout wraps more. Twelve is generous and
+   still shorter than a tail. */
 const TRUST_PROMPT_REACH = 12;
 
 /* Tested on the RAW pane row by `questionIn`, so it carries the same leading
@@ -1932,6 +1939,18 @@ function authFailed(tail) {
  * Evidence is the question row alone, trimmed and capped, on its way to a
  * screen: the same one-line rule the rate-limit and auth cases follow.
  */
+/**
+ * Is this card's `evidence` (`stateEvidence` on the wire) the trust dialog's
+ * question row? For callers that hold a ROSTER CARD and no capture, such as
+ * `chat.deliver`, which must not type at an agent stopped on that dialog and
+ * cannot afford a capture per send. Same anchor as the detector; the card's
+ * evidence is only ever set from that detector's question row, so a match here
+ * means "the last snapshot saw the dialog", no more and no less.
+ */
+function isTrustDialogEvidence(evidence) {
+  return typeof evidence === 'string' && TRUST_PROMPT_QUESTION.test(evidence);
+}
+
 function trustPrompt(tail) {
   const rows = String(tail == null ? '' : tail)
     .split('\n')
@@ -3968,9 +3987,18 @@ function reconcileReport(reported, scraped, nowMs) {
        whose last report was an earlier question and then met the dialog would
        otherwise render the OLD question with no evidence. The report keeps the
        state and its words; the screen's row rides along when it has one. */
-    const evidence = (scraped.state === STATE.NEEDS_YOU && scraped.evidence)
-      ? { evidence: scraped.evidence } : {};
-    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said('it is asking you something'), reported: true, conflict: null, project: (typeof reported.project === 'string' && reported.project) ? reported.project : null, projectInferred: reported.projectInferred === true, ...evidence };
+    const project = { project: (typeof reported.project === 'string' && reported.project) ? reported.project : null, projectInferred: reported.projectInferred === true };
+    if (scraped.state === STATE.NEEDS_YOU && scraped.evidence) {
+      /* The screen holds a DIFFERENT question from the one the agent last
+         reported (the report is prose from before; the screen is the trust
+         dialog now). The screen's reason and row lead, because that is the
+         question standing in front of the person and the one whose default
+         answer exits; the report's words are surfaced as the conflict rather
+         than dropped, the way every other disagreement here is. */
+      const asked = reported.because ? ' Its last report asked: ' + reported.because : '';
+      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: scraped.because, evidence: scraped.evidence, reported: true, conflict: 'its screen shows a question its last report did not mention.' + asked, ...project };
+    }
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said('it is asking you something'), reported: true, conflict: null, ...project };
   }
   if (reported.state === 'blocked') {
     const what = reported.on ? 'it is waiting on ' + reported.on + (reported.owner ? ', which ' + reported.owner + ' owns' : '')
@@ -4446,6 +4474,7 @@ module.exports = {
   CODEX_NEEDS_YOU_MARKERS,
   ALL_NEEDS_YOU_MARKERS,
   trustPrompt,
+  isTrustDialogEvidence,
   SELECTOR_GLYPHS,
   isCodexCommand,
 };

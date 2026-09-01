@@ -82,3 +82,20 @@ on this branch; the suite's new arms are red on main by construction.
   bottom-of-screen rule was measured on that version; a later version that draws a footer
   under the confirm row would read unknown, which is the honest default and the thing to
   re-check on a version bump.
+
+## Challenge-loop iteration 3: the invitation I created gets a refusal
+
+- **Making the dialog needs_you made the page invite a typed answer**, and a typed answer ends
+  with Enter, which on this dialog picks "No, exit" and ends the session. Delivery was never
+  state-gated and both screen-moved guards go inert on unnumbered options. Two fixes, one
+  floor and one fresh read: `chat.deliver` refuses from the roster snapshot (no capture) for
+  every caller, and the two person-typed routes read a fresh screen through `trustDialogHold`
+  and answer 409 naming what Enter would have done. One capture per send, shared with the
+  button guards, because five existing arms feed the tmux seam one answer per capture.
+- **Reported needs_you plus the trust screen: the screen leads.** The report's question is the
+  conflict sentence, not dropped; the project it named still rides on the state.
+- Comments corrected: the wrap is Claude Code's own, which `-J` cannot join; "closed" means
+  closed on every observed shape; the reconcile test is titled for the fresh report it uses.
+- Server arms added: the thread page shows the dialog and offers no buttons; the roster card
+  carries the row and the default-answer reason; both routes refuse; an ordinary question is
+  still answerable (control).

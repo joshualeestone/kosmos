@@ -639,6 +639,27 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
   if (!allowed.ok) {
     return { state: DELIVERY.COULD_NOT, because: allowed.because, at, paneState: null, paneNote: null };
   }
+  /**
+   * #1629 point 3: NEVER TYPE AT AN AGENT STOPPED ON CLAUDE CODE'S TRUST
+   * DIALOG. Every caller comes through here (both thread routes, the task
+   * line, the slash-command route, the auto-handoff sweep), and every one
+   * ends with an Enter -- which on that dialog picks the default, "No, exit",
+   * and ends the session. The card is the roster snapshot this request
+   * already holds, so this costs no capture: its `stateEvidence` is set only
+   * from the trust detector's question row, and only while the detector saw
+   * the dialog. A route that wants a fresher read makes its own capture
+   * (server.js `trustDialogHold`); this is the floor under all of them.
+   */
+  if (allowed.card && allowed.card.state === status.STATE.NEEDS_YOU
+      && status.isTrustDialogEvidence(allowed.card.stateEvidence)) {
+    return {
+      state: DELIVERY.COULD_NOT,
+      because: 'it is stopped on Claude Code’s own question about whether to trust its folder, and typing '
+        + 'there would press Enter on the default, No, exit, and end its session; answer that question '
+        + 'in its terminal first',
+      at, paneState: allowed.card.state, paneNote: null,
+    };
+  }
 
   /**
    * ⚠️ THE ENVELOPE IS PREPENDED AFTER THE LENGTH CHECK, NEVER BEFORE IT, and

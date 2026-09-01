@@ -2617,3 +2617,90 @@ test('#732: a Kosmos-made edit that was told on the screen is `told`, not `stale
   assert.equal(projectsEngine.toldOverride({ ...stale, editedAt: new Date(Date.now() + 5000).toISOString() }, 'told-agent').state, 'stale', 'a tell OLDER than the edit counted as knowing');
   try { projectsEngine.remove(p.id); } catch { /* cleanup */ }
 });
+
+/* #1629 point 3: Claude Code's trust dialog, OBSERVED 2026-09-01 (2.1.258). The
+   same capture engine/status.test.js pins. */
+const TRUST_DIALOG_SCREEN = [
+  'Worked for 2m',
+  ' Accessing workspace:',
+  ' /Users/somebody/work/workers/zeta',
+  ' Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source',
+  ' project, or work from your team). If not, take a moment to review what\'s in this folder first.',
+  ' Claude Code\'ll be able to read, edit, and execute files here.',
+  ' Security guide',
+  ' ❯ No, exit',
+  '   Yes, I trust this folder',
+  ' Enter to confirm · Esc to cancel',
+  '',
+].join('\n');
+
+test('#1629: an agent stopped on the trust dialog is asking, its question is on the page, and it gets no buttons', async () => {
+  reset();
+  await withAgent(fleet.agent('zeta', { state: 'needs_you', screen: TRUST_DIALOG_SCREEN }),
+    [said(TRUST_DIALOG_SCREEN)],
+    async () => {
+      const body = json(await req('/api/agent/zeta/thread'));
+      assert.equal(body.asking, true, 'the board says it is asking');
+      assert.ok(body.question, 'the panel must not be empty under a card that says it is asking');
+      assert.match(body.question.text, /Quick safety check/);
+      assert.match(body.question.text, /❯ No, exit/, 'the highlighted answer is visible, which is the whole point');
+      assert.equal(body.options, null, 'no buttons: a button types a digit and nobody has measured what this dialog does with one');
+    });
+});
+
+test('#1629: the roster card carries the trust question as evidence, with a reason that names the default', async () => {
+  reset();
+  await withAgent(fleet.agent('zeta', { state: 'needs_you', screen: TRUST_DIALOG_SCREEN }), [], async () => {
+    const board = json(await req('/api/status'));
+    const mine = (board.agents || []).find((a) => a.sessionName === 'zeta');
+    assert.ok(mine, 'the agent is on the board');
+    assert.equal(mine.state, 'needs_you');
+    assert.match(String(mine.stateEvidence || ''), /^Quick safety check:/, 'the page shows this under "screen said"');
+    assert.match(String(mine.because || ''), /default answer exits/);
+  });
+});
+
+test('#1629: typing at an agent stopped on the trust dialog is REFUSED, and nothing reaches the pane', async () => {
+  reset();
+  // Enter on that dialog picks "No, exit" and ends the session. The page now
+  // invites an answer (needs_you draws a composer), so the route must refuse
+  // what the page invites. Both screen-moved guards are inert here by
+  // construction: unnumbered options parse to no menu and no question-above.
+  await withAgent(fleet.agent('zeta', { state: 'needs_you', screen: TRUST_DIALOG_SCREEN }),
+    [said(TRUST_DIALOG_SCREEN), said(TRUST_DIALOG_SCREEN), said(), said()],
+    async ({ calls }) => {
+      const typed = await post('/api/agent/zeta/thread', { text: 'yes' });
+      assert.equal(typed.status, 409, typed.body);
+      assert.match(json(typed).error, /trust its folder/);
+      assert.match(json(typed).error, /No, exit/, 'the refusal says what Enter would have done');
+      assert.equal(calls.sends().length, 0, 'nothing was typed into the pane');
+      // A stale button press is refused the same way, before the digit is typed.
+      const pressed = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes' });
+      assert.equal(pressed.status, 409, pressed.body);
+      assert.equal(calls.sends().length, 0, 'and still nothing typed');
+      const body = json(await req('/api/agent/zeta/thread'));
+      assert.deepEqual(body.messages, [], 'nothing recorded either');
+    });
+});
+
+test('#1629: control, an ordinary question is still answerable through the same route', async () => {
+  reset();
+  const menu = 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n';
+  await withAgent(fleet.agent('zeta', { state: 'needs_you', screen: menu }), [said(menu), said(menu), said(), said()], async ({ calls }) => {
+    const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes' });
+    assert.notEqual(res.status, 409, res.body);
+    assert.ok(calls.sends().length > 0, 'the answer was typed');
+  });
+});
+
+test('#1629: the project thread refuses to type at an agent on the trust dialog too; it has no button guards to lean on', async () => {
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'needs_you', screen: TRUST_DIALOG_SCREEN }),
+    [said(TRUST_DIALOG_SCREEN), said(), said()],
+    async ({ project, calls }) => {
+      const typed = await post(`/api/project/${project.id}/thread/zeta`, { text: 'yes, go ahead' });
+      assert.equal(typed.status, 409, typed.body);
+      assert.match(json(typed).error, /No, exit/);
+      assert.equal(calls.sends().length, 0, 'nothing was typed into the pane');
+    });
+});

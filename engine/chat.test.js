@@ -2502,3 +2502,34 @@ test('#1629: a pasted copy of the trust dialog ABOVE a live question does not hi
   assert.ok(menu && menu.length === 2, 'and the live menu still gets its two buttons');
   assert.deepEqual(menu.map((o) => o.label), ['Yes', 'No']);
 });
+
+test('#1629: deliver refuses to type at an agent whose snapshot shows the trust dialog, and types nothing', () => {
+  /* The floor under every caller (both thread routes, the task line, the slash
+     command, the auto-handoff sweep): all of them end with an Enter, and on
+     that dialog Enter picks "No, exit". Keyed on the roster card, no capture. */
+  const screen = [
+    'Worked for 2m',
+    ' Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source',
+    ' project, or work from your team). If not, take a moment to review what\'s in this folder first.',
+    ' ❯ No, exit',
+    '   Yes, I trust this folder',
+    ' Enter to confirm · Esc to cancel',
+  ].join('\n');
+  withFleet([fleet.agent('casey', { state: 'needs_you', screen })], (board) => {
+    const card = board.agents.find((a) => a.sessionName === 'casey');
+    assert.equal(card.state, 'needs_you', 'fixture: the board reads the dialog');
+    assert.match(String(card.stateEvidence || ''), /^Quick safety check/, 'fixture: the card carries the row');
+    const tmux = arm([ok(), ok()]);
+    const verdict = chat.deliver('casey', 'yes', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.COULD_NOT);
+    assert.match(verdict.because, /No, exit/);
+    assert.equal(tmux.sends().length, 0, 'nothing typed, no Enter');
+  });
+  // Control: an ordinary question is still typed at.
+  withFleet([fleet.agent('casey', { state: 'needs_you' })], (board) => {
+    const tmux = arm([ok(), ok()]);
+    const verdict = chat.deliver('casey', 'yes', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.PLACED);
+    assert.ok(tmux.sends().length > 0);
+  });
+});

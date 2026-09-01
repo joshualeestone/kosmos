@@ -3735,7 +3735,7 @@ test('#1629: trustPrompt returns the question row alone, capped, and nothing for
   assert.equal(trustPrompt(long).length, 241, 'one line, capped at 240 plus the ellipsis');
 });
 
-test('#1629: a scraped trust dialog stands over a stale self-report of working, because the agent cannot know it is stuck', () => {
+test('#1629: a scraped trust dialog stands over a FRESH self-report of working, because the agent cannot know it is stuck', () => {
   /* Built with the suite's own `rep()` and `T0`, not a hand-rolled object: a
      fixture of the wrong shape routes into the no-report branch and answers a
      different question accurately (the fleet bulletin of 2026-08-27). */
@@ -3823,4 +3823,26 @@ test('#1629: a REPORTED needs_you carries the screen\'s question row when the sc
   // Control: a scraped needs_you WITHOUT evidence adds no evidence key.
   const plain = reconcileReport(rep('needs_you', { because: 'may I merge?' }), scr(STATE.NEEDS_YOU, CONFIDENCE.SCRAPED), T0 + 60_000);
   assert.equal('evidence' in plain, false);
+});
+
+test('#1629: when the report asked one thing and the screen asks the trust question, the screen leads and the report is the conflict', () => {
+  const scraped = classify(pane(), TRUST_DIALOG_LIVE);
+  const got = reconcileReport(rep('needs_you', { because: 'may I merge?' }), scraped, T0 + 60_000);
+  assert.equal(got.state, STATE.NEEDS_YOU);
+  assert.match(got.because, /trust its folder/, 'the question in front of the person leads');
+  assert.match(got.evidence, /^Quick safety check/);
+  assert.match(got.conflict, /may I merge\?/, 'the report is surfaced, not dropped');
+  assert.equal(got.reported, true);
+  // The project the report named still rides on the state (#763).
+  const withProject = reconcileReport(rep('needs_you', { because: 'may I merge?', project: 'p1' }), scraped, T0 + 60_000);
+  assert.equal(withProject.project, 'p1');
+});
+
+test('#1629: isTrustDialogEvidence answers only for the detector\'s own question row', () => {
+  const { isTrustDialogEvidence } = require('./status');
+  assert.equal(isTrustDialogEvidence(classify(pane(), TRUST_DIALOG_LIVE).evidence), true);
+  assert.equal(isTrustDialogEvidence('You’ve reached your usage limit'), false, 'a rate-limit row is not it');
+  assert.equal(isTrustDialogEvidence(null), false);
+  assert.equal(isTrustDialogEvidence(undefined), false);
+  assert.equal(isTrustDialogEvidence('The pane said Quick safety check: and moved on'), false, 'not anchored, not it');
 });
