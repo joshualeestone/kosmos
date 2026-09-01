@@ -7441,7 +7441,7 @@ function start(port = PORT) {
               try { return chat.deliver(session, textToSend, roster, undefined, undefined); }
               catch { return { state: chat.DELIVERY.COULD_NOT }; }
             },
-            pathFor: (session) => path.join(store.root(), 'handoffs', store.safeKey(session) + '.md'),
+            pathFor: (session) => autohandoffSweep.handoffPathFor(store, session),
             autohandoff,
             DELIVERY: chat.DELIVERY,
           });

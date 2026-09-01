@@ -54,6 +54,9 @@ function shouldPrompt(enabled, threshold, fill, lastBand) {
  * The prompt injected into the agent's pane. The agent writes the handoff; this
  * names the path (a stable per-agent file it refreshes) and the contents the
  * card requires, learned from the handoffs that actually survived tonight.
+ * (Delivery via chat.deliver/cleanMessage collapses whitespace to single spaces,
+ * so the agent receives one line; the newline layout below is for source
+ * readability, not the delivered shape.)
  */
 function handoffPrompt(fillPct, path) {
   return [

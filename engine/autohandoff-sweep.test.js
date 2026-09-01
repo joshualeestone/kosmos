@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { sweepOnce } = require('./autohandoff-sweep');
+const { sweepOnce, handoffPathFor } = require('./autohandoff-sweep');
 const autohandoff = require('./autohandoff'); // Mona's committed decision core, consumed not modified
 const { DELIVERY } = require('./chat');
 
@@ -104,4 +104,18 @@ test('an unreadable fill (null percent) is skipped without prompting or throwing
   });
   assert.deepEqual(prompted, []);
   assert.equal(d.calls.length, 0);
+});
+
+// #1724 integration seam: the server wiring builds the handoff path with this
+// exact exported function (server.js), not an inline lambda. The first inline
+// version called store.root() -- which does not exist; store exposes ROOT, a
+// string -- so it threw on every sweep and the interval's best-effort catch
+// swallowed it, leaving the consume half dead on arrival with a fully green
+// suite. This drives the REAL function against the REAL store, so that class of
+// typo fails here instead of silently in production.
+test('handoffPathFor resolves through store.ROOT to a string path (guards the store.root() seam)', () => {
+  const store = require('./store');
+  const p = handoffPathFor(store, 'Some Agent 42');
+  assert.equal(typeof p, 'string', 'the handoff path must be a string, not a thrown TypeError');
+  assert.match(p, /[/\\]handoffs[/\\][^/\\]+\.md$/, 'it lands under handoffs/ as a .md file');
 });
