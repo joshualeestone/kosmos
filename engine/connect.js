@@ -1492,7 +1492,7 @@ async function installClaudeCode(hooks) {
      ⇒ Resolving the home here is correct and costs nothing, and it is NOT reachable
      today. That is its honest status.
      📌 The full retraction, both wrong reasons I gave, and why the arm for it proved
-     nothing, are in .claude/plans/runnable-dir-1592-20260830.md. Thirty lines of that
+     nothing, are in the branch plan (kosmos#1592). Thirty lines of that
      history lived here and became the thing every reviewer flagged. */
   let installHome;
   try { installHome = require('./runners').homeDir(); }

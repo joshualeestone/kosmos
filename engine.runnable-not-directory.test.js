@@ -267,35 +267,35 @@ function walkJs(dir, base = dir, out = []) {
  * not exist. **An entry here is a note for a human, not a justification.** What
  * justifies a kept weak call is a behavioural arm below, and nothing else.
  *
- * ⚠️ KNOWN FRICTION: a line number reds on any insertion above it, and several
- * live branches touch connect.js, so this fires on most rebases. Bumping the
- * number is the correct response and is safe, because the number is not what
- * proves anything.
- *
- * 📌 PINNED BY TEXT, NOT BY LINE NUMBER, AND THAT IS A CONSISTENCY FIX. This
- * pinned `file:line`, so ANY insertion above one of them turned it red. That is
- * strictly MORE exposed than the file-wide `writeState(` count this same file
- * rejected for exactly that reason: a count moves only when somebody adds a
- * writeState, a line number moves when anybody adds anything. Rejecting the
- * lesser friction while keeping the greater one was incoherent.
- * Keying on the trimmed line text is insertion-immune and keeps the identity the
- * deepStrictEqual needs; the failure message prints the LIVE line numbers, which
- * is what a reader actually wants. Two audit notes carrying stale numbers
- * (connect.js:931 and runners.js:206) are gone with it.
+ * 📌 THE KEY'S HISTORY, IN ONE PLACE AND BELOW THE DESIGN THAT SHIPS. Two superseded
+ * versions used to be described HERE, ABOVE the shipping one, so a maintainer reading
+ * top-down met two obsolete designs first, one of which gave an instruction that cannot
+ * be followed ("bumping the number is the correct response" when there are no line
+ * numbers in the table at all).
+ *   1. keyed on `file:line`  -- any insertion above a row redded it, which is strictly
+ *      MORE exposed than the file-wide count this same file rejected for that reason.
+ *   2. keyed on the trimmed LINE  -- insertion-immune, but rewording an ordinary comment
+ *      sentence redded a test named for #1592.
+ * ⇒ The shipping key is described immediately below. This file's own rule, stated in
+ * connect.js, is that a wrong sentence left above its own retraction is read first.
  */
 /* 🛑 KEYED ON THE MATCHED CALL, NOT ON THE WHOLE LINE, AND THE REASON IS A COST
    THIS FILE ALREADY ACCEPTED ELSEWHERE AND FAILED TO APPLY HERE.
    Two of these four entries are PROSE. Pinning the whole trimmed line made
    rewording an ordinary comment sentence turn a test named for #1592 red, in
-   `connect.js`, which carries three live conflicting branches right now,
+   `connect.js`, which carries three live conflicting branches right now, on a branch
+   whose author never opened this test.
    🛑 IT SAID "THE MOST-EDITED FILE IN THIS REPO", FOUR TIMES, AND THAT IS FALSE.
    MEASURED on origin/main: connect.js has 19 commits and ranks 31st; web/index.html has
-   597. Normalising for age does not rescue it either.
+   597 by `git log --name-only | sort | uniq -c`, which is the instrument, and 610 by
+   `git rev-list --count` (merge commits list no files, so the two differ legitimately).
+   📌 The plan quotes the second figure and this quotes the first, and NEITHER NAMED ITS
+   COMMAND, so the pair read as one of them being wrong. Both are right and the conclusion
+   does not turn on either. Normalising for age does not rescue the superlative either.
    ✅ The DECISION it supports still stands, on evidence that is true: willinstall-1556,
    live-1560-pete and live-check-1560 are all live on origin right now (control: a branch
    that cannot exist returns 0). ⭐ A right conclusion resting on a false citation is worse
    than a wrong one, because a citation looks checked.
-   on a branch whose author never opened this test. That is exactly the friction
    argument used above to scope the `writeState(` count to `becomeStuck` rather
    than the whole file; the argument was right there and was not applied here.
 
@@ -543,9 +543,17 @@ test('every site under the resolution rule resolves the claude binary its docume
        IDENTICAL (it replaces the call, it does not add one) and passes the assertion above
        at 20 pass 0 fail. The previous arm caught that shape and missed the double
        resolution; this count catches the double resolution and misses that shape.
-       ⇒ NEITHER DISCRIMINATOR COVERS THE RULE. They catch different halves of it, so both
-       are asserted. The rule is "resolve once AND read both off the one answer"; a count
-       sees the first half and claudeBinPath sees the second.
+       ⇒ NEITHER DISCRIMINATOR COVERS THE RULE, AND NEITHER DOES BOTH TOGETHER. A count sees an
+       ADDED resolution. claudeBinPath sees ONE SPELLING of deriving the path separately.
+       🛑 AN EARLIER VERSION OF THIS SENTENCE SAID "claudeBinPath sees the second half" OF THE
+       RULE. IT DOES NOT. MEASURED: replace `claudeResolved.present` with an inlined
+       `require('./runners').isRunnable(bin)` and the pair is asked in TWO SPELLINGS again, with
+       no claudeBinPath anywhere, the binding untouched and the count unmoved. 20 pass 0 fail.
+       The same shape in willInstall is equally invisible.
+       ⇒ FIFTH VERSION OF THIS ARM, FIFTH SHAPE. I AM NOT ADDING A SIXTH DISCRIMINATOR. The
+       uncovered half is recorded as a residual instead, because every previous version keyed on
+       the shape the previous reviewer demonstrated and then described itself as covering the
+       rule. Declaring the boundary is worth more than one more token match to walk around.
        📌 That is why the earlier docblock's confident "THE DISCRIMINATOR IS claudeBinPath()"
        was wrong in the same way its predecessor was: each fix found one more shape and
        declared the search over. */
@@ -1323,8 +1331,24 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
        RESOLUTION RULE ITSELF, in start() and willInstall: the invariant stated at the head of
        connect.js, pointed at by four sites, carrying its own carve-out. Reverting either to a
        separate path lookup reddened NOTHING across 103 tests.
-       ✅ THOSE TWO ARE NOW PINNED by the claudeBinPath arm above, so this list is shorter than
-       the reviewer found it. The three below remain unpinned and are defence in depth.
+       ✅ THOSE TWO ARE PARTLY PINNED by the arm above. ⚠️ PARTLY, not fully, and the word
+       matters: the arm sees an ADDED resolution and ONE SPELLING of deriving the path. It does
+       NOT see the presence asked in a second spelling, which is the sixth residual below.
+       The three after that remain unpinned and are defence in depth.
+       
+       📌 SIXTH RESIDUAL, THE HALF THE ARM ABOVE DOES NOT REACH: asking for the PRESENCE in a
+       second spelling. MEASURED, each an ordinary refactor, each green at 20 pass 0 fail:
+           start()      let haveBinary = require('./runners').isRunnable(bin);
+           willInstall  const resolved = { present: require('./runners').isRunnable(bin) };
+       Both ask the pair in two spellings again, with no claudeBinPath, binding untouched, count
+       unmoved.
+       ⚠️ NOT GUARDED, DELIBERATELY. This is the fifth shape found in five passes, and every
+       previous fix keyed on the shape the previous reviewer had just demonstrated. A sixth token
+       match is the same move. What would close it is an assertion about IDENTITY (both reads
+       come off one binding) rather than about spelling, which is real work and not another regex.
+       📌 Behaviour-neutral today at both sites: no await separates the pair, so the two spellings
+       cannot disagree yet. What makes it a rule is a future await landing between them, which is
+       exactly what none of these checks would see.
        ⭐ The paragraph already warned "never say the one". Saying THREE was the same claim one
        notch weaker, and it was wrong the same way: a residual list is exactly where a reviewer
        looks, so a number in it is the cheapest claim there is to falsify.
