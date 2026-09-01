@@ -562,3 +562,33 @@ above something green. Nothing in a test run reads a sentence.
 Two of the three true claims were verified only because I went looking; neither
 had been run when I wrote them either. The audit is cheap, it is one perturbation
 per claim, and it found the one that mattered.
+
+## Windows, checked because a colleague found a live defect every arm passed
+
+Renet's #1732: a green suite on this fleet is not evidence about Windows, because
+all sixteen machines are macOS and the codebase branches on `process.platform`.
+That is exactly the shape that has bitten this branch repeatedly, so I checked my
+own diff rather than assuming it did not apply.
+
+**Result: no new exposure, and the honest reason is not "it works".**
+
+- `spawn('/bin/sh', ...)` is **pre-existing**: one occurrence on `origin/main`, one
+  on this branch. I changed the command string inside it (two fields and
+  `exit "$code"`), not the assumption that `/bin/sh` exists.
+- The files that actually branch on platform are `engine/store.js` and
+  `engine/projects.js`, which handle data roots and paths, and this branch touches
+  neither.
+- `install/setup.sh:99` refuses any non-macOS host outright, so no Windows machine
+  can reach this code by the supported route today.
+
+⚠️ **What this card DOES change is who is watching when that assumption fails.**
+Before #1277 the shell only ran when somebody pressed Install and could see it
+fail. It now runs unattended. If Kosmos is ever ported, this becomes a silent
+failure on a schedule rather than a visible one on a click. Not fixed here,
+because a portability fix with no Windows target and no way to test it is exactly
+the unfalsifiable work this branch has been punished for all night. Recorded so
+the next person porting the engine has it in one place.
+
+📌 The control matters as much as the result: `process.platform` appears in 5
+files and `win32` in 2, against a made-up string returning 0, so the sweep could
+see something and did.
