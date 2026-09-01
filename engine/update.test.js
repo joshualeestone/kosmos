@@ -344,7 +344,7 @@ test('the installer URL is a positional parameter, never interpolated into the s
      added `; rm -f "$4"` and the marker positional so the shell removes the
      in-flight marker on finish -- a surviving marker means an interrupted
      install). The URL is still $1 and still never interpolated. */
-  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s\\n" "\$code" "\$3" > "\$2"; rm -f "\$4"',\s*'sh',\s*setupUrl\(\)/,
+  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s\\n" "\$code" "\$3" > "\$2"; if \[ "\$4" != \/dev\/null \]; then rm -f "\$4"; fi',\s*'sh',\s*setupUrl\(\)/,
     'the installer command is no longer the reviewed shape: ' + call);
   /* The three trailing positionals, asserted on the wider source since the
      slice above stops at the URL: the status file is $2, the stamp is $3, the

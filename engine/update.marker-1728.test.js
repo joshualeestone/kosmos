@@ -103,6 +103,22 @@ test('#1728: the spawn passes the marker path as the 4th positional ($4)', () =>
   assert.match(m[1], /statusFile, lastAttempt\.startedAt, startedMarker\]?/, 'startedMarker is the last positional ($4)');
 });
 
+test('#1728: with no install root ($4 = /dev/null) the shell does NOT unlink the sentinel and exits 0', () => {
+  // When installedRoot() is null the marker falls back to /dev/null. The command
+  // must NOT try to `rm /dev/null` (a destructive op if ever run as root) and must
+  // exit 0 -- a non-zero exit here would reach wireChild's exit listener and record
+  // a FALSE install failure. Runs the exact command lifted from source.
+  const src = fs.readFileSync(path.join(__dirname, 'update.js'), 'utf8');
+  const m = /spawn\('\/bin\/sh', \['-c', '([^']+)'/.exec(src);
+  assert.ok(m, 'the installer spawn command was found in source');
+  let rc = 0;
+  try {
+    execFileSync('/bin/sh', ['-c', m[1], 'sh', 'file:///nonexistent-kosmos-1728', '/dev/null', '2026-09-01T05:00:00.000Z', '/dev/null'], { stdio: 'ignore' });
+  } catch (e) { rc = e.status || 1; }
+  assert.equal(rc, 0, 'the /dev/null case exits 0 (a non-zero exit would record a false failure)');
+  assert.equal(fs.existsSync('/dev/null'), true, '/dev/null was not unlinked');
+});
+
 test('#1728: when both witnesses survive, the newer attempt (by start stamp) wins', () => {
   const root = freshRoot();
   fs.mkdirSync(path.join(root, 'logs'), { recursive: true });

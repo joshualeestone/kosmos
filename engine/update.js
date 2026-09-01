@@ -453,7 +453,12 @@ function beginInstall(opts) {
   const statusFile = installStatusFile() || '/dev/null';
   /* #1728: the shell removes the in-flight marker (written by wireChild) when
      the attempt finishes -- whichever way the pipeline exited, since the tail of
-     the command always runs. A surviving marker therefore means an interruption. */
+     the command always runs. A surviving marker therefore means an interruption.
+     The `if [ "$4" != /dev/null ]` guard matters twice when there is no installed
+     root (marker falls back to /dev/null): it never tries to UNLINK the /dev/null
+     sentinel (a destructive op that could bite if the board ever ran as root), and
+     the `if` exits 0 rather than letting a failed `rm -f /dev/null` (non-zero as a
+     non-root user) reach wireChild's exit listener and record a false failure. */
   const startedMarker = installStartedFile() || '/dev/null';
   /* 🛑 #1726: THE GATE GOES HERE, AND THIS CALL SITE NEEDS IT MORE THAN THE ONES
      THAT ALREADY HAD IT. `create.js` (#1598), `remove.js` and `delete-leftover.js`
@@ -478,7 +483,7 @@ function beginInstall(opts) {
     liveExec.refuseOrWarn('engine/update.js', '/bin/sh', ['-c', 'curl | sh (installer)']);
     return;
   }
-  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s\n" "$code" "$3" > "$2"; rm -f "$4"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, startedMarker], {
+  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s\n" "$code" "$3" > "$2"; if [ "$4" != /dev/null ]; then rm -f "$4"; fi', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, startedMarker], {
     detached: true,
     stdio: 'ignore',
     env: { ...process.env, KOSMOS_RELEASE_BASE: base },
