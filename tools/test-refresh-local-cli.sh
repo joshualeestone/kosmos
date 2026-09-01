@@ -86,4 +86,9 @@ out="$(REFRESH_CLI_TARGET="$T/linkdir/kosmos" REFRESH_CLI_SOURCE="$FRESH" REFRES
 if [ "$rc" -eq 0 ] && cmp -s "$FRESH" "$T/store/bin/kosmos"; then pass "a symlinked command refreshes the real file it points at"; else fail "symlink arm (rc=$rc, out=$out)"; fi
 if [ -L "$T/linkdir/kosmos" ]; then pass "the symlink stayed a symlink (the file was replaced, not the link)"; else fail "the symlink was clobbered into a file"; fi
 
+# 9. A symlink CYCLE is a refusal, not an infinite loop that hangs the cut.
+mkdir -p "$T/cyc"; ln -s "$T/cyc/y" "$T/cyc/x"; ln -s "$T/cyc/x" "$T/cyc/y"
+out="$(REFRESH_CLI_TARGET="$T/cyc/x" REFRESH_CLI_SOURCE="$FRESH" REFRESH_CLI_REPO="$T/norepo" bash "$SCRIPT" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && has "$out" "symlink cycle"; then pass "a symlink cycle is a refusal, not an infinite loop"; else fail "symlink-cycle arm (rc=$rc, out=$out)"; fi
+
 echo "refresh-local-cli: $fails failures"; [ "$fails" -eq 0 ]

@@ -931,9 +931,16 @@ step "== 11. the installed kosmos CLI on THIS Mac =="
 # whatever the first install put there: #1674 (`kosmos reply --help` sent as a
 # message) merged, shipped in the bundle the comparator above already verifies,
 # and still bit an agent the next day, because agents run that binary, not the
-# repo or the bundle. This refreshes an installed CLI to the tree's install/kosmos
-# and byte-verifies it; it leaves the repo's own copy and a CLI-less Mac alone,
-# and REFUSES (reds the cut under set -e) if it finds a stale install it cannot
+# repo or the bundle. This refreshes an installed CLI to install/kosmos and
+# byte-verifies it; it leaves the repo's own copy and a CLI-less Mac alone, and
+# REFUSES (reds the cut under set -e) if it finds a stale install it cannot
 # refresh -- a silent skip here is the exact defect. tools/test-refresh-local-cli.sh
 # proves both the refresh and the refusal arm.
-bash "$MAIN_REPO/tools/refresh-local-cli.sh"
+# 🔑 SOURCE IS THE FROZEN TREE, not the shared checkout. $BUILD is what step 7's
+# comparator verified the served bundle against, so sourcing from $BUILD/install/
+# kosmos makes the installed CLI byte-identical to what this cut published; a
+# shared-checkout source ($MAIN_REPO) could have been fast-forwarded past $SHA
+# mid-run (the freeze notice warns of exactly this) and install a CLI that does
+# not match the served bundle. The script still runs from $MAIN_REPO so its
+# repo-copy gate protects a dev whose `kosmos` is the shared checkout's own copy.
+REFRESH_CLI_SOURCE="$BUILD/install/kosmos" bash "$MAIN_REPO/tools/refresh-local-cli.sh"
