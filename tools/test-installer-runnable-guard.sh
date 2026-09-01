@@ -27,35 +27,50 @@ if [ -f "$_td/realbin" ] && [ -x "$_td/realbin" ]; then pass "[ -f ] && [ -x ] s
 else fail "[ -f ] && [ -x ] wrongly rejected a real executable file"; fi
 rm -rf "$_td"
 
-# 2. COVERAGE: every line carrying [ -x "P" ] in the installer must also carry
-#    [ -f "P" ] for the SAME path P on that line. A bare one is a directory-
-#    accepting site. This is the regression guard: it goes red if any site is
-#    added or reverted to the bare form.
-bare="$(cd "$HERE" && awk '
+# 2. COVERAGE: every executable test in the installer must guard the SAME path.
+#    This covers the WHOLE class, not just the quoted positive form -- a guard
+#    narrower than the class it names is the bug it was written to prevent:
+#      [ -x P ]     (P = "quoted" or an unquoted /path)  needs  [ -f P ]
+#      [ ! -x P ]   (the negated form: a +x dir reads as executable there too)
+#                                                        needs  [ ! -f P ]
+#    Any missing guard is a directory-accepting site. Red if any is added.
+_scan='
 {
   line = $0
   s = line
-  while (match(s, /\[ -x "[^"]+" \]/)) {
-    p = substr(s, RSTART, RLENGTH)
-    sub(/^\[ -x "/, "", p); sub(/" \]$/, "", p)
-    guard = "[ -f \"" p "\" ]"
-    if (index(line, guard) == 0)
-      printf "%s:%d: bare [ -x \"%s\" ] (a directory passes)\n", FILENAME, FNR, p
+  while (match(s, /\[ -x ("[^"]+"|[^] ]+) \]/)) {
+    p = substr(s, RSTART, RLENGTH); sub(/^\[ -x /, "", p); sub(/ \]$/, "", p)
+    if (index(line, "[ -f " p " ]") == 0)
+      printf "%s:%d: bare [ -x %s ] (a directory passes)\n", FILENAME, FNR, p
     s = substr(s, RSTART + RLENGTH)
   }
-}' $FILES 2>/dev/null)"
+  t = line
+  while (match(t, /\[ ! -x ("[^"]+"|[^] ]+) \]/)) {
+    p = substr(t, RSTART, RLENGTH); sub(/^\[ ! -x /, "", p); sub(/ \]$/, "", p)
+    if (index(line, "[ ! -f " p " ]") == 0)
+      printf "%s:%d: bare [ ! -x %s ] (a directory reads as executable)\n", FILENAME, FNR, p
+    t = substr(t, RSTART + RLENGTH)
+  }
+}'
+bare="$(cd "$HERE" && awk "$_scan" $FILES 2>/dev/null)"
 if [ -z "$bare" ]; then
-    pass "no bare [ -x ] in the installer (every executable test is same-path -f-guarded)"
+    pass "no unguarded executable test in the installer (positive or negated, quoted or unquoted)"
 else
-    fail "bare [ -x ] site(s) remain:"
+    fail "unguarded executable test site(s) remain:"
     printf '%s\n' "$bare" | sed 's/^/        /'
 fi
 
-# 3. CONTROL for the coverage grep: it can actually FIND a bare site. Feed it one.
-_ctl="$(mktemp)"; printf '  if [ -x "$SOME/bin/thing" ]; then :; fi\n' > "$_ctl"
-_hit="$(awk '{ s=$0; while (match(s, /\[ -x "[^"]+" \]/)) { p=substr(s,RSTART,RLENGTH); sub(/^\[ -x "/,"",p); sub(/" \]$/,"",p); if (index($0, "[ -f \"" p "\" ]")==0) print "bare"; s=substr(s,RSTART+RLENGTH) } }' "$_ctl")"
-[ -n "$_hit" ] && pass "coverage check is not vacuous (it flags a planted bare [ -x ])" \
-  || fail "coverage check FAILED to flag a planted bare [ -x ] -- it is vacuous"
+# 3. CONTROL: the scan can produce the dangerous answer for EACH form it claims
+#    to cover -- an unquoted positive AND a negated test both get flagged. This
+#    is what proves the widened scan is not vacuous for a form.
+_ctl="$(mktemp)"
+{
+  printf '  if [ -x /opt/some/bin/thing ]; then :; fi\n'
+  printf '  if [ ! -x "$SOME/bin/thing" ]; then :; fi\n'
+} > "$_ctl"
+_hits="$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)"
+if [ "$_hits" -eq 2 ]; then pass "the scan flags both a planted unquoted [ -x ] and a planted [ ! -x ] (not vacuous)"
+else fail "the scan missed a planted bare form (flagged $_hits of 2), so it is vacuous for some form"; fi
 rm -f "$_ctl"
 
 echo "installer runnable-guard: $fails failures"

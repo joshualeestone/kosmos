@@ -132,7 +132,7 @@ resolve_kosmos() {
 KOSMOS="$(resolve_kosmos)"
 
 JQ="$(command -v jq 2>/dev/null || true)"
-if [ -z "$JQ" ] && [ -x /opt/homebrew/bin/jq ]; then JQ=/opt/homebrew/bin/jq; fi
+if [ -z "$JQ" ] && [ -f /opt/homebrew/bin/jq ] && [ -x /opt/homebrew/bin/jq ]; then JQ=/opt/homebrew/bin/jq; fi
 
 INPUT=$(cat 2>/dev/null || true)
 if [ -n "$JQ" ]; then
@@ -210,7 +210,7 @@ say_loudly() {
 
 case "$EVENT" in
   SessionStart)
-    if [ -z "$KOSMOS" ] || [ ! -x "$KOSMOS" ]; then
+    if [ -z "$KOSMOS" ] || [ ! -f "$KOSMOS" ] || [ ! -x "$KOSMOS" ]; then
       say_loudly "Kosmos reporting is OFF for this session: no runnable kosmos CLI was found beside the reporting hook${KOSMOS:+ (looked at $KOSMOS)}. The board is falling back to reading the screen."
       exit 0
     fi

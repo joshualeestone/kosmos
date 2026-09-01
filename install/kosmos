@@ -397,7 +397,7 @@ cmd_open() {
 # "command not found" at the exact moment somebody wants it; this runs the
 # tmux the board itself uses (resolved above), and says so.
 cmd_agents() {
-  if [ ! -x "$AGENT_WORKFORCE_TMUX_BIN" ]; then
+  if [ ! -f "$AGENT_WORKFORCE_TMUX_BIN" ] || [ ! -x "$AGENT_WORKFORCE_TMUX_BIN" ]; then
     say "Kosmos cannot find its tmux at $AGENT_WORKFORCE_TMUX_BIN"
     exit 1
   fi
@@ -818,7 +818,7 @@ cmd_adopt() {
     "") ;;
     *) say "kosmos adopt [--confirm]"; exit 2 ;;
   esac
-  if [ ! -x "$NODE" ] || [ ! -d "$KOSMOS_HOME/app" ]; then
+  if [ ! -f "$NODE" ] || [ ! -x "$NODE" ] || [ ! -d "$KOSMOS_HOME/app" ]; then
     say "Kosmos cannot find its own runtime, so it cannot vouch for anything."
     exit 2
   fi
