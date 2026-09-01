@@ -124,6 +124,7 @@ function engineFreshness() {
   return { startedAt: ENGINE_STARTED_AT.toISOString(), staleSince: engineLook.staleSince };
 }
 const store = require('./engine/store');
+const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
 /* Sandboxed whole or not at all (#634): refused before anything listens or
    writes. In-process (a test requiring this file) it throws; as the program it
    says the sentence and exits 2. */
@@ -3629,7 +3630,7 @@ const server = http.createServer((req, res) => {
     /* timezone is null until the operator sets one; the UI then defaults its
        dropdown to the browser's own machine timezone (detected client-side,
        the authoritative source for the operator's machine). */
-    sendJson(res, 200, { timezone: (s && s.timezone) || null });
+    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s) });
     return;
   }
   if (pathname === '/api/settings' && req.method === 'POST') {
@@ -3637,12 +3638,30 @@ const server = http.createServer((req, res) => {
       .then((buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
-        if (!messages.validTimeZone(body.timezone)) {
-          sendJson(res, 400, { ok: false, because: 'that is not a timezone we recognise' });
+        /* Per-field patch: validate each KNOWN setting present, so the timezone
+           route (#1668) and the auto-handoff route (#1724) share one endpoint and
+           neither clobbers the other's stored value (writeSettings merges). */
+        const patch = {};
+        if ('timezone' in body) {
+          if (!messages.validTimeZone(body.timezone)) {
+            sendJson(res, 400, { ok: false, because: 'that is not a timezone we recognise' });
+            return;
+          }
+          patch.timezone = body.timezone;
+        }
+        if ('autohandoff' in body) {
+          if (!autohandoff.validSetting(body.autohandoff)) {
+            sendJson(res, 400, { ok: false, because: 'that is not a valid auto-handoff setting' });
+            return;
+          }
+          patch.autohandoff = { enabled: body.autohandoff.enabled, threshold: body.autohandoff.threshold };
+        }
+        if (Object.keys(patch).length === 0) {
+          sendJson(res, 400, { ok: false, because: 'no known setting to save' });
           return;
         }
-        const saved = store.writeSettings({ timezone: body.timezone });
-        sendJson(res, 200, { ok: true, timezone: saved.timezone });
+        const saved = store.writeSettings(patch);
+        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved) });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;

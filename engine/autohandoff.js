@@ -70,4 +70,31 @@ function handoffPrompt(fillPct, path) {
   ].join('\n');
 }
 
-module.exports = { DEFAULT_THRESHOLD, THRESHOLD_OPTIONS, fillBand, shouldPrompt, handoffPrompt };
+/**
+ * The stored setting, normalised. enabled is a boolean; threshold is one of the
+ * offered options, defaulting to DEFAULT_THRESHOLD. A store that has never been
+ * written returns the safe default (off), so the feature is opt-in.
+ */
+function settingFrom(stored) {
+  const a = (stored && stored.autohandoff) || {};
+  const threshold = THRESHOLD_OPTIONS.includes(a.threshold) ? a.threshold : DEFAULT_THRESHOLD;
+  return { enabled: a.enabled === true, threshold };
+}
+
+/**
+ * Is a POSTed auto-handoff patch valid? enabled must be a boolean and threshold
+ * must be one of the offered options. Defense in depth on the write path, the
+ * same posture as validTimeZone: the UI only offers valid values, so a bad one
+ * is a direct API call and is refused rather than persisted.
+ */
+function validSetting(a) {
+  if (!a || typeof a !== 'object') return false;
+  if (typeof a.enabled !== 'boolean') return false;
+  if (!THRESHOLD_OPTIONS.includes(a.threshold)) return false;
+  return true;
+}
+
+module.exports = {
+  DEFAULT_THRESHOLD, THRESHOLD_OPTIONS, fillBand, shouldPrompt, handoffPrompt,
+  settingFrom, validSetting,
+};
