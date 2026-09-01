@@ -136,9 +136,8 @@ function setClientId(id) {
    set while production's own default list was driven by nothing, so a reviewer could
    weaken only the production side and every arm stayed green. That is the defeat
    `engine.runnable-not-directory.test.js` points here for.
-   ✅ The override is instead an env var carrying
-   PATHS, the same shape the rest of this file uses for its test seams, and there is
-   exactly one unconditional scan below. The test drives real code with real data
+   ✅ The override is instead an env var carrying PATHS, the same shape the rest of this
+   file uses for its test seams, and there is exactly one unconditional scan below. The test drives real code with real data
    rather than swapping a list in, and no test-only function is exported from
    production. `GH_CANDIDATES` is not exported; it had zero consumers outside
    `github.js`. Anybody who re-adds that export re-opens the divergence hazard, and
