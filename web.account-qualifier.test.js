@@ -295,3 +295,24 @@ test('the visible qualifier and its tooltip are escaped too, not only the button
   assert.match(PAGE, /class="acct-qual" title="' \+ esc\(/,
     'the qualifier tooltip is no longer wrapped in esc(), so the login renders raw in the title attribute');
 });
+
+/* 🛑 THE FALLBACK IS A FOURTH COPY OF THE REFUSAL AND WAS PINNED BY NOTHING. The
+   drift test above anchors on `title="`, so it pins the TITLE against the engine
+   and leaves the JS fallback (`btn.title || '...'`) free to diverge. That literal
+   is what a screen-reader user hears on the day somebody drops the title from
+   that branch, which is the case the fallback exists for, so it is the copy least
+   likely to be noticed when it goes stale. */
+test('#1659: the aria-disabled handler fallback says the SAME thing as the engine refusal', () => {
+  const m = PAGE.match(/btn\.title \|\| '([^']+)'/);
+  assert.ok(m, 'the aria-disabled handler no longer carries a fallback sentence; re-anchor this test');
+  /* 🔑 DECODE BOTH SIDES. My first version decoded the page and compared against
+     RAW engine source, which stores the same sentence with a literal \u2019
+     escape. It failed, and the failure looked exactly like a drift. Same error
+     the sibling drift test above already avoids by normalising both sides: a
+     comparison that decodes one side is measuring two different worlds. */
+  const un = (x) => x.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  const fallback = un(m[1]);
+  const engine = un(require('fs').readFileSync(require('path').join(__dirname, 'engine', 'accounts.js'), 'utf8'));
+  assert.ok(engine.indexOf(fallback.slice(0, 48)) > -1,
+    'the handler fallback and the engine refusal have drifted: a person pressing the disabled row hears one sentence and the engine says another. fallback: ' + fallback);
+});

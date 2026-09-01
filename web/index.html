@@ -13645,9 +13645,17 @@ async function paintAccounts() {
      or Space did nothing at all, with no feedback -- the exact
      nothing-that-looks-live-may-do-nothing shape, newly reachable by keyboard
      because of the accessibility fix.
-     ✅ IT READS THE BUTTON'S OWN `title` rather than repeating the sentence, so
-     this does not become a THIRD copy of a refusal that a test already pins
-     between the engine and the page. */
+     ✅ IT READS THE BUTTON'S OWN `title` FIRST, so the normal path repeats
+        nothing.
+     🛑 BUT IT DOES CARRY A COPY, AND THIS COMMENT USED TO DENY IT. The fallback
+        sixteen lines below is a literal of the same sentence, and the comment
+        there argues FOR it: an empty fallback would clear the region and produce
+        exactly the silence this handler exists to prevent. Both are right, and
+        together they made one handler whose two comments described it oppositely.
+     📌 The honest count is FOUR copies (the aria-label short form, the title,
+        that fallback, and the engine), of which a test pinned exactly ONE PAIR,
+        because `pull()` anchors on `title="`. The fallback is pinned to the
+        engine now too, so the copy this comment used to deny cannot drift. */
   for (const btn of box.querySelectorAll('.acct-disconnect[aria-disabled="true"]')) {
     btn.addEventListener('click', () => {
       /* 📌 NO `preventDefault`: a `<button type="button">` defaults to nothing,
@@ -13814,6 +13822,16 @@ async function paintAccounts() {
       } catch (err) {
         btn.disabled = false;
           if (msg) {
+            /* `acctCancelSay()` HERE, not only before the fetch. The cancel at the
+               top of this handler runs BEFORE the await, and the default row's
+               aria-disabled button stays pressable during the request: a press
+               inside that window schedules a 60ms deferred write that lands ON TOP
+               of this sentence. This one names the agents blocking the removal,
+               which the comment below calls the one message they must act on.
+               🛑 The plan called the provider early return "the ONE exception" to
+               the every-writer-cancels rule. It was not. This was the second and
+               the share handler was the third. A count in a comment is a claim. */
+            acctCancelSay();
             msg.textContent = String((err && err.message) || 'we could not remove that account');
             /* 🛑 THIS ONE MATTERS MOST OF THE THREE. On the failure path the
                sentence is a REFUSAL that names the agents blocking the removal
@@ -13859,6 +13877,9 @@ async function paintAccounts() {
         await paintAccounts();
       } catch (err) {
         btn.disabled = false;
+        /* Same reason as the forget catch above: this write lands after an await,
+           so the pre-fetch cancel cannot protect it. */
+        acctCancelSay();
         if (msg) msg.textContent = String((err && err.message) || 'we could not change that');
       }
     });

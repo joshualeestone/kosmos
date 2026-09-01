@@ -36,7 +36,13 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 
 /** Run the shipped binding loop against one fake Remove button. */
-function world(fetchImpl) {
+/* `provider` is a parameter because it was hardcoded to 'openai', and that is why
+   nothing in this repo asserted that a CLAUDE button calls /api/accounts/claude.
+   Both ENDS of that join were pinned separately (the markup carries
+   data-forget-provider="claude", the server route answers on that path) and the
+   `'/api/accounts/' + provider` concatenation between them was exercised by
+   nothing, on the card whose whole point is making the Claude row live. */
+function world(fetchImpl, provider) {
   const start = SCRIPT.indexOf("for (const btn of box.querySelectorAll('[data-forget]'))");
   const end = SCRIPT.indexOf("for (const btn of box.querySelectorAll('[data-share]'))", start);
   assert.ok(start > 0 && end > start, 'the remove-account binding moved; re-anchor this test');
@@ -54,7 +60,7 @@ function world(fetchImpl) {
        exactly like this confirm being broken. It is not; it is the fixture
        being older than the markup. Setting it now costs nothing today and
        removes a red that would otherwise land on whoever does that rebase. */
-    dataset: { forget: '/some/dir', forgetProvider: 'openai' },
+    dataset: { forget: '/some/dir', forgetProvider: provider || 'openai' },
     classList: { has: new Set(), add(c) { this.has.add(c); }, remove(c) { this.has.delete(c); } },
     listeners: {},
     addEventListener(t, fn) { this.listeners[t] = fn; },
@@ -183,4 +189,24 @@ test('#1659: a button with no provider marker refuses on the FIRST press and nev
   assert.equal(w.btn.classList.has.has('armed'), false, 'it took the armed class despite refusing');
   assert.match(w.msg.textContent, /which provider/,
     'it refused without saying why, which reads as a dead button rather than a wiring fault');
+});
+
+/* 🛑 THE CARD'S CENTRAL NEW BEHAVIOUR, AND IT WAS GUARDED BY NOTHING. #1659 makes
+   the Claude row live, and the handler routes on `'/api/accounts/' + provider`.
+   The markup end was pinned (data-forget-provider="claude"), the server end was
+   pinned (the route answers on that path), and the JOIN between them was tested
+   by no assertion anywhere in the repo: the only endpoint arm in this file was
+   hardcoded to openai, because the fixture was.
+   ⇒ Two ends pinned separately is not the same as the middle being covered. */
+test('#1659: a CLAUDE button removes through /api/accounts/claude, not the OpenAI route', async () => {
+  const calls = [];
+  const w = world(async (url, opts) => {
+    calls.push([url, (opts || {}).method]);
+    return { ok: true, json: async () => ({ because: 'gone' }) };
+  }, 'claude');
+  await w.click();
+  assert.deepEqual(calls, [], 'the first press reached the engine, so the confirm is not asking first');
+  await w.click();
+  assert.deepEqual(calls, [['/api/accounts/claude', 'DELETE']],
+    'a Claude row did not remove through the Claude route, so the provider routing is wrong');
 });
