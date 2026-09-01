@@ -194,6 +194,15 @@ and returns early at a gate is still running.
 
 ### Named, not changed: the board now phones home even when auto-update is OFF
 
+> 🛑 **REVERSED IN ITERATION 5, SEE BELOW.** This section records a decision the
+> code no longer has: the tick now gates on the preference at
+> `engine/update.js`, and `engine/update.test.js` measures it. The reversal and
+> the reason are recorded further down, so a reader going front to back gets the
+> correction; a reader who greps for "phones home" lands here and would take a
+> dead decision for a live one. Pointer added after a reviewer found exactly
+> that. The section is kept rather than deleted because the reasoning that was
+> wrong is the useful part.
+
 The tick gates on `AGENT_WORKFORCE_DRY_RUN` and `installedRoot()`. The
 preference is consulted downstream inside `maybeAutoInstall()`, so an installed
 board contacts the release host on the timer regardless of the switch. Before
@@ -322,9 +331,19 @@ reason in its place. The defensive form stays for smaller and honest reasons:
 it matches its sibling, and it avoids throwing once per tick forever on a
 machine whose preference file is unreadable.
 
-**The DRY_RUN gate was a convention with nothing enforcing it.** All sixteen
-files that boot the server set it today, so the exposure is closed, but the next
-file inherits nothing. There is now an arm that finds every file which requires
+**The DRY_RUN gate was a convention with nothing enforcing it.** Every file that
+boots the server sets it today, so the exposure is closed, but the next file
+inherits nothing.
+
+⚠️ **That enumeration was wrong when written and the number is gone on purpose.**
+It counted only the files that REQUIRE the server. Seven more boot it as a child
+process with `spawn(process.execPath, [.../server.js])`, and the original
+detector could not see them: a reviewer planted two files and the require-shaped
+one was named while the spawn-shaped one was not. The claim was accidentally
+true, because all seven happen to set the variable in their child env. A count
+that excludes a whole boot shape is worse than no count, because it reads as
+having been enumerated. The guard now matches both shapes and is verified by
+planting a spawn-shaped file with no DRY_RUN and confirming it is named. There is now an arm that finds every file which requires
 `./server` and calls `start(`, and fails naming any that does not set the
 variable. It carries a floor on the detector too, because a detector that finds
 nothing would make the arm pass for the wrong reason. Verified by planting a

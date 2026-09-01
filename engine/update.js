@@ -200,10 +200,29 @@ function maybeAutoInstall() {
        Install button is unaffected because it does not come through here. */
     const durable = lastAttemptView();
     const offer = available();
-    /* ⚠️ `durable.code !== 0` is TRUE for `code: null`, which is what an
-       IN-FLIGHT attempt carries, so an unfinished install read as a failure and
-       could print "giving up after 3 failed attempts" while the third was still
-       running and might yet succeed. Require the record to have ENDED. */
+    /* ⚠️ `durable.code !== 0` is TRUE for `code: null`, which is what an IN-FLIGHT
+       attempt carries: started, not finished, might yet succeed. Without
+       `durable.endedAt` the board could announce it was giving up after three
+       failed attempts while the third was still running.
+
+       🛑 THIS CONDITION USED TO CARRY A SECOND CLAUSE, `durable.code !== null`,
+       AND IT IS GONE ON PURPOSE. A reviewer measured that removing EITHER clause
+       alone left the whole suite green, because an in-flight record satisfies
+       both, so the guard could not fail for the clause its own comment named. I
+       tried to give the second clause an arm of its own, aimed at the spawn-error
+       state (wireChild's 'error' handler ends the record with a null code at
+       :591, so endedAt IS set and the code is null, which is genuinely a
+       different state). The arm passed with the clause removed too, so it did not
+       pin it either.
+
+       I could not construct a case where that clause changes behaviour: after a
+       spawn error the in-memory hour window holds the automatic path back
+       anyway, and beginInstall's own carry-forward reads `prior.code !== 0`
+       independently of this line. Rather than keep a clause nobody can pin, which
+       is an invitation for a later refactor to delete it and see green, it is
+       removed and `durable.endedAt` carries the meaning alone. If someone finds a
+       distinguishing case, add the clause back WITH the arm that shows it. */
+
     /* 🛑 NOT GATED ON `durable.auto`, AND THAT WAS THE HOLE. A previous fix made
        a manual press CARRY the automatic failure count forward instead of
        zeroing it, which was necessary and not sufficient: the count survived and
@@ -225,7 +244,7 @@ function maybeAutoInstall() {
        out of their own machine. The retry window now also applies after a manual
        failure, which is the behaviour you want: a version that failed by hand
        five minutes ago is not a good candidate for an unattended retry. */
-    if (durable && durable.endedAt && durable.code !== null && durable.code !== 0
+    if (durable && durable.endedAt && durable.code !== 0
         && offer && durable.version && durable.version === offer.version) {
       /* The window still helps inside one process life. */
       const endedMs = Date.parse(durable.endedAt || '');

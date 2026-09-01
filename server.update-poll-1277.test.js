@@ -108,7 +108,23 @@ test('#1277: every test file that boots the server sets DRY_RUN, so none can rea
   const files = walk(root);
   const boots = files.filter((f) => {
     const src = fs.readFileSync(f, 'utf8');
-    return /require\((['"])[^'"]*server\1\)/.test(src) && /\bstart\s*\(/.test(src);
+      /* IN-PROCESS boot: require the server and call start(). */
+      if (/require\((['"])[^'"]*server\1\)/.test(src) && /\bstart\s*\(/.test(src)) return true;
+      /* 🛑 CHILD-PROCESS boot, AND THE DETECTOR WAS BLIND TO IT. Seven files run
+         `spawn(process.execPath, [path.join(REPO, 'server.js')])` instead of
+         requiring it. That child runs server.js, which calls start(), which
+         starts the poll, so they boot the server exactly as much as the
+         in-process files do. A reviewer demonstrated the hole by planting two
+         files: a require-shaped plant with no DRY_RUN was NAMED, a spawn-shaped
+         plant with no DRY_RUN was NOT DETECTED.
+
+         Nothing is exposed today, because all seven happen to set the variable
+         in the child env. That is exactly the point: the guard's stated purpose
+         is "so none can reach the release host", and it was accidentally true
+         rather than enforced. The next file written in this shape passes
+         silently. Verified after widening by planting a spawn-shaped file with
+         no DRY_RUN and confirming it is NAMED. */
+      return /server\.js['"]/.test(src) && /\b(spawn|fork|execFile)\s*\(/.test(src);
   }).map((f) => path.relative(root, f));
   assert.ok(boots.length >= 10,
     `only ${boots.length} files looked like they boot the server; the detector is probably wrong, `

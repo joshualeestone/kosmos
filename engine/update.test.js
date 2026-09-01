@@ -1221,3 +1221,48 @@ test('#1277: a failed MANUAL press does not clear the brake for one more unatten
     + 'That is the sequence where somebody presses Install, it fails, they walk away, and the '
     + 'board takes itself down once more');
 });
+
+test('#1277: a SPAWN error does not consume one of the three automatic chances', async () => {
+  /* This arm exists to give `durable.code !== null` a guard of its own. A
+     reviewer measured that removing either that clause or `durable.endedAt`
+     alone left the suite green, because an in-flight record satisfies both, so
+     the condition could not fail for the clause its comment named.
+
+     A spawn error is a DIFFERENT state from an in-flight attempt: wireChild's
+     'error' handler calls noteAttemptEnd(owner, null, ...), so endedAt IS set
+     and the code is null. The installer never ran, which means `kosmos stop`
+     never ran either, so nothing took the board down and the attempt should not
+     burn one of three chances. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-spawnerr-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  let installs = 0;
+  u.resetCache();
+  u.setInstalledRoot(() => home);
+  u.setAutoPref(() => ({ on: true }));
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+  // a runner whose child fails to spawn, the real EMFILE/EAGAIN shape
+  u.setInstallRunner(() => {
+    installs += 1;
+    return {
+      on(ev, cb) { if (ev === 'error') setImmediate(() => cb(new Error('EAGAIN'))); },
+      unref() {}, stderr: { on() {} },
+    };
+  });
+  try {
+    await u.checkNow();
+    await new Promise((r) => setImmediate(r));
+    const rec = u.lastAttempt() || {};
+    assert.equal(installs, 1, 'precondition: one attempt was made');
+    assert.ok(rec.endedAt, 'precondition: a spawn error ENDS the record, which is what makes it '
+      + 'distinct from an in-flight attempt');
+    assert.equal(rec.code, null, 'precondition: a spawn error carries no exit code');
+    assert.equal(rec.attempts, 1,
+      `a spawn error was counted as attempt ${rec.attempts}. The installer never ran, so nothing `
+      + 'stopped the board, and it must not consume one of three chances');
+  } finally {
+    u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+    u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+  }
+});
