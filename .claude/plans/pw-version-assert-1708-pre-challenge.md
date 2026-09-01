@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: pw-version-assert-1708
-diff_hash: 790f2037f3f37f9caaa6248ea49c5a9bcbd15d88e82d9b13101721ed9635d453
+diff_hash: 43c11c26e23feba0eb1b0505a383f6e8890d977a646f6d94bc31441d74a49b79
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-01T00:18:00Z
