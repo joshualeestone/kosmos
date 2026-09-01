@@ -676,6 +676,125 @@ const H = m.SOMETHING_HOME;"
 if [ "$(run homesuffix)" = "1" ]; then ok "and the _HOME suffix is path-shaped"
 else bad "a _HOME getter capture went silent"; fi
 
+# ---- arm 55: a MULTI-LINE laundering, the fourth axis --------------------
+# `lines.every` -> `lines.some` survived the entire suite. The some/every fix was
+# applied over SOURCES, over occurrences and over arrow scope; the LINES axis had
+# no arm, and arm 8 is single-line so it cannot reach this. engine/forget.js:KINDS
+# is exactly this multi-line member shape.
+fixture launderlines "const store = require('./store');
+const M = {
+  live: () => store.ROOT,
+  file: path.join(store.ROOT, 'x'),
+};"
+if [ "$(run launderlines)" = "1" ]; then ok "a deferred member on ANOTHER LINE does not launder a freeze"
+else bad "multi-line laundering: one lazy line exempted the whole declaration"; fi
+
+# ---- arm 56: resolver CALLS are marks too ---------------------------------
+# Dropping resolver names from `marks` survived. The rule's own comment says a line
+# whose freeze is path.join(base(),'b') was never examined.
+fixture resolvermark "const store = require('./store');
+const base = () => store.ROOT;
+const M = { live: () => store.ROOT, file: path.join(base(),'x') };"
+if [ "$(run resolvermark)" = "1" ]; then ok "a resolver CALL counts as an occurrence to examine"
+else bad "a line whose freeze is a resolver call was not examined"; fi
+
+# ---- arm 57: an arrow whose scope CLOSED, isolated from the isCall rule ----
+# Arm 19 names this rule and passes on the isCall rule instead: its fixture uses
+# .map(...), which the isCall test rejects first. This fixture stores the arrow in
+# an array, so only the depth-drop rejection can catch it.
+fixture scopeclosed "const store = require('./store');
+const F = [(x) => x].concat(path.join(store.ROOT,'y'));"
+if [ "$(run scopeclosed)" = "1" ]; then ok "an arrow whose scope already closed does not defer a later freeze"
+else bad "the depth-drop rejection is not what catches this"; fi
+
+# ---- arm 58: declarations() takes let/var and the exports forms ------------
+# Arm 20 covers the same widening in functionNamesReaching, NOT here. The two look
+# like one arm and are not: narrowing declarations() to `const` survived.
+fixture declletform "const store = require('./store');
+let DIR = path.join(store.ROOT,'x');"
+if [ "$(run declletform)" = "1" ]; then ok "declarations() sees a let-declared freeze"
+else bad "declarations() was narrowed to const and nothing noticed"; fi
+
+fixture declexports "const store = require('./store');
+exports.DIR = path.join(store.ROOT,'x');"
+if [ "$(run declexports)" = "1" ]; then ok "declarations() sees an exports.X freeze"
+else bad "the exports.X form dropped out of declarations()"; fi
+
+# ---- arm 59: the store under a local alias, via a RESOLVER -----------------
+# Arm 22 passes via capturedGetter, which only inspects declaration initializers.
+# The behaviour only storeLocals provides is a RESOLVER reaching an aliased store.
+fixture aliasresolver "const st = require('./store');
+function dirp(){ return path.join(st.ROOT,'x'); }
+const F = path.join(dirp(),'a');"
+if [ "$(run aliasresolver)" = "1" ]; then ok "a resolver reaching an ALIASED store is tracked"
+else bad "storeLocals is not what catches the aliased-store resolver path"; fi
+
+# ---- arm 60: the derived getters, via a RESOLVER --------------------------
+# Arms 9 and 10 also pass via capturedGetter. Removing AVATARS/PROFILES from
+# SOURCES survived, because capturedGetter never inspects resolver bodies.
+fixture derivedresolver "const store = require('./store');
+function dirp(){ return path.join(store.AVATARS,'x'); }
+const F = path.join(dirp(),'a');"
+if [ "$(run derivedresolver)" = "1" ]; then ok "a resolver reaching store.AVATARS is tracked"
+else bad "SOURCES lost a derived getter and only the resolver path noticed"; fi
+
+# ---- arm 61: TWO rounds of transitive closure, not one --------------------
+# A helper that calls a resolver is itself a resolver. One round survived.
+fixture tworounds "const store = require('./store');
+const F = path.join(outer(),'a');
+function outer() {
+  return inner();
+}
+function inner() {
+  return path.join(store.ROOT,'x');
+}"
+if [ "$(run tworounds)" = "1" ]; then ok "a helper that calls a resolver is itself a resolver"
+else bad "only one round of closure ran"; fi
+
+# ---- arm 62: padBefore preserves newlines too -----------------------------
+# Arm 53 exercises padAfter only. A multi-line inline require goes through
+# padBefore, whose replacement is SHORTER than the text it replaces; losing its
+# newline preservation drifts every line number after it.
+# ⚠️ My first version of this arm asserted the wrong thing: it expected the freeze
+# to be reported on the LATER line that USES the captured value. The multi-line
+# require IS the freeze, correctly reported at its own line 2 spanning 3 lines.
+# The arm was wrong, not the tool.
+fixture padbefore "const a = 1;
+const R = require(
+  './store'
+).ROOT;
+const b = 2;
+const FROZEN = path.join(R,'x');"
+pb_line=$(node "$TOOL" "$T/padbefore.js" 2>&1 | grep -o ':[0-9]*  const R ' | grep -o '[0-9]*')
+if [ "$pb_line" = "2" ]; then ok "a multi-line require freeze is reported at its own line 2"
+else bad "padBefore lost a newline and the line drifted" "said $pb_line, want 2"; fi
+
+# ---- arm 63: no SKIP BY NAME in either half of the captured-getter rule ----
+# capturedGetter dropped its `env` name check; capturedMarks kept it, so the two
+# halves disagreed in the silent direction and a deferred sibling laundered a real
+# capture whenever the receiver was called env.
+fixture envmark "const store = require('./store');
+const env = require('./env');
+const M = { live: () => store.ROOT, file: path.join(env.DIR,'x') };"
+if [ "$(run envmark)" = "1" ]; then ok "a receiver named env is not skipped by name"
+else bad "capturedMarks still skips a receiver because of its name"; fi
+
+fixture procenv "const W = process.env.KOSMOS_WORKERS_DIR || path.join('a','b');"
+if [ "$(run procenv)" = "0" ]; then ok "and process.env is still not a captured getter"
+else bad "removing the name check swept in process.env"; fi
+
+# ---- arm 64: a REGEX LITERAL does not desync the line walker ---------------
+# lineInfo was the THIRD quote-walker and the only one not taught about regexes.
+# blankComments and blankStrings copy a regex verbatim because it IS code, so its
+# quote survived into the text lineInfo walks. Live in scope: status.js captured
+# 501 lines where main captured 13.
+fixture regexline "const store = require('./store');
+const RE = /[\\w'-]{2,}\\.\$/;
+const F = path.join(store.ROOT,'x');"
+n_rl=$(node "$TOOL" "$T/regexline.js" 2>&1 | grep -c 'resolves a root')
+if [ "$n_rl" = "1" ]; then ok "an apostrophe inside a regex does not run the capture on"
+else bad "a regex literal desynchronised the line walker" "$n_rl findings, want 1"; fi
+
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,
 # once by renumbering and stranding every "counterweight to arm N" reference. A

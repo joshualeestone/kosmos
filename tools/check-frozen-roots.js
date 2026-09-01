@@ -230,6 +230,38 @@ const lineInfo = (t) => {
       continue;
     }
     if (c === "'" || c === '"' || c === '`') { quote = c; continue; }
+    /* 🛑 THE THIRD QUOTE-WALKER, AND THE ONLY ONE I DID NOT TEACH ABOUT REGEX
+       LITERALS. `blankComments` and `blankStrings` both got this; `lineInfo` did
+       not, and it walks text where regexes survive VERBATIM precisely because those
+       two correctly treat a regex as code. So a quote inside one put this walker
+       into string mode, its `//` strip and its bracket delta desynchronised,
+       `terminated()` never fired, and the capture ran to the cap.
+       LIVE IN THE ENFORCED SCOPE and a REGRESSION AGAINST MAIN, measured:
+         engine/status.js:3421  /[\w'-]{2,}\.$/   captured 501 lines (main: 13)
+         engine/unfurl.js:366   /https?:\/\/[^\s<>"')\]]+/i  captured 27 (main: 5)
+       Raising the cap from 12 to 500 widened the blast radius 40x, so my two
+       changes compounded. Inert today only because those windows carry no source,
+       which is the same sentence this file uses for the URL run-on it decided WAS
+       worth fixing. */
+    if (c === '/' && str[i + 1] !== '/' && str[i + 1] !== '*') {
+      const before = str.slice(0, i).replace(/\s+$/, '');
+      const isRegex = before === ''
+        || /[=(,:[!&|?{};+\-*%~^<>]$/.test(before)
+        || /\b(return|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)$/.test(before);
+      if (isRegex) {
+        let j = i + 1;
+        let klass = false;
+        for (; j < str.length; j += 1) {
+          const d = str[j];
+          if (d === '\\') { j += 1; continue; }
+          if (klass) { if (d === ']') klass = false; continue; }
+          if (d === '[') { klass = true; continue; }
+          if (d === '/') break;
+        }
+        i = j;
+        continue;
+      }
+    }
     if (c === '/' && str[i + 1] === '/') return { code: str.slice(0, i), delta };
     if (c === '{' || c === '(' || c === '[') delta += 1;
     else if (c === '}' || c === ')' || c === ']') delta -= 1;
@@ -705,9 +737,15 @@ function declarations(rawSrc) {
     const terminated = (t) => /;\s*$/.test(lineInfo(t).code);
     /* 🛑 THE CAP WAS 12 LINES AND IT SILENTLY DROPPED REAL FREEZES. Measured
        boundary: a freeze on declaration line 13 was reported, line 14 was SILENT.
-       22 module-level declarations in the enforced scope span more than 13 lines
-       today, up to 201, including `engine/tokendoors.js`'s 127-line SPECS, which is
-       the module this branch's headline finding is about. Planting a freeze there
+       10 module-level declarations in the enforced scope span more than 13 lines
+       (8 in engine/, 2 more in server.js), including `engine/tokendoors.js`'s
+       127-line SPECS, which is the module this branch's headline finding is about.
+       📌 An earlier version of this sentence said 22, up to 201. Re-measured twice
+       through this tool's own `declarations()`: 8 and 10, and the longest are far
+       past 201 rather than short of it. `const server = http.createServer(...)` in
+       server.js runs from 1291 to about 7351, and `engine/roles.js:ROLES` is a
+       large array, so BOTH legitimately hit the 500 cap. The SPECS figure the
+       argument actually rests on reproduces exactly. Planting a freeze there
        past the cap produced NOTHING.
        ⚠️ AND IT DEFEATED MY OWN VERIFICATION METHOD, which is the part worth
        keeping: I checked coverage by planting a freeze at the END of every scanned
@@ -1028,7 +1066,15 @@ function scan(file) {
        this branch, is the one it had not been applied to. */
     const capturedMarks = [];
     for (const m of initCode.matchAll(/\b([A-Za-z_$][\w$]*)\.([A-Z][A-Z0-9_]*)\b/g)) {
-      if (m[1] !== 'env' && requiredLocals.has(m[1]) && PATH_SHAPED.test(m[2])) capturedMarks.push(m[0]);
+      /* No `env` name check here either. Its sibling `capturedGetter` dropped that
+         skip deliberately, and this half kept it, so the two disagreed in the
+         SILENT direction: a deferred sibling laundered a real capture whenever the
+         receiver happened to be called `env`. Measured, with two controls: the env
+         receiver exited 0 while the same file with the receiver renamed exited 1,
+         and the env receiver without a deferred sibling exited 1. `requiredLocals`
+         already excludes process.env, so the guard was redundant when right and
+         wrong when it fired. */
+      if (requiredLocals.has(m[1]) && PATH_SHAPED.test(m[2])) capturedMarks.push(m[0]);
     }
     const deferMarks = SRC_SOURCES.concat(capturedMarks);
     if (!invokedNow(initCode)
