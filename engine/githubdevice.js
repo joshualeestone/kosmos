@@ -42,16 +42,20 @@ const store = require('./store');
 /* 🛑 MODULE SCOPE, AND THE REASON HERE IS NOT devicedoor's REASON.
    This read `(p) => require('./runners').isRunnable(p)`, requiring at CALL time.
 
-   ⚠️ THIS PARAGRAPH WAS A VERBATIM COPY OF devicedoor.js's AND EVERY MECHANISM IN
-   IT WAS FALSE FOR THIS FILE. It cited `ghBin()`, `status()`, `makeDoor` and a
-   Promise executor; NONE OF THEM APPEAR AS CODE IN THIS FILE.
-   ⚠️ STATED AS A PROPERTY, NOT AS INTEGERS, because the integers first written here
-   ("0, 0, 0, with ghPresent at 5 as a control") DO NOT REPRODUCE. A grep now returns
-   ghBin 4, status( 2, makeDoor 1, and every one is a citation inside THIS comment, so
-   writing the sentence falsified its own measurement.
+   ⚠️ THIS PARAGRAPH WAS A VERBATIM COPY OF devicedoor.js's AND EVERY MECHANISM IN IT WAS
+   FALSE FOR THIS FILE. It cited `ghBin()`, `status()`, `makeDoor` and a Promise executor.
+   NONE OF THEM APPEAR AS CODE HERE: every occurrence is a citation inside a comment.
+   
+   🛑 STATED AS A PROPERTY, WITH NO INTEGERS, AND THE REASON IS INSTRUCTIVE. Two earlier
+   drafts published counts. The first ("0, 0, 0, with ghPresent at 5 as a control") did
+   not reproduce. The second was WRONG THE MOMENT IT WAS SAVED, because writing the
+   sentence added one citation to each term, so the comment diagnosed that exact failure
+   and then committed it. A count of a token in the file that contains the count is not a
+   measurement of anything.
+   
    ⚠️ And `ghPresent` was a USELESS CONTROL: its hits are prose and code mixed, so it
-   counted prose exactly as the subject did and could never separate "absent as code"
-   from "absent entirely". A control sharing the subject's blindness is not a control.
+   counted prose exactly as the subject did and could never separate "absent as code" from
+   "absent entirely". A control sharing the subject's blindness is not a control.
    📌 The copied paragraph also cited devicedoor's own measurement, "`github.state()`
    REJECTED", which is a DIFFERENT MODULE'S result and was never evidence about this one.
    (That sentence stood here as a bare orphan clause after its subject was deleted, so it
@@ -72,12 +76,7 @@ const store = require('./store');
    🛑 AND THIS FILE CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK,
    DELIBERATELY. That cycle detector WARNS rather than throws, on the stated ground that
    throwing at import bricks the board because `server.js` requires this module with
-   no try. Both are correct and they are not in tension, because they are about
-   (Named by mechanism, not by distance: an earlier draft said "thirty lines below" and
-   the real distance is now about 180. The parenthetical explaining that had itself been
-   spliced BETWEEN this sentence's subject and its verb, which is worse than the citation
-   it was correcting.)
-   DIFFERENT FAILURES:
+   Both are correct and they are not in tension, because they are about DIFFERENT FAILURES:
      a `runners` LOAD failure  -> a corrupt install. Nothing works anyway, and
                                   `server.js` already requires `./engine/runners` at
                                   top level with no try, so it kills boot on main too.
@@ -85,6 +84,11 @@ const store = require('./store');
      a require CYCLE           -> a code-structure mistake in an otherwise working
                                   install. Bricking the whole board over one door's
                                   verdict is the wrong trade; degrade and stay visible.
+   📌 Named by MECHANISM rather than by distance. An earlier draft said "thirty lines
+   below" and the real distance is now about 180. ⚠️ THE PARENTHETICAL EXPLAINING THAT
+   WAS ITSELF SPLICED BETWEEN THIS SENTENCE'S SUBJECT AND ITS VERB, TWICE, INCLUDING IN
+   THE EDIT THAT CLAIMED TO UNSPLICE IT. Bolting a correction onto a sentence is what
+   produces that; rewriting the sentence is what fixes it.
    ⚠️ Stated because a reader can otherwise apply either rule to the other site and be
    told by this file that they are following it. */
 const { isRunnable } = require('./runners');

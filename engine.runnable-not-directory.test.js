@@ -16,8 +16,8 @@
  * other two places that state it. Fixed as a class.
  *
  * ============================================================================
- * 🛑 MOST FINDINGS ON THIS BRANCH HAVE LANDED IN THIS GUARD RATHER THAN IN
- * ONE IN THOSE FOUR SITES. READ THIS BEFORE ADDING ANYTHING HERE.
+ * 🛑 MOST FINDINGS ON THIS BRANCH HAVE LANDED IN THIS GUARD RATHER THAN IN THE FOUR
+ * REPOINTED SITES. READ THIS BEFORE ADDING ANYTHING HERE.
  * 🛑 THIS LINE USED TO READ "NINE REVIEW PASSES, 44 FINDINGS, EVERY SINGLE ONE IN THIS
  * GUARD AND NOT ONE IN THOSE FOUR SITES", and it was the first thing a maintainer read.
  * BOTH HALVES WERE FALSE. The count was stale, and four later iterations changed the
@@ -29,7 +29,7 @@
  * property, never the tally.
  * ============================================================================
  *
- * The guard reached 630 lines defending a 60-line change, and it was defeated
+ * This guard is many times the size of the change it defends, and it was defeated
  * again on pass 9, five times. The reviewer named the root cause in one
  * sentence and it was correct:
  *
@@ -478,7 +478,6 @@ test('isRunnable ignores the extra arguments .find and .some pass it', () => {
        second-parameter mutation was still in place when I probed ghBin(), so I attributed a
        TWO-MUTATION result to ONE mutation, and wrote "measured" on it. Restore between arms,
        or measure absolutes rather than a delta against a tree you have already changed.
-       the three sit at truthy indexes.
        ⭐ Every candidate-scan arm in this file uses a SINGLE-ELEMENT list, so index 0 was
        the only index the file ever exercised. The arm tested the one case that cannot
        fail, which is this file's own smallest-satisfying-input defect. */
@@ -824,7 +823,14 @@ test('claudeHatchAvailable answers NO for a directory, which is what the stuck s
      Every fix moved one edge and exposed the other. The logic is one exported
      function now, so there is nothing to bound and this arm can simply RUN IT.
 
-     📌 No new test seam and no export of becomeStuck: the resolver already
+     📌 A NEW EXPORTED READ, DELIBERATELY, AND NOT THE SEAM githubdevice.js REMOVED.
+     claudeHatchAvailable is added to module.exports with no production consumer, so calling
+     it "no new test seam" was wrong and is corrected here. The two shapes are NOT
+     equivalent: a SUBSTITUTING seam (setGhCandidatesForTests, removed on this branch) lets a
+     test change what production does. A pure READ cannot. That is why this one is acceptable
+     and that one was not, and the distinction is the whole argument.
+     ⚠️ Said plainly because the old sentence claimed a property the export contradicts, on a
+     branch that removes another export for being test-only. The resolver already
      honours AGENT_WORKFORCE_CLAUDE_BIN, the same override the willInstall arm
      uses. */
   const connect = require('./engine/connect.js');
@@ -911,13 +917,12 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      Anything appended here changes this string.
 
      ⚠️ Mona Lisa's finding is now guarded by the function's own try rather than
-     by a shape assertion here: resolveBin('claude') can throw, and becomeStuck's
+     by a shape assertion here: resolveBin('claude') can throw, and becomeStuck's docblock promises any error answers false.
      ⚠️ BOTH THIS AND THE SIBLING TWENTY LINES UP SAID `claudeBinPath()`. That name was
      corrected on a THIRD arm in this same file, with a note saying it would have sent a
      maintainer to preserve the wrong thing, and the correction was not carried to these
      two. claudeHatchAvailable calls resolveBin('claude') directly.
      ⇒ Fixed one site, left its siblings, INSIDE THE FIX FOR THAT CLASS.
-     docblock promises any error answers false.
      🛑 THIS USED TO SAY THE BEHAVIOURAL CONSEQUENCE IS "untested ... a known gap
      rather than a covered one". THAT IS STALE, AND AN ARM SIXTY LINES ABOVE
      CONTRADICTS IT: `claudeHatchAvailable answers false when the resolver THROWS`
@@ -980,7 +985,8 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      ✅ So this classifies nothing. It keys on `writeState`, a property of the
      CODE rather than of the comment syntax: exactly one line may both mention the
      flag and write state. Measured on this file: 1 line has both, and although 9
-     prose lines mention writeState, and ZERO prose lines have both. Prose stays editable
+     NO PROSE LINE CARRIES BOTH TOKENS. (Tally deleted: an earlier draft said "9 prose
+     lines mention writeState" and the file's own classifier returns 7. The 1 and the
      in practice, which the unfiltered-set version cost.
 
      ⚠️ "FULLY" WAS OVERSTATED AND IS CORRECTED HERE. The token-pair check is
@@ -1090,7 +1096,11 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      📌 SECOND RESIDUAL, DOCUMENTED AND DELIBERATELY NOT GUARDED: ALIASING,
      AND IT NEEDS ALL THREE PROPERTIES AT ONCE. Measured: an aliased call that is
      ALSO multi-line AND comment-prefixed passes every check here, with all three
-     counters unchanged (token pair 1, filtered set 2, writeState( 20). Any two of
+     counter here unchanged. Any two of
+     ⚠️ NO FIGURES, DELIBERATELY. An earlier draft cited three, and TWO OF THEM DESCRIBED THE
+     FILE-WIDE DESIGN THIS BRANCH SUPERSEDED forty lines above, while the third matched
+     nothing at either scope. A maintainer cannot re-run an experiment against numbers that
+     do not exist, and this paragraph is the entire basis for ACCEPTING the residual.
      the three is caught: the single-line aliased form reds on the exact-text pin,
      and the un-aliased multi-line comment-prefixed form reds on the call count.
 

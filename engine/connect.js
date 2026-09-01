@@ -1473,42 +1473,15 @@ async function installClaudeCode(hooks) {
    * earlier version of this comment said "exactly as the old bare HOME
    * constant did", which described code that was not there.
    */
-  /* 🛑 DEFENCE IN DEPTH, NOT A REACHABLE FIX. THE PREVIOUS VERSION OF THIS COMMENT
-     CLAIMED A ~281MB LEAK AND THAT CLAIM IS RETRACTED. Kept in full because the wrong
-     reasoning is more useful than the right conclusion here.
-  
-     WHAT I CLAIMED: `homeDir()` was called inline in the env object at try-depth zero,
-     so a throw escaped before the unlink below, stranding the verified download.
-  
-     WHY IT IS FALSE, MEASURED ON EVERY ARM: `store.ROOT` is
-         dataRootFor(process.platform, os.homedir(), process.env)
-     with `os.homedir()` as an EAGER ARGUMENT, and `download()` needs `store.ROOT`. So if
-     os.homedir() throws, store.ROOT THROWS AND THE DOWNLOAD DIES FIRST. There is never a
-     verified file to strand. Neither AGENT_WORKFORCE_DATA nor AGENT_WORKFORCE_HOME
-     rescues it. ⚠️ AND THE REASON FIRST GIVEN HERE WAS FALSE: it said "because
-     neither is what store.ROOT reads". store.ROOT DOES read AGENT_WORKFORCE_DATA, and
-     returns on it before touching home. The real reason is the eager argument named two
-     lines above: os.homedir() is evaluated before dataRootFor can consult anything.
-     📌 The sibling copy of this retraction in connect.install-997.test.js states it
-     correctly and carries no false mechanism. One copy right, one wrong, which is the
-     two-copies defect inside the retraction OF a two-copies defect.
-     store.ROOT resolves normally.
-  
-     ⭐ AND THE ARM I WROTE FOR IT PROVED NOTHING, WHICH IS THE PART WORTH KEEPING. It
-     stubs `runners.homeDir` ON THE MODULE OBJECT, faulting only this file's explicit
-     call while `store.ROOT` keeps calling `os.homedir()` directly. That drives
-     "connect's home lookup broken while the store's is healthy", a state with NO
-     PRODUCTION CAUSE. IT REDDENED ON PERTURBATION AND I READ THAT AS PROOF.
-     ⇒ A mutation reddening an arm proves the arm SEES the mutation. It says nothing
-     about whether the mutated state can occur.
-  
-     ⚠️ It also UN-RETRACTED CORRECTLY-RETRACTED TEXT. I withdrew "the downloaded file
-     was never unlinked" as false, then un-withdrew it on this reasoning. THE ORIGINAL
-     RETRACTION WAS RIGHT, and I have now been wrong in both directions on one sentence.
-  
-     ✅ THE CODE STAYS. It is correct, it costs nothing, and it stops depending on
-     os.homedir() being reachable at a point where the function has already committed to
-     an install. It is NOT reachable today, and that is its honest status. */
+  /* 🛑 DEFENCE IN DEPTH, NOT A REACHABLE FIX, AND AN EARLIER VERSION OF THIS COMMENT
+     CLAIMED OTHERWISE. It said a throw here stranded a verified ~281MB download. It
+     cannot: `store.ROOT` evaluates `os.homedir()` as an eager argument and `download()`
+     needs `store.ROOT`, so the download dies first and there is never a file to strand.
+     ⇒ Resolving the home here is correct and costs nothing, and it is NOT reachable
+     today. That is its honest status.
+     📌 The full retraction, both wrong reasons I gave, and why the arm for it proved
+     nothing, are in .claude/plans/runnable-dir-1592-20260830.md. Thirty lines of that
+     history lived here and became the thing every reviewer flagged. */
   let installHome;
   try { installHome = require('./runners').homeDir(); }
   catch {
