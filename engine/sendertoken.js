@@ -117,10 +117,207 @@ function readTokens(sessionName) {
   return [];
 }
 
+/* Start time and a counter, so a temp name is never reused across a crash. Same
+   scheme and same reason as `engine/trust.js`'s `tempPath`, which is not exported. */
+const STARTED = Date.now();
+let SEQ = 0;
+
+/* 🛑 EXTRACTED SO IT CAN BE TESTED, and that is the whole reason it is a function.
+   `O_NOFOLLOW` is UNDEFINED on win32, and `x | undefined` is `x`, so the flag would
+   silently vanish there: no error, no signal, on the one platform this module serves.
+   Where the constant is missing we check by hand instead of pretending it was applied.
+
+   ⚠️ IT HAD ZERO COVERAGE UNTIL IT WAS A SEAM. `fs.constants.O_NOFOLLOW` is
+   non-configurable, so no test can delete it from the environment; the suite stayed
+   fully green with this entire branch removed. A row in a matrix that says "with the
+   constant forced undefined" describes a MANUAL mutation, not something the suite does,
+   and crediting it was overclaiming.
+
+   📌 TOCTOU is accepted: this checks, then the caller opens. The window is narrower than
+   having no check at all, and on win32 creating a symlink needs privilege. */
+function refuseSymlinkTarget(file, nofollow) {
+  if (nofollow !== undefined) return; // the kernel enforces it via O_NOFOLLOW
+  let st = null;
+  try { st = fs.lstatSync(file); } catch { return; } // absent: nothing to follow
+  if (st.isSymbolicLink()) {
+    const e = new Error(`refusing to write a token through a symlink at ${file}`);
+    e.code = 'ELOOP';
+    throw e;
+  }
+}
+
 function writeTokens(sessionName, tokens) {
   const file = fileFor(sessionName);
   fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(file, JSON.stringify({ tokens }), { mode: FILE_MODE });
+  /* 🛑 THE DIRECTORY IS TIGHTENED BEFORE ANYTHING IS WRITTEN. The `mode:` option
+     above applies ON CREATE ONLY: on a directory that already exists it is SILENTLY
+     IGNORED, which is half the bug. Chmodding afterwards would leave the fresh
+     secret sitting in a world-readable directory for the duration of the write.
+     Same shape and rationale as `engine/remote.js`, which already does
+     mkdir-then-chmod on its state dir. */
+  try { fs.chmodSync(DIR, 0o700); } catch { /* best effort, see the note below */ }
+
+  /* 🛑 TEMP, CHMOD, RENAME. NOT write-then-chmod, and the difference is the whole
+     point of this card one layer down.
+
+     `writeFileSync(target, ..., { mode })` on a PRE-EXISTING loose file ignores the
+     mode, so the secret lands on disk at the OLD permissions and stays there until a
+     later chmod. Measured on exactly the path this fix exists for:
+
+       planted 0644, then writeFileSync(..., { mode: 0600 })
+         -> 644 IMMEDIATELY AFTER THE WRITE, secret bytes readable
+       control: a fresh path -> 600, no window
+       (umask 022, so the umask is not what is masking it)
+
+     ⚠️ AN EARLIER VERSION OF THIS FUNCTION HOISTED THE DIRECTORY CHMOD FOR EXACTLY
+     THIS REASON AND LEFT THE FILE ONE LINE BELOW IT UNFIXED, on the more sensitive
+     object. The argument was made and not applied.
+
+     ✅ Writing a fresh temp and renaming means the target is NEVER briefly loose and
+     never partially written: `rename` is atomic. `flag: 'wx'` fails rather than
+     following or reusing anything already at the temp path, which also refuses a
+     planted symlink there. Same pattern as `engine/trust.js` and `engine/create.js`.
+     📌 `chmodSync` ON THE TEMP IS FOR THE OPPOSITE REASON I FIRST WROTE. An earlier
+     version of this comment said "a loose umask can widen a create-time mode". THAT IS
+     FALSE: umask only ever CLEARS bits, so after a `wx` create the mode is at most
+     FILE_MODE and this chmod can only ever widen it back. Measured, four umasks with
+     `flag:'wx', mode:0600`: 0000 -> 600, 0022 -> 600, 0077 -> 600, and 0600 -> 0.
+     ⇒ The real job is that LAST case: a restrictive umask can clear the OWNER bits
+     too, leaving a token the agent cannot read back. This restores them.
+     ⚠️ AN EARLIER VERSION OF THIS PARAGRAPH SAID `trust.js` GIVES A DIFFERENT REASON
+     THAT DOES NOT TRANSFER. BOTH HALVES WERE FALSE, and it is the second inverted
+     citation in this file. `trust.js` says "`mode` on the create is MASKED by the
+     umask", which is the same clearing direction, and its chmod sits directly after a
+     `flag: 'wx'` create, so it IS the same guaranteed-fresh case. The precedent agrees
+     with this line; it does not contradict it. */
+  /* 🛑 THE CLOCK AND A COUNTER ARE IN THE NAME, NOT JUST THE PID, and this file
+     originally got that wrong while citing `trust.js` as its pattern. `trust.js`
+     documents the exact failure at its own `tempPath`: with pid alone, a process that
+     died between create and rename leaves the temp behind, and the next process to
+     draw that pid hits `wx` -> EEXIST FOREVER. Measured by a reviewer: one planted
+     stale temp sent every later mint for that agent down the fallback, in place,
+     permanently reopening the window this card exists to close, WITH NO SIGNAL.
+     🔑 With the start time and a counter, a leftover is inert: nothing ever asks for
+     that name again, so `wx` only fails for a PLANTED file, and a planted file is one
+     we must not delete. */
+  const tmp = `${file}.kosmos-${process.pid}-${STARTED}-${++SEQ}.tmp`;
+  let created = false;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify({ tokens }), { flag: 'wx', mode: FILE_MODE });
+    created = true;
+    /* 🛑 BEST EFFORT, LIKE THE OTHER TWO CHMODS IN THIS FUNCTION. This one was fatal to
+       the atomic path and nothing explained why. Measured with `chmodSync` and
+       `fchmodSync` stubbed to EPERM (NFS foreign owner, some FUSE/SMB mounts):
+
+           mint.ok=true  because=(none)   file stayed 0644, dir 0755, NO signal anywhere
+
+       ⇒ A chmod failure discarded the atomic, symlink-safe, no-window path and produced
+       THIS CARD'S EXACT DEFECT. And it bought nothing: the temp is created `flag:'wx',
+       mode:FILE_MODE`, so it is already at most 0600 and this chmod only ever RESTORES
+       owner bits a restrictive umask cleared. Failing it is strictly worse than skipping
+       it. */
+    try { fs.chmodSync(tmp, FILE_MODE); } catch { /* best effort, see above */ }
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    /* ⚠️ ONLY REMOVE A TEMP WE CREATED. The `wx` above means a pre-existing temp
+       makes the write throw, and unlinking then would delete somebody else's file. */
+    /* `created` is the FACT; the old `err.code !== 'EEXIST'` was a PROXY for it. Only
+       the `wx` write can yield EEXIST today, but an EEXIST from the chmod or the rename
+       would have leaked a temp we did create. */
+    if (created) { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+
+    /* 🛑 RETRY BEFORE ABANDONING THE ATOMIC PATH, BECAUSE THE FALLBACK IS DESTRUCTIVE.
+       Measured on this branch: a fallback whose write fails leaves the token file EMPTY,
+       so every previously-minted token for that agent stops resolving.
+
+           BEFORE  live=3  bytes=435  resolves=true
+           AFTER   live=0  bytes=0    resolves=false
+
+       ⇒ Falling back on the first stumble trades a total loss for a retry that costs
+       nothing. `++SEQ` gives a fresh name every attempt, so the one realistic trigger
+       left after the unique-name fix, an EEXIST from a PLANTED temp, cannot recur on the
+       next name. This makes the fallback essentially unreachable rather than merely
+       rare. */
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const retryTmp = `${file}.kosmos-${process.pid}-${STARTED}-${++SEQ}.tmp`;
+      let retryCreated = false;
+      try {
+        fs.writeFileSync(retryTmp, JSON.stringify({ tokens }), { flag: 'wx', mode: FILE_MODE });
+        retryCreated = true;
+        try { fs.chmodSync(retryTmp, FILE_MODE); } catch { /* best effort */ }
+        fs.renameSync(retryTmp, file);
+        return;
+      } catch {
+        if (retryCreated) { try { fs.unlinkSync(retryTmp); } catch { /* nothing to clean */ } }
+      }
+    }
+    /* Fall back to the direct write rather than failing a mint: an agent that cannot
+       mint cannot speak at all. The chmod below is what tightens a pre-existing loose
+       file on this path, and if IT throws the token stays loose WITH NO SIGNAL. */
+    /* ⚠️ O_NOFOLLOW, BECAUSE THIS PATH DOES NOT GET RENAME'S SYMLINK SAFETY.
+       `renameSync` above REPLACES whatever is at the token path, so a symlink there
+       is destroyed rather than followed. A plain `writeFileSync` here would follow
+       it: measured by a reviewer, the minted token was written THROUGH the link into
+       another file, which was then chmodded to 0600. O_NOFOLLOW makes that throw
+       instead. */
+    /* 🛑 O_NOFOLLOW IS UNDEFINED ON WINDOWS, AND `x | undefined` IS `x`, SO THE FLAG
+       WOULD SILENTLY VANISH ON THE ONE PLATFORM THIS FILE EXISTS FOR. Measured:
+       `O_WRONLY | undefined === O_WRONLY` is true, no error, no signal. So the
+       constant is read explicitly and, where it does not exist, the check is done by
+       hand with `lstatSync` instead of pretending it was applied. */
+    const NOFOLLOW = fs.constants.O_NOFOLLOW;
+    /* 🛑 `undefined` IS DELIBERATE AND IT IS THE WHOLE POINT. Passing NOFOLLOW here makes
+       this call RETURN IMMEDIATELY on macOS, because the kernel enforces the flag at open
+       time instead. That is why deleting this entire line left the suite GREEN: on the one
+       platform we test, the call did nothing, so no assertion about behaviour could see it.
+       Measured on the shipped code, fallback forced with a symlink planted at the token
+       path:
+
+           because = "ELOOP: too many symbolic links encountered, open '...'"   <- THE KERNEL
+
+       Nothing in that refusal came from here. On win32 there is no kernel refusal, because
+       `O_NOFOLLOW` is undefined there, and this line was the ENTIRE symlink defence.
+       ⇒ Forcing the hand check on every platform costs one `lstat` on an already-failing
+       path and makes the macOS suite exercise the code win32 actually depends on, rather
+       than simulating win32 through a test-only seam. `O_NOFOLLOW` is still passed to
+       `openSync` below: the kernel check is atomic and this one is not, so they are belt
+       and braces rather than alternatives. */
+    refuseSymlinkTarget(file, undefined);
+    /* 🛑 CAPTURE WHAT WE ARE ABOUT TO TRUNCATE. `O_TRUNC` empties the token file at OPEN,
+       so a write that then fails (ENOSPC is the realistic one, and it is also what sent
+       us down this path) leaves NOTHING. Measured: live 3 -> 0, and a token minted
+       minutes earlier stops resolving. `live()` is the duplicate-run detector this whole
+       module exists for, so it reports zero at exactly the moment it matters. */
+    let prior = null;
+    try { prior = fs.readFileSync(file); } catch { /* absent: nothing to preserve */ }
+    let fd = null;
+    let wrote = false;
+    try {
+      fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT
+        | fs.constants.O_TRUNC | (NOFOLLOW || 0), FILE_MODE);
+      /* 🛑 TIGHTEN BEFORE THE BYTES LAND, NOT AFTER. This is the same window this
+         card has now closed three times (the directory, the main path, and here):
+         measured on a planted 0644 file with the rename forced to fail, the token
+         bytes were written while the file was still 0644. `fchmodSync` on the SAME
+         fd has no TOCTOU, so there is no reason to do it second. */
+      try { fs.fchmodSync(fd, FILE_MODE); } catch { /* best effort */ }
+      fs.writeFileSync(fd, JSON.stringify({ tokens }));
+      wrote = true;
+    } finally {
+      if (fd !== null) { try { fs.closeSync(fd); } catch { /* already closed */ } }
+      /* Close FIRST, then restore: the descriptor above is the one that truncated the
+         file, and writing through a second one while it is open is needless. Best effort
+         by design, because the failure that brought us here may also defeat the restore,
+         and a mint that cannot report its own failure is worse than one that cannot
+         restore. The original error still propagates. */
+      if (!wrote && prior !== null) {
+        try {
+          fs.writeFileSync(file, prior);
+          try { fs.chmodSync(file, FILE_MODE); } catch { /* best effort */ }
+        } catch { /* the restore failed too; the caller still gets the real error */ }
+      }
+    }
+  }
 }
 
 /**
@@ -301,4 +498,5 @@ function resolveName(token) {
   return no;
 }
 
-module.exports = { mint, revoke, retire, live, keys, resolve, resolveName, DIR, MAX_LIVE };
+module.exports = {
+  refuseSymlinkTarget, mint, revoke, retire, live, keys, resolve, resolveName, DIR, MAX_LIVE };
