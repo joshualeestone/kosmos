@@ -62,6 +62,9 @@ const path = require('node:path');
 /* The three VALUE getters store.js defines, in ONE place. This literal used to be
    written out three times in this file, which is the exact divergence the SOURCES
    note above describes, reintroduced within one file. */
+/* A path-shaped exported name. Used by two rules, so it lives at module scope
+   rather than being written twice. */
+const PATH_SHAPED = /^(?:[A-Z][A-Z0-9_]*_(?:DIR|FILE|PATH)|FILE|DIR|LOG|SEEN|FLAG|ROOT|AVATARS|PROFILES)$/;
 const GETTER_VALUE_NAMES = ['ROOT', 'AVATARS', 'PROFILES'];
 const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
   'store.PROFILES', 'process.env.AGENT_WORKFORCE_DATA'];
@@ -161,8 +164,28 @@ const lineInfo = (t) => {
    called deferred and `everyRootIsDeferred` never got to apply its "an arrow
    passed to a call runs NOW" rule. Same defect as that one, a layer earlier.
    The tell is a call applied to the closing paren of a function expression. */
-const invokedNow = (init) => /\)\s*\(\s*[^)]*\)\s*;?\s*$/.test(String(init))
-  && /=>|function\b/.test(String(init));
+const invokedNow = (init) => {
+  /* An initializer is INVOKED NOW when a PARENTHESISED function expression is
+     applied. The discriminator is structural, not a trailing-text tell: it starts
+     with `(`, and the character after that paren's MATCH is another `(`.
+     ⚠️ The trailing `)(` tell that stood here first fired on correctly deferred
+     code: `const F = () => wrap(a)(store.ROOT);` is a stored arrow that merely ends
+     in a curried call. And the obvious narrowing ("it begins as an arrow") is wrong
+     the other way, because `(() =>` begins as an arrow too. Measured, seven shapes:
+     both IIFE forms true; stored arrow, stored arrow with args, stored function,
+     curried-in-stored-arrow and a plain join all false. */
+  const t = String(init).trim();
+  if (!/^[(!+~-]/.test(t)) return false;
+  const open = t.indexOf('(');
+  if (open < 0) return false;
+  let depth = 0;
+  let i = open;
+  for (; i < t.length; i += 1) {
+    if (t[i] === '(') depth += 1;
+    else if (t[i] === ')') { depth -= 1; if (depth === 0) break; }
+  }
+  return t.slice(i + 1).trimStart().startsWith('(') && /=>|function\b/.test(t.slice(open, i));
+};
 /* 🛑 COMMENT-BLANKED SOURCE FOR THE SCANS THAT MATCH PROSE. The destructure scan
    had no comment awareness and the proof was this file: `node check-frozen-roots.js
    tools` exited 1, and three of its findings were SENTENCES inside these very block
@@ -193,7 +216,6 @@ const blankComments = (src) => {
   }
   return out;
 };
-
 /* Blank the CONTENTS of string literals, keeping the quotes and the length, so a
    substring test sees code only. Pairs with blankComments above. */
 const blankStrings = (src) => {
@@ -221,7 +243,10 @@ const blankStrings = (src) => {
           if (d === '{') depth += 1;
           else if (d === '}') { depth -= 1; if (depth === 0) break; }
         }
-        out += src.slice(i, j + 1);
+        /* Recursed, so a string INSIDE the hole is blanked like any other. Without
+           it the same expression was judged two ways: `label('store.ROOT')` was
+           correctly ignored on its own and reported inside a template. */
+        out += '${' + blankStrings(src.slice(i + 2, j)) + '}';
         i = j;
         continue;
       }
@@ -233,6 +258,25 @@ const blankStrings = (src) => {
   }
   return out;
 };
+/* 🛑 ONE PIPELINE, USED EVERYWHERE, BECAUSE A FAMILY WITH MEMBERS HAS AN ODD ONE.
+   Three cross-cutting treatments were each applied to SOME of the scans:
+   comment-blanking to four of six, string-blanking to two of six, and the access
+   normalisation to one of six. Every gap was invisible to tests, because the defect
+   is a LINE THAT IS NOT THERE, and each was found by reading. Measured, with passing
+   controls: a resolver written `path.join(store['ROOT'],'x')` or
+   `path.join(require('./store').ROOT)` left every downstream freeze SILENT, while
+   prose in a string and a code SAMPLE in a template both FIRED on correct code.
+   The fix is not another member: it is to collapse the surface so there is one. */
+const normaliseAccess = (src) => String(src)
+  /* 🛑 THE MODULE PATH IS INSIDE A STRING and string-blanking runs after this, so
+     `require('./store')` is rewritten to something an identifier-shaped regex can
+     still see once the quotes are emptied. Without this, extending string-blanking
+     to the scans silently broke the destructure arms. */
+  .replace(/require\(\s*['"][^'"]*store[^'"]*['"]\s*\)/g, 'require(store)')
+  .replace(/require\(store\)\s*\./g, 'store.')
+  .replace(/\[\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*\]/g, '.$1')
+  .replace(/\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]/g, '.$1');
+const scanText = (src) => blankStrings(blankComments(normaliseAccess(src)));
 
 const isLazy = (init) => !invokedNow(init)
   && (/^\s*(\(\s*\)|\([^)]*\))\s*=>/.test(init) || /^\s*function\b/.test(init));
@@ -359,7 +403,7 @@ const everyRootIsDeferred = (init, resolverNames, sources) => {
    Commented-out code is not code. Blanking preserves every newline, so the line
    numbers this returns stay true. */
 function declarations(rawSrc) {
-  const src = blankComments(rawSrc);
+  const src = scanText(rawSrc);
   /* Multi-line aware, and LINEAR rather than a regex.
      🛑 The first version of this used /^const NAME =((?:[^;]|\n)*?);\s*$/m and
      HUNG for over two minutes on create.js. `[^;]` already matches a newline,
@@ -439,9 +483,10 @@ function declarations(rawSrc) {
 }
 
 function functionNamesReaching(rawSrc, sources) {
-  /* Comment-blanked, for the same reason as `declarations` above: a resolver that
-     exists only inside a comment is not a resolver. */
-  const src = blankComments(rawSrc);
+  /* The same pipeline as every other scan: a resolver that exists only inside a
+     comment or a string is not a resolver, and one written with a bracket access or
+     an inline require is still one. */
+  const src = scanText(rawSrc);
   /* One pass of transitive closure: a function whose body mentions a raw source
      is a resolver, and so is one that calls a resolver. Two rounds is enough
      for the shapes here and the tool says so rather than pretending to be a
@@ -528,7 +573,7 @@ function scan(file) {
        - unanchored, it matched a destructure INSIDE A FUNCTION BODY, which is lazy
          by construction and is the per-call shape this card promotes.
        - unblanked, it matched the shape written in PROSE in a comment. */
-  const scanSrc = blankComments(src);
+  const scanSrc = scanText(src);
   const aliases = [];
   for (const m of scanSrc.matchAll(/^(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:store|require\([^)]*store[^)]*\))/gm)) {
     for (const part of m[1].split(',')) {
@@ -547,7 +592,25 @@ function scan(file) {
   }
   const GETTER_NAMES = GETTER_VALUE_NAMES;
   const localSources = storeLocals.flatMap((n) => GETTER_NAMES.map((g) => `${n}.${g}`));
-  const SRC_SOURCES = SOURCES.concat(aliases, localSources);
+  /* 🛑 ANY REQUIRED MODULE, NOT ONLY `store`. The destructure-is-the-freeze rule was
+     hardcoded to store while `capturedGetter` beside it is module-general, so the two
+     rules disagreed about which modules they cover, and this card WIDENS that gap by
+     minting ~23 new path getters. Measured, with a passing control on the store form:
+       const { FILE } = require('./limits'); const P = path.join(FILE,'x');   -> exited 0
+       const { LOG } = require('./messages'); const P = () => path.join(LOG,'x'); -> exited 0
+     Destructuring a getter captures its VALUE at require time exactly as `store.ROOT`
+     does, and `const { NO_READING } = require('./status')` is live house style here
+     (76 files), so this is reachable the first time somebody destructures one of the
+     new getters. Filtered by PATH_SHAPED so a destructured FUNCTION is not swept in. */
+  const foreignGetters = [];
+  for (const m of scanSrc.matchAll(/^(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\(([^)]*)\)/gm)) {
+    if (/\bstore\b/.test(m[2])) continue; // the store form is handled above, with its own names
+    for (const part of m[1].split(',')) {
+      const name = part.split(':').pop().trim();
+      if (PATH_SHAPED.test(name)) foreignGetters.push(name);
+    }
+  }
+  const SRC_SOURCES = SOURCES.concat(aliases, localSources, foreignGetters);
   /* 🛑 THE DESTRUCTURING IS ITSELF THE FREEZE, AND MARKING ITS USES WAS NOT
      ENOUGH. `const { ROOT } = store` captures the getter's VALUE at require
      time, so a later `const d = () => path.join(ROOT, 'x')` looks lazy and is
@@ -592,7 +655,6 @@ function scan(file) {
      condition is why `DRY_RUN` and `HOME_FOR_TEST` (real exported getters in this
      tree) are not swept in. Verified to add zero findings across every non-test
      .js in the repo before it shipped. */
-  const PATH_SHAPED = /^(?:[A-Z][A-Z0-9_]*_(?:DIR|FILE|PATH)|FILE|DIR|LOG|SEEN|FLAG|ROOT|AVATARS|PROFILES)$/;
   /* 🛑 ANYWHERE IN THE INITIALIZER, NOT ONLY AS A BARE ACCESS. The first version
      of this anchored the whole initializer, so the two most natural ways to consume
      one of these getters were silent. Measured, with a passing control:
@@ -644,14 +706,7 @@ function scan(file) {
        initializer that runs at require time can defer anything, so the question is
        settled before either exemption is asked. Measured, both arms: the IIFE forms
        exit 1, the stored arrow and stored function forms exit 0. */
-    /* 🛑 NORMALISE BEFORE BLANKING, and the order is the whole fix. Both rewrites
-       key on text that lives INSIDE string literals (`require('./store')` and
-       `store['ROOT']`), so running them after blankStrings matched nothing: the
-       first version of this did exactly that and both arms stayed silent. */
-    const initCode = blankStrings(blankComments(d.init)
-      .replace(/require\([^)]*store[^)]*\)\s*\./g, 'store.')
-      .replace(/\[\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*\]/g, '.$1')
-      .replace(/\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]/g, '.$1'));
+    const initCode = scanText(d.init);
     /* 🛑 THE SAME BLANKED TEXT AS EVERY OTHER SOURCE TEST. This exemption was handed
        the RAW initializer while `direct`, `viaHelper` and `captured` below got the
        blanked one, and it failed in BOTH directions. Measured, each against a

@@ -10,7 +10,10 @@ set -u
 FAILS=0
 PASS=0
 ok()  { PASS=$((PASS+1)); echo "PASS  $1"; }
-bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
+# ⚠️ TWO arguments. Five call sites pass a diagnostic as $2 and this printed only
+# $1, so the detail (`got [x] want [y]`, `n findings, expected 1`) was discarded
+# exactly when somebody needed it to act.
+bad() { echo "FAIL  $1"; [ -n "${2:-}" ] && echo "      $2"; FAILS=$((FAILS+1)); }
 
 TOOL="$(cd "$(dirname "$0")/.." && pwd)/tools/check-frozen-roots.js"
 [ -r "$TOOL" ] || { echo "FAIL  $TOOL not found"; exit 1; }
@@ -388,6 +391,61 @@ const dirp = () => path.join(store.ROOT, 'x');
 const FILE = path.join(dirp(), 'a');"
 if [ "$(run resolverincomment)" = "0" ]; then ok "a resolver defined only in a comment is not a resolver"
 else bad "a commented-out resolver made a later line report via-a-helper"; fi
+
+# ---- arm 38: the normalisation reaches RESOLVERS, not just declarations ----
+# The two access rewrites were applied to the per-declaration text only, so a
+# resolver written in either spelling was not recognised and every downstream
+# freeze through it went silent. Both directions of one treatment, one level down.
+fixture resolverbracket "const store = require('./store');
+function dirp(){ return path.join(store['ROOT'],'x'); }
+const FILE = path.join(dirp(),'a');"
+if [ "$(run resolverbracket)" = "1" ]; then ok "a resolver using bracket access is still a resolver"
+else bad "bracket-access resolver went unrecognised" "downstream freeze silent"; fi
+
+fixture resolverinlinereq "function dirp(){ return path.join(require('./store').ROOT,'x'); }
+const FILE = path.join(dirp(),'a');"
+if [ "$(run resolverinlinereq)" = "1" ]; then ok "a resolver using an inline require is still a resolver"
+else bad "inline-require resolver went unrecognised" "downstream freeze silent"; fi
+
+# ---- arm 39: prose and code samples are not code, in EVERY scan -------------
+# String-blanking reached the declaration initializer and not the other four
+# scans, so a source name in prose read as a resolver call and a code sample in a
+# template read as a real destructure.
+fixture proseinstring "function helpText(){ return 'set store.ROOT to change it'; }
+const MSG = helpText() + '!';"
+if [ "$(run proseinstring)" = "0" ]; then ok "a source name in prose is not a resolver"
+else bad "fired on prose inside a string"; fi
+
+fixture sampleintemplate "const store = require('./store');
+const SNIPPET = \`
+const { ROOT } = store;
+\`;
+const F = () => path.join(store.ROOT,'x');"
+if [ "$(run sampleintemplate)" = "0" ]; then ok "a code sample in a template is not a destructure"
+else bad "fired on a code sample inside a template literal"; fi
+
+# ---- arm 40: a destructured getter from ANY module is the same freeze -------
+# destructure-is-the-freeze was hardcoded to store while capturedGetter is
+# module-general, and this card mints ~23 new getters. Destructured require is
+# live house style here.
+fixture foreigndestr "const { FILE } = require('./limits');
+const P = path.join(FILE,'x');"
+if [ "$(run foreigndestr)" = "1" ]; then ok "a destructured getter from another module is flagged"
+else bad "a destructured path getter went silent"; fi
+
+fixture foreigndestrfn "const { safeKey } = require('./store');
+const K = safeKey('x');"
+if [ "$(run foreigndestrfn)" = "0" ]; then ok "and a destructured FUNCTION is not swept in"
+else bad "a destructured function was treated as a path getter"; fi
+
+# ---- arm 41: a curried call in a STORED arrow is still deferred -------------
+# The counterweight to the IIFE arm. Its first tell was trailing `)(`, which fires
+# on correctly deferred code; the discriminator is structural now.
+fixture curried "const store = require('./store');
+function wrap(a){ return function(b){ return b; }; }
+const F = () => wrap(1)(store.ROOT);"
+if [ "$(run curried)" = "0" ]; then ok "a curried call inside a stored arrow stays deferred"
+else bad "fired on a correctly deferred curried call"; fi
 
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,
