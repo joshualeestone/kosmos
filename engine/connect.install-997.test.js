@@ -532,6 +532,36 @@ test('CONTROL: maySweepDownloads FALSE leaves that partial in place', async (t) 
   assert.ok(partialsIn().length > 0, 'a false maySweepDownloads must suppress the sweep');
 });
 
+
+test('a home directory we cannot resolve fails cleanly and strands no download', async (t) => {
+  /* 🛑 THIS PATH LEFT THE VERIFIED ~281MB DOWNLOAD ON DISK AND SILENTLY KILLED A BRANCH.
+     `homeDir()` was called INLINE in the install env object at TRY-DEPTH ZERO, so a throw
+     escaped `installClaudeCode` before the unlink a few lines below it. Two harms in one
+     line, and the second is the reason the post-install `expectedAt === null` branch
+     could never fire: the ONLY way resolveBin('claude') throws with CLAUDE_BIN unset is
+     homeDir() throwing, which aborted here first.
+     ⚠️ It also un-retracts a withdrawn sentence. A comment had withdrawn "and the
+     downloaded file never unlinked" as FALSE; it is false for the catch path that was
+     measured and TRUE for this one, which was not. An over-broad retraction is a wrong
+     claim in the reassuring direction. */
+  const runners = require('./runners.js');
+  const realHome = runners.homeDir;
+  runners.homeDir = () => { throw new Error('no home directory'); };
+  try {
+    const res = await withRelease(t, {});
+    assert.equal(res.ok, false, 'an unresolvable home must fail, not throw out of installClaudeCode');
+    assert.notEqual(res.cancelled, true, 'an unresolvable home is not a cancellation');
+    assert.match(String(res.message || '') + ' ' + String(res.detail || res.because || ''),
+      /home directory/i,
+      'the failure does not name the condition that caused it');
+    assert.deepEqual(downloadsMatching(/^claude-/), [],
+      'an unresolvable home stranded the downloaded binary. That is ~281MB per attempt, '
+      + 'and it is the case a previous retraction wrongly declared impossible.');
+  } finally {
+    runners.homeDir = realHome;
+  }
+});
+
 test('the cancel check runs BEFORE the wantsProgress gate, not behind it', async (t) => {
   /**
    * ⚠️ A LOAD-BEARING ORDERING WITH NO GUARD BEHIND IT UNTIL NOW. Measured:

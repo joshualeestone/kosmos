@@ -162,6 +162,21 @@ const REPO = __dirname;
  *
  * ⭐ Disclosing one gap is worse than disclosing none: a reader takes the single
  * caveat as the complete list.
+ *
+ * 🛑 SO HERE IS THE GAP THE LIST ABOVE WAS MISSING, AND IT IS THE ORIGIN OF THE CLASS:
+ * THIS SWEEP READS JAVASCRIPT ONLY, AND THE SAME DECISION IS MADE IN SHIPPED SHELL.
+ * `[ -x "$p" ]` succeeds on a directory exactly as `accessSync(p, X_OK)` does, and
+ * `install/kosmos` and `install/setup.sh` use it to decide whether a runtime, a tmux
+ * and the kosmos binary are present. The repo already knows the correct form and uses
+ * it twice in setup.sh: `[ -f "$b" ] && [ -x "$b" ]`.
+ * ⭐ AND `runners.js`'s own docblock cites setup.sh's check_claude_code as WHERE THIS
+ * TRAP CAME FROM, so shell is not an unrelated surface. It is where the class started.
+ * ⚠️ DELIBERATELY NOT FIXED HERE: that is a different card, and widening this branch to
+ * the shell installer is the scope creep the plan argues against. NOT CARDED YET EITHER,
+ * which is stated plainly rather than implied, because "carded separately" would be a
+ * comfortable sentence that is not true.
+ * ⇒ Named because the list above reads as complete on a file that argues at length that
+ * a partial list is the worse failure. It was partial.
  */
 /* ⚠️ BOTH ALTERNATIVES ARE LOAD-BEARING, and a review flagged the second as
    redundant. Measured before rejecting that: `access` alone does NOT match
@@ -337,7 +352,7 @@ test('the set of lines matching the weak call is exactly what we audited', () =>
       '  ⚠️ IT DOES NOT SEE A SAME-FUNCTION SWAP, and an earlier version of this message\n' +
       '           said "a same-file swap" with no qualifier. MEASURED: route the pinned\n' +
       '           call through isRunnable and add an identical bare call ELSEWHERE IN THE\n' +
-      '           SAME FUNCTION -> 18 pass 0 fail, because the multiset is unchanged. It\n' +
+      '           SAME FUNCTION -> NOTHING REDS, because the multiset is unchanged. It\n' +
       '           needs a deliberate paired edit, the same weight as the other residuals\n' +
       '           this file lists, and it is listed with them now.\n' +
       '  ⚠️ IF YOU ONLY RENAMED THE ENCLOSING FUNCTION, update fn here and move on.\n' +
@@ -398,7 +413,7 @@ test('isRunnable ignores the extra arguments .find and .some pass it', () => {
   /* 🛑 THIS PINS A COSMETIC WRAPPER'S PRECONDITION, NOT THE WRAPPER. devicedoor.js and
      githubdevice.js both wrap it as `(p) => isRunnable(p)` so `.find(runnable)` cannot
      hand it (element, index, array). Those comments used to say the wrapper MUST STAY.
-     MEASURED, it need not: dropping it leaves this file at 18 pass 0 fail, because
+     MEASURED, it need not: dropping it reds NOTHING in this file, because
      isRunnable ignores the extras today.
      ⇒ SO THE WRAPPER IS COSMETIC, AND THIS ARM PINS THE FACT THAT MAKES IT COSMETIC.
      If isRunnable ever gains a second parameter, this reds and tells whoever did it that
@@ -909,7 +924,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      sentence mentioning canRunClaude and writeState together turns a #1592 test red,
      in connect.js, the most-edited file in the repo. It holds today by one line and
      it is a live tripwire, not a guarantee. Re-measured while writing this: 1 line
-     has both, 27 lines carry writeState without it, out of 2441.
+     has both, and 27 lines carry writeState without it.
 
      ⚠️ Its one gap, covered by the exact-text pin below: a multi-line writeState
      call with the property on its own line would have neither token together.
@@ -1062,7 +1077,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
        THIS IS WHERE THE LIST LIVES: the {file, call, fn} key sees a same-file
        DIFFERENT-FUNCTION swap and NOT a same-FUNCTION one. MEASURED: route machine.js's
        pinned call through isRunnable and add an identical bare call elsewhere inside the
-       SAME function -> 18 pass 0 fail, because the multiset is unchanged. Same weight as
+       SAME function -> NOTHING REDS, because the multiset is unchanged. Same weight as
        the three above: it needs a deliberate paired edit, a removal AND an addition
        together, not an ordinary careless commit. The sweep IS a real multiset, so an
        unpaired ADD still reds.
@@ -1071,8 +1086,16 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
        claim-outlives-the-guard defect, committed in the act of documenting a guard.
 
        📌 FIFTH, AN ABSENCE RATHER THAN AN EVASION: githubdevice.js's hoist of
-       require('./runners') to module scope is THE ONE PRODUCTION EDIT ON THIS BRANCH
-       WITH NO ARM. Measured: reverting it to the lazy require leaves this file at 18
+       require('./runners') to module scope is ONE OF THREE PRODUCTION EDITS ON THIS BRANCH
+       WITH NO ARM. THE OTHER TWO ARE NAMED BELOW. Measured: reverting it to the lazy require leaves this file at 18
+       🛑 "THE ONE" WAS A SUPERLATIVE AND IT WAS FALSE. A superlative in a residual list is
+       the cheapest kind of claim to falsify, and a reviewer falsified this one in a minute.
+       THE OTHER TWO, both measured:
+         - the ghCandidateList cycle DETECTOR added by this branch. Delete all three of its
+           lines and the FULL suite stays green (3275 pass, exit 0). Unpinned.
+         - the dropped re-export of ghCandidateList. This file says elsewhere that anybody
+           re-adding it re-opens the duplicate-surface problem and no source arm would see it.
+       ⇒ Three unpinned edits, not one. Each is defence in depth and none is guarded.
        pass 0 fail. The sweep cannot see it (it keys on accessSync, not isRunnable) and
        state()'s own catch upholds "never rejects" either way, which is why the arm
        written for it was removed as undefeatable. It is defence in depth AND it is
@@ -1358,7 +1381,7 @@ test('github.js does not reach BACK into githubdevice at call time', async () =>
        githubdevice reverted to LAZY, ./runners made to throw at load
                                         -> state() RESOLVED, gh: "missing"
        control, same shape, no fault    -> gh: "present"
-   Mutating the hoist back into the lambda also left the suite at 17 pass 0 fail.
+   Mutating the hoist back into the lambda also reds nothing.
 
    🛑 AN EARLIER VERSION OF THIS BLOCK RECORDED `gh: "present"` AS THE FAULT-INJECTED
    RESULT. That figure was impossible on either shape and is withdrawn. On the LAZY

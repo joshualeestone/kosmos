@@ -187,9 +187,13 @@ async function state() {
      is caught either way: from `require('./runners')` itself, or from
      `resolveBin('claude')`, which can throw on its own account (it derives a home
      directory and joins paths) before it ever asks whether the file is runnable.
-     📌 THE OPERATIVE CLAIM: both CLAUDE rungs of `resolveBin` compute `present` with
-     `isRunnable`, so every `resolveBin('claude')` enters it transitively. Measured,
-     with a control. (Not all six of its return points do; two return `present: false`
+     📌 SUPPORTING FACT, READ FROM SOURCE: both CLAUDE rungs of `resolveBin` compute
+     `present` with `isRunnable`, so every `resolveBin('claude')` enters it transitively.
+     ⚠️ NOT "measured, with a control", and that phrase is removed rather than reworded.
+     It is a reading of which lines call what, not a behavioural measurement, and this
+     branch corrected the identical mislabel in connect.js while leaving it standing here.
+     That is the fixed-one-site-left-its-siblings class, in the correction itself.
+     (Not all six of its return points do; two return `present: false`
      without it, which does not affect this catch.) Two earlier drafts of this
      paragraph were false in opposite directions; both are recorded in the plan.
      ⇒ The naming was never the defect. What matters for THIS catch is only that both
@@ -200,9 +204,10 @@ async function state() {
      `isRunnable` wraps its entire body in try/catch and returns false, so it cannot
      throw. Two of the three named sources were right and the third was invented.
 
-     ⇒ THE OPERATIVE CLAIM, which is what this whole block exists to state: nothing
-     after that try can reject, so the `.catch` cannot fire
-     today.
+     ⇒ THE CLAIM THIS BLOCK EXISTS TO STATE: nothing after that try can reject, so the
+     `.catch` cannot fire today.
+     (Sole owner of that phrase. A second sentence above also called itself THE OPERATIVE
+     CLAIM, and two of them means neither is.)
 
      It stays because the property it defends is the one that matters (an unknown
      must never become a confident "no install needed", which costs an unannounced
