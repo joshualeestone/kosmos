@@ -56,10 +56,28 @@ test('#1277: booting the board starts the updater poll, so a machine nobody watc
     + 'the status route, and a headless machine will sit frozen at its installed version');
 });
 
-test('#1277: the poll the board started does not hold the process open', () => {
+test('#1277: startAutoPoll unrefs its timer, so a poll cannot hold the process open', () => {
   /* If this ever goes red, `kosmos start` stops exiting and every suite that
      boots the server hangs at the end instead of failing, which is far harder
-     to diagnose than an assertion. */
+     to diagnose than an assertion.
+
+     🛑 SCOPE, STATED BECAUSE THE OLD NAME OVERCLAIMED. This drives
+     startAutoPoll DIRECTLY, so it proves the MECHANISM unrefs. It does NOT
+     inspect the timer the board started at boot: this call replaces that timer
+     with a fresh one and asserts on the new object, so a `start()` that wired a
+     ref'd poll by some other route would leave this green. That is the same
+     wiring-versus-mechanism distinction this file's header is built on, and
+     this arm is on the mechanism side of it.
+
+     Closing it needs an accessor for the live timer, and I did not add one:
+     an export only tests can reach is what the repo's engine.reachable guard
+     catches, and it caught exactly that on this branch one iteration ago.
+     I also tried observing it without an accessor, via
+     process._getActiveHandles(); measured, that returns 0 Timeouts even for a
+     deliberately ref'd interval, so the probe cannot tell the two apart and
+     would have been a check that always passes. Recorded as a known gap rather
+     than covered by an instrument that cannot fail. */
   const t = update.startAutoPoll({ every: 60 * 60 * 1000 });
   assert.equal(t.hasRef(), false, 'a ref\'d poll would keep the board process alive forever');
+  update.stopAutoPoll();
 });

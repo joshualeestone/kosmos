@@ -119,3 +119,47 @@ timer running, so any future test that started the poll and called only
 `resetCache()` leaked a live interval. And `AGENT_WORKFORCE_UPDATE_POLL_MS` had
 no floor, so `=1` would spin `installedRoot()` a thousand times a second on
 exactly the unattended machine this card is about. Both fixed with arms.
+
+## Iteration 2
+
+Six WARNINGs, and the first three are one mistake of mine with three faces.
+
+**My floor clamped the in-process test seam, not just the production variable,
+and that made two arms unfalsifiable.** `Math.max(wanted, 1000)` applied to
+`opts.every` as well as the env value, so three arms driving `{ every: 5 }` were
+silently running at 1000ms and observing a 150ms window in which no tick could
+occur. Measured, with a positive control: gate-null gave 0 fetches, gate-truthy
+gave 0 fetches, indistinguishable, while a 1200ms window gave 1.
+
+⭐ **A guard that cannot fail is not a guard, and I built two of them while
+fixing a NIT.** The floor now applies to the env variable only, which is the
+thing that needed protecting: `opts.every` is an in-process argument no user can
+reach. Re-measured after the fix: gate-null 0, gate-truthy 1, so the arm
+discriminates again. The orphan-timer arm recovered too, verified by removing
+the single-flight stop and watching it redden.
+
+**The source comment still asserted the theory I had already retracted.** It
+said the interval must not divide TTL and closed with "no alignment to walk
+into", above a constant that divides TTL exactly. The retraction had reached the
+test and this plan but not `engine/update.js`, which is the copy a maintainer
+reads. A reader trusting it would either think the code was broken or change the
+constant for a reason that does not exist. Corrected in the source to the
+invariant the test actually asserts.
+
+**One arm overclaimed in its name and I rescoped it rather than covering it with
+a bad instrument.** "The poll the board started does not hold the process open"
+drives `startAutoPoll` directly, so it proves the mechanism unrefs and never
+inspects the boot timer. Closing it properly needs an accessor for the live
+timer, and I did not add one: an export only tests can reach is what the repo's
+`engine.reachable` guard catches, and it caught exactly that on this branch one
+iteration earlier.
+
+I also tried to observe it without an accessor, through
+`process._getActiveHandles()`. Measured: that returns zero Timeouts even for a
+deliberately ref'd interval, so the probe cannot distinguish ref'd from unref'd
+and would have been a check that always passes. Recorded as a known gap rather
+than papered over with an instrument that cannot fail.
+
+📌 The remaining WARNING, about nothing recording which version an automatic
+install targeted, arrived truncated and is carried into the next iteration
+rather than guessed at.

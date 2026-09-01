@@ -205,33 +205,47 @@ function maybeAutoInstall() {
  * unref'd, so it never holds the process open -- `kosmos start` must still
  * exit, and the suite must still finish.
  */
-/* 🛑 THIS INTERVAL MUST NOT DIVIDE `TTL`, AND THAT IS THE WHOLE REQUIREMENT.
-   The docblock above says firing AT TTL doubles the cadence, and 5 minutes is
-   "well inside" 15 while still landing EXACTLY on the boundary every third
-   tick. Measured with a 120ms stamp delay: fetches at minutes 5, 25, 45, 65,
-   so a 20-minute cadence from a 15-minute TTL.
+/* 🛑 KEEP THIS TICK SMALL RELATIVE TO `TTL`. That is the requirement, and it
+   is NOT "must not divide TTL", which is what this comment said until the test
+   that asserts it proved otherwise.
 
-   ⚠️ And it made a REACHABLE host poll LESS often than an unreachable one. The
-   success path stamps `cache.at` after the await (so the boundary tick misses
-   by epsilon and waits a whole extra tick); the miss path stamps `started`
-   before the fetch, so it has no epsilon and lands at 5, 20, 35, 50. Both
-   stamps are deliberate and documented where they sit, so the fix is here:
-   pick an interval that cannot align with the boundary.
+   A boundary tick is ALWAYS missed by epsilon, because the success path stamps
+   `cache.at` after the await. So the cost of landing on the boundary is one
+   whole tick, whatever the alignment, and the only thing that matters is how
+   big that tick is:
 
-   60s leaves the gate as the only thing that decides, with at most one minute
-   of tick granularity on top of TTL, and no alignment to walk into. */
+     5 min  ->  15-minute TTL polls every 20 minutes   (+33%)
+     60 s   ->  15-minute TTL polls every 16 minutes   (+7%)
+
+   ⚠️ At 5 minutes it also made a REACHABLE host poll LESS often than an
+   unreachable one: the miss path stamps `started` BEFORE the fetch, so it has
+   no epsilon and kept a clean 15-minute cadence (5, 20, 35, 50) while the
+   success path drifted to 5, 25, 45, 65. Both stamps are deliberate and
+   documented where they sit, so the fix belongs here.
+
+   📌 60s divides 900s exactly and that is fine. An earlier version of this
+   block said it must not, and the constant beneath it divided TTL anyway, so
+   the comment was both wrong and self-contradicting. `engine/update.test.js`
+   asserts the real invariant. */
 const POLL_EVERY = 60 * 1000;
 let pollTimer = null;
 
 function startAutoPoll(opts = {}) {
   const envMs = Number(process.env.AGENT_WORKFORCE_UPDATE_POLL_MS);
-  const wanted = Number(opts.every) > 0 ? Number(opts.every)
-    : (envMs > 0 ? envMs : POLL_EVERY);
-  /* A FLOOR, because the env var is not really "the test seam only": it is a
-     live production variable with no validation, and `=1` would spin
-     installedRoot() (two existsSync calls) a thousand times a second forever,
-     on exactly the unattended machine this card exists for. */
-  const every = Math.max(wanted, 1000);
+  /* 🛑 THE FLOOR APPLIES TO THE ENV VAR ONLY, AND THE SCOPE IS THE POINT.
+     `AGENT_WORKFORCE_UPDATE_POLL_MS` is a live production variable with no
+     validation, and `=1` would spin installedRoot() (two existsSync calls) a
+     thousand times a second forever, on exactly the unattended machine this
+     card exists for. `opts.every` is an in-process argument no user can reach.
+
+     ⚠️ Flooring both is not a harmless over-application: it silently clamped
+     the seam three arms drive at `{ every: 5 }` up to 1000ms, so those arms
+     observed a 150ms window in which no tick could occur and passed whether or
+     not the thing they guard existed. Measured: gate-null and gate-truthy both
+     gave 0 fetches, indistinguishable, while a 1200ms window gave 1. A guard
+     that cannot fail is not a guard. */
+  const floored = envMs > 0 ? Math.max(envMs, 1000) : POLL_EVERY;
+  const every = Number(opts.every) > 0 ? Number(opts.every) : floored;
   stopAutoPoll();
   pollTimer = setInterval(() => {
     try {
