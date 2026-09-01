@@ -1,5 +1,18 @@
 'use strict';
 
+/* 📌 THE RESOLUTION RULE, STATED ONCE BECAUSE IT WAS STATED FOUR TIMES.
+   Every site that needs both a PATH and its PRESENCE resolves `runners.resolveBin`
+   ONCE and reads both off the one answer. Two resolutions can disagree across an
+   await, and that disagreement is what #1592 is about.
+   ⚠️ Four comments used to name the membership of this set BY HAND, and all four
+   disagreed: "the neighbouring site", "willInstall and claudeHatchAvailable",
+   "willInstall, claudeHatchAvailable and start()", "willInstall above". Adding or
+   removing a resolution site silently staled three of them. That is the
+   two-copies-of-one-fact defect this branch exists to remove, reproduced in prose.
+   ⇒ The sites now point HERE instead of enumerating each other.
+   📌 The one deliberate EXCLUSION is `binaryOnDisk` in `start()`, which is conditional
+   and behind an await; the reason is written at that site. */
+
 /**
  * Click-to-connect: install Claude Code and sign it in, from the app.
  *
@@ -454,7 +467,7 @@ async function willInstall() {
     /* The cheap half, every time. It cannot produce the harmful answer on its own:
        a missing or non-executable file means an install IS needed, full stop.
 
-       📌 ONE RESOLUTION, NOT TWO, AND IT MATCHES THE NEIGHBOURING SITE. This
+       📌 ONE RESOLUTION, NOT TWO, PER THE RESOLUTION RULE AT THE HEAD OF THIS FILE. This
        read `bin = claudeBinPath(); if (!isRunnable(bin))`, and claudeBinPath()
        already calls resolveBin('claude'), which computes `present` with
        isRunnable internally. So the path was stat'd twice and the file asked the
@@ -1088,8 +1101,8 @@ async function start(opts) {
     }
   }
 
-  /* ONE RESOLUTION FOR THE TWO READS AROUND THE PROBE, matching willInstall and
-     claudeHatchAvailable.
+  /* ONE RESOLUTION FOR THE TWO READS AROUND THE PROBE, per the resolution rule at the
+     head of this file.
 
      🛑 `binaryOnDisk` NEAR THE TOP OF THIS FUNCTION IS DELIBERATELY EXCLUDED AND
      MUST NOT BE FOLDED IN. It is CONDITIONAL and it is behind an await, so it is not
@@ -1458,9 +1471,34 @@ async function installClaudeCode(hooks) {
    * earlier version of this comment said "exactly as the old bare HOME
    * constant did", which described code that was not there.
    */
+  /* 🛑 GUARDED, AND THIS WAS A REAL LEAK PLUS A DEAD BRANCH IN ONE. `homeDir()` was
+     called INLINE in the env object below, at TRY-DEPTH ZERO (measured), so a throw
+     escaped `installClaudeCode` entirely. Two consequences, and I had written a comment
+     denying the second:
+       1. THE VERIFIED ~281MB DOWNLOAD WAS LEFT ON DISK. The unlink sits a few lines
+          BELOW this call, so the throw skipped it and nothing else cleans that path.
+       2. The post-install `expectedAt === null` branch could never be reached BY THE
+          CONDITION ITS OWN MESSAGE NAMES, because the only way resolveBin('claude') can
+          throw with CLAUDE_BIN unset is homeDir() throwing, which aborted here first.
+     ⚠️ AND THIS UN-RETRACTS SOMETHING I WITHDREW. A comment below withdrew the clause
+     "and the downloaded file never unlinked" as false. It is false for the CATCH path
+     that was measured and TRUE for THIS path, which was not. An over-broad retraction is
+     a wrong claim in the reassuring direction, and it deleted a true sentence.
+     ✅ Resolving it here, once, fixes both: the download is cleaned, and the branch below
+     becomes reachable by exactly the condition it describes. */
+    let installHome;
+    try { installHome = require('./runners').homeDir(); }
+    catch {
+      try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
+      return fail(
+        'Claude Code downloaded, but we have nowhere to install it',
+        'This account has no home directory we can resolve. It usually means HOME is unset '
+          + 'and the account has no passwd entry, which a service or container account can hit.'
+      );
+    }
   const inst = await run(downloaded.path, ['install'], {
     timeout: 180000,
-    env: { TERM: 'dumb', HOME: require('./runners').homeDir() },
+    env: { TERM: 'dumb', HOME: installHome },
     cancellable: true,
   });
   if (hooks.cancelled()) {
@@ -1490,7 +1528,7 @@ async function installClaudeCode(hooks) {
   /* 🛑 THE PATH IS CAPTURED BEFORE THE GUARD, NOT REBUILT INSIDE THE HANDLER.
      The catch used to interpolate `claudeBinPath()`, which is
      `resolveBin('claude').bin`. If the try entered the catch BECAUSE `resolveBin`
-     threw, that call threw again from inside the handler and escaped
+     threw, that call threw again from inside the handler and
      escaped `installClaudeCode` entirely: no `fail()` returned.
      ⚠️ A SECOND CLAUSE HERE ("and the downloaded file never unlinked") WAS FALSE AND IS
      WITHDRAWN. Measured on origin/main; the full retraction is written once, in
@@ -1505,7 +1543,7 @@ async function installClaudeCode(hooks) {
      "never resolved" rather than carrying prose that reads like an answer. */
   let expectedAt = null;
   try {
-    /* ONE RESOLUTION, matching willInstall, claudeHatchAvailable and start(). The
+    /* ONE RESOLUTION, per the resolution rule at the head of this file. The
        defensive capture and the presence check were two separate resolveBin calls,
        which is the exact double resolution this branch removed at the other three
        sites under comments calling it "the one definition this branch is named
@@ -2316,7 +2354,7 @@ async function finishConnected(owner, sub) {
  */
 function claudeHatchAvailable() {
   try {
-    /* ONE RESOLUTION, matching willInstall above. This read
+    /* ONE RESOLUTION, per the resolution rule at the head of this file. This read
        `isRunnable(claudeBinPath())`, and claudeBinPath() is
        `resolveBin('claude').bin`, so it resolved and stat'd twice. That is the
        exact shape removed from willInstall IN THE SAME COMMIT, under a comment

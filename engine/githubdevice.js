@@ -52,7 +52,11 @@ const store = require('./store');
    ⚠️ And `ghPresent` was a USELESS CONTROL: its hits are prose and code mixed, so it
    counted prose exactly as the subject did and could never separate "absent as code"
    from "absent entirely". A control sharing the subject's blindness is not a control.
-   "`github.state()` REJECTED", which is a different module's result.
+   📌 The copied paragraph also cited devicedoor's own measurement, "`github.state()`
+   REJECTED", which is a DIFFERENT MODULE'S result and was never evidence about this one.
+   (That sentence stood here as a bare orphan clause after its subject was deleted, so it
+   read as an assertion about THIS file's state(), which is the opposite of the conclusion
+   four lines down.)
 
    ✅ THE TRUE REASON, MEASURED FOR THIS FILE: `ghPresent()` is reached from
    `async function state()`, which wraps its whole body in try/catch. A call-time
@@ -65,10 +69,12 @@ const store = require('./store');
    the hoist. The hoist defends against a WRONG ANSWER, not against a rejection.
    📌 Safe: `runners.js` requires only node builtins, so there is no cycle.
 
-   🛑 AND THIS FILE CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK, DELIBERATELY. The
-   (Named by MECHANISM: an earlier draft said "thirty lines below" and the real
-   distance is now about 180, in the file that argues against citing distances.)
-   cycle detector near `ghPresent` WARNS rather than throws, on the stated ground that
+   🛑 AND THIS FILE CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK,
+   DELIBERATELY. That cycle detector WARNS rather than throws, on the stated ground that
+   (Named by mechanism, not by distance: an earlier draft said "thirty lines below" and
+   the real distance is now about 180. The parenthetical explaining that had itself been
+   spliced BETWEEN this sentence's subject and its verb, which is worse than the citation
+   it was correcting.)
    throwing at import bricks the board because `server.js` requires this module with
    no try. Both are correct and they are not in tension, because they are about
    DIFFERENT FAILURES:
@@ -266,22 +272,25 @@ if (typeof ghCandidateList !== 'function') {
 function ghPresent() {
   // #1592: the byte-identical twin of devicedoor.js's lambda, which is why
   // fixing one file would not have found the other. Both now ask runners.
-  /* Identity wrapper removed: `(p) => isRunnable(p)` allocated a closure on every
-     call and was the last structural trace of the duplicated lambda this card is
-     about. The local name is kept because the two call sites read better with it. */
-  /* 🛑 THE WRAPPER PINS ARITY AND IS KEPT DELIBERATELY, UNGUARDED. `.some(runnable)` hands the callback
-     ⚠️ "MUST STAY" WAS TOO STRONG AND IS DOWNGRADED. MEASURED: replacing this with
-     `const runnable = isRunnable;` leaves the guard file at 18 pass 0 fail, and
-     isRunnable(p, 0, [p]) equals isRunnable(p) on both a real binary and a directory.
-     ⇒ THE WRAPPER IS COSMETIC TODAY. It is kept because it stays correct if isRunnable
-     ever gains a second parameter, and the guard file now pins that condition so such a
-     change announces itself instead of silently making this load-bearing.
-     `(element, index, array)`. Safe only while `isRunnable` takes one parameter,
-     and this branch PROMOTES it to exported public API, so a second parameter is a
-     realistic evolution that would silently receive an array index.
-     ⚠️ I removed this wrapper for closure-allocation cosmetics, leaving
-     devicedoor.js's identical wrapper in place: the two siblings then disagreed
-     about the same lambda, which is the class this branch is named for. */
+  /* 🛑 THE WRAPPER IS COSMETIC TODAY AND IS KEPT ANYWAY. `.some(runnable)` and
+     `.find(runnable)` hand a callback `(element, index, array)`, and this wrapper makes
+     sure only the element arrives.
+     MEASURED: `const runnable = isRunnable;` leaves the guard file green, and
+     isRunnable(p, 0, [p]) equals isRunnable(p) on a real binary and on a directory. So
+     nothing depends on the wrapper right now.
+     ✅ KEPT because it stays correct if `isRunnable` gains a second parameter, which this
+     branch makes realistic by promoting it to exported public API. An arm in the guard
+     file pins exactly that condition, so the day it becomes load-bearing goes red rather
+     than passing silently.
+     📌 THREE THINGS THIS COMMENT USED TO SAY, ALL WRONG, ALL MINE:
+       - "Identity wrapper removed" -- it was removed, then restored, and the removal note
+         stayed. A reader was told the wrapper is gone while looking at it.
+       - "MUST STAY" -- too strong; measured above.
+       - "UNGUARDED" in the same block as "the guard file now pins that condition", which
+         cannot both be true. The second is the correct one.
+     ⚠️ And I removed this wrapper once for closure-allocation cosmetics while leaving
+     devicedoor.js's identical one in place, so the two siblings disagreed about the same
+     lambda. That is the class this branch is named for. */
   const runnable = (p) => isRunnable(p);
   /* Truthiness here, deliberately, and NOT the `typeof override !== 'string'`
      test that `ghCandidateList` uses in `engine/github.js`: an empty
