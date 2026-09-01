@@ -12149,3 +12149,40 @@ test('#1668: the settings route captures a valid timezone and refuses a bad one'
     store.writeSettings({ timezone: null });
   }
 });
+
+test('#1724: the settings route captures the auto-handoff setting and refuses a bad one', async () => {
+  const store = require('./engine/store');
+  try {
+    store.writeSettings({ autohandoff: null });
+    // Default when unset: off, threshold 85 (opt-in).
+    const start = JSON.parse((await req('/api/settings')).body);
+    assert.equal(start.autohandoff.enabled, false, 'off by default');
+    assert.equal(start.autohandoff.threshold, 85, 'default threshold 85');
+
+    // A bad threshold is refused, not persisted.
+    const bad = await req('/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autohandoff: { enabled: true, threshold: 42 } }),
+    });
+    assert.equal(bad.status, 400, 'a bad threshold was accepted');
+    assert.match(JSON.parse(bad.body).because, /auto-handoff/);
+
+    // A valid setting is captured and reads back.
+    const ok = await req('/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autohandoff: { enabled: true, threshold: 90 } }),
+    });
+    assert.equal(ok.status, 200, ok.body);
+    assert.deepEqual(JSON.parse((await req('/api/settings')).body).autohandoff,
+      { enabled: true, threshold: 90 }, 'the capture persisted');
+
+    // Per-field patch: writing auto-handoff must not clobber the timezone.
+    await req('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ timezone: 'America/Chicago' }) });
+    await req('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ autohandoff: { enabled: false, threshold: 80 } }) });
+    const both = JSON.parse((await req('/api/settings')).body);
+    assert.equal(both.timezone, 'America/Chicago', 'auto-handoff write did not clobber timezone');
+    assert.equal(both.autohandoff.enabled, false, 'and the auto-handoff write applied');
+  } finally {
+    store.writeSettings({ autohandoff: null, timezone: null });
+  }
+});

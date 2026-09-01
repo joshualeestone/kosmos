@@ -51,6 +51,22 @@ test('fillBand groups into 5-point bands with 100 its own', () => {
   assert.equal(ah.fillBand(150), 100, 'over-100 (a wrong denominator) still bands to the wall');
 });
 
+test('settingFrom defaults to off/85 for an unwritten store and normalises a bad threshold', () => {
+  assert.deepEqual(ah.settingFrom({}), { enabled: false, threshold: 85 }, 'opt-in default is off');
+  assert.deepEqual(ah.settingFrom(undefined), { enabled: false, threshold: 85 });
+  assert.deepEqual(ah.settingFrom({ autohandoff: { enabled: true, threshold: 90 } }), { enabled: true, threshold: 90 });
+  assert.deepEqual(ah.settingFrom({ autohandoff: { enabled: true, threshold: 42 } }), { enabled: true, threshold: 85 }, 'bad threshold falls to default');
+});
+
+test('validSetting accepts a well-formed patch and refuses garbage', () => {
+  assert.equal(ah.validSetting({ enabled: true, threshold: 85 }), true);
+  assert.equal(ah.validSetting({ enabled: false, threshold: 95 }), true);
+  assert.equal(ah.validSetting({ enabled: 'yes', threshold: 85 }), false, 'enabled must be a real boolean');
+  assert.equal(ah.validSetting({ enabled: true, threshold: 42 }), false, 'threshold must be an offered option');
+  assert.equal(ah.validSetting({ enabled: true }), false, 'missing threshold');
+  assert.equal(ah.validSetting(null), false);
+});
+
 test('handoffPrompt names the path, the fill, and the required contents', () => {
   const p = ah.handoffPrompt(92, '/data/handoffs/angel.md');
   assert.match(p, /92% full/);
