@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: agentfile-lineterm
-diff_hash: cac230e9fcfc0f28858c5436dcc077cdbd280a3bb6f073c36d2ed09bb960f6a3
+diff_hash: 7de0fe8df06207704f2b394cd67ccb16ae97fcb4d32c8360040faf8b430e8aaa
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-01T20:43:48Z
