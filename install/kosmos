@@ -753,7 +753,12 @@ cmd_connections() {
   case "${KOSMOS_CONN_TIMEOUT:-}" in
     "") : ;;
     *[!0-9]*) : ;;          # not digits-only: ignore it, keep the ceiling
-    *) local _t=$((10#$KOSMOS_CONN_TIMEOUT))
+    *) local _sig="${KOSMOS_CONN_TIMEOUT#"${KOSMOS_CONN_TIMEOUT%%[!0]*}"}"
+       # Length cap BEFORE the arithmetic: bash wraps silently on overflow, so a
+       # 20-digit value can land inside the band (10#18446744073709551620 is 4).
+       # Three significant digits cover the whole band; more is not a deadline.
+       [ "${#_sig}" -le 3 ] || _sig=""
+       local _t=$((10#${_sig:-0}))
        # 🛑 A BAND, NOT JUST "> 0". An earlier version closed every spelling of
        # zero and left the high side wide open: KOSMOS_CONN_TIMEOUT=999999 reached
        # `curl -m 999999`, about 11.5 days, which removes the ceiling exactly as
@@ -958,7 +963,7 @@ cmd_connections() {
              live check we could not read is neither working nor broken, and
              counting it against the person is a settled negative about
              something nobody looked at. */
-          var m = Number.isFinite(p.howManyReadable) ? p.howManyReadable : p.howMany;
+          var m = Number.isInteger(p.howManyReadable) ? p.howManyReadable : p.howMany;
           /* ⚠️ THE ZERO CASE RETURNS EARLY RATHER THAN FALLING THROUGH. It used to
              set `many = ""` and then meet an UNCONDITIONAL append below, so a board
              reporting a negative `howManyReadable` re-armed the very text the zero
@@ -999,7 +1004,9 @@ cmd_connections() {
                told. Unreachable from our own boundary, which emits all three; every
                neighbouring guard in this block is equally unreachable and is here
                for the same reason. */
-            var saidWorking = Number.isFinite(p.howManyWorking);
+            /* isInteger on all three count fields, or a skewed board sending 1.5 makes
+               the fallback total read as the working count. */
+            var saidWorking = Number.isInteger(p.howManyWorking);
             /* "working" even when the two numbers match. Dropping it is accurate
                and reintroduces the exact ambiguity recorded above: "3 sign-ins"
                beside "has a working sign-in for it" is what read as three working

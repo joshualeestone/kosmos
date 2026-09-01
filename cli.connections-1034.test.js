@@ -857,6 +857,13 @@ test('every spelling of zero is refused by the connection deadline guard', () =>
       `KOSMOS_CONN_TIMEOUT=${huge} was accepted: a deadline that long is no ceiling at all, and the CLI hangs instead of reporting a timeout`);
   }
   assert.equal(run('300'), '300', 'the top of the band was rejected, so the band is narrower than it claims');
+  /* Overflow: bash arithmetic wraps silently, so 10#18446744073709551620 is 4
+     and a 20-digit value used to land INSIDE the band. Length-capped before the
+     arithmetic; leading zeros do not count toward the cap. */
+  for (const wrap of ['18446744073709551620', '00018446744073709551620', '4294967300']) {
+    assert.equal(run(wrap), '40', `KOSMOS_CONN_TIMEOUT=${wrap} wrapped into the band and set a deadline nobody asked for`);
+  }
+  assert.equal(run('007'), '7', 'leading zeros were counted against the length cap, so a valid spelling was refused');
   /* CONTROL: a real value must still get through, or the guard is just a
      constant and the test above passes for the wrong reason. */
   assert.equal(run('7'), '7', 'a valid deadline was rejected, so the guard refuses everything and proves nothing');
@@ -1180,6 +1187,27 @@ test('a version-skewed board cannot produce a negative or nonsensical count', as
       const line = r.out.split('\n').find((l) => /^\s*Claude:/.test(l)) || '';
       assert.doesNotMatch(line, /-\d/, `${h.label}: a negative number reached a person: ${JSON.stringify(line)}`);
       assert.doesNotMatch(line, /of -/, `${h.label}: a negative denominator was printed: ${JSON.stringify(line)}`);
+    });
+  }
+
+  /* Fractions: a count is whole. `howManyWorking: 1.5` used to fall back to the
+     total for the number while still saying "working", so a skewed board read
+     as "3 sign-ins working"; `howManyReadable: 2.5` printed "of 2.5". */
+  const fractional = [
+    { label: 'fractional working', howMany: 3, howManyWorking: 1.5, howManyReadable: 3, forbid: /sign-ins? working/ },
+    { label: 'fractional readable', howMany: 3, howManyWorking: 1, howManyReadable: 2.5, forbid: /could not check/ },
+  ];
+  for (const h of fractional) {
+    const p = P();
+    p.providers[0].signedIn = 'connected';
+    p.providers[0].howMany = h.howMany;
+    p.providers[0].howManyWorking = h.howManyWorking;
+    p.providers[0].howManyReadable = h.howManyReadable;
+    await withBoard({ body: p }, async (port) => {
+      const r = await kosmos(port);
+      const line = r.out.split('\n').find((l) => /^\s*Claude:/.test(l)) || '';
+      assert.doesNotMatch(line, /\d\.\d/, `${h.label}: a fraction reached a person: ${JSON.stringify(line)}`);
+      assert.doesNotMatch(line, h.forbid, `${h.label}: a count claim was built on a non-integer: ${JSON.stringify(line)}`);
     });
   }
 
