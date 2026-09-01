@@ -67,6 +67,26 @@ ELAPSED=$(( $(date +%s) - START ))
 if [ "$ELAPSED" -lt 10 ]; then ok "terminates on a large file (${ELAPSED}s)"
 else bad "took ${ELAPSED}s on 400 lines -- pathological backtracking is back"; fi
 
+# ---- arm 7: the source AFTER a comma INSIDE the arrow's own call ----------
+# 🛑 ARM 1 DOES NOT COVER THIS AND THAT IS WHY THE DEFECT SURVIVED. Arm 1 uses
+# `path.join(os.homedir(), '.Trash')`, where the source sits BEFORE the comma, so
+# the arrow-to-source slice holds no comma at all. Put the source AFTER the comma
+# and the old rule read it as a member separator and reported correct code.
+fixture argcomma "const store = require('./store');
+const BASE = '/tmp/x';
+const KINDS = [{ dir: () => path.join(BASE, store.ROOT) }];"
+if [ "$(run argcomma)" = "0" ]; then ok "a source after a comma INSIDE the arrow's own call is not flagged"
+else bad "flagged correct lazy code: an argument separator is not a member separator"; fi
+
+# ---- arm 8: and the fix must not launder a real freeze (OVER-CORRECTION) ---
+# The counterweight to arm 7. Depth-zero commas DO separate members, so a
+# deferred reference must not exempt a frozen one sitting beside it. Without
+# this arm, "ignore commas" would pass arm 7 and reopen the hole the branch closed.
+fixture launder "const store = require('./store');
+const M = { live: () => store.ROOT, file: path.join(process.env.AGENT_WORKFORCE_DATA,'x') };"
+if [ "$(run launder)" = "1" ]; then ok "a deferred reference does NOT launder a frozen one beside it"
+else bad "LAUNDERED: a depth-zero comma must still separate members"; fi
+
 echo
-if [ "$FAILS" -eq 0 ]; then echo "ALL PASS (6 arms)"; else echo "$FAILS FAILED"; fi
+if [ "$FAILS" -eq 0 ]; then echo "ALL PASS (8 arms)"; else echo "$FAILS FAILED"; fi
 exit "$FAILS"
