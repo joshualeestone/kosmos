@@ -145,7 +145,18 @@ const REPO = __dirname;
  * `fs.accessSync(claudeBinPath(), fs.constants.X_OK)`, one of the sites this
  * branch fixes, and reverting that fix left every test green.
  *
- * ⚠️ WHAT IT STILL CANNOT SEE, IN FULL. Each accepts a directory exactly as the
+ * ⚠️ WHAT IT STILL CANNOT SEE, IN FULL (it was not, see below). Each accepts a directory exactly as the
+ * fixed form did, and none exists in the repo today:
+ *   - a call split across two lines (this is line-based)
+ *   - `fs.accessSync(bin, X)` where `const X = fs.constants.X_OK`
+ *   - `fs.accessSync(bin, 1)`, the numeric mode
+ *   - bracket notation, `fs['accessSync'](bin, X_OK)`  <- added pass 9
+ *   - `fs.accessSync(bin)` with NO mode, which defaults to F_OK and accepts a
+ *     directory exactly as X_OK does. WEAK_CALL cannot see it (no X_OK token). No
+ *     live instance today; the repo's only one-argument accessSync is a deliberate
+ *     existence helper in a test. Added because it fell BETWEEN the four accessSync
+ *     spellings above and the separately-flagged existsSync gap, which is exactly
+ *     where a member of a class hides when a list is assembled by recall.
  * 🛑 AND THE LIST WAS NOT FULL WHEN IT SAID IN FULL. It omitted
  *     fs.statSync(p).mode & 0o111
  *   which accepts a directory exactly as X_OK does. MEASURED: WEAK_CALL does not match
@@ -157,11 +168,6 @@ const REPO = __dirname;
  *   already thought about out loud.
  *   ⇒ This is the failure the paragraph below names: a reader takes the caveat as the
  *   complete list. Written by the person who wrote that paragraph.
- * fixed form did, and none exists in the repo today:
- *   - a call split across two lines (this is line-based)
- *   - `fs.accessSync(bin, X)` where `const X = fs.constants.X_OK`
- *   - `fs.accessSync(bin, 1)`, the numeric mode
- *   - bracket notation, `fs['accessSync'](bin, X_OK)`  <- added pass 9
  *
  * 🛑 AND THE LARGEST GAP IS A DIFFERENT SPELLING ENTIRELY, WHICH THE FOUR ABOVE
  * DO NOT HINT AT: `fs.existsSync` IS A PRESENCE CHECK THAT ALSO ACCEPTS A
@@ -193,7 +199,7 @@ const REPO = __dirname;
  * TRAP CAME FROM, so shell is not an unrelated surface. It is where the class started.
  * ⚠️ DELIBERATELY NOT FIXED HERE: that is a different card, and widening this branch to
  * the shell installer is the scope creep the plan argues against. CARDED AS #1716,
- * which measured 27 BARE sites against 2 guarded on the SAME path, across 3 files` ones.
+ * which measured 27 BARE sites against 2 guarded on the SAME path, across 3 files.
  * 📌 This sentence read "NOT CARDED YET EITHER" for about ten minutes, deliberately,
  * rather than the comfortable "carded separately" that would have been false at the
  * time. Then I filed the card and came back. Say the true thing, then make it stop
@@ -260,7 +266,14 @@ function walkJs(dir, base = dir, out = []) {
    THIS FILE ALREADY ACCEPTED ELSEWHERE AND FAILED TO APPLY HERE.
    Two of these four entries are PROSE. Pinning the whole trimmed line made
    rewording an ordinary comment sentence turn a test named for #1592 red, in
-   `connect.js`, which this file elsewhere calls the most-edited file in the repo,
+   `connect.js`, which carries three live conflicting branches right now,
+   🛑 IT SAID "THE MOST-EDITED FILE IN THIS REPO", FOUR TIMES, AND THAT IS FALSE.
+   MEASURED on origin/main: connect.js has 19 commits and ranks 31st; web/index.html has
+   597. Normalising for age does not rescue it either.
+   ✅ The DECISION it supports still stands, on evidence that is true: willinstall-1556,
+   live-1560-pete and live-check-1560 are all live on origin right now (control: a branch
+   that cannot exist returns 0). ⭐ A right conclusion resting on a false citation is worse
+   than a wrong one, because a citation looks checked.
    on a branch whose author never opened this test. That is exactly the friction
    argument used above to scope the `writeState(` count to `becomeStuck` rather
    than the whole file; the argument was right there and was not applied here.
@@ -447,11 +460,23 @@ test('isRunnable ignores the extra arguments .find and .some pass it', () => {
   const bin = path.join(f.dir, 'realbin');
   fs.writeFileSync(bin, '#!/bin/sh\n');
   fs.chmodSync(bin, 0o755);
-  assert.strictEqual(runners.isRunnable(bin, 0, [bin]), runners.isRunnable(bin),
+  /* 🛑 INDEX 1, NOT 0, AND THAT IS THE WHOLE ARM. The first version passed
+     `(bin, 0, [bin])`, and ZERO IS THE ONE FALSY INDEX, so a second parameter consulted
+     for truthiness slipped straight through. MEASURED: `isRunnable(p, strict)` with
+     `if (strict) return false` REDDENED NOTHING, while this arm's comment
+     AND githubdevice.js both claimed it pinned exactly that condition.
+     ⚠️ AND THE CONDITION IS REAL. With the wrappers replaced by `const runnable =
+     isRunnable`, measured: a gh at candidate index 1 resolves to NULL while index 0
+     resolves correctly. The real default candidate lists hold THREE entries, so two of
+     the three sit at truthy indexes.
+     ⭐ Every candidate-scan arm in this file uses a SINGLE-ELEMENT list, so index 0 was
+     the only index the file ever exercised. The arm tested the one case that cannot
+     fail, which is this file's own smallest-satisfying-input defect. */
+  assert.strictEqual(runners.isRunnable(bin, 1, [f.dir, bin]), runners.isRunnable(bin),
     'isRunnable now behaves differently when .find/.some pass it (element, index, array). '
     + 'The `(p) => isRunnable(p)` wrappers in devicedoor.js and githubdevice.js are no '
     + 'longer cosmetic: they are load-bearing, and their comments say they are not.');
-  assert.strictEqual(runners.isRunnable(f.dir, 0, [f.dir]), runners.isRunnable(f.dir),
+  assert.strictEqual(runners.isRunnable(f.dir, 1, [bin, f.dir]), runners.isRunnable(f.dir),
     'same, on the DIRECTORY case, which is the one this whole card is about');
   f.cleanup();
 });
@@ -950,7 +975,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      FILE-WIDE and does not classify, which is its strength and also this cost: it
      reds on ANY line carrying both tokens, INCLUDING A COMMENT. So one explanatory
      sentence mentioning canRunClaude and writeState together turns a #1592 test red,
-     in connect.js, the most-edited file in the repo. It holds today by one line and
+     in connect.js, where three branches are live right now. It holds today by one line and
      it is a live tripwire, not a guarantee. Re-measured while writing this: 1 line
      has both, and 27 lines carry writeState without it.
 
@@ -1037,7 +1062,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
      `writeState(` call. The block roughly thirty lines below records the trade
      properly, including that a later blind reviewer priced the file-wide version and
      it lost, because four independent tripwires on connect.js drop to two and
-     connect.js is the most-edited file in this repo.
+     three conflicting branches are live in connect.js right now.
      ⚠️ The paragraph that stood here argued the file-wide count was "STRICTLY
      STRONGER" and "replaces" the scoped one. It describes a design this branch does
      NOT ship, and the numbers it cited belong to that discarded shape. A reader
@@ -1080,7 +1105,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
        file-wide   catches a second writer ANYWHERE, including one placed in
                    another function, which the scoped version misses
        scoped      four independent tripwires on connect.js drop to two, and
-                   connect.js is the most-edited file in this repo
+                   three conflicting branches are live in connect.js
 
      What decided it: THREE of the four branches the plan names as conflicting in
      connect.js are live on origin right now (willinstall-1556, live-1560-pete,
@@ -1115,7 +1140,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
 
        📌 FIFTH, AN ABSENCE RATHER THAN AN EVASION: githubdevice.js's hoist of
        require('./runners') to module scope is ONE OF THREE PRODUCTION EDITS ON THIS BRANCH
-       WITH NO ARM. THE OTHER TWO ARE NAMED BELOW. Measured: reverting it to the lazy require leaves this file at 18
+       WITH NO ARM. THE OTHER TWO ARE NAMED BELOW. Measured: reverting it to the lazy require REDS NOTHING
        🛑 "THE ONE" WAS A SUPERLATIVE AND IT WAS FALSE. A superlative in a residual list is
        the cheapest kind of claim to falsify, and a reviewer falsified this one in a minute.
        THE OTHER TWO, both measured:
@@ -1124,7 +1149,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
          - the dropped re-export of ghCandidateList. This file says elsewhere that anybody
            re-adding it re-opens the duplicate-surface problem and no source arm would see it.
        ⇒ Three unpinned edits, not one. Each is defence in depth and none is guarded.
-       pass 0 fail. The sweep cannot see it (it keys on accessSync, not isRunnable) and
+       The sweep cannot see it (it keys on accessSync, not isRunnable) and
        state()'s own catch upholds "never rejects" either way, which is why the arm
        written for it was removed as undefeatable. It is defence in depth AND it is
        unpinned; both are true, and the second was only in prose until now. */
@@ -1343,9 +1368,9 @@ test('github.js does not reach BACK into githubdevice at call time', async () =>
      only BECAUSE OF `github.js`'s `get candidates()` getter, which is the change this
      branch exists to make: the arm sandboxed itself with the code under test. Under the
      regression it began exec'ing the OPERATOR'S REAL gh and still passed.
-       getter reverted to a bare literal -> door.ghBin() = /opt/homebrew/bin/gh
-       shipped                           -> null
-       reverted, but GH_BIN pinned       -> null
+       (Measurement written out ONCE, on the first arm of this pair. Not restated: the two
+       copies of it had ALREADY DIVERGED in wording, which is the two-copies-of-one-fact
+       defect this branch exists to remove, inside the guard for it.)
 
      ROUND 2 pinned GH_BIN to fix that AND DISARMED THE ARM COMPLETELY, because
      `devicedoor.js` `ghBin()` short-circuits on the bin override BEFORE it reads

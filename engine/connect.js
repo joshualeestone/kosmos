@@ -1031,7 +1031,9 @@ async function start(opts) {
      * `.claude/plans/runnable-dir-1592-20260830.md` directly, and a plan file is a
      * branch artifact with a DATE in its name. ⚠️ THE REASON FIRST GIVEN HERE WAS
      * FALSE: it said such a file "can be pruned or renamed". MEASURED, `.claude/plans`
-     * is tracked on main and carries 587 committed plan files, so it is a durable home.
+     * is TRACKED on main, so it is a durable home. (No file count here on purpose: the
+     * first version said "587 committed plan files" and it was 593 within the hour. A count
+     * in shipped source ages; the property does not.)
      * The conclusion stands on a different footing: a card is where the DISCUSSION is,
      * and a plan file can still be RENAMED even though it is never pruned, after which
      * shipped source would then point at nothing with no signal to the reader.

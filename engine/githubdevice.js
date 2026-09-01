@@ -67,16 +67,16 @@ const store = require('./store');
    📌 That is also why the contract arm written for this file was REMOVED as
    undefeatable: `state()`'s own catch upholds "never rejects" here regardless of
    the hoist. The hoist defends against a WRONG ANSWER, not against a rejection.
-   📌 Safe: `runners.js` requires only node builtins, so there is no cycle.
+   📌 Safe for the same reason devicedoor.js states in full: no cycle is possible.
 
    🛑 AND THIS FILE CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK,
    DELIBERATELY. That cycle detector WARNS rather than throws, on the stated ground that
+   throwing at import bricks the board because `server.js` requires this module with
+   no try. Both are correct and they are not in tension, because they are about
    (Named by mechanism, not by distance: an earlier draft said "thirty lines below" and
    the real distance is now about 180. The parenthetical explaining that had itself been
    spliced BETWEEN this sentence's subject and its verb, which is worse than the citation
    it was correcting.)
-   throwing at import bricks the board because `server.js` requires this module with
-   no try. Both are correct and they are not in tension, because they are about
    DIFFERENT FAILURES:
      a `runners` LOAD failure  -> a corrupt install. Nothing works anyway, and
                                   `server.js` already requires `./engine/runners` at
