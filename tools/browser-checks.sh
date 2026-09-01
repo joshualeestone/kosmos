@@ -637,9 +637,19 @@ cat > "$sb4/fake-claude" <<'FAKE'
 # in their badges -- lowercase "signed in", which the case-sensitive /Signed in/
 # arm does NOT match. Seeding an account would then have turned a passing check
 # red for a reason having nothing to do with what that arm tests.
-# ⚠️ THE DEFAULT ACCOUNT ARRIVES WITH CLAUDE_CONFIG_DIR UNSET, because create.js
-# writes `acct.isDefault ? null : acct.dir`. So "unset" IS the default row, and
-# it is answered signed-in on purpose rather than by omission.
+# ⚠️ THE DEFAULT ACCOUNT ARRIVES WITH CLAUDE_CONFIG_DIR UNSET. So "unset" IS the
+# default row, and it is answered signed-in on purpose rather than by omission.
+# 🛑 AND THE MECHANISM IS `engine/subscription.js:338`, NOT create.js. Nothing
+# reaches this stub through a launch file. `engine/accounts.js` listLiveNow calls
+# `checkLive()` with NO configDir for the default row, and subscription's
+# `else delete env.CLAUDE_CONFIG_DIR` is what actually leaves it unset.
+# This comment used to cite create.js (`acct.isDefault ? null : acct.dir`). That
+# code exists and reads as quoted, and it governs the AGENT-LAUNCH path, which
+# this stub is not on. Both mechanisms independently produce "unset", so the
+# fixture was correct and its stated reason was not the one operating here.
+# The cost is directional and worth naming: anyone changing subscription.js:338
+# breaks this stub's DEFAULT arm and every "Signed in" assertion in
+# render-accounts-openai.js, and the old comment sent them to a different file.
 [ "$1" = auth ] && [ "$2" = status ] && {
   case "${CLAUDE_CONFIG_DIR:-DEFAULT}" in
     # ⚠️ `authMethod` HERE IS A GUESS AND THE FALSE ARM ABOVE IS A CAPTURE. It is
