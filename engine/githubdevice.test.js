@@ -22,6 +22,17 @@ const gd = require('./githubdevice');
  */
 let answers = [];
 let deviceRequests = [];
+/* #1799: a poll from a flow the test has already left can arrive after the next
+   arm has queued its answer, and consume it. Measured twice: the token was taken 2 ms
+   BEFORE the new flow's device-code request, by the cancel arm's poll, still in
+   flight two arms later. The product side is the generation check in githubdevice.js
+   (that poll now bails). The fixture side is here: each flow gets its own device_code
+   and its answers are bound to it at issue, which is also how GitHub keys a token. */
+let deviceSeq = 0;
+/* Answers are BOUND to a flow when its device code is issued, so a poll from a flow
+   the test already left (measured: the cancel arm's poll was still in flight two
+   arms later) finds its own, empty, queue rather than the next arm's token. */
+const boundAnswers = new Map();
 const stub = http.createServer((req, res) => {
   let body = '';
   req.on('data', (d) => { body += d; });
@@ -29,11 +40,17 @@ const stub = http.createServer((req, res) => {
     const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
     if (req.url === '/device/code') {
       deviceRequests.push(JSON.parse(body || '{}'));
-      send(200, { device_code: 'dev-123', user_code: 'ABCD-1234', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 0 });
+      deviceSeq += 1;
+      const code = 'dev-' + deviceSeq;
+      boundAnswers.set(code, answers);
+      answers = [];
+      send(200, { device_code: code, user_code: 'ABCD-1234', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 0 });
       return;
     }
     if (req.url === '/token') {
-      const next = answers.length ? answers.shift() : { error: 'authorization_pending' };
+      const asked = JSON.parse(body || '{}').device_code;
+      const queue = boundAnswers.get(asked) || [];
+      const next = queue.length ? queue.shift() : { error: 'authorization_pending' };
       send(200, next);
       return;
     }
@@ -201,7 +218,15 @@ test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place
     answers = [{ access_token: 'tok-1787', token_type: 'bearer', scope: 'repo' }];
     const started = await gd.start();
     assert.equal(started.phase, 'awaiting', 'the flow did not start, so nothing was tested');
-    await settle(400);
+    /* Wait for the SIGNAL, not the clock: a fixed settle(400) went red under load with
+       'the new token was not stored', a false red in the direction of the bug. */
+    let st = null;
+    for (let i = 0; i < 200; i += 1) {
+      st = await gd.state();
+      if (st.phase !== 'awaiting' && st.phase !== 'completing') break;
+      await settle(25);
+    }
+    assert.equal(st && st.phase, 'idle', `the flow ended at ${st && st.phase} (${st && st.because}), not idle, so the write under test never happened`);
 
     assert.equal(fs.readFileSync(gd.FILE, 'utf8').trim(), 'tok-1787',
     'the new token was not stored, so this arm is not testing the write');
@@ -222,7 +247,7 @@ test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place
    `.catch(() => {})` means an exception on the completing path leaves FLOW pinned at
    COMPLETING with `because: null` and no reschedule: the sign-in never finishes and
    nothing anywhere says why. #1787 widened that gap by adding a new throw source,
-   `refuseSymlinkTarget`'s ELOOP, which the old in-place write never raised.
+   `refuseSymlinkTarget`'s ERR_KOSMOS_SYMLINK, which the old in-place write never raised.
 
    ⚠️ THE OBVIOUS FIXTURE IS THE WRONG ONE, and it cost me an arm that measured
    something else. Planting a symlink at `FILE` does make the writer throw, but it ALSO
@@ -235,7 +260,7 @@ test('#1787: a writer throw on the completing path is reported, not swallowed in
   const realWriteSecret = securewrite.writeSecret;
   securewrite.writeSecret = () => {
     const e = new Error('refusing to write a secret through a symlink at /x');
-    e.code = 'ELOOP';
+    e.code = 'ERR_KOSMOS_SYMLINK'; // the writer's own code since iteration 7, not the kernel's ELOOP
     throw e;
   };
   try {
@@ -269,9 +294,10 @@ test('#1787: a writer throw on the completing path is reported, not swallowed in
     /* Pin the SENTENCE, not merely `connected === false`: a hung flow is also not
        connected, so a bare falsy check would pass while the bug is present. */
     assert.match(String(st.because || ''), /could not save the token/,
-      `the flow reported "${st.because}" instead of the write failure: FLOW stayed at `
-      + 'COMPLETING and schedulePoll swallowed the throw, which is the defect this arm '
-      + 'exists for');
+      `the flow reported "${st.because}" at phase ${st.phase} instead of the write failure: `
+      + (st.phase === 'completing'
+        ? 'FLOW stayed at COMPLETING and schedulePoll swallowed the throw, which is the defect this arm exists for'
+        : 'the poll never reached the writer at all (a stalled or stolen poll, see #1799), so this arm measured nothing'));
     assert.equal(fs.existsSync(gd.FILE), false, 'a token was stored despite the writer throwing');
   } finally {
     securewrite.writeSecret = realWriteSecret;
