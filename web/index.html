@@ -6646,6 +6646,20 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <pre class="pj-screen" id="d-window" tabindex="0" hidden
          role="region" aria-labelledby="d-window-label"></pre>
     <p class="dhint" id="d-window-msg" hidden></p>
+    <!-- #967: a respond-in-context box, so a person watching the live pane can
+         answer the agent without switching to the Talk tab. It reuses the SAME
+         delivery path the Talk composer uses (POST the agent's thread), so it is
+         a surface addition, not a new mechanism: paintTalk drives both this and
+         the Talk composer from one presence read, so they gate identically, and
+         the receipt is the same honest verdict. The full conversation still
+         lives on the Talk tab; this is a quick line into the window. -->
+    <div class="dmbar composerbox" id="d-term-composer" style="margin-top:14px;">
+      <input type="text" class="cinput" id="d-term-say" maxlength="2000"
+             aria-label="Send a message into this agent's window"
+             placeholder="Send a message into this window&hellip;">
+      <button class="btn uprime cpost" id="d-term-send" type="button">Send</button>
+    </div>
+    <p class="dhint" id="d-term-say-msg" role="status" aria-live="polite" style="margin:6px 0 0;"></p>
   </section>
   <!-- Two sentences for the box being hidden, and `data-tied` on the section
        says which is true: a tied agent's first capture is in flight (the box
@@ -17443,6 +17457,19 @@ async function paintTalk(sessionName, agentName) {
     ? name + ' cannot be reached right now'
     : 'Message ' + name + '\u2026';
   document.getElementById('d-send').disabled = body.presence === 'off' || flying;
+  /* #967: the Terminal tab's respond-in-context box shares this one presence
+     read, so it gates identically to the composer above rather than computing
+     reachability a second way. paintTalk runs on the detail poll whichever
+     sub-tab is open, so this stays current while the person watches the pane. */
+  const termSay = document.getElementById('d-term-say');
+  const termSend = document.getElementById('d-term-send');
+  if (termSay && termSend) {
+    termSay.disabled = body.presence === 'off';
+    termSay.placeholder = termSay.disabled
+      ? name + ' cannot be reached right now'
+      : 'Send a message into this window…';
+    termSend.disabled = body.presence === 'off' || flying;
+  }
   // The parked draft comes back, and never over words already in the box.
   if (!say.disabled && !say.value && TALK_DRAFTS[sessionName]) say.value = TALK_DRAFTS[sessionName];
   attachPaint(ATTACH_AGENT);   // this agent's pending files, not the last one's
@@ -30262,6 +30289,63 @@ document.getElementById('d-send').addEventListener('click', () => {
   const text = say.value.trim();
   if (text) sendTalk(text);
   else if (attachList(ATTACH_AGENT).length) sendTalk(attachList(ATTACH_AGENT).map((r) => r.name).join(', '));
+});
+
+/* #967: the Terminal tab's respond-in-context send. Reuses the SAME endpoint as
+   sendTalk (POST the agent's thread), so it is the one delivery mechanism
+   surfaced beneath the live pane, not a second one. It keeps its own small
+   sending guard and receipt line rather than borrowing the Talk composer's
+   elements, which live on a different tab. The clear-on-placed / keep-on-doubt
+   rule matches sendTalk and pjSend, so the three composers agree about what a
+   send did. */
+let TERM_SENDING = false;
+async function sendTerm() {
+  const say = document.getElementById('d-term-say');
+  const send = document.getElementById('d-term-send');
+  const msg = document.getElementById('d-term-say-msg');
+  if (!say || !CURRENT) return;
+  const text = (say.value || '').trim();
+  if (!text) return;
+  if (TERM_SENDING) { if (msg) msg.textContent = 'Still sending your last message. Try again in a moment.'; return; }
+  TERM_SENDING = true;
+  const sentName = CURRENT.sessionName;
+  const name = CURRENT.name || sentName;
+  if (send) send.disabled = true;
+  if (msg) msg.textContent = 'Sending…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { if (msg) msg.textContent = body.error || (name + ' could not be reached right now.'); return; }
+    const d = body.delivery || {};
+    const note = d.paneNote ? ' (' + d.paneNote + ')' : '';
+    if (d.state === 'placed') {
+      /* Reached the agent, so the box is not the only copy: clear it, matching
+         sendTalk's rule, and only if the box still holds exactly this text. */
+      if (say.value.trim() === text) say.value = '';
+      if (msg) msg.textContent = 'Sent to ' + name + note + '.';
+    } else if (d.state === 'unconfirmed') {
+      /* May not have arrived: the words stay for a retry. */
+      if (msg) msg.textContent = 'Sent, but we could not confirm it arrived' + note + '. Your message is kept here to try again.';
+    } else {
+      /* could_not: nothing reached the pane; keep the words. */
+      if (msg) msg.textContent = (d.because || (name + ' could not be handed the message')) + note + '.';
+    }
+  } catch {
+    if (msg) msg.textContent = 'We could not send that just now. Your message is kept here to try again.';
+  } finally {
+    TERM_SENDING = false;
+    if (send) send.disabled = false;
+  }
+}
+document.getElementById('d-term-send').addEventListener('click', sendTerm);
+document.getElementById('d-term-say').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  sendTerm();
 });
 /* The park itself: every keystroke files the draft under the open agent, so no
    navigation order can lose it. */
