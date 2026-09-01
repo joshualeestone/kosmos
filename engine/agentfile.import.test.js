@@ -122,6 +122,28 @@ test('#1652: input that travelled (CRLF line endings and a leading BOM) still im
   assert.equal(out.displayName, 'Travelled');
 });
 
+test('#1652: a value cannot span lines -- an empty key line does not adopt the next line', () => {
+  /* field() uses [ \t]*, not \s*, so an empty `name:`/`kosmos:` line does not
+     pull the next line's text as its value (which would smuggle a value the
+     author never wrote on that line). */
+  const smuggledName = agentfile.importAgent('---\nkosmos: agent\nname:\nsmuggled-name\n---\n\n# You are X\n', deps);
+  assert.equal(smuggledName.ok, false, 'an empty name line adopted the next line as its value');
+  assert.match(smuggledName.because, /no usable name/);
+  assert.equal(agentfile.importAgent('---\nkosmos:\nagent\nname: n\n---\n\n# You are X\n', deps).ok, false,
+    'an empty kosmos line adopted the next line as the marker value');
+  // CONTROL: the value ON its own line is read normally.
+  assert.equal(agentfile.importAgent('---\nkosmos: agent\nname: onthisline\n---\n\n# You are X\n', deps).name, 'onthisline');
+});
+
+test('#1652 REFUSED WHOLE: a pathologically large file, before any parsing work', () => {
+  const huge = '---\nkosmos: agent\nname: big\n---\n\n# You are Big\n' + 'x'.repeat(600 * 1024);
+  const out = agentfile.importAgent(huge, deps);
+  assert.equal(out.ok, false, 'a file past the size ceiling was accepted');
+  assert.match(out.because, /too large/);
+  // CONTROL: a normal-size file of the same shape is accepted.
+  assert.equal(agentfile.importAgent('---\nkosmos: agent\nname: big\n---\n\n# You are Big\n', deps).ok, true);
+});
+
 test('#1652: missing the injected deps is refused, not thrown (mirrors export)', () => {
   const out = agentfile.importAgent(exportedFile('nodeps'), {});
   assert.equal(out.ok, false);
