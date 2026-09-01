@@ -56,7 +56,15 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # 🛑 macOS, NOT ubuntu. This is a macOS app's suite and it is not portable to
+    # Linux: measured on ubuntu-latest, ~40 tests fail on platform assumptions the
+    # product legitimately makes -- `/tmp` is a symlink on macOS but not on Linux,
+    # and the install path refuses with "this platform (linux) is not supported; the
+    # Claude Code binary is a macOS build". Those are correct product behaviours, so
+    # the fix is the runner, not the tests. macos-latest matches the developer Macs,
+    # where the suite is green. (A first attempt on ubuntu-latest went red on exactly
+    # these platform tests; recorded so nobody re-picks ubuntu for this suite.)
+    runs-on: macos-latest
     # run-tests.sh boots boards and servers; bound a hung run rather than let it
     # sit on the 360-minute default. The suite is ~2-3 min, so 15 is generous.
     timeout-minutes: 15
