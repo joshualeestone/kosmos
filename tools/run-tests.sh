@@ -106,6 +106,18 @@ if [ "$NODE_STATUS" -eq 0 ]; then
   yarn -s test:shell
   NODE_STATUS=$?
 fi
+# --- #1720: the repo-local browser-check gate ---------------------------------
+# A committed web/ change must carry a docs/browser-checks/ assertion update, or an
+# explicit `Browser-check: <reason>` override trailer, else this branch is refused
+# here -- before an unasserted rendered surface can merge and reach a release, the
+# gap that killed a cut. Run in a subshell so the lib's IFS/globals do not leak.
+# The lib is fail-soft (returns 0 when it cannot diff), so this only ever reds a
+# real branch gap: on main / a detached HEAD / a fresh clone origin/main...HEAD is
+# empty or unreadable and the gate passes.
+if [ "$NODE_STATUS" -eq 0 ]; then
+  ( . "$(dirname "$0")/lib/browser-check-gate.sh" && kosmos_browser_check_gate )
+  NODE_STATUS=$?
+fi
 
 # --- name the machine, only beside a red -------------------------------------
 if [ "$NODE_STATUS" -eq 126 ] || [ "$NODE_STATUS" -eq 127 ]; then
