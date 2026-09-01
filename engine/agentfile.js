@@ -147,8 +147,9 @@ function exportAgent(name, deps) {
  */
 function importAgent(text, deps) {
   const identityFromText = deps && deps.identityFromText;
-  if (typeof identityFromText !== 'function') {
-    return { ok: false, because: 'import needs the identity parser' };
+  const nameUsable = deps && deps.nameUsable;
+  if (typeof identityFromText !== 'function' || typeof nameUsable !== 'function') {
+    return { ok: false, because: 'import needs the identity parser and the name check' };
   }
   /* Input hygiene, NOT a new format: a file that travelled by email or chat can
      pick up a leading BOM or CRLF line endings. Strip/normalise them before
@@ -170,9 +171,20 @@ function importAgent(text, deps) {
   if (field('kosmos') !== KIND) {
     return { ok: false, because: 'this file is not a Kosmos agent file' };
   }
-  // (3) a name present and usable (safeValue rejects empty and newlines).
+  // (3) a name present and usable.
   const name = field('name');
   if (!name) return { ok: false, because: 'the agent file has no usable name' };
+  /* 🛑 PATH-SAFETY IS THIS SURFACE'S JOB, and it is where the collision concern
+     and the safety concern part ways. A NAME COLLISION with a running agent is
+     machine state the create flow decides; PATH-SAFETY is a pure property of the
+     string itself (`..`, a slash, a NUL would become a folder, a tmux session
+     and a launchd label), so a file carrying one is a hostile file and is
+     refused WHOLE here rather than passed downstream trusting create to catch
+     it. Injected so there is ONE answer (create.nameUsable), never a second copy
+     that guards less -- the exact defect that file's own comment warns about. */
+  if (!nameUsable(name)) {
+    return { ok: false, because: 'the agent file’s name is not a usable agent name' };
+  }
 
   // (4) the body must name somebody, the same call adoption uses.
   const body = src.slice(m[0].length);
