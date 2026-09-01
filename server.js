@@ -39,6 +39,9 @@ const {
      the offline rows below. `register.survey`'s shownAs cannot answer it --
      shownName falls back to the machine name, so it is never empty. */
   readIdentity,
+  /* #1652: the body-names-somebody check the import parse endpoint injects into
+     agentfile.importAgent, the same call adoption uses. */
+  identityFromText,
 } = require('./engine/status');
 const removal = require('./engine/remove');
 const leftover = require('./engine/delete-leftover');
@@ -140,6 +143,7 @@ const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the co
   }
 }
 const create = require('./engine/create');
+const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for
    the agents it can see; this is the same question asked about an agent with no
@@ -5117,6 +5121,39 @@ const server = http.createServer((req, res) => {
         // server-side failure (the token file could not be written), so it is a 500.
         if (!minted.ok) { sendJson(res, 500, { issued: false, because: minted.because }); return; }
         sendJson(res, 200, { issued: true, name, token: minted.token, instance: minted.instance });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
+    return;
+  }
+
+  /* The parse half of the fourth create-an-agent option (#1652). Body {file: <text>}
+     -> agentfile.importAgent -> the validated material the create form pre-fills,
+     or a whole refusal. It does NOT create the agent: the fourth option hands the
+     returned name/instructions/provider to POST /api/agents like the other three
+     options, so import reuses the ONE canonical creation path (id mint, projects,
+     first-agent home, launchd, tmux) rather than becoming a second, thinner one.
+     Loopback-only: creating an agent is, and a parse that feeds it is too -- this
+     route is deliberately NOT in REMOTE_AGENT_ROUTES, so remoteWriteGuard refuses a
+     remote peer (the #1764 reach test asserts it). `body` is returned as
+     `instructions`, the field name the create form and POST /api/agents use. */
+  if (pathname === '/api/agent-import' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read');
+          bad.status = 400; throw bad;
+        }
+        const file = body && typeof body.file === 'string' ? body.file : '';
+        const parsed = agentfile.importAgent(file, { identityFromText, nameUsable: create.nameUsable });
+        if (!parsed.ok) { sendJson(res, 200, { ok: false, because: parsed.because }); return; }
+        sendJson(res, 200, {
+          ok: true,
+          name: parsed.name,
+          displayName: parsed.displayName,
+          provider: parsed.provider,
+          instructions: parsed.body,
+        });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
     return;
