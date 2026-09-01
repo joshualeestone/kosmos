@@ -210,8 +210,66 @@ test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place
     + 'means no rename, so the access_token bytes were on disk at 0644 before the chmod');
     assert.equal(fs.statSync(gd.FILE).mode & 0o777, 0o600, 'the credential was left loose');
   } finally {
-    /* Restore on EVERY path. A failing assertion above would otherwise leak this
-       env var into any test added after this one. */
+    /* Restore on EVERY path. A failing assertion above would otherwise leak this env
+       var AND a stored token into any test added after this one: cloudflare unlinks in
+       beforeEach and tokendoor calls forget(), but this file does neither for FILE. */
     delete process.env.KOSMOS_GITHUB_CLIENT_ID;
+    try { fs.rmSync(gd.FILE, { force: true }); } catch { /* nothing stored */ }
+  }
+});
+
+/* 🛑 A THROW FROM THE WRITER MUST BE REPORTED, NOT SWALLOWED. `schedulePoll`'s
+   `.catch(() => {})` means an exception on the completing path leaves FLOW pinned at
+   COMPLETING with `because: null` and no reschedule: the sign-in never finishes and
+   nothing anywhere says why. #1787 widened that gap by adding a new throw source,
+   `refuseSymlinkTarget`'s ELOOP, which the old in-place write never raised.
+
+   ⚠️ THE OBVIOUS FIXTURE IS THE WRONG ONE, and it cost me an arm that measured
+   something else. Planting a symlink at `FILE` does make the writer throw, but it ALSO
+   makes the held-token read return the victim's bytes, so `state()` reports "GitHub no
+   longer accepts the held sign-in" and the arm never sees the write failure at all.
+   Two effects from one plant. Stubbing `writeSecret` isolates the throw. */
+test('#1787: a writer throw on the completing path is reported, not swallowed into a hang', async () => {
+  process.env.KOSMOS_GITHUB_CLIENT_ID = 'Iv1.testclient';
+  const securewrite = require('./securewrite');
+  const realWriteSecret = securewrite.writeSecret;
+  securewrite.writeSecret = () => {
+    const e = new Error('refusing to write a secret through a symlink at /x');
+    e.code = 'ELOOP';
+    throw e;
+  };
+  try {
+    fs.rmSync(gd.FILE, { force: true });
+    answers = [{ access_token: 'tok-throw', token_type: 'bearer', scope: 'repo' }];
+    const started = await gd.start();
+    assert.equal(started.phase, 'awaiting', 'the flow did not start, so nothing was tested');
+
+    /* ⚠️ WAIT FOR THE SIGNAL, NOT THE CLOCK. A fixed `settle(400)` made this arm
+       FLAKY: when the poll had not completed yet the phase was still `awaiting` and
+       `because` was null, so the arm reported the very hang it exists to detect and
+       the failure was indistinguishable from the real bug. Poll for a terminal phase
+       instead, with a bounded number of tries so a genuine hang still fails. */
+    let st = null;
+    for (let i = 0; i < 40; i += 1) {
+      st = await gd.state();
+      if (st.phase !== 'awaiting' && st.phase !== 'completing') break;
+      await settle(25);
+    }
+    assert.notEqual(st, null, 'the flow never reported a state at all');
+    assert.notEqual(st.phase, 'completing',
+      'the flow is STILL at completing after a second: that is the silent hang this arm '
+      + 'exists for, with schedulePoll having swallowed the throw');
+    assert.equal(st.connected, false, 'a refused write reported as connected');
+    /* Pin the SENTENCE, not merely `connected === false`: a hung flow is also not
+       connected, so a bare falsy check would pass while the bug is present. */
+    assert.match(String(st.because || ''), /could not save the token/,
+      `the flow reported "${st.because}" instead of the write failure: FLOW stayed at `
+      + 'COMPLETING and schedulePoll swallowed the throw, which is the defect this arm '
+      + 'exists for');
+    assert.equal(fs.existsSync(gd.FILE), false, 'a token was stored despite the writer throwing');
+  } finally {
+    securewrite.writeSecret = realWriteSecret;
+    delete process.env.KOSMOS_GITHUB_CLIENT_ID;
+    try { fs.rmSync(gd.FILE, { force: true }); } catch { /* nothing */ }
   }
 });

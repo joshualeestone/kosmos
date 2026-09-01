@@ -17,6 +17,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fleet = require('../test-support/fleet');
 const sendertoken = require('./sendertoken');
+/* #1787: the refusal moved to `engine/securewrite.js`. These arms are kept here
+   because they were #1761's proof and the history is worth reading beside the card
+   they belong to, but they call the OWNING module: `sendertoken` re-exporting a
+   function it no longer calls implied an ownership it does not have. The canonical
+   arms for the writer live in `engine/securewrite.test.js`. */
+const securewrite = require('./securewrite');
 
 test.after(() => {
   fleet.restore();
@@ -481,18 +487,18 @@ test('#1761: with O_NOFOLLOW absent, a symlink target is REFUSED by hand', () =>
   fs.symlinkSync(victim, linked);
 
   // The win32 shape: the constant does not exist, so the check must be done by hand.
-  assert.throws(() => sendertoken.refuseSymlinkTarget(linked, undefined),
+  assert.throws(() => securewrite.refuseSymlinkTarget(linked, undefined),
     (e) => e.code === 'ELOOP',
     'a symlink target was accepted on the platform with no O_NOFOLLOW');
 
   // CONTROLS, or the throw above proves only that it throws at everything.
   const plain = path.join(SANDBOX, 'seam-plain.json');
   fs.writeFileSync(plain, '{}');
-  assert.doesNotThrow(() => sendertoken.refuseSymlinkTarget(plain, undefined),
+  assert.doesNotThrow(() => securewrite.refuseSymlinkTarget(plain, undefined),
     'a plain file was refused, so the check is not discriminating');
-  assert.doesNotThrow(() => sendertoken.refuseSymlinkTarget(path.join(SANDBOX, 'seam-absent.json'), undefined),
+  assert.doesNotThrow(() => securewrite.refuseSymlinkTarget(path.join(SANDBOX, 'seam-absent.json'), undefined),
     'an absent path was refused: there is nothing there to follow');
-  assert.doesNotThrow(() => sendertoken.refuseSymlinkTarget(linked, 256),
+  assert.doesNotThrow(() => securewrite.refuseSymlinkTarget(linked, 256),
     'the check ran even though the kernel would enforce O_NOFOLLOW, which is redundant work');
 });
 
