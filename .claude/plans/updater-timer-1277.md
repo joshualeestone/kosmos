@@ -511,3 +511,35 @@ that rather than merely justifying the omission.
 
 ⭐ An excuse that says why a file cannot comply is not the same as a file that
 is safe. I wrote the first and called it the second.
+
+## I audited every "checkable" claim I wrote on this branch, and ran them
+
+A claim labelled checkable that nobody has run is worse than no claim, because
+the label is what stops the next reader checking. I wrote four of them and had
+run none. Results, each by perturbing the named line and reading which arm moved:
+
+| claim | verdict |
+|---|---|
+| delete `stopAutoPoll()` from `resetCache`, `engine/update.test.js` goes red | TRUE, and exactly the named arm |
+| delete `updates.startAutoPoll()` from `server.js`, the wiring test goes red and `engine/update.test.js` stays green | TRUE, both arms |
+| `engine/create.js` checks the runner BEFORE `DRY_RUN` | TRUE, `:266` then `:267` |
+| delete `create.setRunner(fake)` from the switch-account test and its control goes red | **FALSE** |
+
+The false one is the interesting one. Removing that interception leaves all six
+of that file's tests green. Instrumenting the seam says why, and the two numbers
+are the finding: a control marker proving the probe ran fired **once**, and
+recorded invocations of the create runner were **zero**. That file never reaches
+the seam. The interception is defence in depth, not the thing protecting it.
+What protects it is the #1598 fail-closed live-execution gate at
+`engine/create.js:268`, which throws in a test process unless `server.js` has
+called `allowLiveExecution()` on its real start path.
+
+So the exemption itself stands, and the reason printed under it did not. That is
+the fourth time on this branch that a correct thing carried a wrong reason, and
+the pattern is now clear enough to state: **I am reliably right about what to do
+and unreliably right about why**, and the wrong why survives because it sits
+above something green. Nothing in a test run reads a sentence.
+
+Two of the three true claims were verified only because I went looking; neither
+had been run when I wrote them either. The audit is cheap, it is one perturbation
+per claim, and it found the one that mattered.
