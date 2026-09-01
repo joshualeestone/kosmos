@@ -112,6 +112,29 @@ CLOSED.** Two arms, both with controls:
 ⇒ **Both arms were needed. An identifier sweep alone would have reported clean while
 the real dead pointer sat in prose.**
 
+## Review pass 2: two findings, and BOTH were me committing this branch's own defect
+
+🛑 **THE PLAN CLAIM ABOVE WAS FALSE WHEN I WROTE IT.** The fourth bullet of pass 1
+says "The quotation marks and attribution are gone." **Only the attribution was.** The
+quotation marks still stood, so the dead quote had become an UNSOURCED quote, which is
+worse than the attributed one: a reader can no longer discover that the source is
+missing. Both are gone now, so the sentence is true today, and it is recorded here
+that it was not true when it was written.
+
+⭐ **That is this branch's subject arriving in the branch's own plan: a claim that
+outlived the thing it described.** It is also why the bullet was not quietly edited.
+
+📌 **The second finding was the splice-vs-rewrite rule, broken in the commit that
+restored it.** Two orphaned short lines ("and it was the residual divergence",
+"✅ The override is instead an env var carrying") from editing a LINE rather than
+rewriting the SENTENCE, in a diff whose own Method section forbids exactly that. Both
+paragraphs rewrapped whole.
+
+⚠️ **Two pre-existing prose defects were found and DELIBERATELY NOT FIXED**:
+`githubdevice.js:119-120`, a `/**` block whose continuation lines lack the ` * `
+prefix. Verified present on `origin/main` (line 147), in a block this branch never
+touched. Fixing them would be scope this card did not ask for.
+
 ## Not done here
 
 `engine/firstrun.js` is 3.95 and untouched. It was not part of the #1606 diff, so
