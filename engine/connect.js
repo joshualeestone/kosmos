@@ -45,8 +45,12 @@
    removing a resolution site silently staled three of them. That is the
    two-copies-of-one-fact defect this branch exists to remove, reproduced in prose.
    ⇒ The sites now point HERE instead of enumerating each other.
-   📌 The one deliberate EXCLUSION is `binaryOnDisk` in `start()`, which is conditional
-   and behind an await; the reason is written at that site. */
+   📌 The one deliberate EXCLUSION is `binaryOnDisk` in `start()`. It is not computed at
+   all on the common path, being inside the CONNECTED arm, and where it IS computed the
+   disk can change before this pair reads. The full reason is at that site.
+   ⚠️ This summary used to say "conditional and behind an await", which kept the await-count
+   evidence THE SITE ITSELF WITHDRAWS as "the wrong KIND of argument". Two copies of one
+   rationale, diverged, in the comment written to stop exactly that. */
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -964,11 +968,11 @@ async function start(opts) {
      * `resolveBin().present` is exactly that.
      * ⚠️ THIS SAID "`accessSync` is synchronous and answers the question this
      * branch actually needs". IT DOES NOT ANSWER IT: the raw execute-permission
-     * check succeeds on a DIRECTORY, which the block fifteen lines below spells
+     * check succeeds on a DIRECTORY, which the refutation block further down spells
      * out in full (and this sentence deliberately avoids spelling the call, because
      * the #1592 sweep pins every line that does, and it caught this edit). The
      * branch rewrote this same phrasing at three other sites and left this one
-     * standing, fifteen lines above its own refutation.
+     * standing, above its own refutation. (Named by position, not distance: a sibling file records a draft that said "thirty lines below" when the real distance had become 180.)
      *
      * 🛑 A BINARY THAT EXISTS AND DOES NOT RUN STILL REPORTS CONNECTED HERE, AND
      * NOTHING CORRECTS IT. This branch's verdict is TERMINAL: `start()` returns
