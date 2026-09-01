@@ -330,7 +330,13 @@ function readStatusRecord() {
    write and the `rm -f "$4"` (a board killed there). Suppress it in that case, or
    a successful-then-killed install would falsely read as interrupted. A status for
    a DIFFERENT (earlier) attempt does not suppress: the marker is then a genuine
-   later interruption, and seedFromDisk's newest-wins picks it. */
+   later interruption, and seedFromDisk's newest-wins picks it.
+   📌 One residual this cannot suppress: a success killed in the microsecond window
+   AFTER `curl | sh` returned but BEFORE the shell wrote the status leaves a marker
+   with no status to match, so it reads as interrupted. The window is a synchronous
+   shell tail after a multi-second pipeline, and the board's separate boot/version
+   signals contradict a false "interrupted", so this is an inherent tiny residual
+   of the marker approach rather than a defect to fix. */
 function readStartedRecord() {
   const file = installStartedFile();
   if (!file) return null;

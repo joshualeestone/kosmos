@@ -1,9 +1,29 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
 const update = require('./update');
 const { version: RUNNING } = require('../package.json');
 
-test.beforeEach(() => { update.resetCache(); update.setFetcher(null); update.setBase(null); });
+// #1728: a real, writable temp install root for the #553 tests below. They used
+// a hardcoded absolute install path, which did no filesystem I/O before --
+// the injected fake runner did nothing. But wireChild now writes a durable
+// in-flight marker (logs/install.started), so a hardcoded absolute root would
+// drop a stray marker into a real directory on any host where it is writable
+// (root CI, a real board), which a later boot would read back as a spurious
+// "interrupted" attempt. A mkdtemp root keeps every write inside a sandbox.
+const INSTALL_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-553-'));
+
+test.beforeEach(() => {
+  update.resetCache(); update.setFetcher(null); update.setBase(null);
+  // #1728: markInstallStarted now writes a durable marker to <root>/logs, and the
+  // #553 tests share INSTALL_ROOT, so a marker or status file left by one test
+  // would seed lastAttempt() in the next (defeating "nothing attempted yet").
+  // Clear the shared install-state dir before each test; resetCache() only clears
+  // the in-memory record, not the disk it re-seeds from.
+  try { fs.rmSync(path.join(INSTALL_ROOT, 'logs'), { recursive: true, force: true }); } catch { /* absent is fine */ }
+});
 
 test('newer(): strictly numeric dotted-triple, and unknown loses', () => {
   assert.equal(update.newer('0.1.1', '0.1.0'), true);
@@ -169,13 +189,13 @@ test.afterEach(() => {
 });
 
 test('a look that finds a newer version installs it when the switch is on', async () => {
-  const started = autoSetup({ latest: '99.0.0', pref: { on: true, ok: true }, root: '/opt/kosmos' });
+  const started = autoSetup({ latest: '99.0.0', pref: { on: true, ok: true }, root: INSTALL_ROOT });
   await update.refresh();
   assert.equal(started(), 1, 'the switch is on and a newer version went uninstalled');
 });
 
 test('the switch off means the same look installs nothing', async () => {
-  const started = autoSetup({ latest: '99.0.0', pref: { on: false, ok: true }, root: '/opt/kosmos' });
+  const started = autoSetup({ latest: '99.0.0', pref: { on: false, ok: true }, root: INSTALL_ROOT });
   await update.refresh();
   assert.equal(started(), 0, 'software installed itself against the person\'s choice');
   // and the offer is still THERE -- off means "do not install", not "do not tell me".
@@ -184,7 +204,7 @@ test('the switch off means the same look installs nothing', async () => {
 });
 
 test('an unreadable preference installs nothing', async () => {
-  const started = autoSetup({ latest: '99.0.0', pref: { on: false, ok: false }, root: '/opt/kosmos' });
+  const started = autoSetup({ latest: '99.0.0', pref: { on: false, ok: false }, root: INSTALL_ROOT });
   await update.refresh();
   assert.equal(started(), 0);
 });
@@ -196,7 +216,7 @@ test('a from-source checkout is never auto-installed over', async () => {
 });
 
 test('nothing newer, nothing installed', async () => {
-  const started = autoSetup({ latest: RUNNING, pref: { on: true, ok: true }, root: '/opt/kosmos' });
+  const started = autoSetup({ latest: RUNNING, pref: { on: true, ok: true }, root: INSTALL_ROOT });
   await update.refresh();
   assert.equal(started(), 0);
 });
@@ -204,7 +224,7 @@ test('nothing newer, nothing installed', async () => {
 test('a preference that throws costs the update notice nothing', async () => {
   update.resetCache();
   update.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
-  update.setInstalledRoot(() => '/opt/kosmos');
+  update.setInstalledRoot(() => INSTALL_ROOT);
   update.setAutoPref(() => { throw new Error('bad mount'); });
   update.setInstallRunner(() => {});
   await update.refresh();
@@ -213,7 +233,7 @@ test('a preference that throws costs the update notice nothing', async () => {
 });
 
 test('repeated looks cannot stack installers', async () => {
-  const started = autoSetup({ latest: '99.0.0', pref: { on: true, ok: true }, root: '/opt/kosmos' });
+  const started = autoSetup({ latest: '99.0.0', pref: { on: true, ok: true }, root: INSTALL_ROOT });
   await update.refresh();
   await update.refresh();
   await update.refresh();
@@ -232,7 +252,7 @@ test('an automatic install that keeps failing does not retry every look', async 
    */
   update.resetCache();
   update.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
-  update.setInstalledRoot(() => '/opt/kosmos');
+  update.setInstalledRoot(() => INSTALL_ROOT);
   update.setAutoPref(() => ({ on: true, ok: true }));
   let started = 0;
   /* A runner that FAILS the way a real one does: the spawn succeeds and the
@@ -280,7 +300,7 @@ test('a PERSON whose install fails does not suppress the next automatic one', as
   await new Promise((r) => setTimeout(r, 5));  // its exit releases the flag
 
   update.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
-  update.setInstalledRoot(() => '/opt/kosmos');
+  update.setInstalledRoot(() => INSTALL_ROOT);
   update.setAutoPref(() => ({ on: true, ok: true }));
   await update.refresh();
   assert.equal(started, 2,
@@ -358,7 +378,7 @@ test('a hostile release base cannot become a command', () => {
 test('#553: a failed install is RECORDED for the page, keyed to its own press, and a new press starts clean', async () => {
   update.resetCache();
   update.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
-  update.setInstalledRoot(() => '/opt/kosmos');
+  update.setInstalledRoot(() => INSTALL_ROOT);
   update.setAutoPref(() => ({ on: false, ok: true }));
   await update.refresh();
   assert.equal(update.lastAttempt(), null, 'the premise: nothing has been attempted yet');
@@ -374,7 +394,7 @@ test('#553: a failed install is RECORDED for the page, keyed to its own press, a
   assert.equal(ended.code, 3, 'the installer\'s exit code did not reach the record');
   assert.equal(ended.startedAt, started.startedAt, 'the ended record lost the press it belongs to');
   assert.ok(ended.endedAt, 'no end stamp');
-  assert.equal(ended.log, '/opt/kosmos/logs/install.log', 'the diary path is not the engine\'s own');
+  assert.equal(ended.log, path.join(INSTALL_ROOT, 'logs', 'install.log'), 'the diary path is not the engine\'s own');
   assert.match(ended.because, /stopped/);
 
   /* A new press: the old failure is history, not a verdict on this one. */
@@ -392,7 +412,7 @@ test('#553: a failed install is RECORDED for the page, keyed to its own press, a
 test('#553: a spawn error records its own sentence, in a run of its own so no earlier exit bleeds in', async () => {
   update.resetCache();
   update.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
-  update.setInstalledRoot(() => '/opt/kosmos');
+  update.setInstalledRoot(() => INSTALL_ROOT);
   update.setAutoPref(() => ({ on: false, ok: true }));
   await update.refresh();
   /* Only 'error' is wired here (a real spawn failure emits it); the
