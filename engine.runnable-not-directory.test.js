@@ -907,9 +907,13 @@ test("':' asks for NO candidates explicitly, and does not fall back to the real 
   const beforeCand = process.env.AGENT_WORKFORCE_GH_CANDIDATES;
   delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
   try {
+  /* 🛑 `path.delimiter`, NOT a literal ':'. Pinning the POSIX separator gave this arm
+     the SAME win32 blindness the code had: on Windows the real separator is ';', so a
+     literal ':' here would assert the wrong spelling on the one platform the branch
+     exists to protect. Identical on POSIX, where path.delimiter IS ':'. */
   assert.deepStrictEqual(
-    gh.ghCandidateList(':'), [],
-    "':' did not yield an empty list, so there is no way to ask for NO candidates and a " +
+    gh.ghCandidateList(path.delimiter), [],
+    'the delimiter alone did not yield an empty list, so there is no way to ask for NO candidates and a ' +
     'sandboxed test reaches the operator\'s own gh installation. ' +
     "📌 ':' is the spelling, NOT ''. An earlier revision made '' mean no-candidates as an " +
     "argument while meaning unset from the env: the SAME value, opposite answers, and the " +
@@ -917,6 +921,23 @@ test("':' asks for NO candidates explicitly, and does not fall back to the real 
     "':'.split(':').filter(Boolean) already yields [], so '' never needed the second meaning. " +
     "That '' now means unset BOTH ways is pinned by TWO arms below, one per arrival route, and is intended."
   );
+  /* 🛑 A SOURCE PIN, BECAUSE NO BEHAVIOURAL ARM ON THIS PLATFORM CAN CATCH THIS.
+     `path.delimiter` IS ':' on POSIX, so reverting the code to a hardcoded ':' leaves
+     every behavioural arm GREEN while breaking Windows completely: a real override
+     reads `C:\\tools\\gh.exe;D:\\alt\\gh.exe`, and splitting that on ':' yields three
+     fragments that all fail `isRunnable`, so the door and `ghPresent` both report gh
+     missing with no diagnostic.
+     ⚠️ This is the ONLY arm that fails when the separator regresses. Do not delete it
+     because 'the behaviour is covered' -- on this machine it provably is not. */
+  const ghSrc = fs.readFileSync(require.resolve('./engine/github.js'), 'utf8');
+  assert.match(ghSrc, /split\(path\.delimiter\)/,
+    'engine/github.js no longer splits AGENT_WORKFORCE_GH_CANDIDATES on path.delimiter. '
+    + 'A hardcoded separator is invisible to every test on POSIX and breaks every Windows '
+    + 'operator who sets the override.');
+  assert.doesNotMatch(ghSrc, /override\.split\('[:;]'\)/,
+    'engine/github.js splits the gh candidates override on a hardcoded separator. '
+    + 'Use path.delimiter.');
+
   // Control: undefined MUST still give the real defaults, or "[]" above would be
   // the answer to everything and would prove nothing.
   assert.deepStrictEqual(
