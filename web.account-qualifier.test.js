@@ -521,29 +521,46 @@ test('#1659: EVERY live Disconnect explains itself before the press, on both pro
 });
 
 test('#1659: the OpenAI tooltip carries the history clause PER ROW, not unconditionally', () => {
-  /* The consequence is default-only for OpenAI, so both directions are wrong in a way
-     a person feels: unconditional tells a labelled account it loses history it never
-     had, and absent lets the DEFAULT row read as consequence-free before the press and
-     then gain a consequence after it. The route already decides this per row; the
-     tooltip is the surface read FIRST and must agree. */
-  /* BOTH comment forms. Stripping only block comments left the adjacency lookback
-     below spanning a long `//` block, so the first writer read as unguarded when its
-     cancel was merely further away in PROSE than in code. Line comments are removed
-     only when the line STARTS with `//`, so a `https://` inside a string survives. */
-  const CODE = PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  const openai = CODE.match(/data-forget-provider="openai"[\s\S]*?>Disconnect<\/button>/);
-  assert.ok(openai, 'the OpenAI Disconnect branch was not found, so this test asserts nothing');
-  /* 🛑 ANCHOR ON THE OPENING PAREN. `/a\.isDefault \?/` MATCHES INSIDE
-     `!a.isDefault ?`, so the inversion this test's own message calls out ("both
-     directions are wrong in a way a person feels") sailed through: measured at 34 pass,
-     0 fail, no named test red, while the shipped effect was the default row reading
-     consequence-free before the press and every labelled account being told it lost
-     transcripts codex never kept there. The Claude sibling got this right by accident,
-     anchoring on `': (a.isDefault'`. */
-  assert.match(openai[0], /\(a\.isDefault \?[\s\S]{0,160}stops looking inside it/,
-    'the OpenAI tooltip states the history consequence unconditionally or not at all. '
-    + 'Unconditional is false for every labelled account; absent means the default row '
-    + 'reads consequence-free before the press and gains one after it');
+  /* 🛑 EXECUTE THE BRANCH. DO NOT PATTERN-MATCH IT. This assertion has now been wrong
+     THREE TIMES, each time in a form the previous fix did not cover:
+       v1  /a\.isDefault \?/            matched inside `!a.isDefault ?`   -> inversion passed
+       v2  /\(a\.isDefault \?/          blocked that, but only required the sentence to
+                                        appear WITHIN 160 CHARS. Swapping the ternary ARMS
+                                        inverts the behaviour identically and leaves the
+                                        sentence in place: measured 3401 pass, byte-identical
+                                        to baseline.
+       v3  this. Render both rows and read the titles.
+     ⇒ A source pattern can always be satisfied by a different arrangement of the same
+     characters. Rendering cannot: it asks what the person is actually shown. The Claude
+     sibling above has done it this way all along, which is why it was never the one that
+     broke. */
+  const at = PAGE.indexOf('data-forget-provider="openai"');
+  assert.ok(at > -1, 'the OpenAI Disconnect branch is gone; re-anchor this test');
+  const open = PAGE.lastIndexOf("? '<button", at);
+  assert.ok(open > -1 && open < at, 'the OpenAI branch no longer opens the way this extraction expects');
+  const close = PAGE.indexOf(">Disconnect</button>'", at);
+  assert.ok(close > open, 'the OpenAI branch no longer closes the way this extraction expects');
+  const body = PAGE.slice(open + 1, close + ">Disconnect</button>'".length);
+  const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // eslint-disable-next-line no-new-func
+  const render = new Function('a', 'who', 'qual', 'qualName', 'esc', `return ${body};`);
+
+  const onDefault = render({ isDefault: true, dir: '/h/.codex' }, 'main@example.com', '', 'OpenAI', esc);
+  const onLabelled = render({ isDefault: false, dir: '/h/.codex-walk' }, 'walk@example.com', '', 'OpenAI', esc);
+
+  const CLAIM = 'stops looking inside it';
+  assert.ok(onDefault.includes(CLAIM),
+    'the DEFAULT openai row is not told its history stops appearing, so it reads as '
+    + 'consequence-free before the press and gains a consequence after it. rendered: ' + onDefault);
+  assert.ok(!onLabelled.includes(CLAIM),
+    'a LABELLED openai row is told it loses transcripts codex never kept there, which is '
+    + 'false for every account but the default. rendered: ' + onLabelled);
+  /* Both rows must still carry the half that IS true of both, or "fixing" the above by
+     deleting the tooltip would pass. */
+  for (const [name, out] of [['default', onDefault], ['labelled', onLabelled]]) {
+    assert.ok(out.includes('so nothing is deleted'),
+      'the ' + name + ' openai row lost the reassurance that is true of every row');
+  }
 });
 
 test('#1659: the repaint path CANCELS the pending announcement, all writers', () => {

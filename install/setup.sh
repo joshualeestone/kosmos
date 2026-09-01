@@ -1890,11 +1890,19 @@ KOSMOS_SWEEP_LIST
   # actually prove: the file MENTIONS the key. By this point the bundled Node is
   # gone, so there is nothing here that can parse the file, and a sentence that
   # counted entries would be a claim this code cannot support.
-  # ⚠️ AND THE SENTENCE THAT MAKES IT USEFUL IS "SO THE MARKS STILL APPLY".
-  # The block above has already told them their agents' FOLDERS were left alone,
-  # which means these entries are not stale: open one of those folders in Claude
-  # Code later and it will not ask. The naive reading is that uninstalling made
-  # them inert, and it did not. (Mona Lisa, 2026-08-21; she checked the folder
+  # 🛑 THIS PARAGRAPH USED TO END "SO THE MARKS STILL APPLY", AND #1659 MADE
+  # THAT FALSE FOR SOME OF THE LINES BELOW. Corrected here rather than left to
+  # contradict the sentence 84 lines down that already says so.
+  # It was true and useful when written: a LIVE account's folder is left alone, so
+  # its mark is not stale and opening that folder later will not ask.
+  # What changed: the sweep now also lists `.removed-claude-*`, and NOTHING points
+  # CLAUDE_CONFIG_DIR at a forgotten account. That is the entire point of the
+  # rename, and engine/status.js:198 skips the prefix deliberately. So for those
+  # lines the mark does NOT still apply, opening one of those folders WILL ask, and
+  # the `_trust_removed` sentence below is what tells the person which case is
+  # theirs. Two flags and two sentences on purpose: one sentence covering both
+  # would be false for whichever half the person actually has.
+  # (Mona Lisa, 2026-08-21; she checked the folder
   # fact against the notice above rather than assuming the two shapes matched.)
   #
   # ⚠️ THE PARENTHETICAL IS LOAD-BEARING, per the precedent above: a key name
