@@ -338,15 +338,29 @@ async function pollOnce(id, deviceCode, delayMs) {
   if (b.access_token) {
     FLOW = { ...FLOW, phase: PHASE.COMPLETING };
     /* Straight to the 600 file, the Cloudflare shape. */
-    /* #1787: this WAS `writeFileSync(FILE, secret, { mode: 0o600 })` followed by a
-       chmod. The mode argument is SILENTLY IGNORED on a file that already exists, so
-       the credential landed at the OLD permissions and was tightened only afterwards,
-       and the catch on that chmod read `mode set at write`, which is the belief #1761
-       disproved. The mechanism, the measurements and the reason a mode assertion
-       cannot catch it are in `engine/securewrite.js` rather than repeated here: three
-       verbatim copies of one rationale is the defect this change removes. */
-    securewrite.secureDir(DIR, 0o700);
-    securewrite.writeSecret(FILE, String(b.access_token).trim() + '\n', 0o600);
+    /* #1787: was writeFileSync-then-chmod, and the mode is IGNORED on a file that
+       already exists. Mechanism, measurements and why a mode assertion cannot catch
+       it live in `engine/securewrite.js`, once. */
+    /* 🛑 A THROW HERE HANGS THE FLOW SILENTLY. `schedulePoll`'s `.catch(() => {})`
+       swallows it, so `FLOW` stays pinned at COMPLETING with `because: null` and no
+       reschedule: an operator sees a sign-in that never finishes and no reason
+       anywhere.
+       ⚠️ The gap is PRE-EXISTING (the old `writeFileSync` could throw ENOSPC and hung
+       the same way), but #1787 WIDENS it: `refuseSymlinkTarget` raises ELOOP on a
+       planted symlink, which the old in-place write never did. Failing loudly is the
+       point of that refusal, so swallowing it would be worse than the bug it stops.
+       ⇒ Report it the way the start path's sibling `catch` already does. */
+    try {
+      securewrite.secureDir(DIR, 0o700);
+      securewrite.writeSecret(FILE, String(b.access_token).trim() + '\n', 0o600);
+    } catch (err) {
+      FLOW = {
+        phase: PHASE.FAILED, code: null, url: null,
+        because: 'we could not save the token: ' + String((err && err.message) || err),
+        expiresAt: 0,
+      };
+      return;
+    }
     FLOW = { phase: PHASE.IDLE, code: null, url: null, because: null, expiresAt: 0 };
     return;
   }

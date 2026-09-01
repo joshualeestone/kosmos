@@ -311,4 +311,4 @@ function resolveName(token) {
 }
 
 module.exports = {
-  refuseSymlinkTarget: securewrite.refuseSymlinkTarget, mint, revoke, retire, live, keys, resolve, resolveName, DIR, MAX_LIVE };
+  mint, revoke, retire, live, keys, resolve, resolveName, DIR, MAX_LIVE };

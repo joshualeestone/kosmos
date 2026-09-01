@@ -82,9 +82,9 @@ test('#1787: a pre-existing loose credential file is REPLACED, not rewritten in 
     assert.equal(s.connected, true, 'the connect failed, so nothing was tested');
 
     assert.notEqual(fs.statSync(cloudflare.FILE).ino, inodeBefore,
-    'the credential was written IN PLACE into the pre-existing loose file: same inode '
-    + 'means no rename, so the token bytes were on disk at 0644 before the chmod');
-  assert.equal(fs.statSync(cloudflare.FILE).mode & 0o777, 0o600,
+      'the credential was written IN PLACE into the pre-existing loose file: same inode '
+      + 'means no rename, so the token bytes were on disk at 0644 before the chmod');
+    assert.equal(fs.statSync(cloudflare.FILE).mode & 0o777, 0o600,
       'the credential was left loose');
   } finally {
     /* Restore on EVERY path, matching the two sibling arms added in this change. A
