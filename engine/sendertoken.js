@@ -122,6 +122,30 @@ function readTokens(sessionName) {
 const STARTED = Date.now();
 let SEQ = 0;
 
+/* 🛑 EXTRACTED SO IT CAN BE TESTED, and that is the whole reason it is a function.
+   `O_NOFOLLOW` is UNDEFINED on win32, and `x | undefined` is `x`, so the flag would
+   silently vanish there: no error, no signal, on the one platform this module serves.
+   Where the constant is missing we check by hand instead of pretending it was applied.
+
+   ⚠️ IT HAD ZERO COVERAGE UNTIL IT WAS A SEAM. `fs.constants.O_NOFOLLOW` is
+   non-configurable, so no test can delete it from the environment; the suite stayed
+   fully green with this entire branch removed. A row in a matrix that says "with the
+   constant forced undefined" describes a MANUAL mutation, not something the suite does,
+   and crediting it was overclaiming.
+
+   📌 TOCTOU is accepted: this checks, then the caller opens. The window is narrower than
+   having no check at all, and on win32 creating a symlink needs privilege. */
+function refuseSymlinkTarget(file, nofollow) {
+  if (nofollow !== undefined) return; // the kernel enforces it via O_NOFOLLOW
+  let st = null;
+  try { st = fs.lstatSync(file); } catch { return; } // absent: nothing to follow
+  if (st.isSymbolicLink()) {
+    const e = new Error(`refusing to write a token through a symlink at ${file}`);
+    e.code = 'ELOOP';
+    throw e;
+  }
+}
+
 function writeTokens(sessionName, tokens) {
   const file = fileFor(sessionName);
   fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
@@ -177,14 +201,19 @@ function writeTokens(sessionName, tokens) {
      that name again, so `wx` only fails for a PLANTED file, and a planted file is one
      we must not delete. */
   const tmp = `${file}.kosmos-${process.pid}-${STARTED}-${++SEQ}.tmp`;
+  let created = false;
   try {
     fs.writeFileSync(tmp, JSON.stringify({ tokens }), { flag: 'wx', mode: FILE_MODE });
+    created = true;
     fs.chmodSync(tmp, FILE_MODE);
     fs.renameSync(tmp, file);
   } catch (err) {
     /* ⚠️ ONLY REMOVE A TEMP WE CREATED. The `wx` above means a pre-existing temp
        makes the write throw, and unlinking then would delete somebody else's file. */
-    if (err && err.code !== 'EEXIST') { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+    /* `created` is the FACT; the old `err.code !== 'EEXIST'` was a PROXY for it. Only
+       the `wx` write can yield EEXIST today, but an EEXIST from the chmod or the rename
+       would have leaked a temp we did create. */
+    if (created) { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
     /* Fall back to the direct write rather than failing a mint: an agent that cannot
        mint cannot speak at all. The chmod below is what tightens a pre-existing loose
        file on this path, and if IT throws the token stays loose WITH NO SIGNAL. */
@@ -200,15 +229,7 @@ function writeTokens(sessionName, tokens) {
        constant is read explicitly and, where it does not exist, the check is done by
        hand with `lstatSync` instead of pretending it was applied. */
     const NOFOLLOW = fs.constants.O_NOFOLLOW;
-    if (NOFOLLOW === undefined) {
-      let st = null;
-      try { st = fs.lstatSync(file); } catch { /* absent is fine: nothing to follow */ }
-      if (st && st.isSymbolicLink()) {
-        const e = new Error(`refusing to write a token through a symlink at ${file}`);
-        e.code = 'ELOOP';
-        throw e;
-      }
-    }
+    refuseSymlinkTarget(file, NOFOLLOW);
     let fd = null;
     try {
       fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT
@@ -404,4 +425,5 @@ function resolveName(token) {
   return no;
 }
 
-module.exports = { mint, revoke, retire, live, keys, resolve, resolveName, DIR, MAX_LIVE };
+module.exports = {
+  refuseSymlinkTarget, mint, revoke, retire, live, keys, resolve, resolveName, DIR, MAX_LIVE };
