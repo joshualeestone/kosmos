@@ -12,10 +12,17 @@
  * with nothing on screen explaining why. A working build looks broken, and the
  * person's own attempt to reset is what makes it look that way.
  *
- * ⭐ THE SET IS DERIVED FROM THE CODE, NOT RESTATED HERE. It reads the `*_FILE`
- * constants `discover.js` builds under `store.ROOT`, so a fifth one is covered the
- * moment somebody adds it, without anybody remembering this file exists. A list
- * maintained by hand would have exactly the gap it is written to prevent.
+ * ⭐ THE SET IS DERIVED FROM THE CODE, NOT RESTATED HERE. It reads the paths
+ * `discover.js` builds under `store.ROOT`, so a fifth one is covered the moment
+ * somebody adds it, without anybody remembering this file exists. A list maintained
+ * by hand would have exactly the gap it is written to prevent.
+ *
+ * 📌 SINCE #1443 THAT IS NO LONGER ONLY `*_FILE` CONSTANTS, and this docblock said
+ * so for a while after it stopped being true. Those constants became lazy resolvers
+ * (`const dismissFile = () => path.join(store.ROOT, ...)`) precisely because
+ * capturing the getter at require time refroze the root. The derivation below now
+ * matches BOTH shapes; describing only the frozen one would send a reader looking
+ * for code that no longer exists.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -33,7 +40,10 @@ function rmLine() {
 }
 
 /**
- * Every `NAME_FILE = path.join(store.ROOT, '<basename>')` discover.js defines.
+ * Every path `discover.js` defines under `store.ROOT`, in BOTH shapes: the frozen
+ * `NAME_FILE = path.join(store.ROOT, '<basename>')` and the lazy
+ * `const nameFile = () => path.join(store.ROOT, '<basename>')` that #1443 replaced
+ * it with. Matching only the first would have quietly emptied this set.
  *
  * ⚠️ THIS IS A SUBSET OF THE FAMILY AND SAYING SO MATTERS. `first-run.json` and
  * `seen-version.json` are written elsewhere, so this covers two of the four. It is

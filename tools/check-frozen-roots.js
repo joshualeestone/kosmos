@@ -74,6 +74,13 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
    card exists to promote, and a guard that fires on correct code gets excused by
    name until the debt list is decoration.
 
+   📌 TWO GAPS THAT USED TO BELONG IN THIS LIST ARE NOW CLOSED, recorded so the
+   list stays a debt list rather than a museum: the store bound under a local name
+   other than `store` is now tracked (arm 23), and the directory walk now recurses,
+   so an `engine/<subdir>/*.js` cannot be skipped in silence. Both were reachable
+   shapes that happened not to occur in the tree, which is the only reason nobody
+   had met them.
+
    ⇒ The blind spot is REAL, is NOT closed, and is covered instead by the
    behavioural probe in engine.lateseam-1443.test.js, which loads each module and
    inspects resolved values rather than source text. Two instruments with
@@ -200,6 +207,42 @@ const everyRootIsDeferred = (init, resolverNames, sources) => {
           else if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
           else if (ch === ',' && depth <= 0) return false;
         }
+        /* 🛑 AN ARROW IS NOT AUTOMATICALLY A DEFERRAL. Two shapes defeated the
+           comma rule above, both measured, and both in the SILENT direction:
+
+           1. AN ARROW PASSED TO A CALL RUNS NOW.
+                const PATHS = NAMES.map((n) => path.join(store.ROOT, n));
+              is a real require-time freeze, and it exited 0 while the identical
+              logic written with `function (n)` exited 1. `.map`, `.forEach` and
+              friends invoke immediately; only a STORED arrow defers.
+
+           2. AN ARROW WHOSE SCOPE ALREADY CLOSED NEVER COVERED THE SOURCE.
+                const FILE = ['a'].map((x) => x).concat(path.join(store.ROOT,'y'));
+              exited 0, while the same line without the `.map((x) => x)` exited 1.
+              So adding an UNRELATED arrow laundered a freeze, which is exactly the
+              some/every defect one level further out.
+
+           So: reject when the arrow is an argument to a call opened before it, and
+           reject when bracket depth falls below the arrow's own depth before the
+           source is reached. */
+        const stack = [];
+        let armDepth = -1;
+        for (let i = 0; i < l.length; i += 1) {
+          const c = l[i];
+          if (c === '(' || c === '[' || c === '{') {
+            let k = i - 1;
+            while (k >= 0 && /\s/.test(l[k])) k -= 1;
+            stack.push({ open: i, isCall: c === '(' && k >= 0 && /[A-Za-z0-9_$)\]]/.test(l[k]) });
+          } else if (c === ')' || c === ']' || c === '}') {
+            stack.pop();
+          }
+          if (i === arrow) {
+            const encl = stack[stack.length - 1];
+            if (encl && encl.isCall && encl.open < arrow) return false;
+            armDepth = stack.length;
+          }
+          if (armDepth >= 0 && i > arrow && i <= at && stack.length < armDepth) return false;
+        }
         return true;
       });
     }));
@@ -219,9 +262,14 @@ function declarations(src) {
        `let DIR = path.join(store.ROOT, 'x')` and `exports.DIR = ...` froze a root
        in silence while the identical `const` was reported. A guard that depends on
        which keyword somebody typed is not checking the property it names. */
-    const m = /^(?:const|let|var) ([A-Za-z_][A-Za-z0-9_]*) =(.*)$/.exec(lines[i])
-      || /^exports\.([A-Za-z_][A-Za-z0-9_]*) =(.*)$/.exec(lines[i])
-      || /^module\.exports\.([A-Za-z_][A-Za-z0-9_]*) =(.*)$/.exec(lines[i]);
+    /* 🛑 `\s+` AND `\s*=`, NOT LITERAL SINGLE SPACES. This required exactly one
+       space after the keyword and one before the `=`, so `const DIR=path.join(
+       store.ROOT,'x')` exited 0 while the spaced form exited 1. A guard that
+       depends on somebody's spacing is not checking the property it names, which
+       is the same sentence as the keyword note above it. */
+    const m = /^(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(lines[i])
+      || /^exports\.([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(lines[i])
+      || /^module\.exports\.([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(lines[i]);
     if (!m) continue;
     let init = m[2];
     let j = i;
@@ -268,7 +316,13 @@ function declarations(src) {
       init += '\n' + lines[j];
       depth += lineInfo(lines[j]).delta;
     }
-    out.push({ name: m[1], init, line: i + 1 });
+    /* The KEYWORD as matched, so the report cannot print `const FILE` for a line
+       that says `exports.FILE` or `let FILE`. Raised in two consecutive reviews:
+       a reader who greps the named file for `const FILE` finds nothing. */
+    const kw = /^exports\./.test(lines[i]) ? 'exports.'
+      : (/^module\.exports\./.test(lines[i]) ? 'module.exports.'
+        : (/^(const|let|var)\b/.exec(lines[i]) || [null, 'const'])[1] + ' ');
+    out.push({ name: m[1], init, line: i + 1, kw });
   }
   return out;
 }
@@ -294,8 +348,16 @@ function functionNamesReaching(src, sources) {
    says the guard exists because a check keyed on os.homedir() went blind the
    moment the fix moved it behind a homeDir() helper. The fix moved again, to an
    arrow, and the guard went blind again. */
+    /* 🛑 THE SAME KEYWORD SET AS `declarations()`, AND FOR THE SAME REASON. This
+       branch matched `const` only while `declarations()` accepts const/let/var and
+       the exports forms, so the two halves of one idea disagreed and BOTH failed
+       toward silence. Measured, with a passing control on the const form: `let
+       dirp = () => path.join(store.ROOT,'x')` exited 0, and so did
+       `const dirp = async () => ...`. An async resolver is still a resolver: the
+       freeze is the CAPTURE at require time, not what the function returns. */
     const m = /^\s*function ([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(lines[i])
-      || /^\s*const ([A-Za-z_][A-Za-z0-9_]*) = (?:\([^)]*\)|[A-Za-z_][A-Za-z0-9_]*)\s*=>/.exec(lines[i]);
+      || /^\s*(?:async\s+)?function ([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(lines[i])
+      || /^\s*(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_][A-Za-z0-9_]*)\s*=>/.exec(lines[i]);
     if (!m) continue;
     const buf = [];
     let adepth = 0;
@@ -348,7 +410,18 @@ function scan(file) {
       if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) aliases.push(name);
     }
   }
-  const SRC_SOURCES = SOURCES.concat(aliases);
+  /* 🛑 THE STORE UNDER ANY LOCAL NAME. Every source in SOURCES is spelled
+     `store.X`, so the guard was keyed on somebody's choice of variable name:
+     `const st = require('./store'); path.join(st.ROOT,'x')` exited 0 while the
+     identical code using `store` exited 1. Every engine module happens to import
+     it as `store` today, which is exactly why this went unnoticed. */
+  const storeLocals = [];
+  for (const m of src.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\([^)]*store[^)]*\)/g)) {
+    if (m[1] !== 'store') storeLocals.push(m[1]);
+  }
+  const GETTER_NAMES = ['ROOT', 'AVATARS', 'PROFILES'];
+  const localSources = storeLocals.flatMap((n) => GETTER_NAMES.map((g) => `${n}.${g}`));
+  const SRC_SOURCES = SOURCES.concat(aliases, localSources);
   /* 🛑 THE DESTRUCTURING IS ITSELF THE FREEZE, AND MARKING ITS USES WAS NOT
      ENOUGH. `const { ROOT } = store` captures the getter's VALUE at require
      time, so a later `const d = () => path.join(ROOT, 'x')` looks lazy and is
@@ -409,6 +482,7 @@ function scan(file) {
       findings.push({
         name: d.name,
         line: d.line,
+        kw: d.kw,
         how: direct ? 'directly' : (viaHelper ? 'via a resolver helper' : `by capturing another module's lazy getter .${captured}`),
         lines: d.init.split('\n').length,
       });
@@ -423,9 +497,20 @@ function main(argv) {
   for (const t of targets) {
     const st = fs.statSync(t);
     if (st.isDirectory()) {
-      for (const f of fs.readdirSync(t)) {
-        if (f.endsWith('.js') && !f.endsWith('.test.js')) files.push(path.join(t, f));
-      }
+      /* 🛑 RECURSIVE. `readdirSync` alone does not descend, so a future
+         engine/<subdir>/*.js would be skipped in SILENCE while the run still
+         printed a clean result. engine/ has no subdirectories today, which is
+         precisely why nobody would notice the day it gains one. */
+      const walk = (dir) => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, e.name);
+          if (e.isDirectory()) {
+            if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+            walk(full);
+          } else if (e.name.endsWith('.js') && !e.name.endsWith('.test.js')) files.push(full);
+        }
+      };
+      walk(t);
     } else files.push(t);
   }
   let total = 0;
@@ -439,7 +524,7 @@ function main(argv) {
         continue;
       }
       total += 1;
-      console.log(`${path.relative(process.cwd(), f)}:${hit.line}  const ${hit.name}  resolves a root at require time (${hit.how}, ${hit.lines} line(s))`);
+      console.log(`${path.relative(process.cwd(), f)}:${hit.line}  ${hit.kw || 'const '}${hit.name}  resolves a root at require time (${hit.how}, ${hit.lines} line(s))`);
     }
   }
   if (known) {

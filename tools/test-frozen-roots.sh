@@ -179,6 +179,57 @@ const D = m.DRY_RUN;"
 if [ "$(run capnonpath)" = "0" ]; then ok "a non-path-shaped getter capture is NOT flagged"
 else bad "fired on a getter that resolves no root"; fi
 
+# ---- arm 19: an arrow passed to a CALL is not a deferral -------------------
+# .map/.forEach invoke immediately, so the join happens at require time. Measured:
+# this exited 0 while the identical logic written with `function (n)` exited 1.
+fixture arrowcall "const store = require('./store');
+const NAMES = ['a','b'];
+const PATHS = NAMES.map((n) => path.join(store.ROOT, n));"
+if [ "$(run arrowcall)" = "1" ]; then ok "an arrow passed to .map does NOT count as deferred"
+else bad "a require-time freeze inside .map went silent"; fi
+
+# ---- arm 20: an unrelated arrow must not launder a freeze ------------------
+# The counterweight to arm 19, and the some/every defect one level further out:
+# inserting `.map((x) => x)` before a real freeze silenced it.
+fixture arrowlaunder "const store = require('./store');
+const FILE = ['a'].map((x) => x).concat(path.join(store.ROOT,'y'));"
+if [ "$(run arrowlaunder)" = "1" ]; then ok "an unrelated arrow does not launder a freeze beside it"
+else bad "an arrow whose scope had already closed exempted a later freeze"; fi
+
+# ---- arm 21: a resolver is a resolver whatever keyword declared it ---------
+# functionNamesReaching matched `const` only while declarations() took const/let/var
+# and the exports forms, so the two halves of one idea disagreed, both toward silence.
+fixture letresolver "const store = require('./store');
+let dirp = () => path.join(store.ROOT,'x');
+const FILE = path.join(dirp(),'a');"
+if [ "$(run letresolver)" = "1" ]; then ok "a resolver declared with let is still a resolver"
+else bad "let-declared resolver not recognised, downstream freeze silent"; fi
+
+fixture asyncresolver "const store = require('./store');
+const dirp = async () => path.join(store.ROOT,'x');
+const FILE = path.join(dirp(),'a');"
+if [ "$(run asyncresolver)" = "1" ]; then ok "an async resolver is still a resolver"
+else bad "async resolver not recognised"; fi
+
+# ---- arm 22: spacing is not a property of the code ------------------------
+fixture nospace "const store = require('./store');
+const DIR=path.join(store.ROOT,'x');"
+if [ "$(run nospace)" = "1" ]; then ok "a declaration without spaces around = is still checked"
+else bad "the guard depended on somebody's spacing"; fi
+
+# ---- arm 23: the store bound under any local name -------------------------
+# Every source is spelled `store.X`, so the guard was keyed on a variable name.
+# Every engine module imports it as `store` today, which is why this hid.
+fixture storealias "const st = require('./store');
+const F = path.join(st.ROOT,'x');"
+if [ "$(run storealias)" = "1" ]; then ok "the store bound under another local name is still tracked"
+else bad "guard keyed on the local variable name rather than the module"; fi
+
+fixture storealiaslazy "const st = require('./store');
+const F = () => path.join(st.ROOT,'x');"
+if [ "$(run storealiaslazy)" = "0" ]; then ok "and a DEFERRED use under that name is not flagged"
+else bad "fired on a correctly deferred use of an aliased store"; fi
+
 echo
-if [ "$FAILS" -eq 0 ]; then echo "ALL PASS (18 arms)"; else echo "$FAILS FAILED"; fi
+if [ "$FAILS" -eq 0 ]; then echo "ALL PASS (25 arms)"; else echo "$FAILS FAILED"; fi
 exit "$FAILS"

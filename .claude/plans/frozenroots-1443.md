@@ -3,9 +3,11 @@
 > 📌 Renamed from `lazyroot-1443.md` when the branch was renamed to
 > `frozenroots-1443`. The plan did not follow the branch, so
 > `find .claude/plans -name '*<branch>*'` found nothing and the branch read as
-> having no plan at all. The stale `lazyroot-1443-pre-challenge.md` beside it is
-> a proof for the OLD branch name: its hash cannot match this branch and the
-> gate ignores it. A fresh proof is written as `frozenroots-1443-pre-challenge.md`.
+> having no plan at all. The stale `lazyroot-1443-pre-challenge.md` that sat beside
+> it has been REMOVED: it was a proof for the old branch name, its hash could not
+> match this branch, and leaving it meant `find .claude/plans -name '*1443*'`
+> surfaced a proof that cannot apply. The `lazyroot-1443` branch keeps its own copy.
+> A fresh proof is written as `frozenroots-1443-pre-challenge.md`.
 
 
 ## The defect, and it makes a sandbox seam a lie
