@@ -191,10 +191,10 @@ async function state() {
      `require('./runners')` and `resolveBin('claude')` sit inside the SAME try. resolveBin
      can throw on its own account, before it ever asks whether a file is runnable, because
      it derives a home directory and joins paths.
-     
+
      ⇒ THE CLAIM THIS BLOCK EXISTS TO STATE: nothing after that try can reject, so the
      `.catch` cannot fire today.
-     
+
      📌 Three earlier drafts of this paragraph were wrong in three different ways, and a
      fourth defect was structural: it carried "Measured, with a control" on what is a READING
      of which lines call what, not a behavioural measurement. All four are recorded in
