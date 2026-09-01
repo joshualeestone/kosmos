@@ -92,6 +92,17 @@ case "$REAL" in
     exit 0 ;;
 esac
 
+# Belt-and-suspenders beyond the single-root GUARD_REPO: a genuine install lives
+# OUTSIDE any git repo, so if the resolved CLI sits inside ANY git working tree it
+# is a checked-out copy -- the main checkout OR any worktree (this box carries 100+)
+# -- never an install. Overwriting it would dirty a tracked file, so leave it alone.
+# Fails open when git is absent (an install machine has no repo anyway), and the
+# test drives the git-independent GUARD_REPO gate above, this arm with a real repo.
+if _top="$(git -C "$(dirname "$REAL")" rev-parse --show-toplevel 2>/dev/null)" && [ -n "$_top" ]; then
+  echo "   $REAL is inside a git worktree ($_top), so it is a checked-out copy, not an install; leaving it alone"
+  exit 0
+fi
+
 # A missing or unreadable source is a real failure, not a skip: the release cannot
 # claim the CLI is fresh if it cannot read what fresh is.
 if [ ! -r "$SOURCE" ]; then
