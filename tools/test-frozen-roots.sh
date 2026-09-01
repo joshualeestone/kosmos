@@ -466,6 +466,27 @@ out_scope="$(cd "$FAKE" && node tools/check.js other.js 2>&1)"; rc_scope=$?
 if [ "$rc_scope" = "0" ]; then ok "and an entry whose file was NOT scanned is not called stale"
 else bad "a narrowed run reported a stale entry" "rc=$rc_scope"; fi
 
+# ---- arm 43: the DIRECTORY-walking branch of main(), three ways ------------
+# Every other arm passes a single .js file, so the recursion, the .test.js
+# exclusion and the unreadable-target path were exercised by nothing at all. A
+# regression to a flat readdir would report a clean run over FEWER files, which is
+# the same false-clean shape this tool exists to prevent.
+WALK="$T/walk"
+mkdir -p "$WALK/sub"
+printf "const store = require('./store');\nconst DEEP = path.join(store.ROOT, 'x');\n" > "$WALK/sub/deep.js"
+node "$TOOL" "$WALK" >/dev/null 2>&1; rc_walk=$?
+if [ "$rc_walk" = "1" ]; then ok "the directory walk RECURSES into a subdirectory"
+else bad "a freeze in a subdirectory was not found" "rc=$rc_walk; a flat readdir would do this"; fi
+
+mv "$WALK/sub/deep.js" "$WALK/sub/deep.test.js"
+node "$TOOL" "$WALK" >/dev/null 2>&1; rc_skip=$?
+if [ "$rc_skip" = "0" ]; then ok "and it excludes .test.js while recursing"
+else bad "a .test.js file was scanned" "rc=$rc_skip"; fi
+
+node "$TOOL" "$T/definitely-not-here-9999" >/dev/null 2>&1; rc_missing=$?
+if [ "$rc_missing" = "2" ]; then ok "an unreadable target exits 2, not a stack trace"
+else bad "a missing target did not exit 2" "rc=$rc_missing"; fi
+
 # ---- the arm labels check THEMSELVES ---------------------------------------
 # 🛑 I HAND-MAINTAINED THESE NUMBERS AND BROKE THEM TWICE: once by leaving a gap,
 # once by renumbering and stranding every "counterweight to arm N" reference. A

@@ -64,7 +64,7 @@ const path = require('node:path');
    note above describes, reintroduced within one file. */
 /* A path-shaped exported name. Used by two rules, so it lives at module scope
    rather than being written twice. */
-const PATH_SHAPED = /^(?:[A-Z][A-Z0-9_]*_(?:DIR|FILE|PATH)|FILE|DIR|LOG|SEEN|FLAG|ROOT|AVATARS|PROFILES)$/;
+const PATH_SHAPED = /^(?:[A-Z][A-Z0-9_]*_(?:DIR|FILE|PATH|HOME)|HOME_FOR_TEST|FILE|DIR|LOG|SEEN|FLAG|ROOT|HOME|AVATARS|PROFILES)$/;
 const GETTER_VALUE_NAMES = ['ROOT', 'AVATARS', 'PROFILES'];
 const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
   'store.PROFILES', 'process.env.AGENT_WORKFORCE_DATA'];
@@ -122,6 +122,37 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
    that idiom is prose inside a comment, so there is no live instance to catch, and
    a seventh interacting rule in this file has a worse expected value than a named
    gap. Both are on kosmos#1773 with the complexity note that prompted them.
+
+   🛑 AND A TRAP FOR WHOEVER CLOSES THE `module.exports` GAP ABOVE, WHICH IS WHY IT
+   IS HERE RATHER THAN ONLY ON THE CARD. `everyRootIsDeferred` recognises `=>` and
+   nothing else, so every OTHER lazy form reads as a freeze. Measured, each against
+   the arrow form as a passing control (rc 0):
+     { get DIR() { return path.join(store.ROOT,'x'); } }  -> rc 1
+     { dir() { return path.join(store.ROOT,'x'); } }      -> rc 1
+     { dir: function () { ... } }                         -> rc 1
+   ⇒ THE GETTER FORM IS THE IDIOM THIS BRANCH INTRODUCES 25 TIMES. It is silent today
+   only because `module.exports = { ... }` is the gap directly above, so the two
+   gaps are cancelling each other out. Close that one on its own and all 23 converted
+   modules go RED ON THEIR OWN CORRECT CODE. Teach the non-arrow lazy forms FIRST.
+   Latent as it stands: 50 module-level object consts in the tree, none carrying a
+   getter or method AND a root.
+
+   📌 AND REGEX LITERALS ARE NOT PARSED, so an ODD QUOTE inside one desynchronises
+   the blanker for the text after it. Measured, both arms: `const RE = /don't/;`
+   followed by `const FILE = path.join(store.ROOT,'x');` exited 0, while the same
+   file without the regex line exited 1. Odd-quote regexes are live in the enforced
+   scope today (engine/status.js, unfurl.js, clipath.js, reporthook.js, server.js),
+   but nothing is currently silenced by them because a later quote re-pairs. Listed
+   because the enforced scope contains the ingredient even though the tree does not
+   contain the outcome.
+
+   📌 TWO MORE COLUMN-0 SILENCES, narrower than the factory-body rationale below
+   covers and measured: a hoisted `var FILE;` assigned inside a top-level `if` block,
+   and a keyword-less reassignment (`let FILE;` then `FILE = path.join(...)` at
+   column 0). Both are real require-time freezes and both exit 0, with the `const`
+   form as a passing control. The factory-body argument does not cover them, because
+   a top-level `if` block is not a function body: its contents DO run at require
+   time.
 
    ⇒ The blind spot is REAL, is NOT closed, and is covered instead by the
    behavioural probe in engine.lateseam-1443.test.js, which loads each module and
@@ -707,8 +738,18 @@ function scan(file) {
      ⚠️ NARROW ON PURPOSE, because a guard that fires on correct code gets excused
      by name until the debt list is decoration. It requires all three: a BARE member
      access with no call, a SCREAMING property, and a PATH-SHAPED name. That last
-     condition is why `DRY_RUN` and `HOME_FOR_TEST` (real exported getters in this
-     tree) are not swept in. Verified to add zero findings across every non-test
+     condition is why `DRY_RUN` (a real exported getter in this tree) is not swept in.
+     🛑 AN EARLIER VERSION OF THIS SENTENCE ALSO CITED `HOME_FOR_TEST` AS SOMETHING
+     THAT MUST NOT BE SWEPT IN, AND THAT WAS A LIVE FALSE NEGATIVE ON A REAL ROOT.
+     `engine/accounts.js:442` and `engine/openaiaccounts.js:479` both export
+     `get HOME_FOR_TEST() { return homeDir(); }`, so capturing it freezes the
+     operator's home directory exactly as capturing `store.ROOT` does. Measured, four
+     arms: the capture and `path.join(accounts.HOME_FOR_TEST,'work')` both exited 0
+     while `path.join(limits.FILE,'work')` exited 1 and `remove.DRY_RUN` correctly
+     stayed silent because it really is a boolean. Half the example was right and
+     half of it was the defect, which is the worse shape: the correct half is what
+     made the sentence read as checked. `HOME_FOR_TEST` and a `_HOME` suffix are in
+     PATH_SHAPED now. Verified to add zero findings across every non-test
      .js in the repo before it shipped. */
   /* 🛑 ANYWHERE IN THE INITIALIZER, NOT ONLY AS A BARE ACCESS. The first version
      of this anchored the whole initializer, so the two most natural ways to consume
@@ -866,8 +907,14 @@ function main(argv) {
       total += 1;
       /* The SAME spelling as the KNOWN key above, so a reader can paste the path
          straight into the allowlist. These used to differ (repo-relative for KNOWN,
-         cwd-relative for findings), so running from outside the repo printed
-         `../../../../tmp/...`, which is not the string the allowlist wants. */
+         cwd-relative for findings), so the two spellings could disagree and only
+         one of them is the string the allowlist wants.
+         ⚠️ NOT that `../../../../tmp/...` no longer appears: it still does, for any
+         target OUTSIDE the repo, because repo-relative genuinely is that path. An
+         earlier version of this comment cited that string as the fixed symptom,
+         which is wrong and reproduces on this suite's own fixtures. What changed is
+         that findings and KNOWN keys now agree, so an in-repo path can be pasted
+         from one into the other. */
       console.log(`${key.split(':')[0]}:${hit.line}  ${hit.kw || 'const '}${hit.name}  resolves a root at require time (${hit.how}, ${hit.lines} line(s))`);
     }
   }

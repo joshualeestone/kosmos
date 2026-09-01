@@ -3,13 +3,16 @@
 > 📌 Renamed from `lazyroot-1443.md` when the branch was renamed to
 > `frozenroots-1443`. The plan did not follow the branch, so
 > `find .claude/plans -name '*<branch>*'` found nothing and the branch read as
-> having no plan at all. The stale `lazyroot-1443-pre-challenge.md` that sat beside
-> it has been REMOVED: it was a proof for the old branch name, its hash could not
-> match this branch, and leaving it meant `find .claude/plans -name '*1443*'`
-> surfaced a proof that cannot apply. The `lazyroot-1443` branch keeps its own copy.
+> having no plan at all. `lazyroot-1443-pre-challenge.md` sits beside it and is
+> KEPT. I removed it for one round on the grounds that it is a proof for the old
+> branch name whose hash cannot match this branch, and that was wrong on the
+> convention: `main` retains 291 such files, including ones for branches that no
+> longer exist, so they are a record rather than a live gate. The mitigation I
+> offered (the `lazyroot-1443` branch keeps its own copy) also leaned on an
+> unmerged local branch surviving the repo's own cleanup, which is not a copy
+> anybody should rely on.
 > A fresh proof WILL BE written as `frozenroots-1443-pre-challenge.md` by the
-> challenge-loop gate at PR time. It does not exist yet; this sentence used to
-> read as though it did.
+> challenge-loop gate at PR time. It does not exist yet.
 
 
 ## The defect, and it makes a sandbox seam a lie
