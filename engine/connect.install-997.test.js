@@ -137,7 +137,12 @@ async function withRelease(t, over = {}, opts = {}) {
   return connect.installClaudeCode(stubs(over));
 }
 
-// ── the three return shapes ─────────────────────────────────────────────────
+// ── the post-install resolver gate ──────────────────────────────────────────
+// 📌 PLACEMENT IS DELIBERATE, #1606 iteration 44. These two are FAILURE-SHAPE arms,
+// not return-shape arms, and they sat under the `three return shapes` header ahead of
+// the three tests it describes. The header moved rather than the tests: a one-line
+// move cannot damage a test body, and the sibling file's rule is that the next arm
+// added by analogy inherits its neighbour's context.
 
 test('a resolver that THROWS at the post-install gate fails cleanly instead of escaping', async (t) => {
   /* 🛑 THIS PINS THE ONE PRODUCTION BEHAVIOUR THIS BRANCH CHANGED WITHOUT AN ARM.
@@ -190,9 +195,30 @@ test('a resolver that THROWS at the post-install gate fails cleanly instead of e
        can never be advised with a variable that supplies it, so the assertion is on the
        CLASS rather than on whichever name is wrong this week. */
     assert.doesNotMatch(text, /AGENT_WORKFORCE_[A-Z_]+/,
-      'the resolver-failure detail names an environment variable. Any variable that could '
-      + 'supply the missing value also PREVENTS this branch, so naming one is always wrong '
-      + 'here. Describe the condition instead.');
+      'the resolver-failure detail ADVISES an AGENT_WORKFORCE_* variable. Any variable that '
+      + 'could supply the missing value also PREVENTS this branch, so advising one is always '
+      + 'wrong here. Describe the condition instead.');
+    /* 🛑 THE PIN ABOVE COVERS ONE OF THE TWO MEASURED NAMES, NOT THE CLASS ITS MESSAGE USED
+       TO CLAIM. AGENT_WORKFORCE_CLAUDE_BIN matches it; HOME does not, and HOME is named in
+       the live copy at connect.js:1517 and :1626. That gap made a green test assert, falsely,
+       that no variable was named at all.
+       ⚠️ SCOPE, MEASURED, BECAUSE THE ARM BELOW DOES NOT COVER BOTH SITES: this test's `text`
+       is the :1626 copy only. Mutating :1517 to the advice form leaves it GREEN (measured:
+       20 pass 0 fail), mutating :1626 turns it RED (19 pass 1 fail). The :1517 copy is
+       reached by a different failure and is NOT guarded here. Do not read this arm as
+       covering the class across the file.
+       ✅ HOME IS DELIBERATELY PERMITTED, and the distinction is DIAGNOSIS vs ADVICE. The copy
+       says 'HOME is unset', which tells a service-account reader what is actually wrong and
+       is worth keeping. What must never appear is the ADVICE form, so that is what is pinned
+       below rather than the bare name.
+       📌 Both arms measured: the live diagnosis copy does NOT match, 'try setting HOME to ...'
+       and 'set $HOME and retry' both DO. A pin that cannot separate them would force the
+       diagnosis out of the copy to stay green, which is the worse outcome. */
+    assert.doesNotMatch(text, /\bset(?:ting)?\s+\$?HOME\b/i,
+      'the resolver-failure detail ADVISES setting HOME. HOME supplies the value whose '
+      + 'absence is the only way into this branch, so a reader who could act on it would '
+      + 'never see the message. Naming HOME as the CONDITION is fine and is why this pins '
+      + 'the advice form only.');
     assert.match(text, /home directory/i,
       'the detail does not name the condition that actually reaches this branch');
   } finally {
@@ -208,6 +234,8 @@ test('CONTROL: the same flow with a working resolver succeeds', async (t) => {
     'the control install failed, so the throwing-resolver arm above proves nothing');
 });
 
+
+// ── the three return shapes ─────────────────────────────────────────────────
 
 test('a cancelled install returns the CANCELLED shape AND never runs the installer', async (t) => {
   /**
@@ -442,8 +470,10 @@ test('an install that reports success but leaves no runnable binary is caught', 
      is exactly right in kind but not what this test is about. It is about the
      ARM, so it matches the part that identifies the arm. */
   /* 🛑 #1570: THE SECOND ALTERNATIVE WAS DEAD AND IT IS GONE. It was the pre-#1580
-     wording, kept when the message widened. Measured against the three `fail()`
-     calls in `installClaudeCode`: none emits it, so that arm could never match.
+     wording, kept when the message widened. Measured against EVERY `fail()` call
+     in `installClaudeCode`: none emits it, so that arm could never match. Stated as
+     a mechanism rather than a count deliberately: this branch itself took that
+     function from 3 `return fail(` calls to 5, which would have staled a number.
      A regex alternative that cannot fire is not harmless - it makes the assertion
      LOOK like it covers two messages when one of them does not exist, which is the
      same use-versus-mention confusion the card is about, one layer along.
