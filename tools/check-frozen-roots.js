@@ -121,7 +121,7 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'store.AVATARS',
    reason as the alias gap above: swept the tree and the ONLY root-valued match in
    that idiom is prose inside a comment, so there is no live instance to catch, and
    a seventh interacting rule in this file has a worse expected value than a named
-   gap. Both belong on the follow-up card with the complexity note.
+   gap. Both are on kosmos#1773 with the complexity note that prompted them.
 
    ⇒ The blind spot is REAL, is NOT closed, and is covered instead by the
    behavioural probe in engine.lateseam-1443.test.js, which loads each module and
