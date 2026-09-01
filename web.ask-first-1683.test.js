@@ -166,3 +166,21 @@ test('#1683: arming changes the ACCESSIBLE NAME, not only the visible label', ()
   w.btn.listeners.blur();
   assert.equal(w.btn.getAttribute('aria-label'), rest, 'blur disarmed the label but did not restore the name');
 });
+
+/* 🛑 AN UNMARKED BUTTON MUST NOT ARM. The plan recorded this decision and the code
+   did not implement it: the provider guard sat INSIDE the try, after the arming,
+   so a wiring fault armed on the first press and only refused on the second. The
+   person saw a control reading "Remove it?" that could never remove anything, so
+   the confirm promised a pending action that did not exist. Safe, and not honest.
+   Guarded here because a decision recorded only in a plan is a stale comment with
+   extra steps. */
+test('#1659: a button with no provider marker refuses on the FIRST press and never arms', () => {
+  const w = world(async () => { throw new Error('the engine must not be reached'); });
+  delete w.btn.dataset.forgetProvider;
+  w.btn.listeners.click();
+  assert.equal(w.btn.textContent, 'Remove',
+    'an unmarked button ARMED, so the guard is still running after the arming rather than before it');
+  assert.equal(w.btn.classList.has.has('armed'), false, 'it took the armed class despite refusing');
+  assert.match(w.msg.textContent, /which provider/,
+    'it refused without saying why, which reads as a dead button rather than a wiring fault');
+});

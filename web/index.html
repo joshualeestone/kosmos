@@ -13729,6 +13729,19 @@ async function paintAccounts() {
     };
     btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false); } });
     btn.addEventListener('click', async () => {
+      /* 🛑 THE PROVIDER GUARD RUNS BEFORE THE ARMING, and it did not until now even
+         though the plan said it must. An unmarked button used to ARM on the first
+         press and only refuse on the second, so a wiring fault showed the person a
+         control reading "Remove it?" that could never remove anything: the confirm
+         promised a pending action that did not exist.
+         ⚠️ It was safe, and safe is not the same as honest. Refusing on the FIRST
+         press is what the plan documented, and a decision recorded in the plan that
+         the code does not implement is a stale comment with extra steps. */
+      const marked = btn.dataset.forgetProvider;
+      if (marked !== 'claude' && marked !== 'openai') {
+        if (msg) msg.textContent = 'we could not tell which provider that account belongs to, so nothing was changed';
+        return;
+      }
       if (!armed) { armed = true; btn.textContent = 'Remove it?'; btn.classList.add('armed'); armLabel(true); return; }
       btn.disabled = true;
       acctCancelSay();
@@ -13743,21 +13756,10 @@ async function paintAccounts() {
            third provider to the wrong endpoint and surface as "that is not an
            OpenAI account on this computer", which reads as a data problem
            rather than as the wiring fault it is. */
-        const marked = btn.dataset.forgetProvider;
-        if (marked !== 'claude' && marked !== 'openai') {
-          if (msg) msg.textContent = 'we could not tell which provider that account belongs to, so nothing was changed';
-          btn.disabled = false;
-          /* 🛑 DISARM AND RESTORE FOCUS HERE TOO. This was the ONE exit from this
-             handler that did neither, so a wiring fault left the button reading
-             "Remove it?" with `armed` still true, and focus on `<body>` where
-             `btn.disabled = true` dropped it. Only reachable on a bug, and the
-             button cannot act in that state, but it contradicted the restore rule
-             the catch path states three lines later, and a control that LOOKS one
-             press from removing an account is its own problem. */
-          armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
-          if (btn.focus) btn.focus({ preventScroll: true });
-          return;
-        }
+        /* The provider was already validated at the TOP of this handler, before
+           the arming, so an unmarked button cannot reach here. `marked` is the
+           outer one; this used to redeclare it and repeat the refusal, which was
+           dead the moment the guard moved. */
         const provider = marked;
         const res = await fetch('/api/accounts/' + provider, {
           method: 'DELETE',

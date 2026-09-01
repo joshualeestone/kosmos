@@ -436,3 +436,58 @@ reflect panes rather than launch files.
 perturbation is not weak coverage, it is ZERO coverage wearing the costume of
 coverage.** Deleting it was the honest move; keeping it would have made the next
 reader believe the port was guarded.
+
+## Challenge loop, iteration 19 (2026-08-31)
+
+Five WARNINGs, five NITs. NOT converged, and this is the fifth consecutive
+non-empty pass. **Two of the five were defects I introduced in iteration 18**,
+which is this branch proving its own recurring lesson: the fix is the
+least-reviewed code in the tree.
+
+### The one that should not have needed a reviewer
+
+I documented the #1697 port as honestly uncovered and gave a mechanism for why a
+guard was impossible here: *"safeRoster() already returns any agent that has a
+launch file"*. **It reads PANES.** Every fixture wrote one because the `agentOn`
+helper appends a pane line, so roster-only and the union agreed on everything the
+suite could build.
+
+⇒ **A correct conclusion (uncovered) from a false mechanism, and the false
+mechanism is what made me stop looking.** The guard was four fixture lines away.
+
+There is now a `registeredNotRunning()` helper (plist + profile, no pane) and an
+arm that reds BY NAME when the union is removed. Verified by perturbation with
+the mutation confirmed applied first.
+
+### And I broke a different accessibility rule while fixing one
+
+Iteration 18 made the armed state reach the accessible name. That name read
+`"Disconnect <who>, press again to remove"` while the button visibly said
+`"Remove it?"`, so the name did not contain the visible words: **WCAG 2.5.3 Label
+in Name, Level A.** A speech-input user saying "click Remove it?" could not
+operate the confirm step of a destructive control.
+
+⇒ **I closed one accessibility gap and opened another on the same element, one
+iteration later.** The armed name now leads with the visible words.
+
+### The rest
+
+- The refusal said `"<name> is running on this account"`, which my own #1693 port
+  made untrue: the union includes stopped agents, so it sent people looking for a
+  running agent that is not running. Reworded on BOTH providers.
+- The uninstall transcript printed the disconnected-account paragraph
+  unconditionally, telling the common machine about a state it has never been in.
+- A scope paragraph still said only the OpenAI row is live and #1659 is unmerged.
+  #1659 is this branch. **A stale scope note is worse than none: it is the
+  sentence somebody uses to decide what NOT to test.**
+- The provider guard ran AFTER the arming while this plan said it must run
+  before, so an unmarked button armed on the first press and refused on the
+  second, promising a pending action that did not exist. Moved, both arms
+  measured, and guarded. **A decision recorded only in a plan is a stale comment
+  with extra steps.**
+
+### Still open
+
+- `movedTo` is returned by `openaiaccounts.forgetAccount` and dropped by its
+  route, so the same act now gives a recoverable answer on one provider and not
+  the other. Cross-provider, belongs on its own card rather than in this branch.
