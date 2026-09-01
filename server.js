@@ -125,6 +125,7 @@ function engineFreshness() {
 }
 const store = require('./engine/store');
 const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
+const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 /* Sandboxed whole or not at all (#634): refused before anything listens or
    writes. In-process (a test requiring this file) it throws; as the program it
    says the sentence and exits 2. */
@@ -7418,6 +7419,35 @@ function start(port = PORT) {
         try { messages.sweepUnanswered(safeRoster()); } catch { /* the line still shows */ }
       }, 60 * 1000);
       if (sweep && typeof sweep.unref === 'function') sweep.unref();
+      /* #1724: the auto-handoff sweep (the consume half). Sibling to the #185
+         nudge sweep above: its own ~1-min timer, unref'd, best-effort. When the
+         setting is on, it asks autohandoff.shouldPrompt per agent over the
+         board's live context fill and injects a handoff prompt when an agent
+         crosses a fill band. It advances the per-agent band ONLY on a confirmed
+         (PLACED) delivery, so an inject that never submitted is retried, never
+         silenced (engine/autohandoff-sweep.js). safeRoster(), never paneRoster():
+         chat.deliver needs full snapshot cards to address a pane. */
+      const autohandoffBands = new Map();
+      const ahSweep = setInterval(() => {
+        try {
+          const setting = autohandoff.settingFrom(store.readSettings());
+          if (!setting.enabled) return;
+          const roster = safeRoster();
+          autohandoffSweep.sweepOnce({
+            setting,
+            roster,
+            lastBand: autohandoffBands,
+            deliver: (session, textToSend) => {
+              try { return chat.deliver(session, textToSend, roster, undefined, undefined); }
+              catch { return { state: chat.DELIVERY.COULD_NOT }; }
+            },
+            pathFor: (session) => path.join(store.root(), 'handoffs', store.safeKey(session) + '.md'),
+            autohandoff,
+            DELIVERY: chat.DELIVERY,
+          });
+        } catch { /* best-effort, like the nudge sweep */ }
+      }, Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) : 60 * 1000); // the env is the test seam only
+      if (ahSweep && typeof ahSweep.unref === 'function') ahSweep.unref();
       resolve(server);
     };
     server.once('error', onError);
