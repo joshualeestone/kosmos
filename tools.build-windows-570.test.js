@@ -147,6 +147,28 @@ test('the package tells the truth about itself', () => {
   assert.match(WIN, /Windows protected your PC/, 'the README does not warn about the unsigned warning');
 });
 
+test('🛑 the manifest stamps source provenance, and a dirty tree warns (#1749)', () => {
+  // A dirty, behind-origin preview build must be distinguishable from a
+  // reproducible origin/main cut. Same static-analysis convention as the
+  // sibling manifest checks above (a full build downloads a Node runtime).
+  assert.match(WIN, /SOURCE_SHA="\$\(git -C "\$REPO" rev-parse HEAD/,
+    'the build does not record which commit it was made from');
+  assert.match(WIN, /git -C "\$REPO" status --porcelain/,
+    'the build does not detect an uncommitted (dirty) source tree');
+  assert.match(WIN, /"source_sha": "\$SOURCE_SHA"/,
+    'the manifest does not carry the source commit');
+  assert.match(WIN, /"source_dirty": \$SOURCE_DIRTY/,
+    'the manifest does not carry the source-dirty flag (a boolean, unquoted)');
+  // The dirty case must WARN at build time, not only stamp a manifest nobody reads.
+  assert.match(WIN, /the source tree is DIRTY/,
+    'a dirty tree does not warn the builder on stderr');
+  // And it must STAMP, never REFUSE: a dirty preview is a legitimate build, so
+  // the dirty branch must not exit non-zero.
+  const dirtyBlock = WIN.slice(WIN.indexOf('SOURCE_DIRTY=true'), WIN.indexOf('STAGE="$(mktemp'));
+  assert.doesNotMatch(dirtyBlock, /\bexit\s+[1-9]/,
+    'the dirty branch refuses the build; #1749 stamps a preview, it does not block it');
+});
+
 test('🛑 the warning reaches her BEFORE the launcher does, which a README cannot', () => {
   /* The SmartScreen dialog appears on the double-click, before a single line we
      ship has run. Nothing INSIDE the package can speak at that moment. The one
