@@ -327,7 +327,13 @@ test('the installer URL is a positional parameter, never interpolated into the s
      and nothing new enters the -c string. The shape is re-pinned rather than
      loosened: this guard exists because interpolating a release base into a
      shell string turns it into shell. */
-  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s %s %s %s\\n" "\$code" "\$3" "\$4" "\$5" "\$6" > "\$2"',\s*'sh',\s*setupUrl\(\)/,
+  /* `set -o pipefail` was added because the recorded code was the PIPELINE's,
+     which is sh's, not curl's: a 404 recorded 0, and seedFromStatusFile returns
+     early on 0, so the failure this durable channel exists to record produced
+     no record and no attempt count at all. Measured: piped 404 recorded 0,
+     unpiped recorded 56, with pipefail 56. It changes the reviewed shape, so
+     the shape is re-pinned rather than the guard loosened. */
+  assert.match(call, /'-c',\s*'set -o pipefail; curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s %s %s %s\\n" "\$code" "\$3" "\$4" "\$5" "\$6" > "\$2"',\s*'sh',\s*setupUrl\(\)/,
     'the installer command is no longer the reviewed shape: ' + call);
   /* The two trailing positionals, asserted on the wider source since the
      slice above stops at the URL: the status file is $2, the stamp is $3,
@@ -938,6 +944,96 @@ test('#1277: after MAX_AUTO_ATTEMPTS recorded failures the board stops offering,
     fs.utimesSync(f, new Date(Date.now() - 48 * 60 * 60 * 1000), new Date(Date.now() - 48 * 60 * 60 * 1000));
     await u.refresh();
     assert.ok(installs > 0, 'CONTROL: a different version must reset the count, or one bad release blocks all future ones');
+  } finally {
+    u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+    u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('#1277: the attempt count ACCUMULATES across the surviving-server path, it does not regress', async () => {
+  /* noteAttemptEnd rebuilds the record from scratch and had dropped `attempts`,
+     which is the third field this rebuild has lost. On the one path where this
+     server survives a failed install (a non-zero child exit before kosmos stop),
+     the child had written attempts=2 durably, the rebuilt in-memory record said
+     undefined, lastAttemptView returned it instead of re-seeding, and the next
+     attempt computed 0+1 and wrote 1 back over the durable 2. The escalation
+     counter walked backwards. */
+  const u = require('./update');
+  u.resetCache();
+  let onExit = null;
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '9.9.9' }) }));
+  u.setInstalledRoot(() => '/tmp/pretend-installed');
+  u.setAutoPref(() => ({ on: true }));
+  u.setInstallRunner(() => ({ on(ev, fn) { if (ev === 'exit') onExit = fn; }, unref() {}, stderr: { on() {} } }));
+  try {
+    await u.refresh();
+    assert.ok(onExit, 'precondition: the runner must have bound an exit handler');
+    onExit(1, null);
+    const a = u.lastAttempt();
+    assert.ok(a && a.endedAt, 'precondition: the attempt must have ended');
+    assert.equal(a.attempts, 1,
+      `the ended record says attempts=${a.attempts}. Dropped here, the count restarts at 1 on every `
+      + 'surviving failure and the cap is never reached, so the brake never fires');
+  } finally {
+    u.setFetcher(null); u.setInstalledRoot(null); u.setAutoPref(null); u.setInstallRunner(null); u.resetCache();
+  }
+});
+
+test('#1277: giving up says so, because it is the terminal state and no screen shows it', async () => {
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-giveup-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  const long_ago = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  u.resetCache();
+  u.setInstalledRoot(() => home);
+  u.setAutoPref(() => ({ on: true }));
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+  u.setInstallRunner(() => ({ on() {}, unref() {}, stderr: { on() {} } }));
+  const written = [];
+  const realWrite = process.stderr.write.bind(process.stderr);
+  try {
+    const f = path.join(home, 'logs', 'install.status');
+    fs.writeFileSync(f, `1 ${long_ago} 99.0.0 1 3\n`);
+    fs.utimesSync(f, new Date(Date.now() - 48 * 3600 * 1000), new Date(Date.now() - 48 * 3600 * 1000));
+    process.stderr.write = (c, ...r) => { written.push(String(c)); return realWrite(c, ...r); };
+    await u.refresh();
+  } finally {
+    process.stderr.write = realWrite;
+    u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+    u.resetCache(); fs.rmSync(home, { recursive: true, force: true });
+  }
+  assert.ok(written.some((l) => /giving up on automatic install of 99\.0\.0/.test(l)),
+    `the brake fired silently. Got: ${JSON.stringify(written)}. Starting an install writes a line; `
+    + 'stopping forever wrote nothing, and the update overlay never renders an unattended attempt, '
+    + 'so the terminal state of this whole mechanism reached no human anywhere');
+});
+
+test('#1277: a manifest version with whitespace still matches the durable record, or the brake never fires', async () => {
+  /* parts() trims only to VALIDATE, so a manifest carrying whitespace left it
+     in cache.latest, while seedFromStatusFile splits on \s+ and therefore
+     returns a trimmed version. The same-version comparison in maybeAutoInstall
+     then compared " 99.0.0 " against "99.0.0" and was false forever, silently
+     disabling the attempt brake this card depends on. */
+  const os = require('node:os'); const fs = require('node:fs'); const path = require('node:path');
+  const u = require('./update');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-trim-'));
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  const long_ago = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  let installs = 0;
+  u.resetCache();
+  u.setInstalledRoot(() => home);
+  u.setAutoPref(() => ({ on: true }));
+  u.setFetcher(async () => ({ ok: true, json: async () => ({ version: '  99.0.0  ' }) }));
+  u.setInstallRunner(() => { installs += 1; return { on() {}, unref() {}, stderr: { on() {} } }; });
+  try {
+    const f = path.join(home, 'logs', 'install.status');
+    fs.writeFileSync(f, `1 ${long_ago} 99.0.0 1 3\n`);
+    fs.utimesSync(f, new Date(Date.now() - 48 * 3600 * 1000), new Date(Date.now() - 48 * 3600 * 1000));
+    await u.refresh();
+    assert.equal(installs, 0,
+      'a padded manifest version stopped matching the durable record, so the cap never applied and '
+      + 'the board would keep taking itself down. Whitespace in a manifest must not disable a brake');
   } finally {
     u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
     u.resetCache(); fs.rmSync(home, { recursive: true, force: true });

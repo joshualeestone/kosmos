@@ -134,6 +134,16 @@ let base = '';
 
 test.before(async () => {
   await start(0);
+  /* 🛑 #1277: BOOTING THE SERVER NOW STARTS THE UPDATE POLL, and this file
+     deliberately does not set AGENT_WORKFORCE_DRY_RUN (see the header: the
+     variable also disables the account block, so setting it would measure a
+     world where the feature never ran). It also never touches engine/update,
+     so the fetcher and install runner are both real, and it seals
+     AGENT_WORKFORCE_DATA into a sandbox with no autoupdate.json, which
+     engine/autoupdate.js reads as ON. From an installed layout the whole chain
+     would open: real fetch, an offer, and a real `curl | sh`.
+     Stopping the poll closes that without touching this file's reasoning. */
+  require('./engine/update').stopAutoPoll();
   base = 'http://127.0.0.1:' + server.address().port;
 });
 test.after(() => {

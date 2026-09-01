@@ -130,7 +130,10 @@ test('#1277: every test file that boots the server sets DRY_RUN, so none can rea
       + 'setRunner(fake) instead, which engine/create.js checks BEFORE DRY_RUN. It therefore relies '
       + 'on installedRoot() being null in a checkout, which is the incidental guard this arm exists '
       + 'to stop relying on, so the exception is narrow and named rather than silent. Checkable: '
-      + 'delete its setRunner(fake) and its own control at the bottom goes red.',
+      + 'delete its setRunner(fake) and its own control at the bottom goes red. '
+      + 'AND THE EXPOSURE IS CLOSED, not merely explained: that file now calls '
+      + 'stopAutoPoll() immediately after start(), so it boots the server without leaving a live '
+      + 'poll behind. An excuse that only says why a file cannot comply leaves the hole open.',
   };
   const missing = boots.filter((f) => !EXCUSED[f]
     && !SETS_IT.test(fs.readFileSync(path.join(root, f), 'utf8')));

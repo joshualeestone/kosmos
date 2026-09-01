@@ -457,3 +457,45 @@ people to re-run rather than to look, and a suite nobody trusts is a permanent
 loss. The shape is a network-shaped failure under a full-suite run with many
 servers up at once, and it should be chased on its own rather than attributed
 to whatever branch happens to be in flight when it fires.
+
+## Iteration 8
+
+**Two findings meant the brake I built in iteration 7 could never fire at all.**
+
+The recorded exit code was the PIPELINE's, which is `sh`'s, not `curl`'s, and
+there was no `pipefail`. Measured on the live origin, both arms: a 404 piped
+into `sh` records **0**, unpiped records 56, with `pipefail` 56. And
+`seedFromStatusFile` returns early on `code === 0`. So a 404, named verbatim in
+my own comment as the failure this channel exists to record, produced no failure
+record and no attempt count. Pre-existing, and this card is what made it
+load-bearing.
+
+And `parts()` trims only to VALIDATE, so `refresh()` assigned the raw
+`body.version` while the durable read splits on whitespace and returns a trimmed
+one. A manifest carrying padding made `durable.version === offer.version` false
+forever, which silently disables the same-version brake. Trimmed on assignment,
+with an arm.
+
+**The record rebuild dropped a field for the THIRD time.** `noteAttemptEnd`
+carried `version` and `auto` but not `attempts`, so on the one path where this
+server survives a failed install the count walked BACKWARDS: the child wrote 2
+durably, the rebuilt record said undefined, and the next attempt wrote 1 over
+it. Three fields, three iterations, one rebuild.
+
+**Giving up was silent.** Starting an automatic install writes a line; hitting
+the cap wrote nothing, and the update overlay renders only a record belonging to
+a press the viewer just made. The terminal state of this entire mechanism,
+"this machine has permanently stopped auto-updating to 99.0.0", reached no human
+anywhere. One line now, mirroring the start line.
+
+**And my excuse explained a hole instead of closing it.**
+`server.switch-account-1373.test.js` cannot set DRY_RUN for a documented reason,
+so I excused it. But it also never touches `engine/update`, so the fetcher and
+runner are real, and it seals a sandbox with no `autoupdate.json`, which reads
+as ON. From an installed layout the whole chain opened: real fetch, an offer,
+a real `curl | sh`. It now calls `stopAutoPoll()` immediately after `start()`,
+which closes the exposure without touching its reasoning, and the excuse records
+that rather than merely justifying the omission.
+
+⭐ An excuse that says why a file cannot comply is not the same as a file that
+is safe. I wrote the first and called it the second.

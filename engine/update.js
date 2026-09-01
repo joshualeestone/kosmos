@@ -93,7 +93,13 @@ async function refresh() {
       // never "up to date" (the false sentence this module exists to
       // prevent).
       const body = res.ok ? await res.json().catch(() => null) : null;
-      const v = body && typeof body.version === 'string' && parts(body.version) ? body.version : null;
+      /* TRIMMED on assignment. `parts()` trims only to VALIDATE, so a manifest
+         carrying whitespace left it in `cache.latest`, while `seedFromStatusFile`
+         reads fields split on `\s+` and therefore returns a trimmed version. The
+         same-version comparison in maybeAutoInstall then compared " 1.2.3 "
+         against "1.2.3" and was false forever, which silently disables the
+         attempt brake. */
+      const v = body && typeof body.version === 'string' && parts(body.version) ? body.version.trim() : null;
       cache = { at: Date.now(), latest: v, reached: true, readable: v !== null };
       landed = true;
     }
@@ -197,7 +203,17 @@ function maybeAutoInstall() {
       if (Number.isFinite(endedMs) && Date.now() - endedMs < AUTO_RETRY_AFTER) return;
       /* And the COUNT is what actually closes the boot loop, because it does
          not expire between logins the way the window does. */
-      if ((durable.attempts || 0) >= MAX_AUTO_ATTEMPTS) return;
+      if ((durable.attempts || 0) >= MAX_AUTO_ATTEMPTS) {
+        /* 🛑 SAY SO. Starting an automatic install writes a line; giving up on
+           one wrote nothing, and the update overlay renders only a record
+           belonging to a press the viewer just made, so the TERMINAL state of
+           this whole mechanism reached no human anywhere. */
+        try {
+          process.stderr.write(`update: giving up on automatic install of ${offer.version} after `
+            + `${durable.attempts} failed attempts; install it by hand or wait for a newer release\n`);
+        } catch { /* a log line must never break the board */ }
+        return;
+      }
     }
     beginInstall({ auto: true });
   } catch { /* an update that cannot start must not break the one that shows */ }
@@ -483,6 +499,13 @@ function noteAttemptEnd(owner, code, why) {
        from the API the instant the installer exited. */
     version: lastAttempt && lastAttempt.version ? lastAttempt.version : null,
     auto: !!(lastAttempt && lastAttempt.auto),
+    /* ⚠️ AND `attempts`. This rebuild has now dropped a field three separate
+       times. Without it the escalation counter REGRESSES on the one path where
+       this server survives a failed install: the child wrote attempts=2 to the
+       status file, the rebuilt in-memory record says undefined, lastAttemptView
+       returns it instead of re-seeding, and the next attempt computes 0+1=1 and
+       writes 1 back over the durable 2. */
+    attempts: (lastAttempt && lastAttempt.attempts) || 0,
   };
 }
 function seedFromStatusFile() {
@@ -616,7 +639,7 @@ function beginInstall(opts) {
      version by itself comes from this file, and it used to carry only an exit
      code and a start stamp. Two more fields, and `-` stands in for an unknown
      version so the field count stays fixed. */
-  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s %s %s %s\n" "$code" "$3" "$4" "$5" "$6" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, lastAttempt.version || '-', lastAttempt.auto ? '1' : '0', String(lastAttempt.attempts || 0)], {
+  const child = spawn('/bin/sh', ['-c', 'set -o pipefail; curl -fsSL "$1" | sh; code=$?; printf "%s %s %s %s %s\n" "$code" "$3" "$4" "$5" "$6" > "$2"', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, lastAttempt.version || '-', lastAttempt.auto ? '1' : '0', String(lastAttempt.attempts || 0)], {
     detached: true,
     stdio: 'ignore',
     env: { ...process.env, KOSMOS_RELEASE_BASE: base },
