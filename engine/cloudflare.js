@@ -17,8 +17,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const DIR = path.join(store.ROOT, 'secrets');
-const FILE = path.join(DIR, 'cloudflare.token');
+const dir = () => path.join(store.ROOT, 'secrets');
+const file = () => path.join(dir(), 'cloudflare.token');
 const VERIFY_URL = () => process.env.AGENT_WORKFORCE_CLOUDFLARE_VERIFY_URL || 'https://api.cloudflare.com/client/v4/user/tokens/verify';
 const WHERE = 'https://dash.cloudflare.com/profile/api-tokens';
 
@@ -26,7 +26,7 @@ let fetcher = null; // test seam: (url, token) => Promise<{ok, status, body}>
 function setFetcher(fn) { fetcher = typeof fn === 'function' ? fn : null; }
 
 function readToken() {
-  try { return fs.readFileSync(FILE, 'utf8').trim() || null; } catch { return null; }
+  try { return fs.readFileSync(file(), 'utf8').trim() || null; } catch { return null; }
 }
 
 async function ask(token) {
@@ -74,15 +74,15 @@ async function state() {
 async function connect(token) {
   const v = await verify(token);
   if (!v.ok) return { ...(await state()), refused: v.because };
-  fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(FILE, String(token).trim() + '\n', { mode: 0o600 });
-  try { fs.chmodSync(FILE, 0o600); } catch { /* mode set at write */ }
+  fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file(), String(token).trim() + '\n', { mode: 0o600 });
+  try { fs.chmodSync(file(), 0o600); } catch { /* mode set at write */ }
   return state();
 }
 
 async function forget() {
-  try { fs.unlinkSync(FILE); } catch { /* nothing held */ }
+  try { fs.unlinkSync(file()); } catch { /* nothing held */ }
   return state();
 }
 
-module.exports = { state, connect, forget, verify, setFetcher, FILE, DIR, WHERE };
+module.exports = { state, connect, forget, verify, setFetcher, get FILE() { return file(); }, get DIR() { return dir(); }, WHERE };

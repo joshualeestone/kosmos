@@ -43,7 +43,7 @@ const STATES = Object.freeze(['started', 'working', 'idle', 'needs_you', 'blocke
    ones an automatic writer may not erase. */
 const WAITING_ON_A_PERSON = Object.freeze(['blocked', 'needs_you']);
 
-const DIR = path.join(store.ROOT, 'selfreports');
+const dir = () => path.join(store.ROOT, 'selfreports');
 
 /* The reader's window. 64KB holds hundreds of transitions; anything older
    is history the CURRENT state cannot depend on, because a `started` line
@@ -62,7 +62,7 @@ const NO_READING = {
 };
 
 function fileFor(sessionName) {
-  return path.join(DIR, store.safeKey(sessionName) + '.jsonl');
+  return path.join(dir(), store.safeKey(sessionName) + '.jsonl');
 }
 
 function capped(value, cap) {
@@ -162,7 +162,7 @@ function record(sessionName, entry) {
     at,
   };
   try {
-    fs.mkdirSync(DIR, { recursive: true });
+    fs.mkdirSync(dir(), { recursive: true });
     fs.appendFileSync(file, JSON.stringify(line) + '\n');
   } catch {
     return { recorded: false, because: 'we could not save that report' };
@@ -267,4 +267,4 @@ function read(sessionName) {
   };
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, fileFor };
+module.exports = { STATES, WAITING_ON_A_PERSON, get DIR() { return dir(); }, NO_READING, TAIL_BYTES, record, read, fileFor };

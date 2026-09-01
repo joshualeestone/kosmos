@@ -57,7 +57,7 @@ const chat = require('./chat');
 const store = require('./store');
 const limits = require('./limits');
 
-const LOG = path.join(store.ROOT, 'messages.jsonl');
+const log = () => path.join(store.ROOT, 'messages.jsonl');
 
 /* #670: the per-project read cursor. One person per Kosmos install, so the
    cursor is keyed by project alone. "Unread" is every post to that room
@@ -68,11 +68,11 @@ const LOG = path.join(store.ROOT, 'messages.jsonl');
    reload and a restart. A cursor file we cannot read is UNKNOWN, never
    "never opened": the count answers null and the page draws nothing, the
    same rule the record itself follows. */
-const SEEN = path.join(store.ROOT, 'room-seen.json');
+const seen = () => path.join(store.ROOT, 'room-seen.json');
 
 function seenRead() {
   let raw;
-  try { raw = fs.readFileSync(SEEN, 'utf8'); } catch (err) {
+  try { raw = fs.readFileSync(seen(), 'utf8'); } catch (err) {
     if (err && err.code === 'ENOENT') return {};
     return null;
   }
@@ -88,10 +88,10 @@ function markSeen(projectId, now) {
   if (!id) throw new Error('say which project was opened');
   const cur = seenRead() || {};
   cur[id] = new Date(Number.isFinite(now) ? now : Date.now()).toISOString();
-  fs.mkdirSync(path.dirname(SEEN), { recursive: true });
-  const tmp = SEEN + '.tmp';
+  fs.mkdirSync(path.dirname(seen()), { recursive: true });
+  const tmp = seen() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(cur, null, 2) + '\n');
-  fs.renameSync(tmp, SEEN);
+  fs.renameSync(tmp, seen());
   return cur[id];
 }
 
@@ -120,13 +120,13 @@ function unread(projectId) {
   const all = unreadAll();
   return all === null ? null : (all[String(projectId)] || 0);
 }
-const SPILL_DIR = path.join(store.ROOT, 'messages');
+const spillDir = () => path.join(store.ROOT, 'messages');
 
 /* Long bodies spill to a file and the pane gets a pointer. Fleet lesson
    (Splinter, 2026-08-17, learned by failing six times in one night): long
    sends are the failure mode of pane transports -- they land collapsed
    and unsent while looking delivered -- and the reliable shape is three
-   lines and a path. The full text still goes in the LOG (the screens
+   lines and a path. The full text still goes in the log() (the screens
    draw conversations from the log, not from panes). */
 const SPILL_AT = 700;
 /* The ceiling past which a body is a document, not a message (spill
@@ -417,7 +417,7 @@ function parseLinesInto(text, rows, parsed) {
 }
 
 function readBytes(from, to) {
-  const fd = fs.openSync(LOG, 'r');
+  const fd = fs.openSync(log(), 'r');
   try {
     const buf = Buffer.alloc(to - from);
     let got = 0;
@@ -434,7 +434,7 @@ function readBytes(from, to) {
 
 function record() {
   let st;
-  try { st = fs.statSync(LOG); } catch (err) {
+  try { st = fs.statSync(log()); } catch (err) {
     if (err && err.code === 'ENOENT') { READ_CACHE = null; return { ok: true, rows: [], parsed: [] }; }
     return { ok: false, rows: [], parsed: [] };
   }
@@ -547,8 +547,8 @@ function readLog() {
 }
 
 function appendLog(entry) {
-  fs.mkdirSync(path.dirname(LOG), { recursive: true });
-  fs.appendFileSync(LOG, JSON.stringify(entry) + '\n');
+  fs.mkdirSync(path.dirname(log()), { recursive: true });
+  fs.appendFileSync(log(), JSON.stringify(entry) + '\n');
 }
 
 function pairKey(a, b) {
@@ -756,9 +756,9 @@ function send({ fromPane, to, text, inReplyTo }, roster) {
   const cleaned = chat.cleanMessage(text);
   let body = cleaned;
   if (cleaned.length > SPILL_AT) {
-    const spillFile = path.join(SPILL_DIR, id + '.txt');
+    const spillFile = path.join(spillDir(), id + '.txt');
     try {
-      fs.mkdirSync(SPILL_DIR, { recursive: true });
+      fs.mkdirSync(spillDir(), { recursive: true });
       fs.writeFileSync(spillFile, cleaned + '\n');
     } catch {
       return refuse(toName, 'that message is long enough to need a file, and we could not write one');
@@ -775,7 +775,7 @@ function send({ fromPane, to, text, inReplyTo }, roster) {
     // A refused delivery must not orphan its spill: the next send mints
     // the same id and would silently overwrite it with unrelated text.
     if (cleaned.length > SPILL_AT) {
-      try { fs.rmSync(path.join(SPILL_DIR, id + '.txt'), { force: true }); } catch { /* best effort */ }
+      try { fs.rmSync(path.join(spillDir(), id + '.txt'), { force: true }); } catch { /* best effort */ }
     }
     return refuse(toName, sent.because);
   }
@@ -1136,9 +1136,9 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
   const cleaned = chat.cleanMessage(text);
   let body = cleaned;
   if (cleaned.length > SPILL_AT) {
-    const spillFile = path.join(SPILL_DIR, id + '.txt');
+    const spillFile = path.join(spillDir(), id + '.txt');
     try {
-      fs.mkdirSync(SPILL_DIR, { recursive: true });
+      fs.mkdirSync(spillDir(), { recursive: true });
       fs.writeFileSync(spillFile, cleaned + '\n');
     } catch {
       return refuse('that post is long enough to need a file, and we could not write one');
@@ -1252,7 +1252,7 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
        was typed anywhere, so nothing is logged (send()'s typed-only
        rule) and the spill must not wait for the next mint of this id. */
     if (cleaned.length > SPILL_AT) {
-      try { fs.rmSync(path.join(SPILL_DIR, id + '.txt'), { force: true }); } catch { /* best effort */ }
+      try { fs.rmSync(path.join(spillDir(), id + '.txt'), { force: true }); } catch { /* best effort */ }
     }
     const failed = refuse('we could not get this post to anybody on ' + shownProject);
     failed.outcomes = outcomes;
@@ -1587,9 +1587,9 @@ module.exports = {
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   operatorDirect, operatorNowLabel, validTimeZone,
   START, END, blockBody,
-  LOG,
+  get LOG() { return log(); },
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
   resolveSender, send, sendPost, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
-  unreadAll, unread, markSeen, seenRead, SEEN,
+  unreadAll, unread, markSeen, seenRead, get SEEN() { return seen(); },
   setRunner, resetForTests,
 };

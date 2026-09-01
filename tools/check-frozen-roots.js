@@ -33,7 +33,19 @@ const path = require('node:path');
 /* The roots that matter: anything that can name a real place on the operator's
    machine. Deliberately a list rather than a regex over `os.*`, because the
    point is which VALUES are dangerous, not which API produced them. */
-const SOURCES = ['os.homedir()', 'os.tmpdir()'];
+/* 🛑 `store.ROOT` BELONGS HERE AND ITS ABSENCE MADE THIS GUARD BLIND TO THE
+   CLASS IT IS NAMED FOR. #1512 made store.ROOT resolve per call, and the note
+   below claimed that removing its debt entry "is what makes the fix enforced".
+   It did not: store.ROOT was never a SOURCE, so this guard could only ever fail
+   on a module freezing os.homedir(). Measured on main before this change, with
+   store.ROOT added: 29 findings across 21 engine modules, every one of them
+   invisible while the guard reported clean and printed nothing.
+
+   `store.ROOT` is a getter. Capturing it into a module-level const evaluates it
+   ONCE at require time and throws the laziness away, which is the same freeze in
+   a new place. `AGENT_WORKFORCE_DATA` is here for the same reason: the common
+   shape was `const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT`. */
+const SOURCES = ['os.homedir()', 'os.tmpdir()', 'store.ROOT', 'process.env.AGENT_WORKFORCE_DATA'];
 
 /* 🛑 KNOWN DEBT, NAMED AND PRINTED, NEVER SILENTLY SKIPPED.
    An allowlist that hides its entries becomes invisible coverage, which is the
@@ -55,6 +67,25 @@ const KNOWN = new Map([]);
 /* A declaration that is an arrow function is LAZY and fine: `const T = () => …`
    resolves per call. This is the distinction the whole check turns on. */
 const isLazy = (init) => /^\s*(\(\s*\)|\([^)]*\))\s*=>/.test(init) || /^\s*function\b/.test(init);
+
+/* A CONTAINER whose every root reference already sits inside an arrow is lazy too,
+   and the check above cannot see that: it asks whether the WHOLE initializer is a
+   function. `engine/forget.js:KINDS` is an array of
+   `{ dir: () => path.join(store.ROOT, ...) }`, which defers correctly and was
+   still reported. A guard that fires on correct code is worse than one that
+   misses, because the cheapest way out is to excuse it by name, and then the debt
+   list is decoration.
+
+   ⚠️ Line-wise, and the limit is real: a root reference on a different line from
+   its `=>` still counts as frozen. That fails toward REPORTING, which is the safe
+   direction here, and it is stated rather than left to be discovered. */
+const everyRootIsDeferred = (init) => {
+  const lines = init.split('\n').filter((l) => SOURCES.some((s) => l.includes(s)));
+  return lines.length > 0 && lines.every((l) => SOURCES.some((s) => {
+    const at = l.indexOf(s);
+    return at > -1 && l.lastIndexOf('=>', at) > -1;
+  }));
+};
 
 function declarations(src) {
   /* Multi-line aware, and LINEAR rather than a regex.
@@ -117,7 +148,7 @@ function scan(file) {
   const resolvers = functionNamesReaching(src, SOURCES);
   const findings = [];
   for (const d of declarations(src)) {
-    if (isLazy(d.init)) continue;
+    if (isLazy(d.init) || everyRootIsDeferred(d.init)) continue;
     const direct = SOURCES.some((s) => d.init.includes(s));
     const viaHelper = [...resolvers].some((n) => new RegExp(`\\b${n}\\s*\\(`).test(d.init));
     if (direct || viaHelper) {

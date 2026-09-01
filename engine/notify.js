@@ -31,8 +31,8 @@ const path = require('node:path');
 const store = require('./store');
 const ping = require('./ping');
 
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
-const FILE = path.join(BASE, 'notify.json');
+const base = () => process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+const file = () => path.join(base(), 'notify.json');
 const DEFAULT_ENDPOINT = 'https://installkosmos.com/api/happened';
 /* 'check_in' (#1722): the product heartbeat's periodic nudge. It is a QUESTION,
    not a verdict -- fired when an agent LEFT the working state (see
@@ -56,7 +56,7 @@ const notifyToken = () => process.env.AGENT_WORKFORCE_NOTIFY_TOKEN || '';
 /** Off until somebody turns it on: there is nothing on the other end yet. */
 function read() {
   let raw;
-  try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
+  try { raw = fs.readFileSync(file(), 'utf8'); } catch (err) {
     if (err && err.code === 'ENOENT') return { on: false, ok: true };
     return { on: false, ok: false };
   }
@@ -69,10 +69,10 @@ function write(patch) {
   const next = { ...read(), ...patch };
   delete next.ok;
   try {
-    fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    const tmp = FILE + '.tmp';
+    fs.mkdirSync(path.dirname(file()), { recursive: true });
+    const tmp = file() + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(next) + '\n');
-    fs.renameSync(tmp, FILE);
+    fs.renameSync(tmp, file());
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };
@@ -144,4 +144,4 @@ function happened(event) {
 
 function setSender(f) { sender = typeof f === 'function' ? f : null; }
 
-module.exports = { FILE, KINDS, DEFAULT_ENDPOINT, read, setOn, payload, happened, setSender };
+module.exports = { get FILE() { return file(); }, KINDS, DEFAULT_ENDPOINT, read, setOn, payload, happened, setSender };

@@ -22,8 +22,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
-const FILE = path.join(BASE, 'heartbeat.json');
+const base = () => process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+const file = () => path.join(base(), 'heartbeat.json');
 
 // The closed set of interval choices, in minutes. Frozen so a consumer cannot
 // rewrite the product's notion of a valid interval from outside.
@@ -42,7 +42,7 @@ function isValidInterval(m) {
 function read() {
   let raw;
   try {
-    raw = fs.readFileSync(FILE, 'utf8');
+    raw = fs.readFileSync(file(), 'utf8');
   } catch (err) {
     if (err && err.code === 'ENOENT') return { on: false, intervalMinutes: DEFAULT_INTERVAL, ok: true };
     return { on: false, intervalMinutes: DEFAULT_INTERVAL, ok: false };
@@ -61,10 +61,10 @@ function write(patch) {
   const cur = read();
   const next = { on: cur.on, intervalMinutes: cur.intervalMinutes, ...patch };
   try {
-    fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    const tmp = FILE + '.tmp';
+    fs.mkdirSync(path.dirname(file()), { recursive: true });
+    const tmp = file() + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({ on: next.on, intervalMinutes: next.intervalMinutes }) + '\n');
-    fs.renameSync(tmp, FILE);
+    fs.renameSync(tmp, file());
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };
@@ -111,4 +111,4 @@ function set(patch) {
   return write(next);
 }
 
-module.exports = { FILE, INTERVAL_CHOICES, DEFAULT_INTERVAL, isValidInterval, read, setOn, setIntervalMinutes, set };
+module.exports = { get FILE() { return file(); }, INTERVAL_CHOICES, DEFAULT_INTERVAL, isValidInterval, read, setOn, setIntervalMinutes, set };

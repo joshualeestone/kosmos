@@ -53,7 +53,7 @@ const store = require('./store');
    defends against a WRONG ANSWER, not against a rejection, and only the wrong answer is
    testable.
 
-   🛑 THIS FILE CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK, DELIBERATELY.
+   🛑 THIS file() CARRIES THE OPPOSITE RULE AT THE ghCandidateList LOAD CHECK, DELIBERATELY.
    That cycle detector WARNS rather than throws, because throwing at import bricks the
    board: `server.js` requires this module with no try. Both are correct, because they
    are about DIFFERENT FAILURES:
@@ -71,9 +71,9 @@ const store = require('./store');
    subject's blindness) is on kosmos#1730. It is not needed to read the code. */
 const { isRunnable } = require('./runners');
 
-const DIR = path.join(store.ROOT, 'secrets');
-const FILE = path.join(DIR, 'github.token');
-const APP_FILE = path.join(store.ROOT, 'github-app.json');
+const dir = () => path.join(store.ROOT, 'secrets');
+const file = () => path.join(dir(), 'github.token');
+const appFile = () => path.join(store.ROOT, 'github-app.json');
 
 const DEVICE_URL = () => process.env.AGENT_WORKFORCE_GITHUB_DEVICE_URL || 'https://github.com/login/device/code';
 const TOKEN_URL = () => process.env.AGENT_WORKFORCE_GITHUB_TOKEN_URL || 'https://github.com/login/oauth/access_token';
@@ -113,7 +113,7 @@ function clientId() {
      kept for anyone running their own GitHub app), then the build's own. */
   if (process.env.KOSMOS_GITHUB_CLIENT_ID) return process.env.KOSMOS_GITHUB_CLIENT_ID;
   try {
-    const got = JSON.parse(fs.readFileSync(APP_FILE, 'utf8'));
+    const got = JSON.parse(fs.readFileSync(appFile(), 'utf8'));
     const pasted = got && typeof got.clientId === 'string' && got.clientId.trim();
     if (pasted) return pasted;
   } catch { /* fall through to the shipped id */ }
@@ -128,7 +128,7 @@ function setClientId(id) {
   if (!v) return { ok: false, because: 'paste the client id first' };
   if (/\s/.test(v)) return { ok: false, because: 'a client id has no spaces in it' };
   try {
-    fs.writeFileSync(APP_FILE, JSON.stringify({ clientId: v }) + '\n');
+    fs.writeFileSync(appFile(), JSON.stringify({ clientId: v }) + '\n');
     return { ok: true };
   } catch { return { ok: false, because: 'we could not save that' }; }
 }
@@ -259,7 +259,7 @@ const getUser = (token) => http(VERIFY_URL(), {
 });
 
 function readToken() {
-  try { return fs.readFileSync(FILE, 'utf8').trim() || null; } catch { return null; }
+  try { return fs.readFileSync(file(), 'utf8').trim() || null; } catch { return null; }
 }
 
 /* The flow in flight, one at a time, in memory: the server process owns the
@@ -337,9 +337,9 @@ async function pollOnce(id, deviceCode, delayMs) {
   if (b.access_token) {
     FLOW = { ...FLOW, phase: PHASE.COMPLETING };
     /* Straight to the 600 file, the Cloudflare shape. */
-    fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(FILE, String(b.access_token).trim() + '\n', { mode: 0o600 });
-    try { fs.chmodSync(FILE, 0o600); } catch { /* mode set at write */ }
+    fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file(), String(b.access_token).trim() + '\n', { mode: 0o600 });
+    try { fs.chmodSync(file(), 0o600); } catch { /* mode set at write */ }
     FLOW = { phase: PHASE.IDLE, code: null, url: null, because: null, expiresAt: 0 };
     return;
   }
@@ -401,8 +401,8 @@ async function cancel() {
 async function forget() {
   stopPolling();
   FLOW = { phase: PHASE.IDLE, code: null, url: null, because: null, expiresAt: 0 };
-  try { fs.unlinkSync(FILE); } catch { /* nothing held */ }
+  try { fs.unlinkSync(file()); } catch { /* nothing held */ }
   return state();
 }
 
-module.exports = { PHASE, state, start, cancel, forget, setClientId, clientId, setFetcher, FILE, DIR, APP_FILE, NO_APP };
+module.exports = { PHASE, state, start, cancel, forget, setClientId, clientId, setFetcher, get FILE() { return file(); }, get DIR() { return dir(); }, get APP_FILE() { return appFile(); }, NO_APP };

@@ -54,10 +54,10 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const store = require('./store');
 
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
-const FILE = path.join(BASE, 'remote.json');
-const STATE_DIR = () => process.env.AGENT_WORKFORCE_TUNNEL_STATE || path.join(BASE, 'remote');
-const STATUS_FILE = () => path.join(BASE, 'remote-status.json');
+const base = () => process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+const file = () => path.join(base(), 'remote.json');
+const stateDir = () => () => process.env.AGENT_WORKFORCE_TUNNEL_STATE || path.join(base(), 'remote');
+const statusFile = () => () => path.join(base(), 'remote-status.json');
 /* Where the connector lives. An explicit AGENT_WORKFORCE_TUNNEL_BIN wins (the
  * test seam, and any operator override). Otherwise prefer the copy this app
  * ships beside itself -- installed, remote.js sits at
@@ -103,8 +103,8 @@ let localPort = null;
     block the switch. */
 function secureStateDir() {
   try {
-    fs.mkdirSync(STATE_DIR(), { recursive: true, mode: 0o700 });
-    fs.chmodSync(STATE_DIR(), 0o700);
+    fs.mkdirSync(stateDir()(), { recursive: true, mode: 0o700 });
+    fs.chmodSync(stateDir()(), 0o700);
   } catch { /* best-effort; the binary still writes its files 0600 */ }
 }
 
@@ -112,7 +112,7 @@ function secureStateDir() {
     self-hoster can point at their own relay without an env var. */
 function read() {
   let raw;
-  try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
+  try { raw = fs.readFileSync(file(), 'utf8'); } catch (err) {
     if (err && err.code === 'ENOENT') return { on: false, relay: '', email: '', denied: {}, ok: true };
     return { on: false, relay: '', email: '', denied: {}, ok: false };
   }
@@ -133,10 +133,10 @@ function write(patch) {
   const next = { ...read(), ...patch };
   delete next.ok;
   try {
-    fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    const tmp = FILE + '.tmp';
+    fs.mkdirSync(path.dirname(file()), { recursive: true });
+    const tmp = file() + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(next) + '\n');
-    fs.renameSync(tmp, FILE);
+    fs.renameSync(tmp, file());
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };
@@ -146,13 +146,13 @@ function write(patch) {
 /** Enrolled means setup finished: the state dir holds the identity and the
     certificate. Half a state dir is not enrolled. */
 function enrolled() {
-  const dir = STATE_DIR();
+  const dir = stateDir()();
   return ['mac_id', 'address', 'tls.crt', 'tls.key'].every((f) =>
     fs.existsSync(path.join(dir, f)));
 }
 
 function address() {
-  try { return fs.readFileSync(path.join(STATE_DIR(), 'address'), 'utf8').trim() || null; }
+  try { return fs.readFileSync(path.join(stateDir()(), 'address'), 'utf8').trim() || null; }
   catch { return null; }
 }
 
@@ -199,16 +199,16 @@ function startChild() {
   const args = [
     'run',
     '--relay', RELAY(),
-    '--state-dir', STATE_DIR(),
+    '--state-dir', stateDir()(),
     '--local', '127.0.0.1:' + localPort,
-    '--status-file', STATUS_FILE(),
+    '--status-file', statusFile()(),
     '--coordinator', COORDINATOR(),
   ];
   if (process.env.AGENT_WORKFORCE_TUNNEL_CA) {
     args.push('--tunnel-ca', process.env.AGENT_WORKFORCE_TUNNEL_CA);
   }
   secureStateDir();
-  try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
+  try { fs.rmSync(statusFile()(), { force: true }); } catch { /* stale is worse than absent */ }
   let spawned;
   try {
     /* stdout is dropped (the status file is the interface); stderr joins the
@@ -328,7 +328,7 @@ function status() {
         : { state: 'off', address: null, because: 'the board has not started the tunnel' };
     }
     let raw;
-    try { raw = JSON.parse(fs.readFileSync(STATUS_FILE(), 'utf8')); } catch { raw = null; }
+    try { raw = JSON.parse(fs.readFileSync(statusFile()(), 'utf8')); } catch { raw = null; }
     if (!raw || raw.pid !== child.pid) {
       return { state: 'connecting', address: null, because: 'starting the connection' };
     }
@@ -388,12 +388,12 @@ async function forget() {
   let retired = false;
   let because = null;
   if (was.enrolled) {
-    const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()]);
+    const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', stateDir()()]);
     retired = r.ok === true;
     because = r.ok ? null : r.because;
   }
-  try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* best effort; enrolled() re-reads */ }
-  try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
+  try { fs.rmSync(stateDir()(), { recursive: true, force: true }); } catch { /* best effort; enrolled() re-reads */ }
+  try { fs.rmSync(statusFile()(), { force: true }); } catch { /* stale is worse than absent */ }
   const r = read();
   write({ ...r, on: false });
   return {
@@ -414,7 +414,7 @@ async function secondReset() {
   if (!enrolled()) {
     return { ok: false, because: 'this computer is not set up for Plus, so it cannot reset a second factor' };
   }
-  const r = await setupRun(['second', 'reset', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()]);
+  const r = await setupRun(['second', 'reset', '--coordinator', COORDINATOR(), '--state-dir', stateDir()()]);
   if (!r.ok) return { ok: false, because: r.because };
   return { ok: true, because: null };
 }
@@ -447,7 +447,7 @@ async function setupComplete(code, name) {
     '--email', settings.email,
     '--code', String(code),
     '--name', name,
-    '--state-dir', STATE_DIR(),
+    '--state-dir', stateDir()(),
   ]);
   if (result.ok) ensure(localPort);
   return result;
@@ -460,7 +460,7 @@ async function setupComplete(code, name) {
    every five seconds, so every open board can poll without spawning. ---- */
 const DEVICE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const DEVICE_NAME = /^[^\n\r]{1,60}$/;
-function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
+function pendingFile() { return path.join(stateDir()(), 'pending.json'); }
 /** What is waiting for this Mac's Allow. A missing snapshot is an empty
     list, not an error: the tunnel writes it only once it is up, and a
     board with Plus off has nothing waiting. `snapshot` says which. */
@@ -492,7 +492,7 @@ function parseSaid(result) {
 function deviceArgs(verb, id, withCoordinator) {
   const args = ['devices', verb];
   if (withCoordinator) args.push('--coordinator', COORDINATOR());
-  args.push('--state-dir', STATE_DIR());
+  args.push('--state-dir', stateDir()());
   if (id !== null) args.push('--device-id', id);
   return args;
 }
@@ -549,7 +549,7 @@ async function deviceRemove(id) {
 }
 
 module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
-  FILE,
+  get FILE() { return file(); },
   read,
   setOn,
   setRelay,

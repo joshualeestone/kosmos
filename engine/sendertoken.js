@@ -53,7 +53,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const DIR = path.join(store.ROOT, 'sendertokens');
+const dir = () => path.join(store.ROOT, 'sendertokens');
 
 /* 🛑 ONE SENTENCE, FOUR CALLERS, AND IT IS A SECURITY PROPERTY RATHER THAN TIDINESS.
    A refusal must not disclose whether a token was ever real: never issued, issued then
@@ -95,7 +95,7 @@ const FILE_MODE = 0o600;
 const MAX_LIVE = 32;
 
 function fileFor(sessionName) {
-  return path.join(DIR, store.safeKey(sessionName) + '.json');
+  return path.join(dir(), store.safeKey(sessionName) + '.json');
 }
 
 /**
@@ -119,7 +119,7 @@ function readTokens(sessionName) {
 
 function writeTokens(sessionName, tokens) {
   const file = fileFor(sessionName);
-  fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, JSON.stringify({ tokens }), { mode: FILE_MODE });
 }
 
@@ -192,7 +192,7 @@ function live(sessionName) {
  */
 function keys() {
   let names;
-  try { names = fs.readdirSync(DIR).filter((f) => f.endsWith('.json')); } catch { return []; }
+  try { names = fs.readdirSync(dir()).filter((f) => f.endsWith('.json')); } catch { return []; }
   const out = [];
   for (const f of names) {
     const key = f.slice(0, -'.json'.length);
@@ -229,7 +229,7 @@ function resolve(token, roster) {
   }
   let names;
   try {
-    names = fs.readdirSync(DIR).filter((f) => f.endsWith('.json'));
+    names = fs.readdirSync(dir()).filter((f) => f.endsWith('.json'));
   } catch (e) {
     if (e && e.code === 'ENOENT') return { ok: false, because: NO_MATCH };
     return { ok: false, because: 'we could not read the sender tokens, so we could not tell who this is from' };
@@ -287,7 +287,7 @@ function resolveName(token) {
     return { ok: false, because: NO_TOKEN };
   }
   let names;
-  try { names = fs.readdirSync(DIR).filter((f) => f.endsWith('.json')); } catch { return no; }
+  try { names = fs.readdirSync(dir()).filter((f) => f.endsWith('.json')); } catch { return no; }
   for (const f of names) {
     const key = f.slice(0, -'.json'.length);
     let held;
@@ -301,4 +301,4 @@ function resolveName(token) {
   return no;
 }
 
-module.exports = { mint, revoke, retire, live, keys, resolve, resolveName, DIR, MAX_LIVE };
+module.exports = { mint, revoke, retire, live, keys, resolve, resolveName, get DIR() { return dir(); }, MAX_LIVE };

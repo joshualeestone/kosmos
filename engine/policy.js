@@ -37,8 +37,8 @@ const instructions = require('./instructions');
 const projects = require('./projects');
 
 // Same layout convention as you.js: under a sandbox the env var IS the base.
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
-const FILE = path.join(BASE, 'policy.json');
+const base = () => process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+const file = () => path.join(base(), 'policy.json');
 
 const START = projects.POLICY_START;
 const END = projects.POLICY_END;
@@ -115,10 +115,10 @@ function entriesOf(rec) {
 }
 
 function persist(policies) {
-  fs.mkdirSync(path.dirname(FILE), { recursive: true });
-  const tmp = FILE + '.tmp';
+  fs.mkdirSync(path.dirname(file()), { recursive: true });
+  const tmp = file() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify({ version: 2, policies }, null, 2) + '\n');
-  fs.renameSync(tmp, FILE);
+  fs.renameSync(tmp, file());
 }
 
 /**
@@ -132,7 +132,7 @@ function persist(policies) {
 function read() {
   let raw;
   try {
-    raw = fs.readFileSync(FILE, 'utf8');
+    raw = fs.readFileSync(file(), 'utf8');
   } catch (err) {
     if (err && err.code === 'ENOENT') return { state: 'absent', policies: [], because: null };
     return { state: 'unknown', policies: [], because: String((err && err.message) || 'we could not read the record') };
@@ -254,7 +254,7 @@ function removeOne(id) {
 
 /** Forget every policy. Missing already is fine; the sync removes blocks. */
 function clear() {
-  try { fs.unlinkSync(FILE); } catch (err) {
+  try { fs.unlinkSync(file()); } catch (err) {
     if (!err || err.code !== 'ENOENT') throw new Error('we could not remove the saved policy');
   }
 }
@@ -380,5 +380,5 @@ function syncEveryone(roster) {
 
 module.exports = {
   add, rename, removeOne, clear, read, blockBody, stackedBody, tellAgent, syncEveryone,
-  START, END, TEXT_MAX, NAME_MAX, BLOCK_MAX, DEFAULT_NAME, FILE,
+  START, END, TEXT_MAX, NAME_MAX, BLOCK_MAX, DEFAULT_NAME, get FILE() { return file(); },
 };

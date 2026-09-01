@@ -29,7 +29,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const DIR = path.join(store.ROOT, 'liveness');
+const dir = () => path.join(store.ROOT, 'liveness');
 const FILE_MODE = 0o600;
 
 /* Three heartbeats of grace at the BEATER'S OWN CADENCE.
@@ -59,7 +59,7 @@ const FILE_MODE = 0o600;
 const STALE_AFTER_MS = 180 * 1000;
 
 function fileFor(sessionName) {
-  return path.join(DIR, store.safeKey(sessionName) + '.json');
+  return path.join(dir(), store.safeKey(sessionName) + '.json');
 }
 
 /**
@@ -76,7 +76,7 @@ function seen(sessionName, atISO) {
     return { seen: false, because: 'that is not a time we can read' };
   }
   try {
-    fs.mkdirSync(DIR, { recursive: true });
+    fs.mkdirSync(dir(), { recursive: true });
     /* One line, rewritten. Unlike the report record this is not a history:
        only the latest beat means anything, and an append-only file of
        heartbeats would grow without ever being read past its tail. */
@@ -122,4 +122,4 @@ function alive(sessionName, staleAfterMs) {
   return r.ageMs <= (Number.isFinite(staleAfterMs) ? staleAfterMs : STALE_AFTER_MS);
 }
 
-module.exports = { DIR, STALE_AFTER_MS, fileFor, seen, read, alive };
+module.exports = { get DIR() { return dir(); }, STALE_AFTER_MS, fileFor, seen, read, alive };

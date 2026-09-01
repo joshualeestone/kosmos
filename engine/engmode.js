@@ -22,14 +22,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
-const FILE = path.join(BASE, 'engmode.json');
+const base = () => process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+const file = () => path.join(base(), 'engmode.json');
 
 const DEFAULTS = { on: false };
 
 function read() {
   let raw;
-  try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
+  try { raw = fs.readFileSync(file(), 'utf8'); } catch (err) {
     if (err && err.code === 'ENOENT') return { ...DEFAULTS, ok: true };
     return { ...DEFAULTS, ok: false };
   }
@@ -46,15 +46,15 @@ function write({ on }) {
     return { ok: false, because: 'the switch must be on or off' };
   }
   try {
-    fs.mkdirSync(path.dirname(FILE), { recursive: true });
+    fs.mkdirSync(path.dirname(file()), { recursive: true });
     // Same single-process tmp-rename shape as limits.js, same scope note.
-    const tmp = FILE + '.tmp';
+    const tmp = file() + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({ on }) + '\n');
-    fs.renameSync(tmp, FILE);
+    fs.renameSync(tmp, file());
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };
   }
 }
 
-module.exports = { FILE, DEFAULTS, read, write };
+module.exports = { get FILE() { return file(); }, DEFAULTS, read, write };

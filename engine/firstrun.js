@@ -32,7 +32,7 @@ const subscription = require('./subscription');
 const connect = require('./connect');
 const platform = require('./platform');
 
-const FLAG = path.join(store.ROOT, 'first-run.json');
+const flag = () => path.join(store.ROOT, 'first-run.json');
 
 /**
  * ⚠️ Read through the same reader the rest of the product uses, and fail the
@@ -42,7 +42,7 @@ const FLAG = path.join(store.ROOT, 'first-run.json');
  */
 function seen() {
   try {
-    const parsed = JSON.parse(fs.readFileSync(FLAG, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(flag(), 'utf8'));
     return parsed && parsed.completedAt ? { known: true, done: true, at: parsed.completedAt } : { known: true, done: false };
   } catch (err) {
     if (err && err.code === 'ENOENT') return { known: true, done: false };
@@ -54,11 +54,11 @@ function seen() {
 }
 
 function complete() {
-  fs.mkdirSync(path.dirname(FLAG), { recursive: true });
-  const tmp = `${FLAG}.${process.pid}.new`;
+  fs.mkdirSync(path.dirname(flag()), { recursive: true });
+  const tmp = `${flag()}.${process.pid}.new`;
   fs.writeFileSync(tmp, `${JSON.stringify({ completedAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
   try {
-    fs.renameSync(tmp, FLAG);
+    fs.renameSync(tmp, flag());
   } catch (err) {
     // ⚠️ Take the half-written file with us. A full disk or a read-only volume
     // leaves `first-run.json.<pid>.new` sitting beside the real flag forever,
@@ -269,4 +269,4 @@ async function state() {
   };
 }
 
-module.exports = { state, seen, complete, fleet, FLAG };
+module.exports = { state, seen, complete, fleet, get FLAG() { return flag(); } };

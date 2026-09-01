@@ -41,7 +41,7 @@ const path = require('node:path');
 const { configRoots } = require('./status');
 const store = require('./store');
 
-const USAGE_DIR = path.join(store.ROOT, 'usage');
+const usageDir = () => path.join(store.ROOT, 'usage');
 
 // Claude Code stamps `"model":"<synthetic>"` on rows it writes itself (a
 // usage-limit notice among them), and those rows can carry a `usage` object
@@ -206,8 +206,8 @@ async function scanUsage({ sinceDay, untilDay }) {
 }
 
 async function ensureUsageDir() {
-  await fsp.mkdir(USAGE_DIR, { recursive: true });
-  return USAGE_DIR;
+  await fsp.mkdir(usageDir(), { recursive: true });
+  return usageDir();
 }
 
 function frozenDayPath(day) {
@@ -225,7 +225,7 @@ function frozenDayPath(day) {
      count is ever corrected again the next author bumps one string. The orphans
      are small JSON and harmless; deleting them is a separate tidy, not a
      correctness step. */
-  return path.join(USAGE_DIR, `${day}.v2.json`);
+  return path.join(usageDir(), `${day}.v2.json`);
 }
 
 function todayUtc() {
@@ -333,5 +333,5 @@ module.exports = {
   dailyUsageByModel,
   utcDay,
   BUCKET_FIELDS,
-  USAGE_DIR,
+  get USAGE_DIR() { return usageDir(); },
 };

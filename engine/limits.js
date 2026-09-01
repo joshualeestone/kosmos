@@ -28,8 +28,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
-const FILE = path.join(BASE, 'limits.json');
+const base = () => process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+const file = () => path.join(base(), 'limits.json');
 
 const TIERS = [10, 20, 40, 100];
 const DEFAULTS = { on: true, perHour: 20 };
@@ -44,7 +44,7 @@ const WINDOW_MS = 60 * 60 * 1000;
 
 function read() {
   let raw;
-  try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
+  try { raw = fs.readFileSync(file(), 'utf8'); } catch (err) {
     if (err && err.code === 'ENOENT') return { ...DEFAULTS, ok: true };
     return { ...DEFAULTS, ok: false };
   }
@@ -65,14 +65,14 @@ function write({ on, perHour }) {
     return { ok: false, because: 'pick one of the listed amounts' };
   }
   try {
-    fs.mkdirSync(path.dirname(FILE), { recursive: true });
+    fs.mkdirSync(path.dirname(file()), { recursive: true });
     // A fixed tmp path serializes fine inside one process (sync writes);
     // two PROCESSES writing at once could interleave renames, a
     // multi-instance setup this app does not run. The rename keeps the
     // file itself untearable either way.
-    const tmp = FILE + '.tmp';
+    const tmp = file() + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({ on, perHour }) + '\n');
-    fs.renameSync(tmp, FILE);
+    fs.renameSync(tmp, file());
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };
@@ -91,4 +91,4 @@ function caps() {
   };
 }
 
-module.exports = { FILE, TIERS, DEFAULTS, ROOM_FACTOR, WINDOW_MS, read, write, caps };
+module.exports = { get FILE() { return file(); }, TIERS, DEFAULTS, ROOM_FACTOR, WINDOW_MS, read, write, caps };

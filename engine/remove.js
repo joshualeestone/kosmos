@@ -63,7 +63,7 @@ const OUTCOME = { REMOVED: 'removed', RESTORED: 'restored', RESTARTED: 'restarte
  * and the day somebody does, the removed list silently stops being found — a
  * board that quietly un-hides every removed agent, with nothing to explain it.
  */
-const REMOVED_FILE = path.join(store.ROOT, 'removed.json');
+const removedFile = () => path.join(store.ROOT, 'removed.json');
 
 /* ── the runner seam ─────────────────────────────────────────────────────── */
 
@@ -164,7 +164,7 @@ const UNREADABLE = Symbol('removed-list-unreadable');
 function readRemovedForWrite() {
   let raw;
   try {
-    raw = fs.readFileSync(REMOVED_FILE, 'utf8');
+    raw = fs.readFileSync(removedFile(), 'utf8');
   } catch (err) {
     // ENOENT is the ordinary first-run case: nothing has ever been removed.
     if (err && err.code === 'ENOENT') return [];
@@ -182,13 +182,13 @@ function readRemovedForWrite() {
 }
 
 function writeRemoved(list) {
-  fs.mkdirSync(path.dirname(REMOVED_FILE), { recursive: true });
+  fs.mkdirSync(path.dirname(removedFile()), { recursive: true });
   // Written beside and renamed: this file decides what the board shows, and a
   // half-written one read as "nothing is removed" would put every stopped agent
   // back on screen.
-  const tmp = `${REMOVED_FILE}.${process.pid}.new`;
+  const tmp = `${removedFile()}.${process.pid}.new`;
   fs.writeFileSync(tmp, `${JSON.stringify(list, null, 2)}\n`, 'utf8');
-  fs.renameSync(tmp, REMOVED_FILE);
+  fs.renameSync(tmp, removedFile());
 }
 
 /**
@@ -1439,6 +1439,6 @@ module.exports = {
   resetForTests,
   run,
   OUTCOME,
-  REMOVED_FILE,
+  get REMOVED_FILE() { return removedFile(); },
   get DRY_RUN() { return DRY_RUN; },
 };

@@ -50,7 +50,7 @@ const store = require('./store');
    directory above every sibling it is meant to sit beside -- unnoticed
    with the env var unset (every real install), exactly wrong under a
    sandboxed gate that sets it. */
-const DISMISS_FILE = path.join(store.ROOT, 'found-agents-dismissed.json');
+const dismissFile = () => path.join(store.ROOT, 'found-agents-dismissed.json');
 
 /**
  * Folders the person has said are NOT an agent (#1531).
@@ -80,11 +80,11 @@ const DISMISS_FILE = path.join(store.ROOT, 'found-agents-dismissed.json');
  */
 const INTRODUCES = /^[ \t]*(?:#+[ \t]*)?You are\s/mi;
 
-const DECLINED_FILE = path.join(store.ROOT, 'found-agents-declined.json');
+const declinedFile = () => path.join(store.ROOT, 'found-agents-declined.json');
 
 function declined() {
   try {
-    const raw = JSON.parse(fs.readFileSync(DECLINED_FILE, 'utf8'));
+    const raw = JSON.parse(fs.readFileSync(declinedFile(), 'utf8'));
     return Array.isArray(raw && raw.dirs) ? raw.dirs.filter((d) => typeof d === 'string') : [];
   } catch { return []; }
 }
@@ -97,10 +97,10 @@ function decline(dir) {
   const dirs = declined();
   if (!dirs.includes(given)) dirs.push(given);
   try {
-    fs.mkdirSync(path.dirname(DECLINED_FILE), { recursive: true });
-    const tmp = DECLINED_FILE + '.tmp';
+    fs.mkdirSync(path.dirname(declinedFile()), { recursive: true });
+    const tmp = declinedFile() + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({ dirs }) + '\n');
-    fs.renameSync(tmp, DECLINED_FILE);
+    fs.renameSync(tmp, declinedFile());
   } catch { return { ok: false, because: 'we could not remember that' }; }
   return { ok: true, declined: given };
 }
@@ -110,25 +110,25 @@ function undecline(dir) {
   const given = String(dir == null ? '' : dir);
   const dirs = declined().filter((d) => d !== given);
   try {
-    fs.mkdirSync(path.dirname(DECLINED_FILE), { recursive: true });
-    const tmp = DECLINED_FILE + '.tmp';
+    fs.mkdirSync(path.dirname(declinedFile()), { recursive: true });
+    const tmp = declinedFile() + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({ dirs }) + '\n');
-    fs.renameSync(tmp, DECLINED_FILE);
+    fs.renameSync(tmp, declinedFile());
   } catch { return { ok: false, because: 'we could not remember that' }; }
   return { ok: true, restored: given };
 }
 
 function dismissed() {
-  try { fs.statSync(DISMISS_FILE); return true; } catch (err) {
+  try { fs.statSync(dismissFile()); return true; } catch (err) {
     return !(err && err.code === 'ENOENT');
   }
 }
 
 function dismiss() {
-  fs.mkdirSync(path.dirname(DISMISS_FILE), { recursive: true });
-  const tmp = DISMISS_FILE + '.tmp';
+  fs.mkdirSync(path.dirname(dismissFile()), { recursive: true });
+  const tmp = dismissFile() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify({ dismissedAt: new Date().toISOString() }) + '\n');
-  fs.renameSync(tmp, DISMISS_FILE);
+  fs.renameSync(tmp, dismissFile());
 }
 
 /**
@@ -1016,5 +1016,5 @@ function disconnect(name) {
 module.exports = { alreadyIn,
   foundCodex,
   codexIdentity,
-  runningUnderName, found, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
-  declined, decline, undecline, DECLINED_FILE };
+  runningUnderName, found, connect, disconnect, dismissed, dismiss, get DISMISS_FILE() { return dismissFile(); },
+  declined, decline, undecline, get DECLINED_FILE() { return declinedFile(); } };

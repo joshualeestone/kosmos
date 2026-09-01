@@ -39,8 +39,8 @@ const projects = require('./projects');
 // the base (you.json sits directly in $AGENT_WORKFORCE_DATA), while in
 // production store.ROOT carries the AgentWorkforce segment. The click
 // drive's grandparent derivation depends on the sandboxed shape.
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
-const FILE = path.join(BASE, 'you.json');
+const base = () => process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+const file = () => path.join(base(), 'you.json');
 
 // Defined in projects.js beside the pair they must never be confused with,
 // so oneLine (the projects block's own cleaner) can neutralise both.
@@ -97,10 +97,10 @@ function save({ name, does, know } = {}) {
     know: (typeof know === 'string' && know.trim()) ? clean(know, { multiline: true }) : null,
     savedAt: new Date().toISOString(),
   };
-  fs.mkdirSync(path.dirname(FILE), { recursive: true });
-  const tmp = FILE + '.tmp';
+  fs.mkdirSync(path.dirname(file()), { recursive: true });
+  const tmp = file() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(record, null, 2) + '\n');
-  fs.renameSync(tmp, FILE);
+  fs.renameSync(tmp, file());
   return record;
 }
 
@@ -114,7 +114,7 @@ function save({ name, does, know } = {}) {
 function read() {
   let raw;
   try {
-    raw = fs.readFileSync(FILE, 'utf8');
+    raw = fs.readFileSync(file(), 'utf8');
   } catch (err) {
     if (err && err.code === 'ENOENT') return { state: 'absent', you: null, because: null };
     return { state: 'unknown', you: null, because: String((err && err.message) || 'we could not read the record') };
@@ -248,7 +248,7 @@ function syncEveryone(roster) {
  * the org hub and in every message row. It shows worst on the chart, where a
  * ring of faces surrounds one text label and the label is the person.
  *
- * 🛑 ITS OWN FILE, NOT A ROW IN THE AGENT AVATAR STORE, and this is the one
+ * 🛑 ITS OWN file(), NOT A ROW IN THE AGENT AVATAR STORE, and this is the one
  * trap in the feature. `engine/messages.js` already refuses to let a string
  * match promote an agent: *"'you' is a legal tmux session name, and the one
  * thing the screens must never do is promote an agent to operator on a string
@@ -265,7 +265,7 @@ function syncEveryone(roster) {
  * not. The name already exists in `you.json` and is deliberately not shown in
  * those places; this does not change that.
  */
-const AVATAR_DIR = path.join(BASE, 'you-avatar');
+const avatarDir = () => path.join(base(), 'you-avatar');
 const PIC_TYPES = {
   'image/png': '.png',
   'image/jpeg': '.jpg',
@@ -276,8 +276,8 @@ const PIC_TYPES = {
 /** The stored picture's path, or null. */
 function picturePath() {
   try {
-    for (const f of fs.readdirSync(AVATAR_DIR)) {
-      if (f.startsWith('picture.')) return path.join(AVATAR_DIR, f);
+    for (const f of fs.readdirSync(avatarDir())) {
+      if (f.startsWith('picture.')) return path.join(avatarDir(), f);
     }
   } catch { /* none yet */ }
   return null;
@@ -304,12 +304,12 @@ function savePicture(contentType, buffer) {
   const ext = PIC_TYPES[store.imageTypeOf(buffer)];
   if (!ext) return { ok: false, because: 'that has to be a PNG, JPEG, WebP or GIF' };
   try {
-    fs.mkdirSync(AVATAR_DIR, { recursive: true });
+    fs.mkdirSync(avatarDir(), { recursive: true });
     /* Replace rather than accumulate: one picture, and an old .png left beside
        a new .jpg would win or lose by directory order. */
     const had = picturePath();
     if (had) fs.unlinkSync(had);
-    fs.writeFileSync(path.join(AVATAR_DIR, 'picture' + ext), buffer);
+    fs.writeFileSync(path.join(avatarDir(), 'picture' + ext), buffer);
   } catch {
     return { ok: false, because: 'we could not save that picture' };
   }
@@ -323,5 +323,5 @@ function removePicture() {
   return { ok: true, had: true };
 }
 
-module.exports = { FILE, START, END, NAME_MAX, DOES_MAX, KNOW_MAX, problem, save, read, blockBody, tellAgent, syncEveryone,
+module.exports = { get FILE() { return file(); }, START, END, NAME_MAX, DOES_MAX, KNOW_MAX, problem, save, read, blockBody, tellAgent, syncEveryone,
   picturePath, hasPicture, savePicture, removePicture, PIC_TYPES };

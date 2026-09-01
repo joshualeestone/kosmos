@@ -32,7 +32,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+const base = () => process.env.AGENT_WORKFORCE_DATA || store.ROOT;
 
 /* The whole surface. Adding a name here is the only way to widen this. */
 /* ⚠️ BOTH FORMS, because the screen counts them. "1 reports" shipped on the
@@ -43,7 +43,7 @@ const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
    own words. That applies to the grammar too. */
 const KINDS = [
   { key: 'chats', dir: () => path.join(store.ROOT, 'chats'), label: 'conversations', one: 'conversation' },
-  { key: 'commitments', dir: () => path.join(BASE, 'commitments'), label: 'reports', one: 'report' },
+  { key: 'commitments', dir: () => path.join(base(), 'commitments'), label: 'reports', one: 'report' },
 ];
 
 function countIn(dir) {
@@ -88,7 +88,7 @@ function summary() {
  * guard.
  */
 function forget() {
-  const root = path.resolve(BASE);
+  const root = path.resolve(base());
   const altRoot = path.resolve(store.ROOT);
   const gone = [];
   for (const k of KINDS) {

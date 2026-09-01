@@ -42,7 +42,17 @@ function rmLine() {
  */
 function rememberedFiles() {
   const out = [];
-  const re = /const\s+([A-Z_]+_FILE)\s*=\s*path\.join\(store\.ROOT,\s*'([^']+)'\)/g;
+  /* ⚠️ WIDENED FOR #1443. These were module-level consts naming a path built from
+     `store.ROOT`. Capturing that getter at require time re-froze the root, so a
+     late sandbox seam was ignored and the module read the operator's real data;
+     they are now lazy `const dismissFile = () => path.join(store.ROOT, ...)`.
+
+     This derivation matched only the frozen shape, so after the conversion it
+     found ZERO and the floor below caught it. That floor is the reason this was a
+     red test rather than a silently vacuous one, which is what it was written
+     against. Both shapes are accepted so the guard survives the next change in
+     either direction. */
+  const re = /const\s+([A-Za-z_]+[Ff]ile)\s*=\s*(?:\(\)\s*=>\s*)?path\.join\(store\.ROOT,\s*'([^']+)'\)/g;
   let m;
   while ((m = re.exec(DISCOVER)) !== null) out.push({ constant: m[1], basename: m[2] });
   return out;

@@ -41,8 +41,8 @@ const crypto = require('node:crypto');
 const store = require('./store');
 const { version: VERSION } = require('../package.json');
 
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
-const FILE = path.join(BASE, 'ping.json');
+const base = () => process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+const file = () => path.join(base(), 'ping.json');
 const DEFAULT_ENDPOINT = 'https://installkosmos.com/api/created';
 
 let sender = null;      // tests inject; production uses global fetch
@@ -51,7 +51,7 @@ const endpoint = () => process.env.AGENT_WORKFORCE_PING_URL || DEFAULT_ENDPOINT;
 /**
  * The preference and the install id, in one small file.
  *
- * ⚠️ AN UNREADABLE FILE FAILS TO **OFF**, unlike the shipped default. Absent
+ * ⚠️ AN UNREADABLE file() FAILS TO **OFF**, unlike the shipped default. Absent
  * means nobody has been asked yet, which is on; present-but-unreadable means
  * somebody may have turned it off and we cannot see which, and the only action
  * gated here is sending something off the machine. Same split as
@@ -60,7 +60,7 @@ const endpoint = () => process.env.AGENT_WORKFORCE_PING_URL || DEFAULT_ENDPOINT;
  */
 function read() {
   let raw;
-  try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
+  try { raw = fs.readFileSync(file(), 'utf8'); } catch (err) {
     /* 🛑 OFF, as of 2026-08-26. This returned `on: true` because "nobody has
        been asked yet" and there was a control to ask them with. Josh removed
        both surfaces of that control (item 3), and this file's own note in
@@ -85,10 +85,10 @@ function write(patch) {
   const next = { ...read(), ...patch };
   delete next.ok;
   try {
-    fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    const tmp = FILE + '.tmp';
+    fs.mkdirSync(path.dirname(file()), { recursive: true });
+    const tmp = file() + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(next) + '\n');
-    fs.renameSync(tmp, FILE);
+    fs.renameSync(tmp, file());
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };
@@ -194,4 +194,4 @@ function agentCreated({ wanted } = {}) {
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 
-module.exports = { FILE, read, setOn, installId, payload, agentCreated, setSender, underTest, DEFAULT_ENDPOINT };
+module.exports = { get FILE() { return file(); }, read, setOn, installId, payload, agentCreated, setSender, underTest, DEFAULT_ENDPOINT };

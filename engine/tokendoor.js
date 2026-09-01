@@ -29,11 +29,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const DIR = path.join(store.ROOT, 'secrets', 'env');
+const dir = () => path.join(store.ROOT, 'secrets', 'env');
 
 function makeTokenDoor(spec) {
   if (!/^[A-Z][A-Z0-9_]*$/.test(spec.envVar)) throw new Error('envVar must be an environment variable name: ' + spec.envVar);
-  const FILE = path.join(DIR, spec.envVar);
+  const FILE = path.join(dir(), spec.envVar);
   let fetcher = null; // test seam: (req, token) => Promise<{ok, status, body}>
   const setFetcher = (fn) => { fetcher = typeof fn === 'function' ? fn : null; };
   const url = () => (spec.verifyUrlEnv && process.env[spec.verifyUrlEnv]) || spec.verify.url;
@@ -93,7 +93,7 @@ function makeTokenDoor(spec) {
   async function connect(token) {
     const v = await verify(token);
     if (!v.ok) return { ...(await state()), refused: v.because };
-    fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
     fs.writeFileSync(FILE, String(token).trim() + '\n', { mode: 0o600 });
     try { fs.chmodSync(FILE, 0o600); } catch { /* mode set at write */ }
     return state();
@@ -107,4 +107,4 @@ function makeTokenDoor(spec) {
   return { spec, state, connect, forget, verify, setFetcher, FILE };
 }
 
-module.exports = { makeTokenDoor, DIR };
+module.exports = { makeTokenDoor, get DIR() { return dir(); } };

@@ -32,14 +32,23 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
-const FILE = path.join(BASE, 'autoupdate.json');
+/* 🛑 RESOLVED PER CALL, NOT CAPTURED AT REQUIRE TIME (#1443). `store.ROOT` is a
+   GETTER that re-resolves, which #1512 made true, and capturing it into a
+   module-level const evaluates it ONCE and throws that away. Measured before this
+   change: with the module required under the operator's real root and the seam
+   set afterwards, `store.ROOT` followed the seam and `autoupdate.FILE` did not.
+
+   That is the whole hazard in the card: a test installs its sandbox after
+   requiring the module, and the module reads and writes the operator's REAL data.
+   It does not fail, it passes, and the damage lands outside the run. */
+const base = () => process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+const file = () => path.join(base(), 'autoupdate.json');
 
 const DEFAULTS = { on: true };
 
 function read() {
   let raw;
-  try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
+  try { raw = fs.readFileSync(file(), 'utf8'); } catch (err) {
     if (err && err.code === 'ENOENT') return { ...DEFAULTS, ok: true };
     // Present but unreadable (permissions, a bad mount): a choice exists and
     // we cannot see it. Fail toward not installing.
@@ -58,15 +67,18 @@ function write({ on }) {
     return { ok: false, because: 'the switch must be on or off' };
   }
   try {
-    fs.mkdirSync(path.dirname(FILE), { recursive: true });
+    fs.mkdirSync(path.dirname(file()), { recursive: true });
     // Same single-process tmp-rename shape as engmode.js and limits.js.
-    const tmp = FILE + '.tmp';
+    const tmp = file() + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({ on }) + '\n');
-    fs.renameSync(tmp, FILE);
+    fs.renameSync(tmp, file());
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };
   }
 }
 
-module.exports = { FILE, DEFAULTS, read, write };
+/* `FILE` stays a property rather than becoming `file()`, so every consumer keeps
+   working unchanged; it is a getter now, so it answers per read instead of
+   holding the require-time value. Same shape as `store.ROOT` itself. */
+module.exports = { get FILE() { return file(); }, DEFAULTS, read, write };

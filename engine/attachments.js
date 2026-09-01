@@ -38,7 +38,7 @@ const store = require('./store');
 
 const MAX_BYTES = 25 * 1024 * 1024;
 const TEXT_SNIPPET = 2000;
-const ROOT = path.join(store.ROOT, 'attachments');
+const root = () => path.join(store.ROOT, 'attachments');
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/heic', 'image/avif']);
 const TEXT_TYPES = /^(text\/|application\/(json|xml|x-yaml|yaml|javascript|x-sh)$)/;
@@ -72,7 +72,7 @@ function ownerDir(scope, owner) {
   const s = scope === 'project' ? 'project' : scope === 'agent' ? 'agent' : null;
   if (!s) throw new Error('attachments belong to a project or an agent');
   const key = store.safeKey(owner);
-  return path.join(ROOT, s, key);
+  return path.join(root(), s, key);
 }
 
 function newId() { return crypto.randomBytes(12).toString('hex'); }
@@ -106,7 +106,7 @@ function read(id) {
   const clean = String(id || '');
   if (!/^[0-9a-f]{24}$/.test(clean)) return null;
   for (const scope of ['project', 'agent']) {
-    const base = path.join(ROOT, scope);
+    const base = path.join(root(), scope);
     let owners = [];
     try { owners = fs.readdirSync(base); } catch { continue; }
     for (const owner of owners) {
@@ -230,4 +230,4 @@ function rowFields(recs) {
   return { attachment: list[0], attachments: list };
 }
 
-module.exports = { MAX_BYTES, MAX_PER_MESSAGE, ROOT, kindOf, safeName, save, read, rowField, rowFields, resolveForMessage, preview, wireNote, setRenderer };
+module.exports = { MAX_BYTES, MAX_PER_MESSAGE, get ROOT() { return root(); }, kindOf, safeName, save, read, rowField, rowFields, resolveForMessage, preview, wireNote, setRenderer };
