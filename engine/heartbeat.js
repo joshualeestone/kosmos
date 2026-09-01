@@ -40,12 +40,28 @@
  * and it fails toward asking. When a real receipt exists (the relay's notify
  * ACK), the runner flips `asked` on receipt and the re-asking stops on its own.
  *
- * EDGE OPENS THE EPISODE, DELIVERY CLOSES THE ASK. An episode OPENS on the
- * working -> not-working transition and stays open until the agent works again
- * (or is handed to the person via needs_you). Within an open episode we ask
- * until an ask is confirmed delivered. So a startup-idle agent (never worked, no
- * episode) is never asked -- the WEAKEST PREMISE, named: an agent parked idle on
- * purpose is left alone, matching Josh's "checks which agents ARE WORKING".
+ * TWO WAYS AN EPISODE OPENS -- and the second one is tonight's actual incident,
+ * not an edge case. (1) THE EDGE: the working -> not-working transition opens an
+ * episode immediately -- a working agent that just stopped is a confident stall.
+ * (2) THE PERSISTENT STALL: an agent that was NEVER working (no edge to catch)
+ * but is still stalled after STARTUP_STALL_TICKS consecutive ticks opens one too.
+ *
+ * 🛑 WHY (2) EXISTS. An earlier draft opened ONLY on the edge and named the
+ * came-up-stalled agent as its weakest premise. That premise IS the worst failure
+ * this fleet had tonight: Splinter was restarted at 21:31, came up BLOCKED on a
+ * trust prompt, and sat dead -- it never worked, so it never made a
+ * working->stopped transition, so an edge-only model has no episode for it and
+ * would stay silent about a bot that was dead from the moment it started (two
+ * independent monitors were). A never-worked agent still stalled after a couple
+ * of intervals has earned a QUESTION. The N-tick wait is deliberate: a freshly
+ * started agent may be legitimately mid-boot, so a stopped/unknown reading on tick
+ * one is not yet evidence of a stall -- but a persistent one is, and the nudge is
+ * still "mid-something, finished, or stopped?", never a verdict.
+ *
+ * An episode stays open until the agent works again (or is handed to the person
+ * via needs_you). Within an open episode we ask until an ask is confirmed
+ * delivered. An agent parked idle on purpose is still asked once per persistent
+ * stall -- fail toward asking; the person can turn the heartbeat off.
  *
  * SAMPLING. classify() warns a working pane can read non-working "between
  * frames" -- a sub-second concern for the 5s status tick. The heartbeat samples
@@ -61,6 +77,13 @@
 // Leaving WORKING for one of these is a stall worth a check-in. UNKNOWN is in the
 // set on purpose: a working agent gone unreadable is asked about, not passed over.
 const ASK_ON_EXIT_TO = new Set(['stopped', 'idle', 'unknown']);
+
+// Consecutive stall ticks a NEVER-worked agent must show before a persistent
+// stall opens an episode for it (see "TWO WAYS AN EPISODE OPENS", case 2). Two
+// gives a freshly started agent a boot grace of ~1 interval before the first
+// question, which at the 17-min default is generous. Tunable; the edge opener
+// (case 1) is unaffected and stays immediate.
+const STARTUP_STALL_TICKS = 2;
 
 function isStallState(state) { return ASK_ON_EXIT_TO.has(state); }
 
@@ -82,9 +105,10 @@ function stateOf(a) {
  *
  * @param {Array<{sessionName:string,state:string,confidence?:string}>} roster
  *   the board's agents, each already classified by status.js `classify()`.
- * @param {Map<string,{prev?:string,open:boolean,asked:boolean}>} prev
- *   per-agent record from last tick. `open` = in a stall episode that began from
- *   working; `asked` = a CONFIRMED-delivered ask exists for this open episode.
+ * @param {Map<string,{prev?:string,open:boolean,asked:boolean,streak:number}>} prev
+ *   per-agent record from last tick. `open` = in a stall episode; `asked` = a
+ *   CONFIRMED-delivered ask exists for this open episode; `streak` = consecutive
+ *   stall ticks with no episode yet (the persistent-stall counter).
  * @returns {{toAsk: Array<{session:string,from?:string,to:string}>, next: Map}}
  *   toAsk: agents to ask NOW (fire one question-shaped notify.happened each; on
  *          CONFIRMED delivery the runner sets next.get(session).asked = true).
@@ -99,20 +123,34 @@ function tick(roster, prev) {
     const key = a && a.sessionName;
     if (!key) continue;
     const state = stateOf(a);
-    const rec = previous.get(key) || { prev: undefined, open: false, asked: false };
+    const rec = previous.get(key) || { prev: undefined, open: false, asked: false, streak: 0 };
     let open = rec.open;
     let asked = rec.asked;
+    let streak = rec.streak || 0;
     if (state === 'working') {
-      // Resumed: the episode is over, and any future stall is a fresh one.
+      // Resumed: episode over, streak reset, any future stall is a fresh one.
       open = false;
       asked = false;
+      streak = 0;
     } else if (isStallState(state)) {
-      // Open a new episode only on the working -> stall EDGE. A still-open
-      // episode stays open (and keeps its `asked`); a startup-idle agent
-      // (rec.prev !== 'working') never opens one.
-      if (!open && rec.prev === 'working') {
+      if (open) {
+        // A still-open episode stays open and keeps its `asked`.
+        streak = 0;
+      } else if (rec.prev === 'working') {
+        // (1) THE EDGE: a working agent just stopped -- open immediately.
         open = true;
         asked = false;
+        streak = 0;
+      } else {
+        // (2) THE PERSISTENT STALL: never-worked (or long-idle) agent. Give it a
+        // boot grace of STARTUP_STALL_TICKS before opening, so a normal boot is
+        // not nagged but a came-up-dead bot (Splinter, 21:31) is not missed.
+        streak += 1;
+        if (streak >= STARTUP_STALL_TICKS) {
+          open = true;
+          asked = false;
+          streak = 0;
+        }
       }
     } else {
       // needs_you / rate_limited / auth_failed: not a stall this sweep chases.
@@ -120,13 +158,14 @@ function tick(roster, prev) {
       // so we neither chase it nor, later, count it as a fresh stall.
       open = false;
       asked = false;
+      streak = 0;
     }
     if (open && !asked) {
       toAsk.push({ session: key, from: rec.prev, to: state });
     }
-    next.set(key, { prev: state, open, asked });
+    next.set(key, { prev: state, open, asked, streak });
   }
   return { toAsk, next };
 }
 
-module.exports = { tick, stateOf, isStallState, ASK_ON_EXIT_TO };
+module.exports = { tick, stateOf, isStallState, ASK_ON_EXIT_TO, STARTUP_STALL_TICKS };

@@ -63,12 +63,21 @@ test('working -> needs_you does NOT ask (the person\'s own path)', () => {
   assert.deepEqual(t.toAsk, []);
 });
 
-test('an agent already idle at first sighting is never asked about (no working frame to leave)', () => {
-  let s = tick([row('a', 'idle', 'scraped')], new Map());
+test('a came-up-stalled agent that NEVER worked is asked after STARTUP_STALL_TICKS (Splinter, 21:31 dead-on-boot)', () => {
+  // No working frame ever -- the edge can never fire. The persistent-stall opener
+  // must still ask, or a bot dead from the moment it started is never chased.
+  const t1 = tick([row('a', 'stopped', 'structured')], new Map());
+  assert.deepEqual(t1.toAsk, [], 'tick 1 is a boot grace, not yet a question');
+  const t2 = tick([row('a', 'stopped', 'structured')], t1.next);
+  assert.equal(t2.toAsk.length, 1, 'a never-worked agent still stalled after 2 ticks has earned a question');
+  assert.equal(t2.toAsk[0].to, 'stopped');
+});
+
+test('a fast normal boot (stalled one tick, then works) is never asked -- boot grace', () => {
+  const s = tick([row('a', 'stopped', 'structured')], new Map()); // tick 1: grace
   assert.deepEqual(s.toAsk, []);
-  // and it stays quiet on subsequent ticks -- it never opened an episode.
-  const t = tick([row('a', 'idle', 'scraped')], s.next);
-  assert.deepEqual(t.toAsk, []);
+  const t = tick([row('a', 'working', 'scraped')], s.next);       // booted and working
+  assert.deepEqual(t.toAsk, [], 'a normal boot within the grace window is not nagged');
 });
 
 test('resuming closes the episode; a fresh stall opens a new one and asks again', () => {
