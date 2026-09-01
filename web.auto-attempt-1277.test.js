@@ -61,3 +61,26 @@ test('#1277: the card is wired to /api/status, or the paint function is decorati
     'autoAttemptPaint exists but nothing calls it with the served record, so it renders never');
   assert.match(SRC, /id="auto-attempt"/, 'the slot it paints into is gone');
 });
+
+test('#1277: the TERMINAL state says so, instead of telling a stopped board to try again', () => {
+  /* The first version rendered one sentence for every failure, so a board that had
+     given up said "it will try again later" while the automatic half was dead.
+     The commit that shipped it claimed the person could now see their board gave
+     up, and that was not true: they could see a failure, never the giving up. */
+  const live = paintWith({ auto: true, endedAt: 'x', version: '0.7.0', attempts: 1, streak: 1 });
+  const perVersion = paintWith({ auto: true, endedAt: 'x', version: '0.7.0', attempts: 3, streak: 1 });
+  const perMachine = paintWith({ auto: true, endedAt: 'x', version: '0.7.0', attempts: 3, streak: 3 });
+
+  assert.notEqual(perVersion.textContent, live.textContent,
+    'a board that has used all three attempts on this version says the same thing as one that has '
+    + 'failed once, so the terminal state reaches nobody');
+  assert.notEqual(perMachine.textContent, perVersion.textContent,
+    'three DIFFERENT versions failing says something about the MACHINE, and it reads identically to '
+    + 'one bad version, which is a different fact and a different thing to do about it');
+  assert.match(perMachine.textContent, /three different versions/i);
+  assert.doesNotMatch(perVersion.textContent, /try again later/i,
+    'a stopped board must not promise a retry that will never come');
+  assert.match(live.textContent, /try again later|press install/i,
+    'CONTROL: a single failure must still say the ordinary thing, or this arm passes by making '
+    + 'every message terminal');
+});

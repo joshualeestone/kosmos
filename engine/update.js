@@ -218,17 +218,27 @@ const AUTO_RETRY_AFTER = 60 * 60 * 1000;
    automatic failures for the SAME version, stop offering to install it; a new
    version resets the count on its own, because the count is per version. */
 const MAX_AUTO_ATTEMPTS = 3;
-/* 🛑 A SECOND CAP THAT A NEW RELEASE DOES NOT RESET. MAX_AUTO_ATTEMPTS is keyed
-   on the offered version, which is right for a bad TARBALL and a hole for a bad
-   MACHINE. Measured before this existed: a record carrying 99 failed attempts on
-   9.9.9 still installed when 9.9.10 was offered. The failures this brake exists
-   for are mostly not version-specific (no write permission on the install root, a
-   full disk, a proxy that blocks the release host), they persist across releases,
-   and the installer runs `kosmos stop` before it downloads, so each attempt is a
-   board that stays down until the next login. With a weekly release that was
-   three unattended shutdowns a week, forever. Set higher than the per-version cap
-   because it must not fire on a run of genuinely bad releases. */
-const MAX_TOTAL_ATTEMPTS = 6;
+/* 🛑 A SECOND CAP THAT A NEW RELEASE DOES NOT RESET, AND IT COUNTS DISTINCT
+   VERSIONS RATHER THAN ATTEMPTS. MAX_AUTO_ATTEMPTS is keyed on the offered
+   version, which is right for a bad TARBALL and a hole for a bad MACHINE: a
+   record carrying 99 failed attempts on one version still installed the next one.
+
+   ⚠️ MY FIRST VERSION OF THIS COUNTED ATTEMPTS, WITH A CAP OF 6, AND ITS OWN
+   COMMENT SAID IT WAS "set higher than the per-version cap because it must not
+   fire on a run of genuinely bad releases". 6 is exactly 2 x 3, so it fired on
+   exactly two of them. Measured: three failures on 1.0.0 plus three on 1.1.0,
+   then a GOOD 1.2.0 offered, installs 0, permanently, on every machine that saw
+   both. Control at streak 5 installed. The comment asserted the property the
+   arithmetic denied, and the stderr line went on to blame "this machine", which
+   was false in precisely the case the cap was most likely to hit fleet-wide.
+
+   Counting DISTINCT VERSIONS fixes the arithmetic and the diagnosis together: if
+   three different releases have each failed here, the common factor really is the
+   machine, and that is the sentence the log is allowed to print. Two bad releases
+   now reach 2 and do not brake. A single version failing repeatedly reaches 1 and
+   is the per-version cap's job, which is exactly the separation that was missing. */
+
+const MAX_FAILED_VERSIONS = 3;
 /* The version this board has already announced it is giving up on, so the
    sentence is said once rather than once per TTL forever. */
 let gaveUpOn = null;
@@ -346,13 +356,13 @@ function maybeAutoInstall() {
        recording success must never produce a durable failure record. */
     const superseded = durable && durable.version && !newer(durable.version, RUNNING);
     if (durable && !superseded && durable.endedAt
-        && (durable.streak || 0) >= MAX_TOTAL_ATTEMPTS) {
+        && (durable.streak || 0) >= MAX_FAILED_VERSIONS) {
       if (gaveUpOn !== 'ALL') {
         gaveUpOn = 'ALL';
         try {
           process.stderr.write(`update: giving up on automatic installs after ${durable.streak} `
-            + 'consecutive failures across versions; this machine cannot install, so a new release '
-            + 'will not be tried unattended until one succeeds by hand\n');
+            + 'DIFFERENT versions failed to install here, so a new release will not be tried '
+            + 'unattended until one succeeds by hand\n');
         } catch { /* a log line must never break the board */ }
       }
       return;
@@ -827,8 +837,29 @@ function beginInstall(opts) {
      automatic path started working. A SUCCESS clears it, which is handled at the
      read end, because this value is written by the installer wrapper at exit and
      a record with code 0 is never treated as a failure. */
-  const carriedStreak = (prior && prior.code !== 0) ? (prior.streak || 0) : 0;
-  const streak = (opts && opts.auto) ? carriedStreak + 1 : carriedStreak;
+  /* 🛑 DISTINCT VERSIONS, NOT ATTEMPTS, and the supersede rule applies HERE as
+     well as at the brake. Two separate defects a reviewer measured:
+
+     (1) Counting attempts made the cap 2 x the per-version cap, so two bad
+         releases disabled unattended updates permanently, fleet-wide. It now
+         increments only when the version being attempted DIFFERS from the one the
+         last failure names, so it answers "how many different releases have failed
+         on this machine", which is the question the brake actually asks.
+
+     (2) The supersede rule was applied at the READ end and not here, so a machine
+         repaired and reinstalled by hand got exactly ONE unattended attempt and
+         then re-locked forever: the brake was skipped, the count was carried
+         anyway, and the next failure wrote it straight back over the cap. My own
+         comment said a success "clears it, which is handled at the read end"; the
+         read end skips the BRAKE, it never cleared the COUNT. */
+  const priorFailed = prior && prior.code !== 0;
+  const priorSuperseded = prior && prior.version && !newer(prior.version, RUNNING);
+  const carriedStreak = (priorFailed && !priorSuperseded) ? (prior.streak || 0) : 0;
+  const sameVersionAsPrior = priorFailed && !priorSuperseded && prior.version
+    && targetVersion && prior.version === targetVersion;
+  const streak = (opts && opts.auto)
+    ? (sameVersionAsPrior ? Math.max(carriedStreak, 1) : carriedStreak + 1)
+    : carriedStreak;
   lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null, version: targetVersion, auto: !!(opts && opts.auto), attempts, streak };
   if (opts && opts.auto) {
     try { process.stderr.write(`update: starting an automatic install of ${targetVersion || 'an unnamed version'} at ${lastAttempt.startedAt}\n`); } catch { /* a log line must never break an install */ }

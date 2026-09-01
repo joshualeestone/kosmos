@@ -14397,8 +14397,30 @@ function autoAttemptPaint(attempt) {
   const a = attempt && attempt.auto && attempt.endedAt ? attempt : null;
   if (!a) { el.hidden = true; el.textContent = ''; return; }
   const v = a.version ? (' of ' + a.version) : '';
-  el.textContent = 'The last automatic update' + v + ' did not finish, so this board '
-    + 'restarted without it. Press Install above to try again.';
+  /* 🛑 THE TERMINAL STATE NEEDS ITS OWN SENTENCE, AND MY FIRST VERSION HAD NONE.
+     It rendered the same words at one failed attempt and at the cap, so a board
+     that had STOPPED TRYING said it would try again later, as though the
+     automatic half were still alive. A reviewer caught that the commit claiming
+     "the person can now see that their board gave up" was not true: they could
+     see a failure, never the giving up.
+  
+     Two ways to reach terminal, and they are different facts with different
+     things to do about them: this VERSION has used its three attempts, or three
+     DIFFERENT versions have failed here, which is the one that says something
+     about the machine rather than the release. */
+  const doneVersion = Number(a.attempts) >= 3;
+  const doneMachine = Number(a.streak) >= 3;
+  if (doneMachine) {
+    el.textContent = 'Automatic updates have stopped on this computer, because three different '
+      + 'versions failed to install here. Press Install above to try one by hand; if that '
+      + 'works, automatic updates start again on their own.';
+  } else if (doneVersion) {
+    el.textContent = 'Kosmos stopped trying to install' + v + ' automatically after three '
+      + 'attempts. Press Install above to try it by hand, or wait for the next version.';
+  } else {
+    el.textContent = 'The last automatic update' + v + ' did not finish, so this board '
+      + 'restarted without it. It will try again later, or you can press Install above.';
+  }
   el.hidden = false;
 }
 async function refreshAutoUpdate() {

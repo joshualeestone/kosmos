@@ -1394,12 +1394,21 @@ test('#1277: a NEW RELEASE does not hand a machine that cannot install three mor
     }
     return installs;
   }
-  assert.equal(await installsWhenOffered('9.9.9', 3, 3, '9.9.10'), 1,
-    'CONTROL: three failures on ONE version must NOT brake a different version. A run of bad '
-    + 'releases is exactly what the per-version cap is for, and this counter must not steal that');
-  assert.equal(await installsWhenOffered('9.9.9', 3, 6, '9.9.10'), 0,
-    'a machine with six consecutive failures across versions took a new release as permission to '
-    + 'stop the board again. Those failures are not about the tarball');
+  /* ⚠️ THE FIXTURE NUMBERS CHANGED MEANING, WHICH IS THE POINT OF THE FIX. The
+     last field is now DISTINCT VERSIONS THAT HAVE FAILED, not attempts. Counting
+     attempts made the cap exactly 2 x the per-version cap, so two bad releases
+     disabled unattended updates permanently on every machine that saw both. */
+  assert.equal(await installsWhenOffered('9.9.9', 3, 1, '9.9.10'), 1,
+    'CONTROL: three failures on ONE version must NOT brake a different version. A bad tarball is '
+    + 'what the per-version cap is for, and this counter must not steal that job');
+  assert.equal(await installsWhenOffered('9.9.9', 3, 2, '9.9.10'), 1,
+    'CONTROL, AND THIS IS THE ONE THE OLD CAP GOT WRONG: TWO bad releases must still install a '
+    + 'third. Two failing releases say nothing about the machine, and the old cap of 6 attempts '
+    + 'was exactly two full runs of the per-version cap, so it fired here, permanently, fleet-wide');
+  assert.equal(await installsWhenOffered('9.9.9', 3, 3, '9.9.10'), 0,
+    'a machine where THREE DIFFERENT versions have failed took a new release as permission to stop '
+    + 'the board again. Three different releases failing here is the point at which the common '
+    + 'factor really is the machine');
   assert.equal(await installsWhenOffered('9.9.9', 0, 0, '9.9.10'), 1,
     'CONTROL: a healthy machine must still install a new release');
 });
@@ -1499,6 +1508,43 @@ test('#1277: a machine repaired and reinstalled BY HAND starts updating again', 
     `a record naming ${RUNNING}, the version this board is RUNNING, still braked. That record is `
     + 'history: being on this version proves an install succeeded, and the hand-install the product '
     + 'tells people to run never clears the file');
+  async function recordAfter(recordVersion, offered) {
+    /* Same drive, reporting the RECORD the attempt wrote, which is where the
+       re-lock lived. Kept separate so the assertions below stay readable. */
+    const out = { installs: 0, streak: null };
+    const home2 = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1277-budget-'));
+    fs.mkdirSync(path.join(home2, 'logs'), { recursive: true });
+    u.resetCache();
+    u.setInstalledRoot(() => home2);
+    u.setAutoPref(() => ({ on: true }));
+    u.setFetcher(async () => ({ ok: true, json: async () => ({ version: offered }) }));
+    u.setInstallRunner(() => { out.installs += 1; return { on() {}, unref() {}, stderr: { on() {} } }; });
+    try {
+      const old2 = new Date(Date.now() - 5 * 3600 * 1000);
+      const f2 = path.join(home2, 'logs', 'install.status');
+      fs.writeFileSync(f2, `1 ${old2.toISOString()} ${recordVersion} 1 9 9\n`);
+      fs.utimesSync(f2, old2, old2);
+      await u.checkNow();
+      out.streak = (u.lastAttempt() || {}).streak;
+    } finally {
+      u.setInstalledRoot(null); u.setAutoPref(null); u.setFetcher(null); u.setInstallRunner(null);
+      u.resetCache(); fs.rmSync(home2, { recursive: true, force: true });
+    }
+    return out;
+  }
+  /* 🛑 ONE INSTALL IS NOT A FRESH BUDGET, AND THIS ARM USED TO STOP AT ONE. The
+     supersede rule was applied at the READ end only, so a repaired machine got
+     exactly one unattended attempt and then re-locked forever: the brake was
+     skipped, the count was carried anyway, and the next failure wrote it back over
+     the cap. Measured before the fix: installs 1, record written with streak 10.
+     The NAME of this test claims the machine starts updating again, so it has to
+     check the budget rather than the next tick. */
+  const after = await recordAfter(RUNNING, '99.0.0');
+  assert.equal(after.installs, 1, 'a record naming the RUNNING version still braked');
+  assert.equal(after.streak, 1,
+    `the attempt after a hand repair carried streak ${after.streak} forward. That is not a fresh `
+    + 'budget: one flaky download writes it back over the cap and re-locks the machine forever, '
+    + 'which is the same one-way door the supersede rule exists to remove');
   assert.equal(await installsWith('0.0.1', '99.0.0'), 1,
     'CONTROL: a record naming an OLDER version is superseded too, and must not brake');
   assert.equal(await installsWith('99.0.0', '99.0.0'), 0,
@@ -1644,14 +1690,16 @@ test('#1277: the streak survives the restart-free path, where this server outliv
   try {
     const old = new Date(Date.now() - 5 * 3600 * 1000);
     const f = path.join(home, 'logs', 'install.status');
-    fs.writeFileSync(f, `1 ${old.toISOString()} 99.0.0 1 1 4\n`);   // streak already 4
+    fs.writeFileSync(f, `1 ${old.toISOString()} 99.0.0 1 1 2\n`);   // 2 distinct versions failed
     fs.utimesSync(f, old, old);
     await u.checkNow();
     assert.ok(child, 'precondition: an automatic attempt started');
-    assert.equal((u.lastAttempt() || {}).streak, 5, 'precondition: the attempt carried the streak to 5');
+    /* SAME version as the prior failure, so the distinct-version count does NOT
+       advance. That is the semantics change: it counts releases, not tries. */
+    assert.equal((u.lastAttempt() || {}).streak, 2, 'precondition: the streak held at 2');
     child.handlers.exit(1);                       // the installer fails, this server LIVES
-    assert.equal((u.lastAttempt() || {}).streak, 5,
-      `the rebuilt record reports streak ${(u.lastAttempt() || {}).streak} instead of 5. The `
+    assert.equal((u.lastAttempt() || {}).streak, 2,
+      `the rebuilt record reports streak ${(u.lastAttempt() || {}).streak} instead of 2. The `
       + 'cross-version counter regressed on the exact path it exists for, so a machine that '
       + 'cannot install would count toward its cap forever without reaching it');
   } finally {
