@@ -81,3 +81,34 @@ test('a POST verify carries the body and a JSON content type, and a GraphQL who 
   assert.equal(st.who, 'her@example.com');
   await d.forget(); d.setFetcher(null);
 });
+
+/* 🛑 #1787: THE MODE ASSERTION IN THE STORING TEST ABOVE PASSES WHETHER OR NOT THIS
+   IS FIXED. Both shapes end at 0600. The old one wrote the credential into a
+   pre-existing 0644 file, where the `mode:` option is silently IGNORED, and
+   chmodded afterwards, so the secret bytes sat readable in between. No end-state
+   assertion can separate them; the INODE can, because `rename` replaces it and a
+   write in place reuses it.
+   ⚠️ Verified by reverting this call site to the old shape: with only the tests
+   that existed before this arm, everything stayed green. */
+test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place', async () => {
+  const d = byName('Discord');
+  const file = path.join(DIR, 'DISCORD_BOT_TOKEN');
+  fs.mkdirSync(DIR, { recursive: true });
+  fs.writeFileSync(file, 'OLD-TOKEN\n');
+  fs.chmodSync(file, 0o644);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o644,
+    'the loose plant did not take, so this arm would pass without the fix');
+  const inodeBefore = fs.statSync(file).ino;
+
+  d.setFetcher(async () => ({ ok: true, status: 200, body: { username: 'kittybot' } }));
+  const token = 'fake-discord-token-for-the-1787-arm-0123456789';
+  const st = await d.connect(token);
+  d.setFetcher(null);
+  assert.equal(st.connected, true, 'the connect failed, so nothing was tested');
+
+  assert.notEqual(fs.statSync(file).ino, inodeBefore,
+    'the credential was written IN PLACE into the pre-existing loose file: same inode '
+    + 'means no rename, so the token bytes were on disk at 0644 before the chmod');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'the credential was left loose');
+  await d.forget();
+});
