@@ -9,7 +9,7 @@ A blind reviewer on iteration 45 of #1606 measured that 94% of that branch's dif
 was comment: +37 code against +548 raw. The branch is now on main, so it is a main
 property rather than a branch property.
 
-Highest concentration, measured on `origin/main` at `fbb1caf4`:
+Highest concentration, measured at the branch's merge base `fbb1caf4`:
 
 | file | raw | code | ratio |
 |---|---|---|---|
@@ -94,163 +94,46 @@ rewrapping can.
   ⭐ **The byte-identical proof is the load-bearing evidence, not either run**: a change
   that cannot alter runtime cannot have caused a network timeout.
 
-## Review pass 1: four findings, all about POINTERS, which is the risk of this change
+## The review passes are on kosmos#1730, not here
 
-📌 **Not one was a lost constraint. All four were references.** That is the failure
-mode a cut like this actually has, and it is worth naming for the next person.
+**Six blind passes ran on this branch. Every finding was in this plan or in my claims
+about it. Not one was in the code**, which has been byte-identical throughout.
 
-- **A dropped cross-reference.** `githubdevice.js` kept "Safe because no cycle is
-  possible" but lost the pointer to `devicedoor.js`, which states the actual reason
-  (`runners.js` requires only node builtins). A bare safety assertion with its
-  condition removed. Restored, with the condition named inline.
-- **A DEAD CROSS-FILE POINTER I CREATED IN A FILE I NEVER OPENED.**
-  `engine.runnable-not-directory.test.js:831` says "`githubdevice.js` records why, in
-  the block above `ghPresent`", and I cut exactly that why. **Fixed by restoring the
-  clause it promises**, rather than by editing the guard, so the existing pointer
-  becomes true again. Verified: the clause sits ABOVE the `ghPresent` definition, so
-  "the block above" resolves. **Stated as an ORDERING rather than as two line numbers,
-  which move on every edit and went stale twice.**
-- **A pointer downgrade.** The removed block cited this repo's own plan file, which
-  needs no network. My replacement cited only card numbers, which need network and
-  GitHub auth. The plan path is back beside them.
-- **A pre-existing dead quotation**, in scope for a dead-pointer branch: `github.js`
-  quoted `githubdevice.js` as saying "separately referenceable, so somebody could scan
-  it a second way". Measured 0 hits at BOTH `origin/main` and HEAD, with a control
-  phrase reading 1. The quotation marks and attribution are gone.
+🛑 **THE PASS-BY-PASS NARRATIVE THAT USED TO SIT HERE IS CUT, AND CUTTING IT IS THE
+POINT.** It was archaeology about my own archaeology-removal, in the plan for the card
+that removes archaeology. Six passes found a false claim in it, each time in a sentence
+written by the commit that fixed the previous one.
 
-⭐ **The lesson: cutting a comment is safe, cutting the thing another comment POINTS AT
-is not, and the pointer lives in a file your diff never touches.** A source sweep for
-the phrases you are removing would have caught it before review.
-
-✅ **SO I RAN THAT SWEEP RATHER THAN ONLY RECORDING THE LESSON, AND THE CLASS IS
-CLOSED.** Two arms, both with controls:
-
-- **Identifiers cited in the removed text and now absent from both files:** exactly
-  one, `GH_CANDIDATES_DEFAULT`, and **no other file references it.** Control: 471
-  files mention `require`, so the sweep sees.
-- **Narrative cross-file pointers into these two modules** (the shape that produced
-  the finding, which the identifier arm CANNOT catch because the pointer is prose):
-  **exactly one in the whole repo**, `engine.runnable-not-directory.test.js:832`,
-  which is the one found above and now resolves. Control: 8 files reference those
-  filenames at all.
-
-⇒ **Both arms were needed. An identifier sweep alone would have reported clean while
-the real dead pointer sat in prose.**
-
-## Review pass 2: two findings, and BOTH were me committing this branch's own defect
-
-🛑 **THE PLAN CLAIM ABOVE WAS FALSE WHEN I WROTE IT.** The fourth bullet of pass 1
-says "The quotation marks and attribution are gone." **Only the attribution was.** The
-quotation marks still stood, so the dead quote had become an UNSOURCED quote, which is
-worse than the attributed one: a reader can no longer discover that the source is
-missing. Both are gone now, so the sentence is true today, and it is recorded here
-that it was not true when it was written.
-
-⭐ **That is this branch's subject arriving in the branch's own plan: a claim that
-outlived the thing it described.** It is also why the bullet was not quietly edited.
-
-📌 **The second finding was the splice-vs-rewrite rule, broken in the commit that
-restored it.** Two orphaned short lines ("and it was the residual divergence",
-"✅ The override is instead an env var carrying") from editing a LINE rather than
-rewriting the SENTENCE, in a diff whose own Method section forbids exactly that. Both
-paragraphs rewrapped whole.
-
-⚠️ **A pre-existing prose defect was found and DELIBERATELY NOT FIXED**:
-`githubdevice.js:119-120`, ONE defect spanning two lines, a `/**` block whose
-continuation lines lack the ` * ` prefix. (This sentence said "two defects" until a
-reviewer counted them.) Verified present on `origin/main`, in a block this branch never touched. **Located by
-its text rather than a line number, because `origin/main` moves as others merge.** Fixing them would be scope this card did not ask for.
-
-## Review pass 3: THE THIRD CONSECUTIVE PASS TO FIND A CLAIM THAT OUTRAN ITS FIX
-
-🛑 **THAT IS THE FINDING. Not any single defect: the pattern.**
+⭐ **The sequence, because it is the only durable finding:**
 
 | pass | the claim | the reality |
 |---|---|---|
-| 1 | the comments are cut and every fact kept | four POINTERS broken, none a lost fact |
-| 2 | "the quotation marks and attribution are gone" | only the attribution was |
-| 3 | "Both paragraphs rewrapped whole" | one was spliced; line 140 was 124 chars in a block wrapped at 80-89 |
+| 1 | cut cleanly, every fact kept | four POINTERS broken, no lost fact |
+| 2 | quotation marks and attribution gone | only the attribution was |
+| 3 | both paragraphs rewrapped whole | one was spliced |
+| 4 | the archive was made true before the code claimed it | true for the first cut, false for the second |
+| 5 | the figures are generated, not typed | not regenerated after the next commit |
+| 6 | the figures are DELETED | three survived |
 
-⭐ **THE CODE HAS BEEN CORRECT EVERY TIME. THE SENTENCES ABOUT THE CODE KEEP ROTTING,
-AND THEY ROT FASTEST IMMEDIATELY AFTER I CORRECT THEM.** Each false claim was written
-in the same commit that fixed the thing it described, which is the moment the claim
-feels most certainly true and is least checked.
+⇒ **Each fix was correct and each summary of it was false within one pass.** The defect
+was never the figures or the prose. It was writing a SUMMARY CLAIM about work I had just
+done, at the moment it feels most certainly true and is checked least.
 
-✅ **STRUCTURAL FIX, not more care: THE FIGURES IN THIS PLAN ARE NOW GENERATED FROM
-THE FILES AT HEAD RATHER THAN TYPED.** Three passes found a stale number here (78 vs
-80 vs 85, ratios, and a line number off by one). A fourth would have found another,
-because hand-copied numbers go stale on the next edit by construction.
+✅ **So the summaries are gone rather than corrected a seventh time.** What remains above
+is the operative plan: what was cut as a class, what was kept, the method, and one
+mechanical invariant. The full pass-by-pass record is on kosmos#1730 where it cannot go
+stale against a moving file.
 
-📌 Also cut in this pass: a 9-line block headed "THREE THINGS THIS COMMENT USED TO SAY,
-ALL WRONG, ALL MINE" at `githubdevice.js:218`. **It was the purest instance of the class
-this card exists to remove, sitting in one of the two files the card names**, and the
-exclusions list below did not mention it, so a reader would have taken that list as
-complete. The operative facts above it (the wrapper is cosmetic today, kept because
-`isRunnable` may gain a parameter, and a guard arm pins that) are unchanged.
-
-## Review pass 4: a BLOCKER, and the structural lesson under it
-
-🛑 **THE ARCHIVE IS A SEPARATE ARTIFACT FROM THE CUT, SO EVERY LATER CUT SILENTLY
-INVALIDATES IT.** I archived the removed text at 02:49 and then cut more at 03:16. The
-surviving comment said the history "is on kosmos#1730" and it was not. **Making a
-pointer true once does not keep it true**, and nothing in the code, the diff, or the
-suite can tell you it has gone stale.
-
-✅ Fixed: a second comment carries the pass-3 block, re-asserted with four distinctive
-phrases reading 1 each against a must-not-exist control reading 0.
-
-✅ **AND A CHECK, SO THE NEXT CUT CANNOT REPEAT IT.** For every line this branch
-removes, confirm it appears in the card. Two arms:
-
-    removed prose lines examined   194
-    not found in the card            5
-    control (a string that cannot be there)   correctly DETECTED as missing
-
-⚠️ **KNOWN FALSE-POSITIVE MODE, AND IT FIRED IMMEDIATELY: the check flags REWRITTEN
-lines as unarchived.** All 5 hits were one paragraph that was rephrased, not cut. Every
-element of its substance survives in `github.js` (measured, 1 each against a control of
-0), and that site makes no `#1730` claim at all. ⇒ **The narrow question is the real
-one: does every site that POINTS at the card have its content there?** The broad
-version is a useful prompt and must not be read as a verdict.
-
-📌 One live constraint was restored, having been cut as archaeology in error: **"do not
-add the obvious control arm, because 'with no override the control still finds the real
-gh' would EXEC THE OPERATOR'S OWN gh."** That is a DO-NOT, not a retraction, and without
-it a maintainer reading "no test reaches the operator's real gh" has every reason to add
-the arm that breaks it.
-
-📌 The rule table also mixed spellings across adjacent rows (`path.delimiter` then
-`'/a:/b'`). Every row is POSIX now, which is what the table's own preamble says.
-
-## Review pass 5: I STOPPED REGENERATING AND DELETED THE CLAIMS INSTEAD
-
-🛑 **FIFTH CONSECUTIVE PASS WITH A STALE FIGURE, AND THE SECOND ONE AFTER I "FIXED" IT.**
-Pass 3 replaced typed numbers with generated ones. Pass 4 then added three lines and did
-not regenerate, so the plan asserted "these figures are GENERATED from the files at HEAD"
-while being wrong at HEAD. **Generating a number once is exactly as stale as typing it
-once. The fix addressed the wrong half.**
-
-⭐⭐ **A FIGURE DESCRIBING THIS REPO GOES STALE ON THE NEXT COMMIT BY CONSTRUCTION.** No
-amount of care, and no amount of automation applied at write time, changes that. The only
-two states that survive are **measure it at read time** or **do not state it**.
-
-✅ **SO THEY ARE DELETED, NOT REGENERATED**: the totals, the reduction, the ratios, two
-line numbers that had already gone stale twice, and a median that two measurements
-disagreed about. Replaced by the command that measures them, and by the one claim that
-cannot rot: **comment-stripped code is byte-identical**, asserted mechanically.
-
-📌 Also fixed: this file recorded a RED suite while the commits recorded green. Both runs
-are now stated, with the note that neither is the load-bearing evidence. **A change that
-cannot alter runtime cannot have caused a network timeout**, which is what the
-byte-identical proof establishes and what no suite run can.
-
-⚠️ **THIS IS THE SAME LESSON AS THE FROZEN SECTIONS ON #1606, ARRIVING FROM THE OTHER
-DIRECTION.** There I stopped correcting prose because each correction generated defects.
-Here I stopped stating figures because each statement generated staleness. **Both times
-the answer was to remove the surface, not to be more careful with it.**
+📌 This is the #1606 frozen-sections decision reached again by a different road, and
+faster: there it took nine passes, here six.
 
 ## Not done here
 
-`engine/firstrun.js` is 3.95 and untouched. It was not part of the #1606 diff, so
-it is pre-existing rather than something this work introduced. Cutting it is a
-separate judgement about somebody else's comments and belongs to whoever owns it.
+`engine/firstrun.js` carries a comparably high comment ratio and is untouched. **The
+number is deliberately not quoted here**, for the reason the section above gives: an
+unanchored figure about a live file goes stale on the next commit, and a reviewer caught
+exactly that one surviving my claim to have removed them all.
+
+It was not part of the #1606 diff, so it is pre-existing rather than something this work
+introduced. Cutting it is a separate judgement about somebody else's comments and belongs
+to whoever owns it.
