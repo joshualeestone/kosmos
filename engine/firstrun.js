@@ -187,10 +187,6 @@ async function state() {
      is caught either way: from `require('./runners')` itself, or from
      `resolveBin('claude')`, which can throw on its own account (it derives a home
      directory and joins paths) before it ever asks whether the file is runnable.
-     📌 WHY BOTH THROW SOURCES ARE COVERED, which is the only thing this catch needs:
-     `require('./runners')` and `resolveBin('claude')` sit inside the SAME try. resolveBin
-     can throw on its own account, before it ever asks whether a file is runnable, because
-     it derives a home directory and joins paths.
 
      ⇒ THE CLAIM THIS BLOCK EXISTS TO STATE: nothing after that try can reject, so the
      `.catch` cannot fire today.
