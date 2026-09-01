@@ -26,6 +26,7 @@ function dom() {
     'hb-interval': { value: '', innerHTML: '', disabled: true },
     'hb-save': { disabled: true },
     'hb-msg': { textContent: '' },
+    'hb-needs-notify': { hidden: false }, // default visible, so a test proves paint HIDES it when notify is on
   };
   return {
     els,
@@ -36,10 +37,16 @@ function dom() {
   };
 }
 
-/** paintHeartbeat, the REAL one, wired to a stub fetch returning `served`. */
-function makePaint(served) {
+/**
+ * paintHeartbeat, the REAL one, wired to a URL-aware stub fetch: `/api/notify-setting`
+ * returns `{on: notifyOn}` (the master switch), everything else returns `served`
+ * (the heartbeat setting). `notifyOn` defaults to true (notifications on).
+ */
+function makePaint(served, notifyOn = true) {
   const d = dom();
-  const fetchStub = async () => ({ json: async () => served });
+  const fetchStub = async (url) => ({
+    json: async () => (String(url).indexOf('notify-setting') !== -1 ? { on: notifyOn, ok: true } : served),
+  });
   const paint = new Function('document', 'fetch',
     lift(SCRIPT, 'paintHeartbeat') + '\nreturn paintHeartbeat;')(d.document, fetchStub);
   return { paint, ...d };
@@ -73,11 +80,32 @@ test('kosmos#1722: a failed read disables the controls and says so, never silent
   assert.match(d.els['hb-msg'].textContent, /could not read/i, 'and it says the read failed');
 });
 
+test('kosmos#1722: the notify-off hint (Mona\'s edit 5) shows ONLY when the notify master switch is off', async () => {
+  const settingOn = { on: true, intervalMinutes: 17, intervals: [5, 10, 17, 60], ok: true };
+  const off = makePaint(settingOn, false); // notifications OFF
+  await off.paint();
+  assert.equal(off.els['hb-needs-notify'].hidden, false, 'notify off => the hint is shown');
+
+  const on = makePaint(settingOn, true); // notifications ON
+  await on.paint();
+  assert.equal(on.els['hb-needs-notify'].hidden, true, 'notify on => the hint is hidden');
+});
+
+test('kosmos#1722: the notify-off hint is a DEDICATED element with Mona\'s exact string, not hb-msg', () => {
+  assert.ok(PAGE.includes('id="hb-needs-notify"'), 'the dedicated hint element exists');
+  assert.ok(PAGE.includes('Notifications are off, so this cannot reach you. Turn them on and Kosmos will let you know when an agent has stopped.'),
+    'the hint carries Mona\'s exact voice string');
+  // it ships hidden by default (shown only when notify is off, set in paintHeartbeat)
+  assert.match(PAGE, /id="hb-needs-notify"[^>]*hidden/, 'the hint is hidden by default in the markup');
+});
+
 test('kosmos#1722: the control is wired -- section, controls, painted on open, saved to the route', () => {
   assert.ok(PAGE.includes('id="s-sec-automation"'), 'the Automation section is in the page');
-  for (const id of ['hb-enabled', 'hb-interval', 'hb-save', 'hb-msg']) {
+  for (const id of ['hb-enabled', 'hb-interval', 'hb-save', 'hb-msg', 'hb-needs-notify']) {
     assert.ok(PAGE.includes('id="' + id + '"'), id + ' is present');
   }
+  const paint = lift(SCRIPT, 'paintHeartbeat');
+  assert.match(paint, /fetch\('\/api\/notify-setting'/, 'paintHeartbeat reads the notify master state for the hint');
   const paintSettings = lift(SCRIPT, 'paintSettings');
   assert.match(paintSettings, /paintHeartbeat\(\)/, 'paintSettings calls paintHeartbeat');
   const saveAt = SCRIPT.indexOf("getElementById('hb-save').addEventListener");

@@ -9483,6 +9483,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
           <input type="checkbox" id="hb-enabled">
           <label for="hb-enabled" style="margin:0;">Ask me to check on any agent that has stopped</label>
         </div>
+        <!-- #1722: the heartbeat reaches the person through notifications, so if
+             the notify master switch is OFF this toggle does nothing, silently.
+             This conditional hint (Mona Lisa's voice) is shown ONLY when
+             notifications are off, keyed on the notify-master state in
+             paintHeartbeat -- a dedicated element, NOT hb-msg (which is the save
+             status). Hidden by default; unhidden only when notify is off. -->
+        <p class="fhint" id="hb-needs-notify" hidden>Notifications are off, so this cannot reach you. Turn them on and Kosmos will let you know when an agent has stopped.</p>
         <div class="frow" style="margin-top:12px; align-items:center; gap:10px;">
           <label class="flabel" for="hb-interval" style="margin:0;">Check every</label>
           <select id="hb-interval" aria-label="How often to check on your agents"></select>
@@ -13199,6 +13206,7 @@ async function paintHeartbeat() {
   const iv = document.getElementById('hb-interval');
   const btn = document.getElementById('hb-save');
   const msg = document.getElementById('hb-msg');
+  const needsNotify = document.getElementById('hb-needs-notify');
   if (!en || !iv || !btn) return;
   try {
     const r = await (await fetch('/api/heartbeat-setting', { cache: 'no-store' })).json();
@@ -13213,6 +13221,16 @@ async function paintHeartbeat() {
   } catch {
     en.disabled = true; iv.disabled = true; btn.disabled = true;
     if (msg) msg.textContent = 'We could not read the heartbeat setting just now.';
+  }
+  /* The heartbeat reaches the person through notifications, so show the notify-off
+     hint ONLY when the notify master switch is off. Best-effort and separate from
+     the setting read above: a failed read HIDES the hint (never show a false
+     "notifications off" warning), and it keys its own element, not hb-msg. */
+  if (needsNotify) {
+    try {
+      const n = await (await fetch('/api/notify-setting', { cache: 'no-store' })).json();
+      needsNotify.hidden = n.on === true;
+    } catch { needsNotify.hidden = true; }
   }
 }
 document.getElementById('hb-save') && document.getElementById('hb-save').addEventListener('click', async () => {
