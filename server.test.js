@@ -4976,7 +4976,9 @@ test('the fleet screen shows no name chips, and the fork is guarded (static pins
 test('the "we could not remember that" message lives outside the step panes', () => {
   /**
    * ⚠️ Skip is on EVERY step, and this message started inside the fork
-   * pane (fr-pane-5 since About-you landed at 4)
+   * pane (fr-pane-6; #1214 moved About-you off fr-pane-5, which is now the
+   * Accessibility offer. The check below holds for whatever fr-pane-5 is, because
+   * #fr-forgot sits after every pane.)
    * — so somebody who skipped from the welcome screen, on a machine where the
    * flag would not stick, was told nothing at all: the sentence was written into
    * a hidden div. Found by clicking Skip from step 1 rather than by reading it.
