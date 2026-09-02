@@ -20,7 +20,7 @@ wording of this claim has been false, twice.)
 | the design decision and what it rejected | *The decision* |
 | why the branch is worth keeping, with the mutation table | *What actually justifies the branch* |
 | the traps that cost an hour each | *One trap*, and the docblocks in the test file |
-| **what this branch got wrong and how** | the ten `Findings from challenge-loop iteration N` sections |
+| **what this branch got wrong and how** | the `Findings from challenge-loop iteration N` sections |
 
 🛑 **THE ITERATION LOG IS ROUGHLY TWO THIRDS OF THIS FILE AND THAT IS DELIBERATE, NOT NEGLECT.** An
 accepted review finding required stripping process history from the three CODE files precisely so it
@@ -40,7 +40,7 @@ git grep -lil stuck origin/main -- '*.test.js' | wc -l   ->  30
 git grep -lil stuck HEAD        -- '*.test.js' | wc -l   ->  31   (this branch adds exactly one file)
 ```
 
-⚠️ **The original figure here was 29 and is not reproducible today**; it was true when written against an older main. **An earlier draft of this very correction guessed "29 before this file and one other landed" -- also unmeasured, and wrong: the delta is one file, not two.** That is the third round in which a fix to a counting claim introduced a fresh counting claim, so the command is given and the figure is left to move. Roughly thirty test files mention the stuck phase, and `engine/connect.test.js` drives real flows into it in roughly a dozen places (17 `PHASE.STUCK` references), and `engine/connect.nobinary-1580.test.js` in a handful more (4 stuck references in total, not the same order of magnitude). What none of them does is assert `canRunClaude` **from a driven flow**.
+⚠️ **The original figure here was 29 and is not reproducible today**; it was true when written against an older main. **An earlier draft of this very correction guessed "29 before this file and one other landed" -- also unmeasured, and wrong: the delta is one file, not two.** That is the third round in which a fix to a counting claim introduced a fresh counting claim, so the command is given and the figure is left to move. Roughly thirty test files mention the stuck phase, and `engine/connect.test.js` drives real flows into it in roughly a dozen places (17 `PHASE.STUCK` references), and `engine/connect.nobinary-1580.test.js` at exactly **one** site (`grep -c 'PHASE\.STUCK'` returns 1; its 4 is a case-insensitive `stuck` total, a different instrument). What none of them does is assert `canRunClaude` **from a driven flow**.
 
 🛑 **THE CENSUS IN THIS PARAGRAPH WAS WRONG UNTIL ITERATION 8 AND SAID "the two files".** There are **three**, and the one it omitted has the most references of any of them:
 
@@ -167,7 +167,7 @@ this file                               drives the real start(), reads the STUCK
 
 🛑 **THE JUSTIFICATION IS A STRUCTURAL FACT, NOT A MUTATION RESULT, AND THIS IS THE FOURTH VERSION OF IT.** The first three each leaned on a chosen mutation and each was wrong or overstated.
 
-⭐ **These are the only assertions in the repo that read `canRunClaude` downstream of a real `start()`.** Reproducible in one command (`git grep -c canRunClaude -- '*.test.js'`): four files reference the field, and the other three reach it by three different instruments, none of them a driven flow: **build the state object by hand** (`publicview-canrun-1595`, and two of `server.connect.test.js`'s three sites), **match the PAGE source** (`server.connect.test.js:797` slices `web/index.html`, **not** `connect.js`), or **match `connect.js` as source text** (`runnable-not-directory`). **That is true by inspection and needs no mutation to establish.**
+⭐ **These are the only assertions in the repo that ASSERT `canRunClaude` downstream of a real `start()`.** Reproducible in one command (`git grep -c canRunClaude -- '*.test.js'`): four files reference the field, and the other three reach it by three different instruments, none of them a driven flow: **build the state object by hand** (`publicview-canrun-1595`, and two of `server.connect.test.js`'s three sites), **match the PAGE source** (`server.connect.test.js:797` slices `web/index.html`, **not** `connect.js`), or **match `connect.js` as source text** (`runnable-not-directory`). **That is true by inspection and needs no mutation to establish.**
 
 📌 That sentence said "match `connect.js` as source text" for all of them until iteration 14. The conclusion is unaffected -- a page grep is no more downstream of a `start()` than a `connect.js` grep -- but it named the wrong file **in the sentence carrying the branch**, while this plan's own comparison table twenty lines up said "greps page source" correctly. **The plan disagreed with itself, and the prose was the wrong half. Again.**
 
@@ -569,10 +569,12 @@ f=engine/connect.becomestuck-arm-1633.test.js
 tot=$(wc -l < $f); cm=$(grep -cE '^\s*(\*|/\*|//)' $f); echo "$tot lines, $cm comment, $((cm*100/tot))%"
 ```
 
-**For comparison, siblings, with the same command** (the range is wide and the sample is small, so
-read the files rather than the range): `tmpdir.test.js` 6%, `test-support.code-only.test.js` 25%,
-`engine/connect.nobinary-1580.test.js` 35%, `test-support.release-fixture.test.js` 43%,
-`engine.publicview-canrun-1595.test.js` 48%. **This file sits above all of them**, and the residue is the head docblock
+**For comparison, run the same command over the siblings** -- `tmpdir.test.js`,
+`test-support.code-only.test.js`, `engine/connect.nobinary-1580.test.js`,
+`test-support.release-fixture.test.js`, `engine.publicview-canrun-1595.test.js`. **This file sits
+above all of them**, which is the durable claim; individual percentages are not quoted because two of
+those files are edited by this branch and any figure for them goes stale in the commit that writes
+it. The residue is the head docblock
 explaining why the file drives `start()` instead of taking a seam. I judged that load-bearing for
 anyone editing the test and stopped there rather than trimming into mechanism.
 
@@ -994,8 +996,8 @@ another, welding two unrelated findings together. Split.
 
 ### The plan's own length, settled rather than left open
 
-918 lines, roughly two thirds iteration log. **Decision: it stays, and the file now says why in a
-header.** The accepted CONVENTION finding required stripping process history from the three CODE
+Most of this file is iteration log (`grep -n '^## Findings from challenge-loop' <plan>` shows where
+it starts; everything after is log). **Decision: it stays, and the file now says why in a header.** The accepted CONVENTION finding required stripping process history from the three CODE
 files *so that it would live in the plan* -- this is where it was sent, and moving it again would
 just relocate the same content while losing the reason. What was missing was orientation, so the
 plan now opens with what ships, the one-sentence justification, and a table pointing at the section
@@ -1018,3 +1020,64 @@ percentage mentions rather than counting them: seven are historical or retractio
 finding MAY cite the measurement that contradicted a claim, because that citation is what makes the
 finding checkable.** ⚠️ Without that carve-out the ban is unsatisfiable and generates a fresh
 correction every round forever, which is its own failure mode rather than rigour.
+
+## Findings from challenge-loop iteration 18
+
+**Zero BLOCKERs, five WARNINGs, three NITs.** Every one of ~25 cross-file citations reproduced
+exactly, and the justification held on its sixth independent attack.
+
+### 🛑 THREE OF THE FIVE WARNINGS WERE INTRODUCED BY THE COMMIT THAT CLOSED ITERATION 17, BY THE MECHANISM THAT COMMIT DESCRIBES
+
+`484ad92c` is the commit whose own text says *"I MEASURED, THEN EDITED, THEN PUBLISHED THE PRE-EDIT
+FIGURE. Measure last, or do not quote."* It then did exactly that, three times. **Each wrong figure
+equals its value at `HEAD~1`:**
+
+**Each row is evidence for the finding, not a standing fact** -- the middle column is what iteration
+18 measured at `484ad92c`, and this file has grown since (that is the whole point of the rule below).
+
+| published | measured at 484ad92c | that commit's `HEAD~1` |
+|---|---|---|
+| plan is "918 lines, roughly two thirds log" | 1020 lines, 79% log | **918** |
+| "the **ten** `Findings` sections" | **11** (that commit added the 11th) | **10** |
+| `release-fixture.test.js` at 43% | 44% (that commit edited it) | **43%** |
+
+### The conclusion, and it is not "be more careful"
+
+**Five attempts across three numbers, five failures, four distinct mechanisms.** Care has now been
+tried and has lost every time, so the remedy is structural rather than behavioural:
+
+🔑 **A DOCUMENT MUST NOT QUOTE A MEASUREMENT OF ITSELF, OR OF ANY FILE THE SAME COMMIT EDITS.**
+Writing the measurement changes the thing measured, so the figure is stale before the commit closes.
+**This is the same shape as the self-counting `git grep` in iteration 12** -- where documenting the
+count changed the count, going 4 -> 5 -> 8 while I wrote about it. **Self-reference is not a
+discipline problem; it is an instability**, and the only stable answer is to publish the command and
+no figure.
+
+✅ **Applied: the plan's own length, its section count, and the sibling ratio list are now commands
+or names, with no numbers.** The durable claim ("this file sits above all of them") survives without
+any figure, which is the test of whether a number was carrying meaning or just carrying risk.
+
+📌 **The carve-out from iteration 17 still holds and is what keeps this satisfiable:** a findings
+section MAY cite the measurement that falsified a claim, because that citation is the evidence.
+What is banned is a standing fact about a moving file.
+
+### The other two WARNINGs
+
+- **"`nobinary-1580` in a handful more"** driving flows to STUCK. It is **one** site.
+  ⚠️ **Third appearance of this claim.** Iteration 13 restored the *units* on the neighbouring
+  figure and left the *noun phrase* wrong, so the correction fixed the half that was cited and not
+  the half that was read. Now states the count and the command.
+- **Verb drift on the load-bearing sentence.** Two sites said *"read"* where the claim is
+  *"ASSERT"* -- in a file whose own header bolds "the verb and the phrase are load-bearing".
+  ⭐ **Not false today** (I could not falsify it under either verb), **but it is precisely how the
+  retracted claim came back in iteration 16**: the qualifier erodes one word at a time, and the
+  first erosion is always still true. Both restored.
+
+### NITs
+
+- `server.connect.test.js:751` is a **three-way disjunction** (`DOWNLOADING || INSTALLING || STUCK`),
+  not a stuck assertion. My compression called it one; a maintainer checking the line would find
+  something else. Same compression class, qualifier restored.
+- The `INSTALL_FAILURE` docblock stated the same fact in two consecutive paragraphs. Cut one.
+- A pointer said the command lives in the plan when it is also inline 180 lines down. Matched to
+  reality.

@@ -23,8 +23,9 @@
  * `start()`.
  *
  * 🛑 IT IS NOT THAT NO FILE DOES BOTH. `server.connect.test.js:749` drives a
- * real `start()` into a stuck assertion AND references the field at :797/:1146/
- * :1170 -- just never on the same path. **Every looser wording of this claim has
+ * real `start()` into an assertion whose accepted set INCLUDES `PHASE.STUCK`
+ * (its :751 is a three-way disjunction, not a stuck assertion), AND the file
+ * references the field at :797/:1146/:1170 -- just never on one path. **Every looser wording of this claim has
  * been false**, so keep the verb: ASSERTS, downstream of a `start()`. Driving
  * `start()` and reading the settled STUCK record is what this file adds, and the
  * only thing it claims.
@@ -212,7 +213,7 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
  *
  * 🔑 THIS FILE IS NOT THAT TEST AND DOES NOT DUPLICATE IT. ⭐ WHAT IT ADDS, AS
  * A STRUCTURAL FACT RATHER THAN A MUTATION RESULT: these are the ONLY assertions
- * in the repo that read `canRunClaude` DOWNSTREAM OF A REAL `start()`. Four test
+ * in the repo that ASSERT `canRunClaude` DOWNSTREAM OF A REAL `start()`. Four test
  * files reference the field (`git grep -c canRunClaude -- '*.test.js'`); the
  * other three build the state object by hand, match the PAGE source
  * (`server.connect.test.js:797` slices `web/index.html`, NOT `connect.js`), or
