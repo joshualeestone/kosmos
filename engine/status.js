@@ -1947,13 +1947,18 @@ function authFailed(tail) {
  * screen: the same one-line rule the rate-limit and auth cases follow.
  */
 function trustPrompt(tail) {
-  const rows = String(tail == null ? '' : tail)
-    .split('\n')
-    .map((line) => line.replace(/^[\s>│├└─*❯›]+/, '').replace(/[\s│]+$/, ''));
+  const raw = String(tail == null ? '' : tail).split('\n').map((line) => line.trim());
+  const rows = raw.map((line) => line.replace(/^[\s>│├└─*❯›]+/, '').replace(/[\s│]+$/, ''));
   /* The last non-blank row of the screen: a real dialog ends the screen, a
-     paste of one does not (see TRUST_PROMPT_QUESTION). */
-  let last = rows.length - 1;
-  while (last >= 0 && rows[last] === '') last -= 1;
+     paste of one does not (see TRUST_PROMPT_QUESTION).
+     🛑 FOUND ON THE RAW ROWS, JUDGED ON THE STRIPPED ONE. The strip erases
+     composer chrome entirely: a bare composer `❯ `, a rule `────`, an
+     old-style `> ` all strip to nothing, so finding the last row on the
+     stripped rows walked PAST an idle composer and landed on a pasted confirm
+     row above it. Measured: a paste over a bare composer matched. Whitespace
+     is the only thing a row may be made of and still not count. */
+  let last = raw.length - 1;
+  while (last >= 0 && raw[last] === '') last -= 1;
   const isDialogRow = (row) => TRUST_PROMPT_CONFIRM.test(row)
     || TRUST_PROMPT_OPTIONS.some((re) => re.test(row));
   if (last < 0 || !isDialogRow(rows[last])) return null;

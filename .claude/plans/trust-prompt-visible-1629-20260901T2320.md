@@ -134,3 +134,19 @@ on this branch; the suite's new arms are red on main by construction.
 - The hold takes a capture thunk, so one-capture-per-send is visible at the call site. The
   reach boundary for the full dialog shape is measured and pinned: seen with the first option
   at row +11, lost at +12.
+
+## Challenge-loop iteration 6: the bottom row was judged on the wrong copy of the screen
+
+- **The last row was found on the STRIPPED rows.** `trustPrompt` strips composer chrome
+  (`❯`, a rule, an old `>`) off the left of every row before reading it, then walked back
+  from the end for the last non-blank one. But an idle composer is made ENTIRELY of that
+  chrome, so it stripped to empty and the walk-back stepped past it and landed on the pasted
+  confirm row directly above. Measured: a paste of the dialog over a bare composer matched,
+  which is the exact false needs_you the paste guard exists to stop, arriving from below.
+- **Fix: find the last row on the RAW (trim-only) rows, judge it on the stripped ones.** A
+  composer trims to `❯` / `>` / a rule, all non-blank, so the walk-back stops on it; it then
+  reads as empty when stripped and is not a dialog row, so the screen is not a live dialog.
+  Whitespace is the only thing a row may be made of and still not count.
+- **Red-capable arm added**, three composer shapes (pointer, rule, old prompt) each beneath a
+  pasted dialog whose last row is the confirm row; reverting the raw-row fix reds all three,
+  with a control that the real dialog at the bottom still reads. status.test.js 155/155.

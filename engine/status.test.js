@@ -3780,6 +3780,34 @@ test('#1629: a verbatim PASTE of the dialog is not the dialog, because a paste i
   assert.ok(trustPrompt(['Worked for 2m', ...dialogRows.slice(0, -1)].join('\n')), 'clipped before the confirm row');
 });
 
+test('#1629: a bare composer beneath a pasted dialog is not the dialog, though its chrome strips to nothing', () => {
+  const { trustPrompt } = require('./status');
+  const dialogRows = TRUST_DIALOG_LIVE.split('\n').filter((l) => l.trim());
+  // Iteration 6. The last row was found on the STRIPPED rows, and an idle
+  // composer strips to nothing, so the walk-back stepped past it and landed on
+  // the pasted confirm row above. Each composer below is the screen's real
+  // last row and each strips to empty; the paste ends on its confirm row, so
+  // the pre-fix walk-back matched it. Reverting the raw-row fix reds every arm.
+  const pastedDialog = [
+    '⏺ Bash(gh issue view 1629 --repo joshualeestone/kosmos)',
+    '  ⎿  He was not unresponsive, he was stopped here:',
+    ...dialogRows.map((l) => '     ' + l),
+  ];
+  const composers = [
+    ['a bare pointer composer', ' ❯ '],
+    ['a rule composer', ' ──────────────────────────────'],
+    ['an old-style prompt composer', ' > '],
+  ];
+  for (const [label, composer] of composers) {
+    const text = [...pastedDialog, composer, ''].join('\n');
+    assert.equal(trustPrompt(text), null, label);
+    assert.notEqual(classify(pane(), text).state, STATE.NEEDS_YOU, label);
+  }
+  // Control: the same rows with the real dialog genuinely at the bottom still
+  // read, so the arms above fail on the composer, not on the paste itself.
+  assert.ok(trustPrompt(['Worked for 2m', ...dialogRows, ''].join('\n')), 'the real dialog still reads');
+});
+
 test('#1629: the reach boundary goes red in both directions', () => {
   const { trustPrompt } = require('./status');
   const q = ' Quick safety check: Is this a project you created or one you trust?';
