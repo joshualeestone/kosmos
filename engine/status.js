@@ -1696,10 +1696,12 @@ const AUTH_ENVELOPE = /"type":\s*"error"/i;
  * this line has no JSON at all -- current Claude Code prints a human-readable
  * error, not the raw envelope #874 was captured from. So `authFailed` returned
  * null, `classify` fell through to idle, and the WORST possible label sat over a
- * blocked agent. (The other messages below are byte-exact from Claude Code
- * 2.1.258's own strings: `API Error: 401 Invalid API key · Please run /login`,
- * `OAuth token revoked · Please run /login`, `Login expired · Please run /login`,
- * `OAuth access token has been revoked.`.)
+ * blocked agent. (Every message alternative in AUTH_FRIENDLY_MESSAGE is
+ * byte-exact from Claude Code 2.1.258's own strings: `OAuth access token has
+ * expired.`, `OAuth access token has been revoked.`, `OAuth access token is
+ * invalid.`, `API Error: 401 Invalid API key`, `OAuth token revoked`,
+ * `Login expired`, and `Your session has expired.` -- each paired in a real line
+ * with a remedy directive, e.g. `... · Please run /login`.)
  *
  * 🔑 THE DISCRIMINATOR IS CO-OCCURRENCE ON ONE ROW: an auth MESSAGE together
  * with Claude Code's own REMEDY directive. This is the friendly-form analog of
