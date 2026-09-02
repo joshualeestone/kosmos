@@ -87,7 +87,11 @@ resolve_install_user() {
 
   _riu_console="$(_riu_console_user)"
   _riu_owners="$(_riu_installer_owners | /usr/bin/grep -v -e '^root$' -e '^$')"
-  _riu_owner_count=$(printf '%s\n' "$_riu_owners" | /usr/bin/grep -c .)
+  # `grep -c` exits 1 when the count is 0; the trailing `|| true` keeps that
+  # normal no-owner path from aborting under a future `set -e` (today only `set
+  # -u` is in force here and in the sourcing postinstall). The "0" is still
+  # printed and captured either way.
+  _riu_owner_count=$(printf '%s\n' "$_riu_owners" | /usr/bin/grep -c . || true)
 
   # candidate 1: the owner of the running GUI Installer -- who actually invoked
   # this install. Only when it is unambiguous (exactly one non-root owner) AND
