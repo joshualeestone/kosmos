@@ -821,3 +821,96 @@ test('#1761: the FALLBACK tightens BEFORE the bytes land, observed from inside t
     `the token bytes landed while the file was still ${observed === null ? 'unknown' : '0' + observed.toString(8)}: `
     + 'the fallback chmodded AFTER the write, which is the exact defect this card exists for');
 });
+
+// ── #1782: the per-session lock around mint/retire ─────────────────────────
+const nodeCP = require('node:child_process');
+const stStore = require('./store');
+const senderDir = () => path.join(stStore.ROOT, 'sendertokens');
+const lockPathFor = (name) => path.join(senderDir(), stStore.safeKey(name) + '.json.lock');
+const plantLock = (name, pid) => {
+  fs.mkdirSync(senderDir(), { recursive: true });
+  const lp = lockPathFor(name);
+  fs.mkdirSync(lp, { recursive: true });
+  fs.writeFileSync(path.join(lp, 'owner'), String(pid));
+  return lp;
+};
+
+test('#1782: mint FAILS SAFE and leaves the store unchanged when a LIVE process holds the lock', () => {
+  /* 🛑 THE CORE ARM. Two processes must not both write from a stale read. With a
+     live holder's lock present, mint must NOT read-modify-write; it must fail and
+     leave the existing tokens exactly as they were. pid 1 (launchd) is always
+     alive and foreign, so the lock cannot be broken as stale. Revert the
+     withSessionLock wrapping in mint and this reddens: mint writes despite the
+     held lock, so the store changes. */
+  const prev = process.env.AGENT_WORKFORCE_LOCK_MS;
+  process.env.AGENT_WORKFORCE_LOCK_MS = '80';
+  try {
+    const A = sendertoken.mint('lock-live');
+    assert.equal(A.ok, true);
+    assert.equal(sendertoken.live('lock-live').length, 1);
+    plantLock('lock-live', 1);
+    const B = sendertoken.mint('lock-live');
+    assert.equal(B.ok, false, 'mint proceeded while a live process held the lock');
+    assert.match(B.because, /ELOCKBUSY/, 'the busy reason did not carry the lock code');
+    const held = sendertoken.live('lock-live');
+    assert.equal(held.length, 1, 'the store changed under a held lock: a concurrent write path is open');
+    assert.equal(held[0], A.instance, 'the surviving token is not the one that was there');
+  } finally {
+    try { fs.rmSync(lockPathFor('lock-live'), { recursive: true, force: true }); } catch { /* cleanup */ }
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_LOCK_MS; else process.env.AGENT_WORKFORCE_LOCK_MS = prev;
+  }
+});
+
+test('#1782: mint BREAKS a lock left by a CRASHED (dead-pid) holder and succeeds', () => {
+  /* A holder that died mid-critical-section leaves its lock dir. It must not
+     deadlock every future mint. The dead pid reads ESRCH, so the lock is broken.
+     Revert lockHolderIsDead's break and this reddens: mint waits to the deadline
+     and returns ELOCKBUSY instead of ok. */
+  const dead = nodeCP.spawnSync(process.execPath, ['-e', '0']).pid;
+  let isDead = false; try { process.kill(dead, 0); } catch (e) { isDead = e.code === 'ESRCH'; }
+  assert.ok(isDead, `pid ${dead} was reused; re-run`);
+  plantLock('lock-stale', dead);
+  const r = sendertoken.mint('lock-stale');
+  assert.equal(r.ok, true, 'a crashed holder\'s lock was not broken, so mint deadlocked');
+  assert.equal(sendertoken.live('lock-stale').length, 1, 'the token was not written after breaking the stale lock');
+  assert.equal(fs.existsSync(lockPathFor('lock-stale')), false, 'the lock dir was not released');
+});
+
+test('#1782: mint RELEASES the lock on success (no leak)', () => {
+  const r = sendertoken.mint('lock-release');
+  assert.equal(r.ok, true);
+  assert.equal(fs.existsSync(lockPathFor('lock-release')), false, 'the lock dir leaked after a successful mint');
+});
+
+test('#1782: retire is serialized on the SAME lock (fails safe under a live holder)', () => {
+  const prev = process.env.AGENT_WORKFORCE_LOCK_MS;
+  process.env.AGENT_WORKFORCE_LOCK_MS = '80';
+  try {
+    const A = sendertoken.mint('lock-retire');
+    plantLock('lock-retire', 1);
+    const r = sendertoken.retire('lock-retire', A.instance);
+    assert.equal(r.ok, false, 'retire proceeded while a live process held the lock');
+    assert.equal(sendertoken.live('lock-retire').length, 1, 'retire changed the store under a held lock');
+  } finally {
+    try { fs.rmSync(lockPathFor('lock-retire'), { recursive: true, force: true }); } catch { /* cleanup */ }
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_LOCK_MS; else process.env.AGENT_WORKFORCE_LOCK_MS = prev;
+  }
+});
+
+test('#1782: N CONCURRENT PROCESSES minting the same agent lose NO token', async () => {
+  /* 🛑 THE DEFECT REPRODUCED ACROSS REAL PROCESSES - the case the card said had
+     not been measured. Without the lock, interleaved read-modify-writes drop
+     tokens and live().length < N. With it, every process's token survives. */
+  const N = 12;
+  const session = 'lock-concurrent';
+  const mod = require.resolve('./sendertoken');
+  const env = { ...process.env, AGENT_WORKFORCE_LOCK_MS: '5000' };
+  const script = `require(${JSON.stringify(mod)}).mint(${JSON.stringify(session)})`;
+  await Promise.all(Array.from({ length: N }, () => new Promise((resolve, reject) => {
+    const c = nodeCP.spawn(process.execPath, ['-e', script], { env, stdio: 'ignore' });
+    c.on('exit', (code) => (code === 0 ? resolve() : reject(new Error('child mint exited ' + code))));
+    c.on('error', reject);
+  })));
+  assert.equal(sendertoken.live(session).length, N,
+    `${N} concurrent launches minted but the store holds ${sendertoken.live(session).length}: a token was lost`);
+});

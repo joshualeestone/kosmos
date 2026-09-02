@@ -133,6 +133,82 @@ function writeTokens(sessionName, tokens) {
   securewrite.writeSecret(file, JSON.stringify({ tokens }), FILE_MODE);
 }
 
+/* 🛑 #1782: mint AND retire are READ-MODIFY-WRITE on one session file, and
+   `writeSecret` makes each WRITE atomic but NOT the read-and-write. Two
+   PROCESSES that interleave between the read and the write lose a token: the
+   second write is built from a list that predates the first, so a live agent's
+   token vanishes from the file while that agent is still using it. This module
+   exists to make duplicate launches visible, so a silently-lost token is exactly
+   the case it must not produce. Same-process callers cannot hit it (`writeSecret`
+   is synchronous), but two processes are a real launch pattern.
+   ✅ A per-session lock serializes the whole critical section across processes. */
+const LOCK_DEADLINE_MS = 2000;   // how long to wait for a live holder before failing safe
+const LOCK_SPIN_MS = 15;         // between acquire attempts
+
+/* A SYNCHRONOUS wait, because mint/retire are synchronous and hold the lock
+   across the read and the write. `Atomics.wait` parks this thread without
+   busy-spinning; the fallback covers a runtime without SharedArrayBuffer. */
+function sleepSync(ms) {
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+  catch { const end = Date.now() + ms; while (Date.now() < end) { /* spin */ } }
+}
+
+/* True ONLY when the lock's owner is a process we can PROVE is gone
+   (`process.kill(pid,0)` throws ESRCH). An unreadable or not-yet-written owner
+   (a lock another process is mid-creating) is NOT proven dead, so we wait rather
+   than break it. Same "act only on a process you can prove is dead" rule as the
+   securewrite reaper (#1793); pid reuse reads as alive and we wait, which fails
+   safe. */
+function lockHolderIsDead(ownerPath) {
+  let pid;
+  try { pid = Number(fs.readFileSync(ownerPath, 'utf8').trim()); } catch { return false; }
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return false; } catch (e) { return !!(e && e.code === 'ESRCH'); }
+}
+
+/* Run `fn` holding an exclusive per-session lock. The lock is a DIRECTORY:
+   `mkdirSync` is atomic and fails EEXIST if it already exists, which is the
+   cross-process mutual exclusion. A lock left by a CRASHED holder is broken by
+   liveness; a lock held by a LIVE holder is waited on, and if it will not clear
+   we FAIL rather than break it - breaking a live holder's lock to force progress
+   would reintroduce the very lost-update this fixes. */
+function withSessionLock(sessionName, fn) {
+  securewrite.secureDir(DIR, 0o700);          // the lock lives inside the 0700 store dir
+  const lockPath = fileFor(sessionName) + '.lock';
+  const ownerPath = path.join(lockPath, 'owner');
+  const deadline = Date.now() + (Number(process.env.AGENT_WORKFORCE_LOCK_MS) || LOCK_DEADLINE_MS);
+  for (;;) {
+    try {
+      fs.mkdirSync(lockPath);                  // atomic acquire
+      break;
+    } catch (e) {
+      if (!e || e.code !== 'EEXIST') throw e;   // a real error (perms, missing parent): surface it
+      if (lockHolderIsDead(ownerPath)) {        // a crashed holder: break it and retry immediately
+        try { fs.unlinkSync(ownerPath); } catch { /* already gone */ }
+        try { fs.rmdirSync(lockPath); } catch { /* another waiter broke it, or it has unexpected contents */ }
+        continue;
+      }
+      if (Date.now() >= deadline) {             // a live holder that will not clear: fail safe, do not corrupt
+        const err = new Error('the sender-token store is busy'); err.code = 'ELOCKBUSY'; throw err;
+      }
+      sleepSync(LOCK_SPIN_MS);
+    }
+  }
+  try {
+    /* The owner is a hint for another process's staleness check, not required
+       for correctness, so a failure to write it is not fatal. */
+    try { fs.writeFileSync(ownerPath, String(process.pid)); } catch { /* best-effort */ }
+    return fn();
+  } finally {
+    /* Release with unlink + rmdir rather than a recursive rm: the lock dir holds
+       exactly the `owner` file, and rmdir on the now-empty dir is atomic and
+       cannot leave a partially-removed directory behind (a recursive rm on macOS
+       can race and leave the dir, which then trips a later recursive cleanup). */
+    try { fs.unlinkSync(ownerPath); } catch { /* owner may never have been written */ }
+    try { fs.rmdirSync(lockPath); } catch { /* best-effort release */ }
+  }
+}
+
 /**
  * A token for ONE launch of this agent. Returns `{ ok, token, instance }`.
  * Appends: previously minted tokens keep working, which is the point.
@@ -144,9 +220,13 @@ function mint(sessionName) {
   const token = crypto.randomBytes(TOKEN_BYTES).toString('hex');
   const instance = crypto.randomBytes(INSTANCE_BYTES).toString('hex');
   try {
-    const tokens = readTokens(sessionName);
-    tokens.push({ token, instance, mintedAt: new Date().toISOString() });
-    writeTokens(sessionName, tokens.slice(-MAX_LIVE));
+    /* #1782: read and write under the lock, so a concurrent launch cannot build
+       its write from a list that predates ours and drop this token. */
+    withSessionLock(sessionName, () => {
+      const tokens = readTokens(sessionName);
+      tokens.push({ token, instance, mintedAt: new Date().toISOString() });
+      writeTokens(sessionName, tokens.slice(-MAX_LIVE));
+    });
   } catch (e) {
     /* The CODE, not the message. The extracted writer's refusals read "refusing to
        write a secret through a symlink at <absolute path>", and this string is shown
@@ -168,10 +248,15 @@ function revoke(sessionName) {
 /** Drop ONE run's token, leaving the agent's other live runs alone. */
 function retire(sessionName, instance) {
   try {
-    const left = readTokens(sessionName).filter((t) => t.instance !== instance);
-    if (left.length === 0) return revoke(sessionName);
-    writeTokens(sessionName, left);
-    return { ok: true };
+    /* #1782: retire is read-modify-write too - filtering one instance out of the
+       list and rewriting it. Under the lock, so a concurrent mint/retire cannot
+       lose an update the same way. */
+    return withSessionLock(sessionName, () => {
+      const left = readTokens(sessionName).filter((t) => t.instance !== instance);
+      if (left.length === 0) return revoke(sessionName);
+      writeTokens(sessionName, left);
+      return { ok: true };
+    });
   } catch { return { ok: false, because: 'we could not retire that run' }; }
 }
 
