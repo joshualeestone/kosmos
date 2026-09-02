@@ -224,7 +224,11 @@ function writeSecret(file, data, mode) {
         try { fs.fchmodSync(tfd, mode); } catch { /* best effort, see above */ }
         const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data));
         let off = 0;
-        while (off < buf.length) off += fs.writeSync(tfd, buf, off, buf.length - off, off);
+        while (off < buf.length) {
+          const n = fs.writeSync(tfd, buf, off, buf.length - off, off);
+          if (!(n > 0)) throw Object.assign(new Error('short write on the temp'), { code: 'EIO' });
+          off += n;
+        }
       } finally {
         fs.closeSync(tfd);
       }
@@ -281,8 +285,17 @@ function writeSecret(file, data, mode) {
       | fs.constants.O_TRUNC | (NOFOLLOW || 0), mode);
     /* 🛑 TIGHTEN BEFORE THE BYTES LAND, NOT AFTER. This is the window the whole
        module exists for, and `fchmodSync` on the SAME fd has no TOCTOU, so there
-       is no reason to do it second. */
-    try { fs.fchmodSync(fd, mode); } catch { /* best effort */ }
+       is no reason to do it second.
+       ⚠️ BEST EFFORT, AND THE COST IS NAMED: if this chmod throws on a pre-existing
+       LOOSE file (NFS foreign owner, some FUSE and SMB mounts), the secret lands at
+       the loose mode with no signal to the caller. sendertoken.js measured exactly
+       that before the extraction (`mint.ok=true, file stayed 0644, NO signal`), and
+       this module inherits it rather than fixing it: refusing here would truncate
+       the file first (O_TRUNC is already applied) and then leave the person unable
+       to connect at all on such a mount, which is worse than loose-on-a-mount-they-
+       chose. No arm pins it, deliberately: an arm that asserts a secret may land
+       loose would read as a promise. Pre-existing on main, carried, not hidden. */
+    try { fs.fchmodSync(fd, mode); } catch { /* best effort, cost named above */ }
     fs.writeFileSync(fd, data);
     wrote = true;
   } catch (err) {
@@ -309,9 +322,8 @@ function writeSecret(file, data, mode) {
          is followed by the open itself: the restore through this fd then lands
          wherever the open landed, which is the disclosed gap of the hand check and
          not something the restore can repair. The descriptor still beats a path
-         write there, because a path write can be redirected a SECOND time;
-         a path-based write here could be, by a link swapped in after the close.
-         Best effort by design: whatever brought us here may defeat the restore too,
+         write there, because a path write could be redirected a SECOND time by a
+         link swapped in after the close. Best effort by design: whatever brought us here may defeat the restore too,
          and the original error still propagates. */
       if (!wrote && prior !== null) {
         try {

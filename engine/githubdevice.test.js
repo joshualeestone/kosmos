@@ -37,6 +37,17 @@ const boundAnswers = new Map();
    poll is still in flight when the arm abandons the flow and starts another. */
 let holdNextFlowMs = 0;
 const holdFor = new Map();
+/* #1799 arms: hold the NEXT device-code response for this many ms (a cancel can then
+   land while start() is still waiting on it), give the NEXT flow this poll interval
+   in seconds, count polls per device code, and resolve a promise when a HELD token
+   answer is actually sent, so arms wait on that signal rather than on a sleep. */
+let holdNextDeviceMs = 0;
+let failNextFlowPoll = false;  // the NEXT flow's held poll is answered by dropping the socket
+const failFor = new Set();
+let nextInterval = 0;
+const polledBy = new Map();
+let heldSentResolve = null;
+const heldSent = () => new Promise((ok) => { heldSentResolve = ok; });
 const stub = http.createServer((req, res) => {
   let body = '';
   req.on('data', (d) => { body += d; });
@@ -49,15 +60,20 @@ const stub = http.createServer((req, res) => {
       boundAnswers.set(code, answers);
       answers = [];
       if (holdNextFlowMs) { holdFor.set(code, holdNextFlowMs); holdNextFlowMs = 0; }
-      send(200, { device_code: code, user_code: 'ABCD-1234', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 0 });
+      if (failNextFlowPoll) { failFor.add(code); failNextFlowPoll = false; }
+      const reply = { device_code: code, user_code: 'ABCD-1234', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: nextInterval };
+      nextInterval = 0;
+      if (holdNextDeviceMs) { const h = holdNextDeviceMs; holdNextDeviceMs = 0; setTimeout(() => send(200, reply), h); } else send(200, reply);
       return;
     }
     if (req.url === '/token') {
       const asked = JSON.parse(body || '{}').device_code;
+      polledBy.set(asked, (polledBy.get(asked) || 0) + 1);
       const queue = boundAnswers.get(asked) || [];
       const next = queue.length ? queue.shift() : { error: 'authorization_pending' };
       const hold = holdFor.get(asked) || 0;
-      if (hold) setTimeout(() => send(200, next), hold); else send(200, next);
+      if (hold && failFor.has(asked)) { setTimeout(() => { req.socket.destroy(); if (heldSentResolve) { const r = heldSentResolve; heldSentResolve = null; r(); } }, hold); return; }
+      if (hold) setTimeout(() => { send(200, next); if (heldSentResolve) { const r = heldSentResolve; heldSentResolve = null; r(); } }, hold); else send(200, next);
       return;
     }
     if (req.url === '/user') {
@@ -328,6 +344,7 @@ test('#1799: an answer to a flow the person already left cannot complete or rese
     fs.rmSync(gd.FILE, { force: true });
     answers = [{ access_token: 'tok-stale', token_type: 'bearer', scope: 'repo' }];
     holdNextFlowMs = 120;
+    const sent = heldSent();
     const first = await gd.start();
     assert.equal(first.phase, 'awaiting', 'the first flow did not start, so nothing was tested');
     await settle(20);             // its poll has left and is being held by the stub
@@ -335,13 +352,118 @@ test('#1799: an answer to a flow the person already left cannot complete or rese
     answers = [];                 // the second flow has nothing to say yet
     const second = await gd.start();
     assert.equal(second.phase, 'awaiting', 'the second flow did not start, so nothing was tested');
-    await settle(250);            // the held answer has long since returned
+    await sent;                   // the held answer has been SENT, not merely waited for
+    await settle(30);             // and processed
     const st = await gd.state();
     assert.equal(fs.existsSync(gd.FILE), false,
       'the abandoned flow\'s token was STORED after the person had left it and started another sign-in');
     assert.equal(st.phase, 'awaiting',
       `the second flow ended at ${st.phase} (${st.because}): an answer to the flow the person left completed or reset it`);
     assert.equal(st.because, null, 'the second flow carries a reason written by the abandoned flow: ' + st.because);
+  } finally {
+    await gd.cancel();
+    delete process.env.KOSMOS_GITHUB_CLIENT_ID;
+    try { fs.rmSync(gd.FILE, { force: true }); } catch { /* nothing */ }
+  }
+});
+
+/* #1799, the two holes a blind reviewer reproduced in the first version of the fix,
+   which read the generation when the poll FIRED rather than binding it when the flow
+   scheduled it. Each arm holds the stub so the ordering is forced, not raced. */
+test('#1799: a cancel while the device-code request is out CANCELS: no awaiting is installed and no poll ever goes out', async () => {
+  process.env.KOSMOS_GITHUB_CLIENT_ID = 'Iv1.testclient';
+  try {
+    fs.rmSync(gd.FILE, { force: true });
+    answers = [{ access_token: 'tok-cancelled', token_type: 'bearer', scope: 'repo' }];
+    holdNextDeviceMs = 100;
+    const before = deviceSeq;
+    const starting = gd.start();   // not awaited: the device request is being held
+    await settle(15);
+    const cancelled = await gd.cancel();
+    assert.equal(cancelled.phase, 'idle', 'cancel did not report idle, so nothing was tested');
+    const started = await starting;
+    assert.equal(started.phase, 'idle',
+      `start() resolved to ${started.phase} after the person had cancelled: the cancelled flow was installed anyway`);
+    await settle(60);
+    const code = 'dev-' + (before + 1);
+    assert.equal(polledBy.get(code) || 0, 0, `the cancelled flow's code ${code} was polled ${polledBy.get(code)} time(s): a cancel that does not cancel`);
+    assert.equal(fs.existsSync(gd.FILE), false, 'the cancelled flow stored a token');
+    assert.equal((await gd.state()).phase, 'idle', 'the cancelled flow came back to life');
+  } finally {
+    await gd.cancel();
+    delete process.env.KOSMOS_GITHUB_CLIENT_ID;
+    try { fs.rmSync(gd.FILE, { force: true }); } catch { /* nothing */ }
+  }
+});
+
+test('#1799: a second start while the first flow\'s poll is in flight is the one that gets polled and completed', async () => {
+  process.env.KOSMOS_GITHUB_CLIENT_ID = 'Iv1.testclient';
+  try {
+    fs.rmSync(gd.FILE, { force: true });
+    /* Flow 1: its first poll is held 150 ms and answers pending, so the old code would
+       reschedule it at interval 0 and clear flow 2's timer in the process. */
+    answers = [{ error: 'authorization_pending' }];
+    holdNextFlowMs = 150;
+    const sent = heldSent();
+    const one = await gd.start();
+    assert.equal(one.phase, 'awaiting', 'flow 1 did not start, so nothing was tested');
+    await settle(15);            // flow 1's poll is out and held
+    /* Flow 2: a real 1 s interval, so it has a PENDING timer when flow 1's poll returns. */
+    answers = [{ access_token: 'tok-two', token_type: 'bearer', scope: 'repo' }];
+    nextInterval = 1;
+    const two = await gd.start();
+    assert.equal(two.phase, 'awaiting', 'flow 2 did not start, so nothing was tested');
+    const codeTwo = two.code;
+    await sent;                  // flow 1's held answer has come back
+    let st = null;
+    for (let i = 0; i < 120; i += 1) {   // up to 3 s for flow 2's 1 s poll
+      st = await gd.state();
+      if (st.phase !== 'awaiting' && st.phase !== 'completing') break;
+      await settle(25);
+    }
+    assert.equal(st.phase, 'idle',
+      `flow 2 (${codeTwo}) ended at ${st.phase} (${st.because}): its poll never ran, because the superseded flow's reschedule cleared its timer`);
+    assert.equal(fs.readFileSync(gd.FILE, 'utf8').trim(), 'tok-two', 'the wrong flow\'s token was stored');
+    assert.equal(polledBy.get('dev-' + (deviceSeq - 1)) || 0, 1,
+      'the superseded flow kept polling after the person had moved on');
+  } finally {
+    await gd.cancel();
+    delete process.env.KOSMOS_GITHUB_CLIENT_ID;
+    try { fs.rmSync(gd.FILE, { force: true }); } catch { /* nothing */ }
+  }
+});
+
+/* The fetch-FAILURE path of a superseded poll. A poll whose request dies (ECONNRESET,
+   EADDRNOTAVAIL, both live on this box) reschedules itself; if the flow has been
+   superseded meanwhile, that reschedule must not clear the live flow's timer. Red by
+   name with schedulePoll's generation guard removed. */
+test('#1799: a superseded poll whose request FAILS does not reschedule over the live flow', async () => {
+  process.env.KOSMOS_GITHUB_CLIENT_ID = 'Iv1.testclient';
+  try {
+    fs.rmSync(gd.FILE, { force: true });
+    answers = [];
+    holdNextFlowMs = 150;
+    failNextFlowPoll = true;      // flow 1's held poll will be answered by a dropped socket
+    const sent = heldSent();
+    const one = await gd.start();
+    assert.equal(one.phase, 'awaiting', 'flow 1 did not start, so nothing was tested');
+    await settle(15);
+    answers = [{ access_token: 'tok-two', token_type: 'bearer', scope: 'repo' }];
+    nextInterval = 1;             // flow 2 has a PENDING timer when flow 1's request dies
+    const two = await gd.start();
+    assert.equal(two.phase, 'awaiting', 'flow 2 did not start, so nothing was tested');
+    const codeOne = 'dev-' + (deviceSeq - 1);
+    await sent;
+    let st = null;
+    for (let i = 0; i < 120; i += 1) {
+      st = await gd.state();
+      if (st.phase !== 'awaiting' && st.phase !== 'completing') break;
+      await settle(25);
+    }
+    assert.equal(st.phase, 'idle',
+      `flow 2 ended at ${st.phase} (${st.because}): the superseded flow's failed request rescheduled itself over flow 2's timer`);
+    assert.equal(fs.readFileSync(gd.FILE, 'utf8').trim(), 'tok-two', 'the wrong token was stored');
+    assert.equal(polledBy.get(codeOne) || 0, 1, 'the superseded flow kept polling after its request failed');
   } finally {
     await gd.cancel();
     delete process.env.KOSMOS_GITHUB_CLIENT_ID;

@@ -275,8 +275,16 @@ function stopPolling() { if (POLL) { clearTimeout(POLL); POLL = null; } }
    flow's token two milliseconds before that flow had even asked for a device code,
    and the next flow's start() then overwrote the failure it produced with a fresh
    awaiting, so the sign-in silently started over. One integer closes it: every flow
-   boundary bumps GEN, pollOnce captures it before the round trip and bails after if
-   it moved. A reschedule is the SAME flow continuing, so schedulePoll does not bump. */
+   boundary bumps GEN; start() takes its generation right after the bump and BINDS it
+   into every poll it schedules; pollOnce checks it at entry and again after the round
+   trip (and a fetch that FAILS reschedules through schedulePoll, which refuses a stale
+   generation so a stale reschedule cannot clear the live flow's timer); and start() itself bails after its own device-code request if
+   the generation moved while that request was out (a cancel during the request must
+   cancel). A reschedule is the SAME flow continuing, so it carries the same generation
+   and does not bump. ⚠️ An earlier version read GEN when the poll FIRED rather than
+   binding it when the flow scheduled it, and a blind reviewer reproduced both holes:
+   a cancel during the device request that did not cancel, and a second start whose
+   timer the first flow's reschedule cleared, so the code on screen was never polled. */
 let GEN = 0;
 function endFlow() { GEN += 1; stopPolling(); }
 
@@ -291,10 +299,15 @@ async function start() {
     const id = clientId();
     if (!id) return { ...(await state()), refused: NO_APP };
     endFlow();
+    const gen = GEN; // #1799: this flow's generation, bound into every poll it schedules
     FLOW = { phase: PHASE.STARTING, code: null, url: null, because: null, expiresAt: 0 };
     let r;
     try { r = await post(DEVICE_URL(), { client_id: id, scope: SCOPE }); }
     catch (err) { r = { ok: false, body: null, because: String((err && err.message) || err) }; }
+    /* #1799: superseded while the request was out (a cancel, a forget, or a second
+       start). Whoever superseded it owns FLOW now; installing AWAITING here would
+       resurrect a flow the person already left. Report their state, schedule nothing. */
+    if (gen !== GEN) return state();
     const b = r && r.body;
     if (!r || !r.ok || !b || !b.device_code || !b.user_code) {
       FLOW = {
@@ -317,7 +330,7 @@ async function start() {
        hid every fast test behind a five-second first poll. Absent or
        malformed defaults to GitHub's own 5. */
     const interval = Number(b.interval);
-    schedulePoll(id, String(b.device_code), Math.max(0, Number.isFinite(interval) ? interval : 5) * 1000);
+    schedulePoll(gen, id, String(b.device_code), Math.max(0, Number.isFinite(interval) ? interval : 5) * 1000);
     return state();
   } catch (err) {
     FLOW = { phase: PHASE.FAILED, code: null, url: null, because: 'we could not start the sign-in: ' + String((err && err.message) || err), expiresAt: 0 };
@@ -325,14 +338,21 @@ async function start() {
   }
 }
 
-function schedulePoll(id, deviceCode, delayMs) {
+function schedulePoll(gen, id, deviceCode, delayMs) {
+  /* #1799: a stale flow must not clear the LIVE flow's timer. Measured: without this,
+     a superseded flow's reschedule cleared the new flow's first poll, the code on
+     screen was never asked about, and the sign-in hung to expiry. */
+  if (gen !== GEN) return;
   stopPolling();
-  POLL = setTimeout(() => { pollOnce(id, deviceCode, delayMs).catch(() => { /* the next state() reads the truth */ }); }, delayMs);
+  POLL = setTimeout(() => { pollOnce(gen, id, deviceCode, delayMs).catch(() => { /* the next state() reads the truth */ }); }, delayMs);
   if (POLL && POLL.unref) POLL.unref();
 }
 
-async function pollOnce(id, deviceCode, delayMs) {
-  const gen = GEN; // #1799: the flow this poll belongs to
+async function pollOnce(gen, id, deviceCode, delayMs) {
+  /* #1799: no generation check here, on purpose. A timer only exists for the live
+     flow (schedulePoll refuses a stale generation and endFlow clears the timer), so
+     the checks that can fire are the one after the round trip and the one in
+     schedulePoll on the fetch-failure path; a third here could never go red. */
   if (FLOW.phase !== PHASE.AWAITING && FLOW.phase !== PHASE.COMPLETING) return;
   if (Date.now() > FLOW.expiresAt) {
     FLOW = { ...FLOW, phase: PHASE.FAILED, because: 'the code expired before it was entered on GitHub; start again for a fresh one' };
@@ -344,7 +364,7 @@ async function pollOnce(id, deviceCode, delayMs) {
       client_id: id, device_code: deviceCode,
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
     });
-  } catch { if (gen === GEN) schedulePoll(id, deviceCode, delayMs); return; }
+  } catch { schedulePoll(gen, id, deviceCode, delayMs); return; }
   /* #1799: the flow moved on while this round trip was out. Whatever came back
      belongs to a device code the person already left. Touch nothing. */
   if (gen !== GEN) return;
@@ -380,8 +400,8 @@ async function pollOnce(id, deviceCode, delayMs) {
     FLOW = { phase: PHASE.IDLE, code: null, url: null, because: null, expiresAt: 0 };
     return;
   }
-  if (b.error === 'authorization_pending') { schedulePoll(id, deviceCode, delayMs); return; }
-  if (b.error === 'slow_down') { schedulePoll(id, deviceCode, delayMs + 5000); return; } // GitHub's own rule
+  if (b.error === 'authorization_pending') { schedulePoll(gen, id, deviceCode, delayMs); return; }
+  if (b.error === 'slow_down') { schedulePoll(gen, id, deviceCode, delayMs + 5000); return; } // GitHub's own rule
   if (b.error === 'expired_token') {
     FLOW = { ...FLOW, phase: PHASE.FAILED, because: 'the code expired before it was entered on GitHub; start again for a fresh one' };
     return;

@@ -108,7 +108,8 @@ test('#1787: a symlink planted at the target is REFUSED, by our code and not the
     + 'with ELOOP, so sharing that code makes our refusal indistinguishable from the '
     + 'kernel\'s -- and that distinction is the whole guard on win32, where there is no '
     + 'kernel refusal at all');
-  assert.equal(fs.readFileSync(victim, 'utf8'), 'ORIGINAL', 'the victim was written through');
+  /* Not asserted: the victim is untouched here BY CONSTRUCTION, because the call under
+     test only lstats. An assertion that cannot fail reads as coverage. */
 });
 
 /* 🛑 THE ATOMIC PATH'S REASON FOR GIVING UP MUST SURVIVE, AND NEITHER SITE THAT
@@ -137,7 +138,9 @@ test('#1787: a symlink refusal in the fallback still carries WHY the atomic path
   assert.equal(caught.cause && caught.cause.code, 'EXDEV',
     'the symlink refusal was thrown with no cause, so a persistent EXDEV that drove the '
     + 'write onto the fallback in the first place is invisible to the caller');
-  assert.equal(fs.readFileSync(victim, 'utf8'), 'ORIGINAL', 'the victim was written through');
+  /* Not asserted: on macOS the kernel's O_NOFOLLOW protects the victim whether or not
+     our refusal exists, so the assertion could not fail and read as coverage. The
+     TOCTOU arm below is the one that can. */
 });
 
 test('#1787: a fallback that fails carries WHY the atomic path was abandoned', () => {
@@ -275,7 +278,8 @@ test('#1787: writeSecret CALLS the refusal on its fallback, not merely defines i
   assert.match(String(err.message), /refusing to write a secret through a symlink/,
     'the refusal came from the kernel, not from our call: on win32 there is no kernel '
     + 'to refuse, so this path would follow the symlink');
-  assert.equal(fs.readFileSync(victim, 'utf8'), 'ORIGINAL', 'the victim was written through');
+  /* Not asserted: same reason as the two arms above, the kernel protects the victim on
+     this platform whether or not our call is there. The SENTENCE is the guard here. */
 });
 
 /* 🛑 THE CHMOD ON THE TEMP MUST NOT BE FATAL, and counting ATTEMPTS is the only way
