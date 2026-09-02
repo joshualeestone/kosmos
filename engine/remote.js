@@ -456,6 +456,13 @@ async function setupComplete(code, name) {
   // already enrolled at the address this name maps to, recognise the Mac as
   // itself and just bring the tunnel up. A DIFFERENT name is a rename (a real
   // address change) and deliberately falls through to the setup path below.
+  //
+  // ACCOUNT-SWITCH EDGE (by design, not a defect): if the surviving state is for
+  // account A at name X and someone runs the flow with a DIFFERENT account's
+  // email and that account's valid code but the SAME name X, this recognises the
+  // Mac and keeps account A's enrolment -- the new code is never used. Switching
+  // the account on a Mac is what `forget()` (which wipes the state dir) is for;
+  // once the state is gone, enrolled() is false and this guard does not fire.
   if (enrolled()) {
     const have = address();
     if (have && have.split('.')[0] === name) {
