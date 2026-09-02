@@ -503,6 +503,127 @@ async function checkLive(dir) {
   };
 }
 
+/* #1026: the OpenAI side of the model picker, sourced from the /v1/models the
+   key check already fetches and used to discard, never from a hardcoded name.
+   A wrong model name is not cosmetic -- it is an agent that fails to start --
+   so the `arg` a runner is launched with is always a real id the account just
+   told us it has. This module only decides WHICH of those to show and how to
+   describe them.
+
+   ⚠️ FILTERING IS THE WORK, not an afterthought. /v1/models returns everything
+   the key can reach: embeddings, tts, whisper, image, moderation, realtime and
+   transcribe models codex cannot drive as a chat agent, mixed in with the chat
+   models. Two filters, and the safety ORDER is deliberate:
+     - an ALLOWLIST of chat families by id prefix (gpt-5, gpt-4.1, gpt-4o,
+       chatgpt, o1, o3, o4). A brand-new chat family with an unknown prefix is
+       missed until this list learns it -- an UNDER-offer, which is invisible
+       and safe. The opposite error, offering a non-chat model, is the
+       fail-to-start this card exists to prevent, so we take the safe side on
+       purpose and name it as the weakest premise.
+     - a DENYLIST of non-chat variants WITHIN those families (gpt-4o-audio-*,
+       -realtime-*, -transcribe, -search-*, -tts and the like), because those
+       ARE gpt-4o-* by prefix yet are not chat-completion models a runner drives.
+   Between the two, only plausibly-drivable chat models survive.
+
+   The `why` lines are copy keyed by family (no runner can produce them); the
+   `arg`/id always comes from the account. */
+const OPENAI_CHAT_FAMILIES = [
+  // rank low = more capable / preferred as default. prefix matched lowercased.
+  { rank: 0, prefix: 'gpt-5', why: 'OpenAI\'s most capable. For work where being right matters more than being quick.' },
+  { rank: 1, prefix: 'o3', why: 'Reasoning-focused. Slower, and it works through harder problems step by step.' },
+  { rank: 1, prefix: 'o4', why: 'Reasoning-focused. Slower, and it works through harder problems step by step.' },
+  { rank: 2, prefix: 'gpt-4.1', why: 'A strong all-rounder, with room for long jobs.' },
+  { rank: 3, prefix: 'gpt-4o', why: 'The everyday choice. Quick, and good at most work.' },
+  { rank: 4, prefix: 'chatgpt', why: 'The model behind ChatGPT\'s default experience.' },
+  { rank: 5, prefix: 'o1', why: 'An earlier reasoning model. Slower, for step-by-step problems.' },
+];
+// Non-chat variants that share a chat family's prefix but codex cannot drive as
+// an agent. Substring match, lowercased.
+const OPENAI_NON_CHAT = ['audio', 'realtime', 'transcribe', 'tts', 'search', 'image', 'embedding', 'moderation', 'whisper', 'dall-e'];
+
+/** The chat family an id belongs to, or null (not a recognised chat model, or a
+    non-chat variant within a chat family). Pure. */
+function openaiFamilyOf(id) {
+  const low = String(id).toLowerCase();
+  if (OPENAI_NON_CHAT.some((bad) => low.includes(bad))) return null;
+  return OPENAI_CHAT_FAMILIES.find((f) => low.startsWith(f.prefix)) || null;
+}
+
+/** 'gpt-4o' -> 'GPT-4o'; 'o3'/'chatgpt-*' left as OpenAI writes them. Cosmetic. */
+function prettyOpenaiLabel(id) {
+  const s = String(id);
+  return /^gpt/i.test(s) ? s.replace(/^gpt/i, 'GPT') : s;
+}
+
+/* Pure: the /v1/models `data` array -> the chat-model menu rows, most-capable
+   first, de-duplicated, exactly one marked default. No I/O, so a test drives it
+   directly with a fixture list. The default is the most capable row that is not
+   a -mini / -nano / -preview variant (else the first) -- chosen among what the
+   account actually has, never invented. */
+function chatModelsFromList(data) {
+  const rows = (Array.isArray(data) ? data : [])
+    .map((m) => (m && typeof m.id === 'string' ? m.id : null))
+    .filter(Boolean)
+    .map((id) => {
+      const fam = openaiFamilyOf(id);
+      return fam ? { id, rank: fam.rank, why: fam.why } : null;
+    })
+    .filter(Boolean);
+  rows.sort((a, b) => (a.rank - b.rank) || a.id.localeCompare(b.id));
+  const seen = new Set();
+  const out = [];
+  for (const r of rows) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    out.push({ key: r.id, provider: 'openai', label: prettyOpenaiLabel(r.id), arg: r.id, why: r.why });
+  }
+  if (out.length) {
+    const isLite = (id) => /-(mini|nano|preview)(-|$)/i.test(id);
+    const flagship = out.find((m) => !isLite(m.arg)) || out[0];
+    flagship.default = true;
+  }
+  return out;
+}
+
+/**
+ * The chat models a specific OpenAI account can run, as picker rows -- sourced
+ * from that account's own /v1/models (the call the key check already makes),
+ * filtered to chat families, with a `why` line and a default. Same key-reading
+ * and honest-answer discipline as checkLive(): absent / unreadable /
+ * unrecognised / non-apikey each answer with a plain sentence, and a network
+ * failure or a non-200 is reported as such -- never as an empty menu that would
+ * read like "this account has no models".
+ *
+ * @returns {Promise<{ok: boolean, models: Array, because?: string}>}
+ */
+async function accountModels(dir) {
+  const got = readAuthFile(dir);
+  if (got.kind === 'absent') return { ok: false, models: [], because: 'nobody has signed in to this account yet' };
+  if (got.kind === 'unreadable') return { ok: false, models: [], because: 'we could not read this account\'s settings' };
+  const who = identityFromData(got.data);
+  if (!who) return { ok: false, models: [], because: 'we could not find a usable sign-in in this account\'s settings' };
+  if (who.authMode !== 'apikey') {
+    // A ChatGPT-mode sign-in hands codex an id_token, not a bearer key usable
+    // against /v1/models -- the same limit checkLive() states, said here too.
+    return { ok: false, models: [], because: 'this sign-in cannot list models yet; it is not an API key' };
+  }
+  const key = got.data.OPENAI_API_KEY;
+  if (typeof key !== 'string' || !key) return { ok: false, models: [], because: 'we could not read this account\'s key' };
+  const r = await askModels(key);
+  if (r.unreachable) return { ok: false, models: [], because: r.because };
+  if (r.status !== 200) {
+    return { ok: false, models: [], because: 'OpenAI did not return this account\'s models (it answered ' + (r.status || 'nothing usable') + ')' };
+  }
+  const data = r.body && Array.isArray(r.body.data) ? r.body.data : [];
+  const models = chatModelsFromList(data);
+  if (!models.length) {
+    // The key works and OpenAI answered, but none of what it can reach is a
+    // chat model we recognise -- a real, distinct answer, not a failure.
+    return { ok: false, models: [], because: 'this account has no chat models we recognise yet' };
+  }
+  return { ok: true, models };
+}
+
 /** Every OpenAI account, live-checked. One bad row's own failure cannot sink
     the others -- caught individually, falling back to UNKNOWN, never a
     false NONE. Mirrors accounts.listLive()'s exact contract. */
@@ -540,4 +661,5 @@ module.exports = {
   list, identityOf, addWithKey, nextWorkDir, defaultDir, forgetAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
+  accountModels, chatModelsFromList,
 };
