@@ -2264,6 +2264,67 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* ── an agent's OWN sign-in, live-checked on demand (#1885) ──────────────
+     🛑 THE BUG THIS ANSWERS. A Claude credential is stored PER CONFIG DIR, and
+     an agent runs under its own CLAUDE_CONFIG_DIR. A real tester re-authenticated
+     his own Claude (the DEFAULT dir) and his agent -- on a DIFFERENT, suffixed
+     dir -- stayed 401, while Settings said "connected". Settings is honest but
+     per-ACCOUNT: it never says which AGENT is on which account, so nothing mapped
+     his agent to its dead dir. This route answers the per-AGENT question: is THIS
+     agent's own config-dir sign-in working, and if not, what fixes it.
+
+     🔑 ON-DEMAND ONLY, NEVER THE 5-SECOND BOARD TICK. `subscription.checkLive`
+     shells out to `claude auth status`, and subscription.js forbids that call in
+     the poll loop ("the cost the five-second poll would pay forever"). This is a
+     detail-view fetch, the same class as /api/agent/:name/skills above, so it
+     pays the subprocess once per deliberate look, not forever.
+
+     The agent's config dir comes from `accountForAgent` (the record the board
+     already uses), and the live check is scoped exactly as `accounts.listLive`
+     scopes it: the default account is checked with NO configDir (its ambient
+     CLAUDE_CONFIG_DIR would be the wrong one), a labelled dir by its path. */
+  const agentAccountStatus = pathname.match(/^\/api\/agent\/([^/]+)\/account-status$/);
+  if (agentAccountStatus && (req.method === 'GET' || req.method === 'HEAD')) {
+    const name = decodeSegment(agentAccountStatus[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    const known = (() => { try { return accounts.list(); } catch { return []; } })();
+    const account = accountForAgent(name, known);
+    /* 200 with ok:false, DELIBERATELY, and not the 404 the sibling /skills route
+       gives an unknown name. This route answers a "could we determine it" question
+       the way /api/whoami does (its own soft ok:false@200), not a "does the
+       resource exist" one: accountForAgent returns null when the agent has no
+       launch record, which is "we cannot tell", not "no such agent". Same
+       never-a-guessed-negative posture as checkLive below. */
+    if (!account) { sendJson(res, 200, { ok: false, because: 'we could not tell which account this agent runs on' }); return; }
+    const shape = { email: account.email, label: account.label, isDefault: account.isDefault === true };
+    subscription.checkLive(account.isDefault ? undefined : { configDir: account.dir })
+      .then((live) => {
+        /* Tri-state, never a guessed negative: a positive live confirmation is
+           the ONLY `connected: true`; a positively-confirmed dead sign-in is
+           `connected: false` and earns the remedy; anything we could not confirm
+           (unreachable, an unrecognised sign-in) is `connected: null` -- unknown,
+           not "not connected", the same asymmetry the account badge keeps. */
+        const connected = live.state === subscription.STATE.CONNECTED ? true
+          : (live.state === subscription.STATE.NONE ? false : null);
+        sendJson(res, 200, {
+          ok: true,
+          account: shape,
+          state: live.state,
+          connected,
+          because: live.because,
+          /* The remedy names THIS AGENT on purpose: re-authenticating the
+             operator's own Claude does not touch this agent's config dir, which
+             is the whole loop the tester was stuck in. */
+          remedy: connected === false ? 'Re-authenticate this agent: run /login in its own window.' : null,
+        });
+      })
+      .catch(() => sendJson(res, 200, {
+        ok: true, account: shape, state: subscription.STATE.UNKNOWN, connected: null,
+        because: 'we could not check this agent\'s sign-in just now', remedy: null,
+      }));
+    return;
+  }
+
   /* ── the working rules, consented (#539) ─────────────────────────────────
      GET answers the banner and the dialog (which sections are missing, the
      exact span a click would write, and the hash that click must present);
