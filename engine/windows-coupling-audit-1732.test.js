@@ -67,12 +67,27 @@ const REPO = path.join(__dirname, '..');
 const ENGINE = __dirname;
 const REF = 'docs/windows-source-coupling-1732.md';
 
-// --- the product source set: engine/*.js + top-level *.js, minus tests --------
+// --- the product source set --------------------------------------------------
+// SCOPE = the code that RUNS ON THE WINDOWS TARGET (the app a Windows agent
+// runs): engine/*.js + top-level *.js + bin/*.js, minus *.test.js.
+// tools/*.js is DELIBERATELY EXCLUDED: it is dev/CI/release tooling that runs on
+// the macOS fleet, never on a user's Windows box, so its POSIX assumptions (e.g.
+// process.env.HOME in insert-release-entry.js / check-block-delivery.js) are
+// correct for where it runs and are NOT in this class. Widen this set only to
+// code that ships to / executes on Windows.
 function productFiles() {
   const files = [];
-  for (const e of fs.readdirSync(ENGINE, { withFileTypes: true })) {
-    if (e.isFile() && e.name.endsWith('.js') && !e.name.endsWith('.test.js')) {
-      files.push(path.join('engine', e.name));
+  const dirScan = [
+    { dir: ENGINE, prefix: 'engine' },
+    { dir: path.join(REPO, 'bin'), prefix: 'bin' },
+  ];
+  for (const { dir, prefix } of dirScan) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      if (e.isFile() && e.name.endsWith('.js') && !e.name.endsWith('.test.js')) {
+        files.push(path.join(prefix, e.name));
+      }
     }
   }
   for (const e of fs.readdirSync(REPO, { withFileTypes: true })) {
@@ -83,9 +98,31 @@ function productFiles() {
   return files.sort();
 }
 
-// A source line, comments stripped. Returns '' for a line that is only a comment.
+// True for a line that is wholly a comment. Line-based heuristic, not a JS
+// parser (kept zero-dependency): it catches line comments, block-comment
+// openers, and JSDoc-style continuation lines (^\s*\*), which covers this
+// codebase's comment style and the current corpus. RESIDUAL, stated so a
+// reviewer need not rediscover it: a block-comment CONTINUATION line that does
+// NOT start with '*' (e.g. an indented emoji-led line inside a /* */ block)
+// survives, and conversely a code line that begins with '*' (an operator-led
+// continuation) would be wrongly stripped. Neither occurs in the current corpus
+// -- this codebase puts operators at line END, not line START -- so both are
+// theoretical; any surviving comment that produces a spurious candidate is
+// caught by classifying it in the INVENTORY.
 function isCommentLine(line) {
   return /^\s*\/\//.test(line) || /^\s*\*/.test(line) || /^\s*\/\*/.test(line);
+}
+
+// A file's source with wholly-comment lines removed -- used by the positive pins
+// so they assert on CODE, not on prose. Without this, a pin's match is satisfied
+// by an explanatory comment that merely NAMES the portable API, so it would pass
+// on a description of the code rather than the code (the
+// raw-source-match-cannot-tell-code-from-a-description-of-code trap).
+function codeText(rel) {
+  return fs.readFileSync(path.join(REPO, rel), 'utf8')
+    .split('\n')
+    .filter((l) => !isCommentLine(l))
+    .join('\n');
 }
 
 // --- the Windows-hostile candidate FAMILIES -----------------------------------
@@ -139,7 +176,7 @@ const INVENTORY = [
   { file: 'engine/unfurl.js',    contains: ".toLowerCase().split(';')[0].trim()",       disposition: 'benign-mime', why: 'content-type parse' },
   // --- benign non-path ':' (IPv6 hextets in the SSRF guard) ---
   { file: 'engine/unfurl.js',    contains: "hex.split(':').filter(Boolean)",            disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
-  { file: 'engine/unfurl.js',    contains: "low.split(':')",                            disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
+  { file: 'engine/unfurl.js',    contains: "const parts = low.split(':')",              disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
   // --- name sanitizer (already handles backslash) ---
   { file: 'engine/projects.js',  contains: ".split('/').join('-').split('\\\\').join('-').split(':').join('-')", disposition: 'sanitizer', why: 'name sanitizer; replaces / \\ : with -, Windows-aware' },
   { file: 'engine/projects.js',  contains: ".split('/').join('').split('\\\\').join('').split(':').join('')",    disposition: 'sanitizer', why: 'name sanitizer; strips / \\ :, Windows-aware' },
@@ -216,17 +253,21 @@ test('#1732: no stale INVENTORY entry (every classified site still exists)', () 
 // a regression, belt-and-suspenders with each site's own dedicated pin.
 // ============================================================================
 test('#1732 pin: engine/github.js splits the gh override on path.delimiter, not a literal', () => {
-  const src = fs.readFileSync(path.join(ENGINE, 'github.js'), 'utf8');
-  assert.match(src, /split\(path\.delimiter\)/,
+  // codeText, NOT the raw file: github.js JSDoc literally NAMES `.split(path.delimiter)`
+  // in a comment, so a raw match would pass on prose even if the code regressed.
+  const code = codeText('engine/github.js');
+  assert.match(code, /\.split\(path\.delimiter\)/,
     'engine/github.js must split AGENT_WORKFORCE_GH_CANDIDATES on path.delimiter (#1592). ' +
     `A hardcoded ':' breaks the Windows ';' override, invisible to every POSIX arm. See ${REF}.`);
-  assert.doesNotMatch(src, /override\.split\((['"])[:;]\1\)/,
-    'engine/github.js splits the gh candidates override on a hardcoded separator. Use path.delimiter (#1592).');
+  // Any hardcoded [:;] split/join in the CODE reds -- not anchored to `override.`,
+  // so a regression that renames the variable is still caught.
+  assert.doesNotMatch(code, /\.(?:split|join)\((['"])[:;]\1\)/,
+    'engine/github.js splits/joins on a hardcoded path separator. Use path.delimiter (#1592).');
 });
 
 test('#1732 pin: engine/store.js dataRootFor joins with the platform it was asked about', () => {
-  const src = fs.readFileSync(path.join(ENGINE, 'store.js'), 'utf8');
-  assert.match(src, /joinerFor\s*\(/,
+  const code = codeText('engine/store.js');
+  assert.match(code, /joinerFor\s*\(/,
     'engine/store.js must use joinerFor(platform) so dataRootFor joins with the platform it was ' +
     `ASKED ABOUT, not the ambient one (#1510). Otherwise the win32 branch answers with '/'. See ${REF}.`);
 });
