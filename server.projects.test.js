@@ -2704,3 +2704,43 @@ test('#1629: the project thread refuses to type at an agent on the trust dialog 
       assert.equal(calls.sends().length, 0, 'nothing was typed into the pane');
     });
 });
+
+test('#1629: when the fresh capture fails, the route does not hold, and deliver still refuses from the snapshot', async () => {
+  reset();
+  await withAgent(fleet.agent('zeta', { state: 'needs_you', screen: TRUST_DIALOG_SCREEN }),
+    [{ ran: true, spawnFailed: false, status: 1, out: '', err: "can't find pane" }, said(), said()],
+    async ({ calls }) => {
+      const typed = await post('/api/agent/zeta/thread', { text: 'yes' });
+      assert.equal(typed.status, 200, typed.body);
+      const body = json(typed);
+      assert.equal(body.delivery.state, 'could_not', 'the floor under every caller caught it');
+      assert.match(body.delivery.because, /No, exit/);
+      assert.equal(calls.sends().length, 0, 'nothing typed');
+    });
+});
+
+test('#1629: snapshot says trust dialog but the fresh screen has moved on: deliver still refuses, benignly, and types nothing', async () => {
+  reset();
+  // The route's fresh read passes (an ordinary idle screen), the snapshot the
+  // request holds still carries the dialog, and the floor refuses on it. The
+  // cost is one refused send the person retries a moment later; the other
+  // direction (typing at a dialog) is the one that ends a session.
+  await withAgent(fleet.agent('zeta', { state: 'needs_you', screen: TRUST_DIALOG_SCREEN }),
+    [said('Worked for 1m\n> \n'), said(), said()],
+    async ({ calls }) => {
+      const typed = await post('/api/agent/zeta/thread', { text: 'yes' });
+      assert.equal(typed.status, 200, typed.body);
+      assert.equal(json(typed).delivery.state, 'could_not');
+      assert.equal(calls.sends().length, 0);
+    });
+});
+
+test('#1629: control, the project thread still types at an agent asking an ordinary question', async () => {
+  reset();
+  const menu = 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n';
+  await withThread(fleet.agent('zeta', { state: 'needs_you', screen: menu }), [said(menu), said(), said()], async ({ project, calls }) => {
+    const res = await post(`/api/project/${project.id}/thread/zeta`, { text: 'yes, go ahead' });
+    assert.notEqual(res.status, 409, res.body);
+    assert.ok(calls.sends().length > 0, 'the answer was typed');
+  });
+});

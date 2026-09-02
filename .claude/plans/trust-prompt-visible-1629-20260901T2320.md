@@ -99,3 +99,22 @@ on this branch; the suite's new arms are red on main by construction.
 - Server arms added: the thread page shows the dialog and offers no buttons; the roster card
   carries the row and the default-answer reason; both routes refuse; an ordinary question is
   still answerable (control).
+
+## Challenge-loop iteration 4: a measurement I had skipped
+
+- **The raw capture, not a fixture.** On a real 60-row pane the dialog sits in rows 8 to 17
+  and tmux pads 43 blank rows under it; the shared 25-row tail was all blank and the shipped
+  classify read unknown. I had only ever fed classify a hand-made fixture. Fix: the trust
+  detector trims its own tail (trailing whitespace only) before taking 25 rows; the other
+  rules keep the untrimmed tail, with a control arm proving an answered question high in
+  scrollback does not become live.
+- **Reported needs_you plus the trust screen now uses the rule 3 shape**, `reported: false`,
+  because the page renders a reported sentence in quotes as the agent's own words and this
+  sentence is the screen's.
+- Comment corrections: evidence is written by several states and it is the needs_you pairing
+  plus the anchored question that disambiguates; the union marker has two readers in chat.js
+  (finder and menu parser); the "different question" is stated as the inference it is; the
+  deliver refusal sets paneState null like its neighbours. Card lookup deduplicated; the
+  project route filters on isNamedOurs like the agent route. Arms added: capture failure
+  falls through to the deliver floor; snapshot-vs-fresh disagreement refuses benignly;
+  project-route control.

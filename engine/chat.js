@@ -645,19 +645,23 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
    * line, the slash-command route, the auto-handoff sweep), and every one
    * ends with an Enter -- which on that dialog picks the default, "No, exit",
    * and ends the session. The card is the roster snapshot this request
-   * already holds, so this costs no capture: its `stateEvidence` is set only
-   * from the trust detector's question row, and only while the detector saw
-   * the dialog. A route that wants a fresher read makes its own capture
-   * (server.js `trustDialogHold`); this is the floor under all of them.
+   * already holds, so this costs no capture. `stateEvidence` is set by
+   * several states (a rate limit's line, a dead token's line, a working
+   * line); what makes this read unambiguous is the pair: the state is
+   * `needs_you` AND the evidence opens with the trust dialog's own question,
+   * which only that detector writes. A route that wants a fresher read makes
+   * its own capture (server.js `trustDialogHold`); this is the floor under
+   * all of them. `paneState: null`, like every other pre-send refusal here:
+   * nothing was verified at the pane, the snapshot was read.
    */
   if (allowed.card && allowed.card.state === status.STATE.NEEDS_YOU
       && status.isTrustDialogEvidence(allowed.card.stateEvidence)) {
     return {
       state: DELIVERY.COULD_NOT,
       because: 'it is stopped on Claude Code’s own question about whether to trust its folder, and typing '
-        + 'there would press Enter on the default, No, exit, and end its session; answer that question '
-        + 'in its terminal first',
-      at, paneState: allowed.card.state, paneNote: null,
+        + 'there would press Enter on the default answer, “No, exit”, and end its session; answer that '
+        + 'question in its terminal first',
+      at, paneState: null, paneNote: null,
     };
   }
 

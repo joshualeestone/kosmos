@@ -3818,7 +3818,9 @@ test('#1629: a REPORTED needs_you carries the screen\'s question row when the sc
   const scraped = classify(pane(), TRUST_DIALOG_LIVE);
   const got = reconcileReport(rep('needs_you', { because: 'may I merge?' }), scraped, T0 + 60_000);
   assert.equal(got.state, STATE.NEEDS_YOU);
-  assert.equal(got.reported, true);
+  // Rule 3 shape, not the report's: the screen leads, so `reported` is false
+  // and the report's words are the conflict (see the arm below this one).
+  assert.equal(got.reported, false);
   assert.match(got.evidence, /^Quick safety check/);
   // Control: a scraped needs_you WITHOUT evidence adds no evidence key.
   const plain = reconcileReport(rep('needs_you', { because: 'may I merge?' }), scr(STATE.NEEDS_YOU, CONFIDENCE.SCRAPED), T0 + 60_000);
@@ -3832,7 +3834,10 @@ test('#1629: when the report asked one thing and the screen asks the trust quest
   assert.match(got.because, /trust its folder/, 'the question in front of the person leads');
   assert.match(got.evidence, /^Quick safety check/);
   assert.match(got.conflict, /may I merge\?/, 'the report is surfaced, not dropped');
-  assert.equal(got.reported, true);
+  // Rule 3 shape: the page renders a reported sentence in quotes as the
+  // agent's own words, and this sentence is the screen's, not the agent's.
+  assert.equal(got.reported, false);
+  assert.equal(got.confidence, CONFIDENCE.SCRAPED);
   // The project the report named still rides on the state (#763).
   const withProject = reconcileReport(rep('needs_you', { because: 'may I merge?', project: 'p1' }), scraped, T0 + 60_000);
   assert.equal(withProject.project, 'p1');
@@ -3845,4 +3850,24 @@ test('#1629: isTrustDialogEvidence answers only for the detector\'s own question
   assert.equal(isTrustDialogEvidence(null), false);
   assert.equal(isTrustDialogEvidence(undefined), false);
   assert.equal(isTrustDialogEvidence('The pane said Quick safety check: and moved on'), false, 'not anchored, not it');
+});
+
+test('#1629: a RAW capture of a tall pane, padding and all, still reads needs_you', () => {
+  // MEASURED 2026-09-01 on a real 60-row pane (Claude Code 2.1.258): the dialog
+  // sat in rows 8 to 17 and `capture-pane` returned 43 blank rows under it,
+  // because tmux pads a capture to the pane height. The shared 25-row tail was
+  // entirely blank and the shipped classifier read `unknown`. This fixture is
+  // that shape, rebuilt from the observed dialog rows plus the padding; the
+  // detector trims its own tail, so the bottom-of-screen rule holds against
+  // the last REAL row.
+  const padded = TRUST_DIALOG_LIVE + '\n'.repeat(43);
+  assert.ok(padded.split('\n').length > 25, 'fixture: more padding than the tail is wide');
+  assert.equal(padded.split('\n').slice(-25).join('').trim(), '', 'fixture: the shared tail is all blank');
+  const r = classify(pane(), padded);
+  assert.equal(r.state, STATE.NEEDS_YOU);
+  assert.match(r.evidence, /^Quick safety check/);
+  // Control: the other rules keep their untrimmed tail. An answered question
+  // high in scrollback with padding under it must NOT become live.
+  const answered = 'Do you want to proceed?\n❯ 1. Yes\nYes\nWorked for 3m\n' + '\n'.repeat(43);
+  assert.notEqual(classify(pane(), answered).state, STATE.NEEDS_YOU, 'only the trust detector trims');
 });

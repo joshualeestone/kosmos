@@ -5631,9 +5631,7 @@ const server = http.createServer((req, res) => {
            *
            * The roster is already read, so this costs nothing.
            */
-          const card = Array.isArray(roster)
-            ? (roster.find((a) => a && a.sessionName === name && a.isNamedOurs === true) || null)
-            : null;
+          const card = askingCard;
           if (!card || card.state !== STATE.NEEDS_YOU) chose = null;
           const seen = chose ? seenNow : null;
           const asked = (seen && seen.text) ? chat.questionIn(seen.text) : null;
@@ -7600,7 +7598,9 @@ const server = http.createServer((req, res) => {
            the only thing between a typed reply and a dialog whose default
            answer ends the session. Same rule as the agent-thread route. */
         {
-          const card = Array.isArray(roster) ? (roster.find((a) => a && a.sessionName === name) || null) : null;
+          const card = Array.isArray(roster)
+            ? (roster.find((a) => a && a.sessionName === name && a.isNamedOurs === true) || null)
+            : null;
           const trustHeld = trustDialogHold(name, roster, card, null);
           if (trustHeld) throw trustHeld;
         }

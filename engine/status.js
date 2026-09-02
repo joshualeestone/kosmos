@@ -1514,13 +1514,15 @@ const TRUST_PROMPT_MARKER = /^[\s>│├└─*❯›]*Quick safety check:/;
  * classifiers keep using their own lists; this union exists so a question
  * on any runner's screen can be found and sliced for display.
  *
- * TRUST_PROMPT_MARKER is here for `questionIn` only: no classifier list holds
- * it, because `classify` reaches the trust dialog through `trustPrompt`, which
- * demands three rows where the finder needs one row to anchor a slice. That
- * asymmetry is safe because the finder runs only once `classify` has said
- * needs_you, and a live prompt is the bottom of the screen, so a pasted copy
- * of the dialog can only sit ABOVE the live question and the finder's
- * last-match rule still lands on the live one (tested in chat.test.js).
+ * TRUST_PROMPT_MARKER is here for chat.js's two readers of this union, the
+ * question finder (`questionIn`) and the menu parser's newer-question-below-
+ * the-run refusal (`optionsIn`): no classifier list holds it, because
+ * `classify` reaches the trust dialog through `trustPrompt`, which demands
+ * three rows where those readers need one row to anchor on. That asymmetry
+ * is safe because both run only once `classify` has said needs_you, and a
+ * live prompt is the bottom of the screen, so a pasted copy of the dialog can
+ * only sit ABOVE the live question and the finder's last-match rule still
+ * lands on the live one (tested in chat.test.js).
  */
 const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEEDS_YOU_MARKERS, TRUST_PROMPT_MARKER]);
 
@@ -1939,18 +1941,6 @@ function authFailed(tail) {
  * Evidence is the question row alone, trimmed and capped, on its way to a
  * screen: the same one-line rule the rate-limit and auth cases follow.
  */
-/**
- * Is this card's `evidence` (`stateEvidence` on the wire) the trust dialog's
- * question row? For callers that hold a ROSTER CARD and no capture, such as
- * `chat.deliver`, which must not type at an agent stopped on that dialog and
- * cannot afford a capture per send. Same anchor as the detector; the card's
- * evidence is only ever set from that detector's question row, so a match here
- * means "the last snapshot saw the dialog", no more and no less.
- */
-function isTrustDialogEvidence(evidence) {
-  return typeof evidence === 'string' && TRUST_PROMPT_QUESTION.test(evidence);
-}
-
 function trustPrompt(tail) {
   const rows = String(tail == null ? '' : tail)
     .split('\n')
@@ -1975,6 +1965,20 @@ function trustPrompt(tail) {
     return line.length > 240 ? line.slice(0, 240) + '…' : line;
   }
   return null;
+}
+
+/**
+ * Is this card's `evidence` (`stateEvidence` on the wire) the trust dialog's
+ * question row? For callers that hold a ROSTER CARD and no capture, such as
+ * `chat.deliver`, which must not type at an agent stopped on that dialog and
+ * cannot afford a capture per send. Same anchor as the detector. Evidence is
+ * written by several states (a rate limit's line, a dead token's line, a
+ * working line), so callers pair this with `state === needs_you`; within that
+ * state only `trustPrompt` writes evidence, and it writes the question row,
+ * so a match means "the last snapshot saw the dialog", no more and no less.
+ */
+function isTrustDialogEvidence(evidence) {
+  return typeof evidence === 'string' && TRUST_PROMPT_QUESTION.test(evidence);
 }
 
 /**
@@ -2211,7 +2215,20 @@ function classify(pane, paneText) {
    * about the dialog; the highlight is a fact about this moment, and the
    * question text `questionIn` shows carries the glyph for whoever looks.
    */
-  const trustLine = trustPrompt(tail);
+  /**
+   * 🛑 ITS OWN TAIL, WITH THE PANE'S PADDING REMOVED. MEASURED 2026-09-01 on a
+   * real 60-row pane: the raw `capture-pane` carried the dialog in rows 8 to
+   * 17 and 43 BLANK rows under it (tmux pads a capture to the pane height),
+   * so the shared 25-row `tail` above was entirely blank and this screen read
+   * `unknown`. The dialog is the one screen that sits at the TOP of a fresh
+   * pane, which is why no other detector has met this. Trimming the shared
+   * tail for everyone would pull older scrollback into the other rules'
+   * windows (an answered question higher up could then read as live), so
+   * only this detector trims, and only trailing whitespace: its own
+   * bottom-of-screen rule then still holds against the last real row.
+   */
+  const trustTail = paneText.replace(/\s+$/, '').split('\n').slice(-25).join('\n');
+  const trustLine = trustPrompt(trustTail);
   if (trustLine !== null) {
     return {
       state: STATE.NEEDS_YOU,
@@ -3989,14 +4006,18 @@ function reconcileReport(reported, scraped, nowMs) {
        state and its words; the screen's row rides along when it has one. */
     const project = { project: (typeof reported.project === 'string' && reported.project) ? reported.project : null, projectInferred: reported.projectInferred === true };
     if (scraped.state === STATE.NEEDS_YOU && scraped.evidence) {
-      /* The screen holds a DIFFERENT question from the one the agent last
-         reported (the report is prose from before; the screen is the trust
-         dialog now). The screen's reason and row lead, because that is the
-         question standing in front of the person and the one whose default
-         answer exits; the report's words are surfaced as the conflict rather
-         than dropped, the way every other disagreement here is. */
+      /* The screen carries a question row (today only the trust dialog sets
+         one) while the report is prose about a question. The inference, not
+         a measurement: a report never mentions that dialog, because an agent
+         cannot report from inside it, so the two are different questions.
+         The screen's reason and row lead, since that is the question standing
+         in front of the person and the one whose default answer exits. Rule 3
+         shape: `reported: false`, so the page does not render the screen's
+         sentence in quotes as words the agent said itself, and the report's
+         words are the conflict rather than dropped. The project the report
+         named still rides along (#763). */
       const asked = reported.because ? ' Its last report asked: ' + reported.because : '';
-      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: scraped.because, evidence: scraped.evidence, reported: true, conflict: 'its screen shows a question its last report did not mention.' + asked, ...project };
+      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: scraped.because, evidence: scraped.evidence, reported: false, conflict: 'its screen shows a question its last report did not mention.' + asked, ...project };
     }
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said('it is asking you something'), reported: true, conflict: null, ...project };
   }
