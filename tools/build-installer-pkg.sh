@@ -74,11 +74,20 @@ pkgbuild --nopayload \
   --scripts "$SCRIPTS" \
   "$BUILD/component.pkg"
 
-echo "==> distribution.xml (Welcome + Conclusion UI)"
+echo "==> distribution.xml (Welcome + Conclusion UI + bottom-left app logo)"
+# The Kosmos app logo in the Installer's left column, bottom-left, like Tailscale
+# (#1879, Josh's ask). alignment=bottomleft + scaling=none means the PNG is drawn
+# at its own size in the corner; the margin is baked INTO the art, so this places
+# it without stretching. Both a light AND a darkAqua image are named on purpose:
+# with only <background/>, a dark-mode install shows NO logo at all. Both PNGs live
+# in install/pkg-resources/ (passed to productbuild via --resources), so they are
+# part of the pkg input hash and a cut rebuilds the pkg when they change.
 cat > "$BUILD/distribution.xml" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="1">
   <title>Kosmos</title>
+  <background file="background.png" alignment="bottomleft" scaling="none" mime-type="image/png"/>
+  <background-darkAqua file="background-darkAqua.png" alignment="bottomleft" scaling="none" mime-type="image/png"/>
   <welcome file="welcome.html" mime-type="text/html"/>
   <conclusion file="conclusion.html" mime-type="text/html"/>
   <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
