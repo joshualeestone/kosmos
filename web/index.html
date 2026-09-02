@@ -11220,15 +11220,18 @@ function esc(s) {
    something. When nobody said, or a person did, it is the standing wording:
    for a hand edit nobody knows who, and the marker must never guess. One
    function, two callers, so the card and the page cannot disagree. */
+/* #1841: `pageTail` is gone. It fed renderStale's header banner, which no longer
+   calls staleWords (it renders its own neutral copy now); the only remaining
+   consumer is staleBadge (the card tooltip), which reads title/lead/tail. A field
+   nothing reads is worse than no field, so it went with the caller that used it. */
 function staleWords(s) {
   const by = s && s.wroteBy;
   if (by && by.who === 'kosmos' && by.because) {
     return { title: `${by.because}. It is still running on what it read at boot.`,
-      lead: `${esc(by.because)}.`, tail: 'Restart it so it knows.', pageTail: 'Restart it so it knows.' };
+      lead: `${esc(by.because)}.`, tail: 'Restart it so it knows.' };
   }
   return { title: 'Its instructions were edited after it started. Only a restart re-reads them.',
-    lead: 'Running on older instructions.', tail: 'Only a restart re-reads them.',
-    pageTail: 'A restart is what picks up the edits.' };
+    lead: 'Running on older instructions.', tail: 'Only a restart re-reads them.' };
 }
 function staleBadge(a) {
   const s = a.instructions;

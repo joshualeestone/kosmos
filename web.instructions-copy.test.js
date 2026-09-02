@@ -70,9 +70,11 @@ test('the stale sentence names the edits rather than pointing at nothing (#212)'
      THOSE is the opposite of what a restart does. */
   assert.ok(!/applies them/.test(stale), 'the pronoun with the wrong antecedent came back');
   /* staleWords still supplies the CARD badge's tooltip (#323), which keeps
-     naming what a restart picks up and its standing heading. */
-  assert.match(stale, /A restart is what picks up the edits/,
-    'the sentence no longer names what a restart picks up');
+     naming what a restart does and its standing heading. #1841 removed the dead
+     `pageTail` ("A restart is what picks up the edits"), so the live card tail is
+     asserted instead -- it names what a restart does for the same #212 reason. */
+  assert.match(stale, /Only a restart re-reads them/,
+    'the card badge sentence no longer names what a restart does');
   assert.match(stale, /Running on older instructions/, 'the heading the sentence stands under is gone');
   /* ⚠️ IT HAS TO STAND ALONE. #1841 (Josh, 2026-09-02) removed the "Edited X,
      running since Y" clause from the header restart card entirely, so the
