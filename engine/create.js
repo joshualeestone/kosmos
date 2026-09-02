@@ -2009,12 +2009,29 @@ async function accountConnectable({ provider, accountDir } = {}) {
   const subscription = require('./subscription');
   const NONE = subscription.STATE.NONE;
   const dir = (accountDir !== undefined && accountDir !== null && String(accountDir) !== '') ? String(accountDir) : null;
+  /* Absent provider means anthropic (createAgentInner's own default). Anything
+     that is neither a known provider is NOT ours to refuse here: createAgentInner
+     answers it with REFUSE_PROVIDER ("pick a provider from the list"), and
+     routing a bogus provider into the Claude arm below would surface a Claude
+     sign-in error for what is really a provider mistake. */
+  const prov = (provider !== undefined && provider !== null && String(provider) !== '') ? String(provider) : 'anthropic';
+  if (prov !== 'anthropic' && prov !== 'openai') return { ok: true };
 
-  if (provider === 'openai') {
+  if (prov === 'openai') {
     const openai = require('./openaiaccounts');
     let list; try { list = openai.list(); } catch { return { ok: true }; }
     const acct = dir ? list.find((a) => a.dir === path.resolve(dir)) : list.find((a) => a.isDefault);
     if (!acct) return { ok: true }; // unknown -> createAgentInner refuses
+    /* 🛑 THE ONE HOME THE GATE AND THE AGENT WOULD DISAGREE ABOUT. A created
+       OpenAI-DEFAULT agent gets configDir=null and its launchd job does NOT
+       inherit the server's CODEX_HOME override (createAgentInner's own note), so
+       it runs on the real ~/.codex -- while openaiaccounts.list()'s default row
+       honors that override. createAgentInner guards exactly this with
+       codexHomeOverridden(); rather than second-guess which home the agent lands
+       on, fail open here so the gate never REFUSES a create over a home the agent
+       will not use. A labelled account carries an explicit dir and has no such
+       ambiguity. */
+    if (acct.isDefault && codexHomeOverridden()) return { ok: true };
     let live; try { live = await openai.checkLive(acct.dir); } catch { return { ok: true }; }
     if (live && live.state === NONE) {
       return { ok: false, because: `${acct.email || (acct.keyTail ? 'the OpenAI account ending ' + acct.keyTail : 'that OpenAI account')}'s sign-in is not working, so an agent created on it could not run. Add or re-enter its key on the Accounts screen first.` };

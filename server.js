@@ -2547,10 +2547,17 @@ const server = http.createServer((req, res) => {
            ONLY a confirmed-dead account, and proceeds on connected, unconfirmable,
            OR unresolvable (createAgentInner keeps ownership of the unknown-account
            refusal). Placed before the home seed so a refusal needs no rollback. */
-        try {
-          const liveness = await create.accountConnectable({ provider: body.provider, accountDir: body.account });
-          if (!liveness.ok) { sendJson(res, 400, { error: liveness.because }); return; }
-        } catch { /* the check itself failing is not a reason to block a create */ }
+        /* Only pay the live-check (a `claude auth status` subprocess, up to a few
+           seconds) once the name is well-formed. Otherwise a malformed create on a
+           dead account would pay the subprocess and surface "sign-in is not
+           working", masking the real input error createAgentInner would give. A
+           bad name here just skips the check; createAgentInner refuses it below. */
+        if (!create.nameProblem(body.name)) {
+          try {
+            const liveness = await create.accountConnectable({ provider: body.provider, accountDir: body.account });
+            if (!liveness.ok) { sendJson(res, 400, { error: liveness.because }); return; }
+          } catch { /* the check itself failing is not a reason to block a create */ }
+        }
 
         /* 🔑 THE FIRST AGENT BRINGS ITS OWN HOME (#166), MADE BEFORE THE AGENT
            IS (#732). It used to be created AFTER createAgent returned, i.e.

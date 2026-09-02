@@ -68,8 +68,15 @@ test('#1903: POST /api/agents REFUSES a create on a dead-sign-in account, names 
     assert.equal(r.status, 400, 'a create on a dead account was not refused: ' + JSON.stringify(r.json));
     assert.match(r.json.error || '', /sign-in is not working/);
     assert.match(r.json.error || '', /Re-authenticate/);
-    // And nothing was written: no launchd job for the refused name.
-    assert.ok(!fs.existsSync(create.plistPath('deadborn')), 'a dead-account create still wrote a launch file');
+    /* 🔑 AND createAgent WAS NEVER REACHED. `create.plistPath` existence is
+       vacuous here (DRY_RUN writes no plist either way), so this keys on the
+       birth log instead: createAgent records a birth for EVERY create it runs
+       (success or its own refusal), even under DRY_RUN, so the absence of a
+       'deadborn' birth proves the route returned before createAgent. If the gate
+       were removed, the create would proceed, recordBirth would fire, and this
+       assertion would fail. */
+    assert.ok(!create.createdLog().some((e) => e.name === 'deadborn'),
+      'the refused create still reached createAgent (a birth was recorded for it)');
   } finally { subscription.setRunner(null); }
 });
 
@@ -81,5 +88,11 @@ test('#1903 CONTROL: a create on a CONNECTED account is not blocked by the gate'
     // must NOT be the liveness refusal -- the gate let a live account through.
     assert.doesNotMatch((r.json && r.json.error) || '', /sign-in is not working/,
       'a CONNECTED account was refused by the liveness gate: ' + JSON.stringify(r.json));
+    /* And it actually reached createAgent -- a birth was recorded for 'liveborn'.
+       This is the positive control for the refuse test's absence assertion: it
+       proves recordBirth fires for a passed gate, so the missing 'deadborn' birth
+       there means something. */
+    assert.ok(create.createdLog().some((e) => e.name === 'liveborn'),
+      'a connected-account create did not reach createAgent: ' + JSON.stringify(r.json));
   } finally { subscription.setRunner(null); }
 });
