@@ -232,6 +232,13 @@ pkill -f "$FAKE/runtime/bin/node" 2>/dev/null || true; pkill -f "KOSMOS_HOME=$FA
 #     `sleep N; kill`: on success the sleep was orphaned for the rest of N, and on a
 #     non-zero exit `wait` aborted the subshell under set -e before the watchdog was
 #     killed. A distinctive N makes the leftover findable on a shared box.
+#     ⚠️ TWO CHECKS, ONE LIVE AND ONE LATENT, said so plainly because a check that
+#     cannot fail is worse than none: `leftsh` is the LIVE no-leak coverage of the
+#     CURRENT poll watchdog (it sleeps 1s regardless of N and can leave a helper
+#     subshell). `left` (a `sleep 37`) is a LATENT regression guard: the current
+#     watchdog never spawns `sleep N`, so this half cannot fail against the code as
+#     written -- it only fires if someone reintroduces the old `sleep $_kdr_secs; kill`.
+#     It is kept for that regression, not counted as coverage of the present code.
 cp "$(dirname "$SETUP")/../engine/store.js" "$FAKE/app/engine/store.js"
 run "KOSMOS_HOME=$FAKE; export AGENT_WORKFORCE_DATA=/tmp/sbx-1511; KOSMOS_DATA_ROOT_CONSULT_SECONDS=37" >/dev/null
 printf '%s\n' "module.exports = {};" > "$FAKE/app/engine/store.js"
