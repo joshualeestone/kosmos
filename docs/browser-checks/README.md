@@ -140,6 +140,7 @@ one invented by somebody who did not write them.
 | `render-detail-header-1841.js` | The view-agent-detail header redesign (#1841): the working-rules prompt moved onto the Instructions tab for both doctrine cases (red tab dot, "Add Instructions & Restart"), the hand-edited stale case redesigned as the header restart card ("[name] needs to be restarted" + [Restart], never "it"), the duplicate lower status suppressed when reported, and the role bolded in the meta line. Drives the real painters and asserts the real DOM. |
 | `render-made-before.js` | The never-recorded state, on a screen (#149/#150, 2026-08-23). |
 | `render-busy-line.js` | The "<name> is working…" line, rendered |
+| `render-reauth-reach-1918.js` | kosmos#1918: the agent page's "Sign in again" button (auth_failed) actually REACHES the re-auth surface. Clicks it and asserts the settings PANEL becomes visible and the detail panel hides, the browser-only check a jsdom test (which stubs showTab) cannot make. Red against the iteration-1 dead control that called settingsGo without showTab. |
 | `render-room-scroll.js` | The project room keeps a reader on the floor when the composer resizes it (#1037) |
 | `render-alltasks.js` | Every task across every project, and the heading's number equals the rows on the screen (#1382). |
 | `render-composer-reset.js` | The composer goes back to one line after a send, measured as a rendered height (#1303 C). |
