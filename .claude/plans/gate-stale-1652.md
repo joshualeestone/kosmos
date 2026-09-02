@@ -27,7 +27,7 @@ red).
   breaks. **Perturbed:** renamed the import radio's `name` -> count check red. ✅
 
 ### click-first-run (#1652)
-- **Was:** line 303 asserts exactly 3 `#roles-list .pick2:visible`.
+- **Was:** asserts exactly 3 `#roles-list .pick2:visible` (line 305 after this branch's added comment).
 - **Why stale:** same #1652 4th `.pick2` (pick-import).
 - **Fix:** `=== 4` (exact).
 - **Still reds when:** the role list fails to load or is short (count != 4).
