@@ -83,20 +83,14 @@ jobs:
       # no-server path the test's own comment documents as null.
       - name: install tmux (#1794)
         run: brew install tmux
-      # PIN THE NODE, because the suite's output format is node-version-dependent
-      # and nothing else here declares a version. #1462 was that dependency biting
-      # on kosmos-relay: the runner's node emitted TAP where a developer Mac emitted
-      # the spec form, a guard counting the spec prefix read zero, and a green suite
-      # failed. Pinned to the 22 major line (the fleet's proven CI node, matching
-      # kosmos-relay), verified green here: the suite passes on node 22 by exit code
-      # even though 22 emits TAP.
+      # PIN THE NODE. Nothing else here declares a version at all (fixed by the
+      # .nvmrc and the engines field this branch adds), and the version is not
+      # cosmetic. A related repo (#1462, kosmos-relay) was bitten by an OUTPUT
+      # FORMAT difference (a spec-prefix guard reading zero on the runner's node);
+      # run-tests.sh sidesteps that by gating on the EXIT CODE, not the reporter
+      # text. The pin below is about a WORSE, non-format difference #1794 found.
       #
-      # ⚠️ A KNOWN GAP TO KEEP LEGIBLE: developer Macs now run node 26 (spec format),
-      # so dev and CI are a major line apart again. The suite tolerates it today
-      # because run-tests.sh reads the EXIT CODE, not the format -- but if you ever
-      # add a guard that counts the spec prefix, verify it on BOTH 22 and 26, or it
-      # will pass on a Mac and read zero here. Pin CI to match dev if that trade changes.
-      # #1794: node 26, NOT 22. This repo's suite is written and run on node 26
+      # #1794: node 26. This repo's suite is written and run on node 26
       # (the developer Macs), and node 22 breaks it: engine/live-execution's
       # inTestProcess() keys on `process.execArgv` containing `--test`, and node
       # 22's test runner runs each file in a child whose execArgv drops it, so
