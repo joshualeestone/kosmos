@@ -18,12 +18,14 @@ const { verifyFiles, fetchManifest, selfCheck } = require('./selfcheck');
 
 const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
-// Build a throwaway "installed bundle" mirroring the real layout (bin app runtime VERSION),
-// and a manifest.files[] over it with correct shas. Returns { root, files, cleanup }.
-function fakeInstall() {
+// Build a throwaway "installed bundle" mirroring the real layout (bin app runtime VERSION
+// plus app/package.json, which is where the installed version is read from), and a
+// manifest.files[] over it with correct shas. Returns { root, files, cleanup }.
+function fakeInstall(version = '0.6.22') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-selfcheck-'));
   const entries = {
-    'VERSION': Buffer.from('0.6.22\n'),
+    'VERSION': Buffer.from(version + '\n'),
+    'app/package.json': Buffer.from(JSON.stringify({ name: 'kosmos', version }) + '\n'),
     'app/server.js': Buffer.from('console.log("board");\n'),
     'runtime/bin/node': Buffer.from('\x7fELF fake node binary\n'),
     'bin/kosmos': Buffer.from('#!/bin/sh\nexec node app/server.js\n'),
@@ -124,19 +126,65 @@ test('selfCheck wires the pointer, manifest and installed root end-to-end (and i
   try {
     const manifest = { manifest: 1, version: '0.6.22', files };
     const served = {
-      'https://x/dist/latest.json': { version: '0.6.22', manifest: 'm.json' },
-      'https://x/dist/m.json': manifest,
+      'https://x/dist/latest.json': { version: '0.6.22', manifest: 'kosmos-0.6.22-arm64.manifest.json' },
+      'https://x/dist/kosmos-0.6.22-arm64.manifest.json': manifest,
     };
     const doFetch = async (url) => ({ ok: url in served, json: async () => served[url] });
 
     const ok = await selfCheck({ base: 'https://x/dist', root, doFetch });
     assert.equal(ok.ok, true, 'end-to-end clean bundle verifies');
+    assert.equal(ok.behind, false, 'a current install is not behind');
 
     // Same control at the top level: corrupt a byte, the whole pipeline must fail.
-    const victim = path.join(root, 'VERSION');
+    const victim = path.join(root, 'app/server.js');
     const b = fs.readFileSync(victim); b[0] ^= 0x01; fs.writeFileSync(victim, b);
     const bad = await selfCheck({ base: 'https://x/dist', root, doFetch });
     assert.equal(bad.ok, false, 'a corrupted install must fail selfCheck end-to-end');
-    assert.equal(bad.mismatches[0].path, 'VERSION');
+    assert.equal(bad.mismatches[0].path, 'app/server.js');
+  } finally { cleanup(); }
+});
+
+test('selfCheck verifies a BEHIND machine against ITS version, not the latest (no false failure)', async () => {
+  const behind = fakeInstall('0.6.20'); // installed one release back
+  try {
+    const behindManifest = { manifest: 1, version: '0.6.20', files: behind.files };
+    const served = {
+      'https://x/dist/latest.json': { version: '0.6.22', manifest: 'kosmos-0.6.22-arm64.manifest.json' },
+      // the machine's OWN version manifest, describing the bytes it actually has:
+      'https://x/dist/kosmos-0.6.20-arm64.manifest.json': behindManifest,
+      // the LATEST manifest describes DIFFERENT bytes -- if selfCheck used it (the bug this
+      // arm pins), every file would mismatch. A wrong VERSION sha makes that visible.
+      'https://x/dist/kosmos-0.6.22-arm64.manifest.json': { manifest: 1, version: '0.6.22', files: [{ path: 'VERSION', sha256: 'deadbeef' }] },
+    };
+    const doFetch = async (url) => ({ ok: url in served, json: async () => served[url] });
+    const r = await selfCheck({ base: 'https://x/dist', root: behind.root, doFetch });
+    assert.equal(r.ok, true, 'a healthy behind-machine must verify against its own version, not read as corrupt');
+    assert.equal(r.installedVersion, '0.6.20');
+    assert.equal(r.latestVersion, '0.6.22');
+    assert.equal(r.behind, true, 'being behind is reported as a distinct state, not a mismatch');
+  } finally { behind.cleanup(); }
+});
+
+test('a file literally named "..foo" at the root is verified, not refused as escaping (NIT fix)', async () => {
+  const { root, files, cleanup } = fakeInstall();
+  try {
+    const buf = Buffer.from('a dotdot-prefixed filename, inside root\n');
+    fs.writeFileSync(path.join(root, '..foo'), buf);
+    const withDotDot = [...files, { path: '..foo', sha256: sha(buf) }];
+    const r = await verifyFiles(root, withDotDot);
+    assert.deepEqual(r.bad, [], '..foo is a file inside root, not a "../" escape');
+    assert.equal(r.ok, true);
+  } finally { cleanup(); }
+});
+
+test('a manifest entry pointing at a directory is reported as bad (unreadable), not missing (NIT fix)', async () => {
+  const { root, files, cleanup } = fakeInstall();
+  try {
+    fs.mkdirSync(path.join(root, 'adir'));
+    const withDir = [...files, { path: 'adir', sha256: 'whatever' }];
+    const r = await verifyFiles(root, withDir);
+    assert.equal(r.missing.length, 0, 'a present-but-unreadable path is not "missing"');
+    assert.equal(r.bad.length, 1, 'a directory cannot be hashed as a file');
+    assert.equal(r.bad[0].path, 'adir');
   } finally { cleanup(); }
 });

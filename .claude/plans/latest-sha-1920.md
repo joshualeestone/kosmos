@@ -40,8 +40,11 @@ genuine deploy gap surfaces instead of hiding.
      An empty `files[]` is NOT a pass (the vacuous-pass this card is about).
    - `fetchManifest({base, doFetch})`: fetch `latest.json`, follow its `manifest` pointer,
      fetch the manifest — throwing loudly if either is unreadable.
-   - `selfCheck({base, root, doFetch})`: wire pointer → manifest → installed root; returns
-     `{ok:false, reason}` for a from-source checkout (nothing to verify).
+   - `selfCheck({base, root, doFetch})`: reads the INSTALLED version (`app/package.json`) and
+     verifies against the manifest for THAT version (versioned name), not the newest — a
+     machine one release behind matches what IT received instead of mismatching every file;
+     `behind` reports the merely-behind state distinctly. Returns `{ok:false, reason}` for a
+     from-source checkout or an unreadable installed version.
    - A CLI (`require.main`) so a person or cron can run `node engine/selfcheck.js` and get a
      non-zero exit on any mismatch. A verifier nobody can invoke is not a verifier.
 3. **Tests**:

@@ -45,7 +45,10 @@ function hashFile(abs) {
 // verification failure rather than following it.
 function escapesRoot(root, p) {
   const rel = path.relative(root, path.resolve(root, p));
-  return rel === '' || rel.startsWith('..') || path.isAbsolute(rel);
+  // `rel === '..'` or a `..<sep>` prefix means the path climbed out of root; an absolute
+  // rel (Windows drive change) escapes too. Match the separator so a legitimate file
+  // literally named `..foo` at the root is NOT rejected.
+  return rel === '' || rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel);
 }
 
 /**
@@ -78,8 +81,11 @@ async function verifyFiles(root, files) {
     let actual;
     try {
       actual = await hashFile(path.resolve(root, f.path));
-    } catch (_e) {
-      missing.push({ path: f.path, expected: f.sha256 });
+    } catch (e) {
+      // ENOENT is a genuinely absent file; anything else (EACCES, EISDIR) is present but
+      // unreadable -- a distinct cause, reported as `bad` rather than mislabelled missing.
+      if (e && e.code === 'ENOENT') missing.push({ path: f.path, expected: f.sha256 });
+      else bad.push({ path: f.path, reason: 'unreadable (' + ((e && e.code) || (e && e.message) || 'error') + ')' });
       continue;
     }
     checked += 1;
@@ -89,40 +95,94 @@ async function verifyFiles(root, files) {
   return { ok, checked, mismatches, missing, bad };
 }
 
-// Fetch the published manifest via the latest.json `manifest` pointer. A self-check that
-// cannot obtain the manifest must fail LOUDLY (throw), never resolve to a vacuous pass.
-async function fetchManifest({ base = DEFAULT_BASE, doFetch } = {}) {
+// The installed version, read from the bundle's own app/package.json -- the same source
+// setup.sh and update.js treat as authoritative. Returns null if it cannot be read.
+function installedVersion(root) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(root, 'app', 'package.json'), 'utf8')).version || null;
+  } catch (_e) { return null; }
+}
+
+// The manifest is versioned (kosmos-<v>-<arch>.manifest.json). Derive the name for a
+// specific version, keeping the arch the published pointer uses (defaulting to arm64, the
+// only arch released today).
+function manifestNameFor(version, latestManifestName) {
+  const m = /^kosmos-.+-([^-]+)\.manifest\.json$/.exec(latestManifestName || '');
+  const arch = m ? m[1] : 'arm64';
+  return `kosmos-${version}-${arch}.manifest.json`;
+}
+
+async function fetchJson(f, url) {
+  const res = await f(url, { cache: 'no-store' });
+  return res && res.ok ? await res.json().catch(() => null) : null;
+}
+
+// Fetch latest.json; throw if it carries no manifest pointer (a pre-#1920 release, or the
+// field was dropped). Failing loudly here is deliberate: an unreachable/absent pointer must
+// never resolve to a vacuous pass.
+async function fetchLatestJson({ base = DEFAULT_BASE, doFetch } = {}) {
   const f = doFetch || (typeof fetch === 'function' ? fetch : null);
-  if (!f) throw new Error('no fetch available to retrieve the manifest');
-  const ljRes = await f(`${base}/latest.json`, { cache: 'no-store' });
-  const lj = ljRes && ljRes.ok ? await ljRes.json().catch(() => null) : null;
+  if (!f) throw new Error('no fetch available to retrieve latest.json');
+  const lj = await fetchJson(f, `${base}/latest.json`);
   if (!lj || typeof lj.manifest !== 'string' || lj.manifest === '') {
     throw new Error('latest.json has no manifest pointer (a pre-#1920 release, or the field was dropped)');
   }
-  const manRes = await f(`${base}/${lj.manifest}`, { cache: 'no-store' });
-  const man = manRes && manRes.ok ? await manRes.json().catch(() => null) : null;
+  return { latest: lj, fetch: f };
+}
+
+// Fetch a manifest by name; throw if unreachable/unparseable. An unreachable manifest must
+// NEVER read as a passing self-check -- that false absence is the mistake that made this card.
+async function fetchManifestNamed({ base = DEFAULT_BASE, name, doFetch } = {}) {
+  const f = doFetch || (typeof fetch === 'function' ? fetch : null);
+  if (!f) throw new Error('no fetch available to retrieve the manifest');
+  const man = await fetchJson(f, `${base}/${name}`);
   if (!man || !Array.isArray(man.files)) {
-    throw new Error(`manifest ${lj.manifest} is unreadable or has no files[] to verify against`);
+    throw new Error(`manifest ${name} is unreachable or has no files[] to verify against`);
   }
-  return { manifest: man, latest: lj };
+  return man;
+}
+
+// Back-compat helper: fetch the LATEST published manifest via the latest.json pointer.
+// (selfCheck deliberately does NOT use this -- it verifies the installed version, below.)
+async function fetchManifest({ base = DEFAULT_BASE, doFetch } = {}) {
+  const { latest, fetch: f } = await fetchLatestJson({ base, doFetch });
+  const manifest = await fetchManifestNamed({ base, name: latest.manifest, doFetch: f });
+  return { manifest, latest };
 }
 
 /**
  * selfCheck({ base, root, doFetch }) -> verifyFiles result + context.
- * Fetches the published manifest and verifies the installed bundle against it. Returns
- * { ok:false, reason } when this is a from-source checkout (no installed bundle to check).
+ * Verifies the installed bundle against the manifest for the version IT is running (NOT the
+ * newest), so a machine one release behind -- the normal pre-update window, and the exact
+ * "cannot update, want to self-check" case -- matches what IT received instead of
+ * mismatching every file. `behind` reports the merely-behind state distinctly. Returns
+ * { ok:false, reason } for a from-source checkout or when the installed version is unreadable.
  */
 async function selfCheck({ base = DEFAULT_BASE, root, doFetch } = {}) {
   const installed = root || installedRoot();
   if (!installed) {
     return { ok: false, reason: 'not an installed bundle (running from source) -- nothing to self-check' };
   }
-  const { manifest, latest } = await fetchManifest({ base, doFetch });
+  const iv = installedVersion(installed);
+  if (!iv) {
+    return { ok: false, reason: `could not read the installed version from ${installed}/app/package.json` };
+  }
+  const { latest } = await fetchLatestJson({ base, doFetch });
+  const name = manifestNameFor(iv, latest.manifest);
+  const manifest = await fetchManifestNamed({ base, name, doFetch });
+  // Cross-check: the manifest we fetched must be FOR the installed version, or the name
+  // derivation/serving is wrong and a pass would be meaningless.
+  if (manifest.version && manifest.version !== iv) {
+    throw new Error(`manifest ${name} is for ${manifest.version}, not the installed ${iv}`);
+  }
   const res = await verifyFiles(installed, manifest.files);
-  return { ...res, root: installed, manifestVersion: manifest.version, publishedVersion: latest.version };
+  return { ...res, root: installed, installedVersion: iv, latestVersion: latest.version, behind: iv !== latest.version };
 }
 
-module.exports = { verifyFiles, fetchManifest, selfCheck, hashFile, DEFAULT_BASE };
+module.exports = {
+  verifyFiles, fetchManifest, fetchManifestNamed, fetchLatestJson,
+  selfCheck, hashFile, installedVersion, manifestNameFor, DEFAULT_BASE,
+};
 
 // CLI: `node engine/selfcheck.js` verifies this installed machine against the published
 // manifest and exits non-zero on any mismatch/missing file, so a person or a cron can run
