@@ -5713,9 +5713,15 @@ const server = http.createServer((req, res) => {
      * claim is only that nothing below re-reads the ROSTER.
      */
     const roster = safeRoster();
-    const card = Array.isArray(roster)
-      ? (roster.find((a) => a && a.sessionName === name && a.isNamedOurs === true) || null)
-      : null;
+    // #989: resolve case-tolerantly via chat.resolveCard (the SAME case-fold the
+    // send uses), so a mis-cased name that now reaches the agent also drives this
+    // route's presence/question display -- a bare `sessionName === name` would
+    // exact-miss it and show presence with no question. Case-fold, NOT the safeKey
+    // gate, so the send stays stricter on strip; isNamedOurs preserved.
+    const card = (() => {
+      const rc = chat.resolveCard(roster, name);
+      return rc && rc.isNamedOurs === true ? rc : null;
+    })();
 
     /**
      * ⚠️ TWO HISTORY CHANNELS, NOT THREE. `historyOther` has no meaning here:
@@ -5924,9 +5930,16 @@ const server = http.createServer((req, res) => {
         /* ONE capture per send, shared with the button block below: the tests
            feed the tmux seam one answer per call, and a second capture here
            shifted every button arm's sequence. */
-        const askingCard = Array.isArray(roster)
-          ? (roster.find((a) => a && a.sessionName === name && a.isNamedOurs === true) || null)
-          : null;
+        // #989: case-tolerant (chat.resolveCard, same case-fold as the send), so a
+        // mis-cased name that now reaches the agent ALSO gets this route's fresh
+        // trust-dialog hold -- a bare match would exact-miss it, leave asking=false,
+        // skip the capture, and a typed reply's Enter could pick "No, exit" on the
+        // very first-run trust prompt this card is about. Case-fold not safeKey;
+        // isNamedOurs preserved.
+        const askingCard = (() => {
+          const rc = chat.resolveCard(roster, name);
+          return rc && rc.isNamedOurs === true ? rc : null;
+        })();
         const seenNow = (askingCard && askingCard.state === STATE.NEEDS_YOU) ? chat.viewport(name, roster) : null;
         {
           const trustHeld = trustDialogHold(askingCard, seenNow, () => chat.viewport(name, roster));

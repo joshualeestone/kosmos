@@ -475,7 +475,9 @@ function resolveCard(roster, key) {
   // projects.tellAgent, remove). Case is the only difference #989 reported, and
   // lowercasing closes exactly that and nothing more. isNamedOurs preference
   // matches claimantFor so a stranger's like-cased pane never wins over ours.
-  const want = key.toLowerCase();
+  // Guard the key too, not just the roster: this is now a public export the test
+  // suite calls directly, and a non-string/null key would throw on .toLowerCase().
+  const want = String(key == null ? '' : key).toLowerCase();
   const same = roster.filter((a) => a && typeof a.sessionName === 'string'
     && a.sessionName.toLowerCase() === want);
   if (!same.length) return null;

@@ -7,13 +7,23 @@
  * the session -- addressable() did a BARE case-sensitive `sessionName === key`
  * and refused "by exactly this name", while the route gate (claimantFor) had
  * ALREADY admitted the same name via store.safeKey. Two derivations of one fact
- * disagreeing. The fix is chat.resolveCard: exact-first, then store.safeKey,
- * preferring the isNamedOurs card -- the same algorithm claimantFor uses, now
- * shared, so addressable/viewport and the route gate agree.
+ * disagreeing. The fix is chat.resolveCard: exact-first, then CASE-FOLD
+ * (a.sessionName.toLowerCase() === key.toLowerCase()), preferring the isNamedOurs
+ * card. addressable/viewport use it so the send agrees with the gate ON CASE.
  *
- * These arms are perturbation-proven: a revert of addressable() to the bare
- * `roster.find(a => a.sessionName === key)` reds "the fix: a mixed-case name
- * reaches the agent" (Casey -> refused), which is exactly the reported bug.
+ * 🛑 CASE-FOLD, NOT store.safeKey, AND NOT shared with claimantFor. safeKey also
+ * STRIPS, and the send path is deliberately STRICTER than the read gate: a name
+ * that merely SANITISES to a live agent (`Ca.sey` -> `casey`) must be REFUSED on
+ * the send (engine/chat.test.js:181). So the gate stays safeKey-tolerant (keeps
+ * an agent reportable under its sanitised name, #18) and the send tolerates case
+ * only -- agreeing on case, differing on strip, on purpose. (An earlier cut used
+ * safeKey/unified and challenge-loop iter 1 caught it as a BLOCKER; test 6 below
+ * is the guard against reintroducing it.)
+ *
+ * Both dimensions are perturbation-proven: reverting addressable() to the bare
+ * `sessionName === key` reds "the fix: a mixed-case name reaches the agent"
+ * (Casey -> refused, the reported bug); reintroducing safeKey in resolveCard reds
+ * "the send stays STRICTER than the read gate" (Ca.sey would resolve).
  */
 const test = require('node:test');
 const assert = require('node:assert');
