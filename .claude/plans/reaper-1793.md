@@ -22,18 +22,30 @@ in-place fallback. That trades inert litter for a live path into the exact write
 
 `reapOrphanTemps(dir)`, called from `writeSecret` once per target directory per process
 (`reapedDirs` Set), before this call adds its own temp. It matches the anchored
-`.kosmos-<pid>-<started>-<seq>.tmp` suffix (unique to this module; a credential file cannot carry
-it) and deletes a temp ONLY when it can prove it is dead:
+`.kosmos-<pid>-t<threadId>-<started>-<seq>.tmp` suffix (unique to this module; a credential file
+cannot carry it) and deletes a temp ONLY when it can prove it is dead:
 
-- **our pid, a different `started`** -> a prior run of us (we are the only "us"): stale.
+- **our (pid, threadId) with a different `started`** -> a prior run of us: stale.
 - **a foreign pid that is provably gone** (`process.kill(pid,0)` throws ESRCH): stale.
-- **our pid + our STARTED** (an in-flight temp of this run): LEFT.
+- **our (pid, threadId) + our STARTED** (an in-flight temp of this run): LEFT.
+- **a same-pid temp from a DIFFERENT threadId** (possibly a live sibling worker): LEFT.
 - **a foreign LIVE pid** (kill succeeds, or throws EPERM = alive but not ours): LEFT.
 
 So it can never take a concurrent writer's in-flight temp -- the race the glob would have created.
 A reused-pid orphan (dead writer, its pid now a live stranger) reads alive and is LEFT, erring
 toward inert litter over a wrong delete. Best-effort and never fatal: every fs call is caught, and
 the write runs whether or not anything was reaped.
+
+### Why threadId (iteration 2, from a blind pass)
+
+`process.pid` is SHARED across `worker_threads`: two live threads share a pid but each has its own
+module-level `STARTED`. So `(pid, STARTED)` alone reads a live sibling worker's in-flight temp as
+"a prior run of us" and deletes it mid-write -- the exact over-deletion the reaper exists to avoid.
+`(pid, threadId)` names exactly one live thread, so the same-pid branch reaps only OUR thread's
+prior-run temps. No worker_threads use exists in-tree today (the defect was latent), but the "never
+takes a live temp" claim was false without it, so the identity was corrected to make it true. The
+regex accepts the older no-`t` form (a prior release's main-thread temp, read as thread 0) so a
+pre-upgrade orphan is still reclaimed rather than leaking.
 
 ## Tests
 
@@ -45,8 +57,11 @@ let the first arm's sweep suppress the rest). Coverage:
   precondition so a reused pid re-runs rather than silently passing).
 - **SAFETY** a LIVE foreign pid (pid 1, launchd) is LEFT -- the concurrency guarantee.
 - **SAFETY** a real credential file with no temp suffix is never touched -- the regex anchor.
+- **SAFETY** a same-pid temp from a DIFFERENT threadId is LEFT -- the worker_threads guarantee.
+- back-compat: an OLD-format temp (no `t` segment) from a prior run is still reaped.
 - the reaper does not break the write it runs before.
 
 Mutation-verified: removing the `reapOrphanTemps` call reddens the three presence arms; widening
 the predicate to reap a live pid reddens the live-foreign arm; widening the regex to a bare name
-reddens the credential arm. Full `securewrite.test.js`: 26 pass, 0 fail.
+reddens the credential arm; dropping the threadId check reddens the different-thread arm. Full
+`securewrite.test.js`: 28 pass, 0 fail.
