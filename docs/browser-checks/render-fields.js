@@ -297,7 +297,7 @@ async function measure(engine, scheme) {
       const c = getComputedStyle(el);
       const g = ground(el);
       return { id: el.id || el.tagName.toLowerCase(), tag: el.tagName.toLowerCase(),
-        fill: c.backgroundColor, border: c.borderTopColor, appearance: c.appearance,
+        fill: c.backgroundColor, border: c.borderTopColor, borderW: c.borderTopWidth, appearance: c.appearance,
         radius: c.borderTopLeftRadius, box: g.bg, boxName: g.name, mute: g.mute, bareSeen: g.bareSeen,
         arrows: (c.backgroundImage.match(/linear-gradient/g) || []).length,
         indicator: el.tagName.toLowerCase() === 'select' ? drawnIndicator(el) : false };
@@ -420,8 +420,10 @@ async function measure(engine, scheme) {
          and the scheme-flip check caught it in dark, both by accident of the default
          colours. This pins the intent directly, so it fails when the two drift for ANY
          reason, not only when the default happens to match the card.
-         ⚠️ FLOOR FIRST: both must be REACHED. A renamed id or a panel this fixture no
-         longer unhides would make a same-appearance test vacuously true. */
+         ⚠️ FLOOR FIRST: both must be REACHED. A renamed id would make a same-appearance
+         test vacuously true. (Presence in `r.fields` is a DOM query, not a visibility
+         test: a panel this fixture stopped unhiding would still be measured, with
+         computed values, so that case is not what this floor guards.) */
       const instr = r.fields.find((f) => f.id === 'create-instr');
       const imp = r.fields.find((f) => f.id === 'import-text');
       if (!instr || !imp) {
@@ -434,8 +436,10 @@ async function measure(engine, scheme) {
            DESIGN. A first version of this check compared fills and went red on a correct
            build; what the shared rule actually guarantees is the dressing (border colour,
            radius) and that each box stands apart from ITS OWN container, asserted below. */
-        const same = instr.border === imp.border && instr.radius === imp.radius;
-        if (!same) fail(`${engine}/${scheme} #1800 #import-text is not dressed like #create-instr: border ${imp.border} vs ${instr.border}, radius ${imp.radius} vs ${instr.radius}`);
+        /* Border WIDTH too: colour and radius alone stay identical under
+           `border-width: 0`, which removes exactly the edge the defect was about. */
+        const same = instr.border === imp.border && instr.borderW === imp.borderW && instr.radius === imp.radius;
+        if (!same) fail(`${engine}/${scheme} #1800 #import-text is not dressed like #create-instr: border ${imp.borderW} ${imp.border} vs ${instr.borderW} ${instr.border}, radius ${imp.radius} vs ${instr.radius}`);
         const rr = imp.box && imp.fill ? ratio(imp.fill, imp.box) : null;
         if (rr === null || rr < 1.03) fail(`${engine}/${scheme} #1800 #import-text is not distinguishable from ${imp.boxName} (${imp.fill} on ${imp.box})`);
         console.log(`  #1800 import box dressed like its sibling textarea: ${same ? 'yes' : 'NO'}; apart from ${imp.boxName} at ${rr === null ? 'n/a' : rr.toFixed(2)} (${imp.fill} on ${imp.box})`);
