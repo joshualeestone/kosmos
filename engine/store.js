@@ -114,7 +114,13 @@ function dataRootFor(platform, home, env) {
  * and leaving `AVATARS`/`PROFILES` as `path.join(ROOT, ...)` at module level
  * would re-freeze it one line down, and the fix would LOOK done.
  */
-function root() { return dataRootFor(process.platform, os.homedir(), process.env); }
+/* #1780: the home base honours `AGENT_WORKFORCE_HOME` (the general engine seam
+   accounts.js/openaiaccounts.js/runners.js already carry), below `AGENT_WORKFORCE_DATA`
+   which still wins inside dataRootFor. So one var (HOME) isolates BOTH this store and
+   the workers root (create.homeDir), which is what lets a first-run walk, or a test,
+   redirect every derived path with a single setting instead of four. Resolved per call
+   (#1443), so setting the seam after require still takes. */
+function root() { return dataRootFor(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env); }
 function avatarsDir() { return path.join(root(), 'avatars'); }
 function profilesDir() { return path.join(root(), 'profiles'); }
 

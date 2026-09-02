@@ -178,7 +178,13 @@ const sendertoken = require('./sendertoken');
    Measured in this class: `accounts.list()` returned four of the operator's
    real accounts against an empty fixture (#1419), and `delete-leftover`'s
    TRASH() resolved to the operator's real ~/.Trash (#1432). */
-function homeDir() { return os.homedir(); }
+/* #1780: honours `AGENT_WORKFORCE_HOME`, the same seam accounts.js/openaiaccounts.js/
+   runners.js/delete-leftover.js already carry. This module was the gap: the first-run
+   About-you write resolves the workers root THROUGH here, so with the seam unset it fell
+   through to the real machine and a QA walk reconfigured the live fleet even when the
+   operator had set the seam everywhere else. Resolved per call (a const would re-freeze
+   it, #1432), so the value is read when the write happens, not at require. */
+function homeDir() { return process.env.AGENT_WORKFORCE_HOME || os.homedir(); }
 /* 🛑 A FUNCTION (#1432). As a const this CALLED `homeDir()` at require
    time, so making homeDir() lazy moved the freeze up one level rather
    than removing it: measured, `create.workerDir()` still returned the
