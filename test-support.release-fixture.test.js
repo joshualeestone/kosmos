@@ -22,10 +22,14 @@
  * CHOICE. `tools/run-tests.sh:103` is `node --test engine/*.test.js *.test.js "$@"`.
  * It globs engine/ and the root and NOTHING ELSE, so a test placed in
  * test-support/ is never run. It was placed there first and the suite total did
- * not move, which is the only reason it was noticed: three private
- * `serveRelease` copies in `engine/` take DIFFERENT positional arguments, so a
- * call copied between files must fail loudly rather than serve a manifest
- * keyed "[object Object]".
+ * not move, which is the only reason it was noticed.
+ *
+ * ⭐ SEPARATELY, WHY THE HELPER REFUSES SO LOUDLY: the three private
+ * `serveRelease` copies in `engine/` disagree about the SECOND POSITIONAL
+ * argument (two take an options object with the same keys but different arity,
+ * one takes a raw Buffer), so a call copied between files must fail loudly
+ * rather than serve a manifest keyed "[object Object]". The exact shapes are
+ * tabulated in `test-support/release-fixture.js`.
  */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');

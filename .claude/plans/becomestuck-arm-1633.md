@@ -2,6 +2,33 @@
 
 **Branch:** `becomestuck-arm-1633` · **April, 2026-08-31**
 
+## Read this first, then skip to what you need
+
+**What ships:** three arms in `engine/connect.becomestuck-arm-1633.test.js` driving the real
+`start()` into an install failure and reading `canRunClaude` off the settled STUCK record, plus a
+shared `test-support/release-fixture.js` and its own test. **Zero production change.**
+
+**Why it is not redundant, in one sentence:** these are the only assertions in the repo that ASSERT
+`canRunClaude` downstream of a real `start()`. (**The verb and the phrase are load-bearing** -- other
+files call `start()`, other files reference the field, none does both on one path. Every looser
+wording of this claim has been false, twice.)
+
+**Where to look:**
+
+| you want | section |
+|---|---|
+| the design decision and what it rejected | *The decision* |
+| why the branch is worth keeping, with the mutation table | *What actually justifies the branch* |
+| the traps that cost an hour each | *One trap*, and the docblocks in the test file |
+| **what this branch got wrong and how** | the ten `Findings from challenge-loop iteration N` sections |
+
+🛑 **THE ITERATION LOG IS ROUGHLY TWO THIRDS OF THIS FILE AND THAT IS DELIBERATE, NOT NEGLECT.** An
+accepted review finding required stripping process history from the three CODE files precisely so it
+would live here instead. **This is where it was sent.** It is skippable by design: nothing above it
+depends on it. ⭐ It is also the most reusable part of the branch -- seventeen rounds in which the
+recurring defect was never the tests but the sentences about them, including four rounds where the
+sentence justifying the branch's own existence was false.
+
 ## The problem, in one line
 
 `becomeStuck` computes `canRunClaude` and writes it into the STUCK state; `web/index.html` gates the stuck screen's only way out on it (#1595). It is a user-facing decision made from a filesystem check, and nothing asserted it from a **driven** flow.
@@ -148,7 +175,7 @@ this file                               drives the real start(), reads the STUCK
 
 ⚠️ **AND M5 IS SYNTHETIC IN FORM, WHICH THE PREVIOUS FRAMING HID.** `writeState` is a blind spread with no per-field handling, so "lose `canRunClaude` in transit" requires inserting a `delete` naming that identifier -- **no natural refactor produces it.** A uniqueness claim resting on an implausible mutation is weaker than it reads, and leaning on M5 alone was doing exactly that.
 
-📌 **The honest limit, stated rather than left for a reviewer to find.** The class is real and has shipped in this repo three times -- `connect.js:577` names `#1595` (this very field, never in the serving contract, so the page read `undefined` and the hatch never rendered), `#1585` (`tail`) and `#1556`. **But the REALISTIC instance of it is M3 (`publicView` drops the field), and that is already caught by `engine.publicview-canrun-1595.test.js`, the test written for #1595.** ⇒ So the arms are not the guard against the likely bug; they are the only thing asserting this field from a driven flow, which is a narrower and more defensible claim.
+📌 **The honest limit, stated rather than left for a reviewer to find.** The class is real and has shipped in this repo three times -- `connect.js:572-577` names all three: `#1595` (this very field, never in the serving contract, so the page read `undefined` and the hatch never rendered) opens the block at `:572`, and `#1585` (`tail`) and `#1556` close it at `:577`. **But the REALISTIC instance of it is M3 (`publicView` drops the field), and that is already caught by `engine.publicview-canrun-1595.test.js`, the test written for #1595.** ⇒ So the arms are not the guard against the likely bug; they are the only thing asserting this field from a driven flow, which is a narrower and more defensible claim.
 
 🛑 **M4 WAS THE JUSTIFICATION FOR ONE ITERATION AND IT WAS FALSE.** Two other tests catch it. **The reviewer found one; the whole-suite run found a second the reviewer had also missed.** That is an argument for the method, not for either analyst.
 
@@ -676,7 +703,8 @@ of them:
    implausible mutation is weaker than it reads, and I had been leaning on exactly that.
 3. **It concedes the realistic case.** The plausible instance of this class is `publicView` dropping
    the field -- **which is literally #1595, and is already caught** by the test written for it.
-   `connect.js:577` records the class shipping three times here (`#1595`, `#1585` `tail`, `#1556`).
+   `connect.js:572-577` records the class shipping three times here (`#1595` at `:572`, `#1585`
+   `tail` and `#1556` at `:577`).
    ⇒ **These arms are not the guard against the likely bug.** Saying so costs nothing and stops the
    next reviewer discovering it.
 
@@ -700,8 +728,9 @@ correcting the following round.**
   units and the iteration-10 restatement dropped them, so **a reader running the named command on the
   named file gets 1.** Second site of the same claim, again.
 - **The comment ratio was stale in the section the plan explicitly forwards readers to** as current.
-  It is 63%, not 61%: iteration 12's own edits moved it. **A ratio changes on every edit**, so the
-  command to reproduce it now sits beside the figure.
+  It read 61% and measured 63% **at that round**: iteration 12's own edits had moved it. **A ratio
+  changes on every edit**, so no section quotes a current one; the command to reproduce it is in the
+  volume section.
 - **One line of a quoted failure transcript was not verbatim** (`driven flow` for `via the driven
   flow`) while the other four were, which makes the edited line the hard one to notice.
 - **The sentence disclaiming the benchmarks quoted them**; the footer JSDoc attached to no
@@ -821,7 +850,11 @@ The reviewer went block by block without being told the previous verdict and rea
 rationale, local-release warning, return-never-throw trap, two-inputs/three-states table,
 distinct-bin-path rationale, macOS-only warning, SET-IS-THE-POINT, and the `publicView || false`
 concession. **Two independent block-by-block assessments agreeing is worth more than the ratio**,
-which sits at 64% and has not moved: the blocks removed were replaced by specificity added elsewhere.
+whose ratio this section deliberately does not quote (see the volume section: every figure any
+round has stated for it went stale, including the two written to replace a stale one). Reproduce it
+with the command there. **The blocks removed were offset by specificity added elsewhere, so the
+ratio has moved very little** -- but "has not moved" was the wording here until iteration 17 and it
+was false against this plan's own log: 65 -> 61 -> 63 -> 64 -> 63.
 📌 **Recorded rather than presented as an improvement.**
 
 ### Postscript to iteration 15: the `/**` class had three more instances nobody named
@@ -916,3 +949,72 @@ new claim requiring re-verification, not as cosmetic.
   where (instruments at the third arm; counts and command in the plan).
 - A sentence fragment left by iteration 15's own fix (a stray "the" and an unwrapped splice), in the
   paragraph about a figure iteration 15 had removed.
+
+## Findings from challenge-loop iteration 17
+
+**Zero BLOCKERs, two WARNINGs, three NITs.** The justification survived a fifth consecutive
+independent attack, with every part re-measured rather than trusted.
+
+### 🛑 A RULE I WROTE IN ONE SECTION DID NOT BIND ME IN ANOTHER
+
+Iteration 14 wrote, in capitals: **"NO CURRENT FIGURE IS QUOTED HERE ANY MORE. This section now does
+not quote."** Iteration 15, three sections later in the same file, wrote *"sits at 64% and has not
+moved."*
+
+**Both halves wrong.** Measured with this plan's own published command: **63%**, so a reader running
+the named command on the named file gets a different number -- the exact failure this plan already
+filed against itself for the `PHASE.STUCK` comparison. And *"has not moved"* is false against the
+plan's own log: **65 -> 61 -> 63 -> 64 -> 63**.
+
+⭐ **FOURTH FAILURE ON THIS ONE NUMBER, AND THE MECHANISM IS NEW EACH TIME.** Stale (12), false when
+written (13), corrected-then-restated (15), and now **a self-imposed rule that did not reach three
+sections down**. ⇒ **A prohibition written in one section governs that section.** It is the
+intra-document form of fixing the instance rather than the class, and the fix is the same: sweep for
+the thing, not for the wording of the ban.
+
+✅ **The figure is gone from that site too**, replaced by a pointer to the command.
+
+### A citation off by five lines, at two sites
+
+`connect.js:577` was cited as naming `#1595`. It names `#1585` and `#1556`; **`#1595` is at `:572`**.
+The conclusion (the class shipped three times) is untouched, only the citation. Both sites now cite
+the block `:572-577` **because the three ids genuinely span it** -- a single-line citation was the
+wrong shape for the claim, not merely the wrong line.
+
+### The compression class again, in a NIT
+
+*"three private `serveRelease` copies take DIFFERENT positional arguments"* is the compressed
+neighbour of the claim iteration 12 retracted: two of the three accept **identical option keys** and
+differ only in arity. The correcting detail lived only in the helper, so a maintainer reading the
+test file alone got the looser version. ⚠️ **Same shape as iteration 16's finding, one file over: the
+qualifier lives in one place and the compressed claim travels without it.**
+
+A colon in the same sentence also promised a reason for one thing and delivered the reason for
+another, welding two unrelated findings together. Split.
+
+### The plan's own length, settled rather than left open
+
+918 lines, roughly two thirds iteration log. **Decision: it stays, and the file now says why in a
+header.** The accepted CONVENTION finding required stripping process history from the three CODE
+files *so that it would live in the plan* -- this is where it was sent, and moving it again would
+just relocate the same content while losing the reason. What was missing was orientation, so the
+plan now opens with what ships, the one-sentence justification, and a table pointing at the section
+a reader actually wants. **The log is skippable by design; nothing above it depends on it.**
+
+📌 **Postscript, found by applying this round's own lesson within the round.** After fixing the
+iteration-15 site I swept for the THING (any percentage claim about this file) rather than for the
+wording I had just banned, and **found a fourth site the fix had missed**: the iteration-13 section
+said *"It is 63%, not 61%"* in the present tense. Historical narration, but phrased as current, which
+is the same defect wearing a past-tense section as cover. ⇒ **The sweep that catches a class has to
+search for the subject, not for the sentence.** Had I grepped for the banned phrasing I would have
+returned clean and been wrong for the fifth time on this number.
+
+🔑 **AND THE BAN NEEDS ONE PRECISION, OR IT EATS ITS OWN FINDINGS.** Reading the eight surviving
+percentage mentions rather than counting them: seven are historical or retraction quotes, and one is
+**this round's finding citing the measurement that falsified the claim**. That last one is
+**evidence, not a standing fact**, and forbidding it would make the defect unreportable.
+
+⇒ **The rule, stated so it is satisfiable: no section states the CURRENT ratio as a standing fact; a
+finding MAY cite the measurement that contradicted a claim, because that citation is what makes the
+finding checkable.** ⚠️ Without that carve-out the ban is unsatisfiable and generates a fresh
+correction every round forever, which is its own failure mode rather than rigour.

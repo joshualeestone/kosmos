@@ -31,7 +31,7 @@
  *
  * 📌 The per-file census (which instrument each file uses) is stated ONCE, at
  * the third arm below; the counts and the command that reproduces them are in
- * the plan. They have drifted repeatedly and do not belong in two places.
+ * the plan.
  *
  * 🛑 WHY THIS DRIVES `start()` RATHER THAN CALLING `becomeStuck` DIRECTLY.
  * The card offered two shapes: export `becomeStuck` with a `setDriverForTests`,
@@ -164,10 +164,10 @@ async function stuckWith(t, { binaryExists, directoryInstead = false }) {
  * `installClaudeCode` and surfaced by `runFlow`'s
  * `if (!res.ok) becomeStuck(owner, res.message, res.detail)`).
  *
- * BOTH come from `installClaudeCode`. `download()` has NO failure return, it
- * THROWS, and 'we could not download Claude' is what installClaudeCode's own
- * catch turns that throw into. Both failure points live inside
- * `installClaudeCode`; they are not two functions.
+ * Both messages come from `installClaudeCode`: the install failure yields the
+ * one above, and a download failure yields 'we could not download Claude'. Two
+ * failure points inside one function, so asserting the message is what pins
+ * WHICH of them the arms exercised.
  *
  * Asserting it is what would have caught the missing release server on the
  * first run.
