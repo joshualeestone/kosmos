@@ -36,10 +36,22 @@ Measured with the scrapers alone: `classify()` returns `idle`, "it is sitting at
 its prompt", on a genuinely mid-turn agent. Control shape returns `working`, so
 the instrument discriminates.
 
-**It was masked, which is why it survived.** On that pane a different arm (the
-process read, "running Bash") returned working. The board was right while the
-scraper was wrong. An agent waiting on a background agent with no shell running
-is the case nothing catches.
+**It was masked, which is why it survived, and my first description of the mask
+was wrong in the reassuring direction.** I wrote that a "process read" caught it.
+There is no process-classification arm in this module; a whole-repo grep returns
+only my own prose. What actually masked it is the agent's **own self-report**:
+`install/kosmos-report-hook.sh` fires `report working --auto "running <tool>"` on
+PreToolUse, throttled to one line per 60s.
+
+⇒ So the board was NOT independently right. It was right only where an agent
+happened to be reporting, which is a much weaker guarantee than a second reader.
+Any agent whose hook is absent, failing, or merely between heartbeats reads
+`idle` while mid-turn. Measured at review time: `origin/main` returned `idle` for
+EVERY pane carrying the shape.
+
+⚠️ The correction makes the defect worse, not better, which is why it is worth
+recording rather than quietly editing: the first version told a reader there was
+a working backstop, and there is not.
 
 **A static grep could not have found it.** The count is interpolated, so the
 literal line is nowhere in the 2.1.258 bundle. That is the card's residual #2,
