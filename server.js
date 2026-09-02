@@ -8180,7 +8180,7 @@ if (require.main === module) {
      than before this fix, for that one pathological case.
      Via create.homeDir() (AGENT_WORKFORCE_HOME || os.homedir(), #1780), the
      one home resolver the rest of the sandbox already honours, rather than a
-     second bare os.homedir() derivation (the anti-pattern server.js:474-484
+     second bare os.homedir() derivation (the anti-pattern server.js:477-486
      names). In prod AGENT_WORKFORCE_HOME is unset, so this stays os.homedir()
      -- byte-for-byte the same $HOME as before; a home-stubbed test can now
      assert the board landed in its sandbox instead of the real home. */
