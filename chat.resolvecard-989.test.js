@@ -45,7 +45,7 @@ test('#989 control: a genuinely-absent name is still refused (not a blanket yes)
   const roster = [card('casey')];
   const a = chat.addressable('nobody', roster);
   assert.equal(a.ok, false);
-  assert.match(a.because, /by this name/);
+  assert.match(a.because, /by exactly this name/);
 });
 
 test('#989 the isNamedOurs gate is preserved: an exact stranger pane still refuses', () => {
@@ -56,11 +56,11 @@ test('#989 the isNamedOurs gate is preserved: an exact stranger pane still refus
   assert.equal(a.ok, false, 'must not type into a stranger-owned exact-named pane');
 });
 
-test('#989 resolveCard mirrors claimantFor: exact-first, then safeKey preferring ours', () => {
+test('#989 resolveCard: exact-first, then CASE-fold preferring ours (not safeKey)', () => {
   const roster = [card('casey', { ours: true }), card('Casey', { ours: false })];
   // exact "Casey" exists (external) -> exact wins outright
   assert.equal(chat.resolveCard(roster, 'Casey').sessionName, 'Casey');
-  // no exact "CASEY" -> safeKey matches both -> prefer the isNamedOurs card
+  // no exact "CASEY" -> case-fold matches both -> prefer the isNamedOurs card
   const r = chat.resolveCard(roster, 'CASEY');
   assert.equal(r.sessionName, 'casey');
   assert.equal(r.isNamedOurs, true);
@@ -68,4 +68,18 @@ test('#989 resolveCard mirrors claimantFor: exact-first, then safeKey preferring
   assert.equal(chat.resolveCard([card('mikey')], 'nobody'), null);
   // a non-array roster -> null (cannot look)
   assert.equal(chat.resolveCard(null, 'casey'), null);
+});
+
+test('#989 the send stays STRICTER than the read gate: a sanitise-only name is refused', () => {
+  // `Ca.sey` safeKey-sanitises to `casey` (which the ROUTE GATE admits, #18), but
+  // the SEND path must REFUSE it -- resolveCard case-folds, it does not strip.
+  // Reintroducing strip-tolerance on the send is the hole engine/chat.test.js:181
+  // guards ("a spelling that merely sanitises to a live agent is refused"); this
+  // is that guard restated at the resolver, and it is the control the CASE arms
+  // above cannot give (they never exercise the strip dimension).
+  const roster = [card('casey')];
+  assert.equal(chat.resolveCard(roster, 'Ca.sey'), null, 'Ca.sey must NOT resolve to casey on the send path');
+  const a = chat.addressable('Ca.sey', roster);
+  assert.equal(a.ok, false, 'a sanitise-only name must be refused by addressable');
+  assert.match(a.because, /by exactly this name/);
 });

@@ -862,13 +862,25 @@ function readBody(req, limit) {
  * keeps a healthy agent reachable under its normalised name.
  */
 function claimantFor(name) {
-  // #989: ONE derivation of "which card is this name", shared with chat's
-  // addressable/viewport via chat.resolveCard, so the route gate and the send
-  // can no longer disagree (exact-first, then store.safeKey, preferring the
-  // isNamedOurs card). This body used to carry its own copy of that algorithm;
-  // addressable/viewport carried a BARE case-sensitive match, and the two
-  // disagreeing is the whole of kosmos#989.
-  return chat.resolveCard(paneRoster(), String(name));
+  // The route GATE stays safeKey-tolerant (keeps an agent REPORTABLE under its
+  // sanitised name, #18). It is deliberately MORE tolerant than chat's send path
+  // (chat.resolveCard case-folds only): a WRITE/SEND that merely sanitises to a
+  // live agent must be refused (engine/chat.test.js:181), a READ need not be.
+  // #989 only needed the SEND to stop being stricter on CASE than this gate; it
+  // did not need this gate to loosen, so this is intentionally NOT unified with
+  // chat.resolveCard.
+  const roster = paneRoster();
+  const asked = String(name);
+
+  const exact = roster.filter((a) => a.sessionName === asked);
+  if (exact.length) return exact.find((a) => a.isNamedOurs === true) || exact[0];
+
+  const key = store.safeKey(asked);
+  const claimants = roster.filter((a) => {
+    try { return store.safeKey(a.sessionName) === key; } catch { return false; }
+  });
+  if (!claimants.length) return null;
+  return claimants.find((a) => a.isNamedOurs === true) || claimants[0];
 }
 
 /**
