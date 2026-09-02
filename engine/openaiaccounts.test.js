@@ -84,6 +84,83 @@ test('what is not a key is refused before anything runs', () => {
   assert.match(openai.addWithKey({ key: 'sk-proj-fineleng-thkeyhereeeee', codexBin: nodePath.join(SANDBOX, 'no-such-codex') }).because, /could not find the OpenAI runner/);
 });
 
+/* ── add-time live validation (#1315) ────────────────────────────────────
+   addWithKeyLive = the local add (addWithKey) plus the SAME live check the
+   badge uses, so a dead key is refused at ENTRY rather than accepted and shown
+   not-connected later. The fetcher seam stands in for /v1/models; the walk
+   through addWithKey still uses FAKE_CODEX, so the key genuinely lands in
+   auth.json and checkLive reads it back. */
+
+test('#1315: a key OpenAI positively rejects (invalid_api_key) is refused at add, and no account is left behind', async () => {
+  const before = fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.codex-')).sort();
+  openai.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));
+  try {
+    const out = await openai.addWithKeyLive({ key: 'sk-proj-deadkeydeadkeydeadDEAD', label: 'dead-add', codexBin: FAKE_CODEX });
+    assert.equal(out.ok, false);
+    assert.equal(out.because, 'OpenAI did not accept this key');
+    assert.deepEqual(fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.codex-')).sort(), before,
+      'a live-rejected add littered a directory');
+    assert.ok(!JSON.stringify(out).includes('deadkey'), 'the answer must never carry the key');
+  } finally { openai.setFetcher(null); }
+});
+
+test('#1315: a key OpenAI accepts (200) is added, and the account stands with its sign-in file', async () => {
+  openai.setFetcher(async () => ({ status: 200, body: { object: 'list', data: [{ id: 'gpt-4o' }] } }));
+  try {
+    const out = await openai.addWithKeyLive({ key: 'sk-proj-goodkeygoodkeygoodGOOD', label: 'good-add', codexBin: FAKE_CODEX });
+    assert.equal(out.ok, true, out.because);
+    assert.equal(out.account.label, 'good-add');
+    assert.equal(out.account.keyTail, 'GOOD');
+    assert.ok(fs.existsSync(nodePath.join(SANDBOX, '.codex-good-add', 'auth.json')), 'an accepted add left no sign-in file');
+    assert.ok(!JSON.stringify(out).includes('goodkey'), 'the answer must never carry the key');
+  } finally { openai.setFetcher(null); }
+});
+
+test('#1315: a key we cannot confirm bad is ACCEPTED, never blocked (a scope-restricted 401)', async () => {
+  /* Same asymmetry checkLive enforces: only invalid_api_key is a positive
+     rejection. A project key restricted from listing models 401s here for a
+     permissions reason while working fine for the agent, so refusing it at add
+     would be exactly the false negative this whole path exists to avoid. */
+  openai.setFetcher(async () => ({ status: 403, body: { error: { code: 'insufficient_permissions' } } }));
+  try {
+    const out = await openai.addWithKeyLive({ key: 'sk-proj-scopedkeyscopedSCOP', label: 'scoped-add', codexBin: FAKE_CODEX });
+    assert.equal(out.ok, true, out.because);
+    assert.ok(fs.existsSync(nodePath.join(SANDBOX, '.codex-scoped-add', 'auth.json')), 'a scope-restricted key was wrongly discarded at add');
+  } finally { openai.setFetcher(null); }
+});
+
+test('#1315: an unreachable OpenAI at add time ACCEPTS the key, never a false rejection', async () => {
+  openai.setFetcher(async () => { throw new Error('getaddrinfo ENOTFOUND api.openai.com'); });
+  try {
+    const out = await openai.addWithKeyLive({ key: 'sk-proj-offlinekeyofflOFFL', label: 'offline-add', codexBin: FAKE_CODEX });
+    assert.equal(out.ok, true, out.because);
+    assert.ok(fs.existsSync(nodePath.join(SANDBOX, '.codex-offline-add', 'auth.json')), 'an unreachable check wrongly discarded the account');
+  } finally { openai.setFetcher(null); }
+});
+
+test('#1315: a locally-invalid add (bad shape) passes straight through and never asks OpenAI', async () => {
+  let asked = false;
+  openai.setFetcher(async () => { asked = true; return { status: 200, body: { data: [] } }; });
+  try {
+    const out = await openai.addWithKeyLive({ key: 'sk-short', codexBin: FAKE_CODEX });
+    assert.equal(out.ok, false);
+    assert.match(out.because, /too short/);
+    assert.equal(asked, false, 'the live check ran on an input addWithKey already refused');
+  } finally { openai.setFetcher(null); }
+});
+
+test('#1315: a key codex itself refuses locally is refused, and OpenAI is never asked', async () => {
+  let asked = false;
+  openai.setFetcher(async () => { asked = true; return { status: 200, body: { data: [] } }; });
+  try {
+    // FAKE_CODEX exits non-zero on any key containing "bad".
+    const out = await openai.addWithKeyLive({ key: 'sk-proj-this-is-a-bad-key-for-sure', label: 'localbad-add', codexBin: FAKE_CODEX });
+    assert.equal(out.ok, false);
+    assert.match(out.because, /did not accept that key/);
+    assert.equal(asked, false, 'the live check ran after the local add already failed');
+  } finally { openai.setFetcher(null); }
+});
+
 /* ── live check (#960) ──────────────────────────────────────────────────
    `codex login status` was measured LOCAL ONLY (a fabricated key still
    reads "Logged in"), so the live check has to be a real call to OpenAI's

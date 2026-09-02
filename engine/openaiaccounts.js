@@ -372,6 +372,44 @@ function addWithKey({ key, label, codexBin }) {
   return { ok: true, account: row };
 }
 
+/**
+ * addWithKey, then confirm the key LIVE with OpenAI before the add stands (#1315).
+ *
+ * 🛑 THE SYMPTOM THIS FIXES: addWithKey validates a key only by `codex login
+ * --with-api-key`'s exit status, which is LOCAL ONLY -- a fabricated,
+ * never-valid key still exits 0 (see the live-check comment below). So the
+ * add route ACCEPTED a dead or typo'd key, and the account only read
+ * not-connected LATER, on the badge. To the person that is "I added my key and
+ * it will not connect." This runs the SAME live check the badge uses, at ADD
+ * time, so a key OpenAI positively rejects is refused at entry.
+ *
+ * ⚠️ IT REUSES checkLive's ASYMMETRY RATHER THAN REINVENTING IT, and that is
+ * the whole point. Only OpenAI's own `invalid_api_key` code is a positive
+ * rejection (checkLive maps it to NONE); a scope-restricted project key that
+ * 401s on model-listing while working fine for everything an agent does, or an
+ * unreachable OpenAI, is UNKNOWN -- and we ACCEPT those, never blocking a good
+ * key on an answer that does not confirm the key is bad. After a SUCCESSFUL
+ * addWithKey the auth file exists, so checkLive's other NONE branch (an absent
+ * file) cannot fire here: post-add, NONE means invalid_api_key and nothing else.
+ *
+ * Async because the live check is; addWithKey stays sync so its own callers and
+ * tests are untouched. Same {ok, account}/{ok:false, because} contract as
+ * addWithKey, so the one route calling it changes by one awaited word.
+ */
+async function addWithKeyLive({ key, label, codexBin }) {
+  const added = addWithKey({ key, label, codexBin });
+  if (!added.ok) return added;
+  const live = await checkLive(added.account.dir);
+  if (live.state === subscription.STATE.NONE) {
+    /* Positively rejected. Undo the add so no half-made, never-usable account
+       is left behind -- the same anti-litter promise addWithKey keeps on its
+       own local-failure path, extended to the one failure it could not see. */
+    try { fs.rmSync(added.account.dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    return { ok: false, because: 'OpenAI did not accept this key' };
+  }
+  return added;
+}
+
 /* ── live check (#960) ───────────────────────────────────────────────────
    `codex login status` is LOCAL ONLY -- verified by pointing CODEX_HOME at a
    directory holding a fabricated, never-valid key and getting "Logged in
@@ -678,7 +716,7 @@ async function listLiveNow() {
 const listLive = inflight.collapse(listLiveNow);
 
 module.exports = {
-  list, identityOf, addWithKey, nextWorkDir, defaultDir, forgetAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+  list, identityOf, addWithKey, addWithKeyLive, nextWorkDir, defaultDir, forgetAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
   accountModels, chatModelsFromList,
