@@ -15304,6 +15304,11 @@ const ORG_SIM = {
   minGap: 52,      // two 44px discs plus breathing room
   rest: 0,         // set from ORG_STEP at use
 };
+/* #1738: how many synchronous relaxation steps a reduced-motion render takes to
+   settle. orgLiveRun anneals alpha *= 0.985 from 1 and stops at 0.02, which is
+   ~259 steps; this cap sits above that so a settle converges the same way the
+   animation would, without any animation frames. */
+const ORG_SETTLE_STEPS = 600;
 function orgStep(nodes, hub, alpha, box) {
   const rest = ORG_SIM.rest || ORG_STEP;
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -15637,6 +15642,14 @@ function paintOrg() {
 function orgLiveStart(map, placed, cx, cy, size) {
   if (ORG_LIVE && ORG_LIVE.raf) cancelAnimationFrame(ORG_LIVE.raf);
   const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /* #1738: if the set of agents changed since the last paint, the positions in
+     ORG_POS are for a DIFFERENT fleet and can seed the new nodes on top of each
+     other. A motion-allowed user watches that relax away; a reduced-motion user
+     never did (the sim was skipped), so the overlap was permanent. Seed fresh
+     from orgPlace when the fleet changed; a same-fleet repaint still seeds from
+     ORG_POS so it does not snap the chart back. (+1 for the hub key.) */
+  const sameFleet = ORG_POS.size === placed.size + 1
+    && [...placed.keys()].every((k) => ORG_POS.has(k));
   const hubEl = map.querySelector('.hub');
   const hubWas = ORG_POS.get('\u0000hub');
   const hub = { key: '\u0000hub', el: hubEl, x: hubWas ? hubWas.x : cx, y: hubWas ? hubWas.y : cy, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cy } };
@@ -15644,7 +15657,7 @@ function orgLiveStart(map, placed, cx, cy, size) {
   for (const [key, spot] of placed) {
     const el = map.querySelector('.onode[data-agent="' + CSS.escape(key) + '"]');
     if (!el) continue;
-    const was = ORG_POS.get(key);
+    const was = sameFleet ? ORG_POS.get(key) : null;
     nodes.set(key, {
       key, el,
       x: was ? was.x : cx + Math.cos(spot.ang) * spot.r,
@@ -15655,8 +15668,33 @@ function orgLiveStart(map, placed, cx, cy, size) {
   }
   for (const n of nodes.values()) n.parent = n.parentKey ? (nodes.get(n.parentKey) || null) : null;
   ORG_LIVE = { nodes, hub, size, raf: 0, alpha: still ? 0 : 1, box: { lo: 30, hi: size - 30 } };
+  if (still) {
+    /* #1738: reduced motion means do NOT ANIMATE, not do not LAY OUT. The old
+       path skipped the relaxation entirely, leaving a reduced-motion user with
+       whatever the seed gave -- permanently overlapping if the seed was stale.
+       Settle the field SYNCHRONOUSLY instead: no animation frames, so no motion,
+       but the positions painted are the separated ones. */
+    orgLiveSettle();
+  } else {
+    orgLiveSync();
+    orgLiveRun();
+  }
+}
+/* #1738: run the same relaxation orgLiveRun animates, but synchronously and
+   bounded, so a reduced-motion (static) render still separates overlapping
+   nodes. Mirrors tickOnce's anneal without requestAnimationFrame. */
+function orgLiveSettle() {
+  if (!ORG_LIVE) return;
+  const L = ORG_LIVE;
+  const bodies = [...L.nodes.values()];
+  let a = 1;
+  for (let i = 0; i < ORG_SETTLE_STEPS; i += 1) {
+    const moved = orgStep(bodies, L.hub, a, L.box);
+    a *= 0.985;
+    if (a <= 0.02 || moved <= 0.05) break;
+  }
+  L.alpha = 0.02;
   orgLiveSync();
-  if (!still) orgLiveRun();
 }
 function orgLiveSync() {
   if (!ORG_LIVE) return;
