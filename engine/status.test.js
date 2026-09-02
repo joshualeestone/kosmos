@@ -3935,11 +3935,17 @@ test('#1919: consentPrompt returns {because, evidence} for a live dialog and nul
   assert.match(hit.evidence, /Bypass Permissions mode/);
   assert.equal(consentPrompt(null), null);
   assert.equal(consentPrompt('Worked for 2m\n> \n'), null);
-  // An unlabelled confirm dialog still matches (the family, not one banner) -- generic reason.
-  const generic = ' Proceed with the risky thing?\n ❯ No, exit\n   Yes, continue\n Enter to confirm · Esc to cancel\n' + Array(20).fill('').join('\n');
+  // An unlabelled confirm dialog with a confirm footer + an option still matches (the
+  // family, not one banner). This one has NO `No, exit`, so its generic reason must NOT
+  // claim the default is destructive -- that is verified only for the labelled dialogs.
+  const generic = ' Save your changes?\n   Yes, save\n Enter to confirm · Esc to cancel\n' + Array(20).fill('').join('\n');
   const g = consentPrompt(generic);
-  assert.ok(g, 'an unlabelled confirm dialog is still caught');
+  assert.ok(g, 'an unlabelled confirm dialog with a footer + an option is caught');
   assert.match(g.because, /waiting for you to answer a prompt/, 'labelled generically when the heading is unknown');
+  assert.doesNotMatch(g.because, /default answer exits/, 'no destructive-default claim for an unverified generic dialog');
+  // A LONE confirm footer with no option row is not enough (corroboration requires an option).
+  assert.equal(consentPrompt(' Enter to confirm · Esc to cancel\n' + Array(20).fill('').join('\n')), null,
+    'a bare confirm footer with no option row is not a dialog');
 });
 
 test('#1629: a scraped trust dialog stands over a FRESH self-report of working, because the agent cannot know it is stuck', () => {

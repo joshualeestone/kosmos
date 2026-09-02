@@ -1546,7 +1546,11 @@ const CONSENT_PROMPT_ACCEPT = /^Yes\b/;            // "Yes, I accept" / "Yes, co
 const CONSENT_PROMPT_HEADINGS = Object.freeze([
   { re: /Bypass Permissions/i, because: 'it is asking you to accept Bypass Permissions mode before it can start, and the default answer exits' },
 ]);
-const CONSENT_PROMPT_GENERIC_BECAUSE = 'it is waiting for you to answer a prompt, and the default answer exits';
+/* No "and the default answer exits" here: that is verified only for the LABELLED
+   dialogs (bypass, trust), which default to `No, exit`. An unlabelled confirm dialog the
+   family catches may default to something harmless, so the generic reason must not claim
+   the default is destructive -- a false claim on the board is the class this file guards. */
+const CONSENT_PROMPT_GENERIC_BECAUSE = 'it is waiting for you to answer a prompt';
 /* For chat.js's readers of the union (questionIn / optionsIn), tested on the RAW row, so
    it carries the same leading chrome class the detector strips. The exit option is the
    reliable anchor row present in every consent dialog observed. */
@@ -2114,12 +2118,15 @@ function consentPrompt(tail) {
   const isDialogRow = (row) => CONSENT_PROMPT_CONFIRM.test(row)
     || CONSENT_PROMPT_EXIT.test(row) || CONSENT_PROMPT_ACCEPT.test(row);
   if (!isDialogRow(rows[last])) return null;
-  /* Corroboration so a lone bottom row that happens to read like an option is not a dialog:
-     an `Enter to confirm` footer, OR both a `No, exit` and a `Yes, ...` option, in the tail. */
+  /* Corroboration: a real dialog carries an OPTION ROW, always. Require the `No, exit` +
+     `Yes, ...` pair, OR a confirm footer WITH at least one option. A lone confirm footer,
+     or a lone option-shaped row, is not enough -- that shrinks the exposure to a
+     no-composer pane whose bottom row merely reads like one signal. Every observed dialog
+     (bypass, trust, the generic fixture) carries all three, so this loses none of them. */
   const hasConfirm = rows.some((row) => CONSENT_PROMPT_CONFIRM.test(row));
   const hasExit = rows.some((row) => CONSENT_PROMPT_EXIT.test(row));
   const hasAccept = rows.some((row) => CONSENT_PROMPT_ACCEPT.test(row));
-  if (!(hasConfirm || (hasExit && hasAccept))) return null;
+  if (!((hasExit && hasAccept) || (hasConfirm && (hasExit || hasAccept)))) return null;
   const cap = (s) => (s.length > 240 ? s.slice(0, 240) + '…' : s);
   let because = CONSENT_PROMPT_GENERIC_BECAUSE;
   let headingRow = null;
