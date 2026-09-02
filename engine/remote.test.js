@@ -14,6 +14,12 @@ const nodePath = require('node:path');
 
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-remote-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+// #1848: remote.js now routes its base through store.ROOT (= dataRootFor), which
+// appends the `AgentWorkforce` leaf to AGENT_WORKFORCE_DATA -- so its state files
+// (remote.json, remote-status.json, remote/) live under SANDBOX/AgentWorkforce, not
+// the bare SANDBOX. Derive the SAME root the code does rather than hardcoding the
+// leaf name, so this follows any future rename.
+const DATA_ROOT = require('./store').ROOT;
 const FAKE_BIN = nodePath.join(SANDBOX, 'fake-kosmos-tunnel');
 const RECORD = nodePath.join(SANDBOX, 'fake-record.jsonl');
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_BIN;
@@ -90,8 +96,8 @@ test.afterEach(() => {
   delete process.env.FAKE_TUNNEL_MODE;
   fs.rmSync(remote.FILE, { force: true });
   fs.rmSync(RECORD, { force: true });
-  fs.rmSync(nodePath.join(SANDBOX, 'remote'), { recursive: true, force: true });
-  fs.rmSync(nodePath.join(SANDBOX, 'remote-status.json'), { force: true });
+  fs.rmSync(nodePath.join(DATA_ROOT, 'remote'), { recursive: true, force: true });
+  fs.rmSync(nodePath.join(DATA_ROOT, 'remote-status.json'), { force: true });
   delete process.env.AGENT_WORKFORCE_TUNNEL_RELAY;
 });
 
@@ -257,7 +263,7 @@ test('setRelay refuses anything that is not host:port', () => {
 /* Enrolled means the four files exist; the fake's setup writes them, but a
    test of the devices seam should not depend on the setup flow. */
 function enrol() {
-  const dir = nodePath.join(SANDBOX, 'remote');
+  const dir = nodePath.join(DATA_ROOT, 'remote');
   fs.mkdirSync(dir, { recursive: true });
   for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(nodePath.join(dir, f), 'fake');
   return dir;
@@ -402,7 +408,7 @@ test('enrolment that lands without an ensure() call rests at "has not started" u
      tunnel). The server's ensure tick is what makes the second half true in
      production; this proves ensure() itself is enough. */
   // remote.js: STATE_DIR() is AGENT_WORKFORCE_TUNNEL_STATE or <data>/remote; this file sandboxes the data dir.
-  const dir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'remote');
+  const dir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
