@@ -42,6 +42,13 @@ The fix reaches users only once the pkg is rebuilt and re-served; the `pkg-input
 hash already forces that (the new helper is a tracked install input). Building and
 serving is a release step, not this card.
 
+Recommended follow-on (deferred, needs a real Mac / operator, not doable in a bot
+session): one real multi-account `.pkg` install smoke that confirms end-to-end the
+GUI `Installer.app` owner is the invoking user and that a passing
+`launchctl print gui/<uid>` really does mean the downstream `asuser`/`bootstrap
+gui/<uid>` succeeds. The gate is not stricter than the existing requirement
+(downstream already needs that same session), so this is confidence, not a blocker.
+
 ## Weakest premise
 The awk that parses real `ps` output for GUI-Installer owners is exercised on
 canned lines, not a live `.pkg` install — a bot session cannot run a real install.

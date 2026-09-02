@@ -104,11 +104,18 @@ has "$RIU_REASON" "more than one account is running Installer" && pass "  and sa
 { has "$RIU_REASON" "bob" && has "$RIU_REASON" "carol"; } && pass "  and names both candidates" \
   || fail "  and names both candidates: $RIU_REASON"
 
-# --- ARM 6b: ambiguous but the console holder is one of them -> tiebreak ----
+# --- ARM 6b: ambiguous, and the console holder being one of them does NOT
+# tiebreak. Two Installer processes is genuinely ambiguous, so it refuses rather
+# than guess -- picking the console holder here would reintroduce the #1880 class
+# (the console holder may just have a stale Installer window open). #1880 review.
 STUB_CONSOLE="bob"; STUB_OWNERS=$'bob\ncarol'; STUB_SESSIONS="502 503"
 run; r="$RUN_RESULT"
-[ "$r" = "bob" ] && pass "ambiguous+console tiebreak: the console holder among them (bob) wins" \
-  || fail "ambiguous+console tiebreak: expected bob, got '$r'"
+[ "$r" = "<refused>" ] \
+  && pass "ambiguous: even when the console holder (bob) is one of two Installer owners, it refuses rather than guess" \
+  || fail "ambiguous+console: expected refusal (no tiebreak), got '$r'"
+has "$RIU_REASON" "more than one account is running Installer" \
+  && pass "  and still says it is ambiguous" \
+  || fail "  and still says it is ambiguous: $RIU_REASON"
 
 # --- ARM 7: Installer owner has NO session -> fall through to console -------
 STUB_CONSOLE="alice"; STUB_OWNERS="bob"; STUB_SESSIONS="501"   # bob(502) has no session

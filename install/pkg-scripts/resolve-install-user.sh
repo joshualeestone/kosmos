@@ -65,6 +65,12 @@ _riu_has_gui_session() { /bin/launchctl print "gui/$1" >/dev/null 2>&1; }
 # On success: sets INSTALL_USER + INSTALL_UID, returns 0.
 # On failure: sets RIU_REASON to a specific, user-facing explanation naming which
 #             check failed and the best guess if any, returns 1.
+#
+# RESERVED NAMES: because the postinstall SOURCES this file, the names it exports
+# into the caller's scope are reserved -- INSTALL_USER, INSTALL_UID, RIU_REASON,
+# and every _riu_* working variable/function. There is no `local` in POSIX sh, so
+# a postinstall that reuses one of these after the source would be silently
+# clobbered. (No collision today; postinstall uses different names.)
 resolve_install_user() {
   INSTALL_USER=""; INSTALL_UID=""; RIU_REASON=""
 
@@ -86,17 +92,23 @@ resolve_install_user() {
   fi
 
   # candidate 2 (fallback): the physical console user, but ONLY when it is a real
-  # user with a real Aqua session. When two accounts are both running Installer,
-  # this is also the tiebreak -- if the console holder is one of them, they win.
-  case "$_riu_console" in
-    ''|root|loginwindow) : ;;
-    *)
-      _riu_id="$(_riu_uid_for "$_riu_console")"
-      if [ -n "$_riu_id" ] && _riu_has_gui_session "$_riu_id"; then
-        INSTALL_USER="$_riu_console"; INSTALL_UID="$_riu_id"; return 0
-      fi
-      ;;
-  esac
+  # user with a real Aqua session AND the Installer owner was not AMBIGUOUS. When
+  # two accounts are BOTH running Installer we genuinely cannot tell who is
+  # driving THIS install, and picking the console holder there would reintroduce
+  # exactly the #1880 class -- the console holder may just have a stale Installer
+  # window open while the OTHER account is the real double-clicker. So on
+  # ambiguity we refuse and name both candidates, rather than guess.
+  if [ "$_riu_owner_count" -le 1 ]; then
+    case "$_riu_console" in
+      ''|root|loginwindow) : ;;
+      *)
+        _riu_id="$(_riu_uid_for "$_riu_console")"
+        if [ -n "$_riu_id" ] && _riu_has_gui_session "$_riu_id"; then
+          INSTALL_USER="$_riu_console"; INSTALL_UID="$_riu_id"; return 0
+        fi
+        ;;
+    esac
+  fi
 
   # could not tell -- say WHICH check failed and the best guess, never the flat
   # "no one is signed in".
