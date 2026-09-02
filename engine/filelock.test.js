@@ -1,0 +1,113 @@
+'use strict';
+
+/* Direct coverage for the shared file-lock primitive (kosmos#1823). The recovery
+ * paths (stale-steal, owner-less break, owner-token release, umask non-wedge) are
+ * exercised through both callers in chat.test.js and sendertoken.test.js; this file
+ * covers withFileLock's OWN parameterized surface — the opts messages and the
+ * waitMs/env override — which the wrappers pin to fixed values. */
+
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const { withFileLock, LOCK_STALE_MS, LOCK_WAIT_MS } = require('./filelock');
+
+function tmpFile(name) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'filelock-test-'));
+  return path.join(dir, name || 'target');
+}
+
+test('the ordinary case runs fn, returns its value, and releases the lock', () => {
+  const file = tmpFile();
+  const r = withFileLock(file, () => 'the-value');
+  assert.deepEqual(r, { ok: true, value: 'the-value' });
+  assert.ok(!fs.existsSync(file + '.lock'), 'the lock was left behind after an ordinary release');
+});
+
+test('an fn throw propagates (the lock never swallows it) and still releases', () => {
+  const file = tmpFile();
+  assert.throws(() => withFileLock(file, () => { throw new Error('boom'); }), /boom/);
+  assert.ok(!fs.existsSync(file + '.lock'), 'a throwing fn left the lock behind');
+});
+
+test('opts.busy names the message when a LIVE holder times out (string form)', () => {
+  const file = tmpFile();
+  fs.mkdirSync(file + '.lock');                 // a fresh (non-stale) held lock
+  try {
+    const r = withFileLock(file, () => 'unreached', { busy: 'CUSTOM BUSY', waitMs: 0 });
+    assert.deepEqual(r, { ok: false, because: 'CUSTOM BUSY' });
+  } finally { fs.rmSync(file + '.lock', { recursive: true, force: true }); }
+});
+
+test('opts.busy accepts a FUNCTION, evaluated at timeout', () => {
+  const file = tmpFile();
+  fs.mkdirSync(file + '.lock');
+  try {
+    let calls = 0;
+    const r = withFileLock(file, () => 'unreached', { busy: () => { calls += 1; return 'FN BUSY'; }, waitMs: 0 });
+    assert.deepEqual(r, { ok: false, because: 'FN BUSY' });
+    assert.equal(calls, 1, 'the busy function was evaluated exactly once, at the timeout');
+  } finally { fs.rmSync(file + '.lock', { recursive: true, force: true }); }
+});
+
+test('opts.waitMs overrides the default wait', () => {
+  const file = tmpFile();
+  fs.mkdirSync(file + '.lock');
+  try {
+    const t0 = Date.now();
+    const r = withFileLock(file, () => 'unreached', { busy: 'b', waitMs: 0 });
+    assert.equal(r.ok, false);
+    assert.ok(Date.now() - t0 < LOCK_WAIT_MS, 'waitMs:0 returned well before the 2s default');
+  } finally { fs.rmSync(file + '.lock', { recursive: true, force: true }); }
+});
+
+test('AGENT_WORKFORCE_LOCK_MS env overrides the wait when opts.waitMs is absent', () => {
+  const file = tmpFile();
+  fs.mkdirSync(file + '.lock');
+  const saved = process.env.AGENT_WORKFORCE_LOCK_MS;
+  process.env.AGENT_WORKFORCE_LOCK_MS = '0';
+  try {
+    const t0 = Date.now();
+    const r = withFileLock(file, () => 'unreached', { busy: 'b' });
+    assert.equal(r.ok, false);
+    assert.ok(Date.now() - t0 < LOCK_WAIT_MS, 'the env override returned before the 2s default');
+  } finally {
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_LOCK_MS; else process.env.AGENT_WORKFORCE_LOCK_MS = saved;
+    fs.rmSync(file + '.lock', { recursive: true, force: true });
+  }
+});
+
+test('a STALE lock (older than LOCK_STALE_MS) is stolen and the section runs', () => {
+  const file = tmpFile();
+  fs.mkdirSync(file + '.lock');
+  // Age it past the staleness bound.
+  const old = (Date.now() - LOCK_STALE_MS - 1000) / 1000;
+  fs.utimesSync(file + '.lock', old, old);
+  const r = withFileLock(file, () => 'ran');
+  assert.deepEqual(r, { ok: true, value: 'ran' });
+  assert.ok(!fs.existsSync(file + '.lock'), 'the stolen-then-run lock was released');
+});
+
+test('release removes OUR lock, never a successor that stole ours mid-section', () => {
+  const file = tmpFile();
+  const lock = file + '.lock';
+  withFileLock(file, () => {
+    // Simulate a successor stealing the lock while we hold it: rename ours away
+    // and plant a fresh lock with a DIFFERENT owner token.
+    fs.renameSync(lock, lock + '.taken');
+    fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, 'owner'), 'the-successor');
+  });
+  assert.ok(fs.existsSync(lock), 'the original holder deleted the successor’s lock on its way out');
+  assert.equal(fs.readFileSync(path.join(lock, 'owner'), 'utf8'), 'the-successor',
+    'the successor’s lock was replaced rather than left alone');
+});
+
+test('a non-EEXIST acquire failure is REPORTED, not thrown (opts.cannotAccess)', () => {
+  // A lock path whose parent does not exist -> mkdirSync throws ENOENT (not EEXIST).
+  const file = path.join(os.tmpdir(), 'filelock-test-nonexistent-' + process.pid, 'deep', 'target');
+  const r = withFileLock(file, () => 'unreached', { cannotAccess: 'NO ACCESS' });
+  assert.deepEqual(r, { ok: false, because: 'NO ACCESS' });
+});

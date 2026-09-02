@@ -62,6 +62,7 @@ const { execFileSync } = require('node:child_process');
 
 const store = require('./store');
 const status = require('./status');
+const { withFileLock } = require('./filelock');
 
 /**
  * Where a send got to. THREE values, and the third is the one that matters.
@@ -1526,10 +1527,10 @@ function readThread(projectId, agent, bornAt) {
  * otherwise wedge that one conversation forever, so a lock older than the bound
  * is broken rather than waited on — the window it protects is two file
  * operations, so anything older is debris rather than a live writer.
+ * (The lock itself now lives in engine/filelock.js, kosmos#1823; withThreadLock
+ * below delegates to it. This rationale is kept because the wait below is still
+ * paid on chat.js's own thread.)
  */
-const LOCK_STALE_MS = 10 * 1000;
-
-const LOCK_WAIT_MS = 2000;
 
 /**
  * Pause without a subprocess.
@@ -1547,11 +1548,11 @@ const LOCK_WAIT_MS = 2000;
  * process, no file descriptor and nothing to throw.
  *
  * ⚠️ AND IT BLOCKS THE WHOLE SERVER, which is single-threaded: while one
- * request waits out lock contention (up to LOCK_WAIT_MS, 2s), every other
+ * request waits out lock contention (up to ~2s, filelock's LOCK_WAIT_MS), every other
  * request on the machine stalls behind it. Bounded and rare (the lock is
  * per-thread-file and held for one read-modify-write), and far better than
  * the 15-second unbounded spin it replaced -- but a wait here is everybody
- * waiting, which is the cost to weigh before raising LOCK_WAIT_MS. And the
+ * waiting, which is the cost to weigh before raising the lock wait. And the
  * lock is the SMALL half of the request's blocking budget: deliver's tmux
  * path is up to three execFileSync calls at 5s timeout each (probe, text,
  * Enter), so a wedged tmux stalls the whole board ~15s on its own. ⚠️ A
@@ -1568,96 +1569,14 @@ function pauseMs(ms) {
 }
 
 function withThreadLock(file, fn) {
-  const lock = file + '.lock';
-  const until = Date.now() + LOCK_WAIT_MS;
-  for (;;) {
-    try {
-      fs.mkdirSync(lock);
-      break;
-    } catch (err) {
-      if (!err || err.code !== 'EEXIST') {
-        // We could not even attempt the lock (an unwritable directory, say).
-        // Answering rather than throwing keeps `appendMessage`'s contract: a
-        // recording failure is reported, never raised at a delivered message.
-        return { ok: false, because: 'we could not get exclusive access to this conversation' };
-      }
-      /**
-       * ⚠️ THE DEADLINE COVERS THIS BRANCH TOO, and the first version's did not.
-       * MEASURED: with a leftover lock directory that is not empty — a
-       * `.DS_Store` inside one left by a crash is enough — `rmdirSync` throws
-       * ENOTEMPTY, the catch swallowed it, `continue` re-entered `mkdirSync`,
-       * the age was still stale, and the loop ran forever. Inside the
-       * synchronous POST handler, on a single-threaded server: every request on
-       * the machine wedged behind one thread, with "Sending…" on screen. A
-       * fifteen-second spin was measured before it was killed by hand.
-       */
-      if (Date.now() > until) {
-        return { ok: false, because: lockedBecause() };
-      }
-      let age = 0;
-      try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch { age = Infinity; }
-      if (age > LOCK_STALE_MS) {
-        /**
-         * ⚠️ STOLEN BY RENAME, NOT BY `rmdir`, and that is what makes the break
-         * safe against a second breaker. Two writers can both measure the same
-         * lock as stale; with `rmdir` they both removed it and both proceeded —
-         * the second one demolishing the FIRST one's brand-new, perfectly
-         * fresh lock and walking straight into the critical section beside it.
-         * The interleave the lock exists to prevent, reachable only through the
-         * path that repairs it.
-         *
-         * `rename` of a path can only succeed ONCE: the loser gets ENOENT and
-         * goes back around, finds the winner's fresh lock, and waits like any
-         * other contender. It also copes with the non-empty directory that
-         * `rmdir` could not, which is the deadlock above.
-         */
-        const aside = `${lock}.${process.pid}.${Date.now()}.stale`;
-        try {
-          fs.renameSync(lock, aside);
-        } catch {
-          // Somebody else won the steal, or the lock vanished under us. Either
-          // way the next turn of the loop reads the world as it now is.
-          pauseMs(20);
-          continue;
-        }
-        // Ours to clean up, and `rm -r` because the thing that made the old
-        // path deadlock was a directory with something in it.
-        try { fs.rmSync(aside, { recursive: true, force: true }); } catch { /* debris, not fatal */ }
-        continue;
-      }
-      pauseMs(20);
-    }
-  }
-  /**
-   * ⚠️ WE RELEASE OUR OWN LOCK, NEVER WHOEVER'S IS THERE NOW.
-   *
-   * The `finally` removed the lock PATH unconditionally, which is right until
-   * one critical section outlives `LOCK_STALE_MS`. Then: this holder is still
-   * working, a second writer measures the lock as stale and steals it, and
-   * this holder's `finally` deletes the SUCCESSOR's brand-new lock — putting
-   * two writers inside at once by way of the cleanup. Unlikely (the section is
-   * two file operations) and cheap to close, which is the whole argument for
-   * closing it rather than reasoning about how unlikely it is.
-   *
-   * A token written into the lock is what makes ownership checkable. Losing the
-   * marker (an unwritable dir) is not a reason to fail the write — it only
-   * means we cannot prove the lock is ours, so we do not remove it and let the
-   * staleness rule collect it.
-   */
-  const token = `${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`;
-  let marked = false;
-  try { fs.writeFileSync(path.join(lock, 'owner'), token); marked = true; } catch { marked = false; }
-  try {
-    return { ok: true, value: fn() };
-  } finally {
-    let ours = marked;
-    if (marked) {
-      try { ours = fs.readFileSync(path.join(lock, 'owner'), 'utf8') === token; } catch { ours = false; }
-    }
-    if (ours) {
-      try { fs.rmSync(lock, { recursive: true, force: true }); } catch { /* already gone */ }
-    }
-  }
+  // Delegates to the shared primitive (kosmos#1823). `busy` and `cannotAccess`
+  // are this module's own messages; the rename-steal, age-staleness, owner-token
+  // release and umask chmod now live in engine/filelock.js, the one home for a
+  // lock chat.js and sendertoken.js had each copied.
+  return withFileLock(file, fn, {
+    busy: lockedBecause,
+    cannotAccess: 'we could not get exclusive access to this conversation',
+  });
 }
 
 /**

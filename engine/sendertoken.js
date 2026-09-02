@@ -53,6 +53,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 const securewrite = require('./securewrite');
+const { withFileLock } = require('./filelock');
 
 const DIR = path.join(store.ROOT, 'sendertokens');
 
@@ -142,95 +143,28 @@ function writeTokens(sessionName, tokens) {
    the case it must not produce. Same-process callers cannot hit it (`writeSecret`
    is synchronous), but two processes are a real launch pattern.
    ✅ A per-session lock serializes the whole critical section across processes. */
-/* ⭐ THIS LOCK IS chat.js's PROVEN `withThreadLock` (round 19), TRANSCRIBED
-   rather than reinvented. A first hand-rolled version reintroduced three bugs
-   chat.js had already fixed and a blind pass caught them: a `rmdir` break that
-   two waiters can BOTH win (each demolishing the other's fresh lock and walking
-   into the section together); a crash between `mkdir` and writing the owner that
-   leaves an owner-less lock no liveness check can break, wedging the session
-   forever; and no age fallback for either. The two file locks should be ONE
-   shared primitive, but that must touch chat.js (required fleet-wide via
-   status.js, which requires THIS module - so extracting it here would be
-   circular), so it is filed as its own reviewed change: kosmos#1823. */
-const LOCK_WAIT_MS = 2000;        // total wait for a live holder before failing safe
-const LOCK_STALE_MS = 10 * 1000;  // the section is two file ops; a lock older than this is debris, broken not waited
-const LOCK_SPIN_MS = 20;
-
-const PARK = new Int32Array(new SharedArrayBuffer(4));
-function pauseMs(ms) {
-  try { Atomics.wait(PARK, 0, 0, ms); }
-  catch { const end = Date.now() + ms; while (Date.now() < end) { /* no SharedArrayBuffer: bounded spin */ } }
-}
+/* The per-session lock now lives in engine/filelock.js (kosmos#1823). chat.js's
+   withThreadLock (round 19) and this module's withSessionLock (#1782, transcribed
+   from it after a blind pass caught three recovery-path bugs the first hand-rolled
+   version had) were two copies of one primitive; #1823 extracted it to a shared
+   leaf module both delegate to. filelock.js couldn't be chat.js or this module --
+   chat.js is required fleet-wide via status.js, which requires this module, so a
+   lock in either would be circular; a leaf breaks the cycle. */
 
 const LOCK_BUSY = 'the sender-token store is busy (ELOCKBUSY)';
 
-/* Run `fn` holding an exclusive per-session lock; returns `{ ok:true, value }`,
-   or `{ ok:false, because }` when the lock cannot be taken. It NEVER throws for
-   the lock itself - a `fn` throw propagates through the release. The lock is a
-   DIRECTORY (`mkdirSync` is atomic, EEXIST if held).
-
-   🛑 A stale lock is STOLEN BY RENAME, not `rmdir`. Two waiters can both measure
-   one as stale; with `rmdir` both remove it and both proceed - the second
-   demolishing the first's fresh lock and entering the section beside it, the
-   exact interleave this prevents, through the path that repairs it. `rename` of a
-   path succeeds ONCE; the loser gets ENOENT and loops. Rename also copes with a
-   non-empty lock dir a crash can leave, which `rmdir` cannot.
-   🛑 Staleness is by AGE, not owner liveness, so a crash between `mkdir` and the
-   owner write - an owner-less lock no liveness check could break - is collected. */
+/* Hold an exclusive per-session lock while running `fn`; returns `{ ok:true, value }`
+   or `{ ok:false, because }`. See engine/filelock.js for the lock mechanics
+   (rename-steal, age-staleness, owner-token release, umask chmod). */
 function withSessionLock(sessionName, fn) {
   securewrite.secureDir(DIR, 0o700);          // the lock lives inside the 0700 store dir
-  const lock = fileFor(sessionName) + '.lock';
-  const waitMs = Number(process.env.AGENT_WORKFORCE_LOCK_MS);
-  const until = Date.now() + (Number.isFinite(waitMs) && waitMs >= 0 ? waitMs : LOCK_WAIT_MS);
-  for (;;) {
-    try { fs.mkdirSync(lock); break; }
-    catch (e) {
-      if (!e || e.code !== 'EEXIST') return { ok: false, because: 'we could not get exclusive access to that agent\'s tokens' };
-      if (Date.now() > until) return { ok: false, because: LOCK_BUSY };
-      let age = 0;
-      try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch { age = Infinity; }
-      if (age > LOCK_STALE_MS) {
-        const aside = `${lock}.${process.pid}.${Date.now()}.stale`;
-        try { fs.renameSync(lock, aside); }
-        catch { pauseMs(LOCK_SPIN_MS); continue; }   // someone else won the steal, or it vanished
-        /* chmod so the recursive remove can read the dir: a holder that crashed
-           between the mkdir and the dir chmod under an owner-bit-clearing umask left
-           it un-readable, and rmSync must readdir to recurse (force suppresses
-           ENOENT, not EACCES). Best-effort; the leftover is inert either way (name
-           ends `.stale`, matched by no reader), this just avoids accumulating it. */
-        try { fs.chmodSync(aside, 0o700); } catch { /* best-effort */ }
-        try { fs.rmSync(aside, { recursive: true, force: true, maxRetries: 5 }); } catch { /* debris, not fatal */ }
-        continue;
-      }
-      pauseMs(LOCK_SPIN_MS);
-    }
-  }
-  /* 🛑 THE LOCK DIR AND ITS owner FILE MUST BE OWNER-ACCESSIBLE WHATEVER THE UMASK.
-     `mkdirSync`/`writeFileSync` take their mode from the process umask, and a
-     restrictive one (the #1761 umask test sets 0o600) leaves the dir without owner
-     WRITE (the owner file cannot be created) and the owner file without owner READ
-     (the release's `readFileSync` below then throws, `ours` is false, the lock is
-     NOT removed, and the session wedges: the next op finds a fresh un-releasable
-     lock). Passing a `mode` does not help - it is masked by the same umask. So
-     chmod both back to owner-only after creating them; best-effort, since a chmod
-     failure only means the release cannot prove ownership and leaves the lock for
-     the staleness rule. */
-  const ownerFile = path.join(lock, 'owner');
-  try { fs.chmodSync(lock, 0o700); } catch { /* best-effort */ }
-  /* A token in the lock makes ownership checkable, so a holder whose section
-     outlived LOCK_STALE_MS and was stolen does not delete the SUCCESSOR's lock on
-     the way out. Losing the marker (an unwritable dir) only means we cannot prove
-     the lock is ours, so we leave it for the staleness rule to collect. */
-  const token = `${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`;
-  let marked = false;
-  try { fs.writeFileSync(ownerFile, token); fs.chmodSync(ownerFile, 0o600); marked = true; } catch { marked = false; }
-  try {
-    return { ok: true, value: fn() };
-  } finally {
-    let ours = marked;
-    if (marked) { try { ours = fs.readFileSync(ownerFile, 'utf8') === token; } catch { ours = false; } }
-    if (ours) { try { fs.rmSync(lock, { recursive: true, force: true, maxRetries: 5 }); } catch { /* already gone */ } }
-  }
+  // Delegates to the shared primitive (kosmos#1823). `fileFor` gives the store
+  // path; withFileLock appends `.lock`. The AGENT_WORKFORCE_LOCK_MS override and
+  // all the recovery logic now live in engine/filelock.js.
+  return withFileLock(fileFor(sessionName), fn, {
+    busy: LOCK_BUSY,
+    cannotAccess: 'we could not get exclusive access to that agent\'s tokens',
+  });
 }
 
 /**
