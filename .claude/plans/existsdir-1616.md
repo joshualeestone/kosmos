@@ -168,3 +168,14 @@ of two lazy requires; the matcher discloses that its qualifier accepts one dotte
 the census names `reporthook.js`; the driver comment says "would fail", since that
 failure was not measured for the driver. The reviewer reproduced three revert rows and
 the driver revert (sweep only, as disclosed).
+
+## Challenge loop, iteration 5: CONVERGED
+
+Zero BLOCKERs, WARNINGs or CONVENTIONs. Four NITs, three applied after convergence with
+per-file runs green (the header says the KNOWN spellings cannot return; the installJob
+control asserts ok:true, measured under the fixture; the matcher's alternation is a named
+constant so the line fits). One NIT recorded and not applied: the helper `runnerRunnable`
+is a second spelling of `runners.isRunnable` in create.js, kept because it carries the
+comment at the one place a reader of the gates looks, and the sweep is on the OLD
+spelling, which the wrapper does not affect. The reviewer reproduced all six engine
+reverts and the driver revert.
