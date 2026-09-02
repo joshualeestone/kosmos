@@ -29,6 +29,12 @@ a bare path (or to module.FILE without making its now-leafed dir) failed to find
 Also corrected commitments.js's now-stale comment (the layout gap it described is closed: the store now
 lives at $DATA/AgentWorkforce/commitments, mirroring avatars/profiles).
 Full engine suite: 1928/1928 pass, 0 fail.
+- heartbeat-setting.test: its two direct hb.FILE writes were ORDER-DEPENDENT-green (an earlier
+  test's write() created the leaf dir; green in the full run, ENOENT in isolation). Added a
+  beforeEach mkdir dirname(hb.FILE) so each test is self-contained. (Caught by the blind review --
+  my first "four with no failure -> inert" read was wrong for this one.) policy.test and notify.test
+  were checked and are NOT order-dependent (policy's direct-write test passes in isolation; notify
+  has no direct FILE write).
 
 ## create.js:213-214 (the VARIANT) -- ASSESSED, and LEFT OUT, per the card's instruction
 supportDir() = `env ? join(env, 'AgentWorkforce') : join(home, 'Library','Application Support','AgentWorkforce')`.
