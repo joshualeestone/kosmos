@@ -62,23 +62,54 @@ checks begin but before the summary is LOUD, not silently green.
 The sentinel fires whenever bash runs its EXIT trap: the syntax-error death (the
 actual #1818 incident — bash exits itself), other error exits, and SIGTERM/SIGINT
 (the re-exec parent now converts these to an exit so its EXIT trap fires and thaws
-— see the Decision note; verified with a control that leaks the temp root when the
-trap is absent). It does NOT fire on SIGKILL (uncatchable), which is how the OOM
+— see the Decision note; note the parent-only-signal thaw-race in Known residual
+below). It does NOT fire on SIGKILL (uncatchable), which is how the OOM
 killer terminates. Option 1 already removes the edit-induced death, which was the
 incident; the residual SIGKILL/OOM case is named, not claimed covered.
 
+## Testing (tools/test-runner-reexec-1818.sh, wired into test:shell)
+
+Three arms, all browser-free and deterministic, each proven to catch its own
+regression by perturbing the fix and watching the arm go red:
+
+- **ARM 1 — re-exec fires and runs from an immutable path.** Creates its OWN
+  branch worktree off HEAD (so the symbolic-HEAD condition holds even in CI's
+  detached checkout — otherwise the arm would silently never run), runs the real
+  runner with no Playwright + `KOSMOS_SKIP_BROWSER_CHECKS=1` so it takes the clean
+  early skip, and asserts the parent froze, the child re-execed, and the child's
+  runner path is a distinct `kosmos-bc-freeze` copy — NOT the source `$0`. Proven:
+  committing a perturbation that removes the re-exec turns this red (2 fails).
+- **ARM 2 — a cut-short run is loud.** A narrow browser-free test seam
+  (`KOSMOS_BC_TEST_CUTSHORT`, off by default) reaches the `CHECKS_STARTED` state a
+  real kill leaves, without launching a browser; asserts the banner fires, says
+  "NOT a pass", exits non-zero, and writes an `incomplete-exit137` run-log line.
+  Proven: removing the banner condition turns this red (3 fails). ARM 1 also
+  asserts the banner does NOT false-fire on a legit early skip.
+- **ARM 3 — the frozen-runner child skips the live-run guard**, with a CONTROL
+  (same live probe, no `KOSMOS_BC_FROZEN_RUNNER`) that DOES refuse, proving the
+  probe can return the dangerous answer. Proven: removing the `:110` guard-skip
+  turns the subject red.
+
 ## Weakest premise
 
-The card reproduced the bug's SYMPTOM (a syntax error) with a control; my synthetic
-harness could not force bash 3.2 to re-read a particular file layout, so I proved the
-fix's GUARANTEE instead — deterministically — by hashing the running source
-(`BASH_SOURCE`): with the fix the running script lives on a separate, immutable path
-and its hash does not change under a mid-run in-place edit of the original; the
-control (no re-exec) runs from the mutable original and was demonstrably corrupted.
-The integration test confirms the real runner re-execs from the frozen path,
-thaws, and leaks nothing. What would strengthen it further: reproducing the exact
-syntax-error symptom against the real runner under a live gate — deferred because it
-requires the browser and a live gate, which the cut owns.
+ARM 1 proves the fix's GUARANTEE (the child runs from an immutable frozen path, so
+a mid-run edit to the source cannot reach the child's read), not the card's exact
+SYMPTOM (the specific syntax-error death against the real runner under a live gate),
+which is deferred because it needs the browser and a live gate the cut owns. The
+chain from guarantee to symptom is tight — the symptom WAS a corrupted read of the
+mutable `$0`, and the child no longer reads a mutable `$0` — but it is a chain, not
+a direct replay.
+
+## Known residual (named, not closed)
+
+A signal sent to the PARENT PID ALONE (`kill <parent>`) during a real minutes-long
+child run thaws the frozen worktree while the child still reads from it, so the
+child fails on a deleted path. This is a LOUD failure (a read error), not the
+silent-green class #1818 is about, and Ctrl-C (whole process group) is safe because
+the foreground child dies first. Left documented rather than closed with
+background-and-wait signal forwarding — more error-prone new safety code than the
+narrow, loud case warrants. Clean follow-up if it ever bites: forward the signal to
+the child and wait for it before thawing.
 
 ## The release-cut path is unchanged
 
