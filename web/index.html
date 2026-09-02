@@ -24244,7 +24244,12 @@ function fillCreateAccounts() {
       `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${labelOf(x)}</option>`).join('')
     : (openai ? '<option value="">The OpenAI sign-in on this computer</option>' : '<option value="">Your Claude account</option>');
 }
-document.getElementById('create-provider').addEventListener('change', () => {
+/* #1834: the provider's UI side effects -- disable the model picker for OpenAI,
+   fill the account menu by provider, set the model-why note -- live in ONE named
+   function so the change listener and the reset path below cannot drift. A second
+   copy of this logic is exactly the inconsistency #1786 scoped out when it left
+   the provider unreset rather than reset it in only one of the two places. */
+function applyCreateProviderUI() {
   const openai = document.getElementById('create-provider').value === 'openai';
   const model = document.getElementById('create-model');
   const acct = document.getElementById('create-account');
@@ -24259,7 +24264,23 @@ document.getElementById('create-provider').addEventListener('change', () => {
     if (why) why.textContent = '';
     paintModelWhy('create-model', 'create-model-why');
   }
-});
+}
+document.getElementById('create-provider').addEventListener('change', applyCreateProviderUI);
+
+/* #1834: reset the provider to the default (Claude) AND undo its change-handler
+   side effects. A form reset (openCreate) or a role re-pick (refillDetails) must
+   not be able to leave the provider on OpenAI while the rebuilt model menu lists
+   Claude models with the picker disabled -- a provider/model mismatch. Resetting
+   the value alone would not re-enable the model picker or restore the account
+   menu, so this routes through applyCreateProviderUI to stay identical to a
+   manual change back to Claude. `anthropic` is the select's own `selected`
+   default (see the #create-provider markup). */
+function resetCreateProvider() {
+  const prov = document.getElementById('create-provider');
+  if (!prov) return;
+  prov.value = 'anthropic';
+  applyCreateProviderUI();
+}
 
 async function changeModelNow(say) {
   if (!CURRENT) return;
@@ -24582,6 +24603,10 @@ function openCreate() {
   document.getElementById('genav-hint').textContent = '';
   INSTR_DIRTY = false; LABEL_DIRTY = false; CREATE_PROJECTS = [];
   FILLED_ROLE = null; LAST_MARK_SEED = null; PENDING_AVATAR = null;
+  // #1834: a reopened form starts on Claude, with the model picker enabled and
+  // the account menu on Claude accounts -- the same reset the role-change branch
+  // in refillDetails now performs, so the two entry paths stay consistent.
+  resetCreateProvider();
   LAST_TYPED_NAME = 'your agent';
   const genav = document.getElementById('genav');
   genav.classList.add('empty');
@@ -25123,12 +25148,14 @@ function refillDetails(resetDirty) {
        change; the mark is redrawn by role-next's drawCreateMark() after this returns.) The name
        is cleared BEFORE instrTemplate() below so the refilled template's {{NAME}} reads the
        default rather than the previous role's typed name.
-       ⚠️ create-provider is deliberately NOT reset here, because openCreate does not reset it
-       either: this branch matches openCreate's step-two FIELD reset (the list above), so open and
-       role-change stay consistent. Whether the provider (and its change-handler side effects) should be reset at
-       all is a separate, broader decision that would have to change openCreate too; carded as a
-       follow-up rather than made inconsistent here. CREATE_PROJECTS is reset for uniformity but
-       is currently a no-op: the projects picker was removed 2026-08-22 and nothing populates it. */
+       #1834: create-provider IS now reset here, via resetCreateProvider() below, and openCreate
+       resets it the same way -- so open and role-change stay consistent (the property the earlier
+       version of this comment kept by resetting the provider in NEITHER place; #1834 is the
+       follow-up it named). resetCreateProvider also undoes the change-handler side effects
+       (re-enables the model picker, restores the account menu, clears the OpenAI model-why note),
+       which a bare value reset would leave stale against the Claude model menu that role-next's
+       loadCreateExtras() rebuilds right after this returns. CREATE_PROJECTS is reset for uniformity
+       but is currently a no-op: the projects picker was removed 2026-08-22 and nothing populates it. */
     document.getElementById('create-name').value = '';
     document.getElementById('create-msg').textContent = '';
     AVATAR_FILE = null;
@@ -25137,6 +25164,12 @@ function refillDetails(resetDirty) {
     CREATE_PROJECTS = [];
     LAST_MARK_SEED = null;
     PENDING_AVATAR = null;
+    // #1834: back to Claude with the model picker enabled and the account menu on
+    // Claude accounts, matching openCreate. Without this a role re-pick after an
+    // OpenAI selection would leave the provider on OpenAI while loadCreateExtras()
+    // (which role-next calls right after this) rebuilds the model menu with Claude
+    // models and the picker still disabled -- a provider/model mismatch.
+    resetCreateProvider();
   }
   // own's label is the person's own words: empty and gated, never defaulted
   // ("nobody wants an agent whose job is Custom").
