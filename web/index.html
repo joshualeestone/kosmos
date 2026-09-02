@@ -31851,7 +31851,24 @@ function frActions(primary, alt) {
      was not expressible and the screen that needs it would have crashed. */
   if (!primary) {
     next.hidden = true;
-    other.hidden = true;
+    /* 🛑 #1835: a null primary is NOT always "no buttons". The connect / sign-in
+       flow calls frActions(null, { label: 'Cancel', ... }) and the model step
+       calls it with a "Skip connecting a model" alt; only the agent-search
+       screen described above passes NEITHER. So render the alt when one is
+       present, and hide both only when the alt is also absent. Without this,
+       five first-run buttons never paint: the four Cancels across download,
+       install and sign-in, and the model step's Skip. Mirrors the alt block
+       below exactly (label, handler, enabled reset, is-link toggle). */
+    if (alt) {
+      other.hidden = false;
+      other.textContent = alt.label;
+      other.onclick = alt.go;
+      other.disabled = false;
+      other.classList.toggle('is-link', alt.link === true);
+    } else {
+      other.hidden = true;
+      other.onclick = null;
+    }
     return;
   }
   next.hidden = false;
