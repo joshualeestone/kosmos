@@ -412,6 +412,35 @@ async function measure(engine, scheme) {
       }
       console.log(`  fields level with their container: ${level}`);
 
+      /* #1800: THE TWO TEXTAREAS ON THE CREATE FLOW ARE ONE CONTROL AND MUST LOOK IT.
+         `#create-instr` (describe it yourself) and `#import-text` (paste an agent file)
+         are the same kind of box a person types into, on the same screen, and the
+         second shipped with width only: browser-default fill, no border, no radius.
+         The generic level check above caught it in light (white on the card's white)
+         and the scheme-flip check caught it in dark, both by accident of the default
+         colours. This pins the intent directly, so it fails when the two drift for ANY
+         reason, not only when the default happens to match the card.
+         ⚠️ FLOOR FIRST: both must be REACHED. A renamed id or a panel this fixture no
+         longer unhides would make a same-appearance test vacuously true. */
+      const instr = r.fields.find((f) => f.id === 'create-instr');
+      const imp = r.fields.find((f) => f.id === 'import-text');
+      if (!instr || !imp) {
+        fail(`${engine}/${scheme} #1800 floor: create-instr ${instr ? 'seen' : 'MISSING'}, import-text ${imp ? 'seen' : 'MISSING'}; the pair check cannot run`);
+      } else {
+        /* ⚠️ BORDER AND RADIUS, NOT FILL. The fill is `--field-fill`, which each container
+           sets so a field is never its own card's colour: measured on the fix, #create-instr
+           is white on the paper panel and #import-text is paper on the white rolepick card
+           (light), and k-surface vs bg in dark. Same rule, different resolved colour, BY
+           DESIGN. A first version of this check compared fills and went red on a correct
+           build; what the shared rule actually guarantees is the dressing (border colour,
+           radius) and that each box stands apart from ITS OWN container, asserted below. */
+        const same = instr.border === imp.border && instr.radius === imp.radius;
+        if (!same) fail(`${engine}/${scheme} #1800 #import-text is not dressed like #create-instr: border ${imp.border} vs ${instr.border}, radius ${imp.radius} vs ${instr.radius}`);
+        const rr = imp.box && imp.fill ? ratio(imp.fill, imp.box) : null;
+        if (rr === null || rr < 1.03) fail(`${engine}/${scheme} #1800 #import-text is not distinguishable from ${imp.boxName} (${imp.fill} on ${imp.box})`);
+        console.log(`  #1800 import box dressed like its sibling textarea: ${same ? 'yes' : 'NO'}; apart from ${imp.boxName} at ${rr === null ? 'n/a' : rr.toFixed(2)} (${imp.fill} on ${imp.box})`);
+      }
+
       /* ⚠️ EVERY CONTROL, BY EITHER CHANNEL. A button whose fill matches its
          container is fine — that is what raised-with-a-border looks like — and a
          button that matches on BOTH fill and border is invisible. The threshold

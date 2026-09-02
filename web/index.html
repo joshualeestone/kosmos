@@ -4403,9 +4403,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    it here is what made this control and #create-model drift apart in the first
    place: two copies of one appearance, edited on different days. */
 .rolepick select { width: 100%; }
-/* #1652 import panel: the paste box fills the panel like the select does, and
-   the file / load buttons sit on one row. */
-#import-text { width: 100%; box-sizing: border-box; }
+/* #1652 import panel: the paste box is dressed with `#create-instr` above (one
+   rule, one appearance, #1800); only the button row is declared here. */
 .importrow { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
 /* The limit on a role that has one, read while choosing rather than discovered
    afterwards. Weight and a rule, never hue: it has to survive greyscale like
@@ -4566,11 +4565,19 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    right only because `#panel-create` inherits the root `--field-fill`, which is
    the same token by coincidence -- move this textarea into any elevated
    container and it is the white-on-white defect this branch is about. */
-#create-instr { width: 100%; font: var(--text-callout) var(--font-mono);
+/* #1800: the import paste box (#1652) is the SAME control on the same flow, a
+   textarea a person types or pastes agent text into, and it shipped with width
+   only: no fill, no border, no radius. Inside `.rolepick` (an elevated white
+   card) the browser default painted it the card's own white in light, and a
+   scheme-dependent grey in dark, so it read as a flat region rather than a
+   field and its relationship to its container FLIPPED between schemes. One
+   selector, one appearance: two copies edited on different days is what made
+   `.rolepick select` and `#create-model` drift apart before. */
+#create-instr, #import-text { width: 100%; font: var(--text-callout) var(--font-mono);
   color: var(--label); background: var(--field-fill);
   border: 0.5px solid var(--border-strong); border-radius: var(--radius-control);
   padding: 10px 12px; resize: vertical; box-sizing: border-box; }
-#create-instr:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+#create-instr:focus-visible, #import-text:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .flabel-soft { font-weight: 400; color: var(--label-2); }
 /* ⚠️ CHIPS THAT WRAP, which is the pack's own rule and which the build had
    replaced with a single-column grid of full-width rows. That is why Josh
