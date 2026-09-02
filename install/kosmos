@@ -881,7 +881,7 @@ if [ "$_kosmos_help" = 1 ]; then
     msg|reply|post|report|room|adopt|whoami) set -- "$1" ;;
     *)
       printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | adopt | whoami\n\n'
-      printf '  Add --help to see what a command takes; it never acts, except adopt, which shows you its plan.\n'
+      printf '  Add --help to see what a command takes; it never acts, except adopt and whoami, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
       exit 0
