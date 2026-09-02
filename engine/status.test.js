@@ -1662,8 +1662,9 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     'a quoted copy high on the screen was read as a live status line');
 
   /**
-   * 🛑 THE GUARD THAT MAKES THE RULE SAFE TO HAVE. The 2.1.258 bundle carries 24
-   * distinct `Waiting for …` strings and they are NOT one state: several mean
+   * 🛑 THE GUARD THAT MAKES THE RULE SAFE TO HAVE. The bundle carries many
+   * distinct `Waiting for …` strings (counted once, with its command, where
+   * `BACKGROUND_AGENT_WAIT` is defined) and they are NOT one state: several mean
    * BLOCKED ON A HUMAN. If this rule ever widens to a bare `Waiting for …`, every
    * one of these starts reporting as busy and hides an agent that needs you,
    * which is worse than the miss the rule was added to fix.
@@ -1738,12 +1739,37 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    * false-calm class the comment claimed was closed while covering 1 of 7 cases.
    * This loop drops each space in turn, which is what the join does.
    */
-  const spaced = '✻ Waiting for 1 background agent to finish';
+  /* Both arms, because the workflow alternative added later carried the same
+     literal-space defect and the loop below only covered the agent arm. */
+  for (const spaced of [
+    '✻ Waiting for 1 background agent to finish',
+    '✻ Waiting for 2 dynamic workflows to finish',
+    '✻ Waiting for 1 background agent and 2 dynamic workflows to finish',
+  ]) {
   for (let i = 0; i < spaced.length; i += 1) {
     if (spaced[i] !== ' ') continue;
     const wrapped = spaced.slice(0, i) + spaced.slice(i + 1);
     assert.equal(classify(pane, wrapped + footer + liveRow).state, 'working',
       'a wrap-eaten space at index ' + i + ' stopped the reader matching: ' + wrapped);
+  }
+  }
+
+  /**
+   * 🛑 THE VENDOR APPENDS ` · …` SUFFIXES TO THIS ROW, so a BARE `$` anchor
+   * rejects real renders. The wait row is one Ink `<Text>` whose later children
+   * are ungated: a budget readout, its nudges, and a hidden-message count all
+   * follow `to finish` on the same line. All three returned `idle` under the bare
+   * anchor -- the false calm reintroduced by the fix for a different false
+   * positive. The tail is optional but must begin ` · `, which prose does not.
+   */
+  for (const suffixed of [
+    '✻ Waiting for 1 background agent to finish · 3 messages hidden (/focus to show)',
+    '✻ Waiting for 1 background agent to finish · 45.2k / 100k (45%)',
+    '✻ Waiting for 1 background agent to finish · 45.2k / 100k (45%) · 2 nudges',
+    '✻ Waiting for 1 background agent and 2 dynamic workflows to finish · 1 message hidden',
+  ]) {
+    assert.equal(classify(pane, suffixed + footer + liveRow).state, 'working',
+      'a real vendor suffix after "to finish" was rejected: ' + suffixed);
   }
 
   /**

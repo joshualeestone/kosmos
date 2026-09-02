@@ -1832,8 +1832,14 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    finish` is a real render. The pattern needs: the glyph, `Waiting for`, either
    counter phrase, and `to finish` ENDING the line.
 
-   🛑 THE `$` IS LOAD-BEARING. Without it the pattern matches any sentence
-   CONTAINING the phrase, including prose about this feature.
+   🛑 THE `$` IS LOAD-BEARING, BUT IT MUST ALLOW THE VENDOR'S ` · …` SUFFIXES.
+   Without any anchor the pattern matches every sentence CONTAINING the phrase,
+   including prose about this feature. With a BARE anchor it rejects real renders:
+   the wait row is one Ink `<Text>` whose later children are ungated, so a budget
+   readout (`· 45.2k / 100k (45%)`), its nudges, and a hidden-message count
+   (`· 3 messages hidden (/focus to show)`) all append after `to finish`. Both
+   were measured returning `idle`. So the tail is optional but must start with
+   ` · `, which the vendor always uses as its separator and prose does not.
    🛑 SPACES ARE `\s*`. `capturePane` passes `-J`, which joins a wrapped row with
    NO separator, so a space on the wrap boundary is gone (#1234). All seven are
    optional; two of them were not, and that was a silent `idle` on a narrow pane.
@@ -1860,22 +1866,7 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    📌 History, corrections, and the measurements behind every number above:
    `.claude/plans/panefixtures-1889.md`. */
 const BACKGROUND_AGENT_WAIT =
-  /^\s*[·✢✳✶✻✽]\s*Waiting\s*for\s*.*(?:background\s*agents?|dynamic\s*workflows?).*to\s*finish\s*$/u;
-
-/* 🛑 `*` IS DELIBERATELY NOT IN THAT GLYPH CLASS, THOUGH `WORKING_LINE` HAS IT.
-   Its comment keeps `*` "because an echoed line would need the ellipsis AND a
-   live timer to slip through" -- two things that must coincide. THIS line has
-   neither, so the sibling's justification does not transfer, and with `*`
-   included an ordinary markdown bullet matches:
-     `* Waiting for 3 background agents to finish`  -> would read WORKING
-   A pane full of markdown would then report a busy agent. Dropped.
-
-   🛑 AND THE `m` FLAG IS GONE ON PURPOSE. With `m` plus `\s*` between tokens the
-   pattern spans rows -- measured: `'✻\nWaiting for 1 background agent to finish'`
-   matched. That is harmless while `backgroundAgentWait` feeds it ONE ROW AT A
-   TIME, and a trap for the next editor, because the sibling it copies
-   (`WORKING_LINE`) is applied to the whole tail. Without `m`, `^` means start of
-   input and the constant is per-row by construction rather than by convention. */
+  /^\s*[·✢✳✶✻✽]\s*Waiting\s*for\s*.*(?:background\s*agents?|dynamic\s*workflows?).*to\s*finish(?:\s*·[^\n]*)?\s*$/u;
 
 /* #1889. How far above the COMPOSER ROW the wait line may sit and still be the
    live status line rather than a quotation.
@@ -1975,9 +1966,10 @@ function backgroundAgentWait(text) {
     if (!BACKGROUND_AGENT_WAIT.test(rows[i])) continue;
     /* The composer row below this line, if there is one. A live status line is
        drawn immediately above the composer; a quotation scrolled up the screen
-       is not. Falls back to the last non-empty row when no composer is on
-       screen (a dialog replaces it), which is the pre-composer behaviour and no
-       worse than having no guard there. */
+       is not. With no composer on screen (a dialog replaces it) this returns
+       null: a MISS, never a false calm. An earlier version of this sentence
+       described a fallback to the last non-empty row; that fallback was removed
+       and the sentence was not, so it described the opposite of the code. */
     /* 🛑 THE LAST `❯`, NOT THE FIRST. The composer is the BOTTOM prompt row, so
        taking the first one below the wait line anchors on any `❯` that happens to
        be in the transcript -- a quoted shell prompt, a pasted terminal session, a
@@ -1985,14 +1977,14 @@ function backgroundAgentWait(text) {
        quoted `❯` plus a plugin-list `◯` classified `working`, which is exactly the
        finished-agent false calm the liveness gate exists to close, reopened by one
        quoted glyph. Removing the `break` fixes it and no fixture noticed either
-       way, which is why this needed its own row below. */
+       way, which is why it has its own row in the test. */
     let anchor = -1;
     for (let j = i + 1; j <= last; j += 1) {
       if (/^\s*❯/.test(rows[j])) anchor = j;
     }
-    /* No composer on screen (a dialog replaces it). The slice below is then empty
-       or blank-only, so this returns null: a MISS, never a false calm. Stated as
-       what it does rather than as "pre-composer behaviour", which it is not. */
+    /* No composer on screen (a dialog replaces it) -> return null. A MISS, never
+       a false calm. There is no fallback to the last row: an earlier comment said
+       there was, and it survived the change that removed it. */
     if (anchor === -1) return null;
     if (anchor - i > BACKGROUND_AGENT_WAIT_REACH) continue;
     /* The wait line survives the wait. Only a live `◯` row proves the agent is
