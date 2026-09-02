@@ -1823,6 +1823,13 @@ const WORKING_LINE = /^\s*[·✢✳✶✻✽*] \S+…\s+\((?:\d+h\s+)?(?:\d+m\s+
  */
 const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
 
+/* #1889. The background-agent wait line, glyph-anchored exactly as WORKING_LINE
+   is, and requiring the `background agent` phrase so the 23 other `Waiting for …`
+   strings in the bundle (several of which mean BLOCKED ON A HUMAN) cannot reach
+   the WORKING branch through it. Verbatim shape, live 2.1.258:
+     ✻ Waiting for 1 background agent to finish */
+const BACKGROUND_AGENT_WAIT = /^\s*[·✢✳✶✻✽*] Waiting for \d+ background agents? to finish/mu;
+
 /**
  * The first line of `text` that any of `markers` matches, or null.
  *
@@ -2475,6 +2482,50 @@ function classify(pane, paneText) {
   }
   if (INTERRUPT_LINE.test(tail)) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
+  }
+  /**
+   * #1889. A SECOND mid-turn shape that carries NO timer, so `WORKING_LINE`
+   * below cannot match it:
+   *
+   *   ✻ Waiting for 1 background agent to finish
+   *
+   * CAPTURED VERBATIM from a live pane (icecreamkitty-discord:0.0, Claude Code
+   * 2.1.258, 2026-09-02), not composed here. Measured on that capture: with the
+   * scrapers alone `classify()` returned `idle`, "it is sitting at its prompt",
+   * while the agent was genuinely mid-turn. On that pane a DIFFERENT arm (the
+   * process read, "running Bash") happened to catch it, which is precisely why
+   * this stayed invisible: the scraper was wrong and something else was right.
+   * An agent waiting on a background agent with no shell running reads idle.
+   *
+   * 🔑 AND A STATIC GREP COULD NOT HAVE FOUND IT. The count is interpolated, so
+   * the literal line is nowhere in the bundle -- the card's own point that
+   * dynamically-composed lines are invisible to a string search, demonstrated
+   * against the very reader it was filed about.
+   *
+   * ⚠️ DELIBERATELY NARROW, AND THE WIDER RULE WOULD BE A REGRESSION. The 2.1.258
+   * bundle carries 24 distinct `Waiting for …` strings and they are NOT one
+   * state. Some are autonomous waits (API response, CI, findings, server, task);
+   * others are blocked ON A HUMAN (`Waiting for permission`, `Waiting for
+   * authorization`, `Waiting for team lead approval`, `Waiting for sign-in to
+   * complete in your browser`). A blanket `Waiting for …` -> WORKING would report
+   * every one of those second group as busy and hide an agent that needs you,
+   * which is the false-calm direction this card exists to close and the exact
+   * "the fix for a finding introduces a worse finding" shape `status.test.js`
+   * warns about above its footer row.
+   *
+   * 🛑 SO THIS KEYS ONLY ON THE ONE SHAPE OBSERVED ON A REAL PANE. The other 23
+   * are a NAMED, UNRESOLVED RISK rather than a handled case: none has been seen
+   * rendered, and this repo's standard is that a static string is a screen and
+   * not the truth. Do not widen this without a live capture of the shape you are
+   * widening it to, and route the human-blocked ones to NEEDS_YOU, never here.
+   */
+  if (BACKGROUND_AGENT_WAIT.test(tail)) {
+    return {
+      state: STATE.WORKING,
+      confidence: CONFIDENCE.SCRAPED,
+      because: 'it is waiting on a background agent',
+      evidence: matchedLine(tail, [BACKGROUND_AGENT_WAIT]),
+    };
   }
   /**
    * The CURRENT spinner line, keyed on structure rather than vocabulary

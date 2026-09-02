@@ -1571,6 +1571,57 @@ test('an agent sitting at its prompt is idle, not unreadable', () => {
   assert.equal(silent.state, 'unknown', 'unknown stopped being reachable, so nothing is honest any more');
 });
 
+test('#1889: the background-agent wait line is a working shape with no timer', () => {
+  /**
+   * CAPTURED VERBATIM from a live pane, not composed here:
+   * icecreamkitty-discord:0.0, Claude Code 2.1.258, 2026-09-02.
+   *
+   * 🔑 THE POINT OF THE ROW. This line carries a spinner glyph but NO gerund
+   * ellipsis and NO parenthesised timer, so `WORKING_LINE` cannot match it.
+   * Measured before the fix: `classify()` returned `idle`, "it is sitting at
+   * its prompt", on a genuinely mid-turn agent. That is #1884's direction
+   * exactly -- the false calm nobody investigates.
+   *
+   * ⚠️ AND IT WAS MASKED, WHICH IS WHY IT SURVIVED. On the real pane a
+   * DIFFERENT arm (the process read, "running Bash") returned working, so the
+   * board was right while the scraper was wrong. An agent waiting on a
+   * background agent with no shell running is the case nothing catches.
+   *
+   * 📌 A STATIC GREP COULD NOT HAVE FOUND THIS. The count is interpolated, so
+   * the literal string is nowhere in the 2.1.258 bundle.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+
+  const live = '  Waiting for both.\n\n✻ Waiting for 1 background agent to finish';
+  const got = classify(pane, live + footer);
+  assert.equal(got.state, 'working', 'a live background-agent wait read as idle');
+  assert.match(got.because, /background agent/);
+  assert.equal(got.evidence, '✻ Waiting for 1 background agent to finish',
+    'the evidence must be the line as drawn, not a paraphrase');
+
+  // The plural, since the count is interpolated and 1 is not special.
+  assert.equal(classify(pane, '✻ Waiting for 3 background agents to finish' + footer).state, 'working');
+
+  /**
+   * 🛑 THE GUARD THAT MAKES THE RULE SAFE TO HAVE. The 2.1.258 bundle carries 24
+   * distinct `Waiting for …` strings and they are NOT one state: several mean
+   * BLOCKED ON A HUMAN. If this rule ever widens to a bare `Waiting for …`, every
+   * one of these starts reporting as busy and hides an agent that needs you,
+   * which is worse than the miss the rule was added to fix.
+   */
+  for (const human of [
+    '✻ Waiting for permission',
+    '✻ Waiting for authorization',
+    '✻ Waiting for team lead approval',
+    '✻ Waiting for sign-in to complete in your browser',
+  ]) {
+    assert.notEqual(classify(pane, human + footer).state, 'working',
+      'a human-blocked wait reached WORKING through the background-agent rule: ' + human);
+  }
+});
+
 test('a card reads the transcript of ITS OWN session, not of the name it shares', () => {
   // ⚠️ The board's name is the session with `-discord` stripped, so `foo` and
   // `foo-discord` are one name and two sessions — the collision this module
