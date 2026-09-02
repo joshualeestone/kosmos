@@ -34,6 +34,11 @@ const CASES = [
   ['decimal entity', 'a &#8212; b\n', /&#8212;/],
   ['hex entity', 'a &#x2014; b\n', /&#x2014;/],
   ['source escape', 'a \\u2014 b\n', /source escape/],
+  // Leading-zero numeric entities render as the em dash exactly the same, and a
+  // pattern pinned to the un-padded form was a false negative on the gate path.
+  ['zero-padded decimal entity', 'a &#08212; b\n', /&#8212;/],
+  ['zero-padded hex entity', 'a &#x02014; b\n', /&#x2014;/],
+  ['many-zero decimal entity', 'a &#0008212; b\n', /&#8212;/],
 ];
 
 for (const [label, text, expect] of CASES) {
@@ -67,6 +72,16 @@ test('backticks ADVISE and do not block, because quoting code is correct', () =>
     assert.strictEqual(r.status, 0, 'backticks alone must not fail the check');
     assert.match(r.stderr, /--body-file/, 'the backtick advice must name the remedy');
     assert.match(r.stderr, /EXECUTES/, 'it must say what actually happens');
+  });
+});
+
+test('$(...) and ${...} advise like backticks, since --body executes them the same way', () => {
+  // A body with no backticks but a command substitution / parameter expansion
+  // is equally destroyed by `--body "..."`, and the advice used to miss it.
+  withBody('run $(whoami) in ${HOME}\n', (_f, r) => {
+    assert.strictEqual(r.status, 0, 'command substitution alone must not fail the check');
+    assert.match(r.stderr, /--body-file/, 'the advice must name the remedy');
+    assert.match(r.stderr, /\$\(/, 'the advice must name the $(...) form, not only backticks');
   });
 });
 

@@ -9,7 +9,9 @@
  * 1. `gh ... --body "..."` with DOUBLE QUOTES executes backticks in the body.
  *    A backticked function name RUNS AS A COMMAND and the literal text is gone.
  *    Measured: a name that appeared twice in the source appeared ZERO times in
- *    the posted body. Nothing errors, and the PR looks written.
+ *    the posted body. Nothing errors, and the PR looks written. `$(...)` and
+ *    `${...}` are executed and expanded the same way inside double quotes, so
+ *    the advice names all three.
  *
  * 2. Nothing sweeps what we post for em dashes. Josh's one absolute rule, and
  *    PR bodies were the surface with no guard at all: `engine/create.test.js`
@@ -47,8 +49,12 @@ const fs = require('fs');
 const SPELLINGS = [
   { name: 'literal em dash', pat: /—/g },
   { name: 'HTML entity &mdash;', pat: /&mdash;/g },
-  { name: 'decimal entity &#8212;', pat: /&#8212;/g },
-  { name: 'hex entity &#x2014;', pat: /&#x2014;/gi },
+  // `0*` because a numeric entity renders the same with any number of leading
+  // zeros: `&#08212;` and `&#0008212;` are the em dash exactly as `&#8212;` is,
+  // and a pattern pinned to the un-padded form is a false negative on the guard
+  // path -- the class this tool exists to close.
+  { name: 'decimal entity &#8212;', pat: /&#0*8212;/g },
+  { name: 'hex entity &#x2014;', pat: /&#x0*2014;/gi },
   { name: 'source escape \\u2014', pat: /\\u\{?2014\}?/g },
 ];
 
@@ -67,7 +73,11 @@ function check(text) {
     }
   }
   const ticks = (text.match(/`/g) || []).length;
-  return { problems, ticks };
+  // `$(...)` command substitution and `${...}` parameter expansion are executed
+  // inside double quotes exactly as backticks are, so they carry the identical
+  // --body "..." danger and belong in the same advice.
+  const subs = (text.match(/\$\(|\$\{/g) || []).length;
+  return { problems, ticks, subs };
 }
 
 function main(argv) {
@@ -82,7 +92,7 @@ function main(argv) {
     process.stderr.write(`check-post-body: ${e.message}\n`);
     return 2;
   }
-  const { problems, ticks } = check(text);
+  const { problems, ticks, subs } = check(text);
 
   for (const p of problems) {
     process.stdout.write(`${argv[0]}:${p.line}: ${p.name}\n`);
@@ -100,11 +110,14 @@ function main(argv) {
      --body-file. Refusing here would make the tool wrong about good input and
      it would be switched off. So it says the one sentence that matters, only
      when there is something to lose. */
-  if (ticks > 0) {
+  if (ticks > 0 || subs > 0) {
+    const bits = [];
+    if (ticks > 0) bits.push(`${ticks} backtick(s)`);
+    if (subs > 0) bits.push(`${subs} $(...) or \${...} form(s)`);
     process.stderr.write(
-      `check-post-body: this body contains ${ticks} backtick(s). Post it with ` +
-        '--body-file. With --body "..." the shell EXECUTES them and the text ' +
-        'vanishes silently.\n'
+      `check-post-body: this body contains ${bits.join(' and ')}. Post it with ` +
+        '--body-file. With --body "..." the shell EXECUTES backticks and $(...) ' +
+        'and expands ${...}, and the text vanishes silently.\n'
     );
   }
   return problems.length ? 1 : 0;
