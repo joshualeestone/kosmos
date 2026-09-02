@@ -126,5 +126,9 @@ test('#1787: a writer throw comes back as a refusal, not an unreadable-request e
     + 'request" on a token Cloudflare accepted');
   assert.match(String((st && st.refused) || ''), /could not save the token/,
     'the write failure was not reported as a refusal');
+  /* Pins the FIXTURE, not the contract: no token is on disk here, so nothing is left
+     to verify. With a prior token held and the new write failing after a successful
+     restore, connected:true beside refused is the honest answer, and this would not
+     assert it. */
   assert.equal(st.connected, false, 'a failed write reported as connected');
 });

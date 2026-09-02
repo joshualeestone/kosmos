@@ -276,10 +276,12 @@ function stopPolling() { if (POLL) { clearTimeout(POLL); POLL = null; } }
    and the next flow's start() then overwrote the failure it produced with a fresh
    awaiting, so the sign-in silently started over. One integer closes it: every flow
    boundary bumps GEN; start() takes its generation right after the bump and BINDS it
-   into every poll it schedules; pollOnce checks it at entry and again after the round
-   trip (and a fetch that FAILS reschedules through schedulePoll, which refuses a stale
-   generation so a stale reschedule cannot clear the live flow's timer); and start() itself bails after its own device-code request if
-   the generation moved while that request was out (a cancel during the request must
+   into every poll it schedules; pollOnce checks it after the round trip (an entry
+   check was written and removed: a timer only ever exists for the live generation, so
+   it could never go red); a fetch that FAILS reschedules through schedulePoll, which
+   refuses a stale generation so a stale reschedule cannot clear the live flow's timer;
+   and start() itself bails after its own device-code request if the generation moved
+   while that request was out (a cancel during the request must
    cancel). A reschedule is the SAME flow continuing, so it carries the same generation
    and does not bump. ⚠️ An earlier version read GEN when the poll FIRED rather than
    binding it when the flow scheduled it, and a blind reviewer reproduced both holes:

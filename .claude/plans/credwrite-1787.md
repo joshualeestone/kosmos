@@ -221,3 +221,17 @@ restore loop does; a garbled sentence in the restore comment is fixed. From iter
 tail: the fallback's best-effort fchmod names its cost (the sentence the extraction had
 dropped from sendertoken.js), and three "victim was written through" assertions that could
 not fail are replaced by the reason they could not.
+
+## Iteration 11 (2026-09-01 19:45): forget() had no arm
+
+The reviewer cleared the generation binding (every bump is an abandonment, every
+abandonment clears the one timer, no path discards a live flow, two concurrent starts
+resolve in either order) and found the one edit nothing watched: `forget()`'s bump.
+Replacing it with `stopPolling()` left all fifteen arms green while a token arriving
+after Forget was written into the file the person had just deleted. An arm now holds
+that answer across the forget and asserts nothing is stored and nothing is held; red by
+name under the mutation. Also: the header no longer claims the entry check iteration 10
+removed; a stale comment about path-addressed writes is corrected; the partial-temp
+arm's fd set forgets a descriptor on close (numbers are reused, and the set had been
+sabotaging the fallback too); the two `connected === false` assertions say they pin the
+fixture rather than the contract.
