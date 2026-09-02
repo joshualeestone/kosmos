@@ -322,4 +322,4 @@ function seed() {
   await b.close();
   console.log(fail.length ? '\n' + fail.length + ' FAILED: ' + fail.join('; ') : '\nall green');
   process.exit(fail.length ? 1 : 0);
-})().catch((e) => { console.error('HARNESS FAILED', e.message); process.exit(2); });
+})().catch((e) => { console.error('FAIL  HARNESS FAILED', e.message); process.exit(2); });

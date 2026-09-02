@@ -28,9 +28,29 @@
  *     click-first-run) are quotable because they ALSO print a per-failure
  *     `FAIL  <label>` line via a helper -- their empty-prefix summary is a
  *     redundant count.
- *   - the browser-launch catch and the top-level `ERROR:` crash catch, unquotable
- *     (incl. `ERROR:` vs the grep's case-sensitive `Error`). A different emit shape
- *     from the finding sites this scan covers; tracked in kosmos#1864.
+ *     (Note: the browser-launch catch and the top-level crash catch are NO LONGER
+ *     here -- kosmos#1864 made them quotable and added the catch/launch scan lower
+ *     in this file that covers them.)
+ *   - the RUNTIME-STACK crash catch, in two spellings: the bare-object form
+ *     `})().catch((e) => { console.error(e); ... })`, and the stack-string form
+ *     `.catch((err) => { ... process.stderr.write(String(err && err.stack || err)) ... })`
+ *     (render-thread.js:1253). Both print the error's own stack rather than a
+ *     literal string: usually quotable (an Error's stack begins with a name
+ *     ending in "Error"), but a thrown non-Error or a message without
+ *     "Error"/"Timeout" is not, and a static read cannot know the runtime value.
+ *     The #1864 catch/launch scan below deliberately covers only the
+ *     STRING-literal crash/launch emits, not these.
+ *     (Scope note, and it is a SCOPING note not a closure -- the distinction is
+ *     load-bearing. This scan reads only files under docs/browser-checks/. The
+ *     same crash-catch shape exists across ~27 files under tools/ (measured by
+ *     Splinter 2026-09-02), e.g. headed-doctrine-check.js's `console.error('HEADED
+ *     HARNESS FAILED', ...)`. Those are NOT covered and are not a #1864 defect
+ *     (this card is docs/browser-checks/). REACHABILITY in the release gate is
+ *     UNESTABLISHED: what is verified is only that these are not invoked by
+ *     run_one / browser-checks.sh; a glob invoker or a CI path could still reach
+ *     some, and that gap was not closed. So do NOT read this as "cannot run in the
+ *     gate" -- if a tools/ script IS gate-reachable, its unquotable emit is the
+ *     same defect and wants its OWN card, not a widening of #1864.)
  *
  * ⚠️ THE SHAPE LIST IS AN ENUMERATION, so treat it as examples rather than as the
  * set: an enumeration misses what is not in it. This guard found ELEVEN unquotable
@@ -365,5 +385,67 @@ test('every emit site in every check prints a line the gate can quote', () => {
 
   assert.deepEqual(bad, [],
     'these checks print failures the gate cannot quote, so a red reports '
+    + '"(no FAIL or error line in its output)":\n  ' + bad.join('\n  '));
+});
+
+/* 🛑 #1864: THE CATCH / LAUNCH EMIT SCAN. The finding-emit scan above is gated on
+ * FINDING_NAMES (a line mentioning a findings collection), which is exactly why it
+ * cannot see these: a crash catch and a browser-launch catch print a failure LINE
+ * that names no finding. Two shapes, both of which the header above listed as
+ * known-uncovered until this scan (kosmos#1864):
+ *   A. the top-level crash catch: `})().catch((e) => { console.error('<prefix>', ...) ... })`
+ *      -- an explicit STRING first argument on the `.catch(` line. The bare
+ *      `console.error(e)` object form is a DIFFERENT sub-shape (it prints the error's
+ *      own stack, quotable only if that stack carries "Error"); it stays known-uncovered
+ *      in the header because asserting it needs the runtime error, not a static read.
+ *   B. the browser-launch catch: `console.error('<name>: could not start a browser' ...)`,
+ *      which sits on its own line inside a multi-line `try/catch`, so shape A's same-line
+ *      `.catch(` key cannot reach it -- it is keyed on the sentence instead.
+ * Both print the LINE the runner greps; each printed prefix must be quotable. */
+function catchLaunchPrefixes(src) {
+  const out = [];
+  for (const line of src.split('\n')) {
+    // Shape A: a string-literal console emit on a promise `.catch((e|err) => ...)` line.
+    // The dot in `\.catch\(` keys on the promise form only; a `try { } catch (err) {`
+    // statement (no dot) is shape B's territory.
+    if (/\.catch\(\s*(?:async\s*)?\(?\s*(?:e|err|error)\b/.test(line)) {
+      for (const m of line.matchAll(/console\.(?:error|log)\(\s*'((?:[^'\\]|\\.)*)'/g)) out.push(printedPrefix(m[1]));
+      for (const m of line.matchAll(/console\.(?:error|log)\(\s*"((?:[^"\\]|\\.)*)"/g)) out.push(printedPrefix(m[1]));
+    }
+    // Shape B: the browser-launch catch, keyed on its sentence (multi-line block).
+    for (const m of line.matchAll(/console\.(?:error|log)\(\s*'((?:[^'\\]|\\.)*could not start a browser(?:[^'\\]|\\.)*)'/g)) out.push(printedPrefix(m[1]));
+    for (const m of line.matchAll(/console\.(?:error|log)\(\s*"((?:[^"\\]|\\.)*could not start a browser(?:[^"\\]|\\.)*)"/g)) out.push(printedPrefix(m[1]));
+  }
+  return out;
+}
+
+test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
+  const re = runnerReasonPattern();
+  const files = fs.readdirSync(DIR).filter((f) => f.endsWith('.js'));
+  const bad = [];
+  let sites = 0;
+  for (const f of files) {
+    const src = fs.readFileSync(path.join(DIR, f), 'utf8');
+    for (const prefix of catchLaunchPrefixes(src)) {
+      /* These prefixes are already the START of a failure line (a crash/launch
+         emit, not a decoration awaiting a finding), so test them as they stand.
+         An empty/whitespace-only prefix is not a marker and is skipped. */
+      if (!/[^\s]/.test(prefix)) continue;
+      sites += 1;
+      if (!re.test(prefix)) bad.push(`${f}: catch/launch prints "${prefix}"`);
+    }
+  }
+  /* 🛑 EXACT COUNT, an intentional tripwire like the finding-emit count above: it
+     goes RED when a catch/launch emit site is added, forcing the new site to be
+     reviewed for quotability and this number bumped on purpose -- rather than a new
+     unquotable crash/launch emit slipping in unseen. Calibrated to current main
+     after kosmos#1864 made these shapes quotable. */
+  const EXPECTED_CATCH_SITES = 13;
+  assert.equal(sites, EXPECTED_CATCH_SITES,
+    `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
+    + 'number deliberately when you add or remove a catch/launch emit, after confirming the '
+    + 'new site is quotable; a matcher that drifted to zero would examine nothing and pass.');
+  assert.deepEqual(bad, [],
+    'these checks print catch/launch failures the gate cannot quote, so a red reports '
     + '"(no FAIL or error line in its output)":\n  ' + bad.join('\n  '));
 });

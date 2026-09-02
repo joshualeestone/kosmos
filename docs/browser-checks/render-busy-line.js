@@ -34,7 +34,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   let browser;
   try { browser = await chromium.launch({ headless: process.env.HEADED === '0' }); }
   catch (err) {
-    console.error('render-busy-line: could not start a browser'
+    console.error('FAIL  render-busy-line: could not start a browser'
       + (process.env.HEADED === '0' ? '.' : ' (headed; try HEADED=0).'));
     console.error('  ' + (err && err.message ? err.message.split('\n')[0] : err));
     process.exit(1);
