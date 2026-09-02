@@ -18,9 +18,10 @@ NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
   node docs/browser-checks/<check>.js    # + a local board on the port it expects
 ```
 
-This is not a claim to take on faith. It is how `tools/browser-checks.sh` runs
-every check in this directory, and the fleet's agents run individual checks the
-same way from their own bot sessions -- the first-run checks here were verified
+This is not a claim to take on faith. It is how `tools/browser-checks.sh` invokes
+each check it gates (a selected load-bearing subset -- see the driver), and the
+fleet's agents run individual checks the same way from their own bot sessions --
+the first-run checks here were verified
 exactly this way under #1801. `~/work/pw-runtime/node_modules` holds playwright,
 and the chromium build lives in the shared `~/Library/Caches/ms-playwright/`
 cache (`tools/provision-pw.sh` installs a pinned one).
@@ -30,10 +31,10 @@ the `/browser-test`-style `navigate` / `click` an agent drives live. MCP servers
 bind at session start, a launchd bot session carries only the discord MCP, and it
 cannot relaunch itself with `claude-fe` (only the launchd bot-launch script
 carries `--dangerously-skip-permissions`; a hand-rolled relaunch drops it and
-wedges on the first permission prompt). That, and only that, is the real limitation -- the narrow
-gap #1769 was filed about. Its original headline, "no agent can run a browser
-check", was over-broad and is corrected here: the miss was reading a
-missing MCP as a missing browser.
+wedges on the first permission prompt). That, and only that, is the real
+limitation -- the narrow gap #1769 was filed about. Its original headline, "no
+agent can run a browser check", was over-broad and is corrected here: the miss
+was reading a missing MCP as a missing browser.
 
 ⇒ **"I can check the endpoint but not the button" is only true if the button
 check needs the interactive MCP.** A committed headless render check OF the button
