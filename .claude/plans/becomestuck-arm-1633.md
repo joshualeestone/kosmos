@@ -55,7 +55,26 @@ node --test engine/*.test.js *.test.js   # what line 103 actually globs
 
 ⚠️ **On the shell portion, stated precisely because an earlier figure was not:** the run prints two `Results:` lines, and their totals are **not** a count of shell tests. `test:shell` executes far more scripts than that; most do not print a `Results` line. Quoting it as a total would be a number with no defensible meaning.
 
-📌 **One arm here asserts a defect rather than a correctness property, on purpose.** A directory at the bin path passes `fs.accessSync(X_OK)` (measured, with both controls: directory passes, real executable passes, missing path ENOENT), so `canRunClaude` reports `true` and the stuck screen offers a way out that cannot work, which is the #205 harm the field exists to prevent. The arm pins the CURRENT behaviour and says so in its own failure message, because asserting the correct one would redden the suite for a production defect this card is not fixing. When somebody tightens that check, the arm reddens and tells them what to change.
+🛑 **THE THIRD ARM WAS WRONG FOR TWO DAYS AND A REVIEW CAUGHT IT. THIS IS THE MOST IMPORTANT THING IN THIS PLAN.**
+
+It originally asserted, as a deliberate characterisation, that a **directory** at the bin path reports `canRunClaude: true`, because `fs.accessSync(X_OK)` succeeds on a directory. I measured that and it was true.
+
+**It was true only on this branch, which was 300 commits behind `origin/main`.** `#1592` had already replaced the bare `accessSync` with `claudeHatchAvailable()` -> `runners.isRunnable()` (which does `statSync().isFile()` first) on **2026-09-01**, a day before I wrote the arm. Current `connect.js` says so in as many words: *"There are NO bare-`accessSync` sites left in this file."*
+
+⇒ **I also filed `kosmos#1859` for the defect. Somebody closed it the same day as already fixed.** The arm, the card and three of my comments all pointed at a defect that did not exist.
+
+⭐ **The mistake was reading a subject that had moved, not reading it wrongly.** Every measurement I took was accurate about the bytes in front of me. This is `a-control-assumes-a-stable-subject`, and the cheap check I skipped was `git fetch` before treating a file as production.
+
+✅ **Rebased onto current main, and the arm is FLIPPED rather than deleted.** It now asserts `canRunClaude === false` for a directory, from the driven flow. That is not redundant with `engine.runnable-not-directory.test.js`:
+
+```
+engine.runnable-not-directory.test.js   calls the helper directly, 0 start() calls
+server.connect.test.js                  greps page source; builds state by hand
+engine.publicview-canrun-1595.test.js   builds state by hand, 0 start() calls
+this file                               drives the real start(), reads the STUCK record
+```
+
+**The unit guard stays green if `becomeStuck` stops calling the helper. This arm does not.** So the gap the card names is still real after the fix, which is why the branch still has a reason to exist.
 
 ## One trap, recorded because it costs an hour to rediscover
 

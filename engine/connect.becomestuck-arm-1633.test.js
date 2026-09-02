@@ -189,44 +189,41 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
 });
 
 /**
- * 🔴 CHARACTERISATION, NOT AN ENDORSEMENT. `becomeStuck` asks the disk with a
- * bare `fs.accessSync(claudeBinPath(), X_OK)`, and `engine/connect.js` names
- * that site itself as one of the remaining weak bare-accessSync checks: A
- * DIRECTORY PASSES X_OK. Measured, with both controls: a directory passes, a
- * real executable passes, a missing path is ENOENT.
+ * ⭐ A DIRECTORY IS NOT RUNNABLE, ASSERTED FROM THE DRIVEN FLOW.
  *
- * ⇒ So a directory sitting at the bin path yields `canRunClaude: true`, and the
- * stuck screen tells somebody already stuck to type `claude` -- the exact #205
- * harm the field exists to prevent. The two arms above cannot see it, because
- * neither creates a directory there.
+ * `fs.accessSync(path, X_OK)` SUCCEEDS ON A DIRECTORY. If `canRunClaude` were
+ * computed that way, a directory at the bin path would report `true` and the
+ * stuck screen would tell somebody already stuck to type `claude` and get
+ * `command not found`, which is the #205 harm the field exists to prevent.
  *
- * This arm asserts the CURRENT behaviour rather than the correct one, on
- * purpose. Asserting `false` would redden the suite for a production defect
- * this card is not fixing (the card is about the field having a behavioural
- * arm at all). Pinned here so that WHEN someone fixes it, this reddens and
- * says what to change, instead of the fix landing with nothing noticing.
+ * `becomeStuck` asks `claudeHatchAvailable()` instead, which reaches
+ * `runners.isRunnable()` and does a `statSync().isFile()` first. #1592 made
+ * that change and `engine.runnable-not-directory.test.js` guards it AT THE UNIT.
  *
- * 🔑 THE FIX HAS AN OWNER: kosmos#1859. It covers this site AND `willInstall`'s
- * presence check, which `engine/connect.js` names as the other remaining weak
- * bare-accessSync site and which has NO arm at all. They should move together;
- * fixing only the one with a test would leave the sibling silently weak.
+ * 🔑 THIS ARM IS NOT THAT TEST AND DOES NOT DUPLICATE IT. That one calls the
+ * helper directly; this one drives the REAL `start()` to a REAL failure and
+ * reads the value out of the STUCK record the screen is served from. The unit
+ * guard would stay green if `becomeStuck` stopped calling the helper. This one
+ * would not.
+ *
+ * 📌 An earlier version of this file asserted the OPPOSITE, as a deliberate
+ * characterisation of a defect. That was measured against a branch 300 commits
+ * behind main, where the bare `accessSync` still existed. It had been fixed a
+ * day earlier. The arm is flipped and the card I raised for it (kosmos#1859)
+ * was closed as already-fixed. Recorded because the mistake was reading a
+ * subject that had moved, not reading it wrongly.
  */
-test('#1633 CHARACTERISATION: a DIRECTORY at the bin path is reported runnable, which is wrong', async (t) => {
+test('#1633: a DIRECTORY at the bin path is not runnable, via the driven flow', async (t) => {
   const st = await stuckWith(t, { binaryExists: false, directoryInstead: true });
   assert.equal(st.timedOut, false,
     'the flow never settled within the deadline; this is contention, not a verdict');
-  assert.equal(st.phase, connect.PHASE.STUCK);
-  /* 🔑 THE SAME TRIGGER PIN THE OTHER TWO ARMS CARRY, and it matters MORE here:
-     a directory yields canRunClaude true on EVERY becomeStuck trigger, so
-     without this the arm passes identically if the release fixture breaks and
-     the flow gets stuck on 'we could not download Claude' instead. It would go
-     on asserting a true thing for the wrong reason, forever. */
+  assert.equal(st.phase, connect.PHASE.STUCK,
+    'the arm never reached becomeStuck, so it proves nothing about canRunClaude');
   assert.match(st.because, INSTALL_FAILURE,
     'reached STUCK by a different trigger than the install failure this arm forces');
-  assert.equal(st.canRunClaude, true,
-    'GOOD NEWS IF THIS FAILS: the bare accessSync(X_OK) has been tightened so a '
-    + 'directory no longer counts as runnable (kosmos#1859). Change this arm to '
-    + 'expect false and delete the characterisation note above it.');
+  assert.equal(st.canRunClaude, false,
+    'a DIRECTORY at the bin path was reported runnable, so the stuck screen would '
+    + 'tell somebody already stuck to type `claude` and get command not found (#205)');
 });
 
 /**

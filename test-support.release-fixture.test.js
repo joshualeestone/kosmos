@@ -15,7 +15,7 @@
  * keyed "[object Object]".
  */
 const { test } = require('node:test');
-const assert = require('node:assert');
+const assert = require('node:assert/strict');
 const { serveRelease } = require('./test-support/release-fixture');
 
 test('it serves a manifest and a binary for the platform key it is given', async (t) => {
@@ -63,19 +63,21 @@ test('a sibling call shape is REFUSED, not silently accepted', async (t) => {
 test('a KNOWN option of the wrong TYPE or FORMAT is refused, not silently dropped', async (t) => {
   await assert.rejects(
     async () => serveRelease(t, { platformKey: 'darwin-arm64', checksum: Buffer.from('ab') }),
-    /checksum.*64 lowercase hex/,
+    /checksum.*64 hex/,
     'a Buffer checksum was dropped in favour of a hash of the body');
   /* ⭐ FORMAT, not just type. A plausible-looking string that download() would
      reject surfaces as "no build for this kind of Mac", a download-shaped error
      for a fixture mistake. A type-only guard let this through. */
   await assert.rejects(
     async () => serveRelease(t, { platformKey: 'darwin-arm64', checksum: 'not-a-real-sha' }),
-    /checksum.*64 lowercase hex/,
+    /checksum.*64 hex/,
     'a malformed hex checksum was accepted; download() would reject it as a platform error');
-  await assert.rejects(
-    async () => serveRelease(t, { platformKey: 'darwin-arm64', checksum: 'F'.repeat(64) }),
-    /checksum.*64 lowercase hex/,
-    'uppercase hex was accepted; download() requires lowercase');
+  /* ⭐ UPPERCASE IS ACCEPTED, because download() lowercases before testing and
+     its own comment says refusing it "would blame the Mac". An earlier arm here
+     asserted the opposite and was wrong about production. */
+  const upper = await serveRelease(t, { platformKey: 'darwin-arm64', checksum: 'F'.repeat(64) });
+  assert.match(upper, /^http:\/\/127\.0\.0\.1:\d+$/,
+    'uppercase hex was refused; the guard is stricter than the download() it mirrors');
   await assert.rejects(
     async () => serveRelease(t, { platformKey: 'darwin-arm64', binary: 'not a buffer' }),
     /binary.*must be a Buffer/,

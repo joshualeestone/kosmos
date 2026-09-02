@@ -65,6 +65,13 @@ function serveRelease(t, opts = {}, ...extra) {
       + 'implemented here, so a dropped third argument would silently change '
       + 'behaviour or lose a checksum.');
   }
+  /* 🛑 RESIDUAL, NAMED RATHER THAN GUARDED. A platformKey that is well-formed but
+     WRONG (not what connect.platformKey() returns on this machine) still produces
+     "the download service has no build for this kind of Mac" -- the same
+     download-shaped error the guards above exist to prevent. It is not checkable
+     here without importing connect, which this helper deliberately does not do.
+     Pass connect.platformKey(); a hardcoded 'darwin-arm64' works until somebody
+     runs the suite on x64. */
   const { platformKey, version = '9.9.5', binary, checksum } = opts;
   /* 🛑 A LOUD REFUSAL, because the alternative is a download-shaped error for a
      fixture-shaped mistake. See the docblock. */
@@ -99,15 +106,21 @@ function serveRelease(t, opts = {}, ...extra) {
      guard above catches a wrong NAME; this catches a wrong TYPE, which is the
      same silent-drop one field over: `checksum: Buffer.from(...)` or `null`
      would otherwise fall back to a hash of the body with no complaint. */
-  /* 🔑 THE FORMAT, NOT JUST THE TYPE. `download()` requires ^[a-f0-9]{64}$, and a
-     non-conforming value does not surface as a checksum problem: it comes back as
-     "the download service has no build for this kind of Mac", a DOWNLOAD-shaped
-     error for a FIXTURE-shaped mistake. That is the exact class the version guard
-     above closes, and a type-only check left it open one field over. */
-  if (checksum !== undefined && (typeof checksum !== 'string' || !/^[a-f0-9]{64}$/.test(checksum))) {
+  /* 🔑 THE FORMAT, NOT JUST THE TYPE. A non-hex value does not surface as a
+     checksum problem: `download()` reports "the download service has no build for
+     this kind of Mac", a DOWNLOAD-shaped error for a FIXTURE-shaped mistake. Same
+     class the version guard above closes, one field over.
+
+     ⚠️ CASE-INSENSITIVE ON PURPOSE, AND MIRRORING PRODUCTION RATHER THAN BEING
+     STRICTER THAN IT. `download()` lowercases before testing `^[a-f0-9]{64}$`,
+     and its own comment says rejecting uppercase "would blame the Mac" for a
+     formatting difference. An earlier version of this guard refused uppercase and
+     said download() required lowercase; that was wrong about production and
+     foreclosed a fixture exercising its normalisation path. */
+  if (checksum !== undefined && (typeof checksum !== 'string' || !/^[a-fA-F0-9]{64}$/.test(checksum))) {
     throw new TypeError(
-      `serveRelease({checksum}) must be 64 lowercase hex characters, which is what download() requires; `
-      + `got ${typeof checksum === 'string' ? JSON.stringify(checksum) : Object.prototype.toString.call(checksum)}. `
+      `serveRelease({checksum}) must be 64 hex characters, which is what download() requires after `
+      + `lowercasing; got ${typeof checksum === 'string' ? JSON.stringify(checksum) : Object.prototype.toString.call(checksum)}. `
       + 'A malformed checksum surfaces as a download error rather than a fixture one.');
   }
   if (binary !== undefined && !Buffer.isBuffer(binary)) {
@@ -119,7 +132,8 @@ function serveRelease(t, opts = {}, ...extra) {
      take one so a test can serve a body that does NOT match its manifest, which
      is the only way to exercise the checksum-mismatch path. Without this the
      migration this docblock recommends could not be done for connect.test.js. */
-  const served = typeof checksum === 'string' && checksum
+  /* The guard above narrowed this to undefined or 64 hex chars. */
+  const served = checksum !== undefined
     ? checksum
     : crypto.createHash('sha256').update(body).digest('hex');
   const paths = {
