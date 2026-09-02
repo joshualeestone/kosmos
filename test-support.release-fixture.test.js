@@ -2,8 +2,20 @@
 
 /**
  * #1633: `test-support/release-fixture.js` is a SHARED helper, and its
- * siblings each have a test. This is the missing one, and it exists mostly for
- * the refusal:
+ * siblings are UNEVENLY tested, and this closes the gap for the one that
+ * matters most. MEASURED across the six helpers in `test-support/`:
+ *
+ *     code-only.js       test-support.code-only.test.js
+ *     tmpdir.js          tmpdir.test.js
+ *     release-fixture.js THIS FILE
+ *     cascade.js         none
+ *     fleet.js           none
+ *     page.js            none
+ *
+ * 📌 An earlier version of this line said "its siblings each have a test",
+ * which is false: three of the six have none. They are consumed by many tests,
+ * which is not the same as having one. Corrected rather than annotated. This
+ * helper earns its own because it exists mostly for the refusal:
  *
  * 🛑 IT LIVES AT THE REPO ROOT, NOT BESIDE THE HELPER, AND THAT IS NOT A STYLE
  * CHOICE. `tools/run-tests.sh:103` is `node --test engine/*.test.js *.test.js`.

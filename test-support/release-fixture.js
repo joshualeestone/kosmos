@@ -11,7 +11,7 @@
  * 🛑 THIS DOES NOT DE-DUPLICATE ANYTHING YET, AND SAYING SO IS THE POINT.
  * MEASURED, four definitions of `serveRelease` exist in this repo:
  *
- *     test-support/release-fixture.js      (t, {platformKey, version, binary})
+ *     test-support/release-fixture.js      (t, {platformKey, version, binary, checksum})
  *     engine/connect.nobinary-1580.test.js (t, binary, checksum)
  *     engine/connect.test.js               (t, {version, binary, checksum})
  *     engine/connect.install-997.test.js   (t, {version, binary, checksum}, opts)
@@ -105,7 +105,11 @@ function serveRelease(t, opts = {}, ...extra) {
       + `Known options are ${KNOWN_OPTIONS.join(', ')}. `
       + 'A silently-dropped option is how a fixture mistake becomes a download error.');
   }
-  /* `download()` validates the version (connect.js, `^\d+\.\d+\.\d+`), and a
+  /* `download()` validates the version (connect.js:758,
+     `^\d+\.\d+\.\d+[A-Za-z0-9.-]*$` -- quoted in FULL because the guard below
+     copies it character for character, and an abbreviated `^\d+\.\d+\.\d+`
+     here would read as the fixture being MORE PERMISSIVE than the production it
+     mirrors), and a
      bad one surfaces as "the download service did not answer with a version",
      which reads as a service fault rather than a fixture one. Refuse here. */
   if (!/^\d+\.\d+\.\d+[A-Za-z0-9.-]*$/.test(version)) {
@@ -139,7 +143,7 @@ function serveRelease(t, opts = {}, ...extra) {
       `serveRelease({binary}) must be a Buffer; got ${Object.prototype.toString.call(binary)}.`);
   }
   const body = binary || crypto.randomBytes(8 * 1024);
-  /* An explicit checksum is HONOURED, not overridden: two of the sibling copies
+  /* An explicit checksum is HONOURED, not overridden: ALL THREE sibling copies
      take one so a test can serve a body that does NOT match its manifest, which
      is the only way to exercise the checksum-mismatch path. Without this the
      migration this docblock recommends could not be done for connect.test.js. */

@@ -6,7 +6,14 @@
 
 `becomeStuck` computes `canRunClaude` and writes it into the STUCK state; `web/index.html` gates the stuck screen's only way out on it (#1595). It is a user-facing decision made from a filesystem check, and nothing asserted it from a **driven** flow.
 
-⚠️ **The gap is narrower than "nothing drives `becomeStuck`", and I originally wrote the wider claim by repeating the card without checking it.** Measured: 29 test files mention the stuck phase, and `engine/connect.test.js` drives real flows into it in roughly a dozen places (17 `PHASE.STUCK` references), as does `engine/connect.nobinary-1580.test.js`. What none of them does is assert `canRunClaude` **from a driven flow**.
+⚠️ **The gap is narrower than "nothing drives `becomeStuck`", and I originally wrote the wider claim by repeating the card without checking it.** Measured, with the command rather than the bare figure, **because this plan argues two sections below that a changing number belongs beside the way to reproduce it and this one had neither treatment**:
+
+```
+git grep -lil stuck origin/main -- '*.test.js' | wc -l   ->  30
+git grep -lil stuck HEAD        -- '*.test.js' | wc -l   ->  31   (this branch adds exactly one file)
+```
+
+⚠️ **The original figure here was 29 and is not reproducible today**; it was true when written against an older main. **An earlier draft of this very correction guessed "29 before this file and one other landed" -- also unmeasured, and wrong: the delta is one file, not two.** That is the third round in which a fix to a counting claim introduced a fresh counting claim, so the command is given and the figure is left to move. Roughly thirty test files mention the stuck phase, and `engine/connect.test.js` drives real flows into it in roughly a dozen places (17 `PHASE.STUCK` references), as does `engine/connect.nobinary-1580.test.js`. What none of them does is assert `canRunClaude` **from a driven flow**.
 
 🛑 **THE CENSUS IN THIS PARAGRAPH WAS WRONG UNTIL ITERATION 8 AND SAID "the two files".** There are **three**, and the one it omitted has the most references of any of them:
 
@@ -16,7 +23,9 @@
 | `engine.publicview-canrun-1595.test.js` | 10 | builds the state object by hand |
 | `engine.runnable-not-directory.test.js` | **38** | **asserts it as SOURCE TEXT**, reading `connect.js` off disk and matching the `writeState` line |
 
-⭐ **I cite that third file by name later in this very plan as the comparison case, so I described it and never counted it.** That is the same defect as the 300-commit one below, one layer in: not a stale reading, an *uncounted* one. **None of the three calls `connect.start()`**, which is what this file adds and the only thing it claims.
+⭐ **I cite that third file by name later in this very plan as the comparison case, so I described it and never counted it.** That is the same defect as the 300-commit one below, one layer in: not a stale reading, an *uncounted* one. 🛑 **AND THE SENTENCE ITERATION 8 PUT HERE TO REPLACE THE MISCOUNT WAS ITSELF FALSE.** It read *"none of the three calls `connect.start()`"*. `server.connect.test.js` **does** call it, at its `:251` and `:749`. The true and narrower claim is that **none of the three asserts `canRunClaude` DOWNSTREAM of a `start()`** -- its three sites there are a source grep (`:797`) and two hand-built harness states (`:1146`, `:1170`), none of them reached by the flow. Driving `start()` and reading the settled STUCK record is what this file adds, and the only thing it claims.
+
+⭐ **A false sentence introduced BY a fix is the shape to watch on this branch.** Iteration 8 corrected a census and, in the same edit, wrote a new claim it had not measured. The table above was already right; only the prose beside it was wrong.
 
 ## The decision, and why it is not the one I inherited
 
@@ -45,15 +54,20 @@ DIRECTORY there  ->  phase=stuck  canRunClaude=false
 
 ## Verification
 
-**Both arms proven red by mutation**, because either assertion alone is satisfied by a constant:
+**All THREE arms proven red by mutation**, because no single constant satisfies the set:
 
 ```
-baseline                       2 arms pass
-force canRunClaude = false     1 passes   <- PRESENT arm goes red
-force canRunClaude = true      1 passes   <- ABSENT arm goes red
+baseline                            3 arms pass
+force canRunClaude = false          PRESENT goes red
+force canRunClaude = true           ABSENT goes red
+drop isFile() gate (runners.js)     DIRECTORY goes red, other two STAY GREEN
 ```
 
-`connect.js` restored clean after each mutation (`git status --porcelain` on it empty).
+🛑 **THE THIRD ROW WAS MISSING UNTIL ITERATION 9, AND IT IS THE ARM THIS PLAN CALLS "the one carrying the argument for the branch".** Iteration 8 corrected the identical undercount in *What is built* and left this section untouched, so the strongest arm sat with **no recorded proof at all** while the section above it advertised three. **Fixing one instance of a miscount is not fixing the miscount.**
+
+⭐ **The DIRECTORY mutation is the discriminating one, which is why it is worth its own row.** Replacing `if (!st.isFile()) return false` in `engine/runners.js:194` with `if (false)` restores the pre-#1592 behaviour, where `accessSync(X_OK)` succeeds on a directory. Measured: **only the DIRECTORY arm reddens; PRESENT and ABSENT both stay green.** That is what establishes the arm guards the #1592 fix specifically rather than restating the other two.
+
+`engine/connect.js` and `engine/runners.js` both restored clean after each mutation (`git status --porcelain` empty, and a `grep -c 'if (false)'` returning 0 as a negative control).
 
 **Full suite, via the repo's own runner rather than a glob** (`bash tools/run-tests.sh`): green, 0 failures.
 
@@ -101,9 +115,11 @@ this file                               drives the real start(), reads the STUCK
 
 ## Scope, stated so nobody reads it wider
 
-Covers the **install-failure** path into `becomeStuck`: `installClaudeCode` returns a failure (`connect.js:1376`) which is surfaced by `if (!res.ok) becomeStuck(owner, res.message, res.detail)` at `connect.js:1458`.
+Covers the **install-failure** path into `becomeStuck`: `installClaudeCode` (`connect.js:1378`) returns a failure via `fail('Claude downloaded but did not finish setting itself up', ...)` at **`connect.js:1549`**, which is surfaced by `if (!res.ok) { becomeStuck(owner, res.message, res.detail); return; }` at **`connect.js:1708`**.
 
-🛑 **I first named this the `runFlow` catch-all at `connect.js:1137`, and that was wrong.** The catch-all fires only on an unexpected throw and carries a different message. The arms now assert on `because` so the trigger is pinned rather than assumed, which is also what would have caught the missing release server on the first run. The other trigger sites are **not** separately exercised and this does not claim they are. The card asked for the field to have *a* behavioural arm; it now has one, on a path that reaches it.
+🛑 **BOTH NUMBERS IN THIS PARAGRAPH WERE WRONG UNTIL ITERATION 9**, in the section whose entire job is pinning the exercised path. It cited `:1376`, which is a comment line inside the preceding docblock, and `:1458`, which is inside an unrelated `.part` sweep loop. **A maintainer following either one lands on a different mechanism and concludes the arms exercise something they do not.**
+
+🛑 **I first named this the `runFlow` catch-all, and that was wrong.** (The catch-all is `becomeStuck(owner, 'something went wrong that we did not plan for', ...)` at **`connect.js:1283`**. This retraction cited `:1137` until iteration 9, which is a `publicView(writeState(...))` line -- **a retraction that names the wrong location cannot be checked by the next reader**, which is most of what a retraction is for.) The catch-all fires only on an unexpected throw and carries a different message. The arms now assert on `because` so the trigger is pinned rather than assumed, which is also what would have caught the missing release server on the first run. The other trigger sites are **not** separately exercised and this does not claim they are. The card asked for the field to have *a* behavioural arm; it now has one, on a path that reaches it.
 
 ## Process note against myself
 
@@ -196,3 +212,80 @@ either ordering, so the swap traded a real regression for no gain.
 ⭐ **The reusable half: the NIT's reasoning was sound and its conclusion was wrong, and only running
 it separated the two.** A reordering that "just changes which message you see first" changes it for
 every shape, not only the shape you had in mind.
+
+## Findings from challenge-loop iteration 9
+
+**Zero BLOCKERs, ten WARNINGs, three NITs.** Every WARNING was again a false or stale sentence in
+prose rather than a defect in a test, and **four of them were sentences iteration 8 wrote or left
+standing.**
+
+### The pattern that iteration 9 actually exposed
+
+🛑 **A FIX TO A COUNTING CLAIM KEEPS INTRODUCING A FRESH COUNTING CLAIM. Three rounds now:**
+
+| round | the fix | what it introduced |
+|---|---|---|
+| 8 | corrected "the two files reference `canRunClaude`" to three | wrote **"none of the three calls `connect.start()`"**, which is false: `server.connect.test.js` calls it at `:251` and `:749` |
+| 8 | corrected "Two arms" in *What is built* | left the **identical undercount** in *Verification*, where it mattered more |
+| 9 | corrected the unreproducible "29 test files" | first draft guessed **"29 before this file and one other landed"** -- also unmeasured, and wrong: the delta is one file |
+
+⭐ **The reusable half: the danger is not the stale sentence, it is the CONFIDENCE of the edit that
+replaces it.** Correcting a miscount feels like the moment you are most careful about counting, and
+it is measurably the moment a new miscount gets written. **Measure the replacement, not just the
+thing being replaced.**
+
+⭐ **And fixing ONE instance of a miscount is not fixing the miscount.** *What is built* and
+*Verification* carried the same wrong number; iteration 8 fixed the first, read the section as
+closed, and left the second. **Grep for the claim, do not fix the line you were shown.**
+
+### The substantive finding, and it was not prose
+
+**The DIRECTORY arm had no recorded mutation proof.** The *Verification* table still described a
+two-arm branch, so the arm this plan calls "the one carrying the argument for the branch" was the
+one arm with nothing behind it. **Now proven, and it is the discriminating mutation:**
+
+```
+drop `if (!st.isFile()) return false` in engine/runners.js:194
+  -> DIRECTORY arm REDDENS
+  -> PRESENT and ABSENT both STAY GREEN
+```
+
+That is what establishes the arm guards the #1592 fix specifically rather than restating the other
+two. `engine/runners.js` restored clean afterwards, verified by `git status --porcelain` empty and
+`grep -c 'if (false)'` returning 0 as a negative control.
+
+### The rest, in one line each
+
+- **"None of the three calls `connect.start()`"** -- false in the test file and the plan. The true,
+  narrower claim: none asserts `canRunClaude` **downstream of** a `start()`. Corrected in both.
+  📌 The plan's own comparison table was already right and annotated only the two files it could
+  vouch for; **the prose beside it overreached. The table and the prose disagreed and the prose was
+  wrong.**
+- **The closing docblock still said "THE PAIR IS THE POINT"** and pointed at "the card" for a
+  mutation transcript that lives in this plan and covered two arms. Rewritten for three.
+- **"Two of the sibling copies take a checksum"** -- all three do
+  (`connect.nobinary-1580.test.js:42`, `connect.test.js:147`, `connect.install-997.test.js:44`).
+  ⚠️ **This recurred in the same comment that documents having got this exact count wrong before**,
+  and in the test docblock that repeats it.
+- **The `serveRelease` census table understated its OWN signature by one field**, omitting
+  `checksum` -- which is a known option, is honoured rather than overridden, has its own guard and
+  has two arms. A table whose entire job is telling a migrator what each shape accepts.
+- **"Its siblings each have a test"** -- false; three of the six helpers in `test-support/` have
+  none. Replaced with the measured table.
+- **Four wrong `connect.js` line numbers**, two of them in *Scope*, the section whose whole job is
+  pinning the exercised path. `:1376` is a comment line and `:1458` is an unrelated `.part` sweep
+  loop; the real path is `installClaudeCode` at `:1378` -> `fail(...)` at `:1549` -> `becomeStuck`
+  at `:1708`. The retraction below it cited `:1137` for a catch-all that lives at `:1283`.
+  🛑 **A retraction that names the wrong location cannot be checked by the next reader, which is
+  most of what a retraction is for.**
+
+### Two NITs worth keeping
+
+- **The arms are macOS-only and nothing said so.** On Linux `download()` throws on the platform
+  gate, `installClaudeCode` converts that to "we could not download Claude", and all three arms red
+  on the `because` match **with a message that reads as a product fault**. CI is `macos-latest` so
+  it is not live; it is recorded because the reader who eventually sees that red would go hunting in
+  `becomeStuck`.
+- **A comment abbreviated production's version regex** to `^\d+\.\d+\.\d+` where the guard below
+  copies `^\d+\.\d+\.\d+[A-Za-z0-9.-]*$` exactly. The code was right and only the comment was loose,
+  but it would read as the fixture being more permissive than the production it mirrors.

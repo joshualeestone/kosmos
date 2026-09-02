@@ -36,8 +36,15 @@
  * ⚠️ THE THIRD ONE WAS MISSING FROM THIS LIST UNTIL ITERATION 8, AND IT IS THE
  * ONE WITH THE MOST REFERENCES (38 to the field). It is also cited by name 180
  * lines below as the comparison case, so it was described here and not counted.
- * None of the three calls `connect.start()`, which is what this file adds and
- * the only thing it claims.
+ * 🛑 NONE OF THE THREE ASSERTS THE FIELD DOWNSTREAM OF A `start()`, WHICH IS
+ * THE CLAIM, AND THE WIDER ONE IS FALSE. `server.connect.test.js` DOES call
+ * `connect.start()` (its :251 and :749) -- just never on the path that reaches
+ * `canRunClaude`, whose three sites there are a source grep (:797) and two
+ * hand-built harness states (:1146, :1170). Iteration 8 wrote "none of the
+ * three calls `connect.start()`" here while correcting a different miscount,
+ * which is a false sentence introduced BY a fix. Driving `start()` and reading
+ * the settled STUCK record is what this file adds, and the only thing it
+ * claims.
  *
  * 🛑 WHY THIS DRIVES `start()` RATHER THAN CALLING `becomeStuck` DIRECTLY.
  * The card offered two shapes: export `becomeStuck` with a `setDriverForTests`,
@@ -249,11 +256,27 @@ test('#1633: a DIRECTORY at the bin path is not runnable, via the driven flow', 
 });
 
 /**
- * ⭐ THE PAIR IS THE POINT. Either assertion alone is satisfied by a constant:
- * hardcode `true` and the first passes, hardcode `false` and the second does.
- * Only both together establish that the field TRACKS THE DISK, which is the
- * property the screen depends on. Both were proven red by mutation before this
- * file was committed; see the card for the transcript.
+ * 🛑 THESE THREE ARMS ARE macOS-ONLY, AND THE FAILURE SHAPE WOULD MISLEAD.
+ * `download()` gates on `platformGate.isSupported(process.platform)` and throws
+ * on anything else, which `installClaudeCode` turns into "we could not download
+ * Claude". On a Linux runner all three arms would red on the INSTALL_FAILURE
+ * `because` match with a message that reads as a PRODUCT fault rather than an
+ * unsupported-platform one. CI is `macos-latest`
+ * (`.github/workflows/test.yml`), so this is not live today; it is written down
+ * because the reader who eventually sees that red will otherwise go hunting in
+ * `becomeStuck`.
+ *
+ * ⭐ THE SET IS THE POINT, AND THERE ARE THREE OF THEM. Either of the first
+ * two alone is satisfied by a constant: hardcode `true` and PRESENT passes,
+ * hardcode `false` and ABSENT does. Only together do they establish that the
+ * field TRACKS THE DISK, which is the property the screen depends on. The
+ * DIRECTORY arm then pins WHICH disk question is asked, since a bare
+ * `accessSync(X_OK)` succeeds on a directory and would satisfy both of the
+ * others.
+ *
+ * All three are proven red by mutation, and the transcript is in the plan file
+ * (`.claude/plans/becomestuck-arm-1633.md`), not "the card" -- an earlier
+ * version of this line said the card and described only two arms.
  *
  * 📌 The FALSE arm is the weaker half on its own and should not be read as
  * load-bearing alone: `publicView` writes `canRunClaude: s.canRunClaude || false`
