@@ -1598,9 +1598,20 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
 
   const live = '  Waiting for both.\n\n✻ Waiting for 1 background agent to finish';
-  /* A live `◯` footer row. REQUIRED on every positive fixture: the wait line is a
-     transcript line that survives the wait, so the reader demands proof the agent
-     is still running. See the resolved-wait row below. */
+  /* A live `◯` footer row. REQUIRED ON EVERY FIXTURE, POSITIVE *AND* NEGATIVE,
+     and getting that wrong silently gutted four guards in this very test.
+
+     🛑 The liveness gate returns null before any other check runs. So a NEGATIVE
+     fixture without a `◯` row never REACHES the guard it claims to test: it
+     passes because the gate short-circuited, not because the guard worked.
+     Measured after iteration 3's gate landed: deleting the reach guard, and
+     re-adding `*` to the glyph class, BOTH left the suite at 159/159 green,
+     while their comments asserted the opposite.
+
+     ⇒ A negative fixture that cannot reach the guard under test discriminates
+     NOTHING. Every fixture below carries `liveRow`, including the `notEqual`
+     ones, so each perturbation has to travel all the way to the check it
+     targets. */
   const liveRow = '\n  ⏺ main\n  ◯ general-purpose  doing a thing 43s · ↓ 1.0k tokens';
   const got = classify(pane, live + footer + liveRow);
   assert.equal(got.state, 'working', 'a live background-agent wait read as idle');
@@ -1644,7 +1655,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
      guard is removed, which is the only thing that makes it worth having. */
   const quoted = ['✻ Waiting for 1 background agent to finish']
     .concat(new Array(17).fill('  later output')).join('\n');
-  assert.notEqual(classify(pane, quoted + footer).state, 'working',
+  assert.notEqual(classify(pane, quoted + footer + liveRow).state, 'working',
     'a quoted copy high on the screen was read as a live status line');
 
   /**
@@ -1660,7 +1671,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     '✻ Waiting for team lead approval',
     '✻ Waiting for sign-in to complete in your browser',
   ]) {
-    assert.notEqual(classify(pane, human + footer).state, 'working',
+    assert.notEqual(classify(pane, human + footer + liveRow).state, 'working',
       'a human-blocked wait reached WORKING through the background-agent rule: ' + human);
   }
   /* ⚠️ AND DO NOT READ THAT LOOP AS "these four are handled". They are NOT. All
@@ -1668,7 +1679,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
      blocked on a person, shown at rest. The row pins only that THIS rule does not
      make them worse, and it stays green when someone later routes them to
      `needs_you`, which is the right fix and is not this card's. */
-  assert.equal(classify(pane, '✻ Waiting for permission' + footer).state, 'idle',
+  assert.equal(classify(pane, '✻ Waiting for permission' + footer + liveRow).state, 'idle',
     'documenting the known gap: a human-blocked wait reads idle, it is not handled');
 
   /**
@@ -1690,12 +1701,40 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     'a RESOLVED wait was reported as working, which hides a finished agent');
 
   /**
+   * 🛑 THE COMPOSED FORM. The vendor builds ONE line from two counters, so the
+   * first version of this reader -- which required `background agents? to finish`
+   * ADJACENTLY -- missed the combined render entirely. That was a false calm
+   * inside the case the reader claims to handle, derived from the bundle rather
+   * than found live.
+   */
+  for (const composed of [
+    '✻ Waiting for 1 background agent and 2 dynamic workflows to finish',
+    '✻ Waiting for 3 background agents and 1 dynamic workflow to finish',
+    '✻ Waiting for 2 dynamic workflows to finish',
+  ]) {
+    assert.equal(classify(pane, composed + footer + liveRow).state, 'working',
+      'a composed background-agent/workflow wait was read as idle: ' + composed);
+  }
+
+  /**
+   * 🛑 THE LIVENESS SCAN IS SCOPED BELOW THE COMPOSER, because `◯` is the
+   * vendor's shared `figures.circle`, not a background-agent marker: the plugin
+   * permission list, the MCP "not installed" row, pending step rows and todo
+   * columns all draw it at line start. An unscoped scan would let a pane showing
+   * any of those satisfy liveness, so a RESOLVED wait would read `working` again.
+   * Measured live: the real `◯` rows sit below the composer; prose is above it.
+   */
+  const proseCircle = '✻ Waiting for 1 background agent to finish\n  ◯ some plugin row\n' + footer;
+  assert.notEqual(classify(pane, proseCircle).state, 'working',
+    'a ◯ ABOVE the composer satisfied the liveness gate, so a resolved wait read as working');
+
+  /**
    * 🛑 THE GLYPH CLASS EXCLUDES `*`, UNLIKE `WORKING_LINE`'s. That sibling can
    * afford `*` because an echoed line would also need an ellipsis AND a live
    * timer; this line needs neither, so a plain markdown bullet would read as a
    * working agent on any pane showing markdown.
    */
-  assert.notEqual(classify(pane, '* Waiting for 3 background agents to finish' + footer).state, 'working',
+  assert.notEqual(classify(pane, '* Waiting for 3 background agents to finish' + footer + liveRow).state, 'working',
     'a markdown bullet was read as a live status line');
 
   /**
@@ -1726,7 +1765,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    */
   const blocked = '✻ Waiting for 1 background agent to finish\n'
     + 'Do you want to proceed?\n❯ 1. Yes\n  2. No';
-  assert.equal(classify(pane, blocked + footer).state, 'needs_you',
+  assert.equal(classify(pane, blocked + footer + liveRow).state, 'needs_you',
     'the background-agent rule outranked a blocking prompt, hiding an agent that needs a person');
 });
 

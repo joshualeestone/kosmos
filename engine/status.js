@@ -1829,13 +1829,29 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    the WORKING branch through it. THE COUNT IS EXTRACTION-DEPENDENT, SO IT IS
    STATED ONCE, HERE, WITH ITS COMMAND, AND NOT REPEATED AS A BARE NUMBER
    ELSEWHERE. `grep -ao 'Waiting for [A-Za-z0-9 ._'\''-]\{0,60\}' | sort -u` over
-   the 2.1.258 bundle yields 25 extractions; a wider character class yields 27.
+   the 2.1.258 bundle yields 25 extractions; a wider character class yields a different
+   number, which is exactly why the command matters more than the count and why
+   no second bare figure is quoted here.
    One of the 25 is a Zod `describe()` doc string rather than a
    screen. (An earlier version also claimed the bare `Waiting for ` prefix was
    this line's own source; it is not -- the five sites that extract as the bare
    prefix belong to unrelated vendor code.) What matters is not the
    total but that SEVERAL of them mean BLOCKED ON A HUMAN, which is verifiable
-   one string at a time and is what the guard below pins. Verbatim shape, live 2.1.258:
+   one string at a time and is what the guard below pins.
+
+   🛑 THE VENDOR COMPOSES ONE LINE FROM TWO COUNTERS, so keying on
+   `background agents? to finish` ADJACENTLY was itself a false calm in the case
+   this reader claims to handle. The render is
+     "Waiting for" + ` background ${n===1?'agent':'agents'}` + " and"
+                   + ` ${m===1?'dynamic workflow':'dynamic workflows'}` + " to finish"
+   so real variants include `Waiting for 1 background agent and 2 dynamic
+   workflows to finish`, which the adjacent form could never match. Derived from
+   the bundle rather than guessed. The pattern now needs only the glyph,
+   `Waiting for`, either counter phrase somewhere, and `to finish` at the END --
+   which no human-blocked `Waiting for …` string satisfies, because none of them
+   ends in `to finish`.
+
+   Verbatim shape, live 2.1.258:
    * ✻ Waiting for 1 background agent to finish  <- sample, `*`-prefixed so
    *   THIS FILE does not match its own reader (the glyph must follow whitespace
    *   only). Before this, status.js was one of two self-matching files in the repo.
@@ -1848,7 +1864,8 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    ' ' silently stops matching and the reader returns to `idle` -- failing in the
    quiet direction, exactly as #1234 did. Measured with literal spaces:
    `✻ Waiting for 1 backgroundagent to finish` -> false. */
-const BACKGROUND_AGENT_WAIT = /^\s*[·✢✳✶✻✽]\s*Waiting\s*for\s*\d+\s*background\s*agents?\s*to\s*finish/u;
+const BACKGROUND_AGENT_WAIT =
+  /^\s*[·✢✳✶✻✽]\s*Waiting\s*for\s.*(?:background\s*agents?|dynamic\s*workflows?).*\sto\s*finish/u;
 
 /* 🛑 `*` IS DELIBERATELY NOT IN THAT GLYPH CLASS, THOUGH `WORKING_LINE` HAS IT.
    Its comment keeps `*` "because an echoed line would need the ellipsis AND a
@@ -1889,10 +1906,13 @@ const BACKGROUND_AGENT_WAIT = /^\s*[·✢✳✶✻✽]\s*Waiting\s*for\s*\d+\s*b
    composer row. A 7 and a 13 were also observed, both on panes whose wait had
    already RESOLVED, so they are not evidence about the live case and 12 is not
    fitted to them.
-   ⚠️ THE 12 IS NOT PINNED BY THE SUITE. The tests are green for any reach in
-   [3, 18]; the rows below pin only that the boundary reds in both directions.
-   With every live observation at 3, the headroom is deliberate slack for layouts
-   not yet seen, not a measured maximum. A mid-document
+   ⚠️ THE EXACT 12 IS NOT PINNED, THE BOUNDARY IS. Measured: the suite reds at 1
+   and 2, is green from 3 to 18, and reds again from 19. So both directions bite
+   and any value in [3, 18] would pass. With every live observation at 3, the
+   headroom is deliberate slack for layouts not yet seen, not a measured maximum.
+   📌 That loose-direction red only exists because the quotation fixture carries a
+   live `◯` row. Before it did, the ceiling was unguarded at every value up to 100
+   while its own comment claimed otherwise. A mid-document
    quotation measured 114 from the end.
    ⚠️ It BOUNDS the quotation residual rather than removing it: a document quoting
    the line within reach of a composer row still matches.
@@ -1902,7 +1922,8 @@ const BACKGROUND_AGENT_WAIT = /^\s*[·✢✳✶✻✽]\s*Waiting\s*for\s*\d+\s*b
 const BACKGROUND_AGENT_WAIT_REACH = 12;
 
 /* #1889. A LIVE background-agent row, drawn in the footer below the composer:
-     ◯ general-purpose  Verifying claudeHatchAvailable … 3m 57s · ↓ 169.3k tokens
+   * ◯ general-purpose  Verifying claudeHatchAvailable … 3m 57s · ↓ 169.3k tokens
+     (sample `*`-prefixed so this file does not match its own reader)
 
    🛑 THIS IS THE LIVENESS TEST, AND WITHOUT IT THE READER INVENTS A FALSE CALM.
    The wait line is a TRANSCRIPT line, not an ephemeral status row: it stays on
@@ -1917,8 +1938,17 @@ const BACKGROUND_AGENT_WAIT_REACH = 12;
    direction #1889 exists to close, introduced by the fix for it.
 
    ⚠️ `⏺` IS NOT THE DISCRIMINATOR AND MUST NOT BE USED AS ONE. `⏺` prefixes
-   ordinary transcript bullets, which every pane has in quantity; only `◯` marks
-   a running background agent.
+   ordinary transcript bullets, which every pane has in quantity.
+
+   🛑 AND `◯` IS NOT UNIQUE TO A RUNNING AGENT EITHER, WHICH IS WHY THE SCAN IS
+   SCOPED. It is the vendor's shared `figures.circle` glyph, also drawn at line
+   start by the plugin permission list, the MCP "not installed" row, pending step
+   rows and todo columns. An unscoped scan would let any pane showing one of those
+   lists satisfy liveness, and a stale wait line would then read `working` again --
+   the very defect this gate closes. So the scan runs ONLY BELOW THE COMPOSER,
+   where the subagent footer is drawn: measured live, the `◯` rows sit at row 23
+   with the composer at 17, while the wait line sits 3 rows ABOVE it. A prose
+   `◯` in the transcript is above the composer and is therefore ignored.
 
    ✅ FAILS SAFE. If the vendor stops drawing `◯`, this returns null and the
    reader simply goes quiet, which is `origin/main`'s behaviour -- a miss, not a
@@ -1952,7 +1982,7 @@ function backgroundAgentWait(text) {
     if (anchor - i > BACKGROUND_AGENT_WAIT_REACH) continue;
     /* The wait line survives the wait. Only a live `◯` row proves the agent is
        still running; without one this is a resolved wait and the pane is idle. */
-    if (!LIVE_BACKGROUND_AGENT_ROW.test(text)) return null;
+    if (!LIVE_BACKGROUND_AGENT_ROW.test(rows.slice(anchor + 1).join('\n'))) return null;
     const line = rows[i].trim();
     return line.length > 240 ? line.slice(0, 240) + '…' : line;
   }
@@ -2679,6 +2709,16 @@ function classify(pane, paneText) {
     return {
       state: STATE.WORKING,
       confidence: CONFIDENCE.SCRAPED,
+      /* ⚠️ KNOWN INTERACTION WITH `reconcileReport`, shipped deliberately.
+         `REPORT_WORKING_DECAY_MS` is 5 minutes and a background-agent wait
+         routinely runs longer (4m 2s, 3m 57s and 3m 48s measured live, all still
+         running). A decayed `working` report plus this scraped `working` now
+         takes the "reporter may be broken" branch, so a HEALTHY agent can be
+         labelled with a reporter fault. Under `origin/main` the same pane scraped
+         `idle` and took the `unknown` branch instead. The STATE is more truthful
+         either way; the accompanying sentence is not, and that is a real cost
+         rather than a neutral one. Recorded here so the next person changing the
+         decay window knows this arm feeds it. */
       because: 'it is waiting on a background agent',
       evidence: bgWaitLine,
     };
