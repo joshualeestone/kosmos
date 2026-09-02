@@ -18,21 +18,20 @@
  * `accessSync(claudeBinPath(), X_OK)` is what production did BEFORE #1592 --
  * it succeeds on a directory, which is the whole point of the third arm below.
  *
- * ⚠️ THE GAP IS NARROWER THAN "NOTHING DRIVES becomeStuck". Plenty of tests
- * drive real flows into the stuck phase; three other files reference
- * `canRunClaude`; none does both. **The per-file census, with the instrument
- * each one uses and the command that reproduces it, is stated ONCE, at the
- * third arm below.** It was stated here as well until iteration 15, and the two
- * copies had already drifted apart in detail -- which is the same
- * one-site-fix mechanism this branch has hit five times, now inside a single
- * file rather than across two.
+ * ⚠️ THE GAP IS NARROWER THAN "NOTHING DRIVES becomeStuck", AND THE NARROW
+ * WORDING IS LOAD-BEARING: no other file ASSERTS `canRunClaude` DOWNSTREAM OF A
+ * `start()`.
  *
- * 🛑 THE CLAIM IS NARROW: none asserts it DOWNSTREAM OF A `start()`.
- * `server.connect.test.js` does call `start()`, just never on a path reaching
- * this field. Driving `start()` and reading the settled STUCK record is what
- * this file adds, and the only thing it claims. The per-file counts live in the
- * plan with the command that produces them; they have drifted repeatedly and do
- * not belong in two places.
+ * 🛑 IT IS NOT THAT NO FILE DOES BOTH. `server.connect.test.js:749` drives a
+ * real `start()` into a stuck assertion AND references the field at :797/:1146/
+ * :1170 -- just never on the same path. **Every looser wording of this claim has
+ * been false**, so keep the verb: ASSERTS, downstream of a `start()`. Driving
+ * `start()` and reading the settled STUCK record is what this file adds, and the
+ * only thing it claims.
+ *
+ * 📌 The per-file census (which instrument each file uses) is stated ONCE, at
+ * the third arm below; the counts and the command that reproduces them are in
+ * the plan. They have drifted repeatedly and do not belong in two places.
  *
  * 🛑 WHY THIS DRIVES `start()` RATHER THAN CALLING `becomeStuck` DIRECTLY.
  * The card offered two shapes: export `becomeStuck` with a `setDriverForTests`,

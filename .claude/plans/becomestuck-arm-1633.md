@@ -424,9 +424,9 @@ each survivor stops a specific re-introduction:
 | the measured guard-order rejection | the reordering being re-proposed |
 
 **NOT fixed, and stated plainly rather than claimed:** at the time of this round the main test file
-was **65% comment** (295 lines, 192 of them comment; iteration 11 later brought it to 61%, and the
-that section now deliberately quotes no current figure, only the command to reproduce one). The strip removed process history and the timeline table replaced
-much of it, so the volume is roughly flat. **The content is now defensible; the volume is a judgement
+was **65% comment** (295 lines, 192 of them comment). Iteration 11 later brought it to 61%; no
+section quotes a current figure any more, only the command to reproduce one. The strip removed
+process history and the timeline table replaced much of it, so the volume is roughly flat. **The content is now defensible; the volume is a judgement
 call I am leaving to the reviewer of this PR rather than papering over.**
 
 ### The rest
@@ -870,3 +870,49 @@ short.** Neither is visible in the tally.
 ✅ **So the rule holds and needs the stronger form: read the exit code, and treat the ABSENCE of an
 exit-code line as a failure rather than as something to look past.** A tally cannot tell you a run
 finished, and on this branch it did not even hint.
+
+## Findings from challenge-loop iteration 16
+
+**Zero BLOCKERs, one WARNING, one CONVENTION, two NITs.** Every figure and all ~30 line citations
+reproduced exactly, and the justification held on its fourth consecutive independent attack.
+
+### 🛑 A COMPRESSION REINTRODUCED A CLAIM RETRACTED FIVE ROUNDS EARLIER
+
+Iteration 15 collapsed a duplicated census and compressed the surviving copy to:
+
+> *"Plenty of tests drive real flows into the stuck phase; three other files reference
+> `canRunClaude`; none does both."*
+
+**False.** `server.connect.test.js:749` drives a real `await connect.start()` into an assertion whose
+accepted set includes `PHASE.STUCK`, **and** the file references the field three times. It does both.
+
+⚠️ **AND THIS IS THE SAME CLAIM ITERATION 11 RETRACTED, ABOUT THE SAME FILE, CITING THE SAME LINE.**
+Iteration 8 wrote *"none of the three calls `connect.start()`"*; iteration 11 caught it and the plan
+still carries that retraction at its own iteration-11 section. **Seven rounds later I wrote it again
+in different words.**
+
+⭐ **THE MECHANISM IS NEW AND IT IS THE MOST USEFUL THING THIS ROUND PRODUCED: A RETRACTION USUALLY
+LIVES IN A QUALIFIER, AND COMPRESSION REMOVES QUALIFIERS.** The true sentence is *"none **asserts**
+it **downstream of a `start()`**"*. Drop the verb and the prepositional phrase -- exactly what
+tightening prose does -- and you are left with the retracted claim, wearing new words so no grep for
+the old wording can find it.
+
+⇒ **A shortening edit is a claim-changing edit.** Treat any compression of a corrected sentence as a
+new claim requiring re-verification, not as cosmetic.
+
+✅ Fixed by restoring the verb, and I swept the class rather than the site: the only other
+`none`/`no other` construction in the three code files already carries the qualifier.
+
+### The rest
+
+- **Review-process residue in shipped source** -- the iteration-15 drift annotation. ⭐ **The
+  reviewer swept the class rather than filing the instance** (`grep -i 'iteration|earlier
+  version|previously|first version'` across all three code files): exactly two hits, the other being
+  the genuinely forward-looking DO-NOT-FIX-BACK guard, which stays. **That is the sweep I asked for
+  and it answered the question in one round instead of three.**
+- **My own fix created a duplication while removing one.** Restoring the qualifier left two
+  paragraphs twelve lines apart saying substantially the same thing, with two pointers sending the
+  reader to different places. Merged into one, with a single pointer that distinguishes what lives
+  where (instruments at the third arm; counts and command in the plan).
+- A sentence fragment left by iteration 15's own fix (a stray "the" and an unwrapped splice), in the
+  paragraph about a figure iteration 15 had removed.
