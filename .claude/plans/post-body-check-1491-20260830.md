@@ -37,7 +37,9 @@ The tests deliberately use ONE ARM PER SPELLING rather than one file containing
 all five: with all five in one file the test passes while four patterns are
 broken, because the first hit satisfies it. Proven by perturbation, twice:
 disabling the `&mdash;` pattern fails exactly the HTML-entity arm; disabling the
-source-escape pattern fails exactly that arm. 10 pass, 1 fail, each time.
+source-escape pattern fails exactly that arm. Every other arm passes and exactly
+one fails, each time (an absolute count is not pinned here on purpose; the arm set
+grows and a fixed number re-stales, per kosmos#1626).
 
 ## Backticks advise, they do not block, and that is deliberate
 
@@ -59,7 +61,11 @@ An em dash still decides the exit code even when backticks are present.
     backticks plus a dash                 exit 1, both reported
     missing file                          exit 2, not a silent pass
     CONTROL, checker can pass             yes, so a pass is not structural
-    suite                                 3131 tests, 3131 pass, 0 fail (3120 before)
+    suite                                 the tool's own arms run inside
+                                          run-tests.sh (confirmed by name in a
+                                          full run, fake-name control at 0); no
+                                          absolute full-suite count pinned, it
+                                          re-stales (kosmos#1626)
 
 Confirmed the tests actually RUN, by name in a full run with a fake-name control
 at 0, not by assuming the glob picked them up.

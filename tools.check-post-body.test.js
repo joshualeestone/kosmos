@@ -105,3 +105,23 @@ test('a missing file is a usage error, not a silent pass', () => {
   const r = spawnSync('node', [TOOL, '/nonexistent/body.md'], { encoding: 'utf8' });
   assert.strictEqual(r.status, 2, 'an unreadable body must not look clean');
 });
+
+// The rest of the exit-2 contract, so a refactor cannot silently turn a usage
+// error into a clean 0. Each of these must NOT read as a passing (clean) body.
+test('a directory argument is a usage error, not a silent pass', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'postbody-dir-'));
+  try {
+    const r = spawnSync('node', [TOOL, d], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 2, 'a directory (EISDIR) must not look clean');
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test('no argument is a usage error', () => {
+  const r = spawnSync('node', [TOOL], { encoding: 'utf8' });
+  assert.strictEqual(r.status, 2, 'no file argument must be a usage error');
+});
+
+test('more than one argument is a usage error', () => {
+  const r = spawnSync('node', [TOOL, 'a.md', 'b.md'], { encoding: 'utf8' });
+  assert.strictEqual(r.status, 2, 'more than one argument must be a usage error');
+});
