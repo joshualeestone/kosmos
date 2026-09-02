@@ -5122,7 +5122,24 @@ const server = http.createServer((req, res) => {
             sendJson(res, 400, { error: 'we do not know that account on this computer' });
             return null;
           }
-          return connect.start({ configDir: known.dir, requireInstallConfirm: true, installConfirmed });
+          /* 🛑 #1922: THE DEFAULT ACCOUNT IS ADDRESSED BY OMITTING configDir, NOT
+             BY PASSING ITS DIR. Its config is `<HOME>/.claude.json`, a file
+             BESIDE `<HOME>/.claude` -- and `CLAUDE_CONFIG_DIR=<HOME>/.claude`
+             makes the real `claude` binary read and write
+             `<HOME>/.claude/.claude.json` instead, a different file holding a
+             different account. Passing `known.dir` here therefore ran the whole
+             OAuth flow and landed the refreshed credential where nothing reads
+             it, so the person saw a green check and their agent kept 401ing.
+             `accounts.listLive` and `/api/agent/:name/account-status` already
+             scope the default this way and say why; this route did not, which is
+             the asymmetry the card is about. Omitting it lets the CLI use its own
+             default resolution, which is what finds the real account. */
+          const targetDir = known.isDefault ? null : known.dir;
+          return connect.start({
+            ...(targetDir ? { configDir: targetDir } : {}),
+            requireInstallConfirm: true,
+            installConfirmed,
+          });
         }
         /* { another: true } asks for a SECOND account (#248/#324): pick the
            first free work spot, prepare it (idempotent; the shared-memory

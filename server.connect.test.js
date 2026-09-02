@@ -411,6 +411,100 @@ test('#1585 CONTROL: an UNVERIFIABLE live check keeps connected rather than forc
   }
 });
 
+/**
+ * #1922: RE-AUTH ON THE DEFAULT ACCOUNT MUST NOT PASS A `configDir`.
+ *
+ * 🛑 THE DEFECT. `/api/connect/start` with an `accountDir` passed
+ * `connect.start({ configDir: known.dir })` UNCONDITIONALLY. For a LABELLED
+ * account that is right. For the DEFAULT account it is the one thing the rest of
+ * this codebase deliberately never does, and it sends the refreshed credential to
+ * a file nothing reads.
+ *
+ * ⭐ WHY THE DEFAULT IS DIFFERENT, MEASURED RATHER THAN ASSUMED (the measurement
+ * is `engine/accounts.js`'s own, at its `listLive`): the default account's config
+ * is `<HOME>/.claude.json`, a file BESIDE `<HOME>/.claude` -- but launching with
+ * `CLAUDE_CONFIG_DIR=<HOME>/.claude` makes the real `claude` binary read and write
+ * `<HOME>/.claude/.claude.json` INSTEAD. Two different files holding two different
+ * accounts. `accounts.listLive` and `/api/agent/:name/account-status` both scope
+ * the default with NO configDir for exactly this reason; the re-auth route did not.
+ *
+ * ⇒ SO THE USER-VISIBLE SYMPTOM IS "the whole OAuth flow runs, returns fast, shows
+ * a green check, and the agent still 401s": the credential really was written, to
+ * the decoy path, and every reader looks at the real one.
+ *
+ * 📌 THE GREEN CHECK IS A SEPARATE DEFECT (#1916) AND IS NOT EVIDENCE HERE.
+ * `checkLive` shells `claude auth status --json`, which reports that a login
+ * EXISTS and never that it WORKS -- so it would have gone green even if this write
+ * had succeeded. **This arm asserts the ROUTING, which is checkable without a
+ * credential and cannot be fooled by a credulous check.**
+ *
+ * 🛑 NOTHING HERE MINTS, CAPTURES OR PRINTS A CREDENTIAL, and that is deliberate
+ * rather than incidental: the assertion is which directory the route TARGETS.
+ */
+test('#1922: signing in again to the DEFAULT account does not aim the CLI at the decoy config', async () => {
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  const defaultDir = path.join(HOME, '.claude');
+  /* The default account's record lives BESIDE the dir, not inside it -- which is
+     the whole asymmetry under test, so the fixture must use the real shape or it
+     would exercise a labelled account wearing the default's name. */
+  const defaultConfig = path.join(HOME, '.claude.json');
+  const work1 = path.join(HOME, '.claude-work1');
+  try {
+    fs.mkdirSync(defaultDir, { recursive: true });
+    fs.writeFileSync(defaultConfig,
+      JSON.stringify({ oauthAccount: { emailAddress: 'main@example.com' } }), 'utf8');
+
+    const row = accounts.list().find((a) => a.dir === defaultDir);
+    assert.ok(row, 'the fixture did not produce a default account, so this would test nothing');
+    assert.equal(row.isDefault, true, 'the fixture account is not the DEFAULT one, which is the only case under test');
+
+    const got = await post('/api/connect/start', { accountDir: defaultDir });
+    assert.equal(got.status, 200, got.body);
+
+    /* 🔑 THE ASSERTION. `publicView` reports `configDir: s.configDir || null`, so
+       null means the flow was started with none -- which is what lets `claude`
+       use its own default resolution and land on the REAL account. A path here
+       means the CLI was pointed at `<HOME>/.claude`, whose config file is the
+       decoy. */
+    assert.equal(json(got).configDir, null,
+      're-auth on the DEFAULT account passed a configDir, so the CLI writes '
+      + '<HOME>/.claude/.claude.json while every reader looks at <HOME>/.claude.json');
+  } finally {
+    fs.rmSync(defaultDir, { recursive: true, force: true });
+    fs.rmSync(defaultConfig, { force: true });
+    fs.rmSync(work1, { recursive: true, force: true });
+    await post('/api/connect/cancel');
+  }
+});
+
+/**
+ * ⭐ THE CONTROL, AND WITHOUT IT THE ARM ABOVE IS SATISFIED BY DELETING THE
+ * FEATURE. A labelled account MUST still be targeted by its own directory; a fix
+ * that simply stopped passing `configDir` would make re-auth silently sign in to
+ * whatever the ambient default is, which is a worse bug than the one being fixed.
+ */
+test('#1922 CONTROL: signing in again to a LABELLED account still targets that account', async () => {
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  const work1 = path.join(HOME, '.claude-work1');
+  try {
+    await post('/api/connect/start', { another: true });
+    await post('/api/connect/cancel');
+    assert.ok(fs.existsSync(work1), 'the fixture never made the labelled account');
+    fs.writeFileSync(path.join(work1, '.claude.json'),
+      JSON.stringify({ oauthAccount: { emailAddress: 'work1@example.com' } }), 'utf8');
+    assert.ok(accounts.list().some((a) => a.dir === work1 && a.isDefault !== true),
+      'the fixture account is not a labelled one, so this control proves nothing');
+
+    const got = await post('/api/connect/start', { accountDir: work1 });
+    assert.equal(got.status, 200, got.body);
+    assert.equal(json(got).configDir, work1,
+      'a labelled account lost its own configDir, so re-auth would sign in to the ambient default instead');
+  } finally {
+    fs.rmSync(work1, { recursive: true, force: true });
+    await post('/api/connect/cancel');
+  }
+});
+
 test('#1492: start with accountDir signs in to an EXISTING account instead of making a second one', async () => {
   /* Josh's sister, first outside install: her Claude login expired, Settings
      correctly said not connected, and the ONLY affordance was "add a provider".
