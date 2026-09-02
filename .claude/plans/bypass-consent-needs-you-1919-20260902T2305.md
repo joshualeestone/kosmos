@@ -47,8 +47,12 @@ BEFORE `asksSomething`, reading the same trailing-trimmed `trustTail`.
 It keys on the shared Claude consent chrome, so it catches the bypass dialog, the trust
 dialog, and the next unforeseen confirm dialog (named dialogs are evidence-LABELERS on
 top, not the detection key):
-- The dialog must END the screen (last non-blank row is a dialog row) - the paste-vs-live
-  discipline `trustPrompt` already uses.
+- The dialog must END the screen (last non-blank row is a dialog row) - one of the two
+  paste-vs-live guards `trustPrompt` uses. It DROPS the other two on purpose (no anchoring
+  question row, corroboration free-floating in the tail), so it is MORE permissive than
+  trustPrompt: a composerless capture is exposed, which is the deliberate default-toward-
+  needs_you tradeoff below. A live agent always draws a composer, so the exposure is
+  composerless captures only.
 - A confirm footer (`Enter to confirm`) OR a `No, exit` + `Yes, ...` option pair.
 - Maps to STATE.NEEDS_YOU with the heading/option row as evidence.
 

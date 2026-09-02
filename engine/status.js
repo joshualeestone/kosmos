@@ -2099,12 +2099,24 @@ function trustPrompt(tail) {
  * reads as needs_you rather than falling through to unknown. Returns `{ because, evidence }`
  * or null, mirroring the shape `classify`'s trust branch consumes.
  *
- * Same trailing-trimmed tail and same "the dialog ENDS the screen" discipline as
- * `trustPrompt`: a live dialog is the bottom of the screen, so a PASTE of one higher up
- * (over a live composer whose stripped last row is blank) does not match. The three
- * signals -- a confirm footer, a `No, exit` option, a `Yes, ...` option -- are exactly the
- * ones the ordinary idle composer and a mid-work pane lack, which is what keeps this from
- * flipping the fleet (the required negative controls in status.test.js prove it).
+ * It shares TWO of `trustPrompt`'s guards -- the trailing-trimmed tail and the
+ * "the last non-blank row is a dialog row" bottom-of-screen rule (so a PASTE of a dialog
+ * higher up, over a live composer whose stripped last row is blank, does not match). It
+ * deliberately DROPS the other two, because it recognises a family rather than one dialog:
+ * there is NO anchoring question row (trustPrompt requires `Quick safety check:`), and the
+ * corroborating signals may sit ANYWHERE in the trimmed tail rather than within a reach of
+ * a question. With the loose `CONSENT_PROMPT_ACCEPT` (`/^Yes\b/`), that makes it MORE
+ * permissive than trustPrompt: a COMPOSERLESS capture (clipped mid-redraw, or scrolled
+ * back) whose last row reads like an option, plus the other signals loose in the tail, can
+ * read needs_you. That exposure is deliberate and bounded: a LIVE Claude agent always
+ * draws a composer at the bottom, so its stripped last row is blank and this returns null
+ * (the STRENGTH-verified negative controls in status.test.js) -- only a composerless
+ * capture is exposed, the same residual trustPrompt documents as "nobody has seen one".
+ * It is the SAFE direction on purpose (#1919 / Splinter): a false "waiting for you" costs
+ * a glance, a false "can't tell" cost a real user an hour, so the family detector defaults
+ * TOWARD needs_you rather than tightening back into unknown. Requiring the confirm footer,
+ * or a reach constraint, would trade that glance-cost false-positive for an hour-cost
+ * false-NEGATIVE on a clipped-footer real dialog -- the wrong trade for this card.
  */
 function consentPrompt(tail) {
   const raw = String(tail == null ? '' : tail).split('\n').map((line) => line.trim());
