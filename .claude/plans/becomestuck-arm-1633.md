@@ -156,7 +156,7 @@ this file                               drives the real start(), reads the STUCK
 
 | mutation | tests that redden, whole suite | unique here? |
 |---|---|---|
-| control (none) | none (3765 pass) | n/a |
+| control (none) | none (whole suite green) | n/a |
 | **M1** behaviour-preserving refactor of the writeState line | `runnable-not-directory` only | no, and these arms correctly stay GREEN |
 | **M2** drop the `isFile()` gate | `runnable-not-directory` + the DIRECTORY arm | no |
 | **M3** `publicView` drops the field | `publicview-canrun-1595` + the PRESENT arm | no |
@@ -171,7 +171,7 @@ this file                               drives the real start(), reads the STUCK
 
 📌 That sentence said "match `connect.js` as source text" for all of them until iteration 14. The conclusion is unaffected -- a page grep is no more downstream of a `start()` than a `connect.js` grep -- but it named the wrong file **in the sentence carrying the branch**, while this plan's own comparison table twenty lines up said "greps page source" correctly. **The plan disagreed with itself, and the prose was the wrong half. Again.**
 
-**M5 then confirms it is not redundant**, rather than being the argument itself: make `writeState` drop the field while leaving both the pinned source line and `claudeHatchAvailable()` untouched, and across the **entire js suite (3765 tests) plus the shell portion**, exactly one test reddens and it is here.
+**M5 then confirms it is not redundant**, rather than being the argument itself: make `writeState` drop the field while leaving both the pinned source line and `claudeHatchAvailable()` untouched, and across the **entire js suite plus the shell portion**, exactly one test reddens and it is here.
 
 ⚠️ **AND M5 IS SYNTHETIC IN FORM, WHICH THE PREVIOUS FRAMING HID.** `writeState` is a blind spread with no per-field handling, so "lose `canRunClaude` in transit" requires inserting a `delete` naming that identifier -- **no natural refactor produces it.** A uniqueness claim resting on an implausible mutation is weaker than it reads, and leaning on M5 alone was doing exactly that.
 
@@ -1081,3 +1081,69 @@ What is banned is a standing fact about a moving file.
 - The `INSTALL_FAILURE` docblock stated the same fact in two consecutive paragraphs. Cut one.
 - A pointer said the command lives in the plan when it is also inline 180 lines down. Matched to
   reality.
+
+## Findings from challenge-loop iteration 19
+
+**Zero BLOCKERs, four WARNINGs, one CONVENTION, two NITs.** Every citation reproduced, and the
+justification survived a seventh independent attack -- this one from outside its own instrument: a
+repo-wide `git grep` (not scoped to `*.test.js`) found the field in only those four test files, and
+no test anywhere deep-equals `connect.state()`, so there is no path by which some test asserts the
+field without naming it.
+
+### 🛑 TWO FIXES ITERATION 18 RECORDED AS DONE WERE NEVER APPLIED, AND MY OWN TOOL CAUSED IT
+
+The iteration-18 NIT list claims *"Cut one"* and *"Matched to reality."* **Neither happened.**
+`git show 84a25570` touches two hunks in that file and neither is the one named.
+
+⭐ **THE CAUSE IS THE GUARD I BUILT IN ITERATION 10.** Three edits went out in one batch. The FIRST
+failed on a stale anchor, the helper called `sys.exit(1)`, and **edits two and three never ran and
+printed nothing at all.** I retried the first separately, saw it succeed, and wrote all three up as
+fixed.
+
+🔑 **A FAIL-FAST GUARD CONVERTS ONE LOUD FAILURE INTO N-1 SILENT ONES.** Iteration 10 fixed a helper
+that reported success on a no-op; the fix made it abort instead, which is correct for *that* edit and
+catastrophic for *the batch*. **The failure I could see hid the failures I could not.**
+
+✅ **Helper rewritten: every edit runs, every outcome prints, and an exit summary NAMES what did not
+land** (`--- 5/6 landed --- !!! DID NOT LAND: ...`). It earned itself on first use in this round: one
+of six failed, was named, and the five after it still applied.
+
+📌 **And the real lesson is one level up: an "ok" I did not see is not an "ok".** The evidence for a
+fix landing is the fix being in the file, not the absence of an error. **Verify against the artifact,
+which is this branch's oldest lesson arriving in a new place.**
+
+### The other findings
+
+- **A standing whole-suite total (`3765`) inside the `## Verification` section that says in capitals
+  it quotes no test total.** Accurate today, and it moves with every merge to main. The occurrences
+  inside findings sections are covered by the evidence carve-out; these two were not. Removed.
+  ⚠️ **Third distinct violation of a no-quoting rule this plan states about itself.**
+- **A duplicated paragraph whose "the one above" pointed the wrong way** -- the install-failure
+  message is the `const` *below* it. Both facts were true; the paragraph added nothing and misled
+  about location. Cut, which resolved the WARNING and the CONVENTION cut-list entry together.
+- **`:751` is `assert.ok(`; the three-way disjunction is `:752`.** Off by one, in a file whose own
+  defect log is full of citations landing one construct over.
+- **The prototype-pollution example named `/constructor`**, which with the leading slash would miss
+  `Object.prototype.constructor` on a literal too. The guard and its rationale are right; the example
+  was not. Now `constructor`, and framed as hygiene rather than a fix.
+- **CONVENTION, accepted:** the head docblock restated the load-bearing claim that the third arm
+  states with more detail, 190 lines apart -- the intra-file duplication iteration 15 claimed to
+  collapse and only half did, and the reason iteration 18's verb fix had to touch two sites.
+  **Head block is now the claim plus a pointer; the breakdown lives once.**
+
+📌 **Process note from the reviewer, and it is correct:** no `-pre-challenge.md` proof file exists
+for this branch yet, so `pre-challenge-gate` will refuse a PR. That is the loop not having converged,
+which is the gate working.
+
+📌 **Postscript: the artifact check worked, and my grep was wrong again.** After applying the six
+iteration-19 fixes I verified each one **against the file** rather than against the helper's `ok`
+lines (that being this round's whole lesson). One check returned 0 where 1 was expected. **The file
+was correct; my pattern said `at :752` where the text says `on :752`.**
+
+⭐ **Fourth time on this branch that a zero from my own grep was the instrument rather than the
+subject** (the others: `becomestuck-arm-1633` against a log that prints test NAMES, `builds` against
+a file that says `build`, and the wrapped-phrase replacements that silently no-opped). ⇒ **The
+verification step still did its job**: it made me look, and looking settled it against ground truth
+(`sed -n '751,752p'` on the cited file). **A check that sends you to the artifact is useful even when
+the check itself is broken** -- which is the argument for verifying by reading rather than by
+counting.

@@ -22,17 +22,13 @@
  * WORDING IS LOAD-BEARING: no other file ASSERTS `canRunClaude` DOWNSTREAM OF A
  * `start()`.
  *
- * 🛑 IT IS NOT THAT NO FILE DOES BOTH. `server.connect.test.js:749` drives a
- * real `start()` into an assertion whose accepted set INCLUDES `PHASE.STUCK`
- * (its :751 is a three-way disjunction, not a stuck assertion), AND the file
- * references the field at :797/:1146/:1170 -- just never on one path. **Every looser wording of this claim has
- * been false**, so keep the verb: ASSERTS, downstream of a `start()`. Driving
- * `start()` and reading the settled STUCK record is what this file adds, and the
- * only thing it claims.
+ * 🛑 KEEP THE VERB AND THE PHRASE: **ASSERTS**, downstream of a `start()`.
+ * Other files do call `start()` and other files do reference the field; none
+ * does both on one path. **Every looser wording of this claim has been false.**
+ * The per-file breakdown lives once, at the third arm below.
  *
  * 📌 The per-file census (which instrument each file uses) is stated ONCE, at
- * the third arm below; the counts and the command that reproduces them are in
- * the plan.
+ * the third arm below, with the command. The counts are in the plan.
  *
  * 🛑 WHY THIS DRIVES `start()` RATHER THAN CALLING `becomeStuck` DIRECTLY.
  * The card offered two shapes: export `becomeStuck` with a `setDriverForTests`,
@@ -165,10 +161,8 @@ async function stuckWith(t, { binaryExists, directoryInstead = false }) {
  * `installClaudeCode` and surfaced by `runFlow`'s
  * `if (!res.ok) becomeStuck(owner, res.message, res.detail)`).
  *
- * Both messages come from `installClaudeCode`: the install failure yields the
- * one above, and a download failure yields 'we could not download Claude'. Two
- * failure points inside one function, so asserting the message is what pins
- * WHICH of them the arms exercised.
+ * Both failure points live inside `installClaudeCode` (connect.js:1463 and
+ * :1549), which is why asserting the message pins WHICH of them fired.
  *
  * Asserting it is what would have caught the missing release server on the
  * first run.
@@ -218,6 +212,13 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
  * other three build the state object by hand, match the PAGE source
  * (`server.connect.test.js:797` slices `web/index.html`, NOT `connect.js`), or
  * match `connect.js` as source text (`runnable-not-directory`).
+ *
+ * ⚠️ `server.connect.test.js` is the one that looks like a counterexample: it
+ * DOES drive `start()` (:749) and DOES reference the field. But its :751
+ * `assert.ok(` takes a three-way disjunction on :752
+ * (`DOWNLOADING || INSTALLING || STUCK`) and never reads `canRunClaude`, and its
+ * three field sites are the page grep plus two hand-built states. Different
+ * tests, one file.
  *
  * A mutation confirms that is not redundant -- a `writeState` that drops the
  * field reddens exactly one test in the whole suite, here -- but ⚠️ THAT

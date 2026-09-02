@@ -167,9 +167,10 @@ function serveRelease(t, opts = {}, ...extra) {
     : crypto.createHash('sha256').update(body).digest('hex');
   /* `Object.create(null)` rather than a literal: the lookup below is
      `paths[req.url]`, and on a literal that reaches Object.prototype, so a
-     request for `/constructor` would find a function and CALL it. Not reachable
-     through a real `req.url` (it always has a leading slash), but this is a
-     shared helper and the class costs one line to remove. */
+     lookup of `constructor` would find a function and CALL it. A real `req.url`
+     always has a leading slash so it cannot reach those keys, which is why this
+     is hygiene rather than a fix -- but it is a shared helper and the class
+     costs one line to remove. */
   const paths = Object.assign(Object.create(null), {
     '/latest': () => version,
     [`/${version}/manifest.json`]: () => JSON.stringify({ platforms: { [platformKey]: { checksum: served } } }),
