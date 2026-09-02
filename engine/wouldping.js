@@ -44,6 +44,25 @@ const store = require('./store');
 const dirFor = () => path.join(store.ROOT, 'wouldping');
 const fileFor = () => path.join(dirFor(), 'needs-you.jsonl');
 
+/* 🛑 #1784: `mode:` ON A WRITE APPLIES ON CREATE ONLY, AND `mkdirSync` HERE
+   PASSED NONE. So the directory landed 0755 (world-readable) and an existing
+   log kept whatever mode it already had: a log left loose once stayed loose
+   through every later append, and nothing re-asserted it. Same mechanism as
+   #1761/#1776.
+   ⇒ Re-assert both on every write, best-effort on the same argument
+   `remote.js` `secureStateDir` already uses: a perms failure must never break
+   a read of the board (this whole module is wrapped so a measurement cannot).
+   The dir is 0700 so nobody can enumerate it, and the file 0600 so a loose log
+   is tightened on its NEXT append rather than staying loose forever. */
+function secureAppend(line) {
+  const dir = dirFor();
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(dir, 0o700); } catch { /* best-effort */ }
+  const file = fileFor();
+  fs.appendFileSync(file, line, { mode: 0o600 });
+  try { fs.chmodSync(file, 0o600); } catch { /* best-effort */ }
+}
+
 /* The last state we saw per agent, for this process only. */
 const last = new Map();
 /* 🛑 A TIMESTAMP IS NOT AN IDENTITY, AND MY FIRST VERSION USED ONE. Two boots
@@ -83,8 +102,7 @@ let announced = false;
 function announce() {
   if (announced) return;
   announced = true;
-  fs.mkdirSync(dirFor(), { recursive: true });
-  fs.appendFileSync(fileFor(), JSON.stringify({
+  secureAppend(JSON.stringify({
     at: new Date().toISOString(),
     kind: 'boot',
     sinceBoot: bootAt,
@@ -109,7 +127,7 @@ function announce() {
     pid: typeof process.pid === 'number' ? process.pid : null,
     note: 'this line means the reader RAN. No transition lines after it means it ran and saw none. '
       + '`script` says WHICH process ran: a boot from anything but server.js is not the board.',
-  }) + '\n', { mode: 0o600 });
+  }) + '\n');
 }
 
 /**
@@ -146,8 +164,7 @@ function saw(key, state, opts) {
       sinceBoot: bootAt,
       wouldHavePinged: true,
     }) + '\n';
-    fs.mkdirSync(dirFor(), { recursive: true });
-    fs.appendFileSync(fileFor(), line, { mode: 0o600 });
+    secureAppend(line);
     logged = true;
   } catch { /* a measurement must never break a read of the board */ }
   return logged;
