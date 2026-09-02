@@ -22,12 +22,13 @@ wording of this claim has been false, twice.)
 | the traps that cost an hour each | *One trap*, and the docblocks in the test file |
 | **what this branch got wrong and how** | the `Findings from challenge-loop iteration N` sections |
 
-🛑 **THE ITERATION LOG IS ROUGHLY TWO THIRDS OF THIS FILE AND THAT IS DELIBERATE, NOT NEGLECT.** An
+🛑 **MOST OF THIS FILE IS ITERATION LOG, AND THAT IS DELIBERATE, NOT NEGLECT.** An
 accepted review finding required stripping process history from the three CODE files precisely so it
 would live here instead. **This is where it was sent.** It is skippable by design: nothing above it
-depends on it. ⭐ It is also the most reusable part of the branch -- seventeen rounds in which the
-recurring defect was never the tests but the sentences about them, including four rounds where the
-sentence justifying the branch's own existence was false.
+depends on it. ⭐ It is also the most reusable part of the branch: round after round in which the
+recurring defect was never the tests but the sentences about them, including several where the
+sentence justifying the branch's own existence was false. (`git log --oneline origin/main..HEAD`
+counts the rounds; no figure is quoted here for the reason the volume section gives.)
 
 ## The problem, in one line
 
@@ -765,10 +766,14 @@ Iteration 12 left a stale comment ratio. Iteration 13 retracted it and published
 PRE-EDIT FIGURE.** A measurement taken mid-edit describes a state that no longer exists by the time
 it is committed. **Measure last, or do not quote.**
 
-⇒ **Third failure to state this one number, so the plan now states no figure for it at all** -- only
-the command, plus the five sibling percentages (each re-run before publishing this time: 6 / 25 / 35
-/ 43 / 48). ⚠️ **And the reviewer found a sixth sibling at 6% that falls outside the "25-48%" range I
-had quoted**, which is why the range is gone too and the files are named instead.
+⇒ **Third failure to state this one number, so this section stopped quoting a figure for it** and
+published the command instead. ⚠️ **The reviewer also found a sibling outside the "25-48%" range I
+had quoted**, which is why the range went too and the files are named instead.
+
+📌 **This paragraph listed the five sibling percentages until iteration 20**, which contradicted the
+volume section (iteration 18 removed them there) and had already drifted by one. **A sentence
+describing what the document does is itself a claim about the document, and it goes stale the same
+way any other self-measurement does.**
 
 ### The live justification named the wrong file
 
@@ -1120,7 +1125,9 @@ which is this branch's oldest lesson arriving in a new place.**
   ⚠️ **Third distinct violation of a no-quoting rule this plan states about itself.**
 - **A duplicated paragraph whose "the one above" pointed the wrong way** -- the install-failure
   message is the `const` *below* it. Both facts were true; the paragraph added nothing and misled
-  about location. Cut, which resolved the WARNING and the CONVENTION cut-list entry together.
+  about location. **Rewritten rather than cut** -- the replacement carries the `connect.js:1463` and
+  `:1549` citations the original lacked. ⚠️ This entry said "Cut" until iteration 20; the code change
+  was arguably the better one, but **the write-up described the intention rather than the edit.**
 - **`:751` is `assert.ok(`; the three-way disjunction is `:752`.** Off by one, in a file whose own
   defect log is full of citations landing one construct over.
 - **The prototype-pollution example named `/constructor`**, which with the leading slash would miss
@@ -1147,3 +1154,85 @@ verification step still did its job**: it made me look, and looking settled it a
 (`sed -n '751,752p'` on the cited file). **A check that sends you to the artifact is useful even when
 the check itself is broken** -- which is the argument for verifying by reading rather than by
 counting.
+
+## Findings from challenge-loop iteration 20
+
+**Zero BLOCKERs, four WARNINGs, one CONVENTION, one NIT.** The justification survived an eighth
+independent attack, this time repo-wide rather than scoped: the field appears in no other test, no
+shell test, no browser check, and no test deep-equals `connect.state()`.
+
+### 🛑 THE STRUCTURAL FIX FROM ITERATION 18 MISSED THE SAME CLAIM SPELLED IN WORDS
+
+Iteration 18 declared self-measurement structurally fixed and removed the figures. **The orientation
+header still said the log is "ROUGHLY TWO THIRDS OF THIS FILE".** Measured: **81%**.
+
+⭐ **IT SURVIVED BECAUSE MY SWEEP WAS FOR NUMERALS AND THIS QUANTITY IS SPELLED AS WORDS.** A
+`grep -E '[0-9]+%|[0-9]+ lines'` cannot see "two thirds", "seventeen rounds", or "a handful". ⇒ **A
+sweep defined by NOTATION misses the same claim in a different notation**, which is the notation-level
+form of the wrong-region error this branch keeps hitting: right target, wrong alphabet.
+
+⚠️ **And the same header carried "seventeen rounds" when there had been nineteen.** Same block, same
+class, same cause: a count spelled as a word, invisible to the sweep that was supposed to have closed
+the class.
+
+✅ Both are now unquantified, with `git log --oneline origin/main..HEAD` given for anyone who wants
+the number.
+
+### I described an intention as an edit, twice, on the same item
+
+The iteration-19 entry says the duplicated `INSTALL_FAILURE` paragraph was **"Cut"**. It was
+**rewritten** -- and the rewrite was the better change, because it added the `connect.js:1463` and
+`:1549` citations the original lacked. **So the code is fine and the write-up was wrong**, which is
+the harder version to catch: nothing downstream fails.
+
+⇒ **Describe the edit you made, not the edit you set out to make.** Iteration 18 recorded the same
+item as cut when nothing happened at all; iteration 19 recorded it as cut when something better
+happened. **Both are the same error, and only one of them had a defect underneath it.**
+
+### A sentence describing the document contradicted the document
+
+*"the plan now states no figure for it at all -- only the command, plus the five sibling percentages
+(6 / 25 / 35 / 43 / 48)"* -- iteration 18 had removed those percentages from the volume section, one
+had drifted, and the sentence listed a sixth value while calling them five. ⇒ **A sentence describing
+what the document does is itself a claim about the document, and it goes stale exactly like any other
+self-measurement.** The no-self-measurement rule has to cover prose about the document, not only
+numbers in it.
+
+### The collapse commit added a duplicate
+
+Iteration 19's stated purpose was collapsing an intra-file duplicated pointer. **It added a second
+one**, adjacent to the survivor, saying the same thing in fewer words. Cut; the `📌` line stays
+because it names what lives where.
+
+### NIT worth keeping
+
+`settled()` treats `PHASE.IDLE` as "still moving". Correct for the pre-write window, but a flow that
+legitimately ENDS at IDLE would burn the deadline and report *"contention, not a verdict"* -- the
+precise misattribution that message exists to prevent. **Not reachable today** (`start()` is called
+with no opts, so `requireInstallConfirm`'s early return at `connect.js:1261` cannot fire), so it is
+recorded at the helper as a known gap rather than fixed speculatively.
+
+### The iteration-20 suite run went RED, and the control is what settled it
+
+```
+EXIT_CODE=1     js half: 3765 pass / 0 fail      shell half: 3 FAILURES
+```
+
+**Cause: another agent's Playwright run was live on this shared Mac** (`pid 33602`), and
+`tools/test-browser-run-guard.sh` correctly refused rather than letting two browser runs starve each
+other. The harness said so itself: *"A red that is green alone is contention, not the change."*
+
+✅ **The control is what makes that more than a hopeful reading:** `origin/main` was run at the same
+moment and **failed identically** -- same `rc=1`, same three assertions. ⇒ **A red that reproduces on
+main is the environment.** Had main passed, this branch would have been the suspect, which is what
+makes the control worth running rather than assuming.
+
+📌 **Second corroboration, and it is the cheaper one:** this branch changes four files and that test
+reads none of them.
+
+⚠️ **AND MY FIRST ATTEMPT TO MEASURE IT REPORTED `GUARD_EXIT=0` ON A FAILING SCRIPT**, because the
+exit code came from `tail` at the end of a pipe. **The pipe erased the status of the only command
+that mattered**, in the middle of diagnosing a red. Re-measured without the pipe: `rc=1`.
+
+⇒ **Recorded as environment, NOT as green.** The js half covers everything this branch changes and is
+green; the shell half is blocked by a neighbour and reproduces on main.

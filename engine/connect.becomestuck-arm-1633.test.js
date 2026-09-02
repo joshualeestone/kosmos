@@ -25,7 +25,6 @@
  * 🛑 KEEP THE VERB AND THE PHRASE: **ASSERTS**, downstream of a `start()`.
  * Other files do call `start()` and other files do reference the field; none
  * does both on one path. **Every looser wording of this claim has been false.**
- * The per-file breakdown lives once, at the third arm below.
  *
  * 📌 The per-file census (which instrument each file uses) is stated ONCE, at
  * the third arm below, with the command. The counts are in the plan.
@@ -85,6 +84,14 @@ const connect = require('./connect');
 const subscription = require('./subscription');
 
 /**
+ * ⚠️ ONE KNOWN GAP, CHEAP INSURANCE RATHER THAN A LIVE DEFECT: `IDLE` counts as
+ * "still moving" here, which is right for the pre-write window but means a flow
+ * that legitimately ENDS at IDLE would burn the full deadline and then report
+ * "contention, not a verdict" -- the exact misattribution that message exists to
+ * prevent. Not reachable today: these arms call `start()` with no opts, so the
+ * `requireInstallConfirm` early return (connect.js:1261) cannot fire. If that
+ * changes, distinguish a settled-IDLE from a deadline expiry.
+ *
  * Read the SETTLED state, not `start()`'s immediate return. `start()` returns
  * before `runFlow` has failed, so the immediate value cannot distinguish "wrote
  * the wrong verdict" from "has not written one yet".
