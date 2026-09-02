@@ -33,6 +33,11 @@ process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'LaunchAgents');
 process.env.AGENT_WORKFORCE_HOME = nodePath.join(SANDBOX, 'home');
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'support');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+/* #1794: the OpenAI arms resolve the codex runner through runners.resolveBin,
+   which reads AGENT_WORKFORCE_CODEX_BIN (setProvider does NOT take the opts.codexBin
+   the createAgent path does), and codex is absent on a clean runner. /bin/echo exists
+   and is executable on macOS, so it seams the presence check hermetically. */
+process.env.AGENT_WORKFORCE_CODEX_BIN = '/bin/echo';
 process.on('exit', () => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });

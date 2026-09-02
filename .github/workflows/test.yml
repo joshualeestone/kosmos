@@ -69,7 +69,13 @@ jobs:
     # sit on the 360-minute default. The suite is ~2-3 min, so 15 is generous.
     timeout-minutes: 15
     steps:
+      # #1794: fetch-depth 0 (full history). checkout@v4 shallow-clones by
+      # default; #1025's "a range is reduced to its base" resolves a git range,
+      # which needs the history a depth-1 clone truncates. The other #1025 arms
+      # (plain ref, cutoff filtering) pass shallow; only the range-base one needs it.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       # #1794: install tmux. run-tests.sh boots boards, and last-look spawns a child
       # that runs status.snapshot() against the environment's tmux; macos-latest ships
       # none, so without this last-look reads 'could not run tmux' instead of the
