@@ -106,7 +106,7 @@ test('#1787: a writer throw comes back as a refusal, not an unreadable-request e
   const realWriteSecret = securewrite.writeSecret;
   securewrite.writeSecret = () => {
     const e = new Error('refusing to write a secret through a symlink at /x');
-    e.code = 'ELOOP';
+    e.code = 'ERR_KOSMOS_SYMLINK'; // the writer's own code since iteration 7, not the kernel's ELOOP
     throw e;
   };
   cloudflare.setFetcher(fake(good));

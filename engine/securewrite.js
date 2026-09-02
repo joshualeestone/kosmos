@@ -38,7 +38,7 @@
  * "we could not read that request" — an unreadable-paste error, on a credential the
  * service just verified. Report it as a refusal in the caller's own shape instead.
  * ⚠️ Pre-existing for ENOSPC and EACCES, WIDENED by this module:
- * `refuseSymlinkTarget` raises ELOOP, a throw source the old in-place writes did not
+ * `refuseSymlinkTarget` raises ERR_KOSMOS_SYMLINK, a throw source the old in-place writes did not
  * have. The three token-door call sites catch it directly; `sendertoken.writeTokens`
  * does NOT, and relies on `mint` and `retire` catching one level up, which is true at
  * one remove and worth knowing before you check the call site and find nothing. `trust.js` and `create.js`

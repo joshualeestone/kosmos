@@ -33,6 +33,10 @@ let deviceSeq = 0;
    the test already left (measured: the cancel arm's poll was still in flight two
    arms later) finds its own, empty, queue rather than the next arm's token. */
 const boundAnswers = new Map();
+/* #1799 arm: hold the NEXT issued flow's token answers for this many ms, so its
+   poll is still in flight when the arm abandons the flow and starts another. */
+let holdNextFlowMs = 0;
+const holdFor = new Map();
 const stub = http.createServer((req, res) => {
   let body = '';
   req.on('data', (d) => { body += d; });
@@ -44,6 +48,7 @@ const stub = http.createServer((req, res) => {
       const code = 'dev-' + deviceSeq;
       boundAnswers.set(code, answers);
       answers = [];
+      if (holdNextFlowMs) { holdFor.set(code, holdNextFlowMs); holdNextFlowMs = 0; }
       send(200, { device_code: code, user_code: 'ABCD-1234', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 0 });
       return;
     }
@@ -51,7 +56,8 @@ const stub = http.createServer((req, res) => {
       const asked = JSON.parse(body || '{}').device_code;
       const queue = boundAnswers.get(asked) || [];
       const next = queue.length ? queue.shift() : { error: 'authorization_pending' };
-      send(200, next);
+      const hold = holdFor.get(asked) || 0;
+      if (hold) setTimeout(() => send(200, next), hold); else send(200, next);
       return;
     }
     if (req.url === '/user') {
@@ -301,6 +307,43 @@ test('#1787: a writer throw on the completing path is reported, not swallowed in
     assert.equal(fs.existsSync(gd.FILE), false, 'a token was stored despite the writer throwing');
   } finally {
     securewrite.writeSecret = realWriteSecret;
+    delete process.env.KOSMOS_GITHUB_CLIENT_ID;
+    try { fs.rmSync(gd.FILE, { force: true }); } catch { /* nothing */ }
+  }
+});
+
+/* #1799: A POLL BELONGS TO THE FLOW THAT SCHEDULED IT. stopPolling clears a timer that
+   has not fired; it cannot reach a fetch already in flight. Measured twice on this
+   file: the cancel arm's poll came back two arms later, took the next arm's token,
+   and the new flow's start() overwrote the failure it caused with a fresh awaiting.
+   For a person: start a sign-in, cancel it, start again, and the abandoned flow's
+   answer can complete or reset the new one with nothing on screen saying why.
+   This arm holds the first flow's token answer in the stub, abandons the flow while
+   that answer is in flight, starts a second flow, and asserts the late answer
+   touches nothing: no token stored, second flow still awaiting, no reason written.
+   Red by name with the generation check removed from pollOnce. */
+test('#1799: an answer to a flow the person already left cannot complete or reset the next flow', async () => {
+  process.env.KOSMOS_GITHUB_CLIENT_ID = 'Iv1.testclient';
+  try {
+    fs.rmSync(gd.FILE, { force: true });
+    answers = [{ access_token: 'tok-stale', token_type: 'bearer', scope: 'repo' }];
+    holdNextFlowMs = 120;
+    const first = await gd.start();
+    assert.equal(first.phase, 'awaiting', 'the first flow did not start, so nothing was tested');
+    await settle(20);             // its poll has left and is being held by the stub
+    await gd.cancel();            // the person leaves that flow
+    answers = [];                 // the second flow has nothing to say yet
+    const second = await gd.start();
+    assert.equal(second.phase, 'awaiting', 'the second flow did not start, so nothing was tested');
+    await settle(250);            // the held answer has long since returned
+    const st = await gd.state();
+    assert.equal(fs.existsSync(gd.FILE), false,
+      'the abandoned flow\'s token was STORED after the person had left it and started another sign-in');
+    assert.equal(st.phase, 'awaiting',
+      `the second flow ended at ${st.phase} (${st.because}): an answer to the flow the person left completed or reset it`);
+    assert.equal(st.because, null, 'the second flow carries a reason written by the abandoned flow: ' + st.because);
+  } finally {
+    await gd.cancel();
     delete process.env.KOSMOS_GITHUB_CLIENT_ID;
     try { fs.rmSync(gd.FILE, { force: true }); } catch { /* nothing */ }
   }
