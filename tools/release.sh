@@ -381,6 +381,16 @@ REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD"
 
 step "== 3. the whole suite, on the tree that ships =="
+# 🔑 WHY THE CUT RUNS THE WHOLE SUITE ON MAIN ITSELF, and does not trust the green
+# PR checks of what it bundles (kosmos#1934). A green PR check is a statement about
+# that BRANCH, measured against its own merge base -- NOT about the trunk it is
+# landing on. In #1934 a red `engine.reachable.test.js` sat on main under four
+# merges, every one with an honestly green PR check, because each ran against a base
+# that predated the red seam. The trunk moves independently of any branch, so the
+# only place that can vouch for the trunk is a run OF the trunk: this step, `yarn
+# test` on `main` at cut time. That is also why `yarn test` (tools/run-tests.sh) now
+# carries a coverage assertion that refuses to run a subset -- a cut that gated on a
+# fraction of the suite would be a green that never looked at the red file.
 # ⚠️ CORRECTED CLAIM: the old `yarn test | grep` gate DID refuse a red
 # suite (pipefail makes the pipeline's status yarn's, and errexit
 # stops the script), measured by the PM against my first reading of it,
