@@ -417,7 +417,10 @@ test('#1575: every `node ./server.js` boot sets AGENT_WORKFORCE_DRY_RUN, or is a
      still green - two were needed before it fired. Equality fires in BOTH directions, so
      adding a board is a deliberate act that updates this number and re-reads the
      exemption, rather than something that slips underneath a floor. */
-  const EXPECTED_BOOTS = 7;
+  /* #1870 raised this from 7 to 8: boot_board_org boots a dense org board for
+     render-org-reduced-motion. It sets AGENT_WORKFORCE_DRY_RUN=1 like every
+     non-#1573 board, so the dry-run arm below covers it unchanged. */
+  const EXPECTED_BOOTS = 8;
   assert.strictEqual(boots.length, EXPECTED_BOOTS,
     `expected exactly ${EXPECTED_BOOTS} server boot sites, found ${boots.length}. If you added a `
     + 'board, raise this number and check its dry-run status deliberately; if it dropped, a boot '
