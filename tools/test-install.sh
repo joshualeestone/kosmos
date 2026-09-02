@@ -50,6 +50,9 @@ kosmos_require_free_mb "${KOSMOS_HARNESS_MIN_FREE_MB:-3072}" "${TMPDIR:-/tmp}" "
 # cut's own run (KOSMOS_INSTALL_GATE=1) is the cut and never refuses itself;
 # tools/test-cut-guard.sh shows the guard red and green.
 . "$HERE/tools/lib/cut-guard.sh"
+# kosmos#955: the bounded #910 port selftest (bounded_run + the current-vs-behind
+# premise check), so a stale bundle FAILS this run instead of hanging it.
+. "$HERE/tools/lib/app-port-selftest.sh"
 if [ "${KOSMOS_INSTALL_GATE:-0}" != 1 ] && [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
   kosmos_refuse_if_cut_live "a full install-harness run" || exit 1
 fi
@@ -627,11 +630,30 @@ echo "== #910: per-account port derivation, shell and Swift agree =="
 _kosmos_expected_port() { # $1 = uid
   if [ "$1" = 501 ]; then printf '16180'; else printf '%s' "$((16180 + 1 + ($1 % 3999)))"; fi
 }
-for _uid in 501 502 1000 4999 5000; do
-  _expected="$(_kosmos_expected_port "$_uid")"
-  _swift_got="$("$KOS_SRC/app/bin/kosmos-app" --kosmos-app-port-selftest "$_uid")"
-  chk "uid $_uid: Swift's kosmosDefaultPort agrees with the shell formula ($_expected)" "[ \"$_swift_got\" = \"$_expected\" ]"
-done
+# kosmos#955: a bundle that PREDATES --kosmos-app-port-selftest (a stale dist/ copied
+# rather than rebuilt) does not know the flag, starts the app, and hangs this section
+# forever with no verdict -- the log's last line staying the header above, so it reads
+# like progress. So BEFORE trusting the flag, require it to return the pinned uid-501
+# port FAST (a #910-aware bundle answers in milliseconds; a behind bundle starts the app
+# and times out, and is group-killed rather than orphaned). Then bound every per-uid call
+# too, so a future regression cannot hang either.
+if kosmos_app_selftest_current "$KOS_SRC/app/bin/kosmos-app" "$(_kosmos_expected_port 501)" "${KOSMOS_SELFTEST_TIMEOUT:-10}"; then
+  for _uid in 501 502 1000 4999 5000; do
+    _expected="$(_kosmos_expected_port "$_uid")"
+    # Gate the assignment: bounded_run returns 124 if THIS uid hangs, and a bare
+    # `_swift_got=$(...)` returning non-zero would abort the whole harness under the
+    # file's `set -e`. Testing it in the `if` condition suspends errexit, so a hung uid
+    # records a chk FAIL for that uid instead of killing the run (#955).
+    if _swift_got="$(bounded_run "${KOSMOS_SELFTEST_TIMEOUT:-10}" "$KOS_SRC/app/bin/kosmos-app" --kosmos-app-port-selftest "$_uid")"; then
+      chk "uid $_uid: Swift's kosmosDefaultPort agrees with the shell formula ($_expected)" "[ \"$_swift_got\" = \"$_expected\" ]"
+    else
+      chk "uid $_uid: the selftest returned a port within the bound" "false"
+    fi
+  done
+else
+  chk "the bundle implements --kosmos-app-port-selftest (a #910-aware build)" "false"
+  echo "      this bundle's kosmos-app did not return the pinned uid-501 port within the bound (it hung on the flag or answered the wrong value), so dist/ predates #910: rebuild dist/ rather than copying an older build. Skipping the per-uid port checks instead of hanging on them (#955)." >&2
+fi
 chk "uid 501 is pinned to the literal, unchanged default" "[ \"\$(_kosmos_expected_port 501)\" = 16180 ]"
 chk "uid 1000 and uid 4999 wrap the same modulo to the identical port (1000 % 3999 = 4999 % 3999)" "[ \"\$(_kosmos_expected_port 1000)\" = \"\$(_kosmos_expected_port 4999)\" ]"
 chk "the derived alternate never lands back on the pinned primary port" "[ \"\$(_kosmos_expected_port 502)\" != 16180 ]"
