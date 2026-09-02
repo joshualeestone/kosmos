@@ -89,6 +89,7 @@ one invented by somebody who did not write them.
 | `named-controls.js` | Every control a person can reach has a name a screen reader can say |
 | `regress-a-night.js` | Everything the night of 2026-08-21 added, drawn together on one build |
 | `render-agent-nav.js` | The agent page's left nav, on a screen (agent-page-nav, 2026-08-23). |
+| `render-detail-header-1841.js` | The view-agent-detail header redesign (#1841): the working-rules prompt moved onto the Instructions tab for both doctrine cases (red tab dot, "Add Instructions & Restart"), the hand-edited stale case redesigned as the header restart card ("[name] needs to be restarted" + [Restart], never "it"), the duplicate lower status suppressed when reported, and the role bolded in the meta line. Drives the real painters and asserts the real DOM. |
 | `render-made-before.js` | The never-recorded state, on a screen (#149/#150, 2026-08-23). |
 | `render-busy-line.js` | The "<name> is working…" line, rendered |
 | `render-room-scroll.js` | The project room keeps a reader on the floor when the composer resizes it (#1037) |

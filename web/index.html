@@ -4859,6 +4859,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   background: var(--warn-bg); color: var(--label);
   font: var(--text-callout) var(--font-ui); line-height: 1.45;
 }
+/* #1841 (Josh, 2026-09-02): the header restart card sat right against the
+   status pill above it -- "the message itself is touching the status bubble,
+   which looks real sloppy." Scoped to the header instance by id, so the
+   Instructions-tab .stale-note (#d-instr-outdated) is untouched. */
+#d-instr-stale { margin-top: var(--space-5); }
 /* Theme ink again: .acard/.lrow flip with the pack's dark k-token set,
    so --warn-ink is correct on each surface. (Round 2's fixed #7a5200 was
    the compensation for the pre-flip literal-white card.) */
@@ -6024,16 +6029,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            state is this codebase's named worst habit, and it would be free to
            disagree with the badge the day the wording moves. -->
       <div id="d-instr-stale" class="stale-note" role="status" aria-live="polite" hidden></div>
-      <!-- #539: made before the working rules. A sibling of the update note,
-           QUIET on purpose (Mona Lisa's ruling: never the warning tint; the
-           agent is not behind, it is missing a block). Painted by
-           loadDoctrine on panel open; "Not now" is remembered server-side
-           per agent until the rules themselves change. -->
-      <div class="fhint" id="d-doctrine-note" hidden>
-        <span id="d-doctrine-text"></span>
-        <button class="btn" id="d-doctrine-add" type="button" style="margin-left:8px;">Add them&hellip;</button>
-        <button class="linkish" id="d-doctrine-later" type="button" style="margin-left:6px;">Not now</button>
-      </div>
+      <!-- #1841 (Josh, 2026-09-02 07:06): the "made before the working rules"
+           doctrine prompt (#539, #d-doctrine-note) moved OFF the header and ONTO
+           the Instructions tab, above the instructions, alongside the reports-to
+           case. It reads there as an "updated working rules" section with an
+           "Add Instructions & Restart" button, and the Instructions tab dot
+           lights while it shows. Header is quieter for it. See #d-sec-instr. -->
       <div class="detail-meta" id="d-meta"></div>
       <div class="detail-why" id="d-why" hidden></div>
       <!-- 🔑 WHAT THE SCREEN SAID, not what we concluded from it (Josh,
@@ -6412,7 +6413,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          press passes through. One copy, at the moment of choice. -->
     <div class="field freshstack" id="d-restart-agent" hidden>
       <button class="btn" id="d-restart-start" type="button"
-              data-restart-agent="" data-restart-note="d-restart-msg">Restart it</button>
+              data-restart-agent="" data-restart-note="d-restart-msg">Restart</button>
     <div class="fmsg" id="d-restart-msg" role="status" aria-live="polite"></div>
   </div>
   <div class="fhint" id="d-fresh-foot" style="margin-top:12px;" hidden>Each one shows what it stands to lose before you choose.</div>
@@ -6420,6 +6421,29 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   </section>
   <section class="dsec" id="d-sec-instr" data-sec="instr" tabindex="-1" aria-label="Instructions" hidden>
   <section class="dbox">
+  <!-- #1841 (Josh, 2026-09-02 07:06): the working-rules update prompt lives
+       ABOVE the instructions now, not in the header. TWO independent states
+       raise it, each owning its element so the two async painters never clobber
+       one another: loadDoctrine writes #d-doctrine-note (the agent was made
+       before the rules existed), and renderStale writes #d-instr-reports (Kosmos
+       changed something the agent must re-read, e.g. who it reports to). The
+       Instructions tab dot lights while either shows (detailDots watches both).
+       "Add Instructions & Restart" is Josh's one label for both cases: for the
+       doctrine case it adds the rules block then restarts; for the reports case
+       Kosmos already wrote the change, so it just restarts to apply it. -->
+  <div class="fhint rules-update" id="d-doctrine-note" hidden>
+    <span id="d-doctrine-text"></span>
+    <button class="btn" id="d-doctrine-add" type="button" style="margin-left:8px;">Add Instructions &amp; Restart</button>
+    <button class="linkish" id="d-doctrine-later" type="button" style="margin-left:6px;">Not now</button>
+  </div>
+  <div class="fhint rules-update" id="d-instr-reports" hidden>
+    <span id="d-instr-reports-text"></span>
+    <!-- data-restart-agent is set by renderStale (it carries the session name);
+         the delegated [data-restart-agent] handler opens the shared restart
+         confirm. No "Not now": a reports-to change is already in the file and the
+         agent is genuinely running stale, so there is nothing to decline. -->
+    <button class="btn" id="d-instr-reports-go" type="button" style="margin-left:8px;">Add Instructions &amp; Restart</button>
+  </div>
   <div class="field">
     <!-- ⚠️ "SPECIAL PURPOSE", AND THE FILENAME IS NEVER THE LABEL. Josh,
          2026-08-12. Two reasons, and the second is the load-bearing one.
@@ -6852,7 +6876,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     </details>
     <div class="rm-acts">
       <button class="btn" id="doc-keep" type="button">Keep as it is</button>
-      <button class="btn" id="doc-go" type="button">Add them</button>
+      <button class="btn" id="doc-go" type="button">Add &amp; Restart</button>
     </div>
     <div class="fmsg" id="doc-msg" role="alert" aria-live="assertive"></div>
   </div>
@@ -6879,10 +6903,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          is static because it is true of every restart, and it sits in the
          dialog because that is where the footer sends people to learn the
          cost. rst-small above stays the per-agent part: what is in flight. -->
-    <p class="rm-small">It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
+    <p class="rm-small">They come back with nothing in their memory, and anything they were part way through ends, including anything they agreed to and have not done yet. Their instructions and their files are untouched.</p>
     <div class="rm-acts">
       <button class="btn" id="rst-keep" type="button">Leave it running</button>
-      <button class="btn" id="rst-go" type="button">Restart it</button>
+      <button class="btn" id="rst-go" type="button">Restart</button>
     </div>
     <div class="fmsg" id="rst-msg" role="alert" aria-live="assertive"></div>
   </div>
@@ -17917,9 +17941,14 @@ function openDetail(sessionName, section) {
      read the code (the first-run journey walk hit it in minute two). The fact
      it carries -- nobody chose a name, so the one on screen is the internal
      one -- now says itself in the stranger's words. */
-  document.getElementById('d-meta').textContent =
-    [roleLine(a, ROLE_TITLES), runs.name,
-     a.nameDerived ? null : 'no name was chosen for it, so this is the one it runs under'].filter(Boolean).join(' · ');
+  /* #1841 (Josh, 2026-09-02): bold the title only, so it stands out against the
+     model. No size change, no other change. The role is user-supplied, so this
+     escapes every part by hand (what textContent did for free) and wraps ONLY
+     the first in <b>; the rest render exactly as before. */
+  const metaParts = [roleLine(a, ROLE_TITLES), runs.name,
+     a.nameDerived ? null : 'no name was chosen for it, so this is the one it runs under'].filter(Boolean);
+  document.getElementById('d-meta').innerHTML =
+    metaParts.map((p, i) => (i === 0 ? '<b>' + esc(p) + '</b>' : esc(p))).join(' · ');
   const copy = STATE_COPY[a.state] || STATE_COPY.unknown;
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
      class, `GLYPH` the mark, `STATE_COPY` the word. A card and its detail page
@@ -17984,7 +18013,14 @@ function openDetail(sessionName, section) {
      it the sentence it is. Nothing else about the words changes. */
   const reason = String(a.because || '').trim();
   why.textContent = reason ? reason.charAt(0).toUpperCase() + reason.slice(1) + (/[.!?]$/.test(reason) ? '' : '.') : '';
-  why.hidden = !why.textContent;
+  /* #1841 (Josh, 2026-09-02): status was reported twice -- the top line already
+     carries the reported sentence (d-task quotes a.because when stateReported),
+     and this line restated it capitalized below. When the state is REPORTED, the
+     top line owns it, so this duplicate is suppressed. When it is NOT reported,
+     this is the sole honest "why we cannot vouch" explanation and stays -- that
+     is the whole point of the line, so it is hidden by duplication, never by
+     removal. */
+  why.hidden = !why.textContent || a.stateReported === true;
   /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
      somebody's terminal, on its way to a product surface. `textContent` is the
      escape, and the engine has already trimmed and capped it. */
@@ -19194,7 +19230,11 @@ function detailDots() {
     if (on) b.setAttribute('data-dot', '1'); else b.removeAttribute('data-dot');
   };
   set('talk', shown('d-qask'));
-  set('instr', shown('d-instr-outdated') || shown('d-instr-stale'));
+  /* #1841: the Instructions tab dot also lights for the working-rules update
+     state, now that it lives on that tab -- either the doctrine prompt (made
+     before the rules) or the reports section (Kosmos-made change to re-read). */
+  set('instr', shown('d-instr-outdated') || shown('d-instr-stale')
+    || shown('d-doctrine-note') || shown('d-instr-reports'));
 }
 (function watchDots() {
   /* A text test that lifts a slice of this script into `new Function` has
@@ -19202,7 +19242,7 @@ function detailDots() {
      line and a lifted neighbour would otherwise throw at load. */
   if (typeof MutationObserver === 'undefined') return;
   const mo = new MutationObserver(detailDots);
-  ['d-qask', 'd-instr-outdated', 'd-instr-stale'].forEach((id) => {
+  ['d-qask', 'd-instr-outdated', 'd-instr-stale', 'd-doctrine-note', 'd-instr-reports'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) mo.observe(el, { attributes: true, attributeFilter: ['hidden'] });
   });
@@ -19551,7 +19591,12 @@ async function loadDoctrine(sessionName) {
     const show = got.state === 'refresh' && got.declined !== true;
     if (show) {
       const who = (CURRENT && CURRENT.name) || sessionName;
-      document.getElementById('d-doctrine-text').textContent = who + ' was made before Kosmos’s working rules.';
+      /* #1841 (Josh, 2026-09-02): the header's "X was made before Kosmos's
+         working rules" became this Instructions-tab section. The name is bold
+         per Josh's copy; it is user data, so it is escaped and only it is
+         wrapped. */
+      document.getElementById('d-doctrine-text').innerHTML =
+        'There are updated working rules to help <b>' + esc(who) + '</b> be more efficient.';
     }
     note.hidden = !show;
   } catch { note.hidden = true; /* news can wait; the banner never guesses */ }
@@ -19568,6 +19613,14 @@ document.getElementById('d-doctrine-add').addEventListener('click', () => {
   if (!plan) return;
   const who = (CURRENT && CURRENT.name) || plan.sessionName;
   document.getElementById('doc-title').textContent = 'Add the working rules to ' + who + '’s instructions?';
+  /* #1841: the button is now "Add Instructions & Restart", so the dialog says
+     the restart is part of the deal and names the one cost of it (an empty
+     memory), the same consequence the restart confirm states. Named, never
+     "it". */
+  document.getElementById('doc-body').textContent =
+    'Your words stay exactly as they are. These go underneath, under their own '
+    + 'heading, so you can see where yours end and ours begin. Adding them restarts '
+    + who + ' to read them right away, so ' + who + '’s memory starts empty.';
   const list = document.getElementById('doc-list');
   list.textContent = '';
   for (const h of plan.sections || []) {
@@ -19584,6 +19637,7 @@ document.getElementById('d-doctrine-add').addEventListener('click', () => {
      test elsewhere anchors on the first such lookup in the whole
      script to find its click handler, further down this file. */
   document.getElementById('doc-modal').querySelector('#doc-go').disabled = false;
+  document.getElementById('doc-go').textContent = 'Add & Restart';
   document.getElementById('doc-keep').textContent = 'Keep as it is';
   DOC_OPENER = document.getElementById('d-doctrine-add');
   document.getElementById('doc-modal').hidden = false;
@@ -19629,13 +19683,30 @@ document.getElementById('doc-go').addEventListener('click', async () => {
          thing left to do, with focus following it so the next keystroke
          (Enter, or a screen reader's next stop) closes the dialog rather
          than firing the add again. */
-      msg.textContent = 'Added. You can close this dialog.';
+      /* #1841 (Josh, 2026-09-02): the button is "Add Instructions & Restart", so
+         the add flows straight into the restart that makes the agent read the
+         new rules -- rather than waiting for a natural one. The rules are in the
+         file the moment 'added' lands, so the section hides now; the restart
+         verdict is reported in the same dialog. restartTook/restartFailureLine
+         are the same helpers the restart confirm uses, so the two agree. */
       document.getElementById('doc-go').disabled = true;
       const keep = document.getElementById('doc-keep');
-      keep.textContent = 'Close';
-      keep.focus();
       document.getElementById('d-doctrine-note').hidden = true;
       loadInstructions(plan.sessionName); // the box below shows the file that now exists
+      const who2 = (CURRENT && CURRENT.name) || plan.sessionName;
+      msg.textContent = 'Added. Restarting ' + who2 + ' to read them…';
+      try {
+        const rr = await fetch('/api/agent/' + encodeURIComponent(plan.sessionName) + '/restart', { method: 'POST' });
+        const rout = await rr.json().catch(() => null);
+        msg.textContent = restartTook(rr.ok, rout)
+          ? 'Added and restarted. You will need to say ‘hello’ to ' + who2 + ' to wake them.'
+          : 'Added, but the restart did not take. ' + restartFailureLine(rout);
+      } catch {
+        msg.textContent = 'Added, but we could not reach Kosmos to restart ' + who2
+          + '. They will read the new rules on their next restart.';
+      }
+      keep.textContent = 'Close';
+      keep.focus();
     } else if (got.state === 'current') {
       msg.textContent = 'Already has them.';
       document.getElementById('d-doctrine-note').hidden = true;
@@ -19651,6 +19722,17 @@ document.getElementById('doc-go').addEventListener('click', async () => {
    verdict sentences after, one per agent, never silence. */
 function renderStale(s) {
   const el = document.getElementById('d-instr-stale');
+  /* #1841 (Josh, 2026-09-02): the Kosmos-made stale case (e.g. "reports to
+     Ruth") is no longer a header banner -- it is the "updated working rules"
+     section on the Instructions tab (#d-instr-reports), alongside the doctrine
+     prompt. The header banner (this `el`) is now ONLY the hand-edited case: an
+     agent running on instructions a person changed, which is a genuine "needs a
+     restart" and stays where it was, redesigned. So every arm that is not the
+     Kosmos-made stale one hides the reports section, and only the header vs the
+     reports section is ever shown for a given agent. */
+  const reports = document.getElementById('d-instr-reports');
+  const reportsGo = document.getElementById('d-instr-reports-go');
+  const hideReports = () => { if (reports && !reports.hidden) reports.hidden = true; };
   if (!s || s.state === 'current') {
     /* 🛑 CLEARED THROUGH `setLive`, NOT AROUND IT, AND THAT ONE WORD WAS THE
        BUG. This wiped the node with `textContent` while `setLive` keeps its own
@@ -19667,6 +19749,7 @@ function renderStale(s) {
        🔑 EVERY OTHER CLEARER ON THIS PAGE ALREADY WENT THROUGH `setLive`. This
        was the one that did not, and being the odd one out is the whole story. */
     if (!el.hidden) { el.hidden = true; setLive(el, ''); }
+    hideReports();
     return;
   }
 
@@ -19708,64 +19791,42 @@ function renderStale(s) {
    */
   if (s.state === 'told') {
     if (!el.hidden) { el.hidden = true; setLive(el, ''); }
+    hideReports();
     return;
   }
 
-  const when = (iso) => {
-    if (!iso) return null;
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? null : d.toLocaleString();
-  };
-
   if (s.state === 'stale') {
-    const edited = when(s.editedAt);
-    const started = when(s.startedAt);
-    const w = staleWords(s);
-    setLive(el, '<b>' + w.lead + '</b> '
-      + (edited && started
-        ? `Edited ${esc(edited)}, running since ${esc(started)}. `
-        : '')
-      /* 🛑 "THIS APP CANNOT DO THAT YET" WAS FALSE AND HAD BEEN FOR A WHILE.
-         `POST /api/agent/<name>/restart` exists and `engine/remove.js` exports
-         `restart`; the route, the engine and the tmux-then-launchd sequence are
-         all implemented. The apology outlived the gap it described.
-         🔑 HOW IT SURVIVED is the part worth keeping: the comment above
-         `memoryBox` withholds three controls together -- compact, clear and
-         restart -- on the grounds that they "have no engine yet". True of two
-         of them. A rule that is right in general, applied to a set where one
-         member quietly stopped belonging, and nothing re-checking membership.
-         Found by Mona Lisa checking all three rather than the sentence.
-         ⚠️ THE CONSEQUENCE IS NAMED ON THE BUTTON'S OWN LINE rather than left
-         to be discovered: a restart ends the session the agent is in, so it
-         comes back with nothing in its memory ring, which Josh has twice read
-         as the product being broken. */
-      /* 🛑 IT NAMES THE EDITS, BECAUSE THE PRONOUN IT REPLACED POINTED AT THE
-         WRONG NOUN. The previous wording ended on a bare plural pronoun whose
-         nearest antecedent in the block is the older instructions, and applying
-         THOSE is the opposite of what a restart does. What the pronoun meant is
-         the edits, and no sentence here named them (#212, Mona Lisa).
-         ⚠️ DESCRIBED RATHER THAN QUOTED, on purpose. The guard for this is a
-         grep over this function's source, so pasting the old sentence into the
-         comment explaining its removal puts it straight back as far as any
-         check is concerned. Sixth time that has cost me a cycle.
-         ⚠️ It has to stand alone, because the clause before it is CONDITIONAL:
-         "Edited X, running since Y" drops out whenever either timestamp is
-         missing, so anything relying on it to supply the noun fails exactly
-         when we know least. "Running on older instructions. A restart is what
-         picks up the edits." is whole by itself.
-         📌 "A restart" rather than "restarting it" avoids echoing the button
-         underneath, which matters more here than on the page because this is a
-         live region and both are read aloud. */
-      + w.pageTail
+    /* #1841 (Josh, 2026-09-02): one stale state, two homes.
+       `wroteBy.who === 'kosmos'` is the SAME split `staleWords` makes: Kosmos
+       changed something the agent must re-read (the reports-to case) vs a person
+       edited the instructions. The first is a working-rules update and belongs on
+       the Instructions tab; the second is a plain "needs a restart" and keeps its
+       header card, redesigned. `CURRENT` names the open agent (renderStale is only
+       ever called for it), guarded because a poll can land as the panel closes. */
+    const who = (CURRENT && (CURRENT.name || CURRENT.sessionName)) || '';
+    const session = (CURRENT && CURRENT.sessionName) || '';
+    if (s.wroteBy && s.wroteBy.who === 'kosmos') {
+      /* Instructions-tab "updated working rules" section. Kosmos already wrote
+         the change, so "Add Instructions & Restart" here is the restart that
+         applies it -- routed through the shared restart confirm by the
+         data-restart-agent the delegated handler reads. The header card clears. */
+      if (!el.hidden) { el.hidden = true; setLive(el, ''); }
+      const txt = document.getElementById('d-instr-reports-text');
+      if (txt) txt.innerHTML = 'These are updated working rules to help <b>' + esc(who || 'this agent') + '</b> be more efficient.';
+      if (reportsGo) reportsGo.dataset.restartAgent = session;
+      if (reports) reports.hidden = false;
+      return;
+    }
+    /* The hand-edited case: a person changed the instructions and the agent is
+       still running the old ones. Short, no provenance line, no "it": the name,
+       a [Restart] (which opens the shared confirm that states the memory cost),
+       and one short idle line. */
+    hideReports();
+    setLive(el, '<b>' + esc(who || 'This agent') + ' needs to be restarted.</b>'
       + '<button class="btn-quiet instr-restart" type="button" data-restart-agent="'
-      /* ⚠️ `CURRENT`, NOT AN ARGUMENT. `renderStale` is handed only the
-         staleness object, and it is only ever called for the agent whose
-         detail panel is open -- which `CURRENT` names. Threading the agent
-         through three call sites to avoid reading one module-level value
-         would be more code and one more place for the two to disagree.
-         Guarded, because a poll can land as the panel closes. */
-      + esc((CURRENT && CURRENT.sessionName) || '') + '">Restart it</button>'
-      + '<small class="instr-restart-note">It starts fresh, so it will look idle until you say something to it. Its instructions and its files are untouched.</small>');
+      + esc(session) + '">Restart</button>'
+      + '<small class="instr-restart-note">You will need to say ‘hello’ to '
+      + esc(who || 'them') + ' to wake them after restarting.</small>');
     el.hidden = false;
     return;
   }
@@ -19775,6 +19836,7 @@ function renderStale(s) {
   // are written as clause fragments so they can also be read as "... because
   // <reason>", and rendering one straight after a full stop produced "running
   // on. its instruction file is not UTF-8 text".
+  hideReports(); // #1841: reports section is the Kosmos-made-stale case only
   const why = String(s.because || '');
   const sentence = why ? `${why.charAt(0).toUpperCase()}${why.slice(1)}${/[.!?]$/.test(why) ? '' : '.'}` : '';
   /**
@@ -21431,22 +21493,24 @@ function restartCost(shown, rec) {
   const state = wellFormed && typeof rec.state === 'string' ? rec.state : 'unknown';
   if (state === 'holding' && list.length) {
     return {
-      small: shown + ' says it is part way through '
+      /* #1841: never "it" for an agent -- the restart confirm speaks about the
+         agent by name and in the plural everywhere else it refers to them. */
+      small: shown + ' is part way through '
         + (list.length === 1 ? 'one thing' : list.length + ' things')
-        + '. Restarting ends them, and it will not pick them up again.',
+        + '. Restarting ends them, and they will not be picked up again.',
       list,
     };
   }
   if (state === 'clear' && list.length === 0) {
-    return { small: shown + ' says it is not part way through anything.', list: [] };
+    return { small: shown + ' is not part way through anything.', list: [] };
   }
   /* The engine's own sentence for why it cannot vouch, never one written here:
      it distinguishes never-reported from stale from untied, and those are
      different facts a person weighs differently. */
-  const because = (rec && rec.because) || 'we have not heard from it';
+  const because = (rec && rec.because) || 'we have not heard from them';
   return {
     small: 'We cannot tell what ' + shown + ' is part way through, because '
-      + because + '. Restarting ends anything it had in flight.',
+      + because + '. Restarting ends anything they had in flight.',
     list,
   };
 }
@@ -21539,7 +21603,7 @@ function restartTook(ok, out) {
 }
 
 function restartFailureLine(out) {
-  const said = (out && (out.because || out.error)) || 'We could not restart it.';
+  const said = (out && (out.because || out.error)) || 'We could not restart them.';
   const steps = (out && Array.isArray(out.steps)) ? out.steps : [];
   const failed = steps.filter((x) => x && !x.ok).map((x) => x.label);
   const done = steps.filter((x) => x && x.ok).map((x) => x.label);
@@ -21604,7 +21668,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
        sentence its success and its silent failure look identical. A receipt is
        owed wherever the screen does not provide one by changing. */
     const note = noteFor(btn);
-    if (note) note.textContent = 'Restarted. It starts fresh, so it will look idle until you say something to it.';
+    if (note) note.textContent = 'Restarted. You will need to say ‘hello’ to wake them.';
     go.textContent = wasGo;
     /* ⚠️ RE-ENABLED. Every other exit from this handler puts the button back and
        this one did not, so a modal reopened after a successful restart came up
@@ -21615,7 +21679,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
   } catch {
     go.textContent = wasGo;
     go.disabled = false;
-    document.getElementById('rst-msg').textContent = 'We could not reach Kosmos to restart it.';
+    document.getElementById('rst-msg').textContent = 'We could not reach Kosmos to restart them.';
   }
 });
 
