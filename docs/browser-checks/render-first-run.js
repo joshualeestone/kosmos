@@ -148,6 +148,19 @@ const FLEET_BLIND = { done: false, fleetKnown: false, fleetCount: null, path: 'u
 const SUB_NONE = { done: false, fleetKnown: true, fleetCount: 0, path: 'create', subscription: { state: 'none', plan: null, because: 'Claude has not been set up on this computer yet.' } };
 const SUB_UNSURE = { done: false, fleetKnown: true, fleetCount: 3, path: 'adopt', subscription: { state: 'unknown', plan: null, because: 'this computer has a Claude account we do not recognise the plan of (claude_max_pro_ultra)' } };
 
+// #1845: render-first-run drives its fleet-ending shots against a STUBBED
+// /api/found-agents, not the live disk search. The endings fire the search
+// themselves (frPaintFleet: `if (FR_FOUND === null) frFindAgents()`), so an
+// unstubbed shot waits on a real read inside its settle window on the release
+// gate, and its screenshot depends on whatever happens to be on disk. An EMPTY
+// offer is what each canonical PATH ending wants: the adopt count comes from
+// /api/first-run (fleetCount), NOT from found-agents, so `agents: []` renders
+// "You already have 14 agents here" (adopt), "Create your first agent" (create)
+// and "We could not see what is on this computer" (unknown). A per-agent list
+// would instead flip adopt/create to the frPaintFound "We found N agents" offer
+// screen -- a different ending.
+const FOUND_NONE = { ok: true, agents: [] };
+
 const SHOTS = [
   // The pack's order (first-run spec): Success opens the flow and carries
   // the app-location look; the endings close it.
@@ -181,9 +194,9 @@ const SHOTS = [
   // drive ran last (prefilled-and-armed versus the empty gated state the
   // name claims).
   { name: 'firstrun-about-you', at: '#fr-you', you: { state: 'absent', you: null, because: null } },
-  { name: 'firstrun-fleet-adopt', at: '#fr-fleet', first: FLEET_ADOPT },
-  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE },
-  { name: 'firstrun-fleet-cannot-see', at: '#fr-fleet', first: FLEET_BLIND },
+  { name: 'firstrun-fleet-adopt', at: '#fr-fleet', first: FLEET_ADOPT, found: FOUND_NONE, expect: /already have 14 agents/i },
+  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, expect: /create your first agent/i },
+  { name: 'firstrun-fleet-cannot-see', at: '#fr-fleet', first: FLEET_BLIND, found: FOUND_NONE, expect: /could not see what is on this computer/i },
 ];
 
 /**
@@ -363,6 +376,12 @@ async function look(page, name) {
       if (shot.you) {
         await page.route('**/api/you', (r) => r.fulfill({ json: shot.you }));
       }
+      // #1845: the fleet ending fires /api/found-agents itself (frPaintFleet's
+      // `if (FR_FOUND === null) frFindAgents()`). Stub it per shot so the ending
+      // is deterministic instead of waiting on a live disk read on the gate.
+      if (shot.found !== undefined) {
+        await page.route('**/api/found-agents', (r) => r.fulfill({ json: shot.found }));
+      }
       // The step this shot is captured at. Fixed frames name a number; content
       // frames DISCOVER it from their `at:` anchor, so an inserted step moves
       // the shot with the pane rather than capturing the wrong one under this
@@ -378,6 +397,20 @@ async function look(page, name) {
       await page.goto(`${BASE}/?first-run=1&fr-step=${shotStep}`,
         { waitUntil: shot.machine === 'hang' ? 'load' : 'networkidle' });
       await page.waitForTimeout(700);
+      // #1845: a fleet ending must depict the ending its NAME claims, not merely
+      // render something. With /api/found-agents stubbed empty the PATH decides
+      // the headline, so assert it -- a wrong stub, or a regression back to the
+      // live route producing offers, then reddens here instead of shipping a
+      // screenshot that lies. Not vacuous: the live-route version this replaces
+      // could render any of the three depending on the real disk and timing.
+      if (shot.expect) {
+        const headline = await page.evaluate(() =>
+          (document.getElementById('fr-title') || {}).textContent || '');
+        if (!shot.expect.test(headline)) {
+          problems.push(`${shot.name} [${scheme}]: fleet ending headline `
+            + `"${headline}" does not match ${shot.expect}`);
+        }
+      }
       /**
        * ⚠️ THE CLEAR SHOT ASSERTS ITS OWN PREMISE. Its payload is engine-
        * generated now (no longer the live route), so the control's job moved:
@@ -545,6 +578,10 @@ async function look(page, name) {
     // entirely (kosmos#1801).
     await pg.goto(`${BASE}/?first-run=1`, { waitUntil: 'domcontentloaded' });
     const lastStep = await stepForAnchor(pg, '#fr-fleet');
+    // #1845: this block also lands on the fleet ending, which fires the live
+    // /api/found-agents search; stub it empty so the last-step smoke check does
+    // not wait on a real disk read on the gate.
+    await pg.route('**/api/found-agents', (r) => r.fulfill({ json: FOUND_NONE }));
     await pg.goto(`${BASE}/?first-run=1&fr-step=${lastStep}`, { waitUntil: 'networkidle' });
     await pg.waitForTimeout(400);
     const last = await pg.evaluate(() => {
