@@ -420,9 +420,18 @@ let failed = 0;
      `beforePress` is the built-in control: if the `.armed` rule regressed to
      word-only, armed would equal rested and this reds. */
   const dangerRGB = await p.evaluate(() => {
+    /* Resolve --danger in the SAME cascade context as the button under test (its
+       own element), not at document.body: --danger is root-defined today and
+       inherits identically, but a redefinition on any container between :root and
+       the button would then make this probe diverge from the value the button
+       actually paints. Hosting the probe on the button removes even that
+       theoretical gap. */
+    const row = [...document.querySelectorAll('#set-accounts .acct-box')]
+      .find((r) => /API key ending WALK/.test(r.innerText));
+    const host = (row && row.querySelector('[data-forget-provider="openai"]')) || row || document.body;
     const s = document.createElement('span');
     s.style.color = 'var(--danger, #b3261e)';
-    document.body.appendChild(s);
+    host.appendChild(s);
     const c = getComputedStyle(s).color;
     s.remove();
     return c;
