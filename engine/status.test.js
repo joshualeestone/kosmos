@@ -3834,6 +3834,114 @@ test('#1629: trustPrompt returns the question row alone, capped, and nothing for
   assert.equal(trustPrompt(long).length, 241, 'one line, capped at 240 plus the ellipsis');
 });
 
+// ---------------------------------------------------------------------------
+// #1919: a fresh agent parked on the Bypass-Permissions consent must read
+// needs_you, not UNKNOWN. Its options are UN-numbered and it sits at the TOP of
+// a fresh pane under tmux blank padding, so `asksSomething` on the untrimmed tail
+// (OPTION_LINE = numbered `❯ <digit>.`) cannot see it -- exactly like the trust
+// dialog, one function over. The general consent detector reads the trimmed tail.
+// ---------------------------------------------------------------------------
+
+/* The card's capture (Ben via Josh, 2026-09-02), reconstructed from the issue body:
+   the warning + un-numbered options + confirm footer, with the fresh-pane tmux blank
+   padding BENEATH it (43 blank rows on the real 60-row pane) that makes the untrimmed
+   tail read blank. The leading space per row mirrors how the pane draws them. */
+const BYPASS_CONSENT_LIVE = [
+  ' WARNING: Claude Code running in Bypass Permissions mode',
+  '',
+  ' In Bypass Permissions mode, Claude Code will not ask for your approval',
+  ' before running potentially dangerous commands.',
+  ' This mode should only be used in a sandboxed container/VM that has restricted',
+  ' internet access and can easily be restored if damaged.',
+  ' By proceeding, you accept all responsibility for actions taken while running',
+  ' in Bypass Permissions mode.',
+  '',
+  ' ❯ No, exit',
+  '   Yes, I accept',
+  '',
+  ' Enter to confirm · Esc to cancel',
+  ...Array(30).fill(''),   // fresh-pane tmux padding: the untrimmed tail is all blank
+].join('\n');
+
+test('#1919: the bypass-permissions consent reads needs_you, with the warning as evidence', () => {
+  const r = classify(pane(), BYPASS_CONSENT_LIVE);
+  assert.equal(r.state, STATE.NEEDS_YOU, 'a parked-on-consent agent is waiting on the person, not unknown');
+  assert.equal(r.confidence, CONFIDENCE.SCRAPED);
+  assert.match(r.because, /Bypass Permissions/, 'the reason names WHICH consent');
+  assert.match(r.because, /default answer exits/, 'and that the default answer is destructive');
+  assert.match(r.evidence, /Bypass Permissions mode/, 'the evidence shows the dialog, not "can\'t tell"');
+});
+
+test('#1919: the consent is the same needs_you an ordinary prompt is -- the highlight is chosen by nobody but the person', () => {
+  // `Yes, I accept` highlighted instead of `No, exit`: still the dialog, still needs you.
+  const flipped = BYPASS_CONSENT_LIVE.replace(' ❯ No, exit', '   No, exit').replace('   Yes, I accept', ' ❯ Yes, I accept');
+  assert.notEqual(flipped, BYPASS_CONSENT_LIVE, 'the fixture edit took');
+  const r = classify(pane(), flipped);
+  assert.equal(r.state, STATE.NEEDS_YOU);
+  assert.match(r.because, /default answer exits/);
+  assert.doesNotMatch(r.because, /highlighted/, 'the detector does not read the highlight, so it must not claim to');
+});
+
+test('#1919 NEGATIVE CONTROL: an ordinary IDLE composer (bare ❯) does NOT read needs_you', () => {
+  // The load-bearing negative (Splinter): the composer is also `❯`. A general scan that
+  // flipped this would flip the whole idle fleet -- worse than the bug. Includes the
+  // `⏵⏵ bypass permissions on` MODE FOOTER, which is normal chrome, NOT the consent dialog.
+  const idle = [
+    ' Worked for 2m 14s',
+    '',
+    ' ╭──────────────────────────────────────────────╮',
+    ' │ >                                              │',
+    ' ╰──────────────────────────────────────────────╯',
+    '   ⏵⏵ bypass permissions on (shift+tab to cycle)',
+    '',
+  ].join('\n');
+  const r = classify(pane(), idle);
+  assert.notEqual(r.state, STATE.NEEDS_YOU, 'an idle agent in bypass mode stays idle -- the mode footer is not a dialog');
+});
+
+test('#1919 NEGATIVE CONTROL: a pane MID-WORK (spinner / tool output) does NOT read needs_you', () => {
+  for (const [label, text] of [
+    ['a live working line', ' · Improvising… (35s · ↓ 1.5k tokens · thought for 8s)\n> \n'],
+    ['tool output at the bottom', ' Running tests…\n ✓ 42 passed\n> \n'],
+    ['a finished-work line over a composer', 'Worked for 1m 02s\n> \n'],
+  ]) {
+    const r = classify(pane(), text);
+    assert.notEqual(r.state, STATE.NEEDS_YOU, `${label}: mid-work is not a consent prompt`);
+  }
+});
+
+test('#1919: prose or a paste of the consent is not the live dialog', () => {
+  const cases = [
+    ['an agent quoting the warning',
+      'The pane said "WARNING: Claude Code running in Bypass Permissions mode" and I pressed Down.\n> \n'],
+    ['the warning with a non-dialog row beneath it',
+      ' WARNING: Claude Code running in Bypass Permissions mode\nWorked for 2m\n> \n'],
+    ['a lone "Yes, I accept" label with no No-exit and no confirm footer',
+      'Options I saw:\n  Yes, I accept\n'],
+    ['the warning alone at the bottom, no options and no confirm footer',
+      ' WARNING: Claude Code running in Bypass Permissions mode\n'],
+  ];
+  for (const [label, text] of cases) {
+    const r = classify(pane(), text);
+    assert.notEqual(r.state, STATE.NEEDS_YOU, label);
+  }
+});
+
+test('#1919: consentPrompt returns {because, evidence} for a live dialog and null for a non-dialog', () => {
+  const { consentPrompt } = require('./status');
+  const hit = consentPrompt(BYPASS_CONSENT_LIVE);
+  assert.ok(hit && typeof hit === 'object', 'a live consent dialog matches');
+  assert.match(hit.because, /Bypass Permissions/);
+  assert.match(hit.evidence, /Bypass Permissions mode/);
+  assert.equal(consentPrompt(null), null);
+  assert.equal(consentPrompt('Worked for 2m\n> \n'), null);
+  // An unlabelled confirm dialog still matches (the family, not one banner) -- generic reason.
+  const generic = ' Proceed with the risky thing?\n ❯ No, exit\n   Yes, continue\n Enter to confirm · Esc to cancel\n' + Array(20).fill('').join('\n');
+  const g = consentPrompt(generic);
+  assert.ok(g, 'an unlabelled confirm dialog is still caught');
+  assert.match(g.because, /waiting for you to answer a prompt/, 'labelled generically when the heading is unknown');
+});
+
 test('#1629: a scraped trust dialog stands over a FRESH self-report of working, because the agent cannot know it is stuck', () => {
   /* Built with the suite's own `rep()` and `T0`, not a hand-rolled object: a
      fixture of the wrong shape routes into the no-report branch and answers a

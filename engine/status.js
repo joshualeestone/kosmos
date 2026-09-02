@@ -1514,6 +1514,45 @@ const TRUST_PROMPT_REACH = 12;
 const TRUST_PROMPT_MARKER = /^[\s>│├└─*❯›]*Quick safety check:/;
 
 /**
+ * A Claude Code CONSENT / selection dialog (#1919). The one that ships this card is the
+ * "Bypass Permissions mode" acceptance a freshly-created agent meets before it starts:
+ *
+ *   WARNING: Claude Code running in Bypass Permissions mode
+ *   ...
+ *   ❯ No, exit
+ *     Yes, I accept
+ *
+ *   Enter to confirm · Esc to cancel
+ *
+ * Like the trust dialog it draws at the TOP of a fresh pane, so `classify` reads it from
+ * the same trailing-trimmed tail, and its options are UN-numbered (so `OPTION_LINE`'s
+ * `❯ <digit>.` never matched it and `asksSomething` on the untrimmed tail saw only blank
+ * padding -> UNKNOWN). This detector keys on the SHARED consent CHROME, not on this one
+ * banner, so the NEXT unforeseen confirm dialog reads as needs_you by default rather than
+ * unknown; the headings below only LABEL the evidence.
+ *
+ * 🛑 BOUNDED AWAY FROM THE ORDINARY IDLE COMPOSER, which is also `❯`. The composer's bare
+ * `❯` strips to nothing (so it is never the screen's last dialog row), it has no
+ * `Enter to confirm` footer, and no `No, exit` option -- so none of the three signals
+ * below fire on it. The `⏵⏵ bypass permissions on` MODE FOOTER is likewise not a dialog
+ * row and carries no confirm/option pair, so an idle agent in bypass mode stays idle.
+ * That negative case is a REQUIRED test, not a hope (see status.test.js #1919).
+ */
+const CONSENT_PROMPT_CONFIRM = /^Enter to confirm/;
+const CONSENT_PROMPT_EXIT = /^No, exit$/;          // the destructive default, shared with trust
+const CONSENT_PROMPT_ACCEPT = /^Yes\b/;            // "Yes, I accept" / "Yes, continue" / ...
+/* Headings that LABEL a recognised dialog for evidence + `because`. NOT the detection
+   key (the chrome above is); an unlabelled confirm dialog still reads needs_you, generically. */
+const CONSENT_PROMPT_HEADINGS = Object.freeze([
+  { re: /Bypass Permissions/i, because: 'it is asking you to accept Bypass Permissions mode before it can start, and the default answer exits' },
+]);
+const CONSENT_PROMPT_GENERIC_BECAUSE = 'it is waiting for you to answer a prompt, and the default answer exits';
+/* For chat.js's readers of the union (questionIn / optionsIn), tested on the RAW row, so
+   it carries the same leading chrome class the detector strips. The exit option is the
+   reliable anchor row present in every consent dialog observed. */
+const CONSENT_PROMPT_MARKER = /^[\s>│├└─*❯›]*No, exit$/;
+
+/**
  * Every runner's needs-you shapes, for consumers that read a PANE without
  * knowing which runner drew it (chat.js's question finder). The per-runner
  * classifiers keep using their own lists; this union exists so a question
@@ -1529,7 +1568,7 @@ const TRUST_PROMPT_MARKER = /^[\s>│├└─*❯›]*Quick safety check:/;
  * only sit ABOVE the live question and the finder's last-match rule still
  * lands on the live one (tested in chat.test.js).
  */
-const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEEDS_YOU_MARKERS, TRUST_PROMPT_MARKER]);
+const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEEDS_YOU_MARKERS, TRUST_PROMPT_MARKER, CONSENT_PROMPT_MARKER]);
 
 /**
  * 🛑 THE FIRST FOUR WERE GUESSES AT WORDING AND CLAUDE CODE SAYS SOMETHING ELSE.
@@ -2050,6 +2089,55 @@ function trustPrompt(tail) {
 }
 
 /**
+ * The GENERAL consent / selection-dialog detector (#1919), sibling to `trustPrompt`.
+ * `trustPrompt` recognises ONE dialog by its question; this recognises the FAMILY by its
+ * shared chrome, so the bypass-mode acceptance -- and any future Claude confirm dialog --
+ * reads as needs_you rather than falling through to unknown. Returns `{ because, evidence }`
+ * or null, mirroring the shape `classify`'s trust branch consumes.
+ *
+ * Same trailing-trimmed tail and same "the dialog ENDS the screen" discipline as
+ * `trustPrompt`: a live dialog is the bottom of the screen, so a PASTE of one higher up
+ * (over a live composer whose stripped last row is blank) does not match. The three
+ * signals -- a confirm footer, a `No, exit` option, a `Yes, ...` option -- are exactly the
+ * ones the ordinary idle composer and a mid-work pane lack, which is what keeps this from
+ * flipping the fleet (the required negative controls in status.test.js prove it).
+ */
+function consentPrompt(tail) {
+  const raw = String(tail == null ? '' : tail).split('\n').map((line) => line.trim());
+  const rows = raw.map((line) => line.replace(/^[\s>│├└─*❯›]+/, '').replace(/[\s│]+$/, ''));
+  /* The last non-blank RAW row must be a dialog row. Found on raw (a blank-padded fresh
+     pane), judged on stripped (chrome off), exactly as trustPrompt does -- a bare composer
+     `❯ ` / a rule / an old `> ` all strip to nothing and so are never the last dialog row. */
+  let last = raw.length - 1;
+  while (last >= 0 && raw[last] === '') last -= 1;
+  if (last < 0) return null;
+  const isDialogRow = (row) => CONSENT_PROMPT_CONFIRM.test(row)
+    || CONSENT_PROMPT_EXIT.test(row) || CONSENT_PROMPT_ACCEPT.test(row);
+  if (!isDialogRow(rows[last])) return null;
+  /* Corroboration so a lone bottom row that happens to read like an option is not a dialog:
+     an `Enter to confirm` footer, OR both a `No, exit` and a `Yes, ...` option, in the tail. */
+  const hasConfirm = rows.some((row) => CONSENT_PROMPT_CONFIRM.test(row));
+  const hasExit = rows.some((row) => CONSENT_PROMPT_EXIT.test(row));
+  const hasAccept = rows.some((row) => CONSENT_PROMPT_ACCEPT.test(row));
+  if (!(hasConfirm || (hasExit && hasAccept))) return null;
+  const cap = (s) => (s.length > 240 ? s.slice(0, 240) + '…' : s);
+  let because = CONSENT_PROMPT_GENERIC_BECAUSE;
+  let headingRow = null;
+  for (const h of CONSENT_PROMPT_HEADINGS) {
+    const idx = rows.findIndex((row) => h.re.test(row));
+    if (idx !== -1) { because = h.because; headingRow = rows[idx]; break; }
+  }
+  /* Evidence, in preference order: a recognised heading (most informative), else the
+     `No, exit` row (shows the destructive default the card is about), else the confirm
+     footer, else the screen's last dialog row. */
+  const evidence = headingRow
+    || rows.find((row) => CONSENT_PROMPT_EXIT.test(row))
+    || rows.find((row) => CONSENT_PROMPT_CONFIRM.test(row))
+    || rows[last];
+  return { because, evidence: cap(evidence) };
+}
+
+/**
  * Is this card's `evidence` (`stateEvidence` on the wire) the trust dialog's
  * question row? For callers that hold a ROSTER CARD and no capture, such as
  * `chat.deliver`, which must not type at an agent stopped on that dialog and
@@ -2329,6 +2417,20 @@ function classify(pane, paneText) {
       confidence: CONFIDENCE.SCRAPED,
       because: 'it is asking whether to trust its folder, and the default answer exits',
       evidence: trustLine,
+    };
+  }
+  /* #1919: the bypass-permissions acceptance (and any other Claude consent dialog) sits at
+     the TOP of a fresh pane like the trust dialog, so it reads from the same trimmed tail
+     and BEFORE `asksSomething`, whose untrimmed tail sees only the blank padding beneath it.
+     An agent parked here is waiting on the person, exactly like any other prompt -- the one
+     thing the board must never render as "can't tell" for a state it can see. */
+  const consent = consentPrompt(trustTail);
+  if (consent !== null) {
+    return {
+      state: STATE.NEEDS_YOU,
+      confidence: CONFIDENCE.SCRAPED,
+      because: consent.because,
+      evidence: consent.evidence,
     };
   }
   if (asksSomething(tail)) {
@@ -4589,6 +4691,7 @@ module.exports = {
   CODEX_NEEDS_YOU_MARKERS,
   ALL_NEEDS_YOU_MARKERS,
   trustPrompt,
+  consentPrompt,
   isTrustDialogEvidence,
   TRUST_DIALOG_SENTENCE,
   SELECTOR_GLYPHS,
