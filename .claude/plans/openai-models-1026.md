@@ -30,7 +30,7 @@ every key check and discarded. The OpenAI rows must come from that.
    `arg` a runner launches with is always an id OpenAI just told us the key has.
 2. **Filter is two-sided and the safety order is deliberate** (`chatModelsFromList`):
    - an ALLOWLIST of chat families by id prefix (gpt-5, gpt-4.1, gpt-4o, chatgpt,
-     o1, o3, o4, plus the bare `gpt-4` catch-all and `codex` — the latter two
+     o1, o3, o4, plus the bare `gpt-4` catch-all and `codex` (the latter two
      added in iteration 1 so legacy gpt-4/gpt-4-turbo and the codex runner's own
      codex-mini are offered). A new chat family with an unknown prefix is missed
      until the list learns it - an UNDER-offer, invisible and safe.
@@ -89,6 +89,21 @@ every key check and discarded. The OpenAI rows must come from that.
   that work is the async ripple through `createAgentInner`, and it interlocks with
   #979's connect flow (the card notes GPT-agent creation "is not yet a normal thing
   to do"). Flagged on the card as the next step.
+
+## Deferred: flagship-vs-everyday default (a follow-up consideration, not a defect)
+
+The default is "the most capable non-lite model present" (gpt-5 if the account has
+it, else o3/o4, else gpt-4.1, else gpt-4o...). A reviewer noted that the Anthropic
+side of the same picker defaults to the EVERYDAY tier (sonnet, "the everyday
+choice"), NOT the flagship (opus/fable), and that a non-technical user creating an
+agent might expect the everyday choice rather than a slower reasoning model or the
+most expensive flagship. Deferred, not changed: "a default" is unspecified in the
+card, "most capable non-lite" is a legitimate documented reading, and flipping to an
+everyday-first default (prefer the gpt-4o family) is a genuine product-preference
+call that could go either way for OpenAI agents. It is fully reversible in a
+follow-up: make default-selection prefer a non-lite gpt-4o before falling back to
+most-capable-non-lite, and update the two default assertions. Recorded here so the
+Anthropic-consistency argument is not lost if Josh wants the everyday default.
 
 ## Weakest premise
 
