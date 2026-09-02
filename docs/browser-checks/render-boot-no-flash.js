@@ -68,7 +68,7 @@ async function arm(browser, label, firstRunPayload, expect) {
   await page.waitForFunction(() => {
     const c = document.getElementById('boot-cover');
     return c && c.hidden;
-  }, { timeout: 5000 }).catch(() => {});
+  }, null, { timeout: 5000 }).catch(() => {});
 
   check(await coverGone(page), `${label}: #boot-cover never came down after the gate resolved`);
   const fr = await seesFirstRun(page);

@@ -79,7 +79,7 @@ const PORT = freePort();
     // Save round trip: rename, verify it lands everywhere.
     await p.fill('#pjs-name', 'Settings Drive Renamed');
     await p.click('#pjs-save');
-    await p.waitForFunction(() => { const m = document.getElementById('pjs-msg'); return m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Saved.'; }, { timeout: 10000 });
+    await p.waitForFunction(() => { const m = document.getElementById('pjs-msg'); return m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Saved.'; }, null, { timeout: 10000 });
     const back = (await shown(p.locator('#pj-settings-backname'))).trim();
     if (back !== 'Settings Drive Renamed') die('the back link did not pick up the rename');
     await p.click('#pj-settings-back');
@@ -89,7 +89,7 @@ const PORT = freePort();
     // And a no-change save says so instead of lying "Saved."
     await p.click('#pj-settings-link');
     await p.click('#pjs-save');
-    await p.waitForFunction(() => { const m = document.getElementById('pjs-msg'); return m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Nothing has changed.'; }, { timeout: 5000 });
+    await p.waitForFunction(() => { const m = document.getElementById('pjs-msg'); return m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Nothing has changed.'; }, null, { timeout: 5000 });
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
     console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, save round trip, honest no-op, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
