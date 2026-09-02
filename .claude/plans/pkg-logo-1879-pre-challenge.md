@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: pkg-logo-1879
-diff_hash: f101d7ab74e3ac967c65feaa47aa2f11b2d89619e165d96a5e7f0b645a561a95
+diff_hash: dd1e2ac16ed4962d6012db6ec1e8c45666356d088d4e6b155ab781a6617b769b
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-02T20:52:58Z
+timestamp: 2026-09-02T21:00:44Z
 iterations: 1
 converged: true
 ---
@@ -14,36 +14,39 @@ converged: true
 
 **Iterations:** 1
 **Converged:** Yes
-**Total findings:** 3 (0 BLOCKERs, 0 WARNINGs, 1 CONVENTION, 2 NITs)
-**Fixed:** 0 | **Deferred:** 3 | **Asked (awaiting user):** 0
+**Total findings:** 2 (0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs)
+**Fixed:** 0 | **Deferred:** 2 | **Asked (awaiting user):** 0
+
+(Re-run after adding the plan file `.claude/plans/pkg-logo-1879.md`, which the
+pre-challenge-gate requires alongside this proof. The code under review is identical
+to the prior converged pass; this pass re-reviews code + plan and re-fingerprints.)
 
 ### Per-Iteration Breakdown
 
 #### Iteration 1
-**New findings:** 0 BLOCKERs, 0 WARNINGs, 1 CONVENTION, 2 NITs
-- [CONVENTION] .claude/plans/ — No plan file for branch pkg-logo-1879 --> DEFERRED: single dispatched card (kosmos#1879); the GitHub issue is the spec, no /pplan plan expected for a scoped cosmetic asset change.
-- [NIT] tools/build-installer-pkg.sh / commit message — commit says "96px" while the PNG canvas is 144x144 --> DEFERRED: accurate for the visible glyph (96px squircle inside a 144px canvas with baked bottom-left transparent margin, consistent with alignment=bottomleft scaling=none); no functional impact, not worth a history rewrite.
-- [NIT] install/pkg-resources/*.png — at scaling="none" the 144px image is treated as 144pt, so the dotted "K" may render slightly soft on Retina --> DEFERRED: matches the Tailscale approach the ask referenced; installer backgrounds have no automatic @2x variant mechanism, and doubling the asset at scaling=none would double its physical size (wrong). Acceptable tradeoff for a soft-edged dotted logo.
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
+- [NIT] no-brand-refs-1881.test.js:78 — Latent fragility in an EXISTING test (reads every tracked file as utf8, which decodes binary lossily rather than throwing, so a future binary asset whose bytes spell a brand token could false-positive). Out of scope for this PR; the two added PNGs were binary-grepped and contain none of book-io/booktoken/stuff-io/$stuff, so they pass. --> DEFERRED: not this PR's code; my assets pass the guard.
+- [NIT] tools/build-installer-pkg.sh:83 — scaling="none" on a 144px image is soft on Retina (installer backgrounds have no @2x path). --> DEFERRED: documented, deliberate tradeoff in the plan; matches Tailscale; Josh does the visual pass on the cut.
 
-**Converged** — no NEW BLOCKER/WARNING/CONVENTION remained after deferral; no ASKED findings.
+**Converged** — no NEW BLOCKER/WARNING/CONVENTION; no ASKED findings.
 
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Description | Status | Resolution |
 |---|------|----------|-----------|-------------|--------|------------|
-| 1 | 1 | CONVENTION | .claude/plans/ | No plan file for this branch | DEFERRED | Dispatched single card; issue #1879 is the spec |
-| 2 | 1 | NIT | tools/build-installer-pkg.sh | commit says "96px" vs 144px canvas | DEFERRED | Glyph is 96px in a 144px canvas; no functional impact |
-| 3 | 1 | NIT | install/pkg-resources/*.png | Retina softness at scaling=none | DEFERRED | Matches Tailscale; no @2x mechanism; doubling would double physical size |
+| 1 | 1 | NIT | no-brand-refs-1881.test.js:78 | Existing test reads binary as utf8 (latent) | DEFERRED | Out of scope; added PNGs verified to contain no brand tokens |
+| 2 | 1 | NIT | tools/build-installer-pkg.sh:83 | Retina softness at scaling=none | DEFERRED | Documented tradeoff; matches Tailscale; no @2x mechanism |
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 None.
 
 ### NITs (non-blocking, across all iterations)
-- [NIT] tools/build-installer-pkg.sh — "96px" wording vs 144px canvas (iteration 1)
-- [NIT] install/pkg-resources/*.png — Retina softness at scaling=none (iteration 1)
+- [NIT] no-brand-refs-1881.test.js:78 — existing-test binary/utf8 fragility (iteration 1)
+- [NIT] tools/build-installer-pkg.sh:83 — Retina softness at scaling=none (iteration 1)
 
 ### Strengths (across all iterations)
-- macOS Distribution syntax correct and complete: element names (<background>, <background-darkAqua>) and attributes (file, alignment="bottomleft", scaling="none", mime-type="image/png") are valid per Apple's installer-gui-script schema; shipping BOTH light and darkAqua is the right call (with only <background>, dark-mode installs show no logo). (iteration 1)
-- Filenames resolve: productbuild --resources points at install/pkg-resources/ where both PNGs live. (iteration 1)
-- No interaction hazard with the pkg input-hash guard: pkg-inputs.sh hashes install/pkg-resources/** + tools/build-installer-pkg.sh, so both new art and the build-script edit change the input sha (correct "rebuild on next cut" signal). test-pkg-input-guard.sh uses temp dirs; web.machine-absence-claims.test.js reads a hardcoded list, not readdir, so the binary PNGs cannot break it. (iteration 1)
-- No risk to the signed/notarized/stapled flow: background resources are standard; the images carry no Mach-O; the commit records offline verification and correctly notes "a merge is not a serve." (iteration 1)
+- macOS Distribution syntax correct: <background>/<background-darkAqua> are valid installer-gui-script children; alignment=bottomleft, scaling=none, mime-type=image/png all valid; file names resolve from --resources install/pkg-resources/ where both PNGs live. (iteration 1)
+- Both light and dark backgrounds declared: without background-darkAqua a dark-mode install renders no logo; the inline comment explains why; degrades safely on pre-dark-mode Installer. (iteration 1)
+- Input-hash interaction correct and plan accurate: pkg-inputs.sh streams install/pkg-resources/** + the build script, so both PNGs and the build-script edit move the input sha and pkg_publish_needed returns "inputs differ" on the next cut; no guard bypassed. (iteration 1)
+- PNGs well-formed (144x144 8-bit RGBA, non-interlaced) with no tEXt/iTXt metadata chunks, so no author/tool string leaks into the package. (iteration 1)
+- No signing/notarize/staple risk: only resource images added to a payload-free pkg (no Mach-O); pkg-input-guard test uses synthetic temp dirs and is untouched; no test asserts exact pkg-resources contents or distribution.xml text. (iteration 1)
