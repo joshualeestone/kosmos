@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: quotable-emits-1864
-diff_hash: 3a0ffd15f4a4093d8965721f5742ac711a47e0e5c7f137940d43047af1e152c9
+diff_hash: c79541d735bfbaf4bae2d3b082fa97a0e89e1aceaecf9529f240eca77fb30281
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-02T17:04:20Z
@@ -16,6 +16,11 @@ converged: true
 **Converged:** Yes (iteration 2 returned zero NEW BLOCKER/WARNING/CONVENTION)
 **Total findings:** 0 BLOCKER, 0 WARNING, 0 CONVENTION, 6 NITs (+ 10 STRENGTHs)
 **Fixed:** 3 (NITs) | **Deferred:** 3 (NITs) | **Asked:** 0
+
+Post-review note: after convergence, the tools/ residual wording in the guard
+header + plan was corrected to "reachability unestablished / ~27 files" per
+Splinter (comment/doc only, no logic change); the guard stayed 5/5 green and the
+diff_hash above was recomputed to match the corrected diff.
 
 Diff base note: local `main` is stale, so reviewers and the hash used `origin/main`.
 Reviewed diff is 9 files: the guard (browser-checks-reason-grep.test.js), 7
