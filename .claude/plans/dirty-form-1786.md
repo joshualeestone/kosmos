@@ -19,9 +19,10 @@ role's template, but hand-entered values stayed.
   warns about (a fix limited to the measured fields would look complete and leave the rest).
 
 ## The fix
-Extend `refillDetails`'s `resetDirty` branch (the role-change branch) to reset the whole form:
-`create-name` -> '', `AVATAR_FILE` -> null (+ clear `create-avatar` input and `genav-hint`),
-`CREATE_PROJECTS` -> []. model/account/reports are already reset on a role change by role-next's
+Extend `refillDetails`'s `resetDirty` branch (the role-change branch) to reset the same step-two
+field set `openCreate` resets: `create-name` -> '', the `create-msg` status -> '', `AVATAR_FILE` ->
+null (+ clear `create-avatar` input and `genav-hint`), `CREATE_PROJECTS` -> [], and the mark
+internals `LAST_MARK_SEED`/`PENDING_AVATAR` -> null. model/account/reports are already reset on a role change by role-next's
 `loadCreateExtras()`; the mark is redrawn by role-next's `drawCreateMark()` after refillDetails
 returns. The name is cleared BEFORE `instrTemplate()` so the refilled template's `{{NAME}}` reads
 the default rather than the previous role's typed name.

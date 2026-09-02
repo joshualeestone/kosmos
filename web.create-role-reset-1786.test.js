@@ -30,6 +30,7 @@ const fn = SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 2);
 function run(resetDirty, seed) {
   const els = {
     'create-name': { value: seed.name },
+    'create-msg': { textContent: seed.msg },
     'create-label': { value: seed.label },
     'create-instr': { value: seed.instr },
     'create-avatar': { value: seed.avatarInput },
@@ -39,7 +40,8 @@ function run(resetDirty, seed) {
   const document = { getElementById: (id) => els[id] };
   const wrap = `
     let INSTR_DIRTY = _s.dirty, LABEL_DIRTY = _s.dirty, AVATAR_FILE = _s.avatar,
-        CREATE_PROJECTS = _s.projects, LAST_TYPED_NAME = 'x';
+        CREATE_PROJECTS = _s.projects, LAST_TYPED_NAME = 'x',
+        LAST_MARK_SEED = _s.markSeed, PENDING_AVATAR = _s.pendingAvatar;
     const PICKED = 'pm';
     const roleByKey = () => ({ key: 'pm', label: 'Project Manager', instructions: 'pm {{NAME}}' });
     // Faithful to the real instrTemplate: it embeds create-name's value (the {{NAME}} slot),
@@ -49,12 +51,15 @@ function run(resetDirty, seed) {
     refillDetails(_resetDirty);
     return {
       name: document.getElementById('create-name').value,
+      msg: document.getElementById('create-msg').textContent,
       label: document.getElementById('create-label').value,
       instr: document.getElementById('create-instr').value,
       avatar: AVATAR_FILE,
       avatarInput: document.getElementById('create-avatar').value,
       hint: document.getElementById('genav-hint').textContent,
       projects: CREATE_PROJECTS,
+      markSeed: LAST_MARK_SEED,
+      pendingAvatar: PENDING_AVATAR,
     };
   `;
   // eslint-disable-next-line no-new-func
@@ -62,9 +67,9 @@ function run(resetDirty, seed) {
 }
 
 const DIRTY_SEED = {
-  name: 'Alfred', label: 'My Own Label', instr: 'my own words',
+  name: 'Alfred', msg: 'Say what this agent does.', label: 'My Own Label', instr: 'my own words',
   avatar: { name: 'pic.png' }, avatarInput: 'pic.png', hint: 'pic.png will be its picture', projects: ['proj-a'],
-  dirty: true,
+  markSeed: 'old-seed', pendingAvatar: { name: 'pic.png' }, dirty: true,
 };
 
 test('#1786: a role CHANGE (resetDirty=true) resets the WHOLE form, not just label+instructions', () => {
@@ -73,12 +78,15 @@ test('#1786: a role CHANGE (resetDirty=true) resets the WHOLE form, not just lab
   assert.equal(r.label, 'Project Manager', 'label did not reset to the new role template');
   assert.match(r.instr, /your agent/, 'instructions did not reset to the new role template');
   assert.doesNotMatch(r.instr, /Alfred/, 'the template embedded the STALE name: name must be cleared BEFORE instrTemplate() runs');
-  // The fields this card adds -- the residue that used to persist:
+  // The fields this card adds -- the residue that used to persist, matching openCreate's set:
   assert.equal(r.name, '', 'the name persisted across a role change (the measured residue)');
+  assert.equal(r.msg, '', 'a stale validation status (create-msg) persisted across a role change');
   assert.equal(r.avatar, null, 'the avatar file persisted across a role change');
   assert.equal(r.avatarInput, '', 'the avatar input was not cleared across a role change');
   assert.equal(r.hint, '', 'the avatar hint persisted across a role change');
   assert.deepEqual(r.projects, [], 'the picked projects persisted across a role change');
+  assert.equal(r.markSeed, null, 'the mark seed persisted across a role change (openCreate clears it)');
+  assert.equal(r.pendingAvatar, null, 'the pending avatar persisted across a role change (openCreate clears it)');
 });
 
 test('#1786: re-entering step two with the SAME role (resetDirty=false) keeps the person\'s words', () => {
@@ -88,6 +96,7 @@ test('#1786: re-entering step two with the SAME role (resetDirty=false) keeps th
   assert.equal(r.instr, 'my own words', 'a same-role return wrongly cleared the edited instructions');
   // And the whole-form reset must NOT fire on a same-role return.
   assert.equal(r.name, 'Alfred', 'a same-role return wrongly cleared the name');
+  assert.equal(r.msg, 'Say what this agent does.', 'a same-role return wrongly cleared the status');
   assert.notEqual(r.avatar, null, 'a same-role return wrongly cleared the avatar');
   assert.deepEqual(r.projects, ['proj-a'], 'a same-role return wrongly cleared the projects');
 });
