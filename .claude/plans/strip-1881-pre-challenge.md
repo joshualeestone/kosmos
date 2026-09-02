@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: strip-1881
-diff_hash: 3dec8d46e851c3f32ccd78f9128ae607b4eed3e6a39a7b97d02f05cbbcaa5c6e
+diff_hash: 2e1c84f526cb8251acda4bba3b67d50f7552c7d498b3806b547d9781d12befd7
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-02T20:07:20Z
-iterations: 2
+iterations: 3
 converged: true
 ---
 
@@ -64,6 +64,17 @@ for a machine, not a human. The guard's matcher makes the separator flexible
 (an optional backslash) and proves it with a positive control plus a planted
 escaped-form perturbation.
 
+### Iteration 3 - scope correction (Splinter's forward-risk catch, pre-merge)
+Splinter flagged that the guard would red on the migration itself: `.claude/plans/`
+legitimately accrues book-io mentions (every repoint proof names the repo it moved
+away from), and a guard that reds on legitimate content gets disabled. Fixed:
+the guard now EXCLUDES `.claude/plans/` and scans everything else (code, tests,
+web/, docs, README, tools, .github, non-plan .claude/ config). A blind pass
+confirmed the predicate is edge-case-proof (trailing-slash prefix) and the scoping
+control is real in both directions (a plan path is exempt AND a code path is
+scanned), perturbation-proven each way. NIT fixed: reconciled the plan's stale
+"Allowlist" prose with the prefix-exclusion model.
+
 ### Strengths
 - The guard is a genuinely non-vacuous deliverable: positive control (matches
   every spelling incl. escaped), negative control (rejects neutral English), a
@@ -78,4 +89,6 @@ escaped-form perturbation.
 - Full suite (bash tools/run-tests.sh) run to completion untimed: node --test 3769
   tests, 0 fail; the guard runs in-suite. Re-run as the 6j closing gate.
 - Perturbation-proven: the guard reds on planted plain AND escaped violations, and
-  passes clean otherwise.
+  passes clean otherwise; and reds on a code hit but NOT a .claude/plans/ hit.
+- CI browser-check gate (#1720): the only web/ change is comment-only, cleared
+  with a `Browser-check:` commit trailer (the node suite and the guard both pass).
