@@ -25002,7 +25002,25 @@ function instrTemplate() {
 function refillDetails(resetDirty) {
   const role = roleByKey(PICKED);
   if (!role) return;
-  if (resetDirty) { INSTR_DIRTY = false; LABEL_DIRTY = false; }
+  if (resetDirty) {
+    INSTR_DIRTY = false; LABEL_DIRTY = false;
+    /* #1786: a different role is a different template, and it resets the WHOLE form, not just
+       the two dirty-guarded fields. name/avatar/projects were reset in openCreate and nowhere
+       else, so a role re-pick left them carrying the previous role's entries while
+       label/instructions refilled below -- a half-reset form. Step two is reached ONLY through
+       role-next -> refillDetails, so this branch is the single choke-point for the reset.
+       Import is unaffected: it sets FILLED_ROLE = PICKED = 'own', so role-next sees
+       roleChanged=false and calls refillDetails(false), which preserves the imported words.
+       (model/account/reports are reset separately by role-next's loadCreateExtras() on a role
+       change; the mark is redrawn by role-next's drawCreateMark() after this returns.) The name
+       is cleared BEFORE instrTemplate() below so the refilled template's {{NAME}} reads the
+       default rather than the previous role's typed name. */
+    document.getElementById('create-name').value = '';
+    AVATAR_FILE = null;
+    document.getElementById('create-avatar').value = '';
+    document.getElementById('genav-hint').textContent = '';
+    CREATE_PROJECTS = [];
+  }
   // own's label is the person's own words: empty and gated, never defaulted
   // ("nobody wants an agent whose job is Custom").
   if (!LABEL_DIRTY) document.getElementById('create-label').value = role.label || '';
