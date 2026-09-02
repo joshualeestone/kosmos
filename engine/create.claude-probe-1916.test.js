@@ -31,6 +31,7 @@ case "$FAKE_MODE" in
   dead) echo 'Please run /login · API Error: 401 OAuth access token has expired.' >&2; exit 1;;
   hang) echo 'API Error: 401 OAuth access token has expired.'; sleep 5; exit 1;;
   flagcheck) case "$*" in *--strict-mcp-config*) echo ok; exit 0;; *) echo 'MISSING --strict-mcp-config'; exit 1;; esac;;
+  configdir) [ "$CLAUDE_CONFIG_DIR" = "$FAKE_EXPECT_CONFIGDIR" ] && { echo ok; exit 0; } || { echo "WRONG CONFIGDIR: got [$CLAUDE_CONFIG_DIR] want [$FAKE_EXPECT_CONFIGDIR]"; exit 1; };;
   *)    exit 0;;
 esac
 `, { mode: 0o755 });
@@ -75,6 +76,39 @@ test('#1916 probe: the probe passes --strict-mcp-config so a broken CONNECTOR ca
   process.env.FAKE_MODE = 'flagcheck';
   assert.equal(await create.claudeAccountLive(null), sub.STATE.CONNECTED,
     'defaultClaudeProbe did not pass --strict-mcp-config (a broken connector could false-refuse a live account)');
+});
+
+test('#1916 probe: a LABELLED dir is passed to the child as CLAUDE_CONFIG_DIR', async () => {
+  /* The auth-critical scoping for a labelled account: the child must be probed
+     against THAT dir, or the probe would measure the wrong account (accept a dead
+     labelled / refuse a live one). The fake exits 0 only if its CLAUDE_CONFIG_DIR
+     equals what we asked for. */
+  process.env.FAKE_MODE = 'configdir';
+  process.env.FAKE_EXPECT_CONFIGDIR = '/some/labelled/dir';
+  try {
+    assert.equal(await create.claudeAccountLive('/some/labelled/dir'), sub.STATE.CONNECTED,
+      'the probe did not pass the labelled configDir to the child');
+  } finally { delete process.env.FAKE_EXPECT_CONFIGDIR; }
+});
+
+test('#1916 probe: the DEFAULT DELETES CLAUDE_CONFIG_DIR even when the PARENT has one set (env leak guard)', async () => {
+  /* April's env-leak point: `{...process.env}` inherits the caller's
+     CLAUDE_CONFIG_DIR (this box carries one), so OMITTING the key is NOT the same
+     as the child not having it. defaultClaudeProbe DELETES it for the default, so
+     the child probes the TRUE default, not the caller's account. Set a sentinel
+     in the parent and assert the child sees it empty; a regression to "omit"
+     would leak the sentinel and red this. */
+  const prevCfg = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = '/parent/leaked/dir';
+  process.env.FAKE_MODE = 'configdir';
+  process.env.FAKE_EXPECT_CONFIGDIR = '';
+  try {
+    assert.equal(await create.claudeAccountLive(null), sub.STATE.CONNECTED,
+      'the default probe leaked the caller\'s CLAUDE_CONFIG_DIR instead of deleting it');
+  } finally {
+    delete process.env.FAKE_EXPECT_CONFIGDIR;
+    if (prevCfg === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = prevCfg;
+  }
 });
 
 test('#1916 probe: an unrunnable claude binary is UNKNOWN (fail-open), never dead', async () => {
