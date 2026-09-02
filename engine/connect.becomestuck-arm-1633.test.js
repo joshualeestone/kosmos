@@ -10,22 +10,21 @@
  * against is telling somebody who is
  * already stuck to run a program that answers `command not found` (#205).
  *
- * 🛑 THE MECHANISM, NAMED EXACTLY, BECAUSE THIS SENTENCE WAS WRONG UNTIL
- * ITERATION 8 AND WAS THE FIRST THING A READER MET. `becomeStuck` writes
- * `claudeHatchAvailable()` (connect.js:2446), which is
- * `runners.resolveBin('claude').present` -> `isRunnable()`, and `isRunnable`
- * does `statSync().isFile()` BEFORE `accessSync(X_OK)` (runners.js:191).
- * `claudeBinPath()` is not on that path at all. The earlier text here said
- * `accessSync(claudeBinPath(), X_OK)`, which is what production did before
- * #1592 and is exactly the retracted claim the third arm's docblock corrects
- * 180 lines below. A wrong sentence left standing above its own retraction is
- * read first, so it is deleted rather than annotated.
+ * 🛑 THE MECHANISM, NAMED EXACTLY, BECAUSE A NEARBY WRONG ONE IS EASY TO
+ * ASSUME. `becomeStuck` writes `claudeHatchAvailable()` (connect.js:2446),
+ * which is `runners.resolveBin('claude').present` -> `isRunnable()`, and
+ * `isRunnable` does `statSync().isFile()` BEFORE `accessSync(X_OK)`
+ * (runners.js:191). `claudeBinPath()` is NOT on that path at all, and a bare
+ * `accessSync(claudeBinPath(), X_OK)` is what production did BEFORE #1592 --
+ * it succeeds on a directory, which is the whole point of the third arm below.
  *
  * ⚠️ THE GAP IS NARROWER THAN "NOTHING DRIVES becomeStuck", AND SAYING SO
  * MATTERS. `engine/connect.test.js` drives real flows into the stuck phase in
- * roughly a dozen places, as does `engine/connect.nobinary-1580.test.js`. What
- * none of them does is assert `canRunClaude` FROM A DRIVEN FLOW. Measured:
- * THREE other test files reference the field, and they split two ways.
+ * roughly a dozen places (17 `PHASE.STUCK` references), and
+ * `engine/connect.nobinary-1580.test.js` in a handful more (4 stuck references
+ * in total, not the same order of magnitude). What none of them does is assert
+ * `canRunClaude` FROM A DRIVEN FLOW. Measured: three other test files reference
+ * the field, and they split two ways.
  *
  *   server.connect.test.js                  builds the state object by hand
  *   engine.publicview-canrun-1595.test.js   builds the state object by hand
@@ -33,18 +32,12 @@
  *                                           connect.js off disk and matching the
  *                                           writeState line (its :1322)
  *
- * ⚠️ THE THIRD ONE WAS MISSING FROM THIS LIST UNTIL ITERATION 8, AND IT IS THE
- * ONE WITH THE MOST REFERENCES (38 to the field). It is also cited by name 180
- * lines below as the comparison case, so it was described here and not counted.
- * 🛑 NONE OF THE THREE ASSERTS THE FIELD DOWNSTREAM OF A `start()`, WHICH IS
- * THE CLAIM, AND THE WIDER ONE IS FALSE. `server.connect.test.js` DOES call
- * `connect.start()` (its :251 and :749) -- just never on the path that reaches
- * `canRunClaude`, whose three sites there are a source grep (:797) and two
- * hand-built harness states (:1146, :1170). Iteration 8 wrote "none of the
- * three calls `connect.start()`" here while correcting a different miscount,
- * which is a false sentence introduced BY a fix. Driving `start()` and reading
- * the settled STUCK record is what this file adds, and the only thing it
- * claims.
+ * 🛑 THE CLAIM IS "NONE ASSERTS IT DOWNSTREAM OF A `start()`", AND THE WIDER
+ * ONE IS FALSE: `server.connect.test.js` DOES call `connect.start()` (its :251
+ * and :749), just never on a path reaching `canRunClaude`, whose three sites
+ * there are a source grep (:797) and two hand-built harness states (:1146,
+ * :1170). Driving `start()` and reading the settled STUCK record is what this
+ * file adds, and the only thing it claims.
  *
  * 🛑 WHY THIS DRIVES `start()` RATHER THAN CALLING `becomeStuck` DIRECTLY.
  * The card offered two shapes: export `becomeStuck` with a `setDriverForTests`,
@@ -60,8 +53,8 @@
  * file creates is the legitimate owner, which is why it reaches the write.
  *
  * 🛑 SERVE A LOCAL RELEASE OR THIS HITS downloads.claude.ai FOR REAL. All three arms
- * fail at the INSTALL step, which is downstream of the download, so both walk the
- * real `download()` -- and `download()` uses plain node http/https and sits OUTSIDE the
+ * fail at the INSTALL step, which is downstream of the download, so ALL THREE walk
+ * the real `download()` -- and `download()` uses plain node http/https and sits OUTSIDE the
  * injected runner seam, so a runner stub does not touch it. (The fixture below
  * is served over plain `http://127.0.0.1`, which is why naming `https.get`
  * specifically would have been wrong.) Measured before the fixture was added: each arm took ~5.3s against the live
@@ -132,14 +125,19 @@ async function settled(ms = 8000) {
 /**
  * Drive the real `start()` to a real install failure.
  *
- * ⚠️ The fixture's only INPUT variable is whether an executable exists at the bin
- * path (the path itself also differs per arm, for the reason given at the call
- * site),
- * which is the question `becomeStuck` asks the disk. That is NOT the same as the
- * two arms walking identical code: the PRESENT arm additionally runs the
- * `--version` probe, which the injected runner answers `{ok:false}`, flipping
- * `haveBinary` false. Both then converge on the same install-failure path, which
- * is what makes them comparable. `installClaudeCode` unlinks the DOWNLOADED file,
+ * ⚠️ TWO INPUTS, THREE STATES, and the states are what `becomeStuck` asks the
+ * disk about:
+ *
+ *     binaryExists: true,  directoryInstead: false   -> an executable FILE
+ *     binaryExists: false, directoryInstead: false   -> NOTHING at the path
+ *     binaryExists: false, directoryInstead: true    -> a DIRECTORY at the path
+ *
+ * (The bin path itself also differs per arm, for the reason given at the call
+ * site.) That is NOT the same as the three arms walking identical code: the
+ * PRESENT arm additionally runs the `--version` probe, which the injected
+ * runner answers `{ok:false}`, flipping `haveBinary` false. All three then
+ * converge on the same install-failure path, which is what makes them
+ * comparable. `installClaudeCode` unlinks the DOWNLOADED file,
  * not the bin path, so the PRESENT arm's executable survives to be seen.
  */
 async function stuckWith(t, { binaryExists, directoryInstead = false }) {
@@ -184,9 +182,8 @@ async function stuckWith(t, { binaryExists, directoryInstead = false }) {
  *
  * BOTH come from `installClaudeCode`. `download()` has NO failure return, it
  * THROWS, and 'we could not download Claude' is what installClaudeCode's own
- * catch turns that throw into. An earlier version of this comment credited
- * `download`, which made the contrast read as two functions when it is two
- * failure points inside one.
+ * catch turns that throw into. Both failure points live inside
+ * `installClaudeCode`; they are not two functions.
  *
  * Asserting it is what would have caught the missing release server on the
  * first run.
@@ -235,12 +232,25 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
  * guard would stay green if `becomeStuck` stopped calling the helper. This one
  * would not.
  *
- * 📌 An earlier version of this file asserted the OPPOSITE, as a deliberate
- * characterisation of a defect. That was measured against a branch 300 commits
- * behind main, where the bare `accessSync` still existed. It had been fixed a
- * day earlier. The arm is flipped and the card I raised for it (kosmos#1859)
- * was closed as already-fixed. Recorded because the mistake was reading a
- * subject that had moved, not reading it wrongly.
+ * 🛑 DO NOT "FIX" THIS ARM BACK TO ASSERTING `true`. An earlier version did,
+ * as a deliberate characterisation: a bare `accessSync(X_OK)` DOES succeed on a
+ * directory, so before #1592 that was the real behaviour. #1592 put
+ * `statSync().isFile()` in front of it, and `false` is now correct. A card
+ * raised against the old behaviour (kosmos#1859) was closed as already-fixed.
+ *
+ * ⚠️ The measured timeline, because it is the reusable part and a loose version
+ * of it is easy to write:
+ *
+ *   2026-08-30 18:44  #1592 fix AUTHORED (fed47fc5)
+ *   2026-08-31 09:29  this arm written        <- fix existed, but NOT on main
+ *   2026-09-01 02:38  #1592 reaches origin/main
+ *   2026-09-02 10:46  kosmos#1859 filed       <- fix on main for ~32 hours
+ *   2026-09-02 11:07  closed as already-fixed
+ *
+ * ⇒ Writing the arm was defensible; a fetch that morning would not have shown
+ * the fix. FILING THE CARD A DAY LATER WAS THE DEFECT, and by then one `git
+ * fetch` would have settled it. Being behind is harmless; being behind ON THE
+ * FILE YOU ARE MAKING A CLAIM ABOUT is not.
  */
 test('#1633: a DIRECTORY at the bin path is not runnable, via the driven flow', async (t) => {
   const st = await stuckWith(t, { binaryExists: false, directoryInstead: true });

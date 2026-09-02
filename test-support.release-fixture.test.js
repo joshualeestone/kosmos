@@ -3,7 +3,9 @@
 /**
  * #1633: `test-support/release-fixture.js` is a SHARED helper, and its
  * siblings are UNEVENLY tested, and this closes the gap for the one that
- * matters most. MEASURED across the six helpers in `test-support/`:
+ * matters most. MEASURED over the SIX `.js` helpers in `test-support/`
+ * (`ls test-support/*.js`; the directory also holds `fake-tmux.sh`, which is a
+ * shell fixture and not in scope here):
  *
  *     code-only.js       test-support.code-only.test.js
  *     tmpdir.js          tmpdir.test.js
@@ -12,10 +14,9 @@
  *     fleet.js           none
  *     page.js            none
  *
- * 📌 An earlier version of this line said "its siblings each have a test",
- * which is false: three of the six have none. They are consumed by many tests,
- * which is not the same as having one. Corrected rather than annotated. This
- * helper earns its own because it exists mostly for the refusal:
+ * ⚠️ Being consumed by many tests is NOT the same as having one. Three of the
+ * six have no test of the helper itself. This one earns its own because it
+ * exists mostly for the refusal:
  *
  * 🛑 IT LIVES AT THE REPO ROOT, NOT BESIDE THE HELPER, AND THAT IS NOT A STYLE
  * CHOICE. `tools/run-tests.sh:103` is `node --test engine/*.test.js *.test.js`.
@@ -105,9 +106,10 @@ test('a caller-supplied binary is the body actually SERVED', async (t) => {
 
 /**
  * ⭐ THE SILENTLY-DROPPED-OPTION ARM. Guarding only a MISSING platformKey left
- * the natural migration shape accepted and silently wrong one field over: two
- * sibling copies take a `checksum`, and it was being discarded in favour of one
- * computed from the body.
+ * the natural migration shape accepted and silently wrong one field over: ALL
+ * THREE sibling copies take a `checksum` (connect.nobinary-1580.test.js:42,
+ * connect.test.js:147, connect.install-997.test.js:44), and it was being
+ * discarded in favour of one computed from the body.
  */
 test('an unknown option is REFUSED rather than silently dropped', async (t) => {
   await assert.rejects(
@@ -136,8 +138,7 @@ test('a version download() would reject is refused HERE, with a fixture-shaped m
  * THE DESTRUCTURE. Without the guard that is a raw "Cannot destructure property
  * 'platformKey' of 'opts' as it is null", which names a variable inside the
  * helper rather than the call that was wrong. Nothing exercised this until
- * iteration 8, in the file whose own docblock says it exists mostly for the
- * refusal.
+ * in the file whose own docblock says it exists mostly for the refusal.
  */
 test('a null options object is refused in this file\'s own voice, not by the destructure', async (t) => {
   await assert.rejects(
@@ -155,12 +156,9 @@ test('a null options object is refused in this file\'s own voice, not by the des
  * ⭐ A `t` WITHOUT `after` IS A REAL MISUSE SHAPE: the three private
  * serveRelease copies are called from inside `test()` callbacks, and a migrator
  * moving one into a helper or a `describe` block can pass something that is not
- * a test context. The catch exists so that throws as a FAILED TEST rather than
- * an uncaught exception inside a listen callback, which kills the process and
- * takes the rest of the suite with it.
+ * a test context.
  *
- * 🛑 WHAT REMOVING THE CATCH ACTUALLY DOES, MEASURED RATHER THAN ASSUMED
- * (iteration 8, by deleting the try/catch and running this file):
+ * 🛑 WHAT THE CATCH IS FOR, MEASURED BY DELETING IT AND RUNNING THIS FILE:
  *
  *   TypeError: t.after is not a function   thrown from the listen callback
  *   10 of 11 arms                          STILL PASS
@@ -170,16 +168,13 @@ test('a null options object is refused in this file\'s own voice, not by the des
  *                                           but the event loop has already
  *                                           resolved"
  *
- * ⚠️ SO THE FAILURE IS A TWO-MINUTE HANG ATTRIBUTED TO THE FILE, NOT A RED ON
- * THIS ARM. That matters more than it sounds: in CI a two-minute hang reads as
- * a timeout or a flake, which is the one failure shape people retry rather than
- * investigate. Read a green here as "the promise settled" -- the arm proves the
- * catch converts an unsettleable promise into an ordinary rejection, and the
- * run finishing in milliseconds instead of minutes is the other half of it.
- *
- * 📌 An earlier draft of this block said the throw "kills the process". That
- * was inherited from the helper's own comment and never measured; the run does
- * not die, it hangs. Corrected rather than annotated.
+ * ⚠️ SO THE UNGUARDED FAILURE IS A TWO-MINUTE HANG ATTRIBUTED TO THE FILE, NOT
+ * A RED ON THIS ARM, and it does NOT kill the process. That matters more than
+ * it sounds: in CI a two-minute hang reads as a timeout or a flake, which is
+ * the one failure shape people retry rather than investigate. Read a green here
+ * as "the promise settled" -- the arm proves the catch converts an unsettleable
+ * promise into an ordinary rejection, and the run finishing in milliseconds
+ * instead of minutes is the other half of it.
  */
 test('a t without after() rejects instead of hanging the file', async () => {
   await assert.rejects(
@@ -189,7 +184,7 @@ test('a t without after() rejects instead of hanging the file', async () => {
 });
 
 /**
- * 📌 NOT ARMED, DEFERRED WITH REASONING (iteration 8). The third refusal path,
+ * 📌 NOT ARMED, AND DELIBERATELY SO. The third refusal path,
  * `server.on('error', reject)` before `listen`, has no arm here. Its trigger is
  * a failed bind, and this helper always calls `listen(0, '127.0.0.1')` -- an
  * ephemeral port, which the kernel picks from the free set, so the collision it

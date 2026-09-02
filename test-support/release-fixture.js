@@ -16,9 +16,9 @@
  *     engine/connect.test.js               (t, {version, binary, checksum})
  *     engine/connect.install-997.test.js   (t, {version, binary, checksum}, opts)
  *
- * An earlier version of this docblock said the server had been written "twice".
- * That was wrong by 2x, in the one comment whose whole job is counting copies,
- * and a review caught it. The count is now measured rather than remembered.
+ * ⚠️ COUNT THESE BEFORE EDITING THE LINE ABOVE, DO NOT REMEMBER THEM:
+ * `git grep -n 'function serveRelease'`. This comment's whole job is counting
+ * copies and it has been wrong by 2x.
  *
  * 🔑 WHICH IS WHY THIS TAKES A SINGLE NAMED-OPTIONS ARGUMENT. Three of the four
  * disagree about what the SECOND positional parameter means, so a call copied
@@ -89,7 +89,7 @@ function serveRelease(t, opts = {}, ...extra) {
      from the body, which is exactly the class the guard exists to prevent.
 
      🛑 THIS RUNS AFTER THE platformKey GUARD, AND THE ORDER IS LOAD-BEARING.
-     Iteration 8 proposed the reverse, reasoning that a typo'd key deserves the
+     The reverse has been proposed, reasoning that a typo'd key deserves the
      more diagnostic message. MEASURED, AND IT IS WRONG: `Object.keys()` on a
      BUFFER returns its numeric indices, so the sibling positional shape
      `serveRelease(t, Buffer.from('x'))` -- connect.nobinary-1580's call, the
@@ -129,9 +129,9 @@ function serveRelease(t, opts = {}, ...extra) {
      ⚠️ CASE-INSENSITIVE ON PURPOSE, AND MIRRORING PRODUCTION RATHER THAN BEING
      STRICTER THAN IT. `download()` lowercases before testing `^[a-f0-9]{64}$`,
      and its own comment says rejecting uppercase "would blame the Mac" for a
-     formatting difference. An earlier version of this guard refused uppercase and
-     said download() required lowercase; that was wrong about production and
-     foreclosed a fixture exercising its normalisation path. */
+     formatting difference. 🛑 DO NOT TIGHTEN THIS TO `[a-f0-9]`: production
+     accepts uppercase, and a guard stricter than the production it mirrors
+     forecloses a fixture exercising the normalisation path. */
   if (checksum !== undefined && (typeof checksum !== 'string' || !/^[a-fA-F0-9]{64}$/.test(checksum))) {
     throw new TypeError(
       `serveRelease({checksum}) must be 64 hex characters, which is what download() requires after `
@@ -190,8 +190,7 @@ function serveRelease(t, opts = {}, ...extra) {
            with this catch deleted: the promise never settles, the other arms
            still pass, and the FILE fails ~120s later with "Promise resolution
            is still pending but the event loop has already resolved". It does
-           not kill the process -- an earlier version of this comment said it
-           did, and that was never measured. A two-minute hang blamed on the
+           NOT kill the process, which is the intuitive guess and is wrong. A two-minute hang blamed on the
            file is worse than a fast red on the arm, because a hang reads as a
            flake and gets retried. Converting it to a rejection is the point.
            Armed by test-support.release-fixture.test.js. */
