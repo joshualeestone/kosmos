@@ -101,7 +101,9 @@ _kosmos_drop_self_subtree() {
 # launchd-spawned run vs a terminal one) would otherwise write to different dirs and
 # the marker arm could not cross-detect them. $HOME is the one path every run on this
 # box shares (like the sibling ~/.cache monitors). It survives a reboot, which is
-# fine: a reboot leaves only dead-pid markers, and the next reader cleans those.
+# handled the same way any stale marker is: a reboot leaves dead-pid markers the next
+# reader cleans -- modulo the pid-reuse residual named above (a booted process reusing
+# the old pid reads as live), which is bounded and safe-direction there.
 _kosmos_marker_dir() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}"; }
 
 # kosmos_mark_run <type>  — the run declares itself. <type> must be a shell-identifier
@@ -117,6 +119,9 @@ _kosmos_marker_dir() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cach
 kosmos_mark_run() {
   local type="${1:-}" dir cookie uc
   [ -n "$type" ] || return 0
+  # Enforce the identifier invariant at runtime, not only in the header: a type with a
+  # hyphen/dot would make the cookie var-name invalid and self-refuse that caller.
+  case "$type" in *[!A-Za-z_]*) return 0 ;; esac
   uc="$(printf '%s' "$type" | tr '[:lower:]' '[:upper:]')"
   [ -n "$uc" ] || return 0     # a nameless cookie var would make the guard refuse THIS run
   dir="$(_kosmos_marker_dir)"
