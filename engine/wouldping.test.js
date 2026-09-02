@@ -178,6 +178,61 @@ test('CONTROL: the real store is never touched by this file', () => {
     'the log would land outside the sandbox, at ' + wouldping.fileFor());
 });
 
+test('#1784: a PRE-EXISTING loose log is tightened on its next append, not left loose', () => {
+  /* 🛑 THE DEFECT, AND WHY THE OBVIOUS ARM MISSES IT. `mode:` on appendFileSync
+     applies on CREATE only, so a fresh-create arm passes with the mode option
+     alone and the re-assert deleted. The bug lives on a file that ALREADY
+     exists at a wide mode: the mode option is ignored and the secret-adjacent
+     log stays readable. So plant the loose file, then append, then assert it
+     tightened. Revert the `chmodSync(file, 0o600)` in secureAppend and this
+     goes red by name; the fresh-create control below stays green, which is how
+     you know this arm is testing the re-assert and not the create. */
+  wouldping.saw('loose', 'idle', {});            // announce() creates the file at 0600
+  const file = wouldping.fileFor();
+  fs.chmodSync(file, 0o644);                       // a prior loose state, as #1518's served checkout could leave
+  assert.equal(fs.statSync(file).mode & 0o777, 0o644, 'plant did not take');
+  wouldping.saw('loose', 'needs_you', { reported: false });  // a real append
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600,
+    'an existing loose log was appended to and left loose: mode: on append is create-only');
+});
+
+test('#1784: a PRE-EXISTING world-readable dir is tightened, not left enumerable', () => {
+  /* mkdirSync passes its mode on CREATE only too, so a directory that already
+     exists at 0755 keeps it. The 0600 on the files is doing less than it looks
+     if anyone can list the directory. Revert `chmodSync(dir, 0o700)` and this
+     reddens; the mode: 0o700 on mkdirSync alone cannot fix an existing dir. */
+  wouldping.saw('d1', 'idle', {});                 // creates the dir
+  const dir = wouldping.dirFor();
+  fs.chmodSync(dir, 0o755);                         // loose, as a no-mode mkdir would have left it
+  assert.equal(fs.statSync(dir).mode & 0o777, 0o755, 'plant did not take');
+  wouldping.saw('d1', 'needs_you', { reported: false });    // any write re-asserts
+  assert.equal(fs.statSync(dir).mode & 0o777, 0o700,
+    'the wouldping directory stayed world-readable, so its 0600 files can be listed');
+});
+
+test('#1784 CONTROL: a FRESH create is already 0700 / 0600 (proves the instrument sees modes)', () => {
+  /* This one passes with the re-assert deleted, because create honours the
+     mode. It is here to prove the two arms above measure the RE-ASSERT and not
+     the create: if this were red the machine could not observe 0700/0600 at
+     all and the arms above would be meaningless. */
+  fs.rmSync(wouldping.dirFor(), { recursive: true, force: true });
+  wouldping.reset();
+  wouldping.saw('fresh', 'needs_you', { reported: false });
+  assert.equal(fs.statSync(wouldping.dirFor()).mode & 0o777, 0o700, 'a fresh dir is not 0700');
+  assert.equal(fs.statSync(wouldping.fileFor()).mode & 0o777, 0o600, 'a fresh file is not 0600');
+});
+
+test('#1784: the mode re-assert is best-effort and never breaks a board read', () => {
+  /* remote.js's precedent, and this module's own contract: a measurement must
+     never throw. The chmods are in their own catch; a perms failure on them
+     must not propagate. Hard to force a chmod EPERM in a sandbox we own, so
+     this asserts the weaker, checkable thing: the write still logs its
+     transition even though we cannot make chmod fail here. */
+  assert.equal(wouldping.saw('be', 'idle', {}), false);
+  assert.equal(wouldping.saw('be', 'needs_you', { reported: false }), true,
+    'the secured append did not log its transition');
+});
+
 test('a production path calls it, or this is a measurement nobody takes', () => {
   /* The merged-and-inert class, twice mine this week. */
   const status = fs.readFileSync(require.resolve('./status'), 'utf8');
