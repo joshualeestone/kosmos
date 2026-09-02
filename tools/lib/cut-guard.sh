@@ -49,6 +49,119 @@ _kosmos_drop_self_subtree() {
   done
 }
 
+# --- Harness-owned run markers (#1796) ---------------------------------------
+# A guard that greps the process table for a script NAME cannot cleanly separate
+# RUNNING the script from WORKING on it, and its self-exclusion has to walk the
+# LIVE process tree (`_kosmos_pid_is_self_or_descendant`), which races under load:
+# a nested descendant whose intermediate ancestor exits mid-walk is reparented to
+# pid 1, misses `root`, and reads as a separate run. The card's fix (#1796): a real
+# RUN can leave a mark a mention/edit/worktree-name never has, and the guard can
+# read the mark instead of walking a tree.
+#
+# Shape: $DIR/<type>.<pid>, body a cookie unique to THIS run. A reader IGNORES a
+# marker whose pid is dead (a crashed run cannot be holding the box) and unlinks it,
+# and excludes its OWN run by COOKIE -- a string compare, no ps walk. "Working on
+# the script" (an editor, `bash -n`, `git add`, a worktree named after it) writes no
+# marker, so it is never a candidate: the run-vs-work split the name-grep cannot make.
+#
+# This is ADDITIVE. The name-based arm below is UNCHANGED and still runs, so a
+# concurrent run from a build that predates markers (the transition, and any caller
+# not yet wired to kosmos_mark_run) is still caught -- a guard is refused if EITHER
+# arm finds a separate live run. Once every caller marks, the name arm is a backstop.
+#
+# 🛑 WHAT THIS DOES AND DOES NOT CLOSE. The refusal is `{ name arm } || { marker arm }`,
+# so the marker arm ADDS a reliable signal; it does NOT replace the name arm. The name
+# arm still walks the live tree (_kosmos_drop_self_subtree), and that walk still
+# carries the reparent race for the ONE caller that genuinely self-matches
+# (browser-checks.sh forks subshells inheriting its own command line). So problem 1 of
+# #1796 -- the race -- is MITIGATED (removed from the primary/marker path), NOT
+# ELIMINATED: an OR'd name arm can still false-refuse under load even while the marker
+# arm correctly excludes this run by cookie. Fully closing it means RETIRING the name
+# arm + its walk once every caller marks (a follow-up, deliberately not done here to
+# keep the transition backstop). Do not read this change as "the race is closed." What
+# IS closed here is the structural run-vs-work split (working writes no marker) and the
+# self-exclusion race on the marker path (a cookie compare, no walk).
+#
+# KNOWN RESIDUAL, named as the code above names its own: a marker's pid can be
+# REUSED by an unrelated process between the marking run exiting and the next reader
+# cleaning the stale marker, so a reader can read a live-but-foreign pid and refuse.
+# The window is small (every guard call cleans dead-pid markers first) and the
+# direction is the safe one this file already chooses -- it over-refuses, never
+# misses a genuinely separate run -- and the same KOSMOS_*_IGNORE_* override clears it.
+# Two more residuals, both harmless on this single-user box and named for the reader:
+#   - `kill -0 <pid>` returns non-zero (EPERM) for a LIVE process owned by ANOTHER
+#     user, so a foreign-user run reads as stale (a miss, the unsafe direction) rather
+#     than a refuse. Every agent here runs as one user, and the name arm still
+#     name-matches a foreign-user run, so it is backstopped.
+#   - cleanup is LAZY and per-type: a `cut` check only sweeps `cut.*`. A type whose
+#     guard is never called again would leave dead-pid files until it is. Harmless
+#     (every real run triggers a same-type check that sweeps it); it does not leak
+#     into detection because a dead-pid marker is never counted as a live run.
+# Keyed off $HOME, NOT $TMPDIR: two runs on the same Mac with divergent TMPDIR (a
+# launchd-spawned run vs a terminal one) would otherwise write to different dirs and
+# the marker arm could not cross-detect them. $HOME is the one path every run on this
+# box shares (like the sibling ~/.cache monitors). It survives a reboot, which is
+# handled the same way any stale marker is: a reboot leaves dead-pid markers the next
+# reader cleans -- modulo the pid-reuse residual named above (a booted process reusing
+# the old pid reads as live), which is bounded and safe-direction there.
+_kosmos_marker_dir() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}"; }
+
+# kosmos_mark_run <type>  — the run declares itself. <type> must be a shell-identifier
+# word ([A-Za-z_]+): it is uppercased into the env-var name KOSMOS_RUN_COOKIE_<TYPE>,
+# so a hyphen/dot (`page-layer`) would make the export a no-op and the reader misparse
+# -- a self-refuse for that caller. The three wired types are cut / harness / browser.
+# Call once, where the script
+# sources this lib, BEFORE the refuse check. Exports KOSMOS_RUN_COOKIE_<TYPE> so the
+# guard excludes THIS run. Best-effort: a mark it cannot write just leaves the name
+# arm to cover this run. No trap (so it cannot clobber a caller's EXIT trap): a clean
+# exit's marker lingers only until the next reader sees its pid is dead and unlinks
+# it, so a crash can never strand a live-LOOKING marker.
+kosmos_mark_run() {
+  local type="${1:-}" dir cookie uc
+  [ -n "$type" ] || return 0
+  # Enforce the identifier invariant at runtime, not only in the header: a type with a
+  # hyphen/dot would make the cookie var-name invalid and self-refuse that caller.
+  case "$type" in *[!A-Za-z_]*) return 0 ;; esac
+  uc="$(printf '%s' "$type" | tr '[:lower:]' '[:upper:]')"
+  [ -n "$uc" ] || return 0     # a nameless cookie var would make the guard refuse THIS run
+  dir="$(_kosmos_marker_dir)"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  cookie="$$-$(date +%s 2>/dev/null || echo 0)-${RANDOM:-0}${RANDOM:-0}"
+  # Export the self-cookie BEFORE writing the marker, so a reader in this process can
+  # never see a marker without also seeing the cookie that excludes it -- a partial
+  # success must not strand a marker that self-refuses.
+  export "KOSMOS_RUN_COOKIE_$uc=$cookie"
+  printf '%s\n' "$cookie" > "$dir/$type.$$" 2>/dev/null || return 0
+  return 0
+}
+
+# _kosmos_marker_other_live <type>  — echo a one-line description of a LIVE run of
+# <type> that is NOT this caller's own (by cookie), or nothing. Unlinks stale
+# (dead-pid) markers as it goes. Read-only w.r.t. live runs; only removes markers
+# whose owning pid is gone.
+_kosmos_marker_other_live() {
+  local type="${1:-}" dir uc self f pid cookie
+  [ -n "$type" ] || return 0
+  dir="$(_kosmos_marker_dir)"
+  [ -d "$dir" ] || return 0
+  uc="$(printf '%s' "$type" | tr '[:lower:]' '[:upper:]')"
+  eval "self=\"\${KOSMOS_RUN_COOKIE_$uc:-}\""
+  for f in "$dir/$type".*; do
+    [ -e "$f" ] || continue                       # no glob match -> nothing marked
+    pid="${f##*.}"
+    case "$pid" in ''|*[!0-9]*) continue ;; esac   # not a <type>.<pid> file
+    if ! kill -0 "$pid" 2>/dev/null; then
+      rm -f "$f" 2>/dev/null                        # stale: the marking run is gone
+      continue
+    fi
+    cookie="$(cat "$f" 2>/dev/null)"
+    { [ -n "$self" ] && [ "$cookie" = "$self" ]; } && continue   # my own run
+    printf 'a marked %s run (pid %s)\n' "$type" "$pid"
+    return 0
+  done
+  return 0
+}
+
 # The live-cut guard (#708). Two copies of the install gate on one Mac share
 # the fixed port range, the real ~/Applications and /Applications
 # fingerprints and the gui launchd domain, and they poison each other:
@@ -65,8 +178,13 @@ _kosmos_drop_self_subtree() {
 # release outage that reads exactly like the guard working. The seam is an
 # env var so the tests can drive it; it defaults to the caller's own pid.
 kosmos_refuse_if_cut_live() {
-  local what="${1:-this run}" probe="${KOSMOS_CUT_PROBE:-}" raw out rc self
+  local what="${1:-this run}" probe="${KOSMOS_CUT_PROBE:-}" raw out rc self marker_other
   self="${KOSMOS_CUT_SELF_PID:-$$}"
+  # #1796: the reliable arm -- a marked cut that is not this caller's own run. A
+  # mention/edit/worktree never marks, so it is never a candidate; self-exclusion is
+  # the cookie, not a live-tree walk. Runs alongside the name arm below (either
+  # refuses), so a caller not yet wired to kosmos_mark_run is still covered.
+  marker_other="$(_kosmos_marker_other_live cut)"
   if [ -n "$probe" ]; then
     out="$("$probe" 2>/dev/null)"; rc=$?
   else
@@ -97,8 +215,9 @@ kosmos_refuse_if_cut_live() {
     echo "could not tell whether a cut is running (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2
     return 1
   fi
-  if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
-    echo "a cut is running on this Mac ($(printf '%s\n' "$out" | head -1 | cut -c1-80)); $what would share its ports, its real-folder fingerprints and its launchd domain, and either result could be the other's. Wait for the cut's 'completed' line in ~/.claude/logs/cut-suite-runs.log, or KOSMOS_HARNESS_IGNORE_CUT=1 to run anyway." >&2
+  if { [ "$rc" -eq 0 ] && [ -n "$out" ]; } || [ -n "$marker_other" ]; then
+    local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"; [ -n "$detail" ] || detail="$marker_other"
+    echo "a cut is running on this Mac ($detail); $what would share its ports, its real-folder fingerprints and its launchd domain, and either result could be the other's. Wait for the cut's 'completed' line in ~/.claude/logs/cut-suite-runs.log, or KOSMOS_HARNESS_IGNORE_CUT=1 to run anyway." >&2
     return 1
   fi
   return 0
@@ -119,8 +238,13 @@ kosmos_refuse_if_cut_live() {
 # Same posture as above: a probe that cannot answer is a refusal, and the
 # seam exists so this can be shown red and green without a real run.
 kosmos_refuse_if_browser_run_live() {
-  local what="${1:-this run}" probe="${KOSMOS_BC_PROBE:-}" raw out rc self
+  local what="${1:-this run}" probe="${KOSMOS_BC_PROBE:-}" raw out rc self marker_other
   self="${KOSMOS_BC_SELF_PID:-$$}"
+  # #1796: the reliable arm. This guard is the one whose caller (browser-checks.sh)
+  # genuinely self-matches -- it forks subshells inheriting `bash tools/browser-
+  # checks.sh` -- so the live-tree walk below was its real race. The cookie excludes
+  # the whole run (the subshells do not mark themselves), no walk.
+  marker_other="$(_kosmos_marker_other_live browser)"
   if [ -n "$probe" ]; then
     out="$("$probe" 2>/dev/null)"; rc=$?
   else
@@ -146,8 +270,9 @@ kosmos_refuse_if_browser_run_live() {
     echo "could not tell whether another browser run is live (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2
     return 1
   fi
-  if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
-    echo "another browser-checks run is already live on this Mac ($(printf '%s\n' "$out" | grep -c . ) live; first: $(printf '%s\n' "$out" | head -1 | cut -c1-80)); two Playwright runs starve each other of CPU and the loser fails with errors that read like missing code, so $what would produce a verdict you cannot trust. Wait for it to finish, or KOSMOS_HARNESS_IGNORE_CUT=1 to run anyway." >&2
+  if { [ "$rc" -eq 0 ] && [ -n "$out" ]; } || [ -n "$marker_other" ]; then
+    local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"; [ -n "$detail" ] || detail="$marker_other"
+    echo "another browser-checks run is already live on this Mac ($detail); two Playwright runs starve each other of CPU and the loser fails with errors that read like missing code, so $what would produce a verdict you cannot trust. Wait for it to finish, or KOSMOS_HARNESS_IGNORE_CUT=1 to run anyway." >&2
     return 1
   fi
   return 0
@@ -172,8 +297,15 @@ kosmos_refuse_if_browser_run_live() {
 # would. The seam (KOSMOS_HARNESS_PROBE) shows it red and green without a real
 # harness; a probe that cannot answer is a refusal, the same posture as above.
 kosmos_refuse_if_harness_live() {
-  local what="${1:-this run}" probe="${KOSMOS_HARNESS_PROBE:-}" raw out rc self
+  local what="${1:-this run}" probe="${KOSMOS_HARNESS_PROBE:-}" raw out rc self marker_other
   self="${KOSMOS_HARNESS_SELF_PID:-$$}"
+  # #1796: the reliable arm -- a marked harness that is not this caller's own. This
+  # is the guard the card measured firing during a cut: a real test-install.sh RUN
+  # correctly refuses a cut (they share the fixed install-gate port), but the marker
+  # means only a RUN counts -- editing test-install.sh, `bash -n`ing it, `git add`ing
+  # it, or a worktree named after it marks nothing, so the person hardening the
+  # guarded script does not block a cut merely by working on it.
+  marker_other="$(_kosmos_marker_other_live harness)"
   if [ -n "$probe" ]; then
     out="$("$probe" 2>/dev/null)"; rc=$?
   else
@@ -188,8 +320,9 @@ kosmos_refuse_if_harness_live() {
     echo "could not tell whether an install harness is running (the probe exited $rc); refusing to guess for $what. KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway." >&2
     return 1
   fi
-  if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
-    echo "an install harness (tools/test-install.sh) is already running on this Mac ($(printf '%s\n' "$out" | head -1 | cut -c1-80)); it holds the install gate's fixed port, so $what would collide with it and the failed step would be blamed on the cut rather than the harness. Wait for the harness to finish, or KOSMOS_CUT_IGNORE_HARNESS=1 to cut anyway." >&2
+  if { [ "$rc" -eq 0 ] && [ -n "$out" ]; } || [ -n "$marker_other" ]; then
+    local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"; [ -n "$detail" ] || detail="$marker_other"
+    echo "an install harness (tools/test-install.sh) is already running on this Mac ($detail); it holds the install gate's fixed port, so $what would collide with it and the failed step would be blamed on the cut rather than the harness. Wait for the harness to finish, or KOSMOS_CUT_IGNORE_HARNESS=1 to cut anyway." >&2
     return 1
   fi
   return 0

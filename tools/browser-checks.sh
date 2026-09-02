@@ -89,6 +89,10 @@ cd "$REPO"
 # hatch is the one the cut guard already uses, deliberately: an operator who has
 # decided to override does not want to learn a second name.
 . "$REPO/tools/lib/cut-guard.sh"
+# #1796: declare THIS a browser run before the check below, so it excludes its own
+# marker by cookie (this script forks subshells that inherit its command line -- the
+# real self-match the live-tree walk raced on) and another browser run can see it.
+kosmos_mark_run browser
 # #1079: a durable record of every run, so a retry no longer depends on a person
 # reading scrollback. It can never fail a run; see the lib's header.
 . "$REPO/tools/lib/browser-run-log.sh"
