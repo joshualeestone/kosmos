@@ -97,9 +97,18 @@ _kosmos_drop_self_subtree() {
 #     guard is never called again would leave dead-pid files until it is. Harmless
 #     (every real run triggers a same-type check that sweeps it); it does not leak
 #     into detection because a dead-pid marker is never counted as a live run.
-_kosmos_marker_dir() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${TMPDIR:-/tmp}/kosmos-run-markers}"; }
+# Keyed off $HOME, NOT $TMPDIR: two runs on the same Mac with divergent TMPDIR (a
+# launchd-spawned run vs a terminal one) would otherwise write to different dirs and
+# the marker arm could not cross-detect them. $HOME is the one path every run on this
+# box shares (like the sibling ~/.cache monitors). It survives a reboot, which is
+# fine: a reboot leaves only dead-pid markers, and the next reader cleans those.
+_kosmos_marker_dir() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}"; }
 
-# kosmos_mark_run <type>  — the run declares itself. Call once, where the script
+# kosmos_mark_run <type>  — the run declares itself. <type> must be a shell-identifier
+# word ([A-Za-z_]+): it is uppercased into the env-var name KOSMOS_RUN_COOKIE_<TYPE>,
+# so a hyphen/dot (`page-layer`) would make the export a no-op and the reader misparse
+# -- a self-refuse for that caller. The three wired types are cut / harness / browser.
+# Call once, where the script
 # sources this lib, BEFORE the refuse check. Exports KOSMOS_RUN_COOKIE_<TYPE> so the
 # guard excludes THIS run. Best-effort: a mark it cannot write just leaves the name
 # arm to cover this run. No trap (so it cannot clobber a caller's EXIT trap): a clean
