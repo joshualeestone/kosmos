@@ -163,6 +163,41 @@ test('the code step validates in words, enrolls through the binary, and brings t
   assert.ok(run.includes('--status-file'), 'no status file seam');
 });
 
+test('#1010: a reinstall whose state survived is recognised, not re-enrolled, and a rename still enrols', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  // A real first enrolment writes the state (mac_id / address / tls) via the
+  // fake binary; from here enrolled() reads true, as it would after an
+  // install-over-the-top that kept Application Support.
+  await remote.setupComplete('123456', 'hers');
+  assert.equal(remote.enrolled(), true);
+  // A reinstall re-runs the setup flow with the SAME name. The guard must
+  // recognise the surviving state and NOT re-run enrolment -- re-running would
+  // mint a new identity key and hit the coordinator's 409 about "a Mac on this
+  // account". Clear the record so we count only the second attempt's calls.
+  fs.rmSync(RECORD, { force: true });
+  const again = await remote.setupComplete('123456', 'hers');
+  assert.equal(again.ok, true, again.because);
+  assert.equal(again.alreadySetUp, true, 'a reinstall was re-enrolled instead of recognised');
+  assert.equal(again.address, 'hers.kosmos.invalid');
+  assert.ok(
+    !recorded().some((c) => c[0] === 'setup' && c[1] === 'complete'),
+    'the guard let a reinstall re-run enrolment: ' + JSON.stringify(recorded()),
+  );
+  // CONTROL: a DIFFERENT name is a rename, not a reinstall, so it must fall
+  // through and actually enrol -- proving the guard is name-specific and not a
+  // blanket "already enrolled -> do nothing".
+  fs.rmSync(RECORD, { force: true });
+  const renamed = await remote.setupComplete('123456', 'theirs');
+  assert.equal(renamed.ok, true, renamed.because);
+  assert.ok(!renamed.alreadySetUp, 'a rename was wrongly recognised as a reinstall');
+  assert.ok(
+    recorded().some((c) => c[0] === 'setup' && c[1] === 'complete' && c.includes('theirs')),
+    'a rename did not reach the binary: ' + JSON.stringify(recorded()),
+  );
+});
+
 test('turning the switch off actually kills the running child, and says off', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   remote.setOn(true);

@@ -446,6 +446,30 @@ async function setupStart(email) {
 async function setupComplete(code, name) {
   const settings = read();
   if (!settings.email) return { ok: false, because: 'start with the email step' };
+  // #1010: a reinstall whose state SURVIVED is already set up -- do not re-enrol.
+  // install/setup.sh never removes Application Support, so mac_id / address /
+  // tls.crt / tls.key survive an install-over-the-top and enrolled() reads true.
+  // Re-running enrolment here would mint a NEW identity key (crates/tunnel
+  // setup.rs generates a fresh one by design, #1003), spend a scarce certificate
+  // (#1003), and hit the coordinator's 409 about "a Mac on this account" -- for
+  // THIS same Mac's own previous life, with no other Mac in sight. So when we are
+  // already enrolled at the address this name maps to, recognise the Mac as
+  // itself and just bring the tunnel up. A DIFFERENT name is a rename (a real
+  // address change) and deliberately falls through to the setup path below.
+  //
+  // ACCOUNT-SWITCH EDGE (by design, not a defect): if the surviving state is for
+  // account A at name X and someone runs the flow with a DIFFERENT account's
+  // email and that account's valid code but the SAME name X, this recognises the
+  // Mac and keeps account A's enrolment -- the new code is never used. Switching
+  // the account on a Mac is what `forget()` (which wipes the state dir) is for;
+  // once the state is gone, enrolled() is false and this guard does not fire.
+  if (enrolled()) {
+    const have = address();
+    if (have && have.split('.')[0] === name) {
+      ensure(localPort);
+      return { ok: true, because: null, alreadySetUp: true, address: have };
+    }
+  }
   if (!/^[0-9]{6}$/.test(String(code || ''))) {
     return { ok: false, because: 'the code is six digits' };
   }
