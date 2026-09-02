@@ -266,6 +266,17 @@ RETRIED=()
 # one variable the run log has to carry.
 RICH_BOOTED=0
 
+# #1818 TEST SEAM (browser-free), off by default; set ONLY by
+# tools/test-runner-reexec-1818.sh. It simulates a run KILLED after the checks
+# phase begins but before the summary, so the cut-short banner in cleanup() can be
+# exercised without launching a browser. It is placed here -- after RAN/RETRIED/
+# RICH_BOOTED and the `trap cleanup EXIT` above are all in place -- so cleanup's
+# `${#RAN[@]}`/`${RICH_BOOTED}` refs are set -u safe, exactly as they are at the
+# real CHECKS_STARTED=1 below (which is past engine launch and so needs a browser
+# to reach). Setting CHECKS_STARTED=1 + exit is precisely the state a real kill
+# leaves; the seam only lets a test reach it without a Playwright build present.
+if [ "${KOSMOS_BC_TEST_CUTSHORT:-0}" = 1 ]; then CHECKS_STARTED=1; exit 137; fi
+
 # --- Playwright, borrowed not depended-on -----------------------------------
 resolve_pw() {
   if [ -n "${KOSMOS_PW_NODE_PATH:-}" ]; then
