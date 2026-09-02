@@ -177,18 +177,19 @@ elif git -C "$REPO" symbolic-ref -q HEAD >/dev/null 2>&1; then
   # the child run, so a mid-run edit cannot corrupt them either. The child is a
   # separate bash process and does NOT inherit these traps (it sets its own).
   #
-  # ⚠️ RESIDUAL, narrow and named on purpose (#1818). Ctrl-C is safe: it goes to
-  # the whole foreground process group, the child (foreground here) dies first,
-  # then this parent's INT trap thaws -- child already gone. The one uncovered
-  # case is a signal sent to the PARENT PID ALONE (e.g. `kill <parent>`) while a
-  # real, minutes-long child run is mid-checks: this parent would thaw the frozen
-  # worktree while the child is still reading files from it, and the child would
-  # then fail reading a deleted path. That is a LOUD failure (a read error), NOT
-  # the silent-green class this card is about, and it needs a targeted parent-only
-  # kill of a hand-run gate -- so it is left documented rather than closed with
-  # background-and-wait signal forwarding, which is more error-prone new safety
-  # code than the narrow case warrants. Closing it (forward the signal to the
-  # child and wait for it before thawing) is a clean follow-up if it ever bites.
+  # WHY THIS IS SAFE against a mid-run thaw, INT and TERM alike. The child below
+  # runs as a SYNCHRONOUS FOREGROUND command, and bash defers a trapped signal
+  # until the foreground command it is waiting on returns (verified: a `kill
+  # -TERM <parent>` fired mid-child does not run the trap until the child
+  # finishes). So _parent_thaw NEVER runs while the child is still reading from
+  # the frozen tree -- the child completes (or is itself signalled and dies),
+  # THEN the deferred INT/TERM trap fires -> exit -> thaw. Ctrl-C is the same:
+  # SIGINT hits the whole process group, the foreground child dies first, the
+  # parent's deferred INT trap then thaws a tree nobody is reading.
+  # The only uncatchable case is SIGKILL to the parent: no trap runs, so the
+  # frozen worktree leaks (a disk cost, cleaned by later sweeps) and the orphaned
+  # child keeps reading an intact tree nobody thawed -- benign, and exactly the
+  # leak the old single-process path also had under SIGKILL. Not a regression.
   _parent_thaw() {
     [ -n "${FREEZE_BUILD:-}" ] && release_thaw "$SOURCE_REPO" "$FREEZE_BUILD"
     [ -n "${FREEZE_ROOT:-}" ] && rm -rf "$FREEZE_ROOT"
@@ -288,7 +289,7 @@ RICH_BOOTED=0
 # real CHECKS_STARTED=1 below (which is past engine launch and so needs a browser
 # to reach). Setting CHECKS_STARTED=1 + exit is precisely the state a real kill
 # leaves; the seam only lets a test reach it without a Playwright build present.
-if [ "${KOSMOS_BC_TEST_CUTSHORT:-0}" = 1 ]; then CHECKS_STARTED=1; exit 137; fi
+if [ "${KOSMOS_BC_TEST_CUTSHORT:-0}" = 1 ]; then CHECKS_STARTED=1; RAN+=("test-seam-cutshort"); exit 137; fi
 
 # --- Playwright, borrowed not depended-on -----------------------------------
 resolve_pw() {

@@ -155,7 +155,7 @@ fi
 out="$(cd "$REPO" && env KOSMOS_SKIP_BROWSER_CHECKS=1 KOSMOS_PW_RUNTIME_DIR="$NOPW" \
   KOSMOS_BC_FROZEN_RUNNER=1 KOSMOS_BC_PROBE="$probe" \
   bash "$REPO/tools/browser-checks.sh" 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && ! has "$out" "another page layer"; then
+if [ "$rc" -eq 0 ] && ! has "$out" "already live"; then
   pass "SUBJECT: the frozen-runner child skips the live-run guard (does not refuse itself)"
 else
   fail "the frozen-runner child was refused by the guard (rc=$rc): $out"
