@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: 1835-fractions-alt
-diff_hash: 559ea908ecc0f2d94ff59b35216a0c273d9ea1c5ffe4e1a134e6bf8f3acc50b2
+diff_hash: e165f5a6762d29ae5e628a2ab9fca49d7a8f90602ce5e1c4d65ebb1aec5225ca
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-02T12:09:21Z
-iterations: 2
+timestamp: 2026-09-02T12:19:07Z
+iterations: 3
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 2 (iteration 1 = clean initial validation baseline; iteration 2 = first blind sub-agent review, zero actionable findings)
+**Iterations:** 3 (iteration 1 = clean initial validation baseline; iteration 2 = first blind sub-agent review, zero actionable findings; iteration 3 = docs-only plan-file addition, converged immediately)
 **Converged:** Yes
 **Total findings:** 6 (0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs, 4 STRENGTHs)
 **Fixed:** 0 | **Deferred:** 2 (NITs, out of scope) | **Asked (awaiting user):** 0
@@ -32,6 +32,12 @@ converged: true
 **Converged** -- no new actionable findings.
 - [NIT] web/index.html:31853 -- pre-existing: the !primary branch hides `next` without clearing `next.onclick`, whereas the symmetric no-alt path clears `other.onclick = null`. Harmless (button hidden) and not touched by this diff. DEFERRED: pre-existing, out of scope for this bugfix.
 - [NIT] web.firstrun-fractions-1835.test.js:26-35 -- brace-matching extraction could slice the wrong body if a future edit introduced an unbalanced brace inside a string/comment in frActions; safe today, guarded by the `at !== -1` function-moved check. DEFERRED: acceptable for a test, no action.
+
+#### Iteration 3 (plan-file addition, docs only)
+**New findings:** 0
+- Added `.claude/plans/1835-fractions-alt.md` (required by the pre-challenge-gate, which needs both a plan file and this proof). Docs only, no code changed, so this converges immediately.
+- Em-dash scan of the plan file (all five spellings): zero hits.
+- Tests unchanged and re-confirmed: target 5/5, sibling suite 24/24, browser-check gate exit 0. Diff hash regenerated to cover the plan file.
 
 ### Final Ledger
 
