@@ -44,6 +44,13 @@ Do **not** reach for a hardcoded separator/root at all:
 | `process.env.HOME` | `os.homedir()` (Windows sets `USERPROFILE`, not `HOME`) |
 | a hardcoded `'\n'` written to a file the Windows side re-parses | `os.EOL`, or normalize on read |
 
+This table is remediation **advice**. It is NOT the same as what the ratchet
+auto-scans: only three families are scanned - `path-delimiter-literal`,
+`fs-root-literal`, and `env-home`. Manual `a + '/' + b` concat and hardcoded
+`'\n'` EOL are advice here but not scanned (concat is dominated by legitimate URL
+building; EOL has no low-noise syntactic signature). Use the portable form
+anyway.
+
 ## The ratchet: `engine/windows-coupling-audit-1732.test.js`
 
 A curated coverage ratchet - **not** a blanket lint (measured: a raw
@@ -75,13 +82,22 @@ assumption, a POSIX-only child process, a shell script that calls `tmux`) does
 not take one of the enumerated syntactic families and slips straight through. It
 reduces the surface; it does not close it.
 
-There is also accepted **friction** in the other direction: the `fs-root-literal`
-family keys on a quoted `/tmp` `/home/` `/Users/` `/var/`, so a string literal
-that merely contains one of those segments (a URL like
-`'https://api.example.com/var/data'`, say) reds and has to be classified in the
-inventory as benign. That is the deliberate cost of a curated ratchet over a
-parser; it is rare in this codebase (zero such literals today) and a one-line
-inventory row clears it.
+There is also accepted **friction** in the other direction. Two shapes recur:
+
+- `path-delimiter-literal` also matches `.split(';')` (MIME content-type parsing)
+  and `.split(':')` (IPv6 hextets), which are the common non-path idioms - most
+  of the current inventory rows are exactly these. So a new content-type or IPv6
+  parse added to a scanned file reds and needs a one-line benign row. This is the
+  main source of routine friction, and it slightly dilutes the "fires exactly
+  when a reviewer should think about Windows" claim - a reviewer classifies these
+  as benign in a few seconds.
+- `fs-root-literal` keys on a quoted `/tmp` `/home/` `/Users/` `/var/`, so a
+  string literal that merely contains one of those segments (a URL like
+  `'https://api.example.com/var/data'`) reds and has to be classified benign.
+  Rare here (zero such literals today).
+
+That is the deliberate cost of a curated ratchet over a parser; a one-line
+inventory row clears each.
 
 **The corpus is a FLOOR, not a ceiling. Grow it.** Every future Windows bug that
 is found should add its shape to the `FAMILIES` list (and, if it is a real fix,

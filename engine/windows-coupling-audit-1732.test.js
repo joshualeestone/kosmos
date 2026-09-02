@@ -50,12 +50,13 @@
  * engine/platform.js and store.dataRootFor already do. A source-pin (github.js)
  * is the fallback when injection is impractical.
  *
- * COMMENT HANDLING: lines that are wholly a line-comment, a block-comment
- * opener, or a block-comment continuation are stripped before scanning (see
- * isCommentLine), which removes the comment-only false candidates. Trailing
- * inline comments and slashes-inside-strings can still surface; those are
- * handled by classifying them in the INVENTORY. This is a heuristic, not a JS
- * parser -- kept zero-dependency on purpose.
+ * COMMENT HANDLING: a small character scanner (see stripComments) removes line
+ * and block comments -- including a closed inline block comment before code on
+ * the same line, and comment markers that appear inside a string literal --
+ * while PRESERVING string contents, so a real quoted path or a dot-split is
+ * still seen. It is not a full JS tokenizer: comment markers inside a REGEX
+ * literal or a template-literal interpolation are not special-cased, which no
+ * corpus line needs; kept zero-dependency on purpose.
  */
 
 const { test } = require('node:test');
@@ -98,30 +99,57 @@ function productFiles() {
   return files.sort();
 }
 
-// True for a line that is wholly a comment. Line-based heuristic, not a JS
-// parser (kept zero-dependency): it catches line comments, block-comment
-// openers, and JSDoc-style continuation lines (^\s*\*), which covers this
-// codebase's comment style and the current corpus. RESIDUAL, stated so a
-// reviewer need not rediscover it: a block-comment CONTINUATION line that does
-// NOT start with '*' (e.g. an indented emoji-led line inside a /* */ block)
-// survives, and conversely a code line that begins with '*' (an operator-led
-// continuation) would be wrongly stripped. Neither occurs in the current corpus
-// -- this codebase puts operators at line END, not line START -- so both are
-// theoretical; any surviving comment that produces a spurious candidate is
-// caught by classifying it in the INVENTORY.
-function isCommentLine(line) {
-  return /^\s*\/\//.test(line) || /^\s*\*/.test(line) || /^\s*\/\*/.test(line);
+// Remove comments while PRESERVING string literals, returning one {lineno, code}
+// per source line. A small character scanner rather than a line-based heuristic:
+// the earlier heuristic stripped a whole line beginning with `/*` even when real
+// code followed the close on the same line, so `/* x */ p = env.PATH.split(':')`
+// became invisible -- a false-green in the core scan. This tracks three states
+// (in a string, in a block comment, in neither), so an inline `/* */` before
+// code, a multi-line block whose middle lines do not start with `*`, and a `//`
+// or `/*` INSIDE a string literal are all handled correctly. Strings are kept
+// (a real `'/tmp'` or `.split(':')` must still be seen); only comment bytes are
+// dropped. It is not a full JS tokenizer: a `//`/`/*` inside a template-literal
+// ${…} interpolation is not special-cased, which no corpus line needs.
+function stripComments(src) {
+  const out = [];
+  let inBlock = false;
+  const lines = src.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    let code = '';
+    let j = 0;
+    let str = null; // the open string delimiter (' " `) or null
+    while (j < line.length) {
+      if (inBlock) {
+        const end = line.indexOf('*/', j);
+        if (end === -1) { j = line.length; } else { j = end + 2; inBlock = false; }
+        continue;
+      }
+      const ch = line[j];
+      if (str) {
+        code += ch;
+        if (ch === '\\') { code += (line[j + 1] || ''); j += 2; continue; }
+        if (ch === str) str = null;
+        j++;
+        continue;
+      }
+      if (ch === "'" || ch === '"' || ch === '`') { str = ch; code += ch; j++; continue; }
+      if (ch === '/' && line[j + 1] === '/') { break; }              // line comment to EOL
+      if (ch === '/' && line[j + 1] === '*') { inBlock = true; j += 2; continue; } // block open
+      code += ch; j++;
+    }
+    out.push({ lineno: i + 1, code });
+  }
+  return out;
 }
 
-// A file's source with wholly-comment lines removed -- used by the positive pins
-// so they assert on CODE, not on prose. Without this, a pin's match is satisfied
-// by an explanatory comment that merely NAMES the portable API, so it would pass
-// on a description of the code rather than the code (the
+// A file's source with comments removed (strings preserved) -- used by the
+// positive pins so they assert on CODE, not on prose. Without this a pin's match
+// is satisfied by an explanatory comment that merely NAMES the portable API (the
 // raw-source-match-cannot-tell-code-from-a-description-of-code trap).
 function codeText(rel) {
-  return fs.readFileSync(path.join(REPO, rel), 'utf8')
-    .split('\n')
-    .filter((l) => !isCommentLine(l))
+  return stripComments(fs.readFileSync(path.join(REPO, rel), 'utf8'))
+    .map((l) => l.code)
     .join('\n');
 }
 
@@ -167,6 +195,15 @@ const FAMILIES = [
 // match had -- a hostile coupling appended to a line that already carries an
 // inventoried needle still raises the count, so it still reds. `contains` is a
 // distinctive line substring, kept for the stale check and for documentation.
+//
+// `count` serves BOTH arms: the EXCEED arm sums it as "family matches accounted
+// for", and the stale arm asserts `contains` occurs exactly `count` times. These
+// coincide because every classified line here carries exactly ONE family match,
+// so one row == one line == count occurrences of a distinctive `contains`. A
+// future line carrying TWO same-family matches is the one shape this cannot
+// represent cleanly (a single `contains` for it would occur once, not twice);
+// split it into two rows with line-distinct `contains`, or pick a `contains`
+// that spans both matches. No corpus line needs that today.
 // Dispositions:
 //   benign-mime      -- ';' is the MIME parameter separator (content-type), not a path
 //   benign-nonpath   -- ':' is a non-path separator (IPv6 hextets)
@@ -203,17 +240,15 @@ function collectByFileFamily() {
   for (const rel of productFiles()) {
     let src;
     try { src = fs.readFileSync(path.join(REPO, rel), 'utf8'); } catch { continue; }
-    const lines = src.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      if (isCommentLine(lines[i])) continue;
+    for (const { lineno, code } of stripComments(src)) {
       for (const fam of FAMILIES) {
         const g = new RegExp(fam.re.source, fam.re.flags.includes('g') ? fam.re.flags : fam.re.flags + 'g');
-        const n = (lines[i].match(g) || []).length;
+        const n = (code.match(g) || []).length;
         if (n > 0) {
           const key = rel + ' ' + fam.name;
           const e = map.get(key) || { count: 0, lines: [] };
           e.count += n;
-          e.lines.push({ lineno: i + 1, text: lines[i].trim() });
+          e.lines.push({ lineno, text: code.trim() });
           map.set(key, e);
         }
       }
