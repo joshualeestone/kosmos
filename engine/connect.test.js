@@ -546,6 +546,72 @@ function driverTest(name, fn) {
   });
 }
 
+/**
+ * #1922: THE DEFAULT-ACCOUNT LAUNCH MUST UNSET `CLAUDE_CONFIG_DIR`, NOT MERELY
+ * DECLINE TO SET IT.
+ *
+ * 🛑 THE HOLE. `env` without `-u` hands the child the caller's environment, so a
+ * launch that omits the assignment still lets an ambient `CLAUDE_CONFIG_DIR`
+ * through -- and a Kosmos-managed machine runs its own agents under a real one,
+ * routinely pointing at a DIFFERENT account. The sign-in would then write the
+ * refreshed credential into that account instead of the default the person asked
+ * to repair.
+ *
+ * ⭐ `subscription.checkLive` already defends the READ side and states the rule:
+ * it builds its env and `delete env.CLAUDE_CONFIG_DIR` "rather than trusting it
+ * to be unset". These arms are the WRITE side of the same guarantee.
+ *
+ * 🔑 WHY THIS SITS HERE AND NOT IN THE ROUTE SUITE. Both route harnesses SET
+ * `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, so `launchDir` is always truthy there and
+ * the branch under test never executes. ⚠️ THAT MADE THIS LOOK UNGUARDABLE, AND
+ * IT WAS NOT: the fix is to observe what the launch ARGV carries rather than to
+ * remove the condition that hides it. **"Unguardable" was "I picked the harder
+ * observation point."**
+ */
+driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CLI', async () => {
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  /* Not dry-run: the launch is what this asserts, and a dry run does not make
+     one. `driverTest` clears the config, so `start()` falls through rather than
+     taking the connected early exit. */
+  connect.setDryRun(false);
+  const saved = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
+  delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
+  try {
+    await connect.start();
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    const made = term.all.find((a) => a[0] === 'new-session');
+    assert.ok(made, 'no session was made, so this arm asserts nothing about the launch');
+    const i = made.indexOf('env');
+    assert.ok(i >= 0, 'the launch is not the measured multi-arg `env` form this assertion reads');
+    assert.deepEqual(made.slice(i, i + 3), ['env', '-u', 'CLAUDE_CONFIG_DIR'],
+      'the default-account launch did not UNSET CLAUDE_CONFIG_DIR, so an ambient value '
+      + 'from this process leaks into the CLI and the credential lands on another account');
+  } finally {
+    if (saved !== undefined) process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = saved;
+  }
+});
+
+/**
+ * ⭐ THE CONTROL. Without it the arm above is satisfied by pushing `-u` on EVERY
+ * launch, which would strip a labelled account's own directory and send its
+ * sign-in to the ambient default -- a worse bug than the one being fixed.
+ */
+driverTest('#1922 CONTROL: a LABELLED-account sign-in still sets CLAUDE_CONFIG_DIR to that account', async () => {
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  const dir = nodePath.join(SANDBOX, 'labelled-acct');
+  await connect.start({ configDir: dir });
+  await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+  const made = term.all.find((a) => a[0] === 'new-session');
+  assert.ok(made, 'no session was made, so this control asserts nothing');
+  const i = made.indexOf('env');
+  assert.ok(i >= 0, 'the launch is not the measured multi-arg `env` form');
+  assert.equal(made[i + 1], `CLAUDE_CONFIG_DIR=${dir}`,
+    'a labelled account lost its own config dir, so its sign-in would write to the ambient default');
+});
+
 driverTest('the driver walks the measured flow end to end', async () => {
   const term = fakeTerminal();
   connect.setRunner(term.runner);
