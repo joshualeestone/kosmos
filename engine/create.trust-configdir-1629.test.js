@@ -42,8 +42,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const create = require('./create');
 const trust = require('./trust');
+const status = require('./status');
 
 const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
+
+/* #1794: the create path checks the pane roster before the trust write; a live
+   tmux throws on a boardless CI runner, so create refuses BEFORE it reaches the
+   trust write and the precondition assertion fails. Default to an empty board
+   through the existing seam so the create path runs hermetically. */
+test.beforeEach(() => { status.setPaneSource(() => ''); });
 
 /* Capture what the create path hands the trust module. Restored in a
    synchronous finally, because create() reads its collaborators synchronously. */
@@ -54,7 +61,7 @@ function withTrustSpy(fn) {
   try { fn(seen); } finally { trust.trustFolder = real; }
 }
 
-test.afterEach(() => { create.setRunner(null); });
+test.afterEach(() => { create.setRunner(null); status.setPaneSource(null); });
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 test('#1629 create half: the trust write is given a configDir, not left to default', () => {

@@ -30,6 +30,18 @@ const nodePath = require('node:path');
    whoever runs the suite, which is the worse half of the same mistake. */
 process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-tkpage-'));
 process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-tkpage-data-'));
+/* #1794: the page resolves an agent's display name through the identity store,
+   which fell through create.workerDir/store.ROOT to the REAL fleet home on a
+   machine where those honoured only os.homedir -- so this read the operator's
+   live 'april' agent and passed for the wrong reason, and would fail on a clean
+   runner. #1780 made both honour AGENT_WORKFORCE_HOME per call; point it at a
+   tempdir so the identity read resolves inside the sandbox. */
+process.env.AGENT_WORKFORCE_HOME = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-tkpage-home-'));
+/* And the workers dir: the display name also resolves through the agent's
+   instruction file under create.workerDir, which falls to the real home/work/
+   workers unless AGENT_WORKFORCE_WORKERS is set. fleet.writeIdentity (armed by
+   the displayName below) also refuses to write without it, on purpose. */
+process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-tkpage-wk-'));
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
@@ -107,7 +119,10 @@ const projects = require('./engine/projects');
 
 let PROJECT = null;
 test.before(() => {
-  const board = fleet.install([fleet.agent('april', { state: 'working' })]);
+  /* #1794: seed april's display name INTO the sandbox (a real instruction file
+     via fleet.writeIdentity), so the isolated identity read resolves 'April'
+     rather than falling through to the operator's real agent. */
+  const board = fleet.install([fleet.agent('april', { state: 'working', displayName: 'April' })]);
   try {
     const made = projects.create({ name: 'Customer Onboarding Refresh' });
     projects.addAgent(made.id, 'april');

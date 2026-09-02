@@ -33,6 +33,11 @@ process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'LaunchAgents');
 process.env.AGENT_WORKFORCE_HOME = nodePath.join(SANDBOX, 'home');
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'support');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+/* #1794: the OpenAI arms resolve the codex runner through runners.resolveBin,
+   which reads AGENT_WORKFORCE_CODEX_BIN (setProvider does NOT take the opts.codexBin
+   the createAgent path does), and codex is absent on a clean runner. /bin/echo exists
+   and is executable on macOS, so it seams the presence check hermetically. */
+process.env.AGENT_WORKFORCE_CODEX_BIN = '/bin/echo';
 process.on('exit', () => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
@@ -40,7 +45,19 @@ process.on('exit', () => {
 const create = require('./create');
 const status = require('./status');
 
-const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
+/* #1794: codexBin too. The OpenAI-provider arms resolve the codex runner, which
+   is found on a dev machine (real codex installed) but ABSENT on a clean CI
+   runner -- so the intended refusal ("speak the display name") was replaced by
+   "could not find the OpenAI runner". binPaths honours opts.codexBin and
+   isRunnable only needs an executable file, so /bin/echo seams it hermetically. */
+const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo', codexBin: '/bin/echo' };
+
+/* #1794: the real create path checks which agents are already running (the pane
+   roster), which shells out to a live tmux and THROWS on a boardless CI runner.
+   Default to an empty board via the existing paneSource seam so the check is
+   hermetic; neither test here exercises the already-running refusal. */
+test.beforeEach(() => { status.setPaneSource(() => ''); });
+test.afterEach(() => { status.setPaneSource(null); });
 
 test('#1367: a refusal speaks the display name, not the machine name', () => {
   create.setRunner(() => ({ ok: true }));

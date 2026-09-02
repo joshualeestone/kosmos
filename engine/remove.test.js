@@ -90,7 +90,12 @@ function madeAgent(name) {
   const r = create.createAgent({ ...BINS, name, role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, `fixture ${name} was not created: ${r.because}`);
   create.setRunner(null);
-  status.setPaneSource(null);
+  /* #1794: leave an EMPTY board armed, not null. Resetting to null pointed the
+     next paneRoster read at a live tmux, which throws on a boardless CI runner,
+     so a plan/remove after madeAgent failed with "could not check which agent".
+     A freshly made fixture is never actually running, so an empty board gives
+     the same answer the live board did on a dev machine -- now hermetically. */
+  status.setPaneSource(() => '');
   return name;
 }
 
@@ -110,10 +115,22 @@ function boardShows(name, session) {
   status.setPaneSource(() => fleet.line({ session, claim, title: '✳ Claude Code' }));
 }
 
+/* #1794: default every test to an empty, readable board through BOTH existing
+   seams -- the roster (setPaneSource) AND the pane-text capture (setPaneCapture).
+   status.js:1229 documents that the source seam alone is not enough: capturePane
+   shells out to a live tmux, which throws on a boardless CI runner, so a test
+   that classifies an agent fails even with a synthetic roster. An empty readable
+   board is the right default here; the tests that need a populated or throwing
+   board set their own seams in-body (running after this), and the afterEach resets. */
+test.beforeEach(() => {
+  status.setPaneSource(() => '');
+  status.setPaneCapture(() => '');
+});
 test.afterEach(() => {
   remove.setRunner(null);
   create.setRunner(null);
   status.setPaneSource(null);
+  status.setPaneCapture(null);
   try { fs.rmSync(remove.REMOVED_FILE, { force: true }); } catch { /* best effort */ }
 });
 

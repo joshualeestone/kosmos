@@ -29,9 +29,20 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SB, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'launch');
 
+/* #1794: the adopt-with-instructions arm (RULING 2(a)) goes down create's install
+   path, which refuses with "could not find Claude on this computer" when the
+   claude binary is absent -- true on a boardless CI runner. Point the existing
+   AGENT_WORKFORCE_CLAUDE_BIN seam at a stub executable so the presence check is
+   hermetic (the sibling connect.install-997 test uses the same seam). */
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = path.join(SB, 'bin', 'claude');
+fs.mkdirSync(path.dirname(process.env.AGENT_WORKFORCE_CLAUDE_BIN), { recursive: true });
+fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_BIN, '#!/bin/sh\nexit 0\n');
+fs.chmodSync(process.env.AGENT_WORKFORCE_CLAUDE_BIN, 0o755);
+
 const discover = require('./discover');
 const store = require('./store');
 const create = require('./create');
+const status = require('./status');
 
 /**
  * 🛑 THE MAIN PATH INSTALLS A REAL LAUNCHD JOB, AND THIS TEST INSTALLED FOUR OF THEM
@@ -61,6 +72,15 @@ function noRealCommands(fn) {
 }
 
 test.after(() => { fs.rmSync(SB, { recursive: true, force: true }); });
+
+/* #1794: adopt/register consult the pane roster (runningUnderName), which shells
+   out to a live tmux and THROWS on a boardless CI runner ("could not check what
+   is running"), failing every adopt-succeeds arm. Default to an EMPTY board via
+   the existing paneSource seam so the roster read is hermetic. Orthogonal to
+   noRealCommands (the runner seam); none of these arms test the already-running
+   refusal, so an empty roster is the right default. */
+test.beforeEach(() => { status.setPaneSource(() => ''); });
+test.afterEach(() => { status.setPaneSource(null); });
 
 function bare(name) {
   const d = path.join(SB, name);
