@@ -926,6 +926,35 @@ test('#1782: revoke is serialized on the SAME lock (fails safe under a fresh hel
   });
 });
 
+test('#1782: a restrictive umask does NOT wedge the session (the lock dir stays owner-writable)', () => {
+  /* 🛑 THE WEDGE THE POST-mkdir chmod GUARDS, tested on purpose rather than by a
+     teardown crash. `mkdirSync` takes the umask, so under 0o600 the lock dir lands
+     without owner write. Without the chmod: the owner file cannot be written,
+     `marked` is false, the release is SKIPPED, and the lock dir is LEFT - op B
+     below then finds a fresh (not stale) leftover lock and fails ELOCKBUSY, the
+     session WEDGED. The chmod 0o700 after mkdir restores our access, so op B
+     succeeds. Revert the chmod and op B reddens BY NAME.
+     ⚠️ Seed the store dir under the NORMAL umask first (op 0), so this tests the
+     LOCK's umask handling and not secureDir's first-time restrictive parent
+     creation, which fails EACCES for an unrelated reason. */
+  withShortDeadline(() => {
+    const seed = sendertoken.mint('umask-wedge');       // op 0, normal umask: creates DIR + a token
+    assert.equal(seed.ok, true, 'the seed mint failed');
+    const old = process.umask(0o600);
+    try {
+      const A = sendertoken.mint('umask-wedge');        // op A under 0o600: without chmod, LEAVES the lock
+      assert.equal(A.ok, true, 'op A under a restrictive umask failed for a reason other than the lock');
+      const B = sendertoken.mint('umask-wedge');        // op B under 0o600: WEDGED if op A left the lock
+      assert.equal(B.ok, true, 'op B was WEDGED by a lock the restrictive umask left un-releasable - the chmod is missing');
+      assert.equal(sendertoken.live('umask-wedge').length, 3, 'all three launches should be recorded');
+      assert.equal(fs.existsSync(lockPathFor('umask-wedge')), false, 'a lock dir was left under a restrictive umask');
+    } finally {
+      process.umask(old);
+      try { fs.rmSync(lockPathFor('umask-wedge'), { recursive: true, force: true, maxRetries: 5 }); } catch { /* */ }
+    }
+  });
+});
+
 test('#1782: N CONCURRENT PROCESSES minting the same agent lose NO token', async () => {
   /* 🛑 THE DEFECT REPRODUCED ACROSS REAL PROCESSES - the case the card said had
      not been measured. Without the lock, interleaved read-modify-writes drop
