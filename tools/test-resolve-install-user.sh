@@ -130,6 +130,11 @@ run; r="$RUN_RESULT"
 has "$RIU_REASON" "no active window session to install into" \
   && pass "  and names the sessionless Installer owner" \
   || fail "  and names the sessionless Installer owner: $RIU_REASON"
+# and it must NOT falsely tell the signed-in console user (alice, session 501)
+# that they have no session -- that message accuracy was an iteration-3 finding.
+has "$RIU_REASON" "not the account driving this install" \
+  && pass "  and describes the signed-in console user accurately (not 'no session')" \
+  || fail "  and must not tell a signed-in console user they have no session: $RIU_REASON"
 
 # --- ARM 8: root Installer owner is filtered out ---------------------------
 # The CLI `installer` runs as root; only the GUI Installer.app owner should count.
@@ -152,6 +157,12 @@ run; r="$RUN_RESULT"
 # by overriding only the raw `ps` sensor, so the awk that reads real ps lines is
 # actually run.
 unset -f _riu_installer_owners 2>/dev/null
+# NOTE: this re-source restores ALL shipped sensors (_riu_console_user,
+# _riu_uid_for, _riu_has_gui_session), not just _riu_installer_owners. The arms
+# below drive ONLY _riu_installer_owners (via an overridden _riu_ps), so that is
+# harmless. Do NOT add a full-resolver arm (one that calls resolve_install_user /
+# run) after this line: it would run against the real system sensors. Keep
+# whole-resolver arms above this point.
 . "$LIB"   # restore the shipped _riu_installer_owners (and re-define the others)
 # re-install the non-ps stubs the parse test does not need to touch
 _riu_ps() { printf '%s\n' \
@@ -167,15 +178,17 @@ owners="$(_riu_installer_owners)"
 [ -z "$owners" ] \
   && pass "parse: no Installer line -> no owners" \
   || fail "parse: expected empty, got '$owners'"
-# a third-party or rogue binary NAMED Installer, or a bare basename, is NOT the
-# Apple CoreServices Installer.app exec path -> must not be selected.
+# a third-party or rogue binary NAMED Installer, a bare basename, or even a
+# user-writable path that ends in .../CoreServices/Installer.app/... is NOT the
+# exact /System/Library/CoreServices Installer.app exec path -> must not match.
 _riu_ps() { printf '%s\n' \
   'mallory /Applications/Installer.app/Contents/MacOS/Installer' \
   'eve /tmp/Installer' \
+  'trudy /Users/trudy/CoreServices/Installer.app/Contents/MacOS/Installer' \
   'josh /System/Library/CoreServices/Installer.app/Contents/MacOS/Installer'; }
 owners="$(_riu_installer_owners)"
 [ "$owners" = "josh" ] \
-  && pass "parse: only the CoreServices Installer path matches; a third-party Installer.app and a bare /tmp/Installer are ignored" \
+  && pass "parse: only the exact /System/Library/CoreServices path matches; a third-party Installer.app, a bare /tmp/Installer, and a user-writable .../CoreServices/... are all ignored" \
   || fail "parse: expected only 'josh', got '$owners'"
 
 if [ "$fails" -ne 0 ]; then echo "$fails check(s) failed"; exit 1; fi

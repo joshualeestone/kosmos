@@ -34,22 +34,32 @@ _riu_console_user() { /usr/bin/stat -f '%Su' /dev/console 2>/dev/null; }
 
 # Raw `ps` lines: "<user> <command-path>", one process per line. Split out as a
 # sensor so the owner parse below can be exercised on canned input.
+#
+# `comm=` is the LAST column with its header suppressed, so BSD `ps` runs it to
+# end-of-line and does not width-truncate it -- and the Installer exec path below
+# is ~63 chars, far short of any width limit regardless. If a future macOS ever
+# did truncate it, the anchor would simply miss, owner_count would fall to 0, and
+# resolution degrades to the console fallback rather than to a wrong user; the
+# plan's recommended real-multi-account install smoke is the closing check for
+# this (it is the one assumption a bot session cannot exercise end-to-end).
 _riu_ps() { /bin/ps -axo user=,comm= 2>/dev/null; }
 
-# Distinct owners (one per line) of any running Apple GUI Installer process. The
-# match anchors on the CoreServices Installer.app EXECUTABLE PATH
-# (.../CoreServices/Installer.app/Contents/MacOS/Installer), not a bare basename:
-# CoreServices is a SIP-protected system location, so a third-party or rogue
-# binary merely NAMED "Installer" cannot sit there and be mistaken for the real
-# one. The CLI `installer` binary runs as root under sudo and is filtered out by
-# the resolver anyway; the GUI Installer.app runs as the person who double-clicked.
+# Distinct owners (one per line) of the running Apple GUI Installer. The match is
+# the EXACT CoreServices Installer.app executable path
+# (/System/Library/CoreServices/Installer.app/Contents/MacOS/Installer), not a
+# bare basename and not a loose suffix: /System/Library/CoreServices is a
+# SIP-protected system location, so a third-party or rogue binary merely NAMED
+# "Installer" -- whether at /Applications/Installer.app or a user-writable
+# .../CoreServices/... path -- cannot occupy it and be mistaken for the real one.
+# The CLI `installer` binary runs as root under sudo and is filtered out by the
+# resolver anyway; the GUI Installer.app runs as the person who double-clicked.
 _riu_installer_owners() {
   _riu_ps | /usr/bin/awk '
     {
       user = $1
       path = $2
       for (i = 3; i <= NF; i++) path = path " " $i
-      if (path ~ /\/CoreServices\/Installer\.app\/Contents\/MacOS\/Installer$/) print user
+      if (path ~ /^\/System\/Library\/CoreServices\/Installer\.app\/Contents\/MacOS\/Installer$/) print user
     }' | /usr/bin/sort -u
 }
 
@@ -118,7 +128,18 @@ resolve_install_user() {
     ''|root|loginwindow)
       _riu_console_desc="the physical console user is '${_riu_console:-<none>}' (no one is signed in at the screen)" ;;
     *)
-      _riu_console_desc="the physical console user is '$_riu_console', which has no active window session to install into" ;;
+      # Say the ACCURATE reason. This branch is reached both when the console
+      # user has no session (the count==0 fallback that failed its gate) AND when
+      # it DOES have a session but is simply not who invoked the install (count>=1
+      # refusals, where candidate 2 never ran). Claiming "no session" in the
+      # latter would tell a signed-in operator they are not signed in -- exactly
+      # the wrong thing to tell the #1880 machine owner. So check the session.
+      _riu_cid="$(_riu_uid_for "$_riu_console")"
+      if [ -n "$_riu_cid" ] && _riu_has_gui_session "$_riu_cid"; then
+        _riu_console_desc="the physical console user is '$_riu_console', but that is not the account driving this install"
+      else
+        _riu_console_desc="the physical console user is '$_riu_console', which has no active window session to install into"
+      fi ;;
   esac
   if [ "$_riu_owner_count" -gt 1 ]; then
     _riu_own_desc="more than one account is running Installer ($(printf '%s' "$_riu_owners" | /usr/bin/paste -sd, -)), so it is ambiguous who to install for"
