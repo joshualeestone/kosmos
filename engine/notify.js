@@ -31,7 +31,10 @@ const path = require('node:path');
 const store = require('./store');
 const ping = require('./ping');
 
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+// #1856: route through the one data-root derivation (store.ROOT = dataRootFor), not the raw
+// AGENT_WORKFORCE_DATA switch -- prod-inert when it is unset (byte-identical), and under a
+// multi-Kosmos switcher (#1704) it inherits the AgentWorkforce leaf + #1820's isAbsolute guard.
+const BASE = store.ROOT;
 const FILE = path.join(BASE, 'notify.json');
 const DEFAULT_ENDPOINT = 'https://installkosmos.com/api/happened';
 /* 'check_in' (#1722): the product heartbeat's periodic nudge. It is a QUESTION,

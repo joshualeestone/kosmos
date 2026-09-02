@@ -28,7 +28,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+// #1856: route through the one data-root derivation (store.ROOT = dataRootFor), not the raw
+// AGENT_WORKFORCE_DATA switch -- prod-inert when it is unset (byte-identical), and under a
+// multi-Kosmos switcher (#1704) it inherits the AgentWorkforce leaf + #1820's isAbsolute guard.
+const BASE = store.ROOT;
 const FILE = path.join(BASE, 'limits.json');
 
 const TIERS = [10, 20, 40, 100];
