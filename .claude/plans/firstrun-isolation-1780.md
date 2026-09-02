@@ -61,9 +61,11 @@ set today. This also gives #1794 (Baron) the filesystem verification arm it was 
   flagged to Splinter): make trust.js's config path honour `AGENT_WORKFORCE_HOME` (or standardise
   the connect/create writers on `CLAUDE_CONFIG_DIR` for the QA-walk mode). Not fixed here to keep
   #1780 to the About-you write it was scoped to.
-- `you.js` freezes `BASE = AGENT_WORKFORCE_DATA || store.ROOT` at require. For a launched test
-  instance (env set before require) it captures the sandboxed store correctly, so it is not the
-  #1780 leak; making it per-call is a latent robustness follow-up, not required here.
+- `you.js` freezes `BASE = AGENT_WORKFORCE_DATA || store.ROOT` at require, and `firstrun.js`
+  freezes `store.ROOT` into its completion-flag path the same way. For a launched test instance
+  (env set before require) both capture the sandboxed store correctly, so neither is the #1780
+  leak; making them per-call is a latent robustness follow-up, not required here (firstrun.js
+  freezes only the completion flag, not About-you content).
 
 ## Not in scope
 

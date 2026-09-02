@@ -38,23 +38,28 @@ const crypto = require('node:crypto');
 // The disposable home the redirect points at, and the throwaway that stands in for the
 // real machine. Set BEFORE any require, so the frozen-at-require derivations (you.js BASE)
 // capture the sandboxed store rather than the operator's.
-const ORIG_HOME = process.env.HOME;
+// Snapshot EVERY env var this file mutates, so after() restores the process exactly, and
+// remove both throwaways. Safe under node's default per-file process isolation; matters if
+// this file is ever run in a shared process, where a leaked AGENT_WORKFORCE_HOME pointing at
+// a deleted dir would sandbox later modules onto nothing.
+const ENV_KEYS = ['HOME', 'AGENT_WORKFORCE_HOME', 'AGENT_WORKFORCE_TMUX_BIN', 'AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_WORKERS'];
+const ENV_SNAPSHOT = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 const DISPOSABLE = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1780-disposable-'));
 const PRETEND_REAL = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1780-pretend-real-'));
 process.env.AGENT_WORKFORCE_HOME = DISPOSABLE;
 process.env.HOME = PRETEND_REAL;
+process.env.AGENT_WORKFORCE_TMUX_BIN = '/nonexistent-tmux-1780';
+delete process.env.AGENT_WORKFORCE_DATA;
+delete process.env.AGENT_WORKFORCE_WORKERS;
 
-// Leave nothing behind: restore HOME and remove both throwaways. Safe under node's default
-// per-file process isolation; matters if this file is ever run in a shared process.
 after(() => {
-  if (ORIG_HOME === undefined) delete process.env.HOME; else process.env.HOME = ORIG_HOME;
+  for (const k of ENV_KEYS) {
+    if (ENV_SNAPSHOT[k] === undefined) delete process.env[k]; else process.env[k] = ENV_SNAPSHOT[k];
+  }
   for (const d of [DISPOSABLE, PRETEND_REAL]) {
     try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 });
-process.env.AGENT_WORKFORCE_TMUX_BIN = '/nonexistent-tmux-1780';
-delete process.env.AGENT_WORKFORCE_DATA;
-delete process.env.AGENT_WORKFORCE_WORKERS;
 
 // 🛑 The load-bearing safety guard. If os.homedir() does not honour $HOME on this
 // platform, a leak would reach the operator's REAL home, so refuse to run at all.
