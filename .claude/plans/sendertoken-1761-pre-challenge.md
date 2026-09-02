@@ -74,7 +74,7 @@ The branch is 21 behind `origin/main`, and the two spellings **differ**:
 The installed gate still resolves the BARE name, so this proof pins the LOCAL-base hash
 in order to pass. **That hash covers 21 commits of other lanes' work as well as mine**,
 which is exactly the defect #1472 fixes. #1472 is written and merged nowhere yet
-(book-io/claude-setup PR #389, awaiting the Admin Merge team), so the honest thing is to
+(joshualeestone/claude-setup PR #389, awaiting the Admin Merge team), so the honest thing is to
 state it rather than let the number look precise.
 
 ## Verification

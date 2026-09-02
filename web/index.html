@@ -13502,13 +13502,13 @@ let ACCT_PICKER_EPOCH = 0;
    with that sentence and it is the whole reason this function exists: two
    directories on one computer can honestly be signed in to the SAME email, and
    `list()` returns both, because they really are two accounts in this product's
-   sense. Measured on this machine 2026-08-28: four rows, and `josh@book.io`
+   sense. Measured on this machine 2026-08-28: four rows, and `agent@example.com`
    holds two of them (`~/.claude`, the default, and `~/.claude-account-d`).
-   🛑 THE ROW RENDERED ITS LOGIN AS ITS IDENTITY, so both read `josh@book.io`,
+   🛑 THE ROW RENDERED ITS LOGIN AS ITS IDENTITY, so both read `agent@example.com`,
    with the same badge and two `Disconnect` buttons carrying the same accessible
    name. A person could not tell which row was which, or why there were two, and
    `docs/browser-checks/named-controls.js` reported exactly that: two controls
-   answering to `Disconnect josh@book.io`.
+   answering to `Disconnect agent@example.com`.
    ⚠️ AND IT GETS WORSE ON ITS OWN, not better: the more directories a machine
    accumulates, the more rows collapse onto one name.
    ✅ THE FIELD THAT SEPARATES THEM WAS ALREADY ON THE ROW AND WAS BEING THROWN
@@ -18114,7 +18114,7 @@ function openDetail(sessionName, section) {
   document.getElementById('d-memory').innerHTML = memoryBox(a);
   const drun = document.getElementById('d-runson');
   /* The design's one line: model and account together, "Claude Opus 5
-     (josh@stuff.io)". The email rides here since #491 put it in the
+     (other@example.com)". The email rides here since #491 put it in the
      account dropdown too; the separate Signed-in-as sentence below was
      the fourth explains-the-visible line Josh cut tonight, and it went
      with this change. */
@@ -22921,7 +22921,7 @@ async function paintModelPicker(a) {
    🔑 THE SAME SHAPE AS THE MODEL PICKER ABOVE and deliberately so: a "Right
    now" line in the present tense, a dropdown that does NOT preselect, and a
    button that stays down until something is chosen. The two tenses need two
-   elements -- a select reading "josh@stuff.io" means "is on" until somebody
+   elements -- a select reading "other@example.com" means "is on" until somebody
    touches it and "about to be" afterwards.
    ⚠️ AND IT DOES NOT PRESELECT FOR A SECOND REASON THE MODEL PICKER DOES NOT
    HAVE: the accounts are identified by DIRECTORY, and preselecting the current

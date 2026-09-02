@@ -2,10 +2,10 @@
  * Two config directories can be signed in to ONE email, and the accounts screen
  * used to render both rows under the same name, with two `Disconnect` buttons
  * carrying the same accessible name. `docs/browser-checks/named-controls.js`
- * reported it as `settings: accounts: Disconnect josh@book.io x2`.
+ * reported it as `settings: accounts: Disconnect agent@example.com x2`.
  *
  * Measured on this machine 2026-08-28 before the fix: four rows from
- * `accounts.list()`, and `josh@book.io` held two of them (`~/.claude`, the
+ * `accounts.list()`, and `agent@example.com` held two of them (`~/.claude`, the
  * default, and `~/.claude-account-d`). It is not a fixture condition.
  *
  * These pin the PROPERTY the screen promises, not a literal label, so renaming
@@ -30,9 +30,9 @@ function loadQualifiers() {
 }
 const qualifiers = loadQualifiers();
 
-const DEFAULT_ROW = { email: 'josh@book.io', dir: '/Users/x/.claude', label: null, isDefault: true };
-const SECOND_ROW  = { email: 'josh@book.io', dir: '/Users/x/.claude-account-d', label: 'account-d', isDefault: false };
-const OTHER       = { email: 'josh@stuff.io', dir: '/Users/x/.claude-b', label: 'b', isDefault: false };
+const DEFAULT_ROW = { email: 'agent@example.com', dir: '/Users/x/.claude', label: null, isDefault: true };
+const SECOND_ROW  = { email: 'agent@example.com', dir: '/Users/x/.claude-account-d', label: 'account-d', isDefault: false };
+const OTHER       = { email: 'other@example.com', dir: '/Users/x/.claude-b', label: 'b', isDefault: false };
 
 test('a name only one row carries is left exactly as it was', () => {
   const q = qualifiers([DEFAULT_ROW, OTHER]);
@@ -55,7 +55,7 @@ test('when two rows share a login, BOTH are named, and differently', () => {
    is the last fallback -- but a row with no label must still come out named,
    because an empty qualifier puts the two controls back on one name. */
 test('a duplicated row with no label still comes out named', () => {
-  const bare = { email: 'josh@book.io', dir: '/Users/x/.claude-nolabel', label: null, isDefault: false };
+  const bare = { email: 'agent@example.com', dir: '/Users/x/.claude-nolabel', label: null, isDefault: false };
   const q = qualifiers([DEFAULT_ROW, bare]);
   assert.notEqual(q.get(bare.dir), '', 'a duplicated row with no label came out unnamed, so its control shares a name again');
   assert.notEqual(q.get(bare.dir), q.get(DEFAULT_ROW.dir), 'the fallback produced the same name as its twin');
@@ -308,7 +308,7 @@ test('a CLONED row still resolves, so an unrelated map() cannot empty the qualif
    both the default and that row answered to `... (main)` and the two controls
    were back on one name. The non-default row must fall back to its unique `dir`. */
 test('a non-default row labelled "main" does not collide with the default row', () => {
-  const clashMain = { email: 'josh@book.io', dir: '/Users/x/.claude-main', label: 'main', isDefault: false };
+  const clashMain = { email: 'agent@example.com', dir: '/Users/x/.claude-main', label: 'main', isDefault: false };
   const q = qualifiers([DEFAULT_ROW, clashMain]);
   assert.equal(q.get(DEFAULT_ROW.dir), 'main', 'the default row lost its reserved qualifier');
   assert.notEqual(q.get(clashMain.dir), '', 'the clashing row came out unnamed, so its control shares a name again');
@@ -322,8 +322,8 @@ test('a non-default row labelled "main" does not collide with the default row', 
    caller's invariant: two rows with the same label must still come out named
    differently, falling back to their unique `dir`. */
 test('two non-default rows sharing a label do not collide either', () => {
-  const a = { email: 'josh@book.io', dir: '/Users/x/.claude-dup', label: 'dup', isDefault: false };
-  const b = { email: 'josh@book.io', dir: '/Users/y/.claude-dup', label: 'dup', isDefault: false };
+  const a = { email: 'agent@example.com', dir: '/Users/x/.claude-dup', label: 'dup', isDefault: false };
+  const b = { email: 'agent@example.com', dir: '/Users/y/.claude-dup', label: 'dup', isDefault: false };
   const q = qualifiers([a, b]);
   assert.notEqual(q.get(a.dir), '', 'a duplicated row came out unnamed');
   assert.notEqual(q.get(b.dir), '', 'a duplicated row came out unnamed');

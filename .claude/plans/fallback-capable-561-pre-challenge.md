@@ -14,7 +14,7 @@ timestamp: 2026-08-29T15:09:50Z
 
 **No spawned fresh agent** (Josh 09:24, push-as-ready; kosmos main unprotected). That
 removed a person, not a test. **Bracketed markers** because the template's own heading is
-refused by this gate, which is my #1458, blocked on a book-io org ruleset.
+refused by this gate, which is my #1458, blocked on a upstream org ruleset.
 
 **This corrects a defect I merged two hours ago in #1479.**
 

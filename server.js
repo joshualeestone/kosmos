@@ -435,7 +435,7 @@ function liveReader() { return liveReaderFn || runningas.runningAs; }
  * mid-session `/model` switch and a launch command line does not.
  * PigeonPete's measurement is why the order is that way round: every agent brief
  * on this machine says `claude-fable-5` and all 18 panes run `claude-opus-5`, and
- * Baron's said `josh@stuff.io` after he had been migrated to `josh@book.io`. Both
+ * Baron's said `other@example.com` after he had been migrated to `agent@example.com`. Both
  * were correct when written. **Read live state; do not restate it.**
  *
  * ⚠️ THE FALLBACK IS NOT A GUESS, it is a different reading. A paneless agent
@@ -467,7 +467,7 @@ function whoamiFor(card, known, live) {
   const account = (() => {
     /* Live first: the account is what the process is authenticated as, and a
        startup file can be stale after a migration (Baron was moved off
-       josh@stuff.io while his file still said so). */
+       other@example.com while his file still said so). */
     /* 🔑 ONE RULE FOR `isDefault`, AND IT LIVES IN `accounts`. `runningAs` sets
        `configDir` UNCONDITIONALLY on a successful read - the env var when it
        finds one, the default synthesised when it does not - so hardcoding
