@@ -357,7 +357,11 @@ test('#1787: the fallback tightens BEFORE the bytes land, observed from inside t
    error handling.
    ⭐ The observable is that no PATH-ADDRESSED write to the target happens at all. An
    assertion about the file's contents cannot see it, because on this platform the
-   restore would put back the same bytes that are already there. */
+   restore would put back the same bytes that are already there.
+   📌 SCOPE, measured at iteration 12: with the restore now fd-addressed, re-gating it
+   on `wrote` no longer reddens this arm (a null fd throws inside the swallowed try),
+   so this arm does NOT guard that gate. It guards against a PATH write being added
+   back to the recovery, which is the defect the prose above describes. */
 test('#1787: a failed OPEN performs no path-addressed restore write', () => {
   const f = fresh('noopen');
   fs.writeFileSync(f, 'PREVIOUS-SECRET');
@@ -605,4 +609,50 @@ test('#1787: a temp whose write fails part way is removed, not left holding the 
   assert.deepEqual(left, [],
     `${left.length} temp(s) left behind after a write that failed part way (outcome: ${outcome}): each holds the `
     + 'first bytes of the NEW secret, and nothing will ever remove them');
+});
+
+/* Iteration 12: the temp's fchmod was guarded only through sendertoken's umask arm,
+   which is the consumer-attached coverage this file's header exists to remove. Under a
+   restrictive umask the wx create lands at mode 0 (measured: umask 0600 -> 0), and the
+   fchmod on the fd is what makes the secret readable by its owner at all. Red by name
+   with that fchmod deleted. */
+test('#1787: under a restrictive umask the temp is tightened to the requested mode before the rename, in this file', () => {
+  const f = fresh('umask');
+  const prev = process.umask(0o600);
+  try {
+    securewrite.writeSecret(f, 'SECRET', 0o600);
+  } finally { process.umask(prev); }
+  assert.equal(modeOf(f), 0o600,
+    `the secret landed at 0${modeOf(f).toString(8)} under umask 0600: the fchmod on the temp's fd is what restores the owner bits the umask cleared, and nothing else does`);
+  assert.equal(fs.readFileSync(f, 'utf8'), 'SECRET', 'the write did not complete');
+});
+
+/* Iteration 12: the write loop refuses a zero-byte write and nothing pinned it. The
+   harm of a silent `break` is not the missing bytes, it is that the EMPTY temp is then
+   renamed over the previous secret. With the throw, the attempt fails, the temp is
+   unlinked, and the fallback writes the whole secret. Red by name with throw -> break. */
+test('#1787: a write that lands nothing is not renamed over the secret', () => {
+  const f = fresh('zero-write');
+  fs.writeFileSync(f, 'PREVIOUS');
+  fs.chmodSync(f, 0o600);
+  const realOpen = fs.openSync;
+  const realWriteSync = fs.writeSync;
+  const realClose = fs.closeSync;
+  const tempFds = new Set();
+  fs.openSync = function (target, flags, ...rest) {
+    const fd = realOpen.call(fs, target, flags, ...rest);
+    if (typeof target === 'string' && target.includes('.kosmos-') && flags === 'wx') tempFds.add(fd);
+    return fd;
+  };
+  fs.closeSync = function (fd, ...rest) { tempFds.delete(fd); return realClose.call(fs, fd, ...rest); };
+  fs.writeSync = function (fd, ...rest) { return tempFds.has(fd) ? 0 : realWriteSync.call(fs, fd, ...rest); };
+  let outcome = 'returned';
+  try { securewrite.writeSecret(f, 'NEW-SECRET', 0o600); } catch (e) { outcome = 'threw ' + e.code; } finally {
+    fs.openSync = realOpen;
+    fs.writeSync = realWriteSync;
+    fs.closeSync = realClose;
+  }
+  const after = fs.readFileSync(f, 'utf8');
+  assert.notEqual(after, '', `an EMPTY temp was renamed over the secret (outcome: ${outcome}): a zero-byte write was treated as done`);
+  assert.ok(after === 'NEW-SECRET' || after === 'PREVIOUS', 'the target holds neither the new secret nor the previous one: ' + JSON.stringify(after));
 });
