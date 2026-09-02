@@ -238,6 +238,31 @@ re-checks.** A blind reviewer measured 1, I re-measured and got 12 twice, and
 only inspecting what my script actually cut settled it. Assert your perturbation
 is well-formed before believing what it tells you.
 
+## Comment volume, measured rather than judged
+
+Iteration 5 flagged the comment block as too heavy. Measured against its own
+siblings in the same file:
+
+| block | comment : code |
+|---|---|
+| `TRUST_PROMPT_REACH` | 3.5 : 1 |
+| `capturePane` | 5.0 : 1 |
+| `WORKING_LINE` | 10.0 : 1 |
+| **mine, before** | **27.3 : 1** |
+| mine, after | 16.0 : 1 |
+
+Heavy explanatory comments ARE this module's house style, so the question was
+never length in the abstract; it was that my block was an outlier by 3x and mixed
+verified claims with a changelog, typographically identical. What stays in the
+code is only what a future editor must not get wrong: the `$` anchor, the `\s*`
+spacing, the excluded `*`, the missing `m`, and the do-not-widen rule. Everything
+narrative now lives here.
+
+⚠️ And the trim itself broke the file on the first attempt: the slice ran from the
+comment start to the wrong anchor and deleted the regex constant. 57 tests went
+red, which is the only reason I noticed. A comment-only edit is not comment-only
+if you compute its boundaries.
+
 ## Weakest premise
 
 That the background-agent line is stable enough to key on. It is one observation
