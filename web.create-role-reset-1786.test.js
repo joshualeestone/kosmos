@@ -47,6 +47,11 @@ function run(resetDirty, seed) {
     // Faithful to the real instrTemplate: it embeds create-name's value (the {{NAME}} slot),
     // so this exercises the load-bearing ordering (name cleared BEFORE the template refills).
     const instrTemplate = () => 'do the work, ' + (document.getElementById('create-name').value.trim() || 'your agent');
+    // #1834 added a resetCreateProvider() call to refillDetails' resetDirty branch. This test
+    // asserts the step-two FIELD resets, which are orthogonal to the provider reset, so it stubs
+    // it as a no-op. resetCreateProvider's own behaviour + wiring are covered by
+    // web.create-provider-reset-1834.test.js.
+    const resetCreateProvider = () => {};
     ${fn}
     refillDetails(_resetDirty);
     return {
