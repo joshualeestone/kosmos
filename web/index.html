@@ -25004,17 +25004,24 @@ function refillDetails(resetDirty) {
   if (!role) return;
   if (resetDirty) {
     INSTR_DIRTY = false; LABEL_DIRTY = false;
-    /* #1786: a different role is a different template, and it resets the WHOLE form, not just
-       the two dirty-guarded fields. name/avatar/projects were reset in openCreate and nowhere
-       else, so a role re-pick left them carrying the previous role's entries while
-       label/instructions refilled below -- a half-reset form. Step two is reached ONLY through
-       role-next -> refillDetails, so this branch is the single choke-point for the reset.
-       Import is unaffected: it sets FILLED_ROLE = PICKED = 'own', so role-next sees
-       roleChanged=false and calls refillDetails(false), which preserves the imported words.
+    /* #1786: a different role is a different template, and it resets the create form to the same
+       set openCreate resets, not just the two dirty-guarded fields. name/avatar/projects were
+       reset in openCreate and nowhere else, so a role re-pick left them carrying the previous
+       role's entries while label/instructions refilled below -- a half-reset form. refillDetails
+       is the single RESET choke-point (role-next is the only entry that resets; import is the
+       other entry to step two but manages its own state). Import is unaffected: it sets
+       FILLED_ROLE = PICKED = 'own', so role-next sees roleChanged=false and calls
+       refillDetails(false), which preserves the imported words.
        (model/account/reports are reset separately by role-next's loadCreateExtras() on a role
        change; the mark is redrawn by role-next's drawCreateMark() after this returns.) The name
        is cleared BEFORE instrTemplate() below so the refilled template's {{NAME}} reads the
-       default rather than the previous role's typed name. */
+       default rather than the previous role's typed name.
+       ⚠️ create-provider is deliberately NOT reset here, because openCreate does not reset it
+       either: this branch matches openCreate's reset set exactly, so open and role-change stay
+       consistent. Whether the provider (and its change-handler side effects) should be reset at
+       all is a separate, broader decision that would have to change openCreate too; carded as a
+       follow-up rather than made inconsistent here. CREATE_PROJECTS is reset for uniformity but
+       is currently a no-op: the projects picker was removed 2026-08-22 and nothing populates it. */
     document.getElementById('create-name').value = '';
     AVATAR_FILE = null;
     document.getElementById('create-avatar').value = '';

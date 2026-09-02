@@ -5,9 +5,12 @@ pre-filled fields) persisted across a role re-pick: picking a different role sho
 role's template, but hand-entered values stayed.
 
 ## Mechanism (traced in the code, not guessed)
-- Step two of the create flow (`cstep('name')`) is reached ONLY through the `role-next` (Continue)
-  handler, which computes `roleChanged = FILLED_ROLE !== PICKED` and calls `refillDetails(roleChanged)`.
-  There is no other path into step two, so `refillDetails` is the single choke-point for a reset.
+- Step two of the create flow (`cstep('name')`) has TWO entries: the `role-next` (Continue) handler,
+  which computes `roleChanged = FILLED_ROLE !== PICKED` and calls `refillDetails(roleChanged)`; and
+  the import handler, which reaches `cstep('name')` directly and manages its own state (it sets
+  `FILLED_ROLE = PICKED = 'own'` and lays the imported fields on top). So `refillDetails` is the
+  single RESET choke-point (only the role-next entry resets), not the single ENTRY. Import never
+  resets, which is correct.
 - `refillDetails(resetDirty=true)` (a role change) reset only the two dirty-guarded fields: it
   cleared `INSTR_DIRTY`/`LABEL_DIRTY` and refilled `create-label`/`create-instr` from the template.
 - `create-name`, `AVATAR_FILE` (+ its input and hint) and `CREATE_PROJECTS` were reset in
@@ -46,6 +49,28 @@ resetDirty=true resets name/avatar/projects/label/instr; resetDirty=false preser
 same-role return). Proven to go red when the reset branch is removed (perturbation). The behaviour
 is reachable only via role-next -> refillDetails, so this choke-point test covers the whole class.
 
+## Provider: deliberately out of scope, and why (matches openCreate)
+`create-provider` is NOT reset on a role change here, because `openCreate` does not reset it either
+(verified). This branch matches `openCreate`'s reset set exactly (name/label/instructions/avatar/
+projects/dirty), so open and role-change stay consistent. Resetting the provider ONLY on a role
+change would make the two paths inconsistent; resetting it everywhere (openCreate too) plus undoing
+its change-handler side effects (the model picker's disabled state, the OpenAI account menu) is a
+separate, broader decision. A reviewer noted a real latent mismatch (provider OpenAI while the
+rebuilt model menu lists Claude models) but it is pre-existing, not introduced here, and bounded by
+the reachability caveat below. Carding it as a follow-up rather than making this fix inconsistent.
+
+## Reachability caveat (honest, unverifiable on this fleet)
+A blind review could not find a user-facing path in the CURRENT build from step two back to step one
+to re-pick a different role: `cstep` only toggles panel visibility (headers are not clickable),
+`#create-back` leaves the create flow entirely, and the only in-flow `cstep('role')` is create-go's
+bail-out, which fires only when `!role` (unreachable once a role is picked). The card was reproduced
+by Shredder in a browser during the #1652/#1785 verify, so a path existed for him; I cannot confirm
+it statically, and the fleet cannot run a browser check (#1769). The fix is therefore DEFENSIVE:
+correct where it fires, harmless where it does not, and complete for whenever the re-pick path is
+reachable (e.g. if a Back button is restored, which the code comments anticipate). This is stated
+rather than hidden so the filer can confirm the exact repro path.
+
 ## Not in scope
-The a11y/other create-flow concerns; the exact browser repro path (unreachable on this fleet, but
-moot: the fix is at the sole choke-point every role change flows through).
+The a11y/other create-flow concerns; the provider reset (follow-up above); the exact browser repro
+path (unverifiable on this fleet, but moot for the reset: it is at the sole reset choke-point every
+role change flows through).

@@ -42,7 +42,9 @@ function run(resetDirty, seed) {
         CREATE_PROJECTS = _s.projects, LAST_TYPED_NAME = 'x';
     const PICKED = 'pm';
     const roleByKey = () => ({ key: 'pm', label: 'Project Manager', instructions: 'pm {{NAME}}' });
-    const instrTemplate = () => 'TEMPLATE-INSTR';
+    // Faithful to the real instrTemplate: it embeds create-name's value (the {{NAME}} slot),
+    // so this exercises the load-bearing ordering (name cleared BEFORE the template refills).
+    const instrTemplate = () => 'do the work, ' + (document.getElementById('create-name').value.trim() || 'your agent');
     ${fn}
     refillDetails(_resetDirty);
     return {
@@ -69,7 +71,8 @@ test('#1786: a role CHANGE (resetDirty=true) resets the WHOLE form, not just lab
   const r = run(true, DIRTY_SEED);
   // The two fields that were already reset before this card:
   assert.equal(r.label, 'Project Manager', 'label did not reset to the new role template');
-  assert.equal(r.instr, 'TEMPLATE-INSTR', 'instructions did not reset to the new role template');
+  assert.match(r.instr, /your agent/, 'instructions did not reset to the new role template');
+  assert.doesNotMatch(r.instr, /Alfred/, 'the template embedded the STALE name: name must be cleared BEFORE instrTemplate() runs');
   // The fields this card adds -- the residue that used to persist:
   assert.equal(r.name, '', 'the name persisted across a role change (the measured residue)');
   assert.equal(r.avatar, null, 'the avatar file persisted across a role change');
