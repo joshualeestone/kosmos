@@ -98,7 +98,7 @@ resolve_install_user() {
   # that user has a real Aqua session. This is what beats /dev/console and closes
   # the silent-misinstall arm: even if the console holder is someone else, we
   # install for whoever is driving Installer.
-  if [ "$_riu_owner_count" = 1 ]; then
+  if [ "$_riu_owner_count" -eq 1 ]; then
     _riu_u="$_riu_owners"
     _riu_id="$(_riu_uid_for "$_riu_u")"
     if [ -n "$_riu_id" ] && _riu_has_gui_session "$_riu_id"; then
@@ -147,7 +147,7 @@ resolve_install_user() {
   esac
   if [ "$_riu_owner_count" -gt 1 ]; then
     _riu_own_desc="more than one account is running Installer ($(printf '%s' "$_riu_owners" | /usr/bin/paste -sd, -)), so it is ambiguous who to install for"
-  elif [ "$_riu_owner_count" = 1 ]; then
+  elif [ "$_riu_owner_count" -eq 1 ]; then
     _riu_own_desc="a GUI Installer is running as '$_riu_owners', but that account has no active window session to install into"
   else
     _riu_own_desc="no GUI Installer process was found to attribute the install to"

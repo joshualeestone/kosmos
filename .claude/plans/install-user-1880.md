@@ -1,13 +1,13 @@
-# kosmos#1880 — install for the user who INVOKED the install, not the console holder
+# kosmos#1880 - install for the user who INVOKED the install, not the console holder
 
 ## Problem
 The pkg `postinstall` chose the install target with `stat -f '%Su' /dev/console`,
 which names whoever holds the PHYSICAL console session, not who is running
 Installer. On a multi-account Mac (fast user switching, a second admin account,
-Screen Sharing into a virtual session — Josh's machine, #1880) those diverge,
+Screen Sharing into a virtual session - Josh's machine, #1880) those diverge,
 producing either a false refusal ("no one is signed in") or, the dangerous arm,
 resolving to the OTHER logged-in user and dropping privileges into a home folder
-that never asked for Kosmos — a silent misinstall.
+that never asked for Kosmos - a silent misinstall.
 
 ## Approach
 Factor the decision into `install/pkg-scripts/resolve-install-user.sh`, sourced
@@ -15,8 +15,8 @@ by the postinstall and bundled the same way `installing.html` already is
 (`pkgbuild --scripts` copies the whole dir; `$(dirname "$0")` resolves it at
 install time). `resolve_install_user` picks, in order:
 
-1. the owner of the running GUI **Installer** process — who actually invoked the
-   install — confirmed to hold a live Aqua session (`launchctl print gui/<uid>`);
+1. the owner of the running GUI **Installer** process - who actually invoked the
+   install - confirmed to hold a live Aqua session (`launchctl print gui/<uid>`);
 2. the `/dev/console` user, same session confirmation, as fallback;
 3. otherwise it **refuses with a message naming which check failed** and the best
    guess, never the flat "no one is signed in".
@@ -51,5 +51,5 @@ gui/<uid>` succeeds. The gate is not stricter than the existing requirement
 
 ## Weakest premise
 The awk that parses real `ps` output for GUI-Installer owners is exercised on
-canned lines, not a live `.pkg` install — a bot session cannot run a real install.
+canned lines, not a live `.pkg` install - a bot session cannot run a real install.
 The resolution logic itself is fully driven by the stubbed sensors.
