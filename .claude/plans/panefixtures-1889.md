@@ -238,6 +238,35 @@ re-checks.** A blind reviewer measured 1, I re-measured and got 12 twice, and
 only inspecting what my script actually cut settled it. Assert your perturbation
 is well-formed before believing what it tells you.
 
+## MY COMMENT-RATIO TABLE WAS FALSE IN EVERY PART
+
+Published in commit `4030a14f` and corrected here. The table claimed siblings at
+3.5:1 and 5.0:1, mine at 27.3:1 before and 16.0:1 after, and "a 3x outlier".
+
+Re-measured by counting the contiguous comment lines directly above each
+constant, after two earlier measuring scripts returned obvious nonsense (one
+counted `/* */` continuation lines as code, the next returned zero comments for
+every block):
+
+| block | comment lines above |
+|---|---|
+| `TRUST_PROMPT_REACH` | 11 |
+| `WORKING_LINE` | 10 |
+| mine, header block before the trim | 41 |
+| mine, header block after the trim | **42** |
+
+⇒ **The trim made the header ONE LINE LONGER.** The net `-5` in the file came
+from deleting text elsewhere, not from shrinking the block the commit was about.
+The outlier is real (roughly 4x its siblings, not 3x) and the restructuring was
+still worth doing, because what remains is load-bearing warnings rather than a
+changelog. But every number I published about it was wrong, and the direction of
+the headline change was wrong too.
+
+⭐ Third measuring instrument to fail on this one quantity. The lesson is not
+"measure more carefully", it is that a derived statistic nobody re-runs is the
+easiest false claim to publish, and I published one while correcting someone
+else's numbers.
+
 ## Comment volume, measured rather than judged
 
 Iteration 5 flagged the comment block as too heavy. Measured against its own
