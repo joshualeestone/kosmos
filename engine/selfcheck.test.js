@@ -226,3 +226,22 @@ test('reportLines: mismatches produce exit 1 and name the file', () => {
   assert.equal(code, 1);
   assert.match(err.join('\n'), /MISMATCH app\/server\.js/);
 });
+
+test('reportLines never prints the literal "undefined" even without installedVersion', () => {
+  // e.g. a verifyFiles-only result handed in by mistake.
+  const { out } = reportLines({ ok: true, checked: 3, mismatches: [], missing: [], bad: [] });
+  assert.doesNotMatch(out.join('\n'), /undefined/);
+});
+
+test('selfCheck rejects a served manifest that does not declare the installed version', async () => {
+  const { root, files, cleanup } = fakeInstall('0.6.22');
+  try {
+    const served = {
+      'https://x/dist/latest.json': { version: '0.6.22', manifest: 'kosmos-0.6.22-arm64.manifest.json' },
+      // a manifest with NO version field must be rejected (fail loudly), not verified blindly
+      'https://x/dist/kosmos-0.6.22-arm64.manifest.json': { manifest: 1, files },
+    };
+    const doFetch = async (url) => ({ ok: url in served, json: async () => served[url] });
+    await assert.rejects(selfCheck({ base: 'https://x/dist', root, doFetch }), /declares version \(none\), not the installed 0\.6\.22/);
+  } finally { cleanup(); }
+});

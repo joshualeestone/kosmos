@@ -180,10 +180,12 @@ async function selfCheck({ base = DEFAULT_BASE, root, doFetch } = {}) {
   const { latest } = await fetchLatestJson({ base, doFetch });
   const name = manifestNameFor(iv, latest.manifest);
   const manifest = await fetchManifestNamed({ base, name, doFetch });
-  // Cross-check: the manifest we fetched must be FOR the installed version, or the name
-  // derivation/serving is wrong and a pass would be meaningless.
-  if (manifest.version && manifest.version !== iv) {
-    throw new Error(`manifest ${name} is for ${manifest.version}, not the installed ${iv}`);
+  // Cross-check: the manifest we fetched must declare the installed version, or the name
+  // derivation/serving is wrong and a pass would be meaningless. A manifest with NO version
+  // field is rejected too (fail loudly) rather than verified without the cross-check --
+  // the build always writes one, so its absence means a malformed/wrong manifest.
+  if (manifest.version !== iv) {
+    throw new Error(`manifest ${name} declares version ${manifest.version || '(none)'}, not the installed ${iv}`);
   }
   const res = await verifyFiles(installed, manifest.files);
   return { ...res, installed: true, root: installed, installedVersion: iv, latestVersion: latest.version, behind: iv !== latest.version };
@@ -198,7 +200,9 @@ async function selfCheck({ base = DEFAULT_BASE, root, doFetch } = {}) {
 function reportLines(r) {
   if (r.ok) {
     const behind = r.behind ? ` (behind latest ${r.latestVersion})` : '';
-    return { code: 0, out: [`selfcheck OK: ${r.checked} files match the manifest for ${r.installedVersion}${behind}`], err: [] };
+    // `|| '?'` so a result handed in without installedVersion never renders the literal
+    // "undefined" (selfCheck always carries it when ok, but reportLines must not depend on it).
+    return { code: 0, out: [`selfcheck OK: ${r.checked} files match the manifest for ${r.installedVersion || '?'}${behind}`], err: [] };
   }
   if (r.installed === false) {
     return { code: 0, out: [`selfcheck: ${r.reason}`], err: [] };
