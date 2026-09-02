@@ -24,7 +24,10 @@ fleet's agents run individual checks the same way from their own bot sessions --
 the first-run checks here were verified
 exactly this way under #1801. `~/work/pw-runtime/node_modules` holds playwright,
 and the chromium build lives in the shared `~/Library/Caches/ms-playwright/`
-cache (`tools/provision-pw.sh` installs a pinned one).
+cache (`tools/provision-pw.sh` installs a pinned one). The command above is the
+shape, not the whole line: most checks also take the board's URL as an argument
+and some need sandbox env vars, so copy the exact invocation for the check you
+are running from its own header or the recipes further down.
 
 **The one thing a bot session cannot do is the INTERACTIVE Playwright MCP** --
 the `/browser-test`-style `navigate` / `click` an agent drives live. MCP servers
