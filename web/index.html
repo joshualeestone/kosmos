@@ -6431,12 +6431,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        "Add Instructions & Restart" is Josh's one label for both cases: for the
        doctrine case it adds the rules block then restarts; for the reports case
        Kosmos already wrote the change, so it just restarts to apply it. -->
-  <div class="fhint rules-update" id="d-doctrine-note" hidden>
+  <div class="fhint" id="d-doctrine-note" hidden>
     <span id="d-doctrine-text"></span>
     <button class="btn" id="d-doctrine-add" type="button" style="margin-left:8px;">Add Instructions &amp; Restart</button>
     <button class="linkish" id="d-doctrine-later" type="button" style="margin-left:6px;">Not now</button>
   </div>
-  <div class="fhint rules-update" id="d-instr-reports" hidden>
+  <div class="fhint" id="d-instr-reports" hidden>
     <span id="d-instr-reports-text"></span>
     <!-- data-restart-agent is set by renderStale (it carries the session name);
          the delegated [data-restart-agent] handler opens the shared restart
@@ -19597,6 +19597,12 @@ async function loadDoctrine(sessionName) {
          wrapped. */
       document.getElementById('d-doctrine-text').innerHTML =
         'There are updated working rules to help <b>' + esc(who) + '</b> be more efficient.';
+      /* The doctrine prompt supersedes the reports-to prompt: adding the missing
+         rules block and restarting re-reads everything, so a restart-only prompt
+         beside it would be a second near-identical row. renderStale's kosmos arm
+         holds the other half (it will not re-show reports while this stands). */
+      const reports = document.getElementById('d-instr-reports');
+      if (reports) reports.hidden = true;
     }
     note.hidden = !show;
   } catch { note.hidden = true; /* news can wait; the banner never guesses */ }
@@ -19817,6 +19823,15 @@ function renderStale(s) {
          applies it -- routed through the shared restart confirm by the
          data-restart-agent the delegated handler reads. The header card clears. */
       if (!el.hidden) { el.hidden = true; setLive(el, ''); }
+      /* 🔑 THE DOCTRINE PROMPT SUPERSEDES THIS ONE when both are live (an agent
+         that both predates the working rules AND has a Kosmos-made change to
+         re-read). Doctrine ADDS the missing rules block and restarts, which
+         re-reads everything including the reports-to change, so this restart-only
+         prompt is subsumed. Two near-identical "updated working rules" prompts on
+         one tab read as a bug; loadDoctrine hides this on its own show, and this
+         guard keeps the poll from re-showing it while doctrine stands. */
+      const doc = document.getElementById('d-doctrine-note');
+      if (doc && !doc.hidden) { hideReports(); return; }
       const txt = document.getElementById('d-instr-reports-text');
       if (txt) txt.innerHTML = 'These are updated working rules to help <b>' + esc(who || 'this agent') + '</b> be more efficient.';
       if (reportsGo) reportsGo.dataset.restartAgent = session;

@@ -17,6 +17,8 @@
  *   3. The duplicate lower status (#d-why) is suppressed when the state is
  *      reported (the top line already carries it), and still shown otherwise.
  *   4. The role in #d-meta is bold; the model is not.
+ *   5. No "it" for an agent in the restart copy: the header card and the idle
+ *      line say the name / "them", asserted in Part 2 below.
  *
  * ⚠️ WHY IT DRIVES THE PAINTERS DIRECTLY for parts 1 and 2. The stale and
  * doctrine states are produced by the engine from real instruction files and
@@ -178,6 +180,10 @@ function chk(ok, label, extra) {
     // tab section, and the header card clears. ──────────────────────────────
     const kosmos = await page.evaluate(() => {
       CURRENT = { name: 'Beatrix', sessionName: 'beatrix-discord' };
+      // Isolate the reports-to case: loadDoctrine shows the doctrine prompt for
+      // this rules-less fixture agent, and the doctrine prompt supersedes reports
+      // (pinned separately in the precedence check below), so hide it here.
+      document.getElementById('d-doctrine-note').hidden = true;
       renderStale({ state: 'stale', wroteBy: { who: 'kosmos', because: 'Kosmos set it to report to Ruth' } });
       detailDots();
       const reports = document.getElementById('d-instr-reports');
@@ -207,6 +213,29 @@ function chk(ok, label, extra) {
       };
     });
     chk(cleared.staleHidden && cleared.reportsHidden, 'current: both the header card and the reports section are hidden', JSON.stringify(cleared));
+
+    // ── Precedence: when BOTH the doctrine prompt and a Kosmos-made reports-to
+    // state are live, the doctrine prompt wins and the reports section stays
+    // hidden -- two near-identical "updated working rules" rows would read as a
+    // bug. Doctrine adds the missing rules block AND restarts, subsuming the
+    // restart-only reports prompt. ────────────────────────────────────────────
+    const precedence = await page.evaluate(() => {
+      CURRENT = { name: 'Beatrix', sessionName: 'beatrix-discord' };
+      // The doctrine prompt is showing (as loadDoctrine would leave it).
+      document.getElementById('d-doctrine-note').hidden = false;
+      document.getElementById('d-instr-reports').hidden = true;
+      // A Kosmos-made stale arrives on the poll: it must NOT re-show reports.
+      renderStale({ state: 'stale', wroteBy: { who: 'kosmos', because: 'Kosmos set it to report to Ruth' } });
+      const out = {
+        doctrineShown: !document.getElementById('d-doctrine-note').hidden,
+        reportsHidden: document.getElementById('d-instr-reports').hidden,
+        staleHidden: document.getElementById('d-instr-stale').hidden,
+      };
+      document.getElementById('d-doctrine-note').hidden = true; // reset
+      return out;
+    });
+    chk(precedence.doctrineShown && precedence.reportsHidden && precedence.staleHidden,
+      'Precedence: the doctrine prompt supersedes the reports-to prompt when both fire', JSON.stringify(precedence));
 
     // ── Part 1a dot: showing the doctrine prompt lights the Instructions dot. ─
     const doctrineDot = await page.evaluate(() => {
