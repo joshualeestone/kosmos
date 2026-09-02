@@ -110,15 +110,17 @@ function productFiles() {
 // It is NOT a full JS tokenizer, and cannot be without a parser (a dependency
 // this test forgoes). It can be defeated ONLY by a Windows-hostile coupling
 // placed adjacent, on the SAME line, to a construct it cannot tokenize:
-//   - a REGEX literal containing a comment marker, e.g. x.replace(/\/\//g, ...):
-//     the regex's inner '//' is read as a line comment, so a coupling written
-//     AFTER it on that same line is dropped and not counted;
+//   - a REGEX literal containing a comment marker. A '//' inside a regex is read
+//     as a line comment (dropping the rest of THAT line); a '/*' inside a regex
+//     is read as a block-comment OPEN and drops lines until the next '*/'. So
+//     this vector's miss is NOT bounded to a single line.
 //   - a comment marker inside a template-literal ${...} interpolation.
-// The BLAST RADIUS of any such miss is exactly one line: counting is per-line and
-// per-file, so a hidden coupling on line N does not reduce coverage of any other
-// line or file, and the stale arm still guards every known site. No corpus line
-// triggers any of these, and a real coupling would be caught the moment it did
-// not share a line with such a construct.
+// No corpus line triggers any of these (the negative control is green). The
+// residual is real and not claimed to be zero: a coupling is counted the moment
+// it does not fall inside such a mistaken span, and a multi-line block swallow
+// usually also drops OTHER counts, which tends to red the EXCEED or stale arm --
+// but a fully silent miss cannot be excluded without a JS parser, which this
+// test forgoes.
 function stripComments(src) {
   const out = [];
   let inBlock = false;
@@ -180,7 +182,8 @@ const FAMILIES = [
     name: 'path-delimiter-literal',
     // .split(':') / .join(';') etc -- a hardcoded PATH separator. path.delimiter
     // is ':' on POSIX and ';' on Windows; a literal asserts one platform.
-    re: /\.(?:split|join)\((['"])[:;]\1\)/,
+    // Tolerates inner whitespace and a limit/extra arg: .split( ':' ), .split(':', 2).
+    re: /\.(?:split|join)\(\s*(['"])[:;]\1\s*[,)]/,
   },
   {
     name: 'fs-root-literal',
@@ -192,8 +195,9 @@ const FAMILIES = [
   {
     name: 'env-home',
     // process.env.HOME is undefined on Windows (it is USERPROFILE there);
-    // os.homedir() is portable.
-    re: /process\.env\.HOME\b/,
+    // os.homedir() is portable. Catches dot and bracket access; a destructure
+    // (const {HOME} = process.env) is not caught -- documented in the doc's limits.
+    re: /process\.env(?:\.HOME\b|\[\s*(['"])HOME\1\s*\])/,
   },
 ];
 
@@ -342,8 +346,9 @@ test('#1732 pin: engine/github.js splits the gh override on path.delimiter, not 
     'engine/github.js must split AGENT_WORKFORCE_GH_CANDIDATES on path.delimiter (#1592). ' +
     `A hardcoded ':' breaks the Windows ';' override, invisible to every POSIX arm. See ${REF}.`);
   // Any hardcoded [:;] split/join in the CODE reds -- not anchored to `override.`,
-  // so a regression that renames the variable is still caught.
-  assert.doesNotMatch(code, /\.(?:split|join)\((['"])[:;]\1\)/,
+  // so a regression that renames the variable is still caught. Same widened form
+  // as the path-delimiter family (whitespace / limit-arg tolerant).
+  assert.doesNotMatch(code, /\.(?:split|join)\(\s*(['"])[:;]\1\s*[,)]/,
     'engine/github.js splits/joins on a hardcoded path separator. Use path.delimiter (#1592).');
 });
 
