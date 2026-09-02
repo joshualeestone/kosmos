@@ -562,6 +562,11 @@ async function look(page, name) {
     await lastCtx.close();
   }
   await browser.close();
-  console.log('\n' + (problems.length ? `PROBLEMS (${problems.length}):\n  ` + problems.join('\n  ') : 'no rendering problems found'));
+  if (problems.length) {
+    console.log(`\nPROBLEMS (${problems.length}):`);
+    for (const p of problems) console.log('  FAIL  ' + p);
+  } else {
+    console.log('\nno rendering problems found');
+  }
   process.exit(problems.length ? 1 : 0);
 })();

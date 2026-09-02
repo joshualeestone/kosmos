@@ -13,25 +13,36 @@
  * `'  - ' + p` yields `  - FAIL  ...` and the ANCHORED `^\s*(FAIL|✖)` branch
  * cannot match that. Every assertion below is keyed on the printed line.
  *
- * 🛑 WHAT IT DOES NOT COVER, NAMED RATHER THAN IMPLIED. Two wired checks print
- * findings this scan cannot see. Nothing here establishes they are the LARGEST
- * such instances -- that comparative was in this file and was never measured --
- * only that they are two known ones:
- *   - `render-talk.js` prints `problems.join('\n')` bare
- *   - `render-projects.js` emits several `⚠️`/`🛑` lines on its exit paths
- * Carded as #1836 rather than changed here.
+ * 🛑 WHAT IT DOES NOT COVER, NAMED RATHER THAN IMPLIED. This scan recognises the
+ * emit SHAPES listed at each matcher below; a check that builds its failure
+ * output some other way is not seen here and is not claimed to be. Two shapes are
+ * known-uncovered and named rather than left to be found:
+ *   - the EMPTY-PREFIX emit: `console.log('\n' + ...)`, and the per-check result
+ *     printer whose template begins with the interpolation. The literal prefix
+ *     decodes to empty, so a static read cannot say what it prints. render-first-run
+ *     was a live UNQUOTABLE instance (its only failure output was `PROBLEMS (n):`
+ *     plus bare `  <problem>` lines); it was fixed in this PR by printing each
+ *     problem as `  FAIL  <problem>`, which IS a SHAPE-1 site this scan now counts.
+ *     The other empty-prefix emits (render-agent-*, render-*-nav, render-found-count,
+ *     render-member-modal, render-long-title, render-project-rows, render-grid-card-width,
+ *     click-first-run) are quotable because they ALSO print a per-failure
+ *     `FAIL  <label>` line via a helper -- their empty-prefix summary is a
+ *     redundant count.
+ *   - the browser-launch catch and the top-level `ERROR:` crash catch, unquotable
+ *     (incl. `ERROR:` vs the grep's case-sensitive `Error`). A different emit shape
+ *     from the finding sites this scan covers; tracked in kosmos#1864.
  *
- * ⚠️ AND THAT LIST IS AN ENUMERATION TOO, so treat it as examples rather than
- * as the set. It has been found short once already: two more wired checks
- * printed unquotable INSTRUMENT-FLOOR lines ("only N checks ran, so this proved
- * nothing"), which is the case where being told the reason matters most.
+ * ⚠️ THE SHAPE LIST IS AN ENUMERATION, so treat it as examples rather than as the
+ * set: an enumeration misses what is not in it. This guard found ELEVEN unquotable
+ * finding-emit sites on its FIRST run against main, and a fresh reading then found
+ * render-first-run on top of that -- so a human read still beats it on shapes it
+ * does not model.
  * ⇒ **Do not read a green run as "every check is quotable"; read it as "every
  * shape this scan recognises is."**
  *
- * 📌 How this file was itself wrong three times, and the partial fixes that
- * preceded it, is recorded in `.claude/plans/gate-red-bisect.md` under "The
- * reason-grep guard: what it cost to get right". It is kept there rather than
- * here so that editing this file does not mean editing a record.
+ * 📌 History of the count's prior values, and how this file was itself wrong
+ * three times, lives in the PR that lifted it (branch reasongrep-guard-1836),
+ * not here, so editing this file does not mean editing a record.
  */
 const test = require('node:test');
 const assert = require('node:assert');
@@ -337,10 +348,14 @@ test('every emit site in every check prints a line the gate can quote', () => {
      quotable and update this number on purpose.
      📌 Calibrated to current main. This guard found ELEVEN checks printing
      unquotable failures on its FIRST run against main -- the class was 13 wide
-     and #1860 had fixed only 2. All 11 were fixed in the same PR that lifted
-     this file, so `bad` is empty and the 27 sites are all quotable. The
-     archaeology of the count's prior values lives in that PR, not here. */
-  const EXPECTED_SITES = 27;
+     and #1860 had fixed only 2. All 11 were fixed in the same PR that lifted this
+     file. A blind review then found render-first-run, whose only failure output
+     was an empty-prefix `console.log('\n' + ...)` this scan could not see; it was
+     rewritten to print each problem as `  FAIL  <problem>`, which is a SHAPE-1
+     site -- so it is now BOTH quotable and counted, taking the total to 28. `bad`
+     is empty and all 28 sites are quotable. The archaeology of the count's prior
+     values lives in that PR, not here. */
+  const EXPECTED_SITES = 28;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
