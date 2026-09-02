@@ -68,6 +68,10 @@ function hitsIn(rel) {
     return []; // unreadable/binary: nothing to scan
   }
   const out = [];
+  /* Line-based, so a token split across a hard wrap would be missed (the fleet's
+     "phrase-spanning-a-wrap" failure mode). Acceptable for the actual targets
+     here - emails, URLs and $STUFF are single tokens that do not wrap mid-token -
+     and a whole-file scan would only cost the file:line the failure message needs. */
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i += 1) {
     for (const re of PATTERNS) {

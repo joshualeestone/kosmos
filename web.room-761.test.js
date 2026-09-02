@@ -18,7 +18,7 @@ test('the link card puts the words first and the picture under them at the card\
   assert.ok(fn.indexOf("'<span class=\"lpv-txt\">'") < fn.indexOf("'<span class=\"lpv-img\">"), 'the picture still sits beside the words');
   // eslint-disable-next-line no-new-func
   const card = new Function('esc', fn + '\nreturn pjPreviewCard;')((x) => String(x));
-  const html = card({ url: 'https://example.com/', title: 'Example', description: 'Ebooks you own.', image: '/api/preview/1', site: 'example.com' });
+  const html = card({ url: 'https://example.com/', title: 'Example', description: 'An example page.', image: '/api/preview/1', site: 'example.com' });
   assert.match(html, /<span class="lpv-txt">.*<\/span><span class="lpv-img"><img src="\/api\/preview\/1"/s);
   assert.equal(card({ url: 'https://example.com/', title: 'Example', image: 'https://evil/x.png' }).includes('lpv-img'), false, 'a remote image is never loaded');
   assert.match(PAGE, /\.lpv \{ display: flex; flex-direction: column; margin-top: 8px; width: min\(100%, 34rem\);/);
