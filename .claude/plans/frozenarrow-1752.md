@@ -65,3 +65,22 @@ CALL at the declaration; this change adds the missing #3 (arrow resolver). A ful
 spelling-independent guard would be an AST check, which is a larger separate proposition the
 checker's own comment already reasons about (it enforces the live literals and leaves the property
 to the behavioural arms).
+
+## Iterations 3 and 4 (blind passes on the body-capture heuristic)
+
+Iter 3: a pass found the col-0 (`/^\}/`) block terminator had three edges -- an indented closer
+over-capturing (a FALSE POSITIVE, the worst direction for a gate), a function-expression default
+param, and a next-line brace. Replaced with a BALANCED-BRACE capture, which drops 5 real false
+positives on the tree (docs/browser-checks helpers) and keeps every real root.
+
+Iter 4: a pass found the balanced-brace introduced one realistic false NEGATIVE the col-0 version
+did not have -- a destructuring/object-default PARAMETER on a wrapped expression arrow, whose param
+braces balanced on the head line and truncated the body. Fixed: a `{` opens the BODY only at
+paren-depth 0, so a param brace is ignored.
+
+Final verification: `tools/test-frozen-roots.sh` 12 arms pass, each mutation-verified (4e indented-
+closer FP guard, 4f function-expr default param, 4g destructuring-param wrapped arrow); engine tree
+clean (exit 0), 5 real FPs dropped, 0.05s. The one remaining residual, documented in-code in both
+directions: a brace inside a string/comment/regex/template miscounts -- contrived in a resolver
+body, absent from this tree, the class a linear non-AST scanner cannot fully close; the behavioural
+arms remain the property's real guard.
