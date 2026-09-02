@@ -470,3 +470,34 @@ test('#1799: a superseded poll whose request FAILS does not reschedule over the 
     try { fs.rmSync(gd.FILE, { force: true }); } catch { /* nothing */ }
   }
 });
+
+/* forget() bumps the generation in the same commit as cancel() and start(), and had
+   nothing watching it: replacing its endFlow() with stopPolling() left every arm green.
+   Scenario: the person authorises on GitHub and clicks Forget in the same round trip;
+   the abandoned poll returns, the token is written into the file they just deleted,
+   phase goes idle with no reason. Red by name under that mutation. */
+test('#1799: a token that arrives after the person clicked Forget is not stored', async () => {
+  process.env.KOSMOS_GITHUB_CLIENT_ID = 'Iv1.testclient';
+  try {
+    fs.rmSync(gd.FILE, { force: true });
+    answers = [{ access_token: 'tok-forgot', token_type: 'bearer', scope: 'repo' }];
+    holdNextFlowMs = 120;
+    const sent = heldSent();
+    const first = await gd.start();
+    assert.equal(first.phase, 'awaiting', 'the flow did not start, so nothing was tested');
+    await settle(20);             // its poll is out and held
+    const forgot = await gd.forget();
+    assert.equal(forgot.phase, 'idle', 'forget did not report idle, so nothing was tested');
+    await sent;                   // the held token answer has been SENT
+    await settle(30);             // and processed
+    const st = await gd.state();
+    assert.equal(fs.existsSync(gd.FILE), false,
+      'the token arrived after the person clicked Forget and was stored into the file they had just deleted');
+    assert.equal(st.phase, 'idle', 'phase ' + st.phase + ' (' + st.because + ') after a forget');
+    assert.equal(st.held, false, 'a token is held after the person forgot');
+  } finally {
+    await gd.cancel();
+    delete process.env.KOSMOS_GITHUB_CLIENT_ID;
+    try { fs.rmSync(gd.FILE, { force: true }); } catch { /* nothing */ }
+  }
+});

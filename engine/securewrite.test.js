@@ -151,9 +151,11 @@ test('#1787: a fallback that fails carries WHY the atomic path was abandoned', (
   const realRename = fs.renameSync;
   const realWrite = fs.writeFileSync;
   fs.renameSync = () => { const e = new Error('forced cross-device'); e.code = 'EXDEV'; throw e; };
-  /* Scoped to fd writes only. A blanket stub also breaks the path-addressed writes the
-     atomic loop and the restore both use, which would fail this arm for an unrelated
-     reason -- the way three earlier arms on this branch passed with the fix reverted. */
+  /* Scoped to fd writes only, and the fallback's `writeFileSync(fd, data)` is the ONLY
+     writeFileSync the module still makes (the atomic loop opens wx and writeSyncs; the
+     restore writeSyncs through the fd), so this stub reaches exactly the call it means
+     to. A blanket stub once broke the temp write too and failed the arm for an unrelated
+     reason, the way three earlier arms on this branch passed with the fix reverted. */
   fs.writeFileSync = function (target, data, ...rest) {
     if (typeof target === 'number') { const e = new Error('no space left on device'); e.code = 'ENOSPC'; throw e; }
     return realWrite.call(fs, target, data, ...rest);
@@ -572,6 +574,10 @@ test('#1787: a temp whose write fails part way is removed, not left holding the 
 
   const realOpen = fs.openSync;
   const realWriteSync = fs.writeSync;
+  const realClose = fs.closeSync;
+  /* Descriptor NUMBERS are reused: all three temps and then the fallback's own open
+     landed on the same fd, so a set that never forgets sabotaged the fallback too. The
+     fd leaves the set when it is closed. */
   const tempFds = new Set();
   let creates = 0;
   fs.openSync = function (target, flags, ...rest) {
@@ -579,6 +585,7 @@ test('#1787: a temp whose write fails part way is removed, not left holding the 
     if (typeof target === 'string' && target.includes('.kosmos-') && flags === 'wx') { tempFds.add(fd); creates += 1; }
     return fd;
   };
+  fs.closeSync = function (fd, ...rest) { tempFds.delete(fd); return realClose.call(fs, fd, ...rest); };
   fs.writeSync = function (fd, buf, ...rest) {
     if (tempFds.has(fd)) {
       realWriteSync.call(fs, fd, Buffer.from('NEW-'));
@@ -590,6 +597,7 @@ test('#1787: a temp whose write fails part way is removed, not left holding the 
   try { securewrite.writeSecret(f, 'NEW-SECRET', 0o600); } catch (e) { outcome = 'threw ' + e.code; } finally {
     fs.openSync = realOpen;
     fs.writeSync = realWriteSync;
+    fs.closeSync = realClose;
   }
 
   assert.equal(creates, 3, `the atomic path made ${creates} temp(s), not three: the stub missed the create and this arm measured nothing`);

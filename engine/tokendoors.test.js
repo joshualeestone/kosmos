@@ -146,5 +146,7 @@ test('#1787: a writer throw comes back as a refusal, not an unreadable-request e
   assert.equal(threw, null, 'connect() threw instead of refusing');
   assert.match(String((st && st.refused) || ''), /could not save the token/,
     'the write failure was not reported as a refusal');
+  /* Pins the FIXTURE (no prior token on disk), not the contract; see the cloudflare
+     arm of the same name. */
   assert.equal(st.connected, false, 'a failed write reported as connected');
 });
