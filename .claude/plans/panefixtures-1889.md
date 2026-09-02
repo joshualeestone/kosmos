@@ -113,7 +113,9 @@ Added `BACKGROUND_AGENT_WAIT`, keyed on the glyph exactly as `WORKING_LINE` is
 and requiring the `background agent` phrase.
 
 🛑 **A blanket `Waiting for …` rule would be a regression, not a fix.** The
-bundle carries 24 distinct `Waiting for …` strings and they are not one state:
+bundle carries many distinct `Waiting for …` strings (counted once, with its
+command, in `engine/status.js`, because the number is extraction-dependent) and
+they are not one state:
 
 - autonomous waits: API response, CI, findings, server, task
 - **blocked on a human**: permission, authorization, team lead approval, team
@@ -125,7 +127,7 @@ which is the false-calm direction this card exists to close, and the exact "the
 fix for a finding introduces a worse finding" shape `status.test.js` warns about
 above its footer row.
 
-⇒ Only the ONE shape observed on a real pane is handled. The other 23 are a
+⇒ Only the ONE shape observed on a real pane is handled. The others are a
 named, unresolved risk, with an instruction in the code not to widen without a
 live capture and to route human-blocked shapes to `NEEDS_YOU`.
 
@@ -149,6 +151,34 @@ other three. Do not read the merge as the card being done.
   match reds exactly 1 of 159 in `status.test.js`; restoring returns 159/159.
 - Full suite `bash tools/run-tests.sh`: **exit 0**, 4537 lines, zero failures,
   and the new test runs inside it.
+
+## THE FIX INTRODUCED THE DEFECT IT WAS CLOSING, AND A REVIEWER CAUGHT IT
+
+Found at iteration 3. **The wait line is a TRANSCRIPT line, not an ephemeral
+status row: it stays on screen after the background agent finishes.** So its
+presence means "this agent waited at some point", not "this agent is waiting
+now".
+
+⇒ The first version of this reader reported `working` on a RESOLVED wait. On this
+board `idle` means "it finished and is waiting for you", so it **hid a finished
+agent** for as long as the stale line stayed within reach. That is a false calm in
+precisely the direction #1889 exists to close, introduced by the fix for it.
+
+🛑 Caught on MY OWN PANE: zero live subagents, an `⏺ Agent … finished` line on
+screen, and my code saying `working`.
+
+**The discriminator was already cited in my own comment and not used**: the live
+`◯ <agent-type> … <elapsed>` footer row. Measured across six panes carrying the
+line, `◯` was present on exactly the four genuinely waiting and absent on exactly
+the two resolved.
+
+⚠️ `⏺` is NOT the discriminator. It prefixes ordinary transcript bullets, which
+every pane carries in quantity; keying on it would have made the guard vacuous.
+Pinned by a perturbation that swaps one glyph for the other.
+
+✅ The gate fails safe. If the vendor stops drawing `◯` the reader goes quiet,
+which is `origin/main`'s behaviour: a miss, not a false calm. Losing a true
+positive is the acceptable direction; claiming a finished agent is busy is not.
 
 ## A correction about my own perturbation instrument
 

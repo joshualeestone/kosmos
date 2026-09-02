@@ -1598,7 +1598,11 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
 
   const live = '  Waiting for both.\n\n✻ Waiting for 1 background agent to finish';
-  const got = classify(pane, live + footer);
+  /* A live `◯` footer row. REQUIRED on every positive fixture: the wait line is a
+     transcript line that survives the wait, so the reader demands proof the agent
+     is still running. See the resolved-wait row below. */
+  const liveRow = '\n  ⏺ main\n  ◯ general-purpose  doing a thing 43s · ↓ 1.0k tokens';
+  const got = classify(pane, live + footer + liveRow);
   assert.equal(got.state, 'working', 'a live background-agent wait read as idle');
   assert.match(got.because, /background agent/);
   assert.equal(got.evidence, '✻ Waiting for 1 background agent to finish',
@@ -1607,7 +1611,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
   // The plural, since the count is interpolated and 1 is not special. Pins
   // `because` and `evidence` too: asserting only `.state` would let a
   // plural-only evidence regression through.
-  const plural = classify(pane, '✻ Waiting for 3 background agents to finish' + footer);
+  const plural = classify(pane, '✻ Waiting for 3 background agents to finish' + footer + liveRow);
   assert.equal(plural.state, 'working');
   assert.match(plural.because, /background agent/);
   assert.equal(plural.evidence, '✻ Waiting for 3 background agents to finish');
@@ -1618,7 +1622,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    * the joined line. With literal spaces this row went red; the marker spells
    * its spaces `\s*` for exactly that reason.
    */
-  assert.equal(classify(pane, '✻ Waiting for 1 backgroundagent to finish' + footer).state, 'working',
+  assert.equal(classify(pane, '✻ Waiting for 1 backgroundagent to finish' + footer + liveRow).state, 'working',
     'a wrap-eaten space silently stopped the reader matching');
 
   /**
@@ -1626,9 +1630,10 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    * text, unlike WORKING_LINE which needs a changing timer, so an agent that
    * `cat`s a document containing it would classify `working` while idle at its
    * prompt -- a false CALM. `backgroundAgentWait` therefore requires the line to
-   * sit within BACKGROUND_AGENT_WAIT_REACH rows of the screen's last non-empty
-   * row, because Claude Code draws it just above the composer. Measured live:
-   * 9, 9 and 11 rows. Measured for a mid-document quotation: 114.
+   * sit within BACKGROUND_AGENT_WAIT_REACH rows of the COMPOSER ROW, because
+   * Claude Code draws it immediately above the composer while everything variable
+   * (subagent rows, status, hints) is drawn below. Measured live: 3 rows on every
+   * genuinely-live instance. A mid-document quotation measured 114 from the end.
    */
   /* 🛑 THE FILLER COUNT IS LOAD-BEARING AND 40 MADE THIS ROW VACUOUS. `classify`
      only reads the last 25 rows, so a fixture that long pushed the line out of
@@ -1665,6 +1670,24 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
      `needs_you`, which is the right fix and is not this card's. */
   assert.equal(classify(pane, '✻ Waiting for permission' + footer).state, 'idle',
     'documenting the known gap: a human-blocked wait reads idle, it is not handled');
+
+  /**
+   * 🛑 THE WAIT LINE SURVIVES THE WAIT, SO PRESENCE IS NOT LIVENESS. It is a
+   * TRANSCRIPT line, not an ephemeral status row: it stays on screen after the
+   * background agent finishes. The first version of this reader therefore
+   * reported `working` on a RESOLVED wait, hiding a finished agent -- and on this
+   * board `idle` means "it finished and is waiting for you", so that is a false
+   * calm in the exact direction #1889 exists to close, introduced by the fix
+   * for it. Caught on my own pane.
+   *
+   * The discriminator is the live `◯ <agent-type> … <elapsed>` footer row.
+   * Measured across six panes carrying the line: `◯` present on exactly the four
+   * genuinely waiting, absent on exactly the two resolved.
+   * ⚠️ `⏺` is NOT the discriminator; it prefixes ordinary transcript bullets,
+   * which every pane has in quantity.
+   */
+  assert.notEqual(classify(pane, live + footer + '\n  ⏺ Agent "x" finished · 5m 19s').state, 'working',
+    'a RESOLVED wait was reported as working, which hides a finished agent');
 
   /**
    * 🛑 THE GLYPH CLASS EXCLUDES `*`, UNLIKE `WORKING_LINE`'s. That sibling can

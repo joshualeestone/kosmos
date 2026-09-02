@@ -1830,8 +1830,10 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    STATED ONCE, HERE, WITH ITS COMMAND, AND NOT REPEATED AS A BARE NUMBER
    ELSEWHERE. `grep -ao 'Waiting for [A-Za-z0-9 ._'\''-]\{0,60\}' | sort -u` over
    the 2.1.258 bundle yields 25 extractions; a wider character class yields 27.
-   Two of the 25 are not screens (the bare interpolated prefix this line is
-   composed from, and a Zod `describe()` doc string). What matters is not the
+   One of the 25 is a Zod `describe()` doc string rather than a
+   screen. (An earlier version also claimed the bare `Waiting for ` prefix was
+   this line's own source; it is not -- the five sites that extract as the bare
+   prefix belong to unrelated vendor code.) What matters is not the
    total but that SEVERAL of them mean BLOCKED ON A HUMAN, which is verifiable
    one string at a time and is what the guard below pins. Verbatim shape, live 2.1.258:
    * ✻ Waiting for 1 background agent to finish  <- sample, `*`-prefixed so
@@ -1863,8 +1865,8 @@ const BACKGROUND_AGENT_WAIT = /^\s*[·✢✳✶✻✽]\s*Waiting\s*for\s*\d+\s*b
    (`WORKING_LINE`) is applied to the whole tail. Without `m`, `^` means start of
    input and the constant is per-row by construction rather than by convention. */
 
-/* #1889. How far above the screen's last non-empty row the wait line may sit and
-   still be the LIVE status line rather than a quotation.
+/* #1889. How far above the COMPOSER ROW the wait line may sit and still be the
+   live status line rather than a quotation.
 
    🛑 WITHOUT THIS THE READER IS A QUOTABLE LITERAL THAT FAILS TOWARD SILENCE.
    Unlike `WORKING_LINE` (which needs a live, changing timer) this line is static
@@ -1883,8 +1885,14 @@ const BACKGROUND_AGENT_WAIT = /^\s*[·✢✳✶✻✽]\s*Waiting\s*for\s*\d+\s*b
    ⇒ The stable anchor is the COMPOSER ROW (`❯`), because everything variable --
    subagent rows, the status line, the hint line -- is drawn BELOW it, while this
    status line is always drawn just above it.
-   MEASURED live on 2.1.258: the wait line sits 3 and 7 rows above the composer
-   row, against 9 and 11 rows above the last non-empty row. A mid-document
+   MEASURED live on 2.1.258: every genuinely-live instance sat 3 rows above the
+   composer row. A 7 and a 13 were also observed, both on panes whose wait had
+   already RESOLVED, so they are not evidence about the live case and 12 is not
+   fitted to them.
+   ⚠️ THE 12 IS NOT PINNED BY THE SUITE. The tests are green for any reach in
+   [3, 18]; the rows below pin only that the boundary reds in both directions.
+   With every live observation at 3, the headroom is deliberate slack for layouts
+   not yet seen, not a measured maximum. A mid-document
    quotation measured 114 from the end.
    ⚠️ It BOUNDS the quotation residual rather than removing it: a document quoting
    the line within reach of a composer row still matches.
@@ -1892,6 +1900,31 @@ const BACKGROUND_AGENT_WAIT = /^\s*[·✢✳✶✻✽]\s*Waiting\s*for\s*\d+\s*b
    its marker on a different axis. They are not calibrated together and should not
    be read as a pair. */
 const BACKGROUND_AGENT_WAIT_REACH = 12;
+
+/* #1889. A LIVE background-agent row, drawn in the footer below the composer:
+     ◯ general-purpose  Verifying claudeHatchAvailable … 3m 57s · ↓ 169.3k tokens
+
+   🛑 THIS IS THE LIVENESS TEST, AND WITHOUT IT THE READER INVENTS A FALSE CALM.
+   The wait line is a TRANSCRIPT line, not an ephemeral status row: it stays on
+   screen after the background agent finishes. So "the line is present" means
+   "this agent waited at some point", NOT "this agent is waiting now". Measured
+   2026-09-02 on six panes carrying the line: a `◯` row was present on exactly
+   the four that were genuinely waiting, and absent on exactly the two whose wait
+   had RESOLVED -- including my own pane, which the first version of this reader
+   reported as `working` while it sat finished at its prompt. On this board
+   `idle` means "it finished and is waiting for you", so that hid a finished
+   agent for as long as the stale line stayed within reach. That is the exact
+   direction #1889 exists to close, introduced by the fix for it.
+
+   ⚠️ `⏺` IS NOT THE DISCRIMINATOR AND MUST NOT BE USED AS ONE. `⏺` prefixes
+   ordinary transcript bullets, which every pane has in quantity; only `◯` marks
+   a running background agent.
+
+   ✅ FAILS SAFE. If the vendor stops drawing `◯`, this returns null and the
+   reader simply goes quiet, which is `origin/main`'s behaviour -- a miss, not a
+   false calm. Losing a true positive is the acceptable direction here; claiming
+   a finished agent is busy is not. */
+const LIVE_BACKGROUND_AGENT_ROW = /^\s*◯\s/mu;
 
 /**
  * The live background-agent wait line, or null.
@@ -1917,6 +1950,9 @@ function backgroundAgentWait(text) {
     }
     if (anchor === -1) anchor = last;
     if (anchor - i > BACKGROUND_AGENT_WAIT_REACH) continue;
+    /* The wait line survives the wait. Only a live `◯` row proves the agent is
+       still running; without one this is a resolved wait and the pane is idle. */
+    if (!LIVE_BACKGROUND_AGENT_ROW.test(text)) return null;
     const line = rows[i].trim();
     return line.length > 240 ? line.slice(0, 240) + '…' : line;
   }
@@ -2595,8 +2631,12 @@ function classify(pane, paneText) {
    * line per 60s. So the board was NOT independently right -- it was right only
    * where the agent happened to be reporting.
    * ⇒ Any agent whose report hook is absent, failing, or merely between
-   * heartbeats reads IDLE while mid-turn. Measured at review time: of the panes
-   * carrying this shape, `origin/main` returned `idle` for EVERY ONE.
+   * heartbeats reads IDLE while mid-turn. Measured 2026-09-02 16:24 CDT, stated
+   * with its timestamp because the fleet moves: of four panes carrying the shape,
+   * `origin/main` returned `idle` for three and `working` for the fourth, which
+   * also carried a live spinner line that `WORKING_LINE` covered. An earlier
+   * version of this sentence said "EVERY ONE", the kind of absolute this
+   * branch's own plan warns against.
    *
    * 🔑 AND A STATIC GREP COULD NOT HAVE FOUND IT. The count is interpolated, so
    * the literal line is nowhere in the bundle -- the card's own point that
@@ -2615,12 +2655,25 @@ function classify(pane, paneText) {
    * "the fix for a finding introduces a worse finding" shape `status.test.js`
    * warns about above its footer row.
    *
+   * 📌 THE STRONGEST NAMED RISK IS NOT IN THAT LIST AND IS WORTH STATING FIRST.
+   * The vendor's own `turn_duration` schema carries `pendingBackgroundAgentCount`
+   * AND `pendingWorkflowCount` side by side, with a `describe()` saying the REPL
+   * renders one line from them. So a WORKFLOW sibling of this exact no-timer
+   * shape almost certainly renders and would still read `idle`. That is a
+   * specific, discoverable miss rather than a generic one, and it needs a live
+   * capture of a pending workflow to key on safely.
+   *
    * 🛑 SO THIS KEYS ONLY ON THE ONE SHAPE OBSERVED ON A REAL PANE. The others
    * are a NAMED, UNRESOLVED RISK rather than a handled case: none has been seen
    * rendered, and this repo's standard is that a static string is a screen and
    * not the truth. Do not widen this without a live capture of the shape you are
    * widening it to, and route the human-blocked ones to NEEDS_YOU, never here.
    */
+  /* ⚠️ ABOVE `WORKING_LINE` ON PURPOSE, AND THE COST IS THE EVIDENCE LINE. When a
+     pane carries both this line and a live spinner, the card's `evidence` shows
+     the wait line rather than the spinner, which is the less informative of the
+     two. The state is identical either way, so this is a reporting nicety, not a
+     correctness question, and it is recorded rather than silently traded. */
   const bgWaitLine = backgroundAgentWait(tail);
   if (bgWaitLine !== null) {
     return {
