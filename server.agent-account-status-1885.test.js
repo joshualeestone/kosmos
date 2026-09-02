@@ -78,15 +78,21 @@ function born(name, configDir) {
 born('aria', ARIA_DIR);
 born('boss', null);
 
-/* The one faked boundary: `claude auth status`. It answers per config dir, the
-   way the real command does -- the suffixed dir's sign-in is dead, the default's
-   is live -- so the route's per-dir scoping is what decides each answer. */
+/* The one faked boundary: `claude auth status`. It is LIVE only when NO
+   CLAUDE_CONFIG_DIR is passed, and DEAD for any explicit dir. That is deliberate
+   and it is what locks BOTH scopings:
+   - aria (a labelled dir) is checked with {configDir: aria} -> dead -> the route
+     read the labelled dir.
+   - boss (the default) MUST be checked with NO configDir (accounts.listLive's
+     rule, so `claude` resolves the real ~/.claude.json and not the decoy
+     ~/.claude/.claude.json). If the route ever regressed to passing the
+     default's OWN dir, this fake would answer dead and `boss` would go red --
+     which is exactly the decoy-file bug accounts.js:287-301 exists to prevent,
+     now guarded here too rather than only for the labelled case. */
 subscription.setRunner(async (env) => {
   const dir = env && env.CLAUDE_CONFIG_DIR;
-  if (dir && dir.indexOf('.claude-aria') !== -1) {
-    return { stdout: JSON.stringify({ loggedIn: false, authMethod: 'none' }), err: null };
-  }
-  return { stdout: JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max', email: 'boss@example.com' }), err: null };
+  if (!dir) return { stdout: JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max', email: 'boss@example.com' }), err: null };
+  return { stdout: JSON.stringify({ loggedIn: false, authMethod: 'none' }), err: null };
 });
 
 const { start, server } = require('./server');
@@ -127,11 +133,16 @@ test('#1885: an agent on the LIVE default account reads connected, no remedy -- 
   assert.equal(r.body.connected, true, 'the agent on the live default read as not connected: ' + JSON.stringify(r.body));
   assert.equal(r.body.state, 'connected');
   assert.equal(r.body.remedy, null);
-  /* 🔑 THE PAIR IS THE PROOF. aria (suffixed) and boss (default) get OPPOSITE
-     answers from the SAME route in the same run, which can only happen if the
-     route scoped checkLive to each agent's own config dir -- the exact
-     dir-mismatch the bug turned on. A route that read one fixed dir would give
-     both the same answer. */
+  /* 🔑 THE PAIR IS THE PROOF, IN BOTH DIRECTIONS. aria (suffixed) and boss
+     (default) get OPPOSITE answers from the SAME route in the same run, which can
+     only happen if the route scoped checkLive to each agent's own config dir --
+     the exact dir-mismatch the bug turned on. A route that read one fixed dir
+     would give both the same answer.
+     🛑 AND boss GUARDS THE DEFAULT SCOPE SPECIFICALLY: the fake is live ONLY when
+     no configDir is passed, so `connected:true` here proves the route passed
+     UNDEFINED for the default (accounts.listLive's rule) and not the default's
+     own dir -- a regression to the latter is the decoy ~/.claude/.claude.json
+     bug, and it would turn this arm red. */
 });
 
 test('#1885: an unconfirmable sign-in is UNKNOWN (connected:null), never a guessed negative', async () => {
@@ -143,11 +154,12 @@ test('#1885: an unconfirmable sign-in is UNKNOWN (connected:null), never a guess
     assert.equal(r.body.state, 'unknown');
     assert.equal(r.body.remedy, null, 'a remedy was offered for a state we could not confirm');
   } finally {
-    // Restore the per-dir runner for any later test in this file.
+    // Restore the per-dir runner (live only when no configDir is passed) for any
+    // later test in this file.
     subscription.setRunner(async (env) => {
       const dir = env && env.CLAUDE_CONFIG_DIR;
-      if (dir && dir.indexOf('.claude-aria') !== -1) return { stdout: JSON.stringify({ loggedIn: false, authMethod: 'none' }), err: null };
-      return { stdout: JSON.stringify({ loggedIn: true, subscriptionType: 'max' }), err: null };
+      if (!dir) return { stdout: JSON.stringify({ loggedIn: true, subscriptionType: 'max' }), err: null };
+      return { stdout: JSON.stringify({ loggedIn: false, authMethod: 'none' }), err: null };
     });
   }
 });
