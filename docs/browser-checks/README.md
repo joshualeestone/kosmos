@@ -7,6 +7,46 @@ a browser, and this repo has no dependencies and is not about to grow one for a
 check that runs a few times a release. They live here so the next person can run
 exactly what was run, rather than re-deriving it.
 
+## Who can run these, and what a bot session actually cannot do
+
+**A committed headless check runs in ANY session on this machine, including a
+launchd Discord-bot session.** It needs no MCP and no `claude-fe`: it is a plain
+node script that requires playwright from a runtime installed OUTSIDE the repo.
+
+```
+NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
+  node docs/browser-checks/<check>.js    # + a local board on the port it expects
+```
+
+This is not a claim to take on faith. It is how `tools/browser-checks.sh` runs
+every check in this directory, and the fleet's agents run individual checks the
+same way from their own bot sessions -- the first-run checks here were verified
+exactly this way under #1801. `~/work/pw-runtime/node_modules` holds playwright,
+and the chromium build lives in the shared `~/Library/Caches/ms-playwright/`
+cache (`tools/provision-pw.sh` installs a pinned one).
+
+**The one thing a bot session cannot do is the INTERACTIVE Playwright MCP** --
+the `/browser-test`-style `navigate` / `click` an agent drives live. MCP servers
+bind at session start, a launchd bot session carries only the discord MCP, and it
+cannot relaunch itself with `claude-fe` (launchd drops
+`--dangerously-skip-permissions`, so a hand-rolled relaunch wedges on the first
+permission prompt). That, and only that, is the real limitation -- the narrow
+gap #1769 was filed about. Its original headline, "no agent can run a browser
+check", was over-broad and is corrected here: the miss was reading a
+missing MCP as a missing browser.
+
+⇒ **"I can check the endpoint but not the button" is only true if the button
+check needs the interactive MCP.** A committed headless render check OF the button
+-- does it paint, is it reachable by `elementFromPoint`, does a click through the
+real handler do the right thing against mocked routes (see `render-found-undo.js`)
+-- runs fine from a bot session. Write the check; do not ship a frontend change
+unverified for want of a tool you already have.
+
+⚠️ **The browser is contended.** Each check launches a real chromium, and a
+concurrent run during a release cut's page layer can starve it and false-red the
+cut (measured; it has cost a cut). The serving cut owns the browser until it says
+SERVED: do not run the gate, or a heavy ad-hoc check, while a release gate is up.
+
 ## Before you change rendered markup: sweep HERE, not the driver
 
 The assertions live in THIS directory, one file per surface -- **not** in
