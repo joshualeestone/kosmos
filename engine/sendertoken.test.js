@@ -20,7 +20,10 @@ const sendertoken = require('./sendertoken');
 
 test.after(() => {
   fleet.restore();
-  fs.rmSync(SANDBOX, { recursive: true, force: true });
+  /* maxRetries: the #1782 lock creates and removes lock/aside directories rapidly,
+     and macOS `rmSync` recursive can race on a directory whose entries are churning.
+     Retrying clears it. */
+  fs.rmSync(SANDBOX, { recursive: true, force: true, maxRetries: 5 });
 });
 
 /**
@@ -827,53 +830,66 @@ const nodeCP = require('node:child_process');
 const stStore = require('./store');
 const senderDir = () => path.join(stStore.ROOT, 'sendertokens');
 const lockPathFor = (name) => path.join(senderDir(), stStore.safeKey(name) + '.json.lock');
-const plantLock = (name, pid) => {
+/* Plant a lock directory. `ageMs` back-dates its mtime so a test can make it look
+   stale (older than LOCK_STALE_MS) without waiting; `withOwner` false models a
+   crash between mkdir and the owner write. */
+const plantLock = (name, { ageMs = 0, withOwner = true } = {}) => {
   fs.mkdirSync(senderDir(), { recursive: true });
   const lp = lockPathFor(name);
   fs.mkdirSync(lp, { recursive: true });
-  fs.writeFileSync(path.join(lp, 'owner'), String(pid));
+  if (withOwner) fs.writeFileSync(path.join(lp, 'owner'), 'someone.' + Date.now());
+  if (ageMs > 0) { const t = new Date(Date.now() - ageMs); fs.utimesSync(lp, t, t); }
   return lp;
 };
-
-test('#1782: mint FAILS SAFE and leaves the store unchanged when a LIVE process holds the lock', () => {
-  /* 🛑 THE CORE ARM. Two processes must not both write from a stale read. With a
-     live holder's lock present, mint must NOT read-modify-write; it must fail and
-     leave the existing tokens exactly as they were. pid 1 (launchd) is always
-     alive and foreign, so the lock cannot be broken as stale. Revert the
-     withSessionLock wrapping in mint and this reddens: mint writes despite the
-     held lock, so the store changes. */
+const withShortDeadline = (fn) => {
   const prev = process.env.AGENT_WORKFORCE_LOCK_MS;
   process.env.AGENT_WORKFORCE_LOCK_MS = '80';
-  try {
+  try { return fn(); }
+  finally { if (prev === undefined) delete process.env.AGENT_WORKFORCE_LOCK_MS; else process.env.AGENT_WORKFORCE_LOCK_MS = prev; }
+};
+
+test('#1782: mint FAILS SAFE and leaves the store unchanged while a FRESH lock is held', () => {
+  /* 🛑 THE CORE ARM. With a fresh (not stale) lock present, mint must NOT
+     read-modify-write; it must fail and leave the existing tokens exactly as they
+     were, rather than build a write from a stale read. Revert the withSessionLock
+     wrapping in mint and this reddens: mint writes despite the held lock. */
+  withShortDeadline(() => {
     const A = sendertoken.mint('lock-live');
     assert.equal(A.ok, true);
     assert.equal(sendertoken.live('lock-live').length, 1);
-    plantLock('lock-live', 1);
-    const B = sendertoken.mint('lock-live');
-    assert.equal(B.ok, false, 'mint proceeded while a live process held the lock');
-    assert.match(B.because, /ELOCKBUSY/, 'the busy reason did not carry the lock code');
-    const held = sendertoken.live('lock-live');
-    assert.equal(held.length, 1, 'the store changed under a held lock: a concurrent write path is open');
-    assert.equal(held[0], A.instance, 'the surviving token is not the one that was there');
-  } finally {
-    try { fs.rmSync(lockPathFor('lock-live'), { recursive: true, force: true }); } catch { /* cleanup */ }
-    if (prev === undefined) delete process.env.AGENT_WORKFORCE_LOCK_MS; else process.env.AGENT_WORKFORCE_LOCK_MS = prev;
-  }
+    plantLock('lock-live');                              // fresh, so not stealable
+    try {
+      const B = sendertoken.mint('lock-live');
+      assert.equal(B.ok, false, 'mint proceeded while a fresh lock was held');
+      assert.match(B.because, /ELOCKBUSY/, 'the busy reason did not carry the lock code');
+      const held = sendertoken.live('lock-live');
+      assert.equal(held.length, 1, 'the store changed under a held lock: a concurrent write path is open');
+      assert.equal(held[0], A.instance, 'the surviving token is not the one that was there');
+    } finally { try { fs.rmSync(lockPathFor('lock-live'), { recursive: true, force: true, maxRetries: 5 }); } catch { /* */ } }
+  });
 });
 
-test('#1782: mint BREAKS a lock left by a CRASHED (dead-pid) holder and succeeds', () => {
-  /* A holder that died mid-critical-section leaves its lock dir. It must not
-     deadlock every future mint. The dead pid reads ESRCH, so the lock is broken.
-     Revert lockHolderIsDead's break and this reddens: mint waits to the deadline
-     and returns ELOCKBUSY instead of ok. */
-  const dead = nodeCP.spawnSync(process.execPath, ['-e', '0']).pid;
-  let isDead = false; try { process.kill(dead, 0); } catch (e) { isDead = e.code === 'ESRCH'; }
-  assert.ok(isDead, `pid ${dead} was reused; re-run`);
-  plantLock('lock-stale', dead);
+test('#1782: mint STEALS a STALE (old-mtime) lock and succeeds', () => {
+  /* A lock older than LOCK_STALE_MS is debris from a crashed holder. It must not
+     wedge future mints. Revert the staleness/rename-steal branch and this reddens:
+     mint waits to the deadline and returns ELOCKBUSY instead of ok. */
+  plantLock('lock-stale', { ageMs: 15000 });            // 15s > LOCK_STALE_MS
   const r = sendertoken.mint('lock-stale');
-  assert.equal(r.ok, true, 'a crashed holder\'s lock was not broken, so mint deadlocked');
-  assert.equal(sendertoken.live('lock-stale').length, 1, 'the token was not written after breaking the stale lock');
-  assert.equal(fs.existsSync(lockPathFor('lock-stale')), false, 'the lock dir was not released');
+  assert.equal(r.ok, true, 'a stale lock was not stolen, so mint could not proceed');
+  assert.equal(sendertoken.live('lock-stale').length, 1, 'the token was not written after stealing the stale lock');
+  assert.equal(fs.existsSync(lockPathFor('lock-stale')), false, 'the stale lock dir was not released');
+});
+
+test('#1782: mint steals a stale OWNER-LESS lock (crash BETWEEN mkdir and owner-write)', () => {
+  /* 🛑 THE WEDGE FINDING. A crash after mkdir but before the owner file is written
+     leaves an owner-less lock that no liveness check could ever break. Age-based
+     staleness collects it. Without the age fallback this deadlocks the session
+     forever. */
+  plantLock('lock-noowner', { ageMs: 15000, withOwner: false });
+  const r = sendertoken.mint('lock-noowner');
+  assert.equal(r.ok, true, 'an owner-less stale lock wedged mint - the crash-between-mkdir-and-owner case');
+  assert.equal(sendertoken.live('lock-noowner').length, 1);
+  assert.equal(fs.existsSync(lockPathFor('lock-noowner')), false, 'the owner-less lock dir was not released');
 });
 
 test('#1782: mint RELEASES the lock on success (no leak)', () => {
@@ -882,19 +898,32 @@ test('#1782: mint RELEASES the lock on success (no leak)', () => {
   assert.equal(fs.existsSync(lockPathFor('lock-release')), false, 'the lock dir leaked after a successful mint');
 });
 
-test('#1782: retire is serialized on the SAME lock (fails safe under a live holder)', () => {
-  const prev = process.env.AGENT_WORKFORCE_LOCK_MS;
-  process.env.AGENT_WORKFORCE_LOCK_MS = '80';
-  try {
+test('#1782: retire is serialized on the SAME lock (fails safe under a fresh held lock)', () => {
+  withShortDeadline(() => {
     const A = sendertoken.mint('lock-retire');
-    plantLock('lock-retire', 1);
-    const r = sendertoken.retire('lock-retire', A.instance);
-    assert.equal(r.ok, false, 'retire proceeded while a live process held the lock');
-    assert.equal(sendertoken.live('lock-retire').length, 1, 'retire changed the store under a held lock');
-  } finally {
-    try { fs.rmSync(lockPathFor('lock-retire'), { recursive: true, force: true }); } catch { /* cleanup */ }
-    if (prev === undefined) delete process.env.AGENT_WORKFORCE_LOCK_MS; else process.env.AGENT_WORKFORCE_LOCK_MS = prev;
-  }
+    plantLock('lock-retire');
+    try {
+      const r = sendertoken.retire('lock-retire', A.instance);
+      assert.equal(r.ok, false, 'retire proceeded while a fresh lock was held');
+      assert.match(r.because, /ELOCKBUSY/, 'retire dropped the lock code');
+      assert.equal(sendertoken.live('lock-retire').length, 1, 'retire changed the store under a held lock');
+    } finally { try { fs.rmSync(lockPathFor('lock-retire'), { recursive: true, force: true, maxRetries: 5 }); } catch { /* */ } }
+  });
+});
+
+test('#1782: revoke is serialized on the SAME lock (fails safe under a fresh held lock)', () => {
+  /* create.js uses revoke as the new-agent security gate; a straggler mint racing
+     it must not resurrect a token. Under the lock, a held lock makes revoke wait /
+     fail rather than race the mint. */
+  withShortDeadline(() => {
+    sendertoken.mint('lock-revoke');
+    plantLock('lock-revoke');
+    try {
+      const r = sendertoken.revoke('lock-revoke');
+      assert.equal(r.ok, false, 'revoke proceeded while a fresh lock was held - it is not serialized against mint');
+      assert.match(r.because, /ELOCKBUSY/, 'revoke dropped the lock code');
+    } finally { try { fs.rmSync(lockPathFor('lock-revoke'), { recursive: true, force: true, maxRetries: 5 }); } catch { /* */ } }
+  });
 });
 
 test('#1782: N CONCURRENT PROCESSES minting the same agent lose NO token', async () => {

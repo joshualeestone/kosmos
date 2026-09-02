@@ -142,70 +142,84 @@ function writeTokens(sessionName, tokens) {
    the case it must not produce. Same-process callers cannot hit it (`writeSecret`
    is synchronous), but two processes are a real launch pattern.
    ✅ A per-session lock serializes the whole critical section across processes. */
-const LOCK_DEADLINE_MS = 2000;   // how long to wait for a live holder before failing safe
-const LOCK_SPIN_MS = 15;         // between acquire attempts
+/* ⭐ THIS LOCK IS chat.js's PROVEN `withThreadLock` (round 19), TRANSCRIBED
+   rather than reinvented. A first hand-rolled version reintroduced three bugs
+   chat.js had already fixed and a blind pass caught them: a `rmdir` break that
+   two waiters can BOTH win (each demolishing the other's fresh lock and walking
+   into the section together); a crash between `mkdir` and writing the owner that
+   leaves an owner-less lock no liveness check can break, wedging the session
+   forever; and no age fallback for either. The two file locks should be ONE
+   shared primitive, but that must touch chat.js (required fleet-wide via
+   status.js, which requires THIS module - so extracting it here would be
+   circular), so it is filed as its own reviewed change: kosmos#1823. */
+const LOCK_WAIT_MS = 2000;        // total wait for a live holder before failing safe
+const LOCK_STALE_MS = 10 * 1000;  // the section is two file ops; a lock older than this is debris, broken not waited
+const LOCK_SPIN_MS = 20;
 
-/* A SYNCHRONOUS wait, because mint/retire are synchronous and hold the lock
-   across the read and the write. `Atomics.wait` parks this thread without
-   busy-spinning; the fallback covers a runtime without SharedArrayBuffer. */
-function sleepSync(ms) {
-  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
-  catch { const end = Date.now() + ms; while (Date.now() < end) { /* spin */ } }
+const PARK = new Int32Array(new SharedArrayBuffer(4));
+function pauseMs(ms) {
+  try { Atomics.wait(PARK, 0, 0, ms); }
+  catch { const end = Date.now() + ms; while (Date.now() < end) { /* no SharedArrayBuffer: bounded spin */ } }
 }
 
-/* True ONLY when the lock's owner is a process we can PROVE is gone
-   (`process.kill(pid,0)` throws ESRCH). An unreadable or not-yet-written owner
-   (a lock another process is mid-creating) is NOT proven dead, so we wait rather
-   than break it. Same "act only on a process you can prove is dead" rule as the
-   securewrite reaper (#1793); pid reuse reads as alive and we wait, which fails
-   safe. */
-function lockHolderIsDead(ownerPath) {
-  let pid;
-  try { pid = Number(fs.readFileSync(ownerPath, 'utf8').trim()); } catch { return false; }
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try { process.kill(pid, 0); return false; } catch (e) { return !!(e && e.code === 'ESRCH'); }
-}
+const LOCK_BUSY = 'the sender-token store is busy (ELOCKBUSY)';
 
-/* Run `fn` holding an exclusive per-session lock. The lock is a DIRECTORY:
-   `mkdirSync` is atomic and fails EEXIST if it already exists, which is the
-   cross-process mutual exclusion. A lock left by a CRASHED holder is broken by
-   liveness; a lock held by a LIVE holder is waited on, and if it will not clear
-   we FAIL rather than break it - breaking a live holder's lock to force progress
-   would reintroduce the very lost-update this fixes. */
+/* Run `fn` holding an exclusive per-session lock; returns `{ ok:true, value }`,
+   or `{ ok:false, because }` when the lock cannot be taken. It NEVER throws for
+   the lock itself - a `fn` throw propagates through the release. The lock is a
+   DIRECTORY (`mkdirSync` is atomic, EEXIST if held).
+
+   🛑 A stale lock is STOLEN BY RENAME, not `rmdir`. Two waiters can both measure
+   one as stale; with `rmdir` both remove it and both proceed - the second
+   demolishing the first's fresh lock and entering the section beside it, the
+   exact interleave this prevents, through the path that repairs it. `rename` of a
+   path succeeds ONCE; the loser gets ENOENT and loops. Rename also copes with a
+   non-empty lock dir a crash can leave, which `rmdir` cannot.
+   🛑 Staleness is by AGE, not owner liveness, so a crash between `mkdir` and the
+   owner write - an owner-less lock no liveness check could break - is collected. */
 function withSessionLock(sessionName, fn) {
   securewrite.secureDir(DIR, 0o700);          // the lock lives inside the 0700 store dir
-  const lockPath = fileFor(sessionName) + '.lock';
-  const ownerPath = path.join(lockPath, 'owner');
-  const deadline = Date.now() + (Number(process.env.AGENT_WORKFORCE_LOCK_MS) || LOCK_DEADLINE_MS);
+  const lock = fileFor(sessionName) + '.lock';
+  const waitMs = Number(process.env.AGENT_WORKFORCE_LOCK_MS);
+  const until = Date.now() + (Number.isFinite(waitMs) && waitMs >= 0 ? waitMs : LOCK_WAIT_MS);
   for (;;) {
-    try {
-      fs.mkdirSync(lockPath);                  // atomic acquire
-      break;
-    } catch (e) {
-      if (!e || e.code !== 'EEXIST') throw e;   // a real error (perms, missing parent): surface it
-      if (lockHolderIsDead(ownerPath)) {        // a crashed holder: break it and retry immediately
-        try { fs.unlinkSync(ownerPath); } catch { /* already gone */ }
-        try { fs.rmdirSync(lockPath); } catch { /* another waiter broke it, or it has unexpected contents */ }
+    try { fs.mkdirSync(lock); break; }
+    catch (e) {
+      if (!e || e.code !== 'EEXIST') return { ok: false, because: 'we could not get exclusive access to that agent\'s tokens' };
+      if (Date.now() > until) return { ok: false, because: LOCK_BUSY };
+      let age = 0;
+      try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch { age = Infinity; }
+      if (age > LOCK_STALE_MS) {
+        const aside = `${lock}.${process.pid}.${Date.now()}.stale`;
+        try { fs.renameSync(lock, aside); }
+        catch { pauseMs(LOCK_SPIN_MS); continue; }   // someone else won the steal, or it vanished
+        try { fs.rmSync(aside, { recursive: true, force: true, maxRetries: 5 }); } catch { /* debris, not fatal */ }
         continue;
       }
-      if (Date.now() >= deadline) {             // a live holder that will not clear: fail safe, do not corrupt
-        const err = new Error('the sender-token store is busy'); err.code = 'ELOCKBUSY'; throw err;
-      }
-      sleepSync(LOCK_SPIN_MS);
+      pauseMs(LOCK_SPIN_MS);
     }
   }
+  /* 🛑 THE LOCK DIR MUST BE OWNER-WRITABLE WHATEVER THE UMASK. `mkdirSync` above
+     takes its mode from the process umask, and a restrictive one (the #1761 umask
+     test sets 0o600) leaves the dir without owner write - the owner file below
+     then cannot be created, `marked` stays false, the release is skipped, and an
+     unusable empty lock dir is left that wedges the session. chmod restores our
+     access; best-effort, since if it fails the owner-token release below simply
+     leaves the lock for the staleness rule. */
+  try { fs.chmodSync(lock, 0o700); } catch { /* best-effort */ }
+  /* A token in the lock makes ownership checkable, so a holder whose section
+     outlived LOCK_STALE_MS and was stolen does not delete the SUCCESSOR's lock on
+     the way out. Losing the marker (an unwritable dir) only means we cannot prove
+     the lock is ours, so we leave it for the staleness rule to collect. */
+  const token = `${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`;
+  let marked = false;
+  try { fs.writeFileSync(path.join(lock, 'owner'), token); marked = true; } catch { marked = false; }
   try {
-    /* The owner is a hint for another process's staleness check, not required
-       for correctness, so a failure to write it is not fatal. */
-    try { fs.writeFileSync(ownerPath, String(process.pid)); } catch { /* best-effort */ }
-    return fn();
+    return { ok: true, value: fn() };
   } finally {
-    /* Release with unlink + rmdir rather than a recursive rm: the lock dir holds
-       exactly the `owner` file, and rmdir on the now-empty dir is atomic and
-       cannot leave a partially-removed directory behind (a recursive rm on macOS
-       can race and leave the dir, which then trips a later recursive cleanup). */
-    try { fs.unlinkSync(ownerPath); } catch { /* owner may never have been written */ }
-    try { fs.rmdirSync(lockPath); } catch { /* best-effort release */ }
+    let ours = marked;
+    if (marked) { try { ours = fs.readFileSync(path.join(lock, 'owner'), 'utf8') === token; } catch { ours = false; } }
+    if (ours) { try { fs.rmSync(lock, { recursive: true, force: true, maxRetries: 5 }); } catch { /* already gone */ } }
   }
 }
 
@@ -219,10 +233,11 @@ function mint(sessionName) {
   }
   const token = crypto.randomBytes(TOKEN_BYTES).toString('hex');
   const instance = crypto.randomBytes(INSTANCE_BYTES).toString('hex');
+  let held;
   try {
     /* #1782: read and write under the lock, so a concurrent launch cannot build
        its write from a list that predates ours and drop this token. */
-    withSessionLock(sessionName, () => {
+    held = withSessionLock(sessionName, () => {
       const tokens = readTokens(sessionName);
       tokens.push({ token, instance, mintedAt: new Date().toISOString() });
       writeTokens(sessionName, tokens.slice(-MAX_LIVE));
@@ -234,30 +249,48 @@ function mint(sessionName) {
        this reason; this was the fourth and it was inverted. */
     return { ok: false, because: 'we could not keep the token for that agent' + ((e && e.code) ? ' (' + e.code + ')' : '') };
   }
+  if (!held.ok) return { ok: false, because: held.because };   // the store was busy; we did not write
   return { ok: true, token, instance };
 }
 
-/** Drop EVERY token for an agent. A deleted or recreated agent stops speaking. */
-function revoke(sessionName) {
+/* The whole-file unlink, WITHOUT the lock. `retire` calls this while it already
+   holds the lock; `revoke` (public) takes the lock around it. */
+function revokeUnlocked(sessionName) {
   try { fs.unlinkSync(fileFor(sessionName)); return { ok: true }; } catch (e) {
     if (e && e.code === 'ENOENT') return { ok: true };
     return { ok: false, because: 'we could not remove that agent\'s tokens' };
   }
 }
 
+/** Drop EVERY token for an agent. A deleted or recreated agent stops speaking.
+ *  #1782: under the lock, so a straggler `mint` cannot land its write between the
+ *  read and this unlink and resurrect a token the recreate meant to erase -
+ *  `create.js` uses `revoke` as exactly that new-agent security gate. */
+function revoke(sessionName) {
+  let held;
+  try { held = withSessionLock(sessionName, () => revokeUnlocked(sessionName)); }
+  catch { return { ok: false, because: 'we could not remove that agent\'s tokens' }; }
+  if (!held.ok) return { ok: false, because: held.because };
+  return held.value;
+}
+
 /** Drop ONE run's token, leaving the agent's other live runs alone. */
 function retire(sessionName, instance) {
+  let held;
   try {
     /* #1782: retire is read-modify-write too - filtering one instance out of the
        list and rewriting it. Under the lock, so a concurrent mint/retire cannot
-       lose an update the same way. */
-    return withSessionLock(sessionName, () => {
+       lose an update the same way. Calls `revokeUnlocked` (not `revoke`) because
+       it already holds the lock. */
+    held = withSessionLock(sessionName, () => {
       const left = readTokens(sessionName).filter((t) => t.instance !== instance);
-      if (left.length === 0) return revoke(sessionName);
+      if (left.length === 0) return revokeUnlocked(sessionName);
       writeTokens(sessionName, left);
       return { ok: true };
     });
   } catch { return { ok: false, because: 'we could not retire that run' }; }
+  if (!held.ok) return { ok: false, because: held.because };   // busy; carries ELOCKBUSY
+  return held.value;
 }
 
 /**
