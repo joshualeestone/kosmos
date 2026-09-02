@@ -1658,6 +1658,40 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     assert.notEqual(classify(pane, human + footer).state, 'working',
       'a human-blocked wait reached WORKING through the background-agent rule: ' + human);
   }
+  /* ⚠️ AND DO NOT READ THAT LOOP AS "these four are handled". They are NOT. All
+     four currently classify `idle`, which is itself a false calm -- an agent
+     blocked on a person, shown at rest. The row pins only that THIS rule does not
+     make them worse, and it stays green when someone later routes them to
+     `needs_you`, which is the right fix and is not this card's. */
+  assert.equal(classify(pane, '✻ Waiting for permission' + footer).state, 'idle',
+    'documenting the known gap: a human-blocked wait reads idle, it is not handled');
+
+  /**
+   * 🛑 THE GLYPH CLASS EXCLUDES `*`, UNLIKE `WORKING_LINE`'s. That sibling can
+   * afford `*` because an echoed line would also need an ellipsis AND a live
+   * timer; this line needs neither, so a plain markdown bullet would read as a
+   * working agent on any pane showing markdown.
+   */
+  assert.notEqual(classify(pane, '* Waiting for 3 background agents to finish' + footer).state, 'working',
+    'a markdown bullet was read as a live status line');
+
+  /**
+   * 🛑 THE REACH IS ANCHORED TO THE COMPOSER, AND THIS ROW PINS THE TIGHT
+   * DIRECTION, WHICH THE FIRST VERSION LEFT OPEN. Shrinking the reach used to
+   * leave every row green while silently regressing live panes to `idle` -- the
+   * false-calm direction this card exists to close.
+   *
+   * The footer grows by one `◯ …` row per background agent, which is the very
+   * quantity this line reports, so a last-row anchor runs out of budget at
+   * exactly the busiest case. Measured before the fix: 9 agents returned `idle`.
+   */
+  for (const n of [1, 5, 9, 15]) {
+    const many = ['✻ Waiting for ' + n + ' background agents to finish', '', '────', '❯ ', '────',
+      '  agent · Opus 5 · ctx 50%', '  ⏵⏵ bypass permissions on · ← for agents', '', '  ⏺ main']
+      .concat(new Array(n).fill('  ◯ general-purpose  doing a thing 43s · ↓ 1.0k tokens')).join('\n');
+    assert.equal(classify(pane, many).state, 'working',
+      'the reader went quiet at ' + n + ' background agents, which is the busiest case');
+  }
 
   /**
    * 🛑 PRECEDENCE, AND NOTHING ELSE PINNED IT. The rule sits BELOW the

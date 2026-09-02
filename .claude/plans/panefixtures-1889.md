@@ -29,7 +29,9 @@ different flags would be testing a different string than the product reads.
 
 Live on `icecreamkitty-discord:0.0`:
 
-    ✻ Waiting for 1 background agent to finish
+    * ✻ Waiting for 1 background agent to finish   <- `*`-prefixed on purpose:
+      an unprefixed copy makes THIS FILE match the reader it documents, so an
+      agent that cats it would read `working` while idle.
 
 No gerund ellipsis and no parenthesised timer, so `WORKING_LINE` cannot match.
 Measured with the scrapers alone: `classify()` returns `idle`, "it is sitting at
@@ -147,6 +149,29 @@ other three. Do not read the merge as the card being done.
   match reds exactly 1 of 159 in `status.test.js`; restoring returns 159/159.
 - Full suite `bash tools/run-tests.sh`: **exit 0**, 4537 lines, zero failures,
   and the new test runs inside it.
+
+## A correction about my own perturbation instrument
+
+The iteration-1 commit claimed "the perturbation reds 12 tests" for hoisting the
+block above `asksSomething`. **The real number is 1, and the 12 was my
+instrument, not the code.**
+
+My perturbation script extracted the block by finding the next `  }` after
+`evidence: bgWaitLine,` -- which is the object literal's brace, not the `if`
+block's. So it moved an unbalanced fragment, left a dangling `}` behind, and
+corrupted `classify()`'s control flow. The file still PARSED, and 12 unrelated
+precedence tests went red, which read as broad redundant coverage.
+
+With a brace-balanced perturbation (asserted balanced before use) the hoist reds
+exactly **1** test: the one this branch adds. That is the honest state --
+precedence is held by a single assertion, which is enough, but it is not the
+depth the first number implied.
+
+⭐ The lesson is the one this whole branch keeps re-learning: **the instrument
+produced a reassuring number, and a reassuring number is the one nobody
+re-checks.** A blind reviewer measured 1, I re-measured and got 12 twice, and
+only inspecting what my script actually cut settled it. Assert your perturbation
+is well-formed before believing what it tells you.
 
 ## Weakest premise
 
