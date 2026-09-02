@@ -435,13 +435,17 @@ async function measure(engine, scheme) {
            (light), and k-surface vs bg in dark. Same rule, different resolved colour, BY
            DESIGN. A first version of this check compared fills and went red on a correct
            build; what the shared rule actually guarantees is the dressing (border colour,
-           radius) and that each box stands apart from ITS OWN container, asserted below. */
+           radius) and that each box stands apart from ITS OWN container, asserted below.
+           ⚠️ THAT SECOND ASSERTION IS NOT A DUPLICATE OF THE GENERIC LEVEL CHECK ABOVE. The
+           generic loop skips any fill with alpha <= 0.5 and dir() returns n/a at alpha 0,
+           so a fully TRANSPARENT #import-text passes both of them; this line is the only
+           one that goes red on it. Do not remove it as redundant. */
         /* Border WIDTH too: colour and radius alone stay identical under
            `border-width: 0`, which removes exactly the edge the defect was about. */
         const same = instr.border === imp.border && instr.borderW === imp.borderW && instr.radius === imp.radius;
         if (!same) fail(`${engine}/${scheme} #1800 #import-text is not dressed like #create-instr: border ${imp.borderW} ${imp.border} vs ${instr.borderW} ${instr.border}, radius ${imp.radius} vs ${instr.radius}`);
         const rr = imp.box && imp.fill ? ratio(imp.fill, imp.box) : null;
-        if (rr === null || rr < 1.03) fail(`${engine}/${scheme} #1800 #import-text is not distinguishable from ${imp.boxName} (${imp.fill} on ${imp.box})`);
+        if (rr === null || rr < 1.03) fail(`${engine}/${scheme} #1800 #import-text is not distinguishable from ${imp.boxName} (${imp.fill} on ${imp.box}); in light that pair is --field-fill=var(--bg) paper on the card's --bg-elevated, so a token nudge toward white lands here, not only a rule change`);
         console.log(`  #1800 import box dressed like its sibling textarea: ${same ? 'yes' : 'NO'}; apart from ${imp.boxName} at ${rr === null ? 'n/a' : rr.toFixed(2)} (${imp.fill} on ${imp.box})`);
       }
 
