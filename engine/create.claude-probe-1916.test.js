@@ -30,6 +30,7 @@ case "$FAKE_MODE" in
   ok)   echo ok; exit 0;;
   dead) echo 'Please run /login · API Error: 401 OAuth access token has expired.' >&2; exit 1;;
   hang) echo 'API Error: 401 OAuth access token has expired.'; sleep 5; exit 1;;
+  flagcheck) case "$*" in *--strict-mcp-config*) echo ok; exit 0;; *) echo 'MISSING --strict-mcp-config'; exit 1;; esac;;
   *)    exit 0;;
 esac
 `, { mode: 0o755 });
@@ -64,6 +65,16 @@ test('#1916 probe: a HUNG probe is killed at the timeout, and its already-printe
   delete process.env.AGENT_WORKFORCE_CLAUDE_PROBE_TIMEOUT_MS;
   assert.equal(state, sub.STATE.NONE, 'a killed-at-timeout dead probe lost its printed 401');
   assert.ok(elapsed < 4000, 'the probe was not killed at the timeout (took ' + elapsed + 'ms)');
+});
+
+test('#1916 probe: the probe passes --strict-mcp-config so a broken CONNECTOR cannot false-refuse a live account', async () => {
+  /* The fake exits 0 only if --strict-mcp-config is in its argv, so CONNECTED
+     here proves defaultClaudeProbe isolates the probe from the account's MCP
+     servers -- otherwise a connector's expired-token diagnostics would land in
+     the classified output and read the live account as dead. */
+  process.env.FAKE_MODE = 'flagcheck';
+  assert.equal(await create.claudeAccountLive(null), sub.STATE.CONNECTED,
+    'defaultClaudeProbe did not pass --strict-mcp-config (a broken connector could false-refuse a live account)');
 });
 
 test('#1916 probe: an unrunnable claude binary is UNKNOWN (fail-open), never dead', async () => {

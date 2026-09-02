@@ -2030,7 +2030,15 @@ function defaultClaudeProbe(configDir) {
     // killed and its partial output classified.
     const t = Number(process.env.AGENT_WORKFORCE_CLAUDE_PROBE_TIMEOUT_MS);
     const timeout = Number.isFinite(t) && t > 0 ? t : 15000;
-    execFile(bin, ['-p', 'reply with the single word ok'],
+    /* 🛑 --strict-mcp-config ISOLATES THE PROBE FROM THE ACCOUNT'S MCP SERVERS.
+       In -p mode Claude Code otherwise initializes the account's configured MCP
+       connectors, and a connector whose OWN OAuth token is expired (a Google
+       Drive / Discord connector, say) prints auth diagnostics to stderr that we
+       would classify -- misreading a LIVE, paid account with one broken connector
+       as a dead sign-in and false-refusing the create. This flag uses only MCP
+       servers from --mcp-config (none given), ignoring all others, so the probe
+       measures the ACCOUNT's own auth and nothing else. */
+    execFile(bin, ['-p', '--strict-mcp-config', 'reply with the single word ok'],
       { env, timeout, maxBuffer: 1 << 20, killSignal: 'SIGKILL' },
       (err, stdout, stderr) => {
         // On timeout, err.killed is true and partial stdout/stderr survive -- the
