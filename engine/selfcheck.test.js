@@ -14,7 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const { verifyFiles, fetchManifest, selfCheck } = require('./selfcheck');
+const { verifyFiles, fetchManifest, selfCheck, reportLines } = require('./selfcheck');
 
 const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
@@ -187,4 +187,40 @@ test('a manifest entry pointing at a directory is reported as bad (unreadable), 
     assert.equal(r.bad.length, 1, 'a directory cannot be hashed as a file');
     assert.equal(r.bad[0].path, 'adir');
   } finally { cleanup(); }
+});
+
+// reportLines() is the CLI's rendering + exit code. It is tested directly because the CLI
+// is the main user-facing surface and shipped an `undefined`-printing bug (uncaught because
+// nothing exercised it) and an exit-0-on-a-real-defect gap.
+test('reportLines names the version on success and never prints "undefined" (the CLI regression)', () => {
+  const { code, out } = reportLines({ ok: true, checked: 5, installed: true, installedVersion: '0.6.22', latestVersion: '0.6.22', behind: false });
+  assert.equal(code, 0);
+  const line = out.join('\n');
+  assert.match(line, /0\.6\.22/, 'the success line names the installed version');
+  assert.doesNotMatch(line, /undefined/, 'the success line must not print undefined');
+});
+
+test('reportLines surfaces the behind state on success', () => {
+  const { code, out } = reportLines({ ok: true, checked: 5, installed: true, installedVersion: '0.6.20', latestVersion: '0.6.22', behind: true });
+  assert.equal(code, 0);
+  assert.match(out.join('\n'), /behind latest 0\.6\.22/);
+});
+
+test('reportLines: a from-source checkout is benign (exit 0)', () => {
+  const r = { ok: false, installed: false, reason: 'not an installed bundle (running from source) -- nothing to self-check' };
+  assert.equal(reportLines(r).code, 0, 'from-source is not a failure');
+});
+
+test('reportLines: an INSTALLED machine with an unreadable version FAILS (exit 1), not exit 0', () => {
+  const r = { ok: false, installed: true, reason: 'could not read the installed version from /x/app/package.json' };
+  const { code, err } = reportLines(r);
+  assert.equal(code, 1, 'an installed machine we could not verify must not report clean');
+  assert.match(err.join('\n'), /could not read the installed version/);
+});
+
+test('reportLines: mismatches produce exit 1 and name the file', () => {
+  const r = { ok: false, installed: true, root: '/x', checked: 4, mismatches: [{ path: 'app/server.js', expected: 'a', actual: 'b' }], missing: [], bad: [] };
+  const { code, err } = reportLines(r);
+  assert.equal(code, 1);
+  assert.match(err.join('\n'), /MISMATCH app\/server\.js/);
 });

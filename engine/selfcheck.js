@@ -18,6 +18,15 @@
  * The manifest `files` array is [{path, sha256}] over the exact set the tarball packs
  * (bin app runtime VERSION), paths relative to the bundle root (build-kosmos-bundle.sh),
  * so the shas the build recorded are the ones checked here.
+ *
+ * SCOPE / THREAT MODEL (stated so the guarantee is not over-read): this detects DISK
+ * integrity -- bit-rot, a truncated/partial install, accidental local modification. The
+ * fetched manifest is authenticated by TLS ALONE: latest.json's sha256 is the *tarball*
+ * digest, not the manifest's, so nothing here binds the served manifest to the published
+ * release. An adversary who can serve or alter the manifest can also serve matching
+ * per-file shas and get a pass. Detecting that needs the manifest's own sha in latest.json
+ * (a follow-up) -- until then this is a bit-rot/accidental-corruption check, not an
+ * anti-tamper boundary, matching tools/verify-manifest.sh's existing trust model.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -28,7 +37,12 @@ const { installedRoot } = require('./update');
 // convention; the CLI/callers may override, and the tests always inject their own.
 const DEFAULT_BASE = process.env.AGENT_WORKFORCE_RELEASE_BASE || 'https://installkosmos.com/dist';
 
-// Stream the file so a large runtime binary is not read wholly into memory.
+// Stream the file so a large runtime binary is not read wholly into memory. createReadStream
+// FOLLOWS symlinks -- deliberate: the build hashes each file with `shasum` (which also follows
+// links), so hashing the link target matches how the manifest sha was recorded. escapesRoot
+// guards only the lexical manifest PATH, not a symlink target; within the card's disk-integrity
+// scope (a trusted manifest) that is sufficient, and it avoids rejecting a legitimately-linked
+// bundle file.
 function hashFile(abs) {
   return new Promise((resolve, reject) => {
     const h = crypto.createHash('sha256');
@@ -160,12 +174,16 @@ async function fetchManifest({ base = DEFAULT_BASE, doFetch } = {}) {
  */
 async function selfCheck({ base = DEFAULT_BASE, root, doFetch } = {}) {
   const installed = root || installedRoot();
+  // `installed` (boolean) discriminates the two ok:false-with-reason cases the CLI must
+  // treat differently: a from-source checkout is benign (exit 0), but an INSTALLED machine
+  // we could not read a version off is a real integrity defect (exit 1) -- an unreadable
+  // bundle package.json must not report clean.
   if (!installed) {
-    return { ok: false, reason: 'not an installed bundle (running from source) -- nothing to self-check' };
+    return { ok: false, installed: false, reason: 'not an installed bundle (running from source) -- nothing to self-check' };
   }
   const iv = installedVersion(installed);
   if (!iv) {
-    return { ok: false, reason: `could not read the installed version from ${installed}/app/package.json` };
+    return { ok: false, installed: true, reason: `could not read the installed version from ${installed}/app/package.json` };
   }
   const { latest } = await fetchLatestJson({ base, doFetch });
   const name = manifestNameFor(iv, latest.manifest);
@@ -176,34 +194,48 @@ async function selfCheck({ base = DEFAULT_BASE, root, doFetch } = {}) {
     throw new Error(`manifest ${name} is for ${manifest.version}, not the installed ${iv}`);
   }
   const res = await verifyFiles(installed, manifest.files);
-  return { ...res, root: installed, installedVersion: iv, latestVersion: latest.version, behind: iv !== latest.version };
+  return { ...res, installed: true, root: installed, installedVersion: iv, latestVersion: latest.version, behind: iv !== latest.version };
+}
+
+// reportLines(r) -> { code, out[], err[] } : the CLI's rendering + exit code, extracted as a
+// PURE function so it is testable (the CLI is the main user-facing surface and had an
+// `undefined`-printing bug precisely because nothing exercised it). Exit-code contract:
+//   ok                                -> 0, a success line (noting `behind` if applicable)
+//   from-source (installed === false) -> 0, "nothing to check"
+//   installed but NOT ok              -> 1, the mismatches/missing/bad or the reason
+function reportLines(r) {
+  if (r.ok) {
+    const behind = r.behind ? ` (behind latest ${r.latestVersion})` : '';
+    return { code: 0, out: [`selfcheck OK: ${r.checked} files match the manifest for ${r.installedVersion}${behind}`], err: [] };
+  }
+  if (r.installed === false) {
+    return { code: 0, out: [`selfcheck: ${r.reason}`], err: [] };
+  }
+  const err = [`selfcheck FAILED${r.root ? ' for ' + r.root : ''}`];
+  for (const m of r.mismatches || []) err.push(`  MISMATCH ${m.path}: manifest ${m.expected}, on disk ${m.actual}`);
+  for (const m of r.missing || []) err.push(`  MISSING  ${m.path} (manifest ${m.expected})`);
+  for (const b of r.bad || []) err.push(`  BAD      ${b.path}: ${b.reason}`);
+  if (r.reason) err.push(`  ${r.reason}`);
+  return { code: 1, out: [], err };
 }
 
 module.exports = {
   verifyFiles, fetchManifest, fetchManifestNamed, fetchLatestJson,
-  selfCheck, hashFile, installedVersion, manifestNameFor, DEFAULT_BASE,
+  selfCheck, reportLines, hashFile, installedVersion, manifestNameFor, DEFAULT_BASE,
 };
 
-// CLI: `node engine/selfcheck.js` verifies this installed machine against the published
-// manifest and exits non-zero on any mismatch/missing file, so a person or a cron can run
-// it. A verifier nobody can invoke is not a verifier.
+// CLI: `node engine/selfcheck.js` verifies this installed machine against the manifest for
+// the version it runs, and exits non-zero on any mismatch/missing/bad file (or an installed
+// machine it could not read a version off), so a person or a cron can run it. A verifier
+// nobody can invoke is not a verifier. The rendering + exit code live in reportLines() so
+// they are testable without spawning the process.
 if (require.main === module) {
   selfCheck()
     .then((r) => {
-      if (r.ok) {
-        console.log(`selfcheck OK: ${r.checked} files match manifest ${r.manifestVersion} (running ${r.publishedVersion})`);
-        process.exit(0);
-      }
-      if (r.reason && r.checked === undefined) {
-        console.log(`selfcheck: ${r.reason}`);
-        process.exit(0); // from-source or nothing to check is not a failure
-      }
-      console.error(`selfcheck FAILED for ${r.root}`);
-      for (const m of r.mismatches || []) console.error(`  MISMATCH ${m.path}: manifest ${m.expected}, on disk ${m.actual}`);
-      for (const m of r.missing || []) console.error(`  MISSING  ${m.path} (manifest ${m.expected})`);
-      for (const b of r.bad || []) console.error(`  BAD      ${b.path}: ${b.reason}`);
-      if (r.reason) console.error(`  ${r.reason}`);
-      process.exit(1);
+      const { code, out, err } = reportLines(r);
+      for (const l of out) console.log(l);
+      for (const l of err) console.error(l);
+      process.exit(code);
     })
     .catch((e) => { console.error(`selfcheck error: ${e.message}`); process.exit(2); });
 }
