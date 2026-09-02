@@ -16563,6 +16563,48 @@ function threadAtBottom(el) {
   if (!el.clientHeight) return false;
   return (el.scrollHeight - el.scrollTop - el.clientHeight) <= THREAD_BOTTOM_SLACK;
 }
+/* #1926: WHICH MESSAGE the reader is looking at, not just the pixel they are
+   parked on. The 5s poll replaces the whole thread, and content ABOVE the reader
+   can change height between polls -- a relative timestamp ticks ("a minute ago"
+   -> "2 minutes ago"), an image finishes loading -- so restoring the same
+   scrollTop leaves them on a DIFFERENT message ("it jumps to different spots").
+   `data-mid` is stamped by dmRow. Returns the first row whose bottom is past the
+   viewport top (the one the reader is on) with its offset below the fold, or null
+   on a box with no rows (a note, a first paint) where there is nothing to hold. */
+function threadAnchor(el) {
+  if (!el || typeof el.querySelectorAll !== 'function') return null;
+  const top = el.scrollTop;
+  const rows = el.querySelectorAll('[data-mid]');
+  for (let i = 0; i < rows.length; i += 1) {
+    const r = rows[i];
+    /* Skip a row the search filter has hidden (offsetHeight 0): it is not what
+       the reader is looking at, and anchoring to it would restore against a
+       zero-height row next poll. */
+    if (!r.offsetHeight) continue;
+    if (r.offsetTop + r.offsetHeight > top) {
+      return { mid: r.getAttribute('data-mid'), delta: r.offsetTop - top };
+    }
+  }
+  return null;
+}
+/* Put the anchored message back at the same offset below the viewport top.
+   Returns false when the message is gone (its id left the thread), so the caller
+   falls back to the pixel offset rather than leaving the reader unmoved. */
+function restoreThreadAnchor(el, a) {
+  if (!a || !el || typeof el.querySelectorAll !== 'function') return false;
+  const rows = el.querySelectorAll('[data-mid]');
+  for (let i = 0; i < rows.length; i += 1) {
+    if (rows[i].getAttribute('data-mid') === a.mid) {
+      /* The message is still in the thread but the filter now HIDES it
+         (offsetHeight 0): restoring to `0 - delta` would jump. Fall back to the
+         pixel offset instead, which is no worse than the old behaviour. */
+      if (!rows[i].offsetHeight) return false;
+      el.scrollTop = rows[i].offsetTop - a.delta;
+      return true;
+    }
+  }
+  return false;
+}
 function setThread(el, html, key) {
   /* ⚠️ THE AGENT THREAD GETS THIS TOO, and not for symmetry: `#d-say` sits
      under it in the same column, and a thread that never resizes today is one
@@ -16593,9 +16635,14 @@ function setThread(el, html, key) {
      note never updates it, and therefore cannot overwrite what it is about to
      destroy. web.thread-scroll.test.js is that measurement, kept. */
   const showedList = el.__lastCount !== null && el.__lastCount !== undefined;
+  let anchor = null;
   if (showedList) {
     el.__heldTop = el.scrollTop;
     el.__heldAtBottom = threadAtBottom(el);
+    /* #1926: only when scrolled back -- a reader at the floor is pinned there and
+       needs no anchor. Captured BEFORE the write, while the old rows are still on
+       screen to measure. */
+    if (el.__heldAtBottom === false) anchor = threadAnchor(el);
   }
   const rewrote = el.__lastThread !== html;
   if (rewrote) {
@@ -16620,7 +16667,12 @@ function setThread(el, html, key) {
      there. `!== false` rather than `=== true` so a first-ever paint, which has
      no remembered posture, still lands on the newest row. */
   if (el.__heldAtBottom !== false) { pinToBottom(el); return; }
-  // Otherwise they are reading back. Put them exactly where they were.
+  /* #1926: put the anchored MESSAGE back where it was in the viewport, so content
+     that changed height above the reader (a ticking timestamp, a late image) does
+     not slide them onto a different message. */
+  if (restoreThreadAnchor(el, anchor)) return;
+  // No anchor to find (a first list paint, or the row's id changed): fall back to
+  // the pixel offset, which is the old behaviour and no worse than it was.
   if (el.__heldTop !== undefined && el.scrollTop !== el.__heldTop) el.scrollTop = el.__heldTop;
 }
 /**
@@ -16951,8 +17003,17 @@ function dmRow(m, name) {
    * screen reads: the append IS the arrival, and printing "Sent" beside it
    * would invent a mechanism that did not happen.
    */
+  /* #1926: a STABLE per-row key so the poll's repaint can keep a reader who has
+     scrolled back on the SAME MESSAGE. `id` first (the store's own identity),
+     `at` as the fallback the thread key already trusts. Read by setThread's
+     anchor, so the 5s repaint restores the reader to the message they were on
+     rather than to a pixel offset that now points at different content.
+     ⚠️ Degrades gracefully: if `id` is absent and two rows share a millisecond
+     `at`, the anchor matches the FIRST -- a drift of at most one adjacent row,
+     no worse than the pixel offset it replaces. */
+  const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
   if (m && m.from) {
-    return '<div class="dm theirs"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
+    return '<div class="dm theirs" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
       + '<span class="dm-w">' + esc(dmWho(m.from, name)) + pjWhenPart(m.at) + '</span></div>';
   }
   const v = pjVerdict(m, name);
@@ -17000,7 +17061,7 @@ function dmRow(m, name) {
      puts it, and no longer inside the verdict. The verdict is silent on an
      ordinary success now, and a timestamp that lived inside it would have gone
      silent with it -- on every message that worked. */
-  return '<div class="dm mine"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
+  return '<div class="dm mine" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
     + '<span class="dm-w">You' + v.when + wire + ' '
     + '<span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span></span></div>';
 }
