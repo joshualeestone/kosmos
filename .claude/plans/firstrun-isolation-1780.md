@@ -28,9 +28,18 @@ Make both roots honour `AGENT_WORKFORCE_HOME`, resolved per call (a const would 
 Behaviour is identical when the seam is unset, so production is untouched; the change only takes
 effect for a test instance or a QA walk that sets the var.
 
-⇒ `AGENT_WORKFORCE_HOME=<disposable>` now isolates BOTH the store and the workers root with one
-setting, instead of the four separate roots (`DATA`, `WORKERS`, `HOME`, `PROJECTS`) the tests
-set today. This also gives #1794 (Baron) the filesystem verification arm it was missing.
+⇒ `AGENT_WORKFORCE_HOME=<disposable>` now isolates the two roots the first-run About-you write
+resolves through: the store (`store.ROOT`, where profiles and `you.json` live) and the workers
+root (`create.workerDir`, the agent CLAUDE.md files). One setting for the whole About-you write,
+instead of separately setting `AGENT_WORKFORCE_DATA` and `AGENT_WORKFORCE_WORKERS` and hoping no
+raw-`os.homedir()` root was missed. This also gives #1794 (Baron) the filesystem verification arm
+it was missing (his 12 `store.ROOT` tests).
+
+⚠️ SCOPE, stated precisely so nobody over-trusts it: `AGENT_WORKFORCE_HOME` covers the About-you
+write chain, NOT every root a broader QA walk might touch. `projects.js` `projectsRoot()` honours
+only `AGENT_WORKFORCE_PROJECTS` (falling back to raw `os.homedir()`), so a walk that CREATES a
+project still needs that separate var; and the require-time freezes below are their own case. This
+card isolates the write it was scoped to (About-you), not the entire walk.
 
 ## What finished looks like
 
