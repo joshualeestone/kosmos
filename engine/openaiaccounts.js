@@ -515,7 +515,8 @@ async function checkLive(dir) {
    transcribe models codex cannot drive as a chat agent, mixed in with the chat
    models. Two filters, and the safety ORDER is deliberate:
      - an ALLOWLIST of chat families by id prefix (gpt-5, gpt-4.1, gpt-4o,
-       chatgpt, o1, o3, o4). A brand-new chat family with an unknown prefix is
+       chatgpt, o1, o3, o4, plus the bare gpt-4 catch-all and codex; see the
+       OPENAI_CHAT_FAMILIES constant). A brand-new chat family with an unknown prefix is
        missed until this list learns it -- an UNDER-offer, which is invisible
        and safe. The opposite error, offering a non-chat model, is the
        fail-to-start this card exists to prevent, so we take the safe side on
