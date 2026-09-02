@@ -117,8 +117,10 @@ committed. Recorded so the next person commits first.
 
 - Per-file after iteration 2: create.test.js 143, openaiaccounts.test.js 27,
   runners.test.js 30, runnable-not-directory 22, create.runner-dir-1616 9. Zero fail.
-- Full suite: HELD at time of writing, not by load but by a colleague's bisect of the
-  browser gate on main. Runs on his release, `EXIT_CODE` read from the log.
+- Full suite at 1a385a53 (after iteration 2), tree clean, `tools/run-tests.sh` with the
+  exit code written to the log by the runner's own last line: **`EXIT_CODE=0`, 3609 tests,
+  0 fail**, 19:28 to 19:30 CDT on 2026-09-01. The hold that preceded it (a colleague's
+  browser-gate bisect on main) was lifted at 19:13.
 - Browser gate: this branch touches no `web/` file. It does touch one line of a
   browser-check DRIVER (`docs/browser-checks/live-connect.js`, since iteration 1), and
   #1720's gate keys on `web/` changes needing a `docs/browser-checks/` touch, so it does
