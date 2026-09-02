@@ -101,6 +101,17 @@ function functionNamesReaching(src, sources) {
     }
     bodies.push([m[1], buf.join('\n')]);
   }
+  /* #1752: an ARROW or FUNCTION-EXPRESSION resolver held in a const --
+     `const dir = () => path.join(root(), ...)` -- is invisible to the
+     `function NAME(` scan above, so a const that EAGERLY calls it (and thereby
+     freezes a root) was not flagged. Take each lazy (function-shaped) const's
+     body as a resolver candidate too, so the transitive closure recognises it.
+     Precision is unchanged: a candidate is only marked a resolver if its body
+     actually reaches a source or another resolver; a lazy const that reaches
+     neither is still not flagged (arm 1 of test-frozen-roots.sh). */
+  for (const d of declarations(src)) {
+    if (isLazy(d.init)) bodies.push([d.name, d.init]);
+  }
   const names = new Set();
   for (let round = 0; round < 2; round += 1) {
     for (const [name, body] of bodies) {

@@ -48,6 +48,17 @@ const WORKERS = path.join(homeDir(), 'work', 'workers');"
 if [ "$(run indirect)" = "1" ]; then ok "a const frozen VIA A HELPER is flagged"
 else bad "missed indirection -- the fix relocates the string and the check goes blind"; fi
 
+# ---- arm 4b: INDIRECTION THROUGH AN ARROW resolver (#1752) -----------------
+# The same as arm 4, but the resolver is `const home = () =>` rather than
+# `function home(`. A `function NAME(` scan is blind to it, so a const calling
+# it froze a root undetected. This is #1752's third blind spot; the arrow form
+# of tokendoor's factory-and-Map shape was invisible to both prior instruments.
+fixture indirect_arrow "const os = require('os');
+const home = () => process.env.AW_HOME || os.homedir();
+const WORKERS = path.join(home(), 'work', 'workers');"
+if [ "$(run indirect_arrow)" = "1" ]; then ok "a const frozen via an ARROW resolver is flagged (#1752)"
+else bad "missed an arrow resolver -- a const = () => os.homedir() the eager const calls is invisible"; fi
+
 # ---- arm 5: a const with no root at all must not be flagged ---------------
 fixture inert "const NAME = 'kosmos';
 const N = 3;"
