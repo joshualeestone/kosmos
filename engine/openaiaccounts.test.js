@@ -482,3 +482,152 @@ test('#1659: forgetAccount refuses a .codex-* directory that codex never wrote, 
     process.env.AGENT_WORKFORCE_HOME = SANDBOX;
   }
 });
+
+/* #1026: the OpenAI side of the model picker, sourced from /v1/models and
+   filtered to chat families. chatModelsFromList is pure, so it is driven
+   directly with a fixture; accountModels wraps it with the key-read + the
+   fetch seam. A wrong model name is an agent that fails to start, so the arm
+   that matters most is the filter REJECTING non-chat models -- controls prove
+   it can, rather than only that chat models pass. */
+
+test('#1026 chatModelsFromList keeps chat models, drops non-chat, sorts most-capable-first, one non-lite default', () => {
+  const data = [
+    { id: 'text-embedding-3-large' },     // non-chat family -> dropped
+    { id: 'gpt-4o-audio-preview' },        // gpt-4o by prefix but a non-chat variant -> dropped
+    { id: 'gpt-4o-realtime-preview' },     // ditto -> dropped
+    { id: 'gpt-4o-transcribe' },           // ditto -> dropped
+    { id: 'whisper-1' },                   // non-chat -> dropped
+    { id: 'gpt-4o' },                      // chat
+    { id: 'gpt-4o-mini' },                 // chat, lite
+    { id: 'gpt-5' },                       // chat, most capable
+    { id: 'gpt-5-mini' },                  // chat, lite
+    { id: 'o3' },                          // chat, reasoning
+    { id: 'chatgpt-4o-latest' },           // chat
+    { id: 'gpt-5' },                       // duplicate -> collapsed
+  ];
+  const rows = openai.chatModelsFromList(data);
+  const ids = rows.map((r) => r.arg);
+  assert.deepEqual(ids, ['gpt-5', 'gpt-5-mini', 'o3', 'gpt-4o', 'gpt-4o-mini', 'chatgpt-4o-latest'],
+    'chat models only, ranked by capability, deduped');
+  // every arg is a real id from the fixture -- never invented.
+  for (const r of rows) assert.ok(data.some((d) => d.id === r.arg), `${r.arg} came from the account list`);
+  assert.ok(rows.every((r) => r.provider === 'openai'), 'every row is provider openai');
+  const defaults = rows.filter((r) => r.default === true);
+  assert.equal(defaults.length, 1, 'exactly one default');
+  assert.equal(defaults[0].arg, 'gpt-5', 'the default is the most-capable non-lite model present, not gpt-5-mini');
+  assert.equal(rows.find((r) => r.arg === 'gpt-4o').label, 'GPT-4o', 'gpt- is prettified to GPT-');
+  assert.equal(rows.find((r) => r.arg === 'o3').label, 'o3', 'an o-series id is left as OpenAI writes it');
+  assert.ok(rows.find((r) => r.arg === 'gpt-5').why, 'every row carries a why line');
+});
+
+test('#1026 the runner\'s own codex-mini and legacy gpt-4 chat models are recognised; gpt-3.5-turbo-instruct (completions) is not', () => {
+  const data = [
+    { id: 'codex-mini-latest' },        // the runner is codex -> a model it can drive
+    { id: 'gpt-4-turbo' },              // legacy but real chat
+    { id: 'gpt-4' },                    // legacy chat
+    { id: 'gpt-3.5-turbo-instruct' },   // a COMPLETIONS model, not chat -> dropped by 'instruct'
+    { id: 'o3-deep-research' },         // not a standard chat-completions model -> dropped by 'search'
+    { id: 'gpt-4o' },                   // current chat, ranks above the legacy ones
+  ];
+  const args = openai.chatModelsFromList(data).map((r) => r.arg);
+  assert.ok(args.includes('codex-mini-latest'), 'the codex runner\'s own model is offered');
+  assert.ok(args.includes('gpt-4-turbo') && args.includes('gpt-4'), 'legacy gpt-4 chat models are offered');
+  assert.ok(!args.includes('gpt-3.5-turbo-instruct'), 'a completions (instruct) model is not offered');
+  assert.ok(!args.includes('o3-deep-research'), 'a deep-research model is not offered');
+  assert.equal(args[0], 'gpt-4o', 'the current gpt-4o outranks the legacy gpt-4 family');
+});
+
+test('#1026 the default is the most-capable NON-LITE model even when a lite model sorts first', () => {
+  // gpt-4o-mini (family gpt-4o, rank 3) sorts ahead of gpt-4-turbo (bare gpt-4,
+  // rank 6), so out[0] is the LITE one. The default must still be the non-lite
+  // gpt-4-turbo. This is the arm that reverting `find(!isLite) || out[0]` to a
+  // bare `out[0]` breaks -- without this fixture that branch is untested,
+  // because gpt-5 already sorts ahead of gpt-5-mini in the other cases.
+  const rows = openai.chatModelsFromList([{ id: 'gpt-4o-mini' }, { id: 'gpt-4-turbo' }]);
+  assert.equal(rows[0].arg, 'gpt-4o-mini', 'the lite model sorts first');
+  const def = rows.filter((r) => r.default === true);
+  assert.equal(def.length, 1, 'exactly one default');
+  assert.equal(def[0].arg, 'gpt-4-turbo', 'the default skips the lite first row for the non-lite one');
+});
+
+test('#1026 CONTROL: a list of ONLY non-chat models yields an empty menu (the filter is not vacuously passing everything)', () => {
+  const data = [
+    { id: 'text-embedding-3-small' }, { id: 'tts-1' }, { id: 'dall-e-3' },
+    { id: 'omni-moderation-latest' }, { id: 'gpt-4o-transcribe' }, { id: 'gpt-image-1' },
+  ];
+  assert.deepEqual(openai.chatModelsFromList(data), [], 'nothing chat-drivable survives the filter');
+});
+
+test('#1026 chatModelsFromList tolerates garbage input without throwing', () => {
+  assert.deepEqual(openai.chatModelsFromList(null), []);
+  assert.deepEqual(openai.chatModelsFromList(undefined), []);
+  assert.deepEqual(openai.chatModelsFromList([{ notid: 1 }, 'x', null, {}]), []);
+});
+
+test('#1026 accountModels: a 200 with a real /v1/models body returns the filtered menu with a default', async () => {
+  writeAuth('.codex-models200', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-modelskeyMOD1' });
+  const dir = nodePath.join(SANDBOX, '.codex-models200');
+  let sawAuthHeader = null;
+  openai.setFetcher(async (url, init) => {
+    sawAuthHeader = init && init.headers && init.headers.authorization;
+    return { status: 200, body: { object: 'list', data: [
+      { id: 'gpt-4o' }, { id: 'gpt-5' }, { id: 'text-embedding-3-large' }, { id: 'gpt-4o-mini' },
+    ] } };
+  });
+  try {
+    const out = await openai.accountModels(dir);
+    assert.equal(out.ok, true);
+    assert.deepEqual(out.models.map((m) => m.arg), ['gpt-5', 'gpt-4o', 'gpt-4o-mini']);
+    assert.equal(out.models.filter((m) => m.default).length, 1);
+    assert.equal(sawAuthHeader, 'Bearer sk-proj-modelskeyMOD1', 'the account key was sent to /v1/models');
+  } finally { openai.setFetcher(null); }
+});
+
+test('#1026 accountModels: a 200 whose models are ALL non-chat answers ok:false with a plain reason, not an empty pass', async () => {
+  writeAuth('.codex-modelsnochat', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-nochatkeyNOC1' });
+  const dir = nodePath.join(SANDBOX, '.codex-modelsnochat');
+  openai.setFetcher(async () => ({ status: 200, body: { data: [{ id: 'tts-1' }, { id: 'whisper-1' }] } }));
+  try {
+    const out = await openai.accountModels(dir);
+    assert.equal(out.ok, false);
+    assert.deepEqual(out.models, []);
+    assert.match(String(out.because), /no chat models/);
+  } finally { openai.setFetcher(null); }
+});
+
+test('#1026 accountModels: a non-200 is reported as such, never as an empty menu', async () => {
+  writeAuth('.codex-models500', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-fivehundredKEY5' });
+  const dir = nodePath.join(SANDBOX, '.codex-models500');
+  openai.setFetcher(async () => ({ status: 500, body: null }));
+  try {
+    const out = await openai.accountModels(dir);
+    assert.equal(out.ok, false);
+    assert.match(String(out.because), /500/);
+  } finally { openai.setFetcher(null); }
+});
+
+test('#1026 accountModels: a network failure answers ok:false with the unreachable reason', async () => {
+  writeAuth('.codex-modelsdown', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-downkeyDOWN1' });
+  const dir = nodePath.join(SANDBOX, '.codex-modelsdown');
+  openai.setFetcher(async () => { throw new Error('boom'); });
+  try {
+    const out = await openai.accountModels(dir);
+    assert.equal(out.ok, false);
+    assert.match(String(out.because), /could not reach OpenAI/);
+  } finally { openai.setFetcher(null); }
+});
+
+test('#1026 accountModels: a ChatGPT sign-in cannot list models (no API key), answered honestly not as empty', async () => {
+  const payload = Buffer.from(JSON.stringify({ email: 'x@example.com' })).toString('base64url');
+  writeAuth('.codex-modelschat', { auth_mode: 'chatgpt', tokens: { id_token: `a.${payload}.b` } });
+  const dir = nodePath.join(SANDBOX, '.codex-modelschat');
+  const out = await openai.accountModels(dir);
+  assert.equal(out.ok, false);
+  assert.match(String(out.because), /not an API key/);
+});
+
+test('#1026 accountModels: an absent account says nobody signed in, never a fetch', async () => {
+  const out = await openai.accountModels(nodePath.join(SANDBOX, '.codex-modelsnever'));
+  assert.equal(out.ok, false);
+  assert.match(String(out.because), /signed in/);
+});

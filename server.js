@@ -3398,6 +3398,33 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #1026: the chat models a specific OpenAI account can run, for the create
+     screen's picker. Per-account and async (a live /v1/models fetch with that
+     account's key), so it cannot ride the static, account-agnostic /api/roles
+     list the Claude rows come from -- it is asked on demand when an OpenAI
+     account is chosen. The engine sources every id from the account's own
+     /v1/models (never a hardcoded name) and filters to chat families; this
+     route only guards which account may be asked about. */
+  if (pathname === '/api/accounts/openai/models' && req.method === 'GET') {
+    let dir = '';
+    try { dir = new URL(req.url, ROUTING_BASE).searchParams.get('dir') || ''; } catch { dir = ''; }
+    if (!dir) { sendJson(res, 400, { ok: false, models: [], because: 'no account was named' }); return; }
+    /* Only an account this computer actually knows -- a resolved-path match
+       against the enumerated list, so a caller on this unauthenticated local
+       endpoint cannot point it at an arbitrary auth.json elsewhere on disk.
+       Same fail-closed posture as the mutating openai routes below. */
+    let known = false;
+    try {
+      const want = path.resolve(dir);
+      known = openaiAccounts.list().some((a) => { try { return path.resolve(a.dir) === want; } catch { return false; } });
+    } catch { known = false; }
+    if (!known) { sendJson(res, 404, { ok: false, models: [], because: 'we do not know that account on this computer' }); return; }
+    openaiAccounts.accountModels(dir)
+      .then((out) => sendJson(res, 200, out))
+      .catch(() => sendJson(res, 200, { ok: false, models: [], because: 'we could not read this account\'s models just now' }));
+    return;
+  }
+
   /**
    * Forget an OpenAI account (#1372).
    *
