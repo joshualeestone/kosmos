@@ -78,19 +78,19 @@ A node test `no-brand-refs-1881.test.js` (runs in the node suite, so it is armed
    `stuff-io`, `stuffio`, `$STUFF`) and does NOT match a neutral control
    (`example.com`). A guard that cannot fail is not a guard.
 
-### Allowlist (the dangerous part, kept minimal and explicit)
-Only files whose PURPOSE is to name the forbidden patterns:
-- the guard's own source (`no-brand-refs-1881.test.js`) - it contains the patterns
-- this card's plan + proof (`.claude/plans/strip-1881.md`,
-  `.claude/plans/strip-1881-pre-challenge.md`) - they document the cleanup
-Everything else is scanned. The allowlist is a literal path set the reader can
-audit, and the test refuses an allowlist entry that no longer exists (so it cannot
-rot into hiding a file that was deleted or renamed).
+### What is not scanned (the dangerous part, kept minimal and explicit)
+See the "Scope correction before merge" section below for the final model, which
+this section defers to: the guard EXCLUDES the `.claude/plans/` prefix (the
+migration-narrative surface) and keeps a one-entry allowlist for the guard's own
+source (which necessarily contains every pattern). The allowlist is
+existence-checked so it cannot rot into hiding a renamed file, and the scoping is
+self-tested in both directions. Everything outside `.claude/plans/` and the guard
+source is scanned.
 
 ### Wiring
-Add it to `tools/run-tests.sh`'s node-test set the same way its siblings are, so
-`npm test` runs it. Confirm via the existing wired-tests discipline if one covers
-node tests.
+It is a top-level `*.test.js`, so `tools/run-tests.sh:103`
+(`node --test engine/*.test.js *.test.js`) already runs it - no run-tests.sh edit
+needed. Confirmed armed by `tools.every-test-runs.test.js`.
 
 ## Out of scope / deferred (stated, not silently dropped)
 - `~/.claude/BROWSER_TESTING.md` and other files OUTSIDE this repo are not touched
