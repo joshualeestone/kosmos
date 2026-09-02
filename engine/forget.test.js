@@ -24,12 +24,12 @@ const forget = require('./forget');
 
 function seed() {
   fs.rmSync(nodePath.join(store.ROOT, 'chats'), { recursive: true, force: true });
-  fs.rmSync(nodePath.join(SANDBOX, 'commitments'), { recursive: true, force: true });
+  fs.rmSync(nodePath.join(store.ROOT, 'commitments'), { recursive: true, force: true });
   fs.mkdirSync(nodePath.join(store.ROOT, 'chats'), { recursive: true });
-  fs.mkdirSync(nodePath.join(SANDBOX, 'commitments'), { recursive: true });
+  fs.mkdirSync(nodePath.join(store.ROOT, 'commitments'), { recursive: true });
   fs.writeFileSync(nodePath.join(store.ROOT, 'chats', 'april.json'), '[]');
   fs.writeFileSync(nodePath.join(store.ROOT, 'chats', 'room-1.json'), '[]');
-  fs.writeFileSync(nodePath.join(SANDBOX, 'commitments', 'april.json'), '{}');
+  fs.writeFileSync(nodePath.join(store.ROOT, 'commitments', 'april.json'), '{}');
   // The things that MUST survive, seeded so their survival is observed rather
   // than assumed.
   fs.mkdirSync(nodePath.join(store.ROOT, 'profiles'), { recursive: true });
@@ -55,7 +55,7 @@ test('the summary counts what is there, per kind', () => {
 test('an empty store reads as zero, not as unreadable', () => {
   seed();
   fs.rmSync(nodePath.join(store.ROOT, 'chats'), { recursive: true, force: true });
-  fs.rmSync(nodePath.join(SANDBOX, 'commitments'), { recursive: true, force: true });
+  fs.rmSync(nodePath.join(store.ROOT, 'commitments'), { recursive: true, force: true });
   const sum = forget.summary();
   assert.equal(sum.total, 0);
   /* ⚠️ AND IT IS STILL READABLE. "Nothing to delete" and "we could not look"
@@ -70,7 +70,7 @@ test('it deletes both kinds and NOTHING else', () => {
   assert.equal(out.ok, true, out.because);
   assert.equal(out.total, 3);
   assert.equal(fs.existsSync(nodePath.join(store.ROOT, 'chats')), false, 'the conversations survived');
-  assert.equal(fs.existsSync(nodePath.join(SANDBOX, 'commitments')), false, 'the reports survived');
+  assert.equal(fs.existsSync(nodePath.join(store.ROOT, 'commitments')), false, 'the reports survived');
 
   /**
    * 🔑 THE HALF THAT MATTERS MORE. A delete that removes the right things and

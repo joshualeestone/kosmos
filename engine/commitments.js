@@ -33,23 +33,13 @@ const store = require('./store');
  * the real app data of whoever is running them. Read once at load, so a test
  * sets it before requiring this module.
  */
-// ⚠️ This USED to move the commitment store only, leaving `store.ROOT` (avatars
-// and profiles) unsandboxed — a trap in a variable named for the whole data
-// directory. `store.js` now honours the same variable, so all three travel
-// together and this comment no longer describes a gap.
-//
-// It described one for several commits AFTER the branch that closed it, which
-// is the inverse of the failure this codebase warns about and costs the same:
-// the next reader either works around a limitation that is gone, or trusts a
-// sandbox they think is partial. Left in place only because knowing the two
-// roots now agree is worth more than silence.
-//
-// ⚠️ They agree on the VARIABLE, not on the layout: this store lives at
-// `$DATA/commitments` while avatars and profiles live at
-// `$DATA/AgentWorkforce/{avatars,profiles}`. A sandboxed run therefore does not
-// mirror the production tree, which is fine for isolation and misleading if you
-// go looking for the files.
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+// #1848/#1856: route through the ONE data-root derivation (store.ROOT = dataRootFor), not the raw
+// AGENT_WORKFORCE_DATA switch. Prod-inert when the var is unset (byte-identical). Under a
+// multi-Kosmos switcher (#1704) it inherits the AgentWorkforce leaf + #1820's isAbsolute guard.
+// This ALSO closes the layout gap the prior comment described: the store now lives at
+// `$DATA/AgentWorkforce/commitments`, mirroring avatars/profiles under a sandbox, not the bare
+// `$DATA/commitments` -- a sandboxed run mirrors the production tree.
+const BASE = store.ROOT;
 const DIR = path.join(BASE, 'commitments');
 
 /**

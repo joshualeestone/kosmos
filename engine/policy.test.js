@@ -133,6 +133,11 @@ test('removeOne takes one and keeps the rest in order; the last removal leaves a
 
 test('the #479 single record migrates: first entry, default name, stable id, and NO rewrite of the block (#685)', () => {
   // A v1 record written by the shipped build, planted byte-for-byte.
+  // #1856: policy.FILE now lives under the AgentWorkforce leaf; this test writes it
+  // DIRECTLY (no policy.add() first), so make its dir -- otherwise it only passed
+  // because an earlier test's policy.add() had created the leaf (green in the full
+  // run, ENOENT in isolation).
+  fs.mkdirSync(path.dirname(policy.FILE), { recursive: true });
   fs.writeFileSync(policy.FILE, JSON.stringify({
     text: 'Cite your sources.', source: 'pasted', savedAt: '2026-08-23T00:00:00Z',
   }, null, 2) + '\n');

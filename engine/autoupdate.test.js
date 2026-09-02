@@ -23,8 +23,8 @@ test('nobody has chosen yet, so Kosmos keeps itself current', () => {
 });
 
 test('a choice we cannot read does NOT install software', () => {
-  const { dir, mod } = fresh();
-  fs.writeFileSync(path.join(dir, 'autoupdate.json'), '{ this is not json');
+  const { mod } = fresh();
+  fs.mkdirSync(path.dirname(mod.FILE), { recursive: true }); fs.writeFileSync(mod.FILE,'{ this is not json');
   const r = mod.read();
   assert.equal(r.on, false,
     'an unreadable preference was read as consent to install');
@@ -36,8 +36,8 @@ test('a choice we cannot read does NOT install software', () => {
 });
 
 test('a file that parses but is the wrong shape is also a choice we cannot read', () => {
-  const { dir, mod } = fresh();
-  fs.writeFileSync(path.join(dir, 'autoupdate.json'), JSON.stringify({ on: 'yes' }));
+  const { mod } = fresh();
+  fs.mkdirSync(path.dirname(mod.FILE), { recursive: true }); fs.writeFileSync(mod.FILE,JSON.stringify({ on: 'yes' }));
   assert.deepEqual(mod.read(), { on: false, ok: false });
 });
 

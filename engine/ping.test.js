@@ -21,7 +21,9 @@ process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const ping = require('./ping');
 const { codeOnly } = require('../test-support/code-only');
 
-function fresh() { try { fs.unlinkSync(ping.FILE); } catch { /* none */ } }
+// #1856: ping.FILE now lives under the AgentWorkforce leaf, so ensure its dir
+// exists before the tests write to ping.FILE directly.
+function fresh() { fs.mkdirSync(nodePath.dirname(ping.FILE), { recursive: true }); try { fs.unlinkSync(ping.FILE); } catch { /* none */ } }
 
 test('nobody has been asked, so it is OFF and nothing is sent', () => {
   /* 🛑 THIS ASSERTED `true` UNTIL 2026-08-26, and the flip is a consequence,
