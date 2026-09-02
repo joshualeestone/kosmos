@@ -17279,7 +17279,13 @@ async function paintTalk(sessionName, agentName) {
     else document.getElementById('d-talk-box').focus();
   }
   if (body.asking && body.question) {
-    qlab.textContent = name + ' is waiting on an answer.';
+    /* #1629: for Claude Code's trust dialog the ROUTE sends `answerNote`, the
+       same sentence its send refusal uses, because the composer below invites
+       the one keystroke that ends the session. Said before the person types,
+       not after a 409. Null for every other question, so the label is as it
+       was. Plain text through textContent, like every sentence here. */
+    qlab.textContent = name + ' is waiting on an answer'
+      + (body.answerNote ? ', but not one typed here: ' + body.answerNote : '.');
     // The agent's SCREEN, in the treatment the room already uses for it.
     pjSetScreen(qtext, body.question.text);
     qtext.hidden = false;
@@ -29895,7 +29901,11 @@ function paintThread(body) {
   const qText = document.getElementById('pj-question-text');
   const qLabel = document.getElementById('pj-question-label');
   if (body.asking && body.question) {
-    qLabel.textContent = name + ' is waiting on an answer. This is the part of its screen that asked:';
+    /* #1629: `answerNote` is the route's own sentence for the trust dialog
+       (see the agent page's label for why); null for every other question. */
+    qLabel.textContent = name + ' is waiting on an answer'
+      + (body.answerNote ? ', but not one typed here: ' + body.answerNote : '.')
+      + ' This is the part of its screen that asked:';
     pjSetScreen(qText, body.question.text);
     document.getElementById('pj-answer-how').hidden = false;
     qWrap.hidden = false;

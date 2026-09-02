@@ -639,6 +639,29 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
   if (!allowed.ok) {
     return { state: DELIVERY.COULD_NOT, because: allowed.because, at, paneState: null, paneNote: null };
   }
+  /**
+   * #1629 point 3: NEVER TYPE AT AN AGENT STOPPED ON CLAUDE CODE'S TRUST
+   * DIALOG. Every caller comes through here (both thread routes, the task
+   * line, the slash-command route, the auto-handoff sweep), and every one
+   * ends with an Enter -- which on that dialog picks the default, "No, exit",
+   * and ends the session. The card is the roster snapshot this request
+   * already holds, so this costs no capture. `stateEvidence` is set by
+   * several states (a rate limit's line, a dead token's line, a working
+   * line); what makes this read unambiguous is the pair: the state is
+   * `needs_you` AND the evidence opens with the trust dialog's own question,
+   * which only that detector writes. A route that wants a fresher read makes
+   * its own capture (server.js `trustDialogHold`); this is the floor under
+   * all of them. `paneState: null`, like every other pre-send refusal here:
+   * nothing was verified at the pane, the snapshot was read.
+   */
+  if (allowed.card && allowed.card.state === status.STATE.NEEDS_YOU
+      && status.isTrustDialogEvidence(allowed.card.stateEvidence)) {
+    return {
+      state: DELIVERY.COULD_NOT,
+      because: status.TRUST_DIALOG_SENTENCE,
+      at, paneState: null, paneNote: null,
+    };
+  }
 
   /**
    * ⚠️ THE ENVELOPE IS PREPENDED AFTER THE LENGTH CHECK, NEVER BEFORE IT, and

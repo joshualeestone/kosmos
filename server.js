@@ -42,8 +42,47 @@ const {
   /* #1652: the body-names-somebody check the import parse endpoint injects into
      agentfile.importAgent, the same call adoption uses. */
   identityFromText,
+  /* #1629 point 3: the trust dialog on an agent's screen, read by the two
+     routes that type a person's words into a pane. Typing cannot answer that
+     dialog and Enter there picks "No, exit"; see `trustDialogHold` below. */
+  trustPrompt,
+  TRUST_DIALOG_SENTENCE,
 } = require('./engine/status');
 const removal = require('./engine/remove');
+
+/**
+ * #1629 point 3: REFUSE TO TYPE AT AN AGENT STOPPED ON CLAUDE CODE'S TRUST
+ * DIALOG. Returns the 409 to throw, or null.
+ *
+ * The dialog now classifies `needs_you`, which is right (only the person can
+ * answer it) and which also makes the page offer a composer. Delivery was
+ * never state-gated, and both screen-moved guards in the agent-thread route
+ * go inert on this dialog by construction: its options carry no digits, so
+ * `optionsIn` and `questionAbove` are both null and nothing compares. So a
+ * typed "yes" plus Enter, or a button drawn for an earlier menu, would land
+ * keystrokes on a dialog whose default answer is "No, exit" and end the
+ * session. Before this branch the pane read `unknown` and nobody was invited
+ * to type; the invitation is new, so the refusal ships with it.
+ *
+ * `seen` is a capture the caller already holds, or null; `capture` is how to
+ * take one, called at most once, and only when the snapshot says the agent
+ * is asking. A screen already in hand is read whatever the snapshot says.
+ *
+ * ⚠️ THE RESIDUAL, STATED: a dialog that draws in the gap between the roster
+ * snapshot and this read, on an agent the snapshot did not call `needs_you`,
+ * is not seen here (no capture is taken for a non-asking agent, because that
+ * would cost a capture on every send to every agent) and not seen by the
+ * `chat.deliver` floor either, which reads the same snapshot. The gap is one
+ * request cycle. Closing it means a capture per send; not taken today.
+ */
+function trustDialogHold(card, seen, capture) {
+  const asking = Boolean(card) && card.state === STATE.NEEDS_YOU;
+  const view = seen || (asking && typeof capture === 'function' ? capture() : null);
+  if (!(view && view.text) || trustPrompt(view.text) === null) return null;
+  const held = new Error(TRUST_DIALOG_SENTENCE);
+  held.status = 409;
+  return held;
+}
 const leftover = require('./engine/delete-leftover');
 const firstrun = require('./engine/firstrun');
 const platformGate = require('./engine/platform');
@@ -5474,6 +5513,12 @@ const server = http.createServer((req, res) => {
       asking,
       question,
       questionBecause,
+      /* #1629: the page draws a composer under a question, and for the trust
+         dialog that invites the one keystroke that ends the session. The
+         route says so up front, in the same sentence the send refusal uses,
+         so the person reads it before typing rather than after a 409. Null
+         for every other question. */
+      answerNote: (question && view && view.text && trustPrompt(view.text) !== null) ? TRUST_DIALOG_SENTENCE : null,
       options,
     });
     return;
@@ -5534,6 +5579,22 @@ const server = http.createServer((req, res) => {
           throw missing;
         }
         const roster = safeRoster();
+        /* #1629: BEFORE the button block below, which only runs for a button
+           press. A plain typed reply is the common case and the dangerous one
+           here (Enter picks "No, exit"), so the hold reads a fresh screen for
+           any agent the board says is asking, button or not. `chat.deliver`
+           holds the same line from the snapshot for every other caller. */
+        /* ONE capture per send, shared with the button block below: the tests
+           feed the tmux seam one answer per call, and a second capture here
+           shifted every button arm's sequence. */
+        const askingCard = Array.isArray(roster)
+          ? (roster.find((a) => a && a.sessionName === name && a.isNamedOurs === true) || null)
+          : null;
+        const seenNow = (askingCard && askingCard.state === STATE.NEEDS_YOU) ? chat.viewport(name, roster) : null;
+        {
+          const trustHeld = trustDialogHold(askingCard, seenNow, () => chat.viewport(name, roster));
+          if (trustHeld) throw trustHeld;
+        }
         /**
          * ⚠️ THE WORDS ARE CHECKED AGAINST THE SCREEN WHERE WE CAN SEE IT.
          * `chose` arrives from the client, and it is the half of the pair the
@@ -5581,11 +5642,9 @@ const server = http.createServer((req, res) => {
            *
            * The roster is already read, so this costs nothing.
            */
-          const card = Array.isArray(roster)
-            ? (roster.find((a) => a && a.sessionName === name && a.isNamedOurs === true) || null)
-            : null;
+          const card = askingCard;
           if (!card || card.state !== STATE.NEEDS_YOU) chose = null;
-          const seen = chose ? chat.viewport(name, roster) : null;
+          const seen = chose ? seenNow : null;
           const asked = (seen && seen.text) ? chat.questionIn(seen.text) : null;
           const menu = asked ? chat.optionsIn(asked.text) : null;
           const row = menu ? menu.find((o) => String(o.n) === String(body.text).trim()) : null;
@@ -7501,6 +7560,8 @@ const server = http.createServer((req, res) => {
       asking,
       question,
       questionBecause,
+      /* #1629: same note as the agent thread, same sentence, same reason. */
+      answerNote: (question && view && view.text && trustPrompt(view.text) !== null) ? TRUST_DIALOG_SENTENCE : null,
       // Carried for contract parity with the projects routes and held by
       // the blind-roster test; the page's fleet-unreadable sentence on this
       // screen is rendered from the projects payload (PJ_AGENTS_UNREADABLE),
@@ -7545,6 +7606,16 @@ const server = http.createServer((req, res) => {
           const notOn = new Error('that agent is not on this project');
           notOn.status = 404;
           throw notOn;
+        }
+        /* #1629: this route has no button guards at all, so the trust hold is
+           the only thing between a typed reply and a dialog whose default
+           answer ends the session. Same rule as the agent-thread route. */
+        {
+          const card = Array.isArray(roster)
+            ? (roster.find((a) => a && a.sessionName === name && a.isNamedOurs === true) || null)
+            : null;
+          const trustHeld = trustDialogHold(card, null, () => chat.viewport(name, roster));
+          if (trustHeld) throw trustHeld;
         }
 
         /**

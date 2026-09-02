@@ -1422,12 +1422,114 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
 ]);
 
 /**
+ * Claude Code's workspace-trust dialog (#1629, point 3). OBSERVED, per this
+ * file's rule that a guessed wording is 0 for 1: captured from a live pane on
+ * this machine, 2026-09-01, Claude Code 2.1.258, by starting `claude` in a
+ * folder it had never seen:
+ *
+ *    Accessing workspace:
+ *    /path/to/the/folder
+ *    Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source
+ *    project, or work from your team). If not, take a moment to review what's in this folder first.
+ *    Claude Code'll be able to read, edit, and execute files here.
+ *    Security guide
+ *    ❯ No, exit
+ *      Yes, I trust this folder
+ *    Enter to confirm · Esc to cancel
+ *
+ * 🛑 THE QUESTION ROW DOES NOT END AT ITS QUESTION MARK. It runs on into a
+ * parenthetical, so `asksSomething`'s "marker opens the line and the line
+ * closes at ?" rule cannot see it -- measured: the shipped classifier read this
+ * whole screen as `unknown`. The card's own capture (2026-08-30) was the same
+ * dialog abbreviated to its first sentence, which DOES end at `?`; both shapes
+ * are in the tests. And the options are NOT numbered, so `optionsIn` cannot
+ * offer buttons for it (deliberate: a button types a digit, and nobody has
+ * measured what this dialog does with one). What Kosmos can do today is name
+ * the state and show the question, which is the half the card asked for: the
+ * agent stops reading as idle, and the person sees which answer is highlighted.
+ *
+ * ⚠️ WHY THIS ONE GETS ITS OWN DETECTOR AND NOT A MARKER ROW: the highlighted
+ * answer is `No, exit`, and Enter is the reflex that clears the far more common
+ * stuck-composer case. An agent sitting here looks exactly like an agent
+ * ignoring you (Splinter, 2026-08-30 17:19, reported unresponsive twice in
+ * seven minutes), and the pre-selected answer ends the session. So the
+ * question row rides along as evidence, the way `auth_failed` carries its line.
+ *
+ * 🔑 STRUCTURE, NOT VOCABULARY, separates the dialog from prose about it, and
+ * it takes THREE rows, not one: the question row must open a row, one of the
+ * two option labels must own a row beneath it within the dialog's height, and
+ * NOTHING may follow the dialog. Prose quoting the sentence has something in
+ * front of it or nothing beneath it; a mention of the label ("I chose Yes, I
+ * trust this folder") is not on a row of its own.
+ *
+ * 🛑 THE THIRD ROW IS WHAT SEPARATES THE DIALOG FROM A VERBATIM PASTE OF IT.
+ * The first two alone are not enough, measured: an agent whose pane shows this
+ * dialog inside a tool result (the card that motivates this detector quotes
+ * it, so `gh issue view 1629` prints it) satisfies both, because the glyph
+ * strip removes the tool-result indentation and the option label then owns a
+ * row. That false red would stand over the agent's own fresh `working` report
+ * (rule 3), which is the exact harm the `asksSomething` docblock names.
+ * What a paste cannot do is be the bottom of the screen: a live agent draws
+ * its composer footer, a working line or more prose beneath the paste, while
+ * the real dialog REPLACES the composer. Observed on the capture above: the
+ * confirm row is the last non-blank row of the pane, nothing under it. So the
+ * detector also requires the last non-blank row of the tail to be a row of the
+ * dialog itself (the confirm row, or an option row on a capture clipped before
+ * the confirm row drew). That is the same residual `authFailed` names and
+ * trades; here it is closed rather than traded, at the cost of a capture whose
+ * dialog is not at the bottom reading `unknown`, which is the honest default.
+ * "Closed" means closed on every observed shape: a capture clipped
+ * mid-redraw, before the footer repaints under a tool result quoting the
+ * dialog, could still put a pasted option row at the bottom. Nobody has seen
+ * one; if somebody does, that capture is the next fixture.
+ */
+const TRUST_PROMPT_QUESTION = /^Quick safety check:/;
+const TRUST_PROMPT_OPTIONS = Object.freeze([
+  /^No, exit$/,
+  /^Yes, I trust this folder$/,
+]);
+/* The dialog's own last row, observed. Not required (a capture can clip before
+   it draws) but when present it is where the dialog, and the screen, end. */
+const TRUST_PROMPT_CONFIRM = /^Enter to confirm/;
+/* How many rows below the question an option row may sit. The observed dialog
+   puts the first option five rows down, two of them the question's own wrap.
+   That wrap is Claude Code's, drawn at its own layout width with real line
+   breaks, so `-J` at the capture (which joins only what the TERMINAL wrapped)
+   does not fold it back; a narrower layout wraps more. Twelve is generous and
+   still shorter than a tail. Where detection stops, measured: the FIRST
+   option row must sit within 12 rows of the question and the screen's last
+   row within 13 (the bottom rule allows one row past reach, the second
+   option or the confirm row); a layout that wraps the question over about
+   nine rows loses the dialog and it reads unknown. Observed layouts wrap it
+   over two. */
+const TRUST_PROMPT_REACH = 12;
+
+/* Tested on the RAW pane row by `questionIn`, so it carries the same leading
+   class the detector strips: the two halves of this feature must agree on
+   what a row looks like, or the card says needs_you while the page cannot
+   find the question. The class is `authFailed`'s (indentation, tree glyphs,
+   a selector glyph, a left frame edge). No box-drawn instance of THIS dialog
+   has been observed; the frame tolerance is inherited from that class, not a
+   claim about how this dialog is drawn. */
+const TRUST_PROMPT_MARKER = /^[\s>│├└─*❯›]*Quick safety check:/;
+
+/**
  * Every runner's needs-you shapes, for consumers that read a PANE without
  * knowing which runner drew it (chat.js's question finder). The per-runner
  * classifiers keep using their own lists; this union exists so a question
  * on any runner's screen can be found and sliced for display.
+ *
+ * TRUST_PROMPT_MARKER is here for chat.js's two readers of this union, the
+ * question finder (`questionIn`) and the menu parser's newer-question-below-
+ * the-run refusal (`optionsIn`): no classifier list holds it, because
+ * `classify` reaches the trust dialog through `trustPrompt`, which demands
+ * three rows where those readers need one row to anchor on. That asymmetry
+ * is safe because both run only once `classify` has said needs_you, and a
+ * live prompt is the bottom of the screen, so a pasted copy of the dialog can
+ * only sit ABOVE the live question and the finder's last-match rule still
+ * lands on the live one (tested in chat.test.js).
  */
-const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEEDS_YOU_MARKERS]);
+const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEEDS_YOU_MARKERS, TRUST_PROMPT_MARKER]);
 
 /**
  * 🛑 THE FIRST FOUR WERE GUESSES AT WORDING AND CLAUDE CODE SAYS SOMETHING ELSE.
@@ -1827,6 +1929,81 @@ function authFailed(tail) {
 }
 
 /**
+ * Claude Code's trust dialog on screen (#1629, point 3): the question row, or
+ * null. See TRUST_PROMPT_QUESTION for the observed shape and why a marker row
+ * was not enough. Leading indentation and tree glyphs come off per row, as in
+ * `authFailed`, because they are drawing, not content -- and the selector
+ * glyph is among them on purpose: `❯ No, exit` and `  Yes, I trust this folder`
+ * must both read as option rows whichever one is highlighted.
+ *
+ * The left strip is `authFailed`'s class (indentation, tree glyphs, a selector
+ * glyph, a left frame edge); the right strip is `optionsIn`'s (`[\s│]+$`), so a
+ * row framed on both sides still ends at its label and the `$` anchors hold.
+ * Neither is a claim that this dialog is drawn in a box: none has been
+ * observed. They are the classes the two neighbours already use, kept equal
+ * so the card and the page agree on what a row is.
+ *
+ * Evidence is the question row alone, trimmed and capped, on its way to a
+ * screen: the same one-line rule the rate-limit and auth cases follow.
+ */
+function trustPrompt(tail) {
+  const raw = String(tail == null ? '' : tail).split('\n').map((line) => line.trim());
+  const rows = raw.map((line) => line.replace(/^[\s>│├└─*❯›]+/, '').replace(/[\s│]+$/, ''));
+  /* The last non-blank row of the screen: a real dialog ends the screen, a
+     paste of one does not (see TRUST_PROMPT_QUESTION).
+     🛑 FOUND ON THE RAW ROWS, JUDGED ON THE STRIPPED ONE. The strip erases
+     composer chrome entirely: a bare composer `❯ `, a rule `────`, an
+     old-style `> ` all strip to nothing, so finding the last row on the
+     stripped rows walked PAST an idle composer and landed on a pasted confirm
+     row above it. Measured: a paste over a bare composer matched. Whitespace
+     is the only thing a row may be made of and still not count. */
+  let last = raw.length - 1;
+  while (last >= 0 && raw[last] === '') last -= 1;
+  const isDialogRow = (row) => TRUST_PROMPT_CONFIRM.test(row)
+    || TRUST_PROMPT_OPTIONS.some((re) => re.test(row));
+  if (last < 0 || !isDialogRow(rows[last])) return null;
+  for (let i = 0; i < rows.length; i += 1) {
+    if (!TRUST_PROMPT_QUESTION.test(rows[i])) continue;
+    const below = rows.slice(i + 1, i + 1 + TRUST_PROMPT_REACH);
+    if (!below.some((row) => TRUST_PROMPT_OPTIONS.some((re) => re.test(row)))) continue;
+    /* The dialog that ends the screen must be THIS one: its option row has to
+       sit at or after the question, and the screen's last row within reach
+       of it. A question pasted high on the screen above a live dialog is
+       still only one dialog. */
+    if (last > i + TRUST_PROMPT_REACH + 1) continue;
+    const line = rows[i];
+    return line.length > 240 ? line.slice(0, 240) + '…' : line;
+  }
+  return null;
+}
+
+/**
+ * Is this card's `evidence` (`stateEvidence` on the wire) the trust dialog's
+ * question row? For callers that hold a ROSTER CARD and no capture, such as
+ * `chat.deliver`, which must not type at an agent stopped on that dialog and
+ * cannot afford a capture per send. Same anchor as the detector. Evidence is
+ * written by several states (a rate limit's line, a dead token's line, a
+ * working line), so callers pair this with `state === needs_you`; within that
+ * state only `trustPrompt` writes evidence, and it writes the question row,
+ * so a match means "the last snapshot saw the dialog", no more and no less.
+ */
+function isTrustDialogEvidence(evidence) {
+  return typeof evidence === 'string' && TRUST_PROMPT_QUESTION.test(evidence);
+}
+
+/**
+ * THE ONE SENTENCE for "do not type at this dialog", used by the deliver
+ * refusal (engine/chat.js), the two typed routes' 409 and the thread page's
+ * note (server.js). Written once so the three cannot drift, and written about
+ * the AGENT in plain words: what it is stopped on, what Enter would do, and
+ * what to do instead. Rendered through `textContent` and as a JSON error, so
+ * plain characters, no markup.
+ */
+const TRUST_DIALOG_SENTENCE = 'it is stopped on Claude Code’s own question about whether to trust its folder, '
+  + 'which typing cannot answer: Enter there picks the default answer, “No, exit”, and ends its session. '
+  + 'Answer that question in its terminal with the arrow keys first, then send this.';
+
+/**
  * Where the evidence should start: the envelope's opening brace, or the HTTP
  * status when one sits right in front of it, because "401" is the part a
  * person reads first. Bounded, so it cannot pick up prose that happens to end
@@ -2042,6 +2219,44 @@ function classify(pane, paneText) {
       confidence: CONFIDENCE.SCRAPED,
       because: 'its Claude sign-in is not working',
       evidence: authLine,
+    };
+  }
+  /**
+   * #1629 point 3. Before `asksSomething`, because that rule cannot see this
+   * dialog (its question row runs past the `?`), and because the reason has to
+   * say WHICH question: an agent stopped here reads as ignoring you, and the
+   * DEFAULT answer ends the session. Same state as any other question --
+   * the person is the one who can answer it -- with the row as evidence, the
+   * way `auth_failed` carries its line. `reconcileReport` rule 3 then keeps
+   * this over a stale self-report, which is what the card asked for: an agent
+   * that said "working" and then met this prompt is not working.
+   *
+   * 📌 "Default", not "highlighted": the detector strips the selector glyph
+   * and accepts either label, so it does not know which option the caret is
+   * on (a person may have pressed Down and not Enter). The default is a fact
+   * about the dialog; the highlight is a fact about this moment, and the
+   * question text `questionIn` shows carries the glyph for whoever looks.
+   */
+  /**
+   * 🛑 ITS OWN TAIL, WITH THE PANE'S PADDING REMOVED. MEASURED 2026-09-01 on a
+   * real 60-row pane: the raw `capture-pane` carried the dialog in rows 8 to
+   * 17 and 43 BLANK rows under it (tmux pads a capture to the pane height),
+   * so the shared 25-row `tail` above was entirely blank and this screen read
+   * `unknown`. The dialog is the one screen that sits at the TOP of a fresh
+   * pane, which is why no other detector has met this. Trimming the shared
+   * tail for everyone would pull older scrollback into the other rules'
+   * windows (an answered question higher up could then read as live), so
+   * only this detector trims, and only trailing whitespace: its own
+   * bottom-of-screen rule then still holds against the last real row.
+   */
+  const trustTail = paneText.replace(/\s+$/, '').split('\n').slice(-25).join('\n');
+  const trustLine = trustPrompt(trustTail);
+  if (trustLine !== null) {
+    return {
+      state: STATE.NEEDS_YOU,
+      confidence: CONFIDENCE.SCRAPED,
+      because: 'it is asking whether to trust its folder, and the default answer exits',
+      evidence: trustLine,
     };
   }
   if (asksSomething(tail)) {
@@ -3806,7 +4021,27 @@ function reconcileReport(reported, scraped, nowMs) {
   if (reported.state === 'needs_you') {
     /* #763: the question's project rides on the state, so a project tile can
        light for its own question only. Null when the agent named none. */
-    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said('it is asking you something'), reported: true, conflict: null, project: (typeof reported.project === 'string' && reported.project) ? reported.project : null, projectInferred: reported.projectInferred === true };
+    /* #1629: a scraped needs_you can carry the question row as `evidence` (the
+       trust dialog). A reported needs_you never decays (rule 6), so an agent
+       whose last report was an earlier question and then met the dialog would
+       otherwise render the OLD question with no evidence. The report keeps the
+       state and its words; the screen's row rides along when it has one. */
+    const project = { project: (typeof reported.project === 'string' && reported.project) ? reported.project : null, projectInferred: reported.projectInferred === true };
+    if (scraped.state === STATE.NEEDS_YOU && scraped.evidence) {
+      /* The screen carries a question row (today only the trust dialog sets
+         one) while the report is prose about a question. The inference, not
+         a measurement: a report never mentions that dialog, because an agent
+         cannot report from inside it, so the two are different questions.
+         The screen's reason and row lead, since that is the question standing
+         in front of the person and the one whose default answer exits. Rule 3
+         shape: `reported: false`, so the page does not render the screen's
+         sentence in quotes as words the agent said itself, and the report's
+         words are the conflict rather than dropped. The project the report
+         named still rides along (#763). */
+      const asked = reported.because ? ' Its last report asked: ' + reported.because : '';
+      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: scraped.because, evidence: scraped.evidence, reported: false, conflict: 'its screen shows a question its last report did not mention.' + asked, ...project };
+    }
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said('it is asking you something'), reported: true, conflict: null, ...project };
   }
   if (reported.state === 'blocked') {
     const what = reported.on ? 'it is waiting on ' + reported.on + (reported.owner ? ', which ' + reported.owner + ' owns' : '')
@@ -4281,6 +4516,9 @@ module.exports = {
   NEEDS_YOU_MARKERS,
   CODEX_NEEDS_YOU_MARKERS,
   ALL_NEEDS_YOU_MARKERS,
+  trustPrompt,
+  isTrustDialogEvidence,
+  TRUST_DIALOG_SENTENCE,
   SELECTOR_GLYPHS,
   isCodexCommand,
 };

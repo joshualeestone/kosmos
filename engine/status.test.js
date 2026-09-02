@@ -3648,3 +3648,267 @@ test('#1315 CONTROL: the constant comes from selfreport, not this module', () =>
   assert.equal(got.because, 'we could not tell what it is doing',
     'an absent `because` was treated as never-reported: the comparison is against undefined again');
 });
+
+// ---------------------------------------------------------------------------
+// #1629 point 3: Claude Code's trust dialog is a question, not silence
+// ---------------------------------------------------------------------------
+
+/* OBSERVED 2026-09-01 on this machine (a fresh folder, `claude` started in it),
+   path shortened. The question row runs past its `?`, which is why the
+   `asksSomething` rule cannot see it -- see TRUST_PROMPT_QUESTION in status.js. */
+const TRUST_DIALOG_LIVE = [
+  ' Accessing workspace:',
+  ' /Users/somebody/work/workers/rosie',
+  ' Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source',
+  ' project, or work from your team). If not, take a moment to review what\'s in this folder first.',
+  ' Claude Code\'ll be able to read, edit, and execute files here.',
+  ' Security guide',
+  ' ❯ No, exit',
+  '   Yes, I trust this folder',
+  ' Enter to confirm · Esc to cancel',
+  '',
+].join('\n');
+
+/* The card's own capture, 2026-08-30 17:19 (Splinter's pane): the same dialog
+   with the question abbreviated to its first sentence. */
+const TRUST_DIALOG_CARD = [
+  ' Quick safety check: Is this a project you created or one you trust?',
+  ' ❯ No, exit',
+  '   Yes, I trust this folder',
+  ' Enter to confirm · Esc to cancel',
+  '',
+].join('\n');
+
+test('#1629: the trust dialog reads needs_you, with the question as evidence, on both observed shapes', () => {
+  for (const [label, text] of [['live 2026-09-01', TRUST_DIALOG_LIVE], ['card 2026-08-30', TRUST_DIALOG_CARD]]) {
+    const r = classify(pane(), 'Worked for 2m 10s\n' + text);
+    assert.equal(r.state, STATE.NEEDS_YOU, label);
+    assert.equal(r.confidence, CONFIDENCE.SCRAPED, label);
+    assert.match(r.because, /trust its folder/, `${label}: the reason names WHICH question`);
+    assert.match(r.evidence, /^Quick safety check: Is this a project you created or one you trust\?/, label);
+  }
+  // Positive control on the unchanged rule: an ordinary prompt is still a prompt.
+  assert.equal(classify(pane(), 'Do you want to proceed?\n').state, STATE.NEEDS_YOU);
+});
+
+test('#1629: the trust dialog is the same needs_you an ordinary prompt is, so the highlighted answer is chosen by nobody but the person', () => {
+  // `Yes, I trust this folder` highlighted instead: still the dialog, still needs you.
+  const flipped = TRUST_DIALOG_LIVE.replace(' ❯ No, exit', '   No, exit').replace('   Yes, I trust this folder', ' ❯ Yes, I trust this folder');
+  assert.notEqual(flipped, TRUST_DIALOG_LIVE, 'the fixture edit took');
+  const r = classify(pane(), flipped);
+  assert.equal(r.state, STATE.NEEDS_YOU);
+  // The reason names the DEFAULT, which is a fact about the dialog; it must not
+  // claim to know the highlight, which the detector does not read.
+  assert.match(r.because, /default answer exits/);
+  assert.doesNotMatch(r.because, /highlighted/);
+});
+
+test('#1629: prose about the trust dialog is not the dialog', () => {
+  const cases = [
+    ['an agent quoting the sentence',
+      'The pane said "Quick safety check: Is this a project you created or one you trust?" and I pressed Down.\n'],
+    ['the question row with a non-dialog row beneath it and no option row',
+      ' Quick safety check: Is this a project you created or one you trust?\nWorked for 2m\n'],
+    ['the question row alone at the bottom of the screen, no option row',
+      ' Quick safety check: Is this a project you created or one you trust?\n'],
+    ['a label inside a sentence',
+      'I chose Yes, I trust this folder and it started.\n'],
+    ['a label on its own row with no question above it',
+      'Options I saw:\n  Yes, I trust this folder\n'],
+    ['the option row too far below to be this dialog',
+      ' Quick safety check: Is this a project you created or one you trust?\n'
+      + 'line\n'.repeat(12) + ' ❯ No, exit\n'],
+  ];
+  for (const [label, text] of cases) {
+    const r = classify(pane(), text);
+    assert.notEqual(r.state, STATE.NEEDS_YOU, label);
+  }
+});
+
+test('#1629: trustPrompt returns the question row alone, capped, and nothing for a non-dialog', () => {
+  const { trustPrompt } = require('./status');
+  assert.equal(trustPrompt(TRUST_DIALOG_LIVE),
+    'Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source');
+  assert.equal(trustPrompt(null), null);
+  assert.equal(trustPrompt('Worked for 2m\n'), null);
+  const long = ' Quick safety check: ' + 'x'.repeat(300) + '\n ❯ No, exit\n';
+  assert.equal(trustPrompt(long).length, 241, 'one line, capped at 240 plus the ellipsis');
+});
+
+test('#1629: a scraped trust dialog stands over a FRESH self-report of working, because the agent cannot know it is stuck', () => {
+  /* Built with the suite's own `rep()` and `T0`, not a hand-rolled object: a
+     fixture of the wrong shape routes into the no-report branch and answers a
+     different question accurately (the fleet bulletin of 2026-08-27). */
+  const scraped = classify(pane(), TRUST_DIALOG_LIVE);
+  const got = reconcileReport(rep('working', { because: 'rebasing' }), scraped, T0 + 60_000);
+  assert.equal(got.state, STATE.NEEDS_YOU, 'rule 3: a scraped needs_you is never suppressed by a fresh report');
+  assert.ok(got.conflict, 'and the disagreement is surfaced, not silently resolved');
+  assert.match(got.evidence, /^Quick safety check/, 'the question row survives reconciliation');
+  // The arm can fail: the same fresh report DOES win over a scraped idle.
+  const idle = reconcileReport(rep('working', { because: 'rebasing' }), scr(STATE.IDLE, CONFIDENCE.SCRAPED), T0 + 60_000);
+  assert.equal(idle.state, STATE.WORKING, 'control: rule 3 is specific to needs_you');
+});
+
+test('#1629: a verbatim PASTE of the dialog is not the dialog, because a paste is never the bottom of the screen', () => {
+  const { trustPrompt } = require('./status');
+  const dialogRows = TRUST_DIALOG_LIVE.split('\n').filter((l) => l.trim());
+  // The card that motivates this detector quotes the dialog, so `gh issue view
+  // 1629` prints it into a tool result. Measured before the fix: needs_you, and
+  // rule 3 then stood it over the agent's own fresh `working` report.
+  const paste = [
+    '⏺ Bash(gh issue view 1629 --repo joshualeestone/kosmos)',
+    '  ⎿  He was not unresponsive, he was stopped here:',
+    ...dialogRows.map((l) => '     ' + l),
+    '     The default answer kills the agent.',
+    '',
+    '⏺ Reading the rest of the card now.',
+    '',
+  ];
+  const cases = [
+    ['paste with the composer footer beneath it', [...paste, '⏵⏵ accept edits on (shift+tab to cycle)'].join('\n')],
+    ['paste with a working line beneath it', [...paste, '· Reading… (12s · esc to interrupt)'].join('\n')],
+    ['paste with prose beneath it', [...paste, 'That capture is from 08-30.'].join('\n')],
+  ];
+  for (const [label, text] of cases) {
+    assert.equal(trustPrompt(text), null, label);
+    assert.notEqual(classify(pane(), text).state, STATE.NEEDS_YOU, label);
+  }
+  // Control: the same rows with nothing beneath them ARE the dialog.
+  assert.ok(trustPrompt(['Worked for 2m', ...dialogRows, ''].join('\n')), 'the real dialog still reads');
+  // And a capture clipped before the confirm row drew still reads: an option
+  // row is a dialog row too.
+  assert.ok(trustPrompt(['Worked for 2m', ...dialogRows.slice(0, -1)].join('\n')), 'clipped before the confirm row');
+});
+
+test('#1629: a bare composer beneath a pasted dialog is not the dialog, though its chrome strips to nothing', () => {
+  const { trustPrompt } = require('./status');
+  const dialogRows = TRUST_DIALOG_LIVE.split('\n').filter((l) => l.trim());
+  // Iteration 6. The last row was found on the STRIPPED rows, and an idle
+  // composer strips to nothing, so the walk-back stepped past it and landed on
+  // the pasted confirm row above. Each composer below is the screen's real
+  // last row and each strips to empty; the paste ends on its confirm row, so
+  // the pre-fix walk-back matched it. Reverting the raw-row fix reds every arm.
+  const pastedDialog = [
+    '⏺ Bash(gh issue view 1629 --repo joshualeestone/kosmos)',
+    '  ⎿  He was not unresponsive, he was stopped here:',
+    ...dialogRows.map((l) => '     ' + l),
+  ];
+  const composers = [
+    ['a bare pointer composer', ' ❯ '],
+    ['a rule composer', ' ──────────────────────────────'],
+    ['an old-style prompt composer', ' > '],
+  ];
+  for (const [label, composer] of composers) {
+    const text = [...pastedDialog, composer, ''].join('\n');
+    assert.equal(trustPrompt(text), null, label);
+    assert.notEqual(classify(pane(), text).state, STATE.NEEDS_YOU, label);
+  }
+  // Control: the same rows with the real dialog genuinely at the bottom still
+  // read, so the arms above fail on the composer, not on the paste itself.
+  assert.ok(trustPrompt(['Worked for 2m', ...dialogRows, ''].join('\n')), 'the real dialog still reads');
+});
+
+test('#1629: the reach boundary goes red in both directions', () => {
+  const { trustPrompt } = require('./status');
+  const q = ' Quick safety check: Is this a project you created or one you trust?';
+  const at = (n) => [q, ...Array(n - 1).fill('line'), ' ❯ No, exit', ''].join('\n');
+  // rows.slice(i + 1, i + 1 + REACH): the option row at exactly row +12 is inside.
+  assert.ok(trustPrompt(at(12)), 'option at row +12 is within reach');
+  assert.equal(trustPrompt(at(13)), null, 'option at row +13 is out of reach');
+});
+
+test('#1629: a box-framed dialog reads the same on both halves of the feature', () => {
+  const { trustPrompt, ALL_NEEDS_YOU_MARKERS } = require('./status');
+  // ⚠️ A GUESSED SHAPE, said so: no box-drawn instance of THIS dialog has been
+  // observed. The frame comes from engine/chat.js's record that some Claude
+  // Code versions draw prompts inside a box, with BOTH edges, the way optionsIn
+  // strips them. What this arm pins is that the detector and the marker
+  // questionIn uses apply the same strip, or the card says needs_you while the
+  // page cannot find the question. If a framed dialog is ever observed, replace
+  // this fixture with the capture.
+  const framed = [
+    '│ Quick safety check: Is this a project you created or one you trust?   │',
+    '│ ❯ No, exit                                                             │',
+    '│   Yes, I trust this folder                                             │',
+    '│ Enter to confirm · Esc to cancel                                       │',
+    '',
+  ].join('\n');
+  assert.ok(trustPrompt(framed), 'the detector sees through a frame on both edges');
+  assert.ok(ALL_NEEDS_YOU_MARKERS.some((re) => re.test('│ Quick safety check: Is this a project')), 'so does the marker questionIn uses');
+  assert.ok(ALL_NEEDS_YOU_MARKERS.some((re) => re.test(' Quick safety check: Is this a project')), 'and the plain row');
+  assert.ok(!ALL_NEEDS_YOU_MARKERS.some((re) => re.test('The pane said Quick safety check: and I moved on')), 'but not the sentence');
+});
+
+test('#1629: a REPORTED needs_you carries the screen\'s question row when the screen has one', () => {
+  // Rule 6: a reported needs_you never decays, so an agent whose last report
+  // was an earlier question and then met the dialog rendered the old question
+  // with no evidence. The report keeps its words; the row rides along.
+  const scraped = classify(pane(), TRUST_DIALOG_LIVE);
+  const got = reconcileReport(rep('needs_you', { because: 'may I merge?' }), scraped, T0 + 60_000);
+  assert.equal(got.state, STATE.NEEDS_YOU);
+  // Rule 3 shape, not the report's: the screen leads, so `reported` is false
+  // and the report's words are the conflict (see the arm below this one).
+  assert.equal(got.reported, false);
+  assert.match(got.evidence, /^Quick safety check/);
+  // Control: a scraped needs_you WITHOUT evidence adds no evidence key.
+  const plain = reconcileReport(rep('needs_you', { because: 'may I merge?' }), scr(STATE.NEEDS_YOU, CONFIDENCE.SCRAPED), T0 + 60_000);
+  assert.equal('evidence' in plain, false);
+});
+
+test('#1629: when the report asked one thing and the screen asks the trust question, the screen leads and the report is the conflict', () => {
+  const scraped = classify(pane(), TRUST_DIALOG_LIVE);
+  const got = reconcileReport(rep('needs_you', { because: 'may I merge?' }), scraped, T0 + 60_000);
+  assert.equal(got.state, STATE.NEEDS_YOU);
+  assert.match(got.because, /trust its folder/, 'the question in front of the person leads');
+  assert.match(got.evidence, /^Quick safety check/);
+  assert.match(got.conflict, /may I merge\?/, 'the report is surfaced, not dropped');
+  // Rule 3 shape: the page renders a reported sentence in quotes as the
+  // agent's own words, and this sentence is the screen's, not the agent's.
+  assert.equal(got.reported, false);
+  assert.equal(got.confidence, CONFIDENCE.SCRAPED);
+  // The project the report named still rides on the state (#763).
+  const withProject = reconcileReport(rep('needs_you', { because: 'may I merge?', project: 'p1' }), scraped, T0 + 60_000);
+  assert.equal(withProject.project, 'p1');
+});
+
+test('#1629: isTrustDialogEvidence answers only for the detector\'s own question row', () => {
+  const { isTrustDialogEvidence } = require('./status');
+  assert.equal(isTrustDialogEvidence(classify(pane(), TRUST_DIALOG_LIVE).evidence), true);
+  assert.equal(isTrustDialogEvidence('You’ve reached your usage limit'), false, 'a rate-limit row is not it');
+  assert.equal(isTrustDialogEvidence(null), false);
+  assert.equal(isTrustDialogEvidence(undefined), false);
+  assert.equal(isTrustDialogEvidence('The pane said Quick safety check: and moved on'), false, 'not anchored, not it');
+});
+
+test('#1629: a RAW capture of a tall pane, padding and all, still reads needs_you', () => {
+  // MEASURED 2026-09-01 on a real 60-row pane (Claude Code 2.1.258): the dialog
+  // sat in rows 8 to 17 and `capture-pane` returned 43 blank rows under it,
+  // because tmux pads a capture to the pane height. The shared 25-row tail was
+  // entirely blank and the shipped classifier read `unknown`. This fixture is
+  // that shape, rebuilt from the observed dialog rows plus the padding; the
+  // detector trims its own tail, so the bottom-of-screen rule holds against
+  // the last REAL row.
+  const padded = TRUST_DIALOG_LIVE + '\n'.repeat(43);
+  assert.ok(padded.split('\n').length > 25, 'fixture: more padding than the tail is wide');
+  assert.equal(padded.split('\n').slice(-25).join('').trim(), '', 'fixture: the shared tail is all blank');
+  const r = classify(pane(), padded);
+  assert.equal(r.state, STATE.NEEDS_YOU);
+  assert.match(r.evidence, /^Quick safety check/);
+  // Control: the other rules keep their untrimmed tail. An answered question
+  // high in scrollback with padding under it must NOT become live.
+  const answered = 'Do you want to proceed?\n❯ 1. Yes\nYes\nWorked for 3m\n' + '\n'.repeat(43);
+  assert.notEqual(classify(pane(), answered).state, STATE.NEEDS_YOU, 'only the trust detector trims');
+});
+
+test('#1629: where detection stops for the FULL dialog shape, pinned by the bottom rule and the reach together', () => {
+  const { trustPrompt } = require('./status');
+  const q = ' Quick safety check: Is this a project you created or one you trust?';
+  // The whole dialog under the question: first option at row +n, second at
+  // +n+1, confirm at +n+2. Reach allows the first option at +12; the bottom
+  // rule allows the screen's last row at +13. So the full shape is seen with
+  // the first option at +11 and lost at +12.
+  const full = (n) => [q, ...Array(n - 1).fill('line'), ' ❯ No, exit', '   Yes, I trust this folder', ' Enter to confirm · Esc to cancel', ''].join('\n');
+  assert.ok(trustPrompt(full(5)), 'the observed layout');
+  assert.ok(trustPrompt(full(11)), 'first option at +11, confirm at +13: seen');
+  assert.equal(trustPrompt(full(12)), null, 'first option at +12, confirm at +14: lost, as the docblock says');
+});
