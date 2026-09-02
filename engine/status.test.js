@@ -2654,6 +2654,14 @@ test('#1884: Claude Code\'s friendly (non-JSON) auth line reads as auth_failed, 
     'OAuth token revoked · Please run /login',
     'Login expired · Please run /login',
     '● Please run /login · OAuth access token has been revoked.',
+    // Byte-exact WHOLE line from Claude Code 2.1.258's own strings (both halves,
+    // "Please run /login" satisfies the remedy). This is the session-expired form.
+    'Your session has expired. Please run /login to sign in again.',
+    // The invalid-token wording in the friendly form. The message string is
+    // byte-exact from the bundle; the one-line "· Please run /login" pairing
+    // follows Claude Code's own confirmed template (as in the accepted forms
+    // above). The JSON envelope form of this is separately covered by #874.
+    '● Please run /login · API Error: 401 OAuth access token is invalid.',
   ]) {
     assert.equal(classify(pane(), line + '\n').state, STATE.AUTH_FAILED,
       'a real friendly auth line was missed: ' + JSON.stringify(line));

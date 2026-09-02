@@ -1904,10 +1904,14 @@ function messageAt(text, markers) {
  * discriminator). Evidence is that line, capped, the same one-line contract the
  * rate-limit and #874 auth cases follow.
  *
- * 📌 KNOWN LIMITATION, pinned like #1233's narrow-pane note: a pane narrow
- * enough to WRAP the friendly line between its message and its remedy would
- * split the pair across two rows and be missed. Ben's pane held both on one row.
- * If a wrapped friendly line is ever observed, add the same "ends mid-token"
+ * 📌 KNOWN LIMITATION, and narrow like #1233's: a capture in which the friendly
+ * line is split between its message and its remedy across two rows would be
+ * missed. This is essentially test-only / mid-redraw-clip, NOT a live-pane
+ * residual: `capturePane` passes `-J` (see its call site), which re-joins
+ * soft-wrapped rows at capture time, so a real wrapped pane arrives already
+ * joined -- the same reason the JSON path's own wrap heuristic is described as
+ * unreachable from a live pane. If a split friendly line is ever observed from a
+ * live pane anyway (a capture clipped mid-redraw), add the same "ends mid-token"
  * wrap-join `authFailed` uses for the JSON form.
  */
 function friendlyAuthLine(rows) {
