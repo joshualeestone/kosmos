@@ -88,6 +88,34 @@ const FROZEN = path.join(c(), 'x');"
 if [ "$(run reverse_chain)" = "1" ]; then ok "a REVERSE-declared 3-deep resolver chain is flagged (#1752)"
 else bad "missed a reverse 3-deep chain -- the closure gave up before reaching the source"; fi
 
+# ---- arm 4e: an INDENTED closing brace must not OVER-CAPTURE (#1752 iter 3) -
+# PRECISION, the PR-blocking direction. A lazy helper whose `}` is indented must
+# end at its own brace, not sweep in the next module-level source const. If it
+# over-captures, the helper is wrongly a resolver and its eager CALLER is falsely
+# flagged. Here `make` returns no root; only `SEP` (a real frozen const) should
+# be flagged, never `CALLER`.
+fixture indented_fp "const os = require('os');
+const make = () => {
+    return 'plain';
+  };
+const SEP = os.homedir();
+const CALLER = make();"
+run indented_fp >/dev/null
+if grep -q 'CALLER' "$T/out"; then bad "an indented-brace helper over-captured -- CALLER falsely flagged (gate reds a legit file)"
+else ok "an indented closing brace does not over-capture into a false positive (#1752)"; fi
+
+# ---- arm 4f: a function-EXPRESSION with a DEFAULT PARAM is caught (#1752) --
+# `const f = function (x = 5) { ... }` -- the `=` of the default param must not
+# be mistaken for the end of the function head and truncate the block body.
+fixture fnexpr_default "const os = require('os');
+const home = function (x = 5) {
+  const b = x;
+  return b || os.homedir();
+};
+const CONFIG = path.join(home(), 'config.json');"
+if [ "$(run fnexpr_default)" = "1" ]; then ok "a function-expression resolver with a default param is flagged (#1752)"
+else bad "missed a function-expression with a default param -- the head was mis-parsed and the body truncated"; fi
+
 # ---- arm 5: a const with no root at all must not be flagged ---------------
 fixture inert "const NAME = 'kosmos';
 const N = 3;"

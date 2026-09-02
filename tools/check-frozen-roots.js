@@ -81,22 +81,31 @@ function declarations(src) {
   return out;
 }
 
-/* A resolver's body, captured line-linearly from line `i`. A BLOCK body ends at
-   the next line beginning with `}` (the closing brace at column 0, the same
-   heuristic the function-declaration scan has always used); an EXPRESSION body
-   (a single-expression arrow, `=> expr`) ends at the line ending in `;`.
-   🛑 #1752 iter 2: the first version reused `declarations()` for const-held
-   resolvers, and its terminator is the first `;` - which for a BLOCK body is the
-   first STATEMENT, not the closing brace. So `const home = () => { const b = x;
-   return b || os.homedir(); }` had its source call TRUNCATED away and the eager
-   const that called it was missed, while the identical `function home()` form was
-   caught. Capturing to the brace for block bodies closes that asymmetry. */
-function resolverBodyFrom(lines, i, isBlock) {
+/* A resolver's body, captured line-linearly from line `i`, terminating on a
+   BALANCED brace when the declaration opens one and on the statement's `;`
+   otherwise.
+   🛑 #1752: earlier versions keyed the block terminator on a closing brace at
+   COLUMN 0 (`/^\}/`), which had three edges a blind pass found: an INDENTED
+   closer over-captured to the next col-0 `}` (sweeping a later source const in ->
+   a FALSE POSITIVE that reds an unrelated file, the worst direction for a gate);
+   a function-expression with a DEFAULT PARAM (`= function (x = 5) {`) mis-read as
+   non-block and truncated; and a brace on its own next line (`=>\n{`) likewise.
+   Counting braces from the first one until they balance is indentation- and
+   placement-independent and closes all three. It miscounts a brace inside a
+   string/comment, which is rarer in a resolver body than any of the above. */
+function resolverBodyFrom(lines, i) {
   const buf = [];
+  let depth = 0;
+  let sawBrace = false;
   for (let j = i; j < lines.length && j - i < 400; j += 1) {
-    buf.push(lines[j]);
-    if (isBlock) { if (/^\}/.test(lines[j]) && j > i) break; }
-    else if (/;\s*$/.test(lines[j])) break;
+    const line = lines[j];
+    buf.push(line);
+    for (const ch of line) {
+      if (ch === '{') { depth += 1; sawBrace = true; }
+      else if (ch === '}') { depth -= 1; }
+    }
+    if (sawBrace) { if (depth <= 0) break; }   // block body: closed when balanced
+    else if (/;\s*$/.test(line)) break;         // expression body: to its ;
   }
   return buf.join('\n');
 }
@@ -111,16 +120,13 @@ function functionNamesReaching(src, sources) {
   const bodies = [];
   for (let i = 0; i < lines.length; i += 1) {
     const fn = /^\s*function ([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(lines[i]);
-    if (fn) { bodies.push([fn[1], resolverBodyFrom(lines, i, true)]); continue; }
+    if (fn) { bodies.push([fn[1], resolverBodyFrom(lines, i)]); continue; }
     /* const NAME = (arrow) | function-expression. The value must be
        function-shaped (isLazy), so a const holding a plain value is never a
        resolver candidate and precision is unchanged. */
     const cd = /^const ([A-Za-z_][A-Za-z0-9_]*) =(.*)$/.exec(lines[i]);
     if (!cd || !isLazy(cd[2])) continue;
-    /* Block-bodied when this line opens a brace after the `=>` or `function`;
-       otherwise a single-expression arrow terminated by `;`. */
-    const isBlock = /=>\s*\{/.test(lines[i]) || /=\s*(?:async\s*)?function\b[^=]*\{/.test(lines[i]);
-    bodies.push([cd[1], resolverBodyFrom(lines, i, isBlock)]);
+    bodies.push([cd[1], resolverBodyFrom(lines, i)]);
   }
   /* Transitive closure to a FIXPOINT rather than a fixed 2 rounds: a chain of
      resolvers of any depth, forward- or reverse-declared, is resolved, and it
