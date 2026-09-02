@@ -74,8 +74,10 @@ const REF = 'docs/windows-source-coupling-1732.md';
 // tools/*.js is DELIBERATELY EXCLUDED: it is dev/CI/release tooling that runs on
 // the macOS fleet, never on a user's Windows box, so its POSIX assumptions (e.g.
 // process.env.HOME in insert-release-entry.js / check-block-delivery.js) are
-// correct for where it runs and are NOT in this class. Widen this set only to
-// code that ships to / executes on Windows.
+// correct for where it runs and are NOT in this class. The same reasoning
+// excludes test-support/*.js and docs/browser-checks/*.js (test fixtures and
+// render checks, fleet-only). Widen this set only to code that ships to /
+// executes on Windows.
 function productFiles() {
   const files = [];
   const dirScan = [
