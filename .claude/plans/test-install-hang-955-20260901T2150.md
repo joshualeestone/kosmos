@@ -61,3 +61,10 @@ fake flag STARTS the app on every current bundle. Final design:
 - [ ] wire the test into test:shell
 - [ ] full suite green; the test reds a behind bundle and passes a current one
 - [ ] /challenge-loop, PR, self-merge (repo-local test hardening; Angel owns the gate but the fix is add-only)
+
+## Validation ledger (after RELEASED, 2026-09-01)
+
+- Rebased onto origin/main 5e328edd (v0621), clean, five commits.
+- Small target test on the rebased branch: `bash tools/test-app-port-selftest.sh`, all ten arms pass.
+- Full suite `bash tools/run-tests.sh` run once, alone, Tue Sep  1 19:14:22 to Tue Sep  1 19:16:30: EXIT_CODE=0, tests 3598, pass 3598, fail 0, no warnings in the log.
+- The shared validation helper was not used: it routes lockfile-less repos to pnpm and fails closed on this repo tonight (fleet bulletin), so the suite was run directly and the exit code read from the log.
