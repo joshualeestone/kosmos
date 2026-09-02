@@ -59,6 +59,35 @@ const WORKERS = path.join(home(), 'work', 'workers');"
 if [ "$(run indirect_arrow)" = "1" ]; then ok "a const frozen via an ARROW resolver is flagged (#1752)"
 else bad "missed an arrow resolver -- a const = () => os.homedir() the eager const calls is invisible"; fi
 
+# ---- arm 4c: a BLOCK-BODY arrow resolver (#1752 iter 2) --------------------
+# The blind spot the single-expression arm above dodges: when the arrow has a
+# BLOCK body, the source call is after the first `;` (the first statement), and
+# a body captured to the first `;` truncates it away. The full block must be
+# read, exactly as a `function NAME(` body is.
+# MULTI-LINE on purpose: the source call is on a LATER line than the first `;`,
+# so a body captured to the first `;` truncates before it. A one-line block
+# would end in `;` and be captured whole, dodging the very hole this pins.
+fixture arrow_block "const os = require('os');
+const home = () => {
+  const base = process.env.AW_HOME;
+  return base || os.homedir();
+};
+const CONFIG = path.join(home(), 'config.json');"
+if [ "$(run arrow_block)" = "1" ]; then ok "a const frozen via a BLOCK-BODY arrow resolver is flagged (#1752)"
+else bad "missed a block-body arrow -- the source call after the first ; was truncated"; fi
+
+# ---- arm 4d: a REVERSE-DECLARED chain 3 deep (#1752 iter 2) ----------------
+# A fixed round count silently misses a chain declared in reverse: each round
+# propagates one resolver level, so a 3-deep reverse chain needs 3. A fixpoint
+# closure catches it; a 2-round cap does not.
+fixture reverse_chain "const os = require('os');
+const c = () => path.dirname(b());
+const b = () => path.dirname(a());
+const a = () => os.homedir();
+const FROZEN = path.join(c(), 'x');"
+if [ "$(run reverse_chain)" = "1" ]; then ok "a REVERSE-declared 3-deep resolver chain is flagged (#1752)"
+else bad "missed a reverse 3-deep chain -- the closure gave up before reaching the source"; fi
+
 # ---- arm 5: a const with no root at all must not be flagged ---------------
 fixture inert "const NAME = 'kosmos';
 const N = 3;"

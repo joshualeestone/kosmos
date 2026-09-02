@@ -81,43 +81,60 @@ function declarations(src) {
   return out;
 }
 
+/* A resolver's body, captured line-linearly from line `i`. A BLOCK body ends at
+   the next line beginning with `}` (the closing brace at column 0, the same
+   heuristic the function-declaration scan has always used); an EXPRESSION body
+   (a single-expression arrow, `=> expr`) ends at the line ending in `;`.
+   🛑 #1752 iter 2: the first version reused `declarations()` for const-held
+   resolvers, and its terminator is the first `;` - which for a BLOCK body is the
+   first STATEMENT, not the closing brace. So `const home = () => { const b = x;
+   return b || os.homedir(); }` had its source call TRUNCATED away and the eager
+   const that called it was missed, while the identical `function home()` form was
+   caught. Capturing to the brace for block bodies closes that asymmetry. */
+function resolverBodyFrom(lines, i, isBlock) {
+  const buf = [];
+  for (let j = i; j < lines.length && j - i < 400; j += 1) {
+    buf.push(lines[j]);
+    if (isBlock) { if (/^\}/.test(lines[j]) && j > i) break; }
+    else if (/;\s*$/.test(lines[j])) break;
+  }
+  return buf.join('\n');
+}
+
 function functionNamesReaching(src, sources) {
-  /* One pass of transitive closure: a function whose body mentions a raw source
-     is a resolver, and so is one that calls a resolver. Two rounds is enough
-     for the shapes here and the tool says so rather than pretending to be a
-     compiler. */
-  /* Also linear: find each `function NAME(` line and take its body as the
-     lines up to the next line that is exactly `}`. Two rounds so a helper that
-     calls a resolver is itself recognised as one. */
+  /* A resolver is a function whose body reaches a raw source, or calls another
+     resolver. Gathered from `function NAME(` declarations AND const-held arrow /
+     function-expression resolvers (`const dir = () => ...`, `const dir =
+     function () {...}`), because a `function NAME(` scan alone is blind to the
+     const-held forms and an eager const calling one froze a root undetected. */
   const lines = src.split('\n');
   const bodies = [];
   for (let i = 0; i < lines.length; i += 1) {
-    const m = /^\s*function ([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(lines[i]);
-    if (!m) continue;
-    const buf = [];
-    for (let j = i; j < lines.length && j - i < 400; j += 1) {
-      buf.push(lines[j]);
-      if (/^\}/.test(lines[j]) && j > i) break;
-    }
-    bodies.push([m[1], buf.join('\n')]);
+    const fn = /^\s*function ([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(lines[i]);
+    if (fn) { bodies.push([fn[1], resolverBodyFrom(lines, i, true)]); continue; }
+    /* const NAME = (arrow) | function-expression. The value must be
+       function-shaped (isLazy), so a const holding a plain value is never a
+       resolver candidate and precision is unchanged. */
+    const cd = /^const ([A-Za-z_][A-Za-z0-9_]*) =(.*)$/.exec(lines[i]);
+    if (!cd || !isLazy(cd[2])) continue;
+    /* Block-bodied when this line opens a brace after the `=>` or `function`;
+       otherwise a single-expression arrow terminated by `;`. */
+    const isBlock = /=>\s*\{/.test(lines[i]) || /=\s*(?:async\s*)?function\b[^=]*\{/.test(lines[i]);
+    bodies.push([cd[1], resolverBodyFrom(lines, i, isBlock)]);
   }
-  /* #1752: an ARROW or FUNCTION-EXPRESSION resolver held in a const --
-     `const dir = () => path.join(root(), ...)` -- is invisible to the
-     `function NAME(` scan above, so a const that EAGERLY calls it (and thereby
-     freezes a root) was not flagged. Take each lazy (function-shaped) const's
-     body as a resolver candidate too, so the transitive closure recognises it.
-     Precision is unchanged: a candidate is only marked a resolver if its body
-     actually reaches a source or another resolver; a lazy const that reaches
-     neither is still not flagged (arm 1 of test-frozen-roots.sh). */
-  for (const d of declarations(src)) {
-    if (isLazy(d.init)) bodies.push([d.name, d.init]);
-  }
+  /* Transitive closure to a FIXPOINT rather than a fixed 2 rounds: a chain of
+     resolvers of any depth, forward- or reverse-declared, is resolved, and it
+     still terminates because `names` only grows and is bounded by the resolver
+     count. (The old 2-round cap silently missed a reverse-declared chain 3+
+     deep.) */
   const names = new Set();
-  for (let round = 0; round < 2; round += 1) {
+  for (let changed = true; changed;) {
+    changed = false;
     for (const [name, body] of bodies) {
+      if (names.has(name)) continue;
       const reaches = sources.some((s) => body.includes(s))
         || [...names].some((n) => new RegExp(`\\b${n}\\s*\\(`).test(body));
-      if (reaches) names.add(name);
+      if (reaches) { names.add(name); changed = true; }
     }
   }
   return names;
