@@ -25,17 +25,27 @@ set -u
 # and for testing against a local server; defaults to the real site.
 SETUP_URL="${KOSMOS_SETUP_URL:-https://installkosmos.com/setup}"
 
-# The person double-clicking is the console user, not root.
-CONSOLE_USER="$(/usr/bin/stat -f '%Su' /dev/console 2>/dev/null)"
-if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ] || [ "$CONSOLE_USER" = "loginwindow" ]; then
-  echo "Kosmos: no one is signed in to install for. Sign in, then open this again." >&2
+# WHO to install for. NOT `stat -f '%Su' /dev/console` -- that is the PHYSICAL
+# console holder, which is the wrong user (or none) the moment a Mac has a second
+# account with a session: fast user switching, a second admin account, or Screen
+# Sharing into a virtual session (kosmos#1880). resolve_install_user finds the
+# owner of the running GUI Installer -- the person who actually invoked this --
+# confirms they hold a real Aqua GUI session, and only falls back to the console
+# user. On failure it explains WHICH check failed instead of the flat, and
+# sometimes flatly wrong, "no one is signed in". Downstream keeps using
+# CONSOLE_USER / CONSOLE_UID, so only their SOURCE changes here.
+_riu_lib="$(dirname "$0")/resolve-install-user.sh"
+if [ ! -f "$_riu_lib" ]; then
+  echo "Kosmos: this installer is incomplete (resolve-install-user.sh missing)." >&2
   exit 1
 fi
-CONSOLE_UID="$(/usr/bin/id -u "$CONSOLE_USER" 2>/dev/null)"
-if [ -z "$CONSOLE_UID" ]; then
-  echo "Kosmos: could not resolve the signed-in user." >&2
+. "$_riu_lib"
+if ! resolve_install_user; then
+  echo "$RIU_REASON" >&2
   exit 1
 fi
+CONSOLE_USER="$INSTALL_USER"
+CONSOLE_UID="$INSTALL_UID"
 
 # ---- Show life FIRST (#662 / #663). Installer's own progress bar cannot be
 # moved by a package script: it sits still for the whole download, and a bar
