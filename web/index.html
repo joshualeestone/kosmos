@@ -9604,7 +9604,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            addition the auto-save control above (#1724) reserved a slot for. Off
            by default; the interval is adjustable. This is wired: the runner is
            live (server.js), so the control is not a dead toggle. -->
-      <h3 class="dlab">Heartbeat</h3>
+      <!-- #1843 (Josh, #admin 2026-09-02 07:12): the user-facing name is now
+           "Prompter", so Settings > Automation reads as two named features a
+           person can reason about, the Recommender (what to work on next) and
+           the Prompter (the thing that pokes on an interval). SURFACE RENAME
+           ONLY, decided once: the visible label, aria-labels and status copy say
+           Prompter; the internal ids (hb-*), the HTTP route (/api/heartbeat-setting),
+           the paint function (paintHeartbeat) and the engine modules keep the
+           heartbeat name. They are wired and unit-tested, and renaming them is
+           pure risk with no user benefit. Behaviour is unchanged. -->
+      <h3 class="dlab">Prompter</h3>
       <div class="field" style="margin-top:14px;">
         <label class="flabel" for="hb-enabled">Check on your agents</label>
         <div class="fhint">Every so often, Kosmos looks at which of your agents are working and asks you to check on any that have stopped. It asks a question, never assumes, because an agent may be mid-something. Off by default.</div>
@@ -9622,7 +9631,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <div class="frow" style="margin-top:12px; align-items:center; gap:10px;">
           <label class="flabel" for="hb-interval" style="margin:0;">Check every</label>
           <select id="hb-interval" aria-label="How often to check on your agents"></select>
-          <button class="btn uprime" type="button" id="hb-save" aria-label="Save heartbeat settings">Save</button>
+          <button class="btn uprime" type="button" id="hb-save" aria-label="Save prompter settings">Save</button>
         </div>
         <p class="fmsg" id="hb-msg" role="status" aria-live="polite"></p>
       </div>
@@ -13352,7 +13361,7 @@ async function paintHeartbeat() {
     if (msg) msg.textContent = '';
   } catch {
     en.disabled = true; iv.disabled = true; btn.disabled = true;
-    if (msg) msg.textContent = 'We could not read the heartbeat setting just now.';
+    if (msg) msg.textContent = 'We could not read the prompter setting just now.';
   }
   /* The heartbeat reaches the person through notifications, so show the notify-off
      hint ONLY when the notify master switch is off. Best-effort and separate from
@@ -13380,7 +13389,7 @@ document.getElementById('hb-save') && document.getElementById('hb-save').addEven
     if (!res.ok) { if (msg) msg.textContent = out.error || 'That did not save.'; paintHeartbeat(); return; }
     if (msg) msg.textContent = out.on
       ? 'Saved. Kosmos will check on your agents every ' + out.intervalMinutes + ' minutes.'
-      : 'Saved. The heartbeat is off.';
+      : 'Saved. The prompter is off.';
   } catch {
     if (msg) msg.textContent = 'We could not reach Kosmos to save that.';
   } finally { btn.disabled = false; }
@@ -18411,7 +18420,13 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
    page resets to Talk because it opens a different agent each time; Settings
    is one page, and a person who left Updates to look at the board comes back
    to Updates). "Landing is You" is the first arrival. */
-const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'talking', 'mac', 'usage', 'updates', 'plus', 'styles', 'advanced'];
+/* #1843: 'automation' was missing from this whitelist while its nav pill and
+   #s-sec-automation both shipped (from #1722/#1724). settingsGo falls any
+   unlisted section back to 'you', so clicking the Automation pill silently
+   opened Your Profile and the whole section (Auto-save, Prompter) was
+   unreachable. Added in nav order, after 'mac'. Caught by the render check for
+   this card, which is why the section read height 0. */
+const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'talking', 'mac', 'automation', 'usage', 'updates', 'plus', 'styles', 'advanced'];
 function settingsGo(section, opts) {
   if (!SETTINGS_SECTIONS.includes(section)) section = 'you';
   SETTINGS_SEC = section;
