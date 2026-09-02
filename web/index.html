@@ -4403,8 +4403,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    it here is what made this control and #create-model drift apart in the first
    place: two copies of one appearance, edited on different days. */
 .rolepick select { width: 100%; }
-/* #1652 import panel: the paste box is dressed with `#create-instr` above (one
-   rule, one appearance, #1800); only the button row is declared here. */
+/* #1652 import panel: the paste box is dressed by the `#create-instr, #import-text`
+   rule in the create-step block BELOW (one rule, one appearance, #1800); only the
+   button row is declared here. */
 .importrow { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
 /* The limit on a role that has one, read while choosing rather than discovered
    afterwards. Weight and a rule, never hue: it has to survive greyscale like
@@ -4568,9 +4569,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* #1800: the import paste box (#1652) is the SAME control on the same flow, a
    textarea a person types or pastes agent text into, and it shipped with width
    only: no fill, no border, no radius. Inside `.rolepick` (an elevated white
-   card) the browser default painted it the card's own white in light, and a
-   scheme-dependent grey in dark, so it read as a flat region rather than a
-   field and its relationship to its container FLIPPED between schemes. One
+   card) the browser default painted it white: the card's own white in light,
+   and still white against the dark card in dark (measured, rgb(255,255,255)
+   in both schemes), so it read as a flat region in light and a glaring raised
+   block in dark, and its relationship to its container FLIPPED. One
    selector, one appearance: two copies edited on different days is what made
    `.rolepick select` and `#create-model` drift apart before. */
 #create-instr, #import-text { width: 100%; font: var(--text-callout) var(--font-mono);
