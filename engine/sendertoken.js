@@ -143,33 +143,19 @@ function writeTokens(sessionName, tokens) {
    the case it must not produce. Same-process callers cannot hit it (`writeSecret`
    is synchronous), but two processes are a real launch pattern.
    ✅ A per-session lock serializes the whole critical section across processes. */
-/* ⭐ THIS LOCK IS chat.js's PROVEN `withThreadLock` (round 19), TRANSCRIBED
-   rather than reinvented. A first hand-rolled version reintroduced three bugs
-   chat.js had already fixed and a blind pass caught them: a `rmdir` break that
-   two waiters can BOTH win (each demolishing the other's fresh lock and walking
-   into the section together); a crash between `mkdir` and writing the owner that
-   leaves an owner-less lock no liveness check can break, wedging the session
-   forever; and no age fallback for either. The two file locks should be ONE
-   shared primitive, but that must touch chat.js (required fleet-wide via
-   status.js, which requires THIS module - so extracting it here would be
-   circular), so it is filed as its own reviewed change: kosmos#1823. */
-
+/* The per-session lock now lives in engine/filelock.js (kosmos#1823). chat.js's
+   withThreadLock (round 19) and this module's withSessionLock (#1782, transcribed
+   from it after a blind pass caught three recovery-path bugs the first hand-rolled
+   version had) were two copies of one primitive; #1823 extracted it to a shared
+   leaf module both delegate to. filelock.js couldn't be chat.js or this module --
+   chat.js is required fleet-wide via status.js, which requires this module, so a
+   lock in either would be circular; a leaf breaks the cycle. */
 
 const LOCK_BUSY = 'the sender-token store is busy (ELOCKBUSY)';
 
-/* Run `fn` holding an exclusive per-session lock; returns `{ ok:true, value }`,
-   or `{ ok:false, because }` when the lock cannot be taken. It NEVER throws for
-   the lock itself - a `fn` throw propagates through the release. The lock is a
-   DIRECTORY (`mkdirSync` is atomic, EEXIST if held).
-
-   🛑 A stale lock is STOLEN BY RENAME, not `rmdir`. Two waiters can both measure
-   one as stale; with `rmdir` both remove it and both proceed - the second
-   demolishing the first's fresh lock and entering the section beside it, the
-   exact interleave this prevents, through the path that repairs it. `rename` of a
-   path succeeds ONCE; the loser gets ENOENT and loops. Rename also copes with a
-   non-empty lock dir a crash can leave, which `rmdir` cannot.
-   🛑 Staleness is by AGE, not owner liveness, so a crash between `mkdir` and the
-   owner write - an owner-less lock no liveness check could break - is collected. */
+/* Hold an exclusive per-session lock while running `fn`; returns `{ ok:true, value }`
+   or `{ ok:false, because }`. See engine/filelock.js for the lock mechanics
+   (rename-steal, age-staleness, owner-token release, umask chmod). */
 function withSessionLock(sessionName, fn) {
   securewrite.secureDir(DIR, 0o700);          // the lock lives inside the 0700 store dir
   // Delegates to the shared primitive (kosmos#1823). `fileFor` gives the store

@@ -42,8 +42,8 @@
  * release, so the caller's own try/finally still runs.
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const LOCK_WAIT_MS = 2000;        // total wait for a live holder before failing safe
 const LOCK_STALE_MS = 10 * 1000;  // the section is two file ops; older than this is debris, broken not waited
