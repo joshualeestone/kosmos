@@ -33,6 +33,7 @@ fs.mkdirSync(path.join(SB, 'config'), { recursive: true });
 fs.mkdirSync(path.join(SB, 'home'), { recursive: true });
 
 const connect = require(path.join(__dirname, '..', '..', 'engine', 'connect.js'));
+const runners = require(path.join(__dirname, '..', '..', 'engine', 'runners.js'));
 
 const fail = (m) => { console.error('FAIL', m); process.exit(1); };
 const pass = (m) => console.log('PASS', m);
@@ -82,7 +83,7 @@ const pass = (m) => console.log('PASS', m);
   const tmux = process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
   /* #1616: runnable, not present. A folder at the tmux path passed this and the
      driver then failed later inside connect.start() with a worse message. */
-  if (!require(path.join(__dirname, '..', '..', 'engine', 'runners.js')).isRunnable(tmux)) fail(`no runnable tmux at ${tmux}`);
+  if (!runners.isRunnable(tmux)) fail(`no runnable tmux at ${tmux}`);
   connect.setTickInterval(500);
 
   await connect.start();

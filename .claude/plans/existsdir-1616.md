@@ -32,9 +32,10 @@ FOLDER at the codex path and a sign-in on the machine, creation said "or create 
 agent on OpenAI instead", which is the dead click in words #548 was written to stop.
 
 All seven now ask `runners.isRunnable` (the six below plus `docs/browser-checks/live-connect.js`'s
-tmux spawn gate, found in review), through a lazy `runnerRunnable(p)` in create.js
-(lazy for the same reason `binPaths` requires lazily: sandboxes set env first) and a
-top-level require in openaiaccounts.js (no cycle: runners.js requires only platform).
+tmux spawn gate, found in review), through a `runnerRunnable(p)` helper in create.js over
+a top-level require of runners.js (iteration 2 replaced a lazy require whose stated
+reason the code did not support), a top-level require in openaiaccounts.js, and a
+top-level require in the driver (no cycle: runners.js requires only platform).
 
 ## The guard grew a second matcher rather than the codebase growing a convention
 
@@ -149,3 +150,12 @@ binary, `live-connect.js` launcher) and why they are left; the plan no longer sa
 control asserts CREATED. Recorded, not changed: the bin loop has no DRY_RUN guard
 (pre-existing); the driver line is exercised only by the release cut. The reviewer
 reproduced three revert rows and measured the per-line gap.
+
+## Challenge loop, iteration 3 (2026-09-01 19:35)
+
+Two CONVENTIONs, three NITs, all applied: the helper comment counted four DRY_RUN gates
+where there are three (the bin loop and the alternative offer are the unguarded two);
+the mechanism paragraph still described the lazy require iteration 2 removed; three
+lines had been appended to rather than rewrapped; the driver's require is hoisted beside
+its sibling; the two weaker controls say why they are weaker. The reviewer reproduced
+four revert rows and checked the load-order claim against the require graph.
