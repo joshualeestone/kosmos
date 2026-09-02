@@ -176,6 +176,19 @@ elif git -C "$REPO" symbolic-ref -q HEAD >/dev/null 2>&1; then
   # trap fires. The traps and _parent_thaw are parsed into memory here, before
   # the child run, so a mid-run edit cannot corrupt them either. The child is a
   # separate bash process and does NOT inherit these traps (it sets its own).
+  #
+  # ⚠️ RESIDUAL, narrow and named on purpose (#1818). Ctrl-C is safe: it goes to
+  # the whole foreground process group, the child (foreground here) dies first,
+  # then this parent's INT trap thaws -- child already gone. The one uncovered
+  # case is a signal sent to the PARENT PID ALONE (e.g. `kill <parent>`) while a
+  # real, minutes-long child run is mid-checks: this parent would thaw the frozen
+  # worktree while the child is still reading files from it, and the child would
+  # then fail reading a deleted path. That is a LOUD failure (a read error), NOT
+  # the silent-green class this card is about, and it needs a targeted parent-only
+  # kill of a hand-run gate -- so it is left documented rather than closed with
+  # background-and-wait signal forwarding, which is more error-prone new safety
+  # code than the narrow case warrants. Closing it (forward the signal to the
+  # child and wait for it before thawing) is a clean follow-up if it ever bites.
   _parent_thaw() {
     [ -n "${FREEZE_BUILD:-}" ] && release_thaw "$SOURCE_REPO" "$FREEZE_BUILD"
     [ -n "${FREEZE_ROOT:-}" ] && rm -rf "$FREEZE_ROOT"
