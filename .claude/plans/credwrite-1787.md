@@ -236,3 +236,18 @@ removed; a stale comment about path-addressed writes is corrected; the partial-t
 arm's fd set forgets a descriptor on close (numbers are reused, and the set had been
 sabotaging the fallback too); the two `connected === false` assertions say they pin the
 fixture rather than the contract.
+
+## Iteration 12: consumer-attached coverage, one more time
+
+The reviewer cleared the generation binding (six mutations, each red by name), the atomic
+path and the fallback, and found the temp's `fchmodSync` guarded only through
+sendertoken's umask arm: deleting it left this module's own file green 19 of 19. That is
+the consumer-attached shape this file's header exists to remove, in the file written to
+remove it. An arm here now writes under umask 0600 and asserts 0600 (the wx create lands
+at mode 0 under that umask; the fchmod is the only thing restoring the owner bits). A
+second arm pins the zero-byte-write refusal by its real harm: an EMPTY temp renamed over
+the secret. Both red by name. The failed-OPEN arm's prose now states its scope (it guards
+against a path write being re-added, not the `fd`/`wrote` gate, which the fd-addressed
+restore made unreachable). The two arms that wait on a real one-second poll timer have a
+ten-second budget, since the box has run at load 17 during cuts and the failure direction
+was red-while-correct.

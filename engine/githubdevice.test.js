@@ -416,7 +416,10 @@ test('#1799: a second start while the first flow\'s poll is in flight is the one
     const codeTwo = two.code;
     await sent;                  // flow 1's held answer has come back
     let st = null;
-    for (let i = 0; i < 120; i += 1) {   // up to 3 s for flow 2's 1 s poll
+    /* Flow 2's poll is on a REAL 1 s timer, so the budget is generous: at load 17 the
+       box has stretched timers well past their nominal length, and a short budget here
+       fails red-while-correct. A genuine hang still fails, just later. */
+    for (let i = 0; i < 400; i += 1) {   // up to 10 s for flow 2's 1 s poll
       st = await gd.state();
       if (st.phase !== 'awaiting' && st.phase !== 'completing') break;
       await settle(25);
@@ -455,7 +458,7 @@ test('#1799: a superseded poll whose request FAILS does not reschedule over the 
     const codeOne = 'dev-' + (deviceSeq - 1);
     await sent;
     let st = null;
-    for (let i = 0; i < 120; i += 1) {
+    for (let i = 0; i < 400; i += 1) {   // same generous budget as the sibling arm above
       st = await gd.state();
       if (st.phase !== 'awaiting' && st.phase !== 'completing') break;
       await settle(25);
