@@ -18,7 +18,11 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const SCRIPT = page.scriptOf(PAGE);
 
 test('the banner is quiet and says missing-a-block, never behind', () => {
-  assert.ok(SCRIPT.includes('was made before Kosmos’s working rules.'),
+  /* #1841 (Josh, 2026-09-02): the prompt moved onto the Instructions tab and
+     reads "There are updated working rules to help [name] be more efficient."
+     with the name bold; the old header sentence is gone on purpose. It is still
+     the quiet .fhint, never the warning tint, and still keeps its "Not now". */
+  assert.ok(SCRIPT.includes('There are updated working rules to help'),
     'the ruled banner sentence is gone');
   const note = PAGE.match(/<div class="([^"]*)" id="d-doctrine-note"/);
   assert.ok(note && note[1].includes('fhint') && !note[1].includes('stale-note'),
@@ -37,7 +41,11 @@ test('the dialog shows the change before the click: body sentence, headings list
 });
 
 test('the click writes what the dialog showed: the plan hash rides the refresh POST', () => {
-  const go = SCRIPT.slice(SCRIPT.indexOf("getElementById('doc-go')"), SCRIPT.indexOf("getElementById('doc-go')") + 900);
+  /* #1841 anchored on the ADD handler, not the first getElementById('doc-go'):
+     the open handler now also sets doc-go's label ("Add & Restart"), so the
+     first occurrence is no longer the refresh handler. */
+  const at = SCRIPT.lastIndexOf("getElementById('doc-go').addEventListener");
+  const go = SCRIPT.slice(at, at + 900);
   assert.ok(go.includes('doctrine/refresh') && go.includes('hash: plan.hash'),
     'the consent no longer proves which composition it consented to');
 });
@@ -51,8 +59,16 @@ test('the click writes what the dialog showed: the plan hash rides the refresh P
 test('a successful Add tells the person it is done and gives them the one thing left to do', () => {
   const at = SCRIPT.lastIndexOf("getElementById('doc-go').addEventListener");
   const handler = SCRIPT.slice(at, SCRIPT.indexOf('\n});', at));
-  assert.match(handler, /msg\.textContent = 'Added\. You can close this dialog\.'/,
-    'the bare "Added." dead-end is still there');
+  /* #1841 (Josh, 2026-09-02): the button is "Add Instructions & Restart", so the
+     done state now flows the add straight into a restart and reports its
+     verdict ("Added and restarted. You will need to say 'hello' to [name] to
+     wake them."). The #863 invariant is unchanged and still pinned below: the
+     dialog does not dead-end -- Add is disabled, Keep becomes Close, focus
+     follows it. The bare "Added." dead-end must not come back. */
+  assert.match(handler, /'Added and restarted\. /,
+    'the add no longer reports it restarted, or the done state dead-ends');
+  assert.ok(!/'Added\. You can close this dialog\.'/.test(handler),
+    'the bare "Added." dead-end came back instead of the add+restart flow');
   assert.match(handler, /getElementById\('doc-go'\)\.disabled = true/,
     'Add them stays clickable after it already added them');
   assert.match(handler, /keep\.textContent = 'Close'/,

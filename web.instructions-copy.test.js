@@ -69,14 +69,24 @@ test('the stale sentence names the edits rather than pointing at nothing (#212)'
      nearest plural noun in that block is "older instructions", and applying
      THOSE is the opposite of what a restart does. */
   assert.ok(!/applies them/.test(stale), 'the pronoun with the wrong antecedent came back');
-  assert.match(stale, /A restart is what picks up the edits/,
-    'the sentence no longer names what a restart picks up');
-  /* ⚠️ IT HAS TO STAND ALONE. The clause before it is conditional and drops out
-     whenever either timestamp is missing, so a sentence relying on it to supply
-     the noun fails exactly when we know least. */
-  assert.match(stale, /edited && started[\s\S]{0,24}\?/,
-    'the dates stopped being conditional, so the stand-alone concern is stale');
+  /* staleWords still supplies the CARD badge's tooltip (#323), which keeps
+     naming what a restart does and its standing heading. #1841 removed the dead
+     `pageTail` ("A restart is what picks up the edits"), so the live card tail is
+     asserted instead -- it names what a restart does for the same #212 reason. */
+  assert.match(stale, /Only a restart re-reads them/,
+    'the card badge sentence no longer names what a restart does');
   assert.match(stale, /Running on older instructions/, 'the heading the sentence stands under is gone');
+  /* ⚠️ IT HAS TO STAND ALONE. #1841 (Josh, 2026-09-02) removed the "Edited X,
+     running since Y" clause from the header restart card entirely, so the
+     stand-alone concern is now satisfied by construction: the header sentence
+     is "[name] needs to be restarted", with no conditional clause to lean on.
+     Pinned as an absence (the dates are gone) plus the presence beside it, so a
+     rewrite that reintroduces a conditional clause fails rather than passing on
+     the absence alone. */
+  assert.ok(!/edited && started[\s\S]{0,24}\?/.test(stale),
+    'the header restart card reintroduced the conditional dates #1841 removed');
+  assert.match(stale, /needs to be restarted/,
+    'the header restart card lost its stand-alone sentence');
 });
 
 test('the reports-to control says what the line does, and the save line is read from the route, never inferred (#336)', () => {

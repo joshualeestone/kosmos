@@ -892,7 +892,12 @@ fi
 # 📌 render-found-count, the fourth on #1440, is NOT here and stays in NOT_WIRED.
 # Its own header says an in-process srv.start(0) cannot reach ?fr-step=6; it needs
 # a boot_board sandbox block, which is a different piece of work.
-for n in live-connect render-agent-nav render-busy-line render-head-row render-room-scroll render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset render-agent-lines render-long-title render-project-rows; do
+# render-detail-header-1841 joins the same way (#1841, the detail-header redesign):
+# own mktemp roots, own OS-chosen port via srv.start(0), server.js in-process,
+# fleet.install, runs bare. Proven standalone 25/25 green, and proven RED against
+# the pre-#1841 page (the doctrine prompt in the header not the tab, no bold role,
+# no #d-instr-reports element), which is the arm that makes the 25 mean anything.
+for n in live-connect render-agent-nav render-busy-line render-head-row render-room-scroll render-made-before render-detail-header-1841 render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset render-agent-lines render-long-title render-project-rows; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 # --- the rich board: four checks that could not be wired for want of a fixture

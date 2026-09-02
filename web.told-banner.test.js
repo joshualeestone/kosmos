@@ -55,24 +55,31 @@ const ESC = (x) => String(x == null ? '' : x)
     `textContent` clear leave `innerHTML` alone would supply the very behaviour
     the code under test is supposed to provide (web.stale-banner.test.js). */
 function panel() {
-  const el = {
+  const linked = () => ({
     hidden: true,
     _html: '',
     get innerHTML() { return this._html; },
     set innerHTML(v) { this._html = String(v); },
     get textContent() { return this._html.replace(/<[^>]*>/g, ''); },
     set textContent(v) { this._html = String(v); },
-  };
+  });
+  const el = linked();
+  /* #1841: the Kosmos-made stale case paints the Instructions-tab reports
+     section, not the header banner, so the stub carries those elements too. */
+  const reports = { hidden: true };
+  const reportsText = linked();
+  const reportsGo = { dataset: {} };
+  const els = { 'd-instr-stale': el, 'd-instr-reports': reports, 'd-instr-reports-text': reportsText, 'd-instr-reports-go': reportsGo };
   const fn = new Function('document', 'esc', 'CURRENT', `
     ${page.lift(SCRIPT, 'setLive')}
     ${page.lift(SCRIPT, 'staleWords')}
     ${page.lift(SCRIPT, 'renderStale')}
     return renderStale;`)(
-    { getElementById: (id) => (id === 'd-instr-stale' ? el : null) },
+    { getElementById: (id) => (id in els ? els[id] : null) },
     ESC,
     CARD,
   );
-  return { el, render: fn };
+  return { el, reports, reportsText, reportsGo, render: fn };
 }
 
 /** The member row's verdict cell, and the card's badge. Neither has any dep
@@ -148,13 +155,16 @@ test('a told verdict says nothing on the agent page, and never the not-knowing h
   const { el, render } = panel();
   /* Painted stale first, so the clear path is exercised rather than a node that
      was never filled -- the failure `web.stale-banner.test.js` records needed
-     three states to appear. */
-  render(sampleFor('stale'));
+     three states to appear. #1841: a HAND-edited stale (no wroteBy) is what
+     fills the header `el`; a Kosmos-made one now paints the reports section, so
+     it would leave `el` empty and defeat the point of this fixture. */
+  const HAND_STALE = { ...BASE, state: 'stale' };
+  render(HAND_STALE);
   assert.equal(el.hidden, false);
   render(TOLD);
   assert.equal(el.hidden, true, 'the told banner stayed on screen');
   assert.equal(el.innerHTML, '', 'the told banner left content behind, which is the empty-amber-bar defect');
-  render(sampleFor('stale'));
+  render(HAND_STALE);
   assert.match(el.innerHTML, /data-restart-agent/,
     'the banner did not come back after a told cleared it, so the clear went around setLive rather than through it');
 });
@@ -170,17 +180,26 @@ test('the sentence Josh photographed can no longer appear under the not-knowing 
     'a Restart button on a told verdict is the theatre the engine exists to avoid');
 });
 
-test('the stale banner is untouched: its words, its button and its unknown arm all still work', () => {
-  const { el, render } = panel();
+test('the stale surfaces still work: Kosmos-made is the reports section, unknown is the header arm (#1841)', () => {
+  /* #1841: sampleFor('stale') is Kosmos-made (KOSMOS_EDIT), so it now paints the
+     Instructions-tab reports section, not the header banner. The raw "Kosmos put
+     it on Test 10" wording lives on only in the card badge (staleBadge), pinned
+     in the badge test below; the detail surface reads the neutral working-rules
+     line. The unknown arm is unchanged. */
+  const { el, reports, reportsText, reportsGo, render } = panel();
   render(sampleFor('stale'));
-  assert.match(el.innerHTML, /Kosmos put it on Test 10/, 'the Kosmos-words sentence (#323) was lost');
-  assert.match(el.innerHTML, /Restart it so it knows/);
-  assert.match(el.innerHTML, /data-restart-agent/);
+  assert.equal(el.hidden, true, 'the header banner showed for a Kosmos-made change');
+  assert.equal(reports.hidden, false, 'the working-rules section did not show for a Kosmos-made change');
+  assert.match(reportsText.innerHTML, /updated working rules/, 'the reports section lost its wording');
+  assert.doesNotMatch(reportsText.innerHTML, /Kosmos put it on Test 10/, 'the raw engine edit reached the detail surface');
+  assert.equal(reportsGo.dataset.restartAgent, CARD.sessionName, 'the reports button is not pointed at the agent');
   render(sampleFor('unknown'));
   assert.match(el.innerHTML, /This might not be what the agent is actually running/);
   assert.doesNotMatch(el.innerHTML, /data-restart-agent/, 'the unknown arm must not offer a remedy');
+  assert.equal(reports.hidden, true, 'the reports section stayed up on an unknown reading');
   render(sampleFor('current'));
   assert.equal(el.hidden, true);
+  assert.equal(reports.hidden, true);
 });
 
 test('the member row and the card badge agree that told needs no mark', () => {

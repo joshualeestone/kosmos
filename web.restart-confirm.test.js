@@ -86,7 +86,7 @@ test('unknown says we cannot tell, in the ENGINE’S words for why', () => {
   assert.match(cost(NEVER).small, /cannot tell what April is part way through/);
   assert.match(cost(NEVER).small, /it has never reported/);
   assert.match(cost(STALE).small, /41 minutes ago/);
-  assert.match(cost(STALE).small, /Restarting ends anything it had in flight/);
+  assert.match(cost(STALE).small, /Restarting ends anything they had in flight/); // #1841: agent is "they", never "it"
 });
 
 test('a stale record still shows its list, because it is worth more than an empty one', () => {
@@ -162,7 +162,7 @@ test('the Restart confirmation names the promises a restart drops, not only the 
   const at = words.indexOf('id="rst-go"');
   assert.ok(at > -1, 'the Restart confirm button moved');
   const before = words.slice(Math.max(0, words.indexOf('id="rst-modal"')), at);
-  assert.match(before, /anything it was part way through ends, including anything it agreed to and has not done yet\./,
-    'the confirmation no longer names the promises a restart drops');
+  assert.match(before, /anything they were part way through ends, including anything they agreed to and have not done yet\./,
+    'the confirmation no longer names the promises a restart drops'); // #1841: agent is "they", never "it"
 });
 
