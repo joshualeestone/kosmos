@@ -8502,6 +8502,9 @@ if (require.main === module) {
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
 module.exports = {
+  /* Test seam (#1034): the shared first-party sweep, so its freeze contract is
+     asserted rather than described. */
+  readFirstPartyDoors,
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   /* #1304: exported so the two-reader precedence can be driven directly. A test
      that needed a real process tree, a tmux server and a signed-in account would

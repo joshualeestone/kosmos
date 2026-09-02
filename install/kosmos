@@ -1011,7 +1011,9 @@ cmd_connections() {
             if (!saidWorking) many = "";
             else if (w === m) many = ", " + (w === 1 ? "1 sign-in working" : w + " sign-ins working");
             else many = ", " + w + " of " + m + (m === 1 ? " sign-in working" : " sign-ins working");
-            if (p.howMany > m) many = many + ", " + (p.howMany - m) + " we could not check";
+            /* Inside the working-count claim only: with no working count there is
+               no sentence for an unread-rows tail to hang off. */
+            if (saidWorking && p.howMany > m) many = many + ", " + (p.howMany - m) + " we could not check";
           }
         }
         /* 🛑 `installed` WAS COMPUTED AND NEVER RENDERED. The boundary emits it as a

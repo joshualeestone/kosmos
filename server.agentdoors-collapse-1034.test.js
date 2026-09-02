@@ -125,6 +125,17 @@ test('#1618: two agents asking at once sweep the first-party doors ONCE', async 
     const [ra, rb] = await Promise.all([a, b]);
     assert.deepEqual(Object.keys(ra).sort(), Object.keys(rb).sort(),
       'the two agents were handed different shapes');
+    /* The shared per-door objects and their container are FROZEN, which is what
+       makes the read-only contract mechanical rather than prose. Asserted here so
+       dropping the freeze while keeping the comment cannot stay green. */
+    const { readFirstPartyDoors } = require('./server');
+    if (typeof readFirstPartyDoors === 'function') {
+      const doors = await readFirstPartyDoors();
+      assert.ok(Object.isFrozen(doors), 'the door container is not frozen');
+      assert.ok(Object.isFrozen(doors['/api/github']), 'a shared per-door object is not frozen');
+    } else {
+      assert.fail('readFirstPartyDoors is not exported from server.js, so the freeze cannot be asserted');
+    }
   } finally {
     g.release();
     g.restore();

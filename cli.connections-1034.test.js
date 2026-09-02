@@ -1181,6 +1181,9 @@ test('a version-skewed board cannot produce a negative or nonsensical count', as
     /* A negative TOTAL: clamping the parts to 0 still printed ", 0 sign-ins
        working" for a provider the board said had -3 rows. No count at all. */
     { label: 'negative total', howMany: -3, howManyWorking: 0, howManyReadable: 0, forbid: /sign-ins? working|we could not check/ },
+    /* No working count at all but unread rows: the unread tail must not print
+       beside nothing. */
+    { label: 'unread rows without a working count', howMany: 3, howManyWorking: undefined, howManyReadable: 2, forbid: /we could not check/ },
   ];
   for (const h of hostile) {
     const p = P();

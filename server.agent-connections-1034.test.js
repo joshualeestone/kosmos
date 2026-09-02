@@ -221,31 +221,13 @@ test('the served door names are human names, never route fragments', async () =>
 
 test('the agent first-party set is DERIVED from the board, not pinned to a literal', async () => {
   /**
-   * 🛑 THE SIBLING TEST BELOW PINS THE AGENT VIEW TO A LITERAL LIST, AND THAT
-   * GUARDS THE WRONG DIRECTION. It goes red when the AGENT route gains a door,
-   * which nobody is worried about, and stays green when `/api/connections` gains
-   * one, which is precisely the drift the plan records:
-   *
-   *   "a fourth first-party door added to /api/connections would silently never
-   *    appear in the agent view"
-   *
-   * 🛑 WHAT THIS GUARDS CHANGED UNDER IT, AND THE COMMENT DID NOT FOLLOW.
-   * It read "the sweep is duplicated inline in both routes and the shared builder
-   * was deliberately deferred out of a privacy change". Both halves are now FALSE:
-   * `readFirstPartyDoors` in server.js IS that shared builder, this route consumes
-   * it, and the deferral was reversed once #1618 turned the copy into a live defect
-   * rather than a tidiness question.
-   *
-   * ⇒ THE TEST STILL EARNS ITS PLACE, FOR A DIFFERENT REASON THAN IT WAS WRITTEN
-   * FOR. The sweep is shared; the NAMES are not. `doorNames` is still a
-   * hand-maintained literal in the route handler, so a door added to
-   * `readFirstPartyDoors` with no matching entry there is swept, PAID FOR, and then
-   * silently dropped by the allowlist gate. Verified by adding one: only this test
-   * goes red.
-   *
-   * 📌 Corrected rather than rewritten. A test whose stated reason has gone stale is
-   * this branch its own subject, and deleting the sentence would take the evidence
-   * of it away with it.
+   * The sweep and the names an agent may read are both derived from ONE table
+   * in server.js (`FIRST_PARTY_DOORS`), so a door cannot be swept and then
+   * dropped at the agent view's name gate by a missing entry. What can still
+   * drift is the agent VIEW itself: a fourth first-party door added to that
+   * table must reach `services`, and a metered token door must not. This test
+   * compares the board's first-party door set with what the agent view renders,
+   * so either drift goes red here and nowhere else.
    *
    * ⚠️ COMPARED BY COUNT, NOT BY NAME, AND THE REASON IS THE FEATURE ITSELF. The
    * board answers `doors` keyed by ROUTE (`/api/github`); the agent view answers
@@ -253,9 +235,9 @@ test('the agent first-party set is DERIVED from the board, not pinned to a liter
    * the privacy decision this card exists for. So the two cannot be compared by
    * identity without re-deriving the name map the boundary refuses to expose.
    * The COUNT of first-party doors is the thing that drifts, and it is comparable.
-   * (My first version of this test asserted `board.services`, a shape the board
-   * does not return. Its control caught it rather than the comparison, which is
-   * the only reason it did not pass vacuously.)
+   * (A version of this test asserted `board.services`, a shape the board does not
+   * return; its control caught it, which is the only reason it did not pass
+   * vacuously.)
    */
   const tokendoors = require('./engine/tokendoors');
   const metered = new Set(Object.values(tokendoors.routes()));
@@ -278,10 +260,9 @@ test('the agent first-party set is DERIVED from the board, not pinned to a liter
   assert.equal(agentNames.length, boardFirstParty.length,
     `the agent view has ${agentNames.length} first-party doors and the board has `
     + `${boardFirstParty.length} (${boardFirstParty.join(', ')}). A door added to one `
-    + 'route and not the other is the drift the plan predicted. The SWEEP is shared '
-    + 'via readFirstPartyDoors, so this is almost certainly a door added there with no '
-    + 'matching entry in the hand-maintained doorNames literal in the route handler: '
-    + 'swept, paid for, then dropped by the allowlist gate.');
+    + 'route and not the other is the drift the plan predicted. The sweep and the '
+    + 'names both come from FIRST_PARTY_DOORS in server.js, so this is a door in that '
+    + 'table that the agent view dropped (or a metered door that reached it).');
 
   /* The other half, asserted separately so a failure says WHICH way it broke: no
      metered door may reach the agent view. Checked by route on the board side and
