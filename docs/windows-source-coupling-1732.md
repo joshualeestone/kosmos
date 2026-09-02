@@ -1,0 +1,93 @@
+# Windows source-coupling: the class, and how we keep it visible (#1732)
+
+This fleet is macOS-only; the product branches on `process.platform`. A
+behavioural test arm for a win32 branch **cannot fail on a machine that never
+takes the branch**, so a green suite here is *no* evidence about Windows. Worse,
+a test that hardcodes a POSIX fixture exercises the POSIX path **even when run on
+Windows** — so running the suite on a real Windows box would still not catch this
+class. This document names the class, records what we know, and points at the
+mechanism that keeps it from growing silently.
+
+## The two known instances (the corpus, n=2)
+
+Both were found by luck, late, and pinned one at a time. Both were the **same
+shape**: a platform-dependent operation using a hardcoded POSIX constant instead
+of the platform-aware API.
+
+| # | site | the bug | fix-shape |
+|---|---|---|---|
+| #1592 | `engine/github.js` | split `AGENT_WORKFORCE_GH_CANDIDATES` on a hardcoded `':'`. On Windows a real override is `C:\tools\gh.exe;D:\alt\gh.exe`, so `':'` yields three broken fragments and gh reports missing with no diagnostic. **Found at iteration 45 of a challenge loop.** | `split(path.delimiter)` (`:` on POSIX, `;` on Windows) + a source-pin. |
+| #1510 | `engine/store.js` `dataRootFor` | joined with the **ambient** `path` (which off Windows is `path.posix`), so the win32 branch answered with `/`. | `joinerFor(platform)` → `path.win32`/`path.posix`, and a test that **asks the function about win32 from macOS**. |
+
+## The recommended fix-shape for a real hit
+
+**Make the platform-dependent function platform-INJECTABLE** — `fn(platform =
+process.platform)` — so a macOS test can assert the win32 branch by asking about
+it. This is already the org idiom:
+
+- `engine/platform.js` — `isSupported(platform = process.platform)`,
+  `describe(platform = process.platform)`, pure.
+- `engine/store.js` — `dataRootFor(platform, ...)` + `joinerFor(platform)`.
+
+Injection is strictly better than a source-pin: it **exercises** the win32
+branch and asserts the **result**, so it also catches a logic bug in that branch,
+not just the spelling of one line. Use a **source-pin** (assert the source uses
+the portable API and not the hardcoded form, as `engine.runnable-not-directory.test.js`
+does for github.js) only as a fallback when injection is impractical.
+
+Do **not** reach for a hardcoded separator/root at all:
+
+| instead of | use |
+|---|---|
+| `.split(':')` / `.join(';')` on a PATH-like value | `path.delimiter` |
+| `a + '/' + b`, `'/tmp/...'`, `'/Users/...'` | `path.join`, `path.sep`, `os.tmpdir()`, `os.homedir()` |
+| `process.env.HOME` | `os.homedir()` (Windows sets `USERPROFILE`, not `HOME`) |
+| a hardcoded `'\n'` written to a file the Windows side re-parses | `os.EOL`, or normalize on read |
+
+## The ratchet: `engine/windows-coupling-audit-1732.test.js`
+
+A curated coverage ratchet — **not** a blanket lint (measured: a raw
+hardcoded-`:`/`/` scan is nearly all false positives and missed both real bugs).
+It enumerates the current candidate sites in product source, classifies each in
+an in-file `INVENTORY` with a disposition + one-line reason, and:
+
+- **reds on any candidate not in the inventory** — i.e. it fires when someone
+  **adds** a new hardcoded platform coupling, which is when a reviewer should be
+  thinking about Windows;
+- **reds on a stale inventory entry** — a classified site removed or reshaped —
+  so the inventory cannot rot into a vacuous pass;
+- carries **positive pins** for the two known sites (github.js uses
+  `path.delimiter`; store.js uses `joinerFor`), so it independently red-guards a
+  regression.
+
+Every arm is perturbation-proven: reverting the github.js fix reds the coupling
+arm **and** the github pin; a synthetic new `.split(':')` reds the coupling arm;
+neutralizing a classified site reds the stale arm; the unmodified tree is green.
+
+### What the ratchet does and does not claim (read this before trusting it)
+
+With a corpus of **n=2**, the ratchet **prevents NEW instances of KNOWN shapes**.
+It **claims nothing about finding existing instances** already in the tree, and
+**nothing about catching unknown shapes** — a subtler Windows assumption (`\r\n`
+vs `\n` in a file the Windows side parses, a case-insensitive-filesystem
+assumption, a POSIX-only child process, a shell script that calls `tmux`) does
+not take one of the enumerated syntactic families and slips straight through. It
+reduces the surface; it does not close it.
+
+**The corpus is a FLOOR, not a ceiling. Grow it.** Every future Windows bug that
+is found should add its shape to the `FAMILIES` list (and, if it is a real fix,
+a positive pin), so `n` only ever rises. A ratchet frozen at n=2 slowly becomes
+decoration; a ratchet that absorbs each new shape becomes the thing that makes
+the class progressively less invisible.
+
+## Why we did NOT stand up a "run the suite on Windows" instrument (yet)
+
+Recorded on card #1732 with the four measurements. In short: `tools/run-tests.sh`
+is macOS-coupled (`lsof -iTCP`, `sysctl vm.loadavg`, `find -mmin`, a 104-char
+unix-socket assumption) and its `yarn test:shell` arm runs bash scripts that call
+`tmux` — which does not exist on Windows, the very reason the self-reporting lane
+exists. And even the node arm cannot find this class, because the existing tests
+hardcode POSIX fixtures: a passing Windows run would be **green for the wrong
+reason**. A Windows CI arm becomes worthwhile only after the suite is split into
+a portable node-only subset **and** the fixtures are parameterized by platform
+(per `store.dataRootFor`). That is a larger, separate track.
