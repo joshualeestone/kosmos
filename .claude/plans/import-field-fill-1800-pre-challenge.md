@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: import-field-fill-1800
-diff_hash: 1e2f813827617f62ddef808b40b6f223a4308c0b37738f572ec2ab845ad33967
+diff_hash: 64f17a0b01f2a2a7175caee668b44ffb770e40b05c4021a8d9b3818cafdddbc2
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-02T00:44:32Z
@@ -29,6 +29,9 @@ chromium, light and dark, on the fix; a planted revert of the CSS goes red on th
 new assertion in all four arms. Full tools/browser-checks.sh on the frozen tree
 4a28cfe2: render-fields PASS; the only four reds are the stale first-run and
 radio-count checks main already carries, fixed on PigeonPete's branch.
+
+
+Post-convergence note: the diff hash was recomputed from 1e2f81382761 to 64f17a0b01f2 after ONE addition, the plan file `.claude/plans/import-field-fill-1800-20260901T1946.md`, which the PR gate requires and which the loop had deferred. No code, check or test changed after iteration 5's convergence and the final validation.
 
 ### Per-Iteration Breakdown
 
