@@ -91,10 +91,14 @@ There is also accepted **friction** in the other direction. Two shapes recur:
   main source of routine friction, and it slightly dilutes the "fires exactly
   when a reviewer should think about Windows" claim - a reviewer classifies these
   as benign in a few seconds.
-- `fs-root-literal` keys on a quoted `/tmp` `/home/` `/Users/` `/var/`, so a
-  string literal that merely contains one of those segments (a URL like
-  `'https://api.example.com/var/data'`) reds and has to be classified benign.
-  Rare here (zero such literals today).
+- `fs-root-literal` keys on a root segment **immediately after the opening
+  quote** (`'/var/log'`, `"/Users/x"`), so a literal whose root starts the string
+  reds and has to be classified benign. It is deliberately quote-adjacent: a
+  `/var/` in the MIDDLE of a string (a URL like `'https://h/var/data'`) does NOT
+  match, which keeps URL false-reds out. The same adjacency is a small coverage
+  edge in the other direction - a real POSIX root not at the string start
+  (`'--prefix=/home/user'`) is not caught - accepted as low risk, since a
+  hardcoded root almost always begins its literal.
 
 That is the deliberate cost of a curated ratchet over a parser; a one-line
 inventory row clears each.

@@ -99,26 +99,35 @@ function productFiles() {
   return files.sort();
 }
 
-// Remove comments while PRESERVING string literals, returning one {lineno, code}
-// per source line. A small character scanner rather than a line-based heuristic:
-// the earlier heuristic stripped a whole line beginning with `/*` even when real
-// code followed the close on the same line, so `/* x */ p = env.PATH.split(':')`
-// became invisible -- a false-green in the core scan. This tracks three states
-// (in a string, in a block comment, in neither), so an inline `/* */` before
-// code, a multi-line block whose middle lines do not start with `*`, and a `//`
-// or `/*` INSIDE a string literal are all handled correctly. Strings are kept
-// (a real `'/tmp'` or `.split(':')` must still be seen); only comment bytes are
-// dropped. It is not a full JS tokenizer: a `//`/`/*` inside a template-literal
-// ${…} interpolation is not special-cased, which no corpus line needs.
+// Remove comments while PRESERVING string literals, one {lineno, code} per line.
+// A small character scanner tracking three states (in a string, in a block
+// comment, in neither). It correctly handles: an inline block comment before
+// code on the same line; a multi-line block whose middle lines do not start with
+// a star; comment markers inside a '...'/"..."/`...` string; and a backtick
+// template literal that SPANS lines (string state persists across newlines; '
+// and " cannot span a raw newline, so they are cleared at each line end).
+//
+// It is NOT a full JS tokenizer, and cannot be without a parser (a dependency
+// this test forgoes). It can be defeated ONLY by a Windows-hostile coupling
+// placed adjacent, on the SAME line, to a construct it cannot tokenize:
+//   - a REGEX literal containing a comment marker, e.g. x.replace(/\/\//g, ...):
+//     the regex's inner '//' is read as a line comment, so a coupling written
+//     AFTER it on that same line is dropped and not counted;
+//   - a comment marker inside a template-literal ${...} interpolation.
+// The BLAST RADIUS of any such miss is exactly one line: counting is per-line and
+// per-file, so a hidden coupling on line N does not reduce coverage of any other
+// line or file, and the stale arm still guards every known site. No corpus line
+// triggers any of these, and a real coupling would be caught the moment it did
+// not share a line with such a construct.
 function stripComments(src) {
   const out = [];
   let inBlock = false;
+  let str = null; // open string delimiter (' " `) or null; persists across lines
   const lines = src.split('\n');
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     let code = '';
     let j = 0;
-    let str = null; // the open string delimiter (' " `) or null
     while (j < line.length) {
       if (inBlock) {
         const end = line.indexOf('*/', j);
@@ -138,6 +147,8 @@ function stripComments(src) {
       if (ch === '/' && line[j + 1] === '*') { inBlock = true; j += 2; continue; } // block open
       code += ch; j++;
     }
+    // ' and " cannot legally span a raw newline; only a backtick template can.
+    if (str === "'" || str === '"') str = null;
     out.push({ lineno: i + 1, code });
   }
   return out;
