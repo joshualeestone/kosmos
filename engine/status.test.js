@@ -1849,6 +1849,70 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     'the background-agent rule outranked a blocking prompt, hiding an agent that needs a person');
 });
 
+test('#1889: the full shape contract for the background-agent wait reader', () => {
+  /**
+   * 🛑 ONE TABLE, ITS OWN `test()`, BECAUSE THIS READER OSCILLATED. Two
+   * consecutive review rounds found a BLOCKER that was an over-correction of the
+   * previous round's fix: adding a `$` anchor to reject prose rejected the
+   * vendor's own ` · …` suffixes; widening to catch the composed form had earlier
+   * let prose in. Each fix was pinned by an assertion aimed only at itself, so
+   * nothing failed when the opposite side broke.
+   *
+   * This table states the WHOLE contract in one place, so a change that fixes one
+   * column and breaks another cannot pass. It lives in its own `test()` rather
+   * than appended to the big one because a single block stops at its first
+   * failing assertion, which hides exactly this kind of trade.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  const liveRow = '\n  ⏺ main\n  ◯ general-purpose  doing a thing 43s · ↓ 1.0k tokens';
+
+  const WORKING = [
+    // the observed line, and the counts the vendor interpolates
+    '✻ Waiting for 1 background agent to finish',
+    '✻ Waiting for 3 background agents to finish',
+    // the workflow counter, and the composed form that joins both
+    '✻ Waiting for 2 dynamic workflows to finish',
+    '✻ Waiting for 1 dynamic workflow to finish',
+    '✻ Waiting for 1 background agent and 2 dynamic workflows to finish',
+    '✻ Waiting for 3 background agents and 1 dynamic workflow to finish',
+    // every glyph the spinner rotates through
+    '· Waiting for 1 background agent to finish',
+    '✳ Waiting for 1 background agent to finish',
+    // ungated siblings the vendor appends to the same Ink row
+    '✻ Waiting for 1 background agent to finish · 3 messages hidden (/focus to show)',
+    '✻ Waiting for 1 background agent to finish · 45.2k / 100k (45%)',
+    '✻ Waiting for 1 background agent to finish · 45.2k / 100k (45%) · 2 nudges',
+    '✻ Waiting for 1 background agent to finish   ',
+    // spaces eaten by a `-J` wrap join, which is how #1234 failed
+    '✻ Waiting for 1 backgroundagent to finish',
+    '✻ Waiting for1 background agent to finish',
+    '✻ Waiting for 1 background agentto finish',
+  ];
+  const NOT_WORKING = [
+    '* Waiting for 3 background agents to finish',           // a markdown bullet
+    '⏺ Waiting for 1 background agent to finish',            // the transcript glyph
+    '  Waiting for 1 background agent to finish',            // no glyph at all
+    '✻ Waiting for permission',                              // blocked on a human
+    '✻ Waiting for authorization',
+    '✻ Waiting for team lead approval',
+    '✻ Waiting for permission to run the background agents to finish the job',
+    '· Waiting for N background agents to finish is the line #1889 handles',
+    '✻ Waiting for CI to finish',                            // a wait with no counter
+    '✻ Waiting for the server to finish',
+  ];
+
+  for (const line of WORKING) {
+    assert.equal(classify(pane, line + footer + liveRow).state, 'working',
+      'a real render was read as idle: ' + JSON.stringify(line));
+  }
+  for (const line of NOT_WORKING) {
+    assert.notEqual(classify(pane, line + footer + liveRow).state, 'working',
+      'a non-status line was read as a working agent: ' + JSON.stringify(line));
+  }
+});
+
 test('a card reads the transcript of ITS OWN session, not of the name it shares', () => {
   // ⚠️ The board's name is the session with `-discord` stripped, so `foo` and
   // `foo-discord` are one name and two sessions — the collision this module
