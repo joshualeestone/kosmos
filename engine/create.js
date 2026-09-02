@@ -1745,7 +1745,7 @@ function binPaths(opts) {
     // shared with the runner-install machinery, so the two can never
     // disagree about where Claude lives.
     claudeBin: (opts && opts.claudeBin)
-      || require('./runners').resolveBin('claude').bin,
+      || runners.resolveBin('claude').bin,
     tmuxBin: (opts && opts.tmuxBin)
       || process.env.AGENT_WORKFORCE_TMUX_BIN
       || '/opt/homebrew/bin/tmux',
@@ -1756,7 +1756,7 @@ function binPaths(opts) {
     // immediately usable for agent creation, and the two callers can
     // never again disagree about where the runner lives.
     codexBin: (opts && opts.codexBin)
-      || require('./runners').resolveBin('openai').bin,
+      || runners.resolveBin('openai').bin,
   };
 }
 

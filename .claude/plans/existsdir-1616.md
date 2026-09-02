@@ -159,3 +159,11 @@ the mechanism paragraph still described the lazy require iteration 2 removed; th
 lines had been appended to rather than rewrapped; the driver's require is hoisted beside
 its sibling; the two weaker controls say why they are weaker. The reviewer reproduced
 four revert rows and checked the load-order claim against the require graph.
+
+## Challenge loop, iteration 4
+
+One CONVENTION, three NITs, all applied: `binPaths` pointed at the module const instead
+of two lazy requires; the matcher discloses that its qualifier accepts one dotted level;
+the census names `reporthook.js`; the driver comment says "would fail", since that
+failure was not measured for the driver. The reviewer reproduced three revert rows and
+the driver revert (sweep only, as disclosed).
