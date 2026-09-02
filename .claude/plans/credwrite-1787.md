@@ -184,3 +184,38 @@ worse (7 of 30): a stale chain that can never consume polls forever at interval 
 The writer's refusal code has been `ERR_KOSMOS_SYMLINK` since iteration 7; two consumer
 stubs and two comments still said `ELOOP`. Corrected. The two clock-dependent arms in the
 githubdevice suite now wait for a terminal phase rather than a fixed sleep.
+
+## Iteration 10 (2026-09-01 19:15): the generation check had two holes, and the reviewer reproduced both
+
+Iteration 9's #1799 fix read the generation when the poll FIRED rather than binding it
+when the flow scheduled it, and `start()` never re-checked after its own await. A blind
+reviewer built two probes: a cancel during the device-code request that did not cancel
+(start resolved `awaiting` afterwards and the cancelled flow's token was stored), and a
+second start whose first poll timer the superseded flow's reschedule cleared, so the code
+on screen was never polled and the sign-in hung to expiry. The card's own symptom, still
+reachable, one commit after the card said it was closed.
+
+**Now:** `start()` takes its generation right after the bump and binds it into every poll
+it schedules; `pollOnce` checks after the round trip; `schedulePoll` refuses a stale
+generation (the fetch-failure path reschedules through it); `start()` bails after its own
+device request if the generation moved. **A fourth check at `pollOnce` entry was written and
+then removed:** a timer only exists for the live flow, so it could never go red, and a guard
+that cannot go red is decoration.
+
+| mutation | arm red by name |
+|---|---|
+| start() installs AWAITING when superseded | a cancel while the device-code request is out CANCELS |
+| schedulePoll accepts a stale generation | a superseded poll whose request FAILS does not reschedule over the live flow |
+| no check after the fetch | an answer to a flow the person already left cannot complete or reset the next flow |
+
+The arms hold the stub (device-code response, token answer, or a dropped socket) so the
+ordering is forced rather than raced, and wait on the stub's "sent" signal rather than a
+sleep. The second-start arm gives flow 2 a real one-second interval so it has a pending
+timer at the moment the stale poll returns, which is the condition the reviewer's probe
+needed. 20 of 20 whole-file runs green.
+
+Also from iteration 10: the atomic write loop now refuses a zero-byte write like the
+restore loop does; a garbled sentence in the restore comment is fixed. From iteration 8's
+tail: the fallback's best-effort fchmod names its cost (the sentence the extraction had
+dropped from sendertoken.js), and three "victim was written through" assertions that could
+not fail are replaced by the reason they could not.
