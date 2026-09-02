@@ -303,7 +303,7 @@ list row's unknown cell carries a word rather than a blank (a blank number cell
 reads as `0%`, and for memory `0%` means "loads of room" — the inverse of the
 truth).
 Since #1800 it also holds the two create-flow textareas (`#create-instr`,
-`#import-text`) to one dressing, border colour, width and radius, with a reach
+`#import-text`) to one dressing (border colour, border width, radius), with a reach
 floor first, and requires the import box to stand apart from its own card.
 
 ⚠️ **It exists because CSS had no standing guard at all.** `node --test` reads

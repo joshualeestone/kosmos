@@ -79,12 +79,17 @@ test('the fourth option imports an agent from a file: its own panel, the shared 
   // textareas on this flow cannot drift apart; the browser gate measures the result,
   // this pins the selector so the fast suite sees a split too.
   assert.match(PAGE, /#create-instr,\s*#import-text\s*\{/, 'import-text shares create-instr\'s field rule (#1800)');
-  // ...and NO other rule addresses it, in any shape. A bare `^#import-text {` guard was
+  // ...and no other rule NAMES it, in any shape. A bare `^#import-text {` guard was
   // probed against five planted competitors and missed four (`.rolepick #import-text`,
   // `#importpick #import-text`, `textarea#import-text`, `#x, #import-text`), which are
   // exactly the ones that win the cascade. So: collect every selector text that names
-  // the id and require the set to be the shared pair and nothing else.
-  const importSelectors = [...PAGE.matchAll(/([^{}]*#import-text[^{}]*)\{/g)]
+  // the id and require the set to be the shared pair and nothing else. (A descendant
+  // rule such as `#importpick textarea` names no id and is NOT seen here; the browser
+  // gate's render-fields.js measures the resolved result and is the guard for that.)
+  // Scanned over the STYLESHEET only: the same regex over the whole 2 MB page
+  // backtracks for ~18 s and would also report a JS line mentioning the id as a rule.
+  const STYLE = PAGE.match(/<style>([\s\S]*?)<\/style>/)[1];
+  const importSelectors = [...STYLE.matchAll(/([^{}]*#import-text[^{}]*)\{/g)]
     .map((m) => m[1].trim().replace(/^[\s\S]*\*\/\s*/, '').replace(/\s+/g, ' '))
     .filter((sel) => sel.includes('#import-text'))   // a COMMENT naming the id is not a rule
     .sort();
