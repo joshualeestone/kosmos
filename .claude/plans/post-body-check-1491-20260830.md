@@ -67,3 +67,18 @@ at 0, not by assuming the glob picked them up.
 ## Usage, one word longer than posting unchecked
 
     node tools/check-post-body.js body.md && gh pr create --body-file body.md
+
+## Challenge-loop iteration 1 fixes, and one deliberate deferral
+
+Two false negatives were found by a blind pass and fixed, both on the guard path:
+the em-dash patterns now tolerate leading zeros (`&#08212;`, `&#x02014;` render as
+the em dash exactly), and the backtick advice now also names `$(...)` and `${...}`,
+which `--body "..."` executes and expands the same way. Four new test arms.
+
+**Deferred, deliberately, to #1816:** the tool is a manual pre-flight and nothing
+invokes it, so #1491's "nobody sweeps PR bodies" is only partly closed. Making the
+sweep automatic means wiring it into the `/create-pr` flow or a pre-post hook, and a
+mandatory hook runs for every agent on this box (fleet-wide behaviour change, not a
+reversible in-lane commit). That is its own review with an awake operator, so it is a
+separate card. The tool (the capability) is #1491's deliverable; #1816 owns the
+wiring.
