@@ -296,8 +296,13 @@ test('the agent view carries the first-party doors and NOT the metered ones', as
     'control: the board is not sweeping token doors, so this test cannot tell the two sets apart');
 
   const names = (agent.services || []).map((s) => s.name).sort();
-  assert.deepEqual(names, ['Cloudflare', 'GitHub', 'Vercel'],
-    'the agent view no longer carries exactly the three first-party doors: ' + JSON.stringify(names));
+  /* Expected names come from the same table the sweep runs from, not a literal:
+     a fourth first-party door added to FIRST_PARTY_DOORS must not go red here
+     for no defect. The control on that table is the sibling derived-set test. */
+  const expected = Object.values(require('./server').firstPartyDoorNames()).sort();
+  assert.ok(expected.length >= 3, 'control: the door table lost its first-party doors');
+  assert.deepEqual(names, expected,
+    'the agent view does not carry exactly the first-party doors: ' + JSON.stringify(names));
 
   /* 🛑 THE ARM THAT COSTS MONEY IF IT EVER GOES GREEN WRONGLY. A token door
      reappearing here is not a cosmetic drift, it is a live billed request per call. */

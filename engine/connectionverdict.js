@@ -236,16 +236,16 @@ function serviceView(doors, allowed) {
      alphabetical and is not: `/api/cloudflare` and `/api/github` sort before
      `/api/svc/*` while `/api/vercel` sorts after, so the screen read
      Cloudflare, GitHub, Airtable, ... Vercel. */
-  /* Own-property here too. The gate below already refuses inherited keys, so
-     this is unreachable today -- but the two lookups reading the same map by
-     different rules is how they stop agreeing. */
-  const nameOf = (k) => (Object.prototype.hasOwnProperty.call(names, k) ? names[k] : k);
+  /* FILTER FIRST, THEN SORT, so the comparator never touches a key the
+     allowlist refused and needs no fallback to the raw route. The own-property
+     gate is the one lookup, applied once. */
+  const routes = Object.keys(doors).filter((k) => Object.prototype.hasOwnProperty.call(names, k));
   /* An explicit locale, because the ORDER A PERSON READS must not depend on the
      machine. Bare localeCompare uses the runtime default, so the same door set
      could come out in different orders on two computers, and the ordering test
      runs under one locale only and would never see it. */
-  const byName = (a, b) => String(nameOf(a)).localeCompare(String(nameOf(b)), 'en');
-  for (const route of Object.keys(doors).sort(byName)) {
+  const byName = (a, b) => String(names[a]).localeCompare(String(names[b]), 'en');
+  for (const route of routes.sort(byName)) {
     /* ⚠️ OWN PROPERTY, NOT A PLAIN LOOKUP. `names['constructor']` walks the
        prototype chain and answers a Function, which is truthy, so a door named
        after anything on Object.prototype sailed through the gate whose entire

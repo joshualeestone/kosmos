@@ -307,6 +307,9 @@ const FIRST_PARTY_DOORS = Object.freeze({
   '/api/vercel': { name: 'Vercel', ask: () => vercel.state() },
   '/api/cloudflare': { name: 'Cloudflare', ask: () => cloudflare.state() },
 });
+// Deep, not top-level only: the entries are the contract, and a writable entry
+// is a prose guarantee where the container's freeze is a mechanical one.
+for (const d of Object.values(FIRST_PARTY_DOORS)) Object.freeze(d);
 const firstPartyDoorNames = () => Object.fromEntries(Object.entries(FIRST_PARTY_DOORS).map(([route, d]) => [route, d.name]));
 const readFirstPartyDoors = inflight.collapse(() => settleDoors(
   Object.fromEntries(Object.entries(FIRST_PARTY_DOORS).map(([route, d]) => [route, askDoor(d.ask)]))
@@ -8505,6 +8508,7 @@ module.exports = {
   /* Test seam (#1034): the shared first-party sweep, so its freeze contract is
      asserted rather than described. */
   readFirstPartyDoors,
+  firstPartyDoorNames,
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   /* #1304: exported so the two-reader precedence can be driven directly. A test
      that needed a real process tree, a tmux server and a signed-in account would
