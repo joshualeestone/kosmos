@@ -89,8 +89,8 @@ test('#1616 createAgent on Claude refuses a directory or a stripped file at the 
     assert.equal(fs.existsSync(create.workerDir('rd-claude')), false, label + ': a refused creation left a worker folder behind');
   }
   const ok = create.createAgent({ claudeBin: realBin, tmuxBin: TMUX, codexBin: '/nonexistent-codex', name: 'rd-claude-ok', role: 'pm' });
-  assert.ok(!/could not find Claude Code/.test(String(ok.because || '')),
-    'a real executable was refused as missing, so the arms above cannot tell the gate from a wall: ' + ok.because);
+  assert.equal(ok.outcome, create.OUTCOME.CREATED,
+    'a real executable did not get through to a creation, so the arms above cannot tell the gate from a wall: ' + ok.because);
 });
 
 test('#1616 createAgent on Claude refuses a directory at the TMUX path too: the loop is one gate for every binary it spawns', () => {
