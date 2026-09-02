@@ -194,12 +194,38 @@ function checkFiles() {
  *
  * ✅ Deleting a line from here is the only correct direction of travel.
  */
+/* #1808: the reason has to be the COST of wiring THIS check, not the condition
+   restated. `never wired.` was five tautologies -- true of every entry by
+   definition, so an oversight and a deliberate deferral read identically and
+   neither can be reviewed. Each reason below is sourced from the check's own
+   header + the runner: what it exercises, and what wiring it would take. The
+   floor-guard test further down refuses the bare tautology so it cannot creep
+   back. (Kept, not deleted or wired: each still guards a real defect a source
+   test cannot see -- #1209/#1205/#1207 layout, a leaked filename, the sleep
+   pane -- and wiring a never-run check mid-release is the red-gate trade this
+   file's header describes.) */
 const NOT_WIRED = {
-  'render-conn-url.js': 'never wired.',
-  'render-openai-key-step.js': 'never wired.',
-  'render-openai-step.js': 'never wired.',
-  'render-sleep-button.js': 'never wired.',
-  'render-special-purpose.js': 'never wired.',
+  'render-conn-url.js':
+    'never run: a Playwright paint+geometry check of the sign-in step fallback '
+    + 'link (#1209 overlap), driving the page own frConnPaintUrl. Wiring needs '
+    + 'the first-run connect step served in a real browser; may red on first run.',
+  'render-openai-key-step.js':
+    'never run: a Playwright layout check of the OpenAI key step (#1207 -- one '
+    + 'bounding box, matched font sizes, "Get a key" link not overlapping). '
+    + 'Wiring needs the OpenAI provider step served in a browser. Feeds #1315.',
+  'render-openai-step.js':
+    'never run: a Playwright check of the OpenAI install step (#1205 -- status-'
+    + 'line size, an indicator that exists only after a click, an indeterminate '
+    + 'bar). Wiring needs the OpenAI step served plus a click. Do not cite as '
+    + 'OpenAI-path coverage (#1315) until it runs.',
+  'render-sleep-button.js':
+    'never run, and costliest to wire: it opens System Settings on the host and '
+    + 'quits it (a real GUI side effect) and needs a Mac console plus the durable '
+    + 'pw-runtime, so it cannot run in the shared/headless browser gate.',
+  'render-special-purpose.js':
+    'never run: a Playwright visible-text sweep of the agent detail panel for a '
+    + 'leaked filename (CLAUDE.md/AGENTS.md). Wiring needs a created agent with a '
+    + 'populated panel served in a browser.',
 };
 
 /* 🔑 A FLOOR ON THE POPULATION, the same reason its sibling has one. If the
@@ -283,6 +309,24 @@ test('#1387: nothing in NOT_WIRED is actually wired, and nothing in it has been 
   const missing = Object.keys(NOT_WIRED).filter((f) => !fs.existsSync(path.join(DIR, f)));
   assert.deepEqual(missing, [],
     `these are listed as unwired but no longer exist; delete their lines:\n  ${missing.join('\n  ')}`);
+});
+
+/* #1808: the reason must be the COST of wiring the check, not the condition
+   restated. `never wired.` was a tautology -- true of every entry by definition
+   -- so an oversight read identically to a deliberate deferral, and the guard's
+   own message ("a reason that is a real cost") went unenforced. This refuses the
+   bare tautology so it cannot creep back. It is a FLOOR, not a quality judge:
+   "a real cost" cannot be fully mechanised, but a reason that only restates the
+   condition, or is too short to say anything, can be refused. */
+test('#1808: no NOT_WIRED reason is the bare "never wired" tautology', () => {
+  const tautology = /^\s*never\s+wired\.?\s*$/i;
+  const offenders = Object.entries(NOT_WIRED)
+    .filter(([, reason]) => tautology.test(reason) || reason.trim().length < 20)
+    .map(([f, reason]) => `${f}: ${JSON.stringify(reason)}`);
+  assert.deepEqual(offenders, [],
+    'these NOT_WIRED reasons restate the condition instead of giving the cost of '
+    + 'wiring the check; say what it exercises and what wiring it would take:\n  '
+    + offenders.join('\n  '));
 });
 
 /* The library exemption is earned, not asserted. If nothing requires it, it is
