@@ -2619,6 +2619,88 @@ test('#874: a rejected OAuth token reads as auth_failed, not working forever', (
     '#249s pinned Codex 401 reconnect loop was reclassified by the new Claude-only marker');
 });
 
+test('#1884: Claude Code\'s friendly (non-JSON) auth line reads as auth_failed, not Idle', () => {
+  /**
+   * 🛑 A REAL EXTERNAL TESTER (Ben) was blocked here, 2026-09-02, and the board
+   * said "Idle · it is at rest and nothing is needed" over it -- the worst
+   * possible label, in words that stop anyone looking. His pane, verbatim, and
+   * current Claude Code (2.1.258) prints a human-readable line, not the raw JSON
+   * envelope #874 was captured from:
+   *
+   *   ● Please run /login · API Error: 401 OAuth access token has expired.
+   *     Re-authenticate to continue.
+   *
+   * The JSON markers keyed on `"type":"error"`, which this line has nowhere, so
+   * classify() fell through to idle. Detection is the message + Claude Code's own
+   * remedy on one row.
+   */
+  const BEN = '● Please run /login · API Error: 401 OAuth access token has expired.\n'
+    + '  Re-authenticate to continue.\n';
+  const r = classify(pane(), BEN);
+  assert.equal(r.state, STATE.AUTH_FAILED,
+    'a real blocked tester read as Idle · nothing is needed');
+  assert.equal(r.confidence, CONFIDENCE.SCRAPED);
+  assert.match(r.evidence, /OAuth access token has expired/,
+    'the evidence must show what the screen said');
+  assert.match(r.evidence, /Please run \/login/,
+    'the evidence must name the remedy the person has to run');
+  assert.doesNotMatch(r.evidence, /^[\s>│├└─*❯›●]/,
+    'a bullet or drawing glyph reached a product surface: ' + JSON.stringify(r.evidence));
+
+  /* The sibling friendly forms, byte-exact from Claude Code 2.1.258's own
+     strings. Each is one row carrying a message and the remedy. */
+  for (const line of [
+    'API Error: 401 Invalid API key · Please run /login',
+    'OAuth token revoked · Please run /login',
+    'Login expired · Please run /login',
+    '● Please run /login · OAuth access token has been revoked.',
+    // Byte-exact WHOLE line from Claude Code 2.1.258's own strings (both halves,
+    // "Please run /login" satisfies the remedy). This is the session-expired form.
+    'Your session has expired. Please run /login to sign in again.',
+    // The invalid-token wording in the friendly form. The message string is
+    // byte-exact from the bundle; the one-line "· Please run /login" pairing
+    // follows Claude Code's own confirmed template (as in the accepted forms
+    // above). The JSON envelope form of this is separately covered by #874.
+    '● Please run /login · API Error: 401 OAuth access token is invalid.',
+  ]) {
+    assert.equal(classify(pane(), line + '\n').state, STATE.AUTH_FAILED,
+      'a real friendly auth line was missed: ' + JSON.stringify(line));
+  }
+
+  /* 🔑 CONTROLS. Prose that mentions the message but NOT the remedy stays out --
+     the co-occurrence is the discriminator, the same property that keeps the
+     #1233 prose rows from tripping. */
+  assert.notEqual(
+    classify(pane(), 'The pane said OAuth access token has expired, which is #1884.\n').state,
+    STATE.AUTH_FAILED,
+    'prose mentioning the message (no remedy on the row) tripped auth_failed');
+  assert.notEqual(
+    classify(pane(), 'Remember to Please run /login after you rotate the key.\n').state,
+    STATE.AUTH_FAILED,
+    'prose mentioning the remedy (no auth message on the row) tripped auth_failed');
+  assert.notEqual(classify(pane(), 'Running the suite. 2600 pass, 0 fail.\n> ready\n').state,
+    STATE.AUTH_FAILED, 'ordinary working output tripped auth_failed');
+
+  /* 🔑 CODEX'S OWN 401 STAYS WORKING (#249), same guard as #874: the friendly
+     markers are on the Claude branch of classify(), which the Codex branch
+     returns before. */
+  assert.equal(classify(pane({ command: 'codex' }), CODEX_WORKING).state, STATE.WORKING,
+    'the friendly auth markers reclassified the pinned Codex 401 reconnect loop');
+});
+
+test('#1884: KNOWN GAP -- a message quoting the whole friendly line still reads auth_failed', () => {
+  /* The friendly-form analog of #1233's whole-payload gap: a card or chat that
+     quotes the entire line -- message AND remedy on one row -- trips it. This
+     card and its discussion do exactly that, so an agent working #1884 can see
+     its own pane flip. Accepted, not traded: it is rare and temporary, and when
+     the agent is also self-reporting it surfaces as a CONFLICT (see the reconcile
+     test below), not the silent false calm that stopped Ben. If a discriminator
+     is ever found that keeps every real screen, flip this to notEqual. */
+  const quoting = 'The stuck pane read: Please run /login · API Error: 401 OAuth access token has expired.\n';
+  assert.equal(classify(pane(), quoting).state, STATE.AUTH_FAILED,
+    'this is now fixed -- flip this row to notEqual and drop the comment');
+});
+
 test('a synthetic placeholder is not reported as the model an agent runs on', () => {
   /**
    * 🛑 JOSH, 2026-08-21, SECONDS AFTER SWITCHING AN AGENT FROM FABLE TO OPUS:
@@ -2867,6 +2949,23 @@ test('#886: a scraped auth_failed stands over a reported idle, conflict surfaced
   const started = reconcileReport(rep('started'),
     scr(STATE.AUTH_FAILED, CONFIDENCE.SCRAPED, 'OAuth access token is invalid.'), T0 + 1000);
   assert.equal(started.state, STATE.AUTH_FAILED);
+});
+
+test('#1884: Ben\'s friendly auth line, scraped THEN reconciled over an idle report, is auth_failed not Idle', () => {
+  /* The whole path for the real incident, scrape through reconcile. Ben's header
+     read "Idle · nothing is needed"; the fix must survive BOTH the scrape (the
+     #1884 classify test above) and the reconcile against whatever the agent last
+     reported. An agent that reported idle and then hit an expired token is the
+     exact #886 shape, one message format over -- so #886's rule 3b must carry
+     the friendly form too, not only the JSON one it was written against. */
+  const BEN = '● Please run /login · API Error: 401 OAuth access token has expired.\n'
+    + '  Re-authenticate to continue.\n';
+  const scraped = classify(pane(), BEN);
+  assert.equal(scraped.state, STATE.AUTH_FAILED, 'the scrape must read the friendly line as a dead token');
+  const got = reconcileReport(rep('idle'), scraped, T0 + 60_000);
+  assert.equal(got.state, STATE.AUTH_FAILED, 'the idle report re-buried Ben\'s blocked agent as at-rest');
+  assert.equal(got.reported, false);
+  assert.match(got.conflict, /sign-in is being rejected/, 'the contradiction with the idle report must be surfaced');
 });
 
 test('#886: a scraped rate_limited stands over a stale working report rather than decaying to unknown', () => {
