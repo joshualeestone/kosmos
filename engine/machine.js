@@ -27,6 +27,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const create = require('./create');
+const runners = require('./runners');
 
 const STATE = { OK: 'ok', ATTENTION: 'attention', UNKNOWN: 'unknown' };
 
@@ -373,9 +374,12 @@ function installedCheck(opts) {
      * as "missing", which quietly undid the whole reason the probe moved off
      * `existsSync` in the first place.
      */
-    let st;
+    // statSync (result discarded) purely to classify the path: it throws
+    // ENOENT for absent and EACCES for unreadable, the two cases isRunnable
+    // below cannot tell apart (it collapses both to false). Runnability itself
+    // is asked once, by runners.isRunnable, further down.
     try {
-      st = fs.statSync(bin);
+      fs.statSync(bin);
     } catch (err) {
       if (err && err.code === 'ENOENT') { present[key] = false; if (required) missing.push({ label, bin }); continue; }
       /**
@@ -402,23 +406,27 @@ function installedCheck(opts) {
     /**
      * ⚠️ A FILE WE COULD ACTUALLY RUN, not merely something at that path.
      * `statSync` alone succeeds for a DIRECTORY named `claude` and for a file
-     * with no execute bit — both of which came back as "There is nothing else
+     * with no execute bit, both of which came back as "There is nothing else
      * for you to go and find", on the screen whose job is promising the thing
      * will work. launchd would then start the job and it would fail silently,
      * which is the worst available outcome: nothing on screen, nothing running.
+     *
+     * 🔑 ONE definition of "is this runnable" (#1641/#1592). This used to inline
+     * `st.isFile()` + `accessSync(bin, X_OK)`, a second copy of the definition
+     * #1592 converged four other sites onto. It now asks `runners.isRunnable`,
+     * the identical question (a plain file, not a directory, with an exec bit
+     * THIS process can run). The statSync above stays because it separates
+     * ENOENT from an unreadable path; isRunnable answers only runnable-or-not.
+     *
+     * ⚠️ X_OK IS NOT RUNNABILITY (#1567). A truncated launcher left by a
+     * cancelled `claude install` passes X_OK and is NOT runnable; only
+     * connect.js's `--version` probe catches that, and Connect re-downloads on
+     * it. So `present: true` here means "the file is on this computer and
+     * executable", NOT "it runs", and the copy below is worded to match.
      */
-    if (!st.isFile()) { present[key] = false; if (required) missing.push({ label, bin }); continue; }
-    try {
-      fs.accessSync(bin, fs.constants.X_OK);
+    if (runners.isRunnable(bin)) {
       present[key] = true;
-    } catch {
-      // A file with no execute bit is not runnable, so it is not present here.
-      // ⚠️ BUT X_OK IS NOT RUNNABILITY (#1567). A truncated launcher left by a
-      // cancelled `claude install` passes X_OK and is NOT runnable; only
-      // connect.js's `--version` probe catches that, and Connect re-downloads on
-      // it. So `present: true` here means "the file is on this computer and
-      // executable", NOT "it runs". The copy below is worded to match that, and
-      // must not vouch for runnability the cheap check cannot see.
+    } else {
       present[key] = false;
       if (required) missing.push({ label, bin });
     }
