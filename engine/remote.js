@@ -446,6 +446,23 @@ async function setupStart(email) {
 async function setupComplete(code, name) {
   const settings = read();
   if (!settings.email) return { ok: false, because: 'start with the email step' };
+  // #1010: a reinstall whose state SURVIVED is already set up -- do not re-enrol.
+  // install/setup.sh never removes Application Support, so mac_id / address /
+  // tls.crt / tls.key survive an install-over-the-top and enrolled() reads true.
+  // Re-running enrolment here would mint a NEW identity key (crates/tunnel
+  // setup.rs generates a fresh one by design, #1003), spend a scarce certificate
+  // (#1003), and hit the coordinator's 409 about "a Mac on this account" -- for
+  // THIS same Mac's own previous life, with no other Mac in sight. So when we are
+  // already enrolled at the address this name maps to, recognise the Mac as
+  // itself and just bring the tunnel up. A DIFFERENT name is a rename (a real
+  // address change) and deliberately falls through to the setup path below.
+  if (enrolled()) {
+    const have = address();
+    if (have && have.split('.')[0] === name) {
+      ensure(localPort);
+      return { ok: true, because: null, alreadySetUp: true, address: have };
+    }
+  }
   if (!/^[0-9]{6}$/.test(String(code || ''))) {
     return { ok: false, because: 'the code is six digits' };
   }
