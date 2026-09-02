@@ -2,7 +2,7 @@
 
 kosmos#1484: the switch-model/provider dialog has four arms; the two-account fixture in
 `docs/browser-checks/render-model-change.js` reaches exactly two (a picked row, and
-many-untouched). The other two — ONE account and ZERO accounts — are rendered by no browser
+many-untouched). The other two, ONE account and ZERO accounts, are rendered by no browser
 check, and both have already shipped false copy:
 - one-account arm: fell through to a sentence saying the computer chooses, while the visible
   row was actually being sent.

@@ -350,6 +350,15 @@ const oaiStub = require('node:http').createServer((q, r) => {
   chk(!/you picked/.test(one.small) && !/There is not one yet/.test(one.small) && !/computer chooses/.test(one.small),
     '#1484: one sign-in: neither a claimed pick, nor a missing-account sentence, nor a computer-chooses sentence',
     one.small.slice(-110));
+  /* The load-bearing negative for THIS arm, symmetric with the zero arm at line 367: the
+     one-account case renders the switchAcctSending() sentence (runs on THE sign-in shown
+     above); if switchAcctSending() ever stopped matching, it would collapse into the
+     unqualified fallthrough (runs on THIS COMPUTER's OpenAI sign-in). The historical-defect
+     negatives above cannot fire on any reachable sentence today; this one guards the real
+     regression this arm could actually make. */
+  chk(!/runs on this computer.s OpenAI sign-in\./.test(one.small),
+    '#1484: one sign-in: it does not collapse into the unqualified default-chooses fallthrough',
+    one.small.slice(-110));
 
   /* ZERO accounts: the engine REFUSES (`openai.list()` is empty, `setProvider` refuses,
      nothing changes), so the honest sentence states that the switch will stop. This is
