@@ -527,8 +527,13 @@ async function checkLive(dir) {
 
    The `why` lines are copy keyed by family (no runner can produce them); the
    `arg`/id always comes from the account. */
+/* rank low = more capable / preferred as default. prefix matched lowercased.
+   ⚠️ ORDER MATTERS: openaiFamilyOf takes the FIRST prefix an id startsWith, and
+   some prefixes nest ('gpt-4o' and 'gpt-4.1' both startWith 'gpt-4'), so the
+   specific families are listed BEFORE the bare 'gpt-4' catch-all. A row's why/
+   rank comes from the first match, so mis-ordering would mis-describe a model,
+   never mis-classify it as non-chat. */
 const OPENAI_CHAT_FAMILIES = [
-  // rank low = more capable / preferred as default. prefix matched lowercased.
   { rank: 0, prefix: 'gpt-5', why: 'OpenAI\'s most capable. For work where being right matters more than being quick.' },
   { rank: 1, prefix: 'o3', why: 'Reasoning-focused. Slower, and it works through harder problems step by step.' },
   { rank: 1, prefix: 'o4', why: 'Reasoning-focused. Slower, and it works through harder problems step by step.' },
@@ -536,10 +541,20 @@ const OPENAI_CHAT_FAMILIES = [
   { rank: 3, prefix: 'gpt-4o', why: 'The everyday choice. Quick, and good at most work.' },
   { rank: 4, prefix: 'chatgpt', why: 'The model behind ChatGPT\'s default experience.' },
   { rank: 5, prefix: 'o1', why: 'An earlier reasoning model. Slower, for step-by-step problems.' },
+  // The bare gpt-4 family (gpt-4, gpt-4-turbo, gpt-4-*-preview): older but real
+  // chat models. AFTER gpt-4.1/gpt-4o so those match first.
+  { rank: 6, prefix: 'gpt-4', why: 'An earlier generation, still capable for most everyday work.' },
+  // codex's own small model. The runner here IS codex, so codex-mini-latest is a
+  // model this runner can actually drive -- excluding it would drop the one model
+  // named for the runner itself (#1026 iteration 1).
+  { rank: 7, prefix: 'codex', why: 'A smaller, faster model tuned for code tasks.' },
 ];
 // Non-chat variants that share a chat family's prefix but codex cannot drive as
-// an agent. Substring match, lowercased.
-const OPENAI_NON_CHAT = ['audio', 'realtime', 'transcribe', 'tts', 'search', 'image', 'embedding', 'moderation', 'whisper', 'dall-e'];
+// an agent. Substring match, lowercased. 'search' also catches deep-research
+// models (o3-deep-research etc.) on purpose -- they are not standard
+// chat-completion models a runner drives. 'instruct' catches the legacy
+// completions models (gpt-3.5-turbo-instruct), which are not chat either.
+const OPENAI_NON_CHAT = ['audio', 'realtime', 'transcribe', 'tts', 'search', 'image', 'embedding', 'moderation', 'whisper', 'dall-e', 'instruct'];
 
 /** The chat family an id belongs to, or null (not a recognised chat model, or a
     non-chat variant within a chat family). Pure. */

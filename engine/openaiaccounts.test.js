@@ -520,6 +520,23 @@ test('#1026 chatModelsFromList keeps chat models, drops non-chat, sorts most-cap
   assert.ok(rows.find((r) => r.arg === 'gpt-5').why, 'every row carries a why line');
 });
 
+test('#1026 the runner\'s own codex-mini and legacy gpt-4 chat models are recognised; gpt-3.5-turbo-instruct (completions) is not', () => {
+  const data = [
+    { id: 'codex-mini-latest' },        // the runner is codex -> a model it can drive
+    { id: 'gpt-4-turbo' },              // legacy but real chat
+    { id: 'gpt-4' },                    // legacy chat
+    { id: 'gpt-3.5-turbo-instruct' },   // a COMPLETIONS model, not chat -> dropped by 'instruct'
+    { id: 'o3-deep-research' },         // not a standard chat-completions model -> dropped by 'search'
+    { id: 'gpt-4o' },                   // current chat, ranks above the legacy ones
+  ];
+  const args = openai.chatModelsFromList(data).map((r) => r.arg);
+  assert.ok(args.includes('codex-mini-latest'), 'the codex runner\'s own model is offered');
+  assert.ok(args.includes('gpt-4-turbo') && args.includes('gpt-4'), 'legacy gpt-4 chat models are offered');
+  assert.ok(!args.includes('gpt-3.5-turbo-instruct'), 'a completions (instruct) model is not offered');
+  assert.ok(!args.includes('o3-deep-research'), 'a deep-research model is not offered');
+  assert.equal(args[0], 'gpt-4o', 'the current gpt-4o outranks the legacy gpt-4 family');
+});
+
 test('#1026 CONTROL: a list of ONLY non-chat models yields an empty menu (the filter is not vacuously passing everything)', () => {
   const data = [
     { id: 'text-embedding-3-small' }, { id: 'tts-1' }, { id: 'dall-e-3' },
