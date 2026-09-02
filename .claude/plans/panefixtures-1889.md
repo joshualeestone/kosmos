@@ -45,6 +45,32 @@ is the case nothing catches.
 literal line is nowhere in the 2.1.258 bundle. That is the card's residual #2,
 demonstrated against the reader it was filed about.
 
+### 1b. It is a live population, and the count is a MOVING quantity
+
+Splinter reproduced the sweep independently and found the shape on five panes at
+15:37. My own sweeps minutes apart found three, then two.
+
+🛑 **BUT SHOWING THE SHAPE IS NOT THE SAME AS BEING MISSED, and the difference
+matters before anyone publishes a count.** A pane can carry the background-agent
+wait line AND a normal spinner line at the same time; then `WORKING_LINE` covers
+it and `classify()` is already correct. The missed state needs BOTH the wait line
+present AND no working arm matching.
+
+Measured, same minute:
+
+| pane | shows the shape | WORKING_LINE | verdict |
+|---|---|---|---|
+| barondraxum | yes | false | **MISSED** |
+| pigeonpete | yes | true | covered |
+
+⇒ A count of panes showing the line OVERSTATES the misread population. Any single
+number needs its timestamp attached, because agents enter and leave the state
+between sweeps. "N of 18 at HH:MM" is defensible; "N agents classify as idle" is
+not.
+
+⭐ Worth recording because I nearly made the error myself: the first version of
+this section said "3 of 18 are misread". One sweep later it was 1.
+
 ### 2. Only one of the three working arms fires on 2.1.258
 
 Measured across the live working set:
