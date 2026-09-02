@@ -15,6 +15,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { safeKey, ALLOWED_IMAGES, AVATARS } = require('./store');
+/* ⚠️ ALSO REQUIRED AS A NAMESPACE, and the two are not interchangeable.
+   `ROOT`/`AVATARS`/`PROFILES` are lazy getters (#1443); destructuring one
+   evaluates it ONCE, right here, and re-freezes it. The line above keeps doing
+   that deliberately - the tests below it are path arithmetic and want a fixed
+   value - while the late-seam test at the bottom of this file needs the live
+   property, so it reads through `store.` instead. */
+const store = require('./store');
+const fs = require('node:fs');
+const os = require('node:os');
 
 // ---------------------------------------------------------------------------
 // Name sanitising -- the security-relevant part
@@ -83,5 +92,55 @@ test('svg is deliberately excluded', () => {
 test('every allowed type maps to a real file extension', () => {
   for (const [type, ext] of Object.entries(ALLOWED_IMAGES)) {
     assert.match(ext, /^\.[a-z]+$/, `${type} has a suspect extension: ${ext}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// #1443: the data root is resolved PER CALL, not frozen at require time
+// ---------------------------------------------------------------------------
+
+/**
+ * 🛑 WHY THIS EXISTS. `ROOT`, `AVATARS` and `PROFILES` were module-level
+ * consts. A caller that set `AGENT_WORKFORCE_DATA` AFTER requiring this module
+ * read straight past the seam and got the operator's REAL Application Support
+ * directory - the place avatars and profiles are written. Same class as
+ * `accounts.HOME` (#1419) and the seven modules in #1432, and it was carried as
+ * named debt in `tools/check-frozen-roots.js` until this card.
+ *
+ * ⭐ MEASURED, three arms:
+ *   pre-fix,  seam set after require  -> /Users/<operator>/Library/Application Support/AgentWorkforce
+ *   post-fix, seam set after require  -> the fixture, all three paths
+ *   post-fix, seam set before require -> the fixture (every other test file here
+ *                                        and in engine/ already covers this arm)
+ *
+ * 📌 ARM 2 IS THE ONE THAT CATCHES A PARTIAL FIX. `AVATARS` and `PROFILES` were
+ * derived from `ROOT` at module level, so making only `ROOT` lazy leaves both of
+ * them pointing at the real machine while arm 1 passes and looks like a fix.
+ */
+test('#1443: ROOT, AVATARS and PROFILES follow a data root set AFTER require', () => {
+  const late = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-store-late-'));
+  const before = process.env.AGENT_WORKFORCE_DATA;
+  process.env.AGENT_WORKFORCE_DATA = late;
+  try {
+    // arm 1: the root itself
+    assert.ok(store.ROOT.startsWith(late),
+      `store.ROOT did not follow a seam set after require, so a caller that sandboxes late writes to the real machine: ${store.ROOT}`);
+
+    // arm 2: the two derived paths, which a ROOT-only fix leaves behind
+    assert.ok(store.AVATARS.startsWith(late),
+      `store.AVATARS is still frozen while ROOT followed: the derivation re-froze it and uploaded avatars land on the real machine: ${store.AVATARS}`);
+    assert.ok(store.PROFILES.startsWith(late),
+      `store.PROFILES is still frozen while ROOT followed: ${store.PROFILES}`);
+
+    // arm 3: nothing from the operator's real store leaked in. Shape-based
+    // rather than naming a real path, so it stays true on any machine.
+    for (const [name, v] of [['ROOT', store.ROOT], ['AVATARS', store.AVATARS], ['PROFILES', store.PROFILES]]) {
+      assert.ok(!v.includes('Library/Application Support'),
+        `store.${name} resolved into the operator's real Application Support directory: ${v}`);
+    }
+  } finally {
+    if (before === undefined) delete process.env.AGENT_WORKFORCE_DATA;
+    else process.env.AGENT_WORKFORCE_DATA = before;
+    fs.rmSync(late, { recursive: true, force: true });
   }
 });

@@ -30,11 +30,21 @@ const APP = 'AgentWorkforce';
 // live store and the gates that depend on them could not be pinned against
 // seeded data. `engine/commitments.js` already honours the same variable, so
 // this makes two modules agree rather than introducing a new convention.
-const ROOT = process.env.AGENT_WORKFORCE_DATA
-  ? path.join(process.env.AGENT_WORKFORCE_DATA, APP)
-  : path.join(os.homedir(), 'Library', 'Application Support', APP);
-const AVATARS = path.join(ROOT, 'avatars');
-const PROFILES = path.join(ROOT, 'profiles');
+// 🛑 RESOLVED PER CALL, NOT AT REQUIRE TIME (#1443). These were three
+// module-level consts, so a caller that set `AGENT_WORKFORCE_DATA` AFTER
+// requiring this module read straight past the seam and got the operator's
+// real Application Support directory - measured, both arms, on main and on the
+// #1432 branch alike. Same class as accounts.HOME (#1419) and the seven
+// modules in #1432; this one was carried as named debt in
+// `tools/check-frozen-roots.js` rather than fixed there, because ROOT has
+// 20-odd consumers and deserved its own review.
+function dataRoot() {
+  return process.env.AGENT_WORKFORCE_DATA
+    ? path.join(process.env.AGENT_WORKFORCE_DATA, APP)
+    : path.join(os.homedir(), 'Library', 'Application Support', APP);
+}
+function avatarsDir() { return path.join(dataRoot(), 'avatars'); }
+function profilesDir() { return path.join(dataRoot(), 'profiles'); }
 
 function ensure(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -62,8 +72,8 @@ const ALLOWED_IMAGES = {
 function avatarPath(name) {
   const key = safeKey(name);
   try {
-    for (const f of fs.readdirSync(AVATARS)) {
-      if (f.startsWith(key + '.')) return path.join(AVATARS, f);
+    for (const f of fs.readdirSync(avatarsDir())) {
+      if (f.startsWith(key + '.')) return path.join(avatarsDir(), f);
     }
   } catch { /* no avatars yet */ }
   return null;
@@ -138,13 +148,13 @@ function saveAvatar(name, contentType, buffer) {
   }
 
   const key = safeKey(name);
-  ensure(AVATARS);
+  ensure(avatarsDir());
   // Replace rather than accumulate: one avatar per agent, and an old .png
   // left beside a new .jpg would win or lose by directory order.
   const existing = avatarPath(name);
   if (existing) fs.unlinkSync(existing);
 
-  const dest = path.join(AVATARS, key + ext);
+  const dest = path.join(avatarsDir(), key + ext);
   fs.writeFileSync(dest, buffer);
   return dest;
 }
@@ -163,7 +173,7 @@ function removeAvatar(name) {
  * Manager" mean something the product can act on later.
  */
 function profilePath(name) {
-  return path.join(PROFILES, safeKey(name) + '.json');
+  return path.join(profilesDir(), safeKey(name) + '.json');
 }
 
 function readProfile(name) {
@@ -175,7 +185,7 @@ function readProfile(name) {
 }
 
 function writeProfile(name, patch) {
-  ensure(PROFILES);
+  ensure(profilesDir());
   const had = readProfile(name);
   const next = { ...had, ...patch, updatedAt: new Date().toISOString() };
   /**
@@ -239,4 +249,14 @@ function agentId(name) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { ROOT, AVATARS, PROFILES, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, agentId };
+module.exports = {
+  /* Lazy getters, so the 20-odd `store.ROOT` consumers keep reading a plain
+     property and get one resolved NOW. Same shape as `instructions.ROOT` and
+     `subscription.CONFIG_PATH` (#1432).
+     ⚠️ Destructuring one (`const { AVATARS } = require('./store')`) evaluates
+     it once and re-freezes it at that point - which is what `store.test.js:17`
+     does, and it is no worse than the const it replaces. */
+  get ROOT() { return dataRoot(); },
+  get AVATARS() { return avatarsDir(); },
+  get PROFILES() { return profilesDir(); },
+  safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, agentId };

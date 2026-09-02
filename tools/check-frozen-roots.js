@@ -40,13 +40,23 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()'];
    defect this whole class is about. So every entry is printed on every run and
    the list is meant to shrink to nothing.
 
-   `store.ROOT` is a real instance, confirmed frozen on main. It is excluded
-   from #1432 because it has 20+ consumers across server.js and four engine
-   modules, so converting it is its own change with its own review, not a
-   rider on a seven-module sweep. Tracked separately. */
-const KNOWN = new Map([
-  ['engine/store.js:ROOT', 'over 20 external consumers; own card, own review'],
-]);
+   The list is EMPTY as of #1443: `store.ROOT` was the last entry and is now a
+   lazy getter.
+
+   🛑 AND EMPTY IS NOT THE SAME AS CLEAN, WHICH IS WORTH KNOWING BEFORE ANYONE
+   READS A ZERO HERE AS COVERAGE. `SOURCES` is a list of VALUES this tool can
+   recognise, and it can only follow indirection WITHIN one file. A constant
+   frozen through ANOTHER MODULE'S exported root is invisible to it:
+
+       const DIR = path.join(store.ROOT, 'sendertokens');   // engine/sendertoken.js
+
+   contains neither `os.homedir()` nor a local resolver, so it is never flagged
+   - and it freezes the now-lazy root all over again at its own require time.
+   Measured while fixing #1443, by adding `store.ROOT` to SOURCES for one run:
+   26 such constants across 22 engine modules. Filed separately with that
+   measurement; it needs the 26 conversions and the SOURCES change together,
+   because either one alone is a red suite or an invisible class. */
+const KNOWN = new Map([]);
 
 /* A declaration that is an arrow function is LAZY and fine: `const T = () => …`
    resolves per call. This is the distinction the whole check turns on. */
