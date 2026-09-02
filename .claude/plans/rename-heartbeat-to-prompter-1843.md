@@ -1,4 +1,4 @@
-# kosmos#1843 — Settings > Automation: rename Heartbeat to Prompter, make the section reachable
+# kosmos#1843 -- Settings > Automation: rename Heartbeat to Prompter, make the section reachable
 
 ## Card
 
@@ -8,14 +8,14 @@ asks plus a modal:
 
 1. Rename the visible "Heartbeat" to "Prompter".
 2. Add the daily note (Notetaker) to the section, preselected.
-3. Everything on by default (Prompter, Recommender, Notetaker, Auto-save) —
+3. Everything on by default (Prompter, Recommender, Notetaker, Auto-save) --
    Josh's 07:18 ruling reversing #1722's off-by-default principle on purpose.
 4. A restart modal for toggling a setting that cannot take effect on running
    agents (Josh's 07:25 ruling: exact copy given).
 
 ## This slice (small cut, per release cadence)
 
-Josh's item 1 only — the surface rename — plus a real bug found while verifying
+Josh's item 1 only -- the surface rename -- plus a real bug found while verifying
 it. Chosen because the rename is complete, self-contained, zero behaviour
 change, and fully reversible; the other three asks are each larger and are
 decomposed below.
@@ -26,7 +26,7 @@ decomposed below.
   button's `aria-label`, and the two save-status strings now read "Prompter".
   Decided once: the internal ids (`hb-*`), the HTTP route
   (`/api/heartbeat-setting`), the paint function (`paintHeartbeat`) and the
-  engine modules keep the heartbeat name — they are wired and unit-tested, and
+  engine modules keep the heartbeat name -- they are wired and unit-tested, and
   renaming them is risk with no user benefit. A code comment states this.
 - **Bug fix (pre-existing, found in flight).** The Automation section was
   unreachable: `SETTINGS_SECTIONS` (the JS whitelist `settingsGo` gates on)
@@ -38,11 +38,11 @@ decomposed below.
 - **New browser check** `docs/browser-checks/render-prompter-label-1843.js`:
   opens the section via its pill, asserts the two headings read Auto-save then
   Prompter, the save button's accessible name follows, and no visible text still
-  reads Heartbeat — both themes. Wired into `tools/browser-checks.sh` and listed
+  reads Heartbeat -- both themes. Wired into `tools/browser-checks.sh` and listed
   in the README (the suite enforces both). This check is what caught the
   reachability bug (it read the section at height 0).
 - **Test update** `web.file-pickers.test.js`: the aria-label assertion followed
-  the rename (the node --test suite flagged it — good).
+  the rename (the node --test suite flagged it -- good).
 
 ### Verification
 
