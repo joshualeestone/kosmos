@@ -32,6 +32,15 @@ const store = require('./store');
 
 test.after(() => { fs.rmSync(SB, { recursive: true, force: true }); });
 
+/* #1794: default every test to an EMPTY board through the existing paneSource
+   seam, so the roster read inside connect/add resolves hermetically instead of
+   shelling out to a live tmux. Without this, a boardless CI runner throws in
+   paneRoster ("could not check what is running") and the connect-succeeds tests
+   fail. The tests that need a populated or unreadable roster set their own
+   paneSource in-body (and reset it), which runs AFTER this and overrides it. */
+test.beforeEach(() => { status.setPaneSource(() => ''); });
+test.afterEach(() => { status.setPaneSource(null); });
+
 function theirAgent(name, body) {
   const dir = path.join(SB, 'theirs', name);
   fs.mkdirSync(dir, { recursive: true });
