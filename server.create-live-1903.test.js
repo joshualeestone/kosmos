@@ -8,8 +8,8 @@
  * route now live-checks the account first (create.accountConnectable) and
  * REFUSES a positively-dead sign-in before writing anything. This proves the
  * WIRING end-to-end: a dead account is refused with the remedy AND no agent is
- * made; a live account still creates. The one faked boundary is
- * `claude auth status` via subscription.setRunner (the module's own seam).
+ * made; a live account still creates. The one faked boundary is Claude's real
+ * `claude -p` liveness call via create.setClaudeProbe (the module's own seam, #1916).
  *
  * 🛑 Sandboxes every root the create route writes to (the fixture-discipline
  * rule), and DRY_RUN + fake bins so no launchd job or tmux write escapes.
@@ -42,7 +42,6 @@ fs.mkdirSync(path.join(HOME, '.claude', 'projects'), { recursive: true });
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
-const subscription = require('./engine/subscription');
 const create = require('./engine/create');
 
 let base;

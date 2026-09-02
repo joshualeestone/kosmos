@@ -2547,7 +2547,7 @@ const server = http.createServer((req, res) => {
            ONLY a confirmed-dead account, and proceeds on connected, unconfirmable,
            OR unresolvable (createAgentInner keeps ownership of the unknown-account
            refusal). Placed before the home seed so a refusal needs no rollback. */
-        /* Only pay the live-check (a `claude auth status` subprocess, up to a few
+        /* Only pay the live-check (a real `claude -p` subprocess, up to a few
            seconds) once the name is well-formed. Otherwise a malformed create on a
            dead account would pay the subprocess and surface "sign-in is not
            working", masking the real input error createAgentInner would give. A

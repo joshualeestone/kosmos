@@ -10,7 +10,7 @@
  * unconfirmable, or unresolvable.
  *
  * The two external boundaries are faked with each module's OWN seam
- * (`subscription.setRunner` for Claude's `claude auth status`,
+ * (`create.setClaudeProbe` for Claude's real `claude -p` liveness call (#1916),
  * `openaiaccounts.setFetcher` for OpenAI's `/v1/models`) -- never the real
  * network, and no credential value is ever written or asserted.
  *
@@ -32,7 +32,6 @@ delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;
 
 const create = require('./create');
-const subscription = require('./subscription');
 const openai = require('./openaiaccounts');
 
 // Default Claude account (record BESIDE ~/.claude) + a labelled one.
@@ -48,7 +47,7 @@ fs.mkdirSync(DEAD_OPENAI, { recursive: true });
 fs.writeFileSync(nodePath.join(DEAD_OPENAI, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-deadkeydeadkeyDEAD' }));
 
 test.after(() => {
-  subscription.setRunner(null); openai.setFetcher(null); create.setClaudeProbe(null);
+  openai.setFetcher(null); create.setClaudeProbe(null);
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 

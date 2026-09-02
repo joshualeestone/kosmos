@@ -2017,8 +2017,13 @@ function defaultClaudeProbe(configDir) {
     if (!bin) { resolve({ exitCode: null, out: '' }); return; }
     const env = { ...process.env };
     if (configDir) env.CLAUDE_CONFIG_DIR = configDir; else delete env.CLAUDE_CONFIG_DIR;
+    // Overridable only so a test can drive the timeout/partial-output path
+    // quickly; unset in production, where 15s is the wait before a hung probe is
+    // killed and its partial output classified.
+    const t = Number(process.env.AGENT_WORKFORCE_CLAUDE_PROBE_TIMEOUT_MS);
+    const timeout = Number.isFinite(t) && t > 0 ? t : 15000;
     execFile(bin, ['-p', 'reply with the single word ok'],
-      { env, timeout: 15000, maxBuffer: 1 << 20, killSignal: 'SIGKILL' },
+      { env, timeout, maxBuffer: 1 << 20, killSignal: 'SIGKILL' },
       (err, stdout, stderr) => {
         // On timeout, err.killed is true and partial stdout/stderr survive -- the
         // 401 a retrying dead token printed is classified below, not discarded.
@@ -2042,9 +2047,16 @@ async function claudeAccountLive(configDir) {
   try { res = await run(configDir); } catch { return subscription.STATE.UNKNOWN; }
   const text = String((res && res.out) || '');
   const exit = res && typeof res.exitCode === 'number' ? res.exitCode : null;
-  if (exit === 0) return subscription.STATE.CONNECTED;           // a real call went through
+  /* CONTENT before EXIT CODE, the module's own doctrine (a status code is the
+     trap that has bitten this fleet repeatedly). Capacity first, so a live-but-
+     capped account whose 401-ish text also carries a usage/rate string fails
+     open rather than being called dead. Then a genuine auth failure is dead
+     REGARDLESS of exit code -- so a dead token that somehow exits 0 while
+     printing its 401 is still caught, not false-accepted by the exit-0 shortcut.
+     A clean exit 0 with neither marker (the "reply ok" response) is CONNECTED. */
   if (CLAUDE_CAPACITY.test(text)) return subscription.STATE.UNKNOWN; // live but capped/overloaded
   if (CLAUDE_DEAD_AUTH.test(text)) return subscription.STATE.NONE;   // positively dead
+  if (exit === 0) return subscription.STATE.CONNECTED;           // a real call went through cleanly
   return subscription.STATE.UNKNOWN;                             // network/unrunnable/other
 }
 
@@ -2085,9 +2097,27 @@ async function accountConnectable({ provider, accountDir } = {}) {
   const prov = (provider !== undefined && provider !== null && String(provider) !== '') ? String(provider) : 'anthropic';
   if (prov !== 'anthropic' && prov !== 'openai') return { ok: true };
 
+  /* 🛑 THE FAIL-OPEN CLASS, NAMED (#1916) so the next fail-open guard added here
+     does not reproduce it. claudeAccountLive / openai.checkLive / *.list() return
+     a STATE or value for every ENVIRONMENTAL case (network, rate, usage cap,
+     overload, timeout, unrunnable) and do NOT throw for those. So a throw
+     reaching one of the catches below is OUR OWN CODE crashing -- a ReferenceError
+     already did exactly this and a silent `catch { return {ok:true} }` let the
+     gate accept dead accounts, indistinguishable from a restricted network. A
+     crash is a BROKEN GATE, not an unconfirmable account: it must be LOUD. This
+     still fails OPEN on purpose (a validator bug must not block every create),
+     but logs the crash distinctly so it is visible and can never impersonate
+     environmental uncertainty. The honest user-facing version ("we could not
+     check this account") is tracked on #1921, same shape as the badge's stale
+     state; the log is the right scope for the gate that has to ship now. */
+  const failOpen = (where, err) => {
+    console.error('#1916: account liveness precheck errored in ' + where + ' (failing open):', (err && err.stack) || err);
+    return { ok: true };
+  };
+
   if (prov === 'openai') {
     const openai = require('./openaiaccounts');
-    let list; try { list = openai.list(); } catch { return { ok: true }; }
+    let list; try { list = openai.list(); } catch (err) { return failOpen("openai.list", err); }
     const acct = dir ? list.find((a) => a.dir === path.resolve(dir)) : list.find((a) => a.isDefault);
     if (!acct) return { ok: true }; // unknown -> createAgentInner refuses
     /* 🛑 THE ONE HOME THE GATE AND THE AGENT WOULD DISAGREE ABOUT. A created
@@ -2100,7 +2130,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
        will not use. A labelled account carries an explicit dir and has no such
        ambiguity. */
     if (acct.isDefault && codexHomeOverridden()) return { ok: true };
-    let live; try { live = await openai.checkLive(acct.dir); } catch { return { ok: true }; }
+    let live; try { live = await openai.checkLive(acct.dir); } catch (err) { return failOpen("openai.checkLive", err); }
     if (live && live.state === NONE) {
       return { ok: false, because: `${acct.email || (acct.keyTail ? 'the OpenAI account ending ' + acct.keyTail : 'that OpenAI account')}'s sign-in is not working, so an agent created on it could not run. Add or re-enter its key on the Accounts screen first.` };
     }
@@ -2108,7 +2138,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
   }
 
   const accountsMod = require('./accounts');
-  let list; try { list = accountsMod.list(); } catch { return { ok: true }; }
+  let list; try { list = accountsMod.list(); } catch (err) { return failOpen("accounts.list", err); }
   const acct = dir ? list.find((a) => a.dir === path.resolve(dir)) : list.find((a) => a.isDefault);
   if (!acct) return { ok: true }; // unknown -> createAgentInner refuses with REFUSE_ACCOUNT
   /* 🛑 REAL liveness, NOT subscription.checkLive (#1916). checkLive is built on
@@ -2121,7 +2151,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
      its path. */
   let state;
   try { state = await claudeAccountLive(acct.isDefault ? null : acct.dir); }
-  catch { return { ok: true }; }
+  catch (err) { return failOpen("claudeAccountLive", err); }
   if (state === NONE) {
     return {
       ok: false,
