@@ -711,7 +711,7 @@ cmd_report() {
   done
   text="$*"
   if [ -z "$state" ]; then
-    say "Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]   (--project applies to needs_you and blocked)"
+    say "Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]"
     exit 2
   fi
   if ! healthy; then
@@ -881,7 +881,7 @@ if [ "$_kosmos_help" = 1 ]; then
     msg|reply|post|report|room|adopt|whoami) set -- "$1" ;;
     *)
       printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | adopt | whoami\n\n'
-      printf '  Add --help to see what a command takes; it never acts, except adopt and whoami, which show their read-only output.\n'
+      printf '  Add --help to any command; it never acts, except adopt and whoami, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
       exit 0
