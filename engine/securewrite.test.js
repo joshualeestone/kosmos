@@ -713,22 +713,28 @@ test('#1793 SAFETY: a temp from a LIVE foreign pid is LEFT, never taken', () => 
     'a LIVE foreign process\'s in-flight temp was deleted: the reaper can take a concurrent writer\'s temp');
 });
 
-test('#1793 SAFETY: a real credential file (no temp suffix) is NEVER touched', () => {
-  /* The regex is anchored to the `.kosmos-<pid>-<started>-<seq>.tmp` suffix,
-     which a credential file cannot carry. A dead-pid orphan beside a sibling
-     credential must take the orphan and leave the credential. Widen the regex to
-     match a bare name and this reddens. */
+test('#1793 SAFETY: a real credential file is NEVER touched, and the ANCHOR is what protects it', () => {
+  /* 🛑 The regex is anchored to `.kosmos-<pid>-t<threadId>-<started>-<seq>.tmp`. A
+     credential file lacks that anchor. To pin the ANCHOR specifically rather than
+     the numeric-parse backstop, the sibling here is a plausible credential whose
+     name ENDS IN DIGITS that WOULD parse to a real DEAD pid if the anchor were
+     dropped, so loosening the regex reaps it and this reddens. An earlier version
+     used a no-digit name (`other-provider-token`), which a widened regex leaves
+     alone via `pid = Number(undefined) = NaN`, so it could not bite - found by a
+     blind pass. Mutation that must redden this: drop the `.kosmos`/`.tmp` anchors
+     from TEMP_RE (e.g. `/-(\d+)-(?:t(\d+)-)?(\d+)-\d+$/`). */
   const dead = childProcess.spawnSync(process.execPath, ['-e', '0']).pid;
   let isDead = false;
   try { process.kill(dead, 0); } catch (e) { isDead = e.code === 'ESRCH'; }
   assert.ok(isDead, `pid ${dead} was reused; re-run`);
   const dir = reapDir();
-  const sibling = path.join(dir, 'other-provider-token');
+  /* Digits that parse to a DEAD pid, but no `.kosmos-` prefix and no `.tmp` suffix. */
+  const sibling = path.join(dir, `provider-token-${dead}-1-1`);
   fs.writeFileSync(sibling, 'A-REAL-SECRET', { mode: 0o600 });
   const orphan = plantTemp(dir, 'gh-token', dead, Date.now() - 5000, 1);
   securewrite.writeSecret(path.join(dir, 'gh-token'), 'NEW', 0o600);
   assert.equal(fs.existsSync(orphan), false, 'the dead orphan was not reaped');
-  assert.equal(fs.existsSync(sibling), true, 'a real credential file with no temp suffix was deleted by the reaper');
+  assert.equal(fs.existsSync(sibling), true, 'a credential lacking the .kosmos/.tmp anchor was deleted: the anchor is not what protects it');
   assert.equal(fs.readFileSync(sibling, 'utf8'), 'A-REAL-SECRET', 'the sibling credential was altered');
 });
 
