@@ -40,11 +40,17 @@
  *     "Error"/"Timeout" is not, and a static read cannot know the runtime value.
  *     The #1864 catch/launch scan below deliberately covers only the
  *     STRING-literal crash/launch emits, not these.
- *     (Scope note: this scan reads only files under docs/browser-checks/. A
- *     matching crash-catch shape in tools/ -- e.g. headed-doctrine-check.js's
- *     `console.error('HEADED HARNESS FAILED', ...)` -- is NOT covered and is not
- *     a #1864 defect: those tools are not invoked by run_one, so their output
- *     never reaches the release-gate reason grep.)
+ *     (Scope note, and it is a SCOPING note not a closure -- the distinction is
+ *     load-bearing. This scan reads only files under docs/browser-checks/. The
+ *     same crash-catch shape exists across ~27 files under tools/ (measured by
+ *     Splinter 2026-09-02), e.g. headed-doctrine-check.js's `console.error('HEADED
+ *     HARNESS FAILED', ...)`. Those are NOT covered and are not a #1864 defect
+ *     (this card is docs/browser-checks/). REACHABILITY in the release gate is
+ *     UNESTABLISHED: what is verified is only that these are not invoked by
+ *     run_one / browser-checks.sh; a glob invoker or a CI path could still reach
+ *     some, and that gap was not closed. So do NOT read this as "cannot run in the
+ *     gate" -- if a tools/ script IS gate-reachable, its unquotable emit is the
+ *     same defect and wants its OWN card, not a widening of #1864.)
  *
  * ⚠️ THE SHAPE LIST IS AN ENUMERATION, so treat it as examples rather than as the
  * set: an enumeration misses what is not in it. This guard found ELEVEN unquotable
