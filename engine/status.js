@@ -1684,6 +1684,41 @@ const AUTH_FAILED_MARKERS = [
  */
 const AUTH_ENVELOPE = /"type":\s*"error"/i;
 
+/**
+ * #1884. Claude Code's FRIENDLY (non-JSON) auth-failure line, the shape a real
+ * external tester (Ben) was stuck on, 2026-09-02. His pane, verbatim:
+ *
+ *   ● Please run /login · API Error: 401 OAuth access token has expired.
+ *     Re-authenticate to continue.
+ *
+ * 🛑 THE JSON MARKERS ABOVE COULD NOT SEE THIS, AND IT RENDERED AS "Idle · it is
+ * at rest and nothing is needed". `AUTH_ENVELOPE` keys on `"type":"error"`, and
+ * this line has no JSON at all -- current Claude Code prints a human-readable
+ * error, not the raw envelope #874 was captured from. So `authFailed` returned
+ * null, `classify` fell through to idle, and the WORST possible label sat over a
+ * blocked agent. (The other messages below are byte-exact from Claude Code
+ * 2.1.258's own strings: `API Error: 401 Invalid API key · Please run /login`,
+ * `OAuth token revoked · Please run /login`, `Login expired · Please run /login`,
+ * `OAuth access token has been revoked.`.)
+ *
+ * 🔑 THE DISCRIMINATOR IS CO-OCCURRENCE ON ONE ROW: an auth MESSAGE together
+ * with Claude Code's own REMEDY directive. This is the friendly-form analog of
+ * the JSON path's "marker AND envelope on one row" (#1241). Prose about an auth
+ * error carries the message but not the runner's remedy on the same line -- the
+ * exact property that separated the four #1233 prose rows from a real screen.
+ *
+ * ⚠️ ONE RESIDUAL, PINNED not traded (the same trade as #1233's whole-payload
+ * gap): a card or message that quotes the WHOLE friendly line verbatim -- both
+ * message and remedy on one row -- still reads `auth_failed`. This card and its
+ * discussion do exactly that, so an agent working #1884 can trip it. It is rare,
+ * temporary, and -- crucially -- when the agent is also self-reporting it
+ * surfaces as a CONFLICT (rule 3b), visible and recoverable, not the silent
+ * false calm that stopped Ben. A missed dead token is worse than a rare false
+ * pause; that trade is this file's oldest rule.
+ */
+const AUTH_FRIENDLY_MESSAGE = /OAuth access token (?:has expired|has been revoked|is invalid)|API Error:\s*401\s+Invalid API key|OAuth token revoked|Login expired|Your session has expired/i;
+const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
+
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling
    marker sets. Whitespace INSIDE the timer group is \s+ too, so a
@@ -1859,6 +1894,32 @@ function messageAt(text, markers) {
  * risks a real screen whose envelope is worded differently. A missed dead token
  * is worse than a rare false pause; that trade is this file's oldest rule.
  */
+/**
+ * #1884: the friendly (non-JSON) auth line, or null. `rows` are already
+ * left-stripped of indentation and tree glyphs by `authFailed`; this adds the
+ * `●` notice bullet Claude Code prefixes such a line with, which is not in that
+ * class, so the evidence returned reads as the message rather than a bullet.
+ * Detection is one row carrying BOTH an auth message and Claude Code's own
+ * remedy directive (see AUTH_FRIENDLY_MESSAGE / _REMEDY for why that pair is the
+ * discriminator). Evidence is that line, capped, the same one-line contract the
+ * rate-limit and #874 auth cases follow.
+ *
+ * 📌 KNOWN LIMITATION, pinned like #1233's narrow-pane note: a pane narrow
+ * enough to WRAP the friendly line between its message and its remedy would
+ * split the pair across two rows and be missed. Ben's pane held both on one row.
+ * If a wrapped friendly line is ever observed, add the same "ends mid-token"
+ * wrap-join `authFailed` uses for the JSON form.
+ */
+function friendlyAuthLine(rows) {
+  for (const row of rows) {
+    if (!AUTH_FRIENDLY_MESSAGE.test(row) || !AUTH_FRIENDLY_REMEDY.test(row)) continue;
+    const line = row.replace(/^[\s>│├└─*❯›●]+/, '').trim();
+    if (!line) continue;
+    return line.length > 240 ? line.slice(0, 240) + '…' : line;
+  }
+  return null;
+}
+
 function authFailed(tail) {
   /* Leading indentation and Claude's tree glyphs are stripped per row before
      the join for the same reason `matchedLine` strips them: they are drawing,
@@ -1906,7 +1967,12 @@ function authFailed(tail) {
   const wrapJoined = rows
     .map((row, i) => (i + 1 < rows.length && /[A-Za-z0-9_"{,:]$/.test(row) ? row + rows[i + 1] : ''))
     .some((glued) => glued && AUTH_FAILED_MARKERS.some((re) => re.test(glued)) && AUTH_ENVELOPE.test(glued));
-  if (!wholeOnOneRow && !wrapJoined) return null;
+  if (!wholeOnOneRow && !wrapJoined) {
+    /* #1884: not the JSON-envelope form. Try Claude Code's friendly one-line
+       auth-failure format before giving up -- the shape Ben's stuck pane showed,
+       which the JSON markers above render as "Idle · nothing is needed". */
+    return friendlyAuthLine(rows);
+  }
   /* Evidence is the payload read WHOLE, from wherever it can be read whole.
      An unwrapped screen keeps today's contract exactly: the matched LINE,
      glyph-stripped and capped, because the entire envelope is on it. A row
