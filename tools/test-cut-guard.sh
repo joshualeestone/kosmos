@@ -199,6 +199,16 @@ out="$(KOSMOS_RUN_MARKER_DIR="$M4" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refu
 [ "$rc" -eq 0 ] && pass "#1796 no marker (working on the script, not running it) does not refuse" \
   || fail "#1796 empty marker dir refused (rc=$rc, $out)"
 
+# 🛑 THE RELEASE-OUTAGE PATH: a run that marks ITSELF and then checks its own type
+# must NOT refuse itself. If kosmos_mark_run's exported cookie did not reach the
+# guard in the SAME process, release.sh would mark 'cut', then see its own marker as
+# a foreign cut, and refuse EVERY cut forever. Run in a bash -c so the export does
+# not leak into later arms; probe-quiet keeps the name arm clean.
+M6="$T/m6"
+out="$(KOSMOS_RUN_MARKER_DIR="$M6" KOSMOS_CUT_PROBE="$T/probe-quiet" bash -c '. "'"$HERE"'/lib/cut-guard.sh"; kosmos_mark_run cut; kosmos_refuse_if_cut_live "a cut"' 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#1796 a run that marks itself then checks its own type does NOT refuse itself" \
+  || fail "#1796 self-mark then check refused ITSELF (rc=$rc, $out) -- this would be a total release outage"
+
 # END-TO-END: kosmos_mark_run makes a real run detectable by a separate guard call.
 M5="$T/m5"
 cat > "$T/mark-harness.sh" <<SH

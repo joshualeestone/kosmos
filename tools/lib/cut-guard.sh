@@ -69,12 +69,34 @@ _kosmos_drop_self_subtree() {
 # not yet wired to kosmos_mark_run) is still caught -- a guard is refused if EITHER
 # arm finds a separate live run. Once every caller marks, the name arm is a backstop.
 #
+# 🛑 WHAT THIS DOES AND DOES NOT CLOSE. The refusal is `{ name arm } || { marker arm }`,
+# so the marker arm ADDS a reliable signal; it does NOT replace the name arm. The name
+# arm still walks the live tree (_kosmos_drop_self_subtree), and that walk still
+# carries the reparent race for the ONE caller that genuinely self-matches
+# (browser-checks.sh forks subshells inheriting its own command line). So problem 1 of
+# #1796 -- the race -- is MITIGATED (removed from the primary/marker path), NOT
+# ELIMINATED: an OR'd name arm can still false-refuse under load even while the marker
+# arm correctly excludes this run by cookie. Fully closing it means RETIRING the name
+# arm + its walk once every caller marks (a follow-up, deliberately not done here to
+# keep the transition backstop). Do not read this change as "the race is closed." What
+# IS closed here is the structural run-vs-work split (working writes no marker) and the
+# self-exclusion race on the marker path (a cookie compare, no walk).
+#
 # KNOWN RESIDUAL, named as the code above names its own: a marker's pid can be
 # REUSED by an unrelated process between the marking run exiting and the next reader
 # cleaning the stale marker, so a reader can read a live-but-foreign pid and refuse.
 # The window is small (every guard call cleans dead-pid markers first) and the
 # direction is the safe one this file already chooses -- it over-refuses, never
 # misses a genuinely separate run -- and the same KOSMOS_*_IGNORE_* override clears it.
+# Two more residuals, both harmless on this single-user box and named for the reader:
+#   - `kill -0 <pid>` returns non-zero (EPERM) for a LIVE process owned by ANOTHER
+#     user, so a foreign-user run reads as stale (a miss, the unsafe direction) rather
+#     than a refuse. Every agent here runs as one user, and the name arm still
+#     name-matches a foreign-user run, so it is backstopped.
+#   - cleanup is LAZY and per-type: a `cut` check only sweeps `cut.*`. A type whose
+#     guard is never called again would leave dead-pid files until it is. Harmless
+#     (every real run triggers a same-type check that sweeps it); it does not leak
+#     into detection because a dead-pid marker is never counted as a live run.
 _kosmos_marker_dir() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${TMPDIR:-/tmp}/kosmos-run-markers}"; }
 
 # kosmos_mark_run <type>  — the run declares itself. Call once, where the script
@@ -86,12 +108,16 @@ _kosmos_marker_dir() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${TMPDIR:-/tmp}/kos
 kosmos_mark_run() {
   local type="${1:-}" dir cookie uc
   [ -n "$type" ] || return 0
+  uc="$(printf '%s' "$type" | tr '[:lower:]' '[:upper:]')"
+  [ -n "$uc" ] || return 0     # a nameless cookie var would make the guard refuse THIS run
   dir="$(_kosmos_marker_dir)"
   mkdir -p "$dir" 2>/dev/null || return 0
   cookie="$$-$(date +%s 2>/dev/null || echo 0)-${RANDOM:-0}${RANDOM:-0}"
-  printf '%s\n' "$cookie" > "$dir/$type.$$" 2>/dev/null || return 0
-  uc="$(printf '%s' "$type" | tr '[:lower:]' '[:upper:]')"
+  # Export the self-cookie BEFORE writing the marker, so a reader in this process can
+  # never see a marker without also seeing the cookie that excludes it -- a partial
+  # success must not strand a marker that self-refuses.
   export "KOSMOS_RUN_COOKIE_$uc=$cookie"
+  printf '%s\n' "$cookie" > "$dir/$type.$$" 2>/dev/null || return 0
   return 0
 }
 
