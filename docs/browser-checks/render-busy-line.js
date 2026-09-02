@@ -36,7 +36,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   catch (err) {
     console.error('render-busy-line: could not start a browser'
       + (process.env.HEADED === '0' ? '.' : ' (headed; try HEADED=0).'));
-    console.error('  ' + (err && err.message ? err.message.split('\n')[0] : err));
+    console.error('  FAIL  ' + (err && err.message ? err.message.split('\n')[0] : err));
     process.exit(1);
   }
   const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
@@ -105,7 +105,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   for (const r of rows) console.log('  ' + JSON.stringify(r));
   if (problems.length) {
     console.error(`render-busy-line: ${problems.length} problem(s)`);
-    for (const p of problems) console.error('  - ' + p);
+    /* `FAIL  ` at the PRINT site, not at each push: the runner quotes a
+       reason with a grep ANCHORED at line start, so a decoration before
+       the marker (a `- `, a glyph) makes the line unmatchable however the
+       string was built. Asserted by browser-checks-reason-grep.test.js. */
+    for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
   console.log('render-busy-line: shown only for a working agent, announced without claiming why.');

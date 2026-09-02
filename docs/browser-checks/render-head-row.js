@@ -173,7 +173,7 @@ function sameLine(a, b) {
   else ok('no page errors');
 
   /* A population floor: a check that silently stops running its arms passes. */
-  if (ran < 9) { console.log('head-row: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 9) { console.log('FAIL  head-row: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('head-row: ' + failures + ' FAILED'); process.exit(1); }
   console.log('head-row: all good, ' + ran + ' checks');
 })();

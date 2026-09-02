@@ -90,7 +90,9 @@ async function arm(browser, label, firstRunPayload, expect) {
   }
   if (problems.length) {
     console.error('render-boot-no-flash FAIL:');
-    for (const p of problems) console.error('  ✗ ' + p);
+    /* `FAIL  `, not `✗`: the runner matches U+2716 and this was U+2717, so the
+       line was unquotable and the difference is invisible on screen. */
+    for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
   console.log('render-boot-no-flash PASS: no agents-view flash on either arm; cover held through the gate and came down onto the right destination.');

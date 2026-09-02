@@ -55,6 +55,11 @@ const FOUND = {
 
 (async () => {
   const browser = await playwright.chromium.launch({ headless: !HEADED });
+  /* ---- try opened here; its catch/finally are just before the summary ----
+     🛑 DELIBERATELY NOT RE-INDENTED. Wrapping ~250 lines in a try would
+     otherwise produce a diff in which every line moved and the real change was
+     invisible. The two marker comments are the block's boundaries. */
+  try {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
   const page = await ctx.newPage();
   const errors = [];
@@ -306,7 +311,19 @@ const FOUND = {
 
   check('no page errors', errors.length === 0, errors.join(' | '));
 
-  await browser.close();
+  } catch (e) {
+    /* 🛑 A FINDING, NOT `process.exitCode`. The explicit `process.exit()` below
+       OVERRIDES exitCode (measured: exitCode=1 then exit(0) yields 0), so a
+       guard that set exitCode here would make the file fail GREEN.
+       ⚠️ AND THE `FAIL` MUST START THE PRINTED LINE: the runner's reason grep is
+       ANCHORED and CASE-SENSITIVE, `^\s*(FAIL|✖)`. Perturbation-measured: strip
+       the marker and the gate reds while naming nothing. */
+    results.push({ name: 'the run finished', pass: false, detail: String(e && e.message ? e.message : e) });
+    console.log(`\nFAIL  THREW, so everything after it was never asked: ${e && e.message ? e.message : e}`);
+  } finally {   // ---- end of the try opened just after browser launch ----
+    /* Guarded: a rejection here would skip the summary and the exit code. */
+    await browser.close().catch(() => {});
+  }
   const failedChecks = results.filter((r) => !r.pass);
   console.log(`\n${results.length - failedChecks.length}/${results.length} passed`);
   process.exit(failedChecks.length ? 1 : 0);

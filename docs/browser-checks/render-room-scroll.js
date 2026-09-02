@@ -516,7 +516,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
   }
 
   if (errs.length) bad('no page errors', errs.join(' | ')); else ok('no page errors');
-  if (ran < 18) { console.log('room-scroll: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 18) { console.log('FAIL  room-scroll: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('room-scroll: ' + failures + ' FAILED'); process.exit(1); }
   console.log('room-scroll: all good, ' + ran + ' checks');
 })();

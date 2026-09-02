@@ -117,7 +117,10 @@ function check(ok, what, detail) {
   // would say WHICH condition failed never printed).
   const line = ok || !detail ? what : `${what}  <- ${detail}`;
   if (ok) process.stdout.write(`  ✔ ${what}\n`);
-  else { failures.push(line); process.stdout.write(`  ✘ ${line}\n`); }
+  /* `FAIL  `, not `✘`: the runner quotes a reason with a grep matching U+2716,
+     and this was U+2718 -- a difference invisible on screen, on a WIRED check,
+     so a red here reported "(no FAIL or error line in its output)". */
+  else { failures.push(line); process.stdout.write(`  FAIL  ${line}\n`); }
 }
 
 async function api(p, options) {

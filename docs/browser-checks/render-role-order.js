@@ -1,11 +1,17 @@
 /**
- * The three role options, in Josh's order, with the menu opening between the
+ * The role options, in Josh's order, with the menu opening between the
  * second and the third -- and the keyboard behaviour that is now the browser's.
  *
- * 🔑 WHY A BROWSER AND NOT A SOURCE TEST. What this pins is that three radio
+ * ⚠️ THE OPTIONS ARE pm / list / own / import (#1652 added the last). The
+ * assertion below pins that SEQUENCE rather than a count, so an added option
+ * and a renamed one are distinguishable -- a count cannot tell them apart, and
+ * only one of them is a defect. This header is deliberately written without a
+ * number of its own, so a fifth option cannot make it stale.
+ *
+ * 🔑 WHY A BROWSER AND NOT A SOURCE TEST. What this pins is that the radio
  * inputs form ONE group by sharing a name while a `<div>` sits between two of
  * them. That is a fact about the platform's grouping, not about our markup: a
- * source assertion could confirm the three `name="rmode"` attributes and say
+ * source assertion could confirm the `name="rmode"` attributes and say
  * nothing at all about whether arrowing moves between them or whether checking
  * the third clears the first.
  *
@@ -52,6 +58,7 @@ const LIVE = `(el) => {
     // machine): this script asserts painted-ness before position, and
     // headless SwiftShader is exactly where painted-ness false-passes.
     const browser = await playwright[engine].launch({ headless: process.env.HEADED === '0' });
+    try {   // ---- to the `} finally {` at the end of this engine iteration ----
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 1400 } });
     const page = await ctx.newPage();
     const errors = [];
@@ -65,10 +72,9 @@ const LIVE = `(el) => {
       const ins = Array.from(document.querySelectorAll('input[name="rmode"]'));
       const menu = document.getElementById('rolepick');
       return {
-        count: ins.length,
         values: ins.map((i) => i.value),
-        /* The document order of the four things that have to be in this order. */
-        order: Array.from(document.querySelectorAll('#pick-pm, #pick-list, #rolepick, #pick-own'))
+        /* The document order of the things that have to be in this order. */
+        order: Array.from(document.querySelectorAll('#pick-pm, #pick-list, #rolepick, #pick-own, #pick-import'))
           .map((n) => n.id),
         /* Every radio is inside the fieldset, and so is the menu. */
         allInFieldset: ins.every((i) => i.closest('fieldset.pickradios')),
@@ -80,9 +86,19 @@ const LIVE = `(el) => {
       };
     });
 
-    check(`[${engine}] three radios share one name`, shape.count === 3, shape.values.join(', '));
+    /* 🛑 THE SET, NOT THE COUNT. This asserted `count === 3` and #1652 added a
+       fourth (import), so it went red naming the right thing for the wrong
+       reason. A count cannot tell an ADDED radio from a RENAMED one, and only
+       one of those is a defect. Asserting the values catches both and prints
+       what it found, so the next person is told what changed. */
+    /* ⚠️ NAMED FOR WHAT IT DOES. `join(',')` is ORDER-SENSITIVE, so this pins a
+       SEQUENCE, not a set. Calling it a set would send a reader hunting a
+       missing or renamed option after a pure reorder. Document order is the
+       thing the check below is about, so the sequence is worth pinning. */
+    check(`[${engine}] the radios sharing one name are exactly this sequence`,
+      shape.values.join(',') === 'pm,list,own,import', shape.values.join(', '));
     check(`[${engine}] Josh's order, with the menu between the second and third`,
-      shape.order.join(' > ') === 'pick-pm > pick-list > rolepick > pick-own',
+      shape.order.join(' > ') === 'pick-pm > pick-list > rolepick > pick-own > pick-import',
       shape.order.join(' > '));
     check(`[${engine}] the menu is INSIDE the group, which is the whole point`,
       shape.allInFieldset && shape.menuInFieldset);
@@ -184,10 +200,21 @@ const LIVE = `(el) => {
       `PICKED=${arrowed.picked}`);
 
     check(`[${engine}] no page errors`, errors.length === 0, errors.join(' | ').slice(0, 160));
-    await browser.close();
+    } catch (e) {
+      /* A throw INSIDE the walk gets a verdict and the browser still closes;
+         without this it would leak a chromium and skip the summary. ⚠️ The
+         `launch()` itself is outside this try, so a launch failure (a missing
+         webkit build, say) still escapes to the terminal catch and discards the
+         other engine's results. Narrow claim, deliberately. Measured: 2 checks
+         here carried a THREW catch on main and 4 gained one on this branch. */
+      results.push({ name: `[${engine}] the run finished`, pass: false, detail: String(e && e.message ? e.message : e) });
+      console.log(`  FAIL  [${engine}] THREW, so everything after it was never asked: ${e && e.message ? e.message : e}`);
+    } finally {
+      await browser.close().catch(() => {});
+    }
   }
 
   const failed = results.filter((r) => !r.pass);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
-  if (failed.length) { failed.forEach((f) => console.log('  - ' + f.name + '  ' + (f.detail || ''))); process.exit(1); }
+  if (failed.length) { failed.forEach((f) => console.log('  FAIL  ' + f.name + '  ' + (f.detail || ''))); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

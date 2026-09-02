@@ -213,8 +213,21 @@ const THREE = { ok: true, agents: [agent('miles', 'researcher'), agent('nadia', 
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
+  } catch (e) {
+    /* 🛑 A THROW STILL GETS A VERDICT, AND THE `FAIL` PREFIX IS LOAD-BEARING.
+       Without this catch, a throw escapes to the terminal handler, which picks
+       an exit code and prints NO summary of what did run. The runner then reds
+       and reports "(no FAIL or error line in its output)".
+       ⚠️ THE MARKER MUST START THE PRINTED LINE. `run_one` extracts a red's
+       reason with an ANCHORED, CASE-SENSITIVE grep, `^\s*(FAIL|✖)`. Measured by
+       perturbation: remove the `FAIL` here and browser-checks-reason-grep.test.js
+       stays GREEN at exit 0 while the gate loses the ability to name this
+       failure. Do not indent it behind a decoration and do not lowercase it. */
+    console.log(`\nFAIL  THREW, so everything after it was never asked: ${e && e.message ? e.message : e}`);
+    fail.push(`the run threw before finishing: ${e && e.message ? e.message : e}`);
   } finally {
-    await browser.close();
+    /* Guarded: a rejection here would skip the summary and the chosen exit code. */
+    await browser.close().catch(() => {});
   }
   if (fail.length) { console.log('\n' + fail.length + ' FAILED'); process.exit(1); }
   console.log('\nall passed');

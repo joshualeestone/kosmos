@@ -889,9 +889,14 @@ fi
 #     off .pjcard-h, the rule its comment calls the whole trick: the status leaves
 #     the agents line (183 vs 201) and the row grows to 66px.
 #
-# 📌 render-found-count, the fourth on #1440, is NOT here and stays in NOT_WIRED.
-# Its own header says an in-process srv.start(0) cannot reach ?fr-step=6; it needs
-# a boot_board sandbox block, which is a different piece of work.
+# 📌 render-found-count, the fourth on #1440, is not in THIS loop: it needs a
+# boot_board sandbox block, and it HAS one -- it is wired below (search
+# `run_one "render-found-count"`).
+# 🛑 THIS COMMENT USED TO SAY IT "stays in NOT_WIRED". THAT WAS FALSE and had
+# outlived the work it described: the check is wired in this same file, and it
+# is absent from NOT_WIRED in tools.browser-checks-wired.test.js. A comment
+# claiming a file is unwired, sitting in the file that wires it, is exactly the
+# stale-claim class this branch is about.
 for n in live-connect render-agent-nav render-busy-line render-head-row render-room-scroll render-made-before render-memory-words render-org-drag render-pjsettings render-settings-nav render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset render-agent-lines render-long-title render-project-rows; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
@@ -935,7 +940,7 @@ run_one "render-update-toast" env SHOT_DIR="$RUN_DIR/shots-toast" node docs/brow
 # flag and the you.json before EVERY section, and the walk completes onboarding
 # and opens the create panel. On a board its siblings also use, that is a check
 # rewriting the fixture underneath them.
-# ⚠️ AND IT NEEDS A FLEET: the step-6 ending is chosen by fleetCount, so on an
+# ⚠️ AND IT NEEDS A FLEET: the fleet ending is chosen by fleetCount, so on an
 # empty board it takes the neutral two-action arm and the adopt assertions fail
 # for a reason that is about the fixture. boot_board_rich supplies one.
 # The FLAG argument is the sandboxed first-run.json, so nothing touches the
@@ -949,9 +954,14 @@ else
 fi
 
 # #1440, the fourth of the four checks guarding Josh's 0.5.97 review items, and
-# the one that could not join the stem loop. Its own header says why and it is
-# right: an in-process `srv.start(0)` renders "Create your first agent" at
-# `?fr-step=6`, so a check built that way times out on a screen that is fine.
+# the one that could not join the stem loop. Its own header says why: an
+# in-process `srv.start(0)` renders "Create your first agent" at the fleet step
+# instead, so a check built that way times out on a screen that is fine.
+# 📌 NO STEP NUMBER IN THE CLAIM ABOVE, ON PURPOSE. The measurement behind it
+# predates #1214's renumbering and render-found-count.js's header says exactly
+# which step it was taken at. Restating a BUMPED number here would turn a real
+# past measurement into one nobody has made, and make the two accounts of it
+# contradict each other.
 # It takes a BOARD, so it gets one here.
 #
 # 🔑 IT SHARES NOTHING AND MUTATES NOTHING, which is why a plain board is enough.

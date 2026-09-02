@@ -296,11 +296,54 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     ok(await page.isVisible('#panel-create'), 'and the create panel is open');
     // ⚠️ Not just open — usable. The deep-link version of this shipped with an
     // empty role list and a dead Continue once.
-    // The picker is the three-radio shape now (pm / list / own since the
-    // write-my-own build): loaded means the radios are visible, which only
-    // the fetch un-hides.
+    // FOUR options since #1652 added import (pm / list / own / import):
+    // loaded means the radios are visible, which only the fetch un-hides.
+    /* ⚠️ THIS IS THE SAME FOURTH-RADIO DEFECT AS render-role-order.js AND MY
+       FIRST SWEEP MISSED IT. I grepped for the spelling I had already seen
+       (`shape.count === 3`) instead of for the SHAPE (any assertion counting
+       the role options), so one of two sites got fixed and the other stayed
+       red. The comment above was wrong in the same way and is corrected too. */
     await page.waitForSelector('#roles-list .pick2', { state: 'visible', timeout: 5000 }).catch(() => {});
-    ok((await page.locator('#roles-list .pick2:visible').count()) === 3, 'with its roles actually loaded');
+    /* The INVARIANT, not the count. `pick-own` and `pick-import` move TOGETHER,
+       and index.html documents the hidden state as supported, so requiring all
+       four to render reds on a legitimate page.
+       ⚠️ THE DIRECTION, because this comment had it backwards and the inverted
+       form is the one that makes a reader mis-judge whether a red is real:
+       index.html sets `.hidden = !OWN_ROLE` on `pick-own` and `pick-import`
+       (cited by NAME, not by line: this branch's own rule, because a line
+       number into a 35k-line file goes stale on the next edit), so they are
+       HIDDEN
+       when `OWN_ROLE` is falsy and REVEALED when it is truthy. The assertion
+       below was always right; only this sentence was wrong. */
+    const modes = await page.evaluate(() => {
+      const vis = (id) => {
+        const n = document.getElementById(id);
+        return Boolean(n && n.offsetParent !== null);
+      };
+      return {
+        total: document.querySelectorAll('#roles-list .pick2').length,
+        pm: vis('pick-pm'), list: vis('pick-list'), own: vis('pick-own'), imp: vis('pick-import'),
+        /* The page's own source of truth for whether those two are offered.
+           Top-level (a `let`, where FR_STEPS is a `const`), so page.evaluate
+           reaches it the same way -- and read
+           BARE on purpose: a `typeof` guard would turn a renamed variable into
+           `false`, which the hidden DOM state also produces, so the assertion
+           below would pass on exactly the failure it exists to catch. A
+           ReferenceError here is the loud answer, same as for FR_STEPS. */
+        served: Boolean(OWN_ROLE),
+      };
+    });
+    ok(modes.pm && modes.list,
+      `with its roles actually loaded: the two always-offered modes render (${modes.total} .pick2 in the DOM)`);
+    /* Against the PAYLOAD as well as against each other. ⚠️ Be precise about
+       what this catches: a payload with no `own` gives served=false and both
+       hidden, so all three move together and it PASSES -- that state is
+       supported. What it catches is a DISAGREEMENT between the payload and the
+       paint (a broken toggle, a CSS override), which `own === imp` alone
+       cannot see. Narrower than "the fetch served nothing", and real. */
+    ok(modes.own === modes.served && modes.imp === modes.served,
+      `own and import render exactly when the payload served one (served=${modes.served}, `
+      + `own=${modes.own}, import=${modes.imp})`);
     ok(await page.isVisible('#cstep-role'), 'on step one of creating, not somewhere mid-flow');
     await ctx.close();
   }

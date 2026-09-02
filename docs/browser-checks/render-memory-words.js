@@ -80,7 +80,7 @@ const FIXTURES = [
     // failure this is rather than dying as an unhandled rejection.
     console.error('render-memory-words: could not start a browser'
       + (HEADED ? ' (headed; try HEADED=0 on a machine with no console session)' : '') + '.');
-    console.error('  ' + (err && err.message ? err.message.split('\n')[0] : err));
+    console.error('  FAIL  ' + (err && err.message ? err.message.split('\n')[0] : err));
     process.exit(1);
   }
 
@@ -250,7 +250,11 @@ const FIXTURES = [
   console.log(JSON.stringify(out, null, 1));
   if (problems.length) {
     console.error(`render-memory-words: ${problems.length} problem(s)`);
-    for (const p of problems) console.error('  - ' + p);
+    /* `FAIL  ` at the PRINT site, not at each push: the runner quotes a
+       reason with a grep ANCHORED at line start, so a decoration before
+       the marker (a `- `, a glyph) makes the line unmatchable however the
+       string was built. Asserted by browser-checks-reason-grep.test.js. */
+    for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
   console.log('render-memory-words: all three captions fit and are visible on the card, the list row and the detail header.');

@@ -300,7 +300,14 @@ async function look(page, name) {
 
 (async () => {
   const browser = await chromium.launch({ headless: !HEADED });
+  /* ---- try opened here; its catch/finally are just before the summary ----
+     🛑 DELIBERATELY NOT RE-INDENTED, so the diff shows the change rather than
+     every line moving. The two marker comments are the block's boundaries.
+     ⚠️ `problems` is declared ABOVE this line on purpose: declaring it inside
+     the try would put it out of scope in the catch and in the summary below,
+     which `node --check` cannot see because it is a RUNTIME scope error. */
   const problems = [];
+  try {
 
   /**
    * ⚠️ THE CONTROL, FIRST. The alpha fix above made every contrast finding go
@@ -561,7 +568,18 @@ async function look(page, name) {
     await pg.close();
     await lastCtx.close();
   }
-  await browser.close();
-  console.log('\n' + (problems.length ? `PROBLEMS (${problems.length}):\n  ` + problems.join('\n  ') : 'no rendering problems found'));
+  } catch (e) {
+    /* 🛑 A THROW BECOMES A FINDING so the summary below still prints and the
+       exit code is chosen here rather than by the terminal handler.
+       ⚠️ The printed line must START with the marker: the runner's reason grep
+       is ANCHORED and CASE-SENSITIVE, `^\s*(FAIL|✖)`. This file pushes into
+       `problems`, and the summary prefixes the block, so the marker rides the
+       PROBLEMS header rather than each line. */
+    problems.push(`THREW, so everything after it was never asked: ${e && e.message ? e.message : e}`);
+  } finally {   // ---- end of the try opened just after browser launch ----
+    /* Guarded: a rejection here would skip the summary and the exit code. */
+    await browser.close().catch(() => {});
+  }
+  console.log('\n' + (problems.length ? `FAIL  PROBLEMS (${problems.length}):\n  ` + problems.join('\n  ') : 'no rendering problems found'));
   process.exit(problems.length ? 1 : 0);
 })();

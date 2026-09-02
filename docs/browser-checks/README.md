@@ -121,7 +121,7 @@ one invented by somebody who did not write them.
 | `render-offline-note.js` | What the page says when the server it was loaded from is killed under it (#269) |
 | `render-org-chart.js` | The org chart: opaque faces, no hub stroke, a pressable callout, centred on its own drawing (#284) |
 | `render-role-limit.js` | Where a role's limit on what it reaches is read, now that it is off the create card |
-| `render-role-order.js` | The three role options in Josh's order, natively grouped, with the menu between two of them |
+| `render-role-order.js` | The role options in Josh's order, natively grouped, with the menu between two of them |
 | `render-pjsettings.js` | **no header sentence.** Read it before running it, and give it one. |
 | `render-settings-nav.js` | The Settings page's left nav, on a screen (settings-nav, 2026-08-23). |
 | `render-projects.js` | Render every state of the Projects screens in a real browser, light and dark |
@@ -215,12 +215,15 @@ whose words moved. A check that is stale by ruling is listed in that file's
 `KNOWN_STALE` with the commit, and the test refuses an entry that is no longer
 stale, so the list cannot outlive the rot it names. Two things it made visible
 the night it landed: `render-create-made.js` had asked for `#made-done` since
-4bf7d95 (restated in #826), and 15 of the 47 checks here were not in the
+4bf7d95 (restated in #826), and 15 of the 47 checks that existed at the time
+were not in the
 release gate (they ran only when somebody remembers). The first count said 27
-of 46: it counted literal `run_one "name"` lines and could not see the loop
-at `tools/browser-checks.sh:334` that runs twelve more by name. A count
-matched by pattern cannot see a loop; Angel's two real runs printing those
-twelve in "ran:" were the instrument that corrected it (#812).
+of 46: it counted literal `run_one "name"` lines and could not see the stem
+loop in `tools/browser-checks.sh` (search for `for n in live-connect`), which
+runs a further set by name. A count matched by pattern cannot see a loop;
+Angel's two real runs, printing those names in "ran:", were the instrument that
+corrected it (#812). The loop held twelve names then and holds more now, which
+is why this paragraph no longer states the number.
 
 ## Sandboxed whole, or not at all
 
@@ -358,12 +361,16 @@ geometry of two elements inside one card, both of which are layout rather than
 paint — so SwiftShader's software rendering does not weaken them. It would matter
 for a screenshot or a compositor result, and this script takes neither.
 
-**`render-first-run.js`** opens all fifteen first-run states in light and dark,
+**`render-first-run.js`** opens every first-run state in light and dark,
 screenshots them into the output directory you pass it (copy them to `docs/screenshots/firstrun-*.png` when they are what you want in the PR), and measures the
 things a text assertion cannot see: that the overlay is opaque and actually
 covering, that a click in the middle of the screen lands on it, that every
 visible string clears its WCAG AA ratio, that nothing runs off the side, and
 that every visible button is focusable and named.
+
+⚠️ A shot whose settle wait fails writes NO png. A copy step would then
+silently keep the previous run's image, so check the run reported no settle
+failure before copying.
 
 ⚠️ **It contains a control, and the control is load-bearing.** The contrast
 checker's first version treated `rgba(0,0,0,0.035)` as opaque black and reported
@@ -374,10 +381,23 @@ it before any clean result below is worth reading.
 
 **`render-updates-stale.js`** writes its screenshots into the directory you pass (argv[2]); `shots/updates-stale.png` and `shots/updates-current.png` are copies of one run, and a rerun does not touch them. Copy over when they are what you want in the PR.
 
-**`click-first-run.js`** clicks the whole thing like a person: every step, Back,
-Skip, Escape, the hand-off into creating an agent, a returning visit, a failing
-`/api/first-run`, a failing `/api/machine`, and a completion flag that will not
-stick. It asserts against the DOM and the real flag file, never against source.
+**`click-first-run.js`** clicks the whole thing like a person: every step,
+Escape from anywhere, the hand-off into creating an agent, a returning visit, a
+failing `/api/first-run`, a failing `/api/machine`, and a completion flag that
+will not stick. It asserts against the DOM and the real flag file, never against
+source. It also asserts, on each step that settles, that neither action button
+offers a way back, and that nothing offers to skip SETUP ITSELF. It reads the
+LABELS of `#fr-next` and `#fr-alt`, the two buttons `frActions` builds; counting
+a `#fr-back` or `#fr-skip` id would prove nothing today, because both existed
+once and were deleted, so a count of them can only return 0 and cannot report
+the dangerous answer. A step whose settle wait fails records that as a failure
+and skips its assertions rather than running them against a half-painted
+screen, so the run still reds.
+
+⚠️ Note what is NOT asserted: a Skip that moves you on WITHIN first-run is ruled
+IN, not out. The model step deliberately offers "Skip connecting a model" (Josh,
+2026-08-26). An earlier version of this paragraph said no Skip appears anywhere,
+which contradicted that ruling and passed only because of a live defect (#1835).
 
 ## live-connect.js
 
