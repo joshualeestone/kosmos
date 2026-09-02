@@ -38,6 +38,7 @@ test.after(() => {
   create.setClaudeProbe(null);
   delete process.env.AGENT_WORKFORCE_CLAUDE_PROBE_TIMEOUT_MS;
   delete process.env.FAKE_MODE;
+  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 

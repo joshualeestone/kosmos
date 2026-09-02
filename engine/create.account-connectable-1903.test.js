@@ -103,6 +103,29 @@ test('#1916: a USAGE/RATE-LIMITED account is ACCEPTED (live+paid, must not be bl
   }
 });
 
+test('#1916: CAPACITY wins over DEAD_AUTH when BOTH markers appear (precedence, not just presence)', async () => {
+  /* The load-bearing ordering: capacity is checked before dead-auth, so an
+     account whose output carries a usage-limit AND an auth-ish string fails OPEN
+     rather than being refused. Without this fixture the ordering is asserted only
+     in prose (a capacity string alone would fall through to UNKNOWN anyway). */
+  create.setClaudeProbe(async () => ({ exitCode: 1, out: 'You have reached your usage limit. OAuth access token has expired.' }));
+  try {
+    assert.deepEqual(await create.accountConnectable({ provider: 'anthropic', accountDir: DEAD_CLAUDE }), { ok: true },
+      'a capacity+auth co-occurrence was refused instead of failing open (capacity must win)');
+  } finally { create.setClaudeProbe(null); }
+});
+
+test('#1916: a bare "Please run /login" with NO specific auth failure does NOT refuse (false-refusal guard)', async () => {
+  /* The remedy phrase alone is not a dead sign-in: a live call could print a
+     /login notice. On a clean exit 0 with only that phrase, the account is
+     CONNECTED, not refused. Guards the removal of the bare /login marker. */
+  create.setClaudeProbe(async () => ({ exitCode: 0, out: 'ok\n(tip: you can Please run /login to switch accounts)' }));
+  try {
+    assert.deepEqual(await create.accountConnectable({ provider: 'anthropic', accountDir: DEAD_CLAUDE }), { ok: true },
+      'a live account that merely mentioned /login was refused');
+  } finally { create.setClaudeProbe(null); }
+});
+
 test('#1903/#1916: a Claude account we CANNOT CONFIRM dead is accepted (fail-open, never a false block)', async () => {
   // A network error with no auth marker -> UNKNOWN -> proceed.
   create.setClaudeProbe(async () => ({ exitCode: 1, out: 'getaddrinfo ENOTFOUND api.anthropic.com' }));

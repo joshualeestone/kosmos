@@ -2003,7 +2003,15 @@ function createdLog() {
    ⚠️ CAPACITY MARKERS MUST NOT INCLUDE "Retrying": a dead-token 401 co-prints a
    retry line (#874), so keying capacity on "Retrying" would fail a real dead
    token open. Capacity is genuine usage/rate/overload only. */
-const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|"type":\s*"authentication_error"|API Error:\s*401\s+Invalid API key|Invalid API key\s*·?\s*Please run \/login|Please run \/login/i;
+/* 🛑 SPECIFIC auth-failure strings ONLY -- NOT a bare "Please run /login". Since
+   this is tested before the exit-0 shortcut, a broad marker that a LIVE call
+   might print (an update/onboarding notice carrying "/login") would FALSE-REFUSE
+   a good account -- the false negative this family must never ship. Every
+   alternative here is a genuine dead-sign-in string from Claude Code 2.1.258 and
+   would not appear in a successful "reply ok" response. Ben's line
+   ("Please run /login · API Error: 401 OAuth access token has expired.") is
+   caught by "OAuth access token has expired", not by the remedy phrase. */
+const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|OAuth token revoked|Login expired|"type":\s*"authentication_error"|API Error:\s*401\s+Invalid API key/i;
 const CLAUDE_CAPACITY = /usage limit|reached your .{0,40}limit|\/usage-credits|rate[ _-]?limit|overloaded/i;
 
 let claudeProbe = null;
