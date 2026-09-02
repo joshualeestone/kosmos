@@ -573,7 +573,7 @@ async function measure(engine, scheme) {
       const dl = dir(lightById[id]), dd = dir(darkById[id]);
       if (dl !== 'n/a' && dd !== 'n/a' && dl !== dd) {
         flipped += 1;
-        fail(`${engine} field #${id} is ${dl} in light and ${dd} in dark`);
+        fail(`${engine} field ${id} is ${dl} in light and ${dd} in dark`);   /* id already carries its # */
       }
     }
     console.log(`\n  ${engine}: fields whose relationship to their container flips between schemes: ${flipped}`);

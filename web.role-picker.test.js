@@ -86,7 +86,7 @@ test('the fourth option imports an agent from a file: its own panel, the shared 
   // the id and require the set to be the shared pair and nothing else. (A descendant
   // rule such as `#importpick textarea` names no id and is NOT seen here; the browser
   // gate's render-fields.js measures the resolved result and is the guard for that.)
-  // Scanned over the STYLESHEET only: the same regex over the whole 2 MB page
+  // Scanned over the (first and only) STYLESHEET block: the same regex over the whole 2 MB page
   // backtracks for ~18 s and would also report a JS line mentioning the id as a rule.
   const STYLE = PAGE.match(/<style>([\s\S]*?)<\/style>/)[1];
   const importSelectors = [...STYLE.matchAll(/([^{}]*#import-text[^{}]*)\{/g)]
