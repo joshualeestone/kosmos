@@ -108,6 +108,14 @@ run "$(ns M docs/webhooks/notes.md)" "unrelated docs" \
 # is already proven by the seam-driven arms above (KOSMOS_BCG_FILES); these two arms
 # prove the real git plumbing runs and returns the RIGHT verdict for a known input.
 #
+# 🔑 This file only SELF-TESTS the gate lib. The actual browser-check ENFORCEMENT --
+# refusing a real web/ change that lacks a docs/browser-checks/ assertion or a
+# `Browser-check:` trailer -- is run-tests.sh:118, which runs the gate seam-free
+# against the branch and reds the suite. Do NOT re-add a branch-dependent "assert the
+# real branch passes" arm here to double as enforcement: it duplicates line 118, and
+# its red is mislabeled (this arm has no way to say "you touched web/ without an
+# assertion" -- only line 118 prints that). #1833.
+#
 # ⚠️ WHY NOT the old form. It ran the gate seam-free against the branch and asserted
 # rc 0, on the assumption "this branch touches no web/". The default base is
 # origin/main, so on any branch that legitimately changes web/ without an inline
