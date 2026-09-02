@@ -103,6 +103,12 @@ There is also accepted **friction** in the other direction. Two shapes recur:
 That is the deliberate cost of a curated ratchet over a parser; a one-line
 inventory row clears each.
 
+The family regexes catch the common spellings (a split/join on a quoted `:`/`;`
+with optional whitespace or a limit arg; `process.env.HOME` by dot or bracket
+access) but not every spelling: a **destructure** (`const {HOME} = process.env`)
+and a separator held in a **variable** are not matched. These are part of the
+enumerated-shapes floor above, not separate promises.
+
 **The corpus is a FLOOR, not a ceiling. Grow it.** Every future Windows bug that
 is found should add its shape to the `FAMILIES` list (and, if it is a real fix,
 a positive pin), so `n` only ever rises. A ratchet frozen at n=2 slowly becomes
