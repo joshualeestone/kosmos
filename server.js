@@ -2491,7 +2491,7 @@ const server = http.createServer((req, res) => {
   // contained, not that it is safe.
   if (pathname === '/api/agents' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -2536,6 +2536,21 @@ const server = http.createServer((req, res) => {
             return;
           }
         }
+
+        /* 🛑 #1903: the account this agent would run on must be able to SIGN IN,
+           checked live BEFORE anything is written. A real tester created a fresh
+           Claude agent that reported created, ran, and 401'd on its first turn,
+           because create points an agent at the chosen account's config dir and
+           never checked the credential there was live. Refuse a positively-dead
+           sign-in here (naming the remedy) rather than producing an agent that
+           cannot work. accountConnectable applies the #1315 asymmetry: it refuses
+           ONLY a confirmed-dead account, and proceeds on connected, unconfirmable,
+           OR unresolvable (createAgentInner keeps ownership of the unknown-account
+           refusal). Placed before the home seed so a refusal needs no rollback. */
+        try {
+          const liveness = await create.accountConnectable({ provider: body.provider, accountDir: body.account });
+          if (!liveness.ok) { sendJson(res, 400, { error: liveness.because }); return; }
+        } catch { /* the check itself failing is not a reason to block a create */ }
 
         /* 🔑 THE FIRST AGENT BRINGS ITS OWN HOME (#166), MADE BEFORE THE AGENT
            IS (#732). It used to be created AFTER createAgent returned, i.e.
