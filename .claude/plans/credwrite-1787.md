@@ -136,3 +136,51 @@ already considered and rejected what you are about to add.**
 - Two of my own mutations failed to apply during this work and produced meaningless greens
   until I checked. Both caught by asserting the mutation applied before trusting its
   result.
+
+## Iteration 9 (2026-09-01 evening): the read half of iteration 8, and what it found
+
+The blind reviewer that was reading iteration 8 was lost with a session restart; a fresh
+one read dfbca17a. Its first finding was real, reproduced, and worse than it looked.
+
+### Create and write were one call, and `created` flipped after it
+
+`writeFileSync(tmp, data, { flag: 'wx', mode })` both creates and writes. A write that
+failed after the create (ENOSPC mid-write) left `created` false, so the catch never
+unlinked the temp. Measured on a scratch copy: **three attempts, three 0600 temps each
+holding the first bytes of the NEW secret, then the fallback succeeded and the caller saw
+a clean write.** The header's "litter needs a process death" claim was false. Fixed at the
+create: open `wx`, mark created, `fchmod` on the fd, write through the fd, close, rename.
+
+**Six arms across two files went blind to the fix**, because they had instrumented the
+old `writeFileSync` on the temp path. Each repointed at the `wx` open; the planted-file
+arms now let the kernel refuse the plant. Coverage that does not follow a defect when the
+defect moves is decoration that still passes.
+
+### The three unguarded mutations from the iteration-8 battery
+
+| mutation | arm, red by name | how it discriminates |
+|---|---|---|
+| drop `O_NOFOLLOW` from the fallback open | the fallback OPEN refuses a symlink swapped in AFTER the path check | plants the link from inside `readFileSync`, which runs after the path check and before the open; victim bytes and mode unchanged |
+| restore via a PATH write | the restore writes through the DESCRIPTOR | hard-links the open inode, swaps the path for a link mid-failure; the inode has the previous secret, the victim does not |
+| drop `mode` from `secureDir`'s mkdir | secureDir creates AT the mode | observes the directory's mode at the instant chmod is called, before chmod applies |
+
+The path-write mutation was first written in a form that also truncated the fd, which
+reddened two existing arms and overstated the guard. Re-run faithful: only the new arm reds.
+
+### #1799, fixed here
+
+The githubdevice flake (1 in 13 whole-file runs) was traced twice with instrumentation:
+the cancel arm's poll, still in flight two arms later, consumed the next arm's token and
+the new flow overwrote the failure. Product fix: a generation counter at every flow
+boundary, captured before the round trip and checked after. Fixture fix: answers bound to
+the issuing flow. An arm holds a stale answer in flight across a cancel and a restart and
+asserts it touches nothing; red by name without the check. Landed on this branch because
+the branch already edits the file and its gate was flaking on the race; the card stays
+open until served. Keying the fixture on the CURRENT code was tried first and made it
+worse (7 of 30): a stale chain that can never consume polls forever at interval 0.
+
+### Also corrected
+
+The writer's refusal code has been `ERR_KOSMOS_SYMLINK` since iteration 7; two consumer
+stubs and two comments still said `ELOOP`. Corrected. The two clock-dependent arms in the
+githubdevice suite now wait for a terminal phase rather than a fixed sleep.
