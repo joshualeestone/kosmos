@@ -122,7 +122,9 @@ const SOURCES = ['os.homedir()', 'os.tmpdir()',
 
    📌 AND `module.exports = { X: <init> }` IS NOT SEEN. `declarations()` takes
    const/let/var and the `exports.X =` forms, but not a property inside the object
-   literal, which is this repo's universal export idiom (76 files). Measured, with a
+   literal, which is this repo's universal export idiom (measured 2026-09-01 on
+   engine, server.js, tools and bin: 29 non-test files use a destructured require,
+   132 counting tests; an earlier "76 files" here named no instrument). Measured, with a
    control: `module.exports = { FILE: path.join(store.ROOT,'x') }` exited 0 while
    `exports.FILE = path.join(store.ROOT,'x')` exited 1. For engine/ the behavioural
    probe covers it, since it is an exported string; for server.js nothing does, and
@@ -312,6 +314,11 @@ const invokedNow = (init) => {
      the other way, because `(() =>` begins as an arrow too. Measured, seven shapes:
      both IIFE forms true; stored arrow, stored arrow with args, stored function,
      curried-in-stored-arrow and a plain join all false.
+     📌 `(() => f()())` IS NOT AN IIFE and is correctly silent: an arrow body runs to
+     the end of the expression, so the trailing `()` calls the RESULT of the body
+     inside a stored arrow that is never invoked (typeof: function; nothing runs at
+     load). `(function () { ... }())` IS invoked and is reported. A review read the
+     two as one shape spelled twice; they are two shapes. Pinned by an arm.
      ⚠️ The `function` IIFE half of that claim is about this helper's RETURN VALUE and
      no arm can observe it: a `(function(){...})()` initializer starts with `(`, so
      isLazy cannot match it and everyRootIsDeferred is false with no `=>` present,
@@ -440,10 +447,23 @@ const blankStrings = (src) => {
          Copied through verbatim, with brace depth tracked so a nested object or a
          nested template inside the hole does not end it early. */
       if (q === '`' && c === '$' && src[i + 1] === '{') {
+        /* 🛑 BRACES INSIDE A STRING INSIDE THE HOLE DO NOT COUNT. The first version
+           counted every `{` and `}`, so `${f('}') + store.ROOT}` ended the hole at
+           the quoted brace and blanked the freeze after it as string data: SILENT,
+           while blankComments and lineInfo both saw the whole hole, so the three
+           walkers disagreed and the one that decides the verdict was the wrong one.
+           Quotes inside the hole are skipped here the way the outer walk skips them. */
         let depth = 0;
         let j = i;
+        let hq = null;
         for (; j < src.length; j += 1) {
           const d = src[j];
+          if (hq) {
+            if (d === '\\') { j += 1; continue; }
+            if (d === hq) hq = null;
+            continue;
+          }
+          if (d === '\'' || d === '"' || d === '`') { hq = d; continue; }
           if (d === '{') depth += 1;
           else if (d === '}') { depth -= 1; if (depth === 0) break; }
         }
@@ -575,9 +595,25 @@ const sourceOccurrences = (text, s) => {
     while (m) { out.push(m.index); m = re.exec(text); }
     return out;
   }
-  for (let at = text.indexOf(s); at > -1; at = text.indexOf(s, at + 1)) out.push(at);
+  /* 🛑 A DOTTED SOURCE NEEDS A LEFT BOUNDARY TOO. `store.ROOT` matched inside
+     `bookstore.ROOT` and `os.homedir()` inside `myos.homedir()`, so a plain object
+     whose local name merely ENDS in a source name carried a "direct" finding. The
+     bare-name branch above was bounded on both sides; this branch was bounded on
+     neither. Right side needs none (the source ends in `)` or a property name that
+     the next character cannot extend into a different source). */
+  const re = new RegExp('(^|[^A-Za-z0-9_$])' + s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+  let m = re.exec(text);
+  while (m) { out.push(m.index + m[1].length); m = re.exec(text); }
   return out;
 };
+/* A RESOLVER MARK is `name(`, and it is matched as a bounded CALL, never as a
+   substring: with a resolver named `dir`, the substring form made `mkdir(` a mark,
+   the mark sat after a depth-zero comma, the line lost its deferral, and CORRECT
+   code was reported. `dir`, `file`, `base` and `root` are exactly the resolver
+   names this branch mints 23 times. */
+const hasMark = (text, s) => (s.endsWith('(')
+  ? new RegExp('\\b' + s.slice(0, -1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\(').test(text)
+  : hasSource(text, s));
 const hasSource = (text, s) => sourceOccurrences(text, s).length > 0;
 
 const isLazy = (init) => !invokedNow(init)
@@ -609,13 +645,13 @@ const everyRootIsDeferred = (init, resolverNames, sources) => {
      `path.join(base(), 'b')` was never examined and the exemption skipped the
      resolver check entirely. Adding CORRECT lazy code beside a freeze hid it. */
   const marks = (sources || SOURCES).concat([...(resolverNames || [])].map((n) => n + '('));
-  const lines = init.split('\n').filter((l) => marks.some((s) => hasSource(l, s)));
+  const lines = init.split('\n').filter((l) => marks.some((s) => hasMark(l, s)));
   /* EVERY source on the line, not SOME. With `some`, one deferred source LAUNDERS
      a frozen one beside it. Measured, both arms:
        { live: () => store.ROOT, file: path.join(process.env.AGENT_WORKFORCE_DATA,'x') }  -> silent
        {                         file: path.join(process.env.AGENT_WORKFORCE_DATA,'x') }  -> reported
      so adding a harmless deferred reference hid a real freeze. */
-  return lines.length > 0 && lines.every((l) => marks.filter((s) => hasSource(l, s))
+  return lines.length > 0 && lines.every((l) => marks.filter((s) => hasMark(l, s))
     .every((s) => {
       /* 🛑 EVERY OCCURRENCE, NOT THE FIRST. `indexOf` examines only the first
          appearance of each source on the line, so a SECOND appearance of the same
@@ -970,7 +1006,7 @@ function scan(file) {
        const { LOG } = require('./messages'); const P = () => path.join(LOG,'x'); -> exited 0
      Destructuring a getter captures its VALUE at require time exactly as `store.ROOT`
      does, and `const { NO_READING } = require('./status')` is live house style here
-     (76 files), so this is reachable the first time somebody destructures one of the
+     (29 non-test files in scope, see the header), so this is reachable the first time somebody destructures one of the
      new getters. Filtered by PATH_SHAPED so a destructured FUNCTION is not swept in. */
   /* 🛑 MIRRORS THE STORE ARM, and for a round it did not, which left two silent
      shapes. The store arm tests the SOURCE name (`split(':')[0]`) and treats the
@@ -982,7 +1018,7 @@ function scan(file) {
      The first drops out because the local name `F` is not path-shaped; the second
      because a lazy USE looks deferred while the destructure already evaluated the
      getter. Both are real require-time freezes, and this card mints 28 new path
-     getters into a tree where destructured require is house style in 76 files. */
+     getters into a tree where destructured require is house style (29 non-test files in scope). */
   /* Declared HERE, above the loop that fills it. It was declared 16 lines BELOW its
      own push and every scan of a file containing a foreign destructure died with a
      temporal-dead-zone ReferenceError, so this whole arm never produced a finding.
