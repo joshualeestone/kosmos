@@ -117,7 +117,7 @@ function check(ok, what, detail) {
   // would say WHICH condition failed never printed).
   const line = ok || !detail ? what : `${what}  <- ${detail}`;
   if (ok) process.stdout.write(`  ✔ ${what}\n`);
-  else { failures.push(line); process.stdout.write(`  ✘ ${line}\n`); }
+  else { failures.push(line); process.stdout.write(`  FAIL  ${line}\n`); }
 }
 
 async function api(p, options) {

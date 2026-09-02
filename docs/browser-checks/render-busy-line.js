@@ -105,7 +105,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   for (const r of rows) console.log('  ' + JSON.stringify(r));
   if (problems.length) {
     console.error(`render-busy-line: ${problems.length} problem(s)`);
-    for (const p of problems) console.error('  - ' + p);
+    for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
   console.log('render-busy-line: shown only for a working agent, announced without claiming why.');

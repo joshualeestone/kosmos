@@ -250,7 +250,7 @@ const FIXTURES = [
   console.log(JSON.stringify(out, null, 1));
   if (problems.length) {
     console.error(`render-memory-words: ${problems.length} problem(s)`);
-    for (const p of problems) console.error('  - ' + p);
+    for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
   console.log('render-memory-words: all three captions fit and are visible on the card, the list row and the detail header.');

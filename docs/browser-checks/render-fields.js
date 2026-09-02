@@ -84,7 +84,7 @@ function selfCheck() {
   const bad = cases.filter(([f, b, want]) => Math.abs(ratio(f, b) - want) > 0.02)
     .concat(bgCases.filter(([f, b, on, want]) => Math.abs(ratio(f, b, on) - want) > 0.02));
   if (bad.length) {
-    console.log('INSTRUMENT FAILED SELF-CHECK on ' + bad.length + ' known pairs; no result below means anything');
+    console.log('  FAIL  INSTRUMENT FAILED SELF-CHECK on ' + bad.length + ' known pairs; no result below means anything');
     process.exit(1);
   }
   console.log('  contrast function validated on ' + (cases.length + bgCases.length) + ' known pairs, including transparent backgrounds');
