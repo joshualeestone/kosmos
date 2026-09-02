@@ -53,6 +53,17 @@ never runs; default checked with NO configDir. Route: dead → 400 + remedy + no
 birth recorded; connected → not blocked + birth recorded. No regression:
 server.projects (122), engine/create (144), agent-import (6).
 
+## Pinned residual (deliberate, fails in the safe direction)
+`CLAUDE_DEAD_AUTH` is narrow ON PURPOSE (only genuine dead-sign-in strings, so a
+live account is never false-refused). One dead form is therefore uncovered: a
+sign-in that prints ONLY a bare "Please run /login" with no 401/auth string. That
+slips the create gate (fail-open → accepted) and is caught later by #1884's board
+surfacing rather than prevented at create. This is the right trade per Splinter
+("only a genuine auth failure counts as dead; never false-refuse a live/heavy
+user"), and it must NOT be closed by reintroducing the bare `/login` marker (that
+false-refuses live accounts). The non-JSON `authentication_error` form IS covered
+(the marker is the bare string). Pinned as a KNOWN GAP test.
+
 ## Weakest premise
 `claude -p`'s exact output/behavior on a genuinely dead OAuth token is inferred
 from #874's captured 401 + Claude Code 2.1.258's strings, not reproduced locally

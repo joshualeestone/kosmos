@@ -126,6 +126,34 @@ test('#1916: a bare "Please run /login" with NO specific auth failure does NOT r
   } finally { create.setClaudeProbe(null); }
 });
 
+test('#1916: a 401 that renders authentication_error in NON-JSON text is still dead', async () => {
+  // The marker is the bare `authentication_error`, so both the JSON envelope
+  // (`"type": "authentication_error"`) and a plain `API Error: 401 authentication_error`
+  // are caught -- neither string appears in a successful "reply ok" response.
+  for (const out of ['API Error: 401 authentication_error', '{"type":"error","error":{"type":"authentication_error"}}']) {
+    create.setClaudeProbe(async () => ({ exitCode: 1, out }));
+    try {
+      const r = await create.accountConnectable({ provider: 'anthropic', accountDir: DEAD_CLAUDE });
+      assert.equal(r.ok, false, 'a non-JSON authentication_error slipped the gate: ' + JSON.stringify(out));
+    } finally { create.setClaudeProbe(null); }
+  }
+});
+
+test('#1916 KNOWN GAP: a dead sign-in that prints ONLY a bare /login (no 401/auth string) fails OPEN', async () => {
+  /* Deliberate, per Splinter: only a genuine auth-failure string is dead; a bare
+     remedy phrase is not, because a LIVE call could print it, and false-refusing
+     a live/heavy user is the worse failure. So this rare dead form slips the
+     create gate and is caught later by #1884's board surfacing, not prevented at
+     create. If a real dead account is ever observed printing ONLY /login with no
+     auth string, revisit -- but not by reintroducing the bare marker (it
+     false-refuses live accounts, see the guard above). */
+  create.setClaudeProbe(async () => ({ exitCode: 1, out: 'Please run /login' }));
+  try {
+    assert.deepEqual(await create.accountConnectable({ provider: 'anthropic', accountDir: DEAD_CLAUDE }), { ok: true },
+      'this is now covered -- flip to ok:false and drop the KNOWN GAP note');
+  } finally { create.setClaudeProbe(null); }
+});
+
 test('#1903/#1916: a Claude account we CANNOT CONFIRM dead is accepted (fail-open, never a false block)', async () => {
   // A network error with no auth marker -> UNKNOWN -> proceed.
   create.setClaudeProbe(async () => ({ exitCode: 1, out: 'getaddrinfo ENOTFOUND api.anthropic.com' }));

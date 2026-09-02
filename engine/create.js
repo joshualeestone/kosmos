@@ -2011,7 +2011,7 @@ function createdLog() {
    would not appear in a successful "reply ok" response. Ben's line
    ("Please run /login · API Error: 401 OAuth access token has expired.") is
    caught by "OAuth access token has expired", not by the remedy phrase. */
-const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|OAuth token revoked|Login expired|"type":\s*"authentication_error"|API Error:\s*401\s+Invalid API key/i;
+const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|OAuth token revoked|Login expired|authentication_error|API Error:\s*401\s+Invalid API key/i;
 const CLAUDE_CAPACITY = /usage limit|reached your .{0,40}limit|\/usage-credits|rate[ _-]?limit|overloaded/i;
 
 let claudeProbe = null;
