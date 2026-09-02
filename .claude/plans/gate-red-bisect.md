@@ -64,9 +64,21 @@ Re-swept by shape: every multi-click `fr-next` run (5,3,5,3), every
 
 🛑 **THIRTY OF THE THIRTY-TWO ROWS BELOW WERE MEASURED ON SHAS THAT ARE NO
 LONGER ON THIS BRANCH.** Measured 2026-09-02 with `git merge-base
---is-ancestor` on every sha in the table, with both controls: **runs 1
-(`5e328edd`) and 32 (`08fd5c68`) are still ancestors of HEAD; the other thirty
-are not.**
+--is-ancestor` on every sha in the table, with both controls: **only run 1
+(`5e328edd`) is still an ancestor of HEAD. THIRTY-ONE of the thirty-two are
+orphaned, INCLUDING ROW 32.**
+
+🛑 **SO NO GATE RUN ON THIS BRANCH IS ANCHORED ANY MORE, AND ROW 32 WAS THE ONLY
+"56 ran, 0 failed" THE TABLE STILL CLAIMED.** The 2026-09-02 rebuild onto
+Renet's #1801 orphaned it, exactly as the earlier rebase orphaned the thirty
+before it.
+
+⚠️ **THIS SENTENCE HAS NOW GONE STALE THREE TIMES, EACH TIME FOR THE REASON THE
+SECTION ITSELF DESCRIBES.** It has said "thirty of thirty-one", then "thirty of
+thirty-two with runs 1 and 32 anchored", and both were true when written. ⇒ **A
+sentence that records a measurement is a measurement, and it rots on the same
+schedule as the thing it measured.** The durable form is the QUERY, which is
+printed below; the count belongs in a terminal.
 
 ⚠️ **AND THIS SENTENCE WAS ITSELF STALE FOR TWO COMMITS, WHICH IS THE POINT OF
 THE SECTION HAPPENING TO THE SECTION.** It read "thirty of the thirty-ONE" and
@@ -285,9 +297,14 @@ shipped, and it competes with the code beside it.
    for a position-keying bug. It is now a `settle` flag on the row.
    🛑 **SUPERSEDED BY ITEM 16, AND THIS LINE WAS LEFT READING AS PRESENT-TENSE
    SHIPPED CODE.** There is NO `settle:` field on any SHOTS row at HEAD
-   (measured: zero occurrences), and `render-first-run.js` now argues the
-   opposite in terms -- the wait is UNCONDITIONAL precisely because gating it on
-   a per-row flag is an omission mode. ⇒ A reader trusting this sentence goes
+   (measured: zero occurrences).
+   🛑 **AND THE REST OF THIS CORRECTION IS NOW FALSE TOO.** It said
+   `render-first-run.js` "argues the opposite in terms, the wait is
+   UNCONDITIONAL". At HEAD there is **no ending settle wait in that file at
+   all**: the 2026-09-02 rebuild dropped it, and the shot loop screenshots with
+   nothing waited on. ⇒ A correction that describes a mechanism can outlive the
+   mechanism, and then it closes the question twice over: once for the thing it
+   corrected and once for the thing it claimed instead. ⇒ A reader trusting this sentence goes
    looking for a flag, or restores one. **A correction log has to mark its own
    reversals, or the earlier entry keeps making the claim.**
 10. **A comment I added cited `click-first-run.js`, and the line moved to

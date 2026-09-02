@@ -204,15 +204,20 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     await waitAboutYouLeft(page);
     const endingReached = /already have/.test(await page.locator('#fr-title').textContent());
     ok(endingReached, 'the adopt ending');
-    ok(/Take me to my agents/.test(await page.locator('#fr-next').textContent()),
-      'the adopt ending carries the pack\'s single action');
-    /* 🛑 ONE FINDING, NOT SIX. If the ending was never reached, the assertion
+    /* 🛑 ONE FINDING, NOT SEVEN. The action-label assertion was OUTSIDE this
+       guard and is now inside it: on a missed ending it read `#fr-next` on a
+       screen the line above had just recorded as unreadable, which is a second
+       confident, specific claim about the same one cause. The guard started one
+       assertion too late, which is the failure mode of a guard added by hand
+       rather than derived from where the state is established. If the ending was never reached, the assertion
        above has already said so; the five below would then report confident,
        specific claims about a screen this check has just recorded it could not
        read. The front-door click is skipped with it, because clicking a button
        the ending never painted is how a section takes the rest of the file down
        with it through the THREW path. */
     if (endingReached) {
+      ok(/Take me to my agents/.test(await page.locator('#fr-next').textContent()),
+        'the adopt ending carries the pack\'s single action');
       console.log('   ...and out the front door, through the adopt ending');
       await page.click('#fr-next');
       await page.waitForTimeout(600);
