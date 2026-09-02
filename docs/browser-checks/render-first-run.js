@@ -581,7 +581,7 @@ async function look(page, name) {
     // #1845: this block also lands on the fleet ending, which fires the live
     // /api/found-agents search; stub it empty so the last-step smoke check does
     // not wait on a real disk read on the gate.
-    await pg.route('**/api/found-agents', (r) => r.fulfill({ json: { ok: true, agents: [] } }));
+    await pg.route('**/api/found-agents', (r) => r.fulfill({ json: FOUND_NONE }));
     await pg.goto(`${BASE}/?first-run=1&fr-step=${lastStep}`, { waitUntil: 'networkidle' });
     await pg.waitForTimeout(400);
     const last = await pg.evaluate(() => {

@@ -44,10 +44,15 @@ The card was filed 2026-09-01; #1801/#1214 reworked these files this morning, so
      true, agents: [] }` -> no offer -> "You already have 14 agents here."
    - `firstrun-fleet-create` (FLEET_CREATE, path create, count 0): `found: { ok:
      true, agents: [] }` -> "Create your first agent."
-   - `firstrun-fleet-cannot-see` (FLEET_BLIND, path unknown): the "could not
-     look" state -> stub a non-ok body (`{ ok: false }`) so `frFindAgents` sets
-     FR_FOUND to its documented fallback, matching a machine whose roster could
-     not be read. (Confirm the unknown arm's depiction by running.)
+   - `firstrun-fleet-cannot-see` (FLEET_BLIND, path unknown): also `FOUND_NONE`
+     (`{ ok: true, agents: [] }`). Decided after reading the unknown arm: it
+     renders ending C ("We could not see what is on this computer") whenever
+     `frFoundOffer().length === 0`, and an empty offer satisfies that whether the
+     body is `{ ok: true, agents: [] }` or a non-ok `{ ok: false }` (frFoundOffer
+     returns `[]` in both cases). So one shared `FOUND_NONE` for all three shots
+     is correct and avoids a second empty-shape to keep in sync. (An earlier
+     draft of this bullet prescribed `{ ok: false }`; reconciled to the shipped
+     code, which is `FOUND_NONE`.)
    - The last-step block (separate, navigates to `#fr-fleet`): stub empty so it
      is deterministic too.
 3. **Add a per-ending assertion with a control** (currently the fleet shots are
