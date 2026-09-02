@@ -119,8 +119,8 @@ function dataRootFor(platform, home, env) {
    which still wins inside dataRootFor. So one var (HOME) isolates BOTH this store and
    the workers root (create.homeDir), which are the two roots the first-run About-you write
    resolves through, redirected with one setting instead of AGENT_WORKFORCE_DATA plus
-   AGENT_WORKFORCE_WORKERS. (Not every root: projectsRoot has its own var, AGENT_WORKFORCE_
-   PROJECTS.) Resolved per call (#1443), so setting the seam after require still takes. */
+   AGENT_WORKFORCE_WORKERS. (Not every root: projectsRoot has its own var,
+   AGENT_WORKFORCE_PROJECTS.) Resolved per call (#1443), so the seam after require still takes. */
 function root() { return dataRootFor(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env); }
 function avatarsDir() { return path.join(root(), 'avatars'); }
 function profilesDir() { return path.join(root(), 'profiles'); }
