@@ -161,6 +161,40 @@ test('#1315: a key codex itself refuses locally is refused, and OpenAI is never 
   } finally { openai.setFetcher(null); }
 });
 
+test('#1315: a live-rejected add into a PRE-EXISTING dir removes only its own auth.json, never the dir or its other contents', async () => {
+  /* 🛑 THE CLEANUP MUST HONOUR addWithKey's OWN GUARD. addWithKey removes the
+     whole directory on failure only when it CREATED it (madeDir); it can succeed
+     into a pre-existing `.codex-<label>` that merely lacked an auth.json and holds
+     other files. A live rejection must not recursively delete that directory.
+     Here: seed a pre-existing labelled dir with a decoy file (no auth.json), add
+     with a key OpenAI rejects, and assert the decoy + the dir survive and only the
+     auth.json this add wrote is gone. */
+  const preDir = nodePath.join(SANDBOX, '.codex-preexisting');
+  fs.mkdirSync(preDir, { recursive: true });
+  const decoy = nodePath.join(preDir, 'keep-me.txt');
+  fs.writeFileSync(decoy, 'a user file that predates the add', 'utf8');
+  openai.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));
+  try {
+    const out = await openai.addWithKeyLive({ key: 'sk-proj-deadintopreexistDEAD', label: 'preexisting', codexBin: FAKE_CODEX });
+    assert.equal(out.ok, false);
+    assert.equal(out.because, 'OpenAI did not accept this key');
+    assert.ok(fs.existsSync(preDir), 'a pre-existing directory was recursively deleted on a live rejection');
+    assert.ok(fs.existsSync(decoy), 'a pre-existing file in that directory was deleted on a live rejection');
+    assert.ok(!fs.existsSync(nodePath.join(preDir, 'auth.json')), 'the rejected add left its own auth.json behind');
+  } finally { openai.setFetcher(null); }
+});
+
+test('#1315: a live-rejected add into a NEWLY-created dir leaves no directory behind (matches addWithKey anti-litter)', async () => {
+  const before = fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.codex-')).sort();
+  openai.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));
+  try {
+    const out = await openai.addWithKeyLive({ key: 'sk-proj-deadfreshslotDEAD1', label: 'fresh-reject', codexBin: FAKE_CODEX });
+    assert.equal(out.ok, false);
+    assert.deepEqual(fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.codex-')).sort(), before,
+      'a live-rejected add into a dir we created left the directory behind');
+  } finally { openai.setFetcher(null); }
+});
+
 /* ── live check (#960) ──────────────────────────────────────────────────
    `codex login status` was measured LOCAL ONLY (a fabricated key still
    reads "Logged in"), so the live check has to be a real call to OpenAI's
