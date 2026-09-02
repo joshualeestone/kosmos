@@ -96,7 +96,13 @@ kosmos_mark_run browser
 # #1079: a durable record of every run, so a retry no longer depends on a person
 # reading scrollback. It can never fail a run; see the lib's header.
 . "$REPO/tools/lib/browser-run-log.sh"
-if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
+# #1818: the frozen-runner child (the re-exec in the freeze block below) runs the
+# checks while the PARENT stays alive as a live page layer that has ALREADY passed
+# this guard. Parent and child are one logical run, but they carry different run
+# cookies (each calls kosmos_mark_run), so the child would see the parent's marker
+# and refuse ITSELF. Skip the guard in the child -- the parent cleared the field
+# once, for both.
+if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ] && [ -z "${KOSMOS_BC_FROZEN_RUNNER:-}" ]; then
   kosmos_refuse_if_browser_run_live "this page layer" || exit 1
 fi
 
@@ -117,7 +123,16 @@ fi
 SOURCE_REPO="$REPO"
 FREEZE_BUILD=""
 FREEZE_ROOT=""
-if git -C "$REPO" symbolic-ref -q HEAD >/dev/null 2>&1; then
+if [ -n "${KOSMOS_BC_FROZEN_RUNNER:-}" ]; then
+  # #1818: this process IS the frozen re-exec spawned by a parent run below. Our
+  # own $0 lives in the parent's frozen worktree -- an immutable path nobody
+  # edits -- so bash's incremental read of THIS script cannot be corrupted by a
+  # mid-run edit to the source tools/browser-checks.sh, which is the whole bug.
+  # REPO is already $0's frozen root (set at the top) and this worktree is
+  # detached, so the checks read frozen code too. Do not freeze or re-exec again;
+  # fall through and run the checks in-process. The parent owns the thaw.
+  log "Running from the frozen runner copy ($REPO) -- #1818: a mid-run edit to the source tools/browser-checks.sh cannot reach this run."
+elif git -C "$REPO" symbolic-ref -q HEAD >/dev/null 2>&1; then
   # Loud, not silent, about the one real behaviour change: before this, a
   # direct run always saw uncommitted edits; a frozen worktree is checked out
   # from the last COMMIT, so it will not.
@@ -128,9 +143,33 @@ if git -C "$REPO" symbolic-ref -q HEAD >/dev/null 2>&1; then
   . "$REPO/tools/lib/release-freeze.sh"
   FREEZE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc-freeze.XXXXXX")" || { log "no temp dir for the frozen tree"; exit 1; }
   FREEZE_BUILD="$(release_freeze "$REPO" "$(git -C "$REPO" rev-parse HEAD)" "$FREEZE_ROOT")" || { rm -rf "$FREEZE_ROOT"; log "could not freeze the tree (#758)"; exit 1; }
-  REPO="$FREEZE_BUILD"
-  cd "$REPO"
-  log "Frozen at $(git -C "$REPO" rev-parse --short HEAD) ($REPO) -- a concurrent merge into $SOURCE_REPO cannot move this run."
+  log "Frozen at $(git -C "$FREEZE_BUILD" rev-parse --short HEAD) ($FREEZE_BUILD) -- a concurrent merge into $SOURCE_REPO cannot move this run."
+  # #1818: RE-EXEC THE RUNNER ITSELF FROM THE FROZEN COPY. Until now the freeze
+  # moved only where the CHECKS read code from (REPO := the frozen worktree);
+  # bash kept reading THIS script from the mutable $0, so editing
+  # tools/browser-checks.sh mid-run corrupted the read and died with a syntax
+  # error on an innocent line -- and, because it died before the summary, left
+  # no FAILED line and no run-log entry, so a reader grepping for FAIL saw the
+  # dead run as green. Running the checks in a child whose $0 is the frozen copy
+  # removes the class: the file bash reads there is immutable.
+  #
+  # This must NOT be `exec` -- this process has to survive to thaw the worktree.
+  # So the child is a subprocess and the wait+thaw+exit is wrapped in a function
+  # ON PURPOSE: bash parses a function body in full (here, before the call is
+  # made), then runs it from memory. Once the long child run is underway this
+  # parent reads NOTHING further from the mutable source script, so its own
+  # trailing lines (the $?, the thaw, the exit) cannot themselves be corrupted
+  # by a mid-run edit. Inlining these lines would reintroduce the very bug.
+  run_frozen_runner_then_thaw() {
+    export KOSMOS_BC_FROZEN_RUNNER=1
+    bash "$FREEZE_BUILD/tools/browser-checks.sh" "$@"
+    local _rc=$?
+    release_thaw "$SOURCE_REPO" "$FREEZE_BUILD"
+    rm -rf "$FREEZE_ROOT"
+    exit "$_rc"
+  }
+  run_frozen_runner_then_thaw "$@"
+  # not reached: run_frozen_runner_then_thaw always exits.
 else
   # ⚠️ KNOWN LIMITATION, narrow: detached HEAD is release.sh's freeze in
   # practice (its only automated caller), but is not UNIQUE to it -- a
@@ -160,7 +199,29 @@ fi
 # Servers were never affected: boot_board appends to SERVER_PIDS directly.
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc.XXXXXX")"
 SERVER_PIDS=()
+# #1818: a run that dies AFTER the checks begin but BEFORE the summary (a kill, an
+# OOM, or -- pre-fix -- a mid-run edit) otherwise leaves no FAILED line and no
+# run-log entry, so a reader grepping for FAIL reads the dead run as green (the
+# a-killed-suite-prints-a-passing-tally shape). CHECKS_STARTED gates the cleanup
+# banner so a LEGITIMATE early skip (no Playwright, an engine that cannot launch,
+# KOSMOS_SKIP_BROWSER_CHECKS) -- all of which exit before the checks -- is not
+# reported as an abnormal cut-short. RUN_COMPLETED is set once the run reaches its
+# summary; a FAILED-but-complete run is complete, not cut short.
+CHECKS_STARTED=0
+RUN_COMPLETED=0
 cleanup() {
+  local rc=$?
+  # #1818: make an abnormal cut-short LOUD instead of silently green -- only when
+  # the checks had started and the run never reached its summary. A legit early
+  # skip never sets CHECKS_STARTED, so it stays quiet. browser_run_log_append is
+  # defined (tools/lib/browser-run-log.sh is sourced near the top) and can never
+  # fail a run; guarded with `|| true` regardless.
+  if [ "${CHECKS_STARTED:-0}" = 1 ] && [ "${RUN_COMPLETED:-0}" != 1 ]; then
+    log "‼️  browser-checks did NOT complete (exit $rc before the summary). This is NOT a pass: the run was cut short (a kill, an OOM, or a mid-run edit to this script (#1818)), so the absence of a FAILED line above means the run ended early, not that every check passed."
+    browser_run_log_append \
+      "$(git -C "${SOURCE_REPO:-$REPO}" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+      "${#RAN[@]}" "${#RETRIED[@]}" "incomplete-exit$rc" "${RICH_BOOTED:-0}" 2>/dev/null || true
+  fi
   local pid
   for pid in "${SERVER_PIDS[@]:-}"; do [ -n "$pid" ] && kill "$pid" 2>/dev/null; done
   rm -rf "$RUN_DIR"
@@ -340,6 +401,12 @@ if [ -n "$pw_launch_failures" ]; then
   log "   arriving as \"the page checks are red\" after several minutes (#1594)."
   exit 2
 fi
+
+# #1818: every engine launches and setup is done -- from here the run WILL boot
+# boards and run checks, so any exit past this point that is not the summary is
+# an abnormal cut-short the cleanup banner should report (every legit early skip
+# above exits before this line).
+CHECKS_STARTED=1
 
 new_sandbox() {
   local sb; sb="$(mktemp -d "$RUN_DIR/sb.XXXXXX")"
@@ -1169,6 +1236,10 @@ sec "browser checks summary"
 browser_run_log_append \
   "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
   "${#RAN[@]}" "${#RETRIED[@]}" "${#FAILED[@]}" "$RICH_BOOTED" ${RETRIED[@]+"${RETRIED[@]}"}
+# #1818: the run reached its summary -- every selected check ran to completion.
+# A FAILED result below is a COMPLETE run that found failures, not a cut-short
+# one, so the cleanup banner must not fire for it.
+RUN_COMPLETED=1
 log "ran:     ${RAN[*]:-none}"
 [ "${#RETRIED[@]}" -gt 0 ] && log "retried: ${RETRIED[*]}  (repeated retries are a flake to fix, not to accept)"
 
