@@ -1705,6 +1705,18 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     'a RESOLVED wait was reported as working, which hides a finished agent');
 
   /**
+   * 🛑 A SELECTED TASK-FOOTER ROW IS NOT THE COMPOSER. The footer draws its
+   * selected/hovered row as `❯ ◯ …`, which matched the composer pattern and
+   * became the anchor, cutting the liveness slice above the rows it needs.
+   * Measured before the fix: selected -> `idle` while unselected -> `working` on
+   * the same screen. A composer row never carries `◯`.
+   */
+  assert.equal(
+    classify(pane, live + footer + '\n  ⏺ main\n❯ ◯ general-purpose  doing a thing 43s').state,
+    'working',
+    'a selected task-footer row was mistaken for the composer');
+
+  /**
    * 🛑 THE ANCHOR IS THE LAST `❯`, NOT THE FIRST. The composer is the BOTTOM
    * prompt row. Taking the first one below the wait line anchors on any `❯` in the
    * transcript -- a quoted shell prompt, a pasted session, a selector row -- and
@@ -1727,6 +1739,8 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
   for (const prose of [
     '✻ Waiting for permission to run the background agents to finish the job',
     '· Waiting for N background agents to finish is the line #1889 handles',
+    '· Waiting for 1 background agent to finish',   // wrong glyph: spinner frame
+    '✳ Waiting for 1 background agent to finish',   // wrong glyph: spinner frame
   ]) {
     assert.notEqual(classify(pane, prose + footer + liveRow).state, 'working',
       'prose containing the phrase was read as a live status line: ' + prose);
@@ -1877,9 +1891,9 @@ test('#1889: the full shape contract for the background-agent wait reader', () =
     '✻ Waiting for 1 dynamic workflow to finish',
     '✻ Waiting for 1 background agent and 2 dynamic workflows to finish',
     '✻ Waiting for 3 background agents and 1 dynamic workflow to finish',
-    // every glyph the spinner rotates through
-    '· Waiting for 1 background agent to finish',
-    '✳ Waiting for 1 background agent to finish',
+    // NOTE: no other glyph is listed on purpose. This row's glyph is the fixed
+    // constant `✻` in the bundle, not the rotating spinner, so `·`/`✳`/`✶` are
+    // shapes the vendor cannot draw here and belong in NOT_WORKING below.
     // ungated siblings the vendor appends to the same Ink row
     '✻ Waiting for 1 background agent to finish · 3 messages hidden (/focus to show)',
     '✻ Waiting for 1 background agent to finish · 45.2k / 100k (45%)',

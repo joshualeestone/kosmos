@@ -1843,9 +1843,22 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    🛑 SPACES ARE `\s*`. `capturePane` passes `-J`, which joins a wrapped row with
    NO separator, so a space on the wrap boundary is gone (#1234). All seven are
    optional; two of them were not, and that was a silent `idle` on a narrow pane.
-   🛑 NO `*` IN THE GLYPH CLASS, though `WORKING_LINE` has it. That sibling can
-   afford it because an echo would need an ellipsis AND a live timer; this line
-   needs neither, so a markdown bullet would read as a working agent.
+   ⚠️ THAT COVERS ONE WRAP MODE, NOT BOTH, AND THE SIBLING COVERS THE OTHER. `-J`
+   rejoins a tmux-wrapped row; it does NOT rejoin a row Ink itself hard-wrapped
+   into two physical rows, which this `flexDirection="row" width="100%"` row does
+   on a narrow pane. `WORKING_LINE` carries `m` and `\s+` precisely so it still
+   matches across that; this reader is applied per row and cannot. Measured:
+   a break before `workflows to finish` reads `idle`; a break after `to finish`
+   still reads `working` because the suffix group absorbs it. Latent at 80
+   columns (the base line tops out near 66 chars) and live the moment a pane is
+   narrower or split -- the same latent-not-live caveat `capturePane` carries.
+   🛑 THE GLYPH IS THE SINGLE LITERAL `✻`, NOT A CLASS. This row's glyph is a
+   FIXED constant in the bundle (`iE="\u273B"`, drawn in its own `<Box
+   minWidth={2}>` beside the text); it is NOT the rotating spinner, whose frame
+   arrays belong to `WORKING_LINE`'s component. An earlier version borrowed
+   `WORKING_LINE`'s six-glyph class, which accepted five shapes the vendor cannot
+   draw and opened five prose/quotation entry points for nothing. `*` in
+   particular made an ordinary markdown bullet read as a working agent.
    🛑 NO `m` FLAG, so `^` means start of input and the constant is per-row by
    construction. With `m` plus `\s*` it spans rows.
    🛑 DO NOT WIDEN TO A BARE `Waiting for …`. The bundle carries many such strings
@@ -1861,12 +1874,15 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
 
    📌 A STATIC GREP COULD NOT HAVE FOUND THIS LINE: the counts are interpolated,
    so the literal is nowhere in the bundle. Found only by capturing a live pane.
-   📌 The strongest UNHANDLED sibling: the same schema carries
-   `pendingWorkflowCount`, so a workflow-only render is plausible and unobserved.
+   📌 The workflow counter IS handled (the `dynamic\s*workflows?` arm above), which
+   the comments below this constant once denied. It was derived from the bundle's
+   render JSX rather than from a live capture, which is weaker evidence than this
+   file's own rule asks for, and it is recorded as such rather than as an
+   observation.
    📌 History, corrections, and the measurements behind every number above:
    `.claude/plans/panefixtures-1889.md`. */
 const BACKGROUND_AGENT_WAIT =
-  /^\s*[·✢✳✶✻✽]\s*Waiting\s*for\s*.*(?:background\s*agents?|dynamic\s*workflows?).*to\s*finish(?:\s*·[^\n]*)?\s*$/u;
+  /^\s*✻\s*Waiting\s*for\s*.*(?:background\s*agents?|dynamic\s*workflows?).*to\s*finish(?:\s*·[^\n]*)?\s*$/u;
 
 /* #1889. How far above the COMPOSER ROW the wait line may sit and still be the
    live status line rather than a quotation.
@@ -1926,6 +1942,14 @@ const BACKGROUND_AGENT_WAIT_REACH = 12;
    ⚠️ `⏺` IS NOT THE DISCRIMINATOR AND MUST NOT BE USED AS ONE. `⏺` prefixes
    ordinary transcript bullets, which every pane has in quantity.
 
+   🛑 THE OPTIONAL `❯` PREFIX IS REQUIRED, NOT DECORATION. The footer draws its
+   SELECTED or hovered row as `figures.pointer + " "` then `figures.circle`, so a
+   selected background-agent row reads `❯ ◯ general-purpose …` and the circle is
+   no longer line-initial. Without the prefix this pattern missed exactly the row
+   a person had highlighted, and the agent read `idle` while working. Found by a
+   test written for the ANCHOR half of the same problem: the selected row broke
+   both the anchor and this pattern, and fixing only the anchor left it red.
+
    🛑 AND `◯` DOES NOT MEAN "RUNNING". Read from the bundle rather than inferred:
    it is `figures.circle`, used by the teammate/task list renderer as the
    NOT-CURRENTLY-VIEWED marker (`i6 ? vr : N.circle`, where `vr` is the very `⏺`
@@ -1949,7 +1973,7 @@ const BACKGROUND_AGENT_WAIT_REACH = 12;
    reader simply goes quiet, which is `origin/main`'s behaviour -- a miss, not a
    false calm. Losing a true positive is the acceptable direction here; claiming
    a finished agent is busy is not. */
-const LIVE_BACKGROUND_AGENT_ROW = /^\s*◯\s/mu;
+const LIVE_BACKGROUND_AGENT_ROW = /^\s*(?:❯\s*)?◯\s/mu;
 
 /**
  * The live background-agent wait line, or null.
@@ -1980,7 +2004,15 @@ function backgroundAgentWait(text) {
        way, which is why it has its own row in the test. */
     let anchor = -1;
     for (let j = i + 1; j <= last; j += 1) {
-      if (/^\s*❯/.test(rows[j])) anchor = j;
+      /* 🛑 `❯` IS NOT UNIQUE TO THE COMPOSER. The task footer draws its selected
+         or hovered row as `figures.pointer + " "` then `figures.circle`, i.e.
+         `❯ ◯ general-purpose …`, so a selected background-agent row would become
+         the anchor and cut the liveness slice ABOVE the very rows it needs.
+         Measured: selected -> `idle`, unselected -> `working` on the same
+         fixture. A miss rather than a false calm, but it falsifies the premise
+         that everything variable is drawn below the anchor. A composer row never
+         carries `◯`. */
+      if (/^\s*❯/.test(rows[j]) && !/◯/.test(rows[j])) anchor = j;
     }
     /* No composer on screen (a dialog replaces it) -> return null. A MISS, never
        a false calm. There is no fallback to the last row: an earlier comment said
@@ -2695,13 +2727,13 @@ function classify(pane, paneText) {
    * 📌 THE STRONGEST NAMED RISK IS NOT IN THAT LIST AND IS WORTH STATING FIRST.
    * The vendor's own `turn_duration` schema carries `pendingBackgroundAgentCount`
    * AND `pendingWorkflowCount` side by side, with a `describe()` saying the REPL
-   * renders one line from them. So a WORKFLOW sibling of this exact no-timer
-   * shape almost certainly renders and would still read `idle`. That is a
-   * specific, discoverable miss rather than a generic one, and it needs a live
-   * capture of a pending workflow to key on safely.
+   * renders one line from them. That workflow shape IS NOW HANDLED by the
+   * `dynamic\s*workflows?` arm, keyed from the render JSX rather than from a live
+   * capture. Weaker evidence than a capture, and recorded as such.
    *
-   * 🛑 SO THIS KEYS ONLY ON THE ONE SHAPE OBSERVED ON A REAL PANE. The others
-   * are a NAMED, UNRESOLVED RISK rather than a handled case: none has been seen
+   * 🛑 THIS KEYS ON THE TWO COUNTER PHRASES THE RENDER COMPOSES, and nothing
+   * else. Every OTHER `Waiting for …` string is a NAMED, UNRESOLVED RISK rather
+   * than a handled case: none has been seen
    * rendered, and this repo's standard is that a static string is a screen and
    * not the truth. Do not widen this without a live capture of the shape you are
    * widening it to, and route the human-blocked ones to NEEDS_YOU, never here.
