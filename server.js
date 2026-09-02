@@ -2289,6 +2289,12 @@ const server = http.createServer((req, res) => {
     if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
     const known = (() => { try { return accounts.list(); } catch { return []; } })();
     const account = accountForAgent(name, known);
+    /* 200 with ok:false, DELIBERATELY, and not the 404 the sibling /skills route
+       gives an unknown name. This route answers a "could we determine it" question
+       the way /api/whoami does (its own soft ok:false@200), not a "does the
+       resource exist" one: accountForAgent returns null when the agent has no
+       launch record, which is "we cannot tell", not "no such agent". Same
+       never-a-guessed-negative posture as checkLive below. */
     if (!account) { sendJson(res, 200, { ok: false, because: 'we could not tell which account this agent runs on' }); return; }
     const shape = { email: account.email, label: account.label, isDefault: account.isDefault === true };
     subscription.checkLive(account.isDefault ? undefined : { configDir: account.dir })

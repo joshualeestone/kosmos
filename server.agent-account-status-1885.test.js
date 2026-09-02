@@ -135,7 +135,6 @@ test('#1885: an agent on the LIVE default account reads connected, no remedy -- 
 });
 
 test('#1885: an unconfirmable sign-in is UNKNOWN (connected:null), never a guessed negative', async () => {
-  const prev = subscription.setRunner;
   subscription.setRunner(async () => { throw new Error('getaddrinfo ENOTFOUND'); });
   try {
     const r = await statusOf('aria');
