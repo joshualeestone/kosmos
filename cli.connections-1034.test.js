@@ -707,6 +707,9 @@ test('a board that accepts the connection and never answers gets the TIMEOUT sen
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
     const r = await kosmos(server.address().port, { KOSMOS_CONN_TIMEOUT: '1' });
+    /* The override set this deadline, so the sentence names it: a short value in
+       an agent's shell must not read as the board being slow. */
+    assert.match(r.out, /KOSMOS_CONN_TIMEOUT set the wait to 1s/, 'the override set the deadline and the sentence did not say so');
     assert.match(r.out, /took longer than we waited/,
       'a hanging board did not produce the timeout sentence');
     assert.doesNotMatch(r.out, /Kosmos did not answer/,

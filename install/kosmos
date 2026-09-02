@@ -696,40 +696,28 @@ cmd_connections() {
     exit 1
   fi
   local body
-  # ⏱ 40s, not 15. This route composes a LIVE per-account check for BOTH
-  # providers (a `claude auth status` subprocess per Claude account, and an
-  # authenticated request to api.openai.com per OpenAI account) plus THREE
-  # first-party doors. The OpenAI half was missing from this sentence too, and it
-  # is the one that depends on the network rather than on this machine, which is
-  # most of the reason 15s was not enough.
-  # 🛑 THREE requests leave the machine, not one. Cloudflare and
-  # the github device fallback each make an uncached authenticated call too
-  # (measured: `cache` appears zero times in either module). None is billed, so
-  # the money decision is unchanged; the timeout budget is about all three. (It used to be the
-  # whole door sweep; the metered token doors were dropped from this route as a
-  # money decision, so the budget is smaller than it was when 40s was chosen.
-  # Left at 40 deliberately: the cost that set it was the per-account subprocess
-  # sweep, which has not changed.) The arms run in
-  # parallel so the real cost is bounded near the slowest one, but 15s left no
-  # margin on a machine with several accounts and a slow network door.
-  # 🛑 `|| { ... }`, NOT `; rc=$?`. This script runs under `set -euo pipefail`
-  # (`set -euo pipefail` at the top of this file), and a failing command substitution in a plain assignment is a
-  # simple command: the shell EXITS THERE. An earlier version of this block wrote
-  # `body=$(curl ...); rc=$?`, which made BOTH sentences below unreachable --
-  # measured, with both arms: under `set -e` it printed nothing and exited with
-  # curl's raw code (7, 28, ...), and the same function with `set -e` removed
-  # printed the sentence. The success path still reached `rc=0`, which is why it
-  # looked fine. Every sibling verb (`cmd_msg`, `cmd_whoami`) uses this form.
-  # ⚠️ And no `2>&1`: folding curl's stderr into $body swallowed its own message
-  # as well, so a person got silence from both halves at once.
-  # ⭐ `2>/dev/null` is NOT the same mistake. (It is what ONE sibling uses:
-  # `cmd_msg`. `cmd_whoami` uses `2>&1`, which is the form the
-  # note above calls the mistake. "the sibling verbs use it" was true of one of
-  # the two this block names three lines up.)
-  # `2>&1` redirects INTO the variable, which is what ate the message. This
-  # DISCARDS it, so the reader gets our sentence instead of `curl: (28) Operation
-  # timed out` printed above it. Keeping both means the verb whose stated job is
-  # refusing machine vocabulary prints machine vocabulary first. The exit status
+  # ⏱ 40s. This route composes a LIVE per-account check for BOTH providers (a
+  # `claude auth status` subprocess per Claude account, an authenticated request
+  # to api.openai.com per OpenAI account) plus three first-party doors, of which
+  # the Cloudflare and github-device arms each make one uncached authenticated
+  # call. The arms run in parallel, so the real cost is bounded near the slowest
+  # one, but 15s left no margin on a machine with several accounts and a slow
+  # network door. The metered token doors are not swept by this route (a money
+  # decision recorded there), and the per-account subprocess sweep that set 40
+  # has not changed.
+  # 🛑 `|| { ... }`, NOT `; rc=$?`. This script runs under `set -euo pipefail`,
+  # and a failing command substitution in a plain assignment is a simple
+  # command: the shell EXITS THERE, before any `rc=$?`, so both sentences below
+  # would be unreachable (measured with both arms: the `; rc=$?` form printed
+  # nothing and exited with curl's raw code; with `set -e` removed it printed
+  # the sentence). `cmd_msg` and `cmd_whoami` use this form.
+  # ⚠️ And no `2>&1`: folding curl's stderr into $body swallows its own message,
+  # so a person gets silence from both halves at once. `2>/dev/null` (the form
+  # `cmd_msg` uses; `cmd_whoami` chooses `2>&1` for its own output) DISCARDS
+  # the message, so the reader gets our sentence instead of `curl: (28)
+  # Operation timed out` printed above it. Keeping both would mean the verb
+  # whose stated job is refusing machine vocabulary prints machine vocabulary
+  # first. The exit status
   # is what we branch on, and a redirect does not touch it.
   local rc
   # The deadline is overridable ONLY so a test can drive the rc-28 arm below.
@@ -743,10 +731,10 @@ cmd_connections() {
   # sentence below unreachable: the CLI would hang instead of saying so. A test
   # seam that can disable a production guard is not a seam, it is a hole.
   local deadline=40
-  # 🛑 COMPARED NUMERICALLY, NOT AS A STRING. An earlier version refused the
-  # literal "0" and any value containing a non-digit, and its comment claimed the
-  # hole was closed. It was not: "00" and "000" are digits-only and are not
-  # string-equal to "0", so they reached `curl -m 00`, which means NO TIMEOUT.
+  local _from_env=0
+  # 🛑 COMPARED NUMERICALLY, NOT AS A STRING. Refusing the literal "0" is not
+  # enough: "00" and "000" are digits-only and not string-equal to "0", and
+  # they reach `curl -m 00`, which means NO TIMEOUT.
   # Measured against a never-answering server: `-m 2` returns rc=28 in ~2s,
   # `-m 00` was still running after 6. `10#` forces base 10 so a leading zero is
   # not read as octal.
@@ -759,20 +747,20 @@ cmd_connections() {
        # Three significant digits cover the whole band; more is not a deadline.
        [ "${#_sig}" -le 3 ] || _sig=""
        local _t=$((10#${_sig:-0}))
-       # 🛑 A BAND, NOT JUST "> 0". An earlier version closed every spelling of
-       # zero and left the high side wide open: KOSMOS_CONN_TIMEOUT=999999 reached
+       # 🛑 A BAND, NOT JUST "> 0". Closing every spelling of zero leaves the
+       # high side wide open: KOSMOS_CONN_TIMEOUT=999999 reaches
        # `curl -m 999999`, about 11.5 days, which removes the ceiling exactly as
        # `-m 0` does and makes the timeout sentence below unreachable by the same
        # route. Same failure, opposite end, and the guard's own comment claimed to
        # prevent it. 300 is well past any honest local sweep and far short of a
        # hang. Anything outside the band keeps the 40s default.
        # ⚠️ ASSIGN THE VALUE THAT WAS VALIDATED, not the raw one. The band checks
-       # $_t (base-10 normalised) and an earlier version then assigned the RAW
-       # string, so the value tested and the value used were not the same thing:
+       # $_t (base-10 normalised); assigning the RAW string would make the value
+       # tested and the value used two different things:
        # a 22-digit "0000000000000000000005" passes the band as 5 and reached
        # `curl -m 0000000000000000000005`. Harmless with today's curl, and the
        # gap between checked and used is the part worth closing.
-       [ "$_t" -ge 1 ] && [ "$_t" -le 300 ] && deadline="$_t" ;;
+       [ "$_t" -ge 1 ] && [ "$_t" -le 300 ] && { deadline="$_t"; _from_env=1; } ;;
   esac
   # `-s` alone, not `-sS`: the comment above says stderr is discarded on purpose,
   # and `-S` exists solely to print errors there. Keeping both states an intent
@@ -783,7 +771,13 @@ cmd_connections() {
     # deadline blames the board for our impatience and sends the reader to the
     # wrong place.
     if [ "$rc" -eq 28 ]; then
-      say "Checking what is connected took longer than we waited. The board is running; try again, or open it at $URL"
+      # Name the override when it set the wait: a short KOSMOS_CONN_TIMEOUT in an
+      # agent's shell would otherwise read as the board being slow.
+      if [ "$_from_env" = 1 ]; then
+        say "Checking what is connected took longer than we waited (KOSMOS_CONN_TIMEOUT set the wait to ${deadline}s). The board is running; raise or unset it, or open it at $URL"
+      else
+        say "Checking what is connected took longer than we waited. The board is running; try again, or open it at $URL"
+      fi
     else
       say "Kosmos did not answer, so we cannot tell you what is connected on this computer."
     fi
@@ -794,16 +788,13 @@ cmd_connections() {
     # The runtime is how we PRINT the answer, not how we get it. Losing it
     # should cost formatting, not the answer, so the raw body goes out rather
     # than a locally-invented sentence. Same rule `whoami` states.
-    # Control characters stripped here too. The renderer below strips them because
-    # this output lands in the context window of an agent, and that argument does
-    # not stop applying just because the runtime is missing. The trade this path
-    # makes is losing FORMATTING, not the answer.
-    # ⚠️ NOT THE IDENTICAL CLASS, and the comment used to claim it was. `tr` is
-    # byte-oriented, so this strips C0 and DEL; the node renderer also strips C1
-    # (U+0080-U+009F), which is multi-byte in UTF-8 and cannot be expressed here.
-    # Practically negligible, and worth saying accurately rather than claiming the
-    # two paths give the same guarantee when one is narrower.
-    printf '%s\n' "$body" | tr -d '\000-\010\013\014\016-\037\177'
+    # Control characters become a space here too, the same form the node
+    # renderer uses, because this output lands in the context window of an
+    # agent and that argument does not stop applying because the runtime is
+    # missing. `tr` is byte-oriented, so this covers C0 and DEL; the renderer
+    # also covers C1 (U+0080-U+009F), which is multi-byte in UTF-8 and out of
+    # tr's reach. The trade this path makes is losing FORMATTING, not the answer.
+    printf '%s\n' "$body" | tr '\000-\010\013\014\016-\037\177' ' '
     # 🛑 THE STATUS STILL HAS TO BE HONEST. Printing the raw body when we cannot
     # format it is the stated trade above and stays. Reporting SUCCESS for a call
     # that FAILED is not part of that trade, and this was doing both: a board
@@ -964,9 +955,9 @@ cmd_connections() {
              counting it against the person is a settled negative about
              something nobody looked at. */
           var m = Number.isInteger(p.howManyReadable) ? p.howManyReadable : p.howMany;
-          /* ⚠️ THE ZERO CASE RETURNS EARLY RATHER THAN FALLING THROUGH. It used to
-             set `many = ""` and then meet an UNCONDITIONAL append below, so a board
-             reporting a negative `howManyReadable` re-armed the very text the zero
+          /* ⚠️ THE ZERO CASE RETURNS EARLY RATHER THAN FALLING THROUGH. Setting
+             `many = ""` and then meeting an unconditional append below lets a board
+             reporting a negative `howManyReadable` re-arm the very text the zero
              case exists to suppress. Unreachable from honest data (howMany === 0
              implies m === 0), but two lines encoding opposite intents is exactly
              what this block is here to prevent, and the next edit inherits it. */
@@ -980,8 +971,8 @@ cmd_connections() {
                the stated reason that the CLI does not control the board, so this
                was the odd omission rather than a new policy. */
             /* 🛑 CLAMP THE DENOMINATOR FIRST, THEN THE NUMERATOR AGAINST IT.
-               An earlier version of this comment said "clamp BOTH ends" and clamped
-               only `w`, leaving `m` free. Measured with a board answering
+               Clamping only `w` and leaving `m` free is not "both ends". Measured
+               with a board answering
                howManyReadable -1: ", 0 of -1 sign-ins working, 2 we could not
                check" - a NEGATIVE denominator, and an unchecked count larger than
                the total. The comment claimed coverage it did not have, which on
@@ -1196,8 +1187,8 @@ cmd_connections() {
 # sender is derived rather than named, so an agent cannot report AS SOMEBODY
 # ELSE BY ASKING TO. That is what makes the record evidence rather than typing.
 #
-# 🛑 THIS USED TO SAY "an agent can only ever report as itself", which reads as
-# unforgeable and is stronger than the code. A pane id is enumerable with
+# 🛑 NOT "an agent can only ever report as itself": that reads as unforgeable
+# and is stronger than the code. A pane id is enumerable with
 # `tmux list-panes` and the board has no auth, so a local process can pass
 # another agent's pane. The `/api/reply` comment has said so for a while; this
 # was the FIFTH copy of the old wording and the last one found (#570). It

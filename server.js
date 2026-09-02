@@ -225,16 +225,16 @@ const inflight = require('./engine/inflight');
  * a confident `not connected` - and the `ask()` wrapper below exists precisely to
  * keep those two apart.
  */
+/* One sentence, two routes. Written out twice, they drift apart in wording and
+   nobody notices because nothing keys on it. */
+const COULD_NOT_READ_CONNECTIONS = 'we could not read this computer\'s connections';
+
 /* Frozen because the result is SHARED: one in-flight sweep hands the same
    per-door object to the board shelf and to `/api/agent/connections`. The
    header on `readFirstPartyDoors` states that contract in prose; this is what
    makes it mechanical. A caller that annotates a door in place now fails in
    its own stack rather than corrupting an unrelated response, and only when
    two requests overlap - the shape that otherwise gets dismissed as a flake. */
-/* One sentence, two routes. Written out twice, they drift apart in wording and
-   nobody notices because nothing keys on it. */
-const COULD_NOT_READ_CONNECTIONS = 'we could not read this computer\'s connections';
-
 const askDoor = (fn) => Promise.resolve().then(fn).then(
   /* A held token whose service could not be reached is not "not connected":
      the door says so in its own words, and the shelf must not say nothing. */
@@ -4399,9 +4399,6 @@ const server = http.createServer((req, res) => {
        for headers it does set). In practice every browser that can run `fetch`
        sends one or the other, so the drive-by page is covered; a non-browser
        caller on this machine is not, and is not the thing being defended against.
-       ⚠️ Stated this way on purpose. An earlier version read as though the guard
-       closed the class outright, which would have let the next person skip a
-       check believing it was already handled.
 
        Placed before the HEAD short-circuit deliberately: a cross-site caller
        should not learn the route exists either, and a 403 is as cheap as the
@@ -4415,8 +4412,8 @@ const server = http.createServer((req, res) => {
     if (req.method === 'HEAD') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(); return; }
     /* Shared with the board's shelf via `readFirstPartyDoors`, so two agents
        asking at once cost ONE sweep, and so a change to the github fallback
-       cannot land on one caller and miss the other. This route used to build
-       its own copy; see that function's header for why the copy was the bug. */
+       cannot land on one caller and miss the other. See that function's header
+       for why a private copy was the bug. */
     /* The names the agent view is allowed to print, resolved HERE where the
        doors are known, so the boundary never has to derive a name from a key
        it was handed. `tokendoors.routes()` returns `/api/svc/<slug>`, which is
@@ -4431,7 +4428,6 @@ const server = http.createServer((req, res) => {
        ⚠️ THIS ROUTE IS NOT. It is called by AGENTS, and this branch splices
        "run `<cli> connections`" into every agent's instructions, so the polling loop the
        original comment said to add a cache "if" is the loop this same diff recruits for.
-       An earlier version named that hazard precisely and then shipped no mitigation.
        ⭐ AND THE DECIDING POINT IS THAT THE COST BUYS NOTHING THIS CARD NEEDS: the card
        exists so an agent can help somebody connect Claude or GPT. The token doors are
        incidental to that, so the whole third-party bill was being paid for data the
@@ -4452,12 +4448,10 @@ const server = http.createServer((req, res) => {
        ⚠️ The money half was the token doors, closed above. What was left was
        first-party and unmetered, and correctness about readability outranks a
        subprocess sweep, so the remaining stampede was accepted and filed as #1618.
-       ✅ #1618 HAS SINCE SHIPPED, and the design it chose is the one this paragraph
-       named as most promising: collapse concurrent in-flight requests, with no time
-       window at all. It is `engine/inflight.js`, and this route now goes through
-       `readFirstPartyDoors` with the board's shelf rather than sweeping its own copy.
-       📌 So the conclusion above is unchanged and only its status moved: a CACHE is
-       still refused here, forever, for the reason given; the STAMPEDE is closed.
+       #1618 shipped as `engine/inflight.js`: concurrent in-flight requests
+       collapse, with no time window, and this route goes through
+       `readFirstPartyDoors` with the board's shelf. A CACHE is still refused
+       here, for the reason given; the STAMPEDE is closed.
        🛑 WHAT `collapse` DOES NOT BOUND, DECIDED RATHER THAN LEFT OPEN. It shares
        CONCURRENT callers. It does nothing about a SERIAL poll: ten calls one after
        another are ten sweeps, and this same branch splices "run `<cli> connections`"
@@ -4484,11 +4478,8 @@ const server = http.createServer((req, res) => {
        no verdict, so it cannot turn `cannot tell` into a confident `not connected`,
        and the age travels with the answer so nothing is presented as fresher than
        it is. That shape was not weighed when this decision was made.
-       🛑 THAT WORK IS NOW DONE: `engine/inflight.minInterval` shipped in #1646 and
-       is one require away. An earlier version of this paragraph said the decision
-       "stands only because the work is not done", and that sentence went false the
-       moment #1646 merged, WHILE THIS ROUTE STILL DID NOT WIRE IT.
-       ⇒ SO THE HONEST STATUS IS: deliberately not wired HERE, not blocked. Wiring
+       `engine/inflight.minInterval` shipped in #1646 and is one require away.
+       STATUS: deliberately not wired HERE, not blocked, tracked as #1645. Wiring
        it is user-visible (the CLI has to say the age in words a person reads), and
        this branch is deep enough in review that the newest code is where defects
        have been landing. It goes in a follow-up the day this merges, and the

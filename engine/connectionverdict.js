@@ -42,10 +42,9 @@
  * supplies. Resolving THROUGH an allowlist does not make the resolved value
  * stop being input, and an earlier comment here implied it did. It is safe
  * because `server.js` builds that map from THREE LITERALS AND NOTHING ELSE --
- * so the guarantee lives at the call site. (It used to add
- * `tokendoors.routes()`; the token doors were dropped from the agent view as a
- * money decision, and this sentence outlived them by one iteration. The map is
- * now NARROWER than the comment claimed, so the drift was in the safe direction
+ * so the guarantee lives at the call site. (The token doors are not in that
+ * map: they were dropped from the agent view as a money decision, recorded at
+ * the route. A map NARROWER than this sentence claims is the safe direction
  * -- which is exactly why nothing caught it, and why it is worth fixing in a
  * branch whose subject is comments that stop matching their code.) **Anyone passing a `doorNames` built from
  * anything a person or a request can influence breaks this module's rule**, and
@@ -121,6 +120,10 @@ const BUSY_PHASES = [
  * blind: a settled negative ends the search at exactly the moment somebody is
  * trying to find the thing.
  */
+/* A row with no `connection` field at all (an `accounts.list()` row rather
+   than a `listLive()` one) reads as unknown: the safe direction, and the reason
+   a caller feeding list() sees every provider as `cannot tell` rather than an
+   error. */
 function stateOf(rows) {
   if (!Array.isArray(rows) || !rows.length) return subscription.STATE.NONE;
   let sawUnknown = false;
@@ -223,13 +226,11 @@ function serviceView(doors, allowed) {
   const out = [];
   if (!doors || typeof doors !== 'object') return out;
   /**
-   * 🛑 THE NAME IS RESOLVED, NOT DERIVED FROM THE KEY. Stripping `/api/` off the
-   * input key put the caller's string straight into the output, which breaks
-   * this module's one rule and is invisible to a leak test that plants into
-   * door VALUES only. Keys are ours today; the rule is that nothing from the
-   * input travels, and a key is input.
-   * ⚠️ It also fixes a second thing: `tokendoors.routes()` returns
-   * `/api/svc/<slug>`, so the old strip printed `svc/discord` to a person.
+   * 🛑 THE NAME IS RESOLVED, NOT DERIVED FROM THE KEY. Nothing from the input
+   * travels, and a key is input: a strip-the-prefix rule would put the caller's
+   * string straight into the output, invisibly to a leak test that plants into
+   * door VALUES only, and would print `svc/discord` for a `/api/svc/<slug>`
+   * route.
    */
   const names = allowed && typeof allowed === 'object' ? allowed : {};
   /* Sorted by the name a person READS, not by the route key. Key order looks
@@ -306,9 +307,9 @@ function serviceView(doors, allowed) {
    hand-listed: anything in the enum that is neither in flight nor one of the two
    resting states is a stopped one, so a new terminal phase upstream is covered
    here without an edit.
-   ⚠️ `PHASES` IS EXACTLY `connect.PHASE` AND DOES NOT CONTAIN `unknown`. An
-   earlier version of this comment claimed it did, and excluded `'unknown'` below
-   on that basis: a no-op that read as load-bearing. `unknown` is this module's
+   ⚠️ `PHASES` IS EXACTLY `connect.PHASE` AND DOES NOT CONTAIN `unknown`, so
+   excluding `'unknown'` below would be a no-op that reads as load-bearing.
+   `unknown` is this module's
    own word, produced by signinView when the phase is unrecognised, so it can
    never appear in the enum being filtered here. Measured: PHASES.includes(
    'unknown') === false, which is also why the leak test has to add the literal
@@ -345,11 +346,11 @@ function forAgent(raw) {
        pasted OpenAI key. Asking "is ANYTHING connected?" means a machine with GPT
        connected and Claude genuinely stuck RIGHT NOW has its true `stuck` rewritten
        to `unknown` before any consumer can see it.
-       ⚠️ install/kosmos ALREADY FIXED EXACTLY THIS at its own layer, in those words.
-       An earlier version of this line used `.some(...)` and reintroduced it HERE,
-       where the CLI's correctly-scoped check cannot recover it: the server rewrites
-       the phase first, so the renderer never sees the truth to protect. Moving a
-       rule inward is only safe if its SCOPE moves with it.
+       ⚠️ install/kosmos guards EXACTLY THIS at its own layer, in those words, and
+       a `.some(...)` here would reintroduce it where the CLI's correctly-scoped
+       check cannot recover it: the server rewrites the phase first, so the
+       renderer never sees the truth to protect. Moving a rule inward is only
+       safe if its SCOPE moves with it.
        ⇒ AND IT IS DERIVED FROM THE BUILT PROVIDER ROW, not recomputed from the
        accounts. Asking `.some(...)` here answered "is Claude connected" a SECOND
        time by a SECOND rule: providerView honours `unreadable`, that pass did

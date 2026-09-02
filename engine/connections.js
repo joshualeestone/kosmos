@@ -88,8 +88,8 @@ const WROTE_WHY = 'Kosmos told it how connecting a provider works';
  * `blockBody` deliberately takes no argument (a test asserts `length === 0`), so
  * the seam goes here rather than there.
  *
- * ⚠️ THREE FAILURE MODES, NOT ONE. An earlier version covered only a missing
- * path. The other two are measured facts of this codebase: the board may not be
+ * ⚠️ THREE FAILURE MODES, NOT ONE. A missing path is the obvious one; the other
+ * two are measured facts of this codebase: the board may not be
  * RUNNING (the CLI answers exit 1), and the installed copy may be OLDER than the
  * verb (a usage line and exit 2, recorded in this file's own header). An agent
  * hitting either got a non-zero exit and no next step.
@@ -228,7 +228,7 @@ function tellAgent(sessionName, roster, opts) {
         because: `its instructions contain ${found.pairs} Kosmos connections blocks, so we cannot tell which is ours and did not change anything`,
       };
     }
-    const next = projects.spliceBlock(current.text || '', blockBody(), START, END);
+    const next = projects.spliceBlock(current.text || '', (opts && opts.body) || blockBody(), START, END);
     /* Unchanged is TOLD, not a failure: the block already says this, which is
        the common case on every sync after the first. */
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null };
@@ -251,9 +251,12 @@ function syncEveryone(roster) {
     return [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not check which agents are running' }];
   }
   const told = [];
+  /* Resolved once per sweep, not once per agent: the CLI path is constant
+     across the loop, and this runs at every board boot since #1650. */
+  const body = blockBody();
   for (const a of roster) {
     if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
-    told.push({ agent: a.sessionName, ...tellAgent(a.sessionName, roster) });
+    told.push({ agent: a.sessionName, ...tellAgent(a.sessionName, roster, { body }) });
   }
   return told;
 }
