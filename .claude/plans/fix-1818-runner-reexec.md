@@ -1,0 +1,76 @@
+# #1818 — Runner mid-run-edit immunity + loud cut-short
+
+## Problem (from the card)
+
+`tools/browser-checks.sh` freezes a detached worktree and reassigns `REPO` so the
+CHECKS read immutable code. But bash keeps reading the RUNNER SCRIPT ITSELF from
+the mutable `$0`. Editing `tools/browser-checks.sh` mid-run corrupts bash's
+incremental read and kills the gate with a syntax error on an innocent line. And
+because it dies before the summary, it leaves no `FAILED:` line and no run-log
+entry, so a reader grepping for FAIL reads the dead run as green
+(`a-killed-suite-prints-a-passing-tally` shape).
+
+The existing freeze protects the CHECKS, not the RUNNER: it moves where checks
+read code from; it cannot move the file bash is already reading as its script.
+
+## Decision
+
+**Option 1 (primary): re-exec the runner from the frozen copy.** After freezing,
+the parent re-execs `bash "$FREEZE_BUILD/tools/browser-checks.sh"` so the file
+bash executes lives on an immutable path nobody edits. The whole class disappears.
+
+- The parent must survive to thaw the worktree, so it does NOT `exec`; the child
+  is a subprocess and the wait+thaw+exit is wrapped in a function on purpose:
+  bash parses a function body in full before the call, then runs it from memory,
+  so once the long child run is underway the parent reads nothing further from the
+  mutable source. Inlining those trailing lines (`$?`, thaw, exit) would
+  reintroduce the very bug, because bash would read them from the mutable file
+  after the child returns.
+- The child skips the cut-guard refuse check (`KOSMOS_BC_FROZEN_RUNNER`): the
+  parent stays alive as a live page layer it already cleared, and parent + child
+  carry different run cookies, so the child would otherwise refuse itself.
+- The child takes the existing detached-HEAD branch (frozen worktrees are
+  detached) so it does not freeze again — the flag guard makes that explicit and
+  prevents any re-exec loop.
+
+**Option 2 (defense-in-depth): a completion sentinel.** `CHECKS_STARTED` /
+`RUN_COMPLETED` gate a cleanup banner + run-log entry so a run that dies after the
+checks begin but before the summary is LOUD, not silently green.
+
+## Rejected alternatives
+
+- **Self-snapshot the runner to /tmp and `exec` from there.** Rejected: `REPO` is
+  derived from `dirname $0/..`, so a /tmp copy breaks REPO (checks would read
+  /tmp). The git freeze already produces a full tree whose `tools/browser-checks.sh`
+  sits at a valid repo root, so re-execing from the frozen copy keeps REPO correct.
+- **Option 2 alone.** Rejected as insufficient: it makes the death loud but does
+  not prevent it. Option 1 removes the class; option 2 is the backstop for
+  kill/OOM that option 1 cannot address.
+
+## Coverage boundary (stated honestly)
+
+The sentinel fires whenever bash runs its EXIT trap: the syntax-error death (the
+actual #1818 incident — bash exits itself), other error exits, and SIGTERM
+(measured: EXIT trap fires). It does NOT fire on SIGKILL (uncatchable), which is
+how the OOM killer terminates. Option 1 already removes the edit-induced death,
+which was the incident; the residual SIGKILL/OOM case is named, not claimed
+covered.
+
+## Weakest premise
+
+The card reproduced the bug's SYMPTOM (a syntax error) with a control; my synthetic
+harness could not force bash 3.2 to re-read a particular file layout, so I proved the
+fix's GUARANTEE instead — deterministically — by hashing the running source
+(`BASH_SOURCE`): with the fix the running script lives on a separate, immutable path
+and its hash does not change under a mid-run in-place edit of the original; the
+control (no re-exec) runs from the mutable original and was demonstrably corrupted.
+The integration test confirms the real runner re-execs from the frozen path,
+thaws, and leaks nothing. What would strengthen it further: reproducing the exact
+syntax-error symptom against the real runner under a live gate — deferred because it
+requires the browser and a live gate, which the cut owns.
+
+## The release-cut path is unchanged
+
+release.sh invokes the runner from a detached worktree (no `KOSMOS_BC_FROZEN_RUNNER`),
+which takes the untouched else-branch: no re-exec, no double freeze. Zero change to
+the release path.
