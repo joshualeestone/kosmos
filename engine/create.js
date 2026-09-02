@@ -52,7 +52,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const codexupdate = require('./codexupdate');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, execFile } = require('node:child_process');
 const roles = require('./roles');
 const liveExec = require('./live-execution');
 const runners = require('./runners'); // #1616: one definition of runnable
@@ -1980,6 +1980,102 @@ function createdLog() {
   }).filter((e) => e && typeof e === 'object');
 }
 
+/* #1916: REAL liveness for a CLAUDE account. `claude auth status` (what
+   subscription.checkLive is built on) reports a STORED login, not a working
+   token -- proven in the field: a fully-expired OAuth token badged as "Signed
+   in", so #1903's create gate accepted a dead account and produced an agent that
+   401'd on its first turn. And #1315's `/v1/models` shape does NOT translate: a
+   Claude account is an OAuth SUBSCRIPTION token, not an API key, so that endpoint
+   would validate the wrong thing (false negatives on live accounts).
+
+   The only reliable validator for an OAuth subscription token is Claude Code's
+   OWN auth -- a real `claude -p` call. It costs a small model call, so it is used
+   ONLY here (the create gate, once per create), NEVER on the badge/poll (that is
+   driven from observed outcomes instead; separate card).
+
+   🛑 CLASSIFY BY OUTPUT CONTENT, NOT JUST EXIT CODE. A dead token can retry and
+   time out, printing its 401 before we kill it; the captured text still reads
+   dead. And ONLY A GENUINE AUTH FAILURE IS DEAD -- capacity/cost/network/rate all
+   FAIL OPEN (UNKNOWN). An account at its weekly cap is a live, paid, good sign-in
+   whose real call fails; refusing it would block the users using the product
+   hardest, the exact false negative this family must not ship (#1315, #1916).
+
+   ⚠️ CAPACITY MARKERS MUST NOT INCLUDE "Retrying": a dead-token 401 co-prints a
+   retry line (#874), so keying capacity on "Retrying" would fail a real dead
+   token open. Capacity is genuine usage/rate/overload only. */
+/* 🛑 SPECIFIC auth-failure strings ONLY -- NOT a bare "Please run /login". Since
+   this is tested before the exit-0 shortcut, a broad marker that a LIVE call
+   might print (an update/onboarding notice carrying "/login") would FALSE-REFUSE
+   a good account -- the false negative this family must never ship. Every
+   alternative here is a genuine dead-sign-in string from Claude Code 2.1.258 and
+   would not appear in a successful "reply ok" response. Ben's line
+   ("Please run /login · API Error: 401 OAuth access token has expired.") is
+   caught by "OAuth access token has expired", not by the remedy phrase. */
+const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|OAuth token revoked|Login expired|authentication_error|API Error:\s*401\s+Invalid API key/i;
+const CLAUDE_CAPACITY = /usage limit|reached your .{0,40}limit|\/usage-credits|rate[ _-]?limit|overloaded/i;
+
+let claudeProbe = null;
+/** Tests only: inject a fake `claude -p` probe returning {exitCode, out}. Own
+    seam, matching subscription.setRunner / openaiaccounts.setFetcher. */
+function setClaudeProbe(fn) { claudeProbe = typeof fn === 'function' ? fn : null; }
+
+function defaultClaudeProbe(configDir) {
+  return new Promise((resolve) => {
+    let bin; try { bin = runners.resolveBin('claude').bin; } catch { bin = null; }
+    if (!bin) { resolve({ exitCode: null, out: '' }); return; }
+    const env = { ...process.env };
+    if (configDir) env.CLAUDE_CONFIG_DIR = configDir; else delete env.CLAUDE_CONFIG_DIR;
+    // Overridable only so a test can drive the timeout/partial-output path
+    // quickly; unset in production, where 15s is the wait before a hung probe is
+    // killed and its partial output classified.
+    const t = Number(process.env.AGENT_WORKFORCE_CLAUDE_PROBE_TIMEOUT_MS);
+    const timeout = Number.isFinite(t) && t > 0 ? t : 15000;
+    /* 🛑 --strict-mcp-config ISOLATES THE PROBE FROM THE ACCOUNT'S MCP SERVERS.
+       In -p mode Claude Code otherwise initializes the account's configured MCP
+       connectors, and a connector whose OWN OAuth token is expired (a Google
+       Drive / Discord connector, say) prints auth diagnostics to stderr that we
+       would classify -- misreading a LIVE, paid account with one broken connector
+       as a dead sign-in and false-refusing the create. This flag uses only MCP
+       servers from --mcp-config (none given), ignoring all others, so the probe
+       measures the ACCOUNT's own auth and nothing else. */
+    execFile(bin, ['-p', '--strict-mcp-config', 'reply with the single word ok'],
+      { env, timeout, maxBuffer: 1 << 20, killSignal: 'SIGKILL' },
+      (err, stdout, stderr) => {
+        // On timeout, err.killed is true and partial stdout/stderr survive -- the
+        // 401 a retrying dead token printed is classified below, not discarded.
+        const out = String(stdout || '') + '\n' + String(stderr || '');
+        const exitCode = err ? (typeof err.code === 'number' ? err.code : 1) : 0;
+        resolve({ exitCode, out });
+      });
+  });
+}
+
+/**
+ * The live state of a CLAUDE account's OWN sign-in, via a real `claude -p`.
+ * Returns a subscription.STATE: CONNECTED (a real call succeeded), NONE (a
+ * positively-confirmed auth failure), or UNKNOWN (anything we cannot confirm is
+ * dead -- capacity, rate, overload, network, or an unrunnable claude).
+ */
+async function claudeAccountLive(configDir) {
+  const subscription = require('./subscription');
+  const run = claudeProbe || defaultClaudeProbe;
+  let res;
+  try { res = await run(configDir); } catch { return subscription.STATE.UNKNOWN; }
+  const text = String((res && res.out) || '');
+  const exit = res && typeof res.exitCode === 'number' ? res.exitCode : null;
+  /* CONTENT before EXIT CODE, the module's own doctrine (a status code is the
+     trap that has bitten this fleet repeatedly). Capacity first, so a live-but-
+     capped account whose 401-ish text also carries a usage/rate string fails
+     open rather than being called dead. Then a genuine auth failure is dead
+     REGARDLESS of exit code -- so a dead token that somehow exits 0 while
+     printing its 401 is still caught, not false-accepted by the exit-0 shortcut.
+     A clean exit 0 with neither marker (the "reply ok" response) is CONNECTED. */
+  if (CLAUDE_CAPACITY.test(text)) return subscription.STATE.UNKNOWN; // live but capped/overloaded
+  if (CLAUDE_DEAD_AUTH.test(text)) return subscription.STATE.NONE;   // positively dead
+  if (exit === 0) return subscription.STATE.CONNECTED;           // a real call went through cleanly
+  return subscription.STATE.UNKNOWN;                             // network/unrunnable/other
+}
+
 /**
  * Is the account a new agent would run on actually able to sign in? (#1903)
  *
@@ -2017,9 +2113,27 @@ async function accountConnectable({ provider, accountDir } = {}) {
   const prov = (provider !== undefined && provider !== null && String(provider) !== '') ? String(provider) : 'anthropic';
   if (prov !== 'anthropic' && prov !== 'openai') return { ok: true };
 
+  /* 🛑 THE FAIL-OPEN CLASS, NAMED (#1916) so the next fail-open guard added here
+     does not reproduce it. claudeAccountLive / openai.checkLive / *.list() return
+     a STATE or value for every ENVIRONMENTAL case (network, rate, usage cap,
+     overload, timeout, unrunnable) and do NOT throw for those. So a throw
+     reaching one of the catches below is OUR OWN CODE crashing -- a ReferenceError
+     already did exactly this and a silent `catch { return {ok:true} }` let the
+     gate accept dead accounts, indistinguishable from a restricted network. A
+     crash is a BROKEN GATE, not an unconfirmable account: it must be LOUD. This
+     still fails OPEN on purpose (a validator bug must not block every create),
+     but logs the crash distinctly so it is visible and can never impersonate
+     environmental uncertainty. The honest user-facing version ("we could not
+     check this account") is tracked on #1921, same shape as the badge's stale
+     state; the log is the right scope for the gate that has to ship now. */
+  const failOpen = (where, err) => {
+    console.error('#1916: account liveness precheck errored in ' + where + ' (failing open):', (err && err.stack) || err);
+    return { ok: true };
+  };
+
   if (prov === 'openai') {
     const openai = require('./openaiaccounts');
-    let list; try { list = openai.list(); } catch { return { ok: true }; }
+    let list; try { list = openai.list(); } catch (err) { return failOpen("openai.list", err); }
     const acct = dir ? list.find((a) => a.dir === path.resolve(dir)) : list.find((a) => a.isDefault);
     if (!acct) return { ok: true }; // unknown -> createAgentInner refuses
     /* 🛑 THE ONE HOME THE GATE AND THE AGENT WOULD DISAGREE ABOUT. A created
@@ -2032,7 +2146,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
        will not use. A labelled account carries an explicit dir and has no such
        ambiguity. */
     if (acct.isDefault && codexHomeOverridden()) return { ok: true };
-    let live; try { live = await openai.checkLive(acct.dir); } catch { return { ok: true }; }
+    let live; try { live = await openai.checkLive(acct.dir); } catch (err) { return failOpen("openai.checkLive", err); }
     if (live && live.state === NONE) {
       return { ok: false, because: `${acct.email || (acct.keyTail ? 'the OpenAI account ending ' + acct.keyTail : 'that OpenAI account')}'s sign-in is not working, so an agent created on it could not run. Add or re-enter its key on the Accounts screen first.` };
     }
@@ -2040,16 +2154,21 @@ async function accountConnectable({ provider, accountDir } = {}) {
   }
 
   const accountsMod = require('./accounts');
-  let list; try { list = accountsMod.list(); } catch { return { ok: true }; }
+  let list; try { list = accountsMod.list(); } catch (err) { return failOpen("accounts.list", err); }
   const acct = dir ? list.find((a) => a.dir === path.resolve(dir)) : list.find((a) => a.isDefault);
   if (!acct) return { ok: true }; // unknown -> createAgentInner refuses with REFUSE_ACCOUNT
-  /* Scoped exactly as accounts.listLive scopes it: the default with NO configDir
-     (so claude resolves the real ~/.claude.json, not the decoy inside ~/.claude),
-     a labelled dir by its path. */
-  let live;
-  try { live = await subscription.checkLive(acct.isDefault ? undefined : { configDir: acct.dir }); }
-  catch { return { ok: true }; }
-  if (live && live.state === NONE) {
+  /* 🛑 REAL liveness, NOT subscription.checkLive (#1916). checkLive is built on
+     `claude auth status`, which reports a STORED login and badges a fully-expired
+     OAuth token as "Signed in" -- so the first version of this gate accepted a
+     dead account. claudeAccountLive makes a real `claude -p` call, the only
+     reliable validator for an OAuth subscription token, and returns NONE only on
+     a genuine auth failure (capacity/rate/network all fail open). Scoped exactly
+     as before: the default with no configDir (true default), a labelled dir by
+     its path. */
+  let state;
+  try { state = await claudeAccountLive(acct.isDefault ? null : acct.dir); }
+  catch (err) { return failOpen("claudeAccountLive", err); }
+  if (state === NONE) {
     return {
       ok: false,
       because: `${acct.email || 'that account'}'s Claude sign-in is not working, so an agent created on it would not be able to run. Re-authenticate that account (run /login for it) before creating an agent on it.`,
@@ -3214,6 +3333,8 @@ module.exports = {
   codexHomeDir,
   createAgent,
   accountConnectable,
+  claudeAccountLive,
+  setClaudeProbe,
   binPaths,
   unusablePath,
   nameProblem,
