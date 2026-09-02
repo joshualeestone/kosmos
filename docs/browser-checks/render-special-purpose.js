@@ -121,5 +121,5 @@ function check(name, pass, detail) {
   const failed = results.filter((r) => !r.pass);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   console.log(`screenshots in ${SHOTS}`);
-  if (failed.length) { failed.forEach((f) => console.log('  - ' + f.name + '  ' + (f.detail || ''))); process.exit(1); }
+  if (failed.length) { failed.forEach((f) => console.log('  FAIL  ' + f.name + '  ' + (f.detail || ''))); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

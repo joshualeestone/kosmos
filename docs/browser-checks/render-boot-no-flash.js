@@ -90,7 +90,7 @@ async function arm(browser, label, firstRunPayload, expect) {
   }
   if (problems.length) {
     console.error('render-boot-no-flash FAIL:');
-    for (const p of problems) console.error('  ✗ ' + p);
+    for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
   console.log('render-boot-no-flash PASS: no agents-view flash on either arm; cover held through the gate and came down onto the right destination.');
