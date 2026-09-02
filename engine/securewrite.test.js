@@ -742,3 +742,30 @@ test('#1793: the reaper does not break the write it runs before', () => {
   assert.equal(fs.readFileSync(target, 'utf8'), 'THE-NEW-SECRET', 'the write did not land after the reap');
   assert.equal(fs.statSync(target).mode & 0o777, 0o600, 'the written secret is not private');
 });
+
+test('#1793 SAFETY: a same-pid temp from a DIFFERENT thread is LEFT (worker_threads)', () => {
+  /* 🛑 process.pid is SHARED across worker_threads. A live sibling worker mid-write
+     has OUR pid but its own threadId and STARTED. Without threadId in the identity,
+     the main thread reads it as "a prior run of us" and deletes a LIVE writer's temp
+     - the concurrent-writer race this reaper exists to avoid. The `t1` marks a thread
+     that is not this one (the suite runs on the main thread, threadId 0), so it must
+     be LEFT. Revert the identity to `started !== STARTED` (dropping the threadId
+     check) and this reddens. */
+  const dir = reapDir();
+  const sibling = path.join(dir, `sender-token.kosmos-${process.pid}-t1-${Date.now() - 1000}-1.tmp`);
+  fs.writeFileSync(sibling, 'A-LIVE-SIBLING-WORKERS-IN-FLIGHT-SECRET', { mode: 0o600 });
+  securewrite.writeSecret(path.join(dir, 'sender-token'), 'NEW', 0o600);
+  assert.equal(fs.existsSync(sibling), true,
+    'a same-pid temp from a DIFFERENT thread was deleted: a live worker\'s in-flight temp can be taken');
+});
+
+test('#1793: an OLD-format temp (no thread segment) from a prior run is still reaped', () => {
+  /* Back-compat: a temp a prior release wrote as `<file>.kosmos-<pid>-<started>-<seq>
+     .tmp` (no `t` segment) is read as thread 0. On the main thread that is us, so a
+     prior run's old-format temp is still reclaimed rather than leaking forever. */
+  const dir = reapDir();
+  const old = path.join(dir, `cf-token.kosmos-${process.pid}-1-9.tmp`);
+  fs.writeFileSync(old, 'OLD-FORMAT-STALE', { mode: 0o600 });
+  securewrite.writeSecret(path.join(dir, 'cf-token'), 'NEW', 0o600);
+  assert.equal(fs.existsSync(old), false, 'an old-format prior-run temp was not reaped, so it would leak forever');
+});

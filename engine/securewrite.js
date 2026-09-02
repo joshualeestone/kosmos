@@ -47,6 +47,12 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+/* `threadId` is 0 on the main thread and unique per thread within a process. It
+   is part of the reaper's identity because `process.pid` ALONE is shared across
+   worker_threads: two live threads share a pid but have their own module-level
+   STARTED, so pid+STARTED cannot tell a dead prior run from a live sibling. The
+   pair (pid, threadId) names exactly one live thread; see reapOrphanTemps. */
+const { threadId: THREAD } = require('node:worker_threads');
 
 /* ⚠️ A KNOWN RESIDUE, DOCUMENTED RATHER THAN SWEPT, because the sweep is worse.
    A process that dies between the `wx` create and the rename leaves
@@ -111,12 +117,18 @@ const path = require('node:path');
    nothing ever asks for that name again. */
 const STARTED = Date.now();
 let SEQ = 0;
-const tempPath = (target) => `${target}.kosmos-${process.pid}-${STARTED}-${++SEQ}.tmp`;
+/* The `t<threadId>` segment carries which thread wrote it (see the require above).
+   `t` is a literal so the segment cannot be confused with the numeric pid/started/
+   seq, which is what lets the reaper's regex accept both this form and the older
+   `pid-started-seq` form a prior release wrote. */
+const tempPath = (target) => `${target}.kosmos-${process.pid}-t${THREAD}-${STARTED}-${++SEQ}.tmp`;
 
-/* Anchored to the WHOLE name a temp can carry: `<anything>.kosmos-<pid>-<started>-
-   <seq>.tmp`. That suffix is unique to this module, so a match is by construction
-   one of our temps and never a credential file (those have no such suffix). */
-const TEMP_RE = /\.kosmos-(\d+)-(\d+)-\d+\.tmp$/;
+/* Anchored to the WHOLE name a temp can carry. The `t<threadId>` group is OPTIONAL
+   so a temp written by a prior release (`<file>.kosmos-<pid>-<started>-<seq>.tmp`,
+   no `t` segment) still matches and is treated as thread 0 (a prior release could
+   only have written from the main thread). That suffix is unique to this module, so
+   a match is by construction one of our temps and never a credential file. */
+const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
 
 /* Directories already swept this process, so the reap runs once per directory per
    process rather than on every write. Cleared by nothing: a process lives once. */
@@ -131,16 +143,22 @@ const reapedDirs = new Set();
  *
  * ✅ SAFE BECAUSE IT DELETES ONLY A TEMP IT CAN PROVE IS DEAD, never one that might
  * still be renamed into place. A temp is reaped iff:
- *   - its pid is OURS but its `started` is not THIS process's STARTED (a previous run
- *     of us reusing this pid after a restart - we are the only "us", so this is
- *     certainly stale), or
+ *   - it is from OUR (pid, threadId) but a different `started` - the current
+ *     (pid, threadId) thread is us with THIS STARTED, and (pid, threadId) names
+ *     exactly one thread, so a different STARTED for it can only be a prior process
+ *     that reused our pid; certainly dead, or
  *   - its pid is a FOREIGN process that is provably gone (`process.kill(pid,0)` throws
  *     ESRCH). EPERM means alive-but-not-ours, so we LEAVE it.
- * Our own current temps (pid === process.pid && started === STARTED) are skipped, so
- * an in-flight write of this process is never taken. A foreign LIVE pid is skipped, so
- * a concurrent writer's in-flight temp is never taken - the exact race a glob sweep
- * would have created. A reused-pid orphan (dead writer, its pid now a live stranger)
- * reads as alive and is LEFT, which errs toward inert litter over a wrong delete.
+ * 🛑 THE threadId IS LOAD-BEARING, NOT DECORATION. process.pid is SHARED across
+ * worker_threads, so without it a same-pid temp from a LIVE sibling thread (its own
+ * STARTED) reads as "a prior run of us" and gets deleted mid-write - the exact
+ * concurrent-writer race this reaper exists to avoid. With it, a same-pid temp whose
+ * threadId is NOT ours is left, because it may be a live sibling. (No worker_threads
+ * use exists in-tree today; this keeps the invariant true if one is ever added.)
+ * Our own current temps ((pid, threadId) ours && started === STARTED) are skipped, a
+ * foreign LIVE pid is skipped, and a reused-pid orphan (dead writer, its pid now a
+ * live stranger) reads alive and is LEFT - all erring toward inert litter over a
+ * wrong delete.
  *
  * ⚠️ BEST-EFFORT AND NEVER FATAL. A measurement/hardening pass must not break a write:
  * every fs call here is caught, and the caller runs whether or not this did anything.
@@ -154,11 +172,15 @@ function reapOrphanTemps(dir) {
     const m = TEMP_RE.exec(name);
     if (!m) continue;
     const pid = Number(m[1]);
-    const started = Number(m[2]);
+    /* No `t` segment (a prior release's temp) means the main thread wrote it. */
+    const tid = m[2] === undefined ? 0 : Number(m[2]);
+    const started = Number(m[3]);
     let stale;
     if (pid === process.pid) {
-      /* Only THIS run's temps are current; a different STARTED is a prior run of us. */
-      stale = started !== STARTED;
+      /* (pid, threadId) names one thread; ours has THIS STARTED. A temp claiming a
+         DIFFERENT thread of our pid may be a live sibling worker, so we leave it.
+         Only our own (pid, threadId) with a different STARTED is a certain prior run. */
+      stale = tid === THREAD && started !== STARTED;
     } else {
       /* A foreign pid: stale only if provably dead. `kill(pid,0)` succeeds (alive) or
          throws EPERM (alive, foreign owner) or ESRCH (no such process). A reused pid
