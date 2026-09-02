@@ -441,6 +441,15 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .dav-wrap { position: relative; width: 88px; height: 88px; flex: 0 0 88px; }
 .dav-wrap .detail-av { width: 88px; height: 88px; }
 .dav-wrap .membadge { top: 0; right: -8px; }
+/* #1915: the memory ring on the DETAIL avatar. It was on the board cards
+   (.agauge/ring) and the consolidated rows (.lring) but never on the agent's own
+   page, where a person actually looks; this puts the at-a-glance signal there, off
+   the same reading the MEMORY panel shows. The ring sits just outside the 88px
+   avatar (the pack allows the ring to extend past the avatar's box), on the shared
+   .gt/.gf colours and weight. First child of .dav-wrap so the avatar + membadge
+   stack above it. */
+.dring { position: absolute; inset: -6px; width: 100px; height: 100px; pointer-events: none; }
+.dring svg { width: 100px; height: 100px; display: block; }
 .dnamerow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 /* ⚠️ Beats `.astate`'s own `margin: 12px auto 0` on specificity (0,2,0 to
    0,1,0), which is what stops the badge dropping a line and centring itself
@@ -5980,6 +5989,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        gaps in the plan). -->
   <div class="dhead">
     <div class="dav-wrap">
+      <span class="dring" id="d-ring" aria-hidden="true"></span>
       <div class="detail-av">
         <img id="d-img" alt="" hidden>
         <div id="d-initials" class="detail-initials"></div>
@@ -11396,6 +11406,20 @@ function lrowRing(a) {
   return `<svg class="lring" viewBox="0 0 34 34" aria-hidden="true">
     <circle class="gt" cx="17" cy="17" r="${R}" fill="none" stroke-width="2.5"/>
     <circle class="gf ${band}" cx="17" cy="17" r="${R}" fill="none" stroke-width="2.5" stroke-dasharray="${(pct / 100) * C} ${C}" transform="rotate(-90 17 17)"/>
+  </svg>`;
+}
+/* #1915: the same memory ring for the DETAIL avatar, scaled to sit just outside the
+   88px avatar. Same reading (pctOf) and band (memBand) as the board rings and the
+   MEMORY panel, so all surfaces agree. Unknown (pct null) draws no ring, matching
+   lrowRing; the detail's .membadge (unk) and MEMORY panel carry the unknown case. */
+function detailRing(a) {
+  const pct = pctOf(a.context);
+  if (pct === null) return '';
+  const R = 47, C = 2 * Math.PI * R;
+  const band = memBand(pct);
+  return `<svg viewBox="0 0 100 100" aria-hidden="true">
+    <circle class="gt" cx="50" cy="50" r="${R}" fill="none" stroke-width="4"/>
+    <circle class="gf ${band}" cx="50" cy="50" r="${R}" fill="none" stroke-width="4" stroke-dasharray="${(pct / 100) * C} ${C}" transform="rotate(-90 50 50)"/>
   </svg>`;
 }
 function lrow(a) {
@@ -18111,6 +18135,7 @@ function openDetail(sessionName, section) {
   dbadge.className = 'membadge' + (dpct === null ? ' unk' : '');
   dbadge.textContent = memPrint(a.context, dpct);
   dbadge.hidden = !(dpct === null || dpct >= NEARLY_FULL);
+  document.getElementById('d-ring').innerHTML = detailRing(a);
   document.getElementById('d-memory').innerHTML = memoryBox(a);
   const drun = document.getElementById('d-runson');
   /* The design's one line: model and account together, "Claude Opus 5
