@@ -595,6 +595,13 @@ async function main() {
     ];
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     for (const row of seeded) fs.appendFileSync(logFile, JSON.stringify(row) + '\n');
+    /* #1703: give the room's agent a TITLE, so the title-beside-the-name render
+       has something to show. Seeded as a profile role (profileRole reads the
+       profile file live per request, so it lands before the room fetch below),
+       and the operator post keeps none -- "You" carries no title by design. */
+    const profDir = path.join(SANDBOX, 'data', 'AgentWorkforce', 'profiles');
+    fs.mkdirSync(profDir, { recursive: true });
+    fs.writeFileSync(path.join(profDir, agents[0] + '.json'), JSON.stringify({ role: 'Project manager' }));
     await shot('3b-room', async (page) => {
       await page.click('[data-project="hendersonlease"]');
       await page.waitForTimeout(800);
@@ -607,6 +614,22 @@ async function main() {
         return {
           rows: msgs.length,
           youNamed: you ? you.querySelector('.msg-h b').textContent : null,
+          /* #1703: the agent post shows its title, and "You" carries none. Read
+             the title text and its POSITION -- Josh asked for it after the name
+             and before the timestamp, so the render is measured on order, not
+             just presence. */
+          agentRole: (box.querySelector('.msg:not(.you) .msg-role') || {}).textContent || null,
+          agentRoleOrder: (() => {
+            const r = box.querySelector('.msg:not(.you) .msg-h .msg-role');
+            if (!r) return null;
+            const prev = r.previousElementSibling;
+            const next = r.nextElementSibling;
+            return {
+              afterName: !!(prev && prev.tagName === 'B'),
+              beforeTime: !!(next && next.classList.contains('msg-t')),
+            };
+          })(),
+          youHasRole: !!(you && you.querySelector('.msg-role')),
           /* The PRESENCE control for the absence claim below: the agent
              chip carries the disc's inline tint, so "the You chip has no
              inline style" is measured against a mechanism proven live,
@@ -623,6 +646,15 @@ async function main() {
       });
       if (!seen.visible || seen.rows !== 2) throw new Error('the room did not render its two posts: ' + JSON.stringify(seen));
       if (seen.youNamed !== 'You') throw new Error('the operator post is not attributed as You');
+      /* #1703: the agent's title renders beside its name, before the timestamp,
+         and the operator's own post carries none. */
+      if (!seen.agentRole || !/manager/i.test(seen.agentRole)) {
+        throw new Error('#1703: the agent post did not show its title (.msg-role) beside the name: ' + JSON.stringify(seen.agentRole));
+      }
+      if (!seen.agentRoleOrder || !seen.agentRoleOrder.afterName || !seen.agentRoleOrder.beforeTime) {
+        throw new Error('#1703: the title is not positioned after the name and before the timestamp: ' + JSON.stringify(seen.agentRoleOrder));
+      }
+      if (seen.youHasRole) throw new Error('#1703: the operator’s own post carries a title, but "You" is not an agent');
       if (seen.agentChipFromFaceSet !== true) throw new Error('the disc mechanism moved (no inline tint on an agent chip), so the You-chip check below cannot mean anything');
       if (seen.youChipFromFaceSet) throw new Error('the person\u2019s chip was drawn from the agent face set (an inline disc style)');
       if (!seen.receipt || !/could not be reached/.test(seen.receipt) || !/Placed with /.test(seen.receipt)) {
