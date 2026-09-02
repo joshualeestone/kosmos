@@ -1333,7 +1333,18 @@ trust_level = "trusted"
   let mode = 0o600;
   try { mode = fs.statSync(cfg).mode & 0o777; } catch { mode = 0o600; }
   try {
-    fs.writeFileSync(tmp, next);
+    /* 🛑 THE MODE ON CREATE, NOT ONLY AFTER (#1797). `writeFileSync(tmp, next)`
+       with no mode created the temp at the umask default (0644), and the
+       `chmodSync` below only closed that window a line later. The temp holds
+       the whole config -- trust entries, beside auth.json -- so for the moment
+       between the two calls the rewritten config sat world-readable at a
+       pid-named path. Passing the mode on create lands the temp private with no
+       window; the chmod stays as belt-and-suspenders (and is what re-asserts on
+       the rare path where the create mode is a no-op, the same reasoning as
+       securewrite's fchmod). Not routed through securewrite.js on purpose: that
+       is a Kosmos-secret writer whose "nothing legitimately symlinks this"
+       premise is false for the user's own config.toml. See #1797. */
+    fs.writeFileSync(tmp, next, { mode });
     fs.chmodSync(tmp, mode);
     fs.renameSync(tmp, cfg);
   } catch (e) {

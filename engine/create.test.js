@@ -4179,6 +4179,45 @@ test('#1414 CONTROL: the mode assertion can fail', () => {
   assert.notEqual(fs.statSync(cfg).mode & 0o777, 0o600);
 });
 
+test('#1797: the temp is created private, not merely tightened a line later', () => {
+  /* 🛑 #1414 above proves the END mode is 0600. It CANNOT see the window: the
+     original `writeFileSync(tmp, next)` created the temp at the umask default
+     and the `chmodSync` a line later closed it, so the whole config sat loose at
+     a pid-named path for the moment between the two calls. To isolate the CREATE
+     from the chmod, neutralize chmodSync and read the end mode: with the mode
+     passed on create the config is private; without it, the chmod being a no-op,
+     nothing tightens it. Same shape as securewrite's "the create mode is
+     load-bearing when the chmod is a no-op". Revert the `{ mode }` on the
+     writeFileSync and this goes red.
+     ⚠️ UMASK IS PINNED to 0022, deliberately: the window only exists under a
+     permissive umask (under 0077 a plain write already lands 0600 and the defect
+     cannot manifest), so pinning makes the discrimination deterministic on any
+     machine rather than depending on the runner's ambient umask. */
+  const dir = '/somewhere/workers/windowagent';
+  const home = codexCfgHome(`${TRUSTED(dir)}${TRUSTED('/somewhere/workers/keep')}`);
+  const cfg = nodePath.join(home, 'config.toml');
+  fs.chmodSync(cfg, 0o600);
+  assert.equal(fs.statSync(cfg).mode & 0o777, 0o600, 'the fixture must start private');
+
+  const realChmod = fs.chmodSync;
+  const realUmask = process.umask(0o022);
+  fs.chmodSync = () => {}; // a mount where chmod is a no-op: only the create mode survives
+  let got;
+  try {
+    /* CONTROL, in the same pinned-umask + no-op-chmod harness: a plain unmoded
+       write lands loose, so the harness can see the dangerous answer and the
+       assertion below is not vacuous. */
+    const probe = nodePath.join(home, 'probe.toml');
+    fs.writeFileSync(probe, 'x');
+    assert.equal(fs.statSync(probe).mode & 0o777, 0o644,
+      'the harness cannot see a loose write, so this proves nothing about the config below');
+    got = create.forgetCodexFolder(dir, home);
+  } finally { fs.chmodSync = realChmod; process.umask(realUmask); }
+  assert.equal(got.removed, true, 'it has to rewrite the file, or the create mode was never exercised');
+  assert.equal(fs.statSync(cfg).mode & 0o777, 0o600,
+    'with the chmod neutralized the config came out loose, so the temp was created world-readable and only the chmod was hiding it');
+});
+
 test('#1414 PRECISION: removing one agent must not remove a PREFIX-NAMED sibling', () => {
   /* 🔑 THE THIRD ARM (Renet Tilley, 2026-08-28): a control proves an instrument
      is NOT DEAD; it cannot prove it is NOT OVER-EAGER. The two arms above test
