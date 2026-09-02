@@ -294,4 +294,6 @@ test('#1710: the armed disconnect state has a visual rule that reads as danger',
   assert.ok(m, 'the .acct-disconnect.armed CSS rule is gone; the destructive confirm would paint nothing again');
   assert.match(m[1], /var\(--danger/,
     'the armed rule dropped its danger colour; the most destructive of the three arm controls must read as danger');
+  assert.match(m[1], /font-weight:\s*([6-9]\d\d|bold)/,
+    'the armed rule dropped its weight bump; the armed cue is colour AND weight, matching the .found-dismiss.armed sibling');
 });
