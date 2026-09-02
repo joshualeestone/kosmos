@@ -200,9 +200,9 @@ const REPO = __dirname;
  * (`engine/create.js` in `setProvider`, `installJob` and `createAgentInner`, and
  * `engine/openaiaccounts.js`, plus a tmux gate in a browser-check driver) until #1616
  * closed them: every one of those sites now asks `runners.isRunnable`, and
- * EXISTS_ON_BIN below sweeps for the spelling so it cannot come back unseen. That
- * matcher is keyed on the NAMES this repo gives runner paths, not on every
- * `existsSync`, and its own gap is disclosed at its definition.
+ * EXISTS_ON_BIN below sweeps for the spelling so the KNOWN spellings cannot come back
+ * unseen. That matcher is keyed on the NAMES this repo gives runner paths, not on
+ * every `existsSync`, and the spellings it cannot see are listed at its definition.
  *   ⇒ A GENERAL presence-check sweep is still excluded by design: it would return
  *   hundreds of legitimate `existsSync` calls that have nothing to do with
  *   runnability, and the set would stop being a list somebody can audit.
@@ -281,7 +281,8 @@ const WEAK_CALL_ALL = new RegExp(WEAK_CALL.source, 'g');
    A guard keyed on a literal cannot enforce a property; this one enforces the
    literals that were live on 2026-08-30 and leaves the
    behavioural arms (create.runner-dir-1616.test.js) to enforce the property. */
-const EXISTS_ON_BIN = /\bexistsSync\s*\(\s*(?:[A-Za-z_$][\w$]*\.)?(?:runnerBin|codexBin|claudeBin|tmuxBin|bin|tmux|claude|codex)\s*\)/;
+const RUNNER_NAMES = 'runnerBin|codexBin|claudeBin|tmuxBin|bin|tmux|claude|codex';
+const EXISTS_ON_BIN = new RegExp('\\bexistsSync\\s*\\(\\s*(?:[A-Za-z_$][\\w$]*\\.)?(?:' + RUNNER_NAMES + ')\\s*\\)');
 const EXISTS_ON_BIN_ALL = new RegExp(EXISTS_ON_BIN.source, 'g');
 
 /** Every non-test .js file in the repo, relative to REPO. */

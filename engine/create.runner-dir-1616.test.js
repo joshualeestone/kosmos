@@ -160,10 +160,10 @@ test('#1616 installJob refuses a directory or a stripped file at the runner path
       label + ': wrong refusal from installJob: ' + r.because);
   }
   const ok = create.installJob(name, { claudeBin: realBin, tmuxBin: realBin, codexBin: '/nonexistent-codex' });
-  /* Same weaker shape as the OpenAI control: installJob can still refuse further on
-     (the supervisor, the run gate), so this proves only that the runner gate passed. */
-  assert.ok(!/could not find Claude/.test(String(ok.because || '')),
-    'a real executable was refused by installJob as missing: ' + ok.because);
+  /* Measured under this fixture: a real executable reaches ok:true, started:true (the
+     recording runner answers the start), so the control asserts the whole job rather
+     than only the absence of one sentence. */
+  assert.equal(ok.ok, true, 'a real executable did not get installJob to a job: ' + ok.because);
 });
 
 test('#1616 addWithKey refuses a directory or a stripped file at the codex path with the shared sentence', () => {
