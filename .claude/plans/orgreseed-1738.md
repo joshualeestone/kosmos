@@ -23,8 +23,12 @@ The bug is rendered STATE, in orgLiveStart:
 - reduced motion means do NOT ANIMATE, not do not LAY OUT. New orgLiveSettle()
   runs the same relaxation orgLiveRun animates, synchronously and bounded
   (ORG_SETTLE_STEPS, no requestAnimationFrame) - no motion, but a settled layout.
-- fresh-seed from orgPlace when the fleet changed (sameFleet check), instead of
-  from stale ORG_POS. Same-fleet repaints still seed from ORG_POS (no snap-back).
+- (Considered and DROPPED per blind review: a fresh-seed-on-fleet-change gate.
+  It was all-or-nothing, so it re-animated the whole motion-path chart on any
+  membership change - a behaviour change beyond the reduced-motion fix - and it
+  was redundant: the settle (reduced-motion) and orgLiveRun (motion) both
+  converge from ANY seed, so the stale seed only affects the transient
+  animation, not the final layout. Kept per-key ORG_POS seeding unchanged.)
 
 ## Verification
 
