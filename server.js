@@ -5134,9 +5134,11 @@ const server = http.createServer((req, res) => {
              scope the default this way and say why; this route did not, which is
              the asymmetry the card is about. Omitting it lets the CLI use its own
              default resolution, which is what finds the real account. */
-          const targetDir = known.isDefault ? null : known.dir;
           return connect.start({
-            ...(targetDir ? { configDir: targetDir } : {}),
+            configDir: known.isDefault ? null : known.dir,
+            /* #1922: this press names an account, so it outranks the live check
+               rather than being gated by it. See connect.start's early exit. */
+            reauth: true,
             requireInstallConfirm: true,
             installConfirmed,
           });

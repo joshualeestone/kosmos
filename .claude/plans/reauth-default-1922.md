@@ -155,9 +155,24 @@ And `subscription.js:393` maps `parsed.loggedIn === true` straight to `CONNECTED
 measured that `claude auth status` reports `loggedIn: true` for a dead token. ⇒ **After this fix,
 "Sign in again" on that machine can answer "connected" instantly and do nothing.**
 
-**Pre-fix the default row always fell through**, because its scoped read hit the missing decoy. **So
-this is a behaviour change this branch introduced**, converging the default row onto the same #1560
-gate every labelled row already sits behind. Defensible, and it was unstated.
+🛑 **I WROTE "pre-fix the default row ALWAYS fell through, because its scoped read hit the missing
+decoy". BOTH HALVES WERE WRONG.**
+
+1. **Wrong mechanism.** `subscription.check({configDir})` resolves through `accounts.configFile()`
+   (`subscription.js:123-124`), which special-cases the default to `<HOME>/.claude.json` -- **the
+   REAL file, not the decoy.** It is `checkLive({configDir})` that exports `CLAUDE_CONFIG_DIR` and
+   therefore reaches the decoy. I attributed the decoy read to the wrong function.
+2. **"Always" is unestablished, and this plan contradicts it two sections down.** A decoy holding a
+   live login makes pre-fix `checkLive` answer CONNECTED and take the same early exit -- and the decoy
+   on this Mac is 51KB and freshly written, which is exactly the state that would do that.
+
+⇒ **The honest statement: pre-fix behaviour is MACHINE-DEPENDENT, and neither pre- nor post-fix
+behaviour on the reporter's machine has been measured.** So "a behaviour change this branch
+introduced" is conditional, not established.
+
+⭐ **Note the direction of the error: an unqualified universal, derived from one machine's state, in
+the same document that elsewhere refuses to claim that state.** It would have led a maintainer to
+size the change wrongly, in the direction of closing a question.
 
 ⭐ **THE CONSEQUENCE FOR TRIAGE, AND IT IS THE IMPORTANT PART: #1922 IS NECESSARY BUT NOT SUFFICIENT.
 The write path is fixed here; the person still cannot recover until the credulous check (#1916) is
@@ -193,11 +208,19 @@ env sh -c ...            (control)   -> /tmp/leaky     <- the inheritance
 📌 **This also repairs the plain first-sign-in path**, which has carried the same exposure since it
 was written and which my change did not touch.
 
-⚠️ **AND IT IS UNGUARDED BY A TEST, STATED PLAINLY.** Both harnesses
-(`server.connect.test.js:40`, `engine/connect.test.js:27`) SET the seam, so `launchDir` is always
-truthy and the new `else` branch never executes in either suite. **Guarding it means unsetting a seam
-the whole file depends on.** The evidence for it is the shell control above plus the read-side
-precedent -- weaker than a passing arm, and named as such rather than left to be discovered.
+🛑 **I CALLED THIS UNGUARDABLE AND IT WAS NOT. THE GUARD EXISTS NOW.** Both harnesses SET the seam,
+so `launchDir` is always truthy and the `else` branch never fires -- and I concluded a test would
+have to remove that seam. **Wrong observation point, not an absent one:** `engine/connect.test.js`
+already intercepts the tmux runner, so the launch ARGV is directly observable without touching the
+seam at all.
+
+⭐ **The general form, and it is the most reusable thing on this branch: when a test looks
+unguardable, ask whether you are trying to DELETE A CONDITION when you could be OBSERVING AN EFFECT.
+"Unguardable" is very often "I picked the harder observation point."**
+
+✅ Two arms in `engine/connect.test.js`, both proven by mutation: removing the `-u` push reddens the
+DEFAULT arm while the LABELLED control stays green (and the control would red if `-u` were pushed
+unconditionally, which would strip a labelled account's own dir).
 
 ### The third WARNING: my arms measured less than they read as
 
@@ -218,3 +241,74 @@ more than the assertion covered.** Fixed by the `setRunner` change above.
   back clean:** every other place that turns an account into a `configDir` already scopes the default.
   **There is no second instance of this defect in the tree.** That was my largest open question and I
   did not have to run it myself.
+
+## Findings from challenge-loop iteration 2
+
+**Four WARNINGs, two NITs, no BLOCKER.** The reviewer measured rather than read: it perturbed the
+#1560 guard to confirm my `phase` assertion was not vacuous, drove the `-u` change through the REAL
+tmux on this machine to confirm the leak and the fix, and independently ran the second-instance sweep.
+
+### ⭐ THE BEST FINDING REPLACED THE FIX I WAS ABOUT TO BUILD, AND IT IS CHEAPER
+
+Splinter, Angel and I had all converged on the same next step: wire `claudeAccountLive` into the
+#1560 early exit so the gate does a real validation. **The reviewer proposed something narrower and
+better:**
+
+> an explicit `accountDir` press is a positive statement of intent that a file-plus-credulous-live-check
+> should not be allowed to overrule.
+
+⇒ **The re-auth path now BYPASSES the gate rather than newly converging onto it.** No probe, no
+per-start latency, no dependency on another card, and it does not change what the check reports --
+it declines to let the check veto a person naming an account.
+
+🔑 **The in-repo evidence for it is #874, not another agent's card.** `web/index.html:13855-13857`
+already records the measurement with its consequence: *"this badge cannot see a REJECTED token:
+`claude auth status` answers loggedIn:true for a transparently invalid one"*, against *"a green row
+and a token being 401'd ten times in a row"*. **Citing that makes the argument stand on this repo's
+own evidence** rather than on #1916, which matters because it is the argument that decides whether
+this branch resolves the symptom.
+
+✅ **New arm, proven red by mutation:** with the live check forced to `loggedIn: true` -- the
+credulous answer, the card's exact state -- a re-auth press must still run the sign-in. Removing the
+bypass reddens it.
+
+### 🛑 BOTH HALVES OF MY "PRE-FIX ALWAYS FELL THROUGH" CLAIM WERE WRONG
+
+Recorded in full where the claim was made. In short: I attributed the decoy read to
+`subscription.check`, which actually resolves through `accounts.configFile()` to the **real** file;
+it is `checkLive` that reaches the decoy. And "always" is contradicted by this plan's own note that
+the decoy here is 51KB and freshly written.
+
+⚠️ **The direction matters more than the error: an unqualified universal, derived from one machine's
+state, in the same document that elsewhere refuses to claim that state.** It would have led a
+maintainer to size the behaviour change wrongly, toward closing a question.
+
+### A real teardown defect
+
+Both arms called `resetForTests()` BEFORE `/api/connect/cancel`, inverting the order the `#1585`
+sibling documents **and explains**: these arms reach the fall-through and launch an un-awaited
+`runFlow`, and `resetForTests` nulls the driver, so a later cancel has nothing to act on and the
+session is never killed. Harmless only because the suite uses a fake tmux. Swapped, with the reason
+at both sites.
+
+### The rest
+
+- **My "unguardable" claim was false** and is corrected where it was made.
+- **The route's conditional spread was a third spelling** of a decision `engine/create.js` writes as
+  a one-liner in four places. Now matches them. The repo's own rule, at `accounts.js:80-86`: *"Two
+  derivations of one fact is this codebase's most expensive habit."*
+- **The fixture splits across two sandbox files what production keeps in one.** Inherited from the
+  harness rather than introduced here; now stated in the docblock.
+
+### 🛑 AND THE SUITE WENT RED FOR A REASON THAT IS NOT MINE
+
+`engine.reachable.test.js` fails: `engine/create.js exports setClaudeProbe`, a test seam that is
+exported, exercised by its own tests, and referenced by nothing else.
+
+✅ **Control: a clean `origin/main` checkout fails identically** (`rc=1`, same single assertion), and
+this branch touches neither file. ⇒ **Inherited from the #1916 merge, not introduced here.** Raised
+with its owner before he cut 0.6.23 on a red main; he is fixing it himself, which is right because a
+one-line excuse in that guard is *"a claim someone can check"* about his code.
+
+📌 **Recorded as inherited-red, NOT as green.** My five arms pass; the suite does not, and those are
+different statements.
