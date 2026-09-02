@@ -19646,7 +19646,10 @@ document.getElementById('d-doctrine-add').addEventListener('click', () => {
      test elsewhere anchors on the first such lookup in the whole
      script to find its click handler, further down this file. */
   document.getElementById('doc-modal').querySelector('#doc-go').disabled = false;
-  document.getElementById('doc-go').textContent = 'Add & Restart';
+  /* #1841: through the modal container too, for the same reason the line above
+     is -- a bare getElementById('doc-go') here would be the "first such lookup"
+     the test the comment names anchors on. */
+  document.getElementById('doc-modal').querySelector('#doc-go').textContent = 'Add & Restart';
   document.getElementById('doc-keep').textContent = 'Keep as it is';
   DOC_OPENER = document.getElementById('d-doctrine-add');
   document.getElementById('doc-modal').hidden = false;
