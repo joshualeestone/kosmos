@@ -138,7 +138,7 @@ const oaiStub = require('node:http').createServer((q, r) => {
   await page.waitForFunction(() => {
     const s = document.getElementById('d-provider-account');
     return !!s && !s.hidden && s.options.length > 0;
-  }, { timeout: 8000 });
+  }, null, { timeout: 8000 });
   const pick = await page.evaluate(() => {
     const s = document.getElementById('d-provider-account');
     if (!s) return null;
@@ -188,7 +188,7 @@ const oaiStub = require('node:http').createServer((q, r) => {
     const m = document.getElementById('chg-modal');
     const e = document.getElementById('chg-small');
     return !!m && !m.hidden && !!e && e.textContent.trim().length > 0;
-  }, { timeout: 8000 });
+  }, null, { timeout: 8000 });
   const untouched = await page.$eval('#chg-small', (e) => e.textContent);
   chk(/sign-in shown above/.test(untouched) && /if that one has gone/.test(untouched),
     '#1373: with the menu showing and untouched, the dialog hedges instead of promising a row',
@@ -196,7 +196,7 @@ const oaiStub = require('node:http').createServer((q, r) => {
   chk(!/you picked/.test(untouched),
     '#1373: an untouched menu must not claim the person chose', untouched.slice(-90));
   await page.click('#chg-keep');
-  await page.waitForFunction(() => document.getElementById('chg-modal').hidden, { timeout: 8000 });
+  await page.waitForFunction(() => document.getElementById('chg-modal').hidden, null, { timeout: 8000 });
 
   /* Now a REAL pick: selecting an option fires `change`, which is what sets the flag. */
   const second = await page.$eval('#d-provider-account', (s2) => s2.options[1].value);
@@ -206,7 +206,7 @@ const oaiStub = require('node:http').createServer((q, r) => {
     const m = document.getElementById('chg-modal');
     const e = document.getElementById('chg-small');
     return !!m && !m.hidden && !!e && e.textContent.trim().length > 0;
-  }, { timeout: 8000 });
+  }, null, { timeout: 8000 });
   const picked = await page.$eval('#chg-small', (e) => e.textContent);
   chk(/it will run on /.test(picked) && /BETA|ALFA/.test(picked),
     '#1373: a real pick is named back in the sentence, not hedged',
@@ -215,7 +215,7 @@ const oaiStub = require('node:http').createServer((q, r) => {
     '#1373: a real pick must not be hedged, because a picked account the engine cannot use is REFUSED rather than replaced',
     picked.slice(-90));
   await page.click('#chg-keep');
-  await page.waitForFunction(() => document.getElementById('chg-modal').hidden, { timeout: 8000 });
+  await page.waitForFunction(() => document.getElementById('chg-modal').hidden, null, { timeout: 8000 });
 
   /* 🔑 THE ARM THAT MAKES THE THREE ABOVE MEAN ANYTHING. A control that is
      always visible would pass every one of them, and this shows the picker can
@@ -231,7 +231,7 @@ const oaiStub = require('node:http').createServer((q, r) => {
   await page.waitForFunction(() => {
     const s = document.getElementById('d-provider-account');
     return !!s && s.hidden;
-  }, { timeout: 8000 });
+  }, null, { timeout: 8000 });
   /* The BEFORE state, for judging the layout change rather than guessing at it: the
      same row with the picker hidden is exactly what this section looked like before
      the card. */
@@ -306,14 +306,14 @@ const oaiStub = require('node:http').createServer((q, r) => {
        dialog hedges with "if one is set up", which would be a true sentence about a
        different state and would fail the assertion below for a timing reason. The
        flag is a top-level `let` in a classic script, so it is readable here. */
-    await page.waitForFunction(() => typeof ACCOUNTS_LOADED !== 'undefined' && ACCOUNTS_LOADED === true, { timeout: 8000 });
+    await page.waitForFunction(() => typeof ACCOUNTS_LOADED !== 'undefined' && ACCOUNTS_LOADED === true, null, { timeout: 8000 });
     await page.selectOption('#d-provider', 'openai');
     /* The picker settles to SHOWN-with-rows or HIDDEN; wait for either rather than
        reading whichever state the previous paint left. */
     await page.waitForFunction(() => {
       const s = document.getElementById('d-provider-account');
       return !!s && (s.hidden || s.options.length > 0);
-    }, { timeout: 8000 });
+    }, null, { timeout: 8000 });
     const picker = await page.evaluate(() => {
       const s = document.getElementById('d-provider-account');
       const m = document.getElementById('d-provider-msg');
@@ -325,10 +325,10 @@ const oaiStub = require('node:http').createServer((q, r) => {
       const m = document.getElementById('chg-modal');
       const e = document.getElementById('chg-small');
       return !!m && !m.hidden && !!e && e.textContent.trim().length > 0;
-    }, { timeout: 8000 });
+    }, null, { timeout: 8000 });
     const small = await page.$eval('#chg-small', (e) => e.textContent);
     await page.click('#chg-keep');
-    await page.waitForFunction(() => document.getElementById('chg-modal').hidden, { timeout: 8000 });
+    await page.waitForFunction(() => document.getElementById('chg-modal').hidden, null, { timeout: 8000 });
     console.log('NOTE  #1484 ' + label + ': ' + small.slice(-140).replace(/\s+/g, ' '));
     return { picker, pbox, small };
   };
