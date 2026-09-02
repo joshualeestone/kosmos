@@ -1613,6 +1613,9 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
      ones, so each perturbation has to travel all the way to the check it
      targets. */
   const liveRow = '\n  ⏺ main\n  ◯ general-purpose  doing a thing 43s · ↓ 1.0k tokens';
+  const manyAgents = (n) => ['✻ Waiting for ' + n + ' background agents to finish', '', '────', '❯ ', '────',
+    '  agent · Opus 5 · ctx 50%', '  ⏵⏵ bypass permissions on · ← for agents', '', '  ⏺ main']
+    .concat(new Array(n).fill('  ◯ general-purpose  doing a thing 43s · ↓ 1.0k tokens')).join('\n');
   const got = classify(pane, live + footer + liveRow);
   assert.equal(got.state, 'working', 'a live background-agent wait read as idle');
   assert.match(got.because, /background agent/);
@@ -1701,6 +1704,49 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     'a RESOLVED wait was reported as working, which hides a finished agent');
 
   /**
+   * 🛑 THE ANCHOR IS THE LAST `❯`, NOT THE FIRST. The composer is the BOTTOM
+   * prompt row. Taking the first one below the wait line anchors on any `❯` in the
+   * transcript -- a quoted shell prompt, a pasted session, a selector row -- and
+   * then the liveness slice is no longer "below the composer", so a plugin-list
+   * `◯` in ordinary output satisfies it. Measured with the first-match version:
+   * this fixture classified `working` on a RESOLVED wait, reopening the finished-
+   * agent false calm that the gate exists to close.
+   */
+  const resolvedWait = '✻ Waiting for 1 background agent to finish\n  ⏺ Agent "x" finished · 5m 19s';
+  assert.notEqual(
+    classify(pane, resolvedWait + '\n  ❯ some quoted shell prompt\n  ◯ plugin-name (not installed)' + footer).state,
+    'working',
+    'a quoted ❯ became the anchor, so prose below it satisfied the liveness gate');
+
+  /**
+   * 🛑 `to finish` MUST END THE LINE. Without the `$` anchor the pattern matched
+   * any sentence CONTAINING the phrase, so prose about this very feature read as a
+   * working agent. Both fixtures below matched before the anchor was added.
+   */
+  for (const prose of [
+    '✻ Waiting for permission to run the background agents to finish the job',
+    '· Waiting for N background agents to finish is the line #1889 handles',
+  ]) {
+    assert.notEqual(classify(pane, prose + footer + liveRow).state, 'working',
+      'prose containing the phrase was read as a live status line: ' + prose);
+  }
+
+  /**
+   * 🛑 EVERY SPACE MUST SURVIVE A `-J` WRAP JOIN, and two of the seven did not.
+   * `Waiting\s*for\s` and `.*\sto` each required a mandatory space, so a pane
+   * wrapping at those two boundaries silently returned to `idle` -- the #1234
+   * false-calm class the comment claimed was closed while covering 1 of 7 cases.
+   * This loop drops each space in turn, which is what the join does.
+   */
+  const spaced = '✻ Waiting for 1 background agent to finish';
+  for (let i = 0; i < spaced.length; i += 1) {
+    if (spaced[i] !== ' ') continue;
+    const wrapped = spaced.slice(0, i) + spaced.slice(i + 1);
+    assert.equal(classify(pane, wrapped + footer + liveRow).state, 'working',
+      'a wrap-eaten space at index ' + i + ' stopped the reader matching: ' + wrapped);
+  }
+
+  /**
    * 🛑 THE COMPOSED FORM. The vendor builds ONE line from two counters, so the
    * first version of this reader -- which required `background agents? to finish`
    * ADJACENTLY -- missed the combined render entirely. That was a false calm
@@ -1747,11 +1793,19 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    * quantity this line reports, so a last-row anchor runs out of budget at
    * exactly the busiest case. Measured before the fix: 9 agents returned `idle`.
    */
-  for (const n of [1, 5, 9, 15]) {
-    const many = ['✻ Waiting for ' + n + ' background agents to finish', '', '────', '❯ ', '────',
-      '  agent · Opus 5 · ctx 50%', '  ⏵⏵ bypass permissions on · ← for agents', '', '  ⏺ main']
-      .concat(new Array(n).fill('  ◯ general-purpose  doing a thing 43s · ↓ 1.0k tokens')).join('\n');
-    assert.equal(classify(pane, many).state, 'working',
+  /* 🛑 AND THE REAL CEILING IS `classify`'s 25-ROW TAIL, NOT THE REACH. Measured:
+     working through n=16, `idle` at n=17, `unknown` from n=23, because the wait
+     line falls out of the window entirely. The composer anchor RAISED that
+     threshold, it did not remove it, and the composed form added this round counts
+     workflows into the same footer. n=16 and n=17 are pinned so the boundary
+     cannot move silently; the earlier [1,5,9,15] stopped one value short of it. */
+  assert.equal(classify(pane, manyAgents(16)).state, 'working',
+    'the last value inside the tail window stopped reading as working');
+  assert.notEqual(classify(pane, manyAgents(17)).state, 'working',
+    'n=17 should fall out of the 25-row tail; if this passes the window changed');
+
+  for (const n of [1, 5, 9, 15, 16]) {
+    assert.equal(classify(pane, manyAgents(n)).state, 'working',
       'the reader went quiet at ' + n + ' background agents, which is the busiest case');
   }
 

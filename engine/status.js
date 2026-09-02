@@ -1865,7 +1865,7 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    quiet direction, exactly as #1234 did. Measured with literal spaces:
    `✻ Waiting for 1 backgroundagent to finish` -> false. */
 const BACKGROUND_AGENT_WAIT =
-  /^\s*[·✢✳✶✻✽]\s*Waiting\s*for\s.*(?:background\s*agents?|dynamic\s*workflows?).*\sto\s*finish/u;
+  /^\s*[·✢✳✶✻✽]\s*Waiting\s*for\s*.*(?:background\s*agents?|dynamic\s*workflows?).*to\s*finish\s*$/u;
 
 /* 🛑 `*` IS DELIBERATELY NOT IN THAT GLYPH CLASS, THOUGH `WORKING_LINE` HAS IT.
    Its comment keeps `*` "because an echoed line would need the ellipsis AND a
@@ -1940,14 +1940,23 @@ const BACKGROUND_AGENT_WAIT_REACH = 12;
    ⚠️ `⏺` IS NOT THE DISCRIMINATOR AND MUST NOT BE USED AS ONE. `⏺` prefixes
    ordinary transcript bullets, which every pane has in quantity.
 
-   🛑 AND `◯` IS NOT UNIQUE TO A RUNNING AGENT EITHER, WHICH IS WHY THE SCAN IS
-   SCOPED. It is the vendor's shared `figures.circle` glyph, also drawn at line
+   🛑 AND `◯` DOES NOT MEAN "RUNNING". Read from the bundle rather than inferred:
+   it is `figures.circle`, used by the teammate/task list renderer as the
+   NOT-CURRENTLY-VIEWED marker (`i6 ? vr : N.circle`, where `vr` is the very `⏺`
+   ruled out above). So `◯`-vs-`⏺` is VIEW state, not RUN state, and what this
+   gate actually detects is that THE TASK FOOTER LIST IS BEING DRAWN AT ALL --
+   which a pane with no running background agent does not draw. That is a weaker
+   and more honest statement than "◯ marks a running agent", and it is the one the
+   vendor's code supports. It also degrades on a non-unicode terminal, where
+   `figures` falls back to `( )` and this gate simply stops matching: a miss.
+   🛑 AND IT IS NOT UNIQUE TO THAT LIST EITHER, WHICH IS WHY THE SCAN IS SCOPED. It is the vendor's shared `figures.circle` glyph, also drawn at line
    start by the plugin permission list, the MCP "not installed" row, pending step
    rows and todo columns. An unscoped scan would let any pane showing one of those
    lists satisfy liveness, and a stale wait line would then read `working` again --
    the very defect this gate closes. So the scan runs ONLY BELOW THE COMPOSER,
-   where the subagent footer is drawn: measured live, the `◯` rows sit at row 23
-   with the composer at 17, while the wait line sits 3 rows ABOVE it. A prose
+   where the subagent footer is drawn: measured live, the `◯` rows sit BELOW the
+   composer while the wait line sits 3 rows ABOVE it. (Relative distance only:
+   absolute row numbers depend on the capture depth and would not reproduce.) A prose
    `◯` in the transcript is above the composer and is therefore ignored.
 
    ✅ FAILS SAFE. If the vendor stops drawing `◯`, this returns null and the
@@ -1974,11 +1983,22 @@ function backgroundAgentWait(text) {
        is not. Falls back to the last non-empty row when no composer is on
        screen (a dialog replaces it), which is the pre-composer behaviour and no
        worse than having no guard there. */
+    /* 🛑 THE LAST `❯`, NOT THE FIRST. The composer is the BOTTOM prompt row, so
+       taking the first one below the wait line anchors on any `❯` that happens to
+       be in the transcript -- a quoted shell prompt, a pasted terminal session, a
+       selector row. Measured with the first-match version: a RESOLVED wait plus a
+       quoted `❯` plus a plugin-list `◯` classified `working`, which is exactly the
+       finished-agent false calm the liveness gate exists to close, reopened by one
+       quoted glyph. Removing the `break` fixes it and no fixture noticed either
+       way, which is why this needed its own row below. */
     let anchor = -1;
     for (let j = i + 1; j <= last; j += 1) {
-      if (/^\s*❯/.test(rows[j])) { anchor = j; break; }
+      if (/^\s*❯/.test(rows[j])) anchor = j;
     }
-    if (anchor === -1) anchor = last;
+    /* No composer on screen (a dialog replaces it). The slice below is then empty
+       or blank-only, so this returns null: a MISS, never a false calm. Stated as
+       what it does rather than as "pre-composer behaviour", which it is not. */
+    if (anchor === -1) return null;
     if (anchor - i > BACKGROUND_AGENT_WAIT_REACH) continue;
     /* The wait line survives the wait. Only a live `◯` row proves the agent is
        still running; without one this is a resolved wait and the pane is idle. */
@@ -2711,8 +2731,10 @@ function classify(pane, paneText) {
       confidence: CONFIDENCE.SCRAPED,
       /* ⚠️ KNOWN INTERACTION WITH `reconcileReport`, shipped deliberately.
          `REPORT_WORKING_DECAY_MS` is 5 minutes and a background-agent wait
-         routinely runs longer (4m 2s, 3m 57s and 3m 48s measured live, all still
-         running). A decayed `working` report plus this scraped `working` now
+         can run longer: the durations I sampled live were 4m 2s, 3m 57s and
+         3m 48s, all still running and therefore all LOWER BOUNDS rather than
+         evidence of crossing 5 minutes; a resolved wait observed separately read
+         `Agent … finished · 8m 49s`, which does cross it. A decayed `working` report plus this scraped `working` now
          takes the "reporter may be broken" branch, so a HEALTHY agent can be
          labelled with a reporter fault. Under `origin/main` the same pane scraped
          `idle` and took the `unknown` branch instead. The STATE is more truthful
