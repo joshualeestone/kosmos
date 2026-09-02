@@ -28,6 +28,7 @@
  */
 
 const test = require('node:test');
+const { after } = require('node:test');
 const assert = require('node:assert/strict');
 const os = require('node:os');
 const fs = require('node:fs');
@@ -37,10 +38,20 @@ const crypto = require('node:crypto');
 // The disposable home the redirect points at, and the throwaway that stands in for the
 // real machine. Set BEFORE any require, so the frozen-at-require derivations (you.js BASE)
 // capture the sandboxed store rather than the operator's.
+const ORIG_HOME = process.env.HOME;
 const DISPOSABLE = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1780-disposable-'));
 const PRETEND_REAL = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1780-pretend-real-'));
 process.env.AGENT_WORKFORCE_HOME = DISPOSABLE;
 process.env.HOME = PRETEND_REAL;
+
+// Leave nothing behind: restore HOME and remove both throwaways. Safe under node's default
+// per-file process isolation; matters if this file is ever run in a shared process.
+after(() => {
+  if (ORIG_HOME === undefined) delete process.env.HOME; else process.env.HOME = ORIG_HOME;
+  for (const d of [DISPOSABLE, PRETEND_REAL]) {
+    try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+});
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/nonexistent-tmux-1780';
 delete process.env.AGENT_WORKFORCE_DATA;
 delete process.env.AGENT_WORKFORCE_WORKERS;

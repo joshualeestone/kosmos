@@ -48,10 +48,19 @@ set today. This also gives #1794 (Baron) the filesystem verification arm it was 
 
 ## Boundary (deliberately out of scope)
 
-- Three READ-side modules still call raw `os.homedir()` (`status.js`, `subscription.js`,
-  `trust.js`), one call each. They are not in the write path, so they cannot clobber the fleet,
-  and (measured by Splinter) none of #1794's os.homedir tests touch them. A one-line consistent
-  extension each if ever needed; not #1780's job.
+- `status.js` and `subscription.js` still call raw `os.homedir()` (one each) and are READERS
+  (session registry / subscription state), so they cannot clobber the fleet. Not in the
+  About-you write path, and (measured by Splinter) none of #1794's os.homedir tests touch them.
+- `trust.js` also calls raw `os.homedir()` but is a WRITER, not read-side: it writes trust flags
+  into `~/.claude.json` (writeFileSync/renameSync at 259/268/385/443-448), honouring
+  `CLAUDE_CONFIG_DIR` but NOT `AGENT_WORKFORCE_HOME`. It is out of #1780's scope because it writes
+  during connect/create, not during the first-run About-you `syncEveryone` write this card fixes.
+  BUT it is a real gap against the card's broader stated purpose ("a QA walk cannot reconfigure
+  the live fleet"): a walk that connects a provider or creates an agent, under a HOME-only sandbox,
+  can still mutate the operator's real `~/.claude.json` trust state. FOLLOW-UP (worth its own card,
+  flagged to Splinter): make trust.js's config path honour `AGENT_WORKFORCE_HOME` (or standardise
+  the connect/create writers on `CLAUDE_CONFIG_DIR` for the QA-walk mode). Not fixed here to keep
+  #1780 to the About-you write it was scoped to.
 - `you.js` freezes `BASE = AGENT_WORKFORCE_DATA || store.ROOT` at require. For a launched test
   instance (env set before require) it captures the sandboxed store correctly, so it is not the
   #1780 leak; making it per-call is a latent robustness follow-up, not required here.

@@ -50,7 +50,9 @@ const workerfile = require('./workerfile');
    Measured in this class: `accounts.list()` returned four of the operator's
    real accounts against an empty fixture (#1419), and `delete-leftover`'s
    TRASH() resolved to the operator's real ~/.Trash (#1432). */
-function rootDir() { return process.env.AGENT_WORKFORCE_WORKERS || path.join(os.homedir(), 'work', 'workers'); }
+/* #1780: the homedir fallback honours `AGENT_WORKFORCE_HOME` too, so this stays consistent
+   with create.workersDir() under a HOME-only sandbox. AGENT_WORKFORCE_WORKERS still wins. */
+function rootDir() { return process.env.AGENT_WORKFORCE_WORKERS || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), 'work', 'workers'); }
 
 const FILENAME = 'CLAUDE.md';
 
