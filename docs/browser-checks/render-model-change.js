@@ -278,6 +278,115 @@ const oaiStub = require('node:http').createServer((q, r) => {
     await page.click('#chg-keep'); await page.waitForTimeout(200);
     chk(await page.$eval('#chg-modal', (m) => m.hidden), 'Done closes it');
   }
+
+  /* 🛑 #1484: THE TWO ARMS THIS FIXTURE COULD NEVER RENDER. The dialog has four arms and
+     a two-account fixture reaches exactly two of them (picked, and many-untouched). The
+     other two, ONE account and ZERO accounts, both emit copy on the last screen before a
+     restart, and BOTH have already shipped false: the one-row arm fell through to a
+     sentence saying the computer chooses while the visible row was being sent, and the
+     zero-account arm read a cache `moveAccountNow` empties and said the switch would
+     stop while the engine went ahead. The source-level regexes in
+     web.switch-account-1373.test.js saw the conditions written correctly through both
+     defects, because a regex inspects an expression and never its use.
+     ⇒ Same server, same browser: the account list is read from disk on every request
+     (`openaiaccounts.list()` does `readdirSync(homeDir())`, no cache), so removing a
+     fixture home and reloading the page is the whole fixture change. Each pass reloads
+     rather than repainting, because a fresh page is the state a person is actually in
+     when they open this dialog, and it is the state where `ACCOUNTS` starts empty and
+     the picker's first-open fetch runs.
+     ⚠️ ORDER MATTERS AND IS NOT FREE TO CHANGE: these run AFTER every assertion that
+     needs two sign-ins, because the deletions below are permanent for this process. */
+  const switchSentence = async (label) => {
+    await page.goto(URL + '/?tab=detail&agent=mara', { waitUntil: 'networkidle' });
+    if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(300); }
+    await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 8000 });
+    await page.click('#d-nav [data-go="model"]');
+    /* WAIT FOR THE READ, NOT FOR TIME. The zero-account sentence is spoken ONLY from a
+       list the page actually read (`ACCOUNTS_LOADED`); before that fetch resolves the
+       dialog hedges with "if one is set up", which would be a true sentence about a
+       different state and would fail the assertion below for a timing reason. The
+       flag is a top-level `let` in a classic script, so it is readable here. */
+    await page.waitForFunction(() => typeof ACCOUNTS_LOADED !== 'undefined' && ACCOUNTS_LOADED === true, { timeout: 8000 });
+    await page.selectOption('#d-provider', 'openai');
+    /* The picker settles to SHOWN-with-rows or HIDDEN; wait for either rather than
+       reading whichever state the previous paint left. */
+    await page.waitForFunction(() => {
+      const s = document.getElementById('d-provider-account');
+      return !!s && (s.hidden || s.options.length > 0);
+    }, { timeout: 8000 });
+    const picker = await page.evaluate(() => {
+      const s = document.getElementById('d-provider-account');
+      const m = document.getElementById('d-provider-msg');
+      return { hidden: s.hidden, opts: s.options.length, msg: m ? m.textContent.trim() : '' };
+    });
+    const pbox = await page.locator('#d-provider-account').boundingBox();
+    await page.click('#d-provider-go');
+    await page.waitForFunction(() => {
+      const m = document.getElementById('chg-modal');
+      const e = document.getElementById('chg-small');
+      return !!m && !m.hidden && !!e && e.textContent.trim().length > 0;
+    }, { timeout: 8000 });
+    const small = await page.$eval('#chg-small', (e) => e.textContent);
+    await page.click('#chg-keep');
+    await page.waitForFunction(() => document.getElementById('chg-modal').hidden, { timeout: 8000 });
+    console.log('NOTE  #1484 ' + label + ': ' + small.slice(-140).replace(/\s+/g, ' '));
+    return { picker, pbox, small };
+  };
+
+  /* ONE account: the row is SENT (`changeProviderNow` posts the visible row's dir) but
+     there is nothing to choose between, so the sentence must promise the visible row,
+     hedge that it might have gone, and NOT invite the person to close and pick another. */
+  fs.rmSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.codex-' + FIXTURES[1][0]), { recursive: true, force: true });
+  const one = await switchSentence('one sign-in');
+  chk(!one.picker.hidden && one.picker.opts === 1 && !!one.pbox && one.pbox.width > 160,
+    '#1484: with one sign-in the picker still shows it, as a real control, with exactly one row',
+    JSON.stringify({ hidden: one.picker.hidden, opts: one.picker.opts, box: one.pbox }));
+  chk(/sign-in shown above/.test(one.small) && /if that one has gone/.test(one.small),
+    '#1484: one sign-in: the dialog promises the visible row and admits it may have gone',
+    one.small.slice(-110));
+  chk(!/To use a different one/.test(one.small),
+    '#1484: one sign-in: it does not tell the person to close and choose another, because there is no other',
+    one.small.slice(-110));
+  chk(!/you picked/.test(one.small) && !/There is not one yet/.test(one.small) && !/computer chooses/.test(one.small),
+    '#1484: one sign-in: neither a claimed pick, nor a missing-account sentence, nor a computer-chooses sentence',
+    one.small.slice(-110));
+  /* The load-bearing negative for THIS arm, symmetric with the zero arm at line 367: the
+     one-account case renders the switchAcctSending() sentence (runs on THE sign-in shown
+     above); if switchAcctSending() ever stopped matching, it would collapse into the
+     unqualified fallthrough (runs on THIS COMPUTER's OpenAI sign-in). The historical-defect
+     negatives above cannot fire on any reachable sentence today; this one guards the real
+     regression this arm could actually make. */
+  chk(!/runs on this computer.s OpenAI sign-in\./.test(one.small),
+    '#1484: one sign-in: it does not collapse into the unqualified default-chooses fallthrough',
+    one.small.slice(-110));
+
+  /* ZERO accounts: the engine REFUSES (`openai.list()` is empty, `setProvider` refuses,
+     nothing changes), so the honest sentence states that the switch will stop. This is
+     the arm that shipped reading the page cache and lied after a move (iteration 15 of
+     #1373's loop); a rendered pass is what would have caught it. */
+  fs.rmSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.codex-' + FIXTURES[0][0]), { recursive: true, force: true });
+  const zero = await switchSentence('zero sign-ins');
+  chk(zero.picker.hidden && zero.picker.opts === 0 && zero.pbox === null,
+    '#1484: with no sign-in the picker is hidden and occupies no space',
+    JSON.stringify({ hidden: zero.picker.hidden, opts: zero.picker.opts, box: zero.pbox }));
+  chk(/needs an OpenAI sign-in on this computer/.test(zero.small) && /There is not one yet/.test(zero.small)
+      && /the switch will stop and ask you to add one/.test(zero.small),
+    '#1484: no sign-in: the dialog says the switch will stop and ask for one, instead of promising a sign-in that is not there',
+    zero.small.slice(-140));
+  chk(!/sign-in shown above/.test(zero.small) && !/runs on this computer.s OpenAI sign-in\./.test(zero.small),
+    '#1484: no sign-in: it does not promise a row it cannot show, nor a default it does not have',
+    zero.small.slice(-140));
+  /* The two neighbouring arms it must NOT collapse into, by name: an unread list ("if one
+     is set up") and a failed read ("could not read the list"). Both are true sentences
+     about DIFFERENT states, and the whole point of `ACCOUNTS_LOADED` is that a read
+     empty list is spoken as a fact, not hedged as an unknown. */
+  chk(!/if one is set up/.test(zero.small) && !/could not read the list/.test(zero.small),
+    '#1484: no sign-in: a READ empty list is stated as a fact, not hedged as unread or unreadable',
+    zero.small.slice(-140));
+  chk(!/could not read/.test(zero.picker.msg),
+    '#1484: no sign-in: the status line does not blame a read failure for an absence it read',
+    JSON.stringify(zero.picker.msg));
+
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();
   /* ⚠️ NOT AWAITED. `close()` waits for keep-alive sockets, and undici (global
