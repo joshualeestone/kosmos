@@ -94,4 +94,4 @@ async function arm(browser, label, firstRunPayload, expect) {
     process.exit(1);
   }
   console.log('render-boot-no-flash PASS: no agents-view flash on either arm; cover held through the gate and came down onto the right destination.');
-})().catch((e) => { console.error('render-boot-no-flash ERROR:', e && e.message); process.exit(1); });
+})().catch((e) => { console.error('FAIL  render-boot-no-flash crashed:', e && e.message); process.exit(1); });

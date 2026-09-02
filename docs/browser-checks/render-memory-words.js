@@ -78,7 +78,7 @@ const FIXTURES = [
   } catch (err) {
     // ⚠️ Headed Chromium cannot start without a console session. Say which
     // failure this is rather than dying as an unhandled rejection.
-    console.error('render-memory-words: could not start a browser'
+    console.error('FAIL  render-memory-words: could not start a browser'
       + (HEADED ? ' (headed; try HEADED=0 on a machine with no console session)' : '') + '.');
     console.error('  ' + (err && err.message ? err.message.split('\n')[0] : err));
     process.exit(1);

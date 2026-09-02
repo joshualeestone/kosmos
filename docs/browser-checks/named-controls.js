@@ -177,4 +177,4 @@ const SCAN = () => {
     + 'new-task and history modals, the project room, and anything that only '
     + 'appears after an error. Everything else a person can reach is above.');
   process.exit(fail.length ? 1 : 0);
-})().catch((e) => { console.error('HARNESS FAILED', e.message); process.exit(2); });
+})().catch((e) => { console.error('FAIL  HARNESS FAILED', e.message); process.exit(2); });

@@ -166,4 +166,4 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
   }
   if (fails.length) { console.log('\n' + fails.length + ' failed'); process.exit(1); }
   console.log('\nall passed');
-})().catch((e) => { console.error('threw: ' + (e && e.message)); process.exit(1); });
+})().catch((e) => { console.error('FAIL  threw: ' + (e && e.message)); process.exit(1); });
