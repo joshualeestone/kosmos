@@ -208,7 +208,7 @@ function checkFiles() {
 const NOT_WIRED = {
   'render-conn-url.js':
     'never run: a Playwright paint+geometry check of the sign-in step fallback '
-    + "link (#1209 overlap), driving the page's own frConnPaintUrl. Wiring needs "
+    + "link (#1209 overlap), driving the page's own frPaintConnect. Wiring needs "
     + 'the first-run connect step served in a real browser; may red on first run.',
   'render-openai-key-step.js':
     'never run: a Playwright layout check of the OpenAI key step (#1207 -- one '
@@ -216,9 +216,9 @@ const NOT_WIRED = {
     + 'Wiring needs the OpenAI provider step served in a browser. Feeds #1315.',
   'render-openai-step.js':
     'never run: a Playwright check of the OpenAI install step (#1205 -- status-'
-    + 'line size, an indicator that exists only after a click, an indeterminate '
-    + 'bar). Wiring needs the OpenAI step served plus a click. Do not cite as '
-    + 'OpenAI-path coverage (#1315) until it runs.',
+    + 'line size, an install indicator revealed via evaluate, an indeterminate '
+    + 'bar). Wiring needs the OpenAI step served with the confirm block. Do not '
+    + 'cite as OpenAI-path coverage (#1315) until it runs.',
   'render-sleep-button.js':
     'never run, and costliest to wire: it opens System Settings on the host and '
     + 'quits it (a real GUI side effect) and needs a Mac console plus the durable '
@@ -329,10 +329,21 @@ test('#1808: no NOT_WIRED reason is the bare "never wired" tautology', () => {
   /* 🔑 SELF-CONTROL FIRST, the sibling #1387 discipline: a matcher that only
      ever says "no" passes this file silently even if it is broken. So prove the
      predicate both FIRES on the defect and CLEARS a real reason before trusting
-     its verdict on the live values. A mangled regex reds HERE, not silently. */
-  assert.ok(isTautologyReason('never wired.'), 'the guard no longer catches the exact tautology it exists for');
-  assert.ok(isTautologyReason('NEVER WIRED'), 'the guard is not case-insensitive');
-  assert.ok(isTautologyReason('n/a'), 'the guard no longer catches an over-short non-reason');
+     its verdict on the live values. A mangled predicate reds HERE, not silently.
+
+     🛑 The regex and the length floor are TWO guards, so each is exercised by an
+     input the OTHER cannot catch, or the arm proves nothing about the guard it
+     names. A bare "never wired." (12 chars) is caught by the length floor, so it
+     could NOT tell a broken/case-sensitive regex from a working one -- the arms
+     below pad the tautology past the 20-char floor with internal whitespace
+     (still matching `never\s+wired`), so ONLY the regex can catch it: drop the
+     regex, or its `i` flag, and these red. `n/a` exercises the length floor,
+     which the regex cannot catch. */
+  const paddedTaut = 'never' + ' '.repeat(20) + 'wired.';      // 31 chars: regex only
+  const paddedTautUpper = 'NEVER' + ' '.repeat(20) + 'WIRED';  // 30 chars: needs the /i flag
+  assert.ok(isTautologyReason(paddedTaut), 'the regex no longer catches a spaced-out "never wired" the length floor cannot');
+  assert.ok(isTautologyReason(paddedTautUpper), 'the regex is not case-insensitive');
+  assert.ok(isTautologyReason('n/a'), 'the length floor no longer catches an over-short non-reason');
   assert.ok(!isTautologyReason('never run: a Playwright layout check; wiring needs the step served'),
     'the guard flags a real cost as a tautology, so it would refuse every honest reason');
 
