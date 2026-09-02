@@ -360,7 +360,7 @@ async function pollOnce(id, deviceCode, delayMs) {
        reschedule: an operator sees a sign-in that never finishes and no reason
        anywhere.
        ⚠️ The gap is PRE-EXISTING (the old `writeFileSync` could throw ENOSPC and hung
-       the same way), but #1787 WIDENS it: `refuseSymlinkTarget` raises ELOOP on a
+       the same way), but #1787 WIDENS it: `refuseSymlinkTarget` raises ERR_KOSMOS_SYMLINK on a
        planted symlink, which the old in-place write never did. Failing loudly is the
        point of that refusal, so swallowing it would be worse than the bug it stops.
        ⇒ Report it the way the start path's sibling `catch` already does. */
