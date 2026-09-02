@@ -295,7 +295,7 @@ async function main() {
       const file = path.join(OUT, `projects-${name}${scheme === 'dark' ? '-dark' : ''}.png`);
       await page.screenshot({ path: file, fullPage: true });
       shots.push({ file, errors });
-      if (errors.length) console.log(`  ⚠️ console errors on ${name} (${scheme}):`, errors.slice(0, 3));
+      if (errors.length) console.log(`  FAIL  ⚠️ console errors on ${name} (${scheme}):`, errors.slice(0, 3));
 
       // ⚠️ Measured in the page rather than judged from the picture. A capture
       // narrower than the render looks exactly like a responsive bug, and
@@ -307,7 +307,7 @@ async function main() {
         // only logged, so a page that overflowed still exited 0 and the check
         // reported success.
         overflows += 1;
-        console.log(`  ⚠️ ${name} (${scheme}) overflows horizontally by ${overflow}px`);
+        console.log(`  FAIL  ⚠️ ${name} (${scheme}) overflows horizontally by ${overflow}px`);
       }
 
       await ctx.close();
@@ -1119,7 +1119,7 @@ async function main() {
     for (const e of [...listEls, ...badFolderEls, ...els, ...settingsEls, ...toldEls]) {
       if (e.missing) {
         contrastFails += 1;
-        console.log(`  ⚠️ ${e.sel} was not on screen to measure (${scheme}) — the check cannot pass on a selector it never found`);
+        console.log(`  FAIL  ⚠️ ${e.sel} was not on screen to measure (${scheme}) — the check cannot pass on a selector it never found`);
         continue;
       }
       // ⚠️ LOUDER THAN A MISS, because it is more dangerous. A selector that
@@ -1130,7 +1130,7 @@ async function main() {
       // "Talk to one of them" while every number it printed stayed believable.
       if (e.wrongElement !== undefined) {
         contrastFails += 1;
-        console.log(`  🛑 ${e.sel} matched the wrong element (${scheme}): expected text containing ${JSON.stringify(e.expected)}, found ${JSON.stringify(e.wrongElement)}`);
+        console.log(`  FAIL  🛑 ${e.sel} matched the wrong element (${scheme}): expected text containing ${JSON.stringify(e.expected)}, found ${JSON.stringify(e.wrongElement)}`);
         continue;
       }
       const cr = contrast(e.fg, e.bg);
@@ -1138,7 +1138,7 @@ async function main() {
       const need = large ? 3 : 4.5;
       if (cr < need) {
         contrastFails += 1;
-        console.log(`  ⚠️ contrast ${cr.toFixed(2)} (needs ${need}) — ${e.sel} @${e.size}px, ${scheme}`);
+        console.log(`  FAIL  ⚠️ contrast ${cr.toFixed(2)} (needs ${need}) — ${e.sel} @${e.size}px, ${scheme}`);
       }
     }
     // The surfaces this scheme actually painted, for the flip check below.
@@ -1726,7 +1726,7 @@ async function main() {
   const withErrors = shots.filter((s) => s.errors.length);
   console.log(`\n${shots.length} screenshots in ${OUT}`);
   console.log(withErrors.length
-    ? `⚠️ ${withErrors.length} had console errors`
+    ? `FAIL  ⚠️ ${withErrors.length} had console errors`
     : 'no console errors on any state');
   if (withErrors.length || contrastFails || overflows) process.exitCode = 1;
 }
