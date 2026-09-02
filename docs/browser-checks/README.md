@@ -169,6 +169,7 @@ one invented by somebody who did not write them.
 | `render-not-running.js` | The card and the tile for an agent Kosmos knows about that is not running (#278) |
 | `render-offline-note.js` | What the page says when the server it was loaded from is killed under it (#269) |
 | `render-org-chart.js` | The org chart: opaque faces, no hub stroke, a pressable callout, centred on its own drawing (#284) |
+| `render-org-reduced-motion.js` | The org chart settles under prefers-reduced-motion: on a dense board (manager + eight reports) no two discs overlap after the synchronous settle (#1870, the rendered-DOM arm for #1738) |
 | `render-role-limit.js` | Where a role's limit on what it reaches is read, now that it is off the create card |
 | `render-role-order.js` | The three role options in Josh's order, natively grouped, with the menu between two of them |
 | `render-pjsettings.js` | **no header sentence.** Read it before running it, and give it one. |

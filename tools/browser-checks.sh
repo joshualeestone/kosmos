@@ -546,6 +546,50 @@ boot_board_rich() {
   fi
   return 1
 }
+# #1870: a DENSE, DEEP org-chart board whose STATIC orgPlace overlaps, so the
+# reduced-motion settle is load-bearing. render-org-reduced-motion asserts no two
+# discs overlap after the synchronous settle; on the flat write_fleet_rich board
+# static orgPlace is already 0 overlaps, so that arm would be vacuous there. This
+# is a manager (boss) with EIGHT direct reports -- which orgPlace packs into a
+# ~69deg arc so the discs sit ~33px apart, inside their 44px diameter -- plus two
+# second-level reports for depth. Every agent RUNNING (a pane) so it enters the
+# roster; the tree is expressed by reportsTo in each profile. Seeded in node,
+# not bash: macOS bash is 3.2 and has no associative arrays.
+# 🛑 NOT write_fleet_rich with more agents: render-org-chart's fill-band
+# assertion is keyed to node count (see write_fleet_rich), so a denser shared
+# board would take that check red. This board is separate for that reason.
+write_fleet_org() {
+  local sb="$1"
+  mkdir -p "$sb/data/AgentWorkforce/profiles" "$sb/workers"
+  SB_ORG="$sb" node -e '
+    const f = require("./test-support/fleet");
+    const fs = require("fs");
+    const sb = process.env.SB_ORG;
+    const tree = [["boss",""],["c1","boss"],["c2","boss"],["c3","boss"],["c4","boss"],
+      ["c5","boss"],["c6","boss"],["c7","boss"],["c8","boss"],["g1","c1"],["g2","c1"]];
+    const lines = [];
+    for (const [a, to] of tree) {
+      lines.push(f.line({ session: a + "-discord" }));
+      fs.mkdirSync(sb + "/workers/" + a, { recursive: true });
+      fs.writeFileSync(sb + "/data/AgentWorkforce/profiles/" + a + ".json",
+        JSON.stringify({ role: "Worker", reportsTo: to, dir: sb + "/workers/" + a }, null, 2) + "\n");
+    }
+    fs.writeFileSync(sb + "/panes.txt", lines.join("\n") + "\n");
+  '
+}
+boot_board_org() {
+  local sb="$1" port="$2"
+  write_fleet_org "$sb"
+  AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
+    AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
+    AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
+    AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
+    AGENT_WORKFORCE_CONFIG_ROOT="${AGENT_WORKFORCE_CONFIG_ROOT:-$sb/config}" \
+    AGENT_WORKFORCE_CLAUDE_CONFIG="${AGENT_WORKFORCE_CLAUDE_CONFIG:-$sb/config/.claude.json}" \
+    PORT="$port" node ./server.js > "$sb/server.log" 2>&1 &
+  SERVER_PIDS+=("$!")
+  wait_up "$port" "$sb/server.log"
+}
 boot_board() {
   local sb="$1" port="$2"
   write_fleet "$sb"
@@ -638,15 +682,15 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 15 ]; do
+  while [ "${#picked[@]}" -lt 16 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 (chosen by the OS, #633)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -1043,6 +1087,19 @@ if boot_board_rich "$sbr" "$P11"; then
   run_one "render-survival"    env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-survival.js "$sbr/shots-survival"
 else
   FAILED+=("render-org-chart render-not-running render-list-row render-fields render-found-board render-survival (rich board did not boot)")
+fi
+
+# --- the dense org board (#1870): its OWN board, because it needs a static
+# --- orgPlace that overlaps, which the flat rich board above does not have and
+# --- a denser rich board would break (render-org-chart's fill-band is keyed to
+# --- node count). render-org-reduced-motion asserts no two discs overlap after
+# --- the synchronous reduced-motion settle #1738 added; it reds on a revert of
+# --- that settle (measured on the PR: 7 overlapping pairs, 33px).
+sbo="$(new_sandbox)"
+if boot_board_org "$sbo" "$P16"; then
+  run_one "render-org-reduced-motion" env KOSMOS_URL="http://127.0.0.1:$P16" node docs/browser-checks/render-org-reduced-motion.js
+else
+  FAILED+=("render-org-reduced-motion (dense org board did not boot)")
 fi
 
 # --- render-update-toast: SELF-CONTAINED, so it sits outside the board groups.
