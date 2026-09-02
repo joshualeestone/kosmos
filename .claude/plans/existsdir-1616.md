@@ -120,8 +120,9 @@ committed. Recorded so the next person commits first.
   runners.test.js 30, runnable-not-directory 22, create.runner-dir-1616 9. Zero fail.
 - Full suite at 1a385a53 (after iteration 2), tree clean, `tools/run-tests.sh` with the
   exit code written to the log by the runner's own last line: **`EXIT_CODE=0`, 3609 tests,
-  0 fail**, 19:28 to 19:30 CDT on 2026-09-01. The hold that preceded it (a colleague's
-  browser-gate bisect on main) was lifted at 19:13.
+  0 fail**, 19:28 to 19:30 CDT on 2026-09-01. Re-run at 46d61489 (after iteration 4):
+  **`EXIT_CODE=0`, 3609 tests, 0 fail**, 19:39 to 19:41. The hold that preceded the first
+  run (a colleague's browser-gate bisect on main) was lifted at 19:13.
 - Browser gate: this branch touches no `web/` file. It does touch one line of a
   browser-check DRIVER (`docs/browser-checks/live-connect.js`, since iteration 1), and
   #1720's gate keys on `web/` changes needing a `docs/browser-checks/` touch, so it does
