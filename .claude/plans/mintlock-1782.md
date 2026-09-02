@@ -1,56 +1,57 @@
-# mintlock-1782: serialize sendertoken mint/retire with a per-session lock
+# mintlock-1782: serialize sendertoken mint/retire/revoke with a per-session lock
 
 ## The defect (kosmos#1782)
 
-`engine/sendertoken.js` `mint()` and `retire()` are read-modify-write on one per-session token
-file:
-
-    tokens = readTokens(session)   // read
-    ... append / filter ...        // modify
-    writeTokens(session, tokens)   // write (atomic file replace, via securewrite)
-
-`writeSecret` makes each WRITE atomic; it does NOT make the read-and-write atomic. Two PROCESSES
-that interleave between the read and the write lose a token: the second write is built from a list
-that predates the first, so a live agent's token vanishes silently. This module exists to make
-duplicate launches visible, so a silently-lost token is exactly the case it must not produce.
-Same-process callers cannot hit it (`writeSecret` is synchronous); two processes are a real launch
-pattern. Pre-existing; not introduced by #1761/#1787 (those made the WRITE atomic, one layer down).
+`engine/sendertoken.js` `mint()`, `retire()` and `revoke()` are read-modify-write on one
+per-session token file. `writeSecret` makes each WRITE atomic; it does NOT make the read-and-write
+atomic. Two PROCESSES that interleave between the read and the write lose a token: the second write
+is built from a list that predates the first, so a live agent's token vanishes silently -- the case
+this module exists to make visible. Same-process callers cannot hit it (`writeSecret` is
+synchronous); two processes are a real launch pattern. Pre-existing.
 
 ## The fix
 
-`withSessionLock(sessionName, fn)` wraps both critical sections. The lock is a DIRECTORY
-(`mkdirSync` is atomic and fails EEXIST if it exists, which is the cross-process mutual exclusion),
-holding an `owner` file with the holder's pid. Semantics:
+`withSessionLock(sessionName, fn)` wraps the critical section of `mint`, `retire` and `revoke`.
 
-- A lock left by a CRASHED holder is broken by liveness (`process.kill(pid,0)` throws ESRCH), so a
-  crash cannot deadlock every future mint.
-- A lock held by a LIVE holder is waited on (`Atomics.wait`, a synchronous park), and if it will
-  not clear by the deadline, mint/retire FAIL (ELOCKBUSY) rather than break it -- breaking a live
-  holder's lock to force progress would reintroduce the lost update. Same "act only on a process
-  you can prove is dead" rule as the securewrite reaper (#1793); a reused pid reads alive and we
-  wait, which fails safe.
-- The deadline is `AGENT_WORKFORCE_LOCK_MS` (tests) or 2000ms.
-- Release is `unlink(owner)` + `rmdir(lockPath)`, NOT a recursive rm: a recursive rm on macOS can
-  race and leave the directory, which then trips a later recursive cleanup.
+The lock is chat.js's proven `withThreadLock` (round 19), TRANSCRIBED rather than reinvented: a
+first hand-rolled version re-derived the primitive and a blind pass caught three bugs chat.js had
+already fixed (below). The two locks should be one shared primitive, filed as **kosmos#1823** (it
+must touch chat.js, required fleet-wide via status.js which requires this module, so extracting it
+here is circular -- its own reviewed change).
 
-Under normal concurrent launches the lock serializes them (each waits ms for the other and both
-succeed); ELOCKBUSY is a rare safety valve for a holder stuck past the deadline.
+Design:
+- **Directory lock** (`mkdirSync` is atomic, EEXIST if held).
+- **Broken when STALE BY AGE** (`LOCK_STALE_MS` = 10s): a lock older than the bound is debris from a
+  crashed holder, so a crash between `mkdir` and the owner write -- an owner-less lock no liveness
+  check could break -- is still collected. The critical section is a few file ops (ms), so anything
+  older is not a live writer.
+- **STOLEN BY RENAME**, not `rmdir`: two waiters can both measure a lock as stale; with `rmdir` both
+  remove it and both proceed, the second demolishing the first's fresh lock. `rename` of a path
+  succeeds ONCE; the loser gets ENOENT and loops. Rename also copes with a non-empty lock dir.
+- **Owner token** written into the lock; release removes it only if still ours, so a holder whose
+  section outlived LOCK_STALE_MS and was stolen does not delete the successor's lock.
+- **chmod 0o700 after mkdir** -- a hardening the chat.js copy lacks and this needs: a restrictive
+  umask (the #1761 umask test sets 0o600) leaves the lock dir un-writable, so the owner file cannot
+  be written and the lock wedges. Found by that test failing.
+- **Fail contract**: returns `{ok:true,value}` or `{ok:false,because}` (ELOCKBUSY), never throws for
+  the lock; a `fn` throw propagates through the release. Deadline `AGENT_WORKFORCE_LOCK_MS`
+  (Number.isFinite, honors 0) or 2000ms; `Atomics.wait` parks.
 
-`revoke()` (a plain, atomic unlink of the whole file) is deliberately NOT under the lock: it has no
-read-modify-write lost-update, and a mint racing a deletion is inherently ambiguous by intent.
+`revoke` (the new-agent security gate in create.js) now takes the lock, so a straggler mint cannot
+land its write between the read and the unlink and resurrect a revoked token. `retire` calls a
+lock-free `revokeUnlocked` (it already holds the lock).
 
 ## Tests
 
-Each arm uses its own session name. Deterministic mechanics arms, each mutation-verified
-red-on-revert:
-- mint FAILS SAFE and leaves the store unchanged when a LIVE process (pid 1) holds the lock
-  (reddens if mint's lock wrapping is removed).
-- mint BREAKS a lock left by a CRASHED (dead-pid) holder and succeeds (reddens if the stale-break
-  is disabled -- it then waits to the deadline and returns ELOCKBUSY).
-- mint RELEASES the lock on success (no leak).
-- retire is serialized on the SAME lock (reddens if retire's lock wrapping is removed).
-- **12 CONCURRENT PROCESSES minting the same agent lose NO token** -- the defect reproduced across
-  real processes, the case the card said had not been measured. Measured: with the lock all 12
-  survive; with the lock removed, 7 of 12 were lost.
+Each arm uses its own session name; the SANDBOX teardown gets `maxRetries` for the lock's dir churn.
+Mutation-verified:
+- mint FAILS SAFE and leaves the store unchanged under a FRESH held lock (reddens with the lock bypassed).
+- mint STEALS a STALE (old-mtime) lock and succeeds (reddens if the age-break is disabled).
+- mint steals a stale OWNER-LESS lock -- the crash-between-mkdir-and-owner wedge (reddens if age-break disabled).
+- mint RELEASES the lock on success.
+- retire and revoke are serialized on the SAME lock (redden with the lock bypassed).
+- **12 CONCURRENT PROCESSES minting one agent lose NO token** -- the defect reproduced across real
+  processes (the card said it had not been measured): with the lock all 12 survive; with the lock
+  removed, 7 of 12 were lost.
 
-Full `sendertoken.test.js`: 41 pass, 0 fail; full suite green.
+Full `sendertoken.test.js`: 43 pass, 0 fail; full suite green.
