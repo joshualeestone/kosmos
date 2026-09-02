@@ -183,13 +183,10 @@ function blockBody() {
        Order matters in prose an agent acts on: what it is, then what it does,
        then what to do when it does not work. */
     ...cliAdvice(cli),
-    /* 🛑 "THAT COMMAND", NOT "IT". The reordering one commit ago put this
-       paragraph directly after "ask them to open Kosmos, which shows the same
-       thing on its own screen", so the nearest antecedent for a bare "It" was
-       KOSMOS. Read that way the sentence is FALSE (the board's own screen does
-       show the sign-in link) and it contradicts the sentence immediately above
-       it. The comment above records the reordering as fixing an antecedent
-       defect; it moved one and created another a paragraph later. */
+    /* 🛑 "THAT COMMAND", NOT "IT". This paragraph follows "ask them to open
+       Kosmos, which shows the same thing on its own screen", so a bare "It"
+       reads as KOSMOS, and read that way the sentence is FALSE: the board's own
+       screen does show the sign-in link. */
     'That command deliberately does NOT show you the sign-in link or the terminal',
     'output, and you should not go looking for them anywhere else either.',
     'Those are the parts that would let somebody sign in as them, so they are not',

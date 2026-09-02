@@ -44,9 +44,8 @@
  * because `server.js` builds that map from THREE LITERALS AND NOTHING ELSE --
  * so the guarantee lives at the call site. (The token doors are not in that
  * map: they were dropped from the agent view as a money decision, recorded at
- * the route. A map NARROWER than this sentence claims is the safe direction
- * -- which is exactly why nothing caught it, and why it is worth fixing in a
- * branch whose subject is comments that stop matching their code.) **Anyone passing a `doorNames` built from
+ * the route. A map NARROWER than this sentence claims is the safe
+ * direction.) **Anyone passing a `doorNames` built from
  * anything a person or a request can influence breaks this module's rule**, and
  * no assertion in here can catch them.
  *
@@ -164,10 +163,10 @@ function workingCount(rows) {
   return rows.filter((r) => r && r.connection && r.connection.state === subscription.STATE.CONNECTED).length;
 }
 
-/* 🛑 AN ALLOWLIST, LIKE EVERY OTHER CLASSIFIER IN THIS FILE. This was a DENYLIST
-   (`state !== UNKNOWN`), which made it disagree with `stateOf` twelve lines up about
-   the same row: `stateOf` treats an unrecognised state as `sawUnknown`, and this
-   counted it as READABLE. One file, one row, opposite answers.
+/* 🛑 AN ALLOWLIST, LIKE EVERY OTHER CLASSIFIER IN THIS FILE. A DENYLIST
+   (`state !== UNKNOWN`) disagrees with `stateOf` about the same row: `stateOf`
+   treats an unrecognised state as `sawUnknown`, and a denylist here would count
+   it as READABLE. One file, one row, opposite answers.
    ⚠️ The disagreement is invisible while `stateOf` returns UNKNOWN, because that nulls
    the counts. Mix one CONNECTED row with one malformed row and it surfaces: the
    malformed row lands in the denominator as known-broken, which is exactly the

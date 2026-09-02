@@ -84,18 +84,15 @@ test('#1034: the connections paragraph is actually IN the block, and says the th
   } else {
     assert.doesNotMatch(body, /that path is not there/,
       'the block teaches the bare command but says "that path", describing a path it never gave');
-        /* 🛑 THIS ASSERTED A SENTENCE THE CODE NO LONGER EMITS, AND ITS SIBLING AT
-       THE BOTTOM OF THIS FILE ASSERTS THE OPPOSITE. I corrected the cause-claim
-       in one test and did not sweep to this one, so the file held two guards
-       giving opposite answers about one string. It stayed green only because a
-       source checkout always resolves a path, so this branch never ran: the
-       exact unreachable-arm problem the cliAdvice seam exists to solve, in the
-       test that did not get the seam.
-       ⇒ Driven through cliAdvice so BOTH arms actually execute here too. */
+    /* A source checkout always resolves a path, so this arm never runs against
+       the live block: drive the bare arm through cliAdvice so BOTH arms execute
+       here, and this file cannot hold two guards giving opposite answers about
+       one string. */
     assert.doesNotMatch(connections.cliAdvice('kosmos').join(' '), /could not work out where/,
       'the bare arm asserts a cause it cannot know');
     assert.match(connections.cliAdvice('kosmos').join(' '), /may not be on your path/,
-      'the bare arm dropped the remedy');  }
+      'the bare arm dropped the remedy');
+  }
 
   // 2. It refuses the two-state reading. This is the sentence that stops an agent
   //    reporting "not connected" about a machine it merely could not read.

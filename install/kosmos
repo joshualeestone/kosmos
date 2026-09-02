@@ -35,6 +35,9 @@ while [ -L "$SELF" ]; do
   SELF="$(readlink "$SELF")"
   case "$SELF" in /*) ;; *) SELF="$DIR/$SELF" ;; esac
 done
+# Absolute even when invoked by a relative path (`bash install/kosmos ...`), so
+# every sentence that teaches `"$SELF" start` is paste-safe from any directory.
+SELF="$(cd "$(dirname "$SELF")" && pwd)/$(basename "$SELF")"
 KOSMOS_HOME="${KOSMOS_HOME:-$(cd "$(dirname "$SELF")/.." && pwd)}"
 
 NODE="$KOSMOS_HOME/runtime/bin/node"
@@ -692,7 +695,9 @@ cmd_connections() {
     # ⚠️ QUOTED in the printed line. An install path with a space yields advice a
     # person cannot paste, and clipath.js goes to real trouble to quote exactly
     # this class for the block while the CLI's own advice did not.
-    say "Kosmos is not running, so it cannot tell you what is connected. Start it with: \"$SELF\" start"
+    # Who starts it is stated the same way here and in the agent block
+    # (engine/connections.js cliAdvice): the person who runs this computer.
+    say "Kosmos is not running, so it cannot tell you what is connected. The person who runs this computer starts it: open Kosmos, or run \"$SELF\" start"
     exit 1
   fi
   local body
@@ -841,9 +846,9 @@ cmd_connections() {
        from this board, both free. */
     process.stdin.setEncoding("utf8");
     process.stdin.on("error", function () { console.log("Kosmos answered something we could not read, so we cannot say what is connected."); process.exitCode = 1; });
-    let raw = ""; process.stdin.on("data", (d) => { raw += d; });
-    process.stdin.on("end", () => {
-      let v = null;
+    var raw = ""; process.stdin.on("data", function (d) { raw += d; });
+    process.stdin.on("end", function () {
+      var v = null;
       try { v = JSON.parse(raw); } catch { v = null; }
       if (v && typeof v.error === "string") {
         /* 🛑 PRINT THE BOARD SENTENCE ONLY WHEN IT COMPOSED ONE FOR A PERSON. A board
@@ -915,7 +920,7 @@ cmd_connections() {
          verb whose stated job is refusing machine vocabulary. */
       var own = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined; };
       var SAY = { connected: "connected", none: "not connected", unknown: "could not check" };
-      for (const p of okProviders) {
+      for (var p of okProviders) {
         /* ⚠️ STRINGS ONLY, for the same reason as the services loop below:
            a board answering name or because as an object printed
            "[object Object]: connected ([object Object])" at a person. Measured,
@@ -1167,7 +1172,7 @@ cmd_connections() {
            rendered as "[object Object]: [object Object]" at a person. The boundary
            allowlists these, so this is the CLI refusing to trust a board it does not
            control, which is the same reason the guard above checks elements. */
-        for (const s of okServices) {
+        for (var s of okServices) {
           console.log("  " + clean(s.name) + ": " + clean(s.because));
         }
       }
