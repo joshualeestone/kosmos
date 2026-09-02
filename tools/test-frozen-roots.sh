@@ -116,6 +116,17 @@ const CONFIG = path.join(home(), 'config.json');"
 if [ "$(run fnexpr_default)" = "1" ]; then ok "a function-expression resolver with a default param is flagged (#1752)"
 else bad "missed a function-expression with a default param -- the head was mis-parsed and the body truncated"; fi
 
+# ---- arm 4g: a DESTRUCTURING param on a WRAPPED expression arrow (#1752) ---
+# The param's `{ }` balances on the head line; without a paren-depth guard the
+# body-brace balance fires on the param and the wrapped body (with the root) is
+# truncated -> a FALSE NEGATIVE on an ordinary options-object helper.
+fixture destructure_param "const os = require('os');
+const resolveDir = ({ profile }) =>
+  path.join(os.homedir(), '.app', profile);
+const PROFILE_DIR = resolveDir({ profile: 'default' });"
+if [ "$(run destructure_param)" = "1" ]; then ok "a destructuring-param wrapped-arrow resolver is flagged (#1752)"
+else bad "missed a destructuring-param arrow -- the param brace ended the capture before the body"; fi
+
 # ---- arm 5: a const with no root at all must not be flagged ---------------
 fixture inert "const NAME = 'kosmos';
 const N = 3;"

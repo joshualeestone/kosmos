@@ -82,29 +82,41 @@ function declarations(src) {
 }
 
 /* A resolver's body, captured line-linearly from line `i`, terminating on a
-   BALANCED brace when the declaration opens one and on the statement's `;`
+   BALANCED body brace when the declaration opens one and on the statement's `;`
    otherwise.
    🛑 #1752: earlier versions keyed the block terminator on a closing brace at
    COLUMN 0 (`/^\}/`), which had three edges a blind pass found: an INDENTED
-   closer over-captured to the next col-0 `}` (sweeping a later source const in ->
-   a FALSE POSITIVE that reds an unrelated file, the worst direction for a gate);
-   a function-expression with a DEFAULT PARAM (`= function (x = 5) {`) mis-read as
-   non-block and truncated; and a brace on its own next line (`=>\n{`) likewise.
-   Counting braces from the first one until they balance is indentation- and
-   placement-independent and closes all three. It miscounts a brace inside a
-   string/comment, which is rarer in a resolver body than any of the above. */
+   closer over-captured to the next col-0 `}` (a FALSE POSITIVE that reds an
+   unrelated file, the worst direction for a gate); a function-expression with a
+   DEFAULT PARAM mis-read as non-block and truncated; and a brace on its own next
+   line likewise. Counting braces until they balance is indentation- and
+   placement-independent and closes all three.
+   ⚠️ A `{` only opens the BODY at PAREN-depth 0. A brace in the PARAMETER list -
+   a destructure `({ a }) =>` or an object default `(o = {}) =>` - sits inside
+   `(...)`, and without this guard its balanced pair on the head line ends the
+   capture BEFORE the body, missing the root (a realistic false negative on a
+   wrapped options-object helper).
+   ⚠️ KNOWN RESIDUAL, honest about its two directions: this counts RAW characters,
+   so an UNBALANCED brace inside a string, comment, regex or template literal
+   miscounts - a stray `{` over-captures (a false positive) and a stray `}`
+   truncates (a false negative). Contrived in a resolver body and absent from this
+   tree; a fully brace-accurate check needs an AST, which this linear tool
+   deliberately is not. The behavioural arms remain the property's real guard. */
 function resolverBodyFrom(lines, i) {
   const buf = [];
   let depth = 0;
-  let sawBrace = false;
+  let paren = 0;
+  let sawBody = false;
   for (let j = i; j < lines.length && j - i < 400; j += 1) {
     const line = lines[j];
     buf.push(line);
     for (const ch of line) {
-      if (ch === '{') { depth += 1; sawBrace = true; }
-      else if (ch === '}') { depth -= 1; }
+      if (ch === '(') paren += 1;
+      else if (ch === ')') paren -= 1;
+      else if (ch === '{') { if (paren <= 0) { depth += 1; sawBody = true; } }
+      else if (ch === '}') { if (paren <= 0 && sawBody) depth -= 1; }
     }
-    if (sawBrace) { if (depth <= 0) break; }   // block body: closed when balanced
+    if (sawBody) { if (depth <= 0) break; }   // block body: closed when balanced
     else if (/;\s*$/.test(line)) break;         // expression body: to its ;
   }
   return buf.join('\n');
