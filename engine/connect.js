@@ -1821,6 +1821,21 @@ async function launchSignin(owner) {
   const launchDir = owner.configDir || process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
   if (launchDir) {
     cmd.push(`CLAUDE_CONFIG_DIR=${launchDir}`);
+  } else {
+    /* 🛑 #1922: UNSET IT, DO NOT MERELY DECLINE TO SET IT. No launch dir means
+       "the true default account", NOT "whatever CLAUDE_CONFIG_DIR this process
+       happens to carry" -- and `env` without `-u` hands the child the caller's
+       environment, so an omitted assignment is NOT an unset variable. A
+       Kosmos-managed machine runs its own agents under a real
+       CLAUDE_CONFIG_DIR, so the ambient value here is routinely a DIFFERENT
+       account, and the sign-in would write the refreshed credential into that
+       account rather than the default one the person asked to repair.
+
+       `subscription.checkLive` already defends the READ side of exactly this
+       and states the rule: it builds its env and `delete env.CLAUDE_CONFIG_DIR`
+       "rather than trusting it to be unset". This is the WRITE side of the same
+       guarantee, which had been left to trust. */
+    cmd.push('-u', 'CLAUDE_CONFIG_DIR');
   }
   cmd.push(claudeBinPath());
 
