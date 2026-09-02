@@ -24,7 +24,12 @@
 # 📌 Counting `Chromium` processes is NOT how you tell whether the field is
 # clear. This spawns one per check and exits it, so a point sample reads zero
 # at a trough and dozens at a peak, and misleads in both directions. Count the
-# `browser-checks.sh` PARENTS instead.
+# `browser-checks.sh` PARENTS instead -- but note (#1818) that a direct freeze
+# run now shows TWO `browser-checks.sh` processes for ONE logical run (the parent
+# that froze + the re-exec child that runs the checks from the frozen copy); the
+# cut path is a single process (detached HEAD, no re-exec). The cookie-based cut
+# guard is unaffected either way; this only skews a by-eye process count, in the
+# safe over-count direction.
 #
 # `node --test` reads source; it cannot see the page. The scripts under
 # docs/browser-checks/ can, but they lived outside every automated run, so a
@@ -154,22 +159,38 @@ elif git -C "$REPO" symbolic-ref -q HEAD >/dev/null 2>&1; then
   # removes the class: the file bash reads there is immutable.
   #
   # This must NOT be `exec` -- this process has to survive to thaw the worktree.
-  # So the child is a subprocess and the wait+thaw+exit is wrapped in a function
+  # So the child is a subprocess and the trailing `exit` is wrapped in a function
   # ON PURPOSE: bash parses a function body in full (here, before the call is
   # made), then runs it from memory. Once the long child run is underway this
-  # parent reads NOTHING further from the mutable source script, so its own
-  # trailing lines (the $?, the thaw, the exit) cannot themselves be corrupted
-  # by a mid-run edit. Inlining these lines would reintroduce the very bug.
+  # parent reads NOTHING further from the mutable source script, so its trailing
+  # `exit $?` cannot itself be corrupted by a mid-run edit. Inlining it would
+  # reintroduce the very bug.
+  #
+  # THE THAW IS ON A TRAP, NOT STRAIGHT-LINE CODE. The parent blocks in the
+  # function for the whole child run, and the only `trap cleanup EXIT` is in the
+  # RUN_DIR block far below -- which the parent never reaches (it exits inside the
+  # function). So until the trap here, a SIGTERM/SIGINT to the parent while it
+  # waited ran no thaw and leaked the frozen worktree + FREEZE_ROOT -- a
+  # regression the old single-process path did NOT have (its EXIT trap covered
+  # SIGTERM). Thaw on EXIT (idempotent), and turn INT/TERM into an exit so that
+  # trap fires. The traps and _parent_thaw are parsed into memory here, before
+  # the child run, so a mid-run edit cannot corrupt them either. The child is a
+  # separate bash process and does NOT inherit these traps (it sets its own).
+  _parent_thaw() {
+    [ -n "${FREEZE_BUILD:-}" ] && release_thaw "$SOURCE_REPO" "$FREEZE_BUILD"
+    [ -n "${FREEZE_ROOT:-}" ] && rm -rf "$FREEZE_ROOT"
+    FREEZE_BUILD=""; FREEZE_ROOT=""     # idempotent: a second call is a no-op
+  }
+  trap '_parent_thaw' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   run_frozen_runner_then_thaw() {
     export KOSMOS_BC_FROZEN_RUNNER=1
     bash "$FREEZE_BUILD/tools/browser-checks.sh" "$@"
-    local _rc=$?
-    release_thaw "$SOURCE_REPO" "$FREEZE_BUILD"
-    rm -rf "$FREEZE_ROOT"
-    exit "$_rc"
+    exit $?     # the EXIT trap (_parent_thaw) does the thaw, robustly
   }
   run_frozen_runner_then_thaw "$@"
-  # not reached: run_frozen_runner_then_thaw always exits.
+  # not reached: run_frozen_runner_then_thaw always exits (EXIT trap thaws).
 else
   # ⚠️ KNOWN LIMITATION, narrow: detached HEAD is release.sh's freeze in
   # practice (its only automated caller), but is not UNIQUE to it -- a
