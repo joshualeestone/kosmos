@@ -132,7 +132,10 @@ which is the false-calm direction this card exists to close, and the exact "the
 fix for a finding introduces a worse finding" shape `status.test.js` warns about
 above its footer row.
 
-⇒ Only the ONE shape observed on a real pane is handled. The others are a
+⇒ Handled: the two counter phrases the vendor's render composes (background
+agents, dynamic workflows). The first was observed live; the second was derived
+from the render JSX, which is weaker evidence and is labelled as such wherever it
+is claimed. Every other `Waiting for …` string is a
 named, unresolved risk, with an instruction in the code not to widen without a
 live capture and to route human-blocked shapes to `NEEDS_YOU`.
 
@@ -153,7 +156,9 @@ other three. Do not read the merge as the card being done.
 
 - New test pinned from the verbatim live line, plus the plural form.
 - **Perturbed to prove it can fail**: replacing the regex with one that cannot
-  match reds exactly 1 of 159 in `status.test.js`; restoring returns 159/159.
+  match now reds 2 of 160 in `status.test.js` (the aimed assertion and the
+  contract table); restoring returns 160/160. The older "1 of 159" predates both
+  the table and the extra test.
 - Full suite `bash tools/run-tests.sh`: **exit 0**, 4537 lines, zero failures,
   and the new test runs inside it.
 
@@ -238,59 +243,31 @@ re-checks.** A blind reviewer measured 1, I re-measured and got 12 twice, and
 only inspecting what my script actually cut settled it. Assert your perturbation
 is well-formed before believing what it tells you.
 
-## MY COMMENT-RATIO TABLE WAS FALSE IN EVERY PART
+## THE COMMENT-RATIO TABLE WAS FALSE, AND SO WAS MY CORRECTION OF IT
 
-Published in commit `4030a14f` and corrected here. The table claimed siblings at
-3.5:1 and 5.0:1, mine at 27.3:1 before and 16.0:1 after, and "a 3x outlier".
+Commit `4030a14f` published a table (siblings 3.5:1 and 5.0:1, mine 27.3:1 then
+16.0:1, "a 3x outlier"). Commit `207bc2fa` then "corrected" it to 41 -> 42 lines
+with the headline **the trim made the header one line longer**.
 
-Re-measured by counting the contiguous comment lines directly above each
-constant, after two earlier measuring scripts returned obvious nonsense (one
-counted `/* */` continuation lines as code, the next returned zero comments for
-every block):
+🛑 THE CORRECTION IS ALSO WRONG. Measured at the three revisions: 41 before the
+trim, **36 at the trim commit**, 42 at HEAD. The trim DID shorten the block by 5,
+and that accounts for the whole net change in its single hunk; the growth back to
+42 came from the LATER commit. My 41 -> 42 comparison silently spanned two
+commits and attributed a later commit's growth to the trim.
 
-| block | comment lines above |
-|---|---|
-| `TRUST_PROMPT_REACH` | 11 |
-| `WORKING_LINE` | 10 |
-| mine, header block before the trim | 41 |
-| mine, header block after the trim | **42** |
+⇒ FOUR measuring attempts on this one quantity have now produced four different
+answers, three of them published. So the number is retired rather than corrected
+a third time: no comment:code ratio is quoted anywhere in this branch.
 
-⇒ **The trim made the header ONE LINE LONGER.** The net `-5` in the file came
-from deleting text elsewhere, not from shrinking the block the commit was about.
-The outlier is real (roughly 4x its siblings, not 3x) and the restructuring was
-still worth doing, because what remains is load-bearing warnings rather than a
-changelog. But every number I published about it was wrong, and the direction of
-the headline change was wrong too.
+WHAT IS TRUE AND CHECKABLE WITHOUT THE NUMBER: the block is several times larger
+than its siblings, the restructuring replaced a changelog with load-bearing
+warnings, and the history now lives in this file. Anyone who wants the ratio can
+measure it; I have demonstrated four times that I cannot.
 
-⭐ Third measuring instrument to fail on this one quantity. The lesson is not
-"measure more carefully", it is that a derived statistic nobody re-runs is the
-easiest false claim to publish, and I published one while correcting someone
-else's numbers.
-
-## Comment volume, measured rather than judged
-
-Iteration 5 flagged the comment block as too heavy. Measured against its own
-siblings in the same file:
-
-| block | comment : code |
-|---|---|
-| `TRUST_PROMPT_REACH` | 3.5 : 1 |
-| `capturePane` | 5.0 : 1 |
-| `WORKING_LINE` | 10.0 : 1 |
-| **mine, before** | **27.3 : 1** |
-| mine, after | 16.0 : 1 |
-
-Heavy explanatory comments ARE this module's house style, so the question was
-never length in the abstract; it was that my block was an outlier by 3x and mixed
-verified claims with a changelog, typographically identical. What stays in the
-code is only what a future editor must not get wrong: the `$` anchor, the `\s*`
-spacing, the excluded `*`, the missing `m`, and the do-not-widen rule. Everything
-narrative now lives here.
-
-⚠️ And the trim itself broke the file on the first attempt: the slice ran from the
-comment start to the wrong anchor and deleted the regex constant. 57 tests went
-red, which is the only reason I noticed. A comment-only edit is not comment-only
-if you compute its boundaries.
+⭐ The lesson is not "measure more carefully". It is that a derived statistic
+nobody re-runs is the cheapest false claim to publish, and that CORRECTING one is
+not safer than making one: my correction was published with the same confidence
+and was wrong in the same direction.
 
 ## Weakest premise
 
