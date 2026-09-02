@@ -31,13 +31,32 @@ Fix: each lazy (function-shaped) const's body is now a resolver candidate in the
 closure. Precision is unchanged -- a candidate is marked a resolver only if its body reaches a
 source or another resolver; a lazy const that reaches neither is still not flagged.
 
+## Iteration 2 (a blind pass found a false negative in the class I claimed to close)
+
+The first version reused `declarations()` (which terminates at the first `;`) to capture a
+const-held resolver's body. For a BLOCK-body arrow the source call is after the first `;` (the
+first statement), so it was truncated and the eager const calling it was missed -- while the
+identical `function` form was caught. Arm 4b only tested the single-expression form that dodges the
+hole. Fixed: `resolverBodyFrom` captures a const-held resolver body to the closing brace for a
+block body (the `^}` heuristic function declarations already use) and to `;` for a single-expression
+arrow. Also replaced the fixed 2-round transitive closure with a FIXPOINT (`while (changed)`), which
+the same pass showed was needed for a reverse-declared chain 3+ deep.
+
 ## Verification
 
-- `tools/test-frozen-roots.sh`: 7 arms pass, including new **arm 4b** (a const frozen via an ARROW
-  resolver is flagged). Mutation-verified: reverting the arrow addition reddens ONLY arm 4b; every
-  other arm (including the two precision arms) passes.
-- `node tools/check-frozen-roots.js engine` exits 0 on the real tree -- no new false positive.
+- `tools/test-frozen-roots.sh`: 9 arms pass -- the two precision arms (lazy arrow, unrelated const),
+  the liveness arms, **arm 4b** (single-expression arrow resolver), **arm 4c** (MULTI-LINE
+  block-body arrow -- the false negative), **arm 4d** (reverse-declared 3-deep chain), and
+  termination. Mutation-verified: disabling block capture reddens ONLY arm 4c; reverting the
+  fixpoint to 2 rounds reddens ONLY arm 4d; every other arm passes.
+- `node tools/check-frozen-roots.js engine` exits 0 on the real tree -- no new false positive; 0.04s.
 - Full suite green.
+
+## Known pre-existing limit (out of scope, named)
+
+`isLazy` does not recognise `async () =>`, so `const T = async () => os.homedir()` is flagged as a
+frozen root (a false positive) -- unchanged by this diff, and an async resolver returns a promise,
+not a frozen value, so it is not the frozen-root shape. Left as a separate follow-up.
 
 ## Scope note
 
