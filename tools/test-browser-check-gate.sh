@@ -102,29 +102,35 @@ run "$(ns M engine/create.js M tools/release.sh)" "backend only" \
 run "$(ns M docs/webhooks/notes.md)" "unrelated docs" \
   ; check "docs/webhooks/ (not web/) -> pass" 0 "$RC"
 
-# REAL git path (no seams): exercise the live `git diff --name-status
-# origin/main...HEAD` + `git log` integration end-to-end, plus the fail-soft branch
-# (detached HEAD / no origin/main). The refuse-vs-pass LOGIC is already proven by the
-# seam-driven arms above; this arm's only job is to prove the git plumbing RUNS and
-# returns a verdict.
+# REAL git path (no seams): drive the gate through its live `git diff` + `git log`
+# subprocesses on a base pinned to a KNOWN ref, so the outcome is deterministic and
+# independent of what the branch under test touches. The refuse-vs-pass decision LOGIC
+# is already proven by the seam-driven arms above (KOSMOS_BCG_FILES); these two arms
+# prove the real git plumbing runs and returns the RIGHT verdict for a known input.
 #
-# ⚠️ It asserts the gate RETURNED A VERDICT (rc 0 or 1), NOT rc 0. The earlier
-# "-> pass" (rc 0) form assumed THIS branch touches no web/ -- true only on main and
-# on backend-only branches. The base is origin/main, so on any branch that
-# legitimately changes web/ without an inline assertion the live diff is non-empty and
-# the gate CORRECTLY refuses (rc 1). That made the arm a function of the branch under
-# test: green on main, red on a web-changing branch, SAME code -- kosmos#1833, misread
+# ⚠️ WHY NOT the old form. It ran the gate seam-free against the branch and asserted
+# rc 0, on the assumption "this branch touches no web/". The default base is
+# origin/main, so on any branch that legitimately changes web/ without an inline
+# assertion the live `origin/main...HEAD` diff is non-empty and the gate CORRECTLY
+# refuses (rc 1) -- making the arm a function of the branch under test: green on main
+# (empty diff), red on a web-changing branch, SAME code. That is kosmos#1833, misread
 # as a tmux-server race (the "error connecting to .../tmux-501/default" lines are
-# benign and appear identically in green runs; status.snapshot swallows them). The
-# gate returns only 0 or 1, so a rc >1 here is a real crash (git/gate error), which
-# this still catches.
-( kosmos_browser_check_gate >/dev/null 2>&1 ); RC=$?
-if [ "$RC" = 0 ] || [ "$RC" = 1 ]; then
-  echo "PASS  real git path returns a verdict (rc 0 or 1), whatever this branch touches"
-else
-  echo "FAIL  real git path crashed (expected rc 0 or 1, got rc=$RC)"
-  fails=$((fails + 1))
-fi
+# benign and appear identically in green and red runs; status.snapshot reads a missing
+# socket as the no-server empty). Pinning the base removes the branch-dependence.
+#
+# Base = HEAD: `git diff HEAD...HEAD` is empty on EVERY branch, so the gate runs its
+# real diff+log and returns 0 via the "no rendered change" path (NOT the fail-soft
+# escape, which fires only when the diff command itself errors). Asserting exactly 0
+# also catches a gate that wrongly refused an empty diff -- which rc-in-{0,1} could not.
+( KOSMOS_BCG_BASE=HEAD kosmos_browser_check_gate >/dev/null 2>&1 ); RC=$? \
+  ; check "real git path, empty diff (base=HEAD) -> pass" 0 "$RC"
+
+# Base = a ref that cannot resolve: `git diff <nope>...HEAD` errors, so the gate takes
+# its fail-soft branch (browser-check-gate.sh: "could not diff against <base>,
+# skipping") and returns 0. Exercises the no-origin/main path the old comment claimed
+# to cover but only reached by accident on a checkout that happened to lack origin/main.
+( KOSMOS_BCG_BASE=kosmos-bcg-no-such-ref kosmos_browser_check_gate >/dev/null 2>&1 ); RC=$? \
+  ; check "real git path, unresolvable base -> fail-soft pass" 0 "$RC"
 
 # ZSH SAFETY (iter-2 WARNING): the lib is sourced into zsh in some contexts, and zsh
 # does not word-split an unquoted expansion. A `for f in $files` loop would iterate
