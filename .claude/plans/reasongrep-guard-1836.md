@@ -40,7 +40,7 @@ codes are untouched; the prefix is print-site cosmetic only.
 
 ## Decision: the exact-count assertion is an intentional tripwire
 
-`EXPECTED_SITES = 27` is an equality, not a floor. The file argues (and I agree)
+`EXPECTED_SITES = 28` is an equality, not a floor. The file argues (and I agree)
 that a floor whose slack exceeds the thing it guards is decoration. The equality
 goes red the first time anyone adds a legitimate emit site - and that red is the
 feature: it forces the new site to be reviewed for quotability and the number
@@ -50,7 +50,9 @@ not a mystery red.
 
 ## Proof
 
-- Guard green on main after the 11 fixes; count holds at 27, `bad` empty.
+- Guard green on main after the 12 fixes (11 finding-emit sites + render-first-run,
+  found on the next review and rewritten to a counted SHAPE-1 site); count holds at
+  28, `bad` empty.
 - Perturbation, both arms: revert any one fix -> guard reds (bad non-empty);
   add an emit site -> guard reds (count tripwire). Restore -> green.
 - `node --check` clean on all 11 changed checks.
