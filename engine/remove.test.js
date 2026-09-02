@@ -110,6 +110,12 @@ function boardShows(name, session) {
   status.setPaneSource(() => fleet.line({ session, claim, title: '✳ Claude Code' }));
 }
 
+/* #1794: default every test to an empty board through the existing paneSource
+   seam, so remove's roster lookup ("which agent does this name refer to right
+   now") is hermetic instead of shelling out to a live tmux that throws on a
+   boardless CI runner. The tests that need a populated or throwing roster set
+   their own paneSource in-body (running after this), and the afterEach resets. */
+test.beforeEach(() => { status.setPaneSource(() => ''); });
 test.afterEach(() => {
   remove.setRunner(null);
   create.setRunner(null);

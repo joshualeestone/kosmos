@@ -42,6 +42,13 @@ const status = require('./status');
 
 const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
 
+/* #1794: the real create path checks which agents are already running (the pane
+   roster), which shells out to a live tmux and THROWS on a boardless CI runner.
+   Default to an empty board via the existing paneSource seam so the check is
+   hermetic; neither test here exercises the already-running refusal. */
+test.beforeEach(() => { status.setPaneSource(() => ''); });
+test.afterEach(() => { status.setPaneSource(null); });
+
 test('#1367: a refusal speaks the display name, not the machine name', () => {
   create.setRunner(() => ({ ok: true }));
   create.setDryRun(false);
