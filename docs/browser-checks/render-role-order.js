@@ -1,11 +1,13 @@
 /**
- * The three role options, in Josh's order, with the menu opening between the
+ * The four role options, in Josh's order, with the menu opening between the
  * second and the third -- and the keyboard behaviour that is now the browser's.
+ * (Four since #1652 added "import an agent from a file" as a fourth rmode radio,
+ * a .agent.md source for the same `own` role; it sits last, after pick-own.)
  *
- * 🔑 WHY A BROWSER AND NOT A SOURCE TEST. What this pins is that three radio
+ * 🔑 WHY A BROWSER AND NOT A SOURCE TEST. What this pins is that the radio
  * inputs form ONE group by sharing a name while a `<div>` sits between two of
  * them. That is a fact about the platform's grouping, not about our markup: a
- * source assertion could confirm the three `name="rmode"` attributes and say
+ * source assertion could confirm the `name="rmode"` attributes and say
  * nothing at all about whether arrowing moves between them or whether checking
  * the third clears the first.
  *
@@ -67,8 +69,9 @@ const LIVE = `(el) => {
       return {
         count: ins.length,
         values: ins.map((i) => i.value),
-        /* The document order of the four things that have to be in this order. */
-        order: Array.from(document.querySelectorAll('#pick-pm, #pick-list, #rolepick, #pick-own'))
+        /* The document order of the things that have to be in this order:
+           the three original + the menu + the #1652 import option, last. */
+        order: Array.from(document.querySelectorAll('#pick-pm, #pick-list, #rolepick, #pick-own, #pick-import'))
           .map((n) => n.id),
         /* Every radio is inside the fieldset, and so is the menu. */
         allInFieldset: ins.every((i) => i.closest('fieldset.pickradios')),
@@ -80,9 +83,9 @@ const LIVE = `(el) => {
       };
     });
 
-    check(`[${engine}] three radios share one name`, shape.count === 3, shape.values.join(', '));
-    check(`[${engine}] Josh's order, with the menu between the second and third`,
-      shape.order.join(' > ') === 'pick-pm > pick-list > rolepick > pick-own',
+    check(`[${engine}] four radios share one name`, shape.count === 4, shape.values.join(', '));
+    check(`[${engine}] Josh's order, with the menu between the second and third and import last`,
+      shape.order.join(' > ') === 'pick-pm > pick-list > rolepick > pick-own > pick-import',
       shape.order.join(' > '));
     check(`[${engine}] the menu is INSIDE the group, which is the whole point`,
       shape.allInFieldset && shape.menuInFieldset);

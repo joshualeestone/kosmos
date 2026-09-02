@@ -240,6 +240,13 @@ function seed() {
       return { open: !m.hidden, h: Math.round(box.getBoundingClientRect().height),
         title: (() => { const el = document.getElementById('rst-title'); return el.getBoundingClientRect().height > 0 ? el.innerText : ''; })(),
         small: (() => { const el = document.getElementById('rst-small'); return el.getBoundingClientRect().height > 0 ? el.innerText : ''; })(),
+        /* #1841 (a8e69f8d) split the dialog copy: #rst-small is now the PER-AGENT
+           line ("what is in flight"), and the general consequence moved to a
+           STATIC sibling paragraph, `.rm-small` with no id. Read that sibling
+           specifically -- reading the whole dialog text instead would let the
+           per-agent copy's own "part way through" satisfy the consequence
+           assertion even if the consequence paragraph were deleted (a false pass). */
+        consequence: (() => { const el = box.querySelector('.rm-small:not(#rst-small)'); return el && el.getBoundingClientRect().height > 0 ? el.innerText : ''; })(),
         focused: document.activeElement && document.activeElement.id };
     });
     chk(dlg.open && dlg.h > 100, theme + ': the restart confirmation opens and is drawn', String(dlg.h));
@@ -248,12 +255,14 @@ function seed() {
        never reported, so the dialog must NOT claim they are clear. */
     chk(!/is not part way through anything/.test(dlg.small),
       theme + ': an unreported agent is not called clear', dlg.small.slice(0, 60));
-    /* The consequence sentence's new home (the 08-23 pack match): the
-       dialog, which every press passes through. The fixture agents have
-       never reported, so restartCost's unknown arm speaks, and its closing
-       consequence is the one pinned. */
-    chk(/Restarting ends anything it had in flight/.test(dlg.small),
-      theme + ': the consequence lives in the dialog, at the moment of choice', dlg.small.slice(0, 80));
+    /* The consequence sentence's home: the dialog every restart press passes
+       through. #1841 (a8e69f8d) moved it out of #rst-small into a static
+       sibling paragraph (see `consequence` above); the distinctive action it
+       must still state is that work part way through ENDS. Reads the isolated
+       consequence paragraph, so it reds if that paragraph is dropped or stops
+       naming the consequence -- not satisfied by the per-agent line. */
+    chk(/part way through ends/i.test(dlg.consequence),
+      theme + ': the consequence lives in the dialog, at the moment of choice', dlg.consequence.slice(0, 80));
     chk(dlg.focused === 'rst-keep', theme + ': it opens on the harmless answer', String(dlg.focused));
     await pg.keyboard.press('Escape');
     await pg.waitForTimeout(300);
