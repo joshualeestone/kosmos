@@ -266,14 +266,18 @@ const WEAK_CALL_ALL = new RegExp(WEAK_CALL.source, 'g');
    existsSync in the tree returns hundreds of honest presence checks.
    ITS GAP, STATED AT THE DEFINITION: an existsSync over a variable with another
    name, or over `path.join(dir, 'claude')`, or a `statSync(bin)` that never asks
-   isFile, is invisible here, and so is a call split across lines: the sweep is
+   isFile, is invisible here; so is a member expression deeper than one level
+   (`existsSync(cfg.bins.claudeBin)`, `existsSync(paths().codexBin)`), because the
+   qualifier accepts exactly one dotted identifier; and so is a call split across lines: the sweep is
    per-line, and `existsSync(\n  runnerBin\n)` matches this regex as a string yet
    returns 0 hits through the line loop (measured by the iteration-1 reviewer).
    KNOWN AND UNSWEPT, so nobody re-derives the census: `engine/remote.js` picks the
    tunnel binary with `existsSync(bundled)` and falls through to PATH when it is not
    there, and `docs/browser-checks/live-connect.js` checks `existsSync(installed)` and
    then execFiles it, which fails loudly on a folder. Both are presence questions with
-   a real error behind them; neither is a silent spawn-later gate. Left as they are.
+   a real error behind them; neither is a silent spawn-later gate. `engine/reporthook.js`
+   presence-checks a hook SCRIPT it later runs through bash, which is outside the
+   runner class but is the next thing a re-derived census finds. All left as they are.
    A guard keyed on a literal cannot enforce a property; this one enforces the
    literals that were live on 2026-08-30 and leaves the
    behavioural arms (create.runner-dir-1616.test.js) to enforce the property. */
