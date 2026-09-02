@@ -193,6 +193,12 @@ function withSessionLock(sessionName, fn) {
         const aside = `${lock}.${process.pid}.${Date.now()}.stale`;
         try { fs.renameSync(lock, aside); }
         catch { pauseMs(LOCK_SPIN_MS); continue; }   // someone else won the steal, or it vanished
+        /* chmod so the recursive remove can read the dir: a holder that crashed
+           between the mkdir and the dir chmod under an owner-bit-clearing umask left
+           it un-readable, and rmSync must readdir to recurse (force suppresses
+           ENOENT, not EACCES). Best-effort; the leftover is inert either way (name
+           ends `.stale`, matched by no reader), this just avoids accumulating it. */
+        try { fs.chmodSync(aside, 0o700); } catch { /* best-effort */ }
         try { fs.rmSync(aside, { recursive: true, force: true, maxRetries: 5 }); } catch { /* debris, not fatal */ }
         continue;
       }
