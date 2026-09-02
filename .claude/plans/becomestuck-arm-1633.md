@@ -17,6 +17,12 @@ git grep -lil stuck HEAD        -- '*.test.js' | wc -l   ->  31   (this branch a
 
 🛑 **THE CENSUS IN THIS PARAGRAPH WAS WRONG UNTIL ITERATION 8 AND SAID "the two files".** There are **three**, and the one it omitted has the most references of any of them:
 
+**Reproduce the census** (the test file points here for exactly this, so the command belongs here):
+
+```
+git grep -c canRunClaude -- '*.test.js'
+```
+
 | file | references | how it asserts |
 |---|---|---|
 | `server.connect.test.js` | 3 | builds the state object by hand |
@@ -117,7 +123,7 @@ engine.publicview-canrun-1595.test.js   builds state by hand, 0 start() calls
 this file                               drives the real start(), reads the STUCK record
 ```
 
-🛑 **THAT SENTENCE USED TO READ "The unit guard stays green if `becomeStuck` stops calling the helper. This arm does not." IT WAS EXACTLY BACKWARDS, AND IT WAS THE STATED JUSTIFICATION FOR THE BRANCH.** Iteration 11 caught it; the measurement below settles it. Four mutations, each run against every file that touches the field:
+🛑 **THAT SENTENCE USED TO READ "The unit guard stays green if `becomeStuck` stops calling the helper. This arm does not." IT WAS EXACTLY BACKWARDS, AND IT WAS THE STATED JUSTIFICATION FOR THE BRANCH.** Iteration 11 caught it; the measurement below settles it.
 
 🛑 **THE TABLE BELOW REPLACES ONE BUILT FROM A HAND-PICKED COLUMN SET, AND THE SET IS WHAT MADE IT WRONG.** I chose columns by *which files mention `canRunClaude`*. `engine/connect.test.js` does not mention it, was therefore excluded, and **is one of the tests that falsifies the old claim.** ⇒ **Choosing the column set is choosing the answer.** Every row below is measured by running the **entire suite** under the mutation and reading which tests redden.
 
@@ -130,7 +136,17 @@ this file                               drives the real start(), reads the STUCK
 | **M4** install failure never reaches `becomeStuck` (`connect.js:1708`) | **5 tests**: all three arms here, `connect.test.js` "a stuck install does not strand the 281MB download", `nobinary-1580` "#1580: a DIRECTORY at the binary path" | **NO** |
 | **M5** `writeState` loses the field in transit | **1 test: the PRESENT arm here** | **YES** |
 
-⭐ **M5 IS THE ROW THAT JUSTIFIES THE BRANCH.** Make `writeState` drop `canRunClaude` while leaving both the pinned source line and `claudeHatchAvailable()` untouched, and across the **entire js suite (3765 tests) plus the shell portion**, exactly one test reddens and it is here. Every other test builds state by hand, matches source text, or asserts only `phase` and `because` -- so the field can vanish between the writer and the screen with nothing else noticing.
+### What actually justifies the branch, stated so it does not need a mutation to hold
+
+🛑 **THE JUSTIFICATION IS A STRUCTURAL FACT, NOT A MUTATION RESULT, AND THIS IS THE FOURTH VERSION OF IT.** The first three each leaned on a chosen mutation and each was wrong or overstated.
+
+⭐ **These are the only assertions in the repo that read `canRunClaude` downstream of a real `start()`.** Reproducible in one command (`git grep -c canRunClaude -- '*.test.js'`): four files reference the field, and the other three build the state object by hand or match `connect.js` as source text. **That is true by inspection and needs no mutation to establish.**
+
+**M5 then confirms it is not redundant**, rather than being the argument itself: make `writeState` drop the field while leaving both the pinned source line and `claudeHatchAvailable()` untouched, and across the **entire js suite (3765 tests) plus the shell portion**, exactly one test reddens and it is here.
+
+⚠️ **AND M5 IS SYNTHETIC IN FORM, WHICH THE PREVIOUS FRAMING HID.** `writeState` is a blind spread with no per-field handling, so "lose `canRunClaude` in transit" requires inserting a `delete` naming that identifier -- **no natural refactor produces it.** A uniqueness claim resting on an implausible mutation is weaker than it reads, and leaning on M5 alone was doing exactly that.
+
+📌 **The honest limit, stated rather than left for a reviewer to find.** The class is real and has shipped in this repo three times -- `connect.js:577` names `#1595` (this very field, never in the serving contract, so the page read `undefined` and the hatch never rendered), `#1585` (`tail`) and `#1556`. **But the REALISTIC instance of it is M3 (`publicView` drops the field), and that is already caught by `engine.publicview-canrun-1595.test.js`, the test written for #1595.** ⇒ So the arms are not the guard against the likely bug; they are the only thing asserting this field from a driven flow, which is a narrower and more defensible claim.
 
 🛑 **M4 WAS THE JUSTIFICATION FOR ONE ITERATION AND IT WAS FALSE.** Two other tests catch it. **The reviewer found one; the whole-suite run found a second the reviewer had also missed.** That is an argument for the method, not for either analyst.
 
@@ -425,8 +441,10 @@ call I am leaving to the reviewer of this PR rather than papering over.**
   Corrected at both sites.
 - **The sibling census said "six helpers"** while `ls test-support/` returns seven; the JS-only
   filter was unstated, so the number was not reproducible by the command a reader would run.
-- **"as does `connect.nobinary-1580.test.js`"** implied the same order of magnitude: it is 17
-  `PHASE.STUCK` references versus 4.
+- **"as does `connect.nobinary-1580.test.js`"** implied the same order of magnitude. It is 17
+  `PHASE.STUCK` in `connect.test.js` against **1** in `nobinary-1580` (whose 4 is its total
+  case-insensitive `stuck` count). ⚠️ **Those are two different instruments and this line compared
+  them as one** -- a reader running the named command on the named file gets 1.
 
 ### One finding recorded and NOT fixed, with reasoning
 
@@ -508,8 +526,11 @@ documenting it.**
 rationale, the runner-must-return-not-throw trap, the two-inputs/three-states table, the
 distinct-bin-path rationale, the macOS-only warning, and the DO NOT FIX BACK guard.
 
-**Measured outcome, stated rather than claimed:** 295 -> 271 lines, 65% -> 61% comment. Siblings run
-25-48%. **So it is better and still above its neighbours**, and the residue is the head docblock
+**Measured outcome at the time of this round:** 295 -> 271 lines, 65% -> 61% comment. Siblings run
+25-48%. ⚠️ **Iteration 12's edits moved it again and this figure was not re-measured then; it is 280
+lines / 177 comment / 63% as of iteration 13.** A ratio changes on every edit, so reproduce it rather
+than trusting either number:
+`tot=$(wc -l < FILE); cm=$(grep -cE '^\s*(\*|/\*|//)' FILE); echo $((cm*100/tot))`. **So it is better and still above its neighbours**, and the residue is the head docblock
 explaining why the file drives `start()` instead of taking a seam. I judged that load-bearing for
 anyone editing the test and stopped there rather than trimming into mechanism.
 
@@ -544,7 +565,7 @@ replacement wrong too.** M4 (cut the install-failure wiring at `connect.js:1708`
 ```
 ✖ #1633: a stuck flow WITH claude on disk records canRunClaude true     <- mine
 ✖ #1633: a stuck flow with NO claude on disk records canRunClaude false <- mine
-✖ #1633: a DIRECTORY at the bin path is not runnable, driven flow       <- mine
+✖ #1633: a DIRECTORY at the bin path is not runnable, via the driven flow <- mine
 ✖ a stuck install does not strand the 281MB download in app data        <- connect.test.js
 ✖ #1580: a DIRECTORY at the binary path is not "something to run"       <- nobinary-1580
 ```
@@ -611,3 +632,71 @@ the direction that looks like diligence.
 - **Arm 3's `timedOut` message** dropped the "about canRunClaude" tail arms 1 and 2 carry. Restored.
 - 📌 **The mutation matrix was duplicated in two plan sections**, which is how five earlier claims
   drifted between sites. **There is now one canonical copy** and the iteration-11 section points at it.
+
+## Findings from challenge-loop iteration 13
+
+**Zero BLOCKERs, four WARNINGs, four NITs -- and for the first time the branch's justification
+survived an independent attack.** The reviewer could not run mutations (review is read-only), so it
+attacked M5 *by construction*: tracing every pin in `runnable-not-directory` (`:1325`, `:1558`, the
+`FORCED` regex at `:1608`), confirming no test anywhere does a whole-state key or deep-equality
+assertion on the settled record, and confirming `writeState` is a blind spread. **It held.**
+
+### 🔑 THE MOST VALUABLE THING IN THIS ROUND WAS OFFERED, NOT FILED
+
+The reviewer added a calibration below its findings rather than as one, and it is sharper than any
+of them:
+
+> *the branch's uniquely-caught mutation is synthetic, its realistic sibling is covered elsewhere,
+> and what the arms genuinely add is the only assertion in the repo that reads this field downstream
+> of a real `start()`.*
+
+**Adopted, and it is now the justification.** Three things make it better than what it replaced:
+
+1. **It is a structural fact, not a mutation result.** Four test files reference the field
+   (`git grep -c canRunClaude -- '*.test.js'`); the other three build state by hand or match source
+   text. **True by inspection, needing no mutation to establish** -- which matters because the
+   previous three justifications were each built on a chosen mutation and each was wrong.
+2. **It names M5's weakness out loud.** `writeState` is a blind spread, so losing one field takes a
+   `delete` naming it. **No natural refactor produces that.** A uniqueness claim resting on an
+   implausible mutation is weaker than it reads, and I had been leaning on exactly that.
+3. **It concedes the realistic case.** The plausible instance of this class is `publicView` dropping
+   the field -- **which is literally #1595, and is already caught** by the test written for it.
+   `connect.js:577` records the class shipping three times here (`#1595`, `#1585` `tail`, `#1556`).
+   ⇒ **These arms are not the guard against the likely bug.** Saying so costs nothing and stops the
+   next reviewer discovering it.
+
+⭐ **A justification that concedes its own limits is the first one on this branch that has not needed
+correcting the following round.**
+
+### The rest
+
+- **The test file claimed the plan held the per-file counts "with the commands that produce them".
+  The plan held the counts and NO command.** 🛑 That sentence is what justifies deleting the counts
+  from the test file, so it was load-bearing, and it was a claim about another file made without
+  opening it -- **the class this branch has now spent five rounds on.** ✅ Fixed by making it true:
+  the census ships `git grep -c canRunClaude -- '*.test.js'`, **and I ran it before publishing it**
+  (returns 3 / 10 / 38, matching the table).
+- **A superseded method restated four lines above its own retraction.** The canonical table's lead-in
+  still read *"Four mutations, each run against every file that touches the field"* -- wrong on the
+  count (five plus a control) and describing the per-file column set that the next paragraph exists
+  to discredit. Removed.
+- **"17 `PHASE.STUCK` references versus 4" compared two different instruments.** `nobinary-1580` has
+  **1** `PHASE.STUCK`; its 4 is a case-insensitive total. Plan line 16 states this correctly with
+  units and the iteration-10 restatement dropped them, so **a reader running the named command on the
+  named file gets 1.** Second site of the same claim, again.
+- **The comment ratio was stale in the section the plan explicitly forwards readers to** as current.
+  It is 63%, not 61%: iteration 12's own edits moved it. **A ratio changes on every edit**, so the
+  command to reproduce it now sits beside the figure.
+- **One line of a quoted failure transcript was not verbatim** (`driven flow` for `via the driven
+  flow`) while the other four were, which makes the edited line the hard one to notice.
+- **The sentence disclaiming the benchmarks quoted them**; the footer JSDoc attached to no
+  declaration now says it is a footer.
+
+📌 **A note on the sweep itself, since it now returns false positives.** Grepping for each corrected
+claim across all four files is what caught the missed sites in iterations 10 and 12. It now flags
+**quotations inside retractions** -- this section quotes *"Four mutations, each run against..."* and
+*"17 `PHASE.STUCK` references versus 4"* precisely so a reader can check that the retraction names a
+real prior sentence. ⚠️ **That is a genuine tension, not a fixable one: quoting the false claim is
+what makes a retraction checkable, and it is also what makes the sweep noisy.** ⇒ **Read the hits,
+do not count them.** A sweep that returns zero after a round of retractions probably means the
+retractions do not quote what they retract.

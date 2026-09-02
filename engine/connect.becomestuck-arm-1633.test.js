@@ -48,10 +48,11 @@
  * the real `download()` -- and `download()` uses plain node http/https and sits OUTSIDE the
  * injected runner seam, so a runner stub does not touch it. (The fixture below
  * is served over plain `http://127.0.0.1`, which is why naming `https.get`
- * specifically would be wrong.) Without the fixture each arm costs ~5.3s of real
- * network; with it, ~70ms. `engine/connect.nobinary-1580.test.js` carries the
- * same warning for the same reason. Benchmarks and the isolation-control
- * reasoning are in the plan, not repeated here.
+ * specifically would be wrong.) Without the fixture each arm costs seconds of
+ * real network instead of milliseconds -- an 80x regression that the arms cannot
+ * reveal, because they pass either way.
+ * `engine/connect.nobinary-1580.test.js` carries the same warning for the same
+ * reason. The measured figures are in the plan.
  *
  * ⚠️ THE INJECTED RUNNER MUST RETURN A FAILURE, NEVER THROW, AND THE REASON IS
  * NOT THE ONE IT LOOKS LIKE. `becomeStuck` calls the runner on its way out via
@@ -206,28 +207,31 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
  * `runners.isRunnable()` and does a `statSync().isFile()` first. #1592 made
  * that change and `engine.runnable-not-directory.test.js` guards it AT THE UNIT.
  *
- * 🔑 THIS FILE IS NOT THAT TEST AND DOES NOT DUPLICATE IT. ⭐ THE MUTATION
- * ONLY THESE ARMS CATCH: make `writeState` lose `canRunClaude` in transit,
- * leaving BOTH the pinned source line AND `claudeHatchAvailable()` untouched.
- * Measured across the ENTIRE js suite plus the shell portion: exactly one red,
- * and it is the PRESENT arm here. Every other test either builds the state
- * object by hand, matches `connect.js` as source text, or asserts only `phase`
- * and `because` -- so the field can vanish between the writer and the screen
- * with nothing else noticing.
+ * 🔑 THIS FILE IS NOT THAT TEST AND DOES NOT DUPLICATE IT. ⭐ WHAT IT ADDS, AS
+ * A STRUCTURAL FACT RATHER THAN A MUTATION RESULT: these are the ONLY assertions
+ * in the repo that read `canRunClaude` DOWNSTREAM OF A REAL `start()`. Four test
+ * files reference the field (`git grep -c canRunClaude -- '*.test.js'`); the
+ * other three build the state object by hand or match `connect.js` as source
+ * text.
+ *
+ * A mutation confirms that is not redundant -- a `writeState` that drops the
+ * field reddens exactly one test in the whole suite, here -- but ⚠️ THAT
+ * MUTATION IS SYNTHETIC: `writeState` is a blind spread, so losing one field
+ * takes a `delete` naming it, which no natural refactor produces. 📌 The
+ * REALISTIC version of that class (`publicView` dropping the field, which is
+ * literally #1595) is already caught by
+ * `engine.publicview-canrun-1595.test.js`. **So do not sell these arms as the
+ * guard against the likely bug.** They are the only thing asserting this field
+ * from a driven flow, which is narrower and actually true.
  *
  * ⚠️ AND IT IS NOT A SUBSET EITHER WAY. The unit guard pins the EXACT source
  * text of the writeState line, so a refactor changing NO behaviour reddens it
  * while these correctly stay green. It asserts THE SHAPE OF A LINE; these assert
  * THE VALUE THAT REACHES THE SCREEN.
  *
- * 🛑 DO NOT RESTATE THE OLD JUSTIFICATION. This block used to claim that cutting
- * the install-failure wiring (`connect.js:1708`) was uniquely caught here. IT IS
- * NOT: `connect.test.js`'s "a stuck install does not strand the 281MB download"
- * and `connect.nobinary-1580.test.js`'s "#1580: a DIRECTORY at the binary path"
- * both redden on it too. That claim came from a hand-picked comparison set, and
- * `connect.test.js` was invisible to it because it never mentions this field.
- *
- * The full mutation table is in the plan.
+ * 🛑 DO NOT UPGRADE THIS TO A UNIQUENESS CLAIM ABOUT THE INSTALL-FAILURE
+ * WIRING (`connect.js:1708`). Two other tests redden on that too. The full
+ * mutation table, and why an earlier comparison set missed them, is in the plan.
  *
  * 🛑 DO NOT "FIX" THIS ARM BACK TO ASSERTING `true`. An earlier version did,
  * as a deliberate characterisation: a bare `accessSync(X_OK)` DOES succeed on a
@@ -252,6 +256,9 @@ test('#1633: a DIRECTORY at the bin path is not runnable, via the driven flow', 
 });
 
 /**
+ * (File footer, attached to no declaration: this is a note about the three arms
+ * above, not documentation for a symbol.)
+ *
  * 🛑 THESE THREE ARMS ARE macOS-ONLY, AND THE FAILURE SHAPE WOULD MISLEAD.
  * `download()` gates on `platformGate.isSupported(process.platform)` and throws
  * on anything else, which `installClaudeCode` turns into "we could not download
