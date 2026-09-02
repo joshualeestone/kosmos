@@ -441,6 +441,14 @@ test('#1585 CONTROL: an UNVERIFIABLE live check keeps connected rather than forc
  *
  * 🛑 NOTHING HERE MINTS, CAPTURES OR PRINTS A CREDENTIAL. The assertion is which
  * directory the route TARGETS.
+ *
+ * 📌 FIXTURE LIMIT, INHERITED FROM THIS HARNESS RATHER THAN INTRODUCED HERE. The
+ * sandbox splits across two files what production keeps in one:
+ * `subscription.check()` reads `AGENT_WORKFORCE_CLAUDE_CONFIG` while
+ * `accounts.identityOf()` reads `<HOME>/.claude.json`, whereas in production
+ * `configFile()` resolves both to the same file. It does not affect the routing
+ * conclusion, but the arm's premise is carried by the harness seam rather than
+ * by the default account's own record.
  */
 test('#1922: signing in again to the DEFAULT account does not aim the CLI at the decoy config', async () => {
   const subscription = require('./engine/subscription');
@@ -480,11 +488,63 @@ test('#1922: signing in again to the DEFAULT account does not aim the CLI at the
       + 'asked to repair a dead credential and no sign-in ran at all');
   } finally {
     subscription.setRunner(null);
+    /* Cancel BEFORE resetForTests, the order the #1585 arm documents: this arm
+       reaches the fall-through and launches an un-awaited runFlow, and
+       resetForTests nulls the driver, so a cancel after it has nothing to act
+       on and the session is never killed. */
+    await post('/api/connect/cancel');
     connect.resetForTests();
     fs.rmSync(defaultDir, { recursive: true, force: true });
     fs.rmSync(defaultConfig, { force: true });
     fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+  }
+});
+
+/**
+ * #1922: A RE-AUTH PRESS IS NOT VETOED BY A CHECK THAT CANNOT SEE THE CREDENTIAL
+ * IS DEAD.
+ *
+ * 🛑 THE FAILURE THIS FORBIDS, AND IT IS THE ONE THE REPORTER ACTUALLY LIVES
+ * WITH. `checkLive` shells `claude auth status`, which reports that a login
+ * EXISTS and never that it WORKS: #874 measured it answering `loggedIn: true`
+ * for a transparently invalid token, against a green row and a token being
+ * 401'd ten times in a row. So the person with a dead credential is exactly the
+ * person whose repair button would be refused as unnecessary.
+ *
+ * ⭐ THIS ARM FORCES THE CREDULOUS ANSWER ON PURPOSE. The live check is driven
+ * to `loggedIn: true` -- the state the card is about -- and the press must still
+ * run the sign-in. Routing to the right directory is worthless if nothing runs.
+ *
+ * 📌 Deliberately narrower than making the check trustworthy (#1921, or a real
+ * validation at this gate): this does not change what the check reports, it
+ * declines to let the check overrule a person naming an account.
+ */
+test('#1922: a re-auth press runs the sign-in even when the live check says connected', async () => {
+  const subscription = require('./engine/subscription');
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  const defaultDir = path.join(HOME, '.claude');
+  const defaultConfig = path.join(HOME, '.claude.json');
+  /* The credulous answer, forced: a login EXISTS. */
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  try {
+    fs.mkdirSync(defaultDir, { recursive: true });
+    fs.writeFileSync(defaultConfig,
+      JSON.stringify({ oauthAccount: { emailAddress: 'main@example.com' } }), 'utf8');
+    assert.ok(accounts.list().some((a) => a.dir === defaultDir && a.isDefault === true),
+      'the fixture did not produce a DEFAULT account, so this asserts nothing');
+
+    const got = await post('/api/connect/start', { accountDir: defaultDir });
+    assert.equal(got.status, 200, got.body);
+    assert.notEqual(json(got).phase, 'connected',
+      'the live check said connected and the route obeyed it, so a person whose credential '
+      + 'is dead presses Sign in again and nothing runs -- which is the reporter\'s exact wall');
+  } finally {
+    subscription.setRunner(null);
     await post('/api/connect/cancel');
+    connect.resetForTests();
+    fs.rmSync(defaultDir, { recursive: true, force: true });
+    fs.rmSync(defaultConfig, { force: true });
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
   }
 });
 
@@ -514,10 +574,12 @@ test('#1922 CONTROL: signing in again to a LABELLED account still targets that a
       'a labelled account lost its own configDir, so re-auth would sign in to the ambient default instead');
   } finally {
     subscription.setRunner(null);
+    /* Cancel before resetForTests, per the #1585 arm's note: this arm also
+       reaches the fall-through and launches an un-awaited runFlow. */
+    await post('/api/connect/cancel');
     connect.resetForTests();
     fs.rmSync(work1, { recursive: true, force: true });
     fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
-    await post('/api/connect/cancel');
   }
 });
 
