@@ -14,32 +14,69 @@ converged: true
 
 **Iterations:** 6 (converged — iteration 6 a clean pass, 0 BLOCKER/WARNING/CONVENTION)
 **Total findings:** 7 WARNINGs, 2 CONVENTIONs, ~9 NITs (0 BLOCKERs). Every WARNING fixed; NITs cosmetic or pinned.
-Each of iterations 1–5 found and fixed a real auth-critical issue; iteration 6 was clean.
+Validation: `node --test engine/*.test.js server.create-live-1903.test.js` = 1983 pass / 0 fail. Every fix perturbation-verified.
 
-Validation: `node --test engine/*.test.js server.create-live-1903.test.js` = 1983 pass / 0 fail. Every fix perturbation-verified (each reds its target test when reverted).
+### The fix
+`subscription.checkLive` (built on `claude auth status`) reports a STORED login, not a working token — a fully-expired Claude OAuth token badges "Signed in", so #1903's create gate accepted a dead account. #1315's `/v1/models` shape does not translate (OAuth subscription token ≠ API key). `create.claudeAccountLive(configDir)` makes a real `claude -p --strict-mcp-config` call, classified by OUTPUT CONTENT (CLAUDE_CAPACITY → CLAUDE_DEAD_AUTH → exit-0 → UNKNOWN): NONE only on a genuine auth failure; capacity/rate/usage/overload/network/unrunnable FAIL OPEN. accountConnectable's Claude arm uses it; the OpenAI arm and the badge/`subscription.checkLive` path are unchanged.
 
-### Per-iteration (findings → resolution)
-- **Iter 1:** [W] exit-code trusted over content; [W→caught] a `ReferenceError` inside claudeAccountLive was swallowed by the fail-open catch and accepted dead accounts (subscription required in-scope; tests assert the REFUSAL). [C/N] stale comments/imports.
-- **Iter 2:** [W] `Please run /login` in the JSON path was too broad → false-refusal risk; [W] capacity-precedence asserted only in prose. Fixed + a capacity+auth co-occurrence test + a false-refusal guard.
-- **Iter 3:** [W] narrowed regex missed a non-JSON `authentication_error`; broadened to the bare string (safe — never in a "reply ok" success); the bare-`/login`-only dead form pinned as a deliberate KNOWN GAP (fails open; must not reintroduce the bare marker).
-- **Iter 4:** [W] a broken MCP CONNECTOR's auth diagnostics could false-refuse a LIVE account → `claude -p --strict-mcp-config` isolates the probe; flag asserted by a fake-bin test.
-- **Iter 5:** [W] the truthy-configDir branch of defaultClaudeProbe had no real-probe coverage → added labelled-dir + default-DELETES-CLAUDE_CONFIG_DIR-even-when-parent-set (April's env-leak point) tests.
-- **Iter 6:** clean. 1 cosmetic NIT (resolveBin `.present` intent — behavior correct + tested).
+### Per-Iteration Breakdown
 
-## The fix
-`subscription.checkLive` (built on `claude auth status`) reports a STORED login, not a working token — a fully-expired Claude OAuth token badges "Signed in", so #1903's create gate accepted a dead account (Ben's fresh agent 401'd on turn 1). #1315's `/v1/models` shape does not translate (OAuth subscription token ≠ API key). `create.claudeAccountLive(configDir)` makes a real `claude -p --strict-mcp-config` call, classified by OUTPUT CONTENT (CLAUDE_CAPACITY → CLAUDE_DEAD_AUTH → exit-0 → UNKNOWN): NONE only on a genuine auth failure; capacity/rate/usage/overload/network/unrunnable all FAIL OPEN (an account at its weekly cap is live+paid and must never be refused). accountConnectable's Claude arm uses it; the OpenAI arm and the badge/`subscription.checkLive` path are unchanged.
+#### Iteration 1
+- [WARNING] engine/create.js — exit code trusted over output content --> FIXED (content-first ordering).
+- [WARNING] engine/create.js — a ReferenceError inside claudeAccountLive was swallowed by the fail-open catch and accepted dead accounts --> FIXED (require subscription in-scope; tests assert the REFUSAL, not just no-throw).
+- [CONVENTION] server.js / test headers — stale "claude auth status" wording --> FIXED.
+- [NIT] unused imports --> FIXED.
 
-## Fail-open CLASS (named)
-Every environmental case returns a STATE and never throws, so a throw reaching a catch is OUR code crashing. All four catches log the crash distinctly (`failOpen`) and still fail open — a validator bug is visible, never silently impersonating a restricted network (the swallowed-ReferenceError hole that let the original gate accept dead accounts).
+#### Iteration 2
+- [WARNING] engine/create.js — bare "Please run /login" too broad → false-refusal risk --> FIXED (dropped; specific dead strings kept).
+- [WARNING] test — capacity-before-dead precedence asserted only in prose --> FIXED (co-occurrence fixture; perturbation-verified).
+- [NIT] false-refusal guard added; probe env cleanup.
 
-## Scope (stated so sequencing is unambiguous)
-#1916 fixes the CREATE gate only. It does NOT change `subscription.checkLive`, so the badge and #1560's CONNECTED early-exit remain credulous for a dead token — #1922 (re-auth) and #1921 (observed-outcomes badge) own the READ path. `claudeAccountLive` is reusable there.
+#### Iteration 3
+- [WARNING] engine/create.js — non-JSON `authentication_error` missed --> FIXED (bare `authentication_error` marker, safe). Bare-`/login`-only dead form pinned as a deliberate KNOWN GAP (fails open).
+- [NIT] cosmetic (resolveBin .present; 15s ceiling) --> noted.
+
+#### Iteration 4
+- [WARNING] engine/create.js — a broken MCP CONNECTOR's auth diagnostics could false-refuse a LIVE account --> FIXED (`claude -p --strict-mcp-config`; flag asserted by a fake-bin test).
+- [NIT] duplicate subscription require (module-cached) --> noted.
+
+#### Iteration 5
+- [WARNING] test — the truthy-configDir real-probe branch had no coverage --> FIXED (labelled-dir + default-DELETES-CLAUDE_CONFIG_DIR-when-parent-set tests; April's env-leak point).
+- [NIT] exit-0-empty infers CONNECTED (accepts either way); timeout env; duplicate require --> noted.
+
+#### Iteration 6
+- Clean pass. [NIT] resolveBin `.present` intent (behavior correct + tested) --> noted.
+- **Converged** — no actionable findings.
+
+### Final Ledger
+
+| # | Iter | Category | File | Description | Status |
+|---|------|----------|------|-------------|--------|
+| 1 | 1 | WARNING | engine/create.js | exit-code over content | FIXED |
+| 2 | 1 | WARNING | engine/create.js | swallowed ReferenceError accepted dead accounts | FIXED (subscription in-scope) |
+| 3 | 2 | WARNING | engine/create.js | bare /login too broad (false-refusal) | FIXED |
+| 4 | 2 | WARNING | test | capacity precedence untested | FIXED (co-occurrence test) |
+| 5 | 3 | WARNING | engine/create.js | non-JSON authentication_error missed | FIXED |
+| 6 | 4 | WARNING | engine/create.js | broken MCP connector false-refuses live account | FIXED (--strict-mcp-config) |
+| 7 | 5 | WARNING | test | truthy-configDir real-probe uncovered | FIXED (configDir + env-leak tests) |
 
 ### KNOWN GAP (pinned)
 A dead sign-in printing ONLY a bare "Please run /login" with no auth string fails OPEN (accepted at create, caught later by #1884). Deliberate — a bare remedy phrase is not a genuine auth failure and re-adding it false-refuses live accounts. Self-flipping KNOWN-GAP test.
 
-## Weakest premise
-`claude -p`'s exact dead-token output is inferred from #874 + 2.1.258's strings, not reproduced locally (all four accounts here are live). Classification is conservative (only positive auth strings → NONE; everything else fails open), so a wording mismatch errs toward accepting, never false-refusing. Confirm against Ben's dead account when available.
+### Scope
+Fixes the CREATE gate only. Does NOT change `subscription.checkLive`, so the badge and #1560's CONNECTED early-exit stay credulous for a dead token — #1922 (re-auth) and #1921 (observed-outcomes badge) own the READ path; `claudeAccountLive` is reusable there.
 
-## After merge
-Cut 0.6.23 (supersedes 0.6.22's insufficient #1903 gate; only a cut reaches Ben). Verify served both arms; budget for stale browser-gate checks.
+### NITs (non-blocking)
+- [NIT] resolveBin `.present` not consulted (ENOENT → UNKNOWN, fail-open, tested) — cosmetic.
+- [NIT] exit-0 with empty output infers CONNECTED (accepts either way).
+- [NIT] AGENT_WORKFORCE_CLAUDE_PROBE_TIMEOUT_MS readable in prod (fails safe).
+- [NIT] duplicate `require('./subscription')` (module-cached).
+
+### Strengths (across iterations)
+- [STRENGTH] Content-before-exit-code classification with capacity-before-dead precedence, both proven by non-vacuous tests (a dead token exiting 0 with a 401 is still caught; a capped-but-live account fails open).
+- [STRENGTH] The fail-open CLASS is named and airtight: every environmental case → UNKNOWN → accepted; only a positive auth string → NONE; crashes logged distinctly and still fail open, so a validator bug can never silently impersonate a restricted network.
+- [STRENGTH] `--strict-mcp-config` isolates the probe from the account's MCP connectors; the real subprocess path is exercised via a fake bin (exit codes, SIGKILL-at-timeout + partial-output survival, the flag, configDir pass-through, and DELETE-not-omit of CLAUDE_CONFIG_DIR).
+- [STRENGTH] No credential value written or logged anywhere; the OpenAI arm and the badge path are untouched; createAgent stays sync.
+
+### Weakest premise
+`claude -p`'s exact dead-token output is inferred from #874 + 2.1.258's strings, not reproduced locally (all four accounts here are live). Classification is conservative (only positive auth strings → NONE; everything else fails open), so a wording mismatch errs toward accepting, never false-refusing. Confirm against Ben's dead account when available.
