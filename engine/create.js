@@ -55,6 +55,7 @@ const codexupdate = require('./codexupdate');
 const { execFileSync } = require('node:child_process');
 const roles = require('./roles');
 const liveExec = require('./live-execution');
+const runners = require('./runners'); // #1616: one definition of runnable, shared with the first-run screen
 
 /**
  * The models an agent can be created on.
@@ -1697,18 +1698,20 @@ function unusablePath(bin) {
 
 /**
  * #1616: RUNNABLE, NOT PRESENT, at the gates that LAUNCH, the same definition the
- * screens that REPORT already use. Every runner gate in this file used to ask
- * whether the path merely EXISTS, and that answers yes to a DIRECTORY and to a file
+ * screens that REPORT already use. The four `!DRY_RUN &&` runner gates and the bin
+ * loop (which never had a DRY_RUN guard) used to ask whether the path merely EXISTS, and that answers yes to a DIRECTORY and to a file
  * with no exec bit. Measured on the card: a folder at ~/.local/bin/claude was
  * refused by the first-run screen (runners.isRunnable) and ACCEPTED by creation,
  * which then spawned a folder and failed later with a worse message.
  *
- * One definition, held by runners.js (#1592), reached lazily like the resolver
- * in binPaths so this module keeps loading in the sandboxes that set env first.
+ * One definition, held by runners.js (#1592) and required at load: runners.js reads
+ * no env at module scope, and devicedoor.js and githubdevice.js already require it
+ * at load, so there is nothing for laziness to protect. (An earlier version of this
+ * comment claimed there was; a reviewer checked and there is not.)
  * The guard for this class is engine.runnable-not-directory.test.js, which now
  * sweeps for an existsSync aimed at a runner path as well as for X_OK.
  */
-function runnerRunnable(p) { return require('./runners').isRunnable(p); }
+function runnerRunnable(p) { return runners.isRunnable(p); }
 
 /**
  * Where the two things an agent needs actually live on this computer.
@@ -2456,6 +2459,8 @@ function createAgentInner(opts) {
             + (codexConnected ? ', or create this agent on OpenAI instead' : ''),
           alternative: codexConnected
             ? { offered: true }
+            /* 'not on this computer' covers a stripped file too (#1616), the same slightly-false
+               wording as the 'could not find' refusal, decided together on the card. */
             : { offered: false, because: codexPresent ? 'no OpenAI sign-in on this computer' : 'the codex runner is not on this computer' },
         };
       }

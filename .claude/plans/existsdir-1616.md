@@ -87,7 +87,9 @@ an inode can): when a guard will not bite, find an observable that differs.
   that is slightly false. It is kept because it is the word the first-run screen
   already uses for the same state and the UI matches on it; a second sentence would
   be a second definition. Would change my mind: a Josh ruling that the stripped-file
-  case deserves its own words. Then it is one sentence at one helper.
+  case deserves its own words. Then it is one sentence at one helper. The same ruling
+  covers the engine-side `alternative.because` ("the codex runner is not on this
+  computer"), which is the same slightly-false statement for the same case.
 - **tmux rides the same fix.** The loop gate covers the runner and tmux through one
   `bin`; a folder at the tmux path spawns nothing either. Not carded separately.
 - **No general existsSync sweep.** Hundreds of honest presence checks; the audited
@@ -113,12 +115,15 @@ committed. Recorded so the next person commits first.
 
 ## Verification
 
-- Per-file: create.test.js 143, openaiaccounts.test.js 27, runners.test.js 30,
-  runnable-not-directory 22, create.runner-dir-1616 9. Zero fail.
+- Per-file after iteration 2: create.test.js 143, openaiaccounts.test.js 27,
+  runners.test.js 30, runnable-not-directory 22, create.runner-dir-1616 9. Zero fail.
 - Full suite: HELD at time of writing, not by load but by a colleague's bisect of the
   browser gate on main. Runs on his release, `EXIT_CODE` read from the log.
-- Browser gate: this branch touches `engine/` only, no `web/`, so #1720's web-change
-  gate does not apply.
+- Browser gate: this branch touches no `web/` file. It does touch one line of a
+  browser-check DRIVER (`docs/browser-checks/live-connect.js`, since iteration 1), and
+  #1720's gate keys on `web/` changes needing a `docs/browser-checks/` touch, so it does
+  not fire here. The driver line is verified by `node --check` and by runners.test.js
+  covering the callee; the release cut is what exercises the driver itself.
 
 ## Challenge loop, iteration 1 (2026-09-01 19:05)
 
@@ -131,3 +136,14 @@ block had split `binPaths` from its own doc comment (moved above it, and renamed
 wrong shapes; the counts in prose match the arrays. The reviewer independently reproduced
 three rows of the revert table on scratch copies and confirmed the old openaiaccounts suite
 stays green under M6, so the new arm is what carries that property.
+
+## Challenge loop, iteration 2 (2026-09-01 19:30)
+
+Two WARNINGs, two CONVENTIONs, three NITs, all applied or recorded: the helper's lazy
+require had a rationale the code does not support (plain top-level require now); the
+matcher's gap disclosure names the two known unswept presence checks (`remote.js` tunnel
+binary, `live-connect.js` launcher) and why they are left; the plan no longer says
+"engine only"; the `alternative.because` wording is in the decided scope; the claude-loop
+control asserts CREATED. Recorded, not changed: the bin loop has no DRY_RUN guard
+(pre-existing); the driver line is exercised only by the release cut. The reviewer
+reproduced three revert rows and measured the per-line gap.
