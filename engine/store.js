@@ -82,15 +82,49 @@ function joinerFor(platform) { return platform === 'win32' ? path.win32 : path.p
 function dataRootFor(platform, home, env) {
   const e = env || {};
   const p = joinerFor(platform);
-  if (e.AGENT_WORKFORCE_DATA) return p.join(e.AGENT_WORKFORCE_DATA, APP);
-  if (platform === 'win32') {
+  let root;
+  if (e.AGENT_WORKFORCE_DATA) {
+    root = p.join(e.AGENT_WORKFORCE_DATA, APP);
+  } else if (platform === 'win32') {
     /* ROAMING, not Local: this is a person's own configuration and it should
        follow them to another machine on a domain. `APPDATA` is set on every
        supported Windows, and the fallback is its documented location rather
        than a guess. */
-    return p.join(e.APPDATA || p.join(home, 'AppData', 'Roaming'), APP);
+    root = p.join(e.APPDATA || p.join(home, 'AppData', 'Roaming'), APP);
+  } else {
+    root = p.join(home, 'Library', 'Application Support', APP);
   }
-  return p.join(home, 'Library', 'Application Support', APP);
+  /* #1820: the same posture #1798 took shell-side on the uninstall (DELETE) path,
+     here on the READ/WRITE path. A non-absolute final answer means the store
+     resolves relative to the process cwd -- a different, wrong directory per
+     invocation, so profiles/avatars/settings are written where nothing will look
+     for them next run. Three inputs produce a relative root: an empty `home`
+     (`home===''` -> `Library/Application Support/AgentWorkforce` on the Mac branch,
+     and `AppData/Roaming/AgentWorkforce` on the win32 branch when APPDATA is also
+     unset), and a relative `AGENT_WORKFORCE_DATA` on any platform.
+
+     🛑 GUARD THE RESULT, NOT EACH BRANCH (#1798's "the refusals are on the
+     result"). Checking each branch would have to be repeated three times and
+     would miss the next branch someone adds; one check on `root` catches every
+     way of producing a relative path at a single point. `p.isAbsolute` uses the
+     joiner for the platform ASKED ABOUT, so `dataRootFor('win32', ...)` is judged
+     by Windows's notion of absolute (a drive or UNC), not the host's.
+
+     ⚠️ REFUSE, do not silently absolutize. A misplaced read/write is invisible;
+     a thrown error names both offending inputs. Normal operation never trips
+     this: `root()` passes `AGENT_WORKFORCE_HOME || os.homedir()`, which is always
+     absolute, and every fixture sets AGENT_WORKFORCE_DATA to an absolute sandbox
+     path. It fires only on a broken login env or a relative override, exactly
+     the two the shell helper refuses. */
+  if (!p.isAbsolute(root)) {
+    throw new Error(
+      `dataRootFor: refusing a non-absolute data root ${JSON.stringify(root)} for platform ${platform} `
+      + `(it would resolve relative to the process cwd and scatter the store). `
+      + `Check HOME/AGENT_WORKFORCE_HOME (${JSON.stringify(home)}) and `
+      + `AGENT_WORKFORCE_DATA (${JSON.stringify(e.AGENT_WORKFORCE_DATA || '')}).`
+    );
+  }
+  return root;
 }
 
 // ⚠️ Honours `AGENT_WORKFORCE_DATA` so tests can sandbox it, which they could
