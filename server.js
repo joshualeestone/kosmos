@@ -883,6 +883,16 @@ function claimantFor(name) {
   return claimants.find((a) => a.isNamedOurs === true) || claimants[0];
 }
 
+// #989: the SEND-path "resolve this name to OUR card, tolerating case" rule, in
+// one place. chat.resolveCard case-folds (never strips, unlike the claimantFor
+// gate above), and we re-impose the isNamedOurs REQUIREMENT the route-level
+// card/askingCard matches had. Single-sourced so the two direct-thread routes do
+// not carry two copies of one derivation.
+function ourCardByName(roster, name) {
+  const rc = chat.resolveCard(roster, name);
+  return rc && rc.isNamedOurs === true ? rc : null;
+}
+
 /**
  * WHY a read of this name is refused, or null when it is not.
  *
@@ -5718,10 +5728,7 @@ const server = http.createServer((req, res) => {
     // route's presence/question display -- a bare `sessionName === name` would
     // exact-miss it and show presence with no question. Case-fold, NOT the safeKey
     // gate, so the send stays stricter on strip; isNamedOurs preserved.
-    const card = (() => {
-      const rc = chat.resolveCard(roster, name);
-      return rc && rc.isNamedOurs === true ? rc : null;
-    })();
+    const card = ourCardByName(roster, name);
 
     /**
      * ⚠️ TWO HISTORY CHANNELS, NOT THREE. `historyOther` has no meaning here:
@@ -5936,10 +5943,7 @@ const server = http.createServer((req, res) => {
         // skip the capture, and a typed reply's Enter could pick "No, exit" on the
         // very first-run trust prompt this card is about. Case-fold not safeKey;
         // isNamedOurs preserved.
-        const askingCard = (() => {
-          const rc = chat.resolveCard(roster, name);
-          return rc && rc.isNamedOurs === true ? rc : null;
-        })();
+        const askingCard = ourCardByName(roster, name);
         const seenNow = (askingCard && askingCard.state === STATE.NEEDS_YOU) ? chat.viewport(name, roster) : null;
         {
           const trustHeld = trustDialogHold(askingCard, seenNow, () => chat.viewport(name, roster));
