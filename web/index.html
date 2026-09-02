@@ -16541,6 +16541,10 @@ function threadAnchor(el) {
   const rows = el.querySelectorAll('[data-mid]');
   for (let i = 0; i < rows.length; i += 1) {
     const r = rows[i];
+    /* Skip a row the search filter has hidden (offsetHeight 0): it is not what
+       the reader is looking at, and anchoring to it would restore against a
+       zero-height row next poll. */
+    if (!r.offsetHeight) continue;
     if (r.offsetTop + r.offsetHeight > top) {
       return { mid: r.getAttribute('data-mid'), delta: r.offsetTop - top };
     }
@@ -16555,6 +16559,10 @@ function restoreThreadAnchor(el, a) {
   const rows = el.querySelectorAll('[data-mid]');
   for (let i = 0; i < rows.length; i += 1) {
     if (rows[i].getAttribute('data-mid') === a.mid) {
+      /* The message is still in the thread but the filter now HIDES it
+         (offsetHeight 0): restoring to `0 - delta` would jump. Fall back to the
+         pixel offset instead, which is no worse than the old behaviour. */
+      if (!rows[i].offsetHeight) return false;
       el.scrollTop = rows[i].offsetTop - a.delta;
       return true;
     }
@@ -16963,7 +16971,10 @@ function dmRow(m, name) {
      scrolled back on the SAME MESSAGE. `id` first (the store's own identity),
      `at` as the fallback the thread key already trusts. Read by setThread's
      anchor, so the 5s repaint restores the reader to the message they were on
-     rather than to a pixel offset that now points at different content. */
+     rather than to a pixel offset that now points at different content.
+     ⚠️ Degrades gracefully: if `id` is absent and two rows share a millisecond
+     `at`, the anchor matches the FIRST -- a drift of at most one adjacent row,
+     no worse than the pixel offset it replaces. */
   const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
   if (m && m.from) {
     return '<div class="dm theirs" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
