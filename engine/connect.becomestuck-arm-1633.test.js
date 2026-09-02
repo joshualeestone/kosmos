@@ -30,7 +30,7 @@
  * refusing callers. Driving `start()` keeps the guard fully armed: the flow this
  * file creates is the legitimate owner, which is why it reaches the write.
  *
- * 🛑 SERVE A LOCAL RELEASE OR THIS HITS downloads.claude.ai FOR REAL. Both arms
+ * 🛑 SERVE A LOCAL RELEASE OR THIS HITS downloads.claude.ai FOR REAL. All three arms
  * fail at the INSTALL step, which is downstream of the download, so both walk the
  * real `download()` -- and `download()` uses plain node http/https and sits OUTSIDE the
  * injected runner seam, so a runner stub does not touch it. (The fixture below
@@ -38,8 +38,9 @@
  * specifically would have been wrong.) Measured before the fixture was added: each arm took ~5.3s against the live
  * service. Pointing the base at a DEAD PORT gave ~65ms, and that number is an
  * ISOLATION CONTROL rather than this file's cost: it proves the 5.3s was
- * network, not that the arms are that fast. With the fixture actually serving,
- * the shipped cost is ~70ms per arm. Both arms passed in all three configurations
+ * network, not that the disk arms are that fast. With the fixture actually
+ * serving, the shipped cost is ~70ms per arm. Both DISK arms passed in all three
+ * configurations
  * AT THE TIME, so the green never depended on the fixture and could not have
  * revealed this. That is no longer true of the shipped file: the `because`
  * assertion added afterwards reddens the dead-port configuration, because a
@@ -147,15 +148,19 @@ async function stuckWith(t, { binaryExists, directoryInstead = false }) {
 /**
  * Pin the trigger. Without this the arms cannot say WHICH `becomeStuck` call
  * they exercised, and the trigger genuinely varies with the environment: a
- * download failure yields 'we could not download Claude'. BOTH messages come from
- * `installClaudeCode`: `download()` has NO failure return, it THROWS, and that
- * string is what installClaudeCode's own catch turns the throw into. An earlier
- * version of this comment credited `download`, which made the contrast look like
- * two functions when it is two failure points inside one.
- * while the install failure these arms force yields the message below
- * (returned by `installClaudeCode` and surfaced by `runFlow`'s
- * `if (!res.ok) becomeStuck(owner, res.message, res.detail)`). Asserting it is what would have caught the missing release
- * server on the first run.
+ * download failure yields 'we could not download Claude', while the install
+ * failure these arms force yields the message below (returned by
+ * `installClaudeCode` and surfaced by `runFlow`'s
+ * `if (!res.ok) becomeStuck(owner, res.message, res.detail)`).
+ *
+ * BOTH come from `installClaudeCode`. `download()` has NO failure return, it
+ * THROWS, and 'we could not download Claude' is what installClaudeCode's own
+ * catch turns that throw into. An earlier version of this comment credited
+ * `download`, which made the contrast read as two functions when it is two
+ * failure points inside one.
+ *
+ * Asserting it is what would have caught the missing release server on the
+ * first run.
  */
 const INSTALL_FAILURE = /did not finish setting itself up/;
 
@@ -200,16 +205,28 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
  * this card is not fixing (the card is about the field having a behavioural
  * arm at all). Pinned here so that WHEN someone fixes it, this reddens and
  * says what to change, instead of the fix landing with nothing noticing.
+ *
+ * 🔑 THE FIX HAS AN OWNER: kosmos#1859. It covers this site AND `willInstall`'s
+ * presence check, which `engine/connect.js` names as the other remaining weak
+ * bare-accessSync site and which has NO arm at all. They should move together;
+ * fixing only the one with a test would leave the sibling silently weak.
  */
 test('#1633 CHARACTERISATION: a DIRECTORY at the bin path is reported runnable, which is wrong', async (t) => {
   const st = await stuckWith(t, { binaryExists: false, directoryInstead: true });
   assert.equal(st.timedOut, false,
     'the flow never settled within the deadline; this is contention, not a verdict');
   assert.equal(st.phase, connect.PHASE.STUCK);
+  /* 🔑 THE SAME TRIGGER PIN THE OTHER TWO ARMS CARRY, and it matters MORE here:
+     a directory yields canRunClaude true on EVERY becomeStuck trigger, so
+     without this the arm passes identically if the release fixture breaks and
+     the flow gets stuck on 'we could not download Claude' instead. It would go
+     on asserting a true thing for the wrong reason, forever. */
+  assert.match(st.because, INSTALL_FAILURE,
+    'reached STUCK by a different trigger than the install failure this arm forces');
   assert.equal(st.canRunClaude, true,
     'GOOD NEWS IF THIS FAILS: the bare accessSync(X_OK) has been tightened so a '
-    + 'directory no longer counts as runnable. Change this arm to expect false '
-    + 'and delete the characterisation note above it.');
+    + 'directory no longer counts as runnable (kosmos#1859). Change this arm to '
+    + 'expect false and delete the characterisation note above it.');
 });
 
 /**

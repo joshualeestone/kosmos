@@ -60,11 +60,22 @@ test('a sibling call shape is REFUSED, not silently accepted', async (t) => {
     'a third positional was accepted and dropped; that is install-997 shape');
 });
 
-test('a KNOWN option of the wrong TYPE is refused, not silently dropped', async (t) => {
+test('a KNOWN option of the wrong TYPE or FORMAT is refused, not silently dropped', async (t) => {
   await assert.rejects(
     async () => serveRelease(t, { platformKey: 'darwin-arm64', checksum: Buffer.from('ab') }),
-    /checksum.*must be a non-empty string/,
+    /checksum.*64 lowercase hex/,
     'a Buffer checksum was dropped in favour of a hash of the body');
+  /* ⭐ FORMAT, not just type. A plausible-looking string that download() would
+     reject surfaces as "no build for this kind of Mac", a download-shaped error
+     for a fixture mistake. A type-only guard let this through. */
+  await assert.rejects(
+    async () => serveRelease(t, { platformKey: 'darwin-arm64', checksum: 'not-a-real-sha' }),
+    /checksum.*64 lowercase hex/,
+    'a malformed hex checksum was accepted; download() would reject it as a platform error');
+  await assert.rejects(
+    async () => serveRelease(t, { platformKey: 'darwin-arm64', checksum: 'F'.repeat(64) }),
+    /checksum.*64 lowercase hex/,
+    'uppercase hex was accepted; download() requires lowercase');
   await assert.rejects(
     async () => serveRelease(t, { platformKey: 'darwin-arm64', binary: 'not a buffer' }),
     /binary.*must be a Buffer/,

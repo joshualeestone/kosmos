@@ -43,6 +43,13 @@ const crypto = require('node:crypto');
 const KNOWN_OPTIONS = ['platformKey', 'version', 'binary', 'checksum'];
 
 function serveRelease(t, opts = {}, ...extra) {
+  /* `= {}` only fills `undefined`, so an explicit null reaches the destructure
+     below and throws a raw "Cannot destructure property" instead of this file's
+     attributable message. Keep every refusal in one voice. */
+  if (opts === null || typeof opts !== 'object' || Array.isArray(opts)) {
+    throw new TypeError(
+      `serveRelease() takes (t, options-object); got ${Object.prototype.toString.call(opts)} as the second argument.`);
+  }
   /* 🛑 A THIRD POSITIONAL IS A SIBLING'S SHAPE, NOT A TYPO.
      engine/connect.install-997.test.js is serveRelease(t, {...}, opts) and its
      opts.dieMidStream changes what the server DOES (promise 1MB, deliver 64KB,
@@ -52,9 +59,11 @@ function serveRelease(t, opts = {}, ...extra) {
   if (extra.length) {
     throw new TypeError(
       `serveRelease() got ${extra.length} extra positional argument(s). It takes (t, options). `
-      + 'engine/connect.install-997.test.js takes a THIRD positional (opts.dieMidStream); '
-      + 'that behaviour is not implemented here, so a dropped third argument would '
-      + 'silently change what the server does.');
+      + 'Two siblings arrive as three arguments: connect.install-997.test.js is '
+      + '(t, {...}, opts) whose opts.dieMidStream changes what the server DOES, and '
+      + 'connect.nobinary-1580.test.js is (t, binary, checksum). Neither shape is '
+      + 'implemented here, so a dropped third argument would silently change '
+      + 'behaviour or lose a checksum.');
   }
   const { platformKey, version = '9.9.5', binary, checksum } = opts;
   /* 🛑 A LOUD REFUSAL, because the alternative is a download-shaped error for a
@@ -90,10 +99,16 @@ function serveRelease(t, opts = {}, ...extra) {
      guard above catches a wrong NAME; this catches a wrong TYPE, which is the
      same silent-drop one field over: `checksum: Buffer.from(...)` or `null`
      would otherwise fall back to a hash of the body with no complaint. */
-  if (checksum !== undefined && (typeof checksum !== 'string' || !checksum)) {
+  /* 🔑 THE FORMAT, NOT JUST THE TYPE. `download()` requires ^[a-f0-9]{64}$, and a
+     non-conforming value does not surface as a checksum problem: it comes back as
+     "the download service has no build for this kind of Mac", a DOWNLOAD-shaped
+     error for a FIXTURE-shaped mistake. That is the exact class the version guard
+     above closes, and a type-only check left it open one field over. */
+  if (checksum !== undefined && (typeof checksum !== 'string' || !/^[a-f0-9]{64}$/.test(checksum))) {
     throw new TypeError(
-      `serveRelease({checksum}) must be a non-empty string; got ${Object.prototype.toString.call(checksum)}. `
-      + 'A dropped checksum silently serves a body that matches its manifest, which is the opposite of what a mismatch test needs.');
+      `serveRelease({checksum}) must be 64 lowercase hex characters, which is what download() requires; `
+      + `got ${typeof checksum === 'string' ? JSON.stringify(checksum) : Object.prototype.toString.call(checksum)}. `
+      + 'A malformed checksum surfaces as a download error rather than a fixture one.');
   }
   if (binary !== undefined && !Buffer.isBuffer(binary)) {
     throw new TypeError(
