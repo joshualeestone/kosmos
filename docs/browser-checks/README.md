@@ -255,6 +255,27 @@ The temp-root test mirrors `engine/status.js` and carries its two corrections: `
 is not `os.tmpdir()` on macOS, and both sides need resolving because `/var` is a symlink
 to `/private/var`.
 
+### `lib-firstrun-steps.js` is a library, not a check
+
+The other non-browser `.js` in here. The first-run wizard numbers its steps (`fr-pane-N`,
+`?fr-step=N`), and #1214 inserted Accessibility as step 5, moving every later step up one
+and silently breaking nine assertions across four checks that had NAMED a step number
+(#1801, #1751). Re-pinning the numbers fixes the instance and re-arms the trap for step 8.
+
+This library keys on IDENTITY instead. Every pane is in the DOM from first paint (hidden
+until shown), so a check DISCOVERS the step that holds a content anchor rather than naming
+its position:
+
+- `stepForAnchor(page, sel)` -- the step number of the pane holding `sel` (`#fr-fleet` -> 7,
+  `#fr-you` -> 6). Throws rather than falling back to an index.
+- `paneCount(page)` -- the total steps read from the STATIC `fr-pane-N` panes, a different
+  source from the dynamically-built crumb and segments, so a check can cross-check the two.
+- `gotoStepForAnchor(page, base, sel, ...)` -- navigate to the discovered step via the real
+  `?fr-step=` deep link.
+
+Used by `render-found-undo`, `render-found-count`, `render-first-run` and `click-first-run`.
+When the next step is inserted, discovery follows the pane; a hard-coded number does not.
+
 ## Running them
 
 ```sh

@@ -9,6 +9,7 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
+const { stepForAnchor } = require('./lib-firstrun-steps.js');
 
 /* ⚠️ A FIXED PORT IS WHY THIS CHECK WAS NEVER WIRED IN. The release runner
    asks the kernel for a free port (#633/#708) and hands it over as KOSMOS_URL;
@@ -163,14 +164,26 @@ const SHOTS = [
   { name: 'firstrun-3-model-unsure', step: 3, first: SUB_UNSURE },
   { name: 'firstrun-4-checks-clear', step: 4, machine: MACHINE_CLEAR },
   { name: 'firstrun-4-checks-attention', step: 4, machine: MACHINE_MIXED },
+  // 🔑 KEYED BY CONTENT, NOT POSITION (kosmos#1801). The opening frames above
+  // are numbered because their position is structurally fixed -- Success opens
+  // and the count starts after it. The frames below MOVE: #1214 inserted
+  // Accessibility as step 5, so About-you slid from 5 to 6 and the fleet endings
+  // from 6 to 7. A shot named `firstrun-5-about-you` at a literal step 5 then
+  // captured Accessibility under an About-you name -- a screenshot whose NAME
+  // was a false claim about its contents, and it stayed green because its own
+  // assertions ("at least 20 characters", "no Dock mention") were true of the
+  // wrong pane too. So these carry an `at:` anchor and DISCOVER their step at
+  // capture time, and their names describe the content rather than the number,
+  // which cannot go stale on the next insertion.
+  //
   // The record stubbed ABSENT: the click drive leaves a saved record in the
   // same sandbox, and without the stub this shot's content depends on which
   // drive ran last (prefilled-and-armed versus the empty gated state the
   // name claims).
-  { name: 'firstrun-5-about-you', step: 5, you: { state: 'absent', you: null, because: null } },
-  { name: 'firstrun-6-adopt', step: 6, first: FLEET_ADOPT },
-  { name: 'firstrun-6-create', step: 6, first: FLEET_CREATE },
-  { name: 'firstrun-6-cannot-see', step: 6, first: FLEET_BLIND },
+  { name: 'firstrun-about-you', at: '#fr-you', you: { state: 'absent', you: null, because: null } },
+  { name: 'firstrun-fleet-adopt', at: '#fr-fleet', first: FLEET_ADOPT },
+  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE },
+  { name: 'firstrun-fleet-cannot-see', at: '#fr-fleet', first: FLEET_BLIND },
 ];
 
 /**
@@ -350,9 +363,19 @@ async function look(page, name) {
       if (shot.you) {
         await page.route('**/api/you', (r) => r.fulfill({ json: shot.you }));
       }
+      // The step this shot is captured at. Fixed frames name a number; content
+      // frames DISCOVER it from their `at:` anchor, so an inserted step moves
+      // the shot with the pane rather than capturing the wrong one under this
+      // shot's name (kosmos#1801). The panes are in the DOM at load, so one bare
+      // load reads the number before the real capture navigates to it.
+      let shotStep = shot.step;
+      if (shot.at) {
+        await page.goto(`${BASE}/?first-run=1`, { waitUntil: 'domcontentloaded' });
+        shotStep = await stepForAnchor(page, shot.at);
+      }
       // The hanging-route shot can never reach networkidle -- the stalled
       // machine request IS the state under test.
-      await page.goto(`${BASE}/?first-run=1&fr-step=${shot.step}`,
+      await page.goto(`${BASE}/?first-run=1&fr-step=${shotStep}`,
         { waitUntil: shot.machine === 'hang' ? 'load' : 'networkidle' });
       await page.waitForTimeout(700);
       /**
@@ -515,9 +538,19 @@ async function look(page, name) {
   {
     const lastCtx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
     const pg = await lastCtx.newPage();
-    await pg.goto(`${BASE}/?first-run=1&fr-step=6`, { waitUntil: 'networkidle' });
+    // 🔑 The LAST step is the fleet ending. #1214 moved it from fr-pane-6 to
+    // fr-pane-7, so this DISCOVERS it from #fr-fleet rather than naming pane-6 --
+    // which now holds About-you, whose content is over 20 chars and mentions no
+    // Dock, so the old literal passed here while measuring the wrong pane
+    // entirely (kosmos#1801).
+    await pg.goto(`${BASE}/?first-run=1`, { waitUntil: 'domcontentloaded' });
+    const lastStep = await stepForAnchor(pg, '#fr-fleet');
+    await pg.goto(`${BASE}/?first-run=1&fr-step=${lastStep}`, { waitUntil: 'networkidle' });
     await pg.waitForTimeout(400);
-    const last = await pg.evaluate(() => (document.getElementById('fr-pane-6') || {}).textContent || '');
+    const last = await pg.evaluate(() => {
+      const pane = document.querySelector('#fr-fleet').closest('.fr-pane');
+      return (pane && pane.textContent) || '';
+    });
     // Not vacuous: the step must have rendered something before its silence means anything.
     if (last.trim().length < 20) {
       problems.push('the LAST step rendered almost nothing, so the Dock assertion below tests nothing');

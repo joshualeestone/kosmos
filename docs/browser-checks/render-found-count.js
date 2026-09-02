@@ -27,9 +27,9 @@
  * ⚠️ HEADED by default. `HEADED=0` on a machine with no console session.
  */
 /* ⚠️ TAKES A RUNNING BOARD, like the other found-screen checks in this directory.
-   An in-process `srv.start(0)` does not reach this step: measured, `?fr-step=6`
-   renders "Create your first agent" there, so a check built that way times out on
-   a screen that is fine. Start a sandboxed board first:
+   An in-process `srv.start(0)` does not reach the fleet step: measured, deep-
+   linking to it renders "Create your first agent" there, so a check built that
+   way times out on a screen that is fine. Start a sandboxed board first:
 
      SB=$(mktemp -d); PORT=4711 AGENT_WORKFORCE_DATA="$SB/data" \
        AGENT_WORKFORCE_WORKERS="$SB/workers" AGENT_WORKFORCE_LAUNCH="$SB/launch" \
@@ -39,6 +39,7 @@
        node docs/browser-checks/render-found-count.js http://127.0.0.1:4711
 */
 const { chromium } = require('playwright');
+const { gotoStepForAnchor } = require('./lib-firstrun-steps.js');
 const BASE = process.argv[2] || 'http://127.0.0.1:4711';
 
 const fail = [];
@@ -66,8 +67,11 @@ const THREE = { ok: true, agents: [agent('miles', 'researcher'), agent('nadia', 
     await page.route('**/api/first-run', (r) => r.fulfill({
       json: { done: false, path: 'create', fleetCount: 0, known: true },
     }));
-    /* The found step by URL, the same way render-found-undo.js reaches it. */
-    await page.goto(BASE + '/?first-run=1&fr-step=6', { waitUntil: 'networkidle' });
+    /* The fleet step by URL, DISCOVERED not named -- #1214 moved #fr-fleet from
+       fr-pane-6 to fr-pane-7, so this reads the step off the pane rather than
+       pinning a number that goes stale on the next insertion (kosmos#1801). The
+       same way render-found-undo.js reaches it. */
+    await gotoStepForAnchor(page, BASE, '#fr-fleet');
     await page.waitForSelector('#fr-fleet .fr-foundrow', { timeout: 12000 });
     await page.waitForTimeout(500);
 
@@ -178,7 +182,7 @@ const THREE = { ok: true, agents: [agent('miles', 'researcher'), agent('nadia', 
     await page2.route('**/api/first-run', (r) => r.fulfill({
       json: { done: false, path: 'create', fleetCount: 0, known: true },
     }));
-    await page2.goto(BASE + '/?first-run=1&fr-step=6', { waitUntil: 'networkidle' });
+    await gotoStepForAnchor(page2, BASE, '#fr-fleet');
     await page2.waitForSelector('#fr-fleet .fr-foundrow', { timeout: 12000 });
     await page2.waitForTimeout(600);
     const many = await page2.evaluate(() => ({

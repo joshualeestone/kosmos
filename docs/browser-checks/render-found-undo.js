@@ -23,6 +23,7 @@
 'use strict';
 
 const playwright = require('playwright');
+const { gotoStepForAnchor } = require('./lib-firstrun-steps.js');
 
 const BASE = process.argv[2] || 'http://127.0.0.1:4399';
 const HEADED = process.env.HEADED !== '0';
@@ -105,7 +106,14 @@ const FOUND = {
     r.fulfill({ json: { ok: true, name: 'claude-bot', partial: false, because: '' } });
   });
 
-  await page.goto(`${BASE}/?first-run=1&fr-step=6`, { waitUntil: 'networkidle' });
+  /* 🔑 DISCOVER THE FLEET STEP, DO NOT NAME IT. #fr-fleet lived in fr-pane-6
+     until #1214 inserted Accessibility as step 5 and moved it to fr-pane-7; the
+     literal `fr-step=6` this line carried then timed out on a pane that no
+     longer held the fleet -- an opaque timeout that reads like a missing
+     selector. gotoStepForAnchor reads the step off #fr-fleet's own pane, so the
+     next insertion moves the number with the pane instead of stranding it
+     (kosmos#1801). */
+  await gotoStepForAnchor(page, BASE, '#fr-fleet');
   /* 🛑 SCOPED TO THE SETUP PANE. The board grew a found list of its own, and
      these selectors were global -- so this check started measuring four rows,
      two of them inside a collapsed fold with a geometry of zero, and reported
