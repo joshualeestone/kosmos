@@ -49,7 +49,12 @@ PreToolUse, throttled to one line per 60s.
 happened to be reporting, which is a much weaker guarantee than a second reader.
 Any agent whose hook is absent, failing, or merely between heartbeats reads
 `idle` while mid-turn. Measured at review time: `origin/main` returned `idle` for
-EVERY pane carrying the shape.
+three of the four panes carrying the shape at
+2026-09-02 16:24 CDT. The fourth returned `working`, because it also had a live
+spinner that `WORKING_LINE` covered. Stated with a timestamp because the fleet
+moves, and stated as three-of-four because an earlier version of this sentence
+said "EVERY ONE", contradicting section 1b of this same file, which exists to
+stop exactly that absolute.
 
 ⚠️ The correction makes the defect worse, not better, which is why it is worth
 recording rather than quietly editing: the first version told a reader there was
@@ -179,6 +184,36 @@ Pinned by a perturbation that swaps one glyph for the other.
 ✅ The gate fails safe. If the vendor stops drawing `◯` the reader goes quiet,
 which is `origin/main`'s behaviour: a miss, not a false calm. Losing a true
 positive is the acceptable direction; claiming a finished agent is busy is not.
+
+## A FIX SILENTLY GUTTED FOUR OF MY OWN GUARDS, AND THE SUITE STAYED GREEN
+
+Iteration 4, and the most useful finding on this branch.
+
+The liveness gate from iteration 3 returns null **before any other check runs**.
+So a NEGATIVE fixture without a `◯` row never REACHES the guard it claims to
+test: it passes because the gate short-circuited, not because the guard worked.
+
+Measured after iteration 3 landed, with the suite reporting 159/159 green:
+
+| perturbation | should red | actually |
+|---|---|---|
+| delete the reach guard | yes | **green** |
+| re-add `*` to the glyph class | yes | **green** |
+| hoist above `asksSomething` | yes | **green** |
+| widen to a bare `Waiting for` | yes | **green** |
+
+Four guards, including the one the code calls "THE GUARD THAT MAKES THE RULE SAFE
+TO HAVE", were vacuous. Their comments asserted the opposite in the same file.
+
+🔑 **The error was one word in my own comment: a live `◯` row is "REQUIRED on
+every positive fixture."** A negative fixture that cannot reach the guard under
+test discriminates nothing. Every fixture now carries it, `notEqual` rows
+included, and all six perturbations bite again.
+
+⭐ **The general shape, which is the thing worth keeping: adding a new early
+return retroactively disarms every test whose fixture cannot get past it, and
+nothing goes red to tell you.** A guard is only armed relative to the code that
+existed when it was written.
 
 ## A correction about my own perturbation instrument
 
