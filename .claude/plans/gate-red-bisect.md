@@ -427,6 +427,15 @@ shipped, and it competes with the code beside it.
    ⇒ **The wizard builds exactly `#fr-next` and `#fr-alt`, so a reintroduced
    Back would arrive as one of those.** The assertion now reads their LABELS,
    which can return the dangerous answer.
+   🛑 **AND IT CAME BACK ON 2026-09-02.** The rebuild onto Renet's #1801 silently
+   dropped this rewrite and restored the vacuous id-count version, along with the
+   section-1 and section-2 settle guards. A blind review found all of it; nothing
+   in the rebuild announced it.
+   ⇒ **That is the cost of rebuild-over-replay, paid rather than theorised: a
+   take keeps what the other side HAS and loses what only YOU had, silently.**
+   It is the same shape I had warned Renet about that morning, arriving back at
+   me from the other direction. Restored, and the README now says that finding
+   the vacuous form again is a REGRESSION rather than a starting point.
    ⭐ **Widening an assertion feels like strengthening it and is worthless if
    the assertion cannot fail.** It also put the false claim in the README, where
    other agents read what is already guarded.

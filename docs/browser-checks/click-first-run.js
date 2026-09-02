@@ -92,6 +92,13 @@ async function waitAboutYouLeft(page, timeout = 5000) {
   try {
 
   /* ------------------------------------------------------------------ */
+  /* 🔑 SECTION 2's PRECONDITION, MADE EXPLICIT. Section 2 asserts that a
+     RETURNING person gets their board, which only means anything once section 1
+     has actually completed first run and written FLAG. Without this, a section-1
+     failure makes section 2 red with a confident, specific and WRONG claim about
+     the product, caused entirely by section 1. That is the one-finding-not-three
+     rule applied ACROSS sections rather than within one. */
+  let firstRunCompleted = false;
   console.log('\n1. A machine that has never been through it opens ON first run');
   {
     const { ctx, page } = await fresh(browser);
@@ -195,25 +202,47 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     // wait named fr-pane-5, which is Accessibility now, so it resolved at once
     // and never waited for the transition (kosmos#1801).
     await waitAboutYouLeft(page);
-    ok(/already have/.test(await page.locator('#fr-title').textContent()), 'the adopt ending');
+    const endingReached = /already have/.test(await page.locator('#fr-title').textContent());
+    ok(endingReached, 'the adopt ending');
     ok(/Take me to my agents/.test(await page.locator('#fr-next').textContent()),
       'the adopt ending carries the pack\'s single action');
-    console.log('   ...and out the front door, through the adopt ending');
-    await page.click('#fr-next');
-    await page.waitForTimeout(600);
-    ok(await page.isHidden('#firstrun'), 'the overlay closed');
-    ok(await page.isVisible('#grid'), 'the board is there');
-    ok(await page.evaluate(() => document.querySelector('.apphead').inert === false),
-      'the board is interactive again');
-    ok(fs.existsSync(FLAG), 'the flag was written, so it will not reappear');
-    // ⚠️ The control for that last one: it was NOT there a moment ago.
-    ok(JSON.parse(fs.readFileSync(FLAG, 'utf8')).completedAt, 'and the flag has a timestamp in it');
+    /* 🛑 ONE FINDING, NOT SIX. If the ending was never reached, the assertion
+       above has already said so; the five below would then report confident,
+       specific claims about a screen this check has just recorded it could not
+       read. The front-door click is skipped with it, because clicking a button
+       the ending never painted is how a section takes the rest of the file down
+       with it through the THREW path. */
+    if (endingReached) {
+      console.log('   ...and out the front door, through the adopt ending');
+      await page.click('#fr-next');
+      await page.waitForTimeout(600);
+      ok(await page.isHidden('#firstrun'), 'the overlay closed');
+      ok(await page.isVisible('#grid'), 'the board is there');
+      ok(await page.evaluate(() => document.querySelector('.apphead').inert === false),
+        'the board is interactive again');
+      const flagThere = fs.existsSync(FLAG);
+      ok(flagThere, 'the flag was written, so it will not reappear');
+      // ⚠️ The control for that last one: it was NOT there a moment ago.
+      /* Guarded: an unguarded readFileSync on a missing flag throws ENOENT, and
+         a throw here kills every later section instead of leaving the one
+         precise finding the assertion above already made. */
+      if (flagThere) {
+        ok(JSON.parse(fs.readFileSync(FLAG, 'utf8')).completedAt, 'and the flag has a timestamp in it');
+        firstRunCompleted = true;
+      }
+    } else {
+      console.log('   ...front door skipped: the adopt ending was never reached, see the finding above');
+    }
     await ctx.close();
   }
 
   /* ------------------------------------------------------------------ */
   console.log('\n2. Having been through it, it does not come back');
-  {
+  if (!firstRunCompleted) {
+    console.log('   skipped: section 1 never completed first run, so no FLAG was written'
+      + ' and the returning-person state this section needs was never reached.'
+      + ' The finding is section 1\'s; repeating it here would be a second report of one cause.');
+  } else {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await ctx.newPage();
     await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -225,17 +254,79 @@ async function waitAboutYouLeft(page, timeout = 5000) {
   }
 
   /* ------------------------------------------------------------------ */
-  console.log('\n3. Back, and Skip, and Escape');
+  console.log('\n3. No Back, no Skip, and Escape');
   {
-    const { ctx, page } = await fresh(browser);
+    /* Pinned for the same reason section 11 is: without a connected
+       subscription the model step hides both buttons, and the floor below would
+       red for a harness reason rather than a product one. */
+    const { ctx, page } = await fresh(browser, {
+      route: ['**/api/first-run', (r) => r.fulfill({
+        json: {
+          done: false, fleetKnown: true, fleetCount: 0, fleetNames: [], path: 'create',
+          subscription: { state: 'connected', plan: 'Claude Max', because: '' },
+        },
+      })],
+    });
     await page.click('#fr-next');
     await page.click('#fr-next');
     // ⚠️ NO BACK anywhere (Josh, 2026-08-17): the flow only moves forward.
-    ok((await page.locator('#fr-back').count()) === 0, 'no Back button exists on any step');
-    ok(await page.locator('#fr-title').textContent() === 'Choose a model.', 'Continue advanced exactly one step');
-    // The visible Skip died by the pack's ruling; Escape is the exit and it
-    // carries the same contract (marks seen, so it does not nag).
-    ok((await page.locator('#fr-skip').count()) === 0, 'no visible Skip link anywhere (pack decisions table)');
+    /* Read BOTH buttons, like the section-11 loop: a setup-skip reintroduced as
+       the PRIMARY would be invisible to an alt-only read. The floor below
+       reports an empty bar. ⚠️ Precisely: the two assertions below DO still pass
+       on an empty bar (an empty string matches neither regex); what the floor
+       does is emit its own finding so the run reds. Those are different claims.
+       ⚠️ Scoped to the CONNECTED arm, which is what the route above pins; see
+       the note on the floor for what that excludes. */
+    /* 🔑 THE STEP IS PINNED BEFORE THE BAR IS READ, not after. This assertion
+       used to sit BELOW the two bar assertions, so a walk that landed on the
+       wrong step reported "no button here offers a way back" about a step the
+       check had not yet established -- two confident messages about the wrong
+       screen, and the assertion naming the actual cause arriving third. Same
+       cause-before-consequence rule the rest of this file applies. */
+    ok(await page.locator('#fr-title').textContent() === 'Choose a model.',
+      'two Continues from Success land on step 3, one step each');
+    const barHere = await page.evaluate(() => ['fr-next', 'fr-alt']
+      .map((id) => document.getElementById(id))
+      .filter((n) => n && !n.hidden)
+      .map((n) => (n.textContent || '').trim()));
+    const barLabels = barHere.join(' | ');
+    /* 🛑 SAY WHAT THIS CANNOT CATCH, AND COUNT IT. With `connected` pinned,
+       every step this walk reaches passes a primary to frActions, so the floor
+       cannot return the dangerous answer here.
+       ⚠️ SIX product states empty the bar, not one: frPaintSubscription's
+       unconnected fall-through; the create-arm fleet ending while FR_FOUND is
+       null; and the FOUR connect phases (downloading, installing, sign-in
+       open, awaiting code), which all call frActions(null, {Cancel}) and sit
+       on THIS step, reachable by pressing Connect, which this walk never does.
+       ⇒ Five of the six were the same defect (#1835: frActions discarded its
+       alt), and asserting the correct behaviour would have red the gate on a
+       known product bug. KNOWINGLY UNCOVERED AND COUNTED, rather than silently
+       uncovered.
+       🛑 THAT REASON EXPIRED ON 2026-09-02: #1835 IS FIXED ON main (67d0d08a),
+       so frActions now renders the alt and those five buttons paint. ⇒ The
+       argument this comment makes against asserting the correct behaviour NO
+       LONGER HOLDS, and a comment that argues against a fix on a premise that
+       has expired is how real work stays undone. Re-decide it on the rebased
+       branch rather than inheriting this sentence.
+       📌 CARRIED FORWARD ON CARD #1835 (the card whose fix expired it), not
+       only here. A comment is not somewhere a sweep looks, and this branch's
+       own rule is that a dismissal survives only if its condition is written
+       where the NEXT PERSON looks. I applied that rule to the dismissal and
+       then not to its follow-up, which is why this line exists.
+       ⭐ Found because the dismissal was written WITH ITS CONDITION. A finding
+       dismissed without one cannot be re-opened by the thing that changes it. The floor still earns its place: it stops the two assertions
+       below being the ONLY thing said about an empty bar if the pin ever
+       changes: they would pass, and this reds instead. */
+    ok(barHere.length > 0,
+      `the action bar offers something on this step (${barLabels || 'NOTHING, so the assertions below read nothing'})`);
+    ok(!/\bback\b|previous/i.test(barLabels),
+      `no button here offers a way back (buttons: ${barLabels || 'none'})`);
+    // The Skip that died by the pack's ruling was a skip of SETUP ITSELF
+    // (`#fr-skip`, label "Skip setup"); Escape is that exit now and carries the
+    // same contract (marks seen, so it does not nag). A skip that moves you on
+    // WITHIN first-run is ruled IN: see the model step's own Skip.
+    ok(!/skip setup|skip for now|skip this/i.test(barLabels),
+      `no button here offers to skip setup (buttons: ${barLabels || 'none'})`);
     await page.keyboard.press('Escape');
     await page.waitForTimeout(600);
     ok(await page.isHidden('#firstrun'), 'Escape closed it');
@@ -605,6 +696,17 @@ async function waitAboutYouLeft(page, timeout = 5000) {
   } finally {
     await browser.close().catch(() => {});
   }
-  console.log('\n' + (fails.length ? `${fails.length} FAILURES:\n  ` + fails.join('\n  ') : 'all clear'));
+  /* 🛑 `FAIL  ` FIRST, BEFORE THE COUNT. This printed `${n} FAILURES:` and was
+     NOT quotable, which is the opposite of how it reads: `FAIL` IS a prefix of
+     `FAILURES`, so the string looks like it should match. It does not, because
+     the runner's grep is ANCHORED -- `^\s*(FAIL|✖)` -- and the interpolated
+     COUNT lands in front of the marker, so the line starts with a digit.
+     ⇒ Measured against the runner's real grep, all three arms:
+         "2 FAILURES:"                    NOT quotable
+         "  THREW, so everything ..."     NOT quotable
+         "FAIL  2 FAILURES:"              quotable
+     ⭐ The marker has to start the LINE, not appear in it. A prefix that is
+     merely PRESENT satisfies a reader and not an anchored grep. */
+  console.log('\n' + (fails.length ? `FAIL  ${fails.length} FAILURES:\n  ` + fails.join('\n  ') : 'all clear'));
   process.exit(fails.length ? 1 : 0);
 })();

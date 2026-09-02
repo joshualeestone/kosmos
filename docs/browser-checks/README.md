@@ -368,9 +368,12 @@ covering, that a click in the middle of the screen lands on it, that every
 visible string clears its WCAG AA ratio, that nothing runs off the side, and
 that every visible button is focusable and named.
 
-⚠️ A shot whose settle wait fails writes NO png. A copy step would then
-silently keep the previous run's image, so check the run reported no settle
-failure before copying.
+⚠️ A copy step keeps the previous run's image if a shot is not rewritten, so
+check the run actually reported on the shot you are copying. **This paragraph
+previously said a failed settle wait writes NO png, and pointed readers at a
+signal that does not exist:** the shot loop takes its screenshot
+unconditionally, so a png is always written. The advice above is what survives
+once that mechanism is removed from the claim.
 
 ⚠️ **It contains a control, and the control is load-bearing.** The contrast
 checker's first version treated `rgba(0,0,0,0.035)` as opaque black and reported
@@ -385,14 +388,18 @@ it before any clean result below is worth reading.
 Escape from anywhere, the hand-off into creating an agent, a returning visit, a
 failing `/api/first-run`, a failing `/api/machine`, and a completion flag that
 will not stick. It asserts against the DOM and the real flag file, never against
-source. It also asserts, on each step that settles, that neither action button
-offers a way back, and that nothing offers to skip SETUP ITSELF. It reads the
-LABELS of `#fr-next` and `#fr-alt`, the two buttons `frActions` builds; counting
-a `#fr-back` or `#fr-skip` id would prove nothing today, because both existed
-once and were deleted, so a count of them can only return 0 and cannot report
-the dangerous answer. A step whose settle wait fails records that as a failure
-and skips its assertions rather than running them against a half-painted
-screen, so the run still reds.
+source. It also asserts that neither action button offers a way back, and that
+nothing offers to skip SETUP ITSELF. It reads the LABELS of `#fr-next` and
+`#fr-alt`, the two buttons `frActions` builds; counting a `#fr-back` or
+`#fr-skip` id would prove nothing today, because both existed once and were
+deleted, so a count of them can only return 0 and cannot report the dangerous
+answer.
+
+⚠️ **That last sentence is the reason this paragraph exists, and the vacuous
+form came BACK once**, when the branch was rebuilt on top of a rewrite and the
+label-reading version was silently dropped. A blind review caught it. If you
+find `#fr-back`/`#fr-skip` counted here again, it is a regression, not a
+starting point.
 
 ⚠️ Note what is NOT asserted: a Skip that moves you on WITHIN first-run is ruled
 IN, not out. The model step deliberately offers "Skip connecting a model" (Josh,
