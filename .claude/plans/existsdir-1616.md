@@ -31,7 +31,8 @@ The card named five. The sixth, the alternative offer, hangs off the fourth: wit
 FOLDER at the codex path and a sign-in on the machine, creation said "or create this
 agent on OpenAI instead", which is the dead click in words #548 was written to stop.
 
-All six now ask `runners.isRunnable`, through a lazy `runnerPresent(p)` in create.js
+All seven now ask `runners.isRunnable` (the six below plus `docs/browser-checks/live-connect.js`'s
+tmux spawn gate, found in review), through a lazy `runnerRunnable(p)` in create.js
 (lazy for the same reason `binPaths` requires lazily: sandboxes set env first) and a
 top-level require in openaiaccounts.js (no cycle: runners.js requires only platform).
 
@@ -39,9 +40,11 @@ top-level require in openaiaccounts.js (no cycle: runners.js requires only platf
 
 `engine.runnable-not-directory.test.js` sweeps for `accessSync(..., X_OK)`. Its own
 header disclosed that `existsSync` carries no `X_OK` token and is invisible to it by
-construction. `EXISTS_ON_BIN` now sweeps `existsSync(<runnerBin|codexBin|claudeBin|tmuxBin|bin>)`,
-optionally qualified, with an EMPTY audited set. Its control plants all six spellings
-that were live on 2026-08-30 and four honest presence checks it must not fire on.
+construction. `EXISTS_ON_BIN` now sweeps `existsSync(<runnerBin|codexBin|claudeBin|tmuxBin|bin|tmux|claude|codex>)`,
+optionally qualified, with an EMPTY audited set. Its control plants all seven spellings
+that were live on 2026-08-30 (the card lists one twice, so four distinct, plus the
+alternative-offer line, plus a browser-check driver's tmux gate found by the iteration-1
+reviewer) and five honest presence checks it must not fire on.
 
 **Its gap, stated at the definition and repeated here:** it is keyed on identifier
 NAMES. An existsSync over a differently named variable, over `path.join(dir, 'claude')`,
@@ -94,7 +97,8 @@ an inode can): when a guard will not bite, find an observable that differs.
 ## Weakest premise, named
 
 The name-keyed matcher enforces the literals that existed on one day. A new gate
-written as `fs.existsSync(runner)` or `existsSync(candidate)` passes the sweep. The
+written as `fs.existsSync(runner)` or `existsSync(candidate)` passes the sweep, and so does
+a call split across lines, because the sweep is per-line. The
 arms catch it only if it sits on a path they drive. Nothing here makes the property
 un-violable; it makes the two known spellings and the six known sites un-violable.
 
@@ -115,3 +119,15 @@ committed. Recorded so the next person commits first.
   browser gate on main. Runs on his release, `EXIT_CODE` read from the log.
 - Browser gate: this branch touches `engine/` only, no `web/`, so #1720's web-change
   gate does not apply.
+
+## Challenge loop, iteration 1 (2026-09-01 19:05)
+
+One WARNING, two CONVENTIONs, four NITs, all applied: a tmux spawn gate in
+`docs/browser-checks/live-connect.js` asked presence under a name the matcher did not key
+on (fixed, matcher widened to bare `tmux|claude|codex`, the line planted in the control);
+the guard header contradicted itself across a sentence boundary (past tense now); the helper
+block had split `binPaths` from its own doc comment (moved above it, and renamed
+`runnerRunnable` for what it answers); the per-line gap is disclosed; the tmux arm drives both
+wrong shapes; the counts in prose match the arrays. The reviewer independently reproduced
+three rows of the revert table on scratch copies and confirmed the old openaiaccounts suite
+stays green under M6, so the new arm is what carries that property.

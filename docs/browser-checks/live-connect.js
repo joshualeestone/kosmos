@@ -80,7 +80,9 @@ const pass = (m) => console.log('PASS', m);
 
   /* ── stage 3: the real driver, to the paste prompt and no further ─────── */
   const tmux = process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
-  if (!fs.existsSync(tmux)) fail(`no tmux at ${tmux}`);
+  /* #1616: runnable, not present. A folder at the tmux path passed this and the
+     driver then failed later inside connect.start() with a worse message. */
+  if (!require(path.join(__dirname, '..', '..', 'engine', 'runners.js')).isRunnable(tmux)) fail(`no runnable tmux at ${tmux}`);
   connect.setTickInterval(500);
 
   await connect.start();

@@ -52,7 +52,7 @@ const openai = require('./openaiaccounts');
 const runners = require('./runners');
 /* A recording runner, so a CONTROL creation can complete instead of being taken
    back as partial by the #1598 live-execution gate. DRY_RUN must be FALSE or every
-   gate below is skipped (`!DRY_RUN && !runnerPresent(...)`) and the arms pass
+   gate below is skipped (`!DRY_RUN && !runnerRunnable(...)`) and the arms pass
    vacuously; setDryRun(false) throws without a runner, which is the point. */
 create.setRunner(() => ({ ok: true, stdout: '' }));
 create.setDryRun(false);
@@ -94,9 +94,11 @@ test('#1616 createAgent on Claude refuses a directory or a stripped file at the 
 });
 
 test('#1616 createAgent on Claude refuses a directory at the TMUX path too: the loop is one gate for every binary it spawns', () => {
-  const r = create.createAgent({ claudeBin: realBin, tmuxBin: asDir, codexBin: '/nonexistent-codex', name: 'rd-tmux', role: 'pm' });
-  assert.equal(r.outcome, create.OUTCOME.REFUSED, 'a DIRECTORY at the tmux path was not refused');
-  assert.match(r.because, /could not find tmux/, 'wrong refusal for a directory at the tmux path: ' + r.because);
+  for (const [label, bad] of WRONG) {
+    const r = create.createAgent({ claudeBin: realBin, tmuxBin: bad, codexBin: '/nonexistent-codex', name: 'rd-tmux', role: 'pm' });
+    assert.equal(r.outcome, create.OUTCOME.REFUSED, label + ' at the tmux path was not refused');
+    assert.match(r.because, /could not find tmux/, label + ': wrong refusal at the tmux path: ' + r.because);
+  }
 });
 
 test('#1616 the OpenAI alternative is NOT offered when the codex runner is a directory, even with a sign-in on the machine', () => {
