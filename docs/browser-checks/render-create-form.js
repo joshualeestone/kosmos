@@ -124,6 +124,10 @@ function check(name, pass, detail) {
         providers: Array.from(id('create-provider').options).map((o) => [o.textContent, o.disabled]),
         acctShown: live(id('create-account')),
         acctCount: id('create-account').options.length,
+        /* #1917: the rendered option TEXT of each account, read out of the live
+           <select>. A source test executes fillCreateAccounts' string-building; only
+           a browser sees what actually lands in the control. */
+        acctOptionTexts: Array.from(id('create-account').options).map((o) => o.textContent),
         stepIn: { prov: prov.left, acct: acct.left, model: model.left },
         elbow: elbow ? { w: elbow.width, h: elbow.height, color: elbow.borderLeftColor } : null,
         /**
@@ -244,6 +248,17 @@ function check(name, pass, detail) {
       JSON.stringify(seen.openaiParks));
     check(`[${engine}] the account rung is drawn even with one account in it`,
       seen.acctShown && seen.acctCount >= 1, `${seen.acctCount} options`);
+    /* #1917: two accounts on ONE email used to render as two IDENTICAL options, so a
+       real tester could not tell which to pick and ran his agent on the dead one. The
+       rendered option TEXT must be distinct per account -- a claim a source test cannot
+       make, because it executes the string-building but never sees what lands in the
+       live <select>. Bites on any machine that actually holds a duplicated-email
+       account (this build box holds agent@example.com twice); on a machine with none it
+       is trivially unique, which is the correct pass and still catches a regression
+       that collapsed two rows to one text. */
+    check(`[${engine}] every account option is distinctly labelled (#1917)`,
+      new Set(seen.acctOptionTexts).size === seen.acctOptionTexts.length,
+      JSON.stringify(seen.acctOptionTexts));
     check(`[${engine}] each menu steps in from the one above`,
       seen.stepIn.acct > seen.stepIn.prov + 10 && seen.stepIn.model > seen.stepIn.acct + 10,
       `${Math.round(seen.stepIn.prov)} / ${Math.round(seen.stepIn.acct)} / ${Math.round(seen.stepIn.model)}`);

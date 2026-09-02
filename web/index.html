@@ -14036,7 +14036,32 @@ async function paintAccounts() {
          produce exactly the silence this handler exists to prevent, on the day
          somebody drops the title from that branch. If there is nothing to say,
          say the short form rather than nothing. */
-      const say = btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.';
+      /* #1917: THE REFUSAL NOW NAMES A WAY OUT, because the default row is exactly
+         where a real tester dead-ended. Kosmos will not remove `~/.claude`, and when
+         it is the account whose sign-in is broken (Ben, 0.6.22: the agent 401'd on
+         the account it could not remove) the pure refusal was a wall. `Sign in again`
+         (#1492, `data-reauth`) is on this same row and re-auths this account in place,
+         which is the recovery to TRY -- so the pressed refusal points at it. Appended
+         to the SPOKEN message only, never to `btn.title`: the title stays pinned to the
+         engine's `because` (web.account-qualifier.test.js anchors title=" against it),
+         and this remedy is UI-specific ("above") so it does not belong in the engine
+         sentence.
+         \ud83d\uded1 A THING TO TRY, NOT A FIX, AND THE MESSAGE IS TRUE WHETHER OR NOT REAUTH
+         CAPTURES. Confirmed from Ben (via Josh, 2026-09-02): `Sign in again` runs the
+         whole flow, returns a green check "like everything's active", and does NOT
+         capture a working credential -- his agent kept 401'ing after it. So this must
+         NOT promise that `Sign in again` fixes the account, or it loops a user back to a
+         false green. It points at the step to try AND warns that the green check proves a
+         sign-in RAN, not that it took -- the same thing #874 measured about the row badge,
+         which cannot see a rejected token. That warning is true in both worlds, so the
+         sentence stays correct however the reauth defect resolves.
+         \u26a0\ufe0f DOWNSTREAM of the reauth-returns-green-without-capturing defect (Splinter
+         filing its own card; recurring -- it also hit Casey, not one-off on Ben's Mac).
+         When reauth is fixed so a green check means a captured credential, this wording
+         can be strengthened to name it as the fix. Noted on the card so that owner sees
+         it. */
+      const say = (btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.')
+        + ' If its sign-in is not working you can try \u201cSign in again\u201d above, then check that an agent on it actually connects: a green check here confirms a sign-in ran, not that it captured a working credential.';
       /* ⚠️ setTimeout, NOT requestAnimationFrame: rAF is throttled or suspended
          outright in a hidden or background tab, so the clear-then-set would
          leave the region BLANK there -- worse than the unchanged text it is
@@ -24307,7 +24332,23 @@ function fillCreateAccounts() {
   const working = list.filter((x) => !x.connection || x.connection.state !== 'none');
   const movable = openai ? working : working.filter((x) => x.memoryShared);
   const usable = movable.length ? movable : working;
-  const nameOf = (x) => x.email || (x.provider === 'openai' && x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir;
+  /* #1917: two accounts on one email rendered as two identical options, so a real
+     tester (Ben, 0.6.22) could not tell which to pick and ran his agent on the dead
+     one for an hour. The Settings list already disambiguates duplicated rows via
+     `accountQualifiers` (the default is `main`, the others by their own label); the
+     picker threw that away and rendered by email alone -- the exact bug the Settings
+     render was fixed for, one screen over. Compute the same qualifier over the rows
+     actually OFFERED and append it, so a duplicated email is distinct and the default
+     (the original account) reads `(main)`. It is empty for a unique email, so the
+     common single-account case is unchanged.
+     🛑 DISCRIMINATES BY LABEL / DEFAULT, NOT BY SIGN-IN STATE. The badge cannot see a
+     REJECTED token (#874; #1916 is Angel's, the account that 401s still reads
+     `connected`), so a liveness-based discriminator would still hide the dead one.
+     `main` names WHICH account is the original, which is the discriminator that does
+     not depend on a check the page cannot make. */
+  const acctQual = accountQualifiers(usable);
+  const qualOf = (x) => { const q = acctQual.get(String(x.dir || '')); return q ? ' (' + q + ')' : ''; };
+  const nameOf = (x) => (x.email || (x.provider === 'openai' && x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir) + qualOf(x);
   const labelOf = (x) => x.connection && x.connection.state === 'unknown' ? esc(nameOf(x)) + ' (could not check just now)' : esc(nameOf(x));
   asel.innerHTML = usable.length
     ? usable.map((x) =>
