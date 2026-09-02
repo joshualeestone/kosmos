@@ -374,6 +374,12 @@ let failed = 0;
          ancestor with `opacity: 0` is NOT: the button's own computed opacity stays
          1. The sibling render-projects.js has the identical limitation, so this
          matches the house rather than falling short of it. */
+      /* #1710: the armed danger treatment, read as computed style so a rule that
+         regressed to word-only (the exact #1710 defect) is caught. color +
+         fontWeight are style resolution, not compositing, so they read reliably
+         headless -- consistent with this file's computed-state stance. */
+      color: b ? getComputedStyle(b).color : null,
+      weight: b ? getComputedStyle(b).fontWeight : null,
       found: !!b,
     };
     seen.visible = !!(seen.btnW && seen.btnH && seen.btnOpacity !== '0' && seen.btnVisibility !== 'hidden');
@@ -404,6 +410,29 @@ let failed = 0;
     firstPress.label === 'Remove it?' && firstPress.listed === true
       && firstPress.disabled === false && firstPress.visible === true,
     JSON.stringify({ before: beforePress, after: firstPress }));
+  /* #1710: the armed Disconnect must PAINT the danger treatment, not just change
+     the word. The defect #1710 fixed was exactly "adds .armed but there was no
+     rule, so only the word changed" (index.html:574) -- and it shipped a
+     source-presence grep, no rendered check, bypassing the #1720 gate (kosmos#1837).
+     Assert the armed computed style here, where the button is already armed: the
+     danger colour (resolved from `--danger` via a probe so it is theme-robust
+     rather than a hardcoded rgb) AND weight 600. The rested button read at
+     `beforePress` is the built-in control: if the `.armed` rule regressed to
+     word-only, armed would equal rested and this reds. */
+  const dangerRGB = await p.evaluate(() => {
+    const s = document.createElement('span');
+    s.style.color = 'var(--danger, #b3261e)';
+    document.body.appendChild(s);
+    const c = getComputedStyle(s).color;
+    s.remove();
+    return c;
+  });
+  say('the armed Disconnect paints the danger treatment: colour + weight 600, not just the word (#1710)',
+    firstPress.weight === '600' && firstPress.color === dangerRGB
+      && beforePress.color !== dangerRGB && beforePress.weight !== '600',
+    JSON.stringify({ danger: dangerRGB,
+      rested: { color: beforePress.color, weight: beforePress.weight },
+      armed: { color: firstPress.color, weight: firstPress.weight } }));
   /* Guarded like the first press, and it reports the PAGE rather than repeating
      the boolean being asserted. A bare `if (b) b.click()` no-ops silently, and
      then "the account leaves the list" fails without distinguishing "we pressed
