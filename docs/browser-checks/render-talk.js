@@ -1705,7 +1705,12 @@ function unreachableStates() {
   }
   await browser.close();
   console.log('\n=== problems ===');
-  console.log(problems.length ? problems.join('\n') : 'none');
+  // Prefix each finding with FAIL at the PRINT site so the release gate's
+  // anchored `grep -E '^\s*(FAIL|✖)|...'` can quote the reason (kosmos#1836).
+  // The prefix must land on the printed LINE, not the pushed string: a bare
+  // `problems.join` printed unquotable lines the gate reported as
+  // `(no FAIL or error line in its output)`.
+  console.log(problems.length ? problems.map((p) => `  FAIL  ${p}`).join('\n') : 'none');
   console.log('shots in', OUT);
   if (problems.length) process.exitCode = 1;
 })();
