@@ -831,9 +831,9 @@ cmd_connections() {
        to make everywhere else: it type-guards, own-property checks and filters
        because the board may be a different build than the CLI.
        ⚠️ DECLARED AT THE TOP, OUTSIDE EVERY BRANCH, AND THE POSITION IS LOAD
-       BEARING. It sat ~55 lines below its first caller once, so v.error printed
-       uncleaned; moved into the error branch it was hoisted-but-unassigned on the
-       happy path and threw for 18 tests. var hoists the NAME, never the value.
+       BEARING: var hoists the NAME, never the value, so declared below its first
+       caller it prints uncleaned, and declared inside one branch it is undefined
+       on every other.
        NOTE no apostrophe anywhere in this comment. This whole renderer is a
        single-quoted shell string and one apostrophe ends the program. */
     var clean = function (x) { return typeof x === "string" ? x.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ") : x; };
@@ -1123,10 +1123,10 @@ cmd_connections() {
              We could not tell whether a Claude sign-in is going on.
          A settled answer and an uncertainty about the same provider, which is the
          contradiction this whole verb exists to refuse.
-         ⚠️ THE RULE MOVED INWARD AND ONLY HALF ITS SCOPE MOVED WITH IT, for the
-         second time on this branch. The first time it was provider scope; this
-         time it is which BRANCH the rewritten value lands in. Moving a rule is
-         not finished until every consumer of the OLD value is checked. */
+         ⚠️ WHEN A RULE MOVES INWARD ITS WHOLE SCOPE MOVES WITH IT: both the
+         provider it applies to and which BRANCH the rewritten value lands in.
+         Moving a rule is not finished until every consumer of the OLD value is
+         checked. */
       if (v.signin && v.signin.phase === "unknown" && !anyConnected) {
         console.log("");
         console.log("  We could not tell whether " + (whoResolved ? ("a " + whoName) : "a") + " sign-in is going on. Ask what is on their screen.");

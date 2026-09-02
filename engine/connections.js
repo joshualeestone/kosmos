@@ -115,6 +115,8 @@ function cliAdvice(cli) {
     'starting it is theirs to do, not yours: say so, and ask them to open Kosmos.',
     'If it prints a list of commands instead of answering, the copy on this',
     'computer is older than these instructions.',
+    'If it says the command takes no options, drop whatever you added to it and',
+    'run it bare: it takes nothing.',
     'In any of those cases, do not guess at another path and do not conclude the',
     'feature is gone: tell them what you saw, and ask them to open Kosmos, which',
     'shows the same thing on its own screen.',

@@ -3760,9 +3760,8 @@ const server = http.createServer((req, res) => {
            🛑 AND ON THE CLAUDE SIDE "nothing was deleted" IS TRUE OF THE
            CREDENTIAL AND NOT OF THE HISTORY, which the OpenAI wording carries for
            its DEFAULT account only.
-           🛑 THAT CLAUSE USED TO READ "which the OpenAI wording does not have to
-           carry", and it is wrong in the one case that route uniquely allows:
-           removing `~/.codex` itself. MEASURED with a real rollout tree
+           🛑 NOT "which the OpenAI wording does not have to carry": that is wrong
+           in the one case that route uniquely allows, removing `~/.codex` itself. MEASURED with a real rollout tree
            (`sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl`, the shape
            `codexsession.rollouts()` actually reads): 1 before the rename, 0 after.
            So that removal has the same stops-looking-inside consequence and its
@@ -4385,9 +4384,10 @@ const server = http.createServer((req, res) => {
        and GitHub calls. A drive-by page cannot read the answer and can still
        burn the person's third-party quota.
        📌 THE HONEST COST IS A CEILING, NOT A COUNT, and it is accounted for here
-       and nowhere else. Up to THREE requests leave this machine per call, each
-       only when a credential is held, plus a `gh auth status` subprocess when gh
-       is installed: `cloudflare.state()` issues an uncached GET to
+       and nowhere else. THREE KINDS of request leave this machine per call,
+       each only when a credential is held (the OpenAI one once per apikey
+       account, so the ceiling is two plus the number of OpenAI keys), plus a
+       `gh auth status` subprocess when gh is installed: `cloudflare.state()` issues an uncached GET to
        api.cloudflare.com `user/tokens/verify` with the person's token; the
        github arm's `gh === 'missing'` fallback reaches `githubdevice.state()` ->
        `getUser` against api.github.com/user with theirs; and
@@ -4501,12 +4501,14 @@ const server = http.createServer((req, res) => {
        `readFirstPartyDoors` is fail-soft per door in the same way, and it
        cannot reject as a whole, so it needs no `.catch` of its own. */
     Promise.all([
-      /* `.then(...)` rather than a bare call, so a reader that THROWS
-         synchronously becomes a rejection this arm catches, instead of escaping
-         the request listener. Both readers are async today; this makes the
-         "every arm is fail-soft" claim hold by construction. */
-      Promise.resolve().then(() => accounts.listLive()).catch(() => null),
-      Promise.resolve().then(() => openaiAccounts.listLive()).catch(() => null),
+      /* Bare calls, as `/api/accounts` makes them. Both readers are
+         `inflight.collapse`d, and `collapse` already turns a synchronous throw
+         into a rejection (engine/inflight.js) while documenting that deferring
+         the start by a microtask is NOT transparent to the collaborators those
+         readers touch on the way to their first await. So the `.catch` here is
+         the whole fail-soft arm, and nothing changes when the sweep starts. */
+      accounts.listLive().catch(() => null),
+      openaiAccounts.listLive().catch(() => null),
       readFirstPartyDoors(),
     ]).then(([claudeRows, openaiRows, doors]) => {
       /* A reader that threw is NOT an empty machine: null becomes no rows,
