@@ -116,3 +116,23 @@ NIT deferred with reasoning: `/\$stuff/i` matches `$stuff` as a substring (so a
 rare `$stuffed` would trip), kept deliberately because it also catches real refs
 like `$STUFF_BALANCE` that a word boundary would miss; the tree is clean today.
 The line-based scan's wrap-span limitation is documented in the guard itself.
+
+## Scope correction before merge: the guard must not red on the migration itself
+
+Splinter flagged the forward risk that decides whether this guard survives the
+month: the migration LEGITIMATELY generates book-io references in
+`.claude/plans/` - every challenge-loop proof about the repoint names the repo it
+repointed away from, and more such plans are landing (the dist plans, Baron's
+work). A guard that scans those reds on honest migration work, and a guard that
+reds on legitimate content is the guard someone disables.
+
+So the guard now EXCLUDES `.claude/plans/` (internal dev-process notes, not the
+public product surface Josh's ruling is about) and scans EVERYTHING else - code,
+tests, web/, docs, README, tools, .github, non-plan .claude/ config - where a
+brand string is a real leak. Chosen over Splinter's narrower "product dirs only"
+option because this still catches a leak in README/docs/tools that a
+named-dirs scope would miss. The scoping is self-tested (a control asserts a
+.claude/plans/ path is exempt and a code/config/doc path is scanned) and
+perturbation-proven both ways (book-io planted in a plan does NOT red; planted in
+server.js DOES). The existing plan strips stay - the tooling refs I retargeted to
+joshualeestone/claude-setup are correct regardless of scope.

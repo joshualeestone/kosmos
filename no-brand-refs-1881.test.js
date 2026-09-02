@@ -38,22 +38,34 @@ const PATTERNS = [
   /\$stuff/i,          // $STUFF (substring on purpose: also catches $STUFF_BALANCE etc.; a word boundary would miss those, and the rare $stuffed false positive is the safer trade)
 ];
 
-/* Files whose PURPOSE is to name the forbidden patterns, so they are exempt.
-   Kept minimal and literal so a reader can audit it. Adding to this list is how
-   the guard is made to stop guarding a file, so each entry earns its place:
-   this guard's own source names every pattern; this card's plan and proof
-   document the cleanup. */
-const ALLOWLIST = new Set([
-  'no-brand-refs-1881.test.js',
-  '.claude/plans/strip-1881.md',
-  '.claude/plans/strip-1881-pre-challenge.md',
-]);
+/* WHAT THE GUARD DOES NOT SCAN, and why each exemption is deliberate. Widening
+   these is how the guard is made to stop guarding something, so each earns its
+   place and the reasoning lives here for the next reader.
 
-/* Allowlist entries that must exist on disk, so a rename or delete cannot leave
-   the guard silently exempting a path that no longer exists (and, worse, no
-   longer scanning the file that took its place). The proof file is written later
-   by the challenge-loop, so it is deliberately not in this must-exist set. */
-const ALLOWLIST_MUST_EXIST = ['no-brand-refs-1881.test.js', '.claude/plans/strip-1881.md'];
+   1. `.claude/plans/` - the challenge-loop plans and proofs. These are internal
+      dev-process notes, not the public product surface Josh's ruling is about,
+      and the migration ITSELF legitimately names the old repo in them: a proof
+      about the book-io -> joshualeestone repoint cannot describe the repoint
+      without naming what it repointed away from, and more such plans are landing
+      (the dist plans, each repoint proof). Scanning them would red on honest
+      migration work, and a guard that reds on legitimate content is the guard
+      someone disables - which loses the whole thing. So plans are out of scope by
+      design; EVERYTHING else is scanned - code, tests, web/, docs, README, tools,
+      .github, and non-plan .claude/ config - because a brand string there is a
+      real product-surface or shipped-config leak.
+   2. This guard's own source - it necessarily contains every pattern. */
+const EXCLUDED_PREFIXES = ['.claude/plans/'];
+const ALLOWLIST = new Set(['no-brand-refs-1881.test.js']);
+
+/* The guard source must exist, so a rename cannot leave it silently self-exempt
+   while the file that replaced it goes unscanned. */
+const ALLOWLIST_MUST_EXIST = ['no-brand-refs-1881.test.js'];
+
+function scanned(rel) {
+  if (ALLOWLIST.has(rel)) return false;
+  if (EXCLUDED_PREFIXES.some((p) => rel.startsWith(p))) return false;
+  return true;
+}
 
 function trackedFiles() {
   const out = execFileSync('git', ['-C', ROOT, 'ls-files', '-z'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -109,6 +121,23 @@ test('#1881: no allowlisted path has been renamed out from under the guard', () 
   }
 });
 
+test('#1881: the scan is scoped to product surfaces - it exempts .claude/plans/ and the guard, and scans everything else', () => {
+  // A migration proof legitimately names the old repo; it must be exempt, or the
+  // guard reds on honest migration work and gets disabled.
+  assert.ok(!scanned('.claude/plans/some-repoint-pre-challenge.md'),
+    'a .claude/plans/ file must be exempt - migration proofs legitimately name the old repo');
+  assert.ok(!scanned('no-brand-refs-1881.test.js'), 'the guard source must be exempt');
+  // But a product/config/doc surface must be scanned, or the exemption has widened
+  // into the exposure it exists to prevent.
+  for (const rel of [
+    'server.js', 'web/index.html', 'engine/runningas.js', 'server.test.js',
+    'README.md', 'docs/anything.md', 'tools/run-tests.sh',
+    '.github/workflows/ci.yml', '.claude/settings.json', '.claude/hooks/x.sh',
+  ]) {
+    assert.ok(scanned(rel), `${rel} must be scanned - it is a product/config/doc surface, not a migration note`);
+  }
+});
+
 test('#1881: no Book.io or Stuff.io reference anywhere in the tracked tree', () => {
   const files = trackedFiles();
   /* The tree tracks ~1400 files; a floor near that magnitude catches a PARTIAL
@@ -119,7 +148,7 @@ test('#1881: no Book.io or Stuff.io reference anywhere in the tracked tree', () 
     `git ls-files returned only ${files.length} files; the enumeration looks broken or partial and every clean result below would be a false pass`);
   const offenders = [];
   for (const rel of files) {
-    if (ALLOWLIST.has(rel)) continue;
+    if (!scanned(rel)) continue;
     offenders.push(...hitsIn(rel));
   }
   assert.deepEqual(offenders, [],
