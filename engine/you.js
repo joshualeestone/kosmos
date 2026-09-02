@@ -35,11 +35,16 @@ const store = require('./store');
 const instructions = require('./instructions');
 const projects = require('./projects');
 
-// Same layout convention as commitments.js: under a sandbox the env var IS
-// the base (you.json sits directly in $AGENT_WORKFORCE_DATA), while in
-// production store.ROOT carries the AgentWorkforce segment. The click
-// drive's grandparent derivation depends on the sandboxed shape.
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+// #1848: route through store.ROOT (= store.dataRootFor(platform, home, env)) rather
+// than reading AGENT_WORKFORCE_DATA directly. The old direct read placed you.json
+// (and you-avatar/) at the BARE $AGENT_WORKFORCE_DATA, bypassing #1820's p.isAbsolute
+// refusal and the `AgentWorkforce` leaf the rest of the store appends, so under an
+// override you.json landed in a different directory than avatars/profiles. Now it
+// shares the one derivation -- the #1704 prerequisite (AGENT_WORKFORCE_DATA is the
+// multi-Kosmos switch; nothing reads it directly). (commitments.js still has the old
+// shape -- a sibling instance of the same class as #1821/trust.js, left for a
+// follow-up so this PR stays the two files #1848 names.)
+const BASE = store.ROOT;
 const FILE = path.join(BASE, 'you.json');
 
 // Defined in projects.js beside the pair they must never be confused with,
