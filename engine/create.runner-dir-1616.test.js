@@ -128,6 +128,9 @@ test('#1616 createAgent on OpenAI refuses a directory or a stripped file at the 
     assert.match(r.because, /could not find the OpenAI runner/, label + ' at the codex path got the wrong refusal: ' + r.because);
   }
   const ok = create.createAgent({ claudeBin: realBin, tmuxBin: TMUX, codexBin: realBin, name: 'rd-openai-ok', role: 'pm', provider: 'openai' });
+  /* A weaker control than the Claude arm's CREATED: an OpenAI creation can be refused
+     further on for a sign-in it does not have, so this only proves the RUNNER gate was
+     passed. The ordering arm below and the revert table carry the rest. */
   assert.ok(!/could not find the OpenAI runner/.test(String(ok.because || '')),
     'a real codex executable was refused as missing: ' + ok.because);
 });
@@ -157,6 +160,8 @@ test('#1616 installJob refuses a directory or a stripped file at the runner path
       label + ': wrong refusal from installJob: ' + r.because);
   }
   const ok = create.installJob(name, { claudeBin: realBin, tmuxBin: realBin, codexBin: '/nonexistent-codex' });
+  /* Same weaker shape as the OpenAI control: installJob can still refuse further on
+     (the supervisor, the run gate), so this proves only that the runner gate passed. */
   assert.ok(!/could not find Claude/.test(String(ok.because || '')),
     'a real executable was refused by installJob as missing: ' + ok.because);
 });

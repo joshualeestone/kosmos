@@ -1698,9 +1698,11 @@ function unusablePath(bin) {
 
 /**
  * #1616: RUNNABLE, NOT PRESENT, at the gates that LAUNCH, the same definition the
- * screens that REPORT already use. The four `!DRY_RUN &&` runner gates and the bin
- * loop (which never had a DRY_RUN guard) used to ask whether the path merely EXISTS, and that answers yes to a DIRECTORY and to a file
- * with no exec bit. Measured on the card: a folder at ~/.local/bin/claude was
+ * screens that REPORT already use. Five sites in this file used to ask whether the
+ * path merely EXISTS: the three `!DRY_RUN &&` runner gates (setProvider, installJob,
+ * the early OpenAI creation gate), the bin loop and the OpenAI-alternative offer,
+ * neither of which has a DRY_RUN guard. EXISTS answers yes to a DIRECTORY and to a
+ * file with no exec bit. Measured on the card: a folder at ~/.local/bin/claude was
  * refused by the first-run screen (runners.isRunnable) and ACCEPTED by creation,
  * which then spawned a folder and failed later with a worse message.
  *
