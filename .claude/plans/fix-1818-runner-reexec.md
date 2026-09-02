@@ -26,6 +26,16 @@ bash executes lives on an immutable path nobody edits. The whole class disappear
   mutable source. Inlining those trailing lines (`$?`, thaw, exit) would
   reintroduce the very bug, because bash would read them from the mutable file
   after the child returns.
+- The parent's thaw is on a `trap '_parent_thaw' EXIT`, NOT straight-line code.
+  The parent blocks in the function for the whole child run and never reaches the
+  RUN_DIR block's `trap cleanup EXIT` far below (it exits inside the function). So
+  without a parent-scoped trap, a SIGTERM/SIGINT to the parent WHILE IT WAITED ran
+  no thaw and leaked the frozen worktree + FREEZE_ROOT, a regression the old
+  single-process path did not have (its EXIT trap covered SIGTERM). Fix:
+  `_parent_thaw` (idempotent) on EXIT, plus `INT->exit 130` / `TERM->exit 143` so
+  the EXIT trap fires on signal. The traps and `_parent_thaw` are parsed into
+  memory here, before the child run, so a mid-run edit cannot corrupt them either;
+  the child is a separate bash process and sets its own traps.
 - The child skips the cut-guard refuse check (`KOSMOS_BC_FROZEN_RUNNER`): the
   parent stays alive as a live page layer it already cleared, and parent + child
   carry different run cookies, so the child would otherwise refuse itself.
@@ -50,11 +60,12 @@ checks begin but before the summary is LOUD, not silently green.
 ## Coverage boundary (stated honestly)
 
 The sentinel fires whenever bash runs its EXIT trap: the syntax-error death (the
-actual #1818 incident — bash exits itself), other error exits, and SIGTERM
-(measured: EXIT trap fires). It does NOT fire on SIGKILL (uncatchable), which is
-how the OOM killer terminates. Option 1 already removes the edit-induced death,
-which was the incident; the residual SIGKILL/OOM case is named, not claimed
-covered.
+actual #1818 incident — bash exits itself), other error exits, and SIGTERM/SIGINT
+(the re-exec parent now converts these to an exit so its EXIT trap fires and thaws
+— see the Decision note; verified with a control that leaks the temp root when the
+trap is absent). It does NOT fire on SIGKILL (uncatchable), which is how the OOM
+killer terminates. Option 1 already removes the edit-induced death, which was the
+incident; the residual SIGKILL/OOM case is named, not claimed covered.
 
 ## Weakest premise
 
