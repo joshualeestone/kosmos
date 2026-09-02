@@ -46,6 +46,7 @@
  */
 
 const fs = require('node:fs');
+const path = require('node:path');
 
 /* ⚠️ A KNOWN RESIDUE, DOCUMENTED RATHER THAN SWEPT, because the sweep is worse.
    A process that dies between the `wx` create and the rename leaves
@@ -90,9 +91,13 @@ const fs = require('node:fs');
    reaper CAN be safe: match the anchored `<file>.kosmos-<pid>-<started>-<seq>.tmp`
    shape and delete only entries whose `pid` is not alive (`process.kill(pid, 0)`
    throwing ESRCH), or whose pid is ours but whose `started` is not this process's.
-   That is a checkable predicate rather than a guess. If it lands it belongs HERE,
-   once per process, best-effort and never fatal - not on every `secureDir` call.
-   Out of scope for this card.
+   That is a checkable predicate rather than a guess. It belongs HERE, once per
+   process, best-effort and never fatal - not on every `secureDir` call.
+
+   ✅ DONE, #1793: `reapOrphanTemps` below implements exactly that predicate and
+   `writeSecret` calls it once per target directory per process. It NEVER unlinks a
+   temp whose pid is a live foreign process, so it cannot take a concurrent writer's
+   in-flight temp - the race the glob would have created.
 
    📌 The unique name makes a leftover inert meanwhile: nothing ever asks for that
    name again, so it is a disclosure question and never a correctness one. */
@@ -107,6 +112,63 @@ const fs = require('node:fs');
 const STARTED = Date.now();
 let SEQ = 0;
 const tempPath = (target) => `${target}.kosmos-${process.pid}-${STARTED}-${++SEQ}.tmp`;
+
+/* Anchored to the WHOLE name a temp can carry: `<anything>.kosmos-<pid>-<started>-
+   <seq>.tmp`. That suffix is unique to this module, so a match is by construction
+   one of our temps and never a credential file (those have no such suffix). */
+const TEMP_RE = /\.kosmos-(\d+)-(\d+)-\d+\.tmp$/;
+
+/* Directories already swept this process, so the reap runs once per directory per
+   process rather than on every write. Cleared by nothing: a process lives once. */
+const reapedDirs = new Set();
+
+/**
+ * 🛑 #1793: REMOVE ORPHAN TEMPS A DEATH IN THE CREATE->RENAME WINDOW LEFT BEHIND.
+ *
+ * A process that dies between `openSync(tmp,'wx')` and `renameSync(tmp,file)` leaves
+ * a `<file>.kosmos-<pid>-<started>-<seq>.tmp` holding the secret, which `forget()`
+ * never removes - so a stale token outlives its own revoke, re-connect and uninstall.
+ *
+ * ✅ SAFE BECAUSE IT DELETES ONLY A TEMP IT CAN PROVE IS DEAD, never one that might
+ * still be renamed into place. A temp is reaped iff:
+ *   - its pid is OURS but its `started` is not THIS process's STARTED (a previous run
+ *     of us reusing this pid after a restart - we are the only "us", so this is
+ *     certainly stale), or
+ *   - its pid is a FOREIGN process that is provably gone (`process.kill(pid,0)` throws
+ *     ESRCH). EPERM means alive-but-not-ours, so we LEAVE it.
+ * Our own current temps (pid === process.pid && started === STARTED) are skipped, so
+ * an in-flight write of this process is never taken. A foreign LIVE pid is skipped, so
+ * a concurrent writer's in-flight temp is never taken - the exact race a glob sweep
+ * would have created. A reused-pid orphan (dead writer, its pid now a live stranger)
+ * reads as alive and is LEFT, which errs toward inert litter over a wrong delete.
+ *
+ * ⚠️ BEST-EFFORT AND NEVER FATAL. A measurement/hardening pass must not break a write:
+ * every fs call here is caught, and the caller runs whether or not this did anything.
+ */
+function reapOrphanTemps(dir) {
+  if (reapedDirs.has(dir)) return;
+  reapedDirs.add(dir);
+  let entries;
+  try { entries = fs.readdirSync(dir); } catch { return; /* dir gone / unreadable: nothing to reap */ }
+  for (const name of entries) {
+    const m = TEMP_RE.exec(name);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    const started = Number(m[2]);
+    let stale;
+    if (pid === process.pid) {
+      /* Only THIS run's temps are current; a different STARTED is a prior run of us. */
+      stale = started !== STARTED;
+    } else {
+      /* A foreign pid: stale only if provably dead. `kill(pid,0)` succeeds (alive) or
+         throws EPERM (alive, foreign owner) or ESRCH (no such process). A reused pid
+         reads alive and we leave its temp rather than risk a live writer's. */
+      stale = false;
+      try { process.kill(pid, 0); } catch (e) { stale = e && e.code === 'ESRCH'; }
+    }
+    if (stale) { try { fs.unlinkSync(path.join(dir, name)); } catch { /* best-effort */ } }
+  }
+}
 
 /**
  * Refuse to write through a symlink planted at `file`.
@@ -187,6 +249,11 @@ function secureDir(dir, mode) {
  * replace.
  */
 function writeSecret(file, data, mode) {
+  /* #1793: sweep this target's directory of orphan temps a prior death left behind,
+     once per directory per process, before we add our own. Best-effort: it never
+     throws, and it deletes only a temp it can prove is dead (see reapOrphanTemps),
+     so it cannot take a concurrent writer's in-flight temp. */
+  reapOrphanTemps(path.dirname(file));
   /* Up to three attempts at the atomic path before abandoning it. `++SEQ` gives
      a fresh name each time, so the one realistic trigger after the unique-name
      fix, an EEXIST from a PLANTED file, cannot recur on the next name. This is

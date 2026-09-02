@@ -656,3 +656,89 @@ test('#1787: a write that lands nothing is not renamed over the secret', () => {
   assert.notEqual(after, '', `an EMPTY temp was renamed over the secret (outcome: ${outcome}): a zero-byte write was treated as done`);
   assert.ok(after === 'NEW-SECRET' || after === 'PREVIOUS', 'the target holds neither the new secret nor the previous one: ' + JSON.stringify(after));
 });
+
+/* ── #1793: the orphan-temp reaper ──────────────────────────────────────────
+   A death between the `wx` create and the rename leaves `<file>.kosmos-<pid>-
+   <started>-<seq>.tmp` holding the secret, which `forget()` never removes. The
+   reaper runs from `writeSecret`, once per target directory per process, and
+   deletes only a temp it can PROVE is dead. Each arm below uses its OWN fresh
+   directory, because the reaper is once-per-dir-per-process and a shared dir
+   would let the first arm's sweep suppress the rest. */
+const childProcess = require('node:child_process');
+const reapDir = () => fs.mkdtempSync(path.join(SANDBOX, 'reap-'));
+const plantTemp = (dir, base, pid, started, seq) => {
+  const p = path.join(dir, `${base}.kosmos-${pid}-${started}-${seq}.tmp`);
+  fs.writeFileSync(p, 'STALE-SECRET', { mode: 0o600 });
+  return p;
+};
+
+test('#1793: a temp from OUR pid but a PRIOR run (different started) is reaped', () => {
+  /* Deterministic: our own pid with a `started` of 1 cannot be this run, whose
+     STARTED is Date.now(). We are the only "us", so it is certainly stale.
+     Revert the `reapOrphanTemps(...)` call in writeSecret and this goes red. */
+  const dir = reapDir();
+  const orphan = plantTemp(dir, 'sender-token', process.pid, 1, 7);
+  assert.ok(fs.existsSync(orphan), 'the plant did not take, so this arm proves nothing');
+  securewrite.writeSecret(path.join(dir, 'sender-token'), 'NEW', 0o600);
+  assert.equal(fs.existsSync(orphan), false,
+    'a temp left by a PRIOR run of this process outlived a later write, so a revoked secret can persist');
+});
+
+test('#1793: a temp from a DEAD foreign pid is reaped', () => {
+  /* A short-lived child, awaited to completion, gives a pid that is now gone.
+     `process.kill(pid,0)` throws ESRCH for it, so the reaper takes its orphan. */
+  const dead = childProcess.spawnSync(process.execPath, ['-e', '0']).pid;
+  let isDead = false;
+  try { process.kill(dead, 0); } catch (e) { isDead = e.code === 'ESRCH'; }
+  assert.ok(isDead, `pid ${dead} was reused before the assertion, environment too busy; re-run`);
+  const dir = reapDir();
+  const orphan = plantTemp(dir, 'cf-token', dead, Date.now() - 5000, 1);
+  assert.ok(fs.existsSync(orphan), 'the plant did not take');
+  securewrite.writeSecret(path.join(dir, 'cf-token'), 'NEW', 0o600);
+  assert.equal(fs.existsSync(orphan), false, 'a dead process\'s orphan temp was not reaped');
+});
+
+test('#1793 SAFETY: a temp from a LIVE foreign pid is LEFT, never taken', () => {
+  /* 🛑 THE RACE THE GLOB WOULD HAVE CREATED. pid 1 (launchd) is always alive and
+     foreign; `process.kill(1,0)` throws EPERM (alive, not ours), which is NOT
+     ESRCH, so the reaper must leave it. If it took this it could take a
+     concurrent writer's in-flight temp between that writer's create and rename.
+     This arm stays green when the fix is reverted (nothing is reaped either way);
+     it reddens if the predicate is ever widened to delete a live pid's temp. */
+  const dir = reapDir();
+  const live = plantTemp(dir, 'gh-token', 1, Date.now() - 5000, 1);
+  assert.ok(fs.existsSync(live), 'the plant did not take');
+  securewrite.writeSecret(path.join(dir, 'gh-token'), 'NEW', 0o600);
+  assert.equal(fs.existsSync(live), true,
+    'a LIVE foreign process\'s in-flight temp was deleted: the reaper can take a concurrent writer\'s temp');
+});
+
+test('#1793 SAFETY: a real credential file (no temp suffix) is NEVER touched', () => {
+  /* The regex is anchored to the `.kosmos-<pid>-<started>-<seq>.tmp` suffix,
+     which a credential file cannot carry. A dead-pid orphan beside a sibling
+     credential must take the orphan and leave the credential. Widen the regex to
+     match a bare name and this reddens. */
+  const dead = childProcess.spawnSync(process.execPath, ['-e', '0']).pid;
+  let isDead = false;
+  try { process.kill(dead, 0); } catch (e) { isDead = e.code === 'ESRCH'; }
+  assert.ok(isDead, `pid ${dead} was reused; re-run`);
+  const dir = reapDir();
+  const sibling = path.join(dir, 'other-provider-token');
+  fs.writeFileSync(sibling, 'A-REAL-SECRET', { mode: 0o600 });
+  const orphan = plantTemp(dir, 'gh-token', dead, Date.now() - 5000, 1);
+  securewrite.writeSecret(path.join(dir, 'gh-token'), 'NEW', 0o600);
+  assert.equal(fs.existsSync(orphan), false, 'the dead orphan was not reaped');
+  assert.equal(fs.existsSync(sibling), true, 'a real credential file with no temp suffix was deleted by the reaper');
+  assert.equal(fs.readFileSync(sibling, 'utf8'), 'A-REAL-SECRET', 'the sibling credential was altered');
+});
+
+test('#1793: the reaper does not break the write it runs before', () => {
+  /* It runs at the top of writeSecret, before this call\'s own temp exists, and
+     the write must still land its secret whether or not anything was reaped. */
+  const dir = reapDir();
+  plantTemp(dir, 'sender-token', process.pid, 1, 3);
+  const target = path.join(dir, 'sender-token');
+  securewrite.writeSecret(target, 'THE-NEW-SECRET', 0o600);
+  assert.equal(fs.readFileSync(target, 'utf8'), 'THE-NEW-SECRET', 'the write did not land after the reap');
+  assert.equal(fs.statSync(target).mode & 0o777, 0o600, 'the written secret is not private');
+});
