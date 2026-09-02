@@ -35,7 +35,7 @@ const PATTERNS = [
   /book\\?[-.]?io/i,   // book-io, book.io, bookio, book\.io
   /booktoken/i,
   /stuff\\?[-.]?io/i,  // stuff.io, stuff-io, stuffio, stuff\.io
-  /\$stuff/i,          // $STUFF
+  /\$stuff/i,          // $STUFF (substring on purpose: also catches $STUFF_BALANCE etc.; a word boundary would miss those, and the rare $stuffed false positive is the safer trade)
 ];
 
 /* Files whose PURPOSE is to name the forbidden patterns, so they are exempt.
@@ -96,6 +96,7 @@ test('#1881: the matcher can fail - it matches every forbidden spelling and reje
   for (const ok of [
     'agent@example.com', 'other@example.com', 'recorded@example.com',
     'a notebook entry', 'the textbook index', 'this book is on the shelf', 'kosmos',
+    'facebook', 'audiobook', 'bookkeeping', 'stuffed animals', 'book io with a space',
   ]) {
     assert.ok(!PATTERNS.some((re) => re.test(ok)), `matcher false-fired on neutral text: ${ok}`);
   }
@@ -110,8 +111,12 @@ test('#1881: no allowlisted path has been renamed out from under the guard', () 
 
 test('#1881: no Book.io or Stuff.io reference anywhere in the tracked tree', () => {
   const files = trackedFiles();
-  assert.ok(files.length > 100,
-    `git ls-files returned only ${files.length} files; the enumeration looks broken and every clean result below would be a false pass`);
+  /* The tree tracks ~1400 files; a floor near that magnitude catches a PARTIAL
+     enumeration (a subset returned), not only an empty one, so a clean result
+     below cannot be a false pass from a half-read list. Bump this deliberately if
+     the repo genuinely shrinks past it. */
+  assert.ok(files.length > 1000,
+    `git ls-files returned only ${files.length} files; the enumeration looks broken or partial and every clean result below would be a false pass`);
   const offenders = [];
   for (const rel of files) {
     if (ALLOWLIST.has(rel)) continue;

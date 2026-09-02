@@ -98,3 +98,21 @@ node tests.
   the global file is retargeted, not the global file itself.
 - Bare `Book` / `Stuff` / `Ebooks` as English words are NOT guarded (too generic,
   false-positive risk); only the explicit spellings above.
+
+## Challenge-loop (converged, 2 clean blind passes)
+
+Both blind passes returned zero BLOCKER/WARNING/CONVENTION - the guard was
+verified non-vacuous and correct in both directions (matches every spelling
+including the escaped form, rejects neutral English), armed by the `*.test.js`
+glob, and the fixture swaps confirmed to preserve same-vs-different account
+relationships (291/291 across the four affected test files). NITs applied:
+- neutralized the link-preview description ("Ebooks you own." was Book.io's
+  tagline; not a guarded spelling, done for Josh's "any way, shape, or form").
+- raised the `git ls-files` floor from >100 to >1000 (near the ~1400 real count)
+  so a PARTIAL enumeration also fails, not only an empty one.
+- widened the negative-control list (facebook, audiobook, bookkeeping, ...) to
+  self-document the no-false-fire guarantee.
+NIT deferred with reasoning: `/\$stuff/i` matches `$stuff` as a substring (so a
+rare `$stuffed` would trip), kept deliberately because it also catches real refs
+like `$STUFF_BALANCE` that a word boundary would miss; the tree is clean today.
+The line-based scan's wrap-span limitation is documented in the guard itself.
