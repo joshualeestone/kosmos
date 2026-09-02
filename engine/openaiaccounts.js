@@ -550,10 +550,14 @@ const OPENAI_CHAT_FAMILIES = [
   { rank: 7, prefix: 'codex', why: 'A smaller, faster model tuned for code tasks.' },
 ];
 // Non-chat variants that share a chat family's prefix but codex cannot drive as
-// an agent. Substring match, lowercased. 'search' also catches deep-research
-// models (o3-deep-research etc.) on purpose -- they are not standard
-// chat-completion models a runner drives. 'instruct' catches the legacy
-// completions models (gpt-3.5-turbo-instruct), which are not chat either.
+// an agent. Substring match, lowercased. 'search' also drops the web-search
+// preview models (gpt-4o-search-preview, gpt-4o-mini-search-preview) and the
+// deep-research models (o3-deep-research etc.) on purpose -- they are
+// specialised/constrained, not standard chat-completion models a runner drives.
+// 'instruct' catches the legacy completions models (gpt-3.5-turbo-instruct),
+// which are not chat either. This is the deliberate under-offer side (see the
+// plan's weakest premise): missing one of these is invisible; offering a model
+// that fails to start is the failure this card exists to prevent.
 const OPENAI_NON_CHAT = ['audio', 'realtime', 'transcribe', 'tts', 'search', 'image', 'embedding', 'moderation', 'whisper', 'dall-e', 'instruct'];
 
 /** The chat family an id belongs to, or null (not a recognised chat model, or a

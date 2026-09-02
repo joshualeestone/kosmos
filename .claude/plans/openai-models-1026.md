@@ -30,11 +30,15 @@ every key check and discarded. The OpenAI rows must come from that.
    `arg` a runner launches with is always an id OpenAI just told us the key has.
 2. **Filter is two-sided and the safety order is deliberate** (`chatModelsFromList`):
    - an ALLOWLIST of chat families by id prefix (gpt-5, gpt-4.1, gpt-4o, chatgpt,
-     o1, o3, o4). A new chat family with an unknown prefix is missed until the list
-     learns it - an UNDER-offer, invisible and safe.
+     o1, o3, o4, plus the bare `gpt-4` catch-all and `codex` — the latter two
+     added in iteration 1 so legacy gpt-4/gpt-4-turbo and the codex runner's own
+     codex-mini are offered). A new chat family with an unknown prefix is missed
+     until the list learns it - an UNDER-offer, invisible and safe.
    - a DENYLIST of non-chat variants within those families (audio, realtime,
-     transcribe, tts, search, image, embedding, moderation, whisper, dall-e),
-     because `gpt-4o-audio-preview` etc. are gpt-4o-* by prefix but not chat models.
+     transcribe, tts, search, image, embedding, moderation, whisper, dall-e,
+     instruct), because `gpt-4o-audio-preview` etc. are gpt-4o-* by prefix but
+     not chat models, and `gpt-3.5-turbo-instruct` is a completions model.
+     `search` also drops the web-search-preview and deep-research variants.
    The card explicitly calls filtering "part of the work"; this is it.
 3. **A curated chat menu, not the account's entire `/v1/models`.** That endpoint
    returns embeddings/tts/image/etc.; showing all of it is the fail-to-start failure

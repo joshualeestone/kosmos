@@ -3398,24 +3398,6 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /**
-   * Forget an OpenAI account (#1372).
-   *
-   * 🛑 THE WAY BACK OUT THAT DID NOT EXIST. A person could add up to 500 and
-   * remove none, and the only escape was deleting a dot-directory in Terminal.
-   * Josh on that shape: "a total dead stop in the water."
-   *
-   * ⭐ THIS ROUTE'S ONE JOB BEYOND CALLING THE ENGINE IS ANSWERING "WHICH
-   * AGENTS ARE ON IT". `openaiaccounts` cannot ask, because it would have to
-   * require `create.js`, which requires it back. The route knows both, so the
-   * coupling lives here rather than as a cycle.
-   *
-   * 📌 An agent counts as on this account when its launch file names that home,
-   * OR when it runs on codex with no home recorded and this IS the default
-   * home, because that is where creation put its trust entry. The second half
-   * is the one a configDir-only check would miss, and created agents are the
-   * common case.
-   */
   /* #1026: the chat models a specific OpenAI account can run, for the create
      screen's picker. Per-account and async (a live /v1/models fetch with that
      account's key), so it cannot ride the static, account-agnostic /api/roles
@@ -3443,6 +3425,24 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /**
+   * Forget an OpenAI account (#1372).
+   *
+   * 🛑 THE WAY BACK OUT THAT DID NOT EXIST. A person could add up to 500 and
+   * remove none, and the only escape was deleting a dot-directory in Terminal.
+   * Josh on that shape: "a total dead stop in the water."
+   *
+   * ⭐ THIS ROUTE'S ONE JOB BEYOND CALLING THE ENGINE IS ANSWERING "WHICH
+   * AGENTS ARE ON IT". `openaiaccounts` cannot ask, because it would have to
+   * require `create.js`, which requires it back. The route knows both, so the
+   * coupling lives here rather than as a cycle.
+   *
+   * 📌 An agent counts as on this account when its launch file names that home,
+   * OR when it runs on codex with no home recorded and this IS the default
+   * home, because that is where creation put its trust entry. The second half
+   * is the one a configDir-only check would miss, and created agents are the
+   * common case.
+   */
   if (pathname === '/api/accounts/openai' && req.method === 'DELETE') {
     readBody(req)
       .then((raw) => {

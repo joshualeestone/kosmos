@@ -537,6 +537,19 @@ test('#1026 the runner\'s own codex-mini and legacy gpt-4 chat models are recogn
   assert.equal(args[0], 'gpt-4o', 'the current gpt-4o outranks the legacy gpt-4 family');
 });
 
+test('#1026 the default is the most-capable NON-LITE model even when a lite model sorts first', () => {
+  // gpt-4o-mini (family gpt-4o, rank 3) sorts ahead of gpt-4-turbo (bare gpt-4,
+  // rank 6), so out[0] is the LITE one. The default must still be the non-lite
+  // gpt-4-turbo. This is the arm that reverting `find(!isLite) || out[0]` to a
+  // bare `out[0]` breaks -- without this fixture that branch is untested,
+  // because gpt-5 already sorts ahead of gpt-5-mini in the other cases.
+  const rows = openai.chatModelsFromList([{ id: 'gpt-4o-mini' }, { id: 'gpt-4-turbo' }]);
+  assert.equal(rows[0].arg, 'gpt-4o-mini', 'the lite model sorts first');
+  const def = rows.filter((r) => r.default === true);
+  assert.equal(def.length, 1, 'exactly one default');
+  assert.equal(def[0].arg, 'gpt-4-turbo', 'the default skips the lite first row for the non-lite one');
+});
+
 test('#1026 CONTROL: a list of ONLY non-chat models yields an empty menu (the filter is not vacuously passing everything)', () => {
   const data = [
     { id: 'text-embedding-3-small' }, { id: 'tts-1' }, { id: 'dall-e-3' },
