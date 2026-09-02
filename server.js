@@ -8177,8 +8177,14 @@ if (require.main === module) {
      card is about the timing of. Guarded, matching this whole file's own
      "not fatal" posture: if even $HOME is somehow unreachable, the board
      still attempts to start with whatever cwd it already had -- no worse
-     than before this fix, for that one pathological case. */
-  try { process.chdir(os.homedir()); } catch { /* keep whatever cwd we had */ }
+     than before this fix, for that one pathological case.
+     Via create.homeDir() (AGENT_WORKFORCE_HOME || os.homedir(), #1780), the
+     one home resolver the rest of the sandbox already honours, rather than a
+     second bare os.homedir() derivation (the anti-pattern server.js:477-486
+     names). In prod AGENT_WORKFORCE_HOME is unset, so this stays os.homedir()
+     -- byte-for-byte the same $HOME as before; a home-stubbed test can now
+     assert the board landed in its sandbox instead of the real home. */
+  try { process.chdir(create.homeDir()); } catch { /* keep whatever cwd we had */ }
   try {
     const put = create.installSupervisor();
     if (!put.ok) {

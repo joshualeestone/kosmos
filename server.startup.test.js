@@ -18,11 +18,21 @@ const { execFileSync } = require('node:child_process');
 test('#923: the board process chdirs to $HOME at startup, so a directory it was launched from can be removed without stranding its cwd', async () => {
   const launchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cwd-'));
   const dataDir = path.join(launchDir, 'data');
+  // The chdir target, stubbed to a sandbox so this test asserts the board landed
+  // where create.homeDir() resolves rather than only against the real $HOME.
+  // 🛑 NOT under launchDir. This test REMOVES launchDir to prove the cwd survives; a
+  // chdir target under it would be removed too and #923's own property would break.
+  // (The other sandbox roots ARE under launchDir on purpose; HOME must not be.) lsof
+  // reports the RESOLVED path, so realpath it for the assertion below.
+  const homeSandbox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-home-')));
   const child = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
     cwd: launchDir,
     env: {
       ...process.env,
       PORT: '0',
+      // #923: the same seam server.js's startup chdir now resolves through
+      // (create.homeDir() = AGENT_WORKFORCE_HOME || os.homedir()). In prod it is unset.
+      AGENT_WORKFORCE_HOME: homeSandbox,
       AGENT_WORKFORCE_DATA: dataDir,
       AGENT_WORKFORCE_PROJECTS: path.join(launchDir, 'projects'),
       AGENT_WORKFORCE_WORKERS: path.join(launchDir, 'workers'),
@@ -51,8 +61,8 @@ test('#923: the board process chdirs to $HOME at startup, so a directory it was 
     const cwdLine = lsofOut.split('\n').find((l) => /\bcwd\b/.test(l));
     assert.ok(cwdLine, 'lsof reported no cwd entry for the child process: ' + lsofOut);
     assert.ok(
-      cwdLine.includes(os.homedir()),
-      'the board process\'s cwd is not $HOME (' + os.homedir() + '): ' + cwdLine
+      cwdLine.includes(homeSandbox),
+      'the board process\'s cwd is not the resolved home (' + homeSandbox + '), so it did not chdir through create.homeDir(): ' + cwdLine
     );
     assert.ok(
       !cwdLine.includes(launchDir),
@@ -62,6 +72,7 @@ test('#923: the board process chdirs to $HOME at startup, so a directory it was 
     child.kill('SIGKILL');
     await new Promise((r) => { child.on('exit', r); setTimeout(r, 2000); });
     fs.rmSync(launchDir, { recursive: true, force: true });
+    fs.rmSync(homeSandbox, { recursive: true, force: true });
   }
 });
 
