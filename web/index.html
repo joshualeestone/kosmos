@@ -4565,7 +4565,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    step carry `--field-fill` and `0.5px solid var(--border-strong)`. It LOOKED
    right only because `#panel-create` inherits the root `--field-fill`, which is
    the same token by coincidence -- move this textarea into any elevated
-   container and it is the white-on-white defect this branch is about. */
+   container and it is the white-on-white defect this branch is about.
+   (Since #1800 this rule ALSO dresses #import-text; the note above is history.) */
 /* #1800: the import paste box (#1652) is the SAME control on the same flow, a
    textarea a person types or pastes agent text into, and it shipped with width
    only: no fill, no border, no radius. Inside `.rolepick` (an elevated white

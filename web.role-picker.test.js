@@ -79,9 +79,18 @@ test('the fourth option imports an agent from a file: its own panel, the shared 
   // textareas on this flow cannot drift apart; the browser gate measures the result,
   // this pins the selector so the fast suite sees a split too.
   assert.match(PAGE, /#create-instr,\s*#import-text\s*\{/, 'import-text shares create-instr\'s field rule (#1800)');
-  // ...and no standalone rule competes: a later `#import-text {` at equal specificity
-  // wins the cascade and splits the pair while the shared selector still matches.
-  assert.doesNotMatch(PAGE, /^\s*#import-text\s*\{/m, 'no standalone #import-text rule (#1800)');
+  // ...and NO other rule addresses it, in any shape. A bare `^#import-text {` guard was
+  // probed against five planted competitors and missed four (`.rolepick #import-text`,
+  // `#importpick #import-text`, `textarea#import-text`, `#x, #import-text`), which are
+  // exactly the ones that win the cascade. So: collect every selector text that names
+  // the id and require the set to be the shared pair and nothing else.
+  const importSelectors = [...PAGE.matchAll(/([^{}]*#import-text[^{}]*)\{/g)]
+    .map((m) => m[1].trim().replace(/^[\s\S]*\*\/\s*/, '').replace(/\s+/g, ' '))
+    .filter((sel) => sel.includes('#import-text'))   // a COMMENT naming the id is not a rule
+    .sort();
+  assert.deepStrictEqual(importSelectors,
+    ['#create-instr, #import-text', '#create-instr:focus-visible, #import-text:focus-visible'],
+    'the only rules naming #import-text are the shared pair (#1800)');
   assert.match(body, /<input type="file" id="import-file"[^>]*hidden>/);
   assert.match(body, /<button class="btn uprime" type="button" id="import-load">/);
   // Gated exactly like `own` (both use the own role key), so it never offers a
