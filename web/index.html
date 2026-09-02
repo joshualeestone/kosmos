@@ -18433,10 +18433,17 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
 /* kosmos#1918: wire the agent page's "Sign in again" affordance ONCE (paintDetail
    only toggles its visibility). It opens Settings -> Accounts, the existing re-auth
    surface, so a person looking at an agent whose sign-in is broken has an in-product
-   path to the fix instead of the CLI's unreachable "/login". */
+   path to the fix instead of the CLI's unreachable "/login".
+   🛑 showTab('settings') FIRST, then the section. The button lives on the DETAIL
+   panel, and the top-level panels are mutually exclusive, so settingsGo/settingsOpen
+   (which only switch sections WITHIN the settings panel) would toggle an off-screen
+   section and the user, still on the detail page, would see nothing happen: a dead
+   control, the exact wording-only dead end #1918 forbids. showTab('settings') runs
+   paintSettings (which paints Accounts), so the landed surface is populated. This
+   mirrors the st-agents tile precedent (showTab then settingsOpen). */
 (() => {
   const rb = document.getElementById('d-reauth');
-  if (rb) rb.addEventListener('click', () => settingsGo('accounts'));
+  if (rb) rb.addEventListener('click', () => { showTab('settings'); settingsOpen('accounts', { focus: false }); });
 })();
 /* Settings has the same shape: seven sections, one on screen, the nav says
    which. No arrival work here (nothing in Settings measures layout or

@@ -78,14 +78,23 @@ test('the toggle SHOWS the button on auth_failed and HIDES it otherwise (run, bo
   assert.equal(b3.hidden, true, 'the re-auth button is shown for a working agent');
 });
 
-test('the button is wired to open the existing re-auth surface (run the click)', () => {
-  const m = SCRIPT.match(/\(\(\) => \{\s*const rb = document\.getElementById\('d-reauth'\);\s*if \(rb\) rb\.addEventListener\('click', \(\) => settingsGo\('accounts'\)\);\s*\}\)\(\);/);
+test('the button is wired to open the re-auth surface, PANEL first (run the click)', () => {
+  /* 🛑 THE PANEL, NOT JUST THE SECTION. The button lives on the detail panel, and the
+     top-level panels are mutually exclusive: opening the accounts SECTION without first
+     switching to the settings PANEL is a dead control (the #1918 wording-only dead end).
+     So this asserts showTab('settings') is called BEFORE settingsOpen('accounts'), in
+     order. An earlier version of this test stubbed only settingsGo and asserted the
+     section open; it stayed green while the button did nothing, because it pinned the
+     callee instead of the user-visible navigation. Observing showTab is what makes it
+     red-capable for the real reachability contract. */
+  const m = SCRIPT.match(/\(\(\) => \{\s*const rb = document\.getElementById\('d-reauth'\);\s*if \(rb\) rb\.addEventListener\('click', \(\) => \{ showTab\('settings'\); settingsOpen\('accounts', \{ focus: false \}\); \}\);\s*\}\)\(\);/);
   assert.ok(m, 'the one-time wiring for #d-reauth moved or changed shape; restate this pin');
   const btn = fakeButton();
   const calls = [];
-  const wire = new Function('document', 'settingsGo', m[0]);
-  wire(stubDoc(btn), (section) => calls.push(section));
+  const wire = new Function('document', 'showTab', 'settingsOpen', m[0]);
+  wire(stubDoc(btn), (t) => calls.push(['showTab', t]), (sec) => calls.push(['settingsOpen', sec]));
   assert.ok(typeof btn._click === 'function', 'nothing listens to the re-auth button');
   btn._click();
-  assert.deepEqual(calls, ['accounts'], 'the click does not open Settings -> Accounts, the re-auth surface');
+  assert.deepEqual(calls, [['showTab', 'settings'], ['settingsOpen', 'accounts']],
+    'the click does not switch to the settings PANEL before opening the accounts section (dead control)');
 });
