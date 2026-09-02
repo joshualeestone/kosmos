@@ -20,8 +20,10 @@
  * `git grep -n 'function serveRelease'`. This comment's whole job is counting
  * copies and it has been wrong by 2x.
  *
- * 🔑 WHICH IS WHY THIS TAKES A SINGLE NAMED-OPTIONS ARGUMENT. Three of the four
- * disagree about what the SECOND positional parameter means, so a call copied
+ * 🔑 WHICH IS WHY THIS TAKES A SINGLE NAMED-OPTIONS ARGUMENT. The four
+ * disagree about what the SECOND positional parameter means -- three take an
+ * options object and no two of those three accept the same keys, while the
+ * fourth takes a raw Buffer -- so a call copied
  * between sibling files would be accepted and silently wrong: an options object
  * arriving where `platformKey` was expected produced a manifest keyed
  * `"[object Object]"`, and the flow then failed with `the download service has

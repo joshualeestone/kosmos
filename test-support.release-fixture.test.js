@@ -19,7 +19,7 @@
  * exists mostly for the refusal:
  *
  * 🛑 IT LIVES AT THE REPO ROOT, NOT BESIDE THE HELPER, AND THAT IS NOT A STYLE
- * CHOICE. `tools/run-tests.sh:103` is `node --test engine/*.test.js *.test.js`.
+ * CHOICE. `tools/run-tests.sh:103` is `node --test engine/*.test.js *.test.js "$@"`.
  * It globs engine/ and the root and NOTHING ELSE, so a test placed in
  * test-support/ is never run. It was placed there first and the suite total did
  * not move, which is the only reason it was noticed: three private
@@ -73,7 +73,7 @@ test('a sibling call shape is REFUSED, not silently accepted', async (t) => {
     'a third positional was accepted and dropped; that is install-997 shape');
 });
 
-test('a KNOWN option of the wrong TYPE or FORMAT is refused, not silently dropped', async (t) => {
+test('a KNOWN option is checked for TYPE and FORMAT, refusing what download() would refuse', async (t) => {
   await assert.rejects(
     async () => serveRelease(t, { platformKey: 'darwin-arm64', checksum: Buffer.from('ab') }),
     /checksum.*64 hex/,
@@ -137,8 +137,8 @@ test('a version download() would reject is refused HERE, with a fixture-shaped m
  * ⭐ THE `= {}` DEFAULT FILLS ONLY `undefined`, SO AN EXPLICIT `null` REACHES
  * THE DESTRUCTURE. Without the guard that is a raw "Cannot destructure property
  * 'platformKey' of 'opts' as it is null", which names a variable inside the
- * helper rather than the call that was wrong. Nothing exercised this until
- * in the file whose own docblock says it exists mostly for the refusal.
+ * helper rather than the call that was wrong, and nothing exercised it -- in the
+ * file whose own docblock says it exists mostly for the refusal.
  */
 test('a null options object is refused in this file\'s own voice, not by the destructure', async (t) => {
   await assert.rejects(
@@ -179,7 +179,7 @@ test('a null options object is refused in this file\'s own voice, not by the des
 test('a t without after() rejects instead of hanging the file', async () => {
   await assert.rejects(
     async () => serveRelease({}, { platformKey: 'darwin-arm64' }),
-    /after/,
+    /t\.after is not a function/,
     'a non-test-context t did not reject; without the catch this file hangs ~120s instead');
 });
 

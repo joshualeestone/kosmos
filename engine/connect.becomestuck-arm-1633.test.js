@@ -18,26 +18,17 @@
  * `accessSync(claudeBinPath(), X_OK)` is what production did BEFORE #1592 --
  * it succeeds on a directory, which is the whole point of the third arm below.
  *
- * ⚠️ THE GAP IS NARROWER THAN "NOTHING DRIVES becomeStuck", AND SAYING SO
- * MATTERS. `engine/connect.test.js` drives real flows into the stuck phase in
- * roughly a dozen places (17 `PHASE.STUCK` references), and
- * `engine/connect.nobinary-1580.test.js` in a handful more (4 stuck references
- * in total, not the same order of magnitude). What none of them does is assert
- * `canRunClaude` FROM A DRIVEN FLOW. Measured: three other test files reference
- * the field, and they split two ways.
+ * ⚠️ THE GAP IS NARROWER THAN "NOTHING DRIVES becomeStuck". Plenty of tests
+ * drive real flows into the stuck phase. Three other files reference
+ * `canRunClaude`, and every one of them either builds the state object by hand
+ * or matches `connect.js` as source text.
  *
- *   server.connect.test.js                  builds the state object by hand
- *   engine.publicview-canrun-1595.test.js   builds the state object by hand
- *   engine.runnable-not-directory.test.js   asserts it as SOURCE TEXT, reading
- *                                           connect.js off disk and matching the
- *                                           writeState line (its :1322)
- *
- * 🛑 THE CLAIM IS "NONE ASSERTS IT DOWNSTREAM OF A `start()`", AND THE WIDER
- * ONE IS FALSE: `server.connect.test.js` DOES call `connect.start()` (its :251
- * and :749), just never on a path reaching `canRunClaude`, whose three sites
- * there are a source grep (:797) and two hand-built harness states (:1146,
- * :1170). Driving `start()` and reading the settled STUCK record is what this
- * file adds, and the only thing it claims.
+ * 🛑 SO THE CLAIM IS "NONE ASSERTS IT DOWNSTREAM OF A `start()`", NOT THE WIDER
+ * "none drives `start()`", WHICH IS FALSE -- `server.connect.test.js` does call
+ * it, just never on a path that reaches this field. Driving `start()` and
+ * reading the settled STUCK record is what this file adds, and the only thing
+ * it claims. The per-file counts are in the plan, with the commands that
+ * produce them; they have drifted repeatedly and do not belong in two places.
  *
  * 🛑 WHY THIS DRIVES `start()` RATHER THAN CALLING `becomeStuck` DIRECTLY.
  * The card offered two shapes: export `becomeStuck` with a `setDriverForTests`,
@@ -57,30 +48,19 @@
  * the real `download()` -- and `download()` uses plain node http/https and sits OUTSIDE the
  * injected runner seam, so a runner stub does not touch it. (The fixture below
  * is served over plain `http://127.0.0.1`, which is why naming `https.get`
- * specifically would have been wrong.) Measured before the fixture was added: each arm took ~5.3s against the live
- * service. Pointing the base at a DEAD PORT gave ~65ms, and that number is an
- * ISOLATION CONTROL rather than this file's cost: it proves the 5.3s was
- * network, not that the disk arms are that fast. With the fixture actually
- * serving, the shipped cost is ~70ms per arm. Both DISK arms AS THE FILE THEN
- * STOOD (it had two; it now ships three) passed in all three configurations
- * AT THE TIME, so the green never depended on the fixture and could not have
- * revealed this. That is no longer true of the shipped file: the `because`
- * assertion added afterwards reddens the dead-port configuration, because a
- * download failure carries a different message. Stated with the qualifier so
- * this does not read as contradicting the note on that assertion below.
- * `engine/connect.nobinary-1580.test.js` carries the same warning for the same
- * reason.
+ * specifically would be wrong.) Without the fixture each arm costs ~5.3s of real
+ * network; with it, ~70ms. `engine/connect.nobinary-1580.test.js` carries the
+ * same warning for the same reason. Benchmarks and the isolation-control
+ * reasoning are in the plan, not repeated here.
  *
  * ⚠️ THE INJECTED RUNNER MUST RETURN A FAILURE, NEVER THROW, AND THE REASON IS
  * NOT THE ONE IT LOOKS LIKE. `becomeStuck` calls the runner on its way out via
  * `killSession()`, but that call is fire-and-forget through two async frames, so
  * a synchronous throw becomes a REJECTED PROMISE rather than an exception that
- * unwinds the function. Measured: with a throwing runner the record is still
- * written (`phase=stuck canRunClaude=false`); what reddens the file is the
- * unhandled rejection, reported at process level with a stack through
- * `becomeStuck -> killSession -> tmux -> run` that reads as though the flow never
- * arrived. `run()` resolving `{ok:false}` and never rejecting is the contract the
- * rest of the file already relies on.
+ * unwinds the function. The record is still written; what reddens the file is an
+ * unhandled rejection whose stack reads as though the flow never arrived, which
+ * sends you hunting in the wrong place. `run()` resolving `{ok:false}` and never
+ * rejecting is the contract the rest of the file already relies on.
  */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -226,11 +206,19 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
  * `runners.isRunnable()` and does a `statSync().isFile()` first. #1592 made
  * that change and `engine.runnable-not-directory.test.js` guards it AT THE UNIT.
  *
- * 🔑 THIS ARM IS NOT THAT TEST AND DOES NOT DUPLICATE IT. That one calls the
- * helper directly; this one drives the REAL `start()` to a REAL failure and
- * reads the value out of the STUCK record the screen is served from. The unit
- * guard would stay green if `becomeStuck` stopped calling the helper. This one
- * would not.
+ * 🔑 THIS FILE IS NOT THAT TEST AND DOES NOT DUPLICATE IT. ⭐ THE ONE MUTATION
+ * THAT SEPARATES THEM: cut the wiring from the install failure to `becomeStuck`
+ * (`connect.js:1708`) and EVERY other test that touches this field stays green,
+ * because they all build the state object by hand or grep source text. These
+ * arms drive the real `start()`, so they are the only thing that notices the
+ * screen would never be served the field at all.
+ *
+ * ⚠️ AND IT IS NOT A SUBSET EITHER WAY. The unit guard pins the EXACT source
+ * text of the writeState line, so a refactor changing NO behaviour reddens it
+ * while these correctly stay green. It asserts THE SHAPE OF A LINE; these assert
+ * THE VALUE THAT REACHES THE SCREEN.
+ *
+ * The full four-mutation table, run against all four files, is in the plan.
  *
  * 🛑 DO NOT "FIX" THIS ARM BACK TO ASSERTING `true`. An earlier version did,
  * as a deliberate characterisation: a bare `accessSync(X_OK)` DOES succeed on a
@@ -238,19 +226,8 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
  * `statSync().isFile()` in front of it, and `false` is now correct. A card
  * raised against the old behaviour (kosmos#1859) was closed as already-fixed.
  *
- * ⚠️ The measured timeline, because it is the reusable part and a loose version
- * of it is easy to write:
- *
- *   2026-08-30 18:44  #1592 fix AUTHORED (fed47fc5)
- *   2026-08-31 09:29  this arm written        <- fix existed, but NOT on main
- *   2026-09-01 02:38  #1592 reaches origin/main
- *   2026-09-02 10:46  kosmos#1859 filed       <- fix on main for ~32 hours
- *   2026-09-02 11:07  closed as already-fixed
- *
- * ⇒ Writing the arm was defensible; a fetch that morning would not have shown
- * the fix. FILING THE CARD A DAY LATER WAS THE DEFECT, and by then one `git
- * fetch` would have settled it. Being behind is harmless; being behind ON THE
- * FILE YOU ARE MAKING A CLAIM ABOUT is not.
+ * ⇒ Being behind is harmless; being behind ON THE FILE YOU ARE MAKING A CLAIM
+ * ABOUT is not. The dated timeline is in the plan.
  */
 test('#1633: a DIRECTORY at the bin path is not runnable, via the driven flow', async (t) => {
   const st = await stuckWith(t, { binaryExists: false, directoryInstead: true });
@@ -284,12 +261,11 @@ test('#1633: a DIRECTORY at the bin path is not runnable, via the driven flow', 
  * `accessSync(X_OK)` succeeds on a directory and would satisfy both of the
  * others.
  *
- * All three are proven red by mutation, and the transcript is in the plan file
- * (`.claude/plans/becomestuck-arm-1633.md`), not "the card" -- an earlier
- * version of this line said the card and described only two arms.
+ * All three are proven red by mutation; the transcript is in the plan file
+ * (`.claude/plans/becomestuck-arm-1633.md`).
  *
  * 📌 The FALSE arm is the weaker half on its own and should not be read as
  * load-bearing alone: `publicView` writes `canRunClaude: s.canRunClaude || false`
- * (`publicView`), so it cannot distinguish "computed false" from "never written
- * at all". The TRUE arm is what rules that out.
+ * (connect.js:578), so it cannot distinguish "computed false" from "never
+ * written at all". The TRUE arm is what rules that out.
  */

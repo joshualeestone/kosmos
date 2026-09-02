@@ -42,7 +42,7 @@ The argument against (1) is not fastidiousness. `becomeStuck` early-returns on `
 
 ## What is built
 
-`engine/connect.becomestuck-arm-1633.test.js`. **Three** arms whose sole variable is what sits at the bin path, which is the exact question `becomeStuck` asks the disk:
+`engine/connect.becomestuck-arm-1633.test.js`. **Three** arms whose only *behavioural* variable is what sits at the bin path, which is the exact question `becomeStuck` asks the disk. (The bin path itself also differs per arm, for isolation; the test file records why at the call site.)
 
 ```
 binary PRESENT   ->  phase=stuck  canRunClaude=true
@@ -59,7 +59,7 @@ DIRECTORY there  ->  phase=stuck  canRunClaude=false
 ```
 baseline                            3 arms pass
 force canRunClaude = false          PRESENT goes red
-force canRunClaude = true           ABSENT goes red
+force canRunClaude = true           ABSENT and DIRECTORY both go red
 drop isFile() gate (runners.js)     DIRECTORY goes red, other two STAY GREEN
 ```
 
@@ -91,12 +91,14 @@ It originally asserted, as a deliberate characterisation, that a **directory** a
 🛑 **THE DATE IN THIS PARAGRAPH WAS BACKWARDS UNTIL ITERATION 10, AND IT SAID "2026-09-01, a day before I wrote the arm" WHILE THIS PLAN'S OWN HEADER DATES THE WORK 2026-08-31.** It contradicted the document it sits in, in the section this plan calls the most important thing in it. Measured from git rather than remembered:
 
 ```
-2026-08-30 18:44   #1592 fix AUTHORED (fed47fc5)
+2026-08-30 08:45   #1592 fix AUTHORED (c16c9f23, "directory can never pass again")
 2026-08-31 09:29   this arm written              <- fix existed, but NOT on main
 2026-09-01 02:38   #1592 reaches origin/main
 2026-09-02 10:46   kosmos#1859 filed             <- fix on main for ~32 hours
 2026-09-02 11:07   closed as already-fixed
 ```
+
+📌 The sha above was `fed47fc5` until iteration 11. That commit is the later extraction into `claudeHatchAvailable()` and **its own before-state already used `isRunnable`**; `c16c9f23` is the one that replaced the bare `accessSync`. Both carry committer date 2026-09-01 02:38, so every date and the whole conclusion are unaffected -- only the citation was wrong.
 
 ⭐ **AND THE CORRECTED TIMELINE SHARPENS THE LESSON RATHER THAN SOFTENING IT.** Writing the arm on 08-31 was defensible: the fix was authored but had not reached main, so **a `git fetch` that morning would not have shown it**. **Filing the card on 09-02 was the defect** -- by then it had been on main for 32 hours and one fetch would have settled it. ⇒ **The failure was not "my worktree was stale". It was "my worktree was stale AT THE MOMENT I MADE THE CLAIM"**, which is the only version of the rule that discriminates, since the same worktree was innocent a day earlier.
 
@@ -115,7 +117,21 @@ engine.publicview-canrun-1595.test.js   builds state by hand, 0 start() calls
 this file                               drives the real start(), reads the STUCK record
 ```
 
-**The unit guard stays green if `becomeStuck` stops calling the helper. This arm does not.** So the gap the card names is still real after the fix, which is why the branch still has a reason to exist.
+🛑 **THAT SENTENCE USED TO READ "The unit guard stays green if `becomeStuck` stops calling the helper. This arm does not." IT WAS EXACTLY BACKWARDS, AND IT WAS THE STATED JUSTIFICATION FOR THE BRANCH.** Iteration 11 caught it; the measurement below settles it. Four mutations, each run against every file that touches the field:
+
+| mutation | runnable-not-dir | publicview-canrun | server.connect | **these arms** |
+|---|---|---|---|---|
+| control (none) | green | green | green | green |
+| **M1** behaviour-preserving refactor of the writeState line | **RED** | green | green | green |
+| **M2** drop the `isFile()` gate | **RED** | green | green | **RED** |
+| **M3** `publicView` drops the field | green | **RED** | green | **RED** |
+| **M4** install failure never reaches `becomeStuck` (`connect.js:1708`) | green | green | green | **RED** |
+
+⭐ **M4 IS WHY THIS BRANCH EXISTS, and it is the row I could not have argued my way to.** Cut the wiring from the install failure to `becomeStuck` and **every other test stays green**: they build the state object by hand or grep source text, so none can see whether the flow ever arrives. These arms drive the real `start()`, so they are the only thing that notices the screen would never be served the field at all.
+
+⚠️ **M1 is the other half and it runs the OTHER way.** The unit guard pins the exact source text of the writeState line, so a refactor changing **no** behaviour (hoisting the call to a local) reddens it while these arms correctly stay green. It asserts **the shape of a line**; these assert **the value that reaches the screen**. Neither is a superset of the other, which is the honest version of the claim this section made for ten iterations.
+
+📌 **How I nearly got this wrong twice.** My first compressed harness reported M1 and M2 as all-green, contradicting per-file runs I had done minutes earlier. The harness was the defect: `$?` inside a second command substitution does not capture `node`'s exit code. **When two of your own instruments disagree, the newer one is the suspect** -- and a control row that must come back all-green is what makes the table readable at all.
 
 ## One trap, recorded because it costs an hour to rediscover
 
@@ -428,3 +444,90 @@ names the pattern three times.
 ⭐ **The point is not that I missed it. It is that a mechanical sweep caught it and rereading would
 not have**, because the plan reads fluently and the sentence is only wrong against a measurement.
 **Write the sweep as part of the fix, not as a review step afterwards.**
+
+## Findings from challenge-loop iteration 11
+
+**Zero BLOCKERs, three WARNINGs, one CONVENTION, nine NITs** -- and one of the WARNINGs is the most
+important finding of the entire loop, because it was false in the sentence that justified the branch
+existing.
+
+### 🛑 THE JUSTIFICATION FOR THIS BRANCH WAS BACKWARDS FOR ELEVEN ITERATIONS
+
+For ten rounds this plan and the test file both said:
+
+> *"The unit guard stays green if `becomeStuck` stops calling the helper. This arm does not."*
+
+**It is the exact inverse.** Measured by running that mutation (hoisting the call to a local, which
+changes no behaviour): **the unit guard goes RED and these arms stay GREEN.**
+`engine.runnable-not-directory.test.js` pins the EXACT SOURCE TEXT of the writeState line, so it
+reddens on any edit to that line, including a behaviour-preserving one.
+
+⚠️ **Ten reviewers read that sentence. It sat in the section headed "why the branch still has a
+reason to exist", and it was the one claim nobody thought to run** -- precisely because it was the
+conclusion rather than a supporting detail. **The load-bearing sentence is the one that gets
+checked last.**
+
+### What the branch is actually worth, established by mutation rather than argument
+
+| mutation | runnable-not-dir | publicview-canrun | server.connect | **these arms** |
+|---|---|---|---|---|
+| control (none) | green | green | green | green |
+| **M1** behaviour-preserving refactor of the writeState line | **RED** | green | green | green |
+| **M2** drop the `isFile()` gate | **RED** | green | green | **RED** |
+| **M3** `publicView` drops the field | green | **RED** | green | **RED** |
+| **M4** install failure never reaches `becomeStuck` (`connect.js:1708`) | green | green | green | **RED** |
+
+⭐ **M4 IS THE ROW THAT JUSTIFIES THE BRANCH, and I could not have argued my way to it.** Cut the
+wiring from the install failure to `becomeStuck` and **every other test stays green** -- they build
+state by hand or grep source, so none sees whether the flow ever arrives. These arms drive the real
+`start()`, so they are the only thing that notices the screen would never be served the field.
+
+⚠️ **M1 is the other half and runs the other way**: the unit guard reddens on a refactor that changes
+nothing. It asserts **the shape of a line**; these assert **the value that reaches the screen**.
+Neither is a superset of the other. **That is the honest claim, and it is stronger than the false
+one it replaces** -- the false version claimed subsumption, which would have made one of the two
+files deletable.
+
+📌 **I nearly published a wrong matrix.** My first compressed harness reported M1 and M2 as
+all-green, contradicting per-file runs from minutes earlier. **The harness was the defect:** `$?`
+inside a second command substitution does not capture `node`'s exit status. Caught because a control
+row must come back all-green and because two of my own instruments disagreed. **When they do, the
+newer one is the suspect.**
+
+### The CONVENTION finding, accepted with a causal argument I had not made myself
+
+The reviewer's case was not aesthetic: **keeping the same paragraph in two files is the mechanism
+that produced every one-site-fix failure on this branch**, and it found a fifth instance sitting at
+exactly such a pair. That is a better argument than "it is long".
+
+**Acted on.** Moved to the plan and left as a pointer in the test file: the benchmarking history, the
+throwing-runner retelling, the dated kosmos#1859 timeline, the three-file census (counts have drifted
+five times and belong in one place), and the four-mutation table itself -- **which I had just
+duplicated into both files while writing the fix above, committing the very defect in the act of
+documenting it.**
+
+**Kept in the test file:** every mechanism a maintainer needs at the code -- the identity-guard
+rationale, the runner-must-return-not-throw trap, the two-inputs/three-states table, the
+distinct-bin-path rationale, the macOS-only warning, and the DO NOT FIX BACK guard.
+
+**Measured outcome, stated rather than claimed:** 295 -> 271 lines, 65% -> 61% comment. Siblings run
+25-48%. **So it is better and still above its neighbours**, and the residue is the head docblock
+explaining why the file drives `start()` instead of taking a seam. I judged that load-bearing for
+anyone editing the test and stopped there rather than trimming into mechanism.
+
+### The rest
+
+- **"Fixed decisively: every backward-looking annotation is gone"** was itself incomplete -- one
+  survived at the closing docblock. **Sixth instance of a claimed-complete fix that was not.**
+- **The `#1592` sha was wrong**: `fed47fc5` is the later extraction and its own before-state already
+  used `isRunnable`. `c16c9f23` ("directory can never pass again", 2026-08-30 08:45) is the commit
+  that replaced the bare `accessSync`. Every date and the conclusion are unaffected.
+- **The mutation row "force canRunClaude = true -> ABSENT goes red"** understated it: DIRECTORY
+  reddens too, and as written a reader could infer DIRECTORY is insensitive to that constant.
+- **`tools/run-tests.sh:103` was quoted verbatim and was not verbatim** (`"$@"` omitted).
+- **A sentence broken by iteration 10's strip** ("Nothing exercised this until / in the file...").
+- **"Three of the four disagree about the second positional"** read as inverted; three take an
+  options object and no two accept the same keys, the fourth takes a Buffer.
+- **The `/after/` matcher** was loose enough to match an unrelated TypeError; tightened to
+  `/t\.after is not a function/`.
+- **A test named for refusal contained an acceptance arm**; renamed to cover both.
