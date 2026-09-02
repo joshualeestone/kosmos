@@ -128,7 +128,14 @@ function codeText(rel) {
 // --- the Windows-hostile candidate FAMILIES -----------------------------------
 // Each regex matches a SHAPE that is POSIX-valid but potentially Windows-hostile.
 // path.delimiter / path.sep / path.join / os.EOL / os.homedir are the portable
-// forms and are deliberately NOT matched.
+// forms and are deliberately NOT matched. Each `re` is matched GLOBALLY per line
+// (see countMatches), so two couplings on one line count as two.
+//
+// DELIBERATELY NOT a family: manual `a + '/' + b` path concat. It is dominated
+// by legitimate URL/string building (which always uses '/', never a path
+// separator), so scanning it is nearly all false-red for no coverage of the
+// known corpus. The portable fix for a real one is still path.join; it is just
+// not worth the merge friction to scan for. (Dropped after iteration 2.)
 const FAMILIES = [
   {
     name: 'path-delimiter-literal',
@@ -139,8 +146,9 @@ const FAMILIES = [
   {
     name: 'fs-root-literal',
     // '/tmp' '/home/' '/Users/' '/var/' used as a filesystem path. Windows has
-    // none of these; os.tmpdir()/os.homedir() are the portable forms.
-    re: /(['"])(?:\/tmp|\/home\/|\/Users\/|\/var\/)/,
+    // none of these; os.tmpdir()/os.homedir() are the portable forms. '/tmp' has
+    // a right boundary so '/tmpfile'/'/tmpl' do not false-match.
+    re: /(['"])(?:\/tmp(?![A-Za-z0-9])|\/home\/|\/Users\/|\/var\/)/,
   },
   {
     name: 'env-home',
@@ -148,20 +156,20 @@ const FAMILIES = [
     // os.homedir() is portable.
     re: /process\.env\.HOME\b/,
   },
-  {
-    name: 'manual-slash-concat',
-    // a + '/' + b -- manual path assembly with a hardcoded separator; path.join
-    // is portable.
-    re: /\+\s*(['"])\/\1\s*\+/,
-  },
 ];
 
 // --- THE INVENTORY ------------------------------------------------------------
-// Every CURRENT candidate site, classified. A candidate line is "classified" if
-// some entry has the same `file` and the line INCLUDES that entry's `contains`.
+// Every CURRENT candidate occurrence, classified by `family` with an expected
+// `count` (how many code matches of that family this row accounts for; default
+// 1). Classification is COUNT-BASED per (file, family): the ratchet reds when a
+// file's actual family-match count EXCEEDS the sum of inventory counts for that
+// (file, family). That closes the same-line-injection hole a line-substring
+// match had -- a hostile coupling appended to a line that already carries an
+// inventoried needle still raises the count, so it still reds. `contains` is a
+// distinctive line substring, kept for the stale check and for documentation.
 // Dispositions:
 //   benign-mime      -- ';' is the MIME parameter separator (content-type), not a path
-//   benign-nonpath   -- ':' is a non-path separator (IPv6 hextets, hex/color)
+//   benign-nonpath   -- ':' is a non-path separator (IPv6 hextets)
 //   sanitizer        -- deliberately replaces path-ish chars; already handles '\\'
 //   posix-root-fallback -- os.tmpdir() is used; '/tmp' is an extra known root, harmless on Windows
 //   macos-only-branch   -- reached only on the macOS path (tmux / launchd), not on Windows
@@ -169,80 +177,93 @@ const FAMILIES = [
 // gets FIXED (and carded per instance), not inventoried.
 const INVENTORY = [
   // --- benign MIME ';' parsing (content-type) ---
-  { file: 'server.js',           contains: "|| '').split(';')[0].trim().toLowerCase()", disposition: 'benign-mime', why: 'content-type header parse; ; is the MIME param separator' },
-  { file: 'server.js',           contains: "|| '').split(';')[0].trim()",               disposition: 'benign-mime', why: 'content-type header parse; ; is the MIME param separator' },
-  { file: 'engine/attachments.js', contains: ".toLowerCase().split(';')[0].trim()",     disposition: 'benign-mime', why: 'content-type parse' },
-  { file: 'engine/attachments.js', contains: ").split(';')[0].trim().slice(0, 100)",    disposition: 'benign-mime', why: 'content-type parse' },
-  { file: 'engine/unfurl.js',    contains: ".toLowerCase().split(';')[0].trim()",       disposition: 'benign-mime', why: 'content-type parse' },
+  { file: 'server.js', family: 'path-delimiter-literal', count: 1, contains: "|| '').split(';')[0].trim().toLowerCase()", disposition: 'benign-mime', why: 'content-type header parse; ; is the MIME param separator' },
+  { file: 'server.js', family: 'path-delimiter-literal', count: 1, contains: "String(req.headers['content-type'] || '').split(';')[0].trim(),", disposition: 'benign-mime', why: 'content-type header parse; ; is the MIME param separator' },
+  { file: 'engine/attachments.js', family: 'path-delimiter-literal', count: 1, contains: ".toLowerCase().split(';')[0].trim()", disposition: 'benign-mime', why: 'content-type parse' },
+  { file: 'engine/attachments.js', family: 'path-delimiter-literal', count: 1, contains: ").split(';')[0].trim().slice(0, 100)", disposition: 'benign-mime', why: 'content-type parse' },
+  { file: 'engine/unfurl.js', family: 'path-delimiter-literal', count: 2, contains: ".toLowerCase().split(';')[0].trim()", disposition: 'benign-mime', why: 'content-type parse (two identical sites, lines 312 & 340)' },
   // --- benign non-path ':' (IPv6 hextets in the SSRF guard) ---
-  { file: 'engine/unfurl.js',    contains: "hex.split(':').filter(Boolean)",            disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
-  { file: 'engine/unfurl.js',    contains: "const parts = low.split(':')",              disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
+  { file: 'engine/unfurl.js', family: 'path-delimiter-literal', count: 1, contains: "hex.split(':').filter(Boolean)", disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
+  { file: 'engine/unfurl.js', family: 'path-delimiter-literal', count: 1, contains: "const parts = low.split(':')", disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
   // --- name sanitizer (already handles backslash) ---
-  { file: 'engine/projects.js',  contains: ".split('/').join('-').split('\\\\').join('-').split(':').join('-')", disposition: 'sanitizer', why: 'name sanitizer; replaces / \\ : with -, Windows-aware' },
-  { file: 'engine/projects.js',  contains: ".split('/').join('').split('\\\\').join('').split(':').join('')",    disposition: 'sanitizer', why: 'name sanitizer; strips / \\ :, Windows-aware' },
+  { file: 'engine/projects.js', family: 'path-delimiter-literal', count: 1, contains: ".split('/').join('-').split('\\\\').join('-').split(':').join('-')", disposition: 'sanitizer', why: 'name sanitizer; replaces / \\ : with -, Windows-aware' },
+  { file: 'engine/projects.js', family: 'path-delimiter-literal', count: 1, contains: ".split('/').join('').split('\\\\').join('').split(':').join('')", disposition: 'sanitizer', why: 'name sanitizer; strips / \\ :, Windows-aware' },
   // --- posix-root fallbacks (os.tmpdir() used; '/tmp' is a harmless extra) ---
-  { file: 'engine/projects.js',  contains: "[os.tmpdir(), '/tmp']",                     disposition: 'posix-root-fallback', why: "os.tmpdir() is the real root; '/tmp' is an extra known root, never matches on Windows" },
-  { file: 'engine/status.js',    contains: "[os.tmpdir(), '/tmp']",                     disposition: 'posix-root-fallback', why: "os.tmpdir() is the real root; '/tmp' extra" },
-  { file: 'engine/status.js',    contains: "process.env.TMUX_TMPDIR || '/tmp'",         disposition: 'macos-only-branch', why: 'tmux socket path; tmux does not exist on Windows so this branch is macOS-only' },
+  { file: 'engine/projects.js', family: 'fs-root-literal', count: 1, contains: "[os.tmpdir(), '/tmp']", disposition: 'posix-root-fallback', why: "os.tmpdir() is the real root; '/tmp' is an extra known root, never matches on Windows" },
+  { file: 'engine/status.js', family: 'fs-root-literal', count: 1, contains: "[os.tmpdir(), '/tmp']", disposition: 'posix-root-fallback', why: "os.tmpdir() is the real root; '/tmp' extra" },
+  { file: 'engine/status.js', family: 'fs-root-literal', count: 1, contains: "process.env.TMUX_TMPDIR || '/tmp'", disposition: 'macos-only-branch', why: 'tmux socket path; tmux does not exist on Windows so this branch is macOS-only' },
   // --- macOS-only launchd path ---
-  { file: 'engine/machine.js',   contains: "path.join(process.env.HOME || '', 'Library', 'LaunchAgents')", disposition: 'macos-only-branch', why: 'macOS LaunchAgents path; the Library/LaunchAgents branch is macOS-only' },
+  { file: 'engine/machine.js', family: 'env-home', count: 1, contains: "path.join(process.env.HOME || '', 'Library', 'LaunchAgents')", disposition: 'macos-only-branch', why: 'macOS LaunchAgents path; the Library/LaunchAgents branch is macOS-only' },
 ];
 
-// Collect every candidate: {file, line, lineno, family}.
-function collectCandidates() {
-  const out = [];
+// Count family matches per (file, family), scanning non-comment lines only.
+// Returns Map keyed `${file} ${family}` -> { count, lines: [{lineno, text}] }.
+function collectByFileFamily() {
+  const map = new Map();
   for (const rel of productFiles()) {
-    const abs = path.join(REPO, rel);
     let src;
-    try { src = fs.readFileSync(abs, 'utf8'); } catch { continue; }
+    try { src = fs.readFileSync(path.join(REPO, rel), 'utf8'); } catch { continue; }
     const lines = src.split('\n');
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (isCommentLine(line)) continue;
+      if (isCommentLine(lines[i])) continue;
       for (const fam of FAMILIES) {
-        if (fam.re.test(line)) {
-          out.push({ file: rel, lineno: i + 1, line: line.trim(), family: fam.name });
+        const g = new RegExp(fam.re.source, fam.re.flags.includes('g') ? fam.re.flags : fam.re.flags + 'g');
+        const n = (lines[i].match(g) || []).length;
+        if (n > 0) {
+          const key = rel + ' ' + fam.name;
+          const e = map.get(key) || { count: 0, lines: [] };
+          e.count += n;
+          e.lines.push({ lineno: i + 1, text: lines[i].trim() });
+          map.set(key, e);
         }
       }
     }
   }
-  return out;
+  return map;
 }
 
-function classify(cand) {
-  return INVENTORY.find((e) => e.file === cand.file && cand.line.includes(e.contains)) || null;
+function expectedCount(file, family) {
+  return INVENTORY
+    .filter((e) => e.file === file && e.family === family)
+    .reduce((s, e) => s + (e.count || 1), 0);
 }
 
 // ============================================================================
-// THE RATCHET: every candidate must be classified, and every entry must be live.
+// THE RATCHET: the count of family-matches in each file must not EXCEED what the
+// inventory accounts for (a new coupling raises the count -> red), and every
+// inventory entry must still be present (stale -> red).
 // ============================================================================
 test('#1732: no unclassified Windows-hostile source coupling', () => {
-  const cands = collectCandidates();
-  const unclassified = cands.filter((c) => !classify(c));
-  if (unclassified.length) {
-    const detail = unclassified
-      .map((c) => `  ${c.file}:${c.lineno}  [${c.family}]  ${c.line}`)
-      .join('\n');
+  const found = collectByFileFamily();
+  const problems = [];
+  for (const [key, info] of found) {
+    const [file, family] = key.split(' ');
+    const expected = expectedCount(file, family);
+    if (info.count > expected) {
+      const where = info.lines.map((l) => `      ${file}:${l.lineno}  ${l.text}`).join('\n');
+      problems.push(
+        `  ${file} [${family}]: ${info.count} match(es), inventory accounts for ${expected}.\n${where}`
+      );
+    }
+  }
+  if (problems.length) {
     assert.fail(
-      `${unclassified.length} Windows-hostile source coupling(s) not in the #1732 INVENTORY.\n` +
-      `Each is a candidate for the class this card exists to catch (POSIX-valid, Windows-hostile,\n` +
-      `invisible to every behavioural arm on this all-macOS fleet):\n${detail}\n\n` +
-      `If it is a REAL Windows bug: FIX it (prefer a platform-injectable function, see ${REF}) and\n` +
-      `card it per instance. If it is genuinely benign/macOS-only: add a classified row to INVENTORY\n` +
-      `with a one-line reason. Do NOT widen an existing row's 'contains' just to silence this.`
+      `Unclassified Windows-hostile source coupling(s) -- more matches than the #1732 INVENTORY\n` +
+      `accounts for. This is the class the card exists to catch (POSIX-valid, Windows-hostile,\n` +
+      `invisible to every behavioural arm on this all-macOS fleet):\n${problems.join('\n')}\n\n` +
+      `If a match is a REAL Windows bug: FIX it (prefer a platform-injectable function, see ${REF})\n` +
+      `and card it per instance. If it is genuinely benign/macOS-only: add a classified INVENTORY row\n` +
+      `(family + count + a one-line reason). Do NOT bump an existing row's count just to silence this.`
     );
   }
 });
 
 test('#1732: no stale INVENTORY entry (every classified site still exists)', () => {
-  const cands = collectCandidates();
-  const stale = INVENTORY.filter(
-    (e) => !cands.some((c) => c.file === e.file && c.line.includes(e.contains))
-  );
+  const stale = INVENTORY.filter((e) => !codeText(e.file).includes(e.contains));
   if (stale.length) {
     const detail = stale.map((e) => `  ${e.file}  «${e.contains}»`).join('\n');
     assert.fail(
-      `${stale.length} INVENTORY entr(y/ies) no longer match any source candidate.\n` +
+      `${stale.length} INVENTORY entr(y/ies) no longer match any source line.\n` +
       `The coupling was removed or reshaped -- delete the stale row so the inventory stays honest:\n${detail}`
     );
   }
@@ -267,7 +288,18 @@ test('#1732 pin: engine/github.js splits the gh override on path.delimiter, not 
 
 test('#1732 pin: engine/store.js dataRootFor joins with the platform it was asked about', () => {
   const code = codeText('engine/store.js');
-  assert.match(code, /joinerFor\s*\(/,
-    'engine/store.js must use joinerFor(platform) so dataRootFor joins with the platform it was ' +
-    `ASKED ABOUT, not the ambient one (#1510). Otherwise the win32 branch answers with '/'. See ${REF}.`);
+  // The injectable joiner must be TAKEN and USED, not merely defined: the #1510
+  // regression left `function joinerFor` defined and reverted the JOIN to the
+  // ambient path, so `joinerFor(` alone is near-vacuous.
+  assert.match(code, /const p = joinerFor\(platform\)/,
+    'engine/store.js dataRootFor must take the platform-specific joiner: ' +
+    `const p = joinerFor(platform) (#1510). See ${REF}.`);
+  assert.match(code, /\bp\.join\(/,
+    'engine/store.js dataRootFor must JOIN with p (the asked-about platform), not the ambient path (#1510).');
+  // The #1510 bug shape: joining a DATA-ROOT arg with the ambient path.join. Anchored on the
+  // data-root arg names so the legit path.join(root()/avatarsDir()/...) elsewhere -- which
+  // operate on an already-resolved absolute root -- are not caught.
+  assert.doesNotMatch(code, /path\.join\(\s*(?:home|e\.APPDATA|e\.AGENT_WORKFORCE_DATA)\b/,
+    'engine/store.js dataRootFor joins a data-root arg with the AMBIENT path.join -- the #1510 bug. ' +
+    'Use p.join from joinerFor(platform).');
 });

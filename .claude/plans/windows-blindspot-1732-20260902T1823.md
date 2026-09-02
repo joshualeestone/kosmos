@@ -1,4 +1,4 @@
-# #1732 — make the Windows-hostile-assumption CLASS visible on an all-macOS fleet
+# #1732 - make the Windows-hostile-assumption CLASS visible on an all-macOS fleet
 
 Branch: `windows-blindspot-1732` (agent-workforce / joshualeestone/kosmos)
 Card: #1732, the keystone of the four Windows cards (570 / 1112 / 1118 / 1732).
@@ -35,19 +35,19 @@ arm. #1732 is the meta-card: stop finding these one at a time by luck.
 The card's triage headline (Splinter, 2026-09-01) said the cheapest next step is
 an **instrument: one job that runs the existing suite on the Windows box**
 (`i-0acbd603679a31361`, t3.medium, stopped, Claw Cabal acct 230470759562,
-us-east-2 — reachable; I hold the `kosmos-agent` admin creds + the
+us-east-2 - reachable; I hold the `kosmos-agent` admin creds + the
 `kosmos-windows-test` keypair). **Measured, that instrument is neither cheap nor
 sufficient:**
 
 1. **The suite runner is macOS-coupled.** `tools/run-tests.sh` uses `lsof -iTCP`,
    `sysctl vm.loadavg`/`hw.ncpu`, `find -mmin`, a macOS 104-char unix-socket
    assumption, and a `yarn test:shell` arm of dozens of `tools/test-*.sh` bash
-   scripts that call `tmux`. **`tmux` does not exist on Windows** — which is the
+   scripts that call `tmux`. **`tmux` does not exist on Windows** - which is the
    very reason my lane (self-reporting without a pane) exists. The shell arm
    cannot run on Windows at all.
 2. **Even the node arm cannot find the class.** `node --test engine/*.test.js
    *.test.js` on Windows would (a) red on tests that legitimately need macOS
-   (tmux/launchctl) — noise, not Windows bugs — and (b) go **green on the tests
+   (tmux/launchctl) - noise, not Windows bugs - and (b) go **green on the tests
    that hardcode POSIX fixtures**, which is exactly the false-green the card is
    about. A test that hardcodes `'C:\\...'.split(':')`-shaped POSIX fixtures
    tests the POSIX path *even on Windows*. So the instrument, applied to the
@@ -79,7 +79,7 @@ suite-runner instrument in this branch.**
   exactly when a reviewer should think about Windows: a new hardcoded coupling
   being added.
 - **What would change my mind:** if Josh/Splinter want the actual Windows CI arm
-  first, the ordering flips — but that arm requires the suite split into a
+  first, the ordering flips - but that arm requires the suite split into a
   portable node-only subset AND the POSIX fixtures parameterized by platform
   (per store.dataRootFor), which is a larger, separate track. This plan is the
   box-free half that is useful immediately and a prerequisite for trusting a
@@ -97,7 +97,7 @@ buried. (This is the `a-corpus-only-covers-shapes-it-contains` lesson.)
 
 ## Deliverables
 
-### A. The ratchet test — `engine/windows-coupling-audit-1732.test.js`
+### A. The ratchet test - `engine/windows-coupling-audit-1732.test.js`
 
 A zero-dependency node test that:
 
@@ -105,7 +105,7 @@ A zero-dependency node test that:
    `*.test.js` and `test-support/`. (Resolved by `fs.readdirSync`, not a shell
    glob, so it is deterministic and Windows-safe itself.)
 2. For each source file, strips **full-line** comments (`^\s*//`) and
-   block-comment continuation lines (`^\s*\*`) before scanning — this removes the
+   block-comment continuation lines (`^\s*\*`) before scanning - this removes the
    4 observed comment-only false candidates. (Heuristic; trailing inline comments
    and slashes-inside-strings may still surface and are handled by classifying
    them in the inventory. Limit documented in the header.)
@@ -123,8 +123,7 @@ A zero-dependency node test that:
 5. **RED conditions** (each with a message naming the file+line and pointing at
    the reference doc):
    - a candidate found in source that is **not** in the inventory (new coupling);
-   - an inventory entry whose `needle` is **no longer present** (stale entry —
-     keeps the inventory honest, per `widening-a-vacuous-assertion`).
+   - an inventory entry whose `needle` is **no longer present** (stale entry - keeps the inventory honest, per `widening-a-vacuous-assertion`).
 6. **Explicit positive assertion** for the two known portable sites so this test
    independently red-guards them (belt-and-suspenders with the existing pins):
    - `engine/github.js` contains `split(path.delimiter)` and NOT `override.split(':')`;
@@ -147,17 +146,17 @@ Each entry's `why` records the one-line reason it is not a Windows bug. Before
 committing I will re-read unfurl.js:121/129 to confirm the `:` split is a
 color/hex parse and not a path (the one entry I have not eyeballed in full).
 
-### B. The class reference — `docs/windows-source-coupling-1732.md`
+### B. The class reference - `docs/windows-source-coupling-1732.md`
 
 Concise. Names: the class, the two known instances + their fix-shapes, the
 **recommended remediation pattern** (make a platform-dependent function
-platform-injectable — `fn(platform = process.platform)` — so a macOS test can
+platform-injectable - `fn(platform = process.platform)` - so a macOS test can
 assert the win32 branch, exactly as `platform.js` and `store.dataRootFor` do;
 source-pin per github.js only as a fallback when injection is impractical), the
 ratchet's job, and its stated completeness limit (n=2 corpus; enumerated shapes
 only). This is the artifact a reviewer of Windows-track code reads.
 
-### C. The decision record — a comment on card #1732
+### C. The decision record - a comment on card #1732
 
 After the branch is pushed: post the measured reasons the suite-on-Windows
 instrument is not the cheapest phase-1 (macOS-coupled runner; tmux absent; the
@@ -168,11 +167,10 @@ the triage headline into a measured finding for Angel/Splinter/the next reader.
 
 ---
 
-## Perturbation proof (the done-condition — run BEFORE trusting the test)
+## Perturbation proof (the done-condition - run BEFORE trusting the test)
 
 Both known fixes are on main, so both are usable as controls. Restore from a
-copy kept OUTSIDE the tree (never `git checkout` inside a perturbation loop —
-`never-git-checkout-inside-a-perturbation-loop`).
+copy kept OUTSIDE the tree (never `git checkout` inside a perturbation loop - `never-git-checkout-inside-a-perturbation-loop`).
 
 1. **Control 1 (real regression):** revert `engine/github.js` line 45 to
    `override.split(':')`. The audit MUST red (new unclassified `.split(':')`
@@ -186,7 +184,7 @@ copy kept OUTSIDE the tree (never `git checkout` inside a perturbation loop —
 4. **Negative control:** on unmodified main the audit MUST be green (every
    current candidate is classified). If it is not, an inventory entry is wrong.
 
-Each control must be shown to return the dangerous answer (red) — a control that
+Each control must be shown to return the dangerous answer (red) - a control that
 only ever passes proves nothing (`a-control-that-did-not-perturb`).
 
 ## Checklist
@@ -204,7 +202,6 @@ only ever passes proves nothing (`a-control-that-did-not-perturb`).
 
 - The actual Windows-CI arm / starting the EC2 box (a later phase; requires a
   portable node subset + platform-parameterized fixtures first).
-- Fixing any *new* Windows bug this ratchet surfaces — that is a separate card
+- Fixing any *new* Windows bug this ratchet surfaces - that is a separate card
   per instance (the ratchet's job is to make it visible, per one-finding-not-three).
-- #570 phase-2 (network bind + remote token issuance) and #1118 (native window) —
-  sibling cards, not this one.
+- #570 phase-2 (network bind + remote token issuance) and #1118 (native window) - sibling cards, not this one.

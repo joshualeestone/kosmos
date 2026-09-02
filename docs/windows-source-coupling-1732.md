@@ -4,7 +4,7 @@ This fleet is macOS-only; the product branches on `process.platform`. A
 behavioural test arm for a win32 branch **cannot fail on a machine that never
 takes the branch**, so a green suite here is *no* evidence about Windows. Worse,
 a test that hardcodes a POSIX fixture exercises the POSIX path **even when run on
-Windows** — so running the suite on a real Windows box would still not catch this
+Windows** - so running the suite on a real Windows box would still not catch this
 class. This document names the class, records what we know, and points at the
 mechanism that keeps it from growing silently.
 
@@ -21,13 +21,13 @@ of the platform-aware API.
 
 ## The recommended fix-shape for a real hit
 
-**Make the platform-dependent function platform-INJECTABLE** — `fn(platform =
-process.platform)` — so a macOS test can assert the win32 branch by asking about
+**Make the platform-dependent function platform-INJECTABLE** - `fn(platform =
+process.platform)` - so a macOS test can assert the win32 branch by asking about
 it. This is already the org idiom:
 
-- `engine/platform.js` — `isSupported(platform = process.platform)`,
+- `engine/platform.js` - `isSupported(platform = process.platform)`,
   `describe(platform = process.platform)`, pure.
-- `engine/store.js` — `dataRootFor(platform, ...)` + `joinerFor(platform)`.
+- `engine/store.js` - `dataRootFor(platform, ...)` + `joinerFor(platform)`.
 
 Injection is strictly better than a source-pin: it **exercises** the win32
 branch and asserts the **result**, so it also catches a logic bug in that branch,
@@ -46,16 +46,17 @@ Do **not** reach for a hardcoded separator/root at all:
 
 ## The ratchet: `engine/windows-coupling-audit-1732.test.js`
 
-A curated coverage ratchet — **not** a blanket lint (measured: a raw
+A curated coverage ratchet - **not** a blanket lint (measured: a raw
 hardcoded-`:`/`/` scan is nearly all false positives and missed both real bugs).
 It enumerates the current candidate sites in product source, classifies each in
 an in-file `INVENTORY` with a disposition + one-line reason, and:
 
-- **reds on any candidate not in the inventory** — i.e. it fires when someone
-  **adds** a new hardcoded platform coupling, which is when a reviewer should be
-  thinking about Windows;
-- **reds on a stale inventory entry** — a classified site removed or reshaped —
-  so the inventory cannot rot into a vacuous pass;
+- **reds when a file's count of family-matches exceeds what the inventory
+  accounts for** (classification is count-based per `(file, family)`, so a new
+  coupling reds even when appended to a line that already carries a classified
+  one) - it fires when someone **adds** a hardcoded platform coupling, which is
+  when a reviewer should be thinking about Windows;
+- **reds on a stale inventory entry** - a classified site removed or reshaped - so the inventory cannot rot into a vacuous pass;
 - carries **positive pins** for the two known sites (github.js uses
   `path.delimiter`; store.js uses `joinerFor`), so it independently red-guards a
   regression.
@@ -68,7 +69,7 @@ neutralizing a classified site reds the stale arm; the unmodified tree is green.
 
 With a corpus of **n=2**, the ratchet **prevents NEW instances of KNOWN shapes**.
 It **claims nothing about finding existing instances** already in the tree, and
-**nothing about catching unknown shapes** — a subtler Windows assumption (`\r\n`
+**nothing about catching unknown shapes** - a subtler Windows assumption (`\r\n`
 vs `\n` in a file the Windows side parses, a case-insensitive-filesystem
 assumption, a POSIX-only child process, a shell script that calls `tmux`) does
 not take one of the enumerated syntactic families and slips straight through. It
@@ -85,7 +86,7 @@ the class progressively less invisible.
 Recorded on card #1732 with the four measurements. In short: `tools/run-tests.sh`
 is macOS-coupled (`lsof -iTCP`, `sysctl vm.loadavg`, `find -mmin`, a 104-char
 unix-socket assumption) and its `yarn test:shell` arm runs bash scripts that call
-`tmux` — which does not exist on Windows, the very reason the self-reporting lane
+`tmux` - which does not exist on Windows, the very reason the self-reporting lane
 exists. And even the node arm cannot find this class, because the existing tests
 hardcode POSIX fixtures: a passing Windows run would be **green for the wrong
 reason**. A Windows CI arm becomes worthwhile only after the suite is split into
