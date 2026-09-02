@@ -3631,6 +3631,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .msg-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
 .msg-h b { font-size: .9375rem; }
 .msg-t { font-size: .75rem; color: var(--k-ink-2); }
+/* #1703 (Josh, 2026-08-31): the agent's title in very small text between their
+   name and the timestamp, so a person with ~19 agents can tell the manager from
+   the worker at a glance. Muted and normal-weight so it reads as metadata beside
+   the bold name, never competing with it. `--label-3` is theme-aware, so no
+   separate dark rule is needed (the same token pj-member-role uses). */
+.msg-role { font-size: .75rem; color: var(--label-3); font-weight: 400; }
 /* The conversation search (18e:380-386, verbatim). The header row that
    locks it right is the EXISTING .pjmidhead rule above; a duplicate
    selector here shadowed its gap while its margin survived, a hybrid
@@ -28779,6 +28785,14 @@ function pjRoomRow(m, p, silent) {
     ? '<span class="delivery ' + cls + '">' + esc(pjReceiptSentence(m.outcomes, p, isOp ? silent : null)) + '</span>' : '';
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
     + '<div class="msg-b"><div class="msg-h"><b>' + esc(name) + '</b>'
+    /* #1703: the agent's title beside the name, before the timestamp. `card` is
+       this message's agent record from p.agents (false for the operator's own
+       posts, so "You" carries no title); its `role` is resolved server-side
+       (engine/projects.js), normalised through roleLine exactly as the member
+       roster does (pj-member-role), so the two surfaces name a role the same way.
+       Guarded on card && card.role: an agent with no title in its instructions
+       renders no span rather than an empty one. */
+    + (card && card.role ? '<small class="msg-role">' + esc(roleLine({ role: card.role }, ROLE_TITLES)) + '</small>' : '')
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
     + pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + receipt + '</div></div>';
 }
