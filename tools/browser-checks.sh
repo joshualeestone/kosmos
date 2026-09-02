@@ -1256,6 +1256,7 @@ for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
     AGENT_WORKFORCE_CONFIG_ROOT="$_sb/config" AGENT_WORKFORCE_HOME="$_sb/home" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$_sb/panes.txt" \
     AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" \
+    AGENT_WORKFORCE_CLAUDE_CONFIG="$_sb/config/.claude.json" \
     AGENT_WORKFORCE_CLAUDE_BIN="$_sb/fake-claude" \
     AGENT_WORKFORCE_CODEX_BIN="$_sb/fake-codex" \
     AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE="http://127.0.0.1:9/" \
@@ -1267,7 +1268,6 @@ for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
     AGENT_WORKFORCE_GITHUB_VERIFY_URL="http://127.0.0.1:9/user" \
     AGENT_WORKFORCE_CLOUDFLARE_VERIFY_URL="http://127.0.0.1:9/verify" \
     AGENT_WORKFORCE_OPENAI_WALK_KEY="sk-not-a-real-key-1573" \
-    AGENT_WORKFORCE_CLAUDE_CONFIG="$_sb/config/.claude.json" \
     PORT="$_port" node ./server.js > "$_sb/server.log" 2>&1 &
   SERVER_PIDS+=("$!")
   wait_up "$_port" "$_sb/server.log" || true
