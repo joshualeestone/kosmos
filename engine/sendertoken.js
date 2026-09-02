@@ -199,13 +199,17 @@ function withSessionLock(sessionName, fn) {
       pauseMs(LOCK_SPIN_MS);
     }
   }
-  /* 🛑 THE LOCK DIR MUST BE OWNER-WRITABLE WHATEVER THE UMASK. `mkdirSync` above
-     takes its mode from the process umask, and a restrictive one (the #1761 umask
-     test sets 0o600) leaves the dir without owner write - the owner file below
-     then cannot be created, `marked` stays false, the release is skipped, and an
-     unusable empty lock dir is left that wedges the session. chmod restores our
-     access; best-effort, since if it fails the owner-token release below simply
-     leaves the lock for the staleness rule. */
+  /* 🛑 THE LOCK DIR AND ITS owner FILE MUST BE OWNER-ACCESSIBLE WHATEVER THE UMASK.
+     `mkdirSync`/`writeFileSync` take their mode from the process umask, and a
+     restrictive one (the #1761 umask test sets 0o600) leaves the dir without owner
+     WRITE (the owner file cannot be created) and the owner file without owner READ
+     (the release's `readFileSync` below then throws, `ours` is false, the lock is
+     NOT removed, and the session wedges: the next op finds a fresh un-releasable
+     lock). Passing a `mode` does not help - it is masked by the same umask. So
+     chmod both back to owner-only after creating them; best-effort, since a chmod
+     failure only means the release cannot prove ownership and leaves the lock for
+     the staleness rule. */
+  const ownerFile = path.join(lock, 'owner');
   try { fs.chmodSync(lock, 0o700); } catch { /* best-effort */ }
   /* A token in the lock makes ownership checkable, so a holder whose section
      outlived LOCK_STALE_MS and was stolen does not delete the SUCCESSOR's lock on
@@ -213,12 +217,12 @@ function withSessionLock(sessionName, fn) {
      the lock is ours, so we leave it for the staleness rule to collect. */
   const token = `${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`;
   let marked = false;
-  try { fs.writeFileSync(path.join(lock, 'owner'), token); marked = true; } catch { marked = false; }
+  try { fs.writeFileSync(ownerFile, token); fs.chmodSync(ownerFile, 0o600); marked = true; } catch { marked = false; }
   try {
     return { ok: true, value: fn() };
   } finally {
     let ours = marked;
-    if (marked) { try { ours = fs.readFileSync(path.join(lock, 'owner'), 'utf8') === token; } catch { ours = false; } }
+    if (marked) { try { ours = fs.readFileSync(ownerFile, 'utf8') === token; } catch { ours = false; } }
     if (ours) { try { fs.rmSync(lock, { recursive: true, force: true, maxRetries: 5 }); } catch { /* already gone */ } }
   }
 }
