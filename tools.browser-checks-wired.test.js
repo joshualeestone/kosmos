@@ -198,8 +198,9 @@ function checkFiles() {
    restated. `never wired.` was five tautologies -- true of every entry by
    definition, so an oversight and a deliberate deferral read identically and
    neither can be reviewed. Each reason below is sourced from the check's own
-   header + the runner: what it exercises, and what wiring it would take. The
-   floor-guard test further down refuses the bare tautology so it cannot creep
+   header + the runner: what it exercises, and what wiring it would take (the
+   #1315 cross-refs on the OpenAI entries are from the card tracker, not the
+   header/runner). The floor-guard test further down refuses the bare tautology so it cannot creep
    back. (Kept, not deleted or wired: each still guards a real defect a source
    test cannot see -- #1209/#1205/#1207 layout, a leaked filename, the sleep
    pane -- and wiring a never-run check mid-release is the red-gate trade this
@@ -207,7 +208,7 @@ function checkFiles() {
 const NOT_WIRED = {
   'render-conn-url.js':
     'never run: a Playwright paint+geometry check of the sign-in step fallback '
-    + 'link (#1209 overlap), driving the page own frConnPaintUrl. Wiring needs '
+    + "link (#1209 overlap), driving the page's own frConnPaintUrl. Wiring needs "
     + 'the first-run connect step served in a real browser; may red on first run.',
   'render-openai-key-step.js':
     'never run: a Playwright layout check of the OpenAI key step (#1207 -- one '
@@ -224,8 +225,8 @@ const NOT_WIRED = {
     + 'pw-runtime, so it cannot run in the shared/headless browser gate.',
   'render-special-purpose.js':
     'never run: a Playwright visible-text sweep of the agent detail panel for a '
-    + 'leaked filename (CLAUDE.md/AGENTS.md). Wiring needs a created agent with a '
-    + 'populated panel served in a browser.',
+    + 'leaked filename (CLAUDE.md/AGENTS.md). Wiring needs the agent-detail panel '
+    + '(its /?tab=detail deep link, so no live agent is required) served in a browser.',
 };
 
 /* 🔑 A FLOOR ON THE POPULATION, the same reason its sibling has one. If the
@@ -318,10 +319,25 @@ test('#1387: nothing in NOT_WIRED is actually wired, and nothing in it has been 
    bare tautology so it cannot creep back. It is a FLOOR, not a quality judge:
    "a real cost" cannot be fully mechanised, but a reason that only restates the
    condition, or is too short to say anything, can be refused. */
+/* Refused: a reason that restates the condition, or is too short to say
+   anything. Shared so the self-control below tests the SAME predicate the
+   assertion uses, not a copy that could drift from it. */
+const isTautologyReason = (reason) =>
+  /^\s*never\s+wired\.?\s*$/i.test(reason) || reason.trim().length < 20;
+
 test('#1808: no NOT_WIRED reason is the bare "never wired" tautology', () => {
-  const tautology = /^\s*never\s+wired\.?\s*$/i;
+  /* 🔑 SELF-CONTROL FIRST, the sibling #1387 discipline: a matcher that only
+     ever says "no" passes this file silently even if it is broken. So prove the
+     predicate both FIRES on the defect and CLEARS a real reason before trusting
+     its verdict on the live values. A mangled regex reds HERE, not silently. */
+  assert.ok(isTautologyReason('never wired.'), 'the guard no longer catches the exact tautology it exists for');
+  assert.ok(isTautologyReason('NEVER WIRED'), 'the guard is not case-insensitive');
+  assert.ok(isTautologyReason('n/a'), 'the guard no longer catches an over-short non-reason');
+  assert.ok(!isTautologyReason('never run: a Playwright layout check; wiring needs the step served'),
+    'the guard flags a real cost as a tautology, so it would refuse every honest reason');
+
   const offenders = Object.entries(NOT_WIRED)
-    .filter(([, reason]) => tautology.test(reason) || reason.trim().length < 20)
+    .filter(([, reason]) => isTautologyReason(reason))
     .map(([f, reason]) => `${f}: ${JSON.stringify(reason)}`);
   assert.deepEqual(offenders, [],
     'these NOT_WIRED reasons restate the condition instead of giving the cost of '
