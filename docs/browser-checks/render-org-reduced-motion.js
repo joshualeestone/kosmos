@@ -44,7 +44,10 @@ const fs = require('fs');
 
 /* No two 44px discs may overlap: centre distance below the diameter is a real
    intersection. The sim's minGap is 52, so the resting field clears this with
-   margin. */
+   margin. This is also the diameter the check asserts the rendered .face
+   actually is, so the overlap metric cannot silently drift if the disc CSS size
+   changes: a wider disc would make ~47px-apart neighbours overlap while a
+   threshold frozen at 44 still called them clear. */
 const DISC_MIN = 44;
 /* The settle is load-bearing only if it packed the ring to the sim's floor.
    Measured after settle: the dense board sits at 52, a flat board at 114. This
@@ -95,6 +98,12 @@ const DENSE_MAX = 64;
   /* A broken or empty board must red loudly, not pass with nothing to overlap.
      The dense fixture draws eleven nodes; require enough to have crowded a ring. */
   say(m.nodes >= 9, 'the dense board drew', String(m.nodes) + ' nodes');
+  /* Pin the assumption the overlap metric rests on: the measured disc is the
+     diameter DISC_MIN uses as the overlap threshold. If .face is resized this
+     reds and forces DISC_MIN to be re-derived, rather than the threshold
+     silently no longer meaning "discs touch". */
+  say(m.faceW === DISC_MIN, 'a disc is the diameter the overlap metric assumes',
+    m.faceW + 'px (expected ' + DISC_MIN + ')');
   say(m.pairs === 0,
     'no two discs overlap under reduced motion, so the settle ran',
     m.pairs + ' overlapping pairs' + (m.worst.length ? ' (centres ' + m.worst.join(',') + ')' : ''));

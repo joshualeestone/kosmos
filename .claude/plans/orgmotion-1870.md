@@ -39,7 +39,9 @@ each profile. Seeded in node, not bash (macOS bash 3.2 has no associative arrays
 Discs are 44px. Two discs overlap when centre distance < 44 (a real
 intersection). The sim's `ORG_SIM.minGap` is 52, so a settled field clears the
 diameter with margin. The check measures `.face` centres (not the `.onode`
-button, whose box grows with the absolutely-positioned callout).
+button, whose box grows with the absolutely-positioned callout). It also asserts
+the measured `.face` really is 44px, so the overlap threshold cannot silently
+stop meaning "discs touch" if the disc CSS size ever changes.
 
 ## Non-vacuity, guarded two ways
 
@@ -47,10 +49,10 @@ button, whose box grows with the absolutely-positioned callout).
    `orgLiveSettle()` to the pre-#1738 static path (`orgLiveSync()` in the
    reduced-motion branch of `orgLiveStart`) turns the check RED, while it is GREEN
    on main. Measured on the exact committed check + board:
-   - main: exit 0, all four assertions pass, min centre distance 52px.
+   - main: exit 0, all five assertions pass, min centre distance 52px.
    - reverted: exit 1, `7 overlapping pairs (centres 33,33,34,33,34,33)`, tightest
      pair 33px. FAIL lines are gate-quotable (`FAIL  no two discs overlap ...`).
-   - reverted, reduced-motion OFF (animation path): 0 overlaps — confirms the
+   - reverted, reduced-motion OFF (animation path): 0 overlaps - confirms the
      defect is specific to the reduced-motion branch.
 2. **In-check density guard (so a future fixture flattening cannot make it
    vacuously pass).** The tightest pair must sit at the sim's floor
@@ -64,23 +66,23 @@ instead of passing with nothing to overlap.
 
 ## Files
 
-- `docs/browser-checks/render-org-reduced-motion.js` — new check (self-contained
+- `docs/browser-checks/render-org-reduced-motion.js` - new check (self-contained
   playwright, `newContext({reducedMotion:'reduce'})`).
-- `tools/browser-checks.sh` — `write_fleet_org` + `boot_board_org` (dense board),
+- `tools/browser-checks.sh` - `write_fleet_org` + `boot_board_org` (dense board),
   a new port `P16`, and the board group that runs the check.
-- `docs/browser-checks/README.md` — names the new check (indexed test).
-- `tools.browser-checks-wired.test.js` — `EXPECTED_BOOTS` 7 -> 8 (the new
+- `docs/browser-checks/README.md` - names the new check (indexed test).
+- `tools.browser-checks-wired.test.js` - `EXPECTED_BOOTS` 7 -> 8 (the new
   dry-run board), deliberately, as that test instructs.
 
 ## Guard tests run (all green)
 
-- `browser-checks-indexed.test.js` (README names every script) — pass.
-- `tools.browser-checks-wired.test.js` (every check is run; boot-count) — 8 pass.
-- `browser-checks-selectors.test.js` (every id exists in the page) — pass; the
+- `browser-checks-indexed.test.js` (README names every script) - pass.
+- `tools.browser-checks-wired.test.js` (every check is run; boot-count) - 8 pass.
+- `browser-checks-selectors.test.js` (every id exists in the page) - pass; the
   check reuses only `#firstrun`/`#orgmap`, already used by `render-org-chart`.
-- `browser-checks-reason-grep.test.js` (`EXPECTED_SITES=28`) — pass, unchanged:
+- `browser-checks-reason-grep.test.js` (`EXPECTED_SITES=28`) - pass, unchanged:
   the `say()` ternary emit form is not a counted SHAPE (same as `render-org-chart`).
-- `org-reduced-motion-settle-1738.test.js` — 3 pass (`web/index.html` untouched).
+- `org-reduced-motion-settle-1738.test.js` - 3 pass (`web/index.html` untouched).
 
 `web/index.html` is NOT modified: this card adds a check and its wiring, nothing
 in the product.
