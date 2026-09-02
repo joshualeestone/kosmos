@@ -41,11 +41,13 @@ async function fresh(browser, opts = {}) {
 async function advanceToAboutYou(page, max = 12) {
   for (let i = 0; i < max; i += 1) {
     // Read both facts in ONE round-trip: are we at About-you yet, and is
-    // Continue clickable? Every step BEFORE About-you is ungated today, so a
-    // disabled Continue on a step that is not About-you means an intermediate
-    // step grew a required-answer gate. Fail fast with that reason rather than
-    // letting page.click hang ~30s on Playwright's actionability wait for a
-    // button that will never enable itself.
+    // Continue clickable? On the path these callers drive -- a connected
+    // subscription is mocked, so the model step never opens its connect flow --
+    // no step before About-you disables Continue, so a disabled Continue on a
+    // step that is not About-you means an intermediate step grew a
+    // required-answer gate. Fail fast with that reason rather than letting
+    // page.click hang ~30s on Playwright's actionability wait for a button that
+    // will never enable itself.
     const state = await page.evaluate(() => {
       const you = document.querySelector('#fr-you');
       const pane = you && you.closest('.fr-pane');
