@@ -31,12 +31,20 @@
  *     (Note: the browser-launch catch and the top-level crash catch are NO LONGER
  *     here -- kosmos#1864 made them quotable and added the catch/launch scan lower
  *     in this file that covers them.)
- *   - the BARE-OBJECT crash catch: `})().catch((e) => { console.error(e); ... })`,
- *     which prints the error's own stack rather than a literal string. It is
- *     usually quotable (an Error's stack begins with a name ending in "Error"),
- *     but a thrown non-Error or a message without "Error"/"Timeout" is not, and a
- *     static read cannot know the runtime value. The #1864 catch/launch scan below
- *     deliberately covers only the STRING-literal crash/launch emits, not this one.
+ *   - the RUNTIME-STACK crash catch, in two spellings: the bare-object form
+ *     `})().catch((e) => { console.error(e); ... })`, and the stack-string form
+ *     `.catch((err) => { ... process.stderr.write(String(err && err.stack || err)) ... })`
+ *     (render-thread.js:1253). Both print the error's own stack rather than a
+ *     literal string: usually quotable (an Error's stack begins with a name
+ *     ending in "Error"), but a thrown non-Error or a message without
+ *     "Error"/"Timeout" is not, and a static read cannot know the runtime value.
+ *     The #1864 catch/launch scan below deliberately covers only the
+ *     STRING-literal crash/launch emits, not these.
+ *     (Scope note: this scan reads only files under docs/browser-checks/. A
+ *     matching crash-catch shape in tools/ -- e.g. headed-doctrine-check.js's
+ *     `console.error('HEADED HARNESS FAILED', ...)` -- is NOT covered and is not
+ *     a #1864 defect: those tools are not invoked by run_one, so their output
+ *     never reaches the release-gate reason grep.)
  *
  * ⚠️ THE SHAPE LIST IS AN ENUMERATION, so treat it as examples rather than as the
  * set: an enumeration misses what is not in it. This guard found ELEVEN unquotable
