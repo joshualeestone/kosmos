@@ -50,6 +50,12 @@ kosmos_require_free_mb "${KOSMOS_HARNESS_MIN_FREE_MB:-3072}" "${TMPDIR:-/tmp}" "
 # cut's own run (KOSMOS_INSTALL_GATE=1) is the cut and never refuses itself;
 # tools/test-cut-guard.sh shows the guard red and green.
 . "$HERE/tools/lib/cut-guard.sh"
+# #1796: declare THIS run an install harness (it holds the fixed install-gate port),
+# so a cut starting later sees a RUN via its marker -- while editing/`bash -n`ing/
+# `git add`ing test-install.sh, or a worktree named after it, marks nothing and so
+# never blocks a cut. Marked unconditionally: the cut's own KOSMOS_INSTALL_GATE run
+# holds the port too, and the cut's harness-check already ran at its start.
+kosmos_mark_run harness
 # kosmos#955: the bounded #910 port selftest (bounded_run + the current-vs-behind
 # premise check), so a stale bundle FAILS this run instead of hanging it.
 . "$HERE/tools/lib/app-port-selftest.sh"

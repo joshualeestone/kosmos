@@ -189,6 +189,10 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # what THIS is: it excludes the caller's own pid, and tools/test-cut-guard.sh
 # runs a real `bash tools/release.sh` to prove it does not refuse itself.
 . "$REPO/tools/lib/cut-guard.sh"
+# #1796: declare THIS run a cut before the checks below, so the cut-check excludes
+# our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
+# later can see us. A crash leaves a dead-pid marker the next reader cleans.
+kosmos_mark_run cut
 if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
   kosmos_refuse_if_cut_live "a second cut" || exit 1
 fi

@@ -4,6 +4,11 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/cut-guard.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+# #1796: isolate the run-marker dir so the always-on marker arm reads THIS test's
+# fixtures, never a real marker a live run on this box may have left in the default
+# /tmp dir. The existing arms below get an empty dir (marker arm inert); the marker
+# arms at the end point it at populated fixtures.
+export KOSMOS_RUN_MARKER_DIR="$T/markers-empty"; mkdir -p "$KOSMOS_RUN_MARKER_DIR"
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
@@ -162,5 +167,53 @@ else
     || fail "a live harness was not detected: rc=$rc out=$out"
   kill "$harness" 2>/dev/null; wait "$harness" 2>/dev/null
 fi
+
+# --- #1796: the marker arm, driven by KOSMOS_RUN_MARKER_DIR. Each arm uses a fresh
+# --- dir and probe-quiet (the NAME arm clean), so ONLY the marker arm can fire --
+# --- proving it works independently of the pgrep detection.
+# A live foreign-cookie marker refuses even when the name arm is clean.
+M1="$T/m1"; mkdir -p "$M1"; ( sleep 30 ) & p1=$!; printf 'FOREIGN\n' > "$M1/cut.$p1"
+out="$(KOSMOS_RUN_MARKER_DIR="$M1" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && pass "#1796 a live marked cut (foreign cookie) refuses with the name arm clean" \
+  || fail "#1796 marked cut did not refuse (rc=$rc, $out)"
+has "$out" "pid $p1" && pass "#1796 and it names the marked run's pid" || fail "#1796 did not name the marked pid: $out"
+kill "$p1" 2>/dev/null; wait "$p1" 2>/dev/null
+
+# The caller's OWN marker (matching cookie) is excluded -- the self-refuse outage.
+M2="$T/m2"; mkdir -p "$M2"; ( sleep 30 ) & p2=$!; printf 'MINE\n' > "$M2/cut.$p2"
+out="$(KOSMOS_RUN_MARKER_DIR="$M2" KOSMOS_RUN_COOKIE_CUT=MINE KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#1796 the caller's OWN marker (matching cookie) is not a reason to refuse" \
+  || fail "#1796 own marker refused itself (rc=$rc, $out)"
+kill "$p2" 2>/dev/null; wait "$p2" 2>/dev/null
+
+# A stale (dead-pid) marker does not refuse, and is cleaned.
+M3="$T/m3"; mkdir -p "$M3"; ( exit 0 ) & p3=$!; wait "$p3" 2>/dev/null; printf 'FOREIGN\n' > "$M3/cut.$p3"
+out="$(KOSMOS_RUN_MARKER_DIR="$M3" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#1796 a stale (dead-pid) marker does not refuse -- a crash cannot brick the guard" \
+  || fail "#1796 stale marker refused (rc=$rc, $out)"
+[ ! -e "$M3/cut.$p3" ] && pass "#1796 and the stale marker was cleaned" || fail "#1796 stale marker not cleaned"
+
+# Working on the script (no marker at all) does not refuse.
+M4="$T/m4"; mkdir -p "$M4"
+out="$(KOSMOS_RUN_MARKER_DIR="$M4" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#1796 no marker (working on the script, not running it) does not refuse" \
+  || fail "#1796 empty marker dir refused (rc=$rc, $out)"
+
+# END-TO-END: kosmos_mark_run makes a real run detectable by a separate guard call.
+M5="$T/m5"
+cat > "$T/mark-harness.sh" <<SH
+#!/bin/bash
+. "$HERE/lib/cut-guard.sh"
+kosmos_mark_run harness
+sleep 30
+SH
+chmod +x "$T/mark-harness.sh"
+KOSMOS_RUN_MARKER_DIR="$M5" bash "$T/mark-harness.sh" & p5=$!
+sleep 1
+out="$(KOSMOS_RUN_MARKER_DIR="$M5" KOSMOS_HARNESS_PROBE="$T/probe-quiet" kosmos_refuse_if_harness_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && pass "#1796 kosmos_mark_run harness makes a real run detectable by the guard (marker written, pid $p5)" \
+  || fail "#1796 a kosmos_mark_run harness was not detected (rc=$rc, $out)"
+# and that same run, checking for ITS OWN type, does not refuse itself (cookie set in-process).
+kill "$p5" 2>/dev/null; wait "$p5" 2>/dev/null
 
 echo "cut guard: $fails failures"; [ "$fails" -eq 0 ]
