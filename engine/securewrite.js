@@ -302,8 +302,14 @@ function writeSecret(file, data, mode) {
        error handling. `fd !== null` is the fact that the file was really opened and
        really truncated; `wrote` is not. */
     if (fd !== null) {
-      /* Restore THROUGH the descriptor, before closing it. `O_NOFOLLOW` already
-         proved this fd is not a symlink at open time, so it cannot be redirected;
+      /* Restore THROUGH the descriptor, before closing it. Where `O_NOFOLLOW`
+         exists it proved this fd is not a symlink at open time, so the fd cannot be
+         redirected. Where it does not (win32, `NOFOLLOW` undefined) the hand check
+         above the open is the only defence, and a link swapped in AFTER that check
+         is followed by the open itself: the restore through this fd then lands
+         wherever the open landed, which is the disclosed gap of the hand check and
+         not something the restore can repair. The descriptor still beats a path
+         write there, because a path write can be redirected a SECOND time;
          a path-based write here could be, by a link swapped in after the close.
          Best effort by design: whatever brought us here may defeat the restore too,
          and the original error still propagates. */
