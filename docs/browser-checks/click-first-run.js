@@ -300,7 +300,9 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     // write-my-own build): loaded means the radios are visible, which only
     // the fetch un-hides.
     await page.waitForSelector('#roles-list .pick2', { state: 'visible', timeout: 5000 }).catch(() => {});
-    ok((await page.locator('#roles-list .pick2:visible').count()) === 3, 'with its roles actually loaded');
+    // Four since #1652 added "import an agent from a file" as a fourth .pick2
+    // (pick-import). Exact count, so an unloaded/short role list still reds.
+    ok((await page.locator('#roles-list .pick2:visible').count()) === 4, 'with its roles actually loaded');
     ok(await page.isVisible('#cstep-role'), 'on step one of creating, not somewhere mid-flow');
     await ctx.close();
   }
