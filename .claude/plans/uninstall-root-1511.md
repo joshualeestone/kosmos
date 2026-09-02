@@ -50,6 +50,20 @@ odd answer must not steer a delete.
 > KOSMOS_HOME is refused for). And the consult is bounded by a shell watchdog, because
 > it runs whatever JavaScript is installed and a hang at the capture would be silent.
 
+> 📌 CORRECTED after the fourth blind review. "Six refusals" above counts the symlink
+> case separately; the code says FIVE and lists five, and the symlink and case-variant
+> cases are members of the system-Library rule, which now compares the resolved
+> folder's parent by DEVICE:INODE as well as by string (so a symlink at the parent, a
+> symlink at the LEAF, and a case variant on a case-insensitive filesystem all land
+> in it; the earlier "not covered" caveat is gone). The watchdog is a poll loop that
+> exits by itself: the first version, `sleep N; kill`, left a process behind on EVERY
+> outcome, and on a non-zero consult exit it outlived the uninstall because `wait`
+> aborted the subshell under `set -e` before the kill. Every resolution in the helper
+> is guarded with `||` so an unenterable directory produces a sentence, not a silent
+> abort at an assignment. And the test now asserts the refusal SENTENCE on every
+> refusal arm, because a helper that could not parse satisfied "nothing on stdout,
+> non-zero" for twelve arms; arm 0 is `sh -n`.
+
 One call, captured into `_support` before anything is removed; `_remote_state`,
 the supervisor-ownership proof, the supervisor removal, the remembered answers, the
 litter sweep and the closing sentence all read that value. Three literal definitions

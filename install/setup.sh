@@ -1068,9 +1068,17 @@ _kosmos_data_root() {
     # returns would hang the uninstall silently at the capture, which this file
     # names as the worst outcome (a hang with no sentence). macOS has no `timeout`,
     # so a shell watchdog kills the consult after KOSMOS_DATA_ROOT_CONSULT_SECONDS
-    # (default 10; the test sets it low) and a killed consult falls through to the
-    # literal exactly like the exit-3 path. A JS-side timer cannot do this: a
-    # synchronous hang blocks the loop that would fire it.
+    # (default 10; the test sets it low; a non-numeric value falls back to 10) and a
+    # killed consult falls through to the literal exactly like the exit-3 path. A
+    # JS-side timer cannot do this: a synchronous hang blocks the loop that would
+    # fire it.
+    # 🛑 THE WATCHDOG POLLS AND EXITS BY ITSELF. The first version was `sleep N; kill`,
+    # and it left a process behind on EVERY outcome: on success the `sleep` was
+    # orphaned for the rest of N, and on a non-zero consult exit `wait` aborted this
+    # subshell under set -e before the watchdog was killed, so it outlived the
+    # uninstall and fired at a dead pid. A loop on `kill -0` ends the moment node does.
+    _kdr_secs="${KOSMOS_DATA_ROOT_CONSULT_SECONDS:-10}"
+    case "$_kdr_secs" in ''|*[!0-9]*) _kdr_secs=10 ;; esac
     _kdr="$(
       KOSMOS_STORE="$KOSMOS_HOME/app/engine/store.js" "$KOSMOS_HOME/runtime/bin/node" -e '
         const s = require(process.env.KOSMOS_STORE);
@@ -1078,10 +1086,9 @@ _kosmos_data_root() {
         process.stdout.write(String(s.dataRootFor(process.platform, require("os").homedir(), process.env)));
       ' 2>/dev/null &
       _kdr_pid=$!
-      ( sleep "${KOSMOS_DATA_ROOT_CONSULT_SECONDS:-10}"; kill "$_kdr_pid" 2>/dev/null ) >/dev/null 2>&1 &
-      _kdr_wd=$!
-      wait "$_kdr_pid" 2>/dev/null; _kdr_rc=$?
-      kill "$_kdr_wd" 2>/dev/null
+      ( _n=0; while kill -0 "$_kdr_pid" 2>/dev/null; do
+          _n=$((_n+1)); [ "$_n" -gt "$_kdr_secs" ] && kill "$_kdr_pid" 2>/dev/null; sleep 1; done ) >/dev/null 2>&1 &
+      _kdr_rc=0; wait "$_kdr_pid" 2>/dev/null || _kdr_rc=$?
       exit "$_kdr_rc"
     )" || _kdr=""
   fi
@@ -1090,53 +1097,80 @@ _kosmos_data_root() {
     *)
       # The fallback, normalised the way the guard below normalises its own
       # operands (`//` squeezed, trailing `/` dropped), so the two derivations
-      # agree on the string and not only on the directory.
+      # agree on the string and not only on the directory. ⚠️ A consult answer that
+      # is NOT absolute lands here too, on purpose: it is what an old or odd store.js
+      # returns, and the literal is the right answer for that install. An ABSOLUTE
+      # answer without the leaf is refused below instead, because that is a store.js
+      # answering with a different contract, and guessing past it steers a delete.
       _kdr="$(printf '%s' "${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}" | /usr/bin/tr -s '/')"
       _kdr="${_kdr%/}/AgentWorkforce" ;;
   esac
-  # 🛑 THE REFUSALS ARE ON THE RESULT, AND THERE ARE THREE. Every one is a delete
-  # that a bad input would have steered, and each was found by construction:
-  #   not absolute     `AGENT_WORKFORCE_DATA=rel` deleted relative to the cwd
-  #   no /AgentWorkforce leaf   every rm below is bounded by that leaf; a consult
+  # 🛑 THE REFUSALS ARE ON THE RESULT, AND THERE ARE FIVE. IF YOU ADD A SIXTH, CHANGE
+  # THE WORD FIVE. Every one is a delete that a bad input would have steered, and
+  # each was found by construction:
+  #   1 not absolute    `AGENT_WORKFORCE_DATA=rel` deleted relative to the cwd
+  #   2 no /AgentWorkforce leaf   every rm below is bounded by that leaf; a consult
   #                    answer of "/" or "$HOME" would have made "$_support/bin"
   #                    mean /bin or ~/bin. The trust boundary moved from a literal
   #                    to whatever the installed store.js returns, so the leaf is
-  #                    checked here rather than assumed.
-  #   the system Library   HOME="" (set -u does not catch empty), HOME=/ and HOME=//
-  #                    all resolve to /Library/Application Support, which no
-  #                    per-user install owns. Refused by RESULT, and the parent is
-  #                    canonicalised first (`pwd -P`) so a symlink to it is refused
-  #                    too. ⚠️ NOT COVERED: a case variant of that folder on a
-  #                    case-insensitive filesystem; the string check cannot see it.
-  #   a . or .. component   `/.`, `/x/..` and friends are the same folders by other
-  #                    spellings, and every string comparison here is blind to them.
-  #                    Refused outright rather than resolved.
-  #   a shell-significant character   the value is spliced into a `grep -F` pattern
-  #                    that gates `launchctl bootout` and `rm -f` on every agent
-  #                    job, and grep -F treats a NEWLINE in the pattern as a
+  #                    checked here rather than assumed. (`/AgentWorkforce` directly
+  #                    under the root has the leaf and no parent, and is refused by
+  #                    the same rule.)
+  #   3 the system Library   HOME="" (set -u does not catch empty), HOME=/ and
+  #                    HOME=// all resolve to /Library/Application Support, which no
+  #                    per-user install owns. Refused by RESULT, and compared by
+  #                    DEVICE:INODE as well as by string: the folder the answer
+  #                    resolves to (through a symlink at the parent OR at the leaf,
+  #                    and through a case variant on a case-insensitive filesystem)
+  #                    must not have the system folder as its parent.
+  #   4 a . or .. component   `/.`, `/x/..` and friends are the same folders by
+  #                    other spellings, and every string comparison here is blind
+  #                    to them. Refused outright rather than resolved.
+  #   5 a shell-significant character   the value is spliced into a `grep -F`
+  #                    pattern that gates `launchctl bootout` and `rm -f` on every
+  #                    agent job, and grep -F treats a NEWLINE in the pattern as a
   #                    pattern SEPARATOR (the same mechanism KOSMOS_HOME is refused
   #                    for at the top of this file). Quote, backtick, dollar and
   #                    backslash are refused with it, the same posture.
   # Under this file's `set -e` a refusal aborts the uninstall at the capture,
-  # before any rm, with the reason on stderr where a terminal shows it.
+  # before any rm, with the reason on stderr where a terminal shows it. Every
+  # resolution below is guarded with `||` so an unenterable directory produces a
+  # sentence, not a silent abort at an assignment.
   _kdr_nl="$(printf '\n_')"; _kdr_nl="${_kdr_nl%_}"
   _kdr_canon="$_kdr"
   if [ -d "${_kdr%/*}" ]; then
-    _kdr_canon="$(cd "${_kdr%/*}" 2>/dev/null && pwd -P)/${_kdr##*/}"
+    _kdr_canon="$(cd "${_kdr%/*}" 2>/dev/null && pwd -P)/${_kdr##*/}" || _kdr_canon="$_kdr"
   fi
+  # The folder the answer actually names, following a leaf symlink if there is one,
+  # and its parent's device:inode. Empty when nothing exists yet, which is fine: a
+  # folder that does not exist has nothing under it to delete.
+  _kdr_real=""; _kdr_parent_ino=""; _kdr_sys_ino=""
+  if [ -d "$_kdr" ]; then _kdr_real="$(cd "$_kdr" 2>/dev/null && pwd -P)" || _kdr_real=""; fi
+  if [ -n "$_kdr_real" ] && [ -d "${_kdr_real%/*}" ]; then
+    _kdr_parent_ino="$(/usr/bin/stat -L -f '%d:%i' "${_kdr_real%/*}" 2>/dev/null)" || _kdr_parent_ino=""
+  elif [ -d "${_kdr%/*}" ]; then
+    _kdr_parent_ino="$(/usr/bin/stat -L -f '%d:%i' "${_kdr%/*}" 2>/dev/null)" || _kdr_parent_ino=""
+  fi
+  _kdr_sys_ino="$(/usr/bin/stat -L -f '%d:%i' "/Library/Application Support" 2>/dev/null)" || _kdr_sys_ino=""
   case "$_kdr" in
     *"$_kdr_nl"*|*\'*|*\"*|*\`*|*\$*|*\\*)
       _kdr_why="it carries a newline, quote, backtick, dollar or backslash, which the ownership checks below cannot be trusted with" ;;
     */./*|*/../*|*/.|*/..)
       _kdr_why="it carries a . or .. component, which is the same folder under a spelling none of the checks here can see" ;;
-    *) case "$_kdr_canon" in
-         "/Library/Application Support/AgentWorkforce")
-           _kdr_why="that is the system-wide Library, which no per-user install owns (an empty or / HOME resolves here)" ;;
-         /*/AgentWorkforce) printf '%s' "$_kdr"; return 0 ;;
-         /*) _kdr_why="it does not end in /AgentWorkforce, the folder name every removal below is bounded by" ;;
-         *)  _kdr_why="it is not an absolute path" ;;
-       esac ;;
+    *)
+      if [ -n "$_kdr_sys_ino" ] && [ "$_kdr_parent_ino" = "$_kdr_sys_ino" ]; then
+        _kdr_why="the folder it names sits in the system-wide Library, which no per-user install owns (an empty or / HOME, or a link there, resolves here)"
+      else
+        case "$_kdr_canon" in
+          "/Library/Application Support/AgentWorkforce")
+            _kdr_why="that is the system-wide Library, which no per-user install owns (an empty or / HOME resolves here)" ;;
+          /*/AgentWorkforce) printf '%s' "$_kdr"; return 0 ;;
+          /*) _kdr_why="it does not end in /AgentWorkforce with a parent folder above it, the shape every removal below is bounded by" ;;
+          *)  _kdr_why="it is not an absolute path" ;;
+        esac
+      fi ;;
   esac
+  # The offending value is printed through %s, never spliced into the format.
   printf 'refusing to uninstall: the data folder resolved to "%s", and %s. Check HOME and AGENT_WORKFORCE_DATA.\n' "$_kdr" "$_kdr_why" >&2
   return 1
 }

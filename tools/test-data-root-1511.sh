@@ -33,6 +33,20 @@ run_err() { /bin/sh -euc "set -o pipefail; $1; . '$HELPER'; _kosmos_data_root" 2
 # trailing slash does not red five arms for a reason none of them names.
 EXP_DEFAULT="$(printf '%s' "$HOME/Library/Application Support" | /usr/bin/tr -s '/')"; EXP_DEFAULT="${EXP_DEFAULT%/}/AgentWorkforce"
 
+# 0. THE FILE PARSES. Every refusal arm below asserts "nothing on stdout, non-zero",
+#    and a helper that cannot parse satisfies that. Named here so a syntax error reds
+#    by name rather than as ten refusals passing while the acceptance arms fail.
+if sh -n "$SETUP" 2>/dev/null; then ok "install/setup.sh parses under sh -n"
+else bad "install/setup.sh does not parse; every refusal arm below is void" "$(sh -n "$SETUP" 2>&1 | head -1)"; fi
+# A refusal is nothing on stdout, non-zero, AND the sentence on stderr. All three, every
+# time: the sentence is what distinguishes a refusal from a crash with the same shape.
+refused() {   # $1 = preamble, $2 = a word the reason must contain
+  _r=$(run "$1"); _rc=$?
+  _e=$(run_err "$1" || true)
+  [ -z "$_r" ] && [ "$_rc" -ne 0 ] && case "$_e" in *"refusing to uninstall"*"$2"*) return 0 ;; esac
+  printf 'rc=%s out=[%s] err=[%s]' "$_rc" "$_r" "$(printf '%s' "$_e" | head -c 160)"; return 1
+}
+
 # 1. no runtime: the literal, which for every install older than #570 IS the path
 r=$(run 'KOSMOS_HOME=/nonexistent; unset AGENT_WORKFORCE_DATA')
 [ "$r" = "$EXP_DEFAULT" ] \
@@ -104,18 +118,18 @@ e=$(run_err 'KOSMOS_HOME=/nonexistent; unset AGENT_WORKFORCE_DATA; HOME=""' || t
 
 # 9b. AND HOME=/ REACHES THE SAME FOLDER. The refusal is on the RESULT, so every
 #     spelling of a stripped HOME lands in one case; this arm pins the second spelling.
-r=$(run 'KOSMOS_HOME=/nonexistent; unset AGENT_WORKFORCE_DATA; HOME=/'); rc=$?
-[ -z "$r" ] && [ "$rc" -ne 0 ] && ok "HOME=/ is refused the same way, because the refusal reads the result" \
-  || bad "HOME=/ is refused the same way, because the refusal reads the result" "rc=$rc out=[$r]"
+d=$(refused 'KOSMOS_HOME=/nonexistent; unset AGENT_WORKFORCE_DATA; HOME=/' 'system-wide Library') \
+  && ok "HOME=/ is refused the same way, because the refusal reads the result" \
+  || bad "HOME=/ is refused the same way, because the refusal reads the result" "$d"
 
 # 9c. THE CONSULT'S ANSWER MUST CARRY THE LEAF. Every rm below the capture is bounded
 #     by /AgentWorkforce; an installed store.js returning "/" or "$HOME" would have
 #     made "$_support/bin" mean /bin or ~/bin. Arm 3's fake happens to include the
 #     leaf, so nothing else exercises this.
 printf '%s\n' "module.exports = { dataRootFor: () => '/tmp/ONLY-NODE-1511' };" > "$FAKE/app/engine/store.js"
-r=$(run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA"); rc=$?
-[ -z "$r" ] && [ "$rc" -ne 0 ] && ok "an absolute consult answer WITHOUT the /AgentWorkforce leaf is refused" \
-  || bad "an absolute consult answer WITHOUT the /AgentWorkforce leaf is refused" "rc=$rc out=[$r]"
+d=$(refused "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA" 'does not end in /AgentWorkforce') \
+  && ok "an absolute consult answer WITHOUT the /AgentWorkforce leaf is refused" \
+  || bad "an absolute consult answer WITHOUT the /AgentWorkforce leaf is refused" "$d"
 
 # 10. THE CONSULT HONOURS THE SANDBOX SEAM, through the REAL store.js. The #924
 #     shape: runtime present AND an override set. Replacing process.env with {} in
@@ -138,17 +152,42 @@ r=$(run 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=/tmp//sbx-1511/')
 for inp in 'KOSMOS_HOME=/nonexistent; unset AGENT_WORKFORCE_DATA; HOME=/.' \
            'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=/tmp/sbx-1511/x/..' \
            'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=/tmp/sbx-1511/.'; do
-  r=$(run "$inp"); rc=$?
-  [ -z "$r" ] && [ "$rc" -ne 0 ] && ok "a . or .. component is refused ($inp)" \
-    || bad "a . or .. component is refused ($inp)" "rc=$rc out=[$r]"
+  d=$(refused "$inp" '. or .. component') && ok "a . or .. component is refused ($inp)" \
+    || bad "a . or .. component is refused ($inp)" "$d"
 done
 
 # 9e. A SYMLINK TO THE SYSTEM LIBRARY IS REFUSED, because the parent is canonicalised
 #     before the comparison. Control: a symlink to an ordinary folder is accepted.
 LNK="$(mktemp -d)"; ln -s "/Library/Application Support" "$LNK/lnk"; mkdir -p "$LNK/plain"; ln -s "$LNK/plain" "$LNK/ok"
-r=$(run "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$LNK/lnk"); rc=$?
-[ -z "$r" ] && [ "$rc" -ne 0 ] && ok "a symlink to the system Library is refused (parent canonicalised)" \
-  || bad "a symlink to the system Library is refused (parent canonicalised)" "rc=$rc out=[$r]"
+d=$(refused "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$LNK/lnk" 'system-wide Library') \
+  && ok "a symlink to the system Library is refused (parent canonicalised)" \
+  || bad "a symlink to the system Library is refused (parent canonicalised)" "$d"
+# A symlink AT THE LEAF, pointing into the system folder: the parent canonicalisation
+# cannot see it, rm -rf traverses a leaf link as a directory, and every removal
+# below appends a component to it. Caught by comparing the resolved folder's
+# parent by device:inode. The target is any real subfolder of the system folder.
+SYSSUB="$(ls "/Library/Application Support" | head -1)"
+mkdir -p "$LNK/leaf"; ln -sfn "/Library/Application Support/$SYSSUB" "$LNK/leaf/AgentWorkforce"
+d=$(refused "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$LNK/leaf" 'system-wide Library') \
+  && ok "a symlink AT THE LEAF into the system Library is refused (parent compared by inode)" \
+  || bad "a symlink AT THE LEAF into the system Library is refused (parent compared by inode)" "$d"
+mkdir -p "$LNK/leafok" "$LNK/target"; ln -sfn "$LNK/target" "$LNK/leafok/AgentWorkforce"
+r=$(run "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$LNK/leafok"); rc=$?
+[ "$rc" -eq 0 ] && [ "$r" = "$LNK/leafok/AgentWorkforce" ] && ok "CONTROL: a leaf symlink to an ordinary folder is still accepted" \
+  || bad "CONTROL: a leaf symlink to an ordinary folder is still accepted" "rc=$rc out=[$r]"
+# A CASE VARIANT of the system folder on a case-insensitive filesystem: the string
+# check and sh's pwd -P both keep the typed case; the inode does not.
+d=$(refused 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA="/LIBRARY/APPLICATION SUPPORT"' 'system-wide Library') \
+  && ok "a case variant of the system Library is refused (compared by inode)" \
+  || bad "a case variant of the system Library is refused (compared by inode)" "$d"
+# A parent that exists but cannot be entered must produce a SENTENCE, not a silent
+# abort at the canonicalisation assignment under set -e.
+mkdir -p "$LNK/nox"; chmod 600 "$LNK/nox"
+d=$(refused "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$LNK/nox" 'refusing') && ok "an unenterable parent still gets a refusal sentence, not a silent abort" \
+  || { r=$(run "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$LNK/nox"); rc=$?; [ "$rc" -eq 0 ] && [ -n "$r" ] \
+       && ok "an unenterable parent is accepted with its raw path (string checks still ran)" \
+       || bad "an unenterable parent aborted with no sentence" "$d rc=$rc out=[$r]"; }
+chmod 700 "$LNK/nox"
 r=$(run "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$LNK/ok"); rc=$?
 [ "$rc" -eq 0 ] && [ "$r" = "$LNK/ok/AgentWorkforce" ] && ok "CONTROL: a symlink to an ordinary folder is still accepted" \
   || bad "CONTROL: a symlink to an ordinary folder is still accepted" "rc=$rc out=[$r]"
@@ -164,9 +203,9 @@ NL="$(printf '\n_')"; NL="${NL%_}"
 # preamble breaks the preamble's own quoting, and a syntax error reads as a refusal.
 for v in "/tmp/a${NL}/tmp/b" "/tmp/it's" '/tmp/$x' '/tmp/back\\slash'; do
   export KDR_V="$v"
-  r=$(run 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA="$KDR_V"'); rc=$?
-  [ -z "$r" ] && [ "$rc" -ne 0 ] && ok "a shell-significant character is refused ($(printf '%s' "$v" | tr '\n' '|'))" \
-    || bad "a shell-significant character is refused ($(printf '%s' "$v" | tr '\n' '|'))" "rc=$rc out=[$r]"
+  d=$(refused 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA="$KDR_V"' 'newline, quote') \
+    && ok "a shell-significant character is refused ($(printf '%s' "$v" | tr '\n' '|'))" \
+    || bad "a shell-significant character is refused ($(printf '%s' "$v" | tr '\n' '|'))" "$d"
 done
 
 # 9g. THE CONSULT IS BOUNDED. A store.js that never returns from require would hang
@@ -177,13 +216,30 @@ printf '%s\n' "while (true) {}" > "$FAKE/app/engine/store.js"
 ( run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA; KOSMOS_DATA_ROOT_CONSULT_SECONDS=1" > "$FAKE/hang.out" 2>/dev/null; printf '\nrc=%s\n' "$?" >> "$FAKE/hang.out" ) &
 HP=$!; i=0
 while kill -0 "$HP" 2>/dev/null && [ "$i" -lt 8 ]; do sleep 1; i=$((i+1)); done
-if kill -0 "$HP" 2>/dev/null; then kill "$HP" 2>/dev/null; pkill -f 'while \(true\) \{\}' 2>/dev/null; bad "a hanging store.js is killed by the watchdog and the helper falls back" "still running after ${i}s"
+if kill -0 "$HP" 2>/dev/null; then kill "$HP" 2>/dev/null; pkill -f "$FAKE/runtime/bin/node" 2>/dev/null; pkill -f "KOSMOS_HOME=$FAKE" 2>/dev/null; bad "a hanging store.js is killed by the watchdog and the helper falls back" "still running after ${i}s"
 else
   hr=$(head -1 "$FAKE/hang.out"); [ "$hr" = "$EXP_DEFAULT" ] && grep -q '^rc=0$' "$FAKE/hang.out" \
     && ok "a hanging store.js is killed by the watchdog and the helper falls back (${i}s)" \
     || bad "a hanging store.js is killed by the watchdog and the helper falls back" "$(tr '\n' ' ' < "$FAKE/hang.out")"
 fi
-pkill -f 'while \(true\) \{\}' 2>/dev/null || true
+# The string "while (true)" lives in the fixture file, not in node's argv, so a pkill
+# on it matched NOTHING and two hung nodes once outlived the suite at 100% CPU for
+# ten minutes. node's argv[0] is the fake runtime path; the run subshell carries
+# KOSMOS_HOME=$FAKE. Both are reachable.
+pkill -f "$FAKE/runtime/bin/node" 2>/dev/null || true; pkill -f "KOSMOS_HOME=$FAKE" 2>/dev/null || true
+
+# 9h. NOTHING IS LEFT BEHIND ON EITHER CONSULT OUTCOME. The first watchdog was
+#     `sleep N; kill`: on success the sleep was orphaned for the rest of N, and on a
+#     non-zero exit `wait` aborted the subshell under set -e before the watchdog was
+#     killed. A distinctive N makes the leftover findable on a shared box.
+cp "$(dirname "$SETUP")/../engine/store.js" "$FAKE/app/engine/store.js"
+run "KOSMOS_HOME=$FAKE; export AGENT_WORKFORCE_DATA=/tmp/sbx-1511; KOSMOS_DATA_ROOT_CONSULT_SECONDS=37" >/dev/null
+printf '%s\n' "module.exports = {};" > "$FAKE/app/engine/store.js"
+run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA; KOSMOS_DATA_ROOT_CONSULT_SECONDS=37" >/dev/null || true
+sleep 2
+left=$(pgrep -fx 'sleep 37' | wc -l | tr -d ' '); leftsh=$(pgrep -f "KOSMOS_HOME=$FAKE" | wc -l | tr -d ' ')
+[ "$left" = "0" ] && [ "$leftsh" = "0" ] && ok "no watchdog, sleep or helper subshell outlives the consult on either outcome" \
+  || { bad "the consult left processes behind" "sleep-37=$left helper-subshells=$leftsh"; pkill -fx 'sleep 37' 2>/dev/null; pkill -f "KOSMOS_HOME=$FAKE" 2>/dev/null; }
 
 # 11b. THE VALUE THAT REACHES A DELETING CONSUMER CAME FROM THE CONSULT, BEFORE THE
 #      DELETE. The two static arms below pin the call's count and position; they
