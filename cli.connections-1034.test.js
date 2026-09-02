@@ -1178,6 +1178,9 @@ test('a version-skewed board cannot produce a negative or nonsensical count', as
     { label: 'negative readable', howMany: 1, howManyWorking: 0, howManyReadable: -1 },
     { label: 'negative working', howMany: 2, howManyWorking: -3, howManyReadable: 2 },
     { label: 'working above readable', howMany: 3, howManyWorking: 9, howManyReadable: 2 },
+    /* A negative TOTAL: clamping the parts to 0 still printed ", 0 sign-ins
+       working" for a provider the board said had -3 rows. No count at all. */
+    { label: 'negative total', howMany: -3, howManyWorking: 0, howManyReadable: 0, forbid: /sign-ins? working|we could not check/ },
   ];
   for (const h of hostile) {
     const p = P();
@@ -1190,6 +1193,7 @@ test('a version-skewed board cannot produce a negative or nonsensical count', as
       const line = r.out.split('\n').find((l) => /^\s*Claude:/.test(l)) || '';
       assert.doesNotMatch(line, /-\d/, `${h.label}: a negative number reached a person: ${JSON.stringify(line)}`);
       assert.doesNotMatch(line, /of -/, `${h.label}: a negative denominator was printed: ${JSON.stringify(line)}`);
+      if (h.forbid) assert.doesNotMatch(line, h.forbid, `${h.label}: a count claim was printed for a nonsensical total: ${JSON.stringify(line)}`);
     });
   }
 

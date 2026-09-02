@@ -966,7 +966,9 @@ cmd_connections() {
              case exists to suppress. Unreachable from honest data (howMany === 0
              implies m === 0), but two lines encoding opposite intents is exactly
              what this block is here to prevent, and the next edit inherits it. */
-          if (p.howMany === 0) {
+          /* Zero AND negative: a board that says -3 rows gets no count sentence
+             at all rather than a clamped "0 sign-ins working". */
+          if (p.howMany <= 0) {
             many = "";
           } else {
             /* w cannot exceed m. Each falls back to p.howMany independently, so a
@@ -980,8 +982,7 @@ cmd_connections() {
                with a board answering
                howManyReadable -1: ", 0 of -1 sign-ins working, 2 we could not
                check" - a NEGATIVE denominator, and an unchecked count larger than
-               the total. The comment claimed coverage it did not have, which on
-               this branch is the defect itself rather than a nit.
+               the total.
                Unreachable from our own boundary; every neighbouring guard in this
                block exists for a version-skewed board the CLI does not control,
                which is what made this the odd omission. */
@@ -1030,13 +1031,9 @@ cmd_connections() {
            it TWICE in exactly the situation that matters most:
              Claude: not connected (the program it needs is not installed...). The
              program it needs is not installed on this computer yet
-           The comment on the previous version reasoned that the module sentence
-           "is reachable when the state is none" and then appended unconditionally,
-           so the two overlapped precisely there.
-           🛑 AND 31 CLI TESTS RENDERED THE DUPLICATE WITHOUT NOTICING, because the
-           GPT row in the shared fixture is exactly none + not-installed and nothing
-           asserted against it. The arm I did write covered connected plus
-           not-installed, where the suffix genuinely adds information.
+           The module sentence is reachable when the state is none, so an
+           unconditional append here overlaps it precisely there; the suffix
+           adds information only beside connected + not-installed.
            NOTE no apostrophe anywhere in this comment. This renderer is a
            single-quoted shell string and one apostrophe ends the program, which
            is what the apostrophe guard below exists to catch. */

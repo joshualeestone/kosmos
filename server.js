@@ -292,16 +292,25 @@ const settleDoors = (jobs) => {
  * timing-dependent shape that is hardest to debug and easiest to dismiss as a
  * flake. Treat what comes back as frozen; if you need to annotate, copy first.
  */
-const readFirstPartyDoors = inflight.collapse(() => settleDoors({
-  '/api/github': askDoor(async () => {
+/* ONE TABLE for the first-party doors. The sweep and the names an agent may
+   read are both derived from it, so a door cannot be swept (and paid for) and
+   then dropped at the agent view's allowlist, or renamed in one place and not
+   the other. Two literals keyed by route would drift exactly that way, and a
+   count guard cannot see a typo that removes one route and adds another. */
+const FIRST_PARTY_DOORS = Object.freeze({
+  '/api/github': { name: 'GitHub', ask: async () => {
     const st = await github.state();
     if (st && st.connected) return st;
     if (st && st.gh === 'missing') { const d = await githubdevice.state(); if (d && d.connected) return d; }
     return st;
-  }),
-  '/api/vercel': askDoor(() => vercel.state()),
-  '/api/cloudflare': askDoor(() => cloudflare.state()),
-}));
+  } },
+  '/api/vercel': { name: 'Vercel', ask: () => vercel.state() },
+  '/api/cloudflare': { name: 'Cloudflare', ask: () => cloudflare.state() },
+});
+const firstPartyDoorNames = () => Object.fromEntries(Object.entries(FIRST_PARTY_DOORS).map(([route, d]) => [route, d.name]));
+const readFirstPartyDoors = inflight.collapse(() => settleDoors(
+  Object.fromEntries(Object.entries(FIRST_PARTY_DOORS).map(([route, d]) => [route, askDoor(d.ask)]))
+));
 
 const readConnectionsShelf = inflight.collapse(() => {
   const jobs = {};
@@ -4414,11 +4423,12 @@ const server = http.createServer((req, res) => {
        asking at once cost ONE sweep, and so a change to the github fallback
        cannot land on one caller and miss the other. See that function's header
        for why a private copy was the bug. */
-    /* The names the agent view is allowed to print, resolved HERE where the
-       doors are known, so the boundary never has to derive a name from a key
-       it was handed. `tokendoors.routes()` returns `/api/svc/<slug>`, which is
-       why a strip-the-prefix rule printed `svc/discord` at a person. */
-    const doorNames = { '/api/github': 'GitHub', '/api/vercel': 'Vercel', '/api/cloudflare': 'Cloudflare' };
+    /* The names the agent view is allowed to print, derived from the SAME
+       table the sweep runs from (`FIRST_PARTY_DOORS`), so the boundary never
+       has to derive a name from a key it was handed and the two cannot drift.
+       `tokendoors.routes()` returns `/api/svc/<slug>`, which is why a
+       strip-the-prefix rule printed `svc/discord` at a person. */
+    const doorNames = firstPartyDoorNames();
     /* 🛑 THE TOKEN DOORS ARE DELIBERATELY NOT SWEPT HERE, AND THIS IS A MONEY DECISION
        RATHER THAN A PERFORMANCE ONE. `tokendoor.state()` has no cache: when a token is
        held it makes a LIVE AUTHENTICATED `verify()` REQUEST on every call. Several of

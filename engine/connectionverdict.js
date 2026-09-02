@@ -40,7 +40,7 @@
  * 🛑 ONE HONEST EXCEPTION, AND IT IS A CALLER CONTRACT RATHER THAN A PROPERTY OF
  * THIS FILE: `services[].name` is copied out of the `doorNames` map the caller
  * supplies. Resolving THROUGH an allowlist does not make the resolved value
- * stop being input, and an earlier comment here implied it did. It is safe
+ * stop being input. It is safe
  * because `server.js` builds that map from THREE LITERALS AND NOTHING ELSE --
  * so the guarantee lives at the call site. (The token doors are not in that
  * map: they were dropped from the agent view as a money decision, recorded at
@@ -358,11 +358,9 @@ function forAgent(raw) {
        (readableCount vs stateOf, whoName vs anyConnected) could not disagree
        either, until they did. One derivation, and the ordering is now a real
        dependency rather than a claim.
-       📌 FOUND BY IDENTITY, NOT BY POSITION. This read `providers[0]` while the
-       paragraph above argued that the scope must be anthropic SPECIFICALLY, and
-       recorded that the rule had already been broken once by `.some(...)`. An
-       index encodes "whichever is first": reorder the array or insert a third
-       provider and the comment stays true while the code stops matching it. */
+       📌 FOUND BY IDENTITY, NOT BY POSITION. `providers[0]` would encode
+       "whichever is first": reorder the array or insert a third provider and a
+       comment saying "anthropic" stays true while the code stops matching it. */
     signin: signinView(src.connect, (providers.find((x) => x && x.id === 'anthropic') || {}).signedIn === subscription.STATE.CONNECTED),
     services: serviceView(src.doors, src.doorNames),
   };
