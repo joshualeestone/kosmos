@@ -6949,14 +6949,20 @@ const server = http.createServer((req, res) => {
       let silent = {};
       try { silent = messages.unanswered(id, Date.now()); } catch { silent = {}; }
       if (asText) {
+        /* #1895: the operator's own zone, read ONCE for the whole render rather
+           than per line. Same best-effort contract as `silent` above -- a store
+           that cannot be read falls back to the board's own zone, which is the
+           machine the operator is sitting at, never to an error. */
+        let zone = null;
+        try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }
         const tail = rows.slice(-40);
         const lines = tail.flatMap((m) => {
-          const when = m.at ? String(m.at).slice(11, 16) : '--:--';
+          const when = messages.roomClock(m.at, zone);
           if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
           if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
           if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '')];
           const who = m.operator ? 'operator' : m.from;
-          const line = when + '  ' + who + ' -> ' + (Array.isArray(m.to) ? m.to.join(', ') : 'the room') + ': ' + String(m.text || '');
+          const line = when + '  ' + who + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + String(m.text || '');
           /* The same sentence the page shows, one per silent name, right
              under the post it is about (#563). */
           const owed = Array.isArray(silent[m.id]) ? silent[m.id] : [];
