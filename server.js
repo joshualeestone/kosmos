@@ -3356,7 +3356,7 @@ const server = http.createServer((req, res) => {
      own login on stdin and is never echoed, logged, or answered back. */
   if (pathname === '/api/accounts/openai' && req.method === 'POST') {
     readBody(req)
-      .then((raw) => {
+      .then(async (raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
         if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
@@ -3386,7 +3386,12 @@ const server = http.createServer((req, res) => {
           });
           return;
         }
-        const out = openaiAccounts.addWithKey({
+        /* #1315: live-validate the key with OpenAI at ADD time, not only later
+           on the badge. addWithKeyLive runs the same /v1/models check the badge
+           uses and refuses a positively-invalid key at entry, while still
+           accepting a key we cannot confirm bad (unreachable, or a
+           scope-restricted 401 that is not invalid_api_key). */
+        const out = await openaiAccounts.addWithKeyLive({
           key: body.key,
           label: body.label,
           codexBin: resolved.bin,

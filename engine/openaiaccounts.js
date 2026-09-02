@@ -369,7 +369,63 @@ function addWithKey({ key, label, codexBin }) {
     if (madeDir) { try { fs.rmSync(spot.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
     return { ok: false, because: 'the OpenAI runner did not accept that key' };
   }
-  return { ok: true, account: row };
+  /* `madeDir` rides on the success answer so a caller that undoes the add later
+     (addWithKeyLive, after a live rejection) can honour the SAME anti-litter
+     guard this function uses above: remove the whole directory only when we
+     created it, never one that was already here. */
+  return { ok: true, account: row, madeDir };
+}
+
+/**
+ * addWithKey, then confirm the key LIVE with OpenAI before the add stands (#1315).
+ *
+ * 🛑 THE SYMPTOM THIS FIXES: addWithKey validates a key only by `codex login
+ * --with-api-key`'s exit status, which is LOCAL ONLY -- a fabricated,
+ * never-valid key still exits 0 (see the live-check comment below). So the
+ * add route ACCEPTED a dead or typo'd key, and the account only read
+ * not-connected LATER, on the badge. To the person that is "I added my key and
+ * it will not connect." This runs the SAME live check the badge uses, at ADD
+ * time, so a key OpenAI positively rejects is refused at entry.
+ *
+ * ⚠️ IT REUSES checkLive's ASYMMETRY RATHER THAN REINVENTING IT, and that is
+ * the whole point. Only OpenAI's own `invalid_api_key` code is a positive
+ * rejection (checkLive maps it to NONE); a scope-restricted project key that
+ * 401s on model-listing while working fine for everything an agent does, or an
+ * unreachable OpenAI, is UNKNOWN -- and we ACCEPT those, never blocking a good
+ * key on an answer that does not confirm the key is bad. After a SUCCESSFUL
+ * addWithKey the auth file exists, so checkLive's other NONE branch (an absent
+ * file) cannot fire here: post-add, NONE means invalid_api_key and nothing else.
+ *
+ * Async because the live check is; addWithKey stays sync so its own callers and
+ * tests are untouched. Same {ok, account}/{ok:false, because} contract as
+ * addWithKey, so the one route calling it changes by one awaited word.
+ */
+async function addWithKeyLive({ key, label, codexBin }) {
+  const added = addWithKey({ key, label, codexBin });
+  if (!added.ok) return added;
+  const live = await checkLive(added.account.dir);
+  if (live.state === subscription.STATE.NONE) {
+    /* Positively rejected. Undo the add so no half-made, never-usable account
+       is left behind -- the same anti-litter promise addWithKey keeps on its
+       own local-failure path, extended to the one failure it could not see.
+       🛑 AND THE SAME GUARD, not a stronger one. addWithKey removes the whole
+       directory ONLY when it created it (`madeDir`), precisely so it never
+       deletes a directory that was already here -- addWithKey can succeed into a
+       pre-existing dir that merely lacked an auth.json (a reused work slot, or a
+       labelled `.codex-<label>` folder with other contents). So: whole dir only
+       when we made it; otherwise remove JUST the auth.json this add wrote, which
+       is safe because addWithKey only SUCCEEDS into a dir that had no auth.json
+       before (line refuses a taken label), so the file present now is ours to
+       undo and nothing else in that directory is. */
+    try {
+      if (added.madeDir) fs.rmSync(added.account.dir, { recursive: true, force: true });
+      else fs.rmSync(authFile(added.account.dir), { force: true });
+    } catch { /* best effort */ }
+    return { ok: false, because: 'OpenAI did not accept this key' };
+  }
+  /* `madeDir` was an internal detail for the cleanup above; it never belongs in
+     the answer the route serializes, so it does not ride out on success. */
+  return { ok: true, account: added.account };
 }
 
 /* ── live check (#960) ───────────────────────────────────────────────────
@@ -678,7 +734,7 @@ async function listLiveNow() {
 const listLive = inflight.collapse(listLiveNow);
 
 module.exports = {
-  list, identityOf, addWithKey, nextWorkDir, defaultDir, forgetAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+  list, identityOf, addWithKey, addWithKeyLive, nextWorkDir, defaultDir, forgetAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
   accountModels, chatModelsFromList,
