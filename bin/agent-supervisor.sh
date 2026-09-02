@@ -280,7 +280,21 @@ if [ -z "$adopt" ]; then
       # The bundled node first, the same one install/kosmos uses; then whatever
       # is on PATH, so a source checkout still works. Never a guess: each is
       # tested for executability before it is run.
-      for _n in "$_app/../runtime/bin/node" "$(command -v node 2>/dev/null || true)"; do
+      #
+      # \U0001f6d1 #1897: DERIVE NODE FROM $_eng, NOT $_app -- this is #1139 one
+      # variable over. $_app is `dirname($0)/..`, which is SUPPORT_DIR for every
+      # real agent (the supervisor is installed to SUPPORT_DIR/bin), so
+      # `$_app/../runtime/bin/node` pointed at ~/Library/Application Support/runtime,
+      # which does not exist. With no `node` on the agent's launchd PATH either
+      # (that PATH is only /usr/bin:/bin:/usr/sbin:/sbin), BOTH candidates were
+      # empty and the mint never ran -- no installed agent ever got a token, on
+      # any launch. $_eng is the engine the pointer already resolves correctly
+      # (KOSMOS_HOME/app/engine), and install/kosmos lays runtime beside app
+      # (setup.sh: `for part in bin app runtime`), so the bundled node is
+      # `$_eng/../../runtime/bin/node` -- true in the installed layout AND in the
+      # bundle (app/engine/../../runtime == bundle/runtime). A source checkout has
+      # no sibling runtime, so it still falls through to the PATH node below.
+      for _n in "$_eng/../../runtime/bin/node" "$(command -v node 2>/dev/null || true)"; do
         [ -n "${_n:-}" ] && [ -x "$_n" ] || continue
         # ⚠️ THE ROSTER NAME, NOT THE TMUX SESSION. Tokens are keyed on the name
         # the board files an agent under, which `status.js` derives as the
