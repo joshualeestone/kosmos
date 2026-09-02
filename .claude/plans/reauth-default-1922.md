@@ -138,3 +138,83 @@ weaker: it is true of this machine today rather than enforced by a test.
 
 **The code was written before this plan**, inverting the convention, because the card asked for a
 specific measurement first and I ran it. Recorded rather than papered over, as on `becomestuck-arm-1633`.
+
+## Findings from challenge-loop iteration 1
+
+**Three WARNINGs, one CONVENTION, three NITs, no BLOCKER. Two of the three WARNINGs found real
+defects in my reasoning, and one of them meant the fix was NOT sufficient on its own.**
+
+### 🛑 THE FIX ALONE DOES NOT RESOLVE THE USER'S SYMPTOM, AND THE PLAN SAID IT DID
+
+With `configDir` null, `start()` runs `subscription.check(undefined)` against the REAL default record.
+If that names a paid plan and `checkLive` does not return `NONE`, **`start()` takes its connected
+early exit and the sign-in never launches at all.**
+
+⚠️ **That is the card's exact machine state.** Default account, credential dead, row painted green.
+And `subscription.js:393` maps `parsed.loggedIn === true` straight to `CONNECTED`, while Angel
+measured that `claude auth status` reports `loggedIn: true` for a dead token. ⇒ **After this fix,
+"Sign in again" on that machine can answer "connected" instantly and do nothing.**
+
+**Pre-fix the default row always fell through**, because its scoped read hit the missing decoy. **So
+this is a behaviour change this branch introduced**, converging the default row onto the same #1560
+gate every labelled row already sits behind. Defensible, and it was unstated.
+
+⭐ **THE CONSEQUENCE FOR TRIAGE, AND IT IS THE IMPORTANT PART: #1922 IS NECESSARY BUT NOT SUFFICIENT.
+The write path is fixed here; the person still cannot recover until the credulous check (#1916) is
+fixed too**, because that check is what lets a dead credential hold the #1560 gate shut. Shipping
+this alone and calling the symptom resolved would be wrong.
+
+✅ **Both arms now drive the live check signed-out via `subscription.setRunner`**, which is both the
+card's real state and what pushes them past the early exit, and the default arm additionally asserts
+`phase !== 'connected'` -- so "routes correctly but runs nothing" now fails the test.
+
+### 🛑 MY LAUNCH-LAYER CONCLUSION CHECKED THE WRONG VARIABLE
+
+I swept `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, found it a test-only seam, and concluded "no
+`CLAUDE_CONFIG_DIR` is pushed, so the CLI uses its own default resolution".
+
+**Not pushing a variable is not the same as the child not having it.** The launch builds
+`['env', <bin>]` with no `-u`, so the CLI **inherits whatever `CLAUDE_CONFIG_DIR` the environment
+carries** -- and on a Kosmos-managed machine that is routinely a different account. This very shell
+carries one.
+
+⭐ **The codebase already states the rule on the read side** (`subscription.js:336-338`): it builds
+its env and `delete env.CLAUDE_CONFIG_DIR` **"rather than trusting it to be unset"**. ⇒ **The reader
+deleted; the writer merely omitted.** Fixed: the no-launch-dir branch now pushes `-u
+CLAUDE_CONFIG_DIR`, so the writer matches the reader.
+
+**Measured, with a control proving the leak was real:**
+
+```
+env -u CLAUDE_CONFIG_DIR sh -c ...   -> UNSET
+env sh -c ...            (control)   -> /tmp/leaky     <- the inheritance
+```
+
+📌 **This also repairs the plain first-sign-in path**, which has carried the same exposure since it
+was written and which my change did not touch.
+
+⚠️ **AND IT IS UNGUARDED BY A TEST, STATED PLAINLY.** Both harnesses
+(`server.connect.test.js:40`, `engine/connect.test.js:27`) SET the seam, so `launchDir` is always
+truthy and the new `else` branch never executes in either suite. **Guarding it means unsetting a seam
+the whole file depends on.** The evidence for it is the shell control above plus the read-side
+precedent -- weaker than a passing arm, and named as such rather than left to be discovered.
+
+### The third WARNING: my arms measured less than they read as
+
+Both arms early-exited before any launch decision (`phase: connected` on the default,
+`phase: idle` on the control), so neither reached the code the routing feeds. **The arm was not
+vacuous** -- the reviewer confirmed it goes red against `origin/main` -- **but the docblock claimed
+more than the assertion covered.** Fixed by the `setRunner` change above.
+
+### The rest
+
+- **CONVENTION:** both arms skipped the cleanup every neighbour performs (`resetForTests()`, removing
+  the config file). Benign only because the next test overwrites it. Fixed.
+- **NIT:** a dead `work1` binding in the default arm, created only to be removed. Gone.
+- **NIT:** the plan claimed three `connect.start(` sites; there is a fourth in
+  `docs/browser-checks/live-connect.js:90` (takes no options, unaffected). And "both other consumers"
+  undercounts: `engine/create.js:741`, `:776`, `:2050`, `:2310` do the same thing.
+- ⭐ **The reviewer completed the sweep I had listed under "what I have NOT established" and it came
+  back clean:** every other place that turns an account into a `configDir` already scopes the default.
+  **There is no second instance of this defect in the tree.** That was my largest open question and I
+  did not have to run it myself.

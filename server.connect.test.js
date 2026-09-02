@@ -417,38 +417,40 @@ test('#1585 CONTROL: an UNVERIFIABLE live check keeps connected rather than forc
  * 🛑 THE DEFECT. `/api/connect/start` with an `accountDir` passed
  * `connect.start({ configDir: known.dir })` UNCONDITIONALLY. For a LABELLED
  * account that is right. For the DEFAULT account it is the one thing the rest of
- * this codebase deliberately never does, and it sends the refreshed credential to
+ * this codebase deliberately never does, and it sent the refreshed credential to
  * a file nothing reads.
  *
- * ⭐ WHY THE DEFAULT IS DIFFERENT, MEASURED RATHER THAN ASSUMED (the measurement
- * is `engine/accounts.js`'s own, at its `listLive`): the default account's config
- * is `<HOME>/.claude.json`, a file BESIDE `<HOME>/.claude` -- but launching with
- * `CLAUDE_CONFIG_DIR=<HOME>/.claude` makes the real `claude` binary read and write
- * `<HOME>/.claude/.claude.json` INSTEAD. Two different files holding two different
- * accounts. `accounts.listLive` and `/api/agent/:name/account-status` both scope
- * the default with NO configDir for exactly this reason; the re-auth route did not.
+ * ⭐ WHY THE DEFAULT IS DIFFERENT, and the measurement is `accounts.js`'s own at
+ * its `listLive`: the default account's config is `<HOME>/.claude.json`, a file
+ * BESIDE `<HOME>/.claude` -- but `CLAUDE_CONFIG_DIR=<HOME>/.claude` makes the
+ * real `claude` binary read and write `<HOME>/.claude/.claude.json` INSTEAD. Two
+ * files, two accounts. `accounts.listLive` and `/api/agent/:name/account-status`
+ * both scope the default with NO configDir for this reason; this route did not.
  *
- * ⇒ SO THE USER-VISIBLE SYMPTOM IS "the whole OAuth flow runs, returns fast, shows
- * a green check, and the agent still 401s": the credential really was written, to
- * the decoy path, and every reader looks at the real one.
+ * 🔑 BOTH ARMS DRIVE THE LIVE CHECK TO SIGNED-OUT VIA `subscription.setRunner`,
+ * AND THAT IS LOAD-BEARING RATHER THAN TIDY. Without it the default arm takes
+ * `start()`'s connected early exit (#1560) and returns before any launch
+ * decision is made, so it would assert the routing while never reaching the
+ * code the routing feeds. Signed-out is also the state the card is about: a
+ * person whose credential is dead, asking to repair it.
  *
  * 📌 THE GREEN CHECK IS A SEPARATE DEFECT (#1916) AND IS NOT EVIDENCE HERE.
  * `checkLive` shells `claude auth status --json`, which reports that a login
- * EXISTS and never that it WORKS -- so it would have gone green even if this write
- * had succeeded. **This arm asserts the ROUTING, which is checkable without a
- * credential and cannot be fooled by a credulous check.**
+ * EXISTS and never that it WORKS, so it would have gone green even if this
+ * write had succeeded.
  *
- * 🛑 NOTHING HERE MINTS, CAPTURES OR PRINTS A CREDENTIAL, and that is deliberate
- * rather than incidental: the assertion is which directory the route TARGETS.
+ * 🛑 NOTHING HERE MINTS, CAPTURES OR PRINTS A CREDENTIAL. The assertion is which
+ * directory the route TARGETS.
  */
 test('#1922: signing in again to the DEFAULT account does not aim the CLI at the decoy config', async () => {
+  const subscription = require('./engine/subscription');
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
   const defaultDir = path.join(HOME, '.claude');
-  /* The default account's record lives BESIDE the dir, not inside it -- which is
-     the whole asymmetry under test, so the fixture must use the real shape or it
-     would exercise a labelled account wearing the default's name. */
+  /* The default account's record lives BESIDE the dir, not inside it -- the very
+     asymmetry under test, so the fixture must use the real shape or it would
+     exercise a labelled account wearing the default's name. */
   const defaultConfig = path.join(HOME, '.claude.json');
-  const work1 = path.join(HOME, '.claude-work1');
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
   try {
     fs.mkdirSync(defaultDir, { recursive: true });
     fs.writeFileSync(defaultConfig,
@@ -456,23 +458,32 @@ test('#1922: signing in again to the DEFAULT account does not aim the CLI at the
 
     const row = accounts.list().find((a) => a.dir === defaultDir);
     assert.ok(row, 'the fixture did not produce a default account, so this would test nothing');
-    assert.equal(row.isDefault, true, 'the fixture account is not the DEFAULT one, which is the only case under test');
+    assert.equal(row.isDefault, true, 'the fixture account is not the DEFAULT one, the only case under test');
 
     const got = await post('/api/connect/start', { accountDir: defaultDir });
     assert.equal(got.status, 200, got.body);
 
-    /* 🔑 THE ASSERTION. `publicView` reports `configDir: s.configDir || null`, so
-       null means the flow was started with none -- which is what lets `claude`
-       use its own default resolution and land on the REAL account. A path here
-       means the CLI was pointed at `<HOME>/.claude`, whose config file is the
-       decoy. */
+    /* 🔑 THE ROUTING ASSERTION. `publicView` reports `configDir: s.configDir ||
+       null`, so null means the flow was started with none -- which is what lets
+       `claude` use its own default resolution and land on the REAL account. A
+       path here means the CLI was aimed at `<HOME>/.claude`, whose config file
+       is the decoy. */
     assert.equal(json(got).configDir, null,
       're-auth on the DEFAULT account passed a configDir, so the CLI writes '
       + '<HOME>/.claude/.claude.json while every reader looks at <HOME>/.claude.json');
+
+    /* 🛑 AND IT MUST ACTUALLY RUN THE SIGN-IN. Routing correctly to "no
+       configDir" is worthless if the person clicks Sign in again and nothing
+       happens; with the world signed out, #1560 requires the flow to run. */
+    assert.notEqual(json(got).phase, 'connected',
+      'the world says signed out and the route answered connected, so the person '
+      + 'asked to repair a dead credential and no sign-in ran at all');
   } finally {
+    subscription.setRunner(null);
+    connect.resetForTests();
     fs.rmSync(defaultDir, { recursive: true, force: true });
     fs.rmSync(defaultConfig, { force: true });
-    fs.rmSync(work1, { recursive: true, force: true });
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
     await post('/api/connect/cancel');
   }
 });
@@ -480,12 +491,14 @@ test('#1922: signing in again to the DEFAULT account does not aim the CLI at the
 /**
  * ⭐ THE CONTROL, AND WITHOUT IT THE ARM ABOVE IS SATISFIED BY DELETING THE
  * FEATURE. A labelled account MUST still be targeted by its own directory; a fix
- * that simply stopped passing `configDir` would make re-auth silently sign in to
- * whatever the ambient default is, which is a worse bug than the one being fixed.
+ * that simply stopped passing `configDir` would make re-auth sign in to whatever
+ * the ambient default is, which is a worse bug than the one being fixed.
  */
 test('#1922 CONTROL: signing in again to a LABELLED account still targets that account', async () => {
+  const subscription = require('./engine/subscription');
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
   const work1 = path.join(HOME, '.claude-work1');
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
   try {
     await post('/api/connect/start', { another: true });
     await post('/api/connect/cancel');
@@ -500,7 +513,10 @@ test('#1922 CONTROL: signing in again to a LABELLED account still targets that a
     assert.equal(json(got).configDir, work1,
       'a labelled account lost its own configDir, so re-auth would sign in to the ambient default instead');
   } finally {
+    subscription.setRunner(null);
+    connect.resetForTests();
     fs.rmSync(work1, { recursive: true, force: true });
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
     await post('/api/connect/cancel');
   }
 });
