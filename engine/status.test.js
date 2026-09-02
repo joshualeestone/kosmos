@@ -1653,9 +1653,12 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
      only reads the last 25 rows, so a fixture that long pushed the line out of
      `tail` entirely and the row passed whether or not the reach guard existed.
      Verified by perturbation: at 40 fillers, deleting the guard still left this
-     green. 17 keeps the line INSIDE the tail (22 rows) but 21 above the last
-     non-empty row, which is past the reach -- so the row now fails when the
-     guard is removed, which is the only thing that makes it worth having. */
+     green. 17 keeps the line INSIDE `classify`'s 25-row tail while placing it far
+     enough above the composer to exceed the reach, so the row fails when the
+     guard is removed, which is the only thing that makes it worth having.
+     ⚠️ Row counts are deliberately not quoted here: the earlier "22 rows / 21
+     above" was measured against the last-non-empty-row design and both numbers
+     were wrong for the composer anchor that replaced it. */
   const quoted = ['✻ Waiting for 1 background agent to finish']
     .concat(new Array(17).fill('  later output')).join('\n');
   assert.notEqual(classify(pane, quoted + footer + liveRow).state, 'working',
@@ -1704,6 +1707,50 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
   assert.notEqual(classify(pane, live + footer + '\n  ⏺ Agent "x" finished · 5m 19s').state, 'working',
     'a RESOLVED wait was reported as working, which hides a finished agent');
 
+  const resolvedWait = '✻ Waiting for 1 background agent to finish\n  ⏺ Agent "x" finished · 5m 19s';
+  /* The evidence contract, which nothing pinned: real captures carry trailing pad
+     spaces, and the 240-char cap is the module's convention for anything on its
+     way to a person's screen. */
+  const padded = classify(pane, '✻ Waiting for 1 background agent to finish     ' + footer + liveRow);
+  assert.equal(padded.evidence, '✻ Waiting for 1 background agent to finish',
+    'the evidence line kept its trailing pad, against the module convention');
+  const longLine = '✻ Waiting for 1 background agent and ' + 'x'.repeat(400) + ' dynamic workflows to finish';
+  const capped = classify(pane, longLine + footer + liveRow);
+  assert.ok(capped.evidence.length <= 241,
+    'the evidence cap did not apply: ' + capped.evidence.length);
+  assert.ok(capped.evidence.endsWith('…'), 'a truncated evidence line must say so');
+
+  /**
+   * 🛑 `◯` HAS THREE SOURCES BELOW THE COMPOSER AND ONLY ONE MEANS "RUNNING".
+   * The gate once claimed a pane with no running background agent does not draw
+   * the footer list at all. It draws the COLLAPSED IDLE SUMMARY instead, with the
+   * same glyph and the opposite meaning, so a resolved wait plus `◯ 3 idle
+   * agents` read as `working`. Rejected explicitly.
+   * A nested task row carries a tree connector (`└─ ◯ …`) and was missed, which
+   * is a coverage gap rather than a false calm; connectors are now allowed.
+   */
+  assert.notEqual(
+    classify(pane, resolvedWait + footer + '\n  ◯ 3 idle agents').state, 'working',
+    'the collapsed idle-agent summary satisfied a liveness gate that means the opposite');
+  assert.equal(
+    classify(pane, live + footer + '\n  ⏺ main\n  └─ ◯ general-purpose  doing a thing 43s').state,
+    'working',
+    'a nested task row with a tree connector was not recognised as live');
+
+  /**
+   * 🛑 THE COMPOSER EXCLUSION IS THE FOOTER SHAPE, NOT ANY `◯` IN THE ROW.
+   * Testing the whole row disqualified a genuine composer whose TYPED TEXT held a
+   * circle, and an agent working on this reader is exactly who types one. The
+   * real composer was skipped, the anchor fell back to a quoted `❯` above it, and
+   * prose satisfied liveness: a false calm on a resolved wait.
+   */
+  assert.notEqual(
+    classify(pane, resolvedWait
+      + '\n  ❯ some quoted shell prompt\n  ◯ plugin-name (not installed)'
+      + '\n────\n❯ grep ◯ engine/status.js\n────\n  ⏵⏵ bypass permissions on · ← for agents').state,
+    'working',
+    'a composer containing a typed ◯ was disqualified, so prose above it satisfied liveness');
+
   /**
    * 🛑 A SELECTED TASK-FOOTER ROW IS NOT THE COMPOSER. The footer draws its
    * selected/hovered row as `❯ ◯ …`, which matched the composer pattern and
@@ -1725,7 +1772,6 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    * this fixture classified `working` on a RESOLVED wait, reopening the finished-
    * agent false calm that the gate exists to close.
    */
-  const resolvedWait = '✻ Waiting for 1 background agent to finish\n  ⏺ Agent "x" finished · 5m 19s';
   assert.notEqual(
     classify(pane, resolvedWait + '\n  ❯ some quoted shell prompt\n  ◯ plugin-name (not installed)' + footer).state,
     'working',

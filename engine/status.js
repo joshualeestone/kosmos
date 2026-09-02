@@ -1856,8 +1856,9 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    FIXED constant in the bundle (`iE="\u273B"`, drawn in its own `<Box
    minWidth={2}>` beside the text); it is NOT the rotating spinner, whose frame
    arrays belong to `WORKING_LINE`'s component. An earlier version borrowed
-   `WORKING_LINE`'s six-glyph class, which accepted five shapes the vendor cannot
-   draw and opened five prose/quotation entry points for nothing. `*` in
+   `WORKING_LINE`'s SEVEN-glyph class `[·✢✳✶✻✽*]`, which accepted the six shapes
+   the vendor cannot draw here and opened six prose/quotation entry points for
+   nothing. `*` in
    particular made an ordinary markdown bullet read as a working agent.
    🛑 NO `m` FLAG, so `^` means start of input and the constant is per-row by
    construction. With `m` plus `\s*` it spans rows.
@@ -1973,7 +1974,17 @@ const BACKGROUND_AGENT_WAIT_REACH = 12;
    reader simply goes quiet, which is `origin/main`'s behaviour -- a miss, not a
    false calm. Losing a true positive is the acceptable direction here; claiming
    a finished agent is busy is not. */
-const LIVE_BACKGROUND_AGENT_ROW = /^\s*(?:❯\s*)?◯\s/mu;
+const LIVE_BACKGROUND_AGENT_ROW = /^\s*(?:❯\s*)?[│├└─\s]*◯\s/mu;
+
+/* #1889. The task footer's COLLAPSED SUMMARY row for teammates that are idle:
+     *   ◯ 3 idle agents
+   🛑 IT USES THE SAME `◯` AND IS DRAWN BELOW THE COMPOSER, so it satisfies the
+   liveness scan while meaning the exact opposite. Reproduced: a RESOLVED wait
+   plus this row classified `working` -- the finished-agent false calm the gate
+   exists to close, reopened by the one `◯` source the enumeration missed.
+   ⇒ The gate's earlier claim, that a pane with no running background agent does
+   not draw the footer list at all, is simply false. It draws this instead. */
+const IDLE_AGENT_SUMMARY_ROW = /\bidle agents?\b/iu;
 
 /**
  * The live background-agent wait line, or null.
@@ -2012,7 +2023,12 @@ function backgroundAgentWait(text) {
          fixture. A miss rather than a false calm, but it falsifies the premise
          that everything variable is drawn below the anchor. A composer row never
          carries `◯`. */
-      if (/^\s*❯/.test(rows[j]) && !/◯/.test(rows[j])) anchor = j;
+      /* Only the FOOTER shape `❯ ◯ …` is disqualified, not any row containing a
+         circle. Testing the whole row disqualified a genuine composer whose TYPED
+         TEXT held a `◯` -- and an agent working on this reader is exactly who
+         types one. Measured: the real composer was skipped, the anchor fell back
+         to a quoted `❯` above it, and prose then satisfied liveness. */
+      if (/^\s*❯/.test(rows[j]) && !/^\s*❯\s*◯/.test(rows[j])) anchor = j;
     }
     /* No composer on screen (a dialog replaces it) -> return null. A MISS, never
        a false calm. There is no fallback to the last row: an earlier comment said
@@ -2021,7 +2037,11 @@ function backgroundAgentWait(text) {
     if (anchor - i > BACKGROUND_AGENT_WAIT_REACH) continue;
     /* The wait line survives the wait. Only a live `◯` row proves the agent is
        still running; without one this is a resolved wait and the pane is idle. */
-    if (!LIVE_BACKGROUND_AGENT_ROW.test(rows.slice(anchor + 1).join('\n'))) return null;
+    /* A row must look like a live task row AND not be the collapsed idle
+       summary, which uses the same glyph to mean the opposite. */
+    const live = rows.slice(anchor + 1).some((row) => LIVE_BACKGROUND_AGENT_ROW.test(row)
+      && !IDLE_AGENT_SUMMARY_ROW.test(row));
+    if (!live) return null;
     const line = rows[i].trim();
     return line.length > 240 ? line.slice(0, 240) + '…' : line;
   }
