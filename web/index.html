@@ -18440,10 +18440,15 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
    section and the user, still on the detail page, would see nothing happen: a dead
    control, the exact wording-only dead end #1918 forbids. showTab('settings') runs
    paintSettings (which paints Accounts), so the landed surface is populated. This
-   mirrors the st-agents tile precedent (showTab then settingsOpen). */
+   mirrors the st-agents tile precedent (showTab then settingsOpen).
+   🔑 NO focus:false. settingsGo focuses the landed section's .dsec by default; passing
+   focus:false would strand keyboard/screen-reader focus on this button, which is now
+   inside the hidden detail panel. Letting it focus the Accounts section is exactly what
+   clicking the Accounts nav pill does, and it lands focus on the surface a stuck user
+   needs to act on. */
 (() => {
   const rb = document.getElementById('d-reauth');
-  if (rb) rb.addEventListener('click', () => { showTab('settings'); settingsOpen('accounts', { focus: false }); });
+  if (rb) rb.addEventListener('click', () => { showTab('settings'); settingsOpen('accounts'); });
 })();
 /* Settings has the same shape: seven sections, one on screen, the nav says
    which. No arrival work here (nothing in Settings measures layout or

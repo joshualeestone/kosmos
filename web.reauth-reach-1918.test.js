@@ -87,7 +87,7 @@ test('the button is wired to open the re-auth surface, PANEL first (run the clic
      section open; it stayed green while the button did nothing, because it pinned the
      callee instead of the user-visible navigation. Observing showTab is what makes it
      red-capable for the real reachability contract. */
-  const m = SCRIPT.match(/\(\(\) => \{\s*const rb = document\.getElementById\('d-reauth'\);\s*if \(rb\) rb\.addEventListener\('click', \(\) => \{ showTab\('settings'\); settingsOpen\('accounts', \{ focus: false \}\); \}\);\s*\}\)\(\);/);
+  const m = SCRIPT.match(/\(\(\) => \{\s*const rb = document\.getElementById\('d-reauth'\);\s*if \(rb\) rb\.addEventListener\('click', \(\) => \{ showTab\('settings'\); settingsOpen\('accounts'\); \}\);\s*\}\)\(\);/);
   assert.ok(m, 'the one-time wiring for #d-reauth moved or changed shape; restate this pin');
   const btn = fakeButton();
   const calls = [];
