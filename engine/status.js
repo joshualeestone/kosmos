@@ -1823,47 +1823,42 @@ const WORKING_LINE = /^\s*[·✢✳✶✻✽*] \S+…\s+\((?:\d+h\s+)?(?:\d+m\s+
  */
 const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
 
-/* #1889. The background-agent wait line, glyph-anchored exactly as WORKING_LINE
-   is, and requiring the `background agent` phrase so the OTHER `Waiting for …`
-   strings in the bundle (several of which mean BLOCKED ON A HUMAN) cannot reach
-   the WORKING branch through it. THE COUNT IS EXTRACTION-DEPENDENT, SO IT IS
-   STATED ONCE, HERE, WITH ITS COMMAND, AND NOT REPEATED AS A BARE NUMBER
-   ELSEWHERE. `grep -ao 'Waiting for [A-Za-z0-9 ._'\''-]\{0,60\}' | sort -u` over
-   the 2.1.258 bundle yields 25 extractions; a wider character class yields a different
-   number, which is exactly why the command matters more than the count and why
-   no second bare figure is quoted here.
-   One of the 25 is a Zod `describe()` doc string rather than a
-   screen. (An earlier version also claimed the bare `Waiting for ` prefix was
-   this line's own source; it is not -- the five sites that extract as the bare
-   prefix belong to unrelated vendor code.) What matters is not the
-   total but that SEVERAL of them mean BLOCKED ON A HUMAN, which is verifiable
-   one string at a time and is what the guard below pins.
+/* #1889. A mid-turn shape with NO timer, so `WORKING_LINE` cannot match it:
+     * ✻ Waiting for 1 background agent to finish
+   (samples `*`-prefixed so this file does not match its own reader)
 
-   🛑 THE VENDOR COMPOSES ONE LINE FROM TWO COUNTERS, so keying on
-   `background agents? to finish` ADJACENTLY was itself a false calm in the case
-   this reader claims to handle. The render is
-     "Waiting for" + ` background ${n===1?'agent':'agents'}` + " and"
-                   + ` ${m===1?'dynamic workflow':'dynamic workflows'}` + " to finish"
-   so real variants include `Waiting for 1 background agent and 2 dynamic
-   workflows to finish`, which the adjacent form could never match. Derived from
-   the bundle rather than guessed. The pattern now needs only the glyph,
-   `Waiting for`, either counter phrase somewhere, and `to finish` at the END --
-   which no human-blocked `Waiting for …` string satisfies, because none of them
-   ends in `to finish`.
+   The vendor composes ONE line from two counters, background agents AND dynamic
+   workflows, so `Waiting for 1 background agent and 2 dynamic workflows to
+   finish` is a real render. The pattern needs: the glyph, `Waiting for`, either
+   counter phrase, and `to finish` ENDING the line.
 
-   Verbatim shape, live 2.1.258:
-   * ✻ Waiting for 1 background agent to finish  <- sample, `*`-prefixed so
-   *   THIS FILE does not match its own reader (the glyph must follow whitespace
-   *   only). Before this, status.js was one of two self-matching files in the repo.
+   🛑 THE `$` IS LOAD-BEARING. Without it the pattern matches any sentence
+   CONTAINING the phrase, including prose about this feature.
+   🛑 SPACES ARE `\s*`. `capturePane` passes `-J`, which joins a wrapped row with
+   NO separator, so a space on the wrap boundary is gone (#1234). All seven are
+   optional; two of them were not, and that was a silent `idle` on a narrow pane.
+   🛑 NO `*` IN THE GLYPH CLASS, though `WORKING_LINE` has it. That sibling can
+   afford it because an echo would need an ellipsis AND a live timer; this line
+   needs neither, so a markdown bullet would read as a working agent.
+   🛑 NO `m` FLAG, so `^` means start of input and the constant is per-row by
+   construction. With `m` plus `\s*` it spans rows.
+   🛑 DO NOT WIDEN TO A BARE `Waiting for …`. The bundle carries many such strings
+   and they are NOT one state: permission, authorization, team lead approval and
+   browser sign-in all mean BLOCKED ON A HUMAN, and reporting those as busy hides
+   an agent that needs you. Widen only with a live capture of the shape you are
+   widening to, and route human-blocked shapes to NEEDS_YOU.
 
-   🛑 SPACES ARE `\s*`, NOT LITERAL, AND THAT IS THIS MODULE'S CONVENTION RATHER
-   THAN A STYLE CHOICE. `capturePane` passes `-J`, which joins a wrapped row with
-   NO separator, so a space sitting on the wrap boundary is GONE from the joined
-   line (see `capturePane`'s docblock and #1234). The rendered line is 42 columns
-   and has seven spaces; on a pane narrow enough to wrap at one of them a literal
-   ' ' silently stops matching and the reader returns to `idle` -- failing in the
-   quiet direction, exactly as #1234 did. Measured with literal spaces:
-   `✻ Waiting for 1 backgroundagent to finish` -> false. */
+   Count of `Waiting for …` strings, stated once with its command because it is
+   extraction-dependent:
+     grep -ao 'Waiting for [A-Za-z0-9 ._'\''-]\{0,60\}' <bundle> | sort -u  ->  25
+   One of the 25 is a Zod `describe()` doc string rather than a screen.
+
+   📌 A STATIC GREP COULD NOT HAVE FOUND THIS LINE: the counts are interpolated,
+   so the literal is nowhere in the bundle. Found only by capturing a live pane.
+   📌 The strongest UNHANDLED sibling: the same schema carries
+   `pendingWorkflowCount`, so a workflow-only render is plausible and unobserved.
+   📌 History, corrections, and the measurements behind every number above:
+   `.claude/plans/panefixtures-1889.md`. */
 const BACKGROUND_AGENT_WAIT =
   /^\s*[·✢✳✶✻✽]\s*Waiting\s*for\s*.*(?:background\s*agents?|dynamic\s*workflows?).*to\s*finish\s*$/u;
 
