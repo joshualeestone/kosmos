@@ -112,5 +112,8 @@ test('the two Save buttons on the agent panel say which they are', () => {
   assert.match(PAGE, /id="you-name-save" aria-label="Save your name"/, 'the Settings Save button announces as a bare Save');
   assert.match(PAGE, /id="you-tz-save" aria-label="Save your time zone"/, 'the time-zone Save button announces distinctly');
   assert.match(PAGE, /id="ah-save" aria-label="Save automation settings"/, 'the auto-handoff Save button announces distinctly');
-  assert.match(PAGE, /id="hb-save" aria-label="Save heartbeat settings"/, 'the heartbeat Save button announces distinctly');
+  /* #1843: surface renamed Heartbeat -> Prompter. The id stays hb-save (internal,
+     wired) but the accessible name follows the visible one, so a voice user says
+     the word they see. */
+  assert.match(PAGE, /id="hb-save" aria-label="Save prompter settings"/, 'the prompter Save button announces distinctly');
 });

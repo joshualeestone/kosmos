@@ -173,6 +173,7 @@ one invented by somebody who did not write them.
 | `render-role-order.js` | The three role options in Josh's order, natively grouped, with the menu between two of them |
 | `render-pjsettings.js` | **no header sentence.** Read it before running it, and give it one. |
 | `render-settings-nav.js` | The Settings page's left nav, on a screen (settings-nav, 2026-08-23). |
+| `render-prompter-label-1843.js` | The Automation section reads "Prompter" (#1843): the pill opens the section (it was unreachable before this card, absent from SETTINGS_SECTIONS), the two headings read Auto-save then Prompter, the save button's accessible name follows, and no visible text still reads Heartbeat. Both themes. |
 | `render-projects.js` | Render every state of the Projects screens in a real browser, light and dark |
 | `render-consolidated-layouts.js` | The consolidated view under each Agents layout: no org chart over the rails, and an empty centre that says what to press (#774). |
 | `render-rename-say.js` | What the agent page says after you rename an agent |
