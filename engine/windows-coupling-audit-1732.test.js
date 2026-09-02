@@ -258,13 +258,28 @@ test('#1732: no unclassified Windows-hostile source coupling', () => {
   }
 });
 
-test('#1732: no stale INVENTORY entry (every classified site still exists)', () => {
-  const stale = INVENTORY.filter((e) => !codeText(e.file).includes(e.contains));
-  if (stale.length) {
-    const detail = stale.map((e) => `  ${e.file}  «${e.contains}»`).join('\n');
+test('#1732: no stale INVENTORY entry (every classified site still exists at its count)', () => {
+  // COUNT-AWARE, not a boolean: assert each row's `contains` occurs exactly
+  // `count` times in the file's code. A boolean presence check leaves slack --
+  // a row with count 2 (two byte-identical benign lines) lets you DELETE one and
+  // ADD a hostile same-(file,family) match with zero net count change, evading
+  // both this arm and the EXCEED arm. Occurrence-counting reds the deletion side
+  // of that swap, so the two arms together leave no gap.
+  const problems = [];
+  for (const e of INVENTORY) {
+    const code = codeText(e.file);
+    const occ = code.split(e.contains).length - 1;
+    const want = e.count || 1;
+    if (occ !== want) {
+      problems.push(`  ${e.file}  «${e.contains}»  found ${occ}, inventory count ${want}`);
+    }
+  }
+  if (problems.length) {
     assert.fail(
-      `${stale.length} INVENTORY entr(y/ies) no longer match any source line.\n` +
-      `The coupling was removed or reshaped -- delete the stale row so the inventory stays honest:\n${detail}`
+      `${problems.length} INVENTORY multiplicity mismatch(es) -- a classified site was removed,\n` +
+      `reshaped, or duplicated, so the inventory no longer describes the source:\n${problems.join('\n')}\n\n` +
+      `Fix the row's count, or delete/add the row, so occurrences match. Do NOT bump a count to\n` +
+      `absorb a NEW coupling -- that is the slack this check exists to remove.`
     );
   }
 });
