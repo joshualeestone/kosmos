@@ -102,11 +102,29 @@ run "$(ns M engine/create.js M tools/release.sh)" "backend only" \
 run "$(ns M docs/webhooks/notes.md)" "unrelated docs" \
   ; check "docs/webhooks/ (not web/) -> pass" 0 "$RC"
 
-# PASS via the REAL git path (no seams): this branch touches no web/, so the live
-# `git diff --name-status origin/main...HEAD` returns 0. Exercises the git integration
-# and, on a checkout without origin/main, the fail-soft branch (also rc 0).
-( kosmos_browser_check_gate >/dev/null 2>&1 ); RC=$? \
-  ; check "real git path on this branch (no web/) -> pass" 0 "$RC"
+# REAL git path (no seams): exercise the live `git diff --name-status
+# origin/main...HEAD` + `git log` integration end-to-end, plus the fail-soft branch
+# (detached HEAD / no origin/main). The refuse-vs-pass LOGIC is already proven by the
+# seam-driven arms above; this arm's only job is to prove the git plumbing RUNS and
+# returns a verdict.
+#
+# ⚠️ It asserts the gate RETURNED A VERDICT (rc 0 or 1), NOT rc 0. The earlier
+# "-> pass" (rc 0) form assumed THIS branch touches no web/ -- true only on main and
+# on backend-only branches. The base is origin/main, so on any branch that
+# legitimately changes web/ without an inline assertion the live diff is non-empty and
+# the gate CORRECTLY refuses (rc 1). That made the arm a function of the branch under
+# test: green on main, red on a web-changing branch, SAME code -- kosmos#1833, misread
+# as a tmux-server race (the "error connecting to .../tmux-501/default" lines are
+# benign and appear identically in green runs; status.snapshot swallows them). The
+# gate returns only 0 or 1, so a rc >1 here is a real crash (git/gate error), which
+# this still catches.
+( kosmos_browser_check_gate >/dev/null 2>&1 ); RC=$?
+if [ "$RC" = 0 ] || [ "$RC" = 1 ]; then
+  echo "PASS  real git path returns a verdict (rc 0 or 1), whatever this branch touches"
+else
+  echo "FAIL  real git path crashed (expected rc 0 or 1, got rc=$RC)"
+  fails=$((fails + 1))
+fi
 
 # ZSH SAFETY (iter-2 WARNING): the lib is sourced into zsh in some contexts, and zsh
 # does not word-split an unquoted expansion. A `for f in $files` loop would iterate
