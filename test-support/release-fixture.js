@@ -86,7 +86,18 @@ function serveRelease(t, opts = {}, ...extra) {
      version got wrong. Guarding only a MISSING platformKey left the natural
      migration shape accepted-and-silently-wrong one field over: a caller
      passing a sibling's `checksum` had it discarded in favour of one computed
-     from the body, which is exactly the class the guard exists to prevent. */
+     from the body, which is exactly the class the guard exists to prevent.
+
+     🛑 THIS RUNS AFTER THE platformKey GUARD, AND THE ORDER IS LOAD-BEARING.
+     Iteration 8 proposed the reverse, reasoning that a typo'd key deserves the
+     more diagnostic message. MEASURED, AND IT IS WRONG: `Object.keys()` on a
+     BUFFER returns its numeric indices, so the sibling positional shape
+     `serveRelease(t, Buffer.from('x'))` -- connect.nobinary-1580's call, the
+     likeliest migration mistake there is -- stops reporting "needs a
+     platformKey string" and reports "unknown option(s): 0, 1, ..." instead.
+     That names nothing the caller can act on. The typo case the reorder would
+     help already has its own arm and is answered correctly either way, so the
+     swap trades a real regression for no gain. Keep this second. */
   const unknown = Object.keys(opts).filter((k) => !KNOWN_OPTIONS.includes(k));
   if (unknown.length) {
     throw new TypeError(
@@ -136,11 +147,16 @@ function serveRelease(t, opts = {}, ...extra) {
   const served = checksum !== undefined
     ? checksum
     : crypto.createHash('sha256').update(body).digest('hex');
-  const paths = {
+  /* `Object.create(null)` rather than a literal: the lookup below is
+     `paths[req.url]`, and on a literal that reaches Object.prototype, so a
+     request for `/constructor` would find a function and CALL it. Not reachable
+     through a real `req.url` (it always has a leading slash), but this is a
+     shared helper and the class costs one line to remove. */
+  const paths = Object.assign(Object.create(null), {
     '/latest': () => version,
     [`/${version}/manifest.json`]: () => JSON.stringify({ platforms: { [platformKey]: { checksum: served } } }),
     [`/${version}/${platformKey}/claude`]: () => body,
-  };
+  });
   const server = http.createServer((req, res) => {
     const answer = paths[req.url];
     if (!answer) { res.writeHead(404); res.end(); return; }
@@ -160,15 +176,21 @@ function serveRelease(t, opts = {}, ...extra) {
       server.removeListener('error', reject);
       try {
         t.after(() => {
-        if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
-        /* A callback so a close on an already-closed server reports rather than
-           throwing ERR_SERVER_NOT_RUNNING out of the teardown. */
+          if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+          /* A callback so a close on an already-closed server reports rather
+             than throwing ERR_SERVER_NOT_RUNNING out of the teardown. */
           server.close(() => {});
         });
       } catch (err) {
-        /* A `t` without `after` would otherwise throw INSIDE the listen
-           callback, which is uncaught and kills the process rather than
-           failing the test that misused the helper. */
+        /* A `t` without `after` throws INSIDE the listen callback. MEASURED
+           with this catch deleted: the promise never settles, the other arms
+           still pass, and the FILE fails ~120s later with "Promise resolution
+           is still pending but the event loop has already resolved". It does
+           not kill the process -- an earlier version of this comment said it
+           did, and that was never measured. A two-minute hang blamed on the
+           file is worse than a fast red on the arm, because a hang reads as a
+           flake and gets retried. Converting it to a rejection is the point.
+           Armed by test-support.release-fixture.test.js. */
         server.close(() => {});
         reject(err);
         return;

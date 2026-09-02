@@ -6,16 +6,38 @@
  *
  * The stuck screen's only way out is *"open Terminal, type `claude`"*, and
  * `web/index.html` gates that suggestion on `canRunClaude` (#1595). The value is
- * a filesystem answer (`accessSync(claudeBinPath(), X_OK)`) that reaches a
- * person's screen, so the failure it guards against is telling somebody who is
+ * a filesystem answer that reaches a person's screen, so the failure it guards
+ * against is telling somebody who is
  * already stuck to run a program that answers `command not found` (#205).
+ *
+ * 🛑 THE MECHANISM, NAMED EXACTLY, BECAUSE THIS SENTENCE WAS WRONG UNTIL
+ * ITERATION 8 AND WAS THE FIRST THING A READER MET. `becomeStuck` writes
+ * `claudeHatchAvailable()` (connect.js:2446), which is
+ * `runners.resolveBin('claude').present` -> `isRunnable()`, and `isRunnable`
+ * does `statSync().isFile()` BEFORE `accessSync(X_OK)` (runners.js:191).
+ * `claudeBinPath()` is not on that path at all. The earlier text here said
+ * `accessSync(claudeBinPath(), X_OK)`, which is what production did before
+ * #1592 and is exactly the retracted claim the third arm's docblock corrects
+ * 180 lines below. A wrong sentence left standing above its own retraction is
+ * read first, so it is deleted rather than annotated.
  *
  * ⚠️ THE GAP IS NARROWER THAN "NOTHING DRIVES becomeStuck", AND SAYING SO
  * MATTERS. `engine/connect.test.js` drives real flows into the stuck phase in
  * roughly a dozen places, as does `engine/connect.nobinary-1580.test.js`. What
- * none of them does is assert `canRunClaude`: the two files that reference the
- * field (`server.connect.test.js`, `engine.publicview-canrun-1595.test.js`)
- * build the state object by hand. This file closes that, and only that.
+ * none of them does is assert `canRunClaude` FROM A DRIVEN FLOW. Measured:
+ * THREE other test files reference the field, and they split two ways.
+ *
+ *   server.connect.test.js                  builds the state object by hand
+ *   engine.publicview-canrun-1595.test.js   builds the state object by hand
+ *   engine.runnable-not-directory.test.js   asserts it as SOURCE TEXT, reading
+ *                                           connect.js off disk and matching the
+ *                                           writeState line (its :1322)
+ *
+ * ⚠️ THE THIRD ONE WAS MISSING FROM THIS LIST UNTIL ITERATION 8, AND IT IS THE
+ * ONE WITH THE MOST REFERENCES (38 to the field). It is also cited by name 180
+ * lines below as the comparison case, so it was described here and not counted.
+ * None of the three calls `connect.start()`, which is what this file adds and
+ * the only thing it claims.
  *
  * 🛑 WHY THIS DRIVES `start()` RATHER THAN CALLING `becomeStuck` DIRECTLY.
  * The card offered two shapes: export `becomeStuck` with a `setDriverForTests`,
@@ -39,8 +61,8 @@
  * service. Pointing the base at a DEAD PORT gave ~65ms, and that number is an
  * ISOLATION CONTROL rather than this file's cost: it proves the 5.3s was
  * network, not that the disk arms are that fast. With the fixture actually
- * serving, the shipped cost is ~70ms per arm. Both DISK arms passed in all three
- * configurations
+ * serving, the shipped cost is ~70ms per arm. Both DISK arms AS THE FILE THEN
+ * STOOD (it had two; it now ships three) passed in all three configurations
  * AT THE TIME, so the green never depended on the fixture and could not have
  * revealed this. That is no longer true of the shipped file: the `because`
  * assertion added afterwards reddens the dead-port configuration, because a

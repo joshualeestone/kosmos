@@ -119,6 +119,75 @@ test('a version download() would reject is refused HERE, with a fixture-shaped m
     "'latest' was accepted; download() would report it as a service fault");
 });
 
+/**
+ * ⭐ THE `= {}` DEFAULT FILLS ONLY `undefined`, SO AN EXPLICIT `null` REACHES
+ * THE DESTRUCTURE. Without the guard that is a raw "Cannot destructure property
+ * 'platformKey' of 'opts' as it is null", which names a variable inside the
+ * helper rather than the call that was wrong. Nothing exercised this until
+ * iteration 8, in the file whose own docblock says it exists mostly for the
+ * refusal.
+ */
+test('a null options object is refused in this file\'s own voice, not by the destructure', async (t) => {
+  await assert.rejects(
+    async () => serveRelease(t, null),
+    /takes \(t, options-object\)/,
+    'an explicit null reached the destructure and threw a raw language error');
+  /* An array is an object to `typeof`, which is why the guard tests it. */
+  await assert.rejects(
+    async () => serveRelease(t, []),
+    /takes \(t, options-object\)/,
+    'an array was accepted as an options object');
+});
+
+/**
+ * ⭐ A `t` WITHOUT `after` IS A REAL MISUSE SHAPE: the three private
+ * serveRelease copies are called from inside `test()` callbacks, and a migrator
+ * moving one into a helper or a `describe` block can pass something that is not
+ * a test context. The catch exists so that throws as a FAILED TEST rather than
+ * an uncaught exception inside a listen callback, which kills the process and
+ * takes the rest of the suite with it.
+ *
+ * 🛑 WHAT REMOVING THE CATCH ACTUALLY DOES, MEASURED RATHER THAN ASSUMED
+ * (iteration 8, by deleting the try/catch and running this file):
+ *
+ *   TypeError: t.after is not a function   thrown from the listen callback
+ *   10 of 11 arms                          STILL PASS
+ *   this arm                               never settles
+ *   the FILE                               fails after 119866ms with
+ *                                          "Promise resolution is still pending
+ *                                           but the event loop has already
+ *                                           resolved"
+ *
+ * ⚠️ SO THE FAILURE IS A TWO-MINUTE HANG ATTRIBUTED TO THE FILE, NOT A RED ON
+ * THIS ARM. That matters more than it sounds: in CI a two-minute hang reads as
+ * a timeout or a flake, which is the one failure shape people retry rather than
+ * investigate. Read a green here as "the promise settled" -- the arm proves the
+ * catch converts an unsettleable promise into an ordinary rejection, and the
+ * run finishing in milliseconds instead of minutes is the other half of it.
+ *
+ * 📌 An earlier draft of this block said the throw "kills the process". That
+ * was inherited from the helper's own comment and never measured; the run does
+ * not die, it hangs. Corrected rather than annotated.
+ */
+test('a t without after() rejects instead of hanging the file', async () => {
+  await assert.rejects(
+    async () => serveRelease({}, { platformKey: 'darwin-arm64' }),
+    /after/,
+    'a non-test-context t did not reject; without the catch this file hangs ~120s instead');
+});
+
+/**
+ * 📌 NOT ARMED, DEFERRED WITH REASONING (iteration 8). The third refusal path,
+ * `server.on('error', reject)` before `listen`, has no arm here. Its trigger is
+ * a failed bind, and this helper always calls `listen(0, '127.0.0.1')` -- an
+ * ephemeral port, which the kernel picks from the free set, so the collision it
+ * defends against cannot be produced through the helper's own API. Arming it
+ * would mean reaching past the public surface to stub `http.createServer`,
+ * which tests the stub rather than the helper. The guard stays because a future
+ * caller passing a fixed port would need it; it is recorded as unarmed rather
+ * than quietly counted as covered.
+ */
+
 test('CONTROL: the refusal is not unconditional, a correct call still resolves', async (t) => {
   const base = await serveRelease(t, { platformKey: 'darwin-arm64' });
   assert.match(base, /^http:\/\/127\.0\.0\.1:\d+$/,

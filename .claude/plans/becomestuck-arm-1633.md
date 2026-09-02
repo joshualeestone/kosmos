@@ -6,7 +6,17 @@
 
 `becomeStuck` computes `canRunClaude` and writes it into the STUCK state; `web/index.html` gates the stuck screen's only way out on it (#1595). It is a user-facing decision made from a filesystem check, and nothing asserted it from a **driven** flow.
 
-⚠️ **The gap is narrower than "nothing drives `becomeStuck`", and I originally wrote the wider claim by repeating the card without checking it.** Measured: 29 test files mention the stuck phase, and `engine/connect.test.js` drives real flows into it in roughly a dozen places (17 `PHASE.STUCK` references), as does `engine/connect.nobinary-1580.test.js`. What none of them does is assert `canRunClaude`: the two files that reference the field (`server.connect.test.js`, `engine.publicview-canrun-1595.test.js`) build the state object by hand. This closes that, and only that.
+⚠️ **The gap is narrower than "nothing drives `becomeStuck`", and I originally wrote the wider claim by repeating the card without checking it.** Measured: 29 test files mention the stuck phase, and `engine/connect.test.js` drives real flows into it in roughly a dozen places (17 `PHASE.STUCK` references), as does `engine/connect.nobinary-1580.test.js`. What none of them does is assert `canRunClaude` **from a driven flow**.
+
+🛑 **THE CENSUS IN THIS PARAGRAPH WAS WRONG UNTIL ITERATION 8 AND SAID "the two files".** There are **three**, and the one it omitted has the most references of any of them:
+
+| file | references | how it asserts |
+|---|---|---|
+| `server.connect.test.js` | 3 | builds the state object by hand |
+| `engine.publicview-canrun-1595.test.js` | 10 | builds the state object by hand |
+| `engine.runnable-not-directory.test.js` | **38** | **asserts it as SOURCE TEXT**, reading `connect.js` off disk and matching the `writeState` line |
+
+⭐ **I cite that third file by name later in this very plan as the comparison case, so I described it and never counted it.** That is the same defect as the 300-commit one below, one layer in: not a stale reading, an *uncounted* one. **None of the three calls `connect.start()`**, which is what this file adds and the only thing it claims.
 
 ## The decision, and why it is not the one I inherited
 
@@ -23,12 +33,15 @@ The argument against (1) is not fastidiousness. `becomeStuck` early-returns on `
 
 ## What is built
 
-`engine/connect.becomestuck-arm-1633.test.js`. Two arms whose sole variable is whether an executable exists at the bin path, which is the exact question `becomeStuck` asks the disk:
+`engine/connect.becomestuck-arm-1633.test.js`. **Three** arms whose sole variable is what sits at the bin path, which is the exact question `becomeStuck` asks the disk:
 
 ```
-binary PRESENT  ->  phase=stuck  canRunClaude=true
-binary ABSENT   ->  phase=stuck  canRunClaude=false
+binary PRESENT   ->  phase=stuck  canRunClaude=true
+binary ABSENT    ->  phase=stuck  canRunClaude=false
+DIRECTORY there  ->  phase=stuck  canRunClaude=false
 ```
+
+📌 **This section said "Two arms" and showed two rows until iteration 8**, while the third was introduced 40 lines further down. A reader who stopped at the summary undercounted the deliverable, and the third arm is the one carrying the argument for the branch.
 
 ## Verification
 
@@ -110,3 +123,76 @@ base -> dead local port             67 ms /   63 ms
 ⇒ **80x, and it was entirely network.** Both arms passed in **both** configurations, so the green never depended on the fixture and could not have revealed this. `engine/connect.nobinary-1580.test.js` carries a standing warning about exactly this, which I had read and did not apply.
 
 **And the docblock's explanation of the throwing-runner trap was wrong.** The advice ("return, never throw") was right and the mechanism was not, and the wrong mechanism had already been repeated into the card comment and the PR body before it was caught. The corrected version is above; the wrong sentence is deleted rather than kept beside it.
+
+## Findings from challenge-loop iteration 8
+
+**Zero BLOCKERs, four WARNINGs, six NITs.** All four WARNINGs were confirmed against the code before
+anything was changed, and one NIT was **measured and rejected**.
+
+**Every WARNING was a false sentence in a comment, not a defect in the test.** That is worth stating
+plainly: the arms have been sound since iteration 1; what keeps failing review is my prose about
+them.
+
+1. **The opening docblock named a mechanism production stopped using.** It said `canRunClaude` is
+   `accessSync(claudeBinPath(), X_OK)`. Production writes `claudeHatchAvailable()` ->
+   `resolveBin('claude').present` -> `isRunnable()`, which does `statSync().isFile()` FIRST
+   (`connect.js:2446`, `runners.js:191`). `claudeBinPath()` is not on that path.
+   🛑 **The third arm's docblock, 180 lines below, already retracted this correctly.** So the file
+   contradicted itself and the wrong half was the half read first, which is the exact rule this
+   branch states twice and had violated in its own opening paragraph.
+
+2. **The census was wrong, and short by the file with the most references.** "The two files that
+   reference the field" -> there are three, and `engine.runnable-not-directory.test.js` has 38
+   references, more than the other two combined. It asserts the field as SOURCE TEXT rather than by
+   building state. Corrected in both the test docblock and the plan.
+   ⭐ **I cite that file by name as the comparison case both here and in the test.** I described it
+   and never counted it.
+
+3. **Same false census repeated verbatim in this plan.** Fixed.
+
+4. **Three refusal paths in the shared fixture had no arm**, in the file whose own docblock says it
+   "exists mostly for the refusal". Two are now armed; the third is recorded as deliberately unarmed:
+
+   | path | status |
+   |---|---|
+   | `opts === null` / non-object / array | ✅ armed, and **proven red by mutation** |
+   | `t` without `after` | ✅ armed, failure shape measured (below) |
+   | pre-`listen` bind error | 📌 **unarmed, recorded** -- `listen(0)` takes an ephemeral port, so the collision cannot be produced through the public surface; arming it would test a stub of `http.createServer`, not the helper |
+
+### The measurement that changed a claim I had already written
+
+**Removing the `t.after` catch does NOT kill the process.** The helper's own comment said it did; I
+wrote that comment and never measured it. Deleting the try/catch and running the file:
+
+```
+TypeError: t.after is not a function     thrown from the listen callback
+10 of 11 arms                            STILL PASS
+this arm                                 never settles
+the FILE                                 fails after 119866ms with
+                                         "Promise resolution is still pending but
+                                          the event loop has already resolved"
+```
+
+⚠️ **So the failure is a two-minute hang attributed to the FILE, not a red on the arm.** That is
+worse than a clean red rather than better: in CI a two-minute hang reads as a timeout or a flake,
+and a flake is the one failure shape people retry instead of investigate. Both comments now state
+the measured shape.
+
+### The NIT I measured and turned down
+
+Iteration 8 suggested moving the unknown-option guard **above** the `platformKey` guard, so that
+`serveRelease(t, {chekcsum: 'x'})` reports the typo rather than the missing platformKey. Plausible,
+and I applied it. **It broke an existing arm, and the break is the argument against it:**
+
+`Object.keys()` on a **Buffer** returns its numeric indices. So the sibling positional shape
+`serveRelease(t, Buffer.from('x'))` -- `connect.nobinary-1580`'s call, the likeliest migration
+mistake there is -- stopped reporting *"needs a platformKey string"* and started reporting
+*"unknown option(s): 0, 1, ..."*, which names nothing a caller can act on.
+
+⇒ **Reverted, with the measurement recorded at the guard** so the next reviewer does not re-propose
+it. The typo case it would have helped already has its own arm and is answered correctly under
+either ordering, so the swap traded a real regression for no gain.
+
+⭐ **The reusable half: the NIT's reasoning was sound and its conclusion was wrong, and only running
+it separated the two.** A reordering that "just changes which message you see first" changes it for
+every shape, not only the shape you had in mind.
