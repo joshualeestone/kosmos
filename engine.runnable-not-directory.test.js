@@ -393,7 +393,10 @@ function enclosingFn(lines, i) {
 const KNOWN_WEAK_CALLS = [
   { file: 'engine/connect.js', call: 'accessSync(path, X_OK', fn: 'start' },
   { file: 'engine/devicedoor.js', call: 'accessSync(X_OK', fn: '(top level)' },
-  { file: 'engine/machine.js', call: 'accessSync(bin, fs.constants.X_OK', fn: 'installedCheck' },
+  // #1641: the real call converged to runners.isRunnable; only a pinned prose
+  // warning remains in installedCheck, exactly as connect.js and devicedoor.js
+  // keep one. Its runnability is still exercised by the behavioural arm below.
+  { file: 'engine/machine.js', call: 'accessSync(bin, X_OK', fn: 'installedCheck' },
   { file: 'engine/runners.js', call: 'accessSync(p, fs.constants.X_OK', fn: 'isRunnable' },
 ];
 
