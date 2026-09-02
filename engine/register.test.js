@@ -26,6 +26,11 @@ process.env.AGENT_WORKFORCE_WORKERS = path.join(SB, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'launch');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = path.join(SB, 'bin', 'claude');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(SB, 'bin', 'tmux');
+/* #1794: the codex runner too. The #1337/#1400 repair arms write a Codex agent's
+   trust config, and repair only does so when a codex binary is present -- true on
+   a dev machine (real codex), ABSENT on a clean CI runner, so the write never
+   happens and "the trust write did not land in the sandbox". Seam it to a stub. */
+process.env.AGENT_WORKFORCE_CODEX_BIN = path.join(SB, 'bin', 'codex');
 /* 🛑 AND THE CODEX HOME, WHICH THIS FILE DID NOT SANDBOX AND WHICH IT CAN REACH.
    It calls `create.installJob` twice, and `installJob` runs `trustCodexFolder`
    and `dismissCodexUpdateNotice` against `codexHomeDir()` - which resolves to
@@ -69,6 +74,7 @@ function reset() {
   fs.mkdirSync(path.join(SB, 'bin'), { recursive: true });
   fs.writeFileSync(path.join(SB, 'bin', 'claude'), '#!/bin/sh\n', { mode: 0o755 });
   fs.writeFileSync(path.join(SB, 'bin', 'tmux'), '#!/bin/sh\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(SB, 'bin', 'codex'), '#!/bin/sh\n', { mode: 0o755 }); // #1794
 }
 
 test('an agent with a folder and no job is the thing being looked for', () => {
