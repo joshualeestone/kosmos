@@ -1824,11 +1824,60 @@ const WORKING_LINE = /^\s*[·✢✳✶✻✽*] \S+…\s+\((?:\d+h\s+)?(?:\d+m\s+
 const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
 
 /* #1889. The background-agent wait line, glyph-anchored exactly as WORKING_LINE
-   is, and requiring the `background agent` phrase so the 23 other `Waiting for …`
+   is, and requiring the `background agent` phrase so the OTHER `Waiting for …`
    strings in the bundle (several of which mean BLOCKED ON A HUMAN) cannot reach
-   the WORKING branch through it. Verbatim shape, live 2.1.258:
-     ✻ Waiting for 1 background agent to finish */
-const BACKGROUND_AGENT_WAIT = /^\s*[·✢✳✶✻✽*] Waiting for \d+ background agents? to finish/mu;
+   the WORKING branch through it. Counted 25 distinct extractions of
+   `Waiting for …` in the 2.1.258 bundle, one of which is the bare interpolated
+   prefix this very line is composed from, and one a Zod `describe()` doc string
+   rather than a screen. Do not quote a bare count without saying which. Verbatim shape, live 2.1.258:
+     ✻ Waiting for 1 background agent to finish
+
+   🛑 SPACES ARE `\s*`, NOT LITERAL, AND THAT IS THIS MODULE'S CONVENTION RATHER
+   THAN A STYLE CHOICE. `capturePane` passes `-J`, which joins a wrapped row with
+   NO separator, so a space sitting on the wrap boundary is GONE from the joined
+   line (see `capturePane`'s docblock and #1234). The rendered line is 42 columns
+   and has six spaces; on a pane narrow enough to wrap at one of them a literal
+   ' ' silently stops matching and the reader returns to `idle` -- failing in the
+   quiet direction, exactly as #1234 did. Measured with literal spaces:
+   `✻ Waiting for 1 backgroundagent to finish` -> false. */
+const BACKGROUND_AGENT_WAIT = /^\s*[·✢✳✶✻✽*]\s*Waiting\s*for\s*\d+\s*background\s*agents?\s*to\s*finish/mu;
+
+/* #1889. How far above the screen's last non-empty row the wait line may sit and
+   still be the LIVE status line rather than a quotation.
+
+   🛑 WITHOUT THIS THE READER IS A QUOTABLE LITERAL THAT FAILS TOWARD SILENCE.
+   Unlike `WORKING_LINE` (which needs a live, changing timer) this line is static
+   text: any agent that `cat`s a document containing it -- including this repo's
+   own plan file for #1889, measured -- would classify `working` while sitting
+   idle at its prompt. A false CALM, which is the direction nobody investigates.
+
+   MEASURED on live 2.1.258 panes: the wait line sits 9, 9 and 11 rows above the
+   last non-empty row, because Claude Code draws it just above the composer box,
+   status line and subagent rows. A mid-document quotation measured 114. 16 gives
+   headroom for several more subagent rows without reaching a quotation.
+   ⚠️ It BOUNDS the residual rather than removing it: a document quoting the line
+   in its last 16 rows still matches. Same limit `TRUST_PROMPT_REACH` carries. */
+const BACKGROUND_AGENT_WAIT_REACH = 16;
+
+/**
+ * The live background-agent wait line, or null.
+ *
+ * Returns the LINE, not a boolean, so the caller can show what it saw -- the
+ * same "evidence, not a paraphrase" rule the rate-limit and trust readers use.
+ */
+function backgroundAgentWait(text) {
+  const rows = String(text == null ? '' : text).split('\n');
+  let last = rows.length - 1;
+  while (last >= 0 && rows[last].trim() === '') last -= 1;
+  if (last < 0) return null;
+  for (let i = 0; i < rows.length; i += 1) {
+    if (!BACKGROUND_AGENT_WAIT.test(rows[i])) continue;
+    if (last - i > BACKGROUND_AGENT_WAIT_REACH) continue;
+    const line = rows[i].trim();
+    return line.length > 240 ? line.slice(0, 240) + '…' : line;
+  }
+  return null;
+}
 
 /**
  * The first line of `text` that any of `markers` matches, or null.
@@ -2492,10 +2541,18 @@ function classify(pane, paneText) {
    * CAPTURED VERBATIM from a live pane (icecreamkitty-discord:0.0, Claude Code
    * 2.1.258, 2026-09-02), not composed here. Measured on that capture: with the
    * scrapers alone `classify()` returned `idle`, "it is sitting at its prompt",
-   * while the agent was genuinely mid-turn. On that pane a DIFFERENT arm (the
-   * process read, "running Bash") happened to catch it, which is precisely why
-   * this stayed invisible: the scraper was wrong and something else was right.
-   * An agent waiting on a background agent with no shell running reads idle.
+   * while the agent was genuinely mid-turn.
+   *
+   * 🛑 CORRECTED, AND THE FIRST VERSION OF THIS COMMENT UNDERSTATED THE DEFECT.
+   * It said a "process read" caught these panes. THERE IS NO PROCESS-READ ARM in
+   * this module; that instrument does not exist. What actually masked it is the
+   * agent's OWN SELF-REPORT: `install/kosmos-report-hook.sh` fires
+   * `report working --auto "running <tool>"` on PreToolUse, throttled to one
+   * line per 60s. So the board was NOT independently right -- it was right only
+   * where the agent happened to be reporting.
+   * ⇒ Any agent whose report hook is absent, failing, or merely between
+   * heartbeats reads IDLE while mid-turn. Measured at review time: of the panes
+   * carrying this shape, `origin/main` returned `idle` for EVERY ONE.
    *
    * 🔑 AND A STATIC GREP COULD NOT HAVE FOUND IT. The count is interpolated, so
    * the literal line is nowhere in the bundle -- the card's own point that
@@ -2503,7 +2560,7 @@ function classify(pane, paneText) {
    * against the very reader it was filed about.
    *
    * ⚠️ DELIBERATELY NARROW, AND THE WIDER RULE WOULD BE A REGRESSION. The 2.1.258
-   * bundle carries 24 distinct `Waiting for …` strings and they are NOT one
+   * bundle carries roughly two dozen distinct `Waiting for …` strings and they are NOT one
    * state. Some are autonomous waits (API response, CI, findings, server, task);
    * others are blocked ON A HUMAN (`Waiting for permission`, `Waiting for
    * authorization`, `Waiting for team lead approval`, `Waiting for sign-in to
@@ -2519,12 +2576,13 @@ function classify(pane, paneText) {
    * not the truth. Do not widen this without a live capture of the shape you are
    * widening it to, and route the human-blocked ones to NEEDS_YOU, never here.
    */
-  if (BACKGROUND_AGENT_WAIT.test(tail)) {
+  const bgWaitLine = backgroundAgentWait(tail);
+  if (bgWaitLine !== null) {
     return {
       state: STATE.WORKING,
       confidence: CONFIDENCE.SCRAPED,
       because: 'it is waiting on a background agent',
-      evidence: matchedLine(tail, [BACKGROUND_AGENT_WAIT]),
+      evidence: bgWaitLine,
     };
   }
   /**

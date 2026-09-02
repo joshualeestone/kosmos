@@ -1582,10 +1582,13 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    * its prompt", on a genuinely mid-turn agent. That is #1884's direction
    * exactly -- the false calm nobody investigates.
    *
-   * ⚠️ AND IT WAS MASKED, WHICH IS WHY IT SURVIVED. On the real pane a
-   * DIFFERENT arm (the process read, "running Bash") returned working, so the
-   * board was right while the scraper was wrong. An agent waiting on a
-   * background agent with no shell running is the case nothing catches.
+   * ⚠️ AND IT WAS MASKED, WHICH IS WHY IT SURVIVED -- by the agent's OWN
+   * SELF-REPORT, not by any independent read. `install/kosmos-report-hook.sh`
+   * fires `report working --auto "running <tool>"` on PreToolUse, throttled to
+   * one line per 60s. There is no process-classification arm in this module.
+   * ⇒ The board was right only where the agent happened to be reporting. An
+   * agent whose hook is absent, failing, or between heartbeats reads IDLE while
+   * mid-turn.
    *
    * 📌 A STATIC GREP COULD NOT HAVE FOUND THIS. The count is interpolated, so
    * the literal string is nowhere in the 2.1.258 bundle.
@@ -1601,8 +1604,43 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
   assert.equal(got.evidence, '✻ Waiting for 1 background agent to finish',
     'the evidence must be the line as drawn, not a paraphrase');
 
-  // The plural, since the count is interpolated and 1 is not special.
-  assert.equal(classify(pane, '✻ Waiting for 3 background agents to finish' + footer).state, 'working');
+  // The plural, since the count is interpolated and 1 is not special. Pins
+  // `because` and `evidence` too: asserting only `.state` would let a
+  // plural-only evidence regression through.
+  const plural = classify(pane, '✻ Waiting for 3 background agents to finish' + footer);
+  assert.equal(plural.state, 'working');
+  assert.match(plural.because, /background agent/);
+  assert.equal(plural.evidence, '✻ Waiting for 3 background agents to finish');
+
+  /**
+   * 🛑 WRAP SAFETY (#1234's class). `capturePane` passes `-J`, which joins a
+   * wrapped row with NO separator, so a space on the wrap boundary vanishes from
+   * the joined line. With literal spaces this row went red; the marker spells
+   * its spaces `\s*` for exactly that reason.
+   */
+  assert.equal(classify(pane, '✻ Waiting for 1 backgroundagent to finish' + footer).state, 'working',
+    'a wrap-eaten space silently stopped the reader matching');
+
+  /**
+   * 🛑 THE QUOTATION RESIDUAL, AND IT IS LIVE IN THIS REPO. This line is static
+   * text, unlike WORKING_LINE which needs a changing timer, so an agent that
+   * `cat`s a document containing it would classify `working` while idle at its
+   * prompt -- a false CALM. `backgroundAgentWait` therefore requires the line to
+   * sit within BACKGROUND_AGENT_WAIT_REACH rows of the screen's last non-empty
+   * row, because Claude Code draws it just above the composer. Measured live:
+   * 9, 9 and 11 rows. Measured for a mid-document quotation: 114.
+   */
+  /* 🛑 THE FILLER COUNT IS LOAD-BEARING AND 40 MADE THIS ROW VACUOUS. `classify`
+     only reads the last 25 rows, so a fixture that long pushed the line out of
+     `tail` entirely and the row passed whether or not the reach guard existed.
+     Verified by perturbation: at 40 fillers, deleting the guard still left this
+     green. 17 keeps the line INSIDE the tail (22 rows) but 21 above the last
+     non-empty row, which is past the reach -- so the row now fails when the
+     guard is removed, which is the only thing that makes it worth having. */
+  const quoted = ['✻ Waiting for 1 background agent to finish']
+    .concat(new Array(17).fill('  later output')).join('\n');
+  assert.notEqual(classify(pane, quoted + footer).state, 'working',
+    'a quoted copy high on the screen was read as a live status line');
 
   /**
    * 🛑 THE GUARD THAT MAKES THE RULE SAFE TO HAVE. The 2.1.258 bundle carries 24
@@ -1620,6 +1658,19 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     assert.notEqual(classify(pane, human + footer).state, 'working',
       'a human-blocked wait reached WORKING through the background-agent rule: ' + human);
   }
+
+  /**
+   * 🛑 PRECEDENCE, AND NOTHING ELSE PINNED IT. The rule sits BELOW the
+   * needs-you checks on purpose. Grouping the three working arms together is a
+   * natural tidy-up for a future editor, and hoisting this block above
+   * `asksSomething` goes GREEN on the rest of this file while flipping a real
+   * blocking prompt to `working` -- an agent waiting on a person, reported busy.
+   * That is the false calm this card exists to close, so it gets its own row.
+   */
+  const blocked = '✻ Waiting for 1 background agent to finish\n'
+    + 'Do you want to proceed?\n❯ 1. Yes\n  2. No';
+  assert.equal(classify(pane, blocked + footer).state, 'needs_you',
+    'the background-agent rule outranked a blocking prompt, hiding an agent that needs a person');
 });
 
 test('a card reads the transcript of ITS OWN session, not of the name it shares', () => {
