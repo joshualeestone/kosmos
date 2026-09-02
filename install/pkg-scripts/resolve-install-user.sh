@@ -36,19 +36,20 @@ _riu_console_user() { /usr/bin/stat -f '%Su' /dev/console 2>/dev/null; }
 # sensor so the owner parse below can be exercised on canned input.
 _riu_ps() { /bin/ps -axo user=,comm= 2>/dev/null; }
 
-# Distinct owners (one per line) of any running GUI Installer process, matched by
-# the executable basename so both the full CoreServices path and a bare
-# "Installer" count. The CLI `installer` binary runs as root under sudo and is
-# filtered out by the resolver; the GUI Installer.app runs as the person who
-# double-clicked.
+# Distinct owners (one per line) of any running Apple GUI Installer process. The
+# match anchors on the CoreServices Installer.app EXECUTABLE PATH
+# (.../CoreServices/Installer.app/Contents/MacOS/Installer), not a bare basename:
+# CoreServices is a SIP-protected system location, so a third-party or rogue
+# binary merely NAMED "Installer" cannot sit there and be mistaken for the real
+# one. The CLI `installer` binary runs as root under sudo and is filtered out by
+# the resolver anyway; the GUI Installer.app runs as the person who double-clicked.
 _riu_installer_owners() {
   _riu_ps | /usr/bin/awk '
     {
       user = $1
       path = $2
       for (i = 3; i <= NF; i++) path = path " " $i
-      n = split(path, parts, "/")
-      if (parts[n] == "Installer") print user
+      if (path ~ /\/CoreServices\/Installer\.app\/Contents\/MacOS\/Installer$/) print user
     }' | /usr/bin/sort -u
 }
 
@@ -91,14 +92,15 @@ resolve_install_user() {
     fi
   fi
 
-  # candidate 2 (fallback): the physical console user, but ONLY when it is a real
-  # user with a real Aqua session AND the Installer owner was not AMBIGUOUS. When
-  # two accounts are BOTH running Installer we genuinely cannot tell who is
-  # driving THIS install, and picking the console holder there would reintroduce
-  # exactly the #1880 class -- the console holder may just have a stale Installer
-  # window open while the OTHER account is the real double-clicker. So on
-  # ambiguity we refuse and name both candidates, rather than guess.
-  if [ "$_riu_owner_count" -le 1 ]; then
+  # candidate 2 (fallback): the physical console user -- but ONLY when there is NO
+  # Installer-owner signal at all (count 0), and it is a real user with a real
+  # Aqua session. If we DID detect an Installer owner and it did not resolve via
+  # candidate 1 (it failed the session gate, count 1; or it was ambiguous,
+  # count > 1), we have a contradictory invoker signal, so we refuse and name it
+  # rather than silently redirect the install to the console holder -- who may not
+  # be who invoked it. Redirecting there is the very #1880 class this fixes,
+  # reached through the session-gate route instead of console divergence.
+  if [ "$_riu_owner_count" -eq 0 ]; then
     case "$_riu_console" in
       ''|root|loginwindow) : ;;
       *)

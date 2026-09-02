@@ -117,12 +117,19 @@ has "$RIU_REASON" "more than one account is running Installer" \
   && pass "  and still says it is ambiguous" \
   || fail "  and still says it is ambiguous: $RIU_REASON"
 
-# --- ARM 7: Installer owner has NO session -> fall through to console -------
+# --- ARM 7: a SOLE Installer owner without an Aqua session -> REFUSE, not the
+# console holder. There is a detected invoker signal (bob) that failed its gate,
+# which contradicts the console holder (alice); redirecting to alice would be the
+# #1880 class via the session-gate route, so it refuses and names the situation.
+# (iteration-2 review: console fallback is for "no Installer signal at all" only.)
 STUB_CONSOLE="alice"; STUB_OWNERS="bob"; STUB_SESSIONS="501"   # bob(502) has no session
 run; r="$RUN_RESULT"
-[ "$r" = "alice" ] \
-  && pass "gui-gate: an Installer owner without an Aqua session is rejected, console (alice) used" \
-  || fail "gui-gate: expected alice, got '$r'"
+[ "$r" = "<refused>" ] \
+  && pass "gui-gate: a sole Installer owner without an Aqua session REFUSES (does not redirect to console)" \
+  || fail "gui-gate: expected refusal, got '$r'"
+has "$RIU_REASON" "no active window session to install into" \
+  && pass "  and names the sessionless Installer owner" \
+  || fail "  and names the sessionless Installer owner: $RIU_REASON"
 
 # --- ARM 8: root Installer owner is filtered out ---------------------------
 # The CLI `installer` runs as root; only the GUI Installer.app owner should count.
@@ -160,6 +167,16 @@ owners="$(_riu_installer_owners)"
 [ -z "$owners" ] \
   && pass "parse: no Installer line -> no owners" \
   || fail "parse: expected empty, got '$owners'"
+# a third-party or rogue binary NAMED Installer, or a bare basename, is NOT the
+# Apple CoreServices Installer.app exec path -> must not be selected.
+_riu_ps() { printf '%s\n' \
+  'mallory /Applications/Installer.app/Contents/MacOS/Installer' \
+  'eve /tmp/Installer' \
+  'josh /System/Library/CoreServices/Installer.app/Contents/MacOS/Installer'; }
+owners="$(_riu_installer_owners)"
+[ "$owners" = "josh" ] \
+  && pass "parse: only the CoreServices Installer path matches; a third-party Installer.app and a bare /tmp/Installer are ignored" \
+  || fail "parse: expected only 'josh', got '$owners'"
 
 if [ "$fails" -ne 0 ]; then echo "$fails check(s) failed"; exit 1; fi
 echo "all checks passed"
