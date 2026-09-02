@@ -2052,7 +2052,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
   if (live && live.state === NONE) {
     return {
       ok: false,
-      because: `${acct.email || 'that account'}'s Claude sign-in is not working, so an agent created on it would not be able to run. Re-authenticate that account (run /login for it) before creating an agent on it.`,
+      because: `${acct.email || 'that account'}'s Claude sign-in is not working, so an agent created on it would not be able to run. Re-authenticate that account from the Accounts tab in Settings (Sign in again) before creating an agent on it.`,
     };
   }
   return { ok: true };
