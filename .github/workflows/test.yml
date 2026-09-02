@@ -90,9 +90,19 @@ jobs:
       # because run-tests.sh reads the EXIT CODE, not the format -- but if you ever
       # add a guard that counts the spec prefix, verify it on BOTH 22 and 26, or it
       # will pass on a Mac and read zero here. Pin CI to match dev if that trade changes.
+      # #1794: node 26, NOT 22. This repo's suite is written and run on node 26
+      # (the developer Macs), and node 22 breaks it: engine/live-execution's
+      # inTestProcess() keys on `process.execArgv` containing `--test`, and node
+      # 22's test runner runs each file in a child whose execArgv drops it, so
+      # the gate reads "not a test process" and #1598's three arms fail on a
+      # clean node-22 runner. Measured on node 26: the same tests pass
+      # single-file AND multi-file (child-process isolation). The ci-workflow-835
+      # base pinned 22 to match kosmos-relay's CI; that repo is Rust with one
+      # node page test, this one is pure node and node-26-native, so it tracks
+      # its own dev line. #1025 (a range resolution) is the same node-line fix.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '26'
       # Say which node this is, so drift within the pinned line arrives here as a
       # legible line rather than later as an unrelated red.
       - name: which node is this

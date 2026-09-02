@@ -40,7 +40,12 @@ process.on('exit', () => {
 const create = require('./create');
 const status = require('./status');
 
-const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
+/* #1794: codexBin too. The OpenAI-provider arms resolve the codex runner, which
+   is found on a dev machine (real codex installed) but ABSENT on a clean CI
+   runner -- so the intended refusal ("speak the display name") was replaced by
+   "could not find the OpenAI runner". binPaths honours opts.codexBin and
+   isRunnable only needs an executable file, so /bin/echo seams it hermetically. */
+const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo', codexBin: '/bin/echo' };
 
 /* #1794: the real create path checks which agents are already running (the pane
    roster), which shells out to a live tmux and THROWS on a boardless CI runner.
