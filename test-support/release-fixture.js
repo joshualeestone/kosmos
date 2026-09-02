@@ -16,14 +16,26 @@
  *     engine/connect.test.js               (t, {version, binary, checksum})
  *     engine/connect.install-997.test.js   (t, {version, binary, checksum}, opts)
  *
- * ⚠️ COUNT THESE BEFORE EDITING THE LINE ABOVE, DO NOT REMEMBER THEM:
- * `git grep -n 'function serveRelease'`. This comment's whole job is counting
- * copies and it has been wrong by 2x.
+ * ⚠️ COUNT THESE BEFORE EDITING THE TABLE ABOVE, DO NOT REMEMBER THEM. This
+ * comment's whole job is counting copies and it has been wrong by 2x. Use the
+ * ANCHORED form, which returns 4:
+ *
+ *     git grep -n '^function serveRelease'
+ *
+ * 🛑 THE ANCHOR IS THE WHOLE POINT. An unanchored search for the same phrase
+ * also matches PROSE -- this comment, and any plan or review that discusses it.
+ * ⚠️ AND THAT COUNT IS UNSTABLE BY CONSTRUCTION: every time somebody documents
+ * the problem, the wrong number changes. It has already been 4, 5 and 8 while
+ * this comment was being written, which is why no figure for it is quoted here.
+ * A counting instruction that counts itself inflates the table it guards, and
+ * it fails in the direction that looks like diligence.
  *
  * 🔑 WHICH IS WHY THIS TAKES A SINGLE NAMED-OPTIONS ARGUMENT. The four
- * disagree about what the SECOND positional parameter means -- three take an
- * options object and no two of those three accept the same keys, while the
- * fourth takes a raw Buffer -- so a call copied
+ * disagree about what the SECOND positional parameter means: three take an
+ * options object and the fourth takes a raw Buffer. (Of the three, this file's
+ * is the only one accepting `platformKey`; `connect.test.js` and
+ * `install-997.test.js` accept the SAME keys and differ only in arity, the
+ * latter taking a third positional that changes server behaviour.) so a call copied
  * between sibling files would be accepted and silently wrong: an options object
  * arriving where `platformKey` was expected produced a manifest keyed
  * `"[object Object]"`, and the flow then failed with `the download service has
@@ -37,13 +49,13 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 
+const KNOWN_OPTIONS = ['platformKey', 'version', 'binary', 'checksum'];
+
 /**
  * Returns the base URL. Registers its own teardown on `t`, closing live
  * keep-alive sockets as well as the listener, so a file does not sit at exit
  * waiting for the server's `keepAliveTimeout`.
  */
-const KNOWN_OPTIONS = ['platformKey', 'version', 'binary', 'checksum'];
-
 function serveRelease(t, opts = {}, ...extra) {
   /* `= {}` only fills `undefined`, so an explicit null reaches the destructure
      below and throws a raw "Cannot destructure property" instead of this file's

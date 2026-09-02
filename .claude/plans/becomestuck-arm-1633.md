@@ -119,17 +119,24 @@ this file                               drives the real start(), reads the STUCK
 
 🛑 **THAT SENTENCE USED TO READ "The unit guard stays green if `becomeStuck` stops calling the helper. This arm does not." IT WAS EXACTLY BACKWARDS, AND IT WAS THE STATED JUSTIFICATION FOR THE BRANCH.** Iteration 11 caught it; the measurement below settles it. Four mutations, each run against every file that touches the field:
 
-| mutation | runnable-not-dir | publicview-canrun | server.connect | **these arms** |
-|---|---|---|---|---|
-| control (none) | green | green | green | green |
-| **M1** behaviour-preserving refactor of the writeState line | **RED** | green | green | green |
-| **M2** drop the `isFile()` gate | **RED** | green | green | **RED** |
-| **M3** `publicView` drops the field | green | **RED** | green | **RED** |
-| **M4** install failure never reaches `becomeStuck` (`connect.js:1708`) | green | green | green | **RED** |
+🛑 **THE TABLE BELOW REPLACES ONE BUILT FROM A HAND-PICKED COLUMN SET, AND THE SET IS WHAT MADE IT WRONG.** I chose columns by *which files mention `canRunClaude`*. `engine/connect.test.js` does not mention it, was therefore excluded, and **is one of the tests that falsifies the old claim.** ⇒ **Choosing the column set is choosing the answer.** Every row below is measured by running the **entire suite** under the mutation and reading which tests redden.
 
-⭐ **M4 IS WHY THIS BRANCH EXISTS, and it is the row I could not have argued my way to.** Cut the wiring from the install failure to `becomeStuck` and **every other test stays green**: they build the state object by hand or grep source text, so none can see whether the flow ever arrives. These arms drive the real `start()`, so they are the only thing that notices the screen would never be served the field at all.
+| mutation | tests that redden, whole suite | unique here? |
+|---|---|---|
+| control (none) | none (3765 pass) | n/a |
+| **M1** behaviour-preserving refactor of the writeState line | `runnable-not-directory` only | no, and these arms correctly stay GREEN |
+| **M2** drop the `isFile()` gate | `runnable-not-directory` + the DIRECTORY arm | no |
+| **M3** `publicView` drops the field | `publicview-canrun-1595` + the PRESENT arm | no |
+| **M4** install failure never reaches `becomeStuck` (`connect.js:1708`) | **5 tests**: all three arms here, `connect.test.js` "a stuck install does not strand the 281MB download", `nobinary-1580` "#1580: a DIRECTORY at the binary path" | **NO** |
+| **M5** `writeState` loses the field in transit | **1 test: the PRESENT arm here** | **YES** |
 
-⚠️ **M1 is the other half and it runs the OTHER way.** The unit guard pins the exact source text of the writeState line, so a refactor changing **no** behaviour (hoisting the call to a local) reddens it while these arms correctly stay green. It asserts **the shape of a line**; these assert **the value that reaches the screen**. Neither is a superset of the other, which is the honest version of the claim this section made for ten iterations.
+⭐ **M5 IS THE ROW THAT JUSTIFIES THE BRANCH.** Make `writeState` drop `canRunClaude` while leaving both the pinned source line and `claudeHatchAvailable()` untouched, and across the **entire js suite (3765 tests) plus the shell portion**, exactly one test reddens and it is here. Every other test builds state by hand, matches source text, or asserts only `phase` and `because` -- so the field can vanish between the writer and the screen with nothing else noticing.
+
+🛑 **M4 WAS THE JUSTIFICATION FOR ONE ITERATION AND IT WAS FALSE.** Two other tests catch it. **The reviewer found one; the whole-suite run found a second the reviewer had also missed.** That is an argument for the method, not for either analyst.
+
+⚠️ **AND "WHOLE SUITE" NEARLY LIED THE SAME WAY.** `tools/run-tests.sh:105-108` runs the shell portion **only if node passed**, so a failing js run silently skips ~700 lines of shell checks. The first M5 log looked complete and was not. The shell portion was then run separately under M5 (`EXIT_CODE=0`, 0 red), so the claim covers both halves. **A suite that stops early still prints a plausible tally.**
+
+⚠️ **M1 is the other half and runs the OTHER way.** The unit guard pins the exact source text of the writeState line, so a refactor changing **no** behaviour reddens it while these arms correctly stay green. It asserts **the shape of a line**; these assert **the value that reaches the screen**. Neither is a superset of the other.
 
 📌 **How I nearly got this wrong twice.** My first compressed harness reported M1 and M2 as all-green, contradicting per-file runs I had done minutes earlier. The harness was the defect: `$?` inside a second command substitution does not capture `node`'s exit code. **When two of your own instruments disagree, the newer one is the suspect** -- and a control row that must come back all-green is what makes the table readable at all.
 
@@ -398,8 +405,9 @@ each survivor stops a specific re-introduction:
 | **COUNT THESE, DO NOT REMEMBER THEM** (with the command) | the copy-count miscount recurring a third time |
 | the measured guard-order rejection | the reordering being re-proposed |
 
-**NOT fixed, and stated plainly rather than claimed:** the main test file is still **65% comment**
-(295 lines, 192 of them comment). The strip removed process history and the timeline table replaced
+**NOT fixed, and stated plainly rather than claimed:** at the time of this round the main test file
+was **65% comment** (295 lines, 192 of them comment; iteration 11 later brought it to 61%, and the
+current figure is in that section rather than here). The strip removed process history and the timeline table replaced
 much of it, so the volume is roughly flat. **The content is now defensible; the volume is a judgement
 call I am leaving to the reviewer of this PR rather than papering over.**
 
@@ -469,24 +477,14 @@ checked last.**
 
 ### What the branch is actually worth, established by mutation rather than argument
 
-| mutation | runnable-not-dir | publicview-canrun | server.connect | **these arms** |
-|---|---|---|---|---|
-| control (none) | green | green | green | green |
-| **M1** behaviour-preserving refactor of the writeState line | **RED** | green | green | green |
-| **M2** drop the `isFile()` gate | **RED** | green | green | **RED** |
-| **M3** `publicView` drops the field | green | **RED** | green | **RED** |
-| **M4** install failure never reaches `becomeStuck` (`connect.js:1708`) | green | green | green | **RED** |
+**The matrix this round produced is NOT reproduced here** -- iteration 12 found it wrong (its M4 row
+claimed a uniqueness two other tests also have) and replaced it with a whole-suite version. **The
+canonical table lives once, above.** Keeping a second copy here is what let five earlier claims drift
+between sites.
 
-⭐ **M4 IS THE ROW THAT JUSTIFIES THE BRANCH, and I could not have argued my way to it.** Cut the
-wiring from the install failure to `becomeStuck` and **every other test stays green** -- they build
-state by hand or grep source, so none sees whether the flow ever arrives. These arms drive the real
-`start()`, so they are the only thing that notices the screen would never be served the field.
-
-⚠️ **M1 is the other half and runs the other way**: the unit guard reddens on a refactor that changes
-nothing. It asserts **the shape of a line**; these assert **the value that reaches the screen**.
-Neither is a superset of the other. **That is the honest claim, and it is stronger than the false
-one it replaces** -- the false version claimed subsumption, which would have made one of the two
-files deletable.
+⚠️ **What survives from this round is the correction it made, not the table it produced:** the
+subsumption claim was false in the M1 direction, the unit guard reddens on a behaviour-preserving
+refactor while these arms correctly stay green, and neither file is a superset of the other.
 
 📌 **I nearly published a wrong matrix.** My first compressed harness reported M1 and M2 as
 all-green, contradicting per-file runs from minutes earlier. **The harness was the defect:** `$?`
@@ -531,3 +529,85 @@ anyone editing the test and stopped there rather than trimming into mechanism.
 - **The `/after/` matcher** was loose enough to match an unrelated TypeError; tightened to
   `/t\.after is not a function/`.
 - **A test named for refusal contained an acceptance arm**; renamed to cover both.
+
+## Findings from challenge-loop iteration 12
+
+**One BLOCKER, three WARNINGs, three NITs. The first BLOCKER since iteration 1**, and it landed on
+the justification sentence again -- one row over from where iteration 11 found the last one.
+
+### 🛑 THE M4 UNIQUENESS CLAIM WAS FALSE, AND THE COLUMN SET IS WHY
+
+Iteration 11 replaced a backwards justification with a measured matrix. **Iteration 12 found the
+replacement wrong too.** M4 (cut the install-failure wiring at `connect.js:1708`) is caught by
+**five** tests, not three:
+
+```
+✖ #1633: a stuck flow WITH claude on disk records canRunClaude true     <- mine
+✖ #1633: a stuck flow with NO claude on disk records canRunClaude false <- mine
+✖ #1633: a DIRECTORY at the bin path is not runnable, driven flow       <- mine
+✖ a stuck install does not strand the 281MB download in app data        <- connect.test.js
+✖ #1580: a DIRECTORY at the binary path is not "something to run"       <- nobinary-1580
+```
+
+🛑 **THE METHOD WAS THE DEFECT, NOT THE CELL.** I built that matrix by choosing columns: *the files
+that mention `canRunClaude`*. **`engine/connect.test.js` never mentions the field, so it was excluded
+by the very criterion used to build the set -- and it is one of the two tests that falsify the
+claim.** ⇒ **A matrix built from a hand-picked column set is a claim about the columns. I wrote it as
+a claim about the repo.** Choosing the column set is choosing the answer.
+
+⭐ **AND THE FIX IS NOT "PICK BETTER COLUMNS".** The reviewer found one of the two missing tests by
+reading; the **whole-suite run found a second one the reviewer also missed.** Running everything and
+reading what reddens has no freedom to exclude, which is the entire argument.
+
+### What the branch is actually worth, re-measured with no column set
+
+**M5: make `writeState` lose `canRunClaude` in transit**, leaving both the pinned source line and
+`claudeHatchAvailable()` untouched.
+
+```
+entire js suite   3765 tests -> exactly ONE red, the PRESENT arm here
+shell portion     run separately under M5 -> EXIT_CODE=0, zero red
+```
+
+⭐ **That is a true uniqueness claim and it is narrower than the one it replaces.** The field can
+vanish between the writer and the screen and nothing else in the repo notices, because every other
+test builds state by hand, matches source text, or asserts only `phase` and `because`.
+
+⚠️ **"WHOLE SUITE" NEARLY LIED THE SAME WAY, ONE LAYER DOWN.** `tools/run-tests.sh:105-108` runs the
+shell portion **only if node passed**, so a failing js run silently skips ~700 lines of shell checks.
+**The first M5 log looked complete and was not**; the shell half was then measured separately. **A
+suite that stops early still prints a plausible tally**, and the tell was a log 700 lines shorter
+than baseline, not anything in the tally itself.
+
+### The best small finding of the round: an instruction that counted itself
+
+A comment I added in iteration 10 told the next maintainer:
+
+> *COUNT THESE, DO NOT REMEMBER THEM: `git grep -n 'function serveRelease'`*
+
+**That command returned FIVE when the reviewer ran it. There are four definitions.** The extra hit was
+the comment itself, because the instruction contains the string it searches for. ⇒ **A maintainer
+following it literally would have "corrected" the table upward.** Anchored (`^function serveRelease`)
+it returns 4, stably.
+
+🛑 **AND THE WRONG NUMBER WOULD NOT HOLD STILL WHILE I FIXED IT.** Writing the anchored form into the
+comment added another occurrence; writing *this section* added two more. **Measured minutes apart: 4,
+then 5, then 8.** ⇒ **A self-referential count is unstable by construction -- every attempt to
+document it perturbs it** -- so the comment now states the principle and the anchored command and
+quotes no figure for the unanchored one.
+
+⭐ **A counting instruction that counts itself inflates the table it exists to guard**, and it fails in
+the direction that looks like diligence.
+
+### The rest
+
+- **"No two of those three accept the same keys"** -- false. `connect.test.js:147` and
+  `install-997:44` accept **identical** option keys and differ only in arity. 🛑 **This sentence was
+  introduced by iteration 11's own correction: the seventh instance on this branch of a fix planting
+  a fresh false claim.**
+- **The iteration-10 section stated a comment percentage in the present tense** that iteration 11
+  had already changed, three sections apart. Marked historical.
+- **The JSDoc for `serveRelease` sat above `KNOWN_OPTIONS`**, documenting the wrong symbol. Moved.
+- **Arm 3's `timedOut` message** dropped the "about canRunClaude" tail arms 1 and 2 carry. Restored.
+- 📌 **The mutation matrix was duplicated in two plan sections**, which is how five earlier claims
+  drifted between sites. **There is now one canonical copy** and the iteration-11 section points at it.

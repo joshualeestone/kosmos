@@ -206,19 +206,28 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
  * `runners.isRunnable()` and does a `statSync().isFile()` first. #1592 made
  * that change and `engine.runnable-not-directory.test.js` guards it AT THE UNIT.
  *
- * 🔑 THIS FILE IS NOT THAT TEST AND DOES NOT DUPLICATE IT. ⭐ THE ONE MUTATION
- * THAT SEPARATES THEM: cut the wiring from the install failure to `becomeStuck`
- * (`connect.js:1708`) and EVERY other test that touches this field stays green,
- * because they all build the state object by hand or grep source text. These
- * arms drive the real `start()`, so they are the only thing that notices the
- * screen would never be served the field at all.
+ * 🔑 THIS FILE IS NOT THAT TEST AND DOES NOT DUPLICATE IT. ⭐ THE MUTATION
+ * ONLY THESE ARMS CATCH: make `writeState` lose `canRunClaude` in transit,
+ * leaving BOTH the pinned source line AND `claudeHatchAvailable()` untouched.
+ * Measured across the ENTIRE js suite plus the shell portion: exactly one red,
+ * and it is the PRESENT arm here. Every other test either builds the state
+ * object by hand, matches `connect.js` as source text, or asserts only `phase`
+ * and `because` -- so the field can vanish between the writer and the screen
+ * with nothing else noticing.
  *
  * ⚠️ AND IT IS NOT A SUBSET EITHER WAY. The unit guard pins the EXACT source
  * text of the writeState line, so a refactor changing NO behaviour reddens it
  * while these correctly stay green. It asserts THE SHAPE OF A LINE; these assert
  * THE VALUE THAT REACHES THE SCREEN.
  *
- * The full four-mutation table, run against all four files, is in the plan.
+ * 🛑 DO NOT RESTATE THE OLD JUSTIFICATION. This block used to claim that cutting
+ * the install-failure wiring (`connect.js:1708`) was uniquely caught here. IT IS
+ * NOT: `connect.test.js`'s "a stuck install does not strand the 281MB download"
+ * and `connect.nobinary-1580.test.js`'s "#1580: a DIRECTORY at the binary path"
+ * both redden on it too. That claim came from a hand-picked comparison set, and
+ * `connect.test.js` was invisible to it because it never mentions this field.
+ *
+ * The full mutation table is in the plan.
  *
  * 🛑 DO NOT "FIX" THIS ARM BACK TO ASSERTING `true`. An earlier version did,
  * as a deliberate characterisation: a bare `accessSync(X_OK)` DOES succeed on a
@@ -232,7 +241,7 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
 test('#1633: a DIRECTORY at the bin path is not runnable, via the driven flow', async (t) => {
   const st = await stuckWith(t, { binaryExists: false, directoryInstead: true });
   assert.equal(st.timedOut, false,
-    'the flow never settled within the deadline; this is contention, not a verdict');
+    'the flow never settled within the deadline; this is contention, not a verdict about canRunClaude');
   assert.equal(st.phase, connect.PHASE.STUCK,
     'the arm never reached becomeStuck, so it proves nothing about canRunClaude');
   assert.match(st.because, INSTALL_FAILURE,
