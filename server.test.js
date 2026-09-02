@@ -2985,18 +2985,21 @@ test('the detail panel carries the explanation the card gave up', () => {
      appears nowhere in the UI at all while the server still ships it. */
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
-  const drive = (because) => {
+  const drive = (because, stateReported) => {
     // Seeded shown-and-full (presence before absence): the empty case must
     // demonstrably CLEAR and HIDE a line that was carrying a sentence.
     const el = { textContent: 'seeded', hidden: false };
     const from = script.indexOf("const why = document.getElementById('d-why');");
-    const write = script.indexOf('why.hidden = !why.textContent;');
+    /* #1841 anchored WITHOUT the trailing semicolon: the write now also hides on
+       a reported state (`|| a.stateReported === true`), so pinning the exact old
+       line would break on a change this file exists to allow. */
+    const write = script.indexOf('why.hidden = !why.textContent');
     const end = script.indexOf('\n', write) + 1;
     assert.ok(from > -1 && write > from && write < end,
       'the why write fell outside the extracted slice');
     // eslint-disable-next-line no-new-func
     new Function('document', 'a', script.slice(from, end))(
-      { getElementById: () => el }, { because });
+      { getElementById: () => el }, { because, stateReported });
     return el;
   };
   const told = drive('we could not read the pane');
@@ -3009,6 +3012,12 @@ test('the detail panel carries the explanation the card gave up', () => {
   const healthy = drive(undefined);
   assert.equal(healthy.textContent, '', 'a missing because must clear the seeded text, not keep it');
   assert.equal(healthy.hidden, true, 'an empty explanation must hide its line, not sit as a grey gap');
+  /* #1841 (Josh, 2026-09-02): when the state is REPORTED, the top line already
+     quotes the sentence (d-task), so this lower line is a duplicate and hides --
+     even though its text is non-empty. The honest non-reported explanation above
+     is unaffected, which is the whole point of the guard. */
+  const reported = drive('finished responding', true);
+  assert.equal(reported.hidden, true, 'a reported state must hide the duplicate lower status');
 });
 
 test('the settings screen renders the engine\'s three answers', () => {
@@ -3161,13 +3170,17 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
   // had two elements naming one fact differently, six lines apart.
   const runsOnLine = pageFunction('runsOnLine',
     pageFnSource('modelLine') + '\n' + pageConstSource('CARD_ST') + '\n' + pageFnSource('cardStOf'));
+  /* #1841 (Josh, 2026-09-02): the meta line bolds the role only, so it went from
+     textContent to escaped innerHTML -- the drive reads innerHTML and supplies
+     the real `esc` the line now calls. */
+  const esc = pageFunction('esc');
   const drive = (card) => {
-    const el = { textContent: 'seeded' };
+    const el = { innerHTML: 'seeded' };
     // `runs` is hoisted above the meta line so the meta line and the Runs on box
     // read ONE evaluation; the slice has to start there or `runs` is undefined.
-    const metaAt = script.indexOf("document.getElementById('d-meta').textContent =");
+    const metaAt = script.indexOf("document.getElementById('d-meta').innerHTML =");
     const from = script.lastIndexOf('const runs = runsOnLine(a);', metaAt);
-    const write = script.indexOf(".filter(Boolean).join(' · ');", from);
+    const write = script.indexOf(".join(' · ');", from);
     const end = script.indexOf('\n', write) + 1;
     assert.ok(from > -1 && write > from && write < end,
       'the meta-line write fell outside the extracted slice');
@@ -3176,9 +3189,9 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
        meta line now calls `roleLine(a, ROLE_TITLES)`, and null is the state the
        page holds until the roles route answers -- so this drives the fallback
        path, which is the one whose capitals the assertion below is about. */
-    new Function('document', 'a', 'modelLine', 'roleLine', 'runsOnLine', 'ROLE_TITLES', script.slice(from, end))(
-      { getElementById: () => el }, card, modelLine, roleLine, runsOnLine, null);
-    return el.textContent;
+    new Function('document', 'a', 'modelLine', 'roleLine', 'runsOnLine', 'ROLE_TITLES', 'esc', script.slice(from, end))(
+      { getElementById: () => el }, card, modelLine, roleLine, runsOnLine, null, esc);
+    return el.innerHTML;
   };
   const surfaced = drive({ role: 'archive worker', modelName: 'Claude Opus 5', nameDerived: false, state: 'working' });
   /* #684: the disclosure in the stranger's words. "shown by its machine name"
@@ -3187,14 +3200,18 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
     'a display name that IS the machine name carries no disclosure on the panel');
   assert.doesNotMatch(surfaced, /machine name/,
     'the panel still says "machine name", which is a code word a stranger has never met (#684)');
-  assert.match(surfaced, /Archive worker · Claude Opus 5 · /,
+  assert.match(surfaced, /<b>Archive worker<\/b> · Claude Opus 5 · /,
     'CONTROL: the meta line lost its role and model, so the disclosure assertion floats free');
+  /* #1841: the role is bold and the model is NOT. Exactly one <b>, wrapping the
+     first segment; the model sits outside it. */
+  assert.equal((surfaced.match(/<b>/g) || []).length, 1, 'the meta line bolds more than the role');
+  assert.doesNotMatch(surfaced, /<b>[^<]*Claude Opus 5/, 'the model was bolded along with the role');
   // ⚠️ CAPITAL A, and that is the assertion rather than an incidental. The
   // fixture role is lower-case `archive worker`; the panel must render it the
   // way the CARD does, which is sentence-cased through roleLine. Written as its
   // own assertion so the reason survives if the control line above is ever
   // reworded.
-  assert.match(surfaced, /^Archive worker/,
+  assert.match(surfaced, /^<b>Archive worker<\/b>/,
     'the panel rendered a parsed role in different capitals from the card that '
     + 'links to it, which is the second-definition drift roleLine exists to end');
   const named = drive({ role: 'archive worker', modelName: 'Claude Opus 5', nameDerived: true, state: 'working' });
@@ -3207,9 +3224,9 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
   // `R`, not `r`: a one-character parsed role is sentence-cased like any other,
   // which is the boundary case for a `charAt(0).toUpperCase()` on a length-1
   // string and is worth having land here rather than nowhere.
-  assert.match(drive({ role: 'r', modelName: 'Fable 5', nameDerived: true, state: 'working' }), /R · Claude Fable 5/,
+  assert.match(drive({ role: 'r', modelName: 'Fable 5', nameDerived: true, state: 'working' }), /<b>R<\/b> · Claude Fable 5/,
     'the panel model line diverged from the card on a provider-less name');
-  assert.match(drive({ role: 'r', modelName: null, nameDerived: true, state: 'unknown' }), /R · Unknown Model/,
+  assert.match(drive({ role: 'r', modelName: null, nameDerived: true, state: 'unknown' }), /<b>R<\/b> · Unknown Model/,
     'a missing model is silently omitted on the panel while the card says Unknown Model');
 });
 

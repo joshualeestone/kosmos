@@ -137,11 +137,15 @@ test('the consequence is named before the confirming click, in the dialog', () =
      fails rather than passing on the absence alone. */
   assert.ok(!/It stops and starts/.test(dlg),
     'the dialog reopened with a restatement of what restart means');
-  const hintAt = dlg.indexOf('comes back with nothing in its memory');
+  /* #1841 (Josh, 2026-09-02): the agent is "them", never "it", across the
+     restart confirm -- so the memory consequence now reads "They come back with
+     nothing in their memory". The pinned claim is unchanged: the cost is stated
+     before the confirming button. */
+  const hintAt = dlg.indexOf('nothing in their memory');
   const goAt = dlg.indexOf('id="rst-go"');
   assert.ok(hintAt > -1, 'the memory consequence is not stated');
   assert.ok(goAt > -1 && hintAt < goAt, 'the consequence is stated after the confirming button rather than before it');
-  assert.match(dlg, /instructions and its files are untouched/,
+  assert.match(dlg, /instructions and their files are untouched/,
     'the sentence names what is lost without naming what is kept');
   /* And the page's side of the bargain: the footer that points at the
      dialogs, in the pack's words. */

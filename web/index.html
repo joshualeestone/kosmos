@@ -19805,7 +19805,13 @@ function renderStale(s) {
        ever called for it), guarded because a poll can land as the panel closes. */
     const who = (CURRENT && (CURRENT.name || CURRENT.sessionName)) || '';
     const session = (CURRENT && CURRENT.sessionName) || '';
-    if (s.wroteBy && s.wroteBy.who === 'kosmos') {
+    /* 🔑 THE SAME SPLIT `staleWords` MAKES, exactly: `who === 'kosmos' && because`.
+       Without the `because` clause the header would call an edit Kosmos-made
+       while the card badge (which reads staleWords) calls it hand-edited -- two
+       surfaces disagreeing about one agent, this codebase's named worst habit. A
+       Kosmos edit with no reason to show has nothing for the reports section to
+       say, so it falls to the hand-edited "needs to be restarted" card. */
+    if (s.wroteBy && s.wroteBy.who === 'kosmos' && s.wroteBy.because) {
       /* Instructions-tab "updated working rules" section. Kosmos already wrote
          the change, so "Add Instructions & Restart" here is the restart that
          applies it -- routed through the shared restart confirm by the

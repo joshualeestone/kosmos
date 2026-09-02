@@ -38,20 +38,27 @@ function panel() {
      with the defect deliberately put back, because the fixture was supplying
      the very behaviour the fix provides. In a real element setting either one
      replaces the node's contents. */
-  const el = {
+  const linked = () => ({
     hidden: true,
     _html: '',
     get innerHTML() { return this._html; },
     set innerHTML(v) { this._html = String(v); },
     get textContent() { return this._html.replace(/<[^>]*>/g, ''); },
     set textContent(v) { this._html = String(v); },
-  };
+  });
+  const el = linked();
+  /* #1841: the Kosmos-made stale case now paints the Instructions-tab reports
+     section, not the header banner, so the stub carries those elements too. */
+  const reports = { hidden: true };
+  const reportsText = linked();
+  const reportsGo = { dataset: {} };
+  const els = { 'd-instr-stale': el, 'd-instr-reports': reports, 'd-instr-reports-text': reportsText, 'd-instr-reports-go': reportsGo };
   const fn = new Function('document', 'esc', 'CURRENT', `
     ${page.lift(SCRIPT, 'setLive')}
     ${page.lift(SCRIPT, 'staleWords')}
     ${page.lift(SCRIPT, 'renderStale')}
     return renderStale;`)(
-    { getElementById: (id) => (id === 'd-instr-stale' ? el : null) },
+    { getElementById: (id) => (id in els ? els[id] : null) },
     (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
     /* ⚠️ A REAL CARD FROM THE REAL ROUTE, not a one-field stand-in. `renderStale`
        reads only the session name off it, so a literal would do -- and that is
@@ -60,7 +67,7 @@ function panel() {
        never emits. */
     CARD,
   );
-  return { el, render: fn };
+  return { el, reports, reportsText, reportsGo, render: fn };
 }
 
 /* One agent, so `CURRENT` is something the board would actually hold. */
@@ -70,39 +77,54 @@ test.after(() => fleet.restore());
 const STALE = { state: 'stale', editedAt: '2026-08-21T21:36:20Z', startedAt: '2026-08-21T21:20:38Z' };
 
 test('the banner paints its sentence and its button the first time', () => {
+  /* #1841: STALE has no wroteBy, so it is the hand-edited case -- the redesigned
+     header restart card: "[name] needs to be restarted" + a [Restart] button. */
   const { el, render } = panel();
   render(STALE);
   assert.equal(el.hidden, false);
-  assert.match(el.innerHTML, /older instructions/i);
+  assert.match(el.innerHTML, /needs to be restarted/);
   assert.match(el.innerHTML, /data-restart-agent/, 'the Restart button is what the person needs to reach');
 });
 
-test('when Kosmos made the edit, the banner says so in Kosmos\'s words; when nobody said, it keeps the standing ones (#323)', () => {
+test('a Kosmos-made stale change is the Instructions-tab working-rules section; a hand edit is the header restart card (#323, #1841)', () => {
   /**
-   * "Running on older instructions" in the person's ear means THEY edited
-   * something. When the writer was Kosmos putting the agent on a project, that
-   * is a change Kosmos made reported as one the person made. The engine now
-   * says who in `wroteBy`, written by the code that wrote the block, and the
-   * banner reads it and never infers: absent, or a person, and the wording is
-   * what it was, because for a hand edit nobody knows who.
+   * #323: "Running on older instructions" in the person's ear means THEY edited
+   * something, so a change Kosmos made (putting the agent on a project) was
+   * reported as one the person made. #1841 (Josh, 2026-09-02) resolves this by
+   * BOTH placement and wording: a Kosmos-made change (wroteBy.who === 'kosmos')
+   * is a neutral "updated working rules" prompt on the Instructions tab, and a
+   * hand edit is the header "needs to be restarted" card. Neither wording blames
+   * the person, and the raw engine `because` is no longer rendered at all.
    */
-  const { el, render } = panel();
-  render({ ...STALE, wroteBy: { who: 'kosmos', because: 'Kosmos put it on Winter launch' } });
-  assert.match(el.innerHTML, /<b>Kosmos put it on Winter launch\.<\/b>/, 'the banner does not name what Kosmos did');
-  assert.match(el.innerHTML, /Restart it so it knows\./, 'the remedy lost its sentence');
-  assert.doesNotMatch(el.innerHTML, /older instructions/i, 'a change Kosmos made is still reported as the person\'s');
-  assert.match(el.innerHTML, /data-restart-agent/, 'the Restart button is gone from the Kosmos wording');
+  const { el, reports, reportsText, reportsGo, render } = panel();
 
+  // Kosmos made it: the header clears, the reports section carries the neutral
+  // working-rules prompt and the restart target.
+  render({ ...STALE, wroteBy: { who: 'kosmos', because: 'Kosmos put it on Winter launch' } });
+  assert.equal(el.hidden, true, 'the header banner still shows for a Kosmos-made change');
+  assert.equal(reports.hidden, false, 'the working-rules section did not show for a Kosmos-made change');
+  assert.match(reportsText.innerHTML, /^These are updated working rules to help <b>[^<]+<\/b> be more efficient\.$/,
+    'the reports section lost its neutral wording');
+  assert.doesNotMatch(reportsText.innerHTML, /older instructions|Kosmos put it on/i,
+    'a change Kosmos made is still reported as the person\'s, or names the raw edit');
+  assert.equal(reportsGo.dataset.restartAgent, CARD.sessionName, 'the reports button is not pointed at the agent');
+
+  // Nobody said, or a person, or Kosmos-with-no-reason: the hand-edited header
+  // card, and the reports section clears.
   for (const by of [undefined, null, { who: 'person', because: null }, { who: 'kosmos', because: null }]) {
     render({ state: 'current' });
     render({ ...STALE, wroteBy: by });
-    assert.match(el.innerHTML, /<b>Running on older instructions\.<\/b>/, `wroteBy ${JSON.stringify(by)} changed the standing wording`);
+    assert.match(el.innerHTML, /needs to be restarted/, `wroteBy ${JSON.stringify(by)} changed the standing wording`);
+    assert.equal(el.hidden, false, `wroteBy ${JSON.stringify(by)} hid the header card`);
+    assert.equal(reports.hidden, true, `wroteBy ${JSON.stringify(by)} left the reports section showing`);
     assert.doesNotMatch(el.innerHTML, /Kosmos put it on/, `wroteBy ${JSON.stringify(by)} was attributed to Kosmos`);
   }
-  // A sentence from the engine is text, never markup.
+
+  // The raw engine `because` is no longer rendered anywhere, so that injection
+  // surface is closed: the reports section renders only CURRENT's name (esc).
   render({ state: 'current' });
   render({ ...STALE, wroteBy: { who: 'kosmos', because: 'Kosmos put it on <b>x</b>' } });
-  assert.doesNotMatch(el.innerHTML, /<b>x<\/b>/, 'the why-sentence reached the page as markup');
+  assert.doesNotMatch(reportsText.innerHTML, /<b>x<\/b>/, 'the raw engine sentence reached the page as markup');
 });
 
 test('leaving the page and coming back paints it again, not an empty bar', () => {
