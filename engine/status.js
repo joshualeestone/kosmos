@@ -1496,7 +1496,12 @@ const TRUST_PROMPT_CONFIRM = /^Enter to confirm/;
    That wrap is Claude Code's, drawn at its own layout width with real line
    breaks, so `-J` at the capture (which joins only what the TERMINAL wrapped)
    does not fold it back; a narrower layout wraps more. Twelve is generous and
-   still shorter than a tail. */
+   still shorter than a tail. Where detection stops, measured: the FIRST
+   option row must sit within 12 rows of the question and the screen's last
+   row within 13 (the bottom rule allows one row past reach, the second
+   option or the confirm row); a layout that wraps the question over about
+   nine rows loses the dialog and it reads unknown. Observed layouts wrap it
+   over two. */
 const TRUST_PROMPT_REACH = 12;
 
 /* Tested on the RAW pane row by `questionIn`, so it carries the same leading
@@ -1980,6 +1985,18 @@ function trustPrompt(tail) {
 function isTrustDialogEvidence(evidence) {
   return typeof evidence === 'string' && TRUST_PROMPT_QUESTION.test(evidence);
 }
+
+/**
+ * THE ONE SENTENCE for "do not type at this dialog", used by the deliver
+ * refusal (engine/chat.js), the two typed routes' 409 and the thread page's
+ * note (server.js). Written once so the three cannot drift, and written about
+ * the AGENT in plain words: what it is stopped on, what Enter would do, and
+ * what to do instead. Rendered through `textContent` and as a JSON error, so
+ * plain characters, no markup.
+ */
+const TRUST_DIALOG_SENTENCE = 'it is stopped on Claude Code’s own question about whether to trust its folder, '
+  + 'which typing cannot answer: Enter there picks the default answer, “No, exit”, and ends its session. '
+  + 'Answer that question in its terminal with the arrow keys first, then send this.';
 
 /**
  * Where the evidence should start: the envelope's opening brace, or the HTTP
@@ -4496,6 +4513,7 @@ module.exports = {
   ALL_NEEDS_YOU_MARKERS,
   trustPrompt,
   isTrustDialogEvidence,
+  TRUST_DIALOG_SENTENCE,
   SELECTOR_GLYPHS,
   isCodexCommand,
 };

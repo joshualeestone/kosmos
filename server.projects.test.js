@@ -2744,3 +2744,23 @@ test('#1629: control, the project thread still types at an agent asking an ordin
     assert.ok(calls.sends().length > 0, 'the answer was typed');
   });
 });
+
+test('#1629: the thread page is told up front that this answer belongs in the terminal, and only for the trust dialog', async () => {
+  reset();
+  await withAgent(fleet.agent('zeta', { state: 'needs_you', screen: TRUST_DIALOG_SCREEN }), [said(TRUST_DIALOG_SCREEN)], async () => {
+    const body = json(await req('/api/agent/zeta/thread'));
+    assert.equal(body.asking, true);
+    assert.match(String(body.answerNote || ''), /No, exit/, 'the route says what Enter would do, before anybody types');
+    assert.match(String(body.answerNote || ''), /trust its folder/);
+  });
+  const menu = 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n';
+  await withAgent(fleet.agent('zeta', { state: 'needs_you', screen: menu }), [said(menu)], async () => {
+    const body = json(await req('/api/agent/zeta/thread'));
+    assert.equal(body.asking, true);
+    assert.equal(body.answerNote, null, 'an ordinary question carries no note');
+  });
+  await withThread(fleet.agent('zeta', { state: 'needs_you', screen: TRUST_DIALOG_SCREEN }), [said(TRUST_DIALOG_SCREEN)], async ({ project }) => {
+    const body = json(await req(`/api/project/${project.id}/thread/zeta`));
+    assert.match(String(body.answerNote || ''), /No, exit/, 'the project thread says it too');
+  });
+});

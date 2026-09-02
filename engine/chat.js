@@ -658,9 +658,7 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
       && status.isTrustDialogEvidence(allowed.card.stateEvidence)) {
     return {
       state: DELIVERY.COULD_NOT,
-      because: 'it is stopped on Claude Code’s own question about whether to trust its folder, and typing '
-        + 'there would press Enter on the default answer, “No, exit”, and end its session; answer that '
-        + 'question in its terminal first',
+      because: status.TRUST_DIALOG_SENTENCE,
       at, paneState: null, paneNote: null,
     };
   }

@@ -46,6 +46,7 @@ const {
      routes that type a person's words into a pane. Typing cannot answer that
      dialog and Enter there picks "No, exit"; see `trustDialogHold` below. */
   trustPrompt,
+  TRUST_DIALOG_SENTENCE,
 } = require('./engine/status');
 const removal = require('./engine/remove');
 
@@ -63,18 +64,22 @@ const removal = require('./engine/remove');
  * session. Before this branch the pane read `unknown` and nobody was invited
  * to type; the invitation is new, so the refusal ships with it.
  *
- * ⚠️ ONE CAPTURE, ONLY FOR AN AGENT THE BOARD SAYS IS ASKING. A send to an
- * agent that is not `needs_you` costs nothing here. The agent-thread route
- * already captures for a button press; this reads the same capture when the
- * caller hands it one.
+ * `seen` is a capture the caller already holds, or null; `capture` is how to
+ * take one, called at most once, and only when the snapshot says the agent
+ * is asking. A screen already in hand is read whatever the snapshot says.
+ *
+ * ⚠️ THE RESIDUAL, STATED: a dialog that draws in the gap between the roster
+ * snapshot and this read, on an agent the snapshot did not call `needs_you`,
+ * is not seen here (no capture is taken for a non-asking agent, because that
+ * would cost a capture on every send to every agent) and not seen by the
+ * `chat.deliver` floor either, which reads the same snapshot. The gap is one
+ * request cycle. Closing it means a capture per send; not taken today.
  */
-function trustDialogHold(name, roster, card, seen) {
-  if (!card || card.state !== STATE.NEEDS_YOU) return null;
-  const view = seen || chat.viewport(name, roster);
+function trustDialogHold(card, seen, capture) {
+  const asking = Boolean(card) && card.state === STATE.NEEDS_YOU;
+  const view = seen || (asking && typeof capture === 'function' ? capture() : null);
   if (!(view && view.text) || trustPrompt(view.text) === null) return null;
-  const held = new Error('it is stopped on Claude Code’s own question about whether to trust its '
-    + 'folder, which typing cannot answer: Enter there picks the default, No, exit, and ends its '
-    + 'session. Answer that question in its terminal with the arrow keys first, then send this.');
+  const held = new Error(TRUST_DIALOG_SENTENCE);
   held.status = 409;
   return held;
 }
@@ -5508,6 +5513,12 @@ const server = http.createServer((req, res) => {
       asking,
       question,
       questionBecause,
+      /* #1629: the page draws a composer under a question, and for the trust
+         dialog that invites the one keystroke that ends the session. The
+         route says so up front, in the same sentence the send refusal uses,
+         so the person reads it before typing rather than after a 409. Null
+         for every other question. */
+      answerNote: (question && view && view.text && trustPrompt(view.text) !== null) ? TRUST_DIALOG_SENTENCE : null,
       options,
     });
     return;
@@ -5581,7 +5592,7 @@ const server = http.createServer((req, res) => {
           : null;
         const seenNow = (askingCard && askingCard.state === STATE.NEEDS_YOU) ? chat.viewport(name, roster) : null;
         {
-          const trustHeld = trustDialogHold(name, roster, askingCard, seenNow);
+          const trustHeld = trustDialogHold(askingCard, seenNow, () => chat.viewport(name, roster));
           if (trustHeld) throw trustHeld;
         }
         /**
@@ -7549,6 +7560,8 @@ const server = http.createServer((req, res) => {
       asking,
       question,
       questionBecause,
+      /* #1629: same note as the agent thread, same sentence, same reason. */
+      answerNote: (question && view && view.text && trustPrompt(view.text) !== null) ? TRUST_DIALOG_SENTENCE : null,
       // Carried for contract parity with the projects routes and held by
       // the blind-roster test; the page's fleet-unreadable sentence on this
       // screen is rendered from the projects payload (PJ_AGENTS_UNREADABLE),
@@ -7601,7 +7614,7 @@ const server = http.createServer((req, res) => {
           const card = Array.isArray(roster)
             ? (roster.find((a) => a && a.sessionName === name && a.isNamedOurs === true) || null)
             : null;
-          const trustHeld = trustDialogHold(name, roster, card, null);
+          const trustHeld = trustDialogHold(card, null, () => chat.viewport(name, roster));
           if (trustHeld) throw trustHeld;
         }
 

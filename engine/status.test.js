@@ -3871,3 +3871,16 @@ test('#1629: a RAW capture of a tall pane, padding and all, still reads needs_yo
   const answered = 'Do you want to proceed?\n❯ 1. Yes\nYes\nWorked for 3m\n' + '\n'.repeat(43);
   assert.notEqual(classify(pane(), answered).state, STATE.NEEDS_YOU, 'only the trust detector trims');
 });
+
+test('#1629: where detection stops for the FULL dialog shape, pinned by the bottom rule and the reach together', () => {
+  const { trustPrompt } = require('./status');
+  const q = ' Quick safety check: Is this a project you created or one you trust?';
+  // The whole dialog under the question: first option at row +n, second at
+  // +n+1, confirm at +n+2. Reach allows the first option at +12; the bottom
+  // rule allows the screen's last row at +13. So the full shape is seen with
+  // the first option at +11 and lost at +12.
+  const full = (n) => [q, ...Array(n - 1).fill('line'), ' ❯ No, exit', '   Yes, I trust this folder', ' Enter to confirm · Esc to cancel', ''].join('\n');
+  assert.ok(trustPrompt(full(5)), 'the observed layout');
+  assert.ok(trustPrompt(full(11)), 'first option at +11, confirm at +13: seen');
+  assert.equal(trustPrompt(full(12)), null, 'first option at +12, confirm at +14: lost, as the docblock says');
+});

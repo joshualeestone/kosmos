@@ -118,3 +118,19 @@ on this branch; the suite's new arms are red on main by construction.
   project route filters on isNamedOurs like the agent route. Arms added: capture failure
   falls through to the deliver floor; snapshot-vs-fresh disagreement refuses benignly;
   project-route control.
+
+## Challenge-loop iteration 5: say it before they type
+
+- **The page now says, before anybody types, that this answer belongs in the terminal.** The
+  thread routes send `answerNote` (the one exported `TRUST_DIALOG_SENTENCE`, shared with the
+  deliver refusal and the 409) when the trust dialog is on the screen; both "waiting on an
+  answer" labels (agent page, project room) show it, through textContent. Null for every
+  other question, so the label is unchanged there. A static page test pins both sites; the
+  browser walk over a real dialog is still owed.
+- **The residual, stated where it lives:** a dialog that draws in the gap between the roster
+  snapshot and the send, on an agent the snapshot did not call needs_you, is seen by neither
+  the route hold nor the deliver floor. One request cycle. Closing it costs a capture per
+  send to every agent; not taken. A screen already in hand is read whatever the snapshot says.
+- The hold takes a capture thunk, so one-capture-per-send is visible at the call site. The
+  reach boundary for the full dialog shape is measured and pinned: seen with the first option
+  at row +11, lost at +12.
