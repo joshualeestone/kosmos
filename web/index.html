@@ -6081,6 +6081,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            than something we are asking for. -->
       <p class="detail-saidlab" id="d-said-lab" hidden></p>
       <blockquote class="detail-said" id="d-said" hidden></blockquote>
+      <!-- kosmos#1918: the evidence quote above can relay the CLI's "Please run
+           /login", which is correct in a terminal and FALSE here: the Terminal tab is
+           read-only and the message box under it talks to the AGENT, not the shell, so
+           there is nowhere in the product to run it. When sign-in is what is broken,
+           give a REACHABLE in-product path to the one surface that fixes it: Settings ->
+           Accounts, where each Claude account carries its own "Sign in again". A real
+           affordance, not a reworded dead end (#1918 forbids the wording-only close).
+           Shown ONLY for auth_failed (paintDetail toggles it) so it never reads as an
+           action a healthy agent needs. Aiming it at THIS agent's specific account is a
+           follow-up gated on #1916/#1917; the account list is the honest floor. -->
+      <button type="button" class="detail-reauth linkish" id="d-reauth" hidden>Sign in again</button>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
            projects this agent is on, read from the agent's end, and it carried a
@@ -18147,6 +18158,14 @@ function openDetail(sessionName, section) {
       saidLab.hidden = !line;
     }
   }
+  /* kosmos#1918: the reachable remedy for a broken sign-in. The evidence quote
+     above may name "/login", which has no surface in this product; this button is
+     that surface. Shown ONLY when the state is auth_failed, so a healthy agent
+     never sees a control it does not need, and hidden again the moment the state
+     is anything else. The click (wired once below) opens Settings -> Accounts,
+     the existing re-auth surface. */
+  const reauthBtn = document.getElementById('d-reauth');
+  if (reauthBtn) reauthBtn.hidden = a.state !== 'auth_failed';
   /* The pack's header badge and the two reading boxes, all off the same
      shared derivations the board uses (memBand/pctOf/modelLine). */
   const dpct = pctOf(a.context);
@@ -18461,6 +18480,26 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
     loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
   }
 });
+/* kosmos#1918: wire the agent page's "Sign in again" affordance ONCE (paintDetail
+   only toggles its visibility). It opens Settings -> Accounts, the existing re-auth
+   surface, so a person looking at an agent whose sign-in is broken has an in-product
+   path to the fix instead of the CLI's unreachable "/login".
+   🛑 showTab('settings') FIRST, then the section. The button lives on the DETAIL
+   panel, and the top-level panels are mutually exclusive, so settingsGo/settingsOpen
+   (which only switch sections WITHIN the settings panel) would toggle an off-screen
+   section and the user, still on the detail page, would see nothing happen: a dead
+   control, the exact wording-only dead end #1918 forbids. showTab('settings') runs
+   paintSettings (which paints Accounts), so the landed surface is populated. This
+   mirrors the st-agents tile precedent (showTab then settingsOpen).
+   🔑 NO focus:false. settingsGo focuses the landed section's .dsec by default; passing
+   focus:false would strand keyboard/screen-reader focus on this button, which is now
+   inside the hidden detail panel. Letting it focus the Accounts section is exactly what
+   clicking the Accounts nav pill does, and it lands focus on the surface a stuck user
+   needs to act on. */
+(() => {
+  const rb = document.getElementById('d-reauth');
+  if (rb) rb.addEventListener('click', () => { showTab('settings'); settingsOpen('accounts'); });
+})();
 /* Settings has the same shape: seven sections, one on screen, the nav says
    which. No arrival work here (nothing in Settings measures layout or
    captures a pane), so this is the agent page's switch with the extras
