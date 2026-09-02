@@ -16,8 +16,8 @@
  * than the ones that refused.**
  *
  * ⭐ AND THE SENTENCE CANNOT BE FIXED BY REWRITING IT. Baron Draxum's brief said
- * `josh@stuff.io`; he is on `josh@book.io`, because he was migrated at ~21:58 the
- * night before when `josh@stuff.io` hit its weekly cap. His brief was CORRECT WHEN
+ * `other@example.com`; he is on `agent@example.com`, because he was migrated at ~21:58 the
+ * night before when `other@example.com` hit its weekly cap. His brief was CORRECT WHEN
  * WRITTEN and went stale when the thing it described moved. Editing 17 briefs
  * would break again at the next migration. **Read live state; do not restate it.**
  *

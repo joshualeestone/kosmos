@@ -29,7 +29,7 @@ a release export?" an answerable question instead of an inference from a path na
 checkout could imitate.
 
 **Half two is a `PreToolUse` hook** that refuses a production deploy from a directory with no
-marker. It ships separately, in `book-io/claude-setup`, because that is where hooks live and
+marker. It ships separately, in `joshualeestone/claude-setup`, because that is where hooks live and
 because it is fleet-wide and wants its own review.
 
 ## Ordering, and why this half goes first

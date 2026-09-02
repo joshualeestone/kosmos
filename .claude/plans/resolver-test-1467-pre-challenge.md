@@ -18,7 +18,7 @@ the loop, not a test**, so every gate I build for myself still applies and is be
 
 ⚠️ **Bracketed markers used deliberately.** The template still tells authors to write
 `### BLOCKERs` headings, which this gate refuses; that is my own #1458, whose PR is
-blocked on a book-io org ruleset. **This proof works around a defect I filed.**
+blocked on a upstream org ruleset. **This proof works around a defect I filed.**
 
 ### BLOCKERs
 

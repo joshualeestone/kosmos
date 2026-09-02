@@ -17,7 +17,7 @@ should be pushed; kosmos main is unprotected. That removed a PERSON, not a test,
 gate below is mine and was run.
 
 **Bracketed markers used deliberately**, because the template's own `### BLOCKERs`
-heading is refused by this gate. That is my #1458, whose PR is blocked on a book-io org
+heading is refused by this gate. That is my #1458, whose PR is blocked on a upstream org
 ruleset. **This proof works around a defect I filed.**
 
 ### BLOCKERs

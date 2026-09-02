@@ -3110,8 +3110,8 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
     return drun.innerHTML;
   };
   const runs = { lead: 'Runs on ', name: 'Claude Opus 5' };
-  assert.equal(drive({ account: { email: 'josh@stuff.io' } }, runs),
-    'Runs on <b>Claude Opus 5</b> (josh@stuff.io)');
+  assert.equal(drive({ account: { email: 'other@example.com' } }, runs),
+    'Runs on <b>Claude Opus 5</b> (other@example.com)');
   assert.equal(drive({ account: { email: null, label: 'the second account' } }, runs),
     'Runs on <b>Claude Opus 5</b> (the second account)');
   /* No account record: the line, whole, with no empty parentheses. And a
@@ -10840,9 +10840,9 @@ test('#1304: each field takes the best source that has it, and neither hard-null
        is a real and common shape, and the route answered "we cannot tell which
        model" about an agent whose transcript says otherwise. */
     const acctOnly = whoamiFor(card, known, {
-      ok: true, account: 'josh@book.io', organization: 'Org', model: null, configDir: '/d',
+      ok: true, account: 'agent@example.com', organization: 'Org', model: null, configDir: '/d',
     });
-    assert.equal(acctOnly.account.email, 'josh@book.io');
+    assert.equal(acctOnly.account.email, 'agent@example.com');
     /* 🔑 THE ORGANISATION HAS ITS OWN FIELD AND NEVER FILLS THE LABEL. One field
        carrying the directory nickname on one path and the org name on the other
        let the sentence say "runs on Anthropic" when it meant the org. */
@@ -10976,10 +10976,10 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     fs.writeFileSync(fixtureJob,
       create.plistFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5',
         '/Users/agent1/.claude-account-x'), 'utf8');
-    const recorded = [{ dir: '/Users/agent1/.claude-account-x', email: 'recorded@book.io', label: 'X', isDefault: false }];
+    const recorded = [{ dir: '/Users/agent1/.claude-account-x', email: 'recorded@example.com', label: 'X', isDefault: false }];
     const noLive = whoamiFor(card, recorded, { ok: false, because: 'no pane on this computer' });
     assert.equal(noLive.source.account, 'record', 'a paneless agent got no fallback');
-    assert.equal(noLive.account.email, 'recorded@book.io',
+    assert.equal(noLive.account.email, 'recorded@example.com',
       'the record path returned an empty object rather than the account it holds');
     /* 🔑 AND THE MODEL IS HONESTLY NULL HERE, WHICH THE TEST TAUGHT ME RATHER
        THAN THE OTHER WAY ROUND. I asserted `claude-opus-5` from the job and it
@@ -11032,9 +11032,9 @@ test('#1304: each field takes the best source that has it, and neither hard-null
        ⭐ Identical in shape to the model gap fixed one round earlier. The lesson
        was applied to one field and not to its sibling. */
     const bothAcct = whoamiFor(card, recorded, {
-      ok: true, account: 'live@book.io', model: null, configDir: '/d',
+      ok: true, account: 'live@example.com', model: null, configDir: '/d',
     });
-    assert.equal(bothAcct.account.email, 'live@book.io',
+    assert.equal(bothAcct.account.email, 'live@example.com',
       'the record beat the live account; a migrated agent keeps reciting its old one');
     assert.equal(bothAcct.source.account, 'process');
 
@@ -11135,13 +11135,13 @@ test('#1304: each field takes the best source that has it, and neither hard-null
       create.plistFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5',
         '/Users/agent1/.claude-account-x'), 'utf8');
     const knownAcct = whoamiFor(card, recorded, { ok: false, because: 'no pane' });
-    assert.match(sentenceForWhoami(knownAcct.account, knownAcct.model), /^This agent runs on recorded@book\.io/,
+    assert.match(sentenceForWhoami(knownAcct.account, knownAcct.model), /^This agent runs on recorded@example\.com/,
       'a known account did not reach the sentence in the known-account form');
     /* 🔑 AND THE MODEL-UNKNOWN HALF, which nothing pinned: making the model
        clause always take the KNOWN form survived the whole suite and emitted
        "and its model is null" to an agent. Every arm here had a readable
        transcript by this point, so the unknown branch was never exercised. */
-    const noModel = sentenceForWhoami({ email: 'someone@book.io', label: null, dir: '/d', isDefault: false }, null);
+    const noModel = sentenceForWhoami({ email: 'someone@example.com', label: null, dir: '/d', isDefault: false }, null);
     assert.match(noModel, /and we cannot tell which model it is running\.$/,
       'a null model was rendered rather than reported as unknown');
     assert.doesNotMatch(noModel, /null/, 'a null leaked into the sentence a person reads back');
@@ -11196,7 +11196,7 @@ test('#1304: the ROUTE asks the live reader by tmux session, and says which read
     messagesEngine.setRunner(() => ({ ok: true, session: 'acctworker-discord' }));
     server.setLiveReader((sess) => {
       asked.push(sess);
-      return { ok: true, account: 'live@book.io', organization: 'Kosmos', model: null, configDir: '/d' };
+      return { ok: true, account: 'live@example.com', organization: 'Kosmos', model: null, configDir: '/d' };
     });
     const r = await req('/api/whoami', {
       method: 'POST',
@@ -11211,7 +11211,7 @@ test('#1304: the ROUTE asks the live reader by tmux session, and says which read
       'the live reader was asked by the wrong identifier, so it can never find a pane');
 
     /* THE LIVE READING REACHED THE PAYLOAD, not just the function. */
-    assert.equal(out.account.email, 'live@book.io', 'the record answered over a live reading');
+    assert.equal(out.account.email, 'live@example.com', 'the record answered over a live reading');
     /* ⚠️ AND `source` IS PER-FIELD ON THE WIRE. An operator comparing two
        agents has to be able to see that one account was read from a running
        process and the other from a file, and the model is a separate question
@@ -11236,7 +11236,7 @@ test('#1304: the ROUTE asks the live reader by tmux session, and says which read
        The fixture is byte-identical to the successful reading above except for
        `ok`, so the only thing it can be measuring is the strictness. */
     server.setLiveReader(() => (
-      { ok: 1, account: 'live@book.io', organization: 'Kosmos', model: null, configDir: '/d' }));
+      { ok: 1, account: 'live@example.com', organization: 'Kosmos', model: null, configDir: '/d' }));
     const rLoose = await req('/api/whoami', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -11245,7 +11245,7 @@ test('#1304: the ROUTE asks the live reader by tmux session, and says which read
     const loose = JSON.parse(rLoose.body);
     assert.equal(loose.source.account, 'record',
       'a live reading with a truthy non-`true` ok was accepted; `live.ok === true` has been loosened');
-    assert.notEqual(loose.account && loose.account.email, 'live@book.io',
+    assert.notEqual(loose.account && loose.account.email, 'live@example.com',
       'an unverified live reading reached the payload');
   } finally {
     server.setLiveReader(null);
@@ -11291,7 +11291,7 @@ test('#1304: a throwing live reader falls back to the record and fabricates noth
        discards the value cannot produce it. */
     accountsEngine.list = (...a) => {
       listAsked += 1;
-      return [...realList(...a), { dir: '/sentinel-dir', email: 'sentinel@book.io', label: null, isDefault: false }];
+      return [...realList(...a), { dir: '/sentinel-dir', email: 'sentinel@example.com', label: null, isDefault: false }];
     };
 
     const r = await req('/api/whoami', {
@@ -11310,7 +11310,7 @@ test('#1304: a throwing live reader falls back to the record and fabricates noth
 
     /* 🔑 AND NOW THE LIST'S VALUE MUST REACH THE ANSWER. Give the agent a job
        pointing at the sentinel directory and ask again: the only way
-       `sentinel@book.io` can come back is if the list the route fetched was
+       `sentinel@example.com` can come back is if the list the route fetched was
        actually HANDED to `accountForAgent`. A call that fetches and discards
        satisfies the call-count assertion above and cannot produce this. */
     const jobPath = create.plistPath('acctworker');
@@ -11326,7 +11326,7 @@ test('#1304: a throwing live reader falls back to the record and fabricates noth
       });
       const out2 = JSON.parse(r2.body);
       assert.equal(out2.source.account, 'record');
-      assert.equal(out2.account && out2.account.email, 'sentinel@book.io',
+      assert.equal(out2.account && out2.account.email, 'sentinel@example.com',
         'the account list was fetched and discarded, so the record path received an empty list');
     } finally { try { fs.rmSync(jobPath, { force: true }); } catch { /* nothing to undo */ } }
     assert.match(out.because, /^We cannot tell which account/,

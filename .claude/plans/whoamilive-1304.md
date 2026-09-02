@@ -15,8 +15,8 @@ makes them one answer.
 ## Why the live read wins
 
 His measurement, on this machine: **every agent brief says `claude-fable-5` and all 18 panes
-run `claude-opus-5`.** Baron's brief said `josh@stuff.io` after he had been migrated to
-`josh@book.io`. Both were correct when written and went stale when the thing they described
+run `claude-opus-5`.** Baron's brief said `other@example.com` after he had been migrated to
+`agent@example.com`. Both were correct when written and went stale when the thing they described
 moved. **Read live state; do not restate it.**
 
 ## The change

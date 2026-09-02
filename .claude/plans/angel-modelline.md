@@ -3,7 +3,7 @@
 ## What finished looks like
 
 The agent dialog's model section shows ONE line naming the model and the
-account together, "Runs on Claude Opus 5 (josh@stuff.io)", followed by the
+account together, "Runs on Claude Opus 5 (other@example.com)", followed by the
 three dropdowns and the two buttons Josh ruled to keep (Move, Change and
 Restart). The separate "Signed in as ..." sentence under it is gone.
 

@@ -69,4 +69,4 @@ None.
 - Contention rule points at the driver header as the single source, so the two cannot drift.
 
 ### Scope (documented in the PR and on the card, not this proof's concern)
-The durable, agent-facing repo surface is fixed here. Deliberately not done: enabling the interactive MCP on more bot launch scripts (operator/ops-gated), and clarifying the global ~/.claude/BROWSER_TESTING.md (durable only upstream in book-io/claude-setup).
+The durable, agent-facing repo surface is fixed here. Deliberately not done: enabling the interactive MCP on more bot launch scripts (operator/ops-gated), and clarifying the global ~/.claude/BROWSER_TESTING.md (durable only upstream in joshualeestone/claude-setup).

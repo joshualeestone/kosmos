@@ -6,17 +6,17 @@ Author: Mona Lisa, 2026-08-28
 ## The problem
 
 `docs/browser-checks/named-controls.js` reports
-`settings: accounts: no two controls answer to the same name -- Disconnect josh@book.io x2`.
+`settings: accounts: no two controls answer to the same name -- Disconnect agent@example.com x2`.
 
 `engine/accounts.js` opens by stating that an account IS a config directory, not
 a login. Two directories signed in to one email are therefore honestly two rows,
 and `list()` returns both. The accounts row then rendered its **login** as its
-identity, so both rows read `josh@book.io`, carried the same badge, and gave two
+identity, so both rows read `agent@example.com`, carried the same badge, and gave two
 `Disconnect` buttons the same accessible name. Nothing on screen said why there
 were two or which was which.
 
 Measured on this machine from `accounts.list()` rather than from the browser run:
-four rows, `josh@book.io` holding two of them (`~/.claude`, the default, and
+four rows, `agent@example.com` holding two of them (`~/.claude`, the default, and
 `~/.claude-account-d`). Not a fixture condition, and it grows as a machine
 collects directories.
 

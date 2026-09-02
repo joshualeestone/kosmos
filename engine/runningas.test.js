@@ -25,11 +25,11 @@ test('#1304: reports the model from the claude process, not the pane child', () 
   const r = runningAs('pigeonpete-discord', {
     panes: PANES(), procs: REAL_SHAPE(),
     envOf: () => 'CLAUDE_CONFIG_DIR=/Users/x/.claude-account-d /Users/x/.local/bin/claude',
-    identityOf: () => ({ email: 'josh@book.io', organization: 'Book' }),
+    identityOf: () => ({ email: 'agent@example.com', organization: 'Example' }),
   });
   assert.equal(r.ok, true, r.because);
   assert.equal(r.model, 'claude-opus-5', 'it read the bun plugin instead of the claude descendant');
-  assert.equal(r.account, 'josh@book.io');
+  assert.equal(r.account, 'agent@example.com');
   assert.equal(r.configDir, '/Users/x/.claude-account-d');
 });
 
@@ -52,7 +52,7 @@ test('#1304 CONTROL: the two accounts come back DIFFERENT, so the reader discrim
   const mk = (dir) => runningAs('pigeonpete-discord', {
     panes: PANES(), procs: REAL_SHAPE(),
     envOf: () => `CLAUDE_CONFIG_DIR=${dir} claude`,
-    identityOf: (d) => ({ email: d.includes('account-d') ? 'josh@book.io' : 'someone@else.com' }),
+    identityOf: (d) => ({ email: d.includes('account-d') ? 'agent@example.com' : 'someone@else.com' }),
   });
   assert.notEqual(mk('/Users/x/.claude-account-d').account, mk('/Users/x/.claude').account);
 });
