@@ -14017,13 +14017,23 @@ async function paintAccounts() {
          it is the account whose sign-in is broken (Ben, 0.6.22: the agent 401'd on
          the account it could not remove) the pure refusal was a wall. `Sign in again`
          (#1492, `data-reauth`) is on this same row and re-auths this account in place,
-         which is the actual recovery -- so the pressed refusal points at it. Appended
+         which is the recovery to TRY -- so the pressed refusal points at it. Appended
          to the SPOKEN message only, never to `btn.title`: the title stays pinned to the
          engine's `because` (web.account-qualifier.test.js anchors title=" against it),
          and this remedy is UI-specific ("above") so it does not belong in the engine
-         sentence. */
+         sentence.
+         \ud83d\uded1 WORDED AS A THING TO TRY, NOT A GUARANTEE, AND THE FAILURE IS MADE VISIBLE.
+         Ben DID reauth, got a green check, and his agent still 401'd -- so we do not
+         yet know whether reauth actually rescues this state or whether his agent was
+         simply on the OTHER account. That question is settled by the create-gate /
+         liveness work in #1916 (Angel). Until it is, this message must not ASSERT that
+         `Sign in again` fixes the account, or it sends the next Ben in a circle: it
+         names the step to try and tells them how to see it did not take.
+         \u26a0\ufe0f DEPENDENCY: this remedy is DOWNSTREAM of reauth actually working (#1916). If
+         that proves reauth does not rescue a rejected default, this sentence must be
+         reworded (or point elsewhere) -- noted on the card so the reauth fixer sees it. */
       const say = (btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.')
-        + ' To fix a broken or expired sign-in on this account, use \u201cSign in again\u201d above rather than removing it.';
+        + ' If the sign-in on this account is broken, try \u201cSign in again\u201d above; if an agent on it still cannot connect after that, the new sign-in did not take and this account still needs attention.';
       /* ⚠️ setTimeout, NOT requestAnimationFrame: rAF is throttled or suspended
          outright in a hidden or background tab, so the clear-then-set would
          leave the region BLANK there -- worse than the unchanged text it is

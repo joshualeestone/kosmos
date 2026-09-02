@@ -59,6 +59,15 @@ pinned title.
   are legitimately two accounts (accounts.js header), so visible distinctness is the
   chosen resolution, not dedup-on-add.
 
+## Dependency: the Disconnect remedy is downstream of reauth actually working (#1916)
+The pressed default-Disconnect points at `Sign in again`. Ben DID reauth, got a green
+check, and his agent still 401'd -- so it is not yet known whether reauth rescues a
+rejected default, or whether his agent was simply on the OTHER account. #1916 (Angel,
+create-gate/liveness) settles it. Until then the message is worded as a thing to TRY
+with the failure made visible ("if an agent on it still cannot connect after that, the
+new sign-in did not take"), NOT as a guarantee. If reauth proves not to rescue this
+state, this message must be reworded or point elsewhere.
+
 ## Overlap with Angel (#1916)
 Both touch the account render in web/index.html. This half does not DEPEND on her fix:
 it discriminates by main/label, not by the badge. Once her fix makes the connection
