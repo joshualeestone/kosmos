@@ -196,11 +196,11 @@ const REPO = __dirname;
  * 🛑 AND THE LARGEST GAP IS A DIFFERENT SPELLING ENTIRELY, WHICH THE FOUR ABOVE
  * DO NOT HINT AT: `fs.existsSync` IS A PRESENCE CHECK THAT ALSO ACCEPTS A
  * DIRECTORY, AND THIS MATCHER CANNOT SEE IT. `WEAK_CALL` requires `X_OK`, which
- * `existsSync` never carries. Live instances exist TODAY on the creation path
+ * `existsSync` never carries. Live instances existed on the creation path
  * (`engine/create.js` in `setProvider`, `installJob` and `createAgentInner`, and
- * `engine/openaiaccounts.js`), carded as #1616. #1616 CLOSED THEM: every one of
- * those sites now asks `runners.isRunnable`, and EXISTS_ON_BIN below sweeps for the
- * spelling so it cannot come back unseen. That matcher is keyed on the NAMES this
+ * `engine/openaiaccounts.js`, plus a tmux gate in a browser-check driver) until #1616
+ * closed them: every one of those sites now asks `runners.isRunnable`, and
+ * EXISTS_ON_BIN below sweeps for the spelling so it cannot come back unseen. That matcher is keyed on the NAMES this
  * repo gives runner paths, not on every `existsSync`, and its own gap is disclosed
  * at its definition.
  *   ⇒ A GENERAL presence-check sweep is still excluded by design: it would return
@@ -266,10 +266,12 @@ const WEAK_CALL_ALL = new RegExp(WEAK_CALL.source, 'g');
    existsSync in the tree returns hundreds of honest presence checks.
    ITS GAP, STATED AT THE DEFINITION: an existsSync over a variable with another
    name, or over `path.join(dir, 'claude')`, or a `statSync(bin)` that never asks
-   isFile, is invisible here. A guard keyed on a literal cannot enforce a property;
+   isFile, is invisible here, and so is a call split across lines: the sweep is
+   per-line, and `existsSync(\n  runnerBin\n)` matches this regex as a string yet
+   returns 0 hits through the line loop (measured by the iteration-1 reviewer). A guard keyed on a literal cannot enforce a property;
    this one enforces the literals that were live on 2026-08-30 and leaves the
    behavioural arms (create.runner-dir-1616.test.js) to enforce the property. */
-const EXISTS_ON_BIN = /\bexistsSync\s*\(\s*(?:[A-Za-z_$][\w$]*\.)?(?:runnerBin|codexBin|claudeBin|tmuxBin|bin)\s*\)/;
+const EXISTS_ON_BIN = /\bexistsSync\s*\(\s*(?:[A-Za-z_$][\w$]*\.)?(?:runnerBin|codexBin|claudeBin|tmuxBin|bin|tmux|claude|codex)\s*\)/;
 const EXISTS_ON_BIN_ALL = new RegExp(EXISTS_ON_BIN.source, 'g');
 
 /** Every non-test .js file in the repo, relative to REPO. */
@@ -1919,21 +1921,25 @@ test('#1616: no non-test source asks existsSync of a runner-path identifier', ()
 });
 
 test('#1616: the existsSync sweep can see every spelling that was live on 2026-08-30, so an empty result means something', () => {
-  /* The five lines from the card, verbatim, plus the alternative-offer line that
-     hung off one of them. All must match, or the empty set above is a blind sweep. */
+  /* The card lists five lines, one of them twice: the four distinct ones verbatim,
+     plus the alternative-offer line that hung off one of them, plus the browser-check
+     driver's tmux gate the iteration-1 reviewer found, plus a spacing probe that was
+     never live. All must match, or the empty set above is a blind sweep. */
   const planted = [
     'if (!DRY_RUN && !fs.existsSync(runnerBin)) {',
     'if (!DRY_RUN && !fs.existsSync(codexBin)) {',
     'if (!fs.existsSync(bin)) {',
     'if (!bin || !fs.existsSync(bin)) return { ok: false, because: MISSING_RUNNER_SENTENCE };',
     'const codexPresent = fs.existsSync(codexBin);',
+    'if (!fs.existsSync(tmux)) fail(`no tmux at ${tmux}`);',
     'existsSync( tmuxBin )',
   ];
   for (const line of planted) {
     assert.ok(EXISTS_ON_BIN.test(line), 'the #1616 matcher is blind to: ' + line);
   }
-  /* And it must NOT fire on the honest presence checks that share a file with the
-     gates, or the audited set stops being auditable. */
+  /* And it must NOT fire on five honest presence checks, four that share a file
+     with the gates and one over a directory, or the audited set stops being
+     auditable. */
   for (const line of [
     'if (fs.existsSync(plistPath(clean))) {',
     'const hasFolder = fs.existsSync(workerDir(name));',
