@@ -24,7 +24,8 @@ grep -E '^\s*(FAIL|✖)|Error|Timeout|REFUS|refus' "$cap" | grep -vE '^\s*at ' |
 
 ## Fix
 
-Prefix `FAIL ` at the PRINT site (not the pushed string — a string prefixed
+Prefix a `FAIL` marker (emitted as `  FAIL  `, two spaces each side) at the
+PRINT site (not the pushed string — a string prefixed
 before a `'  - ' + p` print still prints an unquotable `  - FAIL ...`; the
 prefix must land on the bytes the grep sees, per bulletin
 `a-guard-from-the-same-mental-model-certifies-the-blind-spot`).
