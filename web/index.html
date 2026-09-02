@@ -14022,18 +14022,22 @@ async function paintAccounts() {
          engine's `because` (web.account-qualifier.test.js anchors title=" against it),
          and this remedy is UI-specific ("above") so it does not belong in the engine
          sentence.
-         \ud83d\uded1 WORDED AS A THING TO TRY, NOT A GUARANTEE, AND THE FAILURE IS MADE VISIBLE.
-         Ben DID reauth, got a green check, and his agent still 401'd -- so we do not
-         yet know whether reauth actually rescues this state or whether his agent was
-         simply on the OTHER account. That question is settled by the create-gate /
-         liveness work in #1916 (Angel). Until it is, this message must not ASSERT that
-         `Sign in again` fixes the account, or it sends the next Ben in a circle: it
-         names the step to try and tells them how to see it did not take.
-         \u26a0\ufe0f DEPENDENCY: this remedy is DOWNSTREAM of reauth actually working (#1916). If
-         that proves reauth does not rescue a rejected default, this sentence must be
-         reworded (or point elsewhere) -- noted on the card so the reauth fixer sees it. */
+         \ud83d\uded1 A THING TO TRY, NOT A FIX, AND THE MESSAGE IS TRUE WHETHER OR NOT REAUTH
+         CAPTURES. Confirmed from Ben (via Josh, 2026-09-02): `Sign in again` runs the
+         whole flow, returns a green check "like everything's active", and does NOT
+         capture a working credential -- his agent kept 401'ing after it. So this must
+         NOT promise that `Sign in again` fixes the account, or it loops a user back to a
+         false green. It points at the step to try AND warns that the green check proves a
+         sign-in RAN, not that it took -- the same thing #874 measured about the row badge,
+         which cannot see a rejected token. That warning is true in both worlds, so the
+         sentence stays correct however the reauth defect resolves.
+         \u26a0\ufe0f DOWNSTREAM of the reauth-returns-green-without-capturing defect (Splinter
+         filing its own card; recurring -- it also hit Casey, not one-off on Ben's Mac).
+         When reauth is fixed so a green check means a captured credential, this wording
+         can be strengthened to name it as the fix. Noted on the card so that owner sees
+         it. */
       const say = (btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.')
-        + ' If the sign-in on this account is broken, try \u201cSign in again\u201d above; if an agent on it still cannot connect after that, the new sign-in did not take and this account still needs attention.';
+        + ' If its sign-in is not working you can try \u201cSign in again\u201d above, then check that an agent on it actually connects: a green check here confirms a sign-in ran, not that it captured a working credential.';
       /* ⚠️ setTimeout, NOT requestAnimationFrame: rAF is throttled or suspended
          outright in a hidden or background tab, so the clear-then-set would
          leave the region BLANK there -- worse than the unchanged text it is
