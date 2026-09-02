@@ -3228,6 +3228,14 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
     'the panel model line diverged from the card on a provider-less name');
   assert.match(drive({ role: 'r', modelName: null, nameDerived: true, state: 'unknown' }), /<b>R<\/b> · Unknown Model/,
     'a missing model is silently omitted on the panel while the card says Unknown Model');
+  /* 🛑 #1841 THE ROLE-LESS ARM, and it is the one the bold could regress on.
+     roleLine returns '' for an agent with no role, and a bold keyed to
+     post-filter position 0 would then wrap the MODEL -- exactly "bold the title
+     only" inverted. With no role the meta is an UNbolded "model", so no <b>
+     appears at all. The control beside it proves the model still renders. */
+  const roleless = drive({ role: '', modelName: 'Claude Opus 5', nameDerived: true, state: 'working' });
+  assert.doesNotMatch(roleless, /<b>/, 'a role-less agent bolded the model, which "bold the title only" forbids');
+  assert.equal(roleless, 'Claude Opus 5', 'CONTROL: the model still renders for a role-less agent');
 });
 
 test('the narrow-screen menu keeps the keyboard: forward in on open, back to the burger on choose and Escape', () => {

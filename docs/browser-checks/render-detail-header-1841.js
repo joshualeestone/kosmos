@@ -117,6 +117,23 @@ function chk(ok, label, extra) {
     chk(/·/.test(meta.tail) && /Claude Sonnet 5/i.test(meta.tail) && !/<b>/.test(meta.tail),
       'Part 4: the model follows, unbolded', meta.tail);
 
+    // ── Part 4, the role-less arm: an agent with no role must NOT bold the
+    // model. roleLine returns '' with no role, so a bold keyed to post-filter
+    // position would wrap the model; keyed to the role itself, there is no <b>
+    // at all. Driven through the real openDetail on a role-less clone. ────────
+    const roleless = await page.evaluate(() => {
+      const real = LAST[0];
+      const sn = real.sessionName;
+      LAST[0] = { ...real, role: '', profile: null };
+      openDetail(sn);
+      const html = document.getElementById('d-meta').innerHTML;
+      LAST[0] = real;
+      openDetail(sn); // restore
+      return html;
+    });
+    chk(!/<b>/.test(roleless), 'Part 4: a role-less agent does not bold the model', roleless);
+    chk(/Claude Sonnet 5/i.test(roleless), 'Part 4 CONTROL: the model still renders for a role-less agent', roleless);
+
     // ── Part 3: the lower status (#d-why) is suppressed for a REPORTED state,
     // and shown for a non-reported one. Driven through the real openDetail on a
     // real card whose stateReported/because are flipped. ────────────────────

@@ -17947,11 +17947,20 @@ function openDetail(sessionName, section) {
   /* #1841 (Josh, 2026-09-02): bold the title only, so it stands out against the
      model. No size change, no other change. The role is user-supplied, so this
      escapes every part by hand (what textContent did for free) and wraps ONLY
-     the first in <b>; the rest render exactly as before. */
-  const metaParts = [roleLine(a, ROLE_TITLES), runs.name,
-     a.nameDerived ? null : 'no name was chosen for it, so this is the one it runs under'].filter(Boolean);
-  document.getElementById('d-meta').innerHTML =
-    metaParts.map((p, i) => (i === 0 ? '<b>' + esc(p) + '</b>' : esc(p))).join(' · ');
+     the role in <b>.
+     🛑 THE BOLD IS KEYED TO THE ROLE ITSELF, NOT TO POSITION 0. roleLine returns
+     '' for an agent with no role, and a post-filter `i === 0` would then bold
+     whatever fell into first place -- the MODEL -- which is exactly what "bold
+     the title only" forbids. Building the role segment separately means a
+     role-less agent gets an unbolded "model · disclosure", as it read before
+     this change. */
+  const roleSeg = roleLine(a, ROLE_TITLES);
+  const metaParts = [];
+  if (roleSeg) metaParts.push('<b>' + esc(roleSeg) + '</b>');
+  for (const p of [runs.name, a.nameDerived ? null : 'no name was chosen for it, so this is the one it runs under']) {
+    if (p) metaParts.push(esc(p));
+  }
+  document.getElementById('d-meta').innerHTML = metaParts.join(' · ');
   const copy = STATE_COPY[a.state] || STATE_COPY.unknown;
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
      class, `GLYPH` the mark, `STATE_COPY` the word. A card and its detail page
