@@ -1980,6 +1980,84 @@ function createdLog() {
   }).filter((e) => e && typeof e === 'object');
 }
 
+/**
+ * Is the account a new agent would run on actually able to sign in? (#1903)
+ *
+ * 🛑 THE GAP THIS CLOSES. createAgentInner points a new agent at the chosen
+ * account's config dir and never checks the credential there is LIVE, so an
+ * account whose stored token has expired produces an agent that reports created,
+ * runs, receives its first message, and 401s on its first API call -- exactly
+ * what a real tester hit on a fresh Claude agent (Fable 5, "OAuth access token
+ * has expired", 2026-09-02). This is the SAME structure-not-liveness gap #1315
+ * fixed for OpenAI's add flow; here it is applied to create.
+ *
+ * ⚠️ ASYNC, SO createAgentInner STAYS SYNC. Its 158 test call sites and every
+ * caller are untouched; the route awaits THIS before calling createAgent, the
+ * same shape #1315 used (addWithKeyLive at the route, addWithKey left sync).
+ *
+ * 🔑 THE #1315 ASYMMETRY, DELIBERATELY. Refuse only a POSITIVELY-confirmed dead
+ * sign-in (checkLive state NONE). A key/account we cannot confirm dead
+ * (unreachable, a scope-restricted answer) returns ok:true and proceeds -- never
+ * block a legitimate account on an answer that does not confirm it is broken. An
+ * account we cannot even RESOLVE also returns ok:true, so createAgentInner keeps
+ * ownership of the "we do not know that account" refusal rather than this
+ * pre-check second-guessing it.
+ *
+ * @returns {Promise<{ok:true}|{ok:false, because:string}>}
+ */
+async function accountConnectable({ provider, accountDir } = {}) {
+  const subscription = require('./subscription');
+  const NONE = subscription.STATE.NONE;
+  const dir = (accountDir !== undefined && accountDir !== null && String(accountDir) !== '') ? String(accountDir) : null;
+  /* Absent provider means anthropic (createAgentInner's own default). Anything
+     that is neither a known provider is NOT ours to refuse here: createAgentInner
+     answers it with REFUSE_PROVIDER ("pick a provider from the list"), and
+     routing a bogus provider into the Claude arm below would surface a Claude
+     sign-in error for what is really a provider mistake. */
+  const prov = (provider !== undefined && provider !== null && String(provider) !== '') ? String(provider) : 'anthropic';
+  if (prov !== 'anthropic' && prov !== 'openai') return { ok: true };
+
+  if (prov === 'openai') {
+    const openai = require('./openaiaccounts');
+    let list; try { list = openai.list(); } catch { return { ok: true }; }
+    const acct = dir ? list.find((a) => a.dir === path.resolve(dir)) : list.find((a) => a.isDefault);
+    if (!acct) return { ok: true }; // unknown -> createAgentInner refuses
+    /* 🛑 THE ONE HOME THE GATE AND THE AGENT WOULD DISAGREE ABOUT. A created
+       OpenAI-DEFAULT agent gets configDir=null and its launchd job does NOT
+       inherit the server's CODEX_HOME override (createAgentInner's own note), so
+       it runs on the real ~/.codex -- while openaiaccounts.list()'s default row
+       honors that override. createAgentInner guards exactly this with
+       codexHomeOverridden(); rather than second-guess which home the agent lands
+       on, fail open here so the gate never REFUSES a create over a home the agent
+       will not use. A labelled account carries an explicit dir and has no such
+       ambiguity. */
+    if (acct.isDefault && codexHomeOverridden()) return { ok: true };
+    let live; try { live = await openai.checkLive(acct.dir); } catch { return { ok: true }; }
+    if (live && live.state === NONE) {
+      return { ok: false, because: `${acct.email || (acct.keyTail ? 'the OpenAI account ending ' + acct.keyTail : 'that OpenAI account')}'s sign-in is not working, so an agent created on it could not run. Add or re-enter its key on the Accounts screen first.` };
+    }
+    return { ok: true };
+  }
+
+  const accountsMod = require('./accounts');
+  let list; try { list = accountsMod.list(); } catch { return { ok: true }; }
+  const acct = dir ? list.find((a) => a.dir === path.resolve(dir)) : list.find((a) => a.isDefault);
+  if (!acct) return { ok: true }; // unknown -> createAgentInner refuses with REFUSE_ACCOUNT
+  /* Scoped exactly as accounts.listLive scopes it: the default with NO configDir
+     (so claude resolves the real ~/.claude.json, not the decoy inside ~/.claude),
+     a labelled dir by its path. */
+  let live;
+  try { live = await subscription.checkLive(acct.isDefault ? undefined : { configDir: acct.dir }); }
+  catch { return { ok: true }; }
+  if (live && live.state === NONE) {
+    return {
+      ok: false,
+      because: `${acct.email || 'that account'}'s Claude sign-in is not working, so an agent created on it would not be able to run. Re-authenticate that account (run /login for it) before creating an agent on it.`,
+    };
+  }
+  return { ok: true };
+}
+
 function createAgent(opts) {
   const out = createAgentInner(opts);
   /* The name as typed, because a refusal can be ABOUT the spelling; role and
@@ -3135,6 +3213,7 @@ module.exports = {
      than infer it from which env vars it happens to have set (#1359). */
   codexHomeDir,
   createAgent,
+  accountConnectable,
   binPaths,
   unusablePath,
   nameProblem,
