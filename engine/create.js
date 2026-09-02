@@ -3146,6 +3146,12 @@ module.exports = {
   installSupervisor,
   serviceLabel,
   workerDir,
+  /* #923: the ONE home resolver (AGENT_WORKFORCE_HOME || os.homedir(), #1780),
+     exported so server.js's startup chdir reuses it rather than deriving
+     os.homedir() a second time (server.js:474-484 names that anti-pattern), and
+     so a home-stubbed test can assert the board landed in the SAME sandbox the
+     resolver returns rather than only against the real $HOME. */
+  homeDir,
   instructionFile,
   plistPath,
   plannedModelArg,
