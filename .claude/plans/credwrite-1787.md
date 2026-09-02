@@ -130,8 +130,10 @@ already considered and rejected what you are about to add.**
   **committed** tree. The count is deliberately not quoted: it moved from 3601 to 3615
   across seven review iterations, and a number in a plan about a branch still under
   review is stale by construction.
-- ⚠️ **The final full-suite gate is HELD**, at another agent's request while she gates a
-  release cut. Per-file runs are green throughout; the closing run happens on her signal.
+- Full suite at 8508e47c (after iteration 10), tree clean, `tools/run-tests.sh` with the
+  exit code written to the log by the runner's own last line: **`EXIT_CODE=0`, 3626 tests,
+  0 fail**, 19:25 to 19:27 CDT on 2026-09-01, load 1.6 at start. The hold that preceded it
+  (a colleague's browser-gate bisect on main) was lifted at 19:13.
 - Every fix perturbed individually, each reddening only its own arm.
 - Two of my own mutations failed to apply during this work and produced meaningless greens
   until I checked. Both caught by asserting the mutation applied before trusting its
