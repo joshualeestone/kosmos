@@ -909,12 +909,6 @@ function validCode(code) {
 
 async function start(opts) {
   const configDir = opts && typeof opts.configDir === 'string' && opts.configDir ? opts.configDir : null;
-  /* #1922: an explicit "Sign in again" on a NAMED account. The person has told
-     us the credential is bad; a stored file plus a credulous live check must not
-     be allowed to answer "you are already connected" and run nothing. See the
-     early-exit guard below for why this outranks the check rather than
-     supplementing it. */
-  const reauth = !!(opts && opts.reauth === true);
   /* A relative path here is a caller bug, and quietly resolving it against
      an unknowable cwd would sign somebody in to a directory nobody can
      name. Loud, before any state moves. */
@@ -1084,20 +1078,20 @@ async function start(opts) {
     const live = binaryOnDisk
       ? await subscription.checkLive(configDir ? { configDir } : undefined)
       : { state: subscription.STATE.UNKNOWN };
-    /* 🛑 #1922: AN EXPLICIT RE-AUTH OUTRANKS THE LIVE CHECK, IT DOES NOT CONSULT
-       IT. `checkLive` shells `claude auth status`, which reports that a login
-       EXISTS and never that it WORKS -- #874 measured it answering
-       `loggedIn: true` for a transparently invalid token, and Josh's own case was
-       a green row against a token being 401'd ten times in a row. So the one
-       control a person has for repairing a dead credential would be refused by
-       the very check that cannot see the credential is dead.
+    /* 📌 #1922 CONSIDERED AND REJECTED BYPASSING THIS GATE FOR AN EXPLICIT
+       RE-AUTH, AND THE REASON IS WORTH KEEPING SO IT IS NOT RE-PROPOSED ALONE.
+       `checkLive` reports that a login EXISTS, never that it WORKS (#874), so a
+       person repairing a dead credential is refused by the check that cannot see
+       it is dead. Opening the gate looks like the fix. MEASURED, IT IS NOT: the
+       flow this gate guards launches a BARE `claude` (no login argument), and
+       the repl arm below then re-reads the SAME config that already said
+       CONNECTED and calls finishConnected. The press ends at "already connected"
+       about a second later with nothing repaired.
 
-       ⇒ A press on "Sign in again" for a NAMED account is a positive statement
-       of intent about THAT account. Honour it. This is deliberately narrower
-       than making the check trustworthy (#1921 / a real validation at this
-       gate): it does not change what the check reports, it declines to let the
-       check veto an explicit instruction. */
-    if (!binaryOnDisk || reauth || live.state === subscription.STATE.NONE) {
+       ⇒ Opening the gate is only useful TOGETHER WITH a launch that actually
+       re-authenticates. Doing it alone opens a safety gate for no benefit, so it
+       is deliberately NOT done here. */
+    if (!binaryOnDisk || live.state === subscription.STATE.NONE) {
       /**
        * ⚠️ TWO REASONS REACH HERE NOW, AND NEITHER IS AN ERROR TO SHOW SOMEBODY.
        * Either there is nothing on disk to run (#1580) or the file and the world

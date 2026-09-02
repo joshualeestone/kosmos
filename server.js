@@ -5136,9 +5136,6 @@ const server = http.createServer((req, res) => {
              default resolution, which is what finds the real account. */
           return connect.start({
             configDir: known.isDefault ? null : known.dir,
-            /* #1922: this press names an account, so it outranks the live check
-               rather than being gated by it. See connect.start's early exit. */
-            reauth: true,
             requireInstallConfirm: true,
             installConfirmed,
           });

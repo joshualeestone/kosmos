@@ -54,14 +54,40 @@ WORKS.
 check does not corroborate my diagnosis and its absence would not have refuted it. **The two cards do
 not collapse into each other** -- this is the write path, #1916 is the read path.
 
-## The fix
+## The fix, and what it does NOT fix
 
-One routing decision, mirroring the shape `listLive` already uses:
+**Two changes, both mechanical, both tested:**
 
 ```js
-const targetDir = known.isDefault ? null : known.dir;
-return connect.start({ ...(targetDir ? { configDir: targetDir } : {}), requireInstallConfirm: true, installConfirmed });
+// server.js -- the routing decision, the one-liner engine/create.js writes in four places
+connect.start({ configDir: known.isDefault ? null : known.dir, requireInstallConfirm: true, installConfirmed })
+
+// engine/connect.js -- the launch, matching the read side's `delete env.CLAUDE_CONFIG_DIR`
+} else { cmd.push('-u', 'CLAUDE_CONFIG_DIR'); }
 ```
+
+🛑 **THESE FIX THE WRITE PATH. THEY DO NOT MAKE THE PERSON'S BUTTON WORK, AND THAT IS NOT A HEDGE --
+IT IS MEASURED.** The press is still refused by `start()`'s connected early exit whenever the stored
+file plus a credulous `claude auth status` say CONNECTED, which is the reporter's exact state.
+
+⭐ **AND OPENING THAT GATE IS NOT THE REMEDY EITHER, WHICH IS THE THING I GOT WRONG.** I built the
+bypass, and a review measured what lies behind the gate: `launchSignin` launches a **bare `claude`**
+with no login argument, and the repl arm then re-reads the SAME config that already said CONNECTED
+and calls `finishConnected`. **The press ends at "already connected" about a second later with
+nothing repaired.** ⇒ **A gate was opened without checking that the machine behind it could do the
+thing the gate was blocking.** The bypass is removed; the reasoning is recorded at the gate so it is
+not re-proposed on its own.
+
+⚠️ **THIS AFFECTS MORE THAN THIS BRANCH.** #1918 has just merged a `#d-reauth` "Sign in again" button
+on the agent detail page, whose whole purpose is giving a broken sign-in a reachable remedy. **That
+button leads into the same flow**, so the remedy it makes reachable cannot currently repair a
+credential either.
+
+**What would actually fix it, and neither is in this branch:** launch an explicit login the CLI
+cannot ignore, or invalidate the stored credential before launching so the re-check honestly reports
+NONE. **Both need to land together with re-opening the gate, as one change with a test that can only
+exist once the launch works.** *Changes my mind about removing the bypass:* a launch that
+re-authenticates, in the same commit.
 
 ## Verification: a two-arm control that needs no credential
 
