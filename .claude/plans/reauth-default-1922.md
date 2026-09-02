@@ -89,6 +89,39 @@ decoy-producing path. A test written after a fix that has never been seen to fai
 accounts, and the one with the greyed Disconnect (Kitty's finding, #1917) is the default. ⇒ **If a
 tester reproduces this on a LABELLED account, this diagnosis is wrong.**
 
+## The layer below the fix, checked because a routing fix can be right and still lose the write
+
+**`engine/connect.js:1821`:** `const launchDir = owner.configDir || process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;`
+
+With `configDir` null -- the default-account path this fix creates -- the launch directory falls back
+to that env var. **If it resolved to something on a real machine, the routing fix would be correct
+and the credential would still go astray, one layer down.** Measured:
+
+| checked | result |
+|---|---|
+| setters anywhere in the repo | **one**, `docs/browser-checks/live-connect.js:29` (a browser-check sandbox) |
+| `install/`, `bin/`, `deploy/` | none |
+| launchd plists on this machine | none |
+| the ambient environment here | unset |
+
+⇒ **It is a test and browser-check seam, not production configuration.** With both absent,
+`if (launchDir)` is false and **no `CLAUDE_CONFIG_DIR` is pushed at all**, so the CLI uses its own
+default resolution -- which is precisely what `accounts.listLive` depends on and describes as landing
+on the real account. **The fix holds at the launch layer.**
+
+📌 **A separate normalization question, settled by Splinter rather than by me:** `configDir: null` and
+omitting the key entirely are equivalent, because `connect.js:911` demands
+`typeof opts.configDir === 'string' && opts.configDir`, the same normalization `subscription.js:325`
+uses. So mirroring `listLive`'s omit-the-parameter shape with a null does not diverge from it.
+
+🛑 **A LIMIT OF THE TEST, STATED SO IT IS NOT DISCOVERED LATER.** The harness SETS
+`AGENT_WORKFORCE_CLAUDE_CONFIG_DIR` (`server.connect.test.js:40`), so inside the suite `launchDir`
+resolves to the sandbox rather than to undefined. ⇒ **These arms assert the ROUTING decision
+(`configDir` null vs the account's dir), which is the thing this card is about. They do NOT assert
+the launch-layer consequence**, and could not without unsetting a seam the whole file depends on.
+The launch layer is covered by the measurement above, which is evidence of a different kind and
+weaker: it is true of this machine today rather than enforced by a test.
+
 ## What I have NOT established
 
 - **Why `~/.claude/.claude.json` on this Mac is 51KB and freshly written**, where the build-box
