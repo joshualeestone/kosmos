@@ -55,7 +55,7 @@ const codexupdate = require('./codexupdate');
 const { execFileSync } = require('node:child_process');
 const roles = require('./roles');
 const liveExec = require('./live-execution');
-const runners = require('./runners'); // #1616: one definition of runnable, shared with the first-run screen
+const runners = require('./runners'); // #1616: one definition of runnable
 
 /**
  * The models an agent can be created on.
