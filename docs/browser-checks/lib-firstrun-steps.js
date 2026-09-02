@@ -5,7 +5,7 @@
  *
  * The first-run wizard numbers its steps -- fr-pane-N, and the deep link
  * ?fr-step=N. #1214 inserted Accessibility as step 5, which moved every later
- * step up one and silently broke nine assertions across five checks that had
+ * step up one and silently broke nine assertions across four checks that had
  * NAMED a step number (kosmos#1801, #1751). Re-pinning the numbers fixes the
  * instance and re-arms the trap for the next insertion.
  *

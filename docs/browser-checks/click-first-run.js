@@ -40,12 +40,27 @@ async function fresh(browser, opts = {}) {
    inserted step is walked through, never mis-counted. */
 async function advanceToAboutYou(page, max = 12) {
   for (let i = 0; i < max; i += 1) {
-    const there = await page.evaluate(() => {
-      const el = document.querySelector('#fr-you');
-      const pane = el && el.closest('.fr-pane');
-      return !!(pane && !pane.hidden);
+    // Read both facts in ONE round-trip: are we at About-you yet, and is
+    // Continue clickable? Every step BEFORE About-you is ungated today, so a
+    // disabled Continue on a step that is not About-you means an intermediate
+    // step grew a required-answer gate. Fail fast with that reason rather than
+    // letting page.click hang ~30s on Playwright's actionability wait for a
+    // button that will never enable itself.
+    const state = await page.evaluate(() => {
+      const you = document.querySelector('#fr-you');
+      const pane = you && you.closest('.fr-pane');
+      const next = document.getElementById('fr-next');
+      return {
+        atAboutYou: !!(pane && !pane.hidden),
+        nextDisabled: !!(next && next.disabled),
+      };
     });
-    if (there) return;
+    if (state.atAboutYou) return;
+    if (state.nextDisabled) {
+      throw new Error('Continue is disabled on a step before About-you -- an '
+        + 'intermediate step grew a required-answer gate. advanceToAboutYou '
+        + 'walks ungated steps; this one needs handling (kosmos#1801).');
+    }
     await page.click('#fr-next');
     await page.waitForTimeout(150);
   }
