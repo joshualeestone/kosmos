@@ -14,7 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const { verifyFiles, fetchManifest, selfCheck, reportLines } = require('./selfcheck');
+const { verifyFiles, fetchLatestJson, fetchManifestNamed, selfCheck, reportLines } = require('./selfcheck');
 
 const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
@@ -105,20 +105,22 @@ test('a manifest path escaping the bundle root is refused, not followed', async 
   } finally { cleanup(); }
 });
 
-test('fetchManifest reads the manifest via the latest.json pointer', async () => {
+test('fetchManifestNamed reads a served manifest by name', async () => {
   const manifest = { manifest: 1, version: '0.6.22', files: [{ path: 'VERSION', sha256: 'abc' }] };
-  const served = {
-    'https://x/dist/latest.json': { version: '0.6.22', sha256: 'zzz', manifest: 'kosmos-0.6.22-arm64.manifest.json' },
-    'https://x/dist/kosmos-0.6.22-arm64.manifest.json': manifest,
-  };
+  const served = { 'https://x/dist/kosmos-0.6.22-arm64.manifest.json': manifest };
   const doFetch = async (url) => ({ ok: url in served, json: async () => served[url] });
-  const { manifest: got } = await fetchManifest({ base: 'https://x/dist', doFetch });
+  const got = await fetchManifestNamed({ base: 'https://x/dist', name: 'kosmos-0.6.22-arm64.manifest.json', doFetch });
   assert.deepEqual(got.files, manifest.files);
 });
 
-test('fetchManifest fails loudly on a pre-#1920 latest.json with no manifest pointer', async () => {
+test('fetchManifestNamed fails loudly on an unreachable/absent manifest (never a vacuous pass)', async () => {
+  const doFetch = async () => ({ ok: false, json: async () => null }); // 404
+  await assert.rejects(fetchManifestNamed({ base: 'https://x/dist', name: 'missing.manifest.json', doFetch }), /unreachable/);
+});
+
+test('fetchLatestJson fails loudly on a pre-#1920 latest.json with no manifest pointer', async () => {
   const doFetch = async () => ({ ok: true, json: async () => ({ version: '0.6.22' }) }); // version-only
-  await assert.rejects(fetchManifest({ base: 'https://x/dist', doFetch }), /no manifest pointer/);
+  await assert.rejects(fetchLatestJson({ base: 'https://x/dist', doFetch }), /no manifest pointer/);
 });
 
 test('selfCheck wires the pointer, manifest and installed root end-to-end (and its control)', async () => {

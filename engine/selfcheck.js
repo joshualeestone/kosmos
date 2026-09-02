@@ -156,14 +156,6 @@ async function fetchManifestNamed({ base = DEFAULT_BASE, name, doFetch } = {}) {
   return man;
 }
 
-// Back-compat helper: fetch the LATEST published manifest via the latest.json pointer.
-// (selfCheck deliberately does NOT use this -- it verifies the installed version, below.)
-async function fetchManifest({ base = DEFAULT_BASE, doFetch } = {}) {
-  const { latest, fetch: f } = await fetchLatestJson({ base, doFetch });
-  const manifest = await fetchManifestNamed({ base, name: latest.manifest, doFetch: f });
-  return { manifest, latest };
-}
-
 /**
  * selfCheck({ base, root, doFetch }) -> verifyFiles result + context.
  * Verifies the installed bundle against the manifest for the version IT is running (NOT the
@@ -220,7 +212,7 @@ function reportLines(r) {
 }
 
 module.exports = {
-  verifyFiles, fetchManifest, fetchManifestNamed, fetchLatestJson,
+  verifyFiles, fetchManifestNamed, fetchLatestJson,
   selfCheck, reportLines, hashFile, installedVersion, manifestNameFor, DEFAULT_BASE,
 };
 
