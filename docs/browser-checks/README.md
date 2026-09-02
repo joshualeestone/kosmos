@@ -28,24 +28,28 @@ cache (`tools/provision-pw.sh` installs a pinned one).
 **The one thing a bot session cannot do is the INTERACTIVE Playwright MCP** --
 the `/browser-test`-style `navigate` / `click` an agent drives live. MCP servers
 bind at session start, a launchd bot session carries only the discord MCP, and it
-cannot relaunch itself with `claude-fe` (launchd drops
-`--dangerously-skip-permissions`, so a hand-rolled relaunch wedges on the first
-permission prompt). That, and only that, is the real limitation -- the narrow
+cannot relaunch itself with `claude-fe` (only the launchd bot-launch script
+carries `--dangerously-skip-permissions`; a hand-rolled relaunch drops it and
+wedges on the first permission prompt). That, and only that, is the real limitation -- the narrow
 gap #1769 was filed about. Its original headline, "no agent can run a browser
 check", was over-broad and is corrected here: the miss was reading a
 missing MCP as a missing browser.
 
 ⇒ **"I can check the endpoint but not the button" is only true if the button
 check needs the interactive MCP.** A committed headless render check OF the button
--- does it paint, is it reachable by `elementFromPoint`, does a click through the
-real handler do the right thing against mocked routes (see `render-found-undo.js`)
--- runs fine from a bot session. Write the check; do not ship a frontend change
+-- is it reachable by `elementFromPoint`, does a click through the real handler do
+the right thing against mocked routes (see `render-found-undo.js`), does the
+computed state match -- runs fine from a bot session. (Fine paint, geometry and
+compositor behaviour are the weaker half headless, through SwiftShader rather than
+the real GPU compositor -- see the HEADED note below; event wiring, reachability
+and computed state are not.) Write the check; do not ship a frontend change
 unverified for want of a tool you already have.
 
 ⚠️ **The browser is contended.** Each check launches a real chromium, and a
 concurrent run during a release cut's page layer can starve it and false-red the
-cut (measured; it has cost a cut). The serving cut owns the browser until it says
-SERVED: do not run the gate, or a heavy ad-hoc check, while a release gate is up.
+cut. The measured detail and the rule are in `tools/browser-checks.sh`'s header
+(do not run a browser check while a release cut is up), kept there so the two
+cannot drift; the serving cut owns the browser until it says SERVED.
 
 ## Before you change rendered markup: sweep HERE, not the driver
 
