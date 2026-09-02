@@ -4,6 +4,7 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
+const { paneCount } = require('./lib-firstrun-steps.js');
 /* KOSMOS_URL so this can join the release runner, which asks the kernel for a
    free port (#633/#708). The literal stays as the hand-run fallback. */
 const BASE = process.env.KOSMOS_URL || 'http://127.0.0.1:4399';
@@ -28,6 +29,35 @@ async function fresh(browser, opts = {}) {
   await page.goto(`${BASE}/${opts.query || ''}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(500);
   return { ctx, page };
+}
+
+/* #1801: the wizard numbers its steps, and #1214 inserted Accessibility as
+   step 5 -- moving About-you from step 5 to 6 and the endings from 6 to 7, and
+   silently breaking every assertion here that had named a number (a walk that
+   clicked a fixed count landed a step short, and three waits named the old
+   About-you pane). These walk and wait by CONTENT instead: advance until the
+   About-you pane (#fr-you) is showing, and wait for it to leave -- so an
+   inserted step is walked through, never mis-counted. */
+async function advanceToAboutYou(page, max = 12) {
+  for (let i = 0; i < max; i += 1) {
+    const there = await page.evaluate(() => {
+      const el = document.querySelector('#fr-you');
+      const pane = el && el.closest('.fr-pane');
+      return !!(pane && !pane.hidden);
+    });
+    if (there) return;
+    await page.click('#fr-next');
+    await page.waitForTimeout(150);
+  }
+  throw new Error(`never reached About-you (#fr-you) in ${max} Continue clicks`);
+}
+
+async function waitAboutYouLeft(page, timeout = 5000) {
+  await page.waitForFunction(() => {
+    const el = document.querySelector('#fr-you');
+    const pane = el && el.closest('.fr-pane');
+    return !!(pane && pane.hidden);
+  }, null, { timeout });
 }
 
 (async () => {
@@ -84,7 +114,14 @@ async function fresh(browser, opts = {}) {
     ok(/Set up Kosmos/.test(await page.locator('#fr-next').textContent()), 'the Success primary is Set up Kosmos');
     await page.click('#fr-next');
     ok(await page.locator('#fr-title').textContent() === 'Create and manage AI agents that work for you.', 'step 2, Welcome');
-    ok((await page.locator('#fr-segs .fr-seg').count()) === 5, 'five segments from Welcome on');
+    /* The segment count is (steps minus the intro), built dynamically by frGo
+       from FR_STEPS. Assert it against the STATIC pane count rather than a
+       literal: that cross-checks the two independent sources AND does not go
+       stale when a step is inserted -- this pinned 5 and #1214 made it 6
+       (kosmos#1801). */
+    const segCount = (await paneCount(page)) - 1;
+    ok((await page.locator('#fr-segs .fr-seg').count()) === segCount,
+      `${segCount} segments from Welcome on (steps minus the intro)`);
     await page.click('#fr-next');
     ok(await page.locator('#fr-title').textContent() === 'Choose a model.', 'step 3, Model');
     ok((await page.locator('#fr-pane-3 .llm').count()) === 6, 'the six-provider list is drawn');
@@ -123,10 +160,12 @@ async function fresh(browser, opts = {}) {
     ok(!rows.some((t) => /Kosmos icon/i.test(t)),
       'app-location is NOT among the step-4 rows; it rides on the Success screen'
       + ` (rows: ${rows.map((t) => t.replace(/\s+/g, ' ').trim().slice(0, 28)).join(' | ')})`);
-    await page.click('#fr-next');
-    // Step 5, About you. The gate IS the design (no skip, at Josh's call):
-    // Continue WAITS on the two required answers, and the third is optional.
-    ok(await page.locator('#fr-title').textContent() === 'Who are your agents working for?', 'step 5, about you');
+    // About you. #1214 inserted Accessibility ahead of it, so advance by
+    // CONTENT to whichever step now holds it rather than clicking a fixed count
+    // (kosmos#1801). The gate IS the design (no skip, at Josh's call): Continue
+    // WAITS on the two required answers, and the third is optional.
+    await advanceToAboutYou(page);
+    ok(await page.locator('#fr-title').textContent() === 'Who are your agents working for?', 'the About-you step, reached by content');
     ok(await page.locator('#fr-next').isDisabled(), 'Continue waits for the two required answers');
     await page.fill('#fr-you-name', 'Josh');
     ok(await page.locator('#fr-next').isDisabled(), 'one answer alone does not arm it');
@@ -134,9 +173,12 @@ async function fresh(browser, opts = {}) {
     ok(!(await page.locator('#fr-next').isDisabled()), 'both answers arm Continue; the third stays optional');
     await page.click('#fr-next');
     // Continue SAVES before it advances (a real PUT on this live server), so
-    // wait for the step change rather than reading the title mid-flight.
-    await page.waitForSelector('#fr-pane-5', { state: 'hidden', timeout: 5000 });
-    ok(/already have/.test(await page.locator('#fr-title').textContent()), 'step 6, the adopt ending');
+    // wait for the About-you pane to LEAVE rather than reading the title
+    // mid-flight. Named by content (#fr-you's pane), not by pane number: the old
+    // wait named fr-pane-5, which is Accessibility now, so it resolved at once
+    // and never waited for the transition (kosmos#1801).
+    await waitAboutYouLeft(page);
+    ok(/already have/.test(await page.locator('#fr-title').textContent()), 'the adopt ending');
     ok(/Take me to my agents/.test(await page.locator('#fr-next').textContent()),
       'the adopt ending carries the pack\'s single action');
     console.log('   ...and out the front door, through the adopt ending');
@@ -199,12 +241,15 @@ async function fresh(browser, opts = {}) {
     const { ctx, page } = await fresh(browser, {
       route: ['**/api/first-run', (r) => r.fulfill({ json: { done: false, fleetKnown: true, fleetCount: 0, fleetNames: [], path: 'create', subscription: { state: 'connected', plan: 'Claude Max', because: '' } } })],
     });
-    // Success -> Welcome -> Model -> This computer -> About you -> ending.
-    await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next');
+    // Success -> Welcome -> Model -> This computer -> (Accessibility) -> About
+    // you -> ending. Advance to About-you by content, so the Accessibility step
+    // #1214 inserted is walked through rather than leaving this a click short
+    // (kosmos#1801).
+    await advanceToAboutYou(page);
     await page.fill('#fr-you-name', 'Josh');
     await page.fill('#fr-you-do', 'Testing the create path');
     await page.click('#fr-next');
-    await page.waitForSelector('#fr-pane-5', { state: 'hidden', timeout: 5000 });
+    await waitAboutYouLeft(page);
     /* 🛑 THE CREATE ARM PAINTS TWICE AND THIS ASSERTED ON THE FIRST PAINT.
        It renders "Looking for agents already here" and RETURNS while
        frFindAgents() reads the disk, then repaints to the real ending. Reading
@@ -301,13 +346,24 @@ async function fresh(browser, opts = {}) {
   for (const bad of ['3.7', '2.5', '0', '99', 'banana', '-1', '<script>']) {
     const { ctx, page } = await fresh(browser, { query: '?first-run=1&fr-step=' + encodeURIComponent(bad) });
     // ⚠️ The failure this is for drew a titled, buttoned, COMPLETELY EMPTY
-    // dialog: frGo(3.7) matched no pane, so it hid all four and painted step 4
-    // into one it had just hidden.
-    const panes = await page.evaluate(() =>
-      [1, 2, 3, 4, 5, 6].filter((i) => !document.getElementById('fr-pane-' + i).hidden));
-    ok(panes.length === 1, `fr-step=${bad} shows exactly one pane (showed ${panes.length})`);
+    // dialog: frGo(3.7) matched no pane, so it hid every one and painted a step
+    // into one it had just hidden. Count the panes that are SHOWING rather than
+    // naming an index range -- the old [1..6] omitted fr-pane-7 (the fleet #1214
+    // moved there), so a clamp onto step 7 read as zero panes showing and this
+    // arm failed (kosmos#1801).
+    const showing = await page.evaluate(() =>
+      [...document.querySelectorAll('.fr-pane')].filter((p) => !p.hidden).length);
+    ok(showing === 1, `fr-step=${bad} shows exactly one pane (showed ${showing})`);
     const crumb = await page.locator('#fr-step').textContent();
-    ok(/^(Kosmos setup|Step [1-5] of 5)$/.test(crumb), `fr-step=${bad} prints a whole step ("${crumb}")`);
+    // The crumb's total is (steps minus the intro); read it off the static pane
+    // count rather than pinning "of 5" (index.html builds it as FR_STEPS - 1,
+    // which #1214 made 6). A whole step is "Kosmos setup", or "Step N of TOTAL"
+    // with N in range -- so a stale total OR an out-of-range step both fail.
+    const total = (await paneCount(page)) - 1;
+    const m = /^Step (\d+) of (\d+)$/.exec(crumb || '');
+    ok(crumb === 'Kosmos setup'
+      || !!(m && Number(m[2]) === total && Number(m[1]) >= 1 && Number(m[1]) <= total),
+      `fr-step=${bad} prints a whole step ("${crumb}", of ${total})`);
     ok((await page.locator('#fr-title').textContent()).trim().length > 0, `fr-step=${bad} has a heading`);
     await ctx.close();
   }
@@ -329,12 +385,14 @@ async function fresh(browser, opts = {}) {
     await page.route('**/api/first-run', (r) => r.fulfill({ json: { done: false, fleetKnown: true, fleetCount: 0, fleetNames: [], path: 'create', subscription: { state: 'connected', plan: 'Claude Max', because: '' } } }));
     await page.goto(BASE + '/', { waitUntil: 'networkidle' });
     await page.waitForTimeout(400);
-    // Success -> Welcome -> Model -> This computer -> About you -> ending
-    await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next');
-    await page.fill('#fr-you-name', 'Josh');      // About you gates step 5
+    // Success -> Welcome -> Model -> This computer -> (Accessibility) -> About
+    // you -> ending. Advance by content (kosmos#1801), so the inserted step is
+    // walked through, not counted past.
+    await advanceToAboutYou(page);
+    await page.fill('#fr-you-name', 'Josh');      // About you gates Continue
     await page.fill('#fr-you-do', 'Testing');
-    await page.click('#fr-next');                 // step 5 -> 6 (saves first)
-    await page.waitForSelector('#fr-pane-5', { state: 'hidden', timeout: 5000 });
+    await page.click('#fr-next');                 // saves, then advances
+    await waitAboutYouLeft(page);
     await page.click('#fr-next');                 // starts "Giddy Up"
     await page.waitForTimeout(150);
     await page.keyboard.press('Escape');          // ...and Escape mid-flight
@@ -438,8 +496,12 @@ async function fresh(browser, opts = {}) {
     await page.waitForTimeout(500);
     ok(await page.isHidden('#firstrun'), 'Escape closes setup from anywhere in the trap');
 
-    // Every step, because the button set changes between them.
-    for (const step of [2, 3, 4, 5, 6]) {
+    // Every step, because the button set changes between them. The range is the
+    // steps after the intro (2..N), read from the pane count rather than a
+    // literal [2..6] that omitted the fleet step #1214 added -- so "every step"
+    // now actually means every step (kosmos#1801).
+    const lastStep = await paneCount(page);
+    for (let step = 2; step <= lastStep; step += 1) {
       await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
       await page.waitForTimeout(500);
       // Same reason as above: a reload restores inert, which would make the rest
