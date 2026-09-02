@@ -138,7 +138,7 @@ test('#1683: the first click asks and does NOT reach the engine', async () => {
   await w.click();
   assert.deepEqual(calls, [], 'ONE CLICK REACHED THE ENGINE: the account was removed without asking');
   assert.equal(w.btn.textContent, 'Remove it?', 'the button must say what the next press will do');
-  assert.equal(w.btn.classList.has.has('armed'), true, 'the armed class is what makes it look different');
+  assert.equal(w.btn.classList.has.has('armed'), true, 'the armed class is applied (its visual treatment lives in the .acct-disconnect.armed CSS rule, guarded by the #1710 test below; this stub has no stylesheet and cannot see appearance)');
 
   await w.click();
   assert.deepEqual(calls, [['/api/accounts/openai', 'DELETE']], 'the second click must actually remove it');
@@ -277,4 +277,23 @@ test('#1659: the removal path cancels the pending announcement before it writes'
   assert.ok(w.cancels.length >= 2,
     'the removal wrote to the message line without cancelling the pending announcement first, so a deferred '
     + 'refusal can replace the answer. cancels seen: ' + w.cancels.length);
+});
+
+/* #1710: the armed state must have a VISUAL treatment, and no test above can see it.
+   The behavioural tests run against a hand-rolled button with no stylesheet, so a
+   class-membership assertion (`.classList.has.has('armed')`) proves the class is applied
+   and says NOTHING about whether it paints anything -- which is exactly how the missing
+   `.acct-disconnect.armed` rule shipped green. The visual promise can only be guarded in
+   the source (this) or a browser (a computed-style check would be the stronger guard; the
+   fleet cannot run one here). This asserts the rule exists and carries the danger colour,
+   so removing it goes red. This is the most destructive of the three arm-in-place controls
+   and was the only one with no visual arming state (its siblings .skillrm.armed and
+   .found-dismiss.armed both have rules). */
+test('#1710: the armed disconnect state has a visual rule that reads as danger', () => {
+  const m = PAGE.match(/\.acct-disconnect\.armed\s*\{([^}]*)\}/);
+  assert.ok(m, 'the .acct-disconnect.armed CSS rule is gone; the destructive confirm would paint nothing again');
+  assert.match(m[1], /var\(--danger/,
+    'the armed rule dropped its danger colour; the most destructive of the three arm controls must read as danger');
+  assert.match(m[1], /font-weight:\s*([6-9]\d\d|bold)/,
+    'the armed rule dropped its weight bump; the armed cue is colour AND weight, matching the .found-dismiss.armed sibling');
 });
