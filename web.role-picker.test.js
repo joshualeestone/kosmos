@@ -78,7 +78,10 @@ test('the fourth option imports an agent from a file: its own panel, the shared 
   // #1800: the paste box is dressed by the SAME rule as #create-instr, so the two
   // textareas on this flow cannot drift apart; the browser gate measures the result,
   // this pins the selector so the fast suite sees a split too.
-  assert.match(PAGE, /#create-instr, #import-text \{/, 'import-text shares create-instr\'s field rule (#1800)');
+  assert.match(PAGE, /#create-instr,\s*#import-text\s*\{/, 'import-text shares create-instr\'s field rule (#1800)');
+  // ...and no standalone rule competes: a later `#import-text {` at equal specificity
+  // wins the cascade and splits the pair while the shared selector still matches.
+  assert.doesNotMatch(PAGE, /^\s*#import-text\s*\{/m, 'no standalone #import-text rule (#1800)');
   assert.match(body, /<input type="file" id="import-file"[^>]*hidden>/);
   assert.match(body, /<button class="btn uprime" type="button" id="import-load">/);
   // Gated exactly like `own` (both use the own role key), so it never offers a
