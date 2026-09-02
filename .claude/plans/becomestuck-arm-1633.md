@@ -425,7 +425,7 @@ each survivor stops a specific re-introduction:
 
 **NOT fixed, and stated plainly rather than claimed:** at the time of this round the main test file
 was **65% comment** (295 lines, 192 of them comment; iteration 11 later brought it to 61%, and the
-current figure is in that section rather than here). The strip removed process history and the timeline table replaced
+that section now deliberately quotes no current figure, only the command to reproduce one). The strip removed process history and the timeline table replaced
 much of it, so the volume is roughly flat. **The content is now defensible; the volume is a judgement
 call I am leaving to the reviewer of this PR rather than papering over.**
 
@@ -545,7 +545,7 @@ tot=$(wc -l < $f); cm=$(grep -cE '^\s*(\*|/\*|//)' $f); echo "$tot lines, $cm co
 **For comparison, siblings, with the same command** (the range is wide and the sample is small, so
 read the files rather than the range): `tmpdir.test.js` 6%, `test-support.code-only.test.js` 25%,
 `engine/connect.nobinary-1580.test.js` 35%, `test-support.release-fixture.test.js` 43%,
-`engine.publicview-canrun-1595.test.js` 48%. **This file sits above all of them.** **So it is better and still above its neighbours**, and the residue is the head docblock
+`engine.publicview-canrun-1595.test.js` 48%. **This file sits above all of them**, and the residue is the head docblock
 explaining why the file drives `start()` instead of taking a seam. I judged that load-bearing for
 anyone editing the test and stopped there rather than trimming into mechanism.
 
@@ -771,3 +771,102 @@ half, for the third time on this branch.
   reviewer went line by line and certified the other ten blocks as load-bearing rather than
   gesturing at the percentage**, which is the first time the volume question has been answered with
   a specific list instead of a ratio.
+
+## Findings from challenge-loop iteration 15
+
+**Zero BLOCKERs, two WARNINGs, four NITs.** Every published figure and all ~20 line-number citations
+reproduced exactly under an independent instrument, and the four-part justification held on its
+third consecutive independent attack.
+
+### The duplication mechanism, now inside a single file
+
+The three-instruments census was stated **twice in the same test file**, about 190 lines apart -- and
+**the two copies had already drifted**: the third-arm copy carried the `server.connect.test.js:797`
+citation, the explicit "NOT `connect.js`" correction and the reproducing command; the head copy
+carried none of the three.
+
+⚠️ **Both were factually correct. That is what makes it worth fixing rather than shrugging at:** the
+risk is not today's text, it is that the next correction lands on one copy. **This is the same
+one-site-fix mechanism the plan has logged five times across two files, recurring inside one.**
+✅ Collapsed to a single site, with the head docblock pointing at it.
+
+### Two defects I introduced in iteration 14 while fixing iteration 14's findings
+
+1. **A broken enumeration in the sentence that carries the branch.** Fixing the wrong-file claim
+   dropped a separator: *"builds the state object by hand matches the PAGE source"*. Two of three
+   verbs ran together in the branch's load-bearing sentence.
+2. **A false intra-document pointer.** I removed the comment-ratio figure and **left the sentence
+   pointing at it**, so the plan told readers "the current figure is in that section" while that
+   section says in capitals that it deliberately quotes no figure.
+
+⭐ **Both are the same shape and it is the one to carry forward: a fix that changes a thing but not
+the sentences ABOUT that thing.** The eight prior instances on this branch were cross-file; these two
+are intra-file and intra-document, so **proximity does not protect you.** The sweep is what catches
+them, and only if it reads the referent rather than the reference.
+
+### The rest
+
+- A fragment left by the iteration-14 strip that restated the sentence immediately before it.
+- The footer block opened `/**` and then spent two lines explaining that it documents no symbol.
+  **Iteration 14 fixed this exact class one file over** by changing a `/**` header to `/*`; the same
+  one-character change here deletes the need for the apology. Third appearance of the `/**`-on-a-
+  non-declaration shape.
+- The stale-worktree lesson in the DO-NOT-FIX-BACK guard was review residue: the sentence above it
+  (the card was closed as already-fixed) already carries everything a maintainer needs. Cut.
+
+### Volume, assessed independently for the second time
+
+The reviewer went block by block without being told the previous verdict and reached the same list:
+**everything except the two cut above is load-bearing** -- mechanism naming, identity-guard
+rationale, local-release warning, return-never-throw trap, two-inputs/three-states table,
+distinct-bin-path rationale, macOS-only warning, SET-IS-THE-POINT, and the `publicView || false`
+concession. **Two independent block-by-block assessments agreeing is worth more than the ratio**,
+which sits at 64% and has not moved: the blocks removed were replaced by specificity added elsewhere.
+📌 **Recorded rather than presented as an improvement.**
+
+### Postscript to iteration 15: the `/**` class had three more instances nobody named
+
+The reviewer filed one instance (the file footer). **Iteration 14 had filed one instance** (the
+`release-fixture.js` header). Each time the named site was fixed and the class was not, so I swept
+for it instead:
+
+```
+awk '/^\/\*\*/{s=NR} /^ \*\//{if(s){getline nxt; printf "%d -> %s\n", s, nxt; s=0}}' <file>
+```
+
+**Three more, all documenting something they are not attached to:** both test files' headers sat
+above `const { test } = require('node:test')`, and the deliberately-unarmed-path note sat above a
+blank line. All three are now `/*`.
+
+⭐ **THIS IS THE PROSE LESSON IN CODE SHAPE, AND IT IS THE SAME LESSON:** *grep the claim, do not fix
+the line you were shown.* Two reviewers and two rounds each fixed the instance in front of them, and
+the class survived both. **The instances that remain are all `/**` above a real declaration or above
+the `test()` they describe, which is what the syntax is for.**
+
+📌 **And my own sweep for the census collapse returned 0 where I expected 1.** The file was fine; my
+pattern said `builds` where the surviving copy says `build`. **Third time on this branch that a
+zero from my own grep was my instrument rather than the subject** -- which is exactly why the
+positive control matters more than the result.
+
+### A killed suite on this branch, with the exact numbers, because the signature is cleaner than the bulletin's
+
+The iteration-15 verification run was **killed mid-flight**. What its log showed:
+
+```
+EXIT_CODE line     ABSENT        <- the only honest tell
+pass marks         3765          <- the FULL expected count, identical to a green run
+log length         4330 lines    <- 176 short of a complete run's ~4506
+```
+
+🛑 **THE TALLY WAS COMPLETE AND THE VERDICT WAS MISSING.** The js portion had finished; the kill
+landed during the shell half, which `run-tests.sh:105-108` runs after it. **So the count a reader
+checks was right, and the run had not passed.**
+
+⚠️ **The published guidance says the tell is an unaccounted test count. Here there was none** -- 3765
+of 3765 accounted for, because the truncation fell between the two halves rather than inside one.
+⇒ **Only two things separated it from a green run: the absent `EXIT_CODE` line, and a log 176 lines
+short.** Neither is visible in the tally.
+
+✅ **So the rule holds and needs the stronger form: read the exit code, and treat the ABSENCE of an
+exit-code line as a failure rather than as something to look past.** A tally cannot tell you a run
+finished, and on this branch it did not even hint.

@@ -1,6 +1,6 @@
 'use strict';
 
-/**
+/*
  * #1633: `canRunClaude` is written by `becomeStuck` and read by the stuck
  * screen, and until this file nothing asserted it from a DRIVEN flow.
  *
@@ -19,10 +19,13 @@
  * it succeeds on a directory, which is the whole point of the third arm below.
  *
  * ⚠️ THE GAP IS NARROWER THAN "NOTHING DRIVES becomeStuck". Plenty of tests
- * drive real flows into the stuck phase. Three other files reference
- * `canRunClaude`, and every one of them either builds the state object by hand
- * matches the PAGE source (`web/index.html`), or matches `connect.js` as source
- * text. Three different instruments, none of them a driven flow.
+ * drive real flows into the stuck phase; three other files reference
+ * `canRunClaude`; none does both. **The per-file census, with the instrument
+ * each one uses and the command that reproduces it, is stated ONCE, at the
+ * third arm below.** It was stated here as well until iteration 15, and the two
+ * copies had already drifted apart in detail -- which is the same
+ * one-site-fix mechanism this branch has hit five times, now inside a single
+ * file rather than across two.
  *
  * 🛑 THE CLAIM IS NARROW: none asserts it DOWNSTREAM OF A `start()`.
  * `server.connect.test.js` does call `start()`, just never on a path reaching
@@ -239,10 +242,8 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
  * as a deliberate characterisation: a bare `accessSync(X_OK)` DOES succeed on a
  * directory, so before #1592 that was the real behaviour. #1592 put
  * `statSync().isFile()` in front of it, and `false` is now correct. A card
- * raised against the old behaviour (kosmos#1859) was closed as already-fixed.
- *
- * ⇒ Being behind is harmless; being behind ON THE FILE YOU ARE MAKING A CLAIM
- * ABOUT is not. The dated timeline is in the plan.
+ * raised against the old behaviour (kosmos#1859) was closed as already-fixed;
+ * the dated timeline is in the plan.
  */
 test('#1633: a DIRECTORY at the bin path is not runnable, via the driven flow', async (t) => {
   const st = await stuckWith(t, { binaryExists: false, directoryInstead: true });
@@ -257,10 +258,7 @@ test('#1633: a DIRECTORY at the bin path is not runnable, via the driven flow', 
     + 'tell somebody already stuck to type `claude` and get command not found (#205)');
 });
 
-/**
- * (File footer, attached to no declaration: this is a note about the three arms
- * above, not documentation for a symbol.)
- *
+/*
  * 🛑 THESE THREE ARMS ARE macOS-ONLY, AND THE FAILURE SHAPE WOULD MISLEAD.
  * `download()` gates on `platformGate.isSupported(process.platform)` and throws
  * on anything else, which `installClaudeCode` turns into "we could not download

@@ -1,6 +1,6 @@
 'use strict';
 
-/**
+/*
  * #1633: `test-support/release-fixture.js` is a SHARED helper, and its
  * siblings are UNEVENLY tested, and this closes the gap for the one that
  * matters most. MEASURED over the SIX `.js` helpers in `test-support/`
@@ -182,7 +182,7 @@ test('a t without after() rejects instead of hanging the file', async () => {
     'a non-test-context t did not reject; without the catch this file hangs ~120s instead');
 });
 
-/**
+/*
  * 📌 NOT ARMED, AND DELIBERATELY SO. The third refusal path,
  * `server.on('error', reject)` before `listen`, has no arm here. Its trigger is
  * a failed bind, and this helper always calls `listen(0, '127.0.0.1')` -- an
