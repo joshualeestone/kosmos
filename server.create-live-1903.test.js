@@ -49,7 +49,7 @@ let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(() => {
   try { server.closeAllConnections(); server.close(); } catch { /* going away */ }
-  subscription.setRunner(null);
+  create.setClaudeProbe(null);
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
@@ -62,7 +62,7 @@ async function post(body) {
 }
 
 test('#1903: POST /api/agents REFUSES a create on a dead-sign-in account, names the remedy, and makes no agent', async () => {
-  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false, authMethod: 'none' }), err: null }));
+  create.setClaudeProbe(async () => ({ exitCode: 1, out: 'Please run /login · API Error: 401 OAuth access token has expired.' }));
   try {
     const r = await post({ name: 'deadborn', role: 'pm' });
     assert.equal(r.status, 400, 'a create on a dead account was not refused: ' + JSON.stringify(r.json));
@@ -77,11 +77,11 @@ test('#1903: POST /api/agents REFUSES a create on a dead-sign-in account, names 
        assertion would fail. */
     assert.ok(!create.createdLog().some((e) => e.name === 'deadborn'),
       'the refused create still reached createAgent (a birth was recorded for it)');
-  } finally { subscription.setRunner(null); }
+  } finally { create.setClaudeProbe(null); }
 });
 
 test('#1903 CONTROL: a create on a CONNECTED account is not blocked by the gate', async () => {
-  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true, subscriptionType: 'max' }), err: null }));
+  create.setClaudeProbe(async () => ({ exitCode: 0, out: 'ok' }));
   try {
     const r = await post({ name: 'liveborn', role: 'pm' });
     // The create may still succeed or fail downstream for other reasons, but it
@@ -94,5 +94,5 @@ test('#1903 CONTROL: a create on a CONNECTED account is not blocked by the gate'
        there means something. */
     assert.ok(create.createdLog().some((e) => e.name === 'liveborn'),
       'a connected-account create did not reach createAgent: ' + JSON.stringify(r.json));
-  } finally { subscription.setRunner(null); }
+  } finally { create.setClaudeProbe(null); }
 });

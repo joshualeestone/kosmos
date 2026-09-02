@@ -52,7 +52,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const codexupdate = require('./codexupdate');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, execFile } = require('node:child_process');
 const roles = require('./roles');
 const liveExec = require('./live-execution');
 const runners = require('./runners'); // #1616: one definition of runnable
@@ -1980,6 +1980,74 @@ function createdLog() {
   }).filter((e) => e && typeof e === 'object');
 }
 
+/* #1916: REAL liveness for a CLAUDE account. `claude auth status` (what
+   subscription.checkLive is built on) reports a STORED login, not a working
+   token -- proven in the field: a fully-expired OAuth token badged as "Signed
+   in", so #1903's create gate accepted a dead account and produced an agent that
+   401'd on its first turn. And #1315's `/v1/models` shape does NOT translate: a
+   Claude account is an OAuth SUBSCRIPTION token, not an API key, so that endpoint
+   would validate the wrong thing (false negatives on live accounts).
+
+   The only reliable validator for an OAuth subscription token is Claude Code's
+   OWN auth -- a real `claude -p` call. It costs a small model call, so it is used
+   ONLY here (the create gate, once per create), NEVER on the badge/poll (that is
+   driven from observed outcomes instead; separate card).
+
+   🛑 CLASSIFY BY OUTPUT CONTENT, NOT JUST EXIT CODE. A dead token can retry and
+   time out, printing its 401 before we kill it; the captured text still reads
+   dead. And ONLY A GENUINE AUTH FAILURE IS DEAD -- capacity/cost/network/rate all
+   FAIL OPEN (UNKNOWN). An account at its weekly cap is a live, paid, good sign-in
+   whose real call fails; refusing it would block the users using the product
+   hardest, the exact false negative this family must not ship (#1315, #1916).
+
+   ⚠️ CAPACITY MARKERS MUST NOT INCLUDE "Retrying": a dead-token 401 co-prints a
+   retry line (#874), so keying capacity on "Retrying" would fail a real dead
+   token open. Capacity is genuine usage/rate/overload only. */
+const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|"type":\s*"authentication_error"|API Error:\s*401\s+Invalid API key|Invalid API key\s*·?\s*Please run \/login|Please run \/login/i;
+const CLAUDE_CAPACITY = /usage limit|reached your .{0,40}limit|\/usage-credits|rate[ _-]?limit|overloaded/i;
+
+let claudeProbe = null;
+/** Tests only: inject a fake `claude -p` probe returning {exitCode, out}. Own
+    seam, matching subscription.setRunner / openaiaccounts.setFetcher. */
+function setClaudeProbe(fn) { claudeProbe = typeof fn === 'function' ? fn : null; }
+
+function defaultClaudeProbe(configDir) {
+  return new Promise((resolve) => {
+    let bin; try { bin = runners.resolveBin('claude').bin; } catch { bin = null; }
+    if (!bin) { resolve({ exitCode: null, out: '' }); return; }
+    const env = { ...process.env };
+    if (configDir) env.CLAUDE_CONFIG_DIR = configDir; else delete env.CLAUDE_CONFIG_DIR;
+    execFile(bin, ['-p', 'reply with the single word ok'],
+      { env, timeout: 15000, maxBuffer: 1 << 20, killSignal: 'SIGKILL' },
+      (err, stdout, stderr) => {
+        // On timeout, err.killed is true and partial stdout/stderr survive -- the
+        // 401 a retrying dead token printed is classified below, not discarded.
+        const out = String(stdout || '') + '\n' + String(stderr || '');
+        const exitCode = err ? (typeof err.code === 'number' ? err.code : 1) : 0;
+        resolve({ exitCode, out });
+      });
+  });
+}
+
+/**
+ * The live state of a CLAUDE account's OWN sign-in, via a real `claude -p`.
+ * Returns a subscription.STATE: CONNECTED (a real call succeeded), NONE (a
+ * positively-confirmed auth failure), or UNKNOWN (anything we cannot confirm is
+ * dead -- capacity, rate, overload, network, or an unrunnable claude).
+ */
+async function claudeAccountLive(configDir) {
+  const subscription = require('./subscription');
+  const run = claudeProbe || defaultClaudeProbe;
+  let res;
+  try { res = await run(configDir); } catch { return subscription.STATE.UNKNOWN; }
+  const text = String((res && res.out) || '');
+  const exit = res && typeof res.exitCode === 'number' ? res.exitCode : null;
+  if (exit === 0) return subscription.STATE.CONNECTED;           // a real call went through
+  if (CLAUDE_CAPACITY.test(text)) return subscription.STATE.UNKNOWN; // live but capped/overloaded
+  if (CLAUDE_DEAD_AUTH.test(text)) return subscription.STATE.NONE;   // positively dead
+  return subscription.STATE.UNKNOWN;                             // network/unrunnable/other
+}
+
 /**
  * Is the account a new agent would run on actually able to sign in? (#1903)
  *
@@ -2043,13 +2111,18 @@ async function accountConnectable({ provider, accountDir } = {}) {
   let list; try { list = accountsMod.list(); } catch { return { ok: true }; }
   const acct = dir ? list.find((a) => a.dir === path.resolve(dir)) : list.find((a) => a.isDefault);
   if (!acct) return { ok: true }; // unknown -> createAgentInner refuses with REFUSE_ACCOUNT
-  /* Scoped exactly as accounts.listLive scopes it: the default with NO configDir
-     (so claude resolves the real ~/.claude.json, not the decoy inside ~/.claude),
-     a labelled dir by its path. */
-  let live;
-  try { live = await subscription.checkLive(acct.isDefault ? undefined : { configDir: acct.dir }); }
+  /* 🛑 REAL liveness, NOT subscription.checkLive (#1916). checkLive is built on
+     `claude auth status`, which reports a STORED login and badges a fully-expired
+     OAuth token as "Signed in" -- so the first version of this gate accepted a
+     dead account. claudeAccountLive makes a real `claude -p` call, the only
+     reliable validator for an OAuth subscription token, and returns NONE only on
+     a genuine auth failure (capacity/rate/network all fail open). Scoped exactly
+     as before: the default with no configDir (true default), a labelled dir by
+     its path. */
+  let state;
+  try { state = await claudeAccountLive(acct.isDefault ? null : acct.dir); }
   catch { return { ok: true }; }
-  if (live && live.state === NONE) {
+  if (state === NONE) {
     return {
       ok: false,
       because: `${acct.email || 'that account'}'s Claude sign-in is not working, so an agent created on it would not be able to run. Re-authenticate that account (run /login for it) before creating an agent on it.`,
@@ -3214,6 +3287,8 @@ module.exports = {
   codexHomeDir,
   createAgent,
   accountConnectable,
+  claudeAccountLive,
+  setClaudeProbe,
   binPaths,
   unusablePath,
   nameProblem,
