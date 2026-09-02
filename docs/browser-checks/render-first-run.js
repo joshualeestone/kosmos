@@ -52,7 +52,7 @@ const LAPTOP_PMSET = [
   'AC Power:', ' lidwake              1', ' sleep                0', ' disksleep            10', '',
 ].join('\n');
 
-/* App-location fixtures for the return step (step 6) and the machine payloads, each GENERATED
+/* App-location fixtures for the return step and the machine payloads, each GENERATED
    by the real engine against a scratch pair of folders rather than
    hand-written, so the wording on the shots cannot drift from the engine's
    (the same anti-drift property the MIXED fixture has, one step removed).
