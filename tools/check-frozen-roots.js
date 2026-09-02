@@ -311,7 +311,12 @@ const invokedNow = (init) => {
      in a curried call. And the obvious narrowing ("it begins as an arrow") is wrong
      the other way, because `(() =>` begins as an arrow too. Measured, seven shapes:
      both IIFE forms true; stored arrow, stored arrow with args, stored function,
-     curried-in-stored-arrow and a plain join all false. */
+     curried-in-stored-arrow and a plain join all false.
+     ⚠️ The `function` IIFE half of that claim is about this helper's RETURN VALUE and
+     no arm can observe it: a `(function(){...})()` initializer starts with `(`, so
+     isLazy cannot match it and everyRootIsDeferred is false with no `=>` present,
+     and the declaration is reported whichever way this helper answers. Arm 25's
+     function-IIFE fixture reds for that reason, not for this one. */
   const t = String(init).trim();
   if (!/^[(!+~-]/.test(t)) return false;
   const open = t.indexOf('(');

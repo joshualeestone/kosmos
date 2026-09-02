@@ -570,12 +570,41 @@ else bad "an odd quote inside a regex blinded the rest of the file"; fi
 
 # ---- arm 45: and DIVISION is not mistaken for a regex ---------------------
 # The counterweight: treating every / as a regex would swallow to end of line.
+# 🛑 THE FIRST FIXTURE HERE COULD NOT SEE THE RULE. Its freeze was on the line AFTER
+# the division, so a swallow to end of line changed nothing, and forcing isRegex to
+# always-true in each of the three quote walkers left the suite green. The rule is
+# load-bearing in all three, so each gets a fixture where the division and the
+# thing a swallow would eat share ONE line, and the assertion is a count.
 fixture divisionnotregex "const store = require('./store');
 const total = 10; const count = 2;
 const n = total / count;
 const FILE = path.join(store.ROOT, 'x');"
-if [ "$(run divisionnotregex)" = "1" ]; then ok "division is not read as a regex literal"
+if [ "$(run divisionnotregex)" = "1" ]; then ok "division is not read as a regex literal (freeze on the next line)"
 else bad "a division swallowed the rest of the line"; fi
+# blankComments: a comment AFTER a division on the same line must still be blanked,
+# or its contents (a root) become a false positive.
+fixture div_comment "const store = require('./store');
+const N = a / b; /* was path.join(store.ROOT,'x') */"
+dc=$(node "$TOOL" "$T/div_comment.js" 2>&1 | grep -c 'const N')
+za=$(zero_alive div_comment 0)
+if [ "$dc" = "0" ] && [ -z "$za" ]; then ok "blankComments: a comment after a division is still blanked"
+else bad "blankComments read the division as a regex and kept the comment's root" "$dc hits on const N $za"; fi
+# blankStrings: a string AFTER a division on the same line must still be blanked.
+fixture div_string "const store = require('./store');
+const N = a / b; const S = 'store.ROOT';"
+ds=$(node "$TOOL" "$T/div_string.js" 2>&1 | grep -c 'resolves a root')
+za=$(zero_alive div_string 0)
+if [ "$ds" = "0" ] && [ -z "$za" ]; then ok "blankStrings: a string after a division is still blanked"
+else bad "blankStrings read the division as a regex and kept the string's root" "$ds findings $za"; fi
+# lineInfo: a parenthesised division must not run the declaration on into the next
+# line, or the next line's freeze is attributed to it as a multi-line capture.
+fixture div_lineinfo "const store = require('./store');
+const N = (a / b);
+const FILE = path.join(store.ROOT,'x');"
+dl=$(node "$TOOL" "$T/div_lineinfo.js" 2>&1 | grep -c 'const N')
+dlf=$(node "$TOOL" "$T/div_lineinfo.js" 2>&1 | grep -c 'const FILE')
+if [ "$dl" = "0" ] && [ "$dlf" = "1" ]; then ok "lineInfo: a parenthesised division does not run a declaration on"
+else bad "lineInfo read the division as a regex and ran the declaration on" "N=$dl FILE=$dlf"; fi
 
 # ---- arm 46: a file the blanker CANNOT finish is named, never clean -------
 # The belt to the braces above: if some future shape desynchronises the walk
@@ -700,6 +729,29 @@ const d = () => path.join(ROOT, 'x');"
 line_reported=$(node "$TOOL" "$T/lineno.js" 2>&1 | grep -o ':[0-9]*  const { ROOT }' | grep -o '[0-9]*')
 if [ "$line_reported" = "4" ]; then ok "the destructure on line 4 is reported at line 4"
 else bad "a reported line number drifted" "said line $line_reported, the destructure is on line 4"; fi
+# 🛑 AND THROUGH A BLOCK COMMENT, which the fixture above does not have and EVERY
+# engine module opens with. Dropping the newline preservation inside blankComments'
+# block mode left this suite green and the scope clean while a freeze appended to a
+# real module reported at line 72 instead of 96. The destructure scan offsets into
+# the raw source and was unaffected, which is why nothing redded: only
+# declarations() findings drift.
+fixture lineno_block "/* a header
+   that spans
+   three lines */
+const store = require('./store');
+const FILE = path.join(store.ROOT, 'x');"
+lb=$(node "$TOOL" "$T/lineno_block.js" 2>&1 | grep -o ':[0-9]*  const FILE' | grep -o '[0-9]*')
+if [ "$lb" = "5" ]; then ok "a declaration after a block comment is reported at its own line (5)"
+else bad "block-comment newlines were dropped and the reported line drifted" "said line $lb, want 5"; fi
+# And a LINE comment immediately before a freeze: dropping that newline merges the
+# freeze onto the comment line, its ^const anchor stops matching, and the freeze
+# goes SILENT. Only the scope's exit-code backstop redded, naming nothing.
+fixture linecomment_then_freeze "const store = require('./store');
+// a note
+const FILE = path.join(store.ROOT, 'x');"
+lc=$(node "$TOOL" "$T/linecomment_then_freeze.js" 2>&1 | grep -c 'const FILE')
+if [ "$lc" = "1" ]; then ok "a freeze on the line after a // comment is still seen"
+else bad "the line-comment newline was dropped and the next line's freeze went silent" "$lc hits on const FILE"; fi
 
 # ---- arm 54: HOME_FOR_TEST is a real root ---------------------------------
 # It was cited in this file as a getter that must NOT be swept in, as evidence the
@@ -839,8 +891,13 @@ if [ "$pa_after" = "7" ]; then ok "padAfter keeps a downstream line's number acr
 else bad "padAfter newline loss drifted a downstream line" "said $pa_after, want 7"; fi
 
 # The genuine padBefore path needs the newline between `require(store)` and `.ROOT`,
-# which is a different rewrite from the one above. Verified by mutating padBefore
-# alone: this line moves 6 -> 5 and the padAfter assertion above does not move.
+# which is a different rewrite from the one above. ⚠️ CORRECTED: an earlier version of
+# this sentence said mutating padBefore alone moves this line and NOT the assertion
+# above. It moves both (measured, n=2): the module-path rewrite emits its newlines at
+# the END of its replacement, and the next rewrite's `require\(store\)\s*\.` consumes
+# them through `\s*`, so the fixture above passes through padBefore as well. Mutating
+# padAfter alone reds only the arm above; that is the half the paragraph above
+# measured. This arm is the one only padBefore can red.
 fixture padbefore_only "const a = 1;
 const R = require('./store')
   .ROOT;
@@ -1131,8 +1188,10 @@ else bad "the store alias registration is unguarded: downstream use went silent"
 # ---- arm 82: the resolver-CALL match is word-bounded ----------------------
 # Two more members of the word-boundary family, both unguarded. A resolver named
 # `dir` plus the ubiquitous `path.dirname` makes a substring match fire on correct
-# code; the enforced scope goes red with two false positives, but a red scope is a
-# backstop and not an arm, and it names nothing.
+# code. (An earlier version of this comment said the enforced scope goes red with two
+# false positives under that mutation; in the correct layout it does not, and the
+# figure came from a relocated copy whose KNOWN entry stopped matching. The arms
+# below are what catch it; the scope is a backstop that names nothing either way.)
 # 🛑 THE DECOY MUST END IN THE RESOLVER'S NAME. The first fixture used
 # `path.dirname(`, a PREFIX decoy, which the trailing `\s*\(` in the regex already
 # rejects on its own, so the word boundary was never exercised and removing it from

@@ -97,9 +97,15 @@ function probe(file) {
        for exactly this hazard ("a checker that never returns is worse than the
        defect it looks for"); the behavioural half had none. A timeout kills the
        child, execFileSync throws, and the module lands in `skipped`, which is now
-       asserted empty and NAMED rather than silently dropped. */
+       asserted empty and NAMED rather than silently dropped.
+       🛑 KILLED WITH SIGKILL, NOT THE DEFAULT SIGTERM. A child that registers
+       process.on('SIGTERM') and holds a handle open ignores the default and the
+       timeout never returns: measured, a 2s timeout under a 10s watchdog never came
+       back and left an orphan node. No engine module registers SIGTERM at require
+       time today, so this was latent; the sentence above promised a property the
+       default did not deliver. */
     const out = String(execFileSync(process.execPath, ['-e', PROBE, file],
-      { encoding: 'utf8', timeout: 20000, env: { ...process.env, LATESEAM_TMP_ROOT: TMP_ROOT } }));
+      { encoding: 'utf8', timeout: 20000, killSignal: 'SIGKILL', env: { ...process.env, LATESEAM_TMP_ROOT: TMP_ROOT } }));
     /* The LAST sentinel line, never the first line: anything a module prints at
        require time comes before the verdict, and a child that printed no verdict
        at all (crashed after its own output) is SKIP, which is asserted empty. */
@@ -150,7 +156,7 @@ test('#1443: no engine module exposes a path frozen to the require-time root', (
      skipped, and any module that cannot load gets NAMED rather than silently
      dropped -- a silent skip is exactly the false green this card is about. */
   assert.deepEqual(skipped, [],
-    `these engine modules could not be loaded by the probe, so they were never checked:\n  `
+    `these engine modules produced no verdict for the probe (could not load, exited during load, or crashed after printing), so they were never checked:\n  `
     + skipped.join('\n  '));
   /* An `assert.ok(looked === files.length)` stood here and is REMOVED for the same
      reason the aggregate below it was: `looked` only increments on the non-SKIP
@@ -203,8 +209,7 @@ test('#1443: no engine module exposes a path frozen to the require-time root', (
     + `remove one, a module stopped resolving lazily and that IS this card's regression. `
     + `The floor is deliberately tight rather than padded, because a padded floor would let `
     + `several modules silently stop resolving before anything went red. Currently resolving:`
-    + `\n  ${resolving.join('\n  ')}`
-    + `module, lower the floor in the same commit and say why.`);
+    + `\n  ${resolving.join('\n  ')}`);
   /* No "a module also re-froze" hint here: it was dead. The FROZEN assertion above
      fires first, so this message can never print with a non-empty `frozen`. */
   /* The aggregate `live > 0` that stood here is REMOVED, not forgotten: the
