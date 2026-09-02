@@ -75,6 +75,14 @@ assumption, a POSIX-only child process, a shell script that calls `tmux`) does
 not take one of the enumerated syntactic families and slips straight through. It
 reduces the surface; it does not close it.
 
+There is also accepted **friction** in the other direction: the `fs-root-literal`
+family keys on a quoted `/tmp` `/home/` `/Users/` `/var/`, so a string literal
+that merely contains one of those segments (a URL like
+`'https://api.example.com/var/data'`, say) reds and has to be classified in the
+inventory as benign. That is the deliberate cost of a curated ratchet over a
+parser; it is rare in this codebase (zero such literals today) and a one-line
+inventory row clears it.
+
 **The corpus is a FLOOR, not a ceiling. Grow it.** Every future Windows bug that
 is found should add its shape to the `FAMILIES` list (and, if it is a real fix,
 a positive pin), so `n` only ever rises. A ratchet frozen at n=2 slowly becomes
