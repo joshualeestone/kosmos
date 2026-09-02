@@ -1,6 +1,6 @@
 'use strict';
 
-/**
+/*
  * A local release server for tests that drive a flow into `download()`.
  *
  * ⚠️ WITHOUT ONE THE TEST HITS downloads.claude.ai FOR REAL. `download()` uses
@@ -35,7 +35,7 @@
  * options object and the fourth takes a raw Buffer. (Of the three, this file's
  * is the only one accepting `platformKey`; `connect.test.js` and
  * `install-997.test.js` accept the SAME keys and differ only in arity, the
- * latter taking a third positional that changes server behaviour.) so a call copied
+ * latter taking a third positional that changes server behaviour.) So a call copied
  * between sibling files would be accepted and silently wrong: an options object
  * arriving where `platformKey` was expected produced a manifest keyed
  * `"[object Object]"`, and the flow then failed with `the download service has

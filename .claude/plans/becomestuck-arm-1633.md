@@ -140,7 +140,9 @@ this file                               drives the real start(), reads the STUCK
 
 🛑 **THE JUSTIFICATION IS A STRUCTURAL FACT, NOT A MUTATION RESULT, AND THIS IS THE FOURTH VERSION OF IT.** The first three each leaned on a chosen mutation and each was wrong or overstated.
 
-⭐ **These are the only assertions in the repo that read `canRunClaude` downstream of a real `start()`.** Reproducible in one command (`git grep -c canRunClaude -- '*.test.js'`): four files reference the field, and the other three build the state object by hand or match `connect.js` as source text. **That is true by inspection and needs no mutation to establish.**
+⭐ **These are the only assertions in the repo that read `canRunClaude` downstream of a real `start()`.** Reproducible in one command (`git grep -c canRunClaude -- '*.test.js'`): four files reference the field, and the other three reach it by three different instruments, none of them a driven flow: **build the state object by hand** (`publicview-canrun-1595`, and two of `server.connect.test.js`'s three sites), **match the PAGE source** (`server.connect.test.js:797` slices `web/index.html`, **not** `connect.js`), or **match `connect.js` as source text** (`runnable-not-directory`). **That is true by inspection and needs no mutation to establish.**
+
+📌 That sentence said "match `connect.js` as source text" for all of them until iteration 14. The conclusion is unaffected -- a page grep is no more downstream of a `start()` than a `connect.js` grep -- but it named the wrong file **in the sentence carrying the branch**, while this plan's own comparison table twenty lines up said "greps page source" correctly. **The plan disagreed with itself, and the prose was the wrong half. Again.**
 
 **M5 then confirms it is not redundant**, rather than being the argument itself: make `writeState` drop the field while leaving both the pinned source line and `claudeHatchAvailable()` untouched, and across the **entire js suite (3765 tests) plus the shell portion**, exactly one test reddens and it is here.
 
@@ -526,11 +528,24 @@ documenting it.**
 rationale, the runner-must-return-not-throw trap, the two-inputs/three-states table, the
 distinct-bin-path rationale, the macOS-only warning, and the DO NOT FIX BACK guard.
 
-**Measured outcome at the time of this round:** 295 -> 271 lines, 65% -> 61% comment. Siblings run
-25-48%. ⚠️ **Iteration 12's edits moved it again and this figure was not re-measured then; it is 280
-lines / 177 comment / 63% as of iteration 13.** A ratio changes on every edit, so reproduce it rather
-than trusting either number:
-`tot=$(wc -l < FILE); cm=$(grep -cE '^\s*(\*|/\*|//)' FILE); echo $((cm*100/tot))`. **So it is better and still above its neighbours**, and the residue is the head docblock
+**Measured outcome at the time of this round:** 295 -> 271 lines, 65% -> 61% comment.
+
+🛑 **NO CURRENT FIGURE IS QUOTED HERE ANY MORE, AND THE REASON IS THE THIRD FAILURE TO STATE ONE.**
+Iteration 12 left a stale ratio; iteration 13 retracted it and published a replacement; **that
+replacement was ALREADY FALSE at the commit that wrote it** -- 280/177/63% was the state at the
+*previous* commit, because the same commit went on to add lines to the test file. ⇒ **A measurement
+taken mid-edit describes a state that no longer exists when you publish it.** Measure last, or do not
+quote. This section now does not quote.
+
+```
+f=engine/connect.becomestuck-arm-1633.test.js
+tot=$(wc -l < $f); cm=$(grep -cE '^\s*(\*|/\*|//)' $f); echo "$tot lines, $cm comment, $((cm*100/tot))%"
+```
+
+**For comparison, siblings, with the same command** (the range is wide and the sample is small, so
+read the files rather than the range): `tmpdir.test.js` 6%, `test-support.code-only.test.js` 25%,
+`engine/connect.nobinary-1580.test.js` 35%, `test-support.release-fixture.test.js` 43%,
+`engine.publicview-canrun-1595.test.js` 48%. **This file sits above all of them.** **So it is better and still above its neighbours**, and the residue is the head docblock
 explaining why the file drives `start()` instead of taking a seam. I judged that load-bearing for
 anyone editing the test and stopped there rather than trimming into mechanism.
 
@@ -700,3 +715,59 @@ real prior sentence. ⚠️ **That is a genuine tension, not a fixable one: quot
 what makes a retraction checkable, and it is also what makes the sweep noisy.** ⇒ **Read the hits,
 do not count them.** A sweep that returns zero after a round of retractions probably means the
 retractions do not quote what they retract.
+
+## Findings from challenge-loop iteration 14
+
+**Zero BLOCKERs, two WARNINGs, six NITs.** The justification survived a second independent attack,
+this time decomposed into its four separately-falsifiable parts, and **every concession in it checked
+out**: `writeState` really is a blind spread (so M5 genuinely is synthetic), and
+`engine.publicview-canrun-1595.test.js:24` really does assert `'canRunClaude' in canRun` (so the
+realistic instance really is covered elsewhere).
+
+### 🛑 THE STALE RATIO WAS FALSE AT THE COMMIT THAT WROTE IT
+
+Iteration 12 left a stale comment ratio. Iteration 13 retracted it and published a replacement.
+**That replacement was already false when it shipped:** `280 / 177 / 63%` was the state at the
+*previous* commit, because the same commit went on to add lines to the test file.
+
+⭐ **THE MECHANISM, AND IT IS NOT CARELESSNESS: I MEASURED, THEN EDITED, THEN PUBLISHED THE
+PRE-EDIT FIGURE.** A measurement taken mid-edit describes a state that no longer exists by the time
+it is committed. **Measure last, or do not quote.**
+
+⇒ **Third failure to state this one number, so the plan now states no figure for it at all** -- only
+the command, plus the five sibling percentages (each re-run before publishing this time: 6 / 25 / 35
+/ 43 / 48). ⚠️ **And the reviewer found a sixth sibling at 6% that falls outside the "25-48%" range I
+had quoted**, which is why the range is gone too and the files are named instead.
+
+### The live justification named the wrong file
+
+*"the other three build the state object by hand or match `connect.js` as source text."*
+
+**`server.connect.test.js:797` slices `web/index.html` and matches the PAGE source, not
+`connect.js`.** Three sites carried it, including the sentence that carries the branch.
+
+📌 **The conclusion is unaffected** -- a page grep is no more downstream of a `start()` than a
+`connect.js` grep -- **which is exactly why it survived**: nothing downstream of the sentence went
+wrong, so there was no pressure on it. ⚠️ **And this plan's own comparison table twenty lines above
+said "greps page source" correctly.** The document disagreed with itself and the prose was the wrong
+half, for the third time on this branch.
+
+✅ Now stated as three distinct instruments -- hand-built state, page source, `connect.js` source --
+**none of them a driven flow**, which is the actual point and is stronger for being specific.
+
+### The rest
+
+- A sentence fragment left by iteration 12's correction (`.) so a call copied` resuming lowercase
+  after a full stop).
+- The fixture's file header was JSDoc-shaped and therefore documented the `require` beneath it.
+  **Iteration 12 fixed this exact class one symbol over**, which is why it is worth naming rather
+  than silently fixing: a `/**` on a file header is a recurring shape here, not a one-off.
+- `require('node:crypto')` sat inside a test body while every other require was at module top.
+- One backward-looking annotation survived the iteration-10 strip in a place the plan claimed was
+  clean. Unlike the `DO NOT "FIX" THIS ARM BACK` guard it prevented nothing the sentence above it
+  already prevented, so it is gone.
+- **Two blocks of commentary named as unearned, and both removed**: one argued against a wider claim
+  the file no longer makes, the other was review-process residue about a comparison set. ⭐ **The
+  reviewer went line by line and certified the other ten blocks as load-bearing rather than
+  gesturing at the percentage**, which is the first time the volume question has been answered with
+  a specific list instead of a ratio.

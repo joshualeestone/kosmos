@@ -21,14 +21,15 @@
  * ⚠️ THE GAP IS NARROWER THAN "NOTHING DRIVES becomeStuck". Plenty of tests
  * drive real flows into the stuck phase. Three other files reference
  * `canRunClaude`, and every one of them either builds the state object by hand
- * or matches `connect.js` as source text.
+ * matches the PAGE source (`web/index.html`), or matches `connect.js` as source
+ * text. Three different instruments, none of them a driven flow.
  *
- * 🛑 SO THE CLAIM IS "NONE ASSERTS IT DOWNSTREAM OF A `start()`", NOT THE WIDER
- * "none drives `start()`", WHICH IS FALSE -- `server.connect.test.js` does call
- * it, just never on a path that reaches this field. Driving `start()` and
- * reading the settled STUCK record is what this file adds, and the only thing
- * it claims. The per-file counts are in the plan, with the commands that
- * produce them; they have drifted repeatedly and do not belong in two places.
+ * 🛑 THE CLAIM IS NARROW: none asserts it DOWNSTREAM OF A `start()`.
+ * `server.connect.test.js` does call `start()`, just never on a path reaching
+ * this field. Driving `start()` and reading the settled STUCK record is what
+ * this file adds, and the only thing it claims. The per-file counts live in the
+ * plan with the command that produces them; they have drifted repeatedly and do
+ * not belong in two places.
  *
  * 🛑 WHY THIS DRIVES `start()` RATHER THAN CALLING `becomeStuck` DIRECTLY.
  * The card offered two shapes: export `becomeStuck` with a `setDriverForTests`,
@@ -211,8 +212,9 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
  * A STRUCTURAL FACT RATHER THAN A MUTATION RESULT: these are the ONLY assertions
  * in the repo that read `canRunClaude` DOWNSTREAM OF A REAL `start()`. Four test
  * files reference the field (`git grep -c canRunClaude -- '*.test.js'`); the
- * other three build the state object by hand or match `connect.js` as source
- * text.
+ * other three build the state object by hand, match the PAGE source
+ * (`server.connect.test.js:797` slices `web/index.html`, NOT `connect.js`), or
+ * match `connect.js` as source text (`runnable-not-directory`).
  *
  * A mutation confirms that is not redundant -- a `writeState` that drops the
  * field reddens exactly one test in the whole suite, here -- but ⚠️ THAT
@@ -230,8 +232,8 @@ test('#1633: a stuck flow with NO claude on disk records canRunClaude false', as
  * THE VALUE THAT REACHES THE SCREEN.
  *
  * 🛑 DO NOT UPGRADE THIS TO A UNIQUENESS CLAIM ABOUT THE INSTALL-FAILURE
- * WIRING (`connect.js:1708`). Two other tests redden on that too. The full
- * mutation table, and why an earlier comparison set missed them, is in the plan.
+ * WIRING (`connect.js:1708`): two other tests redden on that too. Table in the
+ * plan.
  *
  * 🛑 DO NOT "FIX" THIS ARM BACK TO ASSERTING `true`. An earlier version did,
  * as a deliberate characterisation: a bare `accessSync(X_OK)` DOES succeed on a

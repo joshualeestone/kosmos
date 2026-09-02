@@ -29,6 +29,7 @@
  */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { serveRelease } = require('./test-support/release-fixture');
 
 test('it serves a manifest and a binary for the platform key it is given', async (t) => {
@@ -38,7 +39,6 @@ test('it serves a manifest and a binary for the platform key it is given', async
   const manifest = await (await fetch(`${base}/1.2.3/manifest.json`)).json();
   assert.ok(manifest.platforms['darwin-arm64'], 'the manifest is not keyed by the platform key it was given');
   const bin = Buffer.from(await (await fetch(`${base}/1.2.3/darwin-arm64/claude`)).arrayBuffer());
-  const crypto = require('node:crypto');
   assert.equal(crypto.createHash('sha256').update(bin).digest('hex'),
     manifest.platforms['darwin-arm64'].checksum,
     'the served binary does not hash to the checksum the manifest publishes');
@@ -86,8 +86,7 @@ test('a KNOWN option is checked for TYPE and FORMAT, refusing what download() wo
     /checksum.*64 hex/,
     'a malformed hex checksum was accepted; download() would reject it as a platform error');
   /* ⭐ UPPERCASE IS ACCEPTED, because download() lowercases before testing and
-     its own comment says refusing it "would blame the Mac". An earlier arm here
-     asserted the opposite and was wrong about production. */
+     its own comment says refusing it "would blame the Mac". */
   const upper = await serveRelease(t, { platformKey: 'darwin-arm64', checksum: 'F'.repeat(64) });
   assert.match(upper, /^http:\/\/127\.0\.0\.1:\d+$/,
     'uppercase hex was refused; the guard is stricter than the download() it mirrors');
