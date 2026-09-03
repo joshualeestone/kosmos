@@ -33,8 +33,9 @@ pointer names is byte-identical (by served sha) to what it promotes.
 1. **(this PR) The mechanism as standalone tools, not wired into the cut default.**
    - `tools/publish-staging-pointer.sh <site> [version]` - write `latest-staging.json`
      for a versioned artifact already in `<site>/dist`, reusing release.sh's exact
-     node pointer generation and the verified `.sha256`. Refuses if the artifact or its
-     verified sha is absent (never advertises bytes that are not there).
+     node pointer generation and the verified `.sha256`. Refuses if any byte-blob the
+     pointer advertises is absent - the artifact, its verified sha, or the manifest -
+     so it never advertises bytes that are not there.
    - `tools/promote-channel.sh <site>` - promote staging->prod: (a) read
      `latest-staging.json`; (b) assert the artifact it names exists and its `.sha256`
      verifies in place AND equals the pointer's sha (same-bytes invariant, the refusal

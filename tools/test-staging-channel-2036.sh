@@ -20,12 +20,15 @@ has()  { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 
 V=9.9.9
 ART="kosmos-$V-arm64.tar.gz"
+MAN="kosmos-$V-arm64.manifest.json"
 
-# A fresh site whose dist/ holds one versioned artifact + a verified sidecar.
+# A fresh site whose dist/ holds one versioned artifact, its verified sidecar, and the
+# manifest the pointer advertises.
 make_site() {
   local s; s="$(mktemp -d "$T/site.XXXXXX")"; mkdir -p "$s/dist"
   printf 'ARTIFACT-BYTES-%s\n' "$V" > "$s/dist/$ART"
   ( cd "$s/dist" && shasum -a 256 "$ART" > "$ART.sha256" )
+  printf '{"files":[]}\n' > "$s/dist/$MAN"
   printf '%s' "$s"
 }
 jget() { node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]]||""))}catch{}' "$1" "$2" 2>/dev/null; }
@@ -56,6 +59,11 @@ out="$(bash "$PUBLISH" "$S3" 2>&1)"; rc=$?
 
 # publish derives the version from the single artifact (no version arg) - already used above (S)
 [ "$(jget "$S/dist/latest-staging.json" manifest)" = "kosmos-$V-arm64.manifest.json" ] && pass "publish: derived version + manifest name" || bad "publish manifest name wrong"
+
+# publish refuses to advertise a manifest that is not on disk
+S4="$(make_site)"; rm -f "$S4/dist/$MAN"
+out="$(bash "$PUBLISH" "$S4" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "refusing to advertise a missing manifest" && [ ! -f "$S4/dist/latest-staging.json" ] && pass "publish: refuses to advertise a missing manifest" || bad "publish missing-manifest (rc=$rc, out=$out)"
 
 # ---- promote-channel ----
 # gate 0 -> promote: latest.json created, names the SAME artifact + sha as staging
@@ -100,7 +108,12 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$St" 2>&1
 # same-bytes invariant: a staging pointer naming a missing artifact is refused
 Sx="$(make_site)"; bash "$PUBLISH" "$Sx" >/dev/null 2>&1; rm -f "$Sx/dist/$ART" "$Sx/dist/$ART.sha256"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sx" 2>&1)"; rc=$?
-[ "$rc" = 1 ] && has "$out" "missing artifact" && pass "promote: refuses when the staged artifact is gone" || bad "promote missing-artifact (rc=$rc, out=$out)"
+[ "$rc" = 1 ] && has "$out" "missing artifact" && [ ! -f "$Sx/dist/latest.json" ] && pass "promote: refuses when the staged artifact is gone" || bad "promote missing-artifact (rc=$rc, out=$out)"
+
+# promote refuses when the advertised manifest has gone missing since publish
+Smn="$(make_site)"; bash "$PUBLISH" "$Smn" >/dev/null 2>&1; rm -f "$Smn/dist/$MAN"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Smn" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "missing manifest" && [ ! -f "$Smn/dist/latest.json" ] && pass "promote: refuses a pointer whose manifest went missing" || bad "promote missing-manifest (rc=$rc, out=$out)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-staging-channel-2036: ALL PASS"; else echo "test-staging-channel-2036: FAILURES above"; exit 1; fi

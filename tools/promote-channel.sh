@@ -54,6 +54,10 @@ V="$(read_field version)"; SHA="$(read_field sha256)"; ARTIFACT="$(read_field ar
   || { echo "promote-channel: $ARTIFACT does not verify against its sidecar - refusing to promote unverified bytes" >&2; exit 1; }
 DISK_SHA="$(awk '{print $1}' "$SITE/dist/$ARTIFACT.sha256")"
 [ "$DISK_SHA" = "$SHA" ] || { echo "promote-channel: staging pointer sha ($SHA) != the served artifact sha ($DISK_SHA) - refusing (the pointer does not describe the bytes on disk)" >&2; exit 1; }
+# The pointer promote is about to copy to latest.json also advertises the manifest; do not
+# promote a prod pointer to a manifest that has gone missing since publish.
+MANIFEST="$(read_field manifest)"
+[ -n "$MANIFEST" ] && [ -f "$SITE/dist/$MANIFEST" ] || { echo "promote-channel: the staging pointer advertises manifest '${MANIFEST:-<none>}', which is not in $SITE/dist - refusing to promote a pointer to a missing manifest" >&2; exit 1; }
 
 # THE EXPERIENCE GATE (#2063). 0 = a fresh session can use the board -> promote; 1 = the
 # board is provably broken for a fresh session (#2023) -> refuse, never forceable; 2 =

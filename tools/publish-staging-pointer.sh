@@ -41,6 +41,10 @@ fi
 ARTIFACT="kosmos-$V-$ARCH.tar.gz"
 MANIFEST="kosmos-$V-$ARCH.manifest.json"
 [ -f "$SITE/dist/$ARTIFACT" ] || { echo "publish-staging: $SITE/dist/$ARTIFACT does not exist - nothing to point at" >&2; exit 1; }
+# The pointer also advertises the manifest (a consumer fetches it to verify what it is
+# running). Do not advertise a manifest that is not there - refuse if it is absent. release.sh
+# emits it beside the artifact in the same cut, so a real staging publish always has it.
+[ -f "$SITE/dist/$MANIFEST" ] || { echo "publish-staging: $SITE/dist/$MANIFEST (the manifest this pointer advertises) does not exist - refusing to advertise a missing manifest" >&2; exit 1; }
 
 # The sha comes from the verified sidecar, exactly as release.sh's latest.json does, so a
 # staging pointer cannot advertise a digest the served pair does not agree with. Verify the
