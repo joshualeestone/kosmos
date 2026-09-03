@@ -588,9 +588,22 @@ cmd_msg() {
   # where a `;` after a `:label` is read as PART OF THE LABEL NAME and the
   # slurp fails with "unused label". The one-line form is a GNU-sed-ism. Do not
   # "tidy" it back.
+  #
+  # 🛑 AND THE `N` IS GUARDED WITH `$!`, which is the whole message path (#1985).
+  # On BSD sed, `N` on the LAST line of input has no next line to append and
+  # EXITS WITHOUT PRINTING the pattern space. Single-line input is ALL last line,
+  # so an unguarded `:a;N;$!ba` slurp discards it entirely: the message becomes
+  # the empty string, the server correctly refuses it, and the person sees
+  # "write something to send" for text they plainly typed. That shipped in 0.6.24
+  # and emptied EVERY one-line message (the common case) on every clean Mac.
+  # `$!{N;ba}` runs the slurp only while a next line exists and prints the last
+  # line normally; single-line survives, multi-line is unchanged. The guard the
+  # `#1927` test pins (`tools/test-msg-newlines-1927.sh`) knew about BSD sed and
+  # checked the WRONG half (the label `;`, and it only ever fed MULTILINE input,
+  # the arm that works). Do NOT drop the `$!` guard.
   local esc_to esc_text esc_pane
   esc_to=$(printf '%s' "$to" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g')
+  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   # No -f: an HTTP error still carries the server's own sentence, and
   # "could not reach" is a wrong diagnosis for a reachable server that
@@ -655,7 +668,7 @@ cmd_reply() {
     exit 1
   fi
   local esc_text esc_pane
-  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g')
+  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   # #1968: present the board token so an enforcing board keeps this reply. Without
   # it, a same-account `kosmos reply` carries only a pane, which the board now
@@ -708,7 +721,7 @@ cmd_post() {
   # Same hand-rolled JSON escaping as cmd_msg, same bash-3.2 reason.
   local esc_project esc_text esc_pane
   esc_project=$(printf '%s' "$project" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g')
+  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   # -m 120, not msg's 15: delivery fans out SERIALLY and a wedged tmux
   # can stall ~15s per recipient, so a room-sized timeout has to cover
@@ -853,7 +866,7 @@ cmd_report() {
   # Same hand-rolled JSON escaping as cmd_msg, same bash-3.2 reason.
   local esc_state esc_text esc_on esc_owner esc_until esc_pane
   esc_state=$(printf '%s' "$state" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g')
+  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
   esc_on=$(printf '%s' "$on" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   esc_owner=$(printf '%s' "$owner" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   esc_until=$(printf '%s' "$until" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
