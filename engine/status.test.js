@@ -1631,8 +1631,9 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    * prompt -- a false CALM. `backgroundAgentWait` therefore requires the line to
    * sit within BACKGROUND_AGENT_WAIT_REACH rows of the COMPOSER ROW, because
    * Claude Code draws it immediately above the composer while everything variable
-   * (subagent rows, status, hints) is drawn below. Measured live: 3 rows on every
-   * genuinely-live instance. A mid-document quotation measured 114 from the end.
+   * (subagent rows, status, hints) is drawn below. Measured live: 3 rows on the
+   * instances observed, and the source comment records 3 to 5 once optional rows
+   * (a notification, a tip block) are counted.
    */
   /* 🛑 THE FILLER COUNT IS LOAD-BEARING AND 40 MADE THIS ROW VACUOUS. `classify`
      only reads the last 25 rows, so a fixture that long pushed the line out of
@@ -1980,6 +1981,48 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     'the background-agent rule outranked a blocking prompt, hiding an agent that needs a person');
 });
 
+test('#1889: a decayed report on a background wait is not a broken reporter', () => {
+  /**
+   * 🛑 THE ONE PLACE THIS DIFF COULD MAKE THE BOARD LESS TRUTHFUL, and it shipped
+   * with no coverage until this row existed.
+   *
+   * `reconcileReport` rule 5 says "its reports stopped arriving while its screen
+   * still shows work, so the reporter may be broken" whenever a stale report
+   * meets a scraped WORKING. On a background wait that sentence is false BY
+   * CONSTRUCTION: the report hook fires on PreToolUse, no tools fire while only a
+   * background agent runs, so a healthy reporter cannot heartbeat and any wait
+   * past REPORT_WORKING_DECAY_MS decays. Live example while writing this: a wait
+   * held for 9m 48s.
+   *
+   * ⚠️ The gate is keyed on a STRUCTURAL flag, not on the `because` prose. Keyed
+   * on the string, rewording either end left the suite green while the gate
+   * stopped firing and the false sentence came back.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'x' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  const scraped = classify(pane, '✻ Waiting for 1 background agent to finish' + footer);
+  assert.equal(scraped.state, 'working');
+  assert.equal(scraped.backgroundWait, true, 'the scraped result must carry the structural flag');
+
+  const now = Date.now();
+  const stale = { found: true, state: 'working', because: 'running Bash',
+    at: now - (REPORT_WORKING_DECAY_MS + 60000), auto: true };
+  const got = reconcileReport(stale, scraped, now);
+  assert.equal(got.state, 'working', 'the state must stay working');
+  assert.equal(got.conflict, null,
+    'a healthy reporter was accused of being broken on a wait it cannot heartbeat through');
+
+  /* CONTROL: the accusation must still fire for any OTHER scraped working state,
+     which is what the rule is for. */
+  const other = classify(pane, '· Improvising… (35s · ↓ 1.5k tokens)' + footer);
+  assert.equal(other.state, 'working');
+  assert.notEqual(other.backgroundWait, true);
+  const accused = reconcileReport(stale, other, now);
+  assert.match(String(accused.conflict), /reporter may be broken/,
+    'the reporter-fault sentence stopped firing where it is still correct');
+});
+
 test('#1889: the full shape contract for the background-agent wait reader', () => {
   /**
    * 🛑 ONE TABLE, ITS OWN `test()`, BECAUSE THIS READER OSCILLATED. Two
@@ -2035,9 +2078,15 @@ test('#1889: the full shape contract for the background-agent wait reader', () =
     '✻ Waiting for 2 agents to finish',
     '✻ Waiting for 3 review agents to finish',
     /* 🛑 WORKFLOW-ONLY IS DELIBERATELY NOT MATCHED. It once was, and it could
-       never be RESOLVED: the resolution check keys on the vendor's
-       agent-completion notification and there is no workflow equivalent in the
-       bundle, so such a pane read `working` forever -- worse than origin/main.
+       never be RESOLVED BY THIS READER: the resolution check keys on the
+       agent-completion notification, so such a pane read `working` forever --
+       worse than origin/main.
+       ⚠️ NOT because the vendor lacks one. `Dynamic workflow "x" completed` and
+       `… failed:` are both in the bundle, so the arm IS buildable with its own
+       marker. It was removed because it had been widened to from render JSX with
+       no live capture. An earlier version of this comment said no equivalent
+       exists, which would tell whoever re-adds it that the marker cannot be
+       built.
        The composed form above still matches through its agent phrase. */
     '✻ Waiting for 2 dynamic workflows to finish',
     '✻ Waiting for 1 dynamic workflow to finish',

@@ -1881,8 +1881,9 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    narrower or split -- the same latent-not-live caveat `capturePane` carries.
    🛑 THE GLYPH IS THE SINGLE LITERAL `✻`, NOT A CLASS. This row's glyph is a
    FIXED constant in the bundle (`iE="\u273B"`, drawn in its own `<Box
-   minWidth={2}>` beside the text); it is NOT the rotating spinner, whose frame
-   arrays belong to `WORKING_LINE`'s component. An earlier version borrowed
+   minWidth={2}>` beside the text); it is NOT the rotating spinner. (U+273B IS a member of
+   those frame arrays, which is why the sibling's class carries it; what differs
+   is that THIS row draws it from a fixed constant rather than cycling.) An earlier version borrowed
    `WORKING_LINE`'s SEVEN-glyph class `[·✢✳✶✻✽*]`, which accepted the six shapes
    the vendor cannot draw here and opened six prose/quotation entry points for
    nothing. `*` in
@@ -1969,6 +1970,15 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    been KILLED kept reading `working` for as long as the frozen wait row stayed in
    reach. Enumerating one call site and calling it the wording is the same mistake
    as enumerating one `◯` source and calling it liveness.
+
+   ⚠️ AND THE SET IS STILL NOT PROVABLY CLOSED. The bundle's notification prefixes
+   sit together as `"Background command "`, `'Agent "'` and `'Remote task "'`; the
+   third is NOT matched here. Whether a remote task can reach
+   `pendingBackgroundAgentCount` could not be established from the minified
+   source, so this is a NAMED RISK rather than a demonstrated defect -- but its
+   failure direction is an unresolvable wait reading `working` forever, which is
+   what got the workflow arm deleted. Two enumerations of this family have already
+   been wrong; treat a third as likely rather than settled.
 
    ⚠️ KNOWN LIMIT, SAME CLASS AS THE WAIT MATCHER'S: no wrap tolerance. Ink
    hard-wraps this row too, and `-J` does not rejoin what Ink already split, so a
@@ -2068,6 +2078,10 @@ function backgroundAgentWait(text) {
     }
     /* No composer row found -> return null. A MISS, never a false calm, pinned by
        its own row.
+       📌 "A MISS" HERE MEANS FALLING THROUGH TO `idle`, which this module itself
+       calls the false calm nobody investigates. It is no worse than `origin/main`,
+       which returns `idle` on these panes too, but it is not free: reach and
+       anchor misses are silent, not safe.
        ⚠️ THE POPULATION IS WIDER THAN "A DIALOG REPLACED IT". The vendor composes
        the prompt as `prefix: qe ? "!" : N.pointer`, so BASH MODE draws `!` and one
        state draws no prefix at all. On those ordinary screens this reader simply
@@ -2834,6 +2848,11 @@ function classify(pane, paneText) {
          rather than a neutral one. Recorded here so the next person changing the
          decay window knows this arm feeds it. */
       because: 'it is waiting on a background agent',
+      /* Structural, so `reconcileReport` does not have to match on prose. An
+         earlier version keyed that gate on this `because` STRING across 1,700
+         lines: rewording either end left the suite green while the gate silently
+         stopped firing, in the direction that restores a false accusation. */
+      backgroundWait: true,
       evidence: bgWaitLine,
     };
   }
@@ -4684,7 +4703,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          then is not an edge case, it is the normal case for a long wait, and it
          is the one field where reading this row made the board LESS truthful than
          not reading it. The state stays `working`; only the false sentence goes. */
-      if (scraped.because === 'it is waiting on a background agent') {
+      if (scraped.backgroundWait === true) {
         return { ...scraped, reported: false, conflict: null };
       }
       return { ...scraped, reported: false, conflict: 'its reports stopped arriving while its screen still shows work, so the reporter may be broken' };
