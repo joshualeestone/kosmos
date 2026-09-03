@@ -65,6 +65,9 @@ test('#2029: both secret-bearing query params are redacted in the log -- token A
   const tokenLine = lines.find((l) => l.includes('redact-token/1'));
   const bootLine = lines.find((l) => l.includes('redact-boot/1'));
   const bothLine = lines.find((l) => l.includes('redact-both/1'));
+  // Guard the finds before matching, so a missing line fails with a clear message
+  // rather than a raw TypeError from assert.match(undefined, ...).
+  assert.ok(tokenLine && bootLine && bothLine, 'all three tagged requests must have been logged: ' + JSON.stringify(lines));
   assert.match(tokenLine, /[?&]token=REDACTED/, 'token= must be redacted');
   assert.match(bootLine, /[?&]boot=REDACTED/, 'boot= must be redacted (#2029)');
   assert.match(bothLine, /token=REDACTED&boot=REDACTED/, 'both are redacted when they appear together');
