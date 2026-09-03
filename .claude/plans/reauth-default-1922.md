@@ -33,10 +33,13 @@ where it produced false account-drift reports. **Treating `$HOME/.claude` as if 
 ## The asymmetry, which is the whole defect
 
 ```
-server.js:4663  add-another    connect.start({ configDir: prep.dir })   always a NEW labelled dir
-server.js:4665  first sign-in  connect.start({ })                       no configDir
-server.js:4637  RE-AUTH        connect.start({ configDir: known.dir })  UNCONDITIONAL <- the defect
+add-another    (the `another: true` branch)  connect.start({ configDir: prep.dir })   always a NEW labelled dir
+first sign-in  (the fall-through)            connect.start({ })                       no configDir
+RE-AUTH        (the `accountDir` branch)     connect.start({ configDir: known.dir })  UNCONDITIONAL <- the defect
 ```
+
+**Reproduce the three sites:** `grep -n 'connect.start(' server.js`. **The launch:**
+`grep -n 'const launchDir' engine/connect.js`.
 
 Both other consumers of an account scope the default correctly and say why:
 `accounts.listLive` (`row.isDefault ? checkLive() : checkLive({configDir: row.dir})`) and
@@ -82,6 +85,23 @@ not re-proposed on its own.
 on the agent detail page, whose whole purpose is giving a broken sign-in a reachable remedy. **That
 button leads into the same flow**, so the remedy it makes reachable cannot currently repair a
 credential either.
+
+### ⚠️ THE SYMPTOM A TESTER SEES CHANGES DIRECTION, AND THIS BELONGS IN THE PR BODY
+
+**On a machine whose decoy `<HOME>/.claude/.claude.json` reads signed-out**, the press used to run the
+whole OAuth flow (into the wrong file). **After this fix `checkLive` reads the REAL account, the
+credulous check reports CONNECTED, and the press returns instantly with nothing opened.**
+
+```
+BEFORE   a flow that runs and lands nowhere
+AFTER    a button that appears to do nothing
+```
+
+🛑 **Both are broken and the second is quieter, so it is the one that gets re-filed as a fresh
+regression by whoever sees it next.** Naming it here and in the PR body costs one sentence and stops
+that. ⇒ **A fix that trades a loud wrong behaviour for a silent one has to say so**, even when the
+trade is correct -- and this one is correct, because the loud version was writing a credential
+somewhere nothing reads.
 
 **What would actually fix it, and neither is in this branch:** launch an explicit login the CLI
 cannot ignore, or invalidate the stored credential before launching so the re-check honestly reports
@@ -263,7 +283,8 @@ more than the assertion covered.** Fixed by the `setRunner` change above.
 - **NIT:** the plan claimed three `connect.start(` sites; there is a fourth in
   `docs/browser-checks/live-connect.js:90` (takes no options, unaffected). And "both other consumers"
   undercounts: `engine/create.js` does the same thing in **four** places, which
-  `grep -n 'isDefault ? null :' engine/create.js` reproduces. ⚠️ **Two of the four line numbers
+  `grep -n 'isDefault ? null :' engine/create.js` reproduces -- it returns **five** lines, one of
+  them prose inside a comment, so the reader discounts one hit. ⚠️ **Two of the four line numbers
   originally quoted here pointed at unrelated code, and an independent reviewer checking them got a
   different pair from mine** -- which is the argument for the command rather than for better digits.
 - ⭐ **The reviewer completed the sweep I had listed under "what I have NOT established" and it came
@@ -510,7 +531,12 @@ the source -- which is exactly why the wrong rationale went unnoticed.
 - **Two sections described a red suite in the present tense** that no longer reproduces. Both now
   carry a resolution note **at the head**, per this plan's own rule about append-only logs.
 - **Two of four `create.js` citations pointed at unrelated code**, the #874 quote had drifted, and
-  the `server.js` / `connect.js` numbers were pre-fix. ⭐ **An independent reviewer re-checking my
+  the `server.js` / `connect.js` numbers were pre-fix.
+  🛑 **AND THIS ENTRY WAS ITSELF A FINDING RECORDED AS ADDRESSED WHILE THE ARTIFACT STILL SHOWED IT:
+  iteration 5 stated the remedy and applied it only to the `create.js` citation.** The `server.js`
+  and `connect.js` numbers stayed pre-fix for another round, and a reader of this section would have
+  concluded they were repaired and not re-checked. ⇒ **Recording a remedy is not applying it, and the
+  record is what stops the next person looking.** ⭐ **An independent reviewer re-checking my
   citations got a different pair than I measured** -- so the fix is a reproducing command
   (`grep -n 'isDefault ? null :' engine/create.js`), not better digits. **When two readers disagree
   about line numbers, the line numbers are the wrong artifact.**
@@ -527,3 +553,47 @@ A deny rule cannot resolve a relative path after a `cd`, so it escalates to a hu
 cannot answer the dialog blocking it. `git -C <abs>` and absolute paths instead -- which the worktree
 rule wants anyway, since the Bash tool resets cwd between calls. **The rule now goes into every
 subagent prompt too: a subagent inherits none of it.**
+
+## Findings from challenge-loop iteration 6
+
+**Zero BLOCKERs, two WARNINGs, three NITs, both warnings documentation-level.** Every arm was
+independently mutation-proven by the reviewer, and every machine measurement in this plan was
+re-verified (both config files at the stated divergent sizes, the canary script's mtime matching the
+recorded time, `live-connect.js` still the only non-test setter of the seam).
+
+### 🛑 A FINDING RECORDED AS ADDRESSED WHILE THE ARTIFACT STILL SHOWED IT
+
+Iteration 5 recorded that the `server.js` and `connect.js` line citations were pre-fix, **and stated
+the remedy** ("a reproducing command, not better digits"). **I applied that remedy only to the
+`create.js` citation.** The other four numbers stayed pre-fix for another whole round.
+
+⭐ **Why that is worse than simply leaving them wrong: the record is what stops the next person
+looking.** A reader of the iteration-5 section concludes citations were repaired. **Recording a
+remedy is not applying it**, and the recording actively suppresses the re-check that would have
+caught the gap. ✅ Now applied: the site table names branches instead of numbers and ships the
+`grep` that reproduces them.
+
+📌 **Third instance of this class on this branch** (an earlier round claimed a paragraph "Cut" that
+had been rewritten, and another claimed two NIT fixes that a fail-fast helper had silently skipped).
+**All three were caught by a reader, never by me.**
+
+### The interim symptom changes DIRECTION, and that is now PR-facing
+
+On a machine whose decoy reads signed-out, the press used to run the whole OAuth flow into the wrong
+file; it now returns instantly with nothing opened. **"A flow that runs and lands nowhere" becomes
+"a button that appears to do nothing."** Both are broken; **the second is quieter, so it is the one
+that gets re-filed as a fresh regression.** One sentence in the PR body prevents that, and the plan
+now carries it.
+
+### NITs, all real
+
+- `!made.includes('-u')` scanned the **entire** tmux argv rather than the `env` slice, unlike its
+  sibling. An unrelated future `-u` would have reddened it for reasons unconnected to this card.
+- The `console.warn` replacement swallowed **everything** for the arm's duration. Now it suppresses
+  only the warning the arm deliberately provokes and asserts, and passes the rest through -- so a
+  global replacement cannot hide an unrelated warning.
+- The reproducing `grep` returns **five** lines, one of them prose in a comment. The command is still
+  the right artifact; the count needed the caveat.
+
+**Control re-proven after both assertion rewrites**: pushing `-u` unconditionally still reddens the
+labelled control, and dropping the push still reddens the default arm.

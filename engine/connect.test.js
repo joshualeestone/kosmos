@@ -593,7 +593,16 @@ driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CL
   delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
   const warned = [];
   const realWarn = console.warn;
-  console.warn = (...a) => { warned.push(a.join(' ')); };
+  /* Records and RE-EMITS: replacing console.warn globally while the driver tick
+     is running would otherwise swallow any unrelated warning in this window. */
+  console.warn = (...a) => {
+    const line = a.join(' ');
+    warned.push(line);
+    /* Swallow ONLY the mismatch warning this arm deliberately provokes and
+       asserts below; anything else still reaches the run, so replacing a global
+       here cannot hide an unrelated warning. */
+    if (!line.includes('AGENT_WORKFORCE_CLAUDE_CONFIG is set without')) realWarn.apply(console, a);
+  };
   try {
     await connect.start();
     await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
@@ -642,7 +651,9 @@ driverTest('#1922 CONTROL: a LABELLED-account sign-in still sets CLAUDE_CONFIG_D
   /* ⚠️ PRESENCE IS NOT ENOUGH: `env CLAUDE_CONFIG_DIR=<dir> -u CLAUDE_CONFIG_DIR
      <bin>` satisfies the assertion above and still strips the variable. Assert
      nothing undoes it. */
-  assert.ok(!made.includes('-u'),
+  /* Bounded to the `env` slice, like its sibling in the default arm: an
+     unrelated `-u` elsewhere in the tmux invocation is not this card's business. */
+  assert.ok(!made.slice(i).includes('-u'),
     'the labelled launch also strips CLAUDE_CONFIG_DIR, so the assignment above is undone');
 });
 
