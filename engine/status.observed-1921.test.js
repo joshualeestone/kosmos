@@ -45,6 +45,18 @@ test('an IMPOSTOR pane (a stranger under a name) records NOTHING, even scraping 
     'an untied impostor pane tainted a name it does not own: ' + JSON.stringify(observed.all()));
 });
 
+test('a CODEX agent records NOTHING even while WORKING -- the store is Claude-only', () => {
+  // A codex/OpenAI agent also classifies WORKING, and one on the default codex home
+  // has configDir=null, which accountForAgent maps to the DEFAULT CLAUDE account. Left
+  // ungated, a working codex agent would green a Claude account it has nothing to do
+  // with -- the cross-provider false-green this feature removes. The pane really is in
+  // the would-record WORKING state; the runner gate is what blocks the write.
+  const board = fleet.install([fleet.agent('codexer', { runner: 'codex', state: 'working' })]);
+  assert.equal(board.card('codexer').state, 'working', 'fixture is not in the would-record state, so the assertion below is vacuous');
+  assert.equal(observed.read('codexer'), null,
+    'a working codex agent tainted a Claude account badge: ' + JSON.stringify(observed.all()));
+});
+
 test('an IDLE tick does not clobber a prior real observation', () => {
   observed.saw('worka', observed.OUTCOME.OK, Date.now() - 1000);
   fleet.install([fleet.agent('worka', { state: 'idle' })]);

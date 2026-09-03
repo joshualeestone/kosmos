@@ -33,7 +33,10 @@
 // re-introduce exactly the false green this feature removes.
 const OUTCOME = Object.freeze({ OK: 'ok', REJECTED: '401' });
 
-// agent name -> { outcome, at }. Last qualifying observation only.
+// agent name -> { outcome, at }. Last qualifying observation only. Unbounded only by
+// the count of distinct agent names ever seen this process (not a per-tick leak: saw()
+// overwrites in place), and freshness gating means a stale entry for a removed agent
+// never affects a verdict -- so a periodic sweep is not needed for correctness.
 const store = new Map();
 
 /*
@@ -75,7 +78,9 @@ function freshMs() {
 /*
  * The one place the badge verdict is decided, pure and unit-tested.
  *
- * Precedence -- the FRESHEST observation wins, then checkLive as fallback:
+ * A FRESH observation wins over checkLive; observedOutcome is the single last outcome
+ * seen, so exactly one of the two fresh arms is ever eligible -- they are ordered for
+ * reading, not because both can be live at once:
  *   fresh 401  -> 'rejected'              (WINS over checkLive 'connected' -- the Ben case)
  *   fresh ok   -> 'working'               (also rescues a crashed probe: observed > predicted)
  *   else 'connected' -> 'signed_in_unverified'  (a login exists; NOT verified working; NOT green)

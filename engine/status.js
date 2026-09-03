@@ -4458,10 +4458,19 @@ function snapshot() {
        telling a paying customer they are disconnected is a failure to prevent).
        🔑 isNamedOurs gate: only a pane genuinely TIED to its name may attribute an
        outcome to that name's account, the same identity discipline every name-keyed
-       write in this function honours. Best-effort: a badge signal must never break
-       the tick. */
+       write in this function honours.
+       🛑 CLAUDE PANES ONLY, and this gate is load-bearing: a codex agent also
+       classifies WORKING / AUTH_FAILED, but the badge this feeds is the CLAUDE
+       account badge. A codex agent on the DEFAULT codex home records configDir=null,
+       which accountForAgent (server.js) maps to the DEFAULT CLAUDE account -- so a
+       working codex agent would green (or a codex 401 would redden) a Claude account
+       it has nothing to do with, the exact cross-provider false-green this feature
+       exists to remove. The store is Claude-only; the same codex test classify() uses
+       (status.js:2326) keeps it that way.
+       Best-effort: a badge signal must never break the tick. */
     try {
-      if (isNamedOurs(pane)) {
+      const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
+      if (isNamedOurs(pane) && !isCodexPane) {
         const outcome = status.state === STATE.WORKING ? observed.OUTCOME.OK
           : status.state === STATE.AUTH_FAILED ? observed.OUTCOME.REJECTED
           : null;

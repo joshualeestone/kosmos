@@ -13904,8 +13904,10 @@ async function paintAccounts() {
     } else if (badge === 'unchecked') {
       connBadge = '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
     } else {
-      /* Back-compat: a payload without `badge` (an older server) still renders the
-         legacy state ternary, so a version skew never blanks the badge. */
+      /* The legacy state ternary, kept as the fallback for any row without a `badge`.
+         Two rows land here today: an OpenAI row (the server overlays `badge` onto Claude
+         rows only, so OpenAI rows never carry one), and -- under a version skew (new page,
+         old server) -- a Claude row. Neither may blank the badge. */
       connBadge = a.connection && a.connection.state === 'connected' ? '<span class="acct-connected" title="' + esc(connectedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>'
         : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>'
         : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
