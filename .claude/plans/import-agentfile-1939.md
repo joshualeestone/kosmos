@@ -50,14 +50,26 @@ the form to require - never a nameless agent.
   whose "/no header/" message my change altered - not just added new tests (the vacuous-check trap).
 - Full suite running.
 
+## The derived-name gate (revised after challenge iteration 1)
+`suggestName` gates the DERIVED name on the full `create.nameProblem` (format, length, reserved
+words, the `-discord`/`kosmos-connect` traps), not merely `nameUsable` (path-safety). A guess that
+would bounce on confirm (a reserved word, a `-discord` name, a one-char name) returns '' so the form
+asks, rather than pre-filling a name that gets rejected - which would reintroduce a mild version of
+the confusing rejection #1939 removes. This is an intentional ASYMMETRY with the strict export path,
+which only path-safety-checks its name: an export name is USER-DECLARED (pre-fill what they chose,
+let the form validate), a suggestion is a GUESS (only offer one that will pass). `nameProblem` is
+injected optionally; `suggestName` falls back to `nameUsable` when a caller does not pass it, so the
+change is backward compatible. It is NOT a second copy of the format rules - it calls the one
+canonical `create.nameProblem`.
+
 ## Weakest premise (name it)
-`suggestName` gates only on `nameUsable` (path-safety), not the full `nameProblem` (format/length/
-reserved), so it can pre-fill a technically-imperfect suggestion like "q" that the create form will
-then ask the user to lengthen. This is DELIBERATE and consistent: import's strict path also uses
-only nameUsable and defers format to the form (which runs nameProblem). Pre-filling a close
-starting point the user can adjust is better than an empty field, and the form is the single place
-format is enforced - duplicating nameProblem here would be the "second copy that guards less"
-anti-pattern. The empty-name path still triggers for a display name with no ASCII to slug.
+The instructions path treats the WHOLE file as the body, including any stray/unterminated `---`
+fence. That is deliberate (the file is the user's own instructions and identityFromText still finds
+the agent), and a path-unsafe `name:` inside an unclosed fence is never read (the machine name is
+derived from the "You are X" line, which slugs to path-safe `[a-z0-9-]`). The residual is cosmetic:
+an agent imported from a CLAUDE.md that happened to carry unrelated frontmatter keeps those lines in
+its instructions. Acceptable - it is what the person picked, and the create form shows it before
+they confirm.
 
 ## Not done (out of this card's reach)
 The optional on-screen explanatory sentence ("this looks like agent instructions rather than a
