@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: pkg-boot-nonce-2033
-diff_hash: 5dfc275ccb837cf38d53e5a7fac7b883ffe8bd378e9110013a2c409c669f955f
+diff_hash: 1d7bf1a560b397a6635675315c866cc70a6aaa77270c9f8ed636c18d331b2ebd
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-03T16:47:07Z
@@ -47,3 +47,12 @@ This fixes the BROWSER-primary pkg-install case only. It does NOT cover app-prim
 
 ### Strengths
 - Surface-scoped honestly; security review found no new exposure; the restructure is minimal (one fi relocated) with sh -n + bash -n passing.
+
+### Rebase note (post-review)
+Rebased onto origin/main after #2030 (server-side seed on nonce redemption) merged. The two touch
+the same setup.sh open block; the conflict resolution composes them: #2030 removed the setup.sh
+dispatch-seed (server seeds on redemption now), and my open-block restructure makes the pkg path
+mint+open a ?boot whose REDEMPTION is what triggers #2030's server-side seed. The only delta from
+the reviewed version is the seed COMMENT (updated to say "server-side on redemption (#2030)" rather
+than "the setup.sh seed gates on _minted_nonce && _opened") -- comment-only; the reviewed open-block
+change is unchanged. sh -n + bash -n pass on the composed file.
