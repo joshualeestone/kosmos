@@ -83,7 +83,7 @@ async function run() {
       const s = await readSwitch(p2, id);
       check(id + ' [403 arm]: HIDDEN on a gated read (could-not-read, not a false Off)', s.hidden === true, JSON.stringify(s));
       check(id + ' [403 arm]: keeps NO position (a hidden switch must not carry aria-checked)', s.checked === null, String(s.checked));
-      check(id + ' [403 arm]: says it could not read the setting', /could not read/i.test(s.msg), JSON.stringify(s.msg));
+      check(id + ' [403 arm]: says it could not confirm the setting', /could not/i.test(s.msg), JSON.stringify(s.msg));
     }
     await p2.close();
   } finally {

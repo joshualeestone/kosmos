@@ -15275,7 +15275,7 @@ function tellPaint(r) {
   const unread = !r || r.ok === false || typeof r.on !== 'boolean';
   paintSwitch('tell-toggle', unread ? null : r.on === true);
   document.getElementById('tell-msg').textContent = unread
-    ? 'We could not read this setting just now.'
+    ? 'We could not check this setting here. Open Kosmos from its icon and you can change it.'
     : '';
 }
 async function refreshTell() {
@@ -15322,7 +15322,7 @@ function notifyPaint(r) {
   const unread = !r || r.ok === false || typeof r.on !== 'boolean';
   paintSwitch('notify-toggle', unread ? null : r.on === true);
   document.getElementById('notify-msg').textContent = unread
-    ? 'We could not read this setting just now.'
+    ? 'We could not check this setting here. Open Kosmos from its icon and you can change it.'
     : '';
 }
 async function refreshNotify() {

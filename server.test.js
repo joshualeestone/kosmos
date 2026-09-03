@@ -9626,7 +9626,7 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
     assert.equal(el(toggle).getAttribute('aria-checked'), undefined,
       paint + ': a hidden switch kept a position, which reads as a definite answer if anything un-hides it');
     assert.equal(el(toggle).classes.has('on'), false, paint + ': unread rendered as on');
-    assert.match(el(msg).textContent, /could not read/,
+    assert.match(el(msg).textContent, /could not/,
       paint + ': an unread setting says nothing, so the switch is the only claim on screen');
     /* ⚠️ AND IT COMES BACK WHEN THE ANSWER DOES, asserted AFTER the sentence
        above rather than before it: a recovery paint clears that message, so
