@@ -33,8 +33,11 @@ function fixtureZip(dir, version) {
   return zip;
 }
 
-function run(zip, site, extraEnv = {}) {
-  return execFileSync('sh', [SCRIPT, zip], {
+function run(zip, site, extraEnv = {}, versionArg) {
+  // versionArg exercises the explicit `[<version>]` argument, a DISTINCT code path from the
+  // default: it skips the unzip + in-zip package.json read entirely.
+  const argv = versionArg === undefined ? [SCRIPT, zip] : [SCRIPT, zip, versionArg];
+  return execFileSync('sh', argv, {
     env: { ...process.env, KOSMOS_SITE: site, ...extraEnv },
     encoding: 'utf8',
   });
@@ -153,4 +156,37 @@ test('#2008: the versioned name is immutable -- republishing DIFFERENT bytes und
   for (const f of Object.keys(snap)) {
     assert.deepEqual(fs.readFileSync(path.join(dist, f)), snap[f], `a refusal must leave ${f} byte-for-byte unchanged`);
   }
+});
+
+test('#2008: an explicit <version> arg overrides the zip-baked version -- the distinct code path that skips the in-zip read', () => {
+  // The zip is baked at 9.9.9, but the operator passes 7.7.7 explicitly. The explicit arg must
+  // win AND the unzip/in-zip read must be skipped entirely -- a genuinely different branch from
+  // every other arm here (all of which exercise the default in-zip read). If the arg were ignored
+  // the versioned name would carry 9.9.9.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-fix-'));
+  const site = freshSite();
+  run(fixtureZip(dir, '9.9.9'), site, {}, '7.7.7');
+  const dist = path.join(site, 'dist');
+  assert.ok(fs.existsSync(path.join(dist, 'kosmos-7.7.7-win-x64.zip')),
+    'the explicit <version> arg (7.7.7) must name the versioned copy, not the zip-baked 9.9.9');
+  assert.ok(!fs.existsSync(path.join(dist, 'kosmos-9.9.9-win-x64.zip')),
+    'the zip-baked version must NOT be used when an explicit version is given');
+  const lj = JSON.parse(fs.readFileSync(path.join(dist, 'latest-win.json'), 'utf8'));
+  assert.equal(lj.version, '7.7.7', 'latest-win.json.version must be the explicit arg');
+});
+
+test('#2008: the version guard ACCEPTS a legitimate build-metadata version (+ and _) -- proving it does not over-reject', () => {
+  // The reject side of the path-escape guard is covered above (../evil). This is the positive
+  // control: the charset deliberately allows semver build-metadata (`+`) and `_`, so a real build
+  // named e.g. 1.2.3+win.5 must be STAGED, not refused. A guard that over-rejected a valid version
+  // would block a legitimate publish -- the failure a reject-only test cannot see.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-fix-'));
+  const site = freshSite();
+  const V = '1.2.3+win.5_rc-2';  // exercises every allowed non-alphanumeric: . + _ -
+  run(fixtureZip(dir, V), site);
+  const dist = path.join(site, 'dist');
+  assert.ok(fs.existsSync(path.join(dist, `kosmos-${V}-win-x64.zip`)),
+    'a version using the allowed . + _ - characters must be staged, not refused');
+  const lj = JSON.parse(fs.readFileSync(path.join(dist, 'latest-win.json'), 'utf8'));
+  assert.equal(lj.version, V, 'latest-win.json.version must carry the build-metadata version verbatim');
 });

@@ -60,6 +60,13 @@ fi
 case "$VERSION" in
   *[!0-9A-Za-z.+_-]*) echo "publish-win: refusing an implausible version '$VERSION' (only letters, digits and . + _ - allowed)" >&2; exit 1 ;;
 esac
+# ARCH is interpolated into the SAME staged filenames as VERSION, so it needs the SAME
+# path-escape guard -- otherwise KOSMOS_WIN_ARCH=../x would make cp write outside dist/ while
+# the identical string in a version is refused. ARCH is operator-supplied (not from the zip),
+# a weaker threat than a crafted version, but the asymmetry is the bug: guard both the same.
+case "$ARCH" in
+  *[!0-9A-Za-z.+_-]*) echo "publish-win: refusing an implausible arch '$ARCH' (only letters, digits and . + _ - allowed)" >&2; exit 1 ;;
+esac
 
 ALIAS="kosmos-win-$ARCH.zip"
 VERSIONED="kosmos-$VERSION-win-$ARCH.zip"
@@ -76,9 +83,21 @@ if [ -f "$SITE/dist/$VERSIONED" ] && ! cmp -s "$ZIP" "$SITE/dist/$VERSIONED"; th
   echo "publish-win: $VERSIONED already exists with DIFFERENT bytes -- refusing to republish a versioned name (it is immutable). Bump the version, or remove the old artifact deliberately." >&2
   exit 1
 fi
+# The ALIAS is intentionally MUTABLE -- it points at the MOST-RECENTLY-PUBLISHED build, not
+# necessarily the highest version. That distinction is a footgun: re-publishing an OLDER build
+# (e.g. to regenerate a missing sidecar) passes the immutability guard above (its bytes match
+# its own existing versioned copy) and then moves the button target BACKWARD to those old bytes.
+# Moving the alias is legitimate; moving it SILENTLY is the hazard. So if the alias currently
+# names a different version, say so out loud before repointing -- this does not block the move,
+# it just refuses to do it invisibly.
+if [ -f "$SITE/dist/latest-win.json" ]; then
+  PREV_V="$(KM_MF="$SITE/dist/latest-win.json" node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.env.KM_MF,"utf8")).version||""))}catch{}')"
+  if [ -n "$PREV_V" ] && [ "$PREV_V" != "$VERSION" ]; then
+    echo "publish-win: NOTICE the alias $ALIAS is being repointed from version $PREV_V to $VERSION (the button will serve $VERSION after the next deploy)" >&2
+  fi
+fi
 # Stage both names from the one built zip. COPY, not link: the site deploy carries files, and a
-# hard link would break once the shared dist is overwritten in place by a later publish. The
-# ALIAS is intentionally MUTABLE -- it always points at the newest build.
+# hard link would break once the shared dist is overwritten in place by a later publish.
 cp "$ZIP" "$SITE/dist/$ALIAS"
 cp "$ZIP" "$SITE/dist/$VERSIONED"
 
