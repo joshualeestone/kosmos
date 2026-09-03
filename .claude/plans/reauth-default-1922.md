@@ -1202,3 +1202,56 @@ A guard can be correct against every mutation you can think of today and still b
 Reviewer: **ready to merge, no BLOCKER, no code defect.** The routing ternary matches the two
 siblings it cites, `null` normalizes identically to an omitted key, and the `-u` push is correct at
 the launch layer with load-bearing controls on both sides.
+
+## Findings from challenge-loop iteration 13
+
+**Verdict again: ready to merge, no BLOCKER, no code defect.** The reviewer ran 15 argv shapes
+through the four launch assertions and found no leaking form that passes, corroborated the
+operand-ends-option-parsing premise against this machine's `env(1)` synopsis, and re-checked the
+whole #1961 section line for line. **It still found a real one, and it was mine from one round
+earlier.**
+
+### 🛑 I DIAGNOSED AN ABSOLUTE AND REPLACED IT WITH A NEW ABSOLUTE, ONE ROUND LATER
+
+Iteration 12 replaced *"both route harnesses SET the seam"* (wrong, not the blocker,
+self-defeating) with *"a launch arm CANNOT live there whatever the seam does."*
+
+**That carries the identical flaw.** `connect.setDryRun` is exported; the arm directly below escapes
+the module-scope dry run with it; and the route suite already requires the same module and calls
+`resetForTests()`. **So it could do exactly that.** Verified in source, not argued.
+
+⭐ **The shape is worth more than the instance: I correctly identified my predecessor's error as
+"asserting an impossibility from one harness's configuration" and then committed that exact error in
+the sentence that replaced it.** Recognising a class does not stop you reproducing it, because the
+recognition happens while reading and the reproduction happens while writing.
+
+✅ Rewritten to name the configuration rather than a law ("as that harness is currently
+configured"), with both prior versions kept struck so the pattern is legible.
+
+### ⚠️ AND IT FORECLOSED A REAL COVERAGE GAP, WHICH IS NOW STATED IN SOURCE
+
+Because the docblock asserted an impossibility, it discouraged the composition test that IS possible:
+**nothing exercises the route's `known.isDefault ? null : known.dir` through to the launch argv.**
+Route arms stop at the install-confirm guard; the engine arms call `connect.start()` directly. **Both
+halves are covered; their composition is not.** A wrong "cannot" does not merely misinform, it
+removes an option from the next person.
+
+### The `-u` is one key, not pane sanitisation
+
+`env -u CLAUDE_CONFIG_DIR` strips exactly that variable, mirroring the read side's single `delete`.
+Other inherited variables that steer the CLI (`ANTHROPIC_*`) still reach the pane. **The comment read
+as sanitisation to a skimmer.** Now scoped explicitly, with the reason the narrow scope is correct
+for this card and what a general scrub would need.
+
+### Deferred, now independently confirmed
+
+The retraction archaeology in `server.js` was deferred at iteration 12 on house-consistency grounds.
+**Iteration 13 checked that defence rather than accepting it** and found the identical shape at
+`server.js:781`, `:1553` and `:4995`, all outside this diff. The deferral stands on measured grounds
+rather than on my say-so.
+
+### Outstanding and procedural, not code
+
+**The mandated PR-body sentence has not landed anywhere yet**, because no PR exists. It is recorded
+above under "PR BODY: REQUIRED SENTENCE" and must go in the PR body when it is opened, or the
+quieter new failure gets re-filed as a fresh regression against this PR.
