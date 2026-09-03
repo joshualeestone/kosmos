@@ -270,6 +270,12 @@ more than the assertion covered.** Fixed by the `setRunner` change above.
 
 ## Findings from challenge-loop iteration 2
 
+🛑 **SUPERSEDED BY ITERATION 3. The bypass this section describes in the present tense WAS REMOVED.**
+Read the iteration-3 section before acting on anything below: the `reauth` flag, the arm that tested
+it, and the "✅ proven red by mutation" beside it all describe code that is not on this branch. Left
+in place because the reasoning that produced it is worth reading; marked here because **an
+append-only log puts the retraction AFTER the claim, and a reader may never reach it.**
+
 **Four WARNINGs, two NITs, no BLOCKER.** The reviewer measured rather than read: it perturbed the
 #1560 guard to confirm my `phase` assertion was not vacuous, drove the `-u` change through the REAL
 tmux on this machine to confirm the leak and the fix, and independently ran the second-instance sweep.
@@ -386,3 +392,73 @@ shell half  3 FAILURES, EXIT_CODE=1    <- another agent's live Playwright run (p
 
 ✅ **Control: `origin/main` fails identically** (`rc=1`, same three assertions, same live pid), and
 this branch touches none of the files that test reads. **Recorded as environment, NOT as green.**
+
+## Findings from challenge-loop iteration 4
+
+**Zero BLOCKERs, four WARNINGs, one CONVENTION, three NITs.** Both production changes were put
+through five mutations and hold in both directions.
+
+### 🛑 I PUBLISHED A CODE-READ CONCLUSION UNDER THE WORD "MEASURED", IN SHIPPED SOURCE
+
+The comment at the #1560 gate said *"MEASURED, IT IS NOT"* about the claim that opening the gate
+buys nothing. **It was read from the control flow.** Every link verifies in source except the one it
+rests on: **what a bare `claude` shows when the stored credential has been REJECTED. Nothing in this
+repo measures that.**
+
+⚠️ **And the direction is the dangerous one. If the interactive CLI PROMPTS on a dead token**, the
+pane classifies as login-method/browser-open, the driver walks the sign-in, **and opening the gate
+WOULD repair** -- inverting this branch's central scoping decision.
+
+📌 #874 measures `claude auth status --json`, the READ side. The "Please run /login" string comes
+from `claude -p`, not the interactive REPL. **Neither measures the interactive pane.** The earlier
+review that established the chain drove a pane to chosen content; it never ran a real dead
+credential.
+
+✅ **Corrected in place: the comment now says it is read from the control flow, names the untested
+premise, and says what would settle it.** The gate stays shut **for want of evidence, not because
+opening it is known useless** -- which is a different and weaker claim than the one I shipped.
+
+⭐ **Why this one matters more than an ordinary overclaim: it is shipped source telling the next
+person NOT to try a fix.** A confident wrong "measured" there costs whoever reads it the option of
+checking.
+
+### The same inflation, three more times, all mine
+
+- **A docblock claimed a benefit its arm does not obtain.** "Without `setRunner` the arm returns
+  before any launch decision" -- measured, it returns there **either way**, at the install-confirm
+  guard. `setRunner` is load-bearing only for the connected-gate assertion. Rewritten to say what it
+  was measured to buy.
+- **An assertion message described the PASSING state.** `notEqual(phase, 'connected')` passes on
+  `idle`, and `idle` is exactly "no sign-in ran" -- so the failure text sent a debugger at the wrong
+  mechanism. Reworded to claim only what it can see.
+- **The iteration-2 section still reasoned from the removed bypass in the present tense**, with an
+  unqualified ✅. Now marked superseded **at its head**: an append-only log puts the retraction after
+  the claim, and a reader may never reach it.
+
+### Two things that got better rather than merely corrected
+
+- **The launch control asserted presence, not absence of a later strip.**
+  `env CLAUDE_CONFIG_DIR=<dir> -u CLAUDE_CONFIG_DIR <bin>` satisfied the old equality **and still
+  stripped the variable**. Now asserts the slice plus no `-u`; mutation-proven red on exactly that
+  shape.
+- **The sandbox warning fired on every green run**, which this file's own header says trains people
+  to ignore warnings. Deleting both seams was the obvious fix and **breaks the arm** (measured: the
+  flow never reaches a launch). So the warning is **captured and asserted** instead: the noise became
+  coverage, and it now also guards the warning against silent removal.
+
+### And the repo caught me deferring work to a card number
+
+`comment-deferral.test.js` (#147) failed on my *"#1937 owns that"*. Its rule: **a number in a comment
+reads as owned and appears on no list** -- seven such comments once orphaned three real features for
+days. ⇒ **The guard does not care that the card is real and assigned; a comment cannot own work.**
+Removed, and swept the whole diff for the shape.
+
+### Suite state
+
+```
+js half     3834 pass, 0 fail
+shell half  3 FAILURES  <- another agent's live Playwright run
+```
+
+✅ **Control run at the same moment: `origin/main` fails identically (rc=1, same three checks).**
+Recorded as environment, not green.

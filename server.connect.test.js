@@ -428,11 +428,19 @@ test('#1585 CONTROL: an UNVERIFIABLE live check keeps connected rather than forc
  * both scope the default with NO configDir for this reason; this route did not.
  *
  * 🔑 BOTH ARMS DRIVE THE LIVE CHECK TO SIGNED-OUT VIA `subscription.setRunner`,
- * AND THAT IS LOAD-BEARING RATHER THAN TIDY. Without it the default arm takes
- * `start()`'s connected early exit (#1560) and returns before any launch
- * decision is made, so it would assert the routing while never reaching the
- * code the routing feeds. Signed-out is also the state the card is about: a
- * person whose credential is dead, asking to repair it.
+ * BECAUSE THAT IS THE STATE THE CARD IS ABOUT -- a person whose credential is
+ * dead, asking to repair it.
+ *
+ * ⚠️ WHAT IT DOES NOT BUY, STATED BECAUSE AN EARLIER VERSION OF THIS BLOCK
+ * CLAIMED IT DID. These arms do NOT reach a launch decision either way: the
+ * harness sets `AGENT_WORKFORCE_DRY_RUN=1` and points the bin at `/bin/echo`,
+ * so `haveBinary` is false and `start()` returns at the install-confirm guard
+ * before claiming a driver. The routing value they assert is written by
+ * `writeState({phase: IDLE})` ABOVE both gates, so it is reachable regardless --
+ * mutation-proven: with the pre-fix route and `setRunner` removed, the routing
+ * arm is still RED. **`setRunner` is load-bearing only for the connected-gate
+ * behaviour, not for the routing assertion.** The launch itself is covered in
+ * `engine/connect.test.js`, which intercepts the tmux runner.
  *
  * 📌 THE GREEN CHECK IS A SEPARATE DEFECT (#1916) AND IS NOT EVIDENCE HERE.
  * `checkLive` shells `claude auth status --json`, which reports that a login
@@ -483,9 +491,13 @@ test('#1922: signing in again to the DEFAULT account does not aim the CLI at the
     /* 🛑 AND IT MUST ACTUALLY RUN THE SIGN-IN. Routing correctly to "no
        configDir" is worthless if the person clicks Sign in again and nothing
        happens; with the world signed out, #1560 requires the flow to run. */
+    /* ⚠️ A NEGATIVE ASSERTION, AND ITS MESSAGE SAYS ONLY WHAT IT CAN SEE. This
+       passes on `idle` as readily as on a launched flow, so it establishes that
+       the connected early exit was NOT taken -- nothing more. It is deliberately
+       not named "a sign-in ran", because it cannot see one. */
     assert.notEqual(json(got).phase, 'connected',
-      'the world says signed out and the route answered connected, so the person '
-      + 'asked to repair a dead credential and no sign-in ran at all');
+      'the world says signed out and the route still answered connected, so the '
+      + 'connected early exit swallowed a press that named a dead account');
   } finally {
     subscription.setRunner(null);
     /* Cancel before resetForTests, matching the #1585 arm's order. ⚠️ NOT for
