@@ -34,12 +34,22 @@ const SCRIPT = scriptOf(PAGE);
    About-you is fr-pane-6. */
 const OFFER = PAGE.slice(PAGE.indexOf('id="fr-pane-5"'), PAGE.indexOf('id="fr-pane-6"'));
 
-test('kosmos#1214: the first-run Accessibility pane offers the button and an out', () => {
+test('kosmos#1214/#1940: the first-run Accessibility pane offers the button, and Continue is the out', () => {
   assert.ok(OFFER.indexOf('id="fr-pane-5"') > -1 && OFFER.length > 0, 'the offer pane exists');
   assert.match(OFFER, /id="fr-a11y-open"/, 'it has its own Open Accessibility settings button');
-  assert.match(OFFER, /work in your other applications on this computer/i,
-    'it explains the benefit in the plain words Josh ruled, not the reassuring ones');
-  assert.match(OFFER, /optional/i, 'it says the offer is optional -- Josh ruled offer-not-require');
+  // #1940 (Josh's copy, Mona Lisa's design): the copy names the exact action.
+  // Anchored on the second line of the copy (the first, "...Turn on", wraps in the
+  // source, so a single-space match across the newline would miss).
+  assert.match(OFFER, /'Tmux' in Accessibility to enable this/,
+    'the copy names the exact action -- turn on Tmux in Accessibility (Josh ruled the plain words, not the reassuring ones)');
+  // #1940 removed the in-pane "This one is optional ... or later in Settings" line
+  // (Josh's copy). The offer-not-require RULING is unchanged; the out is now the
+  // shared Continue button, not an in-pane sentence. Assert the MECHANISM, not the
+  // deleted wording: step 5's Continue proceeds to frGo(6) unconditionally (no gate).
+  assert.match(SCRIPT, /step === 5[\s\S]{0,1000}frActions\(\{ label: 'Continue', go: \(\) => frGo\(6\) \}\)/,
+    'the Accessibility step Continue proceeds unconditionally (offer-not-require preserved via Continue)');
+  assert.doesNotMatch(OFFER, /This one is optional/,
+    '#1940: the redundant in-pane optional line is gone -- Continue is the out');
 });
 
 test('kosmos#1214: the offer reuses the SAME action as the Settings button, not a new mechanism', () => {
@@ -53,9 +63,10 @@ test('kosmos#1214: the offer reuses the SAME action as the Settings button, not 
     'the Settings button is unchanged and shares the endpoint');
 });
 
-test('kosmos#1214: LOCATION pin -- the offer names the box that actually holds the button', () => {
-  // Walk from the real Settings button back to the heading of the box it sits
-  // in. That heading is the ground truth for "where you turn this on later".
+test('kosmos#1214/#1940: the Settings box name is stable; #1940 removed the first-run "later in Settings" pointer', () => {
+  // The Settings side is unchanged: the accessibility toggle still sits under the
+  // "Keeping agents running" box. This stays the ground truth for where you turn
+  // it on later.
   const btnIdx = PAGE.indexOf('id="set-a11y-open"');
   assert.ok(btnIdx > -1, 'the Settings accessibility button exists');
   const before = PAGE.slice(0, btnIdx);
@@ -65,12 +76,18 @@ test('kosmos#1214: LOCATION pin -- the offer names the box that actually holds t
   assert.equal(boxLabel, 'Keeping agents running',
     'sanity: the box holding the button is the one this offer names');
 
-  // The property that matters: the firstrun offer points a person at THAT box by
-  // its real name. If Settings renames or moves the box, this fails rather than
-  // leaving a wrong direction on a live screen.
+  // The #1214 property that matters: the first-run offer POINTS a person at THAT
+  // box by its real name, so a Settings reorganisation fails here rather than
+  // leaving a wrong direction on a live screen. #1940 REWORDED the pointer (Mona
+  // Lisa's decision after I flagged that deleting the whole line silently reverted
+  // this out): the pushy "This one is optional ... now, or later" framing is gone,
+  // but the orientation "You can turn this on anytime in Settings, under Keeping
+  // agents running" stays -- so the location pin still holds.
   assert.ok(OFFER.includes(boxLabel),
     'the first-run offer must name the box that actually holds the button ('
     + boxLabel + '); a Settings reorganisation would break this, which is the point');
+  assert.doesNotMatch(OFFER, /This one is optional/,
+    '#1940: the pushy "optional / now-or-later" framing is gone (the pointer stays, reworded)');
 });
 
 test('kosmos#1214: the step is wired -- 7 steps, Accessibility at 5, Continue proceeds without granting', () => {

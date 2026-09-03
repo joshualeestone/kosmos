@@ -7563,12 +7563,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            web.firstrun-model.test.js slices pane-3 to pane-5 to isolate the model
            step, so this pane must remain the one that follows pane-3. -->
       <div class="fr-pane" id="fr-pane-5" hidden>
-        <p>Kosmos agents can work in your other applications on this computer, not
-           just inside Kosmos. Turning on accessibility is what lets them.</p>
-        <button class="btn" id="fr-a11y-open" type="button">Open Accessibility settings</button>
+        <p>Allow Kosmos agents to work in applications on this computer. Turn on
+           'Tmux' in Accessibility to enable this.</p>
+        <button class="btn fr-sleepbtn" id="fr-a11y-open" type="button">Open Accessibility settings</button>
         <p class="fr-msg" id="fr-a11y-msg" role="status" aria-live="polite"></p>
-        <p class="fr-next">This one is optional. You can turn it on now, or later in
-           Settings, under Keeping agents running.</p>
+        <p class="fr-next">You can turn this on anytime in Settings, under Keeping agents running.</p>
       </div>
 
       <!-- 4. About you. The pack's step, its copy verbatim: two required
@@ -33071,8 +33070,12 @@ function frGo(step) {
   } else if (step === 5) {
     // #1214: the Accessibility offer. Continue proceeds whether or not the person
     // opened the setting (Josh ruled offer-not-require, 2026-09-01); the in-pane
-    // button is the offer and the "later in Settings" sentence is the out. The
-    // pane claims no state because accessibility (TCC) cannot be read, so there
+    // button is the offer and the "anytime in Settings, under Keeping agents
+    // running" sentence is the where-to-do-it-later out. (#1940 REWORDED that
+    // sentence -- dropped the pushy "This one is optional ... now, or later"
+    // framing, kept the orientation -- Josh's copy via Mona Lisa. Continue is the
+    // skip; the pointer is the out; the offer-not-require ruling is unchanged.)
+    // The pane claims no state because accessibility (TCC) cannot be read, so there
     // is nothing to gate Continue on and no "you already did this" to show.
     document.getElementById('fr-title').textContent = 'Let your agents work in your other apps.';
     frActions({ label: 'Continue', go: () => frGo(6) });
