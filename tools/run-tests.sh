@@ -99,8 +99,44 @@ else
   echo "run-tests: could not make a per-run temp dir; the suite will use TMPDIR directly and leave its scratch behind" >&2
 fi
 
-# --- the suite, unchanged -----------------------------------------------------
-node --test engine/*.test.js *.test.js "$@"
+# --- coverage assertion: every *.test.js is CONSIDERED (kosmos#1934) -----------
+# The suite globs `engine/*.test.js *.test.js`. The naming convention uses DOTS as
+# a pseudo-namespace at the ROOT -- `engine.reachable.test.js`, `install.banner.test.js`
+# -- while a real `engine/` directory also exists. So `engine.X` (root) and `engine/X`
+# (dir) coexist and read identically, and a path glob like `engine/*.test.js` matches
+# only the files IN the directory and silently MISSES the far larger set at the root,
+# INCLUDING the five named `engine.*` that most strongly imply they were included. That is
+# exactly how a red `engine.reachable.test.js` sat under four merges: the pre-merge
+# validation globbed
+# `engine/*` and never saw the root file, and a glob matching a subset still exits 0 with
+# a healthy tally. So gather the set ONCE and REFUSE TO RUN if it does not cover every
+# *.test.js in the tree -- a narrowed glob, or a suite that lands in a new subdirectory,
+# fails loudly with the count instead of passing green on a fraction. `find` prunes
+# node_modules and .git -- the same set the durable test's walker skips, so the runtime
+# guard and the test agree on what counts. If a real test dir beyond root/engine/ is ever
+# added, update the glob here (the point of this guard is that you cannot forget to).
+shopt -s nullglob
+KOSMOS_TEST_FILES=(engine/*.test.js *.test.js)
+shopt -u nullglob
+_considered=${#KOSMOS_TEST_FILES[@]}
+_exist=$(find . \( -name node_modules -o -name .git \) -prune -o -name '*.test.js' -print | wc -l | tr -d ' ')
+# -ne, not -lt: any mismatch refuses, in BOTH directions. considered < exist is the main
+# case (a glob missed some *.test.js). considered > exist means find did not descend a
+# directory the shell glob did -- e.g. a symlinked engine/, which `find .` (no -L) skips
+# while `engine/*.test.js` expands it -- which could otherwise net out a real stray and
+# pass. Equality is the only safe state, and it holds today (382 == 382).
+if [ "$_considered" -ne "$_exist" ]; then
+  echo "run-tests: COVERAGE MISMATCH (kosmos#1934) -- the glob set is $_considered *.test.js but $_exist exist in the tree; they must match." >&2
+  echo "  considered < exist: a path glob missed some *.test.js (a root suite, or one in a new subdirectory)." >&2
+  echo "  The convention puts most suites at the ROOT with a dot (engine.reachable.test.js), which no engine/*" >&2
+  echo "  glob matches; widen the glob above so it is considered. considered > exist: find did not descend a" >&2
+  echo "  directory the glob did (e.g. a symlinked engine/); make the two agree. Canonical helper: yarn test." >&2
+  exit 1
+fi
+
+# --- the suite ----------------------------------------------------------------
+# Run the SAME set the coverage assertion counted, so the count and the run cannot drift.
+node --test "${KOSMOS_TEST_FILES[@]}" "$@"
 NODE_STATUS=$?
 if [ "$NODE_STATUS" -eq 0 ]; then
   yarn -s test:shell
