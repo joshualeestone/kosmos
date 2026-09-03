@@ -105,6 +105,39 @@ test('#2054 ACCEPTANCE: a NON-default stored value paints as itself, and paint w
   assert.deepEqual(writes, [], 'paint issued a write (' + JSON.stringify(writes) + '); a paint that saves can reset a stored value');
 });
 
+test('#2054 (executable): flipping a LOADED toggle PUTs the flipped value and repaints from the server echo', async () => {
+  // The post-load save path, executed. Start loaded (toggle off, interval 17), flip it,
+  // assert one PUT with the flipped on + current interval, then a repaint from the echo.
+  const d = dom();
+  d.els['hb-toggle'].setAttribute('aria-checked', 'false');
+  d.els['hb-toggle'].hidden = false;
+  d.els['hb-interval'].value = '17';
+  d.els['hb-interval'].options = [{ value: '5' }, { value: '17' }, { value: '60' }]; // hbToggleClick guards on options.length
+  const calls = [];
+  const fetchStub = async (url, opts) => {
+    const method = (opts && opts.method) || 'GET';
+    if (String(url).indexOf('notify-setting') !== -1) return { ok: true, json: async () => ({ on: true, ok: true }) };
+    const bodyObj = opts && opts.body ? JSON.parse(opts.body) : null;
+    calls.push({ url: String(url), method, body: bodyObj });
+    return { ok: true, json: async () => ({ on: bodyObj.on, intervalMinutes: bodyObj.intervalMinutes, intervals: [5, 17, 60], ok: true }) };
+  };
+  const body = 'let HB_SAVING=false;\nlet HB_EPOCH=0;\n'
+    + lift(SCRIPT, 'paintSwitch') + '\n'
+    + lift(SCRIPT, 'paintHeartbeat') + '\n'
+    + lift(SCRIPT, 'saveHeartbeat') + '\n'
+    + lift(SCRIPT, 'hbToggleClick') + '\nreturn hbToggleClick;';
+  const hbToggleClick = new Function('document', 'fetch', body)(d.document, fetchStub);
+  hbToggleClick();
+  await new Promise((r) => setTimeout(r, 0));
+  const puts = calls.filter((c) => c.method === 'PUT');
+  assert.equal(puts.length, 1, 'exactly one PUT fired for the flip');
+  assert.equal(puts[0].url, '/api/heartbeat-setting');
+  assert.deepEqual(puts[0].body, { on: true, intervalMinutes: 17 },
+    'the PUT carries the flipped on (off->on) and the current interval');
+  assert.equal(d.els['hb-toggle'].getAttribute('aria-checked'), 'true', 'the toggle repainted to the saved on, from the server echo');
+  assert.equal(d.els['hb-interval-row'].hidden, false, 'the interval row shows once on');
+});
+
 test('#2054: a stale in-flight paint cannot repaint over a newer one (HB_EPOCH guard)', async () => {
   // Same race as the autohandoff epoch test. The notify-setting GET auto-resolves so
   // only the heartbeat-setting GET is controllable; without the guard the late stale

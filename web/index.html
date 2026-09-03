@@ -13505,6 +13505,7 @@ async function saveAutohandoff(enabled, threshold) {
   if (AH_SAVING) return;
   AH_SAVING = true;
   const mine = ++AH_EPOCH;
+  const th = document.getElementById('ah-threshold');
   const msg = document.getElementById('ah-msg');
   const row = document.getElementById('ah-threshold-row');
   try {
@@ -13521,11 +13522,13 @@ async function saveAutohandoff(enabled, threshold) {
     if (!res.ok) { msg.textContent = out.because || 'We could not save that setting.'; return; }
     const a = out.autohandoff || { enabled, threshold };
     paintSwitch('ah-toggle', a.enabled === true);
-    document.getElementById('ah-threshold').value = String(a.threshold || 85);
+    th.value = String(a.threshold || 85);
     row.hidden = a.enabled !== true;
     msg.textContent = '';
   } catch {
-    msg.textContent = 'We could not reach Kosmos to save that.';
+    /* Epoch-guarded like every other write here: a stale save whose request fails
+       after a newer paint/save has landed must not stomp the fresh state's message. */
+    if (mine === AH_EPOCH) msg.textContent = 'We could not reach Kosmos to save that.';
   } finally {
     AH_SAVING = false;
   }
@@ -13632,7 +13635,8 @@ async function saveHeartbeat(on, intervalMinutes) {
       } catch { needsNotify.hidden = true; }
     }
   } catch {
-    if (msg) msg.textContent = 'We could not reach Kosmos to save that.';
+    /* Epoch-guarded like every other write here (see saveAutohandoff). */
+    if (mine === HB_EPOCH && msg) msg.textContent = 'We could not reach Kosmos to save that.';
   } finally { HB_SAVING = false; }
 }
 function hbToggleClick() {

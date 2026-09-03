@@ -105,6 +105,39 @@ test('#2054 ACCEPTANCE: a NON-default stored value paints as itself, and paint w
   assert.deepEqual(writes, [], 'paint issued a write (' + JSON.stringify(writes) + '); a paint that saves can reset a stored value');
 });
 
+test('#2054 (executable): flipping a LOADED toggle POSTs the flipped value and repaints from the server echo', async () => {
+  // The post-load save path, executed rather than regex-matched -- this is the path
+  // the catch-guard and repaint bugs live in. Start loaded (toggle off, threshold 90),
+  // flip it, and assert exactly one POST with the flipped enabled + current threshold,
+  // then a repaint from the server's echo.
+  const d = dom();
+  d.els['ah-toggle'].setAttribute('aria-checked', 'false');
+  d.els['ah-toggle'].hidden = false;
+  d.els['ah-threshold'].value = '90';
+  const calls = [];
+  const fetchStub = async (url, opts) => {
+    const method = (opts && opts.method) || 'GET';
+    const bodyObj = opts && opts.body ? JSON.parse(opts.body) : null;
+    calls.push({ url: String(url), method, body: bodyObj });
+    return { ok: true, json: async () => ({ ok: true, autohandoff: bodyObj && bodyObj.autohandoff }) };
+  };
+  const body = 'let AH_SAVING=false;\nlet AH_EPOCH=0;\n'
+    + lift(SCRIPT, 'paintSwitch') + '\n'
+    + lift(SCRIPT, 'paintAutomation') + '\n'
+    + lift(SCRIPT, 'saveAutohandoff') + '\n'
+    + lift(SCRIPT, 'ahToggleClick') + '\nreturn ahToggleClick;';
+  const ahToggleClick = new Function('document', 'fetch', body)(d.document, fetchStub);
+  ahToggleClick();
+  await new Promise((r) => setTimeout(r, 0));
+  const posts = calls.filter((c) => c.method === 'POST');
+  assert.equal(posts.length, 1, 'exactly one POST fired for the flip');
+  assert.equal(posts[0].url, '/api/settings');
+  assert.deepEqual(posts[0].body, { autohandoff: { enabled: true, threshold: 90 } },
+    'the POST carries the flipped enabled (off->on) and the current threshold');
+  assert.equal(d.els['ah-toggle'].getAttribute('aria-checked'), 'true', 'the toggle repainted to the saved on, from the server echo');
+  assert.equal(d.els['ah-threshold-row'].hidden, false, 'the threshold row shows once on');
+});
+
 test('#2054: a stale in-flight paint cannot repaint over a newer one (AH_EPOCH guard)', async () => {
   // The move's acceptance under tab churn: if an older paint's GET resolves after a
   // newer one has already painted, the stale response must be discarded. Discriminating
