@@ -2,7 +2,7 @@ Addresses #1922.
 
 ## What was wrong
 
-`POST /api/connect` passed `known.dir` for the DEFAULT account. The default account's config is
+`POST /api/connect/start` passed `known.dir` for the DEFAULT account. The default account's config is
 `<HOME>/.claude.json`, a file BESIDE `<HOME>/.claude`, and setting `CLAUDE_CONFIG_DIR=<HOME>/.claude`
 makes the real `claude` binary read and write `<HOME>/.claude/.claude.json` instead. Two files, two
 accounts. So "Sign in again" on the default account ran the whole OAuth flow and landed the
@@ -62,5 +62,10 @@ a login argument after the binary.
 
 ## Validation
 
-Full suite green on the rebased head: exit 0, 3899 pass / 0 fail, all shell blocks clear. The
-challenge loop ran to convergence; the proof file is in `.claude/plans/`.
+Full suite green **at the exact head being merged**: the validation log holds a `clean` row whose
+diff hash byte-matches this branch's `origin/main...HEAD` diff, with a clean worktree, and the run
+genuinely executed rather than skipping (kosmos#1961 is the shape where a skip prints a pass; the
+check is that the output says `running validation sequence`). Exit 0, all shell blocks clear.
+
+The challenge loop ran to convergence and its proof file is committed as the final commit before
+this PR was opened.

@@ -1311,3 +1311,56 @@ exactly that.
 Commentary density: the reviewer independently re-verified the house-consistency defence
 (`server.js:781`, `:1553`, `:4995`, all outside this diff) rather than taking iteration 12's word or
 mine. Deferral stands on measured grounds for the third round running.
+
+## Findings from challenge-loop iteration 15
+
+**Ready to merge; everything found is documentation-level.** The reviewer enumerated the argv shapes
+satisfying all four launch assertions and could not construct a realistic leaking one, re-verified
+~12 out-of-diff citations exactly, re-checked the #1961 claims against the live file, and confirmed
+the branch holds a genuine clean validation at HEAD's exact diff hash with a clean worktree.
+
+### 🛑 THE FIFTH ABSOLUTE, AND THIS ONE WAS SOURCED TO A MEASUREMENT
+
+The comment said: *"THE SOURCE OF THE LEAK IS THE TMUX SERVER, NOT THIS PROCESS ... a value this
+process cannot inspect."* **False on the cold-server path**, which is the ordinary first-run case
+this feature exists for.
+
+| case | what happens | measured? |
+|---|---|---|
+| **WARM** server already running | the pane inherits whichever account STARTED the server; this process cannot inspect it | **yes**, #586 witness, tmux 3.6a |
+| **COLD**, no server | `new-session` **starts** one, and a fresh server inherits its launching client's env, so the leaked value is **THIS process's own and IS inspectable** | **no** |
+
+⭐ **The failure is new in kind and worse than the previous four.** The earlier absolutes were
+unsourced. **This one carried a citation, and the citation was real** -- it just measured something
+narrower than the sentence claimed. `tools/witness-pane-env.sh` **seeds a server before measuring**
+(`new-session -d -s seed 'sleep 60'`, then the measured session on that server), so **it can only
+ever answer the warm case, by construction**, and its own header says so.
+
+⇒ **A citation raises the cost of checking without raising the truth of the claim.** A reader who
+verifies that the witness exists and says what I said it says still learns nothing about whether my
+sentence is scoped to it. **The check that catches this is not "does the source support the words"
+but "does the source's SCOPE cover the sentence's scope".**
+
+✅ Corrected at both sites, and the cold path is now stated as unmeasured rather than absent. The
+fix is unaffected: `env -u` strips the key inside the pane whichever layer leaked it.
+
+### Two more correct-assertion-wrong-reason findings
+
+- **The whole-argv scan** was justified by "a tmux-level `-e CLAUDE_CONFIG_DIR=...` would put the
+  value back". **It would not:** `-e` populates the session environment and the `env -u` runs inside
+  the pane afterwards, so the key is stripped before `claude` is exec'd. The scan is kept for being
+  fail-safe and free; the reason is corrected.
+- **`envSlice.indexOf('-u')` takes the FIRST `-u`**, so "order-independent for detection" holds only
+  while the slice carries one. Now stated, with the fail-safe direction, matching the convention the
+  grammar walk already uses for unrecognised options.
+
+### The PR body was reviewed as a shipped artifact, and it needed it
+
+- The route is `/api/connect/start`, not `/api/connect`.
+- "the proof file is in `.claude/plans/`" asserted as present something that will not exist until the
+  loop converges. Reworded to say when it is written.
+- **"3899 pass / 0 fail" came from a run predating three commits.** The branch IS validated at HEAD,
+  but that row carries no count, **so the number and the head it described were from different
+  moments.** Now cites the hash-match and the ran-not-skipped check instead of a count from
+  elsewhere. ⭐ **Same defect as the trim figure, in the artifact reviewers actually read** -- which
+  is why the PR body went into review scope rather than being written at the end.
