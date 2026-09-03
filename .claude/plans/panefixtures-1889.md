@@ -181,13 +181,16 @@ screen, and my code saying `working`.
 line, `◯` was present on exactly the four genuinely waiting and absent on exactly
 the two resolved.
 
-⚠️ `⏺` is NOT the discriminator. It prefixes ordinary transcript bullets, which
-every pane carries in quantity; keying on it would have made the guard vacuous.
-Pinned by a perturbation that swaps one glyph for the other.
+⚠️ HISTORICAL, AND NOW INVERTED: this said `⏺` is NOT the discriminator, because
+the `◯` gate of the time keyed on the wrong glyph. That gate was deleted at
+iteration 9 as unsound. The SHIPPED resolution check keys on exactly `⏺`/`●`, as
+the agent-completion bullet, and its perturbations red. Read the code, not this
+paragraph.
 
-✅ The gate fails safe. If the vendor stops drawing `◯` the reader goes quiet,
-which is `origin/main`'s behaviour: a miss, not a false calm. Losing a true
-positive is the acceptable direction; claiming a finished agent is busy is not.
+📌 HISTORICAL: this described the `◯` liveness gate's fail-safe property. That
+gate no longer exists (deleted at iteration 9). The principle it states survives
+and still governs the reach and the resolution check: losing a true positive is
+the acceptable direction, claiming a finished agent is busy is not.
 
 ## A FIX SILENTLY GUTTED FOUR OF MY OWN GUARDS, AND THE SUITE STAYED GREEN
 
