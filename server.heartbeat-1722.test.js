@@ -37,9 +37,9 @@ const put = async (p, body) => {
   return { status: res.status, json: await res.json() };
 };
 
-test('GET defaults: off, interval 17, and the closed interval choices', async () => {
+test('GET defaults: ON (Josh 2026-09-03, #2013), interval 17, and the closed interval choices', async () => {
   const r = await getJson('/api/heartbeat-setting');
-  assert.equal(r.on, false);
+  assert.equal(r.on, true, 'an unconfigured heartbeat is on by default');
   assert.equal(r.intervalMinutes, 17);
   assert.deepEqual(r.intervals, [5, 10, 17, 60]);
   assert.equal(r.ok, true);

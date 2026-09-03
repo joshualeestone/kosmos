@@ -8,11 +8,13 @@
  * ⚠️ OFF BY DEFAULT, AND THE SWITCH IS THE ONLY THING THAT STARTS IT -- and
  * the reason is COMMERCIAL, not security (Josh, 2026-09-03). The Kosmos Plus
  * relay this tunnel connects to is a PAID service, and you do not auto-enable
- * something the customer has to pay for. This is now the SINGLE documented
- * exception to the on-by-default product rule (ping and notify were flipped
- * on the same day); it generalises to any future paid feature without
- * re-arguing the security question. Do NOT delete this carve-out on an
- * on-by-default sweep -- an exception with no stated reason gets swept back on.
+ * something the customer has to pay for. That is the COMMERCIAL exception to
+ * the on-by-default product rule, and it generalises to any future paid
+ * feature without re-arguing the security question. (notify and ping are also
+ * off today, but for a DIFFERENT reason: held pending an opt-out decision,
+ * kosmos#2020, not flipped by #2013. remote's reason is commercial, theirs is
+ * the missing control.) Do NOT delete this carve-out on an on-by-default
+ * sweep -- an exception with no stated reason gets swept back on.
  *
  * 🔑 NO CRYPTO HERE, ON PURPOSE. Enrolment (the keypair, the pin, the CSR)
  * and the connection itself live in the kosmos-tunnel binary, which is
