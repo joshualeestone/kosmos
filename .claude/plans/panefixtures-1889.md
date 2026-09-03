@@ -132,10 +132,9 @@ which is the false-calm direction this card exists to close, and the exact "the
 fix for a finding introduces a worse finding" shape `status.test.js` warns about
 above its footer row.
 
-⇒ Handled: the two counter phrases the vendor's render composes (background
-agents, dynamic workflows). The first was observed live; the second was derived
-from the render JSX, which is weaker evidence and is labelled as such wherever it
-is claimed. Every other `Waiting for …` string is a
+⇒ Handled: ONE counter phrase, `background agents?`, observed live. The composed
+two-counter row matches through it. The workflow-only arm was added from JSX and
+then removed (see below). Every other `Waiting for …` string is a
 named, unresolved risk, with an instruction in the code not to widen without a
 live capture and to route human-blocked shapes to `NEEDS_YOU`.
 
@@ -323,8 +322,11 @@ it is not what I expected going in.
 | 9 | a subsystem I added in round 3 (unsound by construction) | self-inflicted |
 | 10 | the redesign I shipped in round 9 | self-inflicted |
 
-⇒ **Seven of ten rounds found defects in code that did not exist before this
-branch started.** That is not an argument against the loop: every one of those
+⇒ **Five of ten rounds found defects in code that did not exist before this
+branch started** (4-6, 9 and 10; rounds 1-3 were pre-existing and 7-8 were latent
+in the vendor's render). An earlier version of this sentence said seven, which
+contradicted the table directly above it: a derived number going stale inside the
+section about derived numbers going stale. That is not an argument against the loop: every one of those
 was a real false calm or false idle that would have shipped. It is an argument
 about what this kind of work costs. Scraping a vendor TUI means each fix has a
 blast radius the fix's author cannot see, and the only instrument that reliably
@@ -358,11 +360,16 @@ I added a `dynamic workflows?` alternative to the matcher, derived from the rend
 JSX, three lines below this file's own rule saying not to widen without a live
 capture of the shape.
 
-🛑 A workflow-only wait then matched and could NEVER BE RESOLVED. The resolution
-check keys on the vendor's agent-completion notification, and there is no
-workflow equivalent anywhere in the bundle. Such a pane read `working` forever,
-which is worse than `origin/main` and worse than the defect this card exists to
-fix.
+🛑 A workflow-only wait then matched and could never be resolved by anything the
+reader knows about, so such a pane read `working` forever: worse than
+`origin/main` and worse than the defect this card exists to fix.
+
+⚠️ AND THE REASON I FIRST GAVE WAS FALSE. I wrote that no workflow completion
+string exists in the bundle. Both `Dynamic workflow "${name}" completed` and
+`… failed: …` are there. A workflow arm plus its own resolution marker is
+buildable; I closed the question with a sentence one grep refutes.
+⇒ The deletion stands on the rule, not on that claim: widened from JSX with no
+live capture.
 
 ⇒ Deleted. The composed form (`… 1 background agent and 2 dynamic workflows …`)
 still matches through its agent phrase; only the never-observed workflow-only
