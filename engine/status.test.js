@@ -3021,6 +3021,34 @@ test('#966: a fresh report does NOT beat a scraped auth_failed -- 3b keeps the h
   assert.match(got.conflict, /sign-in is being rejected/);
 });
 
+// #1930: a scraped auth_failed can be STALE (the sign-in was repaired off-pane and the old
+// 401 still sits in scrollback). The ONLY signal that distinguishes it is the live auth
+// CONDITION, passed in as the 4th arg by snapshot (engine/authprobe). Report freshness cannot
+// (that is #966 above). These pin the two directions.
+const authprobe = require('./authprobe');
+
+test('#1930: the drift guard -- LIVE_AUTH_HEALTHY in status.js equals authprobe.HEALTHY', () => {
+  // reconcileReport suppresses on liveAuth === 'healthy'; authprobe returns that exact string.
+  assert.equal(authprobe.HEALTHY, 'healthy');
+});
+
+test('#1930 CONTROL: a scraped auth_failed + a LIVE-HEALTHY account no longer reads auth_failed', () => {
+  const got = reconcileReport(rep('working', { because: 'answering Joshua' }),
+    scr(STATE.AUTH_FAILED, CONFIDENCE.SCRAPED, 'OAuth access token is invalid'),
+    T0 + 60_000, authprobe.HEALTHY);
+  assert.equal(got.state, STATE.WORKING, 'a stale 401 over a live-valid sign-in must stop reading auth_failed');
+  assert.match(got.conflict, /stale/, 'and the staleness is surfaced, not silently dropped');
+});
+
+test('#1930 GUARD: no false calm -- expired / unknown / unchecked / absent all keep auth_failed', () => {
+  const scraped = scr(STATE.AUTH_FAILED, CONFIDENCE.SCRAPED, 'OAuth access token is invalid');
+  for (const verdict of [authprobe.EXPIRED, authprobe.UNKNOWN, authprobe.UNCHECKED, undefined]) {
+    const got = reconcileReport(rep('working'), scraped, T0 + 60_000, verdict);
+    assert.equal(got.state, STATE.AUTH_FAILED, `a genuinely-unconfirmed sign-in (${verdict}) must still read auth_failed`);
+    assert.match(got.conflict, /sign-in is being rejected/);
+  }
+});
+
 /**
  * #1259. The precedence is right and is not what this pins. What it pins is
  * that winning it must not DELETE the losing witness's evidence.

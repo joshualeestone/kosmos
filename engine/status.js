@@ -3868,6 +3868,11 @@ function paneRoster() {
    so a `working` older than this is a claim nobody is standing behind. */
 const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
 
+/* #1930: the verdict value from engine/authprobe that means the account's sign-in was just
+   confirmed LIVE. Only this positive evidence suppresses a scraped auth_failed (rule 3b);
+   it must equal authprobe.HEALTHY, and a test pins the two together so they cannot drift. */
+const LIVE_AUTH_HEALTHY = 'healthy';
+
 /**
  * One state from two witnesses: the agent's own report and the pane reader.
  * A fresh report is authoritative; the reader stays as corroboration and
@@ -3967,7 +3972,7 @@ function saidWords(reported, nowMs) {
   return '';
 }
 
-function reconcileReport(reported, scraped, nowMs) {
+function reconcileReport(reported, scraped, nowMs, liveAuth) {
   if (!reported || reported.found !== true) {
     /* 🔑 "IT HAS NEVER SAID ANYTHING" IS A DIFFERENT FACT FROM "WE COULD NOT TELL",
        and only one of them is actionable (#1315). `selfreport.read` already
@@ -4034,6 +4039,20 @@ function reconcileReport(reported, scraped, nowMs) {
   // "at rest and nothing is needed" over a 401 retry loop is the same false
   // calm rule 3 exists for, one state over. Observed live on 0.5.31 (#880).
   if (scraped.state === STATE.AUTH_FAILED) {
+    /* #1930: a scraped auth_failed can be STALE -- the sign-in was repaired OFF-PANE and the
+       old 401 still sits in the bottom rows, identical bytes before and after, so the pane
+       cannot tell "failing now" from "failed and since repaired". Report freshness cannot
+       either (#966): an auth failure refuses the request, so the reporting hook cannot fire
+       DURING one, so a fresh report is from BEFORE any current failure and vouches for nothing
+       now. The one signal that can is the actual auth CONDITION -- a live `claude auth status`,
+       run per-account / cached / async OFF the tick (engine/authprobe). Suppress ONLY on
+       positive live-HEALTHY evidence; expired / unknown / unchecked leave auth_failed standing,
+       so a genuine failure is never suppressed (the false calm rule 3b exists to prevent).
+       Re-enter with the auth signal removed rather than copying the report rules. */
+    if (liveAuth === LIVE_AUTH_HEALTHY) {
+      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth);
+      return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
+    }
     return { ...scraped, reported: false, conflict: 'its screen shows its Claude sign-in is being rejected, which its reports cannot know about' + saidWords(reported, nowMs) };
   }
   /* Rule 3b, rate-limit half (#966). The rule above states its own
@@ -4246,9 +4265,20 @@ function snapshot() {
     /* The agent's own account outranks the scrape when fresh (#188); only a
        pane TIED to the name may read that name's record, the same gate every
        name-keyed read below honours. */
+    const now = Date.now();
+    /* #1930: when the screen shows a Claude sign-in rejection, ask the actual auth CONDITION
+       whether it is stale -- a per-account, cached, ASYNC live check (engine/authprobe) that
+       never blocks this tick. Only for a scraped auth_failed on one of our named panes (we
+       need the name to resolve the account config dir); no probe for a healthy agent. */
+    let liveAuth;
+    if (scrapedStatus.state === STATE.AUTH_FAILED && isNamedOurs(pane)) {
+      let configDir = null;
+      try { const job = require('./create').readJob(pane.name); configDir = (job && job.configDir) || null; } catch { /* default account */ }
+      liveAuth = require('./authprobe').verdict(configDir, now);
+    }
     const status = reconcileReport(
       isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
-      scrapedStatus, Date.now());
+      scrapedStatus, now, liveAuth);
     /* 🔑 WHAT A PING WOULD HAVE BEEN, AND NOBODY IS PINGED (#1494). The phone
        seam's automatic trigger cannot fire for a Kosmos agent: it hangs off
        `PermissionRequest` and every supervisor launch path passes
