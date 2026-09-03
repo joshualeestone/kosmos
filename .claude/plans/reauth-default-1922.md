@@ -882,7 +882,9 @@ anyone reading `7aed4b7d`'s body should read this section.
 
 ### The gate comment was trimmed under this file's OWN rule
 
-`engine/connect.js` states, about 800 lines above the gate, the rule a prior branch wrote for itself
+`engine/connect.js` states, about 26 lines above the gate (it is the two LAUNCH-SITE blocks that
+sit ~800 lines BELOW it -- an earlier version of this sentence transposed the two distances), the
+rule a prior branch wrote for itself
 after two reviewers flagged 25 lines of non-operative archaeology in a hot path: **HISTORY MOVES TO
 THE PLAN, THEN TRIMS. Never trim first.** My gate comment had grown to ~45 lines, most of it a
 running retraction log ("an earlier version said...", "BOTH WERE WRONG", "that clause is struck").
@@ -921,7 +923,23 @@ reasoning** -- the operative claims, the citations and the honest coverage gap a
 those overstate the result.** The replacements add text back, so the net is smaller than the block
 counts suggest: **82 added lines before the trim, 70 after.**
 
-🛑 **AND THE SOURCE TOTAL I PUBLISHED HERE (100) WAS WRONG. It is 97, corrected at iteration 11.**
+🛑 **STOP QUOTING A BARE TOTAL HERE. IT HAS BEEN WRONG THREE TIMES FOR THREE DIFFERENT REASONS:**
+109 -> 100 (described instead of measured) -> 97 (wrong diff BASE) -> and 97 was stale by iteration
+12, because iteration 11 added five comment lines to `server.js` AFTER the number was written.
+⇒ **The third failure is not arithmetic and not the base. It is that a number in a document is a
+measurement frozen at a MOMENT, in a file that keeps changing.**
+
+✅ **So it is recorded as a command and a commit instead of a figure**, which cannot go stale
+silently:
+
+```
+git diff --numstat origin/main...HEAD -- engine/connect.js server.js
+```
+
+At `63c4f389` that gives `70` and `32` (source total 102, of which the overwhelming majority is
+comment). Re-run it rather than trusting any number written here.
+
+📌 The original point stands and is why the entry exists: **100 was wrong.**
 I measured with `git diff --numstat origin/main` -- **TWO dots** -- which compares against the
 current tip of main. Main has moved **12 commits** since my merge-base and **those commits touch
 `server.js`, which my branch also touches**, so the two-dot form folded another lane's changes into
@@ -1115,6 +1133,72 @@ re-parented.
 They are left in place deliberately: the correction is to the COLUMN, not to the rows, and deleting
 them would destroy the record of what was found when. **What they name is still findable by message.**
 
-✅ **Owed before the proof file: one full validation on the rebased head.** It cannot skip -- the
-rebase moved the diff hash -- and per #1961 the check is that the output says `running validation
-sequence`, not `skipping`.
+✅ **DISCHARGED at 03:38:51Z.** Full validation on the rebased head: **exit 0, ran rather than
+skipped** (`validation-log: running validation sequence`, the #1961 check), hash `07356482aa9d`
+matching the current diff hash byte for byte with a clean tree, **3899 pass / 0 fail**, zero
+FAIL-shaped lines, `all clear` on the shell half.
+
+📌 The node count rose 3897 -> 3899 across the rebase. **Not mine:** `engine/connect.test.js` still
+reports 54 and `server.connect.test.js` still reports 40, unchanged, so the two extra tests came in
+with main's 12 commits. I have not pinned which commit added them and do not need to; what mattered
+was establishing they were not mine.
+
+## Findings from challenge-loop iteration 12
+
+**No BLOCKER and no code defect.** The reviewer reproduced the four `env` arms independently rather
+than accepting them, verified every out-of-diff citation, and checked the whole #1961 section line by
+line against the live `validation-log.sh`. Both remaining WARNINGs were claims-about-claims.
+
+### 🛑 A PLACEMENT DECISION THAT IS RIGHT, WITH A REASON THAT IS WRONG THREE WAYS
+
+The docblock said the launch arm lives in `engine/connect.test.js` rather than the route suite
+because "both route harnesses SET `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`". Measured:
+
+| the claim | what is true |
+|---|---|
+| "both route harnesses" | **ELEVEN** `server.*.test.js` files set that seam |
+| the seam is what blocks a launch arm there | **the DRY RUN is.** `server.connect.test.js` sets `AGENT_WORKFORCE_DRY_RUN='1'` at MODULE SCOPE, so `start()` returns at the install-confirm guard and never reaches a launch decision |
+| the seam cannot be worked around | **this arm deletes it at line 27**, so the reason is self-defeating |
+
+⭐ **The third row is the sharpest: my own arm is the counter-example to my own stated reason.** The
+sibling docblock 130 lines away in the same diff already said the dry run was what stopped it.
+
+### The trim figure was wrong a THIRD time, for a third kind of reason
+
+109 -> 100 (described rather than measured) -> 97 (wrong diff BASE) -> **97 was stale**, because
+iteration 11 added five comment lines to `server.js` after the number was written. ⇒ **Not
+arithmetic, not the base: a number in a document is a measurement frozen at a MOMENT, in a file that
+keeps changing.** Replaced with the command and the commit it was taken at, which cannot go stale
+silently.
+
+### An assertion that was correct today and scheduled to break
+
+`u + 1 < envSlice.length - 1` says "the `-u` pair is not the final two elements". That equals the
+property wanted ONLY while the launch pushes exactly one operand, last. **kosmos#1937's stated
+remedy is to add a login argument after the binary**, which breaks the invariant.
+
+✅ Replaced with a walk of `env`'s argument grammar to find the FIRST OPERAND, asserting `-u`
+precedes it. **Mutation-proven on both shapes, and the second is the point:**
+
+```
+['env', bin, '-u', 'CLAUDE_CONFIG_DIR']              old: RED    new: RED
+['env', bin, '-u', 'CLAUDE_CONFIG_DIR', '--login']   old: PASSES new: RED   <- the #1937 shape
+```
+
+⭐ **The old assertion would have gone green on the exact argv the next card is going to write.**
+A guard can be correct against every mutation you can think of today and still be scheduled to fail.
+
+### Deferred, with reasoning
+
+- **Six retraction-archaeology passages remain in the two test files and `server.js`.** The reviewer
+  filed this as a NIT rather than a convention violation deliberately, because the same pattern
+  pre-exists in `server.js` at lines 781, 1553 and 4995, **outside this diff**. ⇒ House-consistent,
+  not introduced here. Trimming shipped comments that match surrounding style is a bigger change than
+  it looks and belongs to a sweep of the file, not to this card. The three `engine/connect.js` blocks
+  the MOVE-THEN-TRIM rule actually named ARE clean.
+
+### Merge readiness
+
+Reviewer: **ready to merge, no BLOCKER, no code defect.** The routing ternary matches the two
+siblings it cites, `null` normalizes identically to an omitted key, and the `-u` push is correct at
+the launch layer with load-bearing controls on both sides.
