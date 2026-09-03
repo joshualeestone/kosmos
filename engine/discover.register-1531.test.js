@@ -208,4 +208,18 @@ test('#1938: a present-but-UNNAMED instructions file + a typed name is adopted (
   const refused = discover.connect(dir2, {});
   assert.equal(refused.ok, false, 'an unnamed file with no typed name was adopted anyway');
   assert.match(refused.because, /do not say who the agent is/i);
+
+  /* 🛑 CONTROL 2: a NON-INTRODUCING file (a project's build-notes CLAUDE.md) + a typed
+     name is STILL refused. Without the INTRODUCES re-check inside connect(), a supplied
+     name would adopt-and-START Claude in any repo that merely has a CLAUDE.md -- the
+     exact "put a build-notes folder on the board as an agent, then start a Claude in it"
+     that connect-agent.test.js forbids. This is the arm that proves the supplied-name
+     override is scoped to files that actually introduce somebody, not to any readable
+     file. */
+  const dir3 = path.join(SB, 'buildnotes-typed');
+  fs.mkdirSync(dir3, { recursive: true });
+  fs.writeFileSync(path.join(dir3, 'CLAUDE.md'), '# Build notes\n\nRun the tests before pushing.\n');
+  const refusedBuild = discover.connect(dir3, { name: 'not-an-agent' });
+  assert.equal(refusedBuild.ok, false, 'a non-introducing build-notes file + a typed name was adopted and would have started Claude in a repo');
+  assert.match(refusedBuild.because, /do not say who the agent is/i);
 });

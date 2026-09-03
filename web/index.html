@@ -34717,7 +34717,7 @@ document.addEventListener('click', async (e) => {
        IS the outcome: without this, somebody adds an agent and the grid behind
        the panel does not change for another five seconds, which reads as the
        press having done nothing. */
-    if (row.closest('#found-wrap')) { try { tick(); } catch { /* the poll will */ } }
+    if (row.closest('#found-wrap, #scan-wrap')) { try { tick(); } catch { /* the poll will */ } }
     /* 🛑 NO SENTENCE ON SUCCESS (Josh, 2026-08-22). It read "Added, and started.
        It stays in its own folder." -- true, and one more line to read on a screen
        where somebody is about to press three more buttons. The button saying
@@ -34777,7 +34777,7 @@ document.addEventListener('click', async (e) => {
     row.classList.remove('done');
     /* Same reason as the add: the card going away is what the person is looking
        at when they press this. */
-    if (row.closest('#found-wrap')) { try { tick(); } catch { /* the poll will */ } }
+    if (row.closest('#found-wrap, #scan-wrap')) { try { tick(); } catch { /* the poll will */ } }
     go.classList.remove('added');
     go.disabled = false;
     /* ⚠️ THE DISPLAYED NAME REBUILDS THE LABEL, not the registered one: this is

@@ -158,6 +158,24 @@ test('a symlinked directory is not descended (no escape from the roots)', () => 
   assert.ok(!names.includes('Escaped'), 'a symlinked directory was descended, escaping the roots');
 });
 
+test('a symlinked scan ROOT is followed (a curated root the person chose is not dropped)', () => {
+  /* 🔑 THE CONTRAST WITH THE TEST ABOVE. A symlinked DIRECTORY inside the tree is
+     refused (escape), but a ROOT is a trusted, curated location: a person whose `~/work`
+     is a symlink to an external volume keeps their agents there ON PURPOSE, and dropping
+     the root would hide that whole population and reintroduce the "Create your first
+     agent" defect. So the root symlink is followed once; the children under it are still
+     `lstat`-refused. */
+  const realTarget = path.join(SB, 'external-volume');
+  const agentDir = path.join(realTarget, 'agent-on-volume');
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, 'CLAUDE.md'), 'You are **On Volume**, a tester.\n');
+  const linkRoot = path.join(SB, 'work-symlink');
+  try { fs.symlinkSync(realTarget, linkRoot, 'dir'); } catch { return; }
+  const r = discover.scan({ roots: [{ dir: linkRoot, maxDepth: 3 }] });
+  assert.ok(r.candidates.some((c) => c.name === 'On Volume'),
+    'a symlinked scan root was dropped, hiding the agents the person keeps under it');
+});
+
 test('a symlinked CLAUDE.md is not read', () => {
   const outside = path.join(SB, 'outside-file');
   fs.mkdirSync(outside, { recursive: true });

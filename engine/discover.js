@@ -631,9 +631,14 @@ function found() {
  * operator's real home.
  */
 const SCAN = Object.freeze({
-  /* The SAME slice `found()` reads for identity (fs.readFileSync(...).slice(0, 4000)).
-     Reused rather than reinvented so the preview and the identity check see the
-     same bytes, and so no scan read is ever unbounded. */
+  /* The first READ_CAP BYTES of a CLAUDE.md -- the same 4000 `found()` caps identity
+     at, but read as a BYTE window rather than `found()`'s `readFileSync(...).slice(0,
+     4000)` CHARACTER slice. The difference is deliberate: a scan reads MANY files, some
+     large, so it must never allocate a whole file the way `readFileSync` would; a fixed
+     byte read is bounded regardless of file size. The identity signal ("You are ..." at
+     the top) is ASCII and well inside the window, so byte-vs-char is immaterial there;
+     the only effect is that a preview truncated mid-multibyte shows one replacement char
+     at its tail, which is cosmetic. */
   READ_CAP: 4000,
   /* Directories we will read before stopping the whole scan. A wall against a
      pathological tree; on a normal machine the scan finishes far below it. */
@@ -785,9 +790,18 @@ function scan(opts) {
   outer:
   for (const root of roots) {
     let rootStat;
-    /* `lstat`, so a symlinked root is not followed -- a scan root that is a link
-       out of the home tree would be an escape before the walk even begins. */
-    try { rootStat = fs.lstatSync(root.dir); } catch { continue; }
+    /* 🔑 `stat`, NOT `lstat`, FOR THE ROOT: a scan root is a CURATED, TRUSTED location
+       (the fixed set under $HOME, or an explicit test override), and a person whose
+       `~/work` is a symlink to an external volume keeps their agents there on purpose --
+       dropping a symlinked root would hide that whole population and reintroduce the
+       "Create your first agent" defect this card exists to fix. So the root symlink is
+       FOLLOWED once, to enter the place the person chose.
+       ⚠️ THE NO-ESCAPE GUARD IS ON THE DESCENDED CHILDREN, NOT THE ROOT. Every child
+       below is `lstat`ed and a symlink is refused, so the walk never follows a link OUT
+       of the root's real tree -- the escape this module family has shipped six times.
+       Following the root once (a location the operator picked) and refusing every
+       symlink inside it (untrusted tree contents) is the correct split. */
+    try { rootStat = fs.statSync(root.dir); } catch { continue; }
     if (!rootStat.isDirectory()) continue;
     const maxDepth = Number.isFinite(root.maxDepth) && root.maxDepth >= 0 ? root.maxDepth : SCAN.DEEP_DEPTH;
 
@@ -998,19 +1012,23 @@ function connect(dir, opts) {
     return registerOnly(given, supplied, { create, store });
   }
   const id = status.identityFromText(text);
-  /* 🛑 A SUPPLIED NAME WINS EVEN WHEN THE FILE NAMES NOBODY (#1938, completing #1531's
-     ruling 2(a)). The file introduces somebody -- it says "You are ..." -- but the
-     parser could not read a name out of it (a lowercase name, an odd phrasing). The
-     screen already asked the person for one, and Josh's ruling is that the typed name
-     wins; refusing here made that name field a lie. So the refusal now fires ONLY when
-     the file names nobody AND nobody typed a name.
-     ⚠️ WHY THIS IS SAFE FOR THE FOUND/ADOPT FLOW TOO: the no-name refusal is unchanged
-     (connect-agent.test.js pins it), and the disk scan and found()'s unnamed-intro
-     rows both reach this path with a name in hand -- previously refused, and this is
-     the completion of the same ruling that already lets a typed name beat a basename
-     just below. The display name is then the one the person typed, since the file has
-     none to offer. */
-  if ((!id || !id.displayName) && !supplied) {
+  /* 🛑 A SUPPLIED NAME WINS WHEN THE FILE INTRODUCES SOMEBODY BUT NAMES NOBODY (#1938,
+     completing #1531's ruling 2(a)). The file says "You are ..." but the parser could
+     not read a name out of it (a lowercase name, an odd phrasing). The screen already
+     asked the person for one, and Josh's ruling is that the typed name wins; refusing
+     here made that name field a lie. So the refusal now stands DOWN only when a name was
+     typed AND the file actually introduces somebody.
+     🛑 THE `INTRODUCES` RE-CHECK IS LOAD-BEARING, not belt-and-suspenders. `connect()` is
+     a shared public entry point, and without it a supplied name would adopt-and-START a
+     NON-introducing file too -- a project's build-notes `CLAUDE.md` plus a typed name
+     would install a launchd job and start Claude in somebody's repo, which is the exact
+     thing connect-agent.test.js's "instructions that never say who it is are refused"
+     forbids. The UI only offers a name field for introducing / no-file folders, so the
+     hole is reachable only by a direct API call -- but the engine must enforce what the
+     comment promises rather than trust the caller. The no-name refusal is unchanged.
+     The display name is then the one the person typed, since the file has none to offer. */
+  const introduces = INTRODUCES.test(text);
+  if ((!id || !id.displayName) && !(supplied && introduces)) {
     return { ok: false, because: 'those instructions do not say who the agent is, so we cannot bring it in' };
   }
   const displayName = (id && id.displayName) || supplied;
