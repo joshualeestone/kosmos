@@ -90,6 +90,14 @@ cp -R "$REPO/web" "$STAGE/app/web"
 cp "$REPO/bin/agent-supervisor.sh" "$STAGE/app/bin/"
 cp "$REPO/bin/codex-report-bridge.js" "$STAGE/app/bin/"
 
+# #2007: the browser-open helper. It mirrors bash cmd_open's nonce flow so the
+# ENFORCING Windows board (it runs unsandboxed) authenticates the browser instead
+# of 403'ing it. It ships at the zip ROOT beside open-board.cmd, NOT under app/,
+# so it is a launcher artifact like the .cmd and the README rather than an app
+# module -- which also keeps it out of the two-builder app-parity scan
+# (tools.build-windows-570.test.js reads only `cp ... "$STAGE/app` lines).
+cp "$REPO/tools/kosmos-open-board.js" "$STAGE/open-board.js"
+
 # 🔑 THE VERSION IS BAKED INTO THE PAGE, same as the Mac builder and for the same
 # reason (#269): a fact about the bundle must not require the bundle's API. The
 # checks below FAIL THE BUILD rather than shipping the marker to a screen.
@@ -154,8 +162,15 @@ echo "==> the launcher will open http://127.0.0.1:$PORT_DEFAULT"
 {
   printf '@echo off\r\n'
   printf 'rem Waits for the board, then opens it. Started by Kosmos.cmd.\r\n'
+  printf 'rem #2007: the board ENFORCES auth (it runs unsandboxed on Windows), so\r\n'
+  printf 'rem opening the plain url gets a 403 and the agents pane reads as broken.\r\n'
+  printf 'rem The helper mirrors bash cmd_open: it waits for the board, mints a\r\n'
+  printf 'rem single-use boot nonce, and opens the authenticated url, falling back\r\n'
+  printf 'rem to the plain url on a non-enforcing board or any failure. It opens the\r\n'
+  printf 'rem browser itself so this file stays a single plain node line (no for/f\r\n'
+  printf 'rem capture, no nested quoting that cannot be tested from a Mac).\r\n'
   printf 'timeout /t 3 /nobreak >nul\r\n'
-  printf 'start "" http://127.0.0.1:%s\r\n' "$PORT_DEFAULT"
+  printf '"%%~dp0runtime\\node.exe" "%%~dp0open-board.js" --port %s --app "%%~dp0app"\r\n' "$PORT_DEFAULT"
 } > "$STAGE/open-board.cmd"
 
 {
@@ -283,7 +298,7 @@ shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
 refuse() { echo "$1" >&2; rm -f "$ZIPOUT" "$ZIPOUT.sha256"; exit 1; }
 
 LISTING="$(unzip -l "$ZIPOUT")"
-for want in "Kosmos.cmd" "open-board.cmd" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html"; do
+for want in "Kosmos.cmd" "open-board.cmd" "open-board.js" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html"; do
   case "$LISTING" in
     *" $want"*) ;;
     *) refuse "the zip is missing $want" ;;
