@@ -45,3 +45,27 @@ test('#908: every request lands in the gate log with method, path and user-agent
      the API call here, and the log must keep that order. */
   assert.ok(lines.indexOf(api) < lines.indexOf(page), 'lines are not in request order');
 });
+
+test('#2029: both secret-bearing query params are redacted in the log -- token AND its sibling boot nonce', async (t) => {
+  await start(0);
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  // Distinct sentinel values so a leak of EITHER secret is unambiguous. gateLog
+  // runs at the top of the handler, before any bootstrap redirect, so the raw
+  // query is what reaches the log -- redaction is the only thing keeping it out.
+  await fetch(`${base}/?token=TOKENSENTINEL111`, { headers: { 'user-agent': 'redact-token/1' } });
+  await fetch(`${base}/?boot=BOOTSENTINEL222`, { headers: { 'user-agent': 'redact-boot/1' } });
+  await fetch(`${base}/?token=TOKENSENTINEL333&boot=BOOTSENTINEL444`, { headers: { 'user-agent': 'redact-both/1' } });
+  const body = fs.readFileSync(LOG, 'utf8');
+  // No secret VALUE may appear anywhere in the log.
+  assert.doesNotMatch(body, /TOKENSENTINEL111|TOKENSENTINEL333/, 'the board token leaked into the gate log');
+  assert.doesNotMatch(body, /BOOTSENTINEL222|BOOTSENTINEL444/, 'the boot nonce leaked into the gate log (#2029)');
+  // And each key survives with a REDACTED value, so the log still says WHAT was called.
+  const lines = body.trim().split('\n');
+  const tokenLine = lines.find((l) => l.includes('redact-token/1'));
+  const bootLine = lines.find((l) => l.includes('redact-boot/1'));
+  const bothLine = lines.find((l) => l.includes('redact-both/1'));
+  assert.match(tokenLine, /[?&]token=REDACTED/, 'token= must be redacted');
+  assert.match(bootLine, /[?&]boot=REDACTED/, 'boot= must be redacted (#2029)');
+  assert.match(bothLine, /token=REDACTED&boot=REDACTED/, 'both are redacted when they appear together');
+});

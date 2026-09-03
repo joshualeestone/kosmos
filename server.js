@@ -1516,7 +1516,13 @@ function gateLog(req) {
     // rides ONLY on the one `?token=` bootstrap request (every later request
     // carries the httpOnly cookie instead), so redacting the query value here is
     // enough to keep it out of the install-gate log.
-    const loggedUrl = String(req.url || '').replace(/([?&]token=)[^&]*/gi, '$1REDACTED');
+    // #2029: `?boot=<nonce>` is the sibling secret-bearing param (the #1979
+    // single-use browser-open nonce, redeemed for the same cookie), so it is
+    // redacted the same way. Low-severity today -- single-use, ~2-min TTL, and
+    // the gate is off by default -- but redacting one secret-bearing query value
+    // and not the one beside it stops being harmless the moment the nonce's
+    // lifetime or reusability changes, and nothing else recorded the omission.
+    const loggedUrl = String(req.url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED');
     fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${loggedUrl} ${ua}\n`);
   } catch { /* the instrument never becomes the defect */ }
 }
