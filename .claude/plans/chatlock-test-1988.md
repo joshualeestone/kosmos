@@ -27,9 +27,12 @@ control at chat.test.js:1309, and filelock.js:88.)
 
 ## The fix (test-only; the production lock is unchanged and correct)
 - **`writer.js` gains a bounded RETRY** on a lock/busy give-up (until it records or a 30s deadline). Each
-  attempt keeps the DEFAULT sub-2s wait budget on purpose: that stays UNDER `LOCK_STALE_MS` (10s), so a
-  waiter never ages past the stale bound and steals a LIVE holder's lock. So a contended writer takes its
-  turn instead of dropping its message, under any load, WITHOUT the double-entry risk.
+  attempt keeps the DEFAULT sub-2s wait, and the retry RE-ATTEMPTS rather than lengthening one wait, so a
+  single acquire's wait never approaches `LOCK_STALE_MS` (10s). So a contended writer takes its turn
+  instead of dropping its message, under any load, WITHOUT lengthening a single wait past the stale bound.
+  (Age-based staleness can still let a 2s waiter cross 10s if the lock was already near-stale when it
+  arrived -- a pre-existing production property, unchanged here, and any resulting loss reds the restored
+  control rather than being masked.)
 - **The stale test restores the dropped control**: assert both children returned `'true'`. Now a give-up
   reds LEGIBLY ("a false here is a give-up under load, not a lock defect"), and a genuine loss (both
   recorded yet a message missing) is the ONLY thing that reds the `length` assertion -- so the test still
