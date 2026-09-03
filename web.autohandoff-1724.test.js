@@ -56,10 +56,12 @@ test('kosmos#1724: a saved setting LOADS into the controls, which are live once 
   assert.equal(els['ah-msg'].textContent, '', 'no not-yet-active note once the sweep is live');
 });
 
-test('kosmos#1724: defaults to off and 85% when nothing is saved', async () => {
+test('kosmos#1724/#2013: defaults to ON and 85% when nothing is saved', async () => {
   const { paint, els } = makePaint(undefined);
   await paint();
-  assert.equal(els['ah-enabled'].checked, false, 'off by default');
+  // #2013: the fallback default flipped ON with the engine, so the two copies do
+  // not drift; a paint with no served value shows the on-by-default state.
+  assert.equal(els['ah-enabled'].checked, true, 'on by default');
   assert.equal(els['ah-threshold'].value, '85', 'threshold defaults to 85');
 });
 

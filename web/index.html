@@ -13395,7 +13395,7 @@ async function paintAutomation() {
   const msg = document.getElementById('ah-msg');
   try {
     const r = await (await fetch('/api/settings', { cache: 'no-store' })).json();
-    const a = (r && r.autohandoff) || { enabled: false, threshold: 85 };
+    const a = (r && r.autohandoff) || { enabled: true, threshold: 85 };
     if (document.activeElement !== en) en.checked = a.enabled === true;
     if (document.activeElement !== th) th.value = String(a.threshold || 85);
     /* #1724: the sweep (engine/autohandoff-sweep.js, wired in server.js) now acts on

@@ -64,10 +64,15 @@ test('kosmos#1722: the in-force setting LOADS, and the interval choices come fro
   assert.equal(els['hb-save'].disabled, false, 'Save is enabled');
 });
 
-test('kosmos#1722: defaults to off and 17 minutes when the heartbeat is off', async () => {
+test('kosmos#1722: renders unchecked and 17 minutes when the server says the heartbeat is off', async () => {
+  // #2013 note: the heartbeat default is now ON (engine), but this paints the
+  // SERVED value; it stubs an explicit off to check the off state renders, so
+  // the title no longer claims a default. The heartbeat frontend has no
+  // hardcoded fallback (it disables on a read failure, tested below), so there
+  // is no default-copy here to drift.
   const { paint, els } = makePaint({ on: false, intervalMinutes: 17, intervals: [5, 10, 17, 60], ok: true });
   await paint();
-  assert.equal(els['hb-enabled'].checked, false, 'off by default');
+  assert.equal(els['hb-enabled'].checked, false, 'a served off renders unchecked');
   assert.equal(els['hb-interval'].value, '17', 'the interval is the fleet-cadence default');
 });
 

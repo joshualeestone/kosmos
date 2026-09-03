@@ -77,8 +77,15 @@ function handoffPrompt(fillPct, path) {
  * The stored setting, normalised. enabled is a boolean; threshold is one of the
  * offered options, defaulting to DEFAULT_THRESHOLD. A store that has never been
  * written returns the default (on), so the feature is opt-out (Josh, 2026-09-03:
- * on by default; only an explicit false is off). autohandoff acts for the user
- * on their own machine, so there is no phone-home fail-safe to preserve here.
+ * on by default; only an explicit false is off).
+ *
+ * ⚠️ A CORRUPT OR UNREADABLE shared settings file reads as {} (store.readSettings
+ * does not throw), so this ALSO defaults ON -- which resurrects the feature and
+ * drops a stored explicit-off. That is a DELIBERATE choice, not an oversight:
+ * autohandoff acts in-machine (it injects a handoff prompt into the agent's own
+ * pane, no phone-home), so defaulting on a lost config leaks nothing. The
+ * phone-home features (notify/ping) do the OPPOSITE and fail to OFF on a bad
+ * read; if autohandoff ever reaches off the machine, it must switch to that rule.
  */
 function settingFrom(stored) {
   const a = (stored && stored.autohandoff) || {};
