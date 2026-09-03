@@ -4609,6 +4609,19 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   border: 0.5px solid var(--border-strong); border-radius: var(--radius-control);
   padding: 10px 12px; resize: vertical; box-sizing: border-box; }
 #create-instr:focus-visible, #import-text:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+/* #1938: the read-only preview of a scanned CLAUDE.md. Dressed like the create/import
+   instruction boxes (a person recognises the surface) but as its OWN rule, so the
+   #1800 guard that pins #import-text to exactly the shared pair stays true. Read-only
+   and bounded in height so a long file scrolls inside the row rather than pushing the
+   Add button off the screen. Load-bearing, not decoration: it is how a person answers
+   "is this one of mine?" for a folder we cannot name. */
+.fr-scanpreview { width: 100%; font: var(--text-callout) var(--font-mono);
+  color: var(--label-2); background: var(--field-fill);
+  border: 0.5px solid var(--border-strong); border-radius: var(--radius-control);
+  padding: 10px 12px; box-sizing: border-box;
+  margin-top: var(--space-2); resize: vertical; min-height: 4.5rem; max-height: 16rem;
+  white-space: pre; overflow: auto; }
+.fr-scanpreview:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .flabel-soft { font-weight: 400; color: var(--label-2); }
 /* ⚠️ CHIPS THAT WRAP, which is the pack's own rule and which the build had
    replaced with a single-column grid of full-width rows. That is why Josh
@@ -5243,7 +5256,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    📌 BOTH SURFACES, because `foundRowsHtml` paints the board's panel too and a row
    should not look different depending on which screen offered it. */
 #firstrun .fr-foundrow .btn.uprime,
-#found-list .fr-foundrow .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: var(--k-ink); }
+#found-list .fr-foundrow .btn.uprime,
+#scan-list .fr-foundrow .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: var(--k-ink); }
+/* #1938: a scan row stacks -- name/role, then the file preview full width, then the
+   actions -- rather than the two-column found-row grid, because the preview needs the
+   whole width and would be unreadable in a narrow left column. */
+#scan-list .fr-scanrow, #firstrun .fr-scanrow { display: block; }
+#scan-list .fr-scanrow .fr-foundact, #firstrun .fr-scanrow .fr-foundact { margin-top: var(--space-3); }
+.fr-scanrow .fr-adoptname { display: grid; gap: 2px; margin-top: var(--space-3); }
+.fr-scanhint { color: var(--label-2); font: var(--text-caption) var(--font-ui); margin: 2px 0 0; }
 /* 🔑 GREEN WITH A CHECK (kosmos#1346), Josh: the Added state should read as clearly
    done. `--ok` rather than a new value, because this file already measured it at
    5.32:1 and its own note says "we already use this green" is not a measurement:
@@ -5258,7 +5279,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    putting the glyph in the string would have forced both to be loosened, which is
    how a guard quietly stops guarding. The word is unchanged, the mark is added. */
 #firstrun .fr-foundrow .fr-foundgo.added,
-#found-list .fr-foundrow .fr-foundgo.added { opacity: 1; color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; }
+#found-list .fr-foundrow .fr-foundgo.added,
+#scan-list .fr-foundrow .fr-foundgo.added { opacity: 1; color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; }
 /* 🔑 GREEN WITH A CHECK (kosmos#1346), Josh: the Added state should read as clearly
    done. `--ok` rather than a new value, because this file already measured it at
    5.32:1 and its own note says "we already use this green" is not a measurement:
@@ -10255,6 +10277,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   <div class="removed-list found-list" id="found-list" hidden></div>
 </div>
 
+<!-- #1938: the DISK-SCAN panel. Agents on this computer that Kosmos has no record
+     of Claude ever running in, found by walking a bounded set of sensible folders
+     for CLAUDE.md files. Distinct from #found-wrap above, which lists agents Claude
+     HAS a record of. Each row SHOWS the file and asks "is this one of yours?" -- the
+     scan cannot read who a folder belongs to the way found() can, so the person
+     decides, and a wrong candidate is one Skip. -->
+<div class="removed-wrap" id="scan-wrap" hidden>
+  <div class="found-head">
+    <button class="linkish" id="scan-toggle" type="button"
+            aria-expanded="false" aria-controls="scan-list"></button>
+    <button class="linkish found-dismiss" id="scan-dismiss" type="button">Dismiss this forever</button>
+  </div>
+  <div class="removed-list found-list" id="scan-list" hidden></div>
+</div>
+
 <!-- ⚠️ REMOVED AGENTS ARE NOT LOST, and this is where that becomes true for the
      person rather than only in a file. Removing takes an agent off the board
      and stops it starting again; it deletes nothing. If there were no way back
@@ -12920,7 +12957,7 @@ async function tick() {
     // grid is legitimately hidden on the agents tab whenever the list layout
     // is active, so `grid.hidden` stopped meaning "not on the agents tab".
     // `onAgentsTab()` reads boardbar, which tracks the tab and nothing else.
-    if (onAgentsTab()) { paintRemoved(); paintSurvival(); paintFoundBoard(); }
+    if (onAgentsTab()) { paintRemoved(); paintSurvival(); paintFoundBoard(); paintScanBoard(); }
   } catch (err) {
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
@@ -13117,7 +13154,7 @@ function showTab(tab) {
     if (rw) rw.hidden = true;
     /* Leaving the screen is what finishes a repair report; see SURVIVAL_HELD. */
     SURVIVAL_HELD = false;
-  } else { paintRemoved(); paintSurvival(); paintFoundBoard(); }
+  } else { paintRemoved(); paintSurvival(); paintFoundBoard(); paintScanBoard(); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
   /* #520: in the consolidated view the Agents and Projects tabs are one
      screen: the board's list is the left rail and the projects panel is
@@ -21280,6 +21317,124 @@ async function paintFoundBoard() {
 }
 
 /**
+ * One SCANNED candidate, as a row (#1938).
+ *
+ * 🛑 IT REUSES THE FOUND/ADOPT ROW SHAPE ON PURPOSE, not out of laziness. The Add
+ * (`.fr-foundgo`), Skip (`.fr-adoptno`) and post-add Undo (`.fr-foundundo`)
+ * handlers are all document-level and key on those class names, so a scan row
+ * reaches every one of them without a second copy of any handler. The two
+ * additions are the PREVIEW -- the file itself, which is how a person answers a
+ * question the scan cannot -- and a name field for a folder whose file names nobody.
+ *
+ * 🔑 THE PREVIEW IS LOAD-BEARING. The scan cannot read WHO a folder belongs to the
+ * way `found()` can from a transcript, so the row does not assert; it shows the
+ * instructions and asks. A wrong candidate is then one Skip, not a claim the product
+ * got wrong.
+ */
+function scanRowsHtml(candidates) {
+  return (candidates || []).map((c) => {
+    const dir = String(c && c.dir ? c.dir : '');
+    const name = String(c && c.name ? c.name : '');
+    const role = c && c.role ? String(c.role) : '';
+    const preview = String(c && c.preview != null ? c.preview : '');
+    const id = cssId(dir);
+    /* A named folder sends no name (connect reads it from the file); an unnamed one
+       carries a name field, so the Add handler asks for one before it will connect. */
+    const nameField = name ? '' :
+      '<span class="fr-adoptname">'
+      + '<label class="fr-adoptlab" for="scan-' + esc(id) + '">Name</label>'
+      + '<input class="fr-adoptinput" id="scan-' + esc(id) + '" type="text"'
+      + ' autocomplete="off" placeholder="e.g. Site monitor"'
+      + ' aria-describedby="scanhelp-' + esc(id) + '">'
+      + '<span class="fr-adopthelp fr-scanhint" id="scanhelp-' + esc(id) + '">'
+      + 'This folder’s instructions don’t give a name. What should we call it? You can rename it anytime.</span>'
+      + '</span>';
+    return '<div class="fr-foundrow fr-adoptrow fr-scanrow" data-found-dir="' + esc(dir) + '"'
+      + ' data-found-name="' + esc(name) + '">'
+      + '<span class="fr-foundtext">'
+      + '<span class="fr-foundname">' + (name ? esc(name) : 'A CLAUDE.md with no name in it') + '</span>'
+      + '<span class="fr-foundrole">' + esc(role || 'No title in its instructions') + '</span>'
+      /* The folder is always shown for a scanned candidate: it is the one fact that
+         tells the person which agent this is, and the whole reason found() missed it
+         is that nothing else names it. */
+      + '<span class="fr-founddir">' + esc(dir) + '</span>'
+      + '</span>'
+      + '<label class="fr-scanhint" for="scanprev-' + esc(id) + '">What its instructions say</label>'
+      + '<textarea class="fr-scanpreview" id="scanprev-' + esc(id) + '" rows="6" readonly spellcheck="false"'
+      + ' aria-label="Instructions for the agent in ' + esc(dir) + '">' + esc(preview) + '</textarea>'
+      + nameField
+      + '<span class="fr-foundact">'
+      + '<button class="btn uprime fr-foundgo" type="button"'
+      + ' aria-label="Add to Kosmos, ' + esc(dir) + '">Add to Kosmos</button>'
+      + '<button class="btn fr-foundundo" type="button" hidden'
+      + ' aria-label="Undo adding ' + esc(dir) + ' to Kosmos">Undo</button>'
+      + '<button class="btn fr-adoptno" type="button"'
+      + ' aria-label="Not one of mine, ' + esc(dir) + '">Not mine</button>'
+      + '</span>'
+      + '<p class="fr-foundsaid" role="status" aria-live="polite"></p>'
+      + '</div>';
+  }).join('');
+}
+
+/**
+ * The board's disk-scan panel (#1938). It offers the agents this computer holds that
+ * Kosmos has no record of Claude ever running in. The sibling of `paintFoundBoard`,
+ * and written the same
+ * way -- it paints only when the SET changes, and never over a row somebody has
+ * pressed, because this is another panel where a person presses several buttons in a
+ * row and the five-second poll must not rebuild under their hand.
+ */
+let SCAN_SIG = null;
+let SCAN_OPEN = false;
+async function paintScanBoard() {
+  const wrap = document.getElementById('scan-wrap');
+  const list = document.getElementById('scan-list');
+  const toggle = document.getElementById('scan-toggle');
+  if (!wrap || !list || !toggle) return;
+  if (!onAgentsTab()) { wrap.hidden = true; return; }
+  /* A row somebody has pressed must survive the next poll. Same guard the found
+     panel uses, widened by `.fr-adoptno:disabled` because a Skip in flight is also
+     a pressed row here. */
+  if (list.querySelector('.fr-foundrow.done, .fr-foundgo:disabled, .fr-adoptno:disabled, .declined')) return;
+
+  let body = null;
+  try {
+    const res = await fetch('/api/scan-agents', { cache: 'no-store' });
+    /* A scan that failed leaves the panel exactly as it was rather than claiming
+       there is nothing to add -- the same rule the found panel keeps. */
+    if (!res.ok) return;
+    body = await res.json().catch(() => null);
+  } catch { return; }
+  if (!body || body.ok !== true || !Array.isArray(body.candidates)) return;
+  /* Sent away for good honours the SAME flag as the found panel: both are "agents on
+     your computer" offers, and a person who dismissed one forever meant both. */
+  if (body.dismissed === true) { wrap.hidden = true; list.innerHTML = ''; return; }
+
+  const cands = body.candidates;
+  const sig = cands.map((c) => c.dir).sort().join('\u0000');
+  if (!cands.length) { SCAN_SIG = sig; wrap.hidden = true; list.innerHTML = ''; return; }
+
+  const n = cands.length;
+  wrap.hidden = false;
+  toggle.textContent = 'We found ' + (n === 1 ? 'an agent' : 'agents')
+    + ' on this computer we have not seen before. ' + (SCAN_OPEN ? 'Hide' : 'Show') + ' ' + (n === 1 ? 'it' : 'them');
+  toggle.setAttribute('aria-expanded', SCAN_OPEN ? 'true' : 'false');
+  list.hidden = !SCAN_OPEN;
+
+  if (sig === SCAN_SIG && list.innerHTML) return;
+  SCAN_SIG = sig;
+
+  list.innerHTML = '<p class="fr-foundnote">'
+    + 'Each of these has a CLAUDE.md, but Kosmos has no record of ever running it. '
+    + 'Look at what it says and add the ones that are yours. Adding one leaves it '
+    + 'exactly where it is, in its own folder with its own instructions.'
+    + (body.bounded && (body.bounded.count || body.bounded.dirs)
+        ? ' There may be more than shown here.' : '')
+    + '</p>'
+    + scanRowsHtml(cands);
+}
+
+/**
  * 🛑 THE RESULT WAS ERASED BY THE NEXT POLL, and only rendering it showed that.
  * A repair that works empties the missing list, so five seconds later
  * `paintSurvival` correctly hid the panel -- taking the per-agent report with
@@ -21614,6 +21769,33 @@ document.getElementById('found-toggle').addEventListener('click', () => {
      is written the same way for the same reason. */
   paintFoundBoard();
 });
+
+/* #1938: the scan panel's toggle and dismiss, mirroring the found panel above so
+   the two behave identically. Dismiss shares the SAME "forever" flag -- both are
+   offers about agents on this computer, and a person who dismissed one meant both. */
+document.getElementById('scan-toggle').addEventListener('click', () => {
+  SCAN_OPEN = !SCAN_OPEN;
+  paintScanBoard();
+});
+{
+  const dis = document.getElementById('scan-dismiss');
+  const REST = 'Dismiss this forever';
+  let armed = false;
+  const reset = () => { armed = false; dis.disabled = false; dis.textContent = REST; dis.classList.remove('armed'); };
+  dis.addEventListener('click', async () => {
+    if (!armed) { armed = true; dis.textContent = 'Dismiss it for good?'; dis.classList.add('armed'); return; }
+    dis.disabled = true;
+    try {
+      const res = await fetch('/api/found-agents/dismiss', { method: 'POST' });
+      const out = await res.json().catch(() => null);
+      if (!res.ok || !out || out.ok !== true) { reset(); dis.textContent = 'We could not remember that. Try again'; return; }
+      document.getElementById('scan-wrap').hidden = true;
+      document.getElementById('scan-list').innerHTML = '';
+      SCAN_SIG = null;
+    } catch { reset(); dis.textContent = 'We could not reach Kosmos. Try again'; }
+  });
+  dis.addEventListener('blur', () => { if (!dis.disabled) reset(); });
+}
 
 document.getElementById('removed-list').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-restore]');
@@ -34051,6 +34233,58 @@ async function frFindAgents() {
 }
 
 /**
+ * The disk scan, first-run's side (#1938).
+ *
+ * 🔑 THE SAME SHAPE AS `frFindAgents`: fetch once, generation-guarded, repaint when
+ * it lands. It is fired ONLY from the create empty-state below -- the screen a person
+ * with a hidden agent reaches when `found()` had nothing -- so its disk cost is paid
+ * by the exact person it helps and by nobody with a fleet already on the board.
+ */
+let FR_SCAN = null;
+let FR_SCAN_GEN = 0;
+async function frScanAgents() {
+  const mine = ++FR_SCAN_GEN;
+  let out = null;
+  try {
+    const res = await fetch('/api/scan-agents', { cache: 'no-store' });
+    out = res.ok ? await res.json() : null;
+  } catch { out = null; }
+  if (mine !== FR_SCAN_GEN) return;
+  FR_SCAN = out && Array.isArray(out.candidates) ? out : { ok: false, candidates: [] };
+  if (FR_STEP > FR_STEP_YOU) frPaintFleet();
+}
+
+/** The scanned candidates first run may offer: any, unless dismissed forever. */
+function frScanOffer() {
+  if (!FR_SCAN || FR_SCAN.ok !== true || !Array.isArray(FR_SCAN.candidates)) return [];
+  if (FR_SCAN.dismissed === true) return [];
+  return FR_SCAN.candidates;
+}
+
+/**
+ * First run's scan screen: the same rows as the board panel, so a person meeting
+ * them in setup and a person meeting them later see one thing, and every Add/Skip
+ * handler reaches both.
+ */
+function frPaintScan() {
+  const title = document.getElementById('fr-title');
+  const box = document.getElementById('fr-fleet');
+  const offer = frScanOffer();
+  const n = offer.length;
+  title.textContent = n === 1 ? 'We found an agent on this computer.' : 'We found ' + n + ' agents on this computer.';
+  box.innerHTML = '<p>Each of these has a CLAUDE.md, but Kosmos has no record of ever '
+    + 'running it. Look at what it says and add the ones that are yours. Adding one '
+    + 'leaves it exactly where it is, in its own folder with its own instructions.'
+    + (FR_SCAN && FR_SCAN.bounded && (FR_SCAN.bounded.count || FR_SCAN.bounded.dirs) ? ' There may be more than shown here.' : '')
+    + '</p>'
+    + '<div class="fr-found">' + scanRowsHtml(offer) + '</div>';
+  /* 🛑 `Continue`, NOT "Take me to my agents" -- the same reason `frPaintFound` gives:
+     nothing is added until a button is pressed, so the board still shows what tmux
+     shows, and a person who added nothing must not be promised a fleet. */
+  frActions({ label: 'Continue', go: () => frFinish(() => showTab('agents')) });
+}
+
+/**
  * One found agent, as a row.
  *
  * 🛑 ONE PAINTER, TWO SCREENS. Setup draws this list, and so does the board, for
@@ -34459,6 +34693,9 @@ document.addEventListener('click', async (e) => {
      lives in ONE painter and rebuilding it by hand is a second place for it to drift. */
   if (typeof frFindAgents === 'function') { await frFindAgents(); }
   if (typeof paintFoundBoard === 'function') { await paintFoundBoard(); }
+  /* #1938: a Skip on a scan row is a decline too, so undoing it must bring the row
+     back on the scan panel as well as the found one. */
+  if (typeof paintScanBoard === 'function') { await paintScanBoard(); }
 });
 
 document.addEventListener('click', async (e) => {
@@ -34526,7 +34763,7 @@ document.addEventListener('click', async (e) => {
        IS the outcome: without this, somebody adds an agent and the grid behind
        the panel does not change for another five seconds, which reads as the
        press having done nothing. */
-    if (row.closest('#found-wrap')) { try { tick(); } catch { /* the poll will */ } }
+    if (row.closest('#found-wrap, #scan-wrap')) { try { tick(); } catch { /* the poll will */ } }
     /* 🛑 NO SENTENCE ON SUCCESS (Josh, 2026-08-22). It read "Added, and started.
        It stays in its own folder." -- true, and one more line to read on a screen
        where somebody is about to press three more buttons. The button saying
@@ -34586,7 +34823,7 @@ document.addEventListener('click', async (e) => {
     row.classList.remove('done');
     /* Same reason as the add: the card going away is what the person is looking
        at when they press this. */
-    if (row.closest('#found-wrap')) { try { tick(); } catch { /* the poll will */ } }
+    if (row.closest('#found-wrap, #scan-wrap')) { try { tick(); } catch { /* the poll will */ } }
     go.classList.remove('added');
     go.disabled = false;
     /* ⚠️ THE DISPLAYED NAME REBUILDS THE LABEL, not the registered one: this is
@@ -34699,6 +34936,22 @@ function frPaintFleet() {
       return;
     }
     if (frFoundOffer().length) { frPaintFound(); return; }
+    /* 🛑 #1938: `found()` had nothing, but the DISK might. `found()` only sees folders
+       Claude has a record of; a person's agent whose folder is not in those records is
+       invisible to everything above and is exactly who lands here. So before saying
+       "create your first agent", scan the disk -- and while the scan runs, keep saying
+       "looking" rather than the empty state, for the SAME reason the found search does:
+       the most damaging sentence in the product must not sit in front of the one person
+       it is wrong about. Fire-and-forget and generation-guarded, so it never blocks and
+       a late answer cannot repaint over somebody who has moved on. */
+    if (FR_SCAN === null) {
+      frScanAgents();
+      title.textContent = 'Looking for agents already here…';
+      box.innerHTML = '<p>Reading what is on this computer. This takes a moment.</p>';
+      frActions();
+      return;
+    }
+    if (frScanOffer().length) { frPaintScan(); return; }
     title.textContent = 'Create your first agent.';
     /**
      * ⚠️ IT DOES NOT PROMISE OVER THE TOP OF STEP 2. The first version said "It
@@ -34826,6 +35079,13 @@ function frPaintFleet() {
      Kosmos does not hold, that is a better answer than "we could not see", and
      it is the answer this module exists to give. */
   if (frFoundOffer().length) { frPaintFound(); return; }
+
+  /* 🛑 #1938: THIS IS THE PERVERSE PATH -- `unknown` means we could not ask tmux,
+     and the disk scan is precisely the source that does not need tmux. The one state
+     where reading the disk is most valuable was the state that never tried it. Fire it
+     once here too; a candidate found is a far better answer than "we could not see". */
+  if (FR_SCAN === null) frScanAgents();
+  else if (frScanOffer().length) { frPaintScan(); return; }
 
   title.textContent = 'We could not see what is on this computer';
   // The pack's ending C, verbatim.

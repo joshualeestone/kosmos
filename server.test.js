@@ -236,6 +236,34 @@ async function req(path, options) {
   return { status: res.status, type: res.headers.get('content-type') || '', body: await res.text() };
 }
 
+test('#1938: /api/scan-agents caches the disk walk, and a mutating route invalidates it', async () => {
+  /* 🛑 THE WALK IS HEAVY AND THE BOARD POLLS IT EVERY 5s. Without the route cache,
+     every viewer on the agents tab crawls the disk several times a minute, synchronously.
+     This spies on the engine scan so a cache HIT is a scan NOT called; the leading
+     decline clears any cache a prior test left, so the counts are honest regardless of
+     the process-global cache state. `discover` is a shared singleton, so replacing
+     `.scan` reaches the copy server.js calls. */
+  const discover = require('./engine/discover');
+  const realScan = discover.scan;
+  let calls = 0;
+  discover.scan = () => { calls += 1; return { ok: true, candidates: [], bounded: { depth: false, dirs: false, count: false, visited: 0 }, because: null }; };
+  const decline = (dir) => req('/api/found-agents/decline',
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir }) });
+  try {
+    await decline('/Users/x/scan-cache-probe-a');   // invalidate whatever a prior test cached
+    const base0 = calls;
+    await req('/api/scan-agents');   // fresh walk
+    const afterFirst = calls;
+    await req('/api/scan-agents');   // must be served from cache
+    const afterSecond = calls;
+    assert.equal(afterFirst, base0 + 1, 'the first scan after invalidation did not run a fresh walk');
+    assert.equal(afterSecond, afterFirst, 'the second scan within the window walked the disk again instead of serving the cache');
+    await decline('/Users/x/scan-cache-probe-b');   // a decline changes what the scan returns -> must invalidate
+    await req('/api/scan-agents');
+    assert.equal(calls, afterSecond + 1, 'a decline did not invalidate the scan cache');
+  } finally { discover.scan = realScan; }
+});
+
 // ---------------------------------------------------------------------------
 // The routing bug itself
 // ---------------------------------------------------------------------------
@@ -5116,6 +5144,21 @@ function firstRunHarness(name, state, opts = {}) {
     let FR_FOUND_GEN = 0;
     let FR_STEP = 6;   // the fleet screen is the LAST step, not the machine check
     function frFindAgents() {}
+    /* #1938: the DISK SCAN, first run's side. Like FR_FOUND, null means "not looked
+       yet" -- the create ending then paints "Looking for agents already here" and
+       returns. The default is an ANSWER (loaded, empty), so every pre-#1938 ending
+       assertion reads the same branch it always did; a caller that wants the scan
+       offer or the looking state passes FR_SCAN explicitly. frScanOffer is the REAL
+       function (a pure read of FR_SCAN); frScanAgents and frPaintScan are stubbed, as
+       frFindAgents and (for non-frPaintFound targets) frPaintFound are.
+       ⚠️ THIS HARNESS LIFTS frPaintFleet OUT OF ITS MODULE and cannot see an
+       integration defect; the wired scan behaviour is covered by
+       docs/browser-checks/render-scan-board.js and render-first-run.js. */
+    let FR_SCAN = ${JSON.stringify(state.FR_SCAN === undefined ? { ok: true, candidates: [] } : state.FR_SCAN)};
+    let FR_SCAN_GEN = 0;
+    function frScanAgents() {}
+    const frScanOffer = ${pageFunction('frScanOffer').toString()};
+    ${name === 'frPaintScan' ? '' : 'function frPaintScan() {}'}
     /* frPaintSubscription closes the install confirm on every repaint, so a
        verdict flipping to connected while the panel is open cannot leave a live
        Confirm sitting under a green Connected button. Stubbed here because this

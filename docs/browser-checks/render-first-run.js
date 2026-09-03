@@ -160,6 +160,19 @@ const SUB_UNSURE = { done: false, fleetKnown: true, fleetCount: 3, path: 'adopt'
 // would instead flip adopt/create to the frPaintFound "We found N agents" offer
 // screen -- a different ending.
 const FOUND_NONE = { ok: true, agents: [] };
+// #1938: the create and unknown endings now ALSO fire /api/scan-agents (the disk
+// scan for agents found() cannot reach). Same #1845 reasoning as found-agents: an
+// unstubbed scan waits on a real disk read inside the settle window and makes the
+// ending depend on what happens to be on disk. Stubbed empty, each PATH ending shows
+// its canonical headline.
+const SCAN_NONE = { ok: true, candidates: [] };
+// #1938: a create ending whose disk scan DID find an agent found() could not reach.
+// The create path then shows the scan offer instead of "Create your first agent" --
+// the whole point of the card, exercised in the first-run flow.
+const SCAN_SOME = { ok: true, candidates: [
+  { dir: '/Users/x/work/site-monitor', name: 'Site Monitor', role: 'Watcher',
+    preview: 'You are **Site Monitor**, a Watcher.\n\nWatch the site.\n' },
+], bounded: {} };
 
 const SHOTS = [
   // The pack's order (first-run spec): Success opens the flow and carries
@@ -194,9 +207,11 @@ const SHOTS = [
   // drive ran last (prefilled-and-armed versus the empty gated state the
   // name claims).
   { name: 'firstrun-about-you', at: '#fr-you', you: { state: 'absent', you: null, because: null } },
-  { name: 'firstrun-fleet-adopt', at: '#fr-fleet', first: FLEET_ADOPT, found: FOUND_NONE, expect: /already have 14 agents/i },
-  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, expect: /create your first agent/i },
-  { name: 'firstrun-fleet-cannot-see', at: '#fr-fleet', first: FLEET_BLIND, found: FOUND_NONE, expect: /could not see what is on this computer/i },
+  { name: 'firstrun-fleet-adopt', at: '#fr-fleet', first: FLEET_ADOPT, found: FOUND_NONE, scan: SCAN_NONE, expect: /already have 14 agents/i },
+  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i },
+  { name: 'firstrun-fleet-cannot-see', at: '#fr-fleet', first: FLEET_BLIND, found: FOUND_NONE, scan: SCAN_NONE, expect: /could not see what is on this computer/i },
+  // #1938: found() empty, but the disk scan found one. The create path shows it.
+  { name: 'firstrun-fleet-scan-offer', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_SOME, expect: /we found an agent on this computer/i },
 ];
 
 /**
@@ -381,6 +396,11 @@ async function look(page, name) {
       // is deterministic instead of waiting on a live disk read on the gate.
       if (shot.found !== undefined) {
         await page.route('**/api/found-agents', (r) => r.fulfill({ json: shot.found }));
+      }
+      // #1938: the create/unknown endings fire /api/scan-agents too; stub it per
+      // shot so the ending is deterministic instead of waiting on a live disk scan.
+      if (shot.scan !== undefined) {
+        await page.route('**/api/scan-agents', (r) => r.fulfill({ json: shot.scan }));
       }
       // The step this shot is captured at. Fixed frames name a number; content
       // frames DISCOVER it from their `at:` anchor, so an inserted step moves
@@ -582,6 +602,8 @@ async function look(page, name) {
     // /api/found-agents search; stub it empty so the last-step smoke check does
     // not wait on a real disk read on the gate.
     await pg.route('**/api/found-agents', (r) => r.fulfill({ json: FOUND_NONE }));
+    // #1938: the ending also fires the disk scan; stub it empty for the same reason.
+    await pg.route('**/api/scan-agents', (r) => r.fulfill({ json: SCAN_NONE }));
     await pg.goto(`${BASE}/?first-run=1&fr-step=${lastStep}`, { waitUntil: 'networkidle' });
     await pg.waitForTimeout(400);
     const last = await pg.evaluate(() => {

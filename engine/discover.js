@@ -31,6 +31,7 @@
  */
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const status = require('./status');
 const codexsession = require('./codexsession');
@@ -606,6 +607,301 @@ function found() {
   };
 }
 
+/* ── #1938: the DISK SCAN, a complementary population to found() ─────────────
+ *
+ * 🛑 WHY THIS EXISTS, AND WHY IT IS NOT `found()`. `found()` walks
+ * `configRoots()/projects/*` -- the folders CLAUDE'S OWN RECORDS say it has run
+ * in. An agent whose folder is not in those records (a fresh machine, cleared
+ * records, a folder created under a different account) is invisible to `found()`
+ * and to every offer downstream of it. Josh reached the "Create your first agent"
+ * empty state on a machine that HAD an agent, because the agent's folder was not
+ * in Claude's records. That is the gap #1938 names.
+ *
+ * 🔑 SO THIS READS THE FILESYSTEM DIRECTLY. It walks a fixed, bounded set of
+ * sensible roots looking for `CLAUDE.md` files that introduce somebody, and offers
+ * the ones `found()` cannot reach. It is COMPLEMENTARY: `found()` still owns every
+ * folder Claude has a record of (it can read who the agent is from the transcript),
+ * and this owns the rest.
+ *
+ * 🛑 IT IS THE LARGEST NEW SURFACE IN THIS CLUSTER: it reads files off somebody's
+ * disk and hands their contents to a screen. Every bound below is a WALL, not a
+ * hint -- a fixed root set (never the whole disk), a per-root depth cap, a
+ * directory-visit cap, a candidate cap, a per-file byte cap, no symlink escape,
+ * and the same sandbox refusal `configRoots` applies so a fixture never walks the
+ * operator's real home.
+ */
+const SCAN = Object.freeze({
+  /* The first READ_CAP BYTES of a CLAUDE.md -- the same 4000 `found()` caps identity
+     at, but read as a BYTE window rather than `found()`'s `readFileSync(...).slice(0,
+     4000)` CHARACTER slice. The difference is deliberate: a scan reads MANY files, some
+     large, so it must never allocate a whole file the way `readFileSync` would; a fixed
+     byte read is bounded regardless of file size. The identity signal ("You are ..." at
+     the top) is ASCII and well inside the window, so byte-vs-char is immaterial there;
+     the only effect is that a preview truncated mid-multibyte shows one replacement char
+     at its tail, which is cosmetic. */
+  READ_CAP: 4000,
+  /* Directories we will read before stopping the whole scan. A wall against a
+     pathological tree; on a normal machine the scan finishes far below it. */
+  MAX_DIRS: 6000,
+  /* Candidates we will return before stopping. A person cannot act on hundreds of
+     rows, and an offer that never ends is its own defect. */
+  MAX_CANDIDATES: 100,
+  /* $HOME itself is scanned SHALLOW: its direct children and grandchildren, enough
+     to reach `~/<name>/CLAUDE.md` and `~/<name>/<sub>/CLAUDE.md` without wading
+     into the deep noise a home directory holds. */
+  HOME_DEPTH: 2,
+  /* The curated project parents are scanned DEEP, enough for nested worktrees. */
+  DEEP_DEPTH: 5,
+});
+
+/* Folder NAMES never descended. Every dotdir is skipped by rule below, so this is
+   only the non-dotted trees a scan of $HOME would otherwise wade through: build and
+   vendor output, and the standard macOS home directories that never hold an agent. */
+const SCAN_SKIP = new Set([
+  'node_modules', 'target', 'vendor', 'dist', 'build',
+  'Library', 'Applications', 'Music', 'Movies', 'Pictures', 'Downloads',
+  'Public', 'Desktop', 'Photos Library.photoslibrary',
+]);
+
+/* The curated project parents under $HOME, scanned deep. Names only; only those
+   that actually exist become roots. This is the "sensible roots" set, and it is
+   deliberately NOT the whole disk. Josh's call to widen; a wrong root is a
+   candidate the person Skips in one click, because the screen SHOWS the file. */
+const SCAN_DEEP_NAMES = Object.freeze([
+  'work', 'projects', 'Projects', 'Developer', 'dev', 'src', 'code', 'repos', 'Documents', 'Kosmos', 'kosmos',
+]);
+
+/**
+ * The roots the disk scan walks, each with its own depth cap.
+ *
+ * ⚠️ AN OVERRIDE FOR TESTS, exactly as `configRoots` carries one. Without it the
+ * only way to point the scan at a sandbox would be to walk the operator's real
+ * home, which is the thing this must never do under a fixture.
+ * `AGENT_WORKFORCE_SCAN_ROOTS` is a `path.delimiter`-separated list;
+ * `AGENT_WORKFORCE_SCAN_DEPTH` caps them (default DEEP_DEPTH). A test that sets the
+ * roots has declared where to look on purpose, so it is exempt from the sandbox
+ * refusal below, the same way a CONFIG_ROOT override is.
+ */
+function scanRootsFromEnv() {
+  const raw = process.env.AGENT_WORKFORCE_SCAN_ROOTS;
+  if (!raw) return null;
+  const depth = Number(process.env.AGENT_WORKFORCE_SCAN_DEPTH);
+  const maxDepth = Number.isFinite(depth) && depth >= 0 ? depth : SCAN.DEEP_DEPTH;
+  /* 🛑 path.delimiter, NOT a literal ':' (#1732). A hardcoded ':' is a Windows-hostile
+     coupling: the platform path-list separator is ';' there, so a Windows override
+     would split into broken fragments. path.delimiter is ':' on POSIX and ';' on
+     Windows, invisible to every macOS arm otherwise. */
+  const roots = raw.split(path.delimiter).map((d) => d.trim()).filter(Boolean).map((dir) => ({ dir, maxDepth }));
+  return roots.length ? roots : null;
+}
+
+function defaultScanRoots() {
+  const home = os.homedir();
+  /* 🔑 THE DEEP CURATED PARENTS FIRST, `$HOME` LAST. Agents live under `work`,
+     `projects` and the like; `$HOME` is a shallow catch-all. Ordering them first,
+     plus the shared visited-set in `scan()`, means the directory-visit budget is
+     spent where agents actually are before the shallow home walk (which re-reaches
+     those same parents) can consume it. */
+  const roots = [];
+  for (const name of SCAN_DEEP_NAMES) roots.push({ dir: path.join(home, name), maxDepth: SCAN.DEEP_DEPTH });
+  roots.push({ dir: home, maxDepth: SCAN.HOME_DEPTH });
+  return roots;
+}
+
+/**
+ * Read the head of one CLAUDE.md, bounded and symlink-safe.
+ *
+ * ⚠️ A REGULAR FILE ONLY. A symlinked `CLAUDE.md` could point outside the roots
+ * (at `/etc/passwd`, at another user's file), so `lstat` decides and a link is
+ * refused rather than followed. Only the first READ_CAP bytes are ever read, so
+ * a huge file cannot be allocated whole. Returns null on any refusal.
+ */
+function readClaudeHead(file) {
+  let lst;
+  try { lst = fs.lstatSync(file); } catch { return null; }
+  if (!lst.isFile()) return null;
+  let fd;
+  try { fd = fs.openSync(file, 'r'); } catch { return null; }
+  try {
+    const buf = Buffer.alloc(SCAN.READ_CAP);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    return buf.slice(0, n).toString('utf8');
+  } catch { return null; }
+  finally { try { fs.closeSync(fd); } catch { /* already gone */ } }
+}
+
+/**
+ * Agents on disk that `found()` cannot reach (#1938).
+ *
+ * ⚠️ NEVER THROWS. A root that is missing, a directory it cannot read, a file it
+ * cannot open: each is skipped and the scan goes on. The one hard stop is the
+ * sandbox refusal, which returns an empty answer rather than walking a real home.
+ *
+ * @param {{roots?: Array<{dir:string,maxDepth:number}>, maxDirs?: number, maxCandidates?: number}} [opts]
+ *   Tests pass explicit roots/bounds; the route calls it bare and gets the
+ *   env-or-default roots and the SCAN bounds.
+ * @returns {{ok: boolean, candidates: Array, bounded: object, because: string|null}}
+ */
+function scan(opts) {
+  const o = opts || {};
+  const explicit = Array.isArray(o.roots) ? o.roots : scanRootsFromEnv();
+  /* 🛑 A FIXTURE MUST NOT WALK THE OPERATOR'S REAL HOME. The same refusal
+     `configRoots` applies, honoured here because this walk reaches `os.homedir()`
+     directly and never touches `configRoots`. An explicit root set (a test, or the
+     env override) has declared where to look on purpose and is exempt, exactly as
+     a CONFIG_ROOT override is. */
+  if (!explicit && status.sandboxIsInconsistent()) {
+    /* Same `bounded` shape as the normal return, so a consumer never has to tell an
+       empty object from a fully-shaped one: nothing was walked, so every flag is
+       false and the visit count is zero. */
+    return { ok: true, candidates: [], bounded: { depth: false, dirs: false, count: false, visited: 0 }, because: null };
+  }
+  const roots = explicit || defaultScanRoots();
+  const maxDirs = Number.isFinite(o.maxDirs) && o.maxDirs > 0 ? o.maxDirs : SCAN.MAX_DIRS;
+  const maxCandidates = Number.isFinite(o.maxCandidates) && o.maxCandidates > 0 ? o.maxCandidates : SCAN.MAX_CANDIDATES;
+
+  /* 🔑 EVERYTHING `found()` ALREADY KNOWS IS EXCLUDED, so the scan offers only the
+     complementary population. A folder Claude has a record of is BETTER found by
+     `found()` (it can read who the agent is from the transcript), so a scan row for
+     it would be a worse duplicate of a better offer. Declined folders are excluded
+     too, and a folder Kosmos already looks after (`alreadyIn`) never becomes a row. */
+  const known = new Set();
+  let roster;
+  try { roster = status.paneRoster(); } catch { roster = undefined; }
+  try {
+    const f = found();
+    if (f && Array.isArray(f.agents)) for (const a of f.agents) known.add(a.dir);
+    if (f && Array.isArray(f.adoptable)) for (const a of f.adoptable) known.add(a.dir);
+  } catch { /* the scan is still worth running when found() could not look */ }
+  for (const d of declined()) known.add(d);
+
+  const byDir = new Map();
+  /* Directories already read, across ALL roots, keyed by CANONICAL REALPATH rather
+     than the literal path. Three different aliases resolve to one physical directory
+     and must not be walked twice:
+       - `$HOME` (walked last, shallow) re-reaches the curated parents (walked first,
+         deep) that live directly under it;
+       - on a CASE-INSENSITIVE filesystem (the macOS default, and the target), the two
+         case variants in the root set (`projects`/`Projects`, `Kosmos`/`kosmos`) are the
+         SAME directory, and `$HOME`'s readdir returns the on-disk case, which need not
+         match the fixed case a curated root used;
+       - a symlinked root (now followed) can point at a place another root also reaches.
+     Keying on the literal string missed all three and emitted one agent as two rows
+     with differently-cased or differently-aliased paths, double-spending the visit
+     budget. `realpathSync` collapses them; it falls back to the literal path if the
+     directory has just vanished (TOCTOU), and children are never symlinks (they are
+     `lstat`-refused on descent), so this cannot follow a link out of the tree. */
+  const seenDirs = new Set();
+  let visited = 0;
+  let hitDirs = false;
+  let hitCount = false;
+  let hitDepth = false;
+
+  outer:
+  for (const root of roots) {
+    let rootStat;
+    /* 🔑 `stat`, NOT `lstat`, FOR THE ROOT: a scan root is a CURATED, TRUSTED location
+       (the fixed set under $HOME, or an explicit test override), and a person whose
+       `~/work` is a symlink to an external volume keeps their agents there on purpose --
+       dropping a symlinked root would hide that whole population and reintroduce the
+       "Create your first agent" defect this card exists to fix. So the root symlink is
+       FOLLOWED once, to enter the place the person chose.
+       ⚠️ THE NO-ESCAPE GUARD IS ON THE DESCENDED CHILDREN, NOT THE ROOT. Every child
+       below is `lstat`ed and a symlink is refused, so the walk never follows a link OUT
+       of the root's real tree -- the escape this module family has shipped six times.
+       Following the root once (a location the operator picked) and refusing every
+       symlink inside it (untrusted tree contents) is the correct split. */
+    try { rootStat = fs.statSync(root.dir); } catch { continue; }
+    if (!rootStat.isDirectory()) continue;
+    const maxDepth = Number.isFinite(root.maxDepth) && root.maxDepth >= 0 ? root.maxDepth : SCAN.DEEP_DEPTH;
+
+    /* Iterative, with an explicit stack: depth is a real bound and a deep tree
+       cannot recurse the process to death. */
+    const stack = [{ dir: root.dir, depth: 0 }];
+    while (stack.length) {
+      if (byDir.size >= maxCandidates) { hitCount = true; break outer; }
+      if (visited >= maxDirs) { hitDirs = true; break outer; }
+      const cur = stack.pop();
+      let real;
+      try { real = fs.realpathSync(cur.dir); } catch { real = cur.dir; }
+      if (seenDirs.has(real)) continue;   // already read via an earlier root, a case variant, or a symlink alias
+      seenDirs.add(real);
+      visited += 1;
+
+      let names;
+      try { names = fs.readdirSync(cur.dir); } catch { continue; }
+
+      /* The CLAUDE.md in THIS folder, read BEFORE descending so a folder that IS an
+         agent still counts even when it sits exactly at the depth cap. */
+      if (!byDir.has(cur.dir) && !known.has(cur.dir)) {
+        const text = readClaudeHead(path.join(cur.dir, 'CLAUDE.md'));
+        if (text != null) {
+          const id = status.identityFromText(text);
+          /* 🔑 THE EXACT SIGNAL `found()` USES, and BOTH arms of it. A file that
+             names somebody (`identityFromText`) OR one that addresses somebody
+             without a readable name (`INTRODUCES`) is an agent -- the same union
+             `found()` draws its named agents and its unnamed-intro adoptable rows
+             from. It is NOT widened past that: "You are an expert in Rust" is a
+             template and stays out, which is the false-positive class `found()`
+             already refuses. */
+          if ((id && id.displayName) || INTRODUCES.test(text)) {
+            if (!alreadyIn(cur.dir, roster)) {
+              byDir.set(cur.dir, {
+                dir: cur.dir,
+                /* Empty when the file introduces somebody but names nobody: the
+                   screen asks rather than guesses, exactly as the adopt rows do. */
+                name: (id && id.displayName) || '',
+                role: (id && id.role) || null,
+                /* The bytes the screen SHOWS. Bounded to READ_CAP, and it is the
+                   whole point of this card: a list that ASSERTS is the defect
+                   discover.js warns about ("a wrong list is used"); a list that
+                   SHOWS the file moves the judgement to the person. */
+                preview: text,
+              });
+            } else {
+              known.add(cur.dir);
+            }
+          }
+        }
+      }
+
+      /* Do not descend past the cap. The CLAUDE.md above was still read, so a
+         folder at the cap is offered; only its children are out of reach. */
+      if (cur.depth >= maxDepth) { hitDepth = true; continue; }
+
+      for (const name of names) {
+        if (name.startsWith('.')) continue;   // every dotdir: .git, .Trash, .config, .cache…
+        if (SCAN_SKIP.has(name)) continue;     // build/vendor output + macOS home noise
+        const child = path.join(cur.dir, name);
+        let cst;
+        /* `lstat`: a symlinked directory reports isDirectory()===false here, so it
+           is never descended -- the no-symlink-escape rule, enforced by the stat
+           kind rather than by resolving and comparing paths. */
+        try { cst = fs.lstatSync(child); } catch { continue; }
+        if (!cst.isDirectory()) continue;
+        stack.push({ dir: child, depth: cur.depth + 1 });
+      }
+    }
+  }
+
+  const candidates = [...byDir.values()].sort((a, b) => String(a.name || a.dir).localeCompare(String(b.name || b.dir)));
+  return {
+    ok: true,
+    candidates,
+    /* Says whether the walk stopped early and why, so the screen can add "and there
+       may be more" honestly rather than presenting a truncated list as complete.
+       ⚠️ THE SCREEN SURFACES `count` AND `dirs`, NOT `depth`, DELIBERATELY. Hitting the
+       candidate cap or the directory-visit cap means the scan genuinely gave up before
+       the disk was exhausted -- rare, and worth telling the person. Hitting the DEPTH
+       cap is the normal case: almost every machine has some folder deeper than the cap,
+       so surfacing it would show "there may be more" nearly always and train the person
+       to ignore it. `depth` is still reported here for a caller that wants it; the note
+       is gated on the two that signal a real early stop. */
+    bounded: { depth: hitDepth, dirs: hitDirs, count: hitCount, visited },
+    because: null,
+  };
+}
+
 /**
  * Bring an agent Kosmos did not create under its management.
  *
@@ -735,9 +1031,26 @@ function connect(dir, opts) {
     return registerOnly(given, supplied, { create, store });
   }
   const id = status.identityFromText(text);
-  if (!id || !id.displayName) {
+  /* 🛑 A SUPPLIED NAME WINS WHEN THE FILE INTRODUCES SOMEBODY BUT NAMES NOBODY (#1938,
+     completing #1531's ruling 2(a)). The file says "You are ..." but the parser could
+     not read a name out of it (a lowercase name, an odd phrasing). The screen already
+     asked the person for one, and Josh's ruling is that the typed name wins; refusing
+     here made that name field a lie. So the refusal now stands DOWN only when a name was
+     typed AND the file actually introduces somebody.
+     🛑 THE `INTRODUCES` RE-CHECK IS LOAD-BEARING, not belt-and-suspenders. `connect()` is
+     a shared public entry point, and without it a supplied name would adopt-and-START a
+     NON-introducing file too -- a project's build-notes `CLAUDE.md` plus a typed name
+     would install a launchd job and start Claude in somebody's repo, which is the exact
+     thing connect-agent.test.js's "instructions that never say who it is are refused"
+     forbids. The UI only offers a name field for introducing / no-file folders, so the
+     hole is reachable only by a direct API call -- but the engine must enforce what the
+     comment promises rather than trust the caller. The no-name refusal is unchanged.
+     The display name is then the one the person typed, since the file has none to offer. */
+  const introduces = INTRODUCES.test(text);
+  if ((!id || !id.displayName) && !(supplied && introduces)) {
     return { ok: false, because: 'those instructions do not say who the agent is, so we cannot bring it in' };
   }
+  const displayName = (id && id.displayName) || supplied;
 
   /* 🔑 THE FOLDER'S OWN NAME IS THE AGENT'S NAME WHEN NOBODY SUPPLIES ONE, not the
      display name from the file. It is what tmux and launchd will carry, it is
@@ -793,7 +1106,7 @@ function connect(dir, opts) {
      whose runner is codex (#571), because codex swallows an Enter that rides the
      paste burst. A codex agent labelled claude would be sent a message that sits
      in its composer unsent -- which looks exactly like an agent ignoring you. */
-  try { store.writeProfile(name, { dir: given, displayName: id.displayName, ...(runner === 'codex' ? { provider: 'openai' } : {}) }); }
+  try { store.writeProfile(name, { dir: given, displayName, ...(runner === 'codex' ? { provider: 'openai' } : {}) }); }
   catch { return { ok: false, because: 'we could not record where that agent lives' }; }
 
   /* The runner rides along, or an adopted Codex agent starts Claude in its own
@@ -909,7 +1222,7 @@ function connect(dir, opts) {
     return { ok: false, because: job.because || 'we could not set it up to run' };
   }
 
-  return { ok: true, name, displayName: id.displayName, dir: given, started: job.started === true };
+  return { ok: true, name, displayName, dir: given, started: job.started === true };
 }
 
 /**
@@ -1016,5 +1329,5 @@ function disconnect(name) {
 module.exports = { alreadyIn,
   foundCodex,
   codexIdentity,
-  runningUnderName, found, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
+  runningUnderName, found, scan, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
   declined, decline, undecline, DECLINED_FILE };
