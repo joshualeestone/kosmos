@@ -277,6 +277,24 @@ func logLine(_ s: String) {
     }
 }
 
+// #1946: the board authenticates the loopback bind so another macOS account
+// cannot reach it. Hand the WebView the board token as a `?token=` query on the
+// initial load; the board validates it, sets an httpOnly cookie, and redirects to
+// the clean URL, so subsequent requests carry the cookie automatically. The token
+// lives in the per-account data dir the board writes it to -- the same
+// `~/Library/Application Support/AgentWorkforce` that store.ROOT resolves to
+// (via the standard Application Support API, so there is no hardcoded path), mode
+// 600, readable only by this account. Empty when there is no token (a board that
+// does not enforce, e.g. a sandbox), so the URL is left unchanged.
+func boardTokenQuery() -> String {
+    guard let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return "" }
+    let file = dir.appendingPathComponent("AgentWorkforce/board.token")
+    guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return "" }
+    let tok = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !tok.isEmpty, let enc = tok.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return "" }
+    return "?token=\(enc)"
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     var window: NSWindow!
     var webView: WKWebView!
@@ -524,7 +542,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                         : "Installing it again usually fixes this"
                     self.showStartupFailureAlert(detail: "Something went wrong while \(whose) was starting. \(remedy): open installkosmos.com and click Download for macOS. Your agents and settings stay on this computer; installing again does not remove them.")
                 case .alreadyRunningOrStarted:
-                    let urlString = "http://127.0.0.1:\(resolved.port)"
+                    let urlString = "http://127.0.0.1:\(resolved.port)\(boardTokenQuery())"
                     guard let url = URL(string: urlString) else {
                         self.showStartupFailureAlert(detail: "The address \(urlString) is not a valid URL.")
                         return

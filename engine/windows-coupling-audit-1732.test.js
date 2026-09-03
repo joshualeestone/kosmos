@@ -223,6 +223,7 @@ const FAMILIES = [
 // that spans both matches. No corpus line needs that today.
 // Dispositions:
 //   benign-mime      -- ';' is the MIME parameter separator (content-type), not a path
+//   benign-cookie    -- ';' is the RFC 6265 cookie-pair separator, not a path
 //   benign-nonpath   -- ':' is a non-path separator (IPv6 hextets)
 //   sanitizer        -- deliberately replaces path-ish chars; already handles '\\'
 //   posix-root-fallback -- os.tmpdir() is used; '/tmp' is an extra known root, harmless on Windows
@@ -236,6 +237,8 @@ const INVENTORY = [
   { file: 'engine/attachments.js', family: 'path-delimiter-literal', count: 1, contains: ".toLowerCase().split(';')[0].trim()", disposition: 'benign-mime', why: 'content-type parse' },
   { file: 'engine/attachments.js', family: 'path-delimiter-literal', count: 1, contains: ").split(';')[0].trim().slice(0, 100)", disposition: 'benign-mime', why: 'content-type parse' },
   { file: 'engine/unfurl.js', family: 'path-delimiter-literal', count: 2, contains: ".toLowerCase().split(';')[0].trim()", disposition: 'benign-mime', why: 'content-type parse (two identical sites, lines 312 & 340)' },
+  // --- benign cookie ';' parsing (#1946 board-auth) ---
+  { file: 'engine/boardauth.js', family: 'path-delimiter-literal', count: 1, contains: "String(raw).split(';')", disposition: 'benign-cookie', why: 'Cookie header parse (#1946); ; is the RFC 6265 cookie-pair separator, identical on every platform' },
   // --- benign non-path ':' (IPv6 hextets in the SSRF guard) ---
   { file: 'engine/unfurl.js', family: 'path-delimiter-literal', count: 1, contains: "hex.split(':').filter(Boolean)", disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
   { file: 'engine/unfurl.js', family: 'path-delimiter-literal', count: 1, contains: "const parts = low.split(':')", disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
