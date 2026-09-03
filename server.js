@@ -5129,7 +5129,12 @@ const server = http.createServer((req, res) => {
              `<HOME>/.claude/.claude.json` instead, a different file holding a
              different account. Passing `known.dir` here therefore ran the whole
              OAuth flow and landed the refreshed credential where nothing reads
-             it, so the person saw a green check and their agent kept 401ing.
+             it. ⚠️ ON A MACHINE WHOSE DECOY READS SIGNED-OUT -- the qualifier
+             belongs on this half too, and an earlier version put it only on the
+             paragraph below. Where the decoy reads CONNECTED the flow never ran
+             at all, so the symptom differs by machine. **And the green check is
+             #1916, not evidence for this defect: it would have gone green even
+             if this write had succeeded.**
              `accounts.listLive` and `/api/agent/:name/account-status` already
              scope the default this way and say why; this route did not, which is
              the asymmetry the card is about. Omitting it lets the CLI use its own

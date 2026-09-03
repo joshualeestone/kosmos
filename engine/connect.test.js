@@ -660,6 +660,27 @@ driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CL
       'an assignment sits ahead of `-u` in the `env` slice (' + JSON.stringify(envSlice) + '): '
       + '`env` stops option parsing at its first operand, so this launch exits 127 with '
       + '"env: -u: No such file or directory" instead of signing anyone in');
+    /* 🛑 THE ASSIGNMENT IS NOT THE ONLY OPERAND, AND THE OTHER ONE FAILS SILENTLY. The binary
+       path is an operand too, so `['env', <bin>, '-u', 'CLAUDE_CONFIG_DIR']` satisfies every
+       assertion above -- `-u` is present, followed by the right name, and there is no `NAME=`
+       token anywhere -- while doing the opposite of what this arm exists to check.
+
+       ⚠️ AND IT IS WORSE THAN THE ASSIGNMENT CASE, WHICH IS WHY IT NEEDS ITS OWN ASSERTION.
+       Measured, both bad forms:
+         env FOO=1 -u LEAK sh -c ...   -> "env: -u: No such file..."   exit 127   LOUD
+         env sh -c '...' -u LEAK       -> LEAK=[present]               exit 0     SILENT
+       The operand form LAUNCHES. `claude` receives `-u CLAUDE_CONFIG_DIR` as junk argv and the
+       variable is never stripped, so the sign-in runs and writes to the leaked account -- exactly
+       the #1922 defect, wearing a green test. */
+    /* The launch pushes the binary LAST, so the operand is the final element of the slice.
+       Requiring the `-u` PAIR to end before it is exactly "the option precedes the operand":
+         good  ['env','-u','CLAUDE_CONFIG_DIR', bin]  u=1, u+1=2 < 3   PASS
+         bad   ['env', bin,'-u','CLAUDE_CONFIG_DIR']  u=2, u+1=3 < 3   FAIL  */
+    assert.ok(u + 1 < envSlice.length - 1,
+      'the command operand sits ahead of `-u` in the `env` slice (' + JSON.stringify(envSlice) + '): '
+      + '`env` stops option parsing at its first operand, so this argv EXITS 0, launches the CLI '
+      + 'with `-u CLAUDE_CONFIG_DIR` as junk flags, and never unsets the variable -- the defect '
+      + 'this arm exists to catch, passing silently');
     assert.ok(warned.some((w) => w.includes('AGENT_WORKFORCE_CLAUDE_CONFIG is set without')),
       'the config/dir mismatch warning did not fire, so either the arm is no longer '
       + 'exercising the no-launch-dir path or the warning has been removed');
