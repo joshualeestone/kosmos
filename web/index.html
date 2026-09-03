@@ -671,7 +671,12 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    carries explanation"): the board's stated reason for its belief about
    this agent. A sentence to read, so label-2 — no longer "like the state line
    above", which became a badge and gave up its colour in the same change. */
-.detail-why { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: 2px; }
+.detail-why { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: 2px;
+  /* #1996: a reported "because" may be MULTI-LINE now (the server keeps paragraph
+     breaks). When it is, this is the surface that shows it in full -- d-task above
+     is one line (nowrap) and truncates -- so preserve the breaks rather than
+     collapsing them to spaces. */
+  white-space: pre-line; }
 .field { border-top: 0.5px solid var(--separator); padding-top: var(--space-6); margin-top: var(--space-6); }
 .flabel { font: 600 var(--text-body) var(--font-ui); display: block; margin-bottom: 2px; }
 .fhint { font: var(--text-callout) var(--font-ui); color: var(--label-3); margin-bottom: var(--space-4); }
@@ -18360,7 +18365,13 @@ function openDetail(sessionName, section) {
      this is the sole honest "why we cannot vouch" explanation and stays -- that
      is the whole point of the line, so it is hidden by duplication, never by
      removal. */
-  why.hidden = !why.textContent || a.stateReported === true;
+  /* #1996: #1841 suppressed this line when the state is REPORTED, because d-task
+     already carries the reported sentence and the two would duplicate. That holds
+     for a SINGLE-LINE because, which d-task shows whole. A MULTI-LINE because
+     cannot fit d-task's one nowrap line -- d-task truncates it -- so this becomes
+     the only surface that can show it in full, and the pair is a summary-vs-full
+     split rather than the exact duplicate #1841 removed. Keep it visible then. */
+  why.hidden = !why.textContent || (a.stateReported === true && !reason.includes('\n'));
   /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
      somebody's terminal, on its way to a product surface. `textContent` is the
      escape, and the engine has already trimmed and capped it. */
