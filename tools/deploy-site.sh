@@ -38,6 +38,10 @@
 #   tools/deploy-site.sh              # DRY RUN: fetch + verify + export + guards, then stop
 #   tools/deploy-site.sh --publish    # the same, then vercel deploy --prod, then verify SERVED bytes
 #
+# NOTE ON THE SHELL: this is #!/bin/sh but sources two #!/bin/bash libraries (site-deploy.sh,
+# pkg-inputs.sh) that use `local` and ${var:0:2} substrings, so it needs a bash-compatible /bin/sh.
+# That holds on this macOS-only fleet (it already hardcodes $HOME/work/... and `shasum`); it would
+# need a #!/bin/bash and rework to run under dash.
 set -eu
 
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
@@ -76,29 +80,38 @@ verify_sha() {  # <file> <sha256-url>
 
 mkdir -p "$SITE/dist"
 
+# PIN THE COMMIT ONCE (#2014 review). site_deploy_export takes an explicit commit arg precisely
+# because the site checkout is shared and a commit can land between a read and the archive
+# (site-deploy.sh:38-45). Read HEAD once and use $H for BOTH the pointer guard below and the export
+# call, so the guard validates exactly the commit that ships.
+H=$(git -C "$SITE" rev-parse HEAD 2>/dev/null) || { echo "deploy-site: cannot resolve HEAD in $SITE -- refusing"; exit 1; }
+[ -n "$H" ] || { echo "deploy-site: empty HEAD in $SITE -- refusing"; exit 1; }
+
 # The current release tarball is GITIGNORED, so it is carried from the working tree and MUST be
-# fetched. dist/latest.json (the served download pointer) is TRACKED, so site_deploy_export ships
-# the COMMITTED copy via `git archive HEAD`, NOT the working-tree copy this reads -- which is the
-# trap the guard below closes.
+# fetched + verified. dist/latest.json (the served download pointer) is TRACKED, so
+# site_deploy_export ships the COMMITTED copy via git archive, NOT the working-tree copy -- which is
+# the trap the guard below closes. Tracked artifacts are NEVER fetched into the shared checkout
+# (that would leave dirty tracked files a later `git commit -a` could sweep up); only the gitignored
+# set is fetched, and every fetched byte is sha-verified.
 LJ=$(curl -fsSL "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
-ART=$(printf '%s' "$LJ" | sed -n 's/.*"artifact":"\([^"]*\)".*/\1/p')
-MAN=$(printf '%s' "$LJ" | sed -n 's/.*"manifest":"\([^"]*\)".*/\1/p')
+# tolerant of an optional space after the colon in case latest.json is ever pretty-printed; an empty
+# result still refuses at the [ -n "$ART" ] guard (fail-safe).
+ART=$(printf '%s' "$LJ" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p')
 [ -n "$ART" ] || { echo "deploy-site: latest.json names no artifact -- refusing"; exit 1; }
 # 🛑 COMMITTED-vs-LIVE POINTER GUARD (#2014 review). The served latest.json is the COMMITTED one
-# (git archive HEAD). If the checkout's committed latest.json names a DIFFERENT version than live,
-# the checkout is stale (HEAD behind the last release) or ahead (an unshipped version bump), and the
-# deploy would either serve a pointer to a version whose tarball this never fetched, or move the
-# installer version -- a software release's job, never a site-copy deploy. Refuse either way; a
-# marketing/copy deploy must leave the installer pointer exactly where the release left it.
-CART=$(git -C "$SITE" show "HEAD:dist/latest.json" 2>/dev/null | sed -n 's/.*"artifact":"\([^"]*\)".*/\1/p')
-[ "$CART" = "$ART" ] || { echo "deploy-site: the checkout's COMMITTED latest.json names '$CART' but LIVE names '$ART' -- refusing. The checkout is stale or ahead of the current release; a site-copy deploy must not move the installer version. Sync $SITE to the current release, then retry."; exit 1; }
+# (git archive of $H). Compare the WHOLE committed pointer against live, not just the artifact name:
+# a rebuilt same-version tarball or a hand-edited pointer can drift in sha256/manifest under an
+# unchanged artifact name and ship a latest.json whose advertised sha256 does not match the served
+# tarball. If committed != live the checkout is stale or ahead of the current release, and a
+# site-copy deploy must never move the installer pointer -- refuse and sync the checkout first. A
+# copy/marketing change never touches dist/latest.json, so committed == live exactly in the intended
+# workflow and this never false-refuses. (Both sides are command-substitution captures, so a
+# trailing-newline difference cannot cause a false refusal.)
+CJ=$(git -C "$SITE" show "$H:dist/latest.json" 2>/dev/null)
+[ "$CJ" = "$LJ" ] || { echo "deploy-site: the checkout's COMMITTED latest.json differs from LIVE -- refusing. The checkout is stale or ahead of the current release; a site-copy deploy must not move the installer pointer. Sync $SITE to the current release, then retry."; exit 1; }
 fetch "$HOST/dist/$ART"          "$SITE/dist/$ART"
 fetch "$HOST/dist/$ART.sha256"   "$SITE/dist/$ART.sha256"
 verify_sha "$SITE/dist/$ART" "$HOST/dist/$ART.sha256"
-# $MAN (the manifest) is TRACKED too, so git archive ships the committed copy; fetching it only
-# refreshes the working-tree copy the deploy does not use. Kept as a liveness probe (a live 404
-# refuses), harmless.
-[ -n "$MAN" ] && fetch "$HOST/dist/$MAN" "$SITE/dist/$MAN"
 
 # the macOS pkg triple (fixed names)
 for f in Kosmos.pkg Kosmos.pkg.sha256 Kosmos.pkg.inputs; do
@@ -106,12 +119,11 @@ for f in Kosmos.pkg Kosmos.pkg.sha256 Kosmos.pkg.inputs; do
 done
 verify_sha "$SITE/dist/Kosmos.pkg" "$HOST/dist/Kosmos.pkg.sha256"
 
-# The Windows zip is TRACKED, so git archive HEAD ships the COMMITTED copy and the honest-marker
-# check below confirms it was carried; this fetch is a LIVENESS PROBE (a live 404 -- e.g. a stale
-# $WINZIP default before #2008 lands -- refuses rather than deploying past a missing zip), not the
-# bytes that ship. The committed .sha256 travels with it via git archive, so the served pair stays
-# self-consistent without a fetch-side sha check.
-fetch "$HOST/dist/$WINZIP" "$SITE/dist/$WINZIP"
+# The Windows zip (and its .sha256) are TRACKED, so git archive ships the COMMITTED copies and the
+# honest-marker check below confirms the zip was carried. It is deliberately NOT fetched: fetching a
+# tracked path would overwrite a tracked file in the shared checkout with unverified bytes. #2008
+# (an unversioned win alias) is the durable fix for the hardcoded $WINZIP name; until then a
+# committed win zip whose name differs from $WINZIP is caught by the honest-marker check (refuse).
 
 # the tmux runtime + the unversioned alias tarball (#2014 review, BLOCKER). site_deploy_export
 # carries dist/*.tar.gz by a GLOB (tools/lib/site-deploy.sh:78), so ANY tarball absent from the
@@ -129,12 +141,12 @@ verify_sha "$SITE/dist/kosmos-arm64.tar.gz" "$HOST/dist/kosmos-arm64.tar.gz.sha2
 # them (breaking a rollback link, not a new install). There is no manifest of the full set, so they
 # are not enumerable here; if rollback coverage is ever needed, fetch them the same way.
 
-echo "deploy-site: fetched and verified the current live artifacts into $SITE/dist/"
-# ⚠️ This populated the SHARED site checkout's dist/ (also the live board, also shared with
-# tools/release.sh). It is by design and non-destructive: every byte is a sha-verified copy of what
-# is already live, so the checkout's content is unchanged even though dist/ mtimes moved. It is NOT
-# side-effect-free on the filesystem, so do not run a --publish concurrently with a release cut that
-# is populating the same dist/.
+echo "deploy-site: fetched and verified the current live GITIGNORED artifacts into $SITE/dist/"
+# ⚠️ This wrote into the SHARED site checkout's dist/ (also the live board, also shared with
+# tools/release.sh), but ONLY gitignored artifacts (the tarball, pkg triple, tmux, alias) -- each
+# sha-verified against live, and none of them tracked, so `git status` stays clean and no later
+# `git commit -a` can sweep them up. It is still not side-effect-free on the filesystem, so do not
+# run a --publish concurrently with a release cut populating the same dist/.
 
 # --- 2) build the export (carries pages + artifacts, writes the marker) -------
 # shellcheck source=/dev/null
@@ -145,7 +157,7 @@ echo "deploy-site: fetched and verified the current live artifacts into $SITE/di
 # shellcheck source=/dev/null
 . "$REPO/tools/lib/pkg-inputs.sh"
 EXPORT=$(mktemp -d "${TMPDIR:-/tmp}/deploy-site.XXXXXX")
-site_deploy_export "$SITE" "$EXPORT" HEAD || { echo "deploy-site: site_deploy_export failed -- nothing deployed"; exit 1; }
+site_deploy_export "$SITE" "$EXPORT" "$H" || { echo "deploy-site: site_deploy_export failed -- nothing deployed"; exit 1; }
 
 # --- 3) HONEST-MARKER check: the export MUST have carried the critical artifacts ----
 # If it did not, the .kosmos-release-export marker would be a rubber stamp and the deploy
@@ -158,11 +170,12 @@ site_deploy_export "$SITE" "$EXPORT" HEAD || { echo "deploy-site: site_deploy_ex
 [ -f "$EXPORT/.kosmos-release-export" ] || { echo "deploy-site: the export has no .kosmos-release-export marker -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
 # --- 4) the .vercelignore guard, exactly as the release runs it ---------------
-DROP=$(pkg_upload_filter_excludes "$EXPORT/.vercelignore") || { echo "deploy-site: could not evaluate the export .vercelignore -- refusing"; rm -rf "$EXPORT"; exit 1; }
+DROP=$(pkg_upload_filter_excludes "$EXPORT/.vercelignore") || { echo "deploy-site: the export .vercelignore is missing or could not be evaluated -- refusing (a missing .vercelignore makes Vercel fall back to the site .gitignore, which drops dist/*.pkg)"; rm -rf "$EXPORT"; exit 1; }
 [ -z "$DROP" ] || { echo "deploy-site: the export .vercelignore would drop $DROP -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
 if [ "$PUBLISH" != 1 ]; then
-  echo "DRY RUN complete. The export at $EXPORT carries Kosmos.pkg, the current tarball ($ART), tmux-arm64, the unversioned alias, the Windows zip, and an honest marker, and the .vercelignore guard passed. Re-run with --publish to deploy."
+  echo "DRY RUN complete. The export carried Kosmos.pkg, the current tarball ($ART), tmux-arm64, the unversioned alias, the Windows zip, and an honest marker, and the .vercelignore guard passed. Re-run with --publish to deploy."
+  rm -rf "$EXPORT"   # a dry run leaves no temp dir behind; the summary above is the artifact
   exit 0
 fi
 
