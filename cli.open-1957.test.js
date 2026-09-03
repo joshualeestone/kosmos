@@ -46,7 +46,7 @@ function stubOpen(exitCode) {
   const bin = path.join(dir, 'fake-open');
   const marker = path.join(dir, 'called-with');
   fs.writeFileSync(bin, `#!/bin/bash\nprintf '%s\\n' "$@" > "${marker}"\nexit ${exitCode}\n`, { mode: 0o755 });
-  return { bin, marker };
+  return { bin, marker, dir };
 }
 
 function runOpen(env) {
@@ -59,7 +59,7 @@ function runOpen(env) {
 
 test('#1957: `kosmos open` announces the dashboard and exits 0 when the browser opens', async () => {
   const { server, port } = await fakeBoard();
-  const { bin, marker } = stubOpen(0);
+  const { bin, marker, dir } = stubOpen(0);
   try {
     const r = await runOpen({ ...process.env, KOSMOS_PORT: String(port), KOSMOS_OPEN_BIN: bin });
     assert.equal(r.code, 0, 'a successful open should exit 0');
@@ -69,12 +69,13 @@ test('#1957: `kosmos open` announces the dashboard and exits 0 when the browser 
       'the opener was not actually handed the board URL');
   } finally {
     server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test('#1957: `kosmos open` names the failure and exits non-zero when the browser cannot open', async () => {
   const { server, port } = await fakeBoard();
-  const { bin } = stubOpen(3);
+  const { bin, dir } = stubOpen(3);
   try {
     const r = await runOpen({ ...process.env, KOSMOS_PORT: String(port), KOSMOS_OPEN_BIN: bin });
     assert.notEqual(r.code, 0, 'a failed open must NOT exit 0 (that is the #1957 defect)');
@@ -82,13 +83,14 @@ test('#1957: `kosmos open` names the failure and exits non-zero when the browser
     assert.match(r.err, /http:\/\/127\.0\.0\.1:/, 'it must give the URL to open manually');
   } finally {
     server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test('#1957 CONTROL: `kosmos open` is never silent-plus-exit-0, whichever way open goes', async () => {
   for (const exitCode of [0, 3]) {
     const { server, port } = await fakeBoard();
-    const { bin } = stubOpen(exitCode);
+    const { bin, dir } = stubOpen(exitCode);
     try {
       const r = await runOpen({ ...process.env, KOSMOS_PORT: String(port), KOSMOS_OPEN_BIN: bin });
       const silent = r.out.trim() === '' && r.err.trim() === '';
@@ -96,6 +98,7 @@ test('#1957 CONTROL: `kosmos open` is never silent-plus-exit-0, whichever way op
         `open exit ${exitCode}: reproduced the silent-exit-0 defect the card is about`);
     } finally {
       server.close();
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   }
 });
