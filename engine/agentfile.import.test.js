@@ -90,6 +90,17 @@ test('#1939 the near-miss is detected even when the name is UNPARSEABLE', () => 
   assert.doesNotMatch(out.because, /no header/);
 });
 
+test('#1939 INTRODUCES never fires on a file that HAS a header, even though the body opens "You are X"', () => {
+  // The invariant the whole change rests on: the near-miss lives INSIDE `if (!m)`,
+  // so a valid export -- whose body naturally opens "You are …" (BODY does) -- must
+  // take the frontmatter path and import, never the redirect. This pins it against a
+  // future refactor that hoists INTRODUCES.test above the frontmatter check, which
+  // would silently start redirecting real exports.
+  const out = agentfile.importAgent(exportedFile('hdr-body-intro'), deps);
+  assert.equal(out.ok, true, 'a real export with a "You are" body must import, not be redirected: ' + out.because);
+  assert.equal(out.name, 'hdr-body-intro');
+});
+
 test('#1939 the near-miss covers the HEADING form, which is the most common real CLAUDE.md shape', () => {
   // Real agent CLAUDE.md files routinely open "# You are X" (a Markdown H1), which
   // is exactly the `(?:#+[ \t]*)?` branch of INTRODUCES. The bold and plain cases
@@ -109,15 +120,20 @@ test('#1939 INTRODUCES is mirrored from discover.js byte-for-byte (pin against s
   // else makes the two agree, so if discover's copy is widened and this one is not,
   // the two surfaces disagree about whether a file "introduces an agent". This pins
   // the literals equal so that drift is caught here rather than in the field.
+  // Capture the WHOLE declaration line, not up to the first `;`: a future literal
+  // carrying a `;` (in a character class, say) that diverged only AFTER it would
+  // truncate identically under `[^;]+` and pass falsely. `[^\n]+` pins the entire
+  // single-line literal. The `&&` short-circuit returns null (never throws) when
+  // the line is absent, so the assert below fails with a clear reason.
   const literal = (file) => {
     const src = fs.readFileSync(path.join(__dirname, file), 'utf8');
-    const m = src.match(/const INTRODUCES = ([^;]+);/);
-    return m && m[1].trim();
+    const m = src.match(/^const INTRODUCES = ([^\n]+)$/m);
+    return m ? m[1].trim() : null;
   };
   const here = literal('agentfile.js');
   const there = literal('discover.js');
-  assert.ok(here, 'agentfile.js INTRODUCES literal not found');
-  assert.ok(there, 'discover.js INTRODUCES literal not found -- did discover move it? update this pin');
+  assert.ok(here, 'agentfile.js INTRODUCES literal not found (reformatted across lines? update this pin)');
+  assert.ok(there, 'discover.js INTRODUCES literal not found -- did discover move or reformat it? update this pin');
   assert.equal(here, there, 'the mirrored INTRODUCES regexes have drifted; keep them byte-identical or share one constant');
 });
 
