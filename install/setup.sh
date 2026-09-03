@@ -3716,8 +3716,11 @@ fi
 
 if [ "$BOARD_OURS" = "yes" ]; then
   printf '\n  Kosmos is running.\n'
-  printf '  Open it and it will walk you through connecting your AI account.\n'
-  printf '  Your dashboard: http://127.0.0.1:%s\n\n' "$PORT"
+  # #2073: app-only. The Kosmos app is the dashboard; the board URL is demoted to a
+  # technical note (it still serves there for `kosmos open`), not presented as the
+  # thing to open in a browser.
+  printf '  Open the Kosmos app from your Applications folder; it will walk you through connecting your AI account.\n'
+  printf '  (Advanced: the board also serves at http://127.0.0.1:%s, which `kosmos open` uses.)\n\n' "$PORT"
 else
   # 🛑 THE CAUSE IS NOT ASSERTED ANY MORE, and the old sentence was confidently
   # wrong for the likeliest stranger. It said "often another account's Kosmos",
@@ -3825,60 +3828,24 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_O
   # We now do the authenticated ?boot open in both branches (the second tab is
   # the price of a working dashboard); do NOT re-add the skip on the strength of
   # the old "second tab" rationale.
-  if [ "${KOSMOS_INSTALL_PAGE:-}" = "1" ]; then
-    # #2033: the pkg install page is already open, but installing.html links the board at a
-    # BARE url which 403s on an enforcing board -- exactly the update outage #2023 fixes. So
-    # this branch must NOT skip the mint+open below: the ?boot open sets the httpOnly cookie
-    # for the origin, which signs in the already-open install page too (same origin).
-    printf '  Signing your browser in so the install page becomes your dashboard...\n\n'
-  else
-    printf '  Opening your dashboard in the browser...\n\n'
-  fi
-  # #2033: the authenticated ?boot open below runs in BOTH cases now -- a fresh curl|sh install
-  # and a fresh .pkg install both land on an enforcing board and both need the cookie set; only
-  # the message above differs. Seeding is server-side on nonce REDEMPTION now (#2030), so the pkg
-  # path is marked repaired exactly when its browser truly redeems, identically to the curl|sh path.
-  # #1946: append the board token so the FIRST dashboard a fresh install opens is
-  # authenticated. A fresh prod install produces an ENFORCING board (nothing
-  # sandboxed); its public shell loads at a bare URL but every /api/* fetch then
-  # 403s with no cookie, so the very first dashboard would be broken. The token is
-  # derived from the same store.ROOT the board wrote it to, via the bundled node
-  # (the canonical `$KOSMOS_HOME/runtime/bin/node` that `kosmos` itself uses), so no
-  # hardcoded path can drift from where the board wrote the token. The #2023 repair
-  # gate above resolves ROOT with the identical node formula (not a hardcoded copy),
-  # so the two reads cannot diverge. Empty on a non-enforcing (sandbox or harness)
-  # board -> the URL is left unchanged there. Both opens below use it.
-  _board_url="http://127.0.0.1:$PORT"
-  _bt=""
-  _awnode="$KOSMOS_HOME/runtime/bin/node"
-  if [ -f "$_awnode" ] && [ -x "$_awnode" ]; then
-    _awroot="$("$_awnode" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot=""
-    [ -n "$_awroot" ] && _bt="$(cat "$_awroot/board.token" 2>/dev/null || true)"
-  fi
-  # #1979: hand the browser a single-use, short-TTL NONCE, not the durable token.
-  # The board is up by here (we just read its token), and the open-once plist is
-  # RunAtLoad, so a nonce minted now (2-min TTL) is redeemed within seconds. The
-  # board token authenticates the mint OFF argv via a mode-600 header file (a plain
-  # `sh` inline of install/kosmos's kosmos_curl), so only the nonce -- useless once
-  # redeemed and after its TTL -- ever reaches the plist/`sh`/`open` argv that macOS
-  # `ps` exposes cross-account. Fall back to the plain URL (never ?token=) if the
-  # mint fails, so the durable token is never put on argv. This applies to BOTH the
-  # pkg open-once plist and the direct-open fallback below, which share _board_url.
-  if [ -n "$_bt" ]; then
-    _nhf="$(mktemp "${TMPDIR:-/tmp}/kosmos-open-auth.XXXXXX" 2>/dev/null || echo '')"
-    if [ -n "$_nhf" ]; then
-      chmod 600 "$_nhf" 2>/dev/null || true
-      printf 'x-kosmos-board-token: %s\n' "$_bt" > "$_nhf" 2>/dev/null || true
-      # `|| true` is load-bearing under this script's `set -euo pipefail`: a curl
-      # connection failure (exit 7, board died in the window after the health
-      # check) or a timeout (exit 28) makes the pipeline non-zero, and without the
-      # guard `set -e` would ABORT the fresh install here rather than falling back
-      # to the plain URL as intended. (cmd_open guards its mint the same way.)
-      _nonce="$(curl -sS -m 15 -H @"$_nhf" -X POST "http://127.0.0.1:$PORT/api/board-nonce" 2>/dev/null | sed -n 's/.*"nonce":"\([0-9a-f]*\)".*/\1/p' || true)"
-      rm -f "$_nhf" 2>/dev/null || true
-      [ -n "$_nonce" ] && { _board_url="http://127.0.0.1:$PORT/?boot=$_nonce"; _minted_nonce=yes; }
-    fi
-  fi
+  # #2073: Josh ruled Kosmos APP-ONLY, no browser. LAUNCH THE NATIVE APP instead of
+  # opening a browser dashboard. Kosmos.app (staged into $APP_DIR by make_app above)
+  # resolves the port, starts the board if it is not up, and loads it in its OWN
+  # WebKit window -- and it reads the board token from its mode-600 file and appends
+  # ?token= ITSELF (native-app/main.swift's tokenizedBoardURL), so the board sets the
+  # enforcing httpOnly cookie and the app is authenticated on first paint. That
+  # SUBSUMES the whole #1946/#1979/#2033 browser-nonce dance: no ?boot= mint, and the
+  # token never reaches argv (the app reads it in-process), so the cross-account `ps`
+  # exposure that dance existed to avoid cannot arise here at all. The #2023/#2030
+  # reauth marker is now seeded on the app's ?token= redemption too (server.js), so
+  # the enforcing-update gate above launches the app once and then stops.
+  # The old messages ("Opening your dashboard in the browser", the ?boot mint, the
+  # install-page "signing your browser in") are gone with the browser they described.
+  printf '  Opening Kosmos...\n\n'
+  # `_board_url` now holds the app bundle to hand `open`, not a URL -- the pkg
+  # open-once plist and the direct-open fallback below both `open "$_board_url"`,
+  # which launches the app. Kept the name to keep this diff to the open TARGET.
+  _board_url="$APP_DIR/Kosmos.app"
   # 🛑 UNDER THE .PKG, NOT A BARE `open` (#663). Installer's postinstall runs
   # as root and drops to the person with `launchctl asuser` + `sudo -u`; the
   # first real fresh-account run (Josh, 2026-08-24) reached this line, said
@@ -3950,17 +3917,17 @@ PLIST
         rm -f "$_open_plist"
         printf '  note: could not hand the open to your login session; trying directly.\n'
         if "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1; then _opened=yes
-        else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
+        else printf '  note: Kosmos could not be opened automatically; open the Kosmos app from your Applications folder.\n\n'; fi
       fi
     else
       if "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1; then _opened=yes
-      else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
+      else printf '  note: Kosmos could not be opened automatically; open the Kosmos app from your Applications folder.\n\n'; fi
     fi
   else
     # </dev/null: the spawned process must not inherit the curl|sh pipe --
     # the same class as cmd_start's measured never-returning install.
     if "$OPEN_CMD" "$_board_url" </dev/null >/dev/null 2>&1; then _opened=yes
-    else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
+    else printf '  note: Kosmos could not be opened automatically; open the Kosmos app from your Applications folder.\n\n'; fi
   fi
   # #2030: the repair marker is NO LONGER seeded here (setup.sh could only see the open
   # DISPATCHED, never REDEEMED); it is written server-side the instant a `?boot=` nonce is

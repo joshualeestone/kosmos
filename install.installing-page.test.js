@@ -124,15 +124,17 @@ test('both endings hide the description, because the wait is over or never happe
   const takenBranch = HTML.slice(HTML.indexOf('if (first) {'), HTML.indexOf('return;\n      }\n      settle();'));
   assert.match(takenBranch, /getElementById\("shape"\)\.style\.display = "none"/,
     'the taken branch shows a description of an install that was not happening');
-  /* ⚠️ ANCHORED ON THE STATEMENT, NOT THE PROSE. The first version searched for
-     the sentence "Opening your dashboard." and matched MY OWN COMMENT forty
-     lines earlier, so the slice began in prose and the assertion looked in the
-     wrong region entirely. A comment explaining a string contains that string. */
-  const okAt = HTML.indexOf('textContent = "Opening your dashboard."');
-  assert.notEqual(okAt, -1, 'the success branch no longer sets that line');
-  const okBranch = HTML.slice(okAt, HTML.indexOf('location.replace', okAt));
+  /* ⚠️ ANCHORED ON THE STATEMENT, NOT THE PROSE (a comment explaining a string
+     contains that string). #2073: app-only. The success branch text changed and,
+     crucially, the branch must NO LONGER redirect the browser onto the board --
+     that self-redirect was the second browser dashboard Josh's ruling removes. */
+  const okAt = HTML.indexOf('textContent = "Kosmos is opening in its own app. You can close this page."');
+  assert.notEqual(okAt, -1, 'the success branch sets the app-only ready line');
+  const okBranch = HTML.slice(okAt, HTML.indexOf('};', okAt));
   assert.match(okBranch, /getElementById\("shape"\)\.style\.display = "none"/,
     'the success branch still describes a wait that has ended');
+  assert.doesNotMatch(okBranch, /location\.replace/,
+    '#2073: the success branch must NOT redirect the browser onto the board (app-only, no browser surface)');
 });
 
 test('no size in megabytes, because that number rots and nobody re-measures it', () => {
@@ -197,8 +199,8 @@ test('item 4 -- "Nothing to do." stays deleted, and only that sentence went', ()
      tells a person what this page BECOMES, which is the reason to leave it
      open. A guard on the deletion alone would be satisfied by removing the
      whole paragraph, which is a different and worse change. */
-  assert.match(CODE, /This page becomes your dashboard when Kosmos is ready\./,
-    'the surviving half of the hint line went with the deleted sentence; item 4 removed one sentence, not the paragraph');
+  assert.match(CODE, /This page shows install progress\. Kosmos opens in its own app when it is ready\./,
+    'the surviving half of the hint line went with the deleted sentence; item 4 removed one sentence, not the paragraph (#2073 reworded the hint for app-only, but the paragraph must still exist)');
 
   /* And the node itself has to stay: the finish path hides #hint by id, so
      deleting the element turns that into a null dereference on the happy

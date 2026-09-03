@@ -78,7 +78,7 @@
        BECOMES, which is why they should leave it open. The element and its id
        stay too -- line 322 hides #hint when the install finishes, and removing
        the node would make that a null. -->
-  <p class="muted" id="hint">This page becomes your dashboard when Kosmos is ready.</p>
+  <p class="muted" id="hint">This page shows install progress. Kosmos opens in its own app when it is ready.</p>
   <!-- ⚠️ TRIMMED, not rewritten (#920): the download fact moved up to #shape, so
        repeating it here is the thing Josh cuts out of everything. What is left is
        the part that is only true once it HAS been slow, plus where to look. -->
@@ -368,11 +368,16 @@
       }
       settle();
       document.getElementById("title").textContent = "Kosmos is ready";
-      document.getElementById("steps").textContent = "Opening your dashboard.";
+      // #2073: APP-ONLY (Josh's ruling: no browser surface). This page must NOT
+      // redirect itself onto the board -- that was the second browser dashboard.
+      // The installer launches the native Kosmos app, which IS the dashboard now;
+      // this page just says so and stops. Its "becomes your dashboard" hint is
+      // cleared here because it never does.
+      document.getElementById("steps").textContent = "Kosmos is opening in its own app. You can close this page.";
       // #920: same rule as the taken branch. The wait is over, so describing it
       // is describing something that is no longer happening.
       document.getElementById("shape").style.display = "none";
-      location.replace(base + "/");
+      document.getElementById("hint").style.display = "none";
     };
     img.onerror = function(){
       first = false;

@@ -481,7 +481,7 @@ chk "the transcript ends on the thing the person still has to do" "grep -q 'One 
 # ⚠️ AND NOT MERELY PRESENT: nothing that reads as success may follow it, which
 # is the whole point of the card. Checked on the transcript rather than the
 # source, so a printf added later at runtime is caught too.
-chk "no success line is printed after the closing action" "! awk '/One more thing: typing/{f=1} f && /Kosmos is running|Your dashboard/{found=1} END{exit !found}' \"$SB/install.log\""
+chk "no success line is printed after the closing action" "! awk '/One more thing: typing/{f=1} f && /Kosmos is running|Open the Kosmos app/{found=1} END{exit !found}' \"$SB/install.log\""
 chk "the board gets a login job" "[ -f \"$BOARD_PLIST\" ]"
 chk "the login job starts THIS install's command" "grep -qF \"$SB/home/bin/kosmos\" \"$BOARD_PLIST\" && grep -q '<string>start</string>' \"$BOARD_PLIST\""
 chk "the login job runs at login" "grep -q '<key>RunAtLoad</key><true/>' \"$BOARD_PLIST\""
@@ -970,7 +970,7 @@ chk "the move is named in the transcript" "grep -q 'icon moved here' \"$SB/probe
 chk "no probe residue in the system folder" "[ -z \"\$(ls -A \"$SYS_OK\" | grep -v '^Kosmos.app\$')\" ]"
 chk "the TCC warm-up prints for a system-folder icon" "grep -q 'manage apps' \"$SB/probe1.log\""
 chk "the success closing line is pinned" "grep -q '^  Kosmos is running\\.\$' \"$SB/probe1.log\""
-chk "fresh install opened the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" 2>/dev/null | tr -d ' ')\" = \"1\" ] && grep -q \"127.0.0.1:$PORT\" \"$SB/opened.log\""
+chk "#2073: fresh install launched the app (not a browser)" "[ \"\$(wc -l < \"$SB/opened.log\" 2>/dev/null | tr -d ' ')\" = \"1\" ] && grep -q \"Kosmos.app\" \"$SB/opened.log\" && ! grep -q \"127.0.0.1:$PORT\" \"$SB/opened.log\""
 
 # The update run through the same probe env must NOT open the browser.
 RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe1b.log" 2>&1 || RC=$?
@@ -2196,10 +2196,10 @@ _ip_before="$(wc -l < "$SB/opened.log" 2>/dev/null | tr -d ' ')"
 export KOSMOS_HOME="$SB/home4" KOSMOS_BIN_DIR="$SB/bin4"
 RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_INSTALL_PAGE=1 KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe-ip.log" 2>&1 || RC=$?
 chk "install-page fresh install exits 0" "rc_ok $RC"
-chk "#2033: an install-page fresh install STILL opens the dashboard (does not skip the open)" \
-  "[ \"\$(wc -l < \"$SB/opened.log\" 2>/dev/null | tr -d ' ')\" -gt \"$_ip_before\" ] && tail -1 \"$SB/opened.log\" | grep -q \"127.0.0.1:$PORT\""
-chk "#2033: it prints the sign-in message, not the old open-skipping one" \
-  "grep -q 'Signing your browser in' \"$SB/probe-ip.log\" && ! grep -q 'already showing the install page; it becomes' \"$SB/probe-ip.log\""
+chk "#2073: an install-page fresh install STILL opens (launches the app, does not skip)" \
+  "[ \"\$(wc -l < \"$SB/opened.log\" 2>/dev/null | tr -d ' ')\" -gt \"$_ip_before\" ] && tail -1 \"$SB/opened.log\" | grep -q \"Kosmos.app\" && ! tail -1 \"$SB/opened.log\" | grep -q \"127.0.0.1:$PORT\""
+chk "#2073: it prints the app-open message, not the old browser ones" \
+  "grep -q 'Opening Kosmos' \"$SB/probe-ip.log\" && ! grep -q 'Signing your browser in' \"$SB/probe-ip.log\" && ! grep -q 'in the browser' \"$SB/probe-ip.log\""
 KOSMOS_HOME="$SB/home4" "$SB/bin4/kosmos" stop > /dev/null 2>&1 || true
 
 closing_checks
