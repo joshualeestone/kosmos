@@ -1829,9 +1829,27 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
      plausible widening reaches it and dropping the whole prefix left the suite
      green. This row uses a sentence that DOES end in a completion word, so
      removing the anchor flips it. Measured: shipped `working`, unanchored `idle`. */
+  /* 🛑 THE FIRST TWO ROWS STOPPED ARMING THIS GUARD WHEN THE PATTERN WAS
+     NARROWED AT ITERATION 19, AND THE SUITE SAID NOTHING. Requiring a quoted
+     agent name or the literal `background` means neither of them can match with
+     or WITHOUT the `[⏺●]` prefix, so deleting the prefix left all 175 green: a
+     guard that had discriminated for fifteen rounds became decoration because
+     the code it guarded moved underneath it. Measured by deleting
+     `^\s*[⏺●]\s*` from `AGENT_FINISHED_LINE`.
+     ⇒ The last two rows restore it. Each carries the narrowed pattern's OWN
+     entry conditions (a quoted name; the `background` banner) somewhere other
+     than line-start, so the anchor is now the only thing rejecting them:
+     shipped=false, unanchored=TRUE for both, measured.
+     ⭐ The general shape, which is worth more than the two strings: A GUARD IS
+     ARMED ONLY RELATIVE TO THE CODE THAT EXISTED WHEN IT WAS WRITTEN. Narrowing
+     a pattern silently disarms every fixture that was rejected by the part you
+     removed. After any narrowing, re-perturb the guards AROUND it, not just the
+     assertion you aimed at. */
   for (const prose of [
     '  the agent finished its review',
     '  I asked the agent about stopped builds',
+    '  I told you Agent "x" finished an hour ago',
+    '  see the log: All background agents stopped there',
   ]) {
     assert.equal(
       classify(pane, '✻ Waiting for 1 background agent to finish\n' + prose + footer).state,
@@ -1887,12 +1905,54 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    * `return null` on the stale row, so the live one was never examined and a
    * running agent read `idle`.
    */
+  /* ⚠️ THE STALE ROW MUST ACTUALLY RESOLVE, OR THIS ROW TESTS NOTHING. It waits
+     on TWO, so it needs TWO completions since the resolution became count-aware.
+     With only one it now declines at the FIRST row and returns `working` without
+     ever looking at the second -- the right verdict reached without exercising
+     the behaviour named in the assertion, which is the quietest way for a test
+     to stop meaning anything. Verified to still discriminate: restoring
+     `return null` in place of the resolution `continue` reds this row. */
   assert.equal(
     classify(pane, ['✻ Waiting for 2 background agents to finish',
-      '  ⏺ Agent "a" finished · 2m 1s', '  follow-up output',
+      '  ⏺ Agent "a" finished · 2m 1s', '  ⏺ Agent "b" finished · 3m 4s',
+      '  follow-up output',
       '✻ Waiting for 1 background agent to finish'].join('\n') + footer).state,
     'working',
     'a stale wait row short-circuited the scan and hid a live one below it');
+
+  /**
+   * 🛑 ONE COMPLETION DOES NOT END A WAIT ON N.
+   *
+   * The wait row's count is frozen at mount, so a pane waiting on two draws
+   * `Waiting for 2 background agents to finish` and keeps drawing it. A single
+   * `⏺ Agent "a" finished` beneath it used to resolve the whole row, and the
+   * SECOND agent then read `idle` while it ran. The error grows with N: on a
+   * wait for nine, one completion turned eight running agents into a calm card.
+   */
+  assert.equal(
+    classify(pane, '✻ Waiting for 2 background agents to finish\n'
+      + '  ⏺ Agent "a" finished · 2m 1s' + footer).state,
+    'working',
+    'one completion resolved a wait on two, so the second agent read idle while it ran');
+  assert.notEqual(
+    classify(pane, '✻ Waiting for 2 background agents to finish\n'
+      + '  ⏺ Agent "a" finished · 2m 1s\n  ⏺ Agent "b" finished · 3m 4s' + footer).state,
+    'working',
+    'both agents finished and the wait still read live');
+
+  /* 🛑 THE GLOBAL BANNERS ARE EXEMPT FROM THE COUNT, AND MUST BE. One
+     `All background agents stopped` ends ALL of them, so counting it as a single
+     occurrence would leave a wait on nine needing eight more lines that will
+     never be drawn -- and this is the INTERRUPT path, after which nothing further
+     renders at all, so the frozen row never leaves reach and the pane reads
+     `working` forever on an agent sitting at its prompt. */
+  for (const banner of ['  ⏺ All background agents stopped',
+    '  ⏺ 9 background agents were stopped by the user: a, b, c']) {
+    assert.notEqual(
+      classify(pane, '✻ Waiting for 9 background agents to finish\n' + banner + footer).state,
+      'working',
+      'a global stop banner did not clear a wait on nine: ' + banner.trim());
+  }
 
   /**
    * 🛑 THE VENDOR WRITES FOUR OUTCOMES AND TWO BULLETS. The task-notification

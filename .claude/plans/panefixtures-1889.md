@@ -187,6 +187,69 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## ITERATION 20: ONE COMPLETION WAS ENDING A WAIT ON N
+
+The resolution check asked "is there A completion line below this row", so a pane
+drawing `✻ Waiting for 2 background agents to finish` with `⏺ Agent "a" finished`
+beneath it resolved, and the SECOND agent read `idle` while it ran. **The error
+grows with N**: on a wait for nine, one completion turned eight running agents
+into a calm card.
+
+Resolution is now counted. The row's own count is parsed off the row, per-agent
+completions in the scanned span are counted, and the wait clears only when the
+count is met. The two GLOBAL banners (`All background agents stopped`,
+`N background agents were stopped by the user:`) are exempt and clear any N,
+which is why they moved into a second constant.
+
+🔑 **I COULD NOT SETTLE THE UNDERLYING FACT AND DID NOT NEED TO.** Whether the
+vendor appends a FRESH wait row each time one of N completes is unmeasured; the
+frozen-`useState` mechanism says the existing row cannot update itself, but says
+nothing about a new one. The change is correct under both branches:
+
+| if fresh rows ARE drawn | if they are NOT |
+|---|---|
+| the stale row now declines to resolve and returns `working`, the same verdict the live row below it gives | this is the only thing between N-1 running agents and an `idle` card |
+
+⭐ **A decision that holds under both branches of an unmeasured fact does not
+need the fact.** Worth separating from the cases on this branch where I did need
+a measurement and went and took one: the test is whether the branches disagree,
+not whether the fact is interesting.
+
+### The repair that mattered more than the fix
+
+Making resolution count-aware **silently made the stale-row test vacuous**. Its
+fixture waited on two with one completion, so it stopped declining at the FIRST
+row and returned `working` without ever looking at the second, which is the
+behaviour the assertion is named after. Right verdict, reached without exercising
+anything. The fixture now carries two completions so the first row genuinely
+resolves and the second is what produces the verdict, and it was re-verified to
+discriminate by restoring `return null` in place of the resolution `continue`.
+
+⚠️ **THAT IS THE SECOND TIME ON THIS BRANCH A CHANGE DISARMED A GUARD IT WAS NOT
+AIMED AT** (iteration 19's narrowing disarmed the `[⏺●]` anchor fixtures the same
+way). **A guard is armed only relative to the code that existed when it was
+written.** After any narrowing or tightening, re-perturb the guards AROUND the
+change, not just the assertion you aimed at. Neither instance produced a red.
+
+### Three comments were false about their own code
+
+Also fixed at iteration 20, all found by a blind reviewer running the claims
+against the tree rather than reading them:
+
+- Two `KNOWN LIMIT` notes marked **"(measured)"** (`⏺ Agent(<description>)` tool
+  headers and `⏺ Agent work finished …` narration) described limits that
+  iteration 19's narrowing had **closed as a side effect**. Left on the page,
+  rewritten as closed, with the note that they were closed accidentally and any
+  future widening reopens both at once.
+- The `NO m FLAG` rule named the wrong mechanism. Per-row-ness comes from the
+  `split('\n')` in `backgroundAgentWait`, not the flag: adding `m` leaves the
+  suite green, and the no-`m` pattern **already spans rows** when the row is
+  first in the input, because `\s*` matches a newline (measured).
+
+⭐ All three were true when written. **A comment is a claim with a timestamp
+nobody renders**, and the ones that go stale first are the ones that cite a
+measurement, because the citation is what stops the next reader re-taking it.
+
 ## THE FIX INTRODUCED THE DEFECT IT WAS CLOSING, AND A REVIEWER CAUGHT IT
 
 Found at iteration 3. **The wait line is a TRANSCRIPT line, not an ephemeral

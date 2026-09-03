@@ -1888,8 +1888,16 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    the vendor cannot draw here and opened six prose/quotation entry points for
    nothing. `*` in
    particular made an ordinary markdown bullet read as a working agent.
-   🛑 NO `m` FLAG, so `^` means start of input and the constant is per-row by
-   construction. With `m` plus `\s*` it spans rows.
+   📌 NO `m` FLAG -- BUT THAT IS NOT WHAT MAKES THIS PER-ROW, AND THE EARLIER
+   VERSION OF THIS NOTE CLAIMED IT WAS. Per-row-ness comes from `backgroundAgentWait`
+   splitting on `\n` and testing one row at a time; the flag is inert at the only
+   call site, and ADDING `m` leaves the whole suite green. Worse, the stated
+   mechanism is false in its own terms: `\s*` matches a newline, so even without
+   `m` this pattern spans rows when the row is first in the input --
+   `.test("✻\nWaiting for 1 background agent to finish")` returns TRUE (measured).
+   ⇒ Keep the flag off, but do not rely on it for anything: if this constant is
+   ever tested against a whole pane instead of a single row, the `\s*` is what
+   will bite, and no flag setting prevents it. The rule that HOLDS is the split.
    🛑 DO NOT WIDEN TO A BARE `Waiting for …`. The bundle carries many such strings
    and they are NOT one state: permission, authorization, team lead approval and
    browser sign-in all mean BLOCKED ON A HUMAN, and reporting those as busy hides
@@ -1994,21 +2002,20 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    "verified in 2.1.258 and 2.1.259" above covers the legacy renderer ONLY. If
    that path is ever enabled, every wording here stops matching at once.
 
-   ⚠️ KNOWN LIMIT, AND ITS COMMONEST INSTANCE IS STRUCTURAL RATHER THAN PROSE.
-   The tool-header row for a spawned agent is drawn `⏺ Agent(<description>)`, so
-   ANY agent whose description contains `finished`, `failed` or `stopped` -- e.g.
-   `⏺ Agent(Investigate the failed CI run)` -- resolves the wait above it
-   (measured). Free prose rarely puts `Agent` immediately after the bullet; the
-   tool header does it every time. Calling this "narration" understates it, and a
-   future editor would not think to guard a tool header.
-
-   ⚠️ ALSO A KNOWN LIMIT: ordinary assistant narration matches too. Claude Code
-   draws every assistant text block with `⏺`, so `⏺ Agent work finished for the
-   day, still one more running` RESOLVES a live wait (measured). Not a regression
-   against `origin/main`, and likelier than the `Remote task "` risk below, since
-   the prose row the test pins carries no bullet. Recorded rather than guarded:
-   narrowing it needs a shape that separates a notification from narration, and
-   nothing in the render distinguishes them at the row level.
+   ✅ TWO LIMITS RECORDED HERE ARE NOW CLOSED, AND THEY ARE LEFT WRITTEN DOWN
+   RATHER THAN DELETED because the reason they closed is the useful part. Both
+   were true, and marked "(measured)", against the PRE-NARROWING pattern:
+     `⏺ Agent(Investigate the failed CI run)`            the tool-header row
+     `⏺ Agent work finished for the day, still one more running`   narration
+   Both resolved a live wait. Neither does now: every arm requires `Agent\s+"`,
+   and a tool header has no space and no quote, while narration almost never
+   puts a quoted name straight after the bullet. Re-measured against the shipped
+   pattern: both false.
+   ⚠️ THEY WERE CLOSED AS A SIDE EFFECT, NOT ON PURPOSE. The narrowing was aimed
+   at the collapsed Task-group header; these two fell out of it. So do not read
+   this as the class being solved: the shape that separates a notification from
+   narration is still just "a quoted name after a bullet", and any future
+   widening reopens both at once. That is why they stay on the page.
 
    ⚠️ KNOWN LIMIT, SAME CLASS AS THE WAIT MATCHER'S: no wrap tolerance. Ink
    hard-wraps this row too, and `-J` does not rejoin what Ink already split, so a
@@ -2067,7 +2074,27 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    per-agent notification is a separate render site and still resolves those,
    so the loss is bounded by panes where the header is the only line drawn. */
 const AGENT_FINISHED_LINE =
-  /^\s*[⏺●]\s*(?:(?:Agent|[Bb]ackground\s+agent)\s+"[^"\n]*"\s+(?:finished|failed\b|was\s+stopped|stopped\s+at\s+its)|All\s+background\s+agents\s+stopped\b|\d+\s+background\s+agents?\s+(?:was|were)\s+stopped\b)/mu;
+  /^\s*[⏺●]\s*(?:Agent|[Bb]ackground\s+agent)\s+"[^"\n]*"\s+(?:finished|failed\b|was\s+stopped|stopped\s+at\s+its)/mu;
+
+/* #1889. The two rows that end EVERY background agent at once, so they resolve a
+   wait whatever its count. Kept separate from `AGENT_FINISHED_LINE` above because
+   that one is now COUNTED and these must not be: a single `All background agents
+   stopped` clears a wait on nine, and counting it as one occurrence would leave
+   eight phantom agents keeping a dead pane `working` forever -- the interrupt case,
+   which is the worst place to be wrong, since after an interrupt nothing further
+   is drawn and the frozen wait row never leaves reach. */
+const AGENT_WAIT_CLEARED_BANNER =
+  /^\s*[⏺●]\s*(?:All\s+background\s+agents\s+stopped\b|\d+\s+background\s+agents?\s+(?:was|were)\s+stopped\b)/mu;
+
+/* #1889. How many agents a wait row is waiting ON, read off the row itself.
+   Returns 1 when no count can be read, which is the pre-existing behaviour: one
+   completion resolves the wait. */
+function backgroundAgentWaitCount(row) {
+  const hit = /(\d+)\s+background\s+agents?\b/u.exec(String(row == null ? '' : row));
+  if (hit === null) return 1;
+  const n = Number(hit[1]);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
 
 /**
  * The live background-agent wait line, or null.
@@ -2161,7 +2188,25 @@ function backgroundAgentWait(text) {
        `⏺` on macOS and `●` elsewhere. Keying on `finished` and `⏺` alone left
        three wordings and every non-macOS host reading `working` on a dead
        agent, which is worse than `origin/main`. */
-    if (AGENT_FINISHED_LINE.test(rows.slice(i + 1, anchor).join('\n'))) continue;
+    /* 🛑 ONE COMPLETION DOES NOT END A WAIT ON N. The row is frozen at its mount
+       count (see the useState note above), so on a pane waiting for 2 a single
+       `⏺ Agent "a" finished` used to resolve it and the SECOND agent read `idle`
+       while it ran -- a false calm that grows with N, and the exact direction
+       this card exists to close.
+       ⇒ Count the per-agent completions in the span and require the row's own
+       count. The two global banners are exempt and resolve any N.
+       🔑 WHY THIS IS SAFE WITHOUT KNOWING HOW THE VENDOR REDRAWS. I could not
+       settle from the bundle whether a FRESH wait row is appended each time one
+       of N completes. It does not matter, because the change is correct either
+       way: if fresh rows ARE drawn, the stale row now declines to resolve and
+       returns `working` -- the same verdict the live row below it would give; if
+       they are NOT, this is the only thing standing between N-1 running agents
+       and an `idle` card. A decision that holds under both branches of an
+       unmeasured fact does not need the fact. */
+    const span = rows.slice(i + 1, anchor);
+    if (span.some((r) => AGENT_WAIT_CLEARED_BANNER.test(r))) continue;
+    const done = span.reduce((n, r) => n + (AGENT_FINISHED_LINE.test(r) ? 1 : 0), 0);
+    if (done >= backgroundAgentWaitCount(rows[i])) continue;
     const line = rows[i].trim();
     return line.length > 240 ? line.slice(0, 240) + '…' : line;
   }
