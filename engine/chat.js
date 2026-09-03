@@ -690,7 +690,13 @@ function verifyAtSend(card) {
  *   and "this sits in its composer", in one sentence. What the agent was DOING
  *   is still true and still useful, so that half stays.
  */
-function waitingNote(state, outcome, runner) {
+/* ⚠️ FOUR PARAMETERS, AND THE ORDER IS NOT ARBITRARY. #2107 added `runner`
+   at position 3 and landed on main; #1889 added `backgroundWait` and had not.
+   The landed one keeps its slot so no merged caller or test moves, and the
+   unlanded one takes position 4. Both were written as "the third parameter"
+   independently, which is exactly how a positional API collides silently:
+   the types are compatible, so a caller passing the wrong one still runs. */
+function waitingNote(state, outcome, runner, backgroundWait) {
   const unsure = outcome === DELIVERY.UNCONFIRMED;
   // #2093/#2107: name the PROVIDER the sign-in belongs to, not a hardcoded "Claude".
   // Before #2093 a codex pane never reached AUTH_FAILED here, so the literal was
@@ -708,12 +714,29 @@ function waitingNote(state, outcome, runner) {
   // status.js's produce copy says "Its OpenAI sign-in is not working" (#2093), so
   // this line must say OpenAI too or the phone and the board drift.
   const provider = runner === 'codex' ? 'OpenAI' : 'Claude';
+  /* 🛑 #1889. ONE `working` MEANS THE OPPOSITE OF THE OTHER, FOR THIS SENTENCE.
+     A pane whose screen says it is waiting on a BACKGROUND agent classifies
+     `working`, but its own turn has ENDED and its REPL is at its prompt, so the
+     composer takes the text immediately. The unqualified line below told the
+     person the exact opposite of what happens, and they wait on a message that
+     was already read. Same false-sentence class this branch fixed in
+     `reconcileReport` rule 5 and in the #1921 account badge; this is the only
+     one a PERSON reads.
+     📌 Polarity is `=== true` on purpose: a card built before this field existed,
+     or by any path that does not set it, keeps the existing sentence. Absence
+     must never select the new branch. */
+  const bgWait = backgroundWait === true;
   // The engine's own constants, not literals: a state renamed in status.js
   // must move these cases with it rather than leaving a switch that
   // silently stops matching (the same rule server.js records for its
   // STATE import).
   switch (state) {
     case status.STATE.WORKING:
+      if (bgWait) {
+        return unsure
+          ? 'it was waiting on a background agent'
+          : 'it was waiting on a background agent, so its own turn had already ended and it can pick this up now';
+      }
       return unsure
         ? 'it was mid-task'
         : 'it was mid-task, so it will not read this until it finishes';
@@ -820,7 +843,8 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
   // ⚠️ The note depends on the VERDICT as well as the state (see waitingNote),
   // and the verdict is not known until the sends have answered — so it is built
   // at each return rather than once up front.
-  const noteFor = (outcome) => waitingNote(paneState, outcome, allowed.card.runner);
+  const paneBackgroundWait = allowed.card.stateBackgroundWait === true;
+  const noteFor = (outcome) => waitingNote(paneState, outcome, allowed.card.runner, paneBackgroundWait);
 
   /**
    * ⚠️ THE PANE IS ASKED AGAIN, HERE, IMMEDIATELY BEFORE THE KEYSTROKE.

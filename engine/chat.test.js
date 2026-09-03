@@ -884,6 +884,55 @@ test('a state we could not read gets a sentence too, and never renders as an idl
   assert.equal(chat.waitingNote(null), said);
 });
 
+test('#1889: a pane waiting on a BACKGROUND agent is not told it will go unread', () => {
+  /*
+   * 🛑 ONE `working` MEANS THE OPPOSITE OF THE OTHER, FOR THIS SENTENCE.
+   *
+   * #1889 made a pane classify `working` when its screen shows
+   * `✻ Waiting for N background agents to finish`. That row means the parent's
+   * own turn has ENDED and its REPL is at its prompt, so the composer takes the
+   * text immediately. The unqualified WORKING sentence told the person the exact
+   * opposite, and they wait on a message that was already read.
+   *
+   * This is the only one of that family a PERSON reads. The sibling fixes went
+   * into `reconcileReport` rule 5 (a decayed report is not a broken reporter) and
+   * into #1921's account badge (a frozen wait row is not a witnessed request).
+   */
+  /* 📌 `backgroundWait` IS THE FOURTH ARGUMENT, NOT THE THIRD. #2107 landed
+     `runner` at position 3 while this branch was open, and both were written as
+     "the third parameter" independently. The landed one kept its slot.
+     ⚠️ THE COLLISION IS SILENT AT THE CALL SITE: `true` in the runner slot still
+     runs, `runner === 'codex'` is merely false, and `backgroundWait` arrives
+     undefined, so the wrong sentence is produced by a call that throws nothing.
+     A positional API with compatible types cannot report its own misuse. */
+  const busy = chat.waitingNote('working', chat.DELIVERY.PLACED);
+  const bg = chat.waitingNote('working', chat.DELIVERY.PLACED, null, true);
+
+  assert.match(busy, /will not read this until it finishes/,
+    'the ordinary mid-turn sentence changed; this row exists to keep it');
+  assert.doesNotMatch(bg, /will not read this until it finishes/,
+    'a pane at its prompt was told its message would go unread');
+  assert.match(bg, /background agent/,
+    'the background-wait sentence does not say what it saw');
+  assert.notEqual(bg, busy);
+
+  /* 🛑 POLARITY. Absence must keep the OLD sentence, never select the new branch:
+     a card built by any path that does not set the field would otherwise flip to
+     a claim nobody measured. All three falsey spellings pinned. */
+  for (const absent of [undefined, null, false]) {
+    assert.equal(chat.waitingNote('working', chat.DELIVERY.PLACED, null, absent), busy,
+      'a missing background-wait flag selected the background-wait sentence: ' + String(absent));
+  }
+
+  /* And the UNCONFIRMED verdict still drops the settled-fact clause on this arm
+     too, the same rule the ordinary WORKING arm follows: we cannot say where a
+     message IS when we do not know it arrived. */
+  const unsure = chat.waitingNote('working', chat.DELIVERY.UNCONFIRMED, null, true);
+  assert.match(unsure, /background agent/);
+  assert.doesNotMatch(unsure, /pick this up now/,
+    'an unconfirmed delivery still claimed where the message ended up');
+});
+
 test('a rate-limited agent is told apart from a busy one, because the wait has a different cause', () => {
   assert.match(chat.waitingNote('rate_limited'), /usage limit/);
   assert.notEqual(chat.waitingNote('rate_limited'), chat.waitingNote('working'));

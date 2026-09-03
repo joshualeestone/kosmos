@@ -1940,6 +1940,94 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     'working',
     'both agents finished and the wait still read live');
 
+  /**
+   * 🛑 A BANNER CLEARS ITS OWN ROW, IT DOES NOT END THE SCAN.
+   *
+   * The banner check and the count check sit one line apart and both `continue`.
+   * The count one was pinned; this one was not, and perturbing it to
+   * `return null` left the whole suite green. Splitting the two arms into
+   * separate constants is what left this one unpinned while its sibling was
+   * tested, so the split created the hole it was meant to make clearer.
+   *
+   * The screen below is real: a wait on two, cleared by an interrupt banner, with
+   * a NEW wait drawn under it when the parent took another turn. Returning on the
+   * banner reads `idle` on the agent that is still running.
+   */
+  assert.equal(
+    classify(pane, ['✻ Waiting for 2 background agents to finish',
+      '  ⏺ All background agents stopped', '  follow-up output',
+      '✻ Waiting for 1 background agent to finish'].join('\n') + footer).state,
+    'working',
+    'a banner-cleared stale row ended the scan and hid a live one below it');
+
+  /**
+   * 🛑 A COMPOSED WAIT IS NOT RESOLVED BY ITS AGENT HALF.
+   *
+   * `✻ Waiting for 1 background agent and 3 dynamic workflows to finish` is
+   * asserted as WORKING in the contract table, but the count reads only the AGENT
+   * counter and the completions count only agent lines. So the one agent
+   * finishing used to clear the whole row: measured `idle` with three workflows
+   * still running. A false calm, not a miss, which is the direction this reader
+   * is not allowed to fail in.
+   *
+   * The reader now DECLINES on a composed row rather than guessing. The bundle
+   * does carry `Dynamic workflow "x" completed`, but this branch's rule is to
+   * widen only on a live capture of the shape being widened to, and there is no
+   * capture of a workflow completion. Resolving on an unseen marker would be the
+   * same error facing the other way.
+   */
+  for (const composed of [
+    '✻ Waiting for 1 background agent and 3 dynamic workflows to finish',
+    '✻ Waiting for 2 background agents and 1 dynamic workflow to finish',
+  ]) {
+    assert.equal(
+      classify(pane, composed + '\n  ⏺ Agent "a" finished · 2m' + footer).state,
+      'working',
+      'a composed wait was cleared by its agent half alone: ' + composed);
+    /* CONTROL: the same row with enough agent completions to satisfy the AGENT
+       counter must ALSO stay working, or this row is only re-testing the count. */
+    assert.equal(
+      classify(pane, composed + '\n  ⏺ Agent "a" finished · 2m'
+        + '\n  ⏺ Agent "b" finished · 3m' + footer).state,
+      'working',
+      'a composed wait cleared once its agent counter was satisfied: ' + composed);
+    /* And the evidence must survive the early return, which is a second code path
+       to the same trimmed line. */
+    assert.equal(classify(pane, composed + '\n  ⏺ Agent "a" finished · 2m' + footer).evidence,
+      composed, 'the composed-wait return lost or altered its evidence line');
+  }
+
+  /* 🛑 THE CROSSING ROW: A WRAP-JOINED WAIT **AND** A COUNT. Neither dimension was
+     wrong alone and nothing tested them together, so a BLOCKER lived between two
+     green fixtures. The wrap rows above assert only `.state` on a wait with NO
+     completions; the count rows below use UNWRAPPED waits. `capture-pane -J`
+     joins a wrapped row with no separator, so the wait matcher spells every space
+     `\s*` -- and the count regex spelled them `\s+`, so on exactly the rows the
+     matcher was widened to accept, N fell to the unreadable-row fallback of 1 and
+     one completion resolved a wait on two.
+     ⭐ TWO REGEXES READING ONE ROW MUST SHARE ITS WHITESPACE PREMISE, and the only
+     fixture that can say so is one that varies BOTH at once. Measured before the
+     fix: each of these read `working` alone and `idle` with one completion. */
+  for (const wrapped of [
+    '✻ Waiting for 2 backgroundagents to finish',
+    '✻ Waiting for 2background agents to finish',
+    '✻ Waiting for 2 background agentsto finish',
+    '✻ Waiting for 2 backgroundagentsto finish',
+  ]) {
+    assert.equal(
+      classify(pane, wrapped + '\n  ⏺ Agent "a" finished · 2m 1s' + footer).state,
+      'working',
+      'a wrap-joined wait lost its count, so one completion resolved a wait on two: ' + wrapped);
+    /* CONTROL: the same wrapped row with BOTH completions must still resolve, so
+       the row above is the count being READ rather than the reader simply having
+       stopped matching wrapped waits altogether. */
+    assert.notEqual(
+      classify(pane, wrapped + '\n  ⏺ Agent "a" finished · 2m 1s'
+        + '\n  ⏺ Agent "b" finished · 3m 4s' + footer).state,
+      'working',
+      'a wrap-joined wait ignored its completions entirely: ' + wrapped);
+  }
+
   /* 🛑 THE GLOBAL BANNERS ARE EXEMPT FROM THE COUNT, AND MUST BE. One
      `All background agents stopped` ends ALL of them, so counting it as a single
      occurrence would leave a wait on nine needing eight more lines that will

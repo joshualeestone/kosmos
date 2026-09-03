@@ -1867,6 +1867,14 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    (`· 3 messages hidden (/focus to show)`) all append after `to finish`. Both
    were measured returning `idle`. So the tail is optional but must start with
    ` · `, which the vendor always uses as its separator and prose does not.
+   📌 THE ENUMERATION ABOVE IS MISSING A FOURTH CHILD, AND IT IS HARMLESS -- said
+   here rather than left for the next reader to find and doubt the rest. Beside
+   the budget readout and the hidden-message count the row can append
+   `` ` · ${WM} still running` ``, which is ` · `-prefixed like the others and so
+   is inside the suffix group anyway. It also cannot co-occur with the wait text:
+   its gate `Fw = tl && HM` is true exactly when the `Waiting for …` element is
+   the one selected. Complete for this row; a clause, not a rewrite. */
+/* (continued)
    🛑 SPACES ARE `\s*`. `capturePane` passes `-J`, which joins a wrapped row with
    NO separator, so a space on the wrap boundary is gone (#1234). All seven are
    optional; two of them were not, and that was a silent `idle` on a narrow pane.
@@ -2120,10 +2128,46 @@ const AGENT_WAIT_CLEARED_BANNER =
    which is a two-line read of the `al`/`nl`/`HM` block. Re-running a shape sweep
    would look like diligence and would be checking the wrong thing. */
 function backgroundAgentWaitCount(row) {
-  const hit = /(\d+)\s+background\s+agents?\b/u.exec(String(row == null ? '' : row));
+  /* 🛑 `\s*`, NOT `\s+`, AND NO `\b` -- THIS REGEX MUST MAKE THE SAME WRAP
+     ASSUMPTION AS `BACKGROUND_AGENT_WAIT` OR IT SILENTLY DEGRADES N TO 1.
+     That matcher spells every space `\s*` because `capture-pane -J` joins a
+     wrapped row with NO separator, and the branch asserts those joins as real
+     renders. This one used `\s+`, so on exactly the rows the matcher was widened
+     to accept the count fell through to the unreadable-row fallback of 1 and ONE
+     completion resolved a wait on N -- the iteration-20 false calm restored, in
+     the wrap mode the module already treats as live. Measured on the shipped
+     code, each of these reading `working` alone and `idle` with one completion
+     below it:
+       `✻ Waiting for 2 backgroundagents to finish`
+       `✻ Waiting for 2background agents to finish`
+       `✻ Waiting for 3 background agentsto finish`   (2 running agents hidden)
+     The `\b` goes for the same reason: `agentsto` has no word boundary after
+     `agents`, so keeping it would leave the third shape broken.
+     ⭐ TWO REGEXES READING ONE ROW MUST SHARE ITS WHITESPACE PREMISE. Neither was
+     wrong alone; nothing tested them TOGETHER, because the wrap fixtures assert
+     only `.state` on a wait with no completions and the count fixtures use
+     unwrapped rows. The crossing row is in `status.test.js` now. */
+  const hit = /(\d+)\s*background\s*agents?/u.exec(String(row == null ? '' : row));
   if (hit === null) return 1;
   const n = Number(hit[1]);
+  /* 📌 THIS IS NOT A GUARD AND IS NOT LABELLED AS ONE. `(\d+)` cannot produce a
+     negative, and the vendor cannot render a zero counter (see the note above),
+     so `n > 0` is unreachable in any real render -- perturbing this whole line to
+     `return n` leaves the suite green. `isFinite` is reachable only above ~309
+     digits, where `Number` overflows to Infinity, which is not a screen anybody
+     will see either. Kept because it costs nothing and keeps the function total
+     for any caller; written down because an unreachable expression that LOOKS
+     like a guard is worse than no expression -- it tells the next reader this
+     input is checked when nothing here checks it. */
   return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+/* #1889. The evidence line, trimmed to this module's 240-char screen convention.
+   Factored because there are now TWO return paths that produce it, and a second
+   inline copy is exactly how one of them quietly stops matching the other. */
+function trimWaitEvidence(row) {
+  const line = String(row == null ? '' : row).trim();
+  return line.length > 240 ? line.slice(0, 240) + '…' : line;
 }
 
 /**
@@ -2155,7 +2199,13 @@ function backgroundAgentWait(text) {
        whose fixture makes the two anchor choices DIVERGE -- an earlier fixture
        had them agree, so it discriminated nothing.
        🛑 THE EXCLUSION MUST COVER EVERY FOOTER ICON, NOT JUST `◯`. The vendor
-       draws a focused footer row as `N.pointer + " "` then that row's icon, and
+       draws a focused footer row as pointer-then-icon with NO space between them
+       (`Zp = Rs ? "\u276F" : " "`, children `[Zp, Vp, "  "]`, so the two spaces
+       come AFTER the icon; this sentence claimed a separator the bundle does not
+       draw, and it had already been corrected once in the other direction). The
+       exclusion below spells the gap `*` and so covers both readings, which is
+       why nothing broke -- but a sentence that misdescribes the render is how the
+       next narrowing gets made confidently and wrongly. It carries that row's icon, and
        the icon is `⏺` (macOS) or `●` for the VIEWED row rather than the main one,
        so `❯ ⏺ main` is a real focused row. Keying on `◯` alone let it become the
        anchor. Residual, named rather than left to be rediscovered: a composer
@@ -2268,11 +2318,31 @@ function backgroundAgentWait(text) {
        I could not measure" -- true, but weaker, and it is worth keeping the
        distinction: that argument makes a change SAFE, this one makes it RIGHT. */
     const span = rows.slice(i + 1, anchor);
+    /* 🛑 `continue`, NOT `return null`, HERE TOO. A banner clears the row it sits
+       under; it does not end the scan. A pane can hold a banner-cleared STALE row
+       above a LIVE one, and returning here reads `idle` on the running agent
+       below. Same shape as the count check's own asymmetry one branch over -- and
+       splitting the two arms into separate constants is exactly what left this
+       one unpinned while its sibling was tested. Fixture in `status.test.js`. */
     if (span.some((r) => AGENT_WAIT_CLEARED_BANNER.test(r))) continue;
+    /* 🛑 A COMPOSED WAIT IS NOT RESOLVED BY AGENT COMPLETIONS ALONE. The row can
+       read `Waiting for 1 background agent and 3 dynamic workflows to finish`, and
+       the branch asserts that shape as WORKING. But the count below reads only the
+       AGENT counter and the completions below count only agent lines, so the
+       single agent finishing used to clear the whole row: measured `idle` with
+       three workflows still running. A false calm, not a miss.
+       ⇒ DECLINE rather than guess. The bundle does carry `Dynamic workflow "x"
+       completed`, but this branch's own rule is to widen only on a live capture of
+       the shape being widened to, and I have no capture of a workflow completion.
+       Resolving on a marker I have not seen rendered would be the same mistake in
+       the other direction. So a composed row stays `working` until it leaves
+       reach, which is the accepted direction and is bounded by the reach itself.
+       📌 If someone captures a real workflow-completion row, the fix is to count
+       it against the workflow counter here, not to delete this check. */
+    if (/\d+\s*dynamic\s*workflows?/u.test(rows[i])) return trimWaitEvidence(rows[i]);
     const done = span.reduce((n, r) => n + (AGENT_FINISHED_LINE.test(r) ? 1 : 0), 0);
     if (done >= backgroundAgentWaitCount(rows[i])) continue;
-    const line = rows[i].trim();
-    return line.length > 240 ? line.slice(0, 240) + '…' : line;
+    return trimWaitEvidence(rows[i]);
   }
   return null;
 }
@@ -5061,6 +5131,7 @@ function panelessCard(key, nowMs) {
        gap is real and not yet covered here (challenge iter 1). */
     disruption: status.disruption || null,
     stateReported: status.reported === true,
+    stateBackgroundWait: status.backgroundWait === true,
     stateConflict: status.conflict || null,
     context: {
       tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false,
@@ -5383,6 +5454,15 @@ function snapshot() {
       /* Whether the state above is the agent's own account (#188's third
          verb) rather than a pane reading. */
       stateReported: status.reported === true,
+      /* #1889. `working` because the screen says the agent is waiting on a
+         BACKGROUND agent, which is a different fact from `working` mid-turn: the
+         parent's own turn has ENDED and its REPL is at its prompt. Published
+         because consumers act on the difference and cannot otherwise see it --
+         `chat.waitingNote` was telling a person their message "will not be read
+         until it finishes" about a pane that reads it immediately. Explicit
+         boolean, never undefined, so a consumer branching on it gets `false`
+         rather than absence on every other state. */
+      stateBackgroundWait: status.backgroundWait === true,
       /* A sentence when the agent's report and the pane reader materially
          disagree, null otherwise. Surfaced rather than silently resolved:
          the two witnesses disagreeing is a fact the operator gets to see. */
