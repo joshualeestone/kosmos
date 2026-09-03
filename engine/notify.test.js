@@ -145,7 +145,15 @@ test('both telemetry opt-out rows are PRESENT and wired, and the sends stay OFF 
   const ping = require('./ping');
   assert.equal(notify.read().on, false, 'the notify send defaults ON with no step-3 ruling from Josh');
   assert.equal(ping.read().on, false, 'the ping send defaults ON with no step-3 ruling from Josh');
-  /* And the payload is still shaped (kept from the prior version). */
-  const keys = Object.keys(notify.payload({ kind: 'posted', agent: 'x', project: 'y' }));
-  assert.ok(keys.length > 0, 'the payload lost its shape while nothing was watching');
+  /* 🛑 THE DISCLOSURE COPY MUST COVER WHAT THE PAYLOAD SENDS (#2020 step 2 = honest
+     disclosure). This pins the payload's EXACT field set; the notify row's copy above
+     is human-verified to name each one - the agent's name and session, kind
+     (posted/answered), project, at (when), an event id, and installId (a random
+     per-install id) - and it says the content ("the words") is never sent. A field
+     added to payload() reds HERE, forcing the disclosure copy to be reviewed rather
+     than silently under-disclosing. That is the copy-matches-payload check the prior
+     version of this test asked to re-derive when the row returned. */
+  const keys = Object.keys(notify.payload({ kind: 'posted', id: 'e1', agent: 'x', session: 's', project: 'y' })).sort();
+  assert.deepEqual(keys, ['agent', 'at', 'id', 'installId', 'kind', 'project', 'session'],
+    'notify.payload() changed shape; review the Settings disclosure copy for the new/removed field before updating this set');
 });

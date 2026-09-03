@@ -9785,7 +9785,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            leaves the Mac: who, what, when, never the words. -->
       <div class="setrow" id="notify-row" style="margin-top:12px;">
         <div><b>Let the Kosmos team know when an agent posts or answers you</b>
-          <p class="dhint" style="margin:2px 0 0;">Off by default. One small message each time: which agent, whether it posted or answered, which project, when, and a random ID for this install. Never the words. This is what a phone notification will ride on once Kosmos can reach your phone.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">Off by default. One small message each time: the agent's name and session, whether it posted or answered, which project, when, an id for that event, and a random ID for this install. Never the words. This is what a phone notification will ride on once Kosmos can reach your phone.</p></div>
         <button class="toggle" id="notify-toggle" role="switch" aria-label="Let the Kosmos team know when an agent posts or answers you" hidden><i></i></button>
       </div>
       <p class="dhint" id="notify-msg" role="status" style="margin:8px 0 0;"></p>
@@ -15257,7 +15257,7 @@ let TELL_EPOCH = 0;
 function tellPaint(r) {
   // could-not-read if there is no real value: no body at all, or the route/engine
   // said ok:false. paintSwitch(null) HIDES the switch, so no position is claimed.
-  const unread = !r || r.ok === false;
+  const unread = !r || r.ok === false || typeof r.on !== 'boolean';
   paintSwitch('tell-toggle', unread ? null : r.on === true);
   document.getElementById('tell-msg').textContent = unread
     ? 'We could not read this setting just now.'
@@ -15304,7 +15304,7 @@ document.getElementById('tell-toggle').addEventListener('click', tellToggleClick
 
 let NOTIFY_EPOCH = 0;
 function notifyPaint(r) {
-  const unread = !r || r.ok === false;
+  const unread = !r || r.ok === false || typeof r.on !== 'boolean';
   paintSwitch('notify-toggle', unread ? null : r.on === true);
   document.getElementById('notify-msg').textContent = unread
     ? 'We could not read this setting just now.'
