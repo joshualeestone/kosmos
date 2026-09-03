@@ -459,13 +459,27 @@ cmd_msg() {
     exit 1
   fi
   # JSON-escaped by hand, because this must run on a clean Mac's bash 3.2
-  # with no python3 (see the header). Newlines and tabs become spaces FIRST
-  # (the server collapses them identically, so nothing is lost; left raw
-  # they break the JSON in transit and never reach the server's refusal at
-  # all); then backslash, then quotes.
+  # with no python3 (see the header). Single-line fields (to, pane) flatten
+  # newlines/tabs to spaces FIRST, then escape backslash, then quotes -- left
+  # raw a newline breaks the JSON in transit and never reaches the server's
+  # refusal at all.
+  #
+  # esc_text is DIFFERENT (#1927): the message store keeps paragraph breaks, so
+  # the text field must carry them across the wire as a JSON `\n` escape rather
+  # than collapsing them to spaces. Order matters -- escape backslash+quote
+  # FIRST, flatten only tab/CR, THEN turn real newlines into the two-character
+  # `\n` (if newlines were encoded before the backslash pass, that pass would
+  # double the backslash we just added). The pane path on the server still
+  # flattens on delivery, so this only enriches what is stored and rendered.
+  #
+  # ⚠️ The final sed uses `-e` per command, NOT `:a;N;$!ba;s/...` on one line.
+  # This runs on a clean Mac's BSD sed (bash 3.2, the header's whole premise),
+  # where a `;` after a `:label` is read as PART OF THE LABEL NAME and the
+  # slurp fails with "unused label". The one-line form is a GNU-sed-ism. Do not
+  # "tidy" it back.
   local esc_to esc_text esc_pane
   esc_to=$(printf '%s' "$to" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-  esc_text=$(printf '%s' "$text" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g')
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   # No -f: an HTTP error still carries the server's own sentence, and
   # "could not reach" is a wrong diagnosis for a reachable server that
@@ -529,7 +543,7 @@ cmd_reply() {
     exit 1
   fi
   local esc_text esc_pane
-  esc_text=$(printf '%s' "$text" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g')
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   body=$(curl -sS -m 15 -X POST "$URL/api/reply" \
     -H 'content-type: application/json' \
@@ -577,7 +591,7 @@ cmd_post() {
   # Same hand-rolled JSON escaping as cmd_msg, same bash-3.2 reason.
   local esc_project esc_text esc_pane
   esc_project=$(printf '%s' "$project" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-  esc_text=$(printf '%s' "$text" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g')
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   # -m 120, not msg's 15: delivery fans out SERIALLY and a wedged tmux
   # can stall ~15s per recipient, so a room-sized timeout has to cover
@@ -721,7 +735,7 @@ cmd_report() {
   # Same hand-rolled JSON escaping as cmd_msg, same bash-3.2 reason.
   local esc_state esc_text esc_on esc_owner esc_until esc_pane
   esc_state=$(printf '%s' "$state" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-  esc_text=$(printf '%s' "$text" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g')
   esc_on=$(printf '%s' "$on" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   esc_owner=$(printf '%s' "$owner" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   esc_until=$(printf '%s' "$until" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')

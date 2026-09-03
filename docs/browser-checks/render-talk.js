@@ -450,6 +450,9 @@ function unreachableStates() {
        assertion is passing because nothing reached it. */
     let measuredFits = 0;
     let measuredTall = 0;
+    // #1927: how many states actually rendered a message bubble, so the
+    // pre-wrap assertion below is not passing because nothing reached it.
+    let measuredBubbleWrap = 0;
     for (const [name, fx] of Object.entries(STATES)) {
       await page.evaluate((f) => {
         window.__fx = f;
@@ -525,6 +528,13 @@ function unreachableStates() {
           qoutVisible: vis(el('d-qout')),
           optCount: el('d-qopts').querySelectorAll('.qopt').length,
           bubbleBg: cs ? cs.backgroundColor : null,
+          /* ⚠️ #1927: the store keeps paragraph breaks now, and `.dm-b` renders
+             them with `white-space: pre-wrap`. Read the REAL computed style off
+             the real bubble, so removing the rule from web/index.html reds this
+             (a copy of the rule in a fixture would be a guard that cannot fail).
+             `null` when no bubble is on screen in this state; the post-loop
+             counter refuses a run where no state ever showed one. */
+          bubbleWhiteSpace: cs ? cs.whiteSpace : null,
           offVisible: vis(el('d-dmoff')),
           // Rendered text (#687): textContent would carry CSS-hidden children.
           offText: el('d-dmoff').innerText,
@@ -839,6 +849,18 @@ function unreachableStates() {
       if (m.bubbleBg && m.bubbleBg !== 'rgba(214, 166, 46, 0.14)') {
         problems.push(`${tag}: a message bubble is not the person's own colour: ${m.bubbleBg}`);
       }
+      /* #1927: the bubble must preserve paragraph breaks. `pre-wrap` is what
+         shows a stored `\n`; `normal` (the default, and what a reverted rule
+         gives) collapses paragraphs into a blob -- the exact operator-facing
+         defect this card is about. `storeText` already collapsed space RUNS, so
+         pre-wrap does not resurrect ragged whitespace. */
+      if (m.bubbleWhiteSpace !== null) {
+        measuredBubbleWrap += 1;
+        if (m.bubbleWhiteSpace !== 'pre-wrap') {
+          problems.push(`${tag}: the message bubble does not preserve paragraph breaks `
+            + `(white-space is ${m.bubbleWhiteSpace}, not pre-wrap) -- a stored newline renders as a blob`);
+        }
+      }
       console.log(tag, JSON.stringify(m));
       measured[name] = m;
     }
@@ -865,6 +887,10 @@ function unreachableStates() {
     }
     if (!measuredMeta) {
       problems.push(`[${theme}] receipt: no state produced a .dm.mine receipt, so its alignment is UNCHECKED`);
+    }
+    if (!measuredBubbleWrap) {
+      problems.push(`[${theme}] bubble: no state rendered a message bubble, so #1927's `
+        + 'paragraph-preserving white-space: pre-wrap is UNCHECKED');
     }
 
     /* ⚠️ TWO STATES, ONE PICTURE, SAID OUT LOUD. `11-answered-hold` and

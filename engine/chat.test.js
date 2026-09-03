@@ -1715,19 +1715,30 @@ test('a file we cannot READ right now is not treated as a file that is DAMAGED',
     ['one', 'two', 'three', 'after it cleared'], 'the history did not survive the transient failure');
 });
 
-test('the RECORD is the cleaned text, so the thread shows what was typed, not what was posted', () => {
-  // Round 14: replacing cleanMessage with raw String() in appendLocked left
-  // the suite green. The module's contract is that what was CHECKED is what
-  // gets TYPED -- and the record has to carry the same text, or the thread
-  // on screen shows something different from what reached the agent.
+test('the RECORD is the STORED shape -- paragraphs kept, space runs collapsed (#1927)', () => {
+  // Round 14: replacing the cleaner with raw String() in appendLocked left the
+  // suite green, so the record must still go through a cleaner, not raw text.
+  //
+  // #1927 changed WHICH cleaner: the store keeps paragraph breaks now
+  // (`storeText`), because flattening at the store was the defect -- it lost
+  // the operator's HTML view's paragraphs for a constraint only the pane has.
+  // So the record is deliberately NOT the pane-flattened form any more; the
+  // two are different on purpose, and that difference is what this pins.
+  const raw = '  spaced\n\nand   broken  ';
   const got = chat.appendMessage('cleanrecord', 'casey', {
-    text: '  spaced\n\nand   broken  ', delivery: { state: chat.DELIVERY.PLACED },
+    text: raw, delivery: { state: chat.DELIVERY.PLACED },
   });
   assert.equal(got.recorded, true);
   const back = chat.readThread('cleanrecord', 'casey').messages[0].text;
-  assert.equal(back, chat.cleanMessage('  spaced\n\nand   broken  '),
-    'the recorded text must be the cleaned form the send path checked');
-  assert.ok(!/\n|  /.test(back), 'control: cleaning really changed this input');
+  assert.equal(back, chat.storeText(raw),
+    'the recorded text must be the paragraph-preserving stored form');
+  // The paragraph break survives (the whole point of #1927)...
+  assert.ok(back.includes('\n\n'), 'the blank line between paragraphs is kept in the record');
+  // ...while the store still normalises: space runs collapse and ends trim.
+  assert.ok(!/  /.test(back) && !/^\s|\s$/.test(back), 'control: storing really normalised this input');
+  // And the record is NOT the pane form -- store and pane diverge by design now.
+  assert.notEqual(back, chat.cleanMessage(raw),
+    'the record must differ from the pane-flattened form (store keeps the newline the pane drops)');
 });
 
 test('appendMessage NEVER throws, even when the entry itself throws mid-write', () => {
