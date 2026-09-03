@@ -137,6 +137,13 @@ test('ensureToken() writes a mode-600 token in a mode-700 dir and is idempotent'
     const t2 = ba.ensureToken();
     assert.equal(t2, t1, 'idempotent: a second call returns the same token');
     assert.equal(ba.readToken(), t1);
+    // An empty/corrupt existing token file must HEAL, not deadlock: readToken()
+    // returns null on it, so the link() claim would EEXIST forever and the board
+    // would 403 everything. ensureToken() replaces it with a fresh token instead.
+    fs.writeFileSync(p, '   \n');
+    const healed = ba.ensureToken();
+    assert.match(healed, /^[0-9a-f]{64}$/, 'a corrupt token file heals to a fresh token');
+    assert.equal(fs.readFileSync(p, 'utf8').trim(), healed, 'the healed token is persisted');
   } finally {
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_DATA; else process.env.AGENT_WORKFORCE_DATA = prev;
     delete require.cache[require.resolve('./engine/store')];

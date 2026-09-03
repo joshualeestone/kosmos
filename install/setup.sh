@@ -3779,7 +3779,13 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
     # we fall back to a direct open. The install path must never contain a
     # removal of any launchd job (install.board-job.test.js: the update that
     # runs this installer is itself a launchd job).
-    if mkdir -p "$_open_dir" 2>/dev/null && cat > "$_open_plist" <<PLIST
+    # #1946: create the token-bearing plist owner-only FROM THE FIRST BYTE via a
+    # umask-scoped subshell (a plain `cat >` would create it at the default umask,
+    # 644, and only the later chmod would tighten it -- a window). The subshell
+    # keeps the umask change from leaking to the rest of the installer. The chmod
+    # below still runs, for the case where a stale plist pre-existed (`cat >`
+    # truncates it but does not change an existing file's mode).
+    if mkdir -p "$_open_dir" 2>/dev/null && ( umask 077; cat > "$_open_plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -3797,6 +3803,7 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
 </dict>
 </plist>
 PLIST
+    )
     then
       # #1946: this plist now carries the board token in its URL. The token file
       # itself is forced to mode 600 because the design distrusts directory

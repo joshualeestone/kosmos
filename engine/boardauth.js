@@ -150,10 +150,19 @@ function ensureToken() {
     if (err && err.code === 'EEXIST') {
       const winner = readToken();     // a racer published first; adopt its token
       if (winner) return winner;
+      // The target EXISTS but readToken() found it empty/whitespace (external
+      // truncation or a corrupt file) -- link() would EEXIST here forever and the
+      // board would 403 every request with no self-recovery short of a human
+      // deleting the file. Replace the useless file with our freshly-written temp
+      // (rename clobbers), so a corrupt token heals on the next boot instead of
+      // deadlocking. Our own writes never produce this: content is written before
+      // publish, so the target is only ever empty via outside corruption.
+      fs.renameSync(tmp, tokenPath());
+      return token;
     }
     throw err;
   } finally {
-    try { fs.unlinkSync(tmp); } catch { /* our temp; harmless if already gone */ }
+    try { fs.unlinkSync(tmp); } catch { /* our temp; harmless if already gone (renamed into place) */ }
   }
 }
 
