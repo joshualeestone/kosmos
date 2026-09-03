@@ -7759,8 +7759,11 @@ const server = http.createServer((req, res) => {
     }
     if (!project) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
     // #2005: resolve case-tolerantly (chat.resolveCard), so a mis-cased name reaches
-    // the project agent the same way the recovery route already does. A READ; the
-    // downstream history/viewport pass `name` and case-fold internally.
+    // the project agent the same way the recovery route already does. The thread is
+    // filed under the canonical name, so the history read below uses
+    // member.sessionName -- readThread's threadFile requires safeKey(key)===key and
+    // would otherwise call a filable agent (mara) unfilable for a mis-cased URL
+    // (Mara). viewport case-folds internally, so it takes the raw name unchanged.
     const member = chat.resolveCard(project.agents || [], name);
     if (!member) { sendJson(res, 404, { error: 'that agent is not on this project' }); return; }
 
@@ -7814,7 +7817,7 @@ const server = http.createServer((req, res) => {
       // ⚠️ The project's own birth date goes in, so a thread written for an
       // EARLIER project that had this name is refused rather than shown under
       // this one. Ids are derived from names and a removal frees the id.
-      messages = chat.readThread(id, name, project.createdAt).messages;
+      messages = chat.readThread(id, member.sessionName, project.createdAt).messages;
     } catch (err) {
       if (err && err.code === 'OTHER_PROJECT') {
         historyOther = true;
@@ -7968,8 +7971,12 @@ const server = http.createServer((req, res) => {
         // #2005: case-tolerant presence (chat.resolveCard). Safe on the SEND path:
         // the actual delivery is ours-gated downstream (chat.deliver -> addressable
         // refuses isNamedOurs !== true), so a case-folded non-ours match passes
-        // presence but is refused at send, exactly like #989.
-        if (!chat.resolveCard(project.agents || [], name)) {
+        // presence but is refused at send, exactly like #989. Capture the resolved
+        // card: the record is filed under its canonical name below, because
+        // appendMessage's threadFile requires safeKey(key)===key -- so a mis-cased
+        // name would deliver (deliver case-folds) but silently fail to record.
+        const member = chat.resolveCard(project.agents || [], name);
+        if (!member) {
           const notOn = new Error('that agent is not on this project');
           notOn.status = 404;
           throw notOn;
@@ -8007,7 +8014,10 @@ const server = http.createServer((req, res) => {
         const files = attachments.resolveForMessage(body, 'project', id, 'that attachment is not one this project can send');
         if (!files.ok) throw new Error(files.because);
         const delivery = chat.deliver(name, body.text, roster, undefined, attachments.wireNote(files.recs));
-        const kept = chat.appendMessage(id, name, { text: body.text, at: delivery.at, delivery, ...attachments.rowFields(files.recs) }, project.createdAt);
+        // #2005: file the record under the canonical name (member.sessionName), not
+        // the possibly mis-cased URL name -- appendMessage's threadFile requires the
+        // exact key, so a mis-cased name would deliver above but fail to record here.
+        const kept = chat.appendMessage(id, member.sessionName, { text: body.text, at: delivery.at, delivery, ...attachments.rowFields(files.recs) }, project.createdAt);
         sendJson(res, 200, {
           delivery,
           recorded: kept.recorded === true,
