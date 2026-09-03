@@ -89,12 +89,14 @@ function record(sessionName, entry) {
   if (!STATES.includes(state)) {
     return { recorded: false, because: 'that is not a state we know. The states are: ' + STATES.join(', ') };
   }
-  /* 🛑 #900: AN AUTOMATIC `idle` MAY NOT ERASE A DELIBERATE `blocked` OR
-     `needs_you`. The Stop hook fires at the end of EVERY turn and writes idle,
-     so a waiting state an agent filed mid-turn survived only until its own turn
-     ended, seconds later. Latest-report-wins then rendered an agent waiting on
-     a person as at-rest and finished. Two throwaway walk agents found this
-     about themselves on 0.5.34 and traced it correctly.
+  /* 🛑 #900/#1949: AN AUTOMATIC `idle` OR `working` MAY NOT ERASE A DELIBERATE
+     `blocked` OR `needs_you`. The Stop hook fires at the end of EVERY turn and
+     writes idle, and the report hook fires working on EVERY PreToolUse, so a
+     waiting state an agent filed mid-turn survived only until its own next
+     command, seconds later. Latest-report-wins then rendered an agent waiting
+     on a person as at-rest and finished. Two throwaway walk agents found the
+     idle half about themselves on 0.5.34 and traced it correctly; #1949 added
+     the working half (see below).
 
      ⚠️ THE DISCRIMINATOR IS `auto`, NOT THE WORD. A person or an agent
      deliberately saying `idle` still clears a waiting state, which is how a
@@ -102,17 +104,25 @@ function record(sessionName, entry) {
      refused. Marking the writer is the only way to tell those apart, because
      the two produce an identical line.
 
-     ⚠️ AND IT REFUSES ONLY `idle`. `working` (the next prompt), `stopped`
-     (session end) and `started` (a new run) all still land, so a real block
-     clears the moment the agent actually does something. A rule that refused
-     every automatic write would strand the agent blocked forever. */
-  if (entry.auto === true && state === 'idle') {
+     ⚠️ IT REFUSES AUTOMATIC `idle` AND `working` (#1949). The hook fires
+     `working` on EVERY PreToolUse -- it is CONTINUOUS, not "the agent did
+     something deliberate" -- so while automatic `working` was allowed to land,
+     a standing needs_you erased itself within seconds of the agent running any
+     command (Splinter2 measured 16s; ~74 of 82 log rows are automatic). That is
+     the worst case because the doctrine tells every agent to raise needs_you AND
+     KEEP WORKING: obeying it destroyed the signal. `stopped` (session end) and
+     `started` (a new run) still land -- they are one-time transitions, not
+     continuous -- and CRUCIALLY an AGENT-WRITTEN report of ANY state still lands,
+     because the guard tests `entry.auto`, not the word. A rule that refused
+     every automatic write would strand the agent blocked forever; instead the
+     agent that genuinely resumes clears its own block by reporting it itself. */
+  if (entry.auto === true && (state === 'idle' || state === 'working')) {
     const standing = read(sessionName);
     if (standing.found === true && WAITING_ON_A_PERSON.includes(standing.state)) {
       return {
         recorded: false,
         skipped: 'waiting',
-        because: 'it is waiting on a person (' + standing.state + '), so an automatic idle did not overwrite that',
+        because: 'it is waiting on a person (' + standing.state + '), so an automatic ' + state + ' did not overwrite that',
       };
     }
   }

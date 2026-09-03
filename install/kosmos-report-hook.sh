@@ -28,13 +28,18 @@
 # line alone, because it was added for #900's rule rather than for what it
 # means, and selfreport.record now PERSISTS that mark (#1453).
 #
-# It changes no behaviour for the other six: #900's guard is scoped to
-# `auto === true && state === 'idle'` and refuses nothing else. What it changes
-# is that the record can now say who wrote a line.
+# The guard is scoped to `auto === true && (state === 'idle' || state ===
+# 'working')` (#900 refused `idle`; #1949 added `working`). It refuses ONLY
+# those two over a standing waiting state. What --auto also changes is that the
+# record can now say who wrote a line.
 #
-# 🛑 SO IF YOU EVER WIDEN THAT GUARD BEYOND `idle`, ALL SEVEN BECOME REFUSABLE.
-# The guard's own comment explains why it must stay narrow: a rule that refused
-# every automatic write would strand the agent blocked forever.
+# 🛑 THE GUARD MAY REFUSE AN AUTOMATIC `idle` OR `working`, AND NO MORE. `working`
+# was added in #1949 because this hook fires it on EVERY PreToolUse, so an
+# allowed automatic `working` erased a standing needs_you within seconds. Do NOT
+# widen it to `started`/`stopped` (one-time transitions) or `needs_you`/`blocked`
+# (themselves waiting reports): a rule that refused every automatic write would
+# strand the agent blocked forever. The escape stays the discriminator `auto`,
+# not the word: an AGENT-written report of ANY state still lands.
 #
 # 🛑 AND THE SEVENTH WAS MISSING FOR A DAY, WHICH IS WHY THE COUNT IS WRITTEN
 # OUT HERE. The `started` call is inside a COMMAND SUBSTITUTION, because it is

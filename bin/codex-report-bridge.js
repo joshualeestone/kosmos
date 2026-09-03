@@ -52,10 +52,10 @@ function main() {
     until: '',
     /* #1456: THE MACHINE IS WRITING THIS, NOT THE AGENT. `agent-turn-complete`
        is the Codex analogue of Claude's Stop hook: it fires at the end of
-       every turn. Without this field the route sends `auto: false`, #900's
-       guard (selfreport.js) is scoped to `auto === true && idle`, and the
-       branch is never entered -- so a `blocked` the agent filed DURING the
-       turn is erased by its own turn ending, seconds later.
+       every turn. Without this field the route sends `auto: false`, and #900's
+       guard (selfreport.js), which refuses an automatic `idle` (and, since
+       #1949, `working`), is never entered -- so a `blocked` the agent filed
+       DURING the turn is erased by its own turn ending, seconds later.
 
        ⚠️ MEASURED, BOTH ARMS, one field apart: codex-shaped idle -> `idle`
        (the blocked state gone), claude-shaped idle with auto -> `blocked`.

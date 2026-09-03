@@ -206,8 +206,9 @@ test('every report the hook writes carries --auto, because the hook is the machi
   assert.deepEqual(missing.map((c) => c.text), [],
     'these reports do not say the machine wrote them, so selfreport stores them '
     + 'as `by: agent` and every count of what agents really typed is wrong by '
-    + 'that many. Add --auto (it changes nothing else: #900\'s guard is scoped '
-    + 'to auto + idle and refuses no other state).');
+    + 'that many. Add --auto (it marks who wrote the line for `by:`; separately, '
+    + '#900/#1949\'s guard refuses an automatic idle or working over a standing '
+    + 'waiting state).');
 });
 
 test('--auto comes immediately after the state, so the CLI cannot read it as the sentence', () => {
