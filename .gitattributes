@@ -1,0 +1,13 @@
+# Pin line endings so a Windows clone with stock Git-for-Windows settings
+# (core.autocrlf=true) cannot corrupt the tree on its first commit. Without this,
+# the repo is protected only by each contributor's local git config.
+#
+# Verified 2026-09-03 before adding: the repo is all-LF (1558 text files LF, 0
+# CRLF/mixed) and has NO CRLF-mandatory files (.bat/.cmd/.sln), so eol=lf is safe
+# and causes zero renormalization of existing files. `text=auto` leaves the ~50
+# binary files (images, installer artifacts) untouched by auto-detecting them.
+* text=auto eol=lf
+
+# Shell scripts must be LF to run at all; state it explicitly so the intent is
+# obvious and survives any future narrowing of the wildcard above.
+*.sh text eol=lf
