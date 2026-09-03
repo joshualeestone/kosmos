@@ -96,9 +96,18 @@ test('#3 no-file and #5 lowercase-name are ADOPTABLE (offered, empty name)', () 
   assert.ok(!named.has('5-handwritten-lowercase'), 'a lowercase name is never guessed into a named agent');
 });
 
-test('#4 an AGENTS.md-only agent is offered empty-name; its NAME is not read (finding)', () => {
-  assert.ok(adoptable.has('4-codex'), 'no CLAUDE.md -> offered as an empty-name adoptable');
-  assert.ok(!named.has('4-codex'), 'the AGENTS.md name is not read on this path');
+test('#4 an AGENTS.md agent name IS readable via the Codex identity path', () => {
+  // The real Codex path (codexIdentity/foundCodex, discover.js:230-236) reads
+  // <cwd>/AGENTS.md through identityFromText, so the name IS read by the product.
+  const status = require('./status');
+  const id = status.identityFromText(read('4-codex-AGENTS.md'));
+  assert.ok(id && id.displayName === 'Fixture Codex',
+    'the AGENTS.md name is readable - do NOT report it as "not read"');
+  // In THIS hermetic sandbox, found() sees no CLAUDE.md (so it offers the folder
+  // empty-name) and foundCodex short-circuits (no ~/.codex rollout; DATA under tmp),
+  // so the full foundCodex enumeration is not exercised here - the name-READABILITY
+  // above is what this shape asserts, not a claim that discovery cannot read it.
+  assert.ok(adoptable.has('4-codex'), 'via found() (no CLAUDE.md) the folder is offered empty-name');
 });
 
 test('#6 a folder Claude never recorded is found by SCAN only (#1938)', () => {
