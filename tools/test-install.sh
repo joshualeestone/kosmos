@@ -2177,6 +2177,25 @@ HOME="$D918_HOME_D" "$D918_HOME_D/.local/share/kosmos/bin/kosmos" stop > /dev/nu
 KOSMOS_HOME="$D918_KHOME_C" "$D918_KHOME_C/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free after #918's scenario" "wait_port_free"
 
+# #2033: LAST, on purpose -- this arm runs a full install, and its open would inflate the
+# shared, cumulative opened.log and mutate $SBH/Applications, breaking earlier count/state
+# probes if placed among them. A FRESH install run the way the .pkg runs it
+# (KOSMOS_INSTALL_PAGE=1) must STILL open the dashboard, not skip the open. Before the fix the
+# install-page branch printed "already showing the install page" and opened NOTHING, so a pkg
+# install landed on a cookie-less enforcing board (installing.html links a BARE url) = 403, the
+# same empty board #2023 fixes for the update path. The mint only fires on an enforcing board (a
+# sandbox one has no token), so this asserts the OPEN happens and carries the board origin -- the
+# regression the fix closes -- not the ?boot nonce (unchanged, covered by cli.open-1957).
+# Red-capable: reverting setup.sh skips the open and opened.log does not grow.
+_ip_before="$(wc -l < "$SB/opened.log" 2>/dev/null | tr -d ' ')"
+export KOSMOS_HOME="$SB/home4" KOSMOS_BIN_DIR="$SB/bin4"
+RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_INSTALL_PAGE=1 KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe-ip.log" 2>&1 || RC=$?
+chk "install-page fresh install exits 0" "rc_ok $RC"
+chk "#2033: an install-page fresh install STILL opens the dashboard (does not skip the open)" \
+  "[ \"\$(wc -l < \"$SB/opened.log\" 2>/dev/null | tr -d ' ')\" -gt \"$_ip_before\" ] && tail -1 \"$SB/opened.log\" | grep -q \"127.0.0.1:$PORT\""
+chk "#2033: it prints the sign-in message, not the old open-skipping one" \
+  "grep -q 'Signing your browser in' \"$SB/probe-ip.log\" && ! grep -q 'already showing the install page; it becomes' \"$SB/probe-ip.log\""
+KOSMOS_HOME="$SB/home4" "$SB/bin4/kosmos" stop > /dev/null 2>&1 || true
 
 closing_checks
 summary_and_exit
