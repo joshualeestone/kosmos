@@ -8108,13 +8108,6 @@ const server = http.createServer((req, res) => {
  */
 function start(port = PORT) {
   return new Promise((resolve, reject) => {
-    /* #1946: decide enforcement and provision the token HERE, at real boot, not
-       at require. A prod board (nothing sandboxed) enforces and gets a persisted
-       mode-600 token; a fully-sandboxed fixture board (every test + browser-check)
-       does not enforce, writes no token, and needs no change. ensureToken() only
-       runs on the enforcing path, so a bare require never touches the store. */
-    boardAuthState.on = boardauth.enforced(process.env);
-    boardAuthState.token = boardAuthState.on ? boardauth.ensureToken() : null;
     // Without this, a bind failure -- EADDRINUSE when a board is already
     // running on 4317, which is the common case -- is an unhandled 'error'
     // event that exits with a raw stack trace. Returning a Promise implies the
@@ -8122,6 +8115,31 @@ function start(port = PORT) {
     const onError = (err) => { server.removeListener('listening', onListening); reject(err); };
     const onListening = () => {
       server.removeListener('error', onError);
+      /* #1946: decide enforcement and provision the token HERE -- AFTER the bind,
+         not at require and not before listen. At require, ensureToken() would
+         write to a real store on a bare `require('./server')` in a unit test; and
+         BEFORE the bind, two boards racing a fresh first boot (no token file yet)
+         would each generate a different token and the bind-LOSER could clobber the
+         file, leaving the serving board's in-memory token out of sync with the
+         file every client reads -- a board that 403s everyone. Only the process
+         that actually binds reaches onListening (the loser rejects in onError), so
+         provisioning here means exactly one writer. A prod board (nothing
+         sandboxed) enforces and gets a persisted mode-600 token, reused across
+         restarts so the operator's cookie survives one; a fully-sandboxed fixture
+         board (every test + browser-check) does not enforce and writes nothing.
+         Fail CLOSED: if provisioning throws (disk/permission), the board stays
+         enforcing with a null token, so it refuses rather than serving unguarded. */
+      boardAuthState.on = boardauth.enforced(process.env);
+      if (boardAuthState.on) {
+        try {
+          boardAuthState.token = boardauth.ensureToken();
+        } catch (err) {
+          boardAuthState.token = null;
+          process.stderr.write(`Kosmos board-auth: could not provision the board token, refusing all requests until fixed: ${String(err && err.message)}\n`);
+        }
+      } else {
+        boardAuthState.token = null;
+      }
       // Keep a listener attached for the life of the process. Without one, an
       // error after a successful bind is uncaught and exits with a raw stack.
       server.on('error', (err) => {

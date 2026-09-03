@@ -109,6 +109,14 @@ test('bootstrap(): a request that already has the cookie does NOT re-bootstrap (
   assert.equal(boardauth.bootstrap({ token: 'T', req: { url: '/?token=T', headers: { cookie: 'kosmos_board=T' } }, routingBase: base, method: 'GET' }), null);
 });
 
+test('fail CLOSED: a null token (provisioning failed) accepts nothing and bootstraps nothing', () => {
+  const base = 'http://localhost';
+  // Even a request carrying a token string cannot match a null expected token,
+  // so the board refuses everything rather than serving unguarded.
+  assert.equal(boardauth.tokenOk({ token: null, req: req({ header: 'anything' }), routingBase: base }), false);
+  assert.equal(boardauth.bootstrap({ token: null, req: { url: '/?token=anything', headers: {} }, routingBase: base, method: 'GET' }), null);
+});
+
 test('ensureToken() writes a mode-600 token in a mode-700 dir and is idempotent', () => {
   const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-token-'));
   const prev = process.env.AGENT_WORKFORCE_DATA;
