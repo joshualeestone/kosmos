@@ -651,9 +651,8 @@ cmd_reply() {
   # refuses on an enforcing board (a bare pane is the cross-account spoof path).
   # Inert (omitted) when empty -- a non-enforcing board writes no token file.
   local _bt; _bt="$(board_token || true)"
-  body=$(curl -sS -m 15 -X POST "$URL/api/reply" \
+  body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/reply" \
     -H 'content-type: application/json' \
-    ${_bt:+-H "x-kosmos-board-token: $_bt"} \
     --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
     say "We could not reach Kosmos to keep that. Is it running at $URL?"
     exit 1
