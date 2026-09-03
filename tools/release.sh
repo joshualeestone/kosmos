@@ -638,7 +638,30 @@ cp "$REPO/dist/kosmos-arm64.tar.gz" "$SITE/dist/kosmos-$V-arm64.tar.gz"
 sha256_publish_as "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" || exit 1
 (cd "$SITE/dist" && shasum -a 256 --status -c kosmos-arm64.tar.gz.sha256) || { echo "the plain pair in $SITE/dist does not verify with shasum -c" >&2; exit 1; }
 echo "   kosmos-$V-arm64.tar.gz.sha256 names its file and verifies in place (shasum -c)"
-node -e "require('node:fs').writeFileSync('$SITE/dist/latest.json', JSON.stringify({version:'$V'})+'\n')"
+# #1920: latest.json now carries the artifact sha256 and pointers to the versioned
+# tarball and manifest, not the version alone. A version-only pointer left a receiving
+# machine with NO way -- online or offline -- to check that what it is running matches
+# what was published: nothing on disk to hash against, and (without a pointer) no way to
+# discover the served manifest either. The whole-artifact sha256 lets a client verify what
+# it DOWNLOADED; the manifest pointer makes the already-served per-file manifest
+# (kosmos-$V-arm64.manifest.json, committed in _site_paths below) DISCOVERABLE, so a
+# running machine can fetch it and verify what it is STILL running (engine/selfcheck.js).
+# The sha is read from the .sha256 sidecar that was just verified in place with `shasum -c`
+# above, so latest.json cannot advertise a digest the served pair does not agree with.
+# (arm64 is the only arch released today; a multi-arch release would carry per-arch entries.)
+KM_ARTIFACT_SHA="$(awk '{print $1}' "$REPO/dist/kosmos-arm64.tar.gz.sha256")"
+[ -n "$KM_ARTIFACT_SHA" ] || { echo "could not read the artifact sha256 for latest.json" >&2; exit 1; }
+KM_LJ_VERSION="$V" KM_LJ_SHA="$KM_ARTIFACT_SHA" \
+KM_LJ_ARTIFACT="kosmos-$V-arm64.tar.gz" KM_LJ_MANIFEST="kosmos-$V-arm64.manifest.json" \
+  node -e '
+    const e = process.env;
+    require("node:fs").writeFileSync(process.argv[1], JSON.stringify({
+      version: e.KM_LJ_VERSION,
+      sha256: e.KM_LJ_SHA,
+      artifact: e.KM_LJ_ARTIFACT,
+      manifest: e.KM_LJ_MANIFEST,
+    }) + "\n");
+  ' "$SITE/dist/latest.json"
 echo "   latest.json -> $(cat "$SITE/dist/latest.json")"
 
 # 🛑 THE INSTALLER, SERVED FROM THE SITE ROOT AND NOT FROM dist/. Copying the
