@@ -51,9 +51,10 @@ test('fillBand groups into 5-point bands with 100 its own', () => {
   assert.equal(ah.fillBand(150), 100, 'over-100 (a wrong denominator) still bands to the wall');
 });
 
-test('settingFrom defaults to off/85 for an unwritten store and normalises a bad threshold', () => {
-  assert.deepEqual(ah.settingFrom({}), { enabled: false, threshold: 85 }, 'opt-in default is off');
-  assert.deepEqual(ah.settingFrom(undefined), { enabled: false, threshold: 85 });
+test('settingFrom defaults to ON/85 for an unwritten store, respects an explicit false, and normalises a bad threshold', () => {
+  assert.deepEqual(ah.settingFrom({}), { enabled: true, threshold: 85 }, 'opt-out default is on (Josh 2026-09-03)');
+  assert.deepEqual(ah.settingFrom(undefined), { enabled: true, threshold: 85 });
+  assert.deepEqual(ah.settingFrom({ autohandoff: { enabled: false, threshold: 85 } }), { enabled: false, threshold: 85 }, 'an explicit false is still off');
   assert.deepEqual(ah.settingFrom({ autohandoff: { enabled: true, threshold: 90 } }), { enabled: true, threshold: 90 });
   assert.deepEqual(ah.settingFrom({ autohandoff: { enabled: true, threshold: 42 } }), { enabled: true, threshold: 85 }, 'bad threshold falls to default');
 });

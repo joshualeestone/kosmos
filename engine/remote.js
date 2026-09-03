@@ -5,9 +5,16 @@
  * kosmos-tunnel child; this module is the only thing that starts it, stops
  * it, restarts it after a crash, and says honestly what it is doing.
  *
- * ⚠️ OFF BY DEFAULT, AND THE SWITCH IS THE ONLY THING THAT STARTS IT. Same
- * rule as the ping and the notify call: an outbound connection nobody
- * enabled is the one thing this product must never make.
+ * ⚠️ OFF BY DEFAULT, AND THE SWITCH IS THE ONLY THING THAT STARTS IT -- and
+ * the reason is COMMERCIAL, not security (Josh, 2026-09-03). The Kosmos Plus
+ * relay this tunnel connects to is a PAID service, and you do not auto-enable
+ * something the customer has to pay for. That is the COMMERCIAL exception to
+ * the on-by-default product rule, and it generalises to any future paid
+ * feature without re-arguing the security question. (notify and ping are also
+ * off today, but for a DIFFERENT reason: held pending an opt-out decision,
+ * kosmos#2020, not flipped by #2013. remote's reason is commercial, theirs is
+ * the missing control.) Do NOT delete this carve-out on an on-by-default
+ * sweep -- an exception with no stated reason gets swept back on.
  *
  * 🔑 NO CRYPTO HERE, ON PURPOSE. Enrolment (the keypair, the pin, the CSR)
  * and the connection itself live in the kosmos-tunnel binary, which is
@@ -130,6 +137,11 @@ function read() {
   }
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', denied: {}, ok: false }; }
+  // A JSON array passes `typeof === 'object'`, but that is harmless HERE, unlike
+  // in heartbeat-setting: `on` below is read as `parsed.on === true` (an explicit
+  // true test), never defaulted to true, so an array reads off -- the safe value
+  // for a relay that is off until turned on. #2013 fixed heartbeat's twin of this
+  // guard because heartbeat DID default true; this copy needs no Array.isArray.
   if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, ok: false };
   return {
     on: parsed.on === true,

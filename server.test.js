@@ -12257,9 +12257,9 @@ test('#1724: the settings route captures the auto-handoff setting and refuses a 
   const store = require('./engine/store');
   try {
     store.writeSettings({ autohandoff: null });
-    // Default when unset: off, threshold 85 (opt-in).
+    // Default when unset: ON, threshold 85 (Josh 2026-09-03, #2013; opt-out).
     const start = JSON.parse((await req('/api/settings')).body);
-    assert.equal(start.autohandoff.enabled, false, 'off by default');
+    assert.equal(start.autohandoff.enabled, true, 'on by default');
     assert.equal(start.autohandoff.threshold, 85, 'default threshold 85');
 
     // A bad threshold is refused, not persisted.

@@ -3,8 +3,8 @@
 /**
  * kosmos#1724: the Settings > Automation auto-handoff control (the capture half,
  * in the page). The real paintAutomation is lifted and run against a stub: it
- * must load a saved setting into the checkbox and threshold, default to off/85
- * when nothing is saved, and enable the controls. The trigger (the consume half)
+ * must load a saved setting into the checkbox and threshold, default to on/85
+ * when nothing is saved (#2013), and enable the controls. The trigger (the consume half)
  * is tested in engine/autohandoff.test.js; the route in server.test.js.
  *
  *   node --test web.autohandoff-1724.test.js
@@ -56,10 +56,12 @@ test('kosmos#1724: a saved setting LOADS into the controls, which are live once 
   assert.equal(els['ah-msg'].textContent, '', 'no not-yet-active note once the sweep is live');
 });
 
-test('kosmos#1724: defaults to off and 85% when nothing is saved', async () => {
+test('kosmos#1724/#2013: defaults to ON and 85% when nothing is saved', async () => {
   const { paint, els } = makePaint(undefined);
   await paint();
-  assert.equal(els['ah-enabled'].checked, false, 'off by default');
+  // #2013: the fallback default flipped ON with the engine, so the two copies do
+  // not drift; a paint with no served value shows the on-by-default state.
+  assert.equal(els['ah-enabled'].checked, true, 'on by default');
   assert.equal(els['ah-threshold'].value, '85', 'threshold defaults to 85');
 });
 
