@@ -53,6 +53,13 @@ if [ -z "$VERSION" ]; then
   VERSION="$(unzip -p "$ZIP" app/package.json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).version||""))}catch{process.stdout.write("")}})')"
 fi
 [ -n "$VERSION" ] || { echo "publish-win: could not read the version from $ZIP (app/package.json)" >&2; exit 1; }
+# VERSION is interpolated into the staged filename (kosmos-<version>-win-<arch>.zip). A crafted or
+# corrupt zip whose version carries a "/" (e.g. "../evil") would make cp write OUTSIDE dist/. Refuse
+# anything but a filename-safe token -- letters, digits and . + _ - (semver's alphabet). All
+# expansions here are quoted, so this is defence in depth against the path-escape, not word-splitting.
+case "$VERSION" in
+  *[!0-9A-Za-z.+_-]*) echo "publish-win: refusing an implausible version '$VERSION' (only letters, digits and . + _ - allowed)" >&2; exit 1 ;;
+esac
 
 ALIAS="kosmos-win-$ARCH.zip"
 VERSIONED="kosmos-$VERSION-win-$ARCH.zip"

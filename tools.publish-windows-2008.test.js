@@ -104,6 +104,11 @@ test('#2008: refuses a missing zip and a zip with no baked version, rather than 
   execFileSync('zip', ['-qr', badZip, 'other'], { cwd: dir });
   assert.throws(() => run(badZip, site), /could not read the version/,
     'a zip with no baked version must be refused, not staged under a guessed name');
+  // A crafted zip whose version could escape dist/ (a "/" in the version) must be refused before
+  // any cp, or `cp` would write outside the intended directory.
+  const dirEvil = fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-fix-'));
+  assert.throws(() => run(fixtureZip(dirEvil, '../evil'), site), /refusing an implausible version/,
+    'a version with a path separator must be refused (path-escape guard)');
   // And nothing was staged on EITHER refusal -- the whole dist stays empty, so a regression that
   // staged the alias (or any file) before the version check would fail here. (The prior filter for
   // '3.2.1' was copy-pasted from the control arm and matched nothing, making this vacuous.)
@@ -113,12 +118,16 @@ test('#2008: refuses a missing zip and a zip with no baked version, rather than 
 test('#2008: the versioned name is immutable -- republishing DIFFERENT bytes under the same version is refused, same bytes is idempotent', () => {
   const site = freshSite();
   const dirA = fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-fix-'));
-  run(fixtureZip(dirA, '1.0.0'), site);
+  const zipA = fixtureZip(dirA, '1.0.0');  // build the zip ONCE
+  run(zipA, site);
   const versioned = path.join(site, 'dist', 'kosmos-1.0.0-win-x64.zip');
   const firstBytes = fs.readFileSync(versioned);
-  // Re-running with the SAME zip (same version, same bytes) is idempotent -- a retry after a
-  // partial run must succeed, not refuse.
-  run(fixtureZip(dirA, '1.0.0'), site);
+  // Re-running with the SAME zip FILE (byte-identical) is idempotent -- a retry after a partial
+  // run must succeed, not refuse. Reuse the identical zip rather than RE-zipping the same source:
+  // zip embeds each file's mtime at 2-second DOS granularity, so a re-zip across a 2s boundary
+  // produces different bytes, which the immutability guard would (correctly) refuse -- a test
+  // flake, not a product bug (the product defines idempotency by cmp on actual bytes).
+  run(zipA, site);
   assert.deepEqual(fs.readFileSync(versioned), firstBytes, 'same-bytes republish must be idempotent');
   // A DIFFERENT build under the SAME version (an extra file changes the bytes) must be refused --
   // a versioned name is a promise of immutability, and clobbering it seeds a stale-cache incident.
