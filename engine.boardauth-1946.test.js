@@ -53,6 +53,27 @@ test('a HALF sandbox (a live surface remains) still ENFORCES -- the safe directi
   assert.equal(boardauth.enforced({ AGENT_WORKFORCE_DATA: '/tmp/x', AGENT_WORKFORCE_TMUX_BIN: '/tmp/t' }), true);
 });
 
+test('#2040: ownerOnlyModeIsEnforced() is FALSE on Windows -- the file-mode boundary does not hold there', () => {
+  // THE DANGEROUS ANSWER, pinned: on win32 the 0o600/0o700 chmods are silent
+  // no-ops (NTFS ignores POSIX modes), so the token inherits its parent ACL and
+  // another local account can read it. The module must not claim a boundary
+  // there. If anyone flips this to true (or a comment to claim Windows
+  // protection) WITHOUT implementing and verifying an NTFS ACL, this goes red.
+  assert.equal(boardauth.ownerOnlyModeIsEnforced('win32'), false,
+    'win32: owner-only mode is NOT an OS-enforced boundary (chmod is a no-op)');
+
+  // Positive controls: on POSIX the mode is a real permission and the boundary
+  // holds. A control that can only return the safe answer proves nothing, so
+  // these prove the predicate discriminates rather than always answering false.
+  assert.equal(boardauth.ownerOnlyModeIsEnforced('darwin'), true, 'macOS enforces the mode');
+  assert.equal(boardauth.ownerOnlyModeIsEnforced('linux'), true, 'Linux enforces the mode');
+
+  // The real-platform default tracks the branch (asserting the platform branch
+  // itself, not the presence of any chmod call -- per the card's acceptance).
+  assert.equal(boardauth.ownerOnlyModeIsEnforced(), process.platform !== 'win32',
+    'default reads the real platform');
+});
+
 test('matches() is length-guarded and does not throw on a length mismatch', () => {
   assert.equal(boardauth.matches('abc', 'abc'), true);
   assert.equal(boardauth.matches('abc', 'abd'), false);

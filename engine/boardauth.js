@@ -16,11 +16,18 @@
  *
  * 🔑 THE BOUNDARY MACOS ACTUALLY ENFORCES PER ACCOUNT IS THE FILESYSTEM, NOT
  * LOOPBACK. So the board generates a random token at boot, writes it mode-600 in
- * a mode-700 dir, and requires it on every request. Another account reaches the
- * port but cannot read the token file. A per-account PORT (#910) is not a
- * boundary: the port is a deterministic function of uid, uid is world-readable
- * via `dscl`, and the window is scannable. #910 stopped ACCIDENTAL bleed and was
- * never a control against a deliberate one.
+ * a mode-700 dir, and requires it on every request. On POSIX another account
+ * reaches the port but cannot read the owner-only token file. A per-account PORT
+ * (#910) is not a boundary: the port is a deterministic function of uid, uid is
+ * world-readable via `dscl`, and the window is scannable. #910 stopped
+ * ACCIDENTAL bleed and was never a control against a deliberate one.
+ *
+ * 🛑 THIS FILESYSTEM BOUNDARY IS POSIX-ONLY (#2040). On Windows the mode-600 /
+ * mode-700 calls are silent no-ops (NTFS ignores POSIX modes; Node's `chmodSync`
+ * only toggles the read-only bit), so the token inherits its parent ACL and
+ * another local account CAN read it. Windows needs an NTFS ACL restriction that
+ * is not yet in place. `ownerOnlyModeIsEnforced()` is the honest per-platform
+ * answer; do not reason about this boundary without it.
  *
  * 🔑 ENFORCED ONLY WHEN THE BOARD IS NOT FULLY SANDBOXED. `engine/sandbox.js`'s
  * boot audit means a running board is EITHER fully-live (prod) OR fully-sandboxed
@@ -143,11 +150,40 @@ function readToken() {
 }
 
 /**
+ * Whether an owner-only file mode (a 0o600 file inside a 0o700 dir) is actually
+ * ENFORCED by the OS as an access boundary against another local account.
+ *
+ * TRUE on POSIX (macOS, Linux): `chmod` sets real permission bits, so a 0o600
+ * token in a 0o700 dir is unreadable by any other uid. This is the boundary the
+ * whole token scheme leans on (see the file docblock).
+ *
+ * 🛑 FALSE on Windows (#2040): NTFS ignores POSIX modes. Node's `fs.chmodSync`
+ * on win32 can only toggle the read-only attribute -- it cannot express "owner
+ * only" -- so `chmodSync(path, 0o600)` returns success while changing NO ACL,
+ * and the token inherits its parent's ACL (measured on Windows 11: SYSTEM,
+ * Administrators and the user each Full Control, fully inherited). Another local
+ * account can read it. The file-mode boundary does NOT exist there until a
+ * Windows ACL restriction is added AND verified by reading the resulting ACL
+ * (deferred; the card is #2040).
+ *
+ * Pure and platform-injected so both branches are testable without a Windows
+ * host; defaults to the real platform.
+ */
+function ownerOnlyModeIsEnforced(platform = process.platform) {
+  return platform !== 'win32';
+}
+
+/**
  * Return the board token, generating and persisting one if absent. The file is
- * written mode 0o600 inside a dir forced to 0o700, because on macOS `$HOME` is
- * group-traversable (every local account shares primary gid `staff`), so only an
- * owner-only mode is a real boundary against another local account. Idempotent:
- * a second call returns the same token.
+ * written mode 0o600 inside a dir forced to 0o700. On POSIX
+ * (`ownerOnlyModeIsEnforced()` true) that owner-only mode is a real boundary
+ * against another local account -- necessary because on macOS `$HOME` is
+ * group-traversable (every local account shares primary gid `staff`), so
+ * nothing weaker suffices. 🛑 On Windows the mode is a silent no-op and this
+ * boundary does NOT hold (#2040; see `ownerOnlyModeIsEnforced`): the token is
+ * written and read normally, but nothing restricts who else on the machine can
+ * read it until an NTFS ACL restriction lands. Idempotent: a second call
+ * returns the same token.
  *
  * 🔑 RACE-SAFE ON THE NORMAL PATH: it returns the token actually ON DISK, not
  * merely the one this call generated. Two boards on the same account (a same-port
@@ -176,7 +212,9 @@ function ensureToken() {
   if (existing) {
     // Self-heal: re-tighten the mode in case a prior process (or a restore, or a
     // umask slip) left the token file or its dir looser than owner-only. The
-    // token is only a boundary while it stays unreadable by another account.
+    // token is only a boundary while it stays unreadable by another account --
+    // and only on POSIX: on Windows this chmod is a no-op (#2040), so the
+    // re-tighten restores nothing there.
     try { fs.chmodSync(store.ROOT, 0o700); } catch { /* best-effort */ }
     try { fs.chmodSync(tokenPath(), 0o600); } catch { /* best-effort */ }
     return existing;
@@ -185,7 +223,7 @@ function ensureToken() {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   // mkdir honours the mode only on creation; force it in case the dir pre-existed
   // with a looser mode.
-  try { fs.chmodSync(dir, 0o700); } catch { /* best-effort: the file mode is the real guard */ }
+  try { fs.chmodSync(dir, 0o700); } catch { /* best-effort: on POSIX the file mode is the real guard (#2040: no-op on Windows) */ }
   const token = generateToken();
   // Write the full content to a temp path, chmod it 0o600 BEFORE it is published,
   // then claim the final name with link() -- atomic, and EEXIST if a racer got
@@ -413,6 +451,8 @@ module.exports = {
   fullySandboxed, enforced, tokenPath, generateToken, readToken, ensureToken,
   cookieToken, presentedToken, queryToken, matches, cookieHeader, pathWithoutToken,
   pathWithoutParam, bootstrap, tokenOk, COOKIE_NAME, HEADER_NAME,
+  // #2040: honest per-platform answer to "is the file-mode boundary real here".
+  ownerOnlyModeIsEnforced,
   // #1979: single-use browser-open nonces.
   mintNonce, redeemNonce, bootNonce, _setNonceClock,
   // #2030: reauth-seeded marker, written on `?boot=` redemption not at dispatch.
