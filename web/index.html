@@ -1120,7 +1120,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 @media (max-width: 40rem) { .themepick { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #unote-slot:empty, #unews-slot:empty, #uoffline-slot:empty { display: none; }
+#utoast-slot:empty, #unote-slot:empty, #uabort-slot:empty, #unews-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* 🔑 8px BECAUSE THE ELEMENT ALREADY CHOSE 8px, not because somebody picked a
    number: `.klink:focus-visible` below sets that radius, and an outline follows
@@ -5923,6 +5923,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          header instead of pushing the board down. The slot's :empty rule
          does not apply while this child exists, so the line hides itself. -->
     <div id="unote-slot"></div>
+    <!-- #2055: the update-abort notice. Its own slot so it can co-occur with the
+         post-update note and the offline note rather than overwriting either; a
+         machine that cannot update is a state worth its own line. -->
+    <div id="uabort-slot"></div>
     <div id="unews-slot">
       <div class="utoast stale" id="newsbar" role="status" hidden>
         <span class="udot" aria-hidden="true"></span>
@@ -11824,6 +11828,62 @@ let ENGINE_STALE = null;
  * version" is true and actionable without one, and both numbers are on the
  * Settings line for anybody who wants them.
  */
+/**
+ * #2055: the board notice for a silently-aborting update. Angel's engine half
+ * records a durable, consecutive-counted marker each time an update cannot pause
+ * the board, and clears it once one gets through; `/api/status` carries it as
+ * `updateAbort = { count, reason, port, ts } | null`. Until this, the only
+ * audience was install.log -- 155 aborts on one machine, seen by nobody -- and a
+ * machine in this state stops receiving fixes, invisibly.
+ *
+ * 🔑 CALLED ONLY FROM tick()'s SUCCESS PATH, and that is the whole of the
+ * unreadable-state discipline (#2047): a poll that FAILED never reaches here, so
+ * a board that could not be read shows its own not-signed-in / cannot-read screen
+ * (#2023) rather than a false "updates are fine". Absence of this notice is only
+ * ever "the read said healthy", never "the read failed" -- for a STATUS signal
+ * like this, absence is honest (nothing was promised); the lie this class guards
+ * against is a definite POSITION shown without a confirmed read, which cannot
+ * happen when the notice paints only from a value the poll actually returned.
+ *
+ * COPY is Mona Lisa's spec (#2055): title, N-body ("tried to install it N times
+ * and could not, because Kosmos was busy each time"), and "your agents kept
+ * working". The ACTION is a quit-and-reopen, NOT an "Update now" button:
+ * pressing Update re-enters setup.sh's pause block (server.js /api/update ->
+ * update.js curl setup.sh; the block is gated on FRESH_INSTALL, not auto/manual,
+ * measured 2026-09-03), so on a stuck INSTALLED machine it aborts identically --
+ * a dead button. Quitting the unsupervised board lets a fresh launchd-supervised
+ * launch pause on the next update; "usually" hedges the case a quit cannot fix (a
+ * blocking board on a DIFFERENT macOS account, #2051). Wording stays Mona Lisa's
+ * to refine; the structure and the honest action are what this pins.
+ */
+function paintUpdateAbort(ab) {
+  const slot = document.getElementById('uabort-slot');
+  if (!slot) return;
+  // A present marker with a real count (>=1) is the only thing that renders.
+  // null / absent (healthy, or the field not yet served) and any non-object or
+  // garbage count clear the slot, and `:empty` hides it. Number.isFinite refuses
+  // NaN/strings so a corrupt count cannot paint a nonsense "failed NaN times".
+  const count = ab && typeof ab === 'object' && Number.isFinite(ab.count) ? Math.floor(ab.count) : 0;
+  if (count < 1) {
+    if (slot.dataset.n) { slot.dataset.n = ''; slot.innerHTML = ''; }
+    return;
+  }
+  // Re-render only on a changed count: this is an aria-live region, so rewriting
+  // identical markup every 5s poll would re-announce it to a screen reader.
+  const key = String(count);
+  if (slot.dataset.n === key) return;
+  slot.dataset.n = key;
+  const times = count === 1 ? 'once' : count + ' times';
+  slot.innerHTML = '<div class="utoast stale" role="status">'
+    + '<span class="udot" aria-hidden="true"></span>'
+    + '<div class="utxt"><b>A new version of Kosmos is ready.</b>'
+    + '<small>This computer has tried to install it ' + times + ' and could not, because '
+    + 'Kosmos was busy each time. Quit and reopen Kosmos: reopening usually clears whatever '
+    + 'was holding the update, so the next one can finish. Your agents keep working, they do '
+    + 'not live in this window.</small>'
+    + '</div></div>';
+}
+
 function renderUpdateToast(u) {
   const slot = document.getElementById('utoast-slot');
   /* 🛑 THE ENGINE STATE OUTRANKS BOTH OTHERS (#338). A server behind the code
@@ -12584,6 +12644,7 @@ async function tick() {
     BOARD_SEEN = true;
     updateRecPill();
     renderUpdateToast(data.update);
+    paintUpdateAbort(data.updateAbort); // #2055: null-when-healthy; renders only on this successful read
     paintUpdateCard(data.version, data.update, data.updateLook);
     updatedNoteOnce(data.version);
     LAST_VERSION = data.version || LAST_VERSION;
