@@ -201,6 +201,9 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # UNguarded and under set -e like cut-guard.sh above: a lib the cut cannot load
 # should abort the cut, not silently skip the guard.
 . "$REPO/tools/lib/cut-rerun-guard.sh"
+# #2017: the load guard for the gated steps (3, 3b). Sourced UNguarded under
+# set -e like the libs above: a lib the cut cannot load should abort, not skip.
+. "$REPO/tools/lib/cut-load-guard.sh"
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -401,6 +404,16 @@ trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/nu
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD"
 
+# #2017: do not run the suite into a box some OTHER heavy job is saturating.
+# #1962 reserves the box against agent SUITES but not arbitrary background load,
+# and a gate on a loaded box false-reds (an isolation-rerun, #2006, still runs
+# inside the same starved box). Wait for a quiet box; on a persistent-saturation
+# timeout, stop with the LOAD named -- an honest, actionable stop ("reap this,
+# re-cut"), never a phantom test-red.
+if ! kosmos_wait_for_quiet_box "the whole suite (step 3)"; then
+  echo "aborting the cut: the box is saturated by background LOAD, not by the change (the offending job is named above). This is not a test failure; reap that job and re-cut."
+  exit 1
+fi
 step "== 3. the whole suite, on the tree that ships =="
 # 🔑 WHY THE CUT RUNS THE WHOLE SUITE ON MAIN ITSELF, and does not trust the green
 # PR checks of what it bundles (kosmos#1934). A green PR check is a statement about
@@ -471,6 +484,13 @@ if [ "$_suite_exit" -ne 0 ]; then
 fi
 rm -f "$_suite_log"
 
+# #2017: the browser gate is the most load-sensitive step (it drives real
+# Chromium) and is where load-24 killed the 0.6.25 cut. Same wait as step 3:
+# quiet box or an honest load-attributed stop, never a phantom flake-red.
+if ! kosmos_wait_for_quiet_box "the headless page layer (step 3b)"; then
+  echo "aborting the cut: the box is saturated by background LOAD, not by the change (the offending job is named above). This is not a browser flake; reap that job and re-cut."
+  exit 1
+fi
 step "== 3b. the page layer, headless (#39) =="
 # ⚠️ THE PAGE IS PART OF WHAT SHIPS, and `node --test` cannot see it: round
 # 16 of the project-chat review put 18 page mutations through the whole
