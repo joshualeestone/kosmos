@@ -159,7 +159,7 @@ echo "deploy-site: fetched and verified the current live GITIGNORED artifacts in
 # shellcheck source=/dev/null
 . "$REPO/tools/lib/pkg-inputs.sh"
 EXPORT=$(mktemp -d "${TMPDIR:-/tmp}/deploy-site.XXXXXX")
-site_deploy_export "$SITE" "$EXPORT" "$H" || { echo "deploy-site: site_deploy_export failed -- nothing deployed"; exit 1; }
+site_deploy_export "$SITE" "$EXPORT" "$H" || { echo "deploy-site: site_deploy_export failed -- nothing deployed"; rm -rf "$EXPORT"; exit 1; }
 
 # --- 3) HONEST-MARKER check: the export MUST have carried the critical artifacts ----
 # If it did not, the .kosmos-release-export marker would be a rubber stamp and the deploy
@@ -170,7 +170,7 @@ site_deploy_export "$SITE" "$EXPORT" "$H" || { echo "deploy-site: site_deploy_ex
 [ -f "$EXPORT/dist/kosmos-arm64.tar.gz" ] || { echo "deploy-site: the export did not carry the unversioned alias kosmos-arm64.tar.gz -- refusing (setup.sh's cache-busted fallback; #2014 review)"; rm -rf "$EXPORT"; exit 1; }
 # the .sha256 sidecars the installer verifies each gitignored tarball against: gitignored and
 # glob-carried like the tarballs, so a missing one drops the same way. Check them too.
-for s in "$ART.sha256" tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz.sha256; do
+for s in "$ART.sha256" Kosmos.pkg.sha256 tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz.sha256; do
   [ -f "$EXPORT/dist/$s" ] || { echo "deploy-site: the export did not carry the checksum $s -- refusing (the installer verifies against it)"; rm -rf "$EXPORT"; exit 1; }
 done
 # The Windows zip is TRACKED (git archive carries the committed copy). A refusal here almost always
@@ -211,10 +211,13 @@ served_matches() {  # <path-under-dist> <local-verified-file>
   ll=$(shasum -a 256 < "$2" | awk '{print $1}')
   [ "$ss" = "$ll" ] || { echo "deploy-site: SERVED dist/$1 does not match what was deployed (served '$ss' local '$ll') -- wrong bytes on the live site. Investigate."; exit 1; }
 }
-served_matches "$ART"              "$SITE/dist/$ART"
-served_matches Kosmos.pkg          "$SITE/dist/Kosmos.pkg"
-served_matches tmux-arm64.tar.gz   "$SITE/dist/tmux-arm64.tar.gz"
-served_matches kosmos-arm64.tar.gz "$SITE/dist/kosmos-arm64.tar.gz"
+# each gitignored installer artifact AND its .sha256 sidecar: the installer fetches both and verifies
+# one against the other, so a sidecar-only serve drop would break new-install verification while the
+# tarball still serves. Check the pair.
+for f in "$ART" Kosmos.pkg tmux-arm64.tar.gz kosmos-arm64.tar.gz; do
+  served_matches "$f"        "$SITE/dist/$f"
+  served_matches "$f.sha256" "$SITE/dist/$f.sha256"
+done
 # the served latest.json (tracked, committed) must still name $ART after the deploy.
 sj=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: could not re-read the served latest.json after deploy -- investigate."; exit 1; }
 printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest.json no longer names $ART after deploy -- investigate."; exit 1; }
