@@ -1823,9 +1823,19 @@ const WORKING_LINE = /^\s*[·✢✳✶✻✽*] \S+…\s+\((?:\d+h\s+)?(?:\d+m\s+
  */
 const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
 
-/* #1889. A mid-turn shape with NO timer, so `WORKING_LINE` cannot match it:
+/* #1889. A no-timer shape `WORKING_LINE` cannot match:
      * ✻ Waiting for 1 background agent to finish
    (samples `*`-prefixed so this file does not match its own reader)
+
+   🛑 IT IS NOT A MID-TURN LINE, AND CALLING IT ONE MISLEADS THE NEXT EDITOR. The
+   vendor draws it from the TurnDuration component, in the slot that otherwise
+   holds `Worked for 3m 12s` -- the row THIS MODULE treats as its canonical idle
+   marker. The turn has ENDED; what is still running is the background agent, and
+   the REPL is at its prompt accepting input.
+   ⇒ `working` is still the right verdict, and more truthful than "it finished and
+   is waiting for you", because the person cannot act on the result yet. But the
+   state being asserted is "a background agent is running", not "this agent is
+   mid-turn", and the two differ wherever that distinction matters.
 
    The vendor composes ONE line from two counters, background agents AND dynamic
    workflows, so `Waiting for 1 background agent and 2 dynamic workflows to
@@ -1950,6 +1960,16 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    If one sits BETWEEN the wait row and the composer, the wait it describes is
    over, whatever the row still says.
 
+   🛑 TWO NOTIFICATION SITES, NOT ONE. `enqueueAgentNotification` writes
+   `Agent "x" finished | failed: … | was stopped | stopped at its N-turn limit`.
+   The `/kill-agents` chord writes a DIFFERENT shape from a different call site:
+   `Background agent "x" was stopped by the user.` and, plural,
+   `N background agents were stopped by the user: …`. Neither begins `Agent "`,
+   so an earlier version of this pattern missed both and a pane whose agents had
+   been KILLED kept reading `working` for as long as the frozen wait row stayed in
+   reach. Enumerating one call site and calling it the wording is the same mistake
+   as enumerating one `◯` source and calling it liveness.
+
    🔑 WHY A RESOLVED WAIT ROW PERSISTS AT ALL, which is the premise this check
    rests on. In the bundle the count is read as `let al = NZ ? …pendingBackground
    AgentCount ?? 0 : 0`, where `NZ` comes from `let [UZ] = d(SD)` -- `useState`
@@ -1974,7 +1994,7 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    ⇒ Replaced by two things that survive colour-stripping: this positive
    completion marker, and the reach above. */
 const AGENT_FINISHED_LINE =
-  /^\s*[⏺●]\s*Agent\b[^\n]*\b(?:finished|failed|was stopped|stopped at its)\b/mu;
+  /^\s*[⏺●]\s*(?:\d+\s+)?(?:[Bb]ackground\s+)?[Aa]gents?\b[^\n]*\b(?:finished|failed|was stopped|were stopped|stopped at its)\b/mu;
 
 /**
  * The live background-agent wait line, or null.
@@ -2710,7 +2730,7 @@ function classify(pane, paneText) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
   }
   /**
-   * #1889. A SECOND mid-turn shape that carries NO timer, so `WORKING_LINE`
+   * #1889. A SECOND no-timer shape that `WORKING_LINE`
    * below cannot match it:
    *
    *   ✻ Waiting for 1 background agent to finish
@@ -2718,7 +2738,9 @@ function classify(pane, paneText) {
    * CAPTURED VERBATIM from a live pane (icecreamkitty-discord:0.0, Claude Code
    * 2.1.258, 2026-09-02), not composed here. Measured on that capture: with the
    * scrapers alone `classify()` returned `idle`, "it is sitting at its prompt",
-   * while the agent was genuinely mid-turn.
+   * while a background agent was genuinely running. (Not "mid-turn": this row
+   * replaces `Worked for …`, so the turn has ended and the REPL is at its
+   * prompt. See the constant's comment.)
    *
    * 🛑 CORRECTED, AND THE FIRST VERSION OF THIS COMMENT UNDERSTATED THE DEFECT.
    * It said a "process read" caught these panes. THERE IS NO PROCESS-READ ARM in
@@ -2784,7 +2806,12 @@ function classify(pane, paneText) {
          `Agent … finished · 8m 49s`, which does cross it. A decayed `working` report plus this scraped `working` now
          takes the "reporter may be broken" branch, so a HEALTHY agent can be
          labelled with a reporter fault. Under `origin/main` the same pane scraped
-         `idle` and took the `unknown` branch instead. The STATE is more truthful
+         `idle` and took the `unknown` branch instead.
+         ⚠️ AND THIS IS THE NORMAL CASE FOR A LONG WAIT, NOT AN EDGE CASE. The
+         report hook fires on PreToolUse; while the turn is over and only a
+         background agent runs, NO TOOLS FIRE, so a healthy agent's report decays
+         on any wait past the 5-minute window. An 8m 49s wait was observed. Every
+         such pane now carries that sentence about a healthy reporter. The STATE is more truthful
          either way; the accompanying sentence is not, and that is a real cost
          rather than a neutral one. Recorded here so the next person changing the
          decay window knows this arm feeds it. */

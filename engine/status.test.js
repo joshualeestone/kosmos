@@ -1669,8 +1669,11 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
   /* ⚠️ AND DO NOT READ THAT LOOP AS "these four are handled". They are NOT. All
      four currently classify `idle`, which is itself a false calm -- an agent
      blocked on a person, shown at rest. The row pins only that THIS rule does not
-     make them worse, and it stays green when someone later routes them to
-     `needs_you`, which is the right fix and is not this card's. */
+     make them worse.
+     ⚠️ It does NOT stay green if someone routes them to `needs_you`: the row
+     below locks `idle` explicitly, so that change reds exactly here. An earlier
+     version of this comment said the opposite, sending the next person to look
+     for a lock that is right here. */
   assert.equal(classify(pane, '✻ Waiting for permission' + footer).state, 'idle',
     'documenting the known gap: a human-blocked wait reads idle, it is not handled');
 
@@ -1723,7 +1726,8 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
      footer row pulls it inside and wrongly resolves the wait. Without that
      divergence the row passed whether or not the exclusion existed. */
   /* Every focused footer row draws pointer + THAT ROW'S OWN icon, and the main
-     row's icon is `⏺`, so `❯⏺  main` is a real focused row. Both shapes are
+     icon is `⏺` (macOS) or `●`, and it marks the VIEWED row rather than the main
+     one, so `❯ ⏺ main` is a real focused row. Both shapes are
      pinned; keying the exclusion on `◯` alone let the main row become the
      anchor. The completion line sits between the composer and the focused row so
      the two anchor choices diverge. */
@@ -1766,6 +1770,42 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     classify(pane, '✻ Waiting for 1 background agent to finish\n  some dialog row\n  another row').state,
     'working',
     'with no composer on screen the reader must decline, not fall back to the last row');
+
+  /* 🛑 THE KILL CHORD IS A SECOND NOTIFICATION SITE with a different shape:
+     `Background agent "x" was stopped by the user.` and, plural, `N background
+     agents were stopped by the user: …`. Neither begins `Agent "`, so keying on
+     the enqueueAgentNotification wordings alone left a KILLED agent reading
+     `working` while its frozen wait row stayed in reach. */
+  for (const killed of [
+    '  ⏺ Background agent "r" was stopped by the user.',
+    '  ⏺ 3 background agents were stopped by the user: a, b, c',
+  ]) {
+    assert.notEqual(
+      classify(pane, '✻ Waiting for 1 background agent to finish\n' + killed + footer).state,
+      'working', 'a killed background agent did not resolve the wait: ' + killed.trim());
+  }
+  /* And prose about stopping must NOT resolve it. */
+  assert.equal(
+    classify(pane, '✻ Waiting for 1 background agent to finish\n  I asked the agent about stopped builds' + footer).state,
+    'working', 'ordinary prose mentioning an agent and stopping resolved the wait');
+
+  /* 🛑 THIS ARM MUST OUTRANK THE `Worked for` IDLE RULE. A previous turn's
+     `✻ Worked for 3m 12s` sits in the same 25-row tail as this turn's live wait
+     row, and that row is the module's canonical idle marker. Demoting this block
+     below it left the suite green while flipping this screen to `idle`. */
+  assert.equal(
+    classify(pane, '✻ Worked for 3m 12s\n  earlier output\n✻ Waiting for 1 background agent to finish' + footer).state,
+    'working',
+    'a previous turn\'s "Worked for" row outranked this turn\'s live wait');
+
+  /* 🛑 THE REACH CHECK MUST `continue`, NOT RETURN. An out-of-reach row above a
+     live one must not end the scan. */
+  assert.equal(
+    classify(pane, '✻ Waiting for 9 background agents to finish\n'
+      + new Array(12).fill('  transcript').join('\n')
+      + '\n✻ Waiting for 1 background agent to finish' + footer).state,
+    'working',
+    'an out-of-reach wait row ended the scan and hid a live one below it');
 
   /**
    * 🛑 A STALE ROW MUST NOT HIDE A LIVE ONE. A pane waiting on several agents
@@ -1975,6 +2015,10 @@ test('#1889: the full shape contract for the background-agent wait reader', () =
     '· Waiting for N background agents to finish is the line #1889 handles',
     '✻ Waiting for CI to finish',                            // a wait with no counter
     '✻ Waiting for the server to finish',
+    /* The counter phrase is `background agents?`, not `agents?`: dropping the
+       word left the suite green, so nothing pinned the branch's central claim. */
+    '✻ Waiting for 2 agents to finish',
+    '✻ Waiting for 3 review agents to finish',
     /* 🛑 WORKFLOW-ONLY IS DELIBERATELY NOT MATCHED. It once was, and it could
        never be RESOLVED: the resolution check keys on the vendor's
        agent-completion notification and there is no workflow equivalent in the
