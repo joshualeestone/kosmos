@@ -51,6 +51,18 @@ seen_before() {
 }
 BEFORE="$(seen_before)"
 
+# #1962: refuse to run the suite while a RELEASE holds the machine. This is every
+# agent's pre-PR validation and the ordinary tenant a cut's hold list kept missing
+# -- and a concurrent gate is exactly what turns a green suite red (measured: the
+# same file, 8 reds under contention, 22/22 alone). The consult is FAIL-OPEN and
+# cookie-excluded: a broken/absent claim file never refuses, and a cut's OWN
+# `yarn test` (which inherits the claim cookie via the env) self-excludes and runs
+# -- only a live, unexpired, FOREIGN claim refuses. CI is unaffected: the claim
+# lives at ~/.cache on the reserving Mac, which a GitHub runner does not have.
+# KOSMOS_IGNORE_MACHINE_CLAIM=1 runs anyway; who holds it: tools/who-has-the-box.sh.
+. "$REPO/tools/lib/cut-guard.sh"
+kosmos_refuse_if_machine_claimed "this test run" || exit 1
+
 # --- one temp root for this run, removed when it ends (#1151) -----------------
 #
 # 🛑 MEASURED: A FULL RUN LEAVES 92 DIRECTORIES IN TMPDIR AND REMOVES NONE.

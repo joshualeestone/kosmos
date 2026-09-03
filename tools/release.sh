@@ -43,7 +43,12 @@ _CUT_DONE_WRITTEN=0
 # `step` replaces the bare `echo` on each phase header: same line on screen,
 # and the last one reached is what the completion line reports.
 _STEP="before step 1"
-step() { _STEP="$1"; echo "$1"; }
+# #1962: each phase also RENEWS the machine claim, so a healthy cut of any length
+# keeps the box reserved (no single step approaches the window) while a genuinely
+# stuck step lets the claim lapse and frees the fleet. Guarded so an exit before
+# cut-guard.sh is sourced (there are no `step` calls that early today, but the
+# guard costs nothing) cannot fault.
+step() { _STEP="$1"; echo "$1"; command -v kosmos_claim_machine >/dev/null 2>&1 && kosmos_claim_machine >/dev/null 2>&1 || true; }
 cut_record_done() {
   [ "$_CUT_DONE_WRITTEN" = 1 ] && return 0
   _CUT_DONE_WRITTEN=1
@@ -87,7 +92,10 @@ cut_record_done() {
 # thaw) only exists after the freeze, so a death at step 1 or 2 would leave the
 # started line with no completion. The full trap replaces this one and calls
 # the same once-only writer, so exactly one completed line is written per cut.
-trap '_rc=$?; cut_record_done "$_rc"' EXIT
+# #1962: also FREE the machine claim on any exit (guarded: the claim is not made
+# until after cut-guard.sh is sourced below, and an exit before then has nothing
+# to free). Expiry + dead-pid cleanup are the backstops if this ever misses.
+trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true' EXIT
 
 # 🔑 AFTER 0.2.99 COMES 0.3.0, and this refuses anything else. Josh, 2026-08-22:
 # *"since we are getting close, when we get to 0.2.99 then lets roll to 0.3.00"*.
@@ -205,6 +213,15 @@ fi
 if [ "${KOSMOS_CUT_IGNORE_HARNESS:-0}" != 1 ]; then
   kosmos_refuse_if_harness_live "this cut" || exit 1
 fi
+
+# #1962: CLAIM the machine for the cut. The guards above make a second cut/harness
+# refuse; this makes an agent's ordinary `yarn test` (tools/run-tests.sh) refuse
+# too, so the cut gets the quiet box it needs without anyone asking agents to stop
+# one at a time. Held with an EXPIRING window (renewed each step; freed by the EXIT
+# trap, by a dead pid, or by expiry -- all safe directions). The exported cookie is
+# inherited by this cut's OWN gate subprocesses (step 3's `yarn test`, 3b's page
+# layer, 4b's harness), so they self-exclude and are never refused by their own cut.
+kosmos_claim_machine >/dev/null 2>&1 || true
 
 step "== 1. main, clean, and carrying what you mean to ship =="
 git -C "$REPO" fetch origin -q
@@ -376,7 +393,7 @@ DEPLOYED=0
 # On any exit before step 8 finished, the site checkout stops claiming $V
 # (#609 review, Splinter 23:05: a failed cut left latest.json and setup.sha256
 # uncommitted at the new version, and the pair that made cut 5 refuse).
-trap '_rc=$?; cut_record_done "$_rc"; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
+trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD"
 

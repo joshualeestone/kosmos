@@ -327,3 +327,171 @@ kosmos_refuse_if_harness_live() {
   fi
   return 0
 }
+
+# --- Machine reservation claim (#1962) ---------------------------------------
+# The guards above make a second CUT / BROWSER / HARNESS *run* refuse. They do
+# NOT make an agent's ordinary `yarn test` (tools/run-tests.sh) refuse while a
+# cut holds the box -- and that ordinary run is exactly the tenant the 0.6.23
+# cut kept discovering after asking agents to stop one at a time. A cut needs a
+# QUIET box (measured: the same file failed 8 reds under concurrent gates and
+# passed 22/22 alone), and nothing made it quiet.
+#
+# So a release CLAIMS the machine for a bounded window; any gate script consults
+# the claim and refuses -- naming the holder AND until when -- unless it is the
+# holder's own run (by cookie) or the operator overrides.
+#
+# Shape: ONE well-known file $DIR/machine-claim (not pid-suffixed: a second cut
+# is already refused by kosmos_refuse_if_cut_live, so at most one legit claim
+# exists). Body is one line: "<cookie> <pid> <expires_epoch> <host> <label>".
+# Machine-wide ($HOME/.cache via _kosmos_marker_dir), exactly like the run
+# markers above. Written atomically (temp + mv) so a consult never reads a
+# half-written line.
+#
+# THREE things free the box, every one in the SAFE direction (a claim that
+# should be gone but is not costs a foreign gate a too-long refusal, never a
+# corrupted release):
+#   1. The holder RELEASES it on exit (kosmos_release_machine, from release.sh's
+#      EXIT trap) -- the normal path.
+#   2. The holder's PID is DEAD -- a crashed cut cannot hold the box; any
+#      consult self-cleans a dead-holder claim.
+#   3. The claim EXPIRES -- a hung-but-alive cut frees the fleet after the
+#      window. release.sh RENEWS at each step, so a healthy long cut never
+#      lapses mid-flight; a stuck step lets the window pass.
+#
+# FAIL-OPEN is load-bearing: a gate must NEVER refuse because the claim FILE is
+# missing, empty, malformed, or half-written -- that would wedge the very fleet
+# this exists to keep working. Only a well-formed, live-holder, unexpired,
+# FOREIGN claim refuses. A malformed line is treated as no claim and left in
+# place (a concurrent writer will overwrite it); a well-formed but dead/expired
+# claim is self-cleaned, the same posture as the run markers' dead-pid unlink.
+_kosmos_machine_claim_file() { printf '%s' "$(_kosmos_marker_dir)/machine-claim"; }
+_kosmos_now_epoch() { date +%s 2>/dev/null || echo 0; }
+
+# Format an epoch as a local wall-clock HH:MM (with zone), for the "until when"
+# in a refusal. BSD date (this Mac) takes `-r <epoch>`; GNU date takes
+# `-d @<epoch>`. Try BSD first, then GNU; on failure echo the raw epoch so the
+# message still carries something checkable rather than nothing.
+_kosmos_epoch_hhmm() {
+  local e="${1:-}"
+  case "$e" in ''|*[!0-9]*) printf '%s' "?"; return 0 ;; esac
+  date -r "$e" '+%H:%M %Z' 2>/dev/null && return 0
+  date -d "@$e" '+%H:%M %Z' 2>/dev/null && return 0
+  printf 'epoch %s' "$e"
+}
+
+# _kosmos_machine_claim_active  -- echo "<cookie> <pid> <expires> <host> <label>"
+# of the ACTIVE claim, or nothing. Self-cleans a claim whose holder pid is dead
+# or whose expiry has passed. A malformed/partial line -> nothing, file left in
+# place (fail-open; a writer mid-mv will publish a complete line). Read-only with
+# respect to a live foreign claim.
+_kosmos_machine_claim_active() {
+  local f line cookie pid exp host label now
+  f="$(_kosmos_machine_claim_file)"
+  [ -f "$f" ] || return 0
+  line="$(cat "$f" 2>/dev/null)" || return 0
+  [ -n "$line" ] || return 0
+  # Parse the five fields. Extra trailing words fold into label (spaces allowed
+  # in a label); a line with fewer than the fixed fields is malformed -> ignore.
+  cookie="$(printf '%s' "$line" | awk '{print $1}')"
+  pid="$(printf '%s'    "$line" | awk '{print $2}')"
+  exp="$(printf '%s'    "$line" | awk '{print $3}')"
+  host="$(printf '%s'   "$line" | awk '{print $4}')"
+  label="$(printf '%s'  "$line" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
+  # Malformed: any required field missing or non-numeric pid/expiry -> fail-open.
+  [ -n "$cookie" ] || return 0
+  case "$pid" in ''|*[!0-9]*) return 0 ;; esac
+  case "$exp" in ''|*[!0-9]*) return 0 ;; esac
+  now="$(_kosmos_now_epoch)"
+  # Expired, or the holder crashed: this claim no longer holds the box. Clean it
+  # (same as the run markers' dead-pid unlink) so it stops being consulted.
+  if [ "$exp" -le "$now" ] 2>/dev/null || ! kill -0 "$pid" 2>/dev/null; then
+    rm -f "$f" 2>/dev/null
+    return 0
+  fi
+  printf '%s %s %s %s %s\n' "$cookie" "$pid" "$exp" "$host" "$label"
+  return 0
+}
+
+# kosmos_claim_machine [minutes]  -- create or refresh THIS run's claim on the
+# box. Default 30 minutes (tunable via KOSMOS_MACHINE_CLAIM_MINUTES; no single
+# release step approaches that, and the whole build is ~17 min). Reuses and
+# exports KOSMOS_MACHINE_CLAIM_COOKIE so the holder identity is stable across
+# renewals and inherited by child gate runs, which is what lets a release's own
+# `yarn test` self-exclude. Best-effort: a claim it cannot write just leaves the
+# box unreserved (the old, pre-#1962 behaviour), never an error.
+kosmos_claim_machine() {
+  local minutes="${1:-${KOSMOS_MACHINE_CLAIM_MINUTES:-30}}" dir f tmp cookie now exp host
+  case "$minutes" in ''|*[!0-9]*) minutes=30 ;; esac
+  dir="$(_kosmos_marker_dir)"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  f="$(_kosmos_machine_claim_file)"
+  cookie="${KOSMOS_MACHINE_CLAIM_COOKIE:-}"
+  if [ -z "$cookie" ]; then
+    cookie="$$-$(date +%s 2>/dev/null || echo 0)-${RANDOM:-0}${RANDOM:-0}"
+    export KOSMOS_MACHINE_CLAIM_COOKIE="$cookie"
+  fi
+  now="$(_kosmos_now_epoch)"
+  exp=$((now + minutes * 60))
+  host="$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)"
+  # Atomic publish: write the complete line to a temp in the same dir, then mv
+  # over the target, so a concurrent consult reads either the old line or the
+  # new one, never a partial one.
+  tmp="$dir/.machine-claim.$$.tmp"
+  printf '%s %s %s %s %s\n' "$cookie" "$$" "$exp" "$host" "release ${V:-cut}" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+  mv -f "$tmp" "$f" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+  return 0
+}
+
+# kosmos_release_machine  -- drop OUR claim (cookie match) so the box is freed
+# the instant the cut ends, rather than at expiry. NEVER removes a foreign
+# claim: if the active claim's cookie is not ours, leave it (a second holder --
+# which should not exist, but must not be clobbered if it does). Safe to call
+# with no claim held.
+kosmos_release_machine() {
+  local f line cookie self
+  self="${KOSMOS_MACHINE_CLAIM_COOKIE:-}"
+  [ -n "$self" ] || return 0                     # we never claimed -> nothing ours to free
+  f="$(_kosmos_machine_claim_file)"
+  [ -f "$f" ] || return 0
+  line="$(cat "$f" 2>/dev/null)" || return 0
+  cookie="$(printf '%s' "$line" | awk '{print $1}')"
+  [ "$cookie" = "$self" ] && rm -f "$f" 2>/dev/null
+  return 0
+}
+
+# kosmos_refuse_if_machine_claimed <what>  -- the gate consult. Return 0 (run) if
+# no active claim, if the active claim is OURS (by cookie), or if the operator
+# set KOSMOS_IGNORE_MACHINE_CLAIM=1. Return 1 (refuse) only for a well-formed,
+# live-holder, unexpired, FOREIGN claim, printing who holds it and until when.
+kosmos_refuse_if_machine_claimed() {
+  local what="${1:-this run}" active cookie pid exp host label self
+  [ -n "${KOSMOS_IGNORE_MACHINE_CLAIM:-}" ] && return 0
+  active="$(_kosmos_machine_claim_active)"
+  [ -n "$active" ] || return 0                   # no active claim -> run
+  cookie="$(printf '%s' "$active" | awk '{print $1}')"
+  self="${KOSMOS_MACHINE_CLAIM_COOKIE:-}"
+  { [ -n "$self" ] && [ "$cookie" = "$self" ]; } && return 0   # our own run -> run
+  pid="$(printf '%s'   "$active" | awk '{print $2}')"
+  exp="$(printf '%s'   "$active" | awk '{print $3}')"
+  host="$(printf '%s'  "$active" | awk '{print $4}')"
+  label="$(printf '%s' "$active" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
+  echo "the machine is reserved for a release (${label:-a cut}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp"); $what would share the box and could corrupt both results (a gate that passes alone fails under a concurrent one). Wait for it to finish (kosmos_machine_claim_status, or tools/who-has-the-box.sh, says when), or KOSMOS_IGNORE_MACHINE_CLAIM=1 to run anyway." >&2
+  return 1
+}
+
+# kosmos_machine_claim_status  -- the "who has the box?" answer, one line to
+# stdout. Prints the holder + until for an active claim, else the all-clear.
+kosmos_machine_claim_status() {
+  local active pid exp host label
+  active="$(_kosmos_machine_claim_active)"
+  if [ -z "$active" ]; then
+    echo "no release holds the machine right now."
+    return 0
+  fi
+  pid="$(printf '%s'   "$active" | awk '{print $2}')"
+  exp="$(printf '%s'   "$active" | awk '{print $3}')"
+  host="$(printf '%s'  "$active" | awk '{print $4}')"
+  label="$(printf '%s' "$active" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
+  echo "the machine is reserved for a release (${label:-a cut}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp")."
+  return 0
+}
