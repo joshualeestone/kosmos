@@ -114,6 +114,37 @@ test('off by default, refusals in words, and nothing spawns while off', async ()
   assert.deepEqual(recorded(), [], 'something spawned while the switch was off');
 });
 
+test('#2013 tripwire: remote defaults OFF, and an array config reads OFF -- the coupling that keeps the shape guard safe', () => {
+  /* engine/remote.js's shape guard is `!parsed || typeof parsed !== 'object'`,
+     which lets a JSON ARRAY through, because `typeof [] === 'object'`. That is
+     harmless ONLY because remote reads `on: parsed.on === true` (an explicit-true
+     test) and is OFF by default -- an array's undefined `.on` reads false either
+     way. #2013 fixed the SAME typeof-array hole in heartbeat-setting.js, which DID
+     default true and so turned a corrupt array config into phoning home.
+     This test is the tripwire for the day remote's default flips. That day is a
+     COMMERCIAL decision, not a technical one: Josh carved remote out of the
+     on-by-default sweep (2026-09-03) because the Remote tunnel is a paid service,
+     and commercial reasons change. When the default changes, one of these reds is
+     the signal to fix the shape guard first -- in front of the person making the
+     change, which is the one moment the connection is useful and the one moment
+     nobody would go looking for it in a backlog. */
+  // 1) The precondition. A missing config is OFF; if this reds, the default flipped.
+  fs.rmSync(remote.FILE, { force: true });
+  assert.equal(remote.read().on, false,
+    'remote defaults ON. Before shipping that, fix the typeof-array hole in remote.js\'s '
+    + 'shape guard (typeof parsed !== object lets an array through) -- an array config would '
+    + 'read as an object and bypass corrupt-to-off, exactly as #2013 did for heartbeat.');
+  // 2) The hole itself, pinned directly. An ARRAY config must read OFF; this reds the
+  //    moment someone gives remote a default-true read the way heartbeat used to have.
+  //    (The dir is created lazily by remote.write(); this test writes the file
+  //    directly and may run before any write(), so ensure the parent exists.)
+  fs.mkdirSync(nodePath.dirname(remote.FILE), { recursive: true });
+  fs.writeFileSync(remote.FILE, JSON.stringify([{ on: true }]));
+  assert.equal(remote.read().on, false,
+    'a JSON array config read as ON -- the typeof-array hole is now live. Add Array.isArray '
+    + 'to remote.js\'s shape guard, exactly as #2013 did for heartbeat-setting.js.');
+});
+
 test('on but not signed in says so, in words, and still spawns nothing', async () => {
   remote.setOn(true);
   remote.ensure(3000);
