@@ -3242,7 +3242,7 @@ fi
 # install has no previous bundle to be stale, and its own open already fired).
 if [ "$FRESH_INSTALL" = "no" ] && [ "$APP_MADE" != "yes" ]; then
   info "note: this update did not refresh the Kosmos app itself. If the app opens to an"
-  info "empty dashboard, open Kosmos from your browser, or run: kosmos open"
+  info "empty dashboard, open the Kosmos app from your Applications folder, or run: kosmos open"
 fi
 
 # ---- the permission acceptance (#46, Josh's ruling 2026-08-17) --------------
@@ -3790,14 +3790,22 @@ OPEN_CMD="${KOSMOS_OPEN_CMD:-/usr/bin/open}"
 # one carve-out -- a set KOSMOS_OPEN_CMD re-enables it -- because the
 # probe passes are exactly where the recording stub must be allowed to
 # observe the open.
-# #2023: also open ONCE on an enforcing UPDATE, to seed the httpOnly board cookie
-# that #1946's enforcement now requires. A fresh install opens the browser and gets
-# the cookie; an UPDATE never opened, so every updated machine's bookmarked board
-# 403s -- the fleet outage. This opens the OWNER's browser (mint a nonce, ?boot=),
-# which works regardless of the .app bundle's age -- the only remedy that does.
+# #2023/#2073: also open ONCE on an enforcing UPDATE to establish the httpOnly
+# board cookie #1946's enforcement requires. #2073 LAUNCHES THE APP here (not a
+# browser): the app reads the board token and appends ?token= itself, the board
+# sets the cookie, and server.js seeds the reauth marker on that ?token= redemption
+# -- so a normal update (make_app refreshed the bundle) launches the app once and
+# then this gate stops.
+# ⚠️ #2028 EDGE, ACCEPTED not fixed here: if the update did NOT refresh the bundle
+# (make_app skipped -- aliased Applications, a foreign bundle), the launched app can
+# be too old to carry tokenizedBoardURL, so it cannot seed the marker and this open
+# re-fires every update. The old browser ?boot= repair "worked regardless of bundle
+# age" only because it did not touch the app at all; app-only makes the app the
+# single surface, so a stale bundle (that is #2028's bug) loses the self-heal. The
+# not-refreshed note earlier (APP_MADE != yes) points the user at the remedy.
 # Gated on a marker beside board.token so it fires on the FIRST update carrying this
 # fix and never again (the cookie is Max-Age 400 days, so one seed carries every
-# later update forward -- the "no tab per update" property the header above keeps).
+# later update forward -- the "no launch per update" property the header keeps).
 # Enforcing-only: `-s board.token` (present and non-empty) is setup.sh's reading of
 # enforced() -- an enforcing board has a token, a sandbox/harness one does not.
 _awnode_r="$KOSMOS_HOME/runtime/bin/node"; _awroot_r=""; _repair_seed=""
@@ -3896,11 +3904,13 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_O
 PLIST
     )
     then
-      # #1946: this plist now carries the board token in its URL. The token file
-      # itself is forced to mode 600 because the design distrusts directory
-      # permissions ($HOME is group-traversable), so the plist holding the same
-      # secret must not sit at the default umask (644). Owner-only, before it is
-      # loaded. Self-removes after RunAtLoad regardless.
+      # #2073: this plist's ProgramArguments now carry only $APP_DIR/Kosmos.app --
+      # a non-secret bundle path, NOT a token or nonce (the app reads the board
+      # token in-process). So the owner-only mode below is no longer guarding a
+      # secret; it is kept as cheap belt-and-braces on a $HOME-group-traversable
+      # LaunchAgents dir. (It used to matter: #1946's plist carried the token in a
+      # ?token= URL, which is exactly the argv exposure #2073 removes.) The plist
+      # self-removes after RunAtLoad regardless.
       chmod 600 "$_open_plist" 2>/dev/null || true
       # The sandbox gate, restated within reach of the call (the sweep test
       # reads 12 lines above every launchctl): gui/<uid> is always the REAL
