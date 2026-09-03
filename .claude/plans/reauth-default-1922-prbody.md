@@ -2,11 +2,14 @@ Addresses #1922.
 
 ## What was wrong
 
-`POST /api/connect/start` passed `known.dir` for the DEFAULT account. The default account's config is
+`POST /api/connect/start` passed `known.dir` for the DEFAULT account. **What that produced depended
+on the machine** -- see the qualifier below; it is not a single symptom. The default account's config is
 `<HOME>/.claude.json`, a file BESIDE `<HOME>/.claude`, and setting `CLAUDE_CONFIG_DIR=<HOME>/.claude`
 makes the real `claude` binary read and write `<HOME>/.claude/.claude.json` instead. Two files, two
-accounts. So "Sign in again" on the default account ran the whole OAuth flow and landed the
-refreshed credential in a file nothing reads.
+accounts. So on a machine whose decoy read SIGNED OUT, "Sign in again" on the default account ran
+the whole OAuth flow and landed the refreshed credential in a file nothing reads. **Where the decoy
+read CONNECTED the flow never ran at all** -- the machine-dependence the source comment carries, and
+which the direction-change section below depends on.
 
 `accounts.listLive` and `/api/agent/:name/account-status` already scope the default by OMITTING the
 directory and say why. This route did not. That asymmetry is the defect.
@@ -45,9 +48,16 @@ the whole OAuth flow into the wrong file.
 `checkLive` was pointed at the decoy config, so the flow genuinely ran only where that decoy answered
 `NONE` specifically -- the gate is `state === NONE`, so a decoy answering UNKNOWN (unparseable output,
 ENOENT, timeout) took the same connected exit pre-fix. Post-fix it reads the real `~/.claude.json`,
-`claude auth status` credulously answers `loggedIn: true` (#874 / #1916), and the gate holds shut on
-**every** default-account machine. ⇒ **Post-fix the false success is uniform; pre-fix it depended on
-the decoy, so this change plausibly widens who sees it, and by how much is not established.** The write path is correct either way; the repair behind the gate is
+`claude auth status` credulously answers `loggedIn: true` (#874 / #1916), and the gate holds shut
+**wherever that status reports a login exists** -- the dead-but-present population this card is
+about.
+
+⚠️ **NOT every default-account machine.** `checkLive` returns `NONE` on a recognised
+`loggedIn: false`, so a genuinely signed-out user still opens the gate and the sign-in runs; a
+missing binary opens it too. The branch's own `#1560` arm ("a connected-looking FILE does not block
+sign-in when the world says signed out") asserts that and passes. ⇒ **Post-fix the false success is
+bounded to accounts whose stored login is present-but-dead; pre-fix it additionally depended on the
+decoy, so this change plausibly widens who sees it, and by how much is not established.** The write path is correct either way; the repair behind the gate is
 kosmos#1937.
 
 The flow behind the #1560 gate still cannot repair a dead credential: the launch is a bare `claude`
