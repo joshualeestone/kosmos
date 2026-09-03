@@ -182,6 +182,23 @@ function engineFreshness() {
   return { startedAt: ENGINE_STARTED_AT.toISOString(), staleSince: engineLook.staleSince };
 }
 const store = require('./engine/store');
+/* #2066: which channel this build was FETCHED from (staging vs prod), for the
+   board's build marker. It is NOT baked into the artifact -- #2036's invariant is
+   that the SAME bytes are promoted to prod with no rebuild, so a baked stamp would
+   need a rebuild to flip and break "the tested bytes are the shipped bytes". Instead
+   the install/update side records the channel it pulled from into one tiny file under
+   store.ROOT (the staging-channel install work, Baron's half), and this reads it.
+   Default 'prod' on absence/unreadable/anything-unexpected: every real install today
+   is prod, and a missing file must read prod, never blank. `store.ROOT` ALONE (#891):
+   it already resolves AGENT_WORKFORCE_DATA, so a sandboxed test seeds this file in the
+   same place the read looks. Only the two known values are honoured; any other content
+   folds to 'prod' so a corrupt file can never paint a loud STAGING badge on a prod board. */
+function sourceChannelNow() {
+  try {
+    const raw = fs.readFileSync(path.join(store.ROOT, 'source-channel'), 'utf8').trim().toLowerCase();
+    return raw === 'staging' ? 'staging' : 'prod';
+  } catch { return 'prod'; }
+}
 const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
@@ -2108,6 +2125,10 @@ const server = http.createServer((req, res) => {
       updates.poke();
       body = JSON.stringify({
         ...snap, agents: agents.concat(offline), counts, connection, version,
+        /* #2066: the build marker reads (version, sourceChannel). Channel rides
+           the 5s status tick the board already polls -- one file read, defaulting
+           to 'prod', so a prod board is unchanged and a staging board is loud. */
+        sourceChannel: sourceChannelNow(),
         /* 🛑 NO OFFER FROM A BOARD THAT CANNOT TAKE ONE. A Kosmos running from
            its source (this Mac's, under the hand plist) cannot install: the
            install route answers "it updates from git, not from here". But the
