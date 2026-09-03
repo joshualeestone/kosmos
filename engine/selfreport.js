@@ -71,6 +71,22 @@ function capped(value, cap) {
   return s ? s.slice(0, cap) : null;
 }
 
+/* #1996 (K-13 residual): `because` is a SENTENCE and may carry paragraph breaks;
+   the single-value fields above (on/owner/until/project/instance) are not and must
+   not carry newlines. `capped` flattens ALL whitespace, which is right for those
+   fields but was silently collapsing multi-line `because` to one line in the stored
+   record (`bravo\nsecond line` came back as `bravo second line`) - #1927's goal of
+   carrying paragraph breaks was undone at the store. This keeps internal newlines:
+   normalise CRLF/CR to LF and tabs to a space (a stored sentence is not tab-aligned
+   layout), then trim only the OUTER whitespace so leading/trailing blank lines do
+   not survive while the internal breaks do. JSONL storage is unaffected -
+   JSON.stringify escapes the `\n`, so one record still occupies one physical line. */
+function cappedSentence(value, cap) {
+  if (value === null || value === undefined) return null;
+  const s = String(value).replace(/\r\n?/g, '\n').replace(/\t/g, ' ').trim();
+  return s ? s.slice(0, cap) : null;
+}
+
 /**
  * Append one transition. Returns { recorded, at } or { recorded:false,
  * because } in a sentence, the same contract every engine write keeps.
@@ -88,6 +104,32 @@ function record(sessionName, entry) {
   const state = entry && entry.state;
   if (!STATES.includes(state)) {
     return { recorded: false, because: 'that is not a state we know. The states are: ' + STATES.join(', ') };
+  }
+  /* #1996 + #2001: the two "a person is the blocker" states MUST carry ACTIONABLE
+     CONTENT. Until now a needs_you or blocked with an empty note recorded SUCCESS,
+     so the agent believed it had explained itself while the reason was silently
+     dropped (measured: `report needs_you` with an emptied text stored `because:
+     null` and returned recorded:true) - a reasonless RED / attention state on the
+     board, the same empty-input defect post/reply already REFUSE, only here it
+     failed OPEN instead of closed.
+     🔑 THIS MIRRORS #2001's CLI-SIDE RULE, WITH THE SAME SET (a note, --on, or
+     --owner), deliberately. #2001 refuses an empty summons BEFORE the network; this
+     is the SERVER-side half, so a summons arriving by any OTHER path - the SDK
+     runner, a direct loopback API call, a CLI predating #2001 - is refused too
+     rather than recorded as a reasonless red. A server rule STRICTER than #2001
+     (e.g. requiring the note specifically) would reject a report the CLI just
+     approved, like `report blocked --on some-task` with no note, so the sets must
+     match. The other four states (started/working/idle/stopped) stay informational
+     and free-form: a bare `report working` heartbeat carries nothing and that is
+     fine. Scoped to WAITING_ON_A_PERSON so the rule lives on one existing list. */
+  const because = cappedSentence(entry.because, CAPS.because);
+  const on = capped(entry.on, CAPS.on);
+  const owner = capped(entry.owner, CAPS.owner);
+  if (WAITING_ON_A_PERSON.includes(state) && !because && !on && !owner) {
+    return {
+      recorded: false,
+      because: 'a ' + state + ' report needs at least one of a reason, --on, or --owner - say what you need, what you are blocked on, or who must act, so the board and the person can see what the red is for',
+    };
   }
   /* 🛑 #900/#1949: AN AUTOMATIC `idle` OR `working` MAY NOT ERASE A DELIBERATE
      `blocked` OR `needs_you`. The Stop hook fires at the end of EVERY turn and
@@ -130,9 +172,11 @@ function record(sessionName, entry) {
   const line = {
     v: 1,
     state,
-    because: capped(entry.because, CAPS.because),
-    on: capped(entry.on, CAPS.on),
-    owner: capped(entry.owner, CAPS.owner),
+    /* #1996: because/on/owner precomputed above (because keeps paragraph breaks;
+       on/owner reused from the WAITING_ON_A_PERSON content check). */
+    because,
+    on,
+    owner,
     until: capped(entry.until, CAPS.until),
     /* #763: the project this report is about (a project id), when the agent
        says. A needs_you that names one lights that project alone; one that
