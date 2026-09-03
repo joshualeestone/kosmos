@@ -2097,6 +2097,14 @@ const AGENT_WAIT_CLEARED_BANNER =
 /* #1889. How many agents a wait row is waiting ON, read off the row itself.
    Returns 1 when no count can be read, which is the pre-existing behaviour: one
    completion resolves the wait. */
+/* 📌 ZERO IS NOT A STATE THIS CAN SEE, so the fallback is about an UNREADABLE row,
+   never about a drained one. `F1n` emits `pendingBackgroundAgentCount: k>0?k:void 0`
+   on the live branch and `void 0` on the drained branch, so the vendor never
+   constructs the value `0` (verified verbatim). And at zero the row renders no
+   counter at all: `HM=al>0||ll>0` selects the plain duration row, and `nl=al>0&&…`
+   means the counter child is `false` rather than an element, so `Waiting for` and
+   `background agents` cannot both appear. Nothing to guard; recorded so the next
+   reader does not go looking for a "waiting for 0" case that cannot render. */
 function backgroundAgentWaitCount(row) {
   const hit = /(\d+)\s+background\s+agents?\b/u.exec(String(row == null ? '' : row));
   if (hit === null) return 1;
@@ -4848,7 +4856,19 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          wait past REPORT_WORKING_DECAY_MS decays by construction. Accusing it
          then is not an edge case, it is the normal case for a long wait, and it
          is the one field where reading this row made the board LESS truthful than
-         not reading it. The state stays `working`; only the false sentence goes. */
+         not reading it. The state stays `working`; only the false sentence goes.
+         🔑 AND THERE IS A SECOND, INDEPENDENT REASON, FOUND IN THE BUNDLE AFTER
+         THIS RULE WAS WRITTEN. When the wait DRAINS, the replacing row's duration
+         is measured from the start of the WAIT, not from the start of the turn:
+           function F1n({... backgroundWaitStartTime:M})   ->  drained branch:
+           durationMs: M!==null ? y-M : g,  backgroundWaitStartTime: null
+         So the row reports the WHOLE wait (verified verbatim; single definition,
+         no name collision). That is why a real capture shows `finished · 8m 49s`
+         while ordinary turn durations do not approach five minutes: the durations
+         on these rows are drawn from a clock that runs across the entire wait, so
+         exceeding `REPORT_WORKING_DECAY_MS` is what these rows DO, not a symptom.
+         ⇒ The exemption is not a convenience for a case that happens to decay. It
+         is the only reading consistent with how the vendor measures the row. */
       /* 🛑 THE NEIGHBOURING RULE CAN VOID THIS WHOLE READER, AND THAT IS NOT
          FIXED HERE. Rule 6 below gives a FRESH report precedence over the scrape,
          and `install/kosmos-report-hook.sh` maps `Stop -> report idle --auto`.
