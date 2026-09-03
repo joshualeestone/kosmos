@@ -7124,6 +7124,32 @@ test('the free-agent picker names the not-signed-in state distinctly on a 403 (#
     'the control: flag off shows the ordinary empty reason: ' + selOff.innerHTML);
 });
 
+test('paintAddAgents shows the not-signed-in copy on a 403, and cannot-read otherwise (#2023)', () => {
+  /* paintAddAgents' BOARD_NEEDS_SIGNIN branch (checked BEFORE BOARD_LOOK_FAILED)
+     had no assertion. A 403 sets BOTH flags, so the signin branch must win.
+     Driven directly with a control on the flag so the assertion discriminates
+     rather than matching whatever the add-project view happens to render. */
+  const box = { innerHTML: '' };
+  global.document = { getElementById: (id) => (id === 'pj-add-agents' ? box : null) };
+  try {
+    const base = 'const esc = (s) => String(s == null ? "" : s);\n'
+      + 'const setLive = (el, html) => { el.innerHTML = html; };\n'
+      + 'const SIGNIN_SENTENCE = ' + JSON.stringify(pageConst('SIGNIN_SENTENCE')) + ';\n'
+      + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = "boom";\n';
+    // flag ON: a 403 also set BOARD_LOOK_FAILED; the signin branch must win.
+    pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = true;\n')();
+    assert.match(box.innerHTML, /not signed in/i, 'a 403 add-project view showed cannot-read, not the signin copy');
+    assert.ok(!/cannot read the agents/i.test(box.innerHTML), 'the signin branch leaked the generic cannot-read copy');
+    // CONTROL: flag OFF with the same failed read must show cannot-read.
+    box.innerHTML = '';
+    pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = false;\n')();
+    assert.match(box.innerHTML, /cannot read the agents/i, 'the control: a non-403 failure must still show cannot-read');
+    assert.ok(!/not signed in/i.test(box.innerHTML), 'the control: cannot-read must not say signin');
+  } finally {
+    delete global.document;
+  }
+});
+
 test('the settings members wiring is real, not just extractable', () => {
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const facts = pageFnSource('paintSettingsFacts');

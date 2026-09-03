@@ -113,6 +113,38 @@ test('a server that ANSWERED with a refusal is not "not answering": the note pai
   assert.deepEqual(refused, [false], 'a server that answered was reported as not answering');
 });
 
+test('#2023: BOARD_NEEDS_SIGNIN does not latch -- a non-403 outcome after a 403 clears it', async () => {
+  /* 🛑 THE ANTI-LATCH GUARD. The fix (tick sets the flag from res.status===403 on
+     an answered failure, and clears it in the catch when NOTHING answered) had no
+     executable guard: a mutation deleting `if (!answered) BOARD_NEEDS_SIGNIN =
+     false`, or changing the answered set to always-true, left every suite green.
+     This drives the REAL tick through 403 -> 500 -> 403 -> network-throw and
+     asserts the flag tracks each, so "not signed in" can never sit over "not
+     answering" (the #268 self-contradiction) or over a genuine 500.
+     BOARD_NEEDS_SIGNIN is deliberately NOT injected as a param, so tick's writes
+     land on globalThis where this test reads them; the sandboxed new Function
+     body is non-strict, so a bare assignment creates the global. */
+  const stub = () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: true, closest: () => null, querySelector: () => null, querySelectorAll: () => [] });
+  let fetchImpl;
+  const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'SIGNIN_SENTENCE',
+    `${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
+    () => {}, (...a) => fetchImpl(...a), { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] }, 0, () => '', () => {}, null, null, page.liftConst(SCRIPT, 'SIGNIN_SENTENCE'),
+  );
+  delete globalThis.BOARD_NEEDS_SIGNIN;
+  const status403 = () => Promise.resolve({ ok: false, status: 403, json: () => Promise.resolve({ error: 'this board belongs to the account that started it' }) });
+  const status500 = () => Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: 'we could not read tmux' }) });
+  const throws = () => Promise.reject(new TypeError('Failed to fetch'));
+  fetchImpl = status403; await tick();
+  assert.equal(globalThis.BOARD_NEEDS_SIGNIN, true, 'a 403 did not set the not-signed-in flag');
+  fetchImpl = status500; await tick();
+  assert.equal(globalThis.BOARD_NEEDS_SIGNIN, false, 'a genuine 500 after a 403 left the flag true -- res.status===403 not honoured on the answered path');
+  fetchImpl = status403; await tick();
+  assert.equal(globalThis.BOARD_NEEDS_SIGNIN, true, 'a second 403 did not re-set the flag');
+  fetchImpl = throws; await tick();
+  assert.equal(globalThis.BOARD_NEEDS_SIGNIN, false, 'the flag stuck TRUE across a genuine outage -- the latch #2023/#268 forbid (signin over not-answering)');
+  delete globalThis.BOARD_NEEDS_SIGNIN;
+});
+
 test('a poll that works clears it in the same paint', () => {
   /* ⚠️ A STALE FAILURE NOTICE OVER A WORKING BOARD is this note inverted: the
      board says everything is fine and the chrome says nothing is answering, and

@@ -105,6 +105,37 @@ const CANNOT_READ_AGENTS = /We cannot read your agents right now/i;
     await ctx.close();
   }
 
+  // ---- Scenario 3: projects 403 THEN a network OUTAGE (aborted request) -> #pj-list
+  // must UN-LATCH to cannot-read. Guards the anti-latch fix end-to-end: a sticky
+  // BOARD_NEEDS_SIGNIN would keep the signin copy over a real, unrelated outage.
+  // The outage is an ABORT, not a 500, ON PURPOSE: a 500 with projectsUnreadable
+  // goes through loadProjects's `!res.ok` branch, which itself sets the flag from
+  // got403 before throwing -- so a 500 cannot isolate the CATCH's clear. Only a
+  // request that rejects BEFORE a response (an abort) reaches the catch with the
+  // prior 403's flag still standing, which is exactly the latch this guards.
+  {
+    const { ctx, page } = await fresh();
+    let projMode = '403';
+    await page.route('**/api/status', (r) => r.fulfill({ status: 403, json: AUTH_403 }));
+    await page.route('**/api/projects', (r) => (projMode === 'abort' ? r.abort() : r.fulfill({ status: 403, json: AUTH_403 })));
+    await page.goto(BASE + '/?tab=projects', { waitUntil: 'networkidle' });
+    await page.waitForTimeout(600);
+    const first = await page.evaluate(() => (document.getElementById('pj-list') || {}).textContent || '');
+    check('anti-latch: projects 403 first shows signin', SIGNIN.test(first), first.slice(0, 100));
+    // A genuine outage now (the request rejects). The flag must NOT stay latched true.
+    projMode = 'abort';
+    await page.evaluate(() => { try { return typeof loadProjects === 'function' ? loadProjects() : null; } catch (e) { return null; } });
+    let unlatched = false;
+    try {
+      await page.waitForFunction(() => /cannot read your projects/i.test((document.getElementById('pj-list') || {}).textContent || ''), { timeout: 8000 });
+      unlatched = true;
+    } catch (e) { unlatched = false; }
+    const after = await page.evaluate(() => (document.getElementById('pj-list') || {}).textContent || '');
+    check('anti-latch: a genuine outage after a 403 un-latches #pj-list to cannot-read (flag does not stick)',
+      unlatched && !SIGNIN.test(after), after.slice(0, 140));
+    await ctx.close();
+  }
+
   // ---- CONTROL A: a normal 200 board (no mock) shows NEITHER message.
   {
     const { ctx, page } = await fresh();
