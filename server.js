@@ -1580,6 +1580,22 @@ const server = http.createServer((req, res) => {
     }
   }
 
+  /* #1979: mint a single-use, short-TTL browser-open nonce. LOOPBACK-ONLY (it is
+     NOT in REMOTE_AGENT_ROUTES, so remoteWriteGuard refuses a network peer) and,
+     on an enforcing board, already board-token-gated by the sensitive-route check
+     above -- so only a caller that ALREADY holds the board token (the CLI, which
+     presents it OFF argv via `kosmos_curl`'s `-H @file`) can mint one. The browser
+     then redeems `?boot=<nonce>` for the cookie (see boardauth.bootstrap), so the
+     DURABLE token never rides the `open`/`sh`/browser argv that macOS `ps` exposes
+     cross-account. On a non-enforcing board this is reachable without a token, but
+     the nonce it returns is inert there: `bootstrap`'s redeem arm runs only inside
+     the `if (boardAuthState.on)` gate, so a nonce is never redeemed on a board that
+     is not enforcing. */
+  if (pathname === '/api/board-nonce' && req.method === 'POST') {
+    sendJson(res, 200, { nonce: boardauth.mintNonce() });
+    return;
+  }
+
   if (pathname === '/api/status' && (req.method === 'GET' || req.method === 'HEAD')) {
     let body;
     try {

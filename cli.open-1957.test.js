@@ -87,6 +87,88 @@ test('#1957: `kosmos open` names the failure and exits non-zero when the browser
   }
 });
 
+/* #1979: on an ENFORCING board (a readable board.token), `kosmos open` must hand
+   the browser a `?boot=<nonce>` minted off-argv, NEVER the durable `?token=`.
+   Needs a board that answers healthy AND POST /api/board-nonce, plus a KOSMOS_HOME
+   whose app/engine/store.ROOT holds a board.token (so board_token succeeds). */
+function nonceBoard(nonce) {
+  return new Promise((resolve) => {
+    const seen = { nonceMint: 0, mintAuthHeader: null };
+    const server = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url.startsWith('/api/board-nonce')) {
+        seen.nonceMint += 1;
+        seen.mintAuthHeader = req.headers['x-kosmos-board-token'] || null;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ nonce }));
+      }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<html><title>Kosmos</title><body>Agent Workforce</body></html>');
+    });
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, seen }));
+  });
+}
+function enforcingHome(token) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-open-1979-home-'));
+  const root = path.join(home, 'root');
+  fs.mkdirSync(root, { recursive: true });
+  fs.mkdirSync(path.join(home, 'runtime', 'bin'), { recursive: true });
+  fs.mkdirSync(path.join(home, 'app', 'engine'), { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(home, 'runtime', 'bin', 'node'));
+  fs.writeFileSync(path.join(home, 'app', 'engine', 'store.js'), `module.exports = { ROOT: ${JSON.stringify(root)} };\n`);
+  fs.writeFileSync(path.join(root, 'board.token'), token);
+  return { home, root };
+}
+
+test('#1979: on an enforcing board, `kosmos open` hands the browser a ?boot=<nonce>, never the durable token', async () => {
+  const NONCE = 'abc123deadbeef0123456789abcdef0123456789abcdef0123456789abcdef01'; // 64-hex, like a real nonce
+  const TOKEN = 'durable-board-token-should-never-appear-on-argv';
+  const { server, port, seen } = await nonceBoard(NONCE);
+  const { bin, marker, dir } = stubOpen(0);
+  const { home } = enforcingHome(TOKEN);
+  try {
+    const r = await runOpen({ ...process.env, KOSMOS_PORT: String(port), KOSMOS_OPEN_BIN: bin, KOSMOS_HOME: home });
+    assert.equal(r.code, 0, 'a successful open exits 0');
+    const opened = fs.readFileSync(marker, 'utf8');
+    assert.match(opened, new RegExp(`\\?boot=${NONCE}(\\s|$)`), 'the opener must be handed ?boot=<nonce>');
+    assert.doesNotMatch(opened, /token=/, 'the durable token must NOT appear on the open argv (the whole #1979 point)');
+    assert.doesNotMatch(opened, new RegExp(TOKEN), 'the durable token value must never reach the opener');
+    assert.equal(seen.nonceMint, 1, 'exactly one nonce was minted');
+    assert.equal(seen.mintAuthHeader, TOKEN, 'the mint was authenticated with the board token (delivered as a header, i.e. off argv)');
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('#1979: if the nonce mint fails, `kosmos open` falls back to the PLAIN url, still never the token', async () => {
+  const TOKEN = 'durable-token-2';
+  // A board that is healthy but REFUSES to mint (500), simulating an enforcing
+  // board where the mint failed. cmd_open must fall back to the plain URL, not
+  // reintroduce ?token=.
+  const server = await new Promise((resolve) => {
+    const s = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url.startsWith('/api/board-nonce')) { res.writeHead(500); return res.end('nope'); }
+      res.writeHead(200, { 'content-type': 'text/html' }); res.end('<title>Kosmos</title>Agent Workforce');
+    });
+    s.listen(0, '127.0.0.1', () => resolve({ s, port: s.address().port }));
+  });
+  const { bin, marker, dir } = stubOpen(0);
+  const { home } = enforcingHome(TOKEN);
+  try {
+    const r = await runOpen({ ...process.env, KOSMOS_PORT: String(server.port), KOSMOS_OPEN_BIN: bin, KOSMOS_HOME: home });
+    assert.equal(r.code, 0);
+    const opened = fs.readFileSync(marker, 'utf8');
+    assert.match(opened, /^http:\/\/127\.0\.0\.1:\d+\s*$/m, 'a failed mint falls back to the PLAIN url');
+    assert.doesNotMatch(opened, /token=|boot=/, 'no token and no stale nonce on the argv when the mint failed');
+    assert.doesNotMatch(opened, new RegExp(TOKEN), 'the durable token never reaches the opener even on the failure path');
+  } finally {
+    server.s.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('#1957 CONTROL: `kosmos open` is never silent-plus-exit-0, whichever way open goes', async () => {
   for (const exitCode of [0, 3]) {
     const { server, port } = await fakeBoard();
