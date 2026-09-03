@@ -97,6 +97,7 @@ const READERS = [
     toggle: 'auto-toggle',
     msg: 'auto-msg',
     onBody: { on: true, ok: true },
+    okFalseBody: { on: true, ok: false },
   },
   {
     name: 'engineering mode',
@@ -106,6 +107,7 @@ const READERS = [
     toggle: 'eng-toggle',
     msg: 'eng-msg',
     onBody: { on: true, ok: true },
+    okFalseBody: { on: true, ok: false },
   },
   {
     name: 'run limits',
@@ -115,6 +117,7 @@ const READERS = [
     toggle: 'lim-toggle',
     msg: 'lim-msg',
     onBody: { on: true, ok: true, tiers: [10, 40, 100], perHour: 40 },
+    okFalseBody: { on: true, ok: false, tiers: [10, 40, 100], perHour: 40 },
   },
 ];
 
@@ -143,5 +146,21 @@ for (const r of READERS) {
       r.reader + ': a 403 rendered as On');
     assert.match(els[r.msg].textContent, /could not/i,
       r.reader + ': a 403 said nothing, so the switch would be the only claim on screen');
+  });
+
+  // The invariant the card is really about: a 200 with {ok:false} is a CORRUPT
+  // read (the engine's honest "safe default in force"), NOT a gated one. It must
+  // KEEP its switch at the safe-default position -- the res.ok check must not
+  // over-broaden and route ok:false into the unread branch too. The tell that
+  // separates this from the 403 arm is hidden === false (the control stays).
+  test('#2047: ' + r.name + ' KEEPS its switch on a 200 corrupt read (ok:false, not unread)', async () => {
+    const { els, run } = build(r.reader, r.prelude, r.callees, fetchStub(true, r.okFalseBody));
+    await run();
+    assert.equal(els[r.toggle].hidden, false,
+      r.reader + ': a 200 {ok:false} corrupt read wrongly hid the switch -- ok:false is not unread');
+    assert.equal(els[r.toggle].getAttribute('aria-checked'), 'true',
+      r.reader + ': a 200 {ok:false} read must keep the safe-default position');
+    assert.match(els[r.msg].textContent, /could not/i,
+      r.reader + ': a 200 {ok:false} read must say the setting could not be read');
   });
 }
