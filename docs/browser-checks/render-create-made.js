@@ -66,6 +66,10 @@ const SEEN = `(() => {
    the same element with the same size at the same place. */
 const INK = `(() => {
   const cv = document.getElementById('made-mark');
+  /* #1948: guard a 0-sized canvas -- getImageData throws IndexSizeError on width/height
+     of 0, which inside a waitForFunction rejects the wait and inside an evaluate escapes
+     to the outer catch as a raw stack. Treat "no canvas / not sized yet" as no ink. */
+  if (!cv || !cv.width || !cv.height) return { n: 0 };
   const g = cv.getContext('2d');
   const d = g.getImageData(0, 0, cv.width, cv.height).data;
   let n = 0; let r = 0; let gg = 0; let b = 0;
@@ -110,21 +114,29 @@ async function makeAnna(page, { seen }) {
      exact substitution bug this flake was masking), the mark is drawing, and a row
      is still working so we caught it mid-flight rather than after it settled. None
      of those is implied by "a row exists", so each can still fail. */
-  /* 20000ms, matching the never-seen arm below, NOT 8000ms: this arm presses the
-     same real Create button in the same dry-run sandbox, so it incurs the SAME
-     #1916 `claude -p` probe latency (~7s) before the making starts (measured: rows
-     drawing at ~8s). An 8000ms ceiling sits right on that boundary and would time
-     out under load, reintroducing the exact flake this fixes. On timeout, emit a
-     labelled FAIL naming which sync never completed rather than throwing a raw
-     stack to the outer catch (the file's own made-hello wait models this). */
+  /* SYNC on BOTH a progress row AND the mark having drawn (>200 ink), because they
+     are INDEPENDENT animations: the create-go handler calls startKLoader (the mark)
+     just before revealMade paces in the rows, but the mark draws on the next rAF
+     frame while the first row can paint synchronously -- so a row can exist with the
+     mark still at 0. Syncing on the row alone would let "the mark is drawing" race
+     red, the very flake class this fixes. Waiting for both makes the mid-state
+     genuinely underway before we sample, and it moves the mark-drawing CHECK into
+     the sync: if the mark never draws, this times out and the catch emits a FAIL,
+     so a dead mark still reds -- it is no longer a separate raced assertion below.
+     20000ms, matching the never-seen arm: this arm presses the same real Create
+     button in the same sandbox and incurs the SAME #1916 ~7s probe latency (making
+     draws at ~8s); 8000ms sat on that boundary and would time out under load. On
+     timeout, emit a labelled FAIL rather than throwing a raw stack (the file's own
+     made-hello wait models this). */
   try {
-    await page.waitForFunction(() => {
+    await page.waitForFunction((inkSrc) => {
       const s = document.getElementById('cstep-made');
-      return !!s && !s.hidden && s.querySelectorAll('.tick').length > 0;
-    }, { timeout: 20000 });
+      if (!s || s.hidden || s.querySelectorAll('.tick').length === 0) return false;
+      return eval(inkSrc).n > 200; // the mark has visibly drawn, not just started
+    }, INK, { timeout: 20000 });
   } catch {
-    check('the making starts within 20s, so the mid-state assertions below mean something',
-      false, 'no progress row appeared; everything after this would be reading a screen that never started making');
+    check('the making starts and its mark is drawing within 20s, so the mid-state assertions mean something',
+      false, 'no progress row appeared, or the mark never drew -- the screen never entered the mid-making state');
   }
 
   const early = await page.evaluate((inkSrc) => {
@@ -150,7 +162,10 @@ async function makeAnna(page, { seen }) {
   check('the last step is on screen and centred', early.onScreen && early.centred);
   check('it is not in a card any more', !early.bordered);
   check('it is headed with the name being made', /making anna/i.test(early.head), JSON.stringify(early.head));
-  check('the mark is drawing something', early.markInk > 200, `${early.markInk} lit pixels`);
+  /* The mark-is-drawing check is NOT re-asserted here: `markInk > 200` is now the wait
+     condition above, so asserting it would be a tautology. A mark that never draws is
+     caught instead by that sync timing out into the labelled FAIL. `markInk` is still
+     reported in the detail below for diagnosis. */
   /* NOT `rows > 0` -- that is now the wait condition above, so asserting it would be
      a tautology (a check that cannot fail). `working > 0` is independent: a row can
      exist and already be done. It holds because we synced to the animation's START,
