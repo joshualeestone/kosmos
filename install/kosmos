@@ -280,18 +280,27 @@ port_taken_by_stranger() {
 # formula. Empty (return 1) if the board has not booted yet or does not enforce
 # (a token is only written on the enforcing path); callers that need it run after
 # the board is up.
-# ⚠️ RESIDUAL (kosmos#1970): callers pass this on curl/open ARGV, which macOS `ps`
-# exposes cross-account for the brief window each command runs. It is transient
-# (the ?token= is swapped for an httpOnly cookie and 302-stripped) and matches the
-# pre-existing x-kosmos-agent-token delivery, so it is documented and tracked
-# rather than closed here; the durable secret stays in the mode-600 file.
+# #1970: this token used to reach curl on ARGV (`-H "x-kosmos-board-token: $_bt"`),
+# which macOS `ps -ww -o args` exposes cross-account -- a side channel around the
+# mode-600 file. CLOSED for every CLI call: `kosmos_curl` now writes the header to
+# a mode-600 temp file and passes curl `-H @file`, so no CLI call puts the token on
+# argv. BOUNDED RESIDUAL: `cmd_open` (and setup.sh's open-once plist) still hand the
+# token to the browser as `$URL/?token=$_bt`, and `open` takes the URL as an
+# argument -- so the LONG-LIVED board token (the same durable secret, not a swappable
+# nonce) is on argv for the duration of each such launch. The `?token=` is swapped
+# for an httpOnly cookie and 302-stripped from the address bar, but that does NOT
+# close the argv channel. "Infrequent/interactive" is a property of the intended flow,
+# not an enforced bound (`kosmos open` can be re-run or scripted), so this is accepted
+# as a bounded residual rather than called transient. The proper fix is a server
+# one-shot nonce the browser redeems for the cookie; tracked as #1979 (a #1970 follow-up).
 # 🛑 CALL IT AS `_bt="$(board_token || true)"` UNDER `set -euo pipefail` (kosmos#1968).
 # It RETURNS 1 whenever there is no token to hand back -- a non-enforcing board
 # (no token file), or an install layout where `$NODE` is not present. A bare
 # `_bt="$(board_token)"` then makes `set -e` ABORT the whole command with exit 1
 # and no output, so on a non-enforcing board `kosmos report`/`reply`/`msg`/`post`/
 # `whoami` silently did nothing. The `|| true` keeps the failure local: `_bt` is
-# the token or empty, and every caller already guards with `${_bt:+-H ...}`.
+# the token or empty, and every caller already guards (kosmos_curl omits a header
+# whose token arg is empty, exactly as the old `${_bt:+-H ...}` did).
 board_token() {
   local _root _tok
   _root="$("$NODE" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || return 1
@@ -299,6 +308,42 @@ board_token() {
   _tok="$(cat "$_root/board.token" 2>/dev/null)" || return 1
   [ -n "$_tok" ] || return 1
   printf '%s' "$_tok"
+}
+
+# #1970: run curl with the board/agent auth tokens delivered OFF the command
+# line. macOS `ps -ww -o args` lets any local account read every process's full
+# argv, so a token passed as `-H "name: value"` is readable cross-account for the
+# brief window each command runs -- a side channel around the mode-600 file that
+# is supposed to be the only per-account boundary (#1946). Instead we write the
+# present auth headers to a mode-600 temp file and hand curl `-H @file`, which
+# reads the header from the file, so the value never reaches argv. Only the file
+# PATH appears on the command line, and the file is mode 0600 -- its owner-only
+# mode, not the directory, is the protection: TMPDIR is the per-user temp dir, but
+# the `${TMPDIR:-/tmp}` fallback is world-writable /tmp, so the 0600 is load-bearing.
+#
+#   $1   = board token (empty -> the board header is omitted, as before)
+#   $2   = agent token (empty -> the agent header is omitted, as before)
+#   $3.. = the curl arguments (the same the call used, minus the token `-H`s)
+# Prints curl's stdout; returns curl's exit status. The temp file is always
+# removed before returning (the curl runs in an `if` so its failure does not
+# skip the cleanup under `set -e`). Returns 99 if the temp file cannot be made,
+# which fails closed: an enforcing request is not sent without its token.
+kosmos_curl() {
+  local _bt="$1" _tok="$2"; shift 2
+  if [ -z "$_bt" ] && [ -z "$_tok" ]; then
+    curl "$@" || return $?
+    return 0
+  fi
+  local _hf _rc
+  _hf="$(mktemp "${TMPDIR:-/tmp}/kosmos-auth.XXXXXX")" || return 99
+  chmod 600 "$_hf" || { rm -f "$_hf"; return 99; }
+  {
+    if [ -n "$_bt" ];  then printf 'x-kosmos-board-token: %s\n' "$_bt"; fi
+    if [ -n "$_tok" ]; then printf 'x-kosmos-agent-token: %s\n' "$_tok"; fi
+  } >> "$_hf" || { rm -f "$_hf"; return 99; }
+  if curl -H @"$_hf" "$@"; then _rc=0; else _rc=$?; fi
+  rm -f "$_hf"
+  return "$_rc"
 }
 
 running_pid() {
@@ -425,6 +470,10 @@ cmd_open() {
   # The server validates the query token, sets an httpOnly cookie, and redirects
   # to the clean URL, so the token does not linger in the address bar. Empty on a
   # non-enforcing board -> plain URL, unchanged.
+  # #1970 BOUNDED RESIDUAL: `open` takes the URL as an argument, so the token is on
+  # argv for this one launch (see board_token's note). The cookie-swap clears the
+  # address bar, not the argv channel. Accepted for this infrequent interactive
+  # path; the proper fix (a server one-shot nonce) is tracked as #1979 (a #1970 follow-up).
   local _bt _open_url
   # board_token returns non-zero on a non-enforcing board (no token). Under the
   # script's `set -e`, a bare `_bt="$(board_token)"` ABORTS there -- exit 1, no
@@ -536,9 +585,8 @@ cmd_msg() {
   # "could not reach" is a wrong diagnosis for a reachable server that
   # refused. Only a transport failure gets the unreachable sentence.
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
-  body=$(curl -sS -m 15 -X POST "$URL/api/msg" \
+  body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/msg" \
     -H 'content-type: application/json' \
-    ${_bt:+-H "x-kosmos-board-token: $_bt"} \
     --data "{\"to\":\"$esc_to\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
     say "We could not reach Kosmos to send that. Is it running at $URL?"
     exit 1
@@ -603,9 +651,8 @@ cmd_reply() {
   # refuses on an enforcing board (a bare pane is the cross-account spoof path).
   # Inert (omitted) when empty -- a non-enforcing board writes no token file.
   local _bt; _bt="$(board_token || true)"
-  body=$(curl -sS -m 15 -X POST "$URL/api/reply" \
+  body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/reply" \
     -H 'content-type: application/json' \
-    ${_bt:+-H "x-kosmos-board-token: $_bt"} \
     --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
     say "We could not reach Kosmos to keep that. Is it running at $URL?"
     exit 1
@@ -659,9 +706,8 @@ cmd_post() {
   # the misdiagnosis cmd_msg's own comment warns about, and it invites
   # the re-post the unconfirmed state exists to stop.
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
-  body=$(curl -sS -m 120 -X POST "$URL/api/post" \
+  body=$(kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
-    ${_bt:+-H "x-kosmos-board-token: $_bt"} \
     --data "{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null)
   rc=$?
   if [ "$rc" -eq 28 ]; then
@@ -732,10 +778,8 @@ cmd_whoami() {
     *) _tok="$KOSMOS_AGENT_TOKEN" ;;
   esac
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
-  body=$(curl -sS -m 15 -X POST "$URL/api/whoami" \
+  body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/whoami" \
     -H 'content-type: application/json' \
-    ${_tok:+-H "x-kosmos-agent-token: $_tok"} \
-    ${_bt:+-H "x-kosmos-board-token: $_bt"} \
     -d "{\"from_pane\":\"$esc_pane\"}" 2>&1) || {
       say "Kosmos did not answer, so we cannot tell you which account you are on."
       exit 1
@@ -825,11 +869,11 @@ cmd_report() {
   # almost every agent (the common case), so on an enforcing board a bare-pane
   # report is now refused as the cross-account spoof path -- the board token is
   # what a same-account report presents instead. Inert (omitted) when empty.
+  # #1970: both tokens go off argv through kosmos_curl (they land in one mode-600
+  # @file), so the anti-spoof board token is not itself exposed on argv.
   local _bt; _bt="$(board_token || true)"
-  body=$(curl -sS -m 15 -X POST "$URL/api/report" \
+  body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/report" \
     -H 'content-type: application/json' \
-    ${_tok:+-H "x-kosmos-agent-token: $_tok"} \
-    ${_bt:+-H "x-kosmos-board-token: $_bt"} \
     --data "{\"state\":\"$esc_state\",\"text\":\"$esc_text\",\"on\":\"$esc_on\",\"owner\":\"$esc_owner\",\"until\":\"$esc_until\",\"project\":\"$esc_project\",\"auto\":$([ "$auto" = 1 ] && printf 'true' || printf 'false'),\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
     say "We could not reach Kosmos to record that. Is it running at $URL?"
     exit 1
@@ -881,7 +925,7 @@ cmd_room() {
   local esc_project
   esc_project=$(printf '%s' "$project" | sed "s/[^A-Za-z0-9._-]//g")
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
-  if ! curl -sS -m 15 ${_bt:+-H "x-kosmos-board-token: $_bt"} "$URL/api/project/$esc_project/room?as=text" 2>/dev/null; then
+  if ! kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/project/$esc_project/room?as=text" 2>/dev/null; then
     say "We could not reach Kosmos to read that room. Is it running at $URL?"
     exit 1
   fi
