@@ -132,6 +132,13 @@ if [ -n "$live_harness" ]; then
   echo "SKIP  harness end-to-end: a real harness is live on this Mac, so this arm cannot answer"
   echo "      (that is a skip, NOT a pass: ${_fh:0:60})"
 else
+  # #1967: this "cut proceeds" arm is the same CLASS as the mention arm below (a
+  # concurrent run's real harness would make cut-start.sh refuse and red it), but
+  # it runs IMMEDIATELY after the pre-flight above with no `sleep` between, so its
+  # collision window is sub-millisecond -- versus the mention arm's window, which
+  # spans the `sleep 1` at step 4. The re-check is placed at the mention arm, the
+  # one with real exposure; this arm is left to the pre-flight deliberately, not
+  # by oversight.
   out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
   { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
     && pass "no harness running: the cut proceeds through the real pgrep" \
@@ -169,8 +176,9 @@ else
   # own paired step 7 is another run's live harness.
   _foreign_harness="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' || true)"
   if [ -n "$_foreign_harness" ]; then
+    _fh5="${_foreign_harness%%$'\n'*}"
     echo "SKIP  a mere MENTION does not count: a real harness is live (a concurrent run), so this arm cannot answer"
-    echo "      (that is a skip, NOT a pass: ${_foreign_harness%%$'\n'*})"
+    echo "      (that is a skip, NOT a pass: ${_fh5:0:60})"
   else
     out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
     { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
