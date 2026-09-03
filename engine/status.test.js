@@ -3009,10 +3009,12 @@ test('#1995: a scraped WORKING stands over a reported idle/started, conflict sur
   assert.equal(calm.state, STATE.IDLE);
   assert.equal(calm.reported, true);
 
-  /* And a reported needs_you must still outrank a working screen: the guard sits below
-     the needs_you branch and must not capture it. */
+  /* And a reported needs_you / blocked must still outrank a working screen: the guard
+     sits below those branches and must not capture them. */
   const asking = reconcileReport(rep('needs_you'), scr(STATE.WORKING, CONFIDENCE.SCRAPED, 'it is mid-task'), T0 + 1000);
   assert.equal(asking.state, STATE.NEEDS_YOU);
+  const blocked = reconcileReport(rep('blocked'), scr(STATE.WORKING, CONFIDENCE.SCRAPED, 'it is mid-task'), T0 + 1000);
+  assert.equal(blocked.state, STATE.BLOCKED);
 });
 
 test('#966: a FRESH report beats a scraped rate limit, because a usage limit does not stop the hook', () => {

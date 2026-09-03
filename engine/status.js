@@ -4268,19 +4268,28 @@ function reconcileReport(reported, scraped, nowMs, liveAuth) {
       : 'it is waiting on something that is not you';
     return { state: STATE.BLOCKED, confidence: CONFIDENCE.STRUCTURED, because: said(what), reported: true, conflict: null };
   }
-  /* #1995: a reported idle/started must not read "at rest" when the screen shows a
-     live working spinner. classify returns WORKING only on a live spinner (gerund +
-     live timer, or "esc to interrupt"), never on the idle footer, so a scraped WORKING
-     is active work happening now -- most often a background job that keeps a spinner
-     while the Stop hook has already fired an automatic idle (the #1965 family; this is
-     only the sub-case where the screen DOES show working, since #1965's main case is
-     footer-IDLE with no screen signal to reconcile against). Every OTHER scraped
-     non-idle state already outranks a reported idle -- stopped (rule 2),
-     auth_failed/rate_limited (rule 3b), needs_you (rule 3); WORKING was the one gap.
-     The screen leads and the idle report becomes the conflict, the exact rule 3/3b
-     shape. Scoped to the fallback (idle/started) on purpose: a reported working keeps
-     its own branch above, and a reported needs_you/blocked must still outrank a working
-     screen, so this sits below those branches and cannot capture them. */
+  /* #1995: a reported idle/started must not read "at rest and nothing is needed"
+     when the screen shows a working spinner. classify reads WORKING from a spinner
+     shape in the CURRENT captured frame (gerund + timer, or "esc to interrupt"),
+     never from the idle footer. It is a single-frame heuristic with no cross-poll
+     liveness check, so just after a turn ends a not-yet-redrawn frame can read
+     WORKING for one sweep and self-heals on the next (the same trust of a single
+     frame rules 3b/5 already make; see the note near the tmux-liveness sweep below).
+     Every OTHER scraped non-idle state already outranks a reported idle -- stopped
+     (rule 2), auth_failed/rate_limited (rule 3b), needs_you (rule 3); WORKING was
+     the one gap. One honest asymmetry from those: stopped/auth/rate/needs_you all
+     describe the AGENT itself, whereas a spinner can in principle belong to a
+     background subprocess while the agent's own turn has ended and it is free for a
+     new prompt -- so this is the one case where the idle report is arguably right
+     about the agent. The call is still to lead with the screen, because the
+     alternative is the #1965 error (a live-working screen rendered as "at rest and
+     nothing is needed", which hides active work behind the calmest possible label),
+     and here the report is not dropped: it rides along as a surfaced conflict, so the
+     operator sees both and can act. Reversible if we later decide the free-agent
+     reading matters more. Scoped to the fallback (idle/started) on purpose: a
+     reported working keeps its own branch above, and a reported needs_you/blocked
+     must still outrank a working screen, so this sits below those branches and
+     cannot capture them. */
   if (scraped.state === STATE.WORKING) {
     return { ...scraped, reported: false, conflict: 'its screen shows it is working while its last report said it was at rest' };
   }
