@@ -3795,12 +3795,25 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_O
   # window appearing unannounced reads as "something went wrong", and on
   # a cold browser start the prompt returns seconds before the window.
   # Under the .pkg, postinstall may already have the "Installing Kosmos" page
-  # open in the browser (#662); that page becomes the dashboard on its own the
-  # moment the board answers, so a second open here would be a second tab.
+  # open in the browser (#662). It USED to skip the mint+open here to avoid a
+  # second tab -- but that page links the board at a BARE url, which 403s on an
+  # enforcing board (#2033), so the skip left a fresh .pkg install cookie-less.
+  # We now do the authenticated ?boot open in both branches (the second tab is
+  # the price of a working dashboard); do NOT re-add the skip on the strength of
+  # the old "second tab" rationale.
   if [ "${KOSMOS_INSTALL_PAGE:-}" = "1" ]; then
-    printf '  Your browser is already showing the install page; it becomes your dashboard now.\n\n'
+    # #2033: the pkg install page is already open, but installing.html links the board at a
+    # BARE url which 403s on an enforcing board -- exactly the update outage #2023 fixes. So
+    # this branch must NOT skip the mint+open below: the ?boot open sets the httpOnly cookie
+    # for the origin, which signs in the already-open install page too (same origin).
+    printf '  Signing your browser in so the install page becomes your dashboard...\n\n'
   else
-  printf '  Opening your dashboard in the browser...\n\n'
+    printf '  Opening your dashboard in the browser...\n\n'
+  fi
+  # #2033: the authenticated ?boot open below runs in BOTH cases now -- a fresh curl|sh install
+  # and a fresh .pkg install both land on an enforcing board and both need the cookie set; only
+  # the message above differs. Seeding is server-side on nonce REDEMPTION now (#2030), so the pkg
+  # path is marked repaired exactly when its browser truly redeems, identically to the curl|sh path.
   # #1946: append the board token so the FIRST dashboard a fresh install opens is
   # authenticated. A fresh prod install produces an ENFORCING board (nothing
   # sandboxed); its public shell loads at a bare URL but every /api/* fetch then
@@ -3925,19 +3938,15 @@ PLIST
     if "$OPEN_CMD" "$_board_url" </dev/null >/dev/null 2>&1; then _opened=yes
     else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
   fi
-  fi
-  # #2030: the repair marker is NO LONGER seeded here. setup.sh could only see the
-  # open DISPATCHED (a nonce minted, `open` returned 0), never REDEEMED -- so seeding
-  # here marked a machine done while its browser had not actually navigated and its
-  # board still 403'd, the "open succeeded but never redeemed" residual the #2023
-  # comment named as the one hole. The marker is now written server-side the instant
-  # a `?boot=` nonce is truly redeemed (engine/boardauth.js seedReauthMarker, from
-  # server.js's bootstrap handler). setup.sh's only job is to OPEN when the marker is
-  # absent (the gate above); whether that open redeems is what decides seeding, and
-  # only the board can observe it. Self-healing falls out: an un-redeemed machine
+  # #2030: the repair marker is NO LONGER seeded here (setup.sh could only see the open
+  # DISPATCHED, never REDEEMED); it is written server-side the instant a `?boot=` nonce is
+  # truly redeemed (engine/boardauth.js seedReauthMarker, from server.js's bootstrap handler).
+  # #2033: this open block now runs the mint+open in BOTH the install-page (pkg) and the
+  # non-pkg branches, so a fresh .pkg install opens an authenticated ?boot dashboard whose
+  # redemption is what seeds the marker server-side -- setup.sh's only job here is to OPEN when
+  # the marker is absent (the gate above), and self-healing falls out: an un-redeemed machine
   # stays unseeded and retries the open on the next update until one navigates.
-  # (_minted_nonce and _opened are no longer read here; left set to keep this
-  # security-path diff minimal -- prunable separately.)
+  # (_minted_nonce and _opened are no longer read here; left set to keep this diff minimal.)
 fi
 
 # ---- the last thing on screen is the thing you still have to do (#1334) -------

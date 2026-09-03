@@ -210,9 +210,15 @@ function agentsDir() { return process.env.AGENT_WORKFORCE_LAUNCH || path.join(ho
    up one level rather than removing it. A multi-line declaration also
    hid it from a line-based sweep. */
 function supportDir() {
-  return process.env.AGENT_WORKFORCE_DATA
-  ? path.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce')
-  : path.join(homeDir(), 'Library', 'Application Support', 'AgentWorkforce');
+  // #2039: ONE win32-aware formula, not a second copy. This function used to
+  // carry its own copy of the data-root path with NO win32 branch, so on Windows
+  // it built a literal Mac data path on an NTFS disk (the first real Windows test
+  // found exactly that). store.dataRootFor is the single source store.js already
+  // uses and the one that HAS the win32 branch. Pass create's own homeDir() so
+  // AGENT_WORKFORCE_HOME still applies, and the running platform + env so the
+  // sandbox var and the Windows roaming var are honoured. The sandbox and mac
+  // results are byte-identical to before; win32 is the only change, to correct.
+  return store.dataRootFor(process.platform, homeDir(), process.env);
 }
 const OUTCOME = { CREATED: 'created', REFUSED: 'refused', PARTIAL: 'partial' };
 
@@ -3333,6 +3339,11 @@ const SELF_STARTS = 'it starts itself when this computer is on and it is not rem
 
 module.exports = {
   MODELS,
+  /* #2039: exported so a test can pin that this DELEGATES to store.dataRootFor
+     (the one win32-aware data-root formula) rather than re-growing a second,
+     mac-only copy -- the defect it fixed, whose Windows output cannot be
+     asserted at runtime from a Mac because it reads process.platform. */
+  supportDir,
   /* #1315: exported so the fix that unblocks a codex agent's first launch
      can be tested directly, rather than only through a full creation. */
   dismissCodexUpdateNotice,

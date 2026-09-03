@@ -3070,6 +3070,14 @@ test('the detail panel carries the explanation the card gave up', () => {
      is unaffected, which is the whole point of the guard. */
   const reported = drive('finished responding', true);
   assert.equal(reported.hidden, true, 'a reported state must hide the duplicate lower status');
+  /* #1996: a reported MULTI-LINE because cannot fit d-task's one nowrap line, so
+     the #1841 suppression lifts and this surface shows it in full. The single-line
+     reported case just above still hides -- d-task shows that one whole. */
+  const reportedMulti = drive('blocked on the deploy\n\nwaiting for the cert to be signed', true);
+  assert.equal(reportedMulti.hidden, false,
+    'a reported MULTI-LINE because must stay visible: d-task truncates it to one line, so this is its only full surface');
+  assert.ok(reportedMulti.textContent.includes('\n'),
+    'the full multi-line because must reach the surface with its breaks, not flattened to one line');
 });
 
 test('the settings screen renders the engine\'s three answers', () => {
