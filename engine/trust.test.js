@@ -19,7 +19,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = CONFIG;
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-const { trustFolder, forgetFolder, KEY } = require('./trust');
+const { trustFolder, forgetFolder, preacceptBypass, KEY, BYPASS_KEY } = require('./trust');
 
 let n = 0;
 /** A folder that exists, fresh per test. */
@@ -680,4 +680,86 @@ test('the trust-writes record round-trips, keeps displaced-absent distinct, and 
     JSON.stringify({ eve: { key: 'relative/path', madeEntry: true } }));
   assert.equal(trust.recordedWrite('eve'), null, 'a relative key was handed over to be refused forever');
   fs.rmSync(nodePath.join(store.ROOT, 'trust-writes.json'), { force: true });
+});
+
+// ---------------------------------------------------------------------------
+// #1919 launch side: preacceptBypass writes skipDangerousModePermissionPrompt
+// into the ACCOUNT's settings.json (a different file than
+// trustFolder's .claude.json), CREATING it if absent (a preference, not a
+// fabricated history), so a fresh agent does not park on the bypass consent.
+// Sandboxed by passing a temp configDir -> SETTINGS resolves <dir>/settings.json.
+// ---------------------------------------------------------------------------
+
+let an = 0;
+const acctDir = () => {
+  const d = nodePath.join(SANDBOX, `acct${++an}`);
+  fs.mkdirSync(d, { recursive: true });
+  return d;
+};
+const sPath = (d) => nodePath.join(d, 'settings.json');
+const sRead = (d) => JSON.parse(fs.readFileSync(sPath(d), 'utf8'));
+
+test('#1919: preacceptBypass CREATES settings.json with only the key when absent', () => {
+  const d = acctDir();
+  const r = preacceptBypass(d);
+  assert.equal(r.ok, true);
+  assert.equal(r.already, false);
+  assert.equal(r.madeFile, true);
+  assert.equal(r.target, sPath(d), 'the RESOLVED path, not ~/.claude.json (a wrong path is a silent no-op)');
+  assert.deepEqual(sRead(d), { [BYPASS_KEY]: true });
+});
+
+test('#1919: preacceptBypass on an already-true settings.json is already, no rewrite', () => {
+  const d = acctDir();
+  fs.writeFileSync(sPath(d), JSON.stringify({ [BYPASS_KEY]: true, defaultMode: 'bypassPermissions' }));
+  const before = fs.statSync(sPath(d)).mtimeMs;
+  const r = preacceptBypass(d);
+  assert.deepEqual(r, { ok: true, already: true, target: sPath(d) });
+  assert.equal(sRead(d).defaultMode, 'bypassPermissions', 'the other keys are untouched');
+});
+
+test('#1919: preacceptBypass MERGES into existing settings, keeping other keys', () => {
+  const d = acctDir();
+  fs.writeFileSync(sPath(d), JSON.stringify({ defaultMode: 'bypassPermissions', hooks: { a: 1 } }));
+  const r = preacceptBypass(d);
+  assert.equal(r.ok, true);
+  assert.equal(r.already, false);
+  assert.equal(r.displaced, undefined, 'the key was absent before');
+  const after = sRead(d);
+  assert.equal(after[BYPASS_KEY], true);
+  assert.equal(after.defaultMode, 'bypassPermissions');
+  assert.equal(after.hooks.a, 1, 'a one-key replace would have deleted this');
+});
+
+test('#1919: preacceptBypass records a displaced explicit value (e.g. a prior false)', () => {
+  const d = acctDir();
+  fs.writeFileSync(sPath(d), JSON.stringify({ [BYPASS_KEY]: false }));
+  const r = preacceptBypass(d);
+  assert.equal(r.ok, true);
+  assert.equal(r.displaced, false, 'the prior explicit value is reported (merge awareness), not silently overwritten unseen');
+  assert.equal(sRead(d)[BYPASS_KEY], true);
+});
+
+test('#1919: preacceptBypass refuses a symlinked settings target rather than sever it', () => {
+  const d = acctDir();
+  fs.symlinkSync(nodePath.join(SANDBOX, 'nowhere'), sPath(d));
+  const r = preacceptBypass(d);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /symlink/);
+});
+
+test('#1919: preacceptBypass refuses a non-object settings file rather than clobber it', () => {
+  const d = acctDir();
+  fs.writeFileSync(sPath(d), JSON.stringify(['not', 'an', 'object']));
+  const r = preacceptBypass(d);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /shaped the way we expect/);
+});
+
+test('#1919: preacceptBypass fills an EMPTY settings file (safe: a preference, no history)', () => {
+  const d = acctDir();
+  fs.writeFileSync(sPath(d), '');
+  const r = preacceptBypass(d);
+  assert.equal(r.ok, true);
+  assert.equal(sRead(d)[BYPASS_KEY], true);
 });

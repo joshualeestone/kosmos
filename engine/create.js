@@ -770,14 +770,24 @@ function setAccount(name, dir) {
    * point 3 and its own piece of work.
    */
   let trust = null;
+  let bypass = null;
   if (!DRY_RUN) {
+    const configDir = acct.isDefault ? null : acct.dir;
     try {
-      trust = require('./trust').trustFolder(workerDir(clean),
-        { configDir: acct.isDefault ? null : acct.dir });
+      trust = require('./trust').trustFolder(workerDir(clean), { configDir });
     } catch { trust = { ok: false, because: 'we could not read that account\'s config file' }; }
+    /* #1919: the account we are MOVING the agent to needs the Bypass-Permissions pre-accept
+       in ITS settings.json too, for the same reason the trust write does -- the agent will
+       start under this configDir and meet the one-time consent if the key was never written
+       there. setAccount is already Claude-only (codex is refused above), so no provider
+       guard. Best-effort / non-gating, as trustFolder is here: a failed write is a prompt the
+       board now renders as needs_you (#1933), not a failed account flip. */
+    try {
+      bypass = require('./trust').preacceptBypass(configDir);
+    } catch { bypass = { ok: false, because: 'we could not read that account\'s settings file' }; }
   }
 
-  return { outcome: OUTCOME.CREATED, because: null, account: acct, trust };
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, trust, bypass };
 }
 
 /**
@@ -3147,6 +3157,29 @@ function createAgentInner(opts) {
        entry into a codex home. OpenAI behaviour is left exactly as it was. */
     try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir }); }
     catch { /* another tool's file; an agent that asks once is not a failed creation */ }
+    /* 🛑 #1919, THE SAME CREATE MOMENT. The supervisor launches with
+       --dangerously-skip-permissions, and Claude Code shows a one-time Bypass-Permissions
+       consent (default `No, exit`) the FIRST time that flag runs in a config dir -- which
+       on a newly-added account has never been written. Pre-accept it here, BEFORE bootstrap
+       (the prompt is asked at startup, so a write after would land too late), so a fresh
+       agent does not park on it. Same provider guard as the trust write above: on OpenAI,
+       `configDir` is a CODEX_HOME and this is a CLAUDE consent, so it is Claude-only.
+       Non-gating and best-effort, exactly like the trust write -- the cost of it failing is
+       a prompt the board now RENDERS as needs_you (#1933), not a failed creation.
+       🛑 NOT UNDONE ON ROLLBACK, and the asymmetry with the trust write above is the whole
+       reason. trustFolder's key is per-FOLDER -- the folder being deleted -- so a failed
+       creation's rollback cleans up after it. The bypass key is per-ACCOUNT (settings.json),
+       shared by every agent on that account and OUTLIVING this one: the 2nd+ agent gets
+       `already:true` and writes nothing, and undoing it on THIS agent's failed start would
+       remove a preference a concurrent or existing agent on the account still relies on
+       (`already === false` proves only that no other agent needed it at PREACCEPT time, not
+       at rollback time). Leaving an inert account preference set is the safe direction -- the
+       operator chose bypass mode for this account when they started the creation -- so this
+       is fire-and-forget with no undo, unlike the trust write. */
+    if (provider !== 'openai') {
+      try { require('./trust').preacceptBypass(configDir); }
+      catch { /* another tool's file; an agent that asks once is not a failed creation */ }
+    }
   }
 
   const started = step('started it', () => {
@@ -3207,6 +3240,10 @@ function createAgentInner(opts) {
       catch { undone = false; }
       if (!undone) steps.push({ label: 'took back the folder trust', ok: false });
     }
+    // #1919: the bypass pre-accept is deliberately NOT undone here -- it is an account-level
+    // preference, not state about the folder being deleted, and undoing it could remove a key
+    // a concurrent or existing agent on the same account relies on (see the create-half write
+    // above). Leaving it set is inert and safe.
     // ⚠️ INCLUDING THE JOB, and including UNLOADING it. It was left installed
     // here, so an agent reported as "not running yet" would have started at the
     // person's next login anyway -- the one outcome nobody would predict from

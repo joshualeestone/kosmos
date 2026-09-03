@@ -2389,6 +2389,34 @@ test('a new agent does not stop to ask whether it can trust the folder we just m
   assert.equal(readCfg().projects[dir].hasTrustDialogAccepted, true);
 });
 
+test('#1919: creating an agent pre-accepts the bypass consent in the config dir settings.json', () => {
+  /**
+   * 🛑 THE GUARD MUST BE ARMED, not merely present. This proves the create path
+   * actually INVOKES preacceptBypass and the key lands: without the classify /
+   * launch fix a fresh agent parks on the Bypass-Permissions consent (default
+   * `No, exit`) and never starts. settings.json is a DIFFERENT file than the
+   * trust .claude.json, resolved from CLAUDE_CONFIG_DIR, so it is pointed into
+   * the sandbox here (AGENT_WORKFORCE_CLAUDE_CONFIG still wins for .claude.json,
+   * so the trust write is unaffected).
+   */
+  recorder();
+  create.setDryRun(false);
+  writeCfg({ projects: {} });
+  const prev = process.env.CLAUDE_CONFIG_DIR;
+  const cfgDir = nodePath.join(SANDBOX, 'cfgdir-1919');
+  fs.mkdirSync(cfgDir, { recursive: true });
+  process.env.CLAUDE_CONFIG_DIR = cfgDir;
+  try {
+    const r = create.createAgent({ ...BINS, name: 'bypass-one', role: 'pm' });
+    assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+    const settings = JSON.parse(fs.readFileSync(nodePath.join(cfgDir, 'settings.json'), 'utf8'));
+    assert.equal(settings.skipDangerousModePermissionPrompt, true,
+      'the create path did not pre-accept the bypass consent, so a fresh agent would park on it');
+  } finally {
+    if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = prev;
+  }
+});
+
 test('a folder the PERSON already made is refused outright, so nothing downstream can touch it', () => {
   /**
    * 🛑 THE SECURITY-RELEVANT HALF, and writing it taught me which guard is
