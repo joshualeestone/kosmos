@@ -3766,9 +3766,11 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_O
   # sandboxed); its public shell loads at a bare URL but every /api/* fetch then
   # 403s with no cookie, so the very first dashboard would be broken. The token is
   # derived from the same store.ROOT the board wrote it to, via the bundled node
-  # (the canonical `$KOSMOS_HOME/runtime/bin/node` that `kosmos` itself uses), so
-  # there is no second copy of the path formula. Empty on a non-enforcing (sandbox
-  # or harness) board -> the URL is left unchanged there. Both opens below use it.
+  # (the canonical `$KOSMOS_HOME/runtime/bin/node` that `kosmos` itself uses), so no
+  # hardcoded path can drift from where the board wrote the token. The #2023 repair
+  # gate above resolves ROOT with the identical node formula (not a hardcoded copy),
+  # so the two reads cannot diverge. Empty on a non-enforcing (sandbox or harness)
+  # board -> the URL is left unchanged there. Both opens below use it.
   _board_url="http://127.0.0.1:$PORT"
   _bt=""
   _awnode="$KOSMOS_HOME/runtime/bin/node"
