@@ -60,8 +60,16 @@ BEFORE="$(seen_before)"
 # -- only a live, unexpired, FOREIGN claim refuses. CI is unaffected: the claim
 # lives at ~/.cache on the reserving Mac, which a GitHub runner does not have.
 # KOSMOS_IGNORE_MACHINE_CLAIM=1 runs anyway; who holds it: tools/who-has-the-box.sh.
-. "$REPO/tools/lib/cut-guard.sh"
-kosmos_refuse_if_machine_claimed "this test run" || exit 1
+# The library LOAD is itself fail-open, so this whole feature can never turn a
+# missing/unreadable lib into a refused suite: if the source fails, the function
+# is undefined, `command -v` is false, and the run proceeds exactly as before
+# #1962. Only a successfully-loaded guard that finds a live foreign claim refuses.
+# (release.sh sources the same lib UNguarded and under set -e, deliberately: there,
+# a lib it cannot load SHOULD abort the cut. Here the safe direction is to run.)
+. "$REPO/tools/lib/cut-guard.sh" 2>/dev/null || true
+if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
+  kosmos_refuse_if_machine_claimed "this test run" || exit 1
+fi
 
 # --- one temp root for this run, removed when it ends (#1151) -----------------
 #
