@@ -732,7 +732,8 @@ driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CL
        arm passing on `['env', bin, '-u', 'CLAUDE_CONFIG_DIR', '<arg>']` while it leaks.
        Assert the property directly instead. ⚠️ THE WALK RECOGNISES EXACTLY TWO
        TOKEN KINDS: `-u NAME` and `NAME=value`. Any other legal `env(1)` option
-       (`-i`, `-0`, `-C`, `-P`, `-S`, `--`) is classified as the OPERAND, so an
+       (`-i`, `-0`, `-v`, `-C`, `-P`, `-S`, `--`; macOS's synopsis is
+       `env [-0iv] [-C workdir] [-P utilpath] [-S string]`) is classified as the OPERAND, so an
        argv using one would redden this arm. **The launch emits neither today, and
        the direction is fail-safe** (a false red, never a false pass), so this is
        a maintenance signal rather than a hole: whoever adds such an option must

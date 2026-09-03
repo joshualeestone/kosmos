@@ -24,7 +24,8 @@ Two edits, both small:
   mechanism is measured in `tools/witness-pane-env.sh` -- **on a PRIVATE socket with `-f /dev/null`,
   deliberately, so no config can mask it. This launch uses the SHARED socket, so applying that
   result here is an inference from the mechanism, not a second measurement.** **On a COLD server** `new-session` starts one, and a fresh server inherits its
-  launching client's environment, so the leaked value is this process's own. `env -u` strips the key
+  launching client's environment, so the leaked value is this process's own -- **also not measured;
+  the witness seeds a server first and can only answer the warm case.** `env -u` strips the key
   inside the pane either way, which is why the fix does not depend on knowing the source. This makes the WRITE side match the rule
   `subscription.checkLive` already states for the READ side ("rather than trusting it to be unset").
   It strips that one key deliberately, mirroring the reader's scope; it is not pane sanitization.
@@ -32,8 +33,17 @@ Two edits, both small:
 ## 🛑 The symptom changes DIRECTION, and this is the sentence to keep
 
 **On a machine whose stored default reads CONNECTED, "Sign in again" now returns almost immediately
-having opened nothing, where it previously ran the whole OAuth flow into the wrong file. Both are
-broken; the routing is simply no longer the reason.**
+and paints a green "Successfully connected to your Claude account", having opened nothing. It
+REPORTS SUCCESS on a dead credential; it does not merely appear to do nothing.** Previously it ran
+the whole OAuth flow into the wrong file.
+
+⚠️ **And the set of machines that see it WIDENS, which is the part worth knowing before testing.**
+Pre-fix, `checkLive` was pointed at the decoy config and returned NONE on an ordinary machine, so
+the flow genuinely ran. Post-fix it reads the real `~/.claude.json`, `claude auth status` credulously
+answers `loggedIn: true` (#874 / #1916), and the #1560 gate holds shut. **So the false-success
+outcome moves from the atypical decoy-connected machine to the ordinary default-account machine --
+the reporter's own population.** The write path is correct either way; the repair behind the gate is
+kosmos#1937.
 
 The flow behind the #1560 gate still cannot repair a dead credential: the launch is a bare `claude`
 with no login argument, so the tick re-reads the same config that already said CONNECTED. **That is

@@ -5143,9 +5143,16 @@ const server = http.createServer((req, res) => {
              ⚠️ WHAT THIS FIX DOES NOT DO, RECORDED HERE BECAUSE THE RESIDUAL IS
              QUIETER THAN THE DEFECT AND WILL OTHERWISE BE RE-FILED AS A FRESH
              REGRESSION. On a machine whose stored default reads CONNECTED, the
-             press now returns almost immediately having opened nothing, where it
-             used to run the whole OAuth flow into the wrong file. Both are
-             broken; the routing is simply no longer the reason. **The flow
+             press now returns almost immediately and paints a green
+             "Successfully connected" (`acctFlowPaint` -> `acctShowSuccess` on
+             `phase: connected`), having opened nothing -- where it used to run
+             the whole OAuth flow into the wrong file. **It reports SUCCESS on a
+             dead credential; it does not merely appear to do nothing.** And the
+             population widens: pre-fix, `checkLive` read the decoy and returned
+             NONE on an ordinary machine, so the flow ran; post-fix it reads the
+             real file, `claude auth status` answers loggedIn (#874/#1916), and
+             the #1560 gate holds shut. Both are broken; the routing is no longer
+             the reason, and the repair is #1937. **The flow
              behind the #1560 gate still cannot repair a dead credential: the
              launch is a bare `claude` with no login argument. That is kosmos#1937
              and it is not fixed here.** */

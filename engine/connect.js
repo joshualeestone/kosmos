@@ -1090,19 +1090,19 @@ async function start(opts) {
        press ends where it started. That is #1937, and the gate and the launch
        have to change together.
 
-       🔑 THE ONE PREMISE THIS TURNS ON, AND IT IS UNMEASURED: what a COLD
-       interactive `claude` shows when the stored credential is ALREADY dead. A
-       REJECTED credential in a RUNNING session prints an error rather than a
-       login chooser -- see AUTH_FRIENDLY_MESSAGE in `engine/status.js` (#1884),
-       pinned at `engine/status.test.js`, from an interactive pane
-       (`bin/agent-supervisor.sh` launches with no `-p`). But that token expired
-       UNDER a live session, and this is a cold start. If a cold start PROMPTS,
-       the pane classifies as login-method/browser-open and opening the gate
-       WOULD repair.
+       🔑 THE PREMISE THIS TURNS ON IS NOW MEASURED, AND IT CAME BACK THE WAY
+       THAT KEEPS THE GATE SHUT. A cold bare `claude` against an already-dead
+       credential DROPS INTO THE REPL ("Not logged in - Run /login"): no
+       auto-prompt, no walkable chooser, so the pane does not classify as
+       login-method and the driver has nothing to walk. Measured cold on a
+       fabricated account, #1937. (Consistent with the RUNNING-session case:
+       AUTH_FRIENDLY_MESSAGE in `engine/status.js` (#1884), pinned in
+       `engine/status.test.js`.)
 
-       ⇒ Shut for want of EVIDENCE, not because opening it is known useless.
-       What would settle it: capture a pane from a COLD `claude` against a
-       genuinely rejected credential. */
+       ⇒ **Opening this gate alone buys NOTHING** -- the tick re-reads the
+       still-CONNECTED file and finishes connected. The gate and the launch have
+       to change together, which is #1937, and `/login` from that REPL does yield
+       the chooser and the browser-open OAuth this driver already walks. */
     if (!binaryOnDisk || live.state === subscription.STATE.NONE) {
       /**
        * ⚠️ TWO REASONS REACH HERE NOW, AND NEITHER IS AN ERROR TO SHOW SOMEBODY.
