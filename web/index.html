@@ -15260,7 +15260,7 @@ function tellPaint(r) {
   const unread = !r || r.ok === false;
   paintSwitch('tell-toggle', unread ? null : r.on === true);
   document.getElementById('tell-msg').textContent = unread
-    ? 'We could not read this setting, so nothing is sent until you turn it on.'
+    ? 'We could not read this setting just now.'
     : '';
 }
 async function refreshTell() {
@@ -15307,7 +15307,7 @@ function notifyPaint(r) {
   const unread = !r || r.ok === false;
   paintSwitch('notify-toggle', unread ? null : r.on === true);
   document.getElementById('notify-msg').textContent = unread
-    ? 'We could not read this setting, so nothing is sent until you turn it on.'
+    ? 'We could not read this setting just now.'
     : '';
 }
 async function refreshNotify() {
