@@ -132,6 +132,14 @@ if [ -n "$live_harness" ]; then
   echo "SKIP  harness end-to-end: a real harness is live on this Mac, so this arm cannot answer"
   echo "      (that is a skip, NOT a pass: ${_fh:0:60})"
 else
+  # #1967: this "cut proceeds" arm is the same CLASS as the mention arm below (a
+  # concurrent run's real harness would make cut-start.sh refuse and red it), but
+  # it runs on a FRESH pre-flight -- the only gap is a `bash` fork plus a
+  # `source lib/cut-guard.sh` (a few milliseconds), with no `sleep` between --
+  # whereas the mention arm asserts across the `sleep 1` at step 4, so its
+  # pre-flight is over a second stale. The re-check is placed at the mention arm,
+  # the one with real exposure; this arm is left to the fresh pre-flight
+  # deliberately, not by oversight.
   out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
   { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
     && pass "no harness running: the cut proceeds through the real pgrep" \
@@ -154,10 +162,30 @@ else
   pgrep -fl 'test-install\.sh' 2>/dev/null | grep -qE "^$mention " \
     && pass "the mention is present in the process table (the filter arm is not vacuous)" \
     || fail "the mention did not survive in argv, so the filter arm below proves nothing"
-  out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
-  { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
-    && pass "a mere MENTION of test-install.sh in a command line does not count" \
-    || fail "a mention was mistaken for a live harness: rc=$rc out=$out"
+  # #1967: RE-CHECK for a foreign live harness immediately before this assertion,
+  # exactly as the section's pre-flight above does. Two suites run this test at
+  # once, and one run's REAL step-7 harness landing inside another run's step-5
+  # window makes cut-start.sh correctly refuse -- reddening THIS arm for a reason
+  # external to the branch (a DESIGNED-IN cross-run collision). The filter is the
+  # pre-flight's exact one: it matches only a real `bash tools/test-install.sh`,
+  # so it excludes our own `bash -c` MENTION, and our own step-7 harness is not
+  # spawned until AFTER this arm -- so a match here can only be a CONCURRENT run,
+  # never this test's own process. SKIP rather than FAIL, as step 1 does. This
+  # narrows the collision window to the moment before the assertion; it cannot
+  # close it (a 4s harness can still appear in the gap), and re-running alone is
+  # what settles a genuine red -- but it removes the DESIGNED-IN case where our
+  # own paired step 7 is another run's live harness.
+  _foreign_harness="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' || true)"
+  if [ -n "$_foreign_harness" ]; then
+    _fh5="${_foreign_harness%%$'\n'*}"
+    echo "SKIP  a mere MENTION does not count: a real harness is live (a concurrent run), so this arm cannot answer"
+    echo "      (that is a skip, NOT a pass: ${_fh5:0:60})"
+  else
+    out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
+    { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
+      && pass "a mere MENTION of test-install.sh in a command line does not count" \
+      || fail "a mention was mistaken for a live harness: rc=$rc out=$out"
+  fi
   kill "$mention" 2>/dev/null; wait "$mention" 2>/dev/null
 
   ( cd "$T" && bash tools/test-install.sh --sleep 4 ) & harness=$!
