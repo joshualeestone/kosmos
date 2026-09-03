@@ -8366,6 +8366,23 @@ function start(port = PORT) {
         } catch { /* best-effort, like the nudge sweep */ }
       }, Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) : 60 * 1000); // the env is the test seam only
       if (ahSweep && typeof ahSweep.unref === 'function') ahSweep.unref();
+      /* #1945: the update-awareness sweep. `updates.poke()` is the ONLY thing
+         that fetches latest.json and can fire an auto-install, and its only
+         other caller is the /api/status route -- which runs only while someone
+         has the dashboard open. A board nobody looks at never poked, never
+         learned a release existed, and ran old code forever; the more stable
+         the install, the more stale it got (kosmos#1945, mechanism confirmed by
+         Splinter2 with a registered prediction). Drive poke() on a timer too, so
+         update awareness does not depend on a viewer. poke() is TTL-gated (a real
+         fetch at most once per 15-min window) so a ~1-min cadence costs nothing
+         extra, and maybeAutoInstall's gates (available/installedRoot/autoPref.on)
+         and hourly failure backoff are all unchanged -- this changes WHEN the
+         board looks, never WHAT it installs. The timer lives in engine/update
+         (startPolling: unref'd, best-effort, and it owns the default cadence
+         and clamps a bad interval); the env is a test seam only. Captured like
+         the sibling sweeps so a future shutdown path has a handle to clear. */
+      const updatePoke = updates.startPolling(Number(process.env.AGENT_WORKFORCE_UPDATE_POKE_MS));
+      if (updatePoke && typeof updatePoke.unref === 'function') updatePoke.unref();
       /* #1722: the product heartbeat. Its OWN self-rescheduling timer, because
          the person's interval is adjustable: the period is re-read every cycle so
          a Settings change takes effect at the next tick, and when off it polls the

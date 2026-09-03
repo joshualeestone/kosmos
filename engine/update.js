@@ -77,6 +77,31 @@ function poke() {
     .finally(() => { inFlight = null; });
 }
 
+/**
+ * 🔑 #1945: DRIVE THE LOOK WITHOUT A VIEWER. poke()'s only other caller is the
+ * /api/status route, which runs only while someone has the dashboard open, so a
+ * headless board never poked and never learned a release existed -- it ran old
+ * code forever, and the more stable the install, the more stale it got. This is
+ * the timer poke() lacked; the module owns the clock, so the timer lives here
+ * rather than in the server. It changes WHEN the board looks, never WHAT it
+ * installs: poke() is still TTL-gated (a real fetch at most once per 15-min
+ * window whatever the cadence), and maybeAutoInstall's gates and hourly backoff
+ * are untouched. unref'd so it never holds the process open, and best-effort.
+ * Returns the handle so a caller can clear it.
+ */
+function startPolling(intervalMs) {
+  // Guard the cadence: a non-positive or non-numeric interval would make
+  // setInterval a tight fn-per-tick loop that burns the event loop (poke() is
+  // TTL-gated regardless, so it bounds the event-loop cost, not the network).
+  // Owning the default here means a caller can pass a raw, unvalidated value.
+  const ms = Number(intervalMs) > 0 ? Number(intervalMs) : 60 * 1000;
+  const t = setInterval(() => {
+    try { poke(); } catch { /* a look that cannot run must cost the board nothing */ }
+  }, ms);
+  if (t && typeof t.unref === 'function') t.unref();
+  return t;
+}
+
 async function refresh() {
   const doFetch = fetcher || fetch;
   const ctl = new AbortController();
@@ -501,7 +526,7 @@ function setFetcher(f) { fetcher = f; }
 function resetCache() { cache = { at: 0, latest: null, reached: false, readable: false }; inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null; }
 
 module.exports = {
-  available, poke, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
+  available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
   resetCache, RUNNING, TTL, lastLook, checkNow,
