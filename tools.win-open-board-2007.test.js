@@ -125,6 +125,52 @@ test('non-enforcing board (no token): opens the PLAIN url', async () => {
   } finally { server.close(); }
 });
 
+test('an UNREADABLE token warns (not a silent 403), but a MISSING one is silent', async () => {
+  // Distinguishes the two states that both fall back to the plain url: a missing
+  // board.token is the normal non-enforcing case (silent), while a present-but-
+  // unreadable one is the ambiguous "enforcing but can't read the token" case that
+  // silently reproduces the #2007 403 - it earns a stderr note. Capture stderr to
+  // prove the note fires on EACCES and does NOT fire on ENOENT.
+  function captureStderr(fn) {
+    const orig = process.stderr.write.bind(process.stderr);
+    let buf = '';
+    process.stderr.write = (chunk) => { buf += String(chunk); return true; };
+    return Promise.resolve()
+      .then(fn)
+      .finally(() => { process.stderr.write = orig; })
+      .then(() => buf);
+  }
+
+  // (a) unreadable token -> warns
+  {
+    const { server, port } = await startFixtureBoard();
+    const { appDir, dataRoot } = makeAppDir({ withToken: true });
+    const tokFile = path.join(dataRoot, 'board.token');
+    fs.chmodSync(tokFile, 0o000);
+    try {
+      let url;
+      const err = await captureStderr(async () => { url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 4000 }); });
+      // If the runner is root (can read 000), skip the assertion honestly rather
+      // than pass vacuously - root defeats the permission, not the logic.
+      const canForce = (() => { try { fs.readFileSync(tokFile); return true; } catch { return false; } })();
+      if (canForce) {
+        assert.match(err, /board\.token exists but could not be read/, 'no warning on an unreadable token');
+        assert.equal(url, `http://127.0.0.1:${port}`, 'an unreadable token should fall back to the plain url');
+      }
+    } finally { fs.chmodSync(tokFile, 0o600); server.close(); }
+  }
+
+  // (b) missing token -> silent (the normal non-enforcing case)
+  {
+    const { server, port } = await startFixtureBoard();
+    const { appDir } = makeAppDir({ withToken: false });
+    try {
+      const err = await captureStderr(async () => { await helper.resolveOpenUrl({ appDir, port, timeoutMs: 4000 }); });
+      assert.doesNotMatch(err, /board\.token exists but could not be read/, 'a missing token must not warn (it is the normal non-enforcing case)');
+    } finally { server.close(); }
+  }
+});
+
 test('CONTROL: a non-hex nonce is refused, url falls back to plain', async () => {
   // Proves the hex guard is load-bearing: without it, junk would be pasted onto
   // the url as if it were a nonce.

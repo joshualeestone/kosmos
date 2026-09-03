@@ -91,15 +91,29 @@ async function waitForBoard(url, deadline) {
 function readBoardToken(appDir) {
   // store.ROOT is a lazy getter computing the per-platform data root (%APPDATA%
   // on Windows), so this resolves the same path the server used to WRITE the
-  // token. Any failure (no store, non-enforcing board, unreadable file) means
-  // "not enforcing" -> plain url, which is the safe default.
+  // token. A missing store module or ROOT is a layout with no board -> not
+  // enforcing -> plain url (the safe default), and it is SILENT.
+  let root;
   try {
     const store = require(path.join(appDir, 'engine', 'store'));
-    const root = store && store.ROOT;
-    if (!root) return '';
-    const tok = fs.readFileSync(path.join(root, 'board.token'), 'utf8').trim();
-    return tok || '';
+    root = store && store.ROOT;
   } catch (_e) {
+    return '';
+  }
+  if (!root) return '';
+  try {
+    return fs.readFileSync(path.join(root, 'board.token'), 'utf8').trim() || '';
+  } catch (e) {
+    // ENOENT is the NORMAL non-enforcing state: the board writes board.token only
+    // on the enforcing path, so a missing file simply means "not enforcing" and the
+    // plain url is correct - warning there would fire on every non-enforcing board.
+    // ANY OTHER error (EACCES: the file exists but cannot be read) is the genuine
+    // "enforcing but token unreadable" case, which silently reproduces the #2007
+    // symptom (plain url -> 403), so it earns a stderr note for Windows debugging.
+    // The return is '' either way, so the plain-url contract is unchanged.
+    if (e && e.code !== 'ENOENT') {
+      process.stderr.write('kosmos-open-board: board.token exists but could not be read (' + (e.code || (e && e.message) || e) + '); opening the plain url (this will 403 if the board is enforcing)\n');
+    }
     return '';
   }
 }
