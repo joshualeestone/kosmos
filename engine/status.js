@@ -1829,8 +1829,18 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
 
    The vendor composes ONE line from two counters, background agents AND dynamic
    workflows, so `Waiting for 1 background agent and 2 dynamic workflows to
-   finish` is a real render. The pattern needs: the glyph, `Waiting for`, either
-   counter phrase, and `to finish` ENDING the line.
+   finish` is a real render and the composed form must match. It does, through the
+   `background agents?` phrase.
+
+   🛑 A `dynamic workflows?` ALTERNATIVE WAS REMOVED, AND REMOVING IT IS THE FIX.
+   With it, a WORKFLOW-ONLY wait matched and then could never be resolved: the
+   resolution check below keys on the vendor's agent-completion notification, and
+   there is no workflow equivalent in the bundle (only `Workflow "${name}" not
+   found`). So such a pane read `working` forever, which is worse than the state
+   this card set out to fix, and the reason it read `working` was a phrase I
+   widened to from the render JSX WITHOUT a live capture -- the exact thing the
+   do-not-widen rule below forbids. The composed form is unaffected; only the
+   never-observed workflow-only render is given up.
 
    🛑 THE `$` IS LOAD-BEARING, BUT IT MUST ALLOW THE VENDOR'S ` · …` SUFFIXES.
    Without any anchor the pattern matches every sentence CONTAINING the phrase,
@@ -1883,16 +1893,20 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    📌 History, corrections, and the measurements behind every number above:
    `.claude/plans/panefixtures-1889.md`. */
 const BACKGROUND_AGENT_WAIT =
-  /^\s*✻\s*Waiting\s*for\s*.*(?:background\s*agents?|dynamic\s*workflows?).*to\s*finish(?:\s*·[^\n]*)?\s*$/u;
+  /^\s*✻\s*Waiting\s*for\s*.*background\s*agents?.*to\s*finish(?:\s*·[^\n]*)?\s*$/u;
 
 /* #1889. How far above the COMPOSER ROW the wait line may sit and still be the
    live status line rather than a quotation.
 
    🛑 WITHOUT THIS THE READER IS A QUOTABLE LITERAL THAT FAILS TOWARD SILENCE.
    Unlike `WORKING_LINE` (which needs a live, changing timer) this line is static
-   text: any agent that `cat`s a document containing it -- including this repo's
-   own plan file for #1889, measured -- would classify `working` while sitting
-   idle at its prompt. A false CALM, which is the direction nobody investigates.
+   text, so an agent displaying a document that quotes it verbatim would classify
+   `working` while sitting idle at its prompt.
+   📌 The branch's own files no longer demonstrate that: with the single-glyph
+   class and the `$` anchor, zero rows in this file, the test or the plan match.
+   An earlier version of this note cited the plan file as a measured example; that
+   was true under the old seven-glyph class and stopped being true when the class
+   narrowed.
 
    🛑 ANCHORED TO THE COMPOSER, NOT TO THE LAST ROW, AND THE FIRST VERSION HAD
    THIS WRONG IN THE QUIET DIRECTION. Measuring from the screen's last non-empty
@@ -1909,10 +1923,11 @@ const BACKGROUND_AGENT_WAIT =
    composer row. A 7 and a 13 were also observed, both on panes whose wait had
    already RESOLVED, so they are not evidence about the live case and 12 is not
    fitted to them.
-   ⚠️ THE EXACT 8 IS NOT PINNED, THE BOUNDARY IS. Measured: the suite reds at 1
-   and 2, is green from 3 to 18, and reds again from 19. So both directions bite
-   and any value in [3, 18] would pass. With every live observation at 3, the
-   headroom is deliberate slack for layouts not yet seen, not a measured maximum.
+   ⚠️ 8 IS THE EXACT LOWER EDGE, NOT A VALUE WITH SLACK BELOW IT. Swept: the
+   suite is green only for [8, 14] and reds at 7 and below and at 15 and above.
+   An earlier version of this note claimed a green band of [3, 18] and called the
+   headroom deliberate slack; both halves were wrong, and the direction of the
+   error was reassuring.
    📌 Both directions are pinned by distance fixtures: a live row 7 rows above the
    composer must read `working`, one 14 rows above must not. Measured: 2 and 6 are
    too tight, 18 and 40 too loose. A mid-document
@@ -1928,6 +1943,16 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    *   ⏺ Agent "Blind review" finished · 5m 19s
    If one sits BETWEEN the wait row and the composer, the wait it describes is
    over, whatever the row still says.
+
+   🔑 WHY A RESOLVED WAIT ROW PERSISTS AT ALL, which is the premise this check
+   rests on. In the bundle the count is read as `let al = NZ ? …pendingBackground
+   AgentCount ?? 0 : 0`, where `NZ` comes from `let [UZ] = d(SD)` -- `useState`
+   with the setter DISCARDED. So it is computed once at mount and never
+   recomputed, and the count is a frozen property of the transcript message. The
+   row therefore does NOT stop rendering when the wait ends: it is a frozen
+   transcript row that outlives its own wait, and the completion notification is
+   appended below it, in exactly the span this check scans. An earlier version of
+   this comment argued from a single observed pane; this is the mechanism.
 
    🛑 THIS REPLACED A `◯`-BASED LIVENESS GATE THAT COULD NOT WORK. Three rounds
    went into enumerating `◯` sources (a live task row, the collapsed
@@ -1972,7 +1997,11 @@ function backgroundAgentWait(text) {
        finished-agent false calm the liveness gate exists to close, reopened by one
        quoted glyph. Removing the `break` fixes it, and it now has a test row
        whose fixture makes the two anchor choices DIVERGE -- an earlier fixture
-       had them agree, so it discriminated nothing. */
+       had them agree, so it discriminated nothing.
+       🛑 THE EXCLUSION MUST COVER EVERY FOOTER ICON, NOT JUST `◯`. The vendor
+       draws a focused footer row as pointer + THAT ROW'S OWN ICON, and the main
+       row's icon is `⏺`, so `❯⏺  main` is a real focused row. Keying on `◯`
+       alone let it become the anchor. */
     let anchor = -1;
     for (let j = i + 1; j <= last; j += 1) {
       /* 🛑 `❯` IS NOT UNIQUE TO THE COMPOSER. The task footer draws its selected
@@ -1988,15 +2017,12 @@ function backgroundAgentWait(text) {
          TEXT held a `◯` -- and an agent working on this reader is exactly who
          types one. Measured: the real composer was skipped, the anchor fell back
          to a quoted `❯` above it, and prose then satisfied liveness. */
-      if (/^\s*❯/.test(rows[j]) && !/^\s*❯\s*◯/.test(rows[j])) anchor = j;
+      if (/^\s*❯/.test(rows[j]) && !/^\s*❯\s*[◯⏺●]/.test(rows[j])) anchor = j;
     }
     /* No composer on screen (a dialog replaces it) -> return null. A MISS, never
-       a false calm. There is no fallback to the last row: an earlier comment said
-       there was, and it survived the change that removed it. */
+       a false calm, and pinned by its own row. */
     if (anchor === -1) return null;
     if (anchor - i > BACKGROUND_AGENT_WAIT_REACH) continue;
-    /* The wait line survives the wait. Only a live `◯` row proves the agent is
-       still running; without one this is a resolved wait and the pane is idle. */
     /* A completed-agent line between the row and the composer means THIS wait is
        over, whatever the row still says.
        🛑 `continue`, NOT `return null`. A pane waiting on several agents draws a

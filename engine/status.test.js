@@ -1598,20 +1598,10 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
 
   const live = '  Waiting for both.\n\n✻ Waiting for 1 background agent to finish';
-  /* `liveRow` is now INERT and kept only so the fixtures read like real screens.
-     It used to be load-bearing: a `◯`-based liveness gate short-circuited before
-     every other check, so a fixture without one never reached the guard it
-     claimed to test and four assertions here were silently vacuous. That gate was
-     removed as unsound (every footer row draws `◯`; run state lives in colour,
-     which `capturePane` strips), so nothing keys on it any more. Verified: the
-     suite stays green with `liveRow` emptied.
-     ⚠️ The comment that used to sit here said `liveRow` was REQUIRED on every
-     fixture. That was true of the old gate and false the moment it was deleted. */
-  const liveRow = '\n  ⏺ main\n  ◯ general-purpose  doing a thing 43s · ↓ 1.0k tokens';
   const manyAgents = (n) => ['✻ Waiting for ' + n + ' background agents to finish', '', '────', '❯ ', '────',
     '  agent · Opus 5 · ctx 50%', '  ⏵⏵ bypass permissions on · ← for agents', '', '  ⏺ main']
     .concat(new Array(n).fill('  ◯ general-purpose  doing a thing 43s · ↓ 1.0k tokens')).join('\n');
-  const got = classify(pane, live + footer + liveRow);
+  const got = classify(pane, live + footer);
   assert.equal(got.state, 'working', 'a live background-agent wait read as idle');
   assert.match(got.because, /background agent/);
   assert.equal(got.evidence, '✻ Waiting for 1 background agent to finish',
@@ -1620,7 +1610,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
   // The plural, since the count is interpolated and 1 is not special. Pins
   // `because` and `evidence` too: asserting only `.state` would let a
   // plural-only evidence regression through.
-  const plural = classify(pane, '✻ Waiting for 3 background agents to finish' + footer + liveRow);
+  const plural = classify(pane, '✻ Waiting for 3 background agents to finish' + footer);
   assert.equal(plural.state, 'working');
   assert.match(plural.because, /background agent/);
   assert.equal(plural.evidence, '✻ Waiting for 3 background agents to finish');
@@ -1631,7 +1621,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    * the joined line. With literal spaces this row went red; the marker spells
    * its spaces `\s*` for exactly that reason.
    */
-  assert.equal(classify(pane, '✻ Waiting for 1 backgroundagent to finish' + footer + liveRow).state, 'working',
+  assert.equal(classify(pane, '✻ Waiting for 1 backgroundagent to finish' + footer).state, 'working',
     'a wrap-eaten space silently stopped the reader matching');
 
   /**
@@ -1656,7 +1646,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
      were wrong for the composer anchor that replaced it. */
   const quoted = ['✻ Waiting for 1 background agent to finish']
     .concat(new Array(17).fill('  later output')).join('\n');
-  assert.notEqual(classify(pane, quoted + footer + liveRow).state, 'working',
+  assert.notEqual(classify(pane, quoted + footer).state, 'working',
     'a quoted copy high on the screen was read as a live status line');
 
   /**
@@ -1673,7 +1663,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     '✻ Waiting for team lead approval',
     '✻ Waiting for sign-in to complete in your browser',
   ]) {
-    assert.notEqual(classify(pane, human + footer + liveRow).state, 'working',
+    assert.notEqual(classify(pane, human + footer).state, 'working',
       'a human-blocked wait reached WORKING through the background-agent rule: ' + human);
   }
   /* ⚠️ AND DO NOT READ THAT LOOP AS "these four are handled". They are NOT. All
@@ -1681,7 +1671,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
      blocked on a person, shown at rest. The row pins only that THIS rule does not
      make them worse, and it stays green when someone later routes them to
      `needs_you`, which is the right fix and is not this card's. */
-  assert.equal(classify(pane, '✻ Waiting for permission' + footer + liveRow).state, 'idle',
+  assert.equal(classify(pane, '✻ Waiting for permission' + footer).state, 'idle',
     'documenting the known gap: a human-blocked wait reads idle, it is not handled');
 
 
@@ -1732,11 +1722,18 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
      outside the scanned span (the wait is live), while anchoring on the `❯ ◯`
      footer row pulls it inside and wrongly resolves the wait. Without that
      divergence the row passed whether or not the exclusion existed. */
-  assert.equal(
-    classify(pane, '✻ Waiting for 1 background agent to finish' + footer
-      + '\n  ⏺ Agent "x" finished · 5m\n❯ ◯ general-purpose  doing 43s').state,
-    'working',
-    'a selected ❯ ◯ footer row was mistaken for the composer');
+  /* Every focused footer row draws pointer + THAT ROW'S OWN icon, and the main
+     row's icon is `⏺`, so `❯⏺  main` is a real focused row. Both shapes are
+     pinned; keying the exclusion on `◯` alone let the main row become the
+     anchor. The completion line sits between the composer and the focused row so
+     the two anchor choices diverge. */
+  for (const focused of ['❯ ◯ general-purpose  doing 43s', '❯⏺  main']) {
+    assert.equal(
+      classify(pane, '✻ Waiting for 1 background agent to finish' + footer
+        + '\n  ⏺ Agent "x" finished · 5m\n' + focused).state,
+      'working',
+      'a focused footer row was mistaken for the composer: ' + focused);
+  }
 
   /* The reach itself, both directions. Live status rows measured 3 to 5 rows
      above the composer on real panes, and the vendor can add a notification row,
@@ -1749,6 +1746,16 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     'a live row 7 rows above the composer was read as idle; the vendor can push it that far');
   assert.notEqual(classify(pane, atDistance(14)).state, 'working',
     'a row 14 rows above the composer is scrolled-up transcript, not the live status row');
+
+  /* 🛑 NO COMPOSER ON SCREEN -> null. A dialog replaces the composer, and with no
+     anchor there is nothing to measure the reach against, so any quotation with
+     any completion state below it would be judged on distance from the last row.
+     This was the only decision on the branch with no assertion: restoring the old
+     `anchor = last` fallback left the suite green while reopening that path. */
+  assert.notEqual(
+    classify(pane, '✻ Waiting for 1 background agent to finish\n  some dialog row\n  another row').state,
+    'working',
+    'with no composer on screen the reader must decline, not fall back to the last row');
 
   /**
    * 🛑 A STALE ROW MUST NOT HIDE A LIVE ONE. A pane waiting on several agents
@@ -1800,7 +1807,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     '· Waiting for 1 background agent to finish',   // wrong glyph: spinner frame
     '✳ Waiting for 1 background agent to finish',   // wrong glyph: spinner frame
   ]) {
-    assert.notEqual(classify(pane, prose + footer + liveRow).state, 'working',
+    assert.notEqual(classify(pane, prose + footer).state, 'working',
       'prose containing the phrase was read as a live status line: ' + prose);
   }
 
@@ -1815,13 +1822,12 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
      literal-space defect and the loop below only covered the agent arm. */
   for (const spaced of [
     '✻ Waiting for 1 background agent to finish',
-    '✻ Waiting for 2 dynamic workflows to finish',
     '✻ Waiting for 1 background agent and 2 dynamic workflows to finish',
   ]) {
   for (let i = 0; i < spaced.length; i += 1) {
     if (spaced[i] !== ' ') continue;
     const wrapped = spaced.slice(0, i) + spaced.slice(i + 1);
-    assert.equal(classify(pane, wrapped + footer + liveRow).state, 'working',
+    assert.equal(classify(pane, wrapped + footer).state, 'working',
       'a wrap-eaten space at index ' + i + ' stopped the reader matching: ' + wrapped);
   }
   }
@@ -1840,7 +1846,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     '✻ Waiting for 1 background agent to finish · 45.2k / 100k (45%) · 2 nudges',
     '✻ Waiting for 1 background agent and 2 dynamic workflows to finish · 1 message hidden',
   ]) {
-    assert.equal(classify(pane, suffixed + footer + liveRow).state, 'working',
+    assert.equal(classify(pane, suffixed + footer).state, 'working',
       'a real vendor suffix after "to finish" was rejected: ' + suffixed);
   }
 
@@ -1854,9 +1860,8 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
   for (const composed of [
     '✻ Waiting for 1 background agent and 2 dynamic workflows to finish',
     '✻ Waiting for 3 background agents and 1 dynamic workflow to finish',
-    '✻ Waiting for 2 dynamic workflows to finish',
   ]) {
-    assert.equal(classify(pane, composed + footer + liveRow).state, 'working',
+    assert.equal(classify(pane, composed + footer).state, 'working',
       'a composed background-agent/workflow wait was read as idle: ' + composed);
   }
 
@@ -1867,7 +1872,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    * timer; this line needs neither, so a plain markdown bullet would read as a
    * working agent on any pane showing markdown.
    */
-  assert.notEqual(classify(pane, '* Waiting for 3 background agents to finish' + footer + liveRow).state, 'working',
+  assert.notEqual(classify(pane, '* Waiting for 3 background agents to finish' + footer).state, 'working',
     'a markdown bullet was read as a live status line');
 
   /**
@@ -1906,7 +1911,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    */
   const blocked = '✻ Waiting for 1 background agent to finish\n'
     + 'Do you want to proceed?\n❯ 1. Yes\n  2. No';
-  assert.equal(classify(pane, blocked + footer + liveRow).state, 'needs_you',
+  assert.equal(classify(pane, blocked + footer).state, 'needs_you',
     'the background-agent rule outranked a blocking prompt, hiding an agent that needs a person');
 });
 
@@ -1927,15 +1932,13 @@ test('#1889: the full shape contract for the background-agent wait reader', () =
   const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
   const footer = ['', '────', '❯ ', '────',
     '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
-  const liveRow = '\n  ⏺ main\n  ◯ general-purpose  doing a thing 43s · ↓ 1.0k tokens';
 
   const WORKING = [
     // the observed line, and the counts the vendor interpolates
     '✻ Waiting for 1 background agent to finish',
     '✻ Waiting for 3 background agents to finish',
-    // the workflow counter, and the composed form that joins both
-    '✻ Waiting for 2 dynamic workflows to finish',
-    '✻ Waiting for 1 dynamic workflow to finish',
+    // the composed form that joins both counters; it matches through the
+    // `background agents?` phrase
     '✻ Waiting for 1 background agent and 2 dynamic workflows to finish',
     '✻ Waiting for 3 background agents and 1 dynamic workflow to finish',
     // NOTE: no other glyph is listed on purpose. This row's glyph is the fixed
@@ -1962,14 +1965,21 @@ test('#1889: the full shape contract for the background-agent wait reader', () =
     '· Waiting for N background agents to finish is the line #1889 handles',
     '✻ Waiting for CI to finish',                            // a wait with no counter
     '✻ Waiting for the server to finish',
+    /* 🛑 WORKFLOW-ONLY IS DELIBERATELY NOT MATCHED. It once was, and it could
+       never be RESOLVED: the resolution check keys on the vendor's
+       agent-completion notification and there is no workflow equivalent in the
+       bundle, so such a pane read `working` forever -- worse than origin/main.
+       The composed form above still matches through its agent phrase. */
+    '✻ Waiting for 2 dynamic workflows to finish',
+    '✻ Waiting for 1 dynamic workflow to finish',
   ];
 
   for (const line of WORKING) {
-    assert.equal(classify(pane, line + footer + liveRow).state, 'working',
+    assert.equal(classify(pane, line + footer).state, 'working',
       'a real render was read as idle: ' + JSON.stringify(line));
   }
   for (const line of NOT_WORKING) {
-    assert.notEqual(classify(pane, line + footer + liveRow).state, 'working',
+    assert.notEqual(classify(pane, line + footer).state, 'working',
       'a non-status line was read as a working agent: ' + JSON.stringify(line));
   }
 });
