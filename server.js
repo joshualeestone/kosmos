@@ -7036,6 +7036,11 @@ const server = http.createServer((req, res) => {
            {"archived": "false"} into an archive), so a mixed body either
            applies whole or not at all. */
         if (body.archived !== undefined) fields.archived = body.archived;
+        /* #1994: parent is a carried field like the rest -- the engine's edit
+           validates it (self-parent, a missing parent, and cycles are refused)
+           before its single write, so a body mixing parent with name or
+           description applies whole or not at all. null or '' un-groups. */
+        if (body.parent !== undefined) fields.parent = body.parent;
         projects.edit(id, fields);
         // The block names the project, so a rename has to reach the agents that
         // were told the old name -- otherwise their instructions describe a
@@ -7081,7 +7086,9 @@ const server = http.createServer((req, res) => {
     try {
       gone = projects.remove(id);
     } catch (err) {
-      sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 404,
+      // #1994: honour an explicit status (remove now throws a 409 when the
+      // project still has sub-projects -- it exists, so a 404 would be wrong).
+      sendJson(res, (err && err.status) || ((err && err.code === 'UNREADABLE') ? 500 : 404),
         { error: String((err && err.message) || 'there is no project by that name') });
       return;
     }
