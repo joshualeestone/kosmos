@@ -981,6 +981,11 @@ if boot_board "$sb7" "$P8"; then
   # #1938: the disk-scan board panel. Same board as render-found-undo (first-run
   # complete, agents tab); it mocks its own /api/scan-agents + connect + decline routes.
   run_one "render-scan-board"   node docs/browser-checks/render-scan-board.js "$B8"
+  # #1531: the adopt prompt. Same first-run board as render-found-undo; it mocks its
+  # own /api/found-agents (adoptable folder), /api/connect-agent and decline routes,
+  # so it registers and declines without touching the machine. Proven green + reds on
+  # the right arm under a forced-refusal perturbation before wiring (the #812 rule).
+  run_one "render-adopt-1531"   node docs/browser-checks/render-adopt-1531.js "$B8"
   run_one "render-made-endings" node docs/browser-checks/render-made-endings.js "$B8"
   run_one "render-rename-say"   node docs/browser-checks/render-rename-say.js "$B8"
   run_one "render-role-limit"   node docs/browser-checks/render-role-limit.js "$B8"
@@ -1006,7 +1011,7 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-full-width"   env KOSMOS_URL="$B8" node docs/browser-checks/render-full-width.js "$sb7/shots-fullwidth"
   run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline" "$B8_PID"
 else
-  for n in contrast named-controls render-create-form render-found-undo render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
+  for n in contrast named-controls render-create-form render-found-undo render-scan-board render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
 fi
 # #812 batch 2 (retried after the first attempt found four checks that
 # assumed compatibility with B8's fixture instead of verifying it -- those
