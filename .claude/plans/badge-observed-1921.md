@@ -71,7 +71,7 @@ OPEN QUESTION (do NOT fix here; raise after PR): #1930 uses `auth status`==HEALT
 
 ## Non-goals (explicit, to keep the truth-fix focused)
 - "Check now" active per-account probe (reusing #1916's real reachability probe + a consent-to-spend). Permitted by the card but optional; deferred to a follow-up so the truth-fix stays reviewable. Note to Splinter + file if wanted.
-- The other `listLive()` callers (paintConnLive, paintAccountPicker, frPaintOpenai) and the per-agent `/api/agent/:name/account-status` route (#1885). Same store + verdict make these a cheap follow-up; the card names the Settings badge, so this PR scopes there. Revisit if a stale green is visible on those surfaces.
+- The other `listLive()` callers (paintConnLive, paintAccountPicker, frPaintOpenai), the account picker / move-eligibility / "any signed in" summaries, and the per-agent `/api/agent/:name/account-status` route (#1885) all still read the raw `connection.state`. Same store + verdict make these a cheap follow-up; the card names the Settings badge, so this PR scopes there. Tracked as **#1959** (which also carries the #1930 authprobe open question).
 
 ## Verify
 `bash tools/run-tests.sh` green (engine needs node ≥ 26). Frontend: capture Settings > Accounts locally showing the four states (screenshot for PR + Discord, per house rule). Challenge-loop to convergence before PR.
