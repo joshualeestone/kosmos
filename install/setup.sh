@@ -3726,7 +3726,29 @@ OPEN_CMD="${KOSMOS_OPEN_CMD:-/usr/bin/open}"
 # one carve-out -- a set KOSMOS_OPEN_CMD re-enables it -- because the
 # probe passes are exactly where the recording stub must be allowed to
 # observe the open.
-if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_NO_OPEN:-}" ] && [ -z "${KOSMOS_APP_DIR:-}" ] \
+# #2023: also open ONCE on an enforcing UPDATE, to seed the httpOnly board cookie
+# that #1946's enforcement now requires. A fresh install opens the browser and gets
+# the cookie; an UPDATE never opened, so every updated machine's bookmarked board
+# 403s -- the fleet outage. This opens the OWNER's browser (mint a nonce, ?boot=),
+# which works regardless of the .app bundle's age -- the only remedy that does.
+# Gated on a marker beside board.token so it fires on the FIRST update carrying this
+# fix and never again (the cookie is Max-Age 400 days, so one seed carries every
+# later update forward -- the "no tab per update" property the header above keeps).
+# Enforcing-only: `-s board.token` (present and non-empty) is setup.sh's reading of
+# enforced() -- an enforcing board has a token, a sandbox/harness one does not.
+_awnode_r="$KOSMOS_HOME/runtime/bin/node"; _awroot_r=""; _repair_seed=""
+if [ -f "$_awnode_r" ] && [ -x "$_awnode_r" ]; then
+  _awroot_r="$("$_awnode_r" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot_r=""
+  [ -n "$_awroot_r" ] && _repair_seed="$_awroot_r/.reauth-seeded"
+fi
+_open_gate="$FRESH_INSTALL"; _seed_after_open=no
+# A first enforcing run (fresh OR update) that has not seeded opens and seeds: the
+# fresh case seeds so a later update does not needlessly re-open; the update case
+# IS the repair. FRESH_INSTALL already opens; this adds the enforcing-update path.
+if [ -n "$_repair_seed" ] && [ ! -f "$_repair_seed" ] && [ -s "$_awroot_r/board.token" ]; then
+  _open_gate=yes; _seed_after_open=yes
+fi
+if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_OPEN:-}" ] && [ -z "${KOSMOS_APP_DIR:-}" ] \
    && { [ -z "${KOSMOS_SYS_APP_DIR:-}" ] || [ -n "${KOSMOS_OPEN_CMD:-}" ]; } \
    && command -v "$OPEN_CMD" >/dev/null 2>&1; then
   # Named before it happens, per the header's every-step rule: a browser
@@ -3857,6 +3879,13 @@ PLIST
     "$OPEN_CMD" "$_board_url" </dev/null >/dev/null 2>&1 \
       || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
   fi
+  fi
+  # #2023: seed the repair marker after the open above, so this one-time repair
+  # fires on the FIRST update carrying it and never again. Best-effort: a machine
+  # with no writable store ROOT still opened, it may just re-open on the next
+  # update, which is harmless (the cookie simply refreshes).
+  if [ "${_seed_after_open:-no}" = "yes" ] && [ -n "${_repair_seed:-}" ]; then
+    : > "$_repair_seed" 2>/dev/null || true
   fi
 fi
 

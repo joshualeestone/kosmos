@@ -986,6 +986,11 @@ function sendJson(res, code, obj) {
    people most likely to run this. Not in 49152-65535, which is macOS's
    ephemeral pool: a fixed listener there collides at random. */
 const PORT = Number(process.env.PORT || 16180);
+// #2023: debounce for POST /api/self-open (the token-exempt reconnect). Module
+// scope so it persists across requests: at most one browser-open per 5s, so a
+// second local account cannot storm the owner with tabs (the route is token-exempt
+// and thus reachable un-authed; crossSiteWrite still requires same-origin loopback).
+let _lastSelfOpen = 0;
 
 /**
  * The path, with any query string removed.
@@ -1591,7 +1596,15 @@ const server = http.createServer((req, res) => {
     // `body.token`, which this pre-body gate cannot see). The code-execution
     // surface (POST /api/agents) is gated by this board-token check regardless.
     const exemptAgent = REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`);
-    if (sensitive && !exemptAgent && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) {
+    // #2023: POST /api/self-open is exempt from the TOKEN check ONLY -- a token-exempt
+    // local reconnect, distinct from the remote-agent exemption above. It is safe
+    // because it returns NOTHING (the nonce is delivered to the owner's browser by
+    // `open`, never in the response), so a foreign loopback caller can only make the
+    // owner's tab pop. The crossSiteWrite/Origin guard (run for every write, at the
+    // top of dispatch) and loopback-only stay ON -- exempting the token must not
+    // become a CSRF hole, and #1946 stays closed for every other route.
+    const exemptSelfOpen = (`${req.method} ${pathname}` === 'POST /api/self-open');
+    if (sensitive && !exemptAgent && !exemptSelfOpen && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) {
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
       return;
     }
@@ -1610,6 +1623,34 @@ const server = http.createServer((req, res) => {
      is not enforcing. */
   if (pathname === '/api/board-nonce' && req.method === 'POST') {
     sendJson(res, 200, { nonce: boardauth.mintNonce() });
+    return;
+  }
+
+  // #2023: the token-EXEMPT reconnect. A page holding no cookie (a bookmark on an
+  // updated, un-repaired machine -- the fleet outage) calls this to get one: the
+  // BOARD process mints a nonce and opens the OWNER's browser at ?boot=<nonce>,
+  // which redeems for the httpOnly cookie (boardauth.bootstrap). The nonce is NEVER
+  // returned to the caller (mint-and-deliver-out-of-band), so a foreign loopback
+  // caller only makes the owner's tab pop -- a nuisance, not a breach; #1946 stays
+  // closed. Debounced (one open per 5s) against tab-storming. The URL is the board's
+  // OWN dashboard, built here, never a caller-supplied target (no open-redirect).
+  // execFile with an argument array -> no shell, no injection.
+  if (pathname === '/api/self-open' && req.method === 'POST') {
+    const now = Date.now();
+    if (now - _lastSelfOpen >= 5000) {
+      _lastSelfOpen = now;
+      const nonce = boardauth.mintNonce();
+      // The port the request came in on IS the board's listening port (in prod it
+      // equals PORT; using it is robust to a non-default port and makes the open
+      // address the exact one the browser reached, not a config const).
+      const url = `http://127.0.0.1:${req.socket.localPort}/?boot=${nonce}`;
+      const openCmd = process.env.KOSMOS_OPEN_CMD || '/usr/bin/open';
+      try {
+        require('node:child_process').execFile(openCmd, [url], { timeout: 15000 }, () => {});
+      } catch { /* best-effort: the response is the same whether or not the open fires */ }
+    }
+    res.writeHead(204, { 'cache-control': 'no-store' });
+    res.end();
     return;
   }
 
