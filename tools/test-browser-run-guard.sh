@@ -14,9 +14,25 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/cut-guard.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 fails=0
+skips=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
+skip() { echo "SKIP  $1"; skips=$((skips+1)); }
 has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
+# #1942: an arm that expected the guard NOT to refuse (rc=0) can get an unexpected refusal
+# for one legitimate reason that is NOT a defect: another agent's real browser run is live on
+# this shared Mac, and the guard's marker arm (cut-guard.sh:273) refuses regardless of the
+# seam probe. That is a CONTENTION SKIP, not a failure -- but ONLY when a foreign marked
+# browser run is ACTUALLY live at THIS moment. A refusal with NO foreign run live is a real
+# bug (the probe or self-exclusion broke) and still FAILs, so a real red is never masked.
+contention_or_fail() {
+  local c; c="$(_kosmos_marker_other_live browser)"
+  if [ -n "$c" ]; then
+    skip "$1 -- another browser run is live ($c); this arm needs an idle box (rerun then)"
+  else
+    fail "$1"
+  fi
+}
 
 printf '#!/bin/sh\nprintf "99999 bash tools/browser-checks.sh\\n"\n' > "$T/probe-live"; chmod +x "$T/probe-live"
 printf '#!/bin/sh\nexit 1\n' > "$T/probe-quiet"; chmod +x "$T/probe-quiet"
@@ -29,7 +45,7 @@ if has "$out" "KOSMOS_HARNESS_IGNORE_CUT=1"; then pass "and names the override";
 if has "$out" "read like missing code"; then pass "and says WHY, because the symptom is indistinguishable from a defect"; else fail "and says why: $out"; fi
 
 out="$(KOSMOS_BC_PROBE="$T/probe-quiet" kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && [ -z "$out" ]; then pass "passes silently when no other run is live"; else fail "passes when nothing is live (rc=$rc, out=$out)"; fi
+if [ "$rc" -eq 0 ] && [ -z "$out" ]; then pass "passes silently when no other run is live"; else contention_or_fail "passes when nothing is live (rc=$rc, out=$out)"; fi
 
 out="$(KOSMOS_BC_PROBE="$T/probe-dead" kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "could not tell"; then pass "a probe that cannot answer is a refusal, not a pass"; else fail "unanswerable probe (rc=$rc, out=$out)"; fi
@@ -40,7 +56,7 @@ if [ "$rc" -eq 1 ] && has "$out" "could not tell"; then pass "a probe that canno
 printf '#!/bin/sh\nprintf "%%s bash tools/browser-checks.sh\\n" "$$SELF"\n' > "$T/probe-self"
 sed -i '' "s/\$\$SELF/$$/" "$T/probe-self"; chmod +x "$T/probe-self"
 out="$(KOSMOS_BC_PROBE="$T/probe-self" KOSMOS_BC_SELF_PID=$$ kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ]; then pass "does not refuse itself"; else fail "does not refuse itself (rc=$rc, out=$out)"; fi
+if [ "$rc" -eq 0 ]; then pass "does not refuse itself"; else contention_or_fail "does not refuse itself (rc=$rc, out=$out)"; fi
 
 # #1391: THE CALLER'S OWN SUBTREE MUST NOT COUNT. The disarm happened because a
 # `bash tools/browser-checks.sh` that is the caller's own DESCENDANT (an argv-
@@ -52,7 +68,7 @@ sleep 30 & kid=$!
 printf '#!/bin/sh\nprintf "%%s bash tools/browser-checks.sh\\n" "%s"\n' "$kid" > "$T/probe-kid"; chmod +x "$T/probe-kid"
 out="$(KOSMOS_BC_PROBE="$T/probe-kid" KOSMOS_BC_SELF_PID=$$ kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
 kill "$kid" 2>/dev/null; wait "$kid" 2>/dev/null
-if [ "$rc" -eq 0 ]; then pass "excludes a candidate that is the caller's own DESCENDANT (#1391)"; else fail "#1391 descendant not excluded (rc=$rc): $out"; fi
+if [ "$rc" -eq 0 ]; then pass "excludes a candidate that is the caller's own DESCENDANT (#1391)"; else contention_or_fail "#1391 descendant not excluded (rc=$rc): $out"; fi
 
 sleep 30 & kid=$!; sleep 30 & unrel=$!
 printf '#!/bin/sh\nprintf "%%s bash tools/browser-checks.sh\\n" "%s"\n' "$kid" > "$T/probe-kid2"; chmod +x "$T/probe-kid2"
