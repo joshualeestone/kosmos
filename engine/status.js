@@ -1971,6 +1971,17 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    reach. Enumerating one call site and calling it the wording is the same mistake
    as enumerating one `◯` source and calling it liveness.
 
+   🛑 A THIRD SITE ON THE SAME KILL PATH. The `agents_killed` subtype renders
+   `⏺ All background agents stopped` (bullet + dimmed text), produced by the
+   `wn.length === 0` arm of the SAME handler whose else-arm produces the two
+   `was stopped by the user` wordings above. `All …` cannot match a pattern that
+   expects a count or `Background` after the bullet, so it was missed. Verified in
+   2.1.258 AND 2.1.259.
+   ⚠️ AND IT IS THE WORST PLACE TO MISS ONE: after an interrupt nothing further is
+   drawn, so the frozen wait row never leaves reach and the pane reads `working`
+   FOREVER on an agent sitting free at its prompt.
+   ⇒ Three enumerations of this family, three misses. Treat the set as open.
+
    ⚠️ AND THE SET IS STILL NOT PROVABLY CLOSED. The bundle's notification prefixes
    sit together as `"Background command "`, `'Agent "'` and `'Remote task "'`; the
    third is NOT matched here. Whether a remote task can reach
@@ -1979,6 +1990,14 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    failure direction is an unresolvable wait reading `working` forever, which is
    what got the workflow arm deleted. Two enumerations of this family have already
    been wrong; treat a third as likely rather than settled.
+
+   ⚠️ KNOWN LIMIT: an ordinary assistant narration row also matches. Claude Code
+   draws every assistant text block with `⏺`, so `⏺ Agent work finished for the
+   day, still one more running` RESOLVES a live wait (measured). Not a regression
+   against `origin/main`, and likelier than the `Remote task "` risk below, since
+   the prose row the test pins carries no bullet. Recorded rather than guarded:
+   narrowing it needs a shape that separates a notification from narration, and
+   nothing in the render distinguishes them at the row level.
 
    ⚠️ KNOWN LIMIT, SAME CLASS AS THE WAIT MATCHER'S: no wrap tolerance. Ink
    hard-wraps this row too, and `-J` does not rejoin what Ink already split, so a
@@ -2012,7 +2031,7 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    ⇒ Replaced by two things that survive colour-stripping: this positive
    completion marker, and the reach above. */
 const AGENT_FINISHED_LINE =
-  /^\s*[⏺●]\s*(?:\d+\s+)?(?:[Bb]ackground\s+)?[Aa]gents?\b[^\n]*\b(?:finished|failed|was stopped|were stopped|stopped at its)\b/mu;
+  /^\s*[⏺●]\s*(?:All\s+|\d+\s+)?(?:[Bb]ackground\s+)?[Aa]gents?\b[^\n]*\b(?:finished|failed|was stopped|were stopped|stopped at its|stopped\s*$)/mu;
 
 /**
  * The live background-agent wait line, or null.
@@ -4703,6 +4722,25 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          then is not an edge case, it is the normal case for a long wait, and it
          is the one field where reading this row made the board LESS truthful than
          not reading it. The state stays `working`; only the false sentence goes. */
+      /* 🛑 THE NEIGHBOURING RULE CAN VOID THIS WHOLE READER, AND THAT IS NOT
+         FIXED HERE. Rule 6 below gives a FRESH report precedence over the scrape,
+         and `install/kosmos-report-hook.sh` maps `Stop -> report idle --auto`.
+         Stop fires at end of turn, which is EXACTLY when this wait row is drawn
+         (the row replaces `Worked for …`). So an agent whose hook is installed
+         reports `idle` at the same moment its screen starts saying it is waiting,
+         and the board returns IDLE with this verdict discarded and no conflict
+         surfaced. Measured: fresh idle report -> idle; fresh working report ->
+         working; no report -> working.
+         ⇒ THIS READER HELPS WHERE THERE IS NO REPORT, A STALE ONE, OR A WORKING
+         ONE. It is voided where a fresh auto-idle exists, which on this fleet is
+         usually seconds (the background agent's own tool calls re-heartbeat the
+         parent to `working`) but is the WHOLE WAIT wherever the background agent
+         is quiet or does not share the hook session.
+         📌 Arguably rule 6 is wrong here rather than this reader: the Stop hook
+         asserts THE TURN ENDED, which is true and is not in conflict with "a
+         background agent is still running" -- the board conflates the two. That
+         is a fleet-wide precedence change affecting every agent, so it is NOT
+         made unilaterally from this card. Raised rather than taken. */
       if (scraped.backgroundWait === true) {
         return { ...scraped, reported: false, conflict: null };
       }

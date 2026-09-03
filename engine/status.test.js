@@ -1795,6 +1795,14 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
   for (const killed of [
     '  ⏺ Background agent "r" was stopped by the user.',
     '  ⏺ 3 background agents were stopped by the user: a, b, c',
+    /* The `agents_killed` banner: a THIRD site on the same kill path, produced by
+       the zero-survivors arm of the same handler. `All …` cannot match a pattern
+       expecting a count or `Background` after the bullet, so it was missed. It is
+       the worst place to miss one: after an interrupt nothing further is drawn,
+       so the frozen wait row never leaves reach and the pane reads working
+       FOREVER on an agent free at its prompt. */
+    '  ⏺ All background agents stopped',
+    '  ● All background agents stopped',
   ]) {
     assert.notEqual(
       classify(pane, '✻ Waiting for 1 background agent to finish\n' + killed + footer).state,
