@@ -34,7 +34,7 @@ function makeHome() {
   fs.mkdirSync(root, { recursive: true });
   fs.mkdirSync(path.join(home, 'runtime', 'bin'), { recursive: true });
   fs.mkdirSync(path.join(home, 'app', 'engine'), { recursive: true });
-  // $NODE = $KOSMOS_HOME/runtime/bin/node — point it at the real node.
+  // $NODE = $KOSMOS_HOME/runtime/bin/node -- point it at the real node.
   fs.symlinkSync(process.execPath, path.join(home, 'runtime', 'bin', 'node'));
   // $KOSMOS_HOME/app/engine/store must export { ROOT }.
   fs.writeFileSync(path.join(home, 'app', 'engine', 'store.js'),
@@ -43,7 +43,7 @@ function makeHome() {
 }
 
 // Stand up a stub that records the board-token header per route, run `fn`, then
-// close (rejecting on a thrown assertion rather than swallowing it — the
+// close (rejecting on a thrown assertion rather than swallowing it -- the
 // cli.presents-token.test.js lesson).
 function withStub(fn) {
   const seen = { report: [], reply: [] };
