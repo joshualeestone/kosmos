@@ -2849,12 +2849,15 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
     const els = {
       'st-agents': el(), 'st-working': el(), 'st-idle': el(),
       'st-attn': el(), 'st-attn-tile': el(),
+      'st-attn-noproj': el(), 'st-attn-noproj-tile': el(),
       'st-off': el(), 'st-off-tile': el(),
     };
     // The slice INCLUDES every tile write (the summary test's lesson: a
     // harness that stops short of the write reconstructs the behaviour).
+    // #1898: end on the no-project tile's write, which sits just after the
+    // needs-you write, so both the parent and the drill-down tile are exercised.
     const from = script.indexOf('const c = data.counts;');
-    const write = script.indexOf("document.getElementById('st-attn-tile').hidden = !c.needsYou;");
+    const write = script.indexOf("document.getElementById('st-attn-noproj-tile').hidden = !c.needsYouUnattributed;");
     const end = script.indexOf('\n', write) + 1;
     assert.ok(from > -1 && write > from && write < end,
       'the tile writes fell outside the extracted slice');
@@ -2920,6 +2923,20 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   const calm = drive(fleet.filter((a) => a.state !== 'needs_you'), { total: 6, needsYou: 0 });
   assert.equal(calm['st-attn-tile'].hidden, true,
     'the alert tile must hide at zero: a red-bordered zero teaches people to ignore red');
+  /* #1898: the no-project drill-down tile. It carries `needsYouUnattributed` and
+     hides at zero exactly like its parent. */
+  const noproj = drive(fleet, { total: 7, needsYou: 2, needsYouUnattributed: 1, notRunning: 0 });
+  assert.equal(noproj['st-attn-noproj'].textContent, '1', 'the no-project tile lost its count');
+  assert.equal(noproj['st-attn-noproj-tile'].hidden, false, 'a nonzero unattributed needs-you must show the no-project tile');
+  /* 🛑 CONTROL that returns the dangerous answer: a board whose needs_you are ALL
+     attributed to a project has a nonzero "Needs you" but ZERO unattributed, so
+     the parent tile shows and the drill-down hides. Without the subset being its
+     own field this could not be told apart from the total. */
+  const attributedOnly = drive(fleet, { total: 7, needsYou: 2, needsYouUnattributed: 0, notRunning: 0 });
+  assert.equal(attributedOnly['st-attn-tile'].hidden, false, 'the parent needs-you tile still shows when some are attributed');
+  assert.equal(attributedOnly['st-attn-noproj-tile'].hidden, true, 'all needs_you attributed -> the no-project drill-down hides');
+  /* And the calm board hides BOTH: no needs_you at all means no no-project subset. */
+  assert.equal(calm['st-attn-noproj-tile'].hidden, true, 'a calm board hides the no-project tile too');
 });
 
 test('a failed poll blanks the stats tiles instead of asserting the last fleet it saw', () => {
@@ -2949,6 +2966,9 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     orgnote: { textContent: '', hidden: false, innerHTML: '' },
     'st-agents': el('14'), 'st-working': el('9'), 'st-idle': el('4'), 'st-attn': el('1'),
     'st-attn-tile': { textContent: '', hidden: false, innerHTML: '' },
+    /* #1898: the no-project drill-down, seeded with a last-success count and
+       SHOWN, so the failed poll must blank it to `?` and hide it like its parent. */
+    'st-attn-noproj': el('1'), 'st-attn-noproj-tile': { textContent: '', hidden: false, innerHTML: '' },
     /* ⚠️ Seeded with a last-success number for the same presence-before-absence
        reason as the rest, and its tile is seeded HIDDEN: the not-running tile
        is the one that must come BACK on a failed poll, showing a question mark
@@ -2960,7 +2980,9 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
   const from = script.indexOf("checked.className = 'checked stamp stale';");
   /* #734: the summary slot is gone, so the failure path ends at the last
      tile it blanks; the slice still INCLUDES that write. */
-  const write = script.indexOf("getElementById('st-attn-tile').hidden = true;", from);
+  // #1898: end on the no-project tile's blank, just after st-attn's, so the
+  // slice covers both tiles the failure path must blank.
+  const write = script.indexOf("getElementById('st-attn-noproj-tile').hidden = true;", from);
   const end = script.indexOf('\n', write) + 1;
   assert.ok(from > -1 && write > from && write < end,
     'the failure-path tile blanking fell outside the extracted slice');
@@ -2993,12 +3015,14 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     'the failure card must reach both containers, whichever layout is up');
   assert.match(els.grid.innerHTML, /not the same as having none/,
     'the failure card stopped drawing the distinction it exists for');
-  for (const id of ['st-agents', 'st-working', 'st-idle', 'st-attn']) {
+  for (const id of ['st-agents', 'st-working', 'st-idle', 'st-attn', 'st-attn-noproj']) {
     assert.equal(els[id].textContent, '?',
       `${id} still asserts a count beside "we cannot see them" -- a headline number the failed poll cannot stand behind`);
   }
   assert.equal(els['st-attn-tile'].hidden, true,
     'the alert tile must hide on a blind poll: red is reserved for a known alarm');
+  assert.equal(els['st-attn-noproj-tile'].hidden, true,
+    '#1898: the no-project drill-down must hide on a blind poll too, for the same reason as its parent');
   // (#734) There is no summary slot any more, so nothing here can assert last-tick counts beside the failure card.
   assert.equal(els.orgmap.innerHTML, '',
     'the org view still draws the last fleet it saw beside "we cannot see them"');

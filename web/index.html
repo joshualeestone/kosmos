@@ -10159,6 +10159,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <span class="haz" aria-hidden="true">!</span>
       <b id="st-attn" data-count="attn">0</b><span class="slab">Needs you</span>
     </div>
+    <!-- #1898: of the "Needs you" above, the ones that named NO project. A
+         needs_you without a project lights no project tile, so a person scanning
+         the Projects board never sees it; this is where the omission is caught.
+         🔑 A DRILL-DOWN OF THE RED TILE, NOT A NEW STATE. It is a SUBSET of
+         "Needs you", so it does not enter the Working + Idle + Needs you = Agents
+         arithmetic, and it sits immediately after its parent tile. Hidden at zero
+         exactly as its parent is, so a healthy board (and the common case where
+         every question named its project) is unchanged and it only appears when
+         there is an omission to catch. The count is `counts.needsYouUnattributed`
+         from /api/status (engine/status.js countAgents), the fleet subset the
+         per-project engine/projects.js `needsYouUnattributed` mirrors. -->
+    <div class="stat alert" id="st-attn-noproj-tile" hidden title="Agents that need you but named no project">
+      <span class="haz" aria-hidden="true">!</span>
+      <b id="st-attn-noproj" data-count="attn-noproj">0</b><span class="slab">No project</span>
+    </div>
   </div>
   <div class="viewtoggle" role="group" aria-label="How to show agents" data-scope="agents">
     <button class="vt on" type="button" data-layout="grid" aria-pressed="true" aria-label="Show agents as a grid" title="Show agents as a grid">
@@ -12859,6 +12874,13 @@ async function tick() {
        and the cards, which is where a stopped agent is read. */
     document.getElementById('st-attn').textContent = String(c.needsYou || 0);
     document.getElementById('st-attn-tile').hidden = !c.needsYou;
+    /* #1898: the no-project subset of "Needs you". Same hide-at-zero grammar as
+       its parent tile above, so it appears only when an agent needs you AND named
+       no project -- the case that lights no project tile and is otherwise caught
+       only on the agent's own card. `needsYouUnattributed` is served on the
+       /api/status counts alongside `needsYou`. */
+    document.getElementById('st-attn-noproj').textContent = String(c.needsYouUnattributed || 0);
+    document.getElementById('st-attn-noproj-tile').hidden = !c.needsYouUnattributed;
     /* #734 (Josh, 2026-08-24 21:08: "remove this text at the top and make
        sure that it's not open for other things to populate into"): the loose
        line under the counts is gone and so is its slot. The facts it carried
@@ -13033,6 +13055,10 @@ async function tick() {
        change than this one (Mona Lisa raised it; recorded, not half-built). */
     document.getElementById('st-attn').textContent = '?';
     document.getElementById('st-attn-tile').hidden = true;
+    /* #1898: blank the no-project drill-down on a failed poll too, so a stale
+       count from the last good tick cannot linger beside a `?`. */
+    document.getElementById('st-attn-noproj').textContent = '?';
+    document.getElementById('st-attn-noproj-tile').hidden = true;
     /* The residual summary is a claim from the last successful tick (or the
        boot "Loading…"): "N we could not read" beside the failure card is a
        count this poll cannot stand behind -- the same rule as the tiles
