@@ -1909,20 +1909,20 @@ const BACKGROUND_AGENT_WAIT =
    composer row. A 7 and a 13 were also observed, both on panes whose wait had
    already RESOLVED, so they are not evidence about the live case and 12 is not
    fitted to them.
-   ⚠️ THE EXACT 12 IS NOT PINNED, THE BOUNDARY IS. Measured: the suite reds at 1
+   ⚠️ THE EXACT 8 IS NOT PINNED, THE BOUNDARY IS. Measured: the suite reds at 1
    and 2, is green from 3 to 18, and reds again from 19. So both directions bite
    and any value in [3, 18] would pass. With every live observation at 3, the
    headroom is deliberate slack for layouts not yet seen, not a measured maximum.
-   📌 That loose-direction red only exists because the quotation fixture carries a
-   live `◯` row. Before it did, the ceiling was unguarded at every value up to 100
-   while its own comment claimed otherwise. A mid-document
+   📌 Both directions are pinned by distance fixtures: a live row 7 rows above the
+   composer must read `working`, one 14 rows above must not. Measured: 2 and 6 are
+   too tight, 18 and 40 too loose. A mid-document
    quotation measured 114 from the end.
    ⚠️ It BOUNDS the quotation residual rather than removing it: a document quoting
    the line within reach of a composer row still matches.
    📌 NOT the same quantity as `TRUST_PROMPT_REACH` (12), which counts rows BELOW
    its marker on a different axis. They are not calibrated together and should not
    be read as a pair. */
-const BACKGROUND_AGENT_WAIT_REACH = 6;
+const BACKGROUND_AGENT_WAIT_REACH = 8;
 
 /* #1889. A completed background agent, drawn into the transcript:
    *   ⏺ Agent "Blind review" finished · 5m 19s
@@ -1942,7 +1942,8 @@ const BACKGROUND_AGENT_WAIT_REACH = 6;
    signal that never existed.
    ⇒ Replaced by two things that survive colour-stripping: this positive
    completion marker, and the reach above. */
-const AGENT_FINISHED_LINE = /^\s*⏺\s*Agent\b[^\n]*\bfinished\b/mu;
+const AGENT_FINISHED_LINE =
+  /^\s*[⏺●]\s*Agent\b[^\n]*\b(?:finished|failed|was stopped|stopped at its)\b/mu;
 
 /**
  * The live background-agent wait line, or null.
@@ -1969,8 +1970,9 @@ function backgroundAgentWait(text) {
        selector row. Measured with the first-match version: a RESOLVED wait plus a
        quoted `❯` plus a plugin-list `◯` classified `working`, which is exactly the
        finished-agent false calm the liveness gate exists to close, reopened by one
-       quoted glyph. Removing the `break` fixes it and no fixture noticed either
-       way, which is why it has its own row in the test. */
+       quoted glyph. Removing the `break` fixes it, and it now has a test row
+       whose fixture makes the two anchor choices DIVERGE -- an earlier fixture
+       had them agree, so it discriminated nothing. */
     let anchor = -1;
     for (let j = i + 1; j <= last; j += 1) {
       /* 🛑 `❯` IS NOT UNIQUE TO THE COMPOSER. The task footer draws its selected
@@ -1995,9 +1997,20 @@ function backgroundAgentWait(text) {
     if (anchor - i > BACKGROUND_AGENT_WAIT_REACH) continue;
     /* The wait line survives the wait. Only a live `◯` row proves the agent is
        still running; without one this is a resolved wait and the pane is idle. */
-    /* A completed-agent line between the row and the composer means this wait is
-       over, whatever the row still says. */
-    if (AGENT_FINISHED_LINE.test(rows.slice(i + 1, anchor).join('\n'))) return null;
+    /* A completed-agent line between the row and the composer means THIS wait is
+       over, whatever the row still says.
+       🛑 `continue`, NOT `return null`. A pane waiting on several agents draws a
+       new wait row each time one finishes, so the screen holds a STALE row, its
+       completion line, and a LIVE row below. Returning here let the stale row
+       short-circuit the scan and the live row was never examined: measured
+       `idle` on a pane with a running agent. The sibling reach check above
+       already continues; this was an asymmetry, not a decision.
+       ⚠️ The vendor writes four outcomes, not one -- `finished`, `failed: …`,
+       `was stopped`, `stopped at its N-turn limit` -- and draws the bullet as
+       `⏺` on macOS and `●` elsewhere. Keying on `finished` and `⏺` alone left
+       three wordings and every non-macOS host reading `working` on a dead
+       agent, which is worse than `origin/main`. */
+    if (AGENT_FINISHED_LINE.test(rows.slice(i + 1, anchor).join('\n'))) continue;
     const line = rows[i].trim();
     return line.length > 240 ? line.slice(0, 240) + '…' : line;
   }

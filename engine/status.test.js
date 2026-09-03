@@ -1598,20 +1598,15 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
 
   const live = '  Waiting for both.\n\n✻ Waiting for 1 background agent to finish';
-  /* A live `◯` footer row. REQUIRED ON EVERY FIXTURE, POSITIVE *AND* NEGATIVE,
-     and getting that wrong silently gutted four guards in this very test.
-
-     🛑 The liveness gate returns null before any other check runs. So a NEGATIVE
-     fixture without a `◯` row never REACHES the guard it claims to test: it
-     passes because the gate short-circuited, not because the guard worked.
-     Measured after iteration 3's gate landed: deleting the reach guard, and
-     re-adding `*` to the glyph class, BOTH left the suite at 159/159 green,
-     while their comments asserted the opposite.
-
-     ⇒ A negative fixture that cannot reach the guard under test discriminates
-     NOTHING. Every fixture below carries `liveRow`, including the `notEqual`
-     ones, so each perturbation has to travel all the way to the check it
-     targets. */
+  /* `liveRow` is now INERT and kept only so the fixtures read like real screens.
+     It used to be load-bearing: a `◯`-based liveness gate short-circuited before
+     every other check, so a fixture without one never reached the guard it
+     claimed to test and four assertions here were silently vacuous. That gate was
+     removed as unsound (every footer row draws `◯`; run state lives in colour,
+     which `capturePane` strips), so nothing keys on it any more. Verified: the
+     suite stays green with `liveRow` emptied.
+     ⚠️ The comment that used to sit here said `liveRow` was REQUIRED on every
+     fixture. That was true of the old gate and false the moment it was deleted. */
   const liveRow = '\n  ⏺ main\n  ◯ general-purpose  doing a thing 43s · ↓ 1.0k tokens';
   const manyAgents = (n) => ['✻ Waiting for ' + n + ' background agents to finish', '', '────', '❯ ', '────',
     '  agent · Opus 5 · ctx 50%', '  ⏵⏵ bypass permissions on · ← for agents', '', '  ⏺ main']
@@ -1705,6 +1700,91 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    * within reach of the composer AND no completed-agent line stands between them.
    * The rows below pin that pair.
    */
+  /* The evidence contract. Real captures carry trailing pad, and the 240-char
+     cap is this module's convention for anything reaching a person's screen.
+     ⚠️ RE-ADDED: iteration 8 added these, and iteration 9's cleanup of the
+     obsolete `◯` assertions deleted them as collateral while its commit message
+     still claimed they were armed. A cleanup that removes a guard is the same
+     defect as a fix that never lands. */
+  const padded = classify(pane, '✻ Waiting for 1 background agent to finish     ' + footer);
+  assert.equal(padded.evidence, '✻ Waiting for 1 background agent to finish',
+    'the evidence line kept its trailing pad, against the module convention');
+  const longLine = '✻ Waiting for 1 background agent and ' + 'x'.repeat(400) + ' dynamic workflows to finish';
+  const capped = classify(pane, longLine + footer);
+  assert.ok(capped.evidence.length <= 241, 'the evidence cap did not apply: ' + capped.evidence.length);
+  assert.ok(capped.evidence.endsWith('…'), 'a truncated evidence line must say so');
+
+  /* The anchor takes the LAST `❯` (the composer), not the first, and skips a
+     selected `❯ ◯` footer row. Both were fixed in earlier rounds with comments
+     claiming a test row existed; neither had one. */
+  /* The completion line sits AFTER the quoted prompt, so the two anchor choices
+     diverge: with the LAST ❯ (the composer) the line is inside the scanned span
+     and resolves the wait; with the FIRST ❯ it falls outside and the wait reads
+     live. An earlier fixture put the line above the quoted prompt, where both
+     choices agreed, so it discriminated nothing. */
+  assert.notEqual(
+    classify(pane, '✻ Waiting for 1 background agent to finish'
+      + '\n  ❯ quoted prompt\n  ⏺ Agent "x" finished · 5m' + footer).state,
+    'working',
+    'the first ❯ became the anchor, so the completion line fell outside the scan');
+  /* A completion line sits BELOW the composer but ABOVE the selected footer row,
+     so the two anchor choices diverge: anchoring on the real composer leaves it
+     outside the scanned span (the wait is live), while anchoring on the `❯ ◯`
+     footer row pulls it inside and wrongly resolves the wait. Without that
+     divergence the row passed whether or not the exclusion existed. */
+  assert.equal(
+    classify(pane, '✻ Waiting for 1 background agent to finish' + footer
+      + '\n  ⏺ Agent "x" finished · 5m\n❯ ◯ general-purpose  doing 43s').state,
+    'working',
+    'a selected ❯ ◯ footer row was mistaken for the composer');
+
+  /* The reach itself, both directions. Live status rows measured 3 to 5 rows
+     above the composer on real panes, and the vendor can add a notification row,
+     a two-row tip block and one row per queued message between them, so the
+     realistic ceiling is around 7. Reach 8 carries one row of slack; 12 and 18
+     were previously green in both directions and pinned nothing. */
+  const atDistance = (n) => '✻ Waiting for 1 background agent to finish\n'
+    + new Array(n - 1).fill('  filler').join('\n') + '\n────\n❯ \n────\n  ⏵⏵ bypass permissions on · ← for agents';
+  assert.equal(classify(pane, atDistance(7)).state, 'working',
+    'a live row 7 rows above the composer was read as idle; the vendor can push it that far');
+  assert.notEqual(classify(pane, atDistance(14)).state, 'working',
+    'a row 14 rows above the composer is scrolled-up transcript, not the live status row');
+
+  /**
+   * 🛑 A STALE ROW MUST NOT HIDE A LIVE ONE. A pane waiting on several agents
+   * draws a NEW wait row each time one finishes, so the screen holds a stale row,
+   * its completion line, and a live row below. The resolution check used to
+   * `return null` on the stale row, so the live one was never examined and a
+   * running agent read `idle`.
+   */
+  assert.equal(
+    classify(pane, ['✻ Waiting for 2 background agents to finish',
+      '  ⏺ Agent "a" finished · 2m 1s', '  follow-up output',
+      '✻ Waiting for 1 background agent to finish'].join('\n') + footer).state,
+    'working',
+    'a stale wait row short-circuited the scan and hid a live one below it');
+
+  /**
+   * 🛑 THE VENDOR WRITES FOUR OUTCOMES AND TWO BULLETS. The task-notification
+   * spec renders `finished`, `failed: {error}`, `was stopped`, or `stopped at its
+   * N-turn limit`, and the bullet is `⏺` on macOS and `●` everywhere else.
+   * Keying on `finished` and `⏺` alone left three wordings and every non-macOS
+   * host reading `working` on a dead agent -- worse than origin/main on exactly
+   * the case a person most needs surfaced.
+   */
+  for (const done of [
+    '  ⏺ Agent "r" finished · 5m 19s',
+    '  ⏺ Agent "r" failed: build is broken · 5m 19s',
+    '  ⏺ Agent "r" was stopped · 5m 19s',
+    '  ⏺ Agent "r" stopped at its 5-turn limit',
+    '  ● Agent "r" finished · 5m 19s',
+  ]) {
+    assert.notEqual(
+      classify(pane, '✻ Waiting for 1 background agent to finish\n' + done + footer).state,
+      'working',
+      'a completed agent did not resolve the wait: ' + done.trim());
+  }
+
   const resolvedWait = '✻ Waiting for 1 background agent to finish\n  ⏺ Agent "x" finished · 5m 19s';
   assert.notEqual(classify(pane, resolvedWait + footer).state, 'working',
     'a completed-agent line between the row and the composer did not resolve the wait');
