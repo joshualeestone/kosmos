@@ -284,13 +284,16 @@ port_taken_by_stranger() {
 # which macOS `ps -ww -o args` exposes cross-account -- a side channel around the
 # mode-600 file. CLOSED for every CLI call: `kosmos_curl` now writes the header to
 # a mode-600 temp file and passes curl `-H @file`, so no CLI call puts the token on
-# argv. THE BROWSER-OPEN RESIDUAL IS NOW CLOSED TOO (#1979): `cmd_open` (and
+# argv. THE BROWSER-OPEN RESIDUAL IS NOW MUCH SMALLER (#1979): `cmd_open` (and
 # setup.sh's open-once plist) used to hand the browser `$URL/?token=$_bt`, putting
-# the durable token on the `open`/`sh`/browser argv. They now POST /api/board-nonce
-# (board token OFF argv, via `kosmos_curl -H @file`) to mint a SINGLE-USE, short-TTL
-# nonce and open `$URL/?boot=<nonce>` instead, so only the nonce -- useless once
-# redeemed and after ~2 min -- ever reaches argv. `board_token` itself is still only
-# ever consumed off argv (kosmos_curl / the setup.sh header file), never in a URL.
+# the DURABLE token (forever-valid) on the `open`/`sh`/browser argv. They now POST
+# /api/board-nonce (board token OFF argv, via `kosmos_curl -H @file`) to mint a
+# SINGLE-USE, short-TTL nonce and open `$URL/?boot=<nonce>` instead. `board_token`
+# itself is now only ever consumed off argv (kosmos_curl / the setup.sh header
+# file), never in a URL -- that leak IS closed. What remains on argv is the nonce,
+# which a cross-account `ps` watcher could still race to redeem within the ~2-min
+# TTL; that is bounded, single-use, and a lost race is detectable (see the RESIDUAL
+# note in engine/boardauth.js), not the forever-secret the durable token was.
 # 🛑 CALL IT AS `_bt="$(board_token || true)"` UNDER `set -euo pipefail` (kosmos#1968).
 # It RETURNS 1 whenever there is no token to hand back -- a non-enforcing board
 # (no token file), or an install layout where `$NODE` is not present. A bare

@@ -55,3 +55,12 @@ its TTL -- ever reaches argv.
   RunAtLoad open is delayed past 2 min the nonce expires and the first open lands on the (exempt) shell
   unauthenticated -- a safe degradation (the operator runs `kosmos open`), never a token on argv. New
   safety code is the least-trustworthy code; the challenge-loop attacked the single-use/TTL/replay arms.
+- **RESIDUAL, stated so "closed" is not misread as "no cross-account risk":** the nonce STILL rides the
+  `open`/`sh`/browser argv -- an `open <url>` handoff cannot avoid a redeemable value on argv -- so the
+  #1946 hostile-second-account (`ps -ww -o args` in a loop) can, WITHIN the TTL, race to `curl
+  .../?boot=<nonce>` and redeem it before the victim's browser, obtaining an equivalent board cookie.
+  #1979 shrinks this from forever + unlimited to ~2 min + single-use, and makes a lost race DETECTABLE
+  (single-use -> the victim's dashboard 403s rather than silently sharing a live secret). It does not
+  eliminate the in-window race; that is inherent to the handoff and out of scope. The TTL is the knob
+  trading window size against redeem reliability. Named in the boardauth.js docblock and the
+  install/kosmos docblock so nobody reads "closed" as "zero cross-account exposure."

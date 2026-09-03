@@ -271,6 +271,21 @@ function pathWithoutToken(req, routingBase) { return pathWithoutParam(req, routi
 // after its TTL, so where it appears on argv the exposure is bounded to a few
 // minutes and one use, not forever.
 //
+// 🛑 RESIDUAL, STATED HONESTLY (not "no cross-account risk"): the nonce STILL
+// rides the `open`/`sh`/browser argv -- you cannot hand a browser a URL without
+// putting a redeemable value on argv -- so the exact #1946 hostile-second-account
+// (`ps -ww -o args` in a tight loop) can, WITHIN the TTL, `curl .../?boot=<nonce>`
+// and redeem it before the victim's browser does, obtaining an equivalent board
+// cookie. What #1979 changes is the SIZE of that exposure, not its existence: the
+// durable token was a forever-valid secret readable off argv every launch; the
+// nonce is single-use and TTL-bounded, so the window is ~2 min not forever, one
+// use not unlimited, and -- because it is single-use -- a lost race is DETECTABLE
+// to the victim (their dashboard 403s / re-prompts instead of silently sharing a
+// live secret). The TTL below is the knob that trades that window against redeem
+// reliability (it must outlast `kosmos open`'s immediate redeem and setup.sh's
+// RunAtLoad open). Fully removing the argv value would need a different handoff
+// than `open <url>` and is out of scope here.
+//
 // In-memory and process-local: the board process both mints (via POST
 // /api/board-nonce) and redeems (in `bootstrap`), so a Map in this module is the
 // whole store -- modeled on engine/githubdevice.js's in-memory expiring state.
