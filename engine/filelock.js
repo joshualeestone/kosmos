@@ -19,7 +19,7 @@
  *     that repairs it. Rename also copes with a non-empty lock dir a crash can leave
  *     (a `.DS_Store`, say), which `rmdir` cannot — that ENOTEMPTY once spun the
  *     synchronous POST handler forever.
- *   - THE STEAL VERIFIES IDENTITY BY INODE (kosmos#1991). It is tempting to think
+ *   - THE STEAL VERIFIES IDENTITY BY MTIME (kosmos#1991). It is tempting to think
  *     `rename` of a path succeeds only ONCE, so the loser gets ENOENT and re-waits.
  *     That holds only if both waiters rename at the same instant. A deschedule
  *     between the stat that measured staleness and the rename lets the OTHER waiter
@@ -128,6 +128,13 @@ function withFileLock(file, fn, opts = {}) {
           // acquire it and double-enter anyway. If the path was re-occupied in the
           // meantime the restore throws; the moved dir is then an inert `.stale`
           // leftover the staleness rule collects, and we re-wait regardless.
+          // The restore does open a narrow new window -- between moving the live
+          // lock aside and putting it back, a THIRD process could `mkdir(lock)` and
+          // enter beside its holder. That is strictly smaller than what it replaces:
+          // without this branch the race is a GUARANTEED two-process double-entry
+          // whenever the deschedule happens; with it, a third double-entry needs the
+          // deschedule AND a sub-millisecond third-process mkdir landing in the gap.
+          // A conditional-rename syscall would close it, but POSIX has none.
           try { fs.renameSync(aside, lock); } catch { /* path re-occupied; leave the leftover for the staleness rule */ }
           pauseMs(LOCK_SPIN_MS);
           continue;

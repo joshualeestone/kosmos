@@ -33,7 +33,7 @@ Inode survives rename, but a racing process rm's the stale lock (freeing its ino
 
 ### Why restore is load-bearing
 
-Without restoring, re-waiting leaves `lock` empty, so the loop's own next `mkdirSync(lock)` acquires it and double-enters anyway. Restoring puts L1 back so the re-wait hits EEXIST and waits properly. Residual: an extreme 3-process sub-race (a third process `mkdir`s in the tiny restore window) is unchanged by this fix and left to the staleness rule; the fix eliminates the primary 2-process double-entry.
+Without restoring, re-waiting leaves `lock` empty, so the loop's own next `mkdirSync(lock)` acquires it and double-enters anyway. Restoring puts L1 back so the re-wait hits EEXIST and waits properly. Residual: the restore itself opens a narrow new window — between moving the live lock aside and putting it back, a third process could `mkdir(lock)` and enter beside the holder. This is strictly smaller than what it replaces: without the fix the race is a GUARANTEED two-process double-entry whenever the deschedule happens; with it, a third double-entry needs the deschedule AND a sub-millisecond third-process mkdir landing in the restore gap. A conditional-rename syscall would close it, but POSIX has none; the remaining leftover is inert and collected by the staleness rule.
 
 ### Rejected
 - Inode witness (reuse hole, above).
