@@ -746,7 +746,10 @@ function scan(opts) {
      env override) has declared where to look on purpose and is exempt, exactly as
      a CONFIG_ROOT override is. */
   if (!explicit && status.sandboxIsInconsistent()) {
-    return { ok: true, candidates: [], bounded: {}, because: null };
+    /* Same `bounded` shape as the normal return, so a consumer never has to tell an
+       empty object from a fully-shaped one: nothing was walked, so every flag is
+       false and the visit count is zero. */
+    return { ok: true, candidates: [], bounded: { depth: false, dirs: false, count: false, visited: 0 }, because: null };
   }
   const roots = explicit || defaultScanRoots();
   const maxDirs = Number.isFinite(o.maxDirs) && o.maxDirs > 0 ? o.maxDirs : SCAN.MAX_DIRS;

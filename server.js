@@ -88,6 +88,21 @@ const firstrun = require('./engine/firstrun');
 const platformGate = require('./engine/platform');
 const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');
+/* 🛑 #1938: THE DISK SCAN IS HEAVIER THAN found() AND THE BOARD POLLS IT EVERY 5s.
+   `found()` walks Claude's own records; `discover.scan()` walks a bounded slice of the
+   actual disk (up to thousands of directories) AND calls found() itself. The board's
+   scan panel refetches on every five-second poll, for every viewer on the agents tab,
+   and that walk is synchronous -- so an uncached route would block the event loop on a
+   disk crawl several times a minute for anybody with the tab open. The scan population
+   (folders that hold a CLAUDE.md) changes rarely, so a short cache is safe: it makes the
+   walk run at most once per TTL rather than once per poll, and any write that changes
+   what the scan would return (connect/decline/undecline/disconnect) invalidates it so a
+   just-added or just-declined folder is reflected at once rather than lingering a TTL.
+   The `dismissed` flag is NOT cached -- it is read fresh on every response below -- so
+   Dismiss-forever takes effect immediately without an invalidation. */
+let scanCache = { at: 0, result: null };
+const SCAN_CACHE_MS = 30000;
+function scanCacheInvalidate() { scanCache = { at: 0, result: null }; }
 const connect = require('./engine/connect');
 const machine = require('./engine/machine');
 const updates = require('./engine/update');
@@ -4032,17 +4047,28 @@ const server = http.createServer((req, res) => {
    */
   if (pathname === '/api/scan-agents' && (req.method === 'GET' || req.method === 'HEAD')) {
     let out;
-    try { out = discover.scan(); }
-    catch (err) {
-      /* Never 500s for a state question, the same contract /api/found-agents keeps:
-         "we could not look" is an ANSWER the screen can render. */
-      sendJson(res, 200, { ok: false, candidates: [],
-        because: 'we could not scan this computer for agents',
-        detail: String((err && err.message) || err) });
-      return;
+    const now = Date.now();
+    /* Serve a recent walk rather than crawling the disk again on every poll. The
+       invalidation on the mutating routes below keeps this from ever hiding a change
+       a person just made. */
+    if (scanCache.result && now - scanCache.at < SCAN_CACHE_MS) {
+      out = scanCache.result;
+    } else {
+      try { out = discover.scan(); }
+      catch (err) {
+        /* Never 500s for a state question, the same contract /api/found-agents keeps:
+           "we could not look" is an ANSWER the screen can render. A failed scan is not
+           cached, so the next poll tries again. */
+        sendJson(res, 200, { ok: false, candidates: [],
+          because: 'we could not scan this computer for agents',
+          detail: String((err && err.message) || err) });
+        return;
+      }
+      scanCache = { at: now, result: out };
     }
     /* Whether the person sent the found-agents block away for good is carried here
-       too, so the scan screen honours the same "forever" the board does. */
+       too, so the scan screen honours the same "forever" the board does. Read fresh
+       (never cached) so Dismiss takes effect on the very next poll. */
     sendJson(res, 200, { ...out, dismissed: discover.dismissed() });
     return;
   }
@@ -4078,6 +4104,7 @@ const server = http.createServer((req, res) => {
         let out;
         try { out = discover.decline(body.dir); }
         catch { out = { ok: false, because: 'we could not remember that' }; }
+        if (out && out.ok) scanCacheInvalidate();   // #1938: a declined folder must drop from the scan at once
         sendJson(res, out.ok ? 200 : 400, out);
       })
       .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
@@ -4094,6 +4121,7 @@ const server = http.createServer((req, res) => {
         let out;
         try { out = discover.undecline(body.dir); }
         catch { out = { ok: false, because: 'we could not remember that' }; }
+        if (out && out.ok) scanCacheInvalidate();   // #1938: an un-declined folder must reappear in the scan at once
         sendJson(res, out.ok ? 200 : 400, out);
       })
       .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
@@ -4163,6 +4191,7 @@ const server = http.createServer((req, res) => {
             detail: String((err && err.message) || err) });
           return;
         }
+        if (out.ok) scanCacheInvalidate();   // #1938: a connected folder is now alreadyIn, so it must drop from the scan at once
         /* The membership record, AFTER the agent exists -- the block it reads was
            already composed above. Same split as creation: block before birth,
            record after. */
@@ -4206,6 +4235,7 @@ const server = http.createServer((req, res) => {
             detail: String((err && err.message) || err) });
           return;
         }
+        if (out.ok) scanCacheInvalidate();   // #1938: a disconnected folder may become offerable again, so re-scan next poll
         sendJson(res, out.ok ? 200 : 400, out);
       })
       .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));

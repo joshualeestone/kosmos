@@ -236,6 +236,34 @@ async function req(path, options) {
   return { status: res.status, type: res.headers.get('content-type') || '', body: await res.text() };
 }
 
+test('#1938: /api/scan-agents caches the disk walk, and a mutating route invalidates it', async () => {
+  /* 🛑 THE WALK IS HEAVY AND THE BOARD POLLS IT EVERY 5s. Without the route cache,
+     every viewer on the agents tab crawls the disk several times a minute, synchronously.
+     This spies on the engine scan so a cache HIT is a scan NOT called; the leading
+     decline clears any cache a prior test left, so the counts are honest regardless of
+     the process-global cache state. `discover` is a shared singleton, so replacing
+     `.scan` reaches the copy server.js calls. */
+  const discover = require('./engine/discover');
+  const realScan = discover.scan;
+  let calls = 0;
+  discover.scan = () => { calls += 1; return { ok: true, candidates: [], bounded: { depth: false, dirs: false, count: false, visited: 0 }, because: null }; };
+  const decline = (dir) => req('/api/found-agents/decline',
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir }) });
+  try {
+    await decline('/Users/x/scan-cache-probe-a');   // invalidate whatever a prior test cached
+    const base0 = calls;
+    await req('/api/scan-agents');   // fresh walk
+    const afterFirst = calls;
+    await req('/api/scan-agents');   // must be served from cache
+    const afterSecond = calls;
+    assert.equal(afterFirst, base0 + 1, 'the first scan after invalidation did not run a fresh walk');
+    assert.equal(afterSecond, afterFirst, 'the second scan within the window walked the disk again instead of serving the cache');
+    await decline('/Users/x/scan-cache-probe-b');   // a decline changes what the scan returns -> must invalidate
+    await req('/api/scan-agents');
+    assert.equal(calls, afterSecond + 1, 'a decline did not invalidate the scan cache');
+  } finally { discover.scan = realScan; }
+});
+
 // ---------------------------------------------------------------------------
 // The routing bug itself
 // ---------------------------------------------------------------------------
