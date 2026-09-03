@@ -176,6 +176,24 @@ test('a symlinked scan ROOT is followed (a curated root the person chose is not 
     'a symlinked scan root was dropped, hiding the agents the person keeps under it');
 });
 
+test('two roots that resolve to ONE physical directory offer each agent once', () => {
+  /* 🛑 THE CASE-VARIANT ROOTS (projects/Projects, Kosmos/kosmos) ARE THE SAME DIRECTORY
+     on a case-insensitive filesystem (the macOS default), and $HOME re-reaches a curated
+     parent under the on-disk case. Keying the visited-set on realpath collapses those so
+     one agent is not offered twice. A symlink alias reproduces "two paths, one physical
+     dir" DETERMINISTICALLY on any filesystem, case-sensitive or not, which a literal
+     case-variant test could not. */
+  const realDir = path.join(SB, 'shared-physical');
+  const agentDir = path.join(realDir, 'the-agent');
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, 'CLAUDE.md'), 'You are **Shared One**, a tester.\n');
+  const alias = path.join(SB, 'shared-alias');
+  try { fs.symlinkSync(realDir, alias, 'dir'); } catch { return; }
+  const r = discover.scan({ roots: [{ dir: realDir, maxDepth: 3 }, { dir: alias, maxDepth: 3 }] });
+  const hits = r.candidates.filter((c) => c.name === 'Shared One');
+  assert.equal(hits.length, 1, `one physical agent reached via two roots was offered ${hits.length} times`);
+});
+
 test('a symlinked CLAUDE.md is not read', () => {
   const outside = path.join(SB, 'outside-file');
   fs.mkdirSync(outside, { recursive: true });

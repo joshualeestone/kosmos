@@ -776,11 +776,21 @@ function scan(opts) {
   for (const d of declined()) known.add(d);
 
   const byDir = new Map();
-  /* Directories already read, across ALL roots. The curated project parents are
-     walked first and deep; `$HOME` is walked last and shallow and re-reaches those
-     same parents, so this stops the home walk re-reading a subtree its own root
-     already covered -- which keeps the visit budget honest and the walk cheap. It
-     also makes a cycle impossible even though symlinks are never descended. */
+  /* Directories already read, across ALL roots, keyed by CANONICAL REALPATH rather
+     than the literal path. Three different aliases resolve to one physical directory
+     and must not be walked twice:
+       - `$HOME` (walked last, shallow) re-reaches the curated parents (walked first,
+         deep) that live directly under it;
+       - on a CASE-INSENSITIVE filesystem (the macOS default, and the target), the two
+         case variants in the root set (`projects`/`Projects`, `Kosmos`/`kosmos`) are the
+         SAME directory, and `$HOME`'s readdir returns the on-disk case, which need not
+         match the fixed case a curated root used;
+       - a symlinked root (now followed) can point at a place another root also reaches.
+     Keying on the literal string missed all three and emitted one agent as two rows
+     with differently-cased or differently-aliased paths, double-spending the visit
+     budget. `realpathSync` collapses them; it falls back to the literal path if the
+     directory has just vanished (TOCTOU), and children are never symlinks (they are
+     `lstat`-refused on descent), so this cannot follow a link out of the tree. */
   const seenDirs = new Set();
   let visited = 0;
   let hitDirs = false;
@@ -812,8 +822,10 @@ function scan(opts) {
       if (byDir.size >= maxCandidates) { hitCount = true; break outer; }
       if (visited >= maxDirs) { hitDirs = true; break outer; }
       const cur = stack.pop();
-      if (seenDirs.has(cur.dir)) continue;   // already read via an earlier root
-      seenDirs.add(cur.dir);
+      let real;
+      try { real = fs.realpathSync(cur.dir); } catch { real = cur.dir; }
+      if (seenDirs.has(real)) continue;   // already read via an earlier root, a case variant, or a symlink alias
+      seenDirs.add(real);
       visited += 1;
 
       let names;
@@ -877,7 +889,14 @@ function scan(opts) {
     ok: true,
     candidates,
     /* Says whether the walk stopped early and why, so the screen can add "and there
-       may be more" honestly rather than presenting a truncated list as complete. */
+       may be more" honestly rather than presenting a truncated list as complete.
+       ⚠️ THE SCREEN SURFACES `count` AND `dirs`, NOT `depth`, DELIBERATELY. Hitting the
+       candidate cap or the directory-visit cap means the scan genuinely gave up before
+       the disk was exhausted -- rare, and worth telling the person. Hitting the DEPTH
+       cap is the normal case: almost every machine has some folder deeper than the cap,
+       so surfacing it would show "there may be more" nearly always and train the person
+       to ignore it. `depth` is still reported here for a caller that wants it; the note
+       is gated on the two that signal a real early stop. */
     bounded: { depth: hitDepth, dirs: hitDirs, count: hitCount, visited },
     because: null,
   };
