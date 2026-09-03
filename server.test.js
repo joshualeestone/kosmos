@@ -7103,6 +7103,27 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
   }
 });
 
+test('the free-agent picker names the not-signed-in state distinctly on a 403 (#2023)', () => {
+  /* The signin branch of `emptyBecause` had no assertion: the harness above only
+     BINDS BOARD_NEEDS_SIGNIN to stop a ReferenceError, it never sets it true and
+     reads the option text. Driven directly here, with a control. */
+  const prelude = 'const esc = (s) => String(s == null ? "" : s);\n'
+    + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = null;\n';
+  const paintOn = pageFunction('paintFreeAgentPicker', prelude + 'let BOARD_NEEDS_SIGNIN = true;\n');
+  const selOn = { __lastPicker: null, value: '', innerHTML: '' };
+  paintOn({ agents: [] }, selOn, null);
+  assert.match(selOn.innerHTML, /not signed in/i,
+    'a 403 board must name the signin state in the picker, not the generic "cannot see any agents"');
+  /* 🔑 THE CONTROL. Flag OFF with the same empty board must say the ORDINARY
+     empty reason, NOT signin -- so the assertion above discriminates rather than
+     matching whatever the empty picker happens to render. */
+  const paintOff = pageFunction('paintFreeAgentPicker', prelude + 'let BOARD_NEEDS_SIGNIN = false;\n');
+  const selOff = { __lastPicker: null, value: '', innerHTML: '' };
+  paintOff({ agents: [] }, selOff, null);
+  assert.ok(!/not signed in/i.test(selOff.innerHTML) && /cannot see any agents/i.test(selOff.innerHTML),
+    'the control: flag off shows the ordinary empty reason: ' + selOff.innerHTML);
+});
+
 test('the settings members wiring is real, not just extractable', () => {
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const facts = pageFnSource('paintSettingsFacts');

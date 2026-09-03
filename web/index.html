@@ -26150,6 +26150,14 @@ async function watchForAgent(name, result, attempt) {
     try {
       const res = await fetch('/api/status', { cache: 'no-store' });
       if (res.ok) agents = (await res.json()).agents || [];
+      /* #2023: no not-signed-in branch here on purpose. This poll only runs AFTER
+         a create SUCCEEDED, and create is a gated write (#1946) that 403s on a
+         token-less board -- so reaching this code means the session holds the
+         token, and this same-origin poll carries it too. A 403 here would need
+         the token to vanish mid-watch, which the 400-day HttpOnly cookie does not
+         do; a server that stopped yields a fetch reject (the catch), not a 403.
+         So the timeout copy below is correct for every reachable state, and the
+         signin remedy belongs on the board reads, not on this creation poll. */
     } catch { /* the next round can try again */ }
     if (mine !== WATCH) return;
 
