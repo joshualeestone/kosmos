@@ -85,7 +85,8 @@ function check(name, pass, detail) {
    until first run resolves. */
 async function openImportPanel(page) {
   await page.goto(BASE + '/?tab=create', { waitUntil: 'load' });
-  await page.evaluate(() => fetch('/api/first-run/complete', { method: 'POST' }).catch(() => {}));
+  const frOk = await page.evaluate(() => fetch('/api/first-run/complete', { method: 'POST' }).then((r) => r.ok).catch(() => false));
+  if (!frOk) { console.log('FAIL  could not complete first run on the board (is it up and sandboxed?)'); process.exit(1); }
   await page.goto(BASE + '/?tab=create', { waitUntil: 'load' });
   await page.waitForFunction(() => { const c = document.getElementById('boot-cover'); return !c || c.hidden; }, { timeout: 10000 });
   await page.waitForSelector('#pick-import:not([hidden])', { timeout: 10000 });
@@ -150,7 +151,7 @@ async function run() {
       instrLen: ((document.getElementById('create-instr') || {}).value || '').length,
       onNameStep: document.getElementById('cstep-name') ? !document.getElementById('cstep-name').hidden : false,
     }));
-    check('a non-agent file is refused with a reason', neg.msgShown && neg.msg.trim().length > 0, `msg=${JSON.stringify(neg.msg.slice(0, 60))}`);
+    check('a non-agent file is refused with a reason', neg.msgShown && neg.msg.trim().length > 0 && !/Reading it/i.test(neg.msg), `msg=${JSON.stringify(neg.msg.slice(0, 60))}`);
     check('a refused import stays on the import panel', neg.stillOnPanel === true, `stillOnPanel=${neg.stillOnPanel}`);
     check('a refused import does NOT half-fill the form', neg.instrLen === 0 && neg.onNameStep === false, `instrLen=${neg.instrLen} onNameStep=${neg.onNameStep}`);
     await p2.close();
