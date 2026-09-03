@@ -12,6 +12,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const BUILD = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
 const RELEASE = fs.readFileSync(path.join(__dirname, 'tools', 'release.sh'), 'utf8');
+// #2036: the latest.json pointer SHAPE now lives in one shared writer, called by both
+// release.sh (prod pointer) and publish-staging-pointer.sh (staging pointer), so the two
+// cannot diverge. The shape assertions below moved here from release.sh with that extraction.
+const POINTER_WRITER = fs.readFileSync(path.join(__dirname, 'tools', 'lib', 'write-latest-pointer.js'), 'utf8');
 
 test('#776: the bundle build writes a manifest that names the artifact sha, app commit, node download sha, connector, and every file', () => {
   assert.match(BUILD, /MANIFEST_OUT="\$OUT\/kosmos-\$ARCH\.manifest\.json"/);
@@ -46,9 +50,17 @@ test('#1920: latest.json carries the artifact sha256 and a manifest pointer, not
   // `shasum -c` just above, so latest.json cannot advertise a digest the served pair rejects.
   assert.match(RELEASE, /KM_ARTIFACT_SHA="\$\(awk '\{print \$1\}' "\$REPO\/dist\/kosmos-arm64\.tar\.gz\.sha256"\)"/,
     'latest.json must read the artifact sha from the verified .sha256 sidecar, not compute a fresh one');
+  // release.sh must WRITE latest.json through the one shared pointer-writer (#2036), passing the
+  // verified sha as KM_LJ_SHA, so the prod pointer's shape cannot drift from the staging pointer's.
+  assert.match(RELEASE, /KM_LJ_SHA="\$KM_ARTIFACT_SHA"/, 'release.sh must feed the verified sidecar sha to the pointer writer');
+  assert.match(RELEASE, /node "\$\(cd "\$\(dirname "\$0"\)" && pwd\)\/lib\/write-latest-pointer\.js" "\$SITE\/dist\/latest\.json"/,
+    'release.sh must write latest.json via the shared tools/lib/write-latest-pointer.js');
   // The written object carries the sha and a pointer to the served manifest, alongside version.
-  assert.match(RELEASE, /sha256: e\.KM_LJ_SHA/, 'latest.json no longer writes the artifact sha256');
-  assert.match(RELEASE, /manifest: e\.KM_LJ_MANIFEST/, 'latest.json no longer writes a manifest pointer');
+  // These live in the shared writer now, so assert them THERE (the shape's single source).
+  assert.match(POINTER_WRITER, /sha256: e\.KM_LJ_SHA/, 'the pointer writer no longer writes the artifact sha256');
+  assert.match(POINTER_WRITER, /manifest: e\.KM_LJ_MANIFEST/, 'the pointer writer no longer writes a manifest pointer');
+  assert.match(POINTER_WRITER, /version: e\.KM_LJ_VERSION/, 'the pointer writer no longer writes the version');
+  assert.match(POINTER_WRITER, /artifact: e\.KM_LJ_ARTIFACT/, 'the pointer writer no longer writes the artifact name');
   // The pointer must name the SAME versioned manifest _site_paths commits and serves,
   // or the pointer would 404 -- the discoverability gap this card closes would reopen.
   assert.match(RELEASE, /KM_LJ_MANIFEST="kosmos-\$V-arm64\.manifest\.json"/,
