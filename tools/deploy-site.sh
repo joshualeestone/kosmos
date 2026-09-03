@@ -193,12 +193,39 @@ fi
 ( cd "$EXPORT" && vercel deploy --prod --yes ) || { echo "deploy-site: vercel deploy --prod failed"; rm -rf "$EXPORT"; exit 1; }
 rm -rf "$EXPORT"
 
-# --- 6) verify the SERVED bytes, by FETCHING them (not by the deploy reporting success) --
-# The failure mode is a perfectly rendered page with dead download buttons; only fetching
-# the artifacts and checking the bytes catches it.
-REPO="$REPO" HOST="$HOST" sh "$REPO/tools/verify-served.sh" || { echo "deploy-site: SERVED verification FAILED after deploy -- the site may render with dead downloads. Investigate immediately (this is the #1669 shape)."; exit 1; }
-# verify-served.sh does not cover the Windows zip; confirm it explicitly.
-code=$(curl -sSL -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/$WINZIP") || { echo "deploy-site: could not reach $HOST/dist/$WINZIP to confirm it is served (transport error) -- investigate; the deploy already ran."; exit 1; }
-[ "$code" = "200" ] || { echo "deploy-site: the Windows zip $WINZIP is NOT served ($code) after deploy -- investigate."; exit 1; }
+# --- 6) verify the SERVED bytes against WHAT WE DEPLOYED, by FETCHING them --------------------
+# The failure mode is a perfectly rendered page with dead download buttons; only fetching the
+# artifacts and checking the bytes catches it.
+# 🛑 NOT tools/verify-served.sh here (#2014 review, BLOCKER). That verifier keys EVERY version
+# expectation to agent-workforce's package.json, which in this standalone between-release window is
+# routinely AHEAD of the site's released version (measured: package.json 0.6.26 vs live 0.6.25). It
+# would 404 on kosmos-<newer>-arm64.tar.gz and fail the latest.json version grep on a PERFECTLY GOOD
+# site-copy deploy -- crying the #1669 wolf on essentially every intended use. The correct reference
+# is the site's OWN version ($ART, from the live latest.json this script already validated). We
+# fetched + sha-verified each gitignored artifact pre-deploy, so confirm the SERVED copy of each
+# matches the LOCAL verified copy by sha (a drop 404s the fetch; wrong bytes fail the sha).
+served_matches() {  # <path-under-dist> <local-verified-file>
+  t=$(mktemp "${TMPDIR:-/tmp}/deploy-site-served.XXXXXX")
+  curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/$1" -o "$t" || { echo "deploy-site: SERVED dist/$1 could not be fetched after deploy (dropped? this is the #1669 shape) -- investigate."; rm -f "$t"; exit 1; }
+  ss=$(shasum -a 256 < "$t" | awk '{print $1}'); rm -f "$t"
+  ll=$(shasum -a 256 < "$2" | awk '{print $1}')
+  [ "$ss" = "$ll" ] || { echo "deploy-site: SERVED dist/$1 does not match what was deployed (served '$ss' local '$ll') -- wrong bytes on the live site. Investigate."; exit 1; }
+}
+served_matches "$ART"              "$SITE/dist/$ART"
+served_matches Kosmos.pkg          "$SITE/dist/Kosmos.pkg"
+served_matches tmux-arm64.tar.gz   "$SITE/dist/tmux-arm64.tar.gz"
+served_matches kosmos-arm64.tar.gz "$SITE/dist/kosmos-arm64.tar.gz"
+# the served latest.json (tracked, committed) must still name $ART after the deploy.
+sj=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: could not re-read the served latest.json after deploy -- investigate."; exit 1; }
+printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest.json no longer names $ART after deploy -- investigate."; exit 1; }
+# tracked / git-archive-shipped surfaces: a 200 is enough -- git archive ships committed bytes
+# deterministically, and a bytes-vs-agent-workforce compare is exactly the version-skew trap the
+# verify-served.sh removal avoids. The win zip is under /dist; /setup is at the site root.
+served_200() {  # <full-url> <label>
+  c=$(curl -sSL -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$1") || { echo "deploy-site: could not reach $1 to confirm it is served (transport error) -- investigate; the deploy already ran."; exit 1; }
+  [ "$c" = "200" ] || { echo "deploy-site: $2 is NOT served ($c) after deploy -- investigate."; exit 1; }
+}
+served_200 "$HOST/dist/$WINZIP" "the Windows zip $WINZIP"
+served_200 "$HOST/setup"        "/setup"
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."
