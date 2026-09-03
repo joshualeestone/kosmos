@@ -27,13 +27,16 @@ to do manually what we cannot yet auto-surface).
   Continue already lets a skipper move on. The offer-not-require MECHANISM is unchanged (step 5's
   Continue proceeds to frGo(6) unconditionally); the out is now Continue, not an in-pane sentence.
 
-## A real interaction, flagged
+## A real interaction, flagged — and resolved
 
 Deleting that line also removed the #1214 **"later in Settings" pointer** (which had its own
-LOCATION-pin test + Josh's #1214 ruling that the offer names the box). The mechanism is intact; only
-the pointer text is gone. I updated the #1214 LOCATION-pin test to assert that intentional absence
-(so a re-add is deliberate, not a silent revert), and flagged Mona Lisa: if Josh wants a "you can
-turn it on later in Settings" pointer WITHOUT the "optional" framing, it's a one-line copy add.
+LOCATION-pin test + Josh's #1214 ruling that the offer names the box where you turn it on later). I
+flagged this to Mona Lisa rather than silently deleting a #1214-tested out. **Her decision: keep the
+pointer, reworded** to drop only the pushy "optional / now-or-later" framing. Final copy (Josh
+voice): "You can turn this on anytime in Settings, under Keeping agents running." — drops "optional",
+keeps the out ("anytime") and names the Settings box, so the #1214 location pin holds. The
+LOCATION-pin test asserts the pointer PRESENT; the browser check asserts the reworded line renders.
+The catch is the value of the flag: without it, the markup edit would have silently reverted #1214.
 
 ## Verification
 
