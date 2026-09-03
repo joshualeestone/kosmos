@@ -4452,10 +4452,19 @@ function snapshot() {
        being rejected 401 -- #874). The mapping STATE->outcome lives HERE, the one
        place STATE is defined, so engine/observed.js stays dependency-free and this
        module can require it without a load-order cycle.
-       🔑 status.state (POST-reconcile), NOT scrapedStatus.state: a scraped 401 that
-       #1930's authprobe has judged stale scrollback is no longer AUTH_FAILED here,
-       so we do not record a "rejected" for a repaired account (accounts.js:297 --
-       telling a paying customer they are disconnected is a failure to prevent).
+       🔑 status.state (POST-reconcile) for BOTH arms, and WORKING means more than
+       a scraped stream -- state it precisely so a future reader does not over-trust it:
+       - AUTH_FAILED: a scraped 401 that #1930's authprobe judged stale scrollback is
+         no longer AUTH_FAILED here, so we never record "rejected" for a repaired
+         account (accounts.js:297 -- telling a paying customer they are disconnected is
+         a failure to prevent).
+       - WORKING: the board's considered verdict that the agent is running a turn --
+         witnessed in the scrape OR a fresh self-report (its own claim) -- NOT
+         overridden by a scraped 401 (reconcile Rule 3b). Either source means a request
+         was accepted for a running turn, real evidence the token works; a dead token
+         surfaces as AUTH_FAILED and overrides. The one bounded soft spot is the plan's
+         #1930 open question (authprobe wrongly suppressing a real 401) paired with a
+         fresh working self-report, and self-report freshness (5 min) caps even that.
        🔑 isNamedOurs gate: only a pane genuinely TIED to its name may attribute an
        outcome to that name's account, the same identity discipline every name-keyed
        write in this function honours.
