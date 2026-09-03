@@ -1675,38 +1675,32 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    block; render-settings-nav.js renders the result at 420, 920 and 1400. */
 #panel-settings .dbody { grid-template-columns: 176px 34rem; justify-content: center; }
 /* #2012: the AGENT page goes full-width (Josh's ask + Mona Lisa's mock). It
-   drops the 34rem centre cap that Settings keeps and falls back to the base
-   .dbody's 176px + fluid column, so the dialogue grows into what was empty
-   margin. Split from the Settings rule above on purpose -- Settings stays
-   capped; only #panel-detail widens. */
+   drops the 34rem centre cap that Settings keeps and restates the base .dbody's
+   176px + fluid column, so the dialogue grows into what was empty margin. Split
+   from the Settings rule above on purpose -- Settings stays capped; only
+   #panel-detail widens. (Restated rather than left to the base rule because the
+   60rem/56rem media rules below still name this selector.) */
 #panel-detail .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch; }
 /* #2012: prose keeps a readable measure even though the column is now wide -- a
    1000px-long line is unreadable. The message BODY caps near 66ch, left-aligned
-   in the wide column; the chrome around it (avatar, timestamps, composer) still
-   spans. This is the mock's full-width principle: chrome spans, prose keeps a
-   measure. */
+   in the wide column. The chrome that sits OUTSIDE the body -- the avatar beside
+   it and the composer below -- still spans; the name/timestamp header rides
+   INSIDE the body and shares its measure, which is what we want. This is the
+   mock's full-width principle: outer chrome spans, prose keeps a measure. */
 #panel-detail .msg-b { max-width: 66ch; }
 @media (max-width: 60rem) { #panel-settings .dbody, #panel-detail .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch; } }
-/* Josh, 2026-08-25 10:07 CDT: "make the width of the viewing agent the same
-   as we did on the settings stuff... it could all kind of fit centered."
-   Same #770 request, one screen later: the agent detail page (#panel-detail)
-   shares .dbody/.snav/.dsec with Settings already (built as siblings on
-   purpose, see the comment above Settings' own nav) but never got the width
-   override, so it was still on the base .dbody rule's fluid 1fr column.
-   ⚠️ .dhead sits BEFORE .dbody, a sibling not a child, so capping .dbody
-   alone would leave the avatar/name row spanning the full window while the
-   sections below it centre to 746px -- visibly disagreeing about the page's
-   own width. Capped to the same total (176px nav + 26px gap + 34rem content,
-   .dbody's own values) so the header's left/right edges line up with the
-   grid below it, and relaxed at the same 60rem breakpoint Settings uses so
-   the two behave as one page, not two independently-tuned widths. */
-/* #2012: the header spans the full width now, matching the full-width .dbody
-   below it -- capping it to the old 34rem total while the body went wide would
-   make the header and the sections disagree about the page's width (the exact
-   misalignment the note above warns of, in reverse). Making it a sticky banner
-   that the nav pins under is a deliberate follow-up: .snav is already sticky,
-   so a sticky header must coordinate the nav's `top` with the header's height,
-   which wants interactive visual verification. */
+/* HISTORY (superseded by #2012 below): under Josh's 2026-08-25 "match settings
+   width" request ("...it could all kind of fit centered"), this header WAS
+   capped to Settings' 34rem total so it lined up with the then-capped .dbody.
+   The load-bearing principle from that note still holds and is why the rule
+   below exists: .dhead sits BEFORE .dbody as a sibling, so the two must AGREE
+   on width or the header and the sections visibly disagree about the page. */
+/* #2012: so now that the body is full-width, the header spans the full width
+   too (max-width: none) -- capping it to 34rem while the body went wide would
+   recreate that disagreement in reverse. Making it a sticky banner the nav pins
+   under is a deliberate follow-up: .snav is already sticky, so a sticky header
+   must coordinate the nav's `top` with the header's height, which wants
+   interactive visual verification. */
 #panel-detail .dhead { max-width: none; margin: 0 0 30px; }
 @media (max-width: 60rem) { #panel-detail .dhead { max-width: none; margin: 0 0 30px; } }
 .snav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 16px; }
