@@ -74,7 +74,7 @@ the cut still does not get out. That load-shedding fix (for both runners) is car
 
 ## Test
 
-`tools/test-cut-rerun-guard.sh` (wired into `test:shell`): 11 assertions covering
+`tools/test-cut-rerun-guard.sh` (wired into `test:shell`): 20 assertions covering
 extraction (incl. ignoring stack frames and a no-node-file red), the contention-dismiss
 path, and the controls that return the dangerous answer -- a file that stays red alone,
 a missing file, a no-node-file red, and a mixed case (one real among a dismissable) all
@@ -83,7 +83,7 @@ return abort. Also `bash -n tools/lib/cut-rerun-guard.sh` and the existing
 
 ## Validation
 
-- `bash tools/test-cut-rerun-guard.sh` -> ALL PASS (11).
+- `bash tools/test-cut-rerun-guard.sh` -> ALL PASS (20).
 - `bash -n` on the lib and release.sh: clean.
 - No `web/` change (no #1720 gate); added a `test-*.sh` not a `*.test.js` (the #1934
   node-coverage count is unaffected); no node engine change.

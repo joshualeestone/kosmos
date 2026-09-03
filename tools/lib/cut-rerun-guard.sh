@@ -115,7 +115,7 @@ kosmos_isolation_rerun_verdict() {
     dismissed=0
     attempt=1
     while [ "$attempt" -le "$max" ]; do
-      if ( cd "$repo" && node --test "$file" ) >/dev/null 2>&1; then
+      if ( cd "$repo" && node --test -- "$file" ) >/dev/null 2>&1; then
         rc=0
       else
         rc=$?

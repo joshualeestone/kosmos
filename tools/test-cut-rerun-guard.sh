@@ -98,6 +98,22 @@ if out="$(kosmos_isolation_rerun_verdict "$log_helper" "$WORK" 1)"; then rc=0; e
 [ "$rc" -eq 1 ] && ok "a failure on a non-.test.js path (helper) + a dismissable .test.js -> verdict 1 (abort, not dismissed)" \
   || bad "pattern-mismatch case: rc=$rc, expected 1 (a broad testat_count would wrongly dismiss)"
 
+# --- DEDUP: one file with MULTIPLE failing tests (testat_count 2 > files 1, both == fail 2) ---
+# The count is per-test (2 'test at' lines), the file list dedups to 1; the check compares
+# testat_count to fail_count (both 2), so it is accounted for and, passing alone, dismissed.
+log_multi="$WORK/log-multi"
+{ echo "test at pass.test.js:2:1"; echo "  first"; echo "test at pass.test.js:2:38"; echo "  second"; tally 3 1 2; } > "$log_multi"
+if out="$(kosmos_isolation_rerun_verdict "$log_multi" "$WORK" 1)"; then rc=0; else rc=$?; fi
+[ "$rc" -eq 0 ] && ok "one file with 2 failing tests (dedup, testat 2 == fail 2) passes alone -> verdict 0 (dismissed)" \
+  || bad "multi-test-single-file case: rc=$rc, expected 0"
+
+# --- fail>0 but ZERO parseable .test.js files -> the empty-files abort branch ---
+log_onlyhelper="$WORK/log-onlyhelper"
+{ echo "test at helper.js:1:1"; echo "  a non-.test.js failure, alone"; tally 2 1 1; } > "$log_onlyhelper"
+if out="$(kosmos_isolation_rerun_verdict "$log_onlyhelper" "$WORK" 1)"; then rc=0; else rc=$?; fi
+[ "$rc" -eq 1 ] && ok "fail 1 but no parseable .test.js file (only a helper.js line) -> verdict 1 (abort)" \
+  || bad "no-parseable-file case: rc=$rc, expected 1"
+
 # --- COMPLETENESS: no readable tally at all -> verdict 1 ---
 log_notally="$WORK/log-notally"
 { echo "test at pass.test.js:2:1"; echo "  killed before the tally"; } > "$log_notally"
