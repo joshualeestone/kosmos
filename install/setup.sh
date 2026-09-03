@@ -3768,7 +3768,12 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
     if [ -n "$_nhf" ]; then
       chmod 600 "$_nhf" 2>/dev/null || true
       printf 'x-kosmos-board-token: %s\n' "$_bt" > "$_nhf" 2>/dev/null || true
-      _nonce="$(curl -sS -m 15 -H @"$_nhf" -X POST "http://127.0.0.1:$PORT/api/board-nonce" 2>/dev/null | sed -n 's/.*"nonce":"\([0-9a-f]*\)".*/\1/p')"
+      # `|| true` is load-bearing under this script's `set -euo pipefail`: a curl
+      # connection failure (exit 7, board died in the window after the health
+      # check) or a timeout (exit 28) makes the pipeline non-zero, and without the
+      # guard `set -e` would ABORT the fresh install here rather than falling back
+      # to the plain URL as intended. (cmd_open guards its mint the same way.)
+      _nonce="$(curl -sS -m 15 -H @"$_nhf" -X POST "http://127.0.0.1:$PORT/api/board-nonce" 2>/dev/null | sed -n 's/.*"nonce":"\([0-9a-f]*\)".*/\1/p' || true)"
       rm -f "$_nhf" 2>/dev/null || true
       [ -n "$_nonce" ] && _board_url="http://127.0.0.1:$PORT/?boot=$_nonce"
     fi
