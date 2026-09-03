@@ -37,13 +37,18 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 ARCH="${KOSMOS_WIN_ARCH:-x64}"
 [ -d "$SITE/dist" ] || { echo "publish-win: no $SITE/dist (is the site checkout present?)" >&2; exit 1; }
 command -v unzip >/dev/null 2>&1 || { echo "publish-win: unzip is required to read the built version" >&2; exit 1; }
+command -v node  >/dev/null 2>&1 || { echo "publish-win: node is required to read the version and write latest-win.json" >&2; exit 1; }
 
 # The version the build BAKED IN, read from the zip itself. Reading the repo's current
 # package.json instead would name the artifact after whatever the tree is now, not what was
 # built -- exactly the versioned/stale mismatch this card is about.
 VERSION="${2:-}"
 if [ -z "$VERSION" ]; then
-  VERSION="$(unzip -p "$ZIP" app/package.json 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+  # node, not a sed heuristic: a minified single-line package.json carrying another "version"
+  # substring (a dependency key) could mis-parse under sed; node parses the JSON exactly. node
+  # is already a hard dependency (latest-win.json below), and both are guarded up front so this
+  # fails BEFORE anything is staged rather than after.
+  VERSION="$(unzip -p "$ZIP" app/package.json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).version||""))}catch{process.stdout.write("")}})')"
 fi
 [ -n "$VERSION" ] || { echo "publish-win: could not read the version from $ZIP (app/package.json)" >&2; exit 1; }
 
@@ -52,7 +57,16 @@ VERSIONED="kosmos-$VERSION-win-$ARCH.zip"
 
 # Stage both names from the one built zip. COPY, not link: the site deploy carries files, and
 # a hard link would break once the shared dist is overwritten in place by a later publish.
+# The ALIAS is intentionally MUTABLE -- it always points at the newest build.
 cp "$ZIP" "$SITE/dist/$ALIAS"
+# The VERSIONED name is a promise of IMMUTABILITY: a client that pinned kosmos-<v>-win-<arch>.zip
+# must always get the same bytes, so republishing DIFFERENT bytes under it seeds a stale-cache
+# incident (release.sh refuses the same way for the versioned tarball). Refuse rather than clobber;
+# re-running with the SAME bytes is fine (cmp matches), so a retry after a partial run is safe.
+if [ -f "$SITE/dist/$VERSIONED" ] && ! cmp -s "$ZIP" "$SITE/dist/$VERSIONED"; then
+  echo "publish-win: $VERSIONED already exists with DIFFERENT bytes -- refusing to republish a versioned name (it is immutable). Bump the version, or remove the old artifact deliberately." >&2
+  exit 1
+fi
 cp "$ZIP" "$SITE/dist/$VERSIONED"
 
 # sha256 sidecar for each, NAMING its own file, and verified IN PLACE -- a pair that cannot

@@ -104,6 +104,33 @@ test('#2008: refuses a missing zip and a zip with no baked version, rather than 
   execFileSync('zip', ['-qr', badZip, 'other'], { cwd: dir });
   assert.throws(() => run(badZip, site), /could not read the version/,
     'a zip with no baked version must be refused, not staged under a guessed name');
-  // And nothing was staged on the refusal.
-  assert.deepEqual(fs.readdirSync(path.join(site, 'dist')).filter((f) => f.includes('3.2.1') || f === 'latest-win.json'), []);
+  // And nothing was staged on EITHER refusal -- the whole dist stays empty, so a regression that
+  // staged the alias (or any file) before the version check would fail here. (The prior filter for
+  // '3.2.1' was copy-pasted from the control arm and matched nothing, making this vacuous.)
+  assert.deepEqual(fs.readdirSync(path.join(site, 'dist')), [], 'a refusal must stage nothing');
+});
+
+test('#2008: the versioned name is immutable -- republishing DIFFERENT bytes under the same version is refused, same bytes is idempotent', () => {
+  const site = freshSite();
+  const dirA = fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-fix-'));
+  run(fixtureZip(dirA, '1.0.0'), site);
+  const versioned = path.join(site, 'dist', 'kosmos-1.0.0-win-x64.zip');
+  const firstBytes = fs.readFileSync(versioned);
+  // Re-running with the SAME zip (same version, same bytes) is idempotent -- a retry after a
+  // partial run must succeed, not refuse.
+  run(fixtureZip(dirA, '1.0.0'), site);
+  assert.deepEqual(fs.readFileSync(versioned), firstBytes, 'same-bytes republish must be idempotent');
+  // A DIFFERENT build under the SAME version (an extra file changes the bytes) must be refused --
+  // a versioned name is a promise of immutability, and clobbering it seeds a stale-cache incident.
+  const dirB = fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-fix-'));
+  const appB = path.join(dirB, 'app');
+  fs.mkdirSync(appB, { recursive: true });
+  fs.writeFileSync(path.join(appB, 'package.json'), JSON.stringify({ name: 'agent-workforce', version: '1.0.0' }) + '\n');
+  fs.writeFileSync(path.join(appB, 'DIFFERENT.txt'), 'these bytes differ\n');
+  const zipB = path.join(dirB, 'kosmos-win-x64.zip');
+  execFileSync('zip', ['-qr', zipB, 'app'], { cwd: dirB });
+  assert.throws(() => run(zipB, site), /refusing to republish a versioned name/,
+    'different bytes under the same versioned name must be refused');
+  // The original versioned bytes are untouched by the refused republish.
+  assert.deepEqual(fs.readFileSync(versioned), firstBytes, 'the refused republish must not have clobbered the versioned artifact');
 });
