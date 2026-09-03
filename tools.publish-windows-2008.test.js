@@ -129,8 +129,19 @@ test('#2008: the versioned name is immutable -- republishing DIFFERENT bytes und
   fs.writeFileSync(path.join(appB, 'DIFFERENT.txt'), 'these bytes differ\n');
   const zipB = path.join(dirB, 'kosmos-win-x64.zip');
   execFileSync('zip', ['-qr', zipB, 'app'], { cwd: dirB });
+  // Snapshot the WHOLE dist before the refused republish: the alias, its sidecar, latest-win.json,
+  // and the versioned pair must ALL be untouched by a refusal -- not just the versioned copy. A
+  // guard that ran AFTER the alias cp would leave the alias clobbered to the refused bytes with a
+  // stale sidecar/manifest (an inconsistent dist that fails shasum -c), which a versioned-only
+  // assertion cannot see. So assert the entire dist is byte-for-byte unchanged.
+  const dist = path.join(site, 'dist');
+  const snap = {};
+  for (const f of fs.readdirSync(dist)) snap[f] = fs.readFileSync(path.join(dist, f));
   assert.throws(() => run(zipB, site), /refusing to republish a versioned name/,
     'different bytes under the same versioned name must be refused');
-  // The original versioned bytes are untouched by the refused republish.
-  assert.deepEqual(fs.readFileSync(versioned), firstBytes, 'the refused republish must not have clobbered the versioned artifact');
+  assert.deepEqual(fs.readdirSync(dist).sort(), Object.keys(snap).sort(),
+    'a refusal must not add or remove any dist file');
+  for (const f of Object.keys(snap)) {
+    assert.deepEqual(fs.readFileSync(path.join(dist, f)), snap[f], `a refusal must leave ${f} byte-for-byte unchanged`);
+  }
 });
