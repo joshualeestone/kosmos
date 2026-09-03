@@ -58,7 +58,9 @@ its TTL -- ever reaches argv.
 - **RESIDUAL, stated so "closed" is not misread as "no cross-account risk":** the nonce STILL rides the
   `open`/`sh`/browser argv -- an `open <url>` handoff cannot avoid a redeemable value on argv -- so the
   #1946 hostile-second-account (`ps -ww -o args` in a loop) can, WITHIN the TTL, race to `curl
-  .../?boot=<nonce>` and redeem it before the victim's browser, obtaining an equivalent board cookie.
+  .../?boot=<nonce>` and redeem it before the victim's browser; the redeem 302 sets
+  `kosmos_board=<durable-token>`, so a race-winner recovers the DURABLE TOKEN itself (winning the race
+  is as good as the old leak), not merely a session cookie.
   #1979 shrinks this from forever + unlimited to ~2 min + single-use, and makes a lost race DETECTABLE
   (single-use -> the victim's dashboard 403s rather than silently sharing a live secret). It does not
   eliminate the in-window race; that is inherent to the handoff and out of scope. The TTL is the knob

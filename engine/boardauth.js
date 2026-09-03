@@ -275,13 +275,15 @@ function pathWithoutToken(req, routingBase) { return pathWithoutParam(req, routi
 // rides the `open`/`sh`/browser argv -- you cannot hand a browser a URL without
 // putting a redeemable value on argv -- so the exact #1946 hostile-second-account
 // (`ps -ww -o args` in a tight loop) can, WITHIN the TTL, `curl .../?boot=<nonce>`
-// and redeem it before the victim's browser does, obtaining an equivalent board
-// cookie. What #1979 changes is the SIZE of that exposure, not its existence: the
-// durable token was a forever-valid secret readable off argv every launch; the
-// nonce is single-use and TTL-bounded, so the window is ~2 min not forever, one
-// use not unlimited, and -- because it is single-use -- a lost race is DETECTABLE
-// to the victim (their dashboard 403s / re-prompts instead of silently sharing a
-// live secret). The TTL below is the knob that trades that window against redeem
+// and redeem it before the victim's browser does. The 302 sets `cookieHeader(token)`
+// = `kosmos_board=<durable-token>`, so a race-winner recovers the DURABLE TOKEN
+// ITSELF (in the Set-Cookie), not merely a session-scoped cookie -- winning the
+// race is as good as the old leak. What #1979 changes is the SIZE of that exposure,
+// not its existence: instead of reading the durable token off argv at leisure,
+// forever, an attacker must now WIN a bounded (~2 min), single-use race -- the
+// window is ~2 min not forever, one use not unlimited, and, BECAUSE it is
+// single-use, a lost race is DETECTABLE to the victim (their dashboard 403s /
+// re-prompts instead of silently sharing a live secret). The TTL below is the knob that trades that window against redeem
 // reliability (it must outlast `kosmos open`'s immediate redeem and setup.sh's
 // RunAtLoad open). Fully removing the argv value would need a different handoff
 // than `open <url>` and is out of scope here.
