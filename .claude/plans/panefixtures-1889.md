@@ -154,10 +154,26 @@ other three. Do not read the merge as the card being done.
 ## Verification
 
 - New test pinned from the verbatim live line, plus the plural form.
-- **Perturbed to prove it can fail**: replacing the regex with one that cannot
-  match now reds 3 of 174 in `status.test.js` (the aimed assertion, the contract table and the reconcile row; re-measured after the rebase, and the
-  contract table); restoring returns 160/160. The older "1 of 159" predates both
-  the table and the extra test.
+- **Perturbed to prove it can fail**: replacing `BACKGROUND_AGENT_WAIT` with
+  `/(?!)/u` reds **4 of 175** in `status.test.js` (the reader test, the evidence
+  contract, the reconcile row and the shape-contract table); restoring returns
+  **175/175**. Earlier figures in this file said "3 of 174" and "160/160"; the
+  first was true before the evidence contract was split into its own block, and
+  the second was never true of any tree on this branch. Both are corrected here
+  rather than deleted, because a number that was wrong is worth seeing.
+
+  🛑 **AND THE FIRST VERSION OF THIS PERTURBATION WAS ITSELF DEFECTIVE, CAUGHT BY
+  THIS MODULE'S OWN CONTROL ROW.** I first wrote the disabling regex as `/$^/u`,
+  reasoning that end-of-input followed by start-of-input can never both hold. On
+  a NON-EMPTY string that is right. On the EMPTY string position 0 is both, so
+  `/$^/u.test('')` returns **true** -- and a captured pane's tail begins with a
+  blank row, so the "disabled" reader fired on it and turned the module MORE
+  working, not less. Six tests reddened instead of four, two of them unrelated,
+  and the one that named the cause was the footer-alone CONTROL at
+  `status.test.js:1453` -- a row whose whole job is to fail when a fixture leaks.
+  ⭐ The lesson is not about `$^`. **A perturbation is a measuring instrument and
+  gets no exemption from the rule it exists to enforce: if it reds something you
+  did not predict, the instrument is a suspect before the code is.**
 - Full suite `bash tools/run-tests.sh`: **exit 0**, 4537 lines, zero failures,
   and the new test runs inside it.
 
@@ -389,7 +405,10 @@ against a base that will not be merged.
 Rebased cleanly (0 conflict markers predicted, 0 encountered). Numbers re-taken on
 the new head:
 
-- suite: **174/174** (was 161; upstream added 13)
+- suite: **174/174** (was 161; upstream added 13). ⚠️ Superseded at iteration
+  19: splitting the evidence contract into its own block makes it **175/175**.
+  This row is the value AT THE REBASE and is left as written, because a
+  snapshot that is quietly edited forward stops being a snapshot.
 - all 15 perturbations still bite, including the two new `AGENT_FINISHED_LINE`
   arms, the structural flag, and the `reconcileReport` gate
 - live behaviour unchanged: a live wait reads `working` with `backgroundWait:
