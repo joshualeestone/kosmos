@@ -20,9 +20,10 @@ Two edits, both small:
   an omitted key.
 - `engine/connect.js`: the sign-in launch pushes `env -u CLAUDE_CONFIG_DIR` when there is no launch
   dir. Unsetting is not the same as declining to set. **On a WARM tmux server** (one already running)
-  the pane inherits whichever account started that server, a value this process cannot inspect;
-  measured in `tools/witness-pane-env.sh`, which seeds a server before measuring and so answers only
-  that case. **On a COLD server** `new-session` starts one, and a fresh server inherits its
+  the pane inherits whichever account started that server, a value this process cannot inspect. The
+  mechanism is measured in `tools/witness-pane-env.sh` -- **on a PRIVATE socket with `-f /dev/null`,
+  deliberately, so no config can mask it. This launch uses the SHARED socket, so applying that
+  result here is an inference from the mechanism, not a second measurement.** **On a COLD server** `new-session` starts one, and a fresh server inherits its
   launching client's environment, so the leaked value is this process's own. `env -u` strips the key
   inside the pane either way, which is why the fix does not depend on knowing the source. This makes the WRITE side match the rule
   `subscription.checkLive` already states for the READ side ("rather than trusting it to be unset").
@@ -65,8 +66,6 @@ a login argument after the binary.
   composition is not.
 
 ## Validation
-
-The challenge loop ran to convergence; its proof file is the final commit on this branch.
 
 **To check the validation yourself rather than take this paragraph's word** (the honest form, since
 any later commit moves the hash and a sentence asserting a figure would go stale with no signal):

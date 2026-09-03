@@ -432,8 +432,12 @@ test('#1585 CONTROL: an UNVERIFIABLE live check keeps connected rather than forc
  * dead, asking to repair it. **INSTALLED IS NOT INVOKED, and only the default
  * arm invokes it:** the labelled arm's fixture writes `work1/.claude.json` with
  * only `oauthAccount.emailAddress`, so `subscription.check` never returns
- * CONNECTED, `start()` never enters the block holding the sole `checkLive`
- * call, and that arm's injected runner is never called at all.
+ * CONNECTED, and that arm's injected runner is never called at all. ⚠️ An
+ * earlier version said `start()` "never enters the block holding the sole
+ * `checkLive` call". **There are TWO `checkLive` calls in `engine/connect.js`**
+ * (one in `start()`, one in `runFlow()`), so "sole" was wrong; the conclusion
+ * holds for a different reason, which is that these arms return at the
+ * install-confirm guard before `runFlow` is entered at all.
  *
  * ⚠️ WHAT IT DOES NOT BUY, STATED BECAUSE AN EARLIER VERSION OF THIS BLOCK
  * CLAIMED IT DID. These arms do NOT reach a launch decision either way: the
@@ -441,8 +445,13 @@ test('#1585 CONTROL: an UNVERIFIABLE live check keeps connected rather than forc
  * install-confirm guard before claiming a driver. ⚠️ NOT because of `/bin/echo`:
  * that makes `claudeResolved.present` TRUE, and `haveBinary` starts as exactly
  * that. It is the dry-run probe refusal that flips it
- * (`if (!probe.ok || probe.dryRun) haveBinary = false`), which is also what the
- * header of this file says 400 lines above. An earlier version of this block
+ * (`if (!probe.ok || probe.dryRun) haveBinary = false`); the test that pins this
+ * is `'a dry-run probe does not score the binary as working (#1568/#1571)'`
+ * BELOW in this file. ⚠️ An earlier version cited "the header of this file, 400
+ * lines above". **The header says no such thing** -- it says only that
+ * `/bin/echo` is all "Claude is installed" means to `start` -- and the passage
+ * that does state the mechanism is BELOW, not above. Cited by test name rather
+ * than by a line offset, since the offset is what drifted. An earlier version of this block
  * credited `/bin/echo` and contradicted its own file. The routing value they assert is written by
  * `writeState({phase: IDLE})` ABOVE both gates, so it is reachable regardless --
  * mutation-proven: with the pre-fix route and `setRunner` removed, the routing

@@ -1857,7 +1857,9 @@ async function launchSignin(owner) {
        ALREADY-RUNNING server, so the pane inherits whichever account STARTED the
        server -- a value this process cannot inspect. The witness seeds a server
        before measuring, so this is the only case it can answer.
-       **COLD SERVER (not measured, and the ordinary first-run case):** this
+       **COLD SERVER (not measured, and PLAUSIBLY the first-run path -- nobody
+       here has counted how often a Kosmos machine has no tmux server when this
+       launch runs, so that frequency is unmeasured too):** this
        launch uses the DEFAULT socket with no `-L`, so when no server is running
        `new-session` STARTS one, and a fresh server inherits its launching
        client's environment -- meaning the leaked value is THIS process's own and
@@ -1887,8 +1889,12 @@ async function launchSignin(owner) {
 
   /* 📌 The `-u` pushed above sits AFTER `env` in the tmux argv, so it is part of
      the shell-command tmux runs and not an option tmux itself consumes. That
-     holds because tmux's getopt does not permute: the first operand (`env`) ends
-     option parsing.
+     holds because the `getopt` tmux is built against does not permute: the first
+     operand (`env`) ends option parsing. ⚠️ **PERMUTATION IS A libc PROPERTY, NOT
+     A tmux ONE** -- glibc's `getopt` permutes by default, BSD's does not -- so
+     this is a claim about the platform this ships on (macOS), which is where the
+     standing evidence below was taken. On a permuting libc the reasoning would
+     need re-checking.
 
      ✅ THE EVIDENCE IS STANDING AND IN THIS REPO, not an unrepeatable manual
      run. `bin/agent-supervisor.sh` launches every codex pane with TWO `-c`

@@ -1399,8 +1399,10 @@ a different account.
 ⇒ **A partial sweep within a single comment, across three lines.** The premise was corrected and the
 sentence that reasons from it was not. ⚠️ *"Routinely"* was also an unmeasured empirical claim about
 typical machine state, stated flatly **inside the comment whose subject is the measured/unmeasured
-distinction**. Both fixed, and "the ordinary first-run case" is now labelled unmeasured as well:
-nobody here has counted how often a Kosmos machine has no tmux server when this launch runs.
+distinction**. Both fixed. ⚠️ **"the ordinary first-run case" was labelled unmeasured in the TEST ONLY, and this
+sentence claimed both. Caught at iteration 17; the source copy is now hedged too.** ⇒ **A sentence
+recording a sweep is itself a claim, and this is the second time one of mine asserted a completeness
+I had not reached.**
 
 ### The PR body's validation paragraph could not stay true
 
@@ -1422,3 +1424,53 @@ goes stale silently; an instruction to measure does not.**
 - "this branch touches five files" is six at HEAD.
 - The iteration-5 section now carries the resolution note at its head, per this plan's own
   convention, so a reader arriving there does not take a retracted absolute as current.
+
+## Findings from challenge-loop iteration 17
+
+**No code defect, no security issue, no regression.** The reviewer enumerated the argv shapes again
+and could not construct one satisfying all four launch assertions while leaking; confirmed both
+controls load-bearing in opposite directions; verified the four `create.js` sites, the `null`
+normalization, the `account-status` sibling, and that nothing in `web/index.html` reads the connect
+state's `configDir`. **All four findings are claims, and three are the exact class this branch keeps
+failing on.**
+
+### 🛑 A SENTENCE RECORDING A SWEEP IS ITSELF A CLAIM, AND MINE WAS FALSE FOR THE SECOND TIME
+
+Iteration 16's entry said *"'the ordinary first-run case' is now labelled unmeasured as well"*.
+**It was labelled that way in the TEST only.** `engine/connect.js` still stated it flat, inside the
+comment whose subject is the measured/unmeasured distinction.
+
+⭐ **This is the second time one of my sweep-recording sentences asserted a completeness I had not
+reached** (the first: "corrected where it was made", iteration 10). ⇒ **"I fixed it everywhere" is a
+claim about a set, and it deserves the same suspicion as "only", "every" and "nothing". It is
+CHEAPER to check than those, because the sites are grep-able, and I still did not check.**
+
+### 🛑 A FALSE IN-FILE CITATION, IN SHIPPED SOURCE, WITH BOTH HOMES WRONG
+
+`server.connect.test.js` said the probe-refusal mechanism *"is also what the header of this file says
+400 lines above"*. **The header says no such thing** -- it says only that `/bin/echo` is all "Claude
+is installed" means to `start`. The passage that does state the mechanism is the
+`#1568/#1571` test, roughly 440 lines **BELOW**. **Wrong content, wrong direction, and the same
+sentence was in the plan.**
+
+✅ Re-cited **by test name rather than by a line offset**, since the offset is precisely what drifted.
+
+### The PR body again, twice
+
+- **It attributed to a measurement what both code homes call an inference.** The witness runs on a
+  PRIVATE socket with `-f /dev/null`; this launch uses the SHARED socket. Both `engine/connect.js`
+  and `engine/connect.test.js` carry that qualifier and one of them explicitly names its omission as
+  "the partial-sweep shape this branch keeps producing". **The PR body did not carry it.** Seventh
+  partial sweep, second one landing in the only artifact that leaves the repo.
+- **The perfect-tense convergence sentence survived** the iteration-16 edit that recorded its
+  removal. It sat directly above the runnable check that replaced it. Removed.
+
+### Two absolutes and a stale ratio
+
+- *"the sole `checkLive` call"* -- there are **two** in `engine/connect.js` (`start()` and
+  `runFlow()`). The conclusion holds for a different reason: these arms return at the
+  install-confirm guard before `runFlow` is entered.
+- *"tmux's getopt does not permute"* -- **permutation is a libc property, not a tmux one.** glibc
+  permutes by default, BSD does not. The claim is true for the platform this ships on, which is
+  where the standing evidence was taken; the sentence's scope was wider than the evidence's.
+- *"ELEVEN of the 34"* is correct today and goes stale silently. Replaced with the re-count command.
