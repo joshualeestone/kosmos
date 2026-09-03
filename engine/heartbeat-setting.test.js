@@ -100,6 +100,20 @@ test('a JSON ARRAY is corrupt too, and falls to safe-OFF, not the ON default (#2
   assert.equal(hb.read().on, true, 'the control: a genuine object is not treated as corrupt');
 });
 
+test('a corrupt NON-OBJECT JSON value (scalar or null) also falls to safe-OFF (#2013)', () => {
+  /* The guard has three legs -- !parsed (null/falsy), typeof !== object (a
+     scalar), Array.isArray (an array). The array leg is pinned above; this pins
+     the other corrupt shapes so a future edit to ANY leg cannot silently regress
+     one back to the ON default. Each payload is a VALID JSON value, so it reaches
+     the typeof guard rather than the parse-failure catch. */
+  for (const payload of ['null', '42', '"hello"', 'true', 'false', '0', '""']) {
+    fs.writeFileSync(hb.FILE, payload);
+    const s = hb.read();
+    assert.equal(s.on, false, `a JSON ${payload} must fall to OFF, never the ON default`);
+    assert.equal(s.ok, false, `a JSON ${payload} must report ok:false`);
+  }
+});
+
 test('set validates BOTH fields before writing either (atomic)', () => {
   hb.set({ on: false, intervalMinutes: 10 }); // baseline
   const bad = hb.set({ on: true, intervalMinutes: 7 }); // valid on + invalid interval

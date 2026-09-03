@@ -137,6 +137,11 @@ function read() {
   }
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', denied: {}, ok: false }; }
+  // A JSON array passes `typeof === 'object'`, but that is harmless HERE, unlike
+  // in heartbeat-setting: `on` below is read as `parsed.on === true` (an explicit
+  // true test), never defaulted to true, so an array reads off -- the safe value
+  // for a relay that is off until turned on. #2013 fixed heartbeat's twin of this
+  // guard because heartbeat DID default true; this copy needs no Array.isArray.
   if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, ok: false };
   return {
     on: parsed.on === true,
