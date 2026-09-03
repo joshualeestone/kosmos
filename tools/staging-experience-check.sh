@@ -30,6 +30,9 @@
 # non-2xx = board erroring/unreachable) / 2 cannot-tell (no enforcing board here).
 set -uo pipefail
 
+# 16180 is a LAST-RESORT fallback, not an assumption: the board's port is derived
+# per-account, so the intended caller passes it (arg 1) or exports KOSMOS_PORT. A wrong
+# port only alarms (exit 1, the safe direction), never false-passes.
 PORT="${1:-${KOSMOS_PORT:-16180}}"
 URL="http://127.0.0.1:${PORT}"
 say() { printf '%s\n' "$*"; }
@@ -61,10 +64,26 @@ if [ -z "$TOKEN" ]; then
   exit 2
 fi
 
-# Interrupt-safe cleanup: HF holds the durable board token at mode 600, CJ the cookie.
-# A signal between mktemp and the explicit rm would otherwise leak the token file.
+# Cleanup on EVERY exit path (EXIT/INT/TERM), because two things must not outlive the
+# check regardless of how it ends:
+#  - HF (the mode-600 board-token header file) and CJ (the cookie jar): a signal between
+#    mktemp and their explicit rm would otherwise leak the token file;
+#  - #2030 RESTORE: a successful redeem (step 2) seeds .reauth-seeded SERVER-side. A
+#    marker THIS run created must be undone on ANY exit after the redeem - including the
+#    post-redeem FAILURE paths (a still-#2023 board 403s /api/*, the route is not gating,
+#    the board errors). Restoring only on success (the earlier bug) left the marker
+#    seeded in exactly the shared-broken-board case that matters most, suppressing the
+#    real user's next-update self-heal. Guard: SEEDED_BEFORE=0 (default 1 until it is
+#    read, so an exit before the read never touches the marker) AND the marker present =
+#    this run created it. Removing it re-arms the harmless auto-open (the safe direction).
 HF=""; CJ=""
-trap 'rm -f "$HF" "$CJ" 2>/dev/null || true' EXIT INT TERM
+cleanup() {
+  rm -f "$HF" "$CJ" 2>/dev/null || true
+  if [ "${SEEDED_BEFORE:-1}" = 0 ] && [ -f "$ROOT/.reauth-seeded" ]; then
+    rm -f "$ROOT/.reauth-seeded" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
 
 # #2030 side-effect guard. A real redemption (step 2) seeds `.reauth-seeded` SERVER-side,
 # which stops setup.sh's next-update auto-open. On a DEDICATED fresh staging account -
@@ -125,18 +144,17 @@ case "$API_CODE" in
     exit 1 ;;
 esac
 
-# 4. #2030 marker: restore the pre-check state (see the SEEDED_BEFORE note above). If
-#    THIS check created the marker, remove it so a real user's next-update auto-open
-#    still fires. If it was already there, leave it (not ours to touch). If a successful
-#    redeem left it absent, the board likely predates #2030 - surface it.
-#    ⚠️ This reads/writes the marker at the CHECK's resolved $ROOT, which assumes
-#    check-ROOT == server-ROOT. They differ only if the check and the board run under
-#    different AGENT_WORKFORCE_DATA; on a mismatch the restore/warn is merely inaccurate
-#    (it would not find the server's marker), never a false pass and never a foreign
-#    marker removed - it errs safe. The intended dedicated-account run shares one env.
-if [ "$SEEDED_BEFORE" = 0 ] && [ -f "$ROOT/.reauth-seeded" ]; then
-  rm -f "$ROOT/.reauth-seeded" 2>/dev/null || true   # restore: leave the self-heal armed
-elif [ "$SEEDED_BEFORE" = 0 ]; then
+# 4. #2030 marker note. The RESTORE runs in the EXIT trap now (every post-redeem path,
+#    interrupt-safe - see cleanup() above), so nothing to remove here. On the SUCCESS
+#    path only, surface a successful redeem that left NO marker: the board likely
+#    predates #2030.
+#    ⚠️ The marker is read at the CHECK's resolved $ROOT, which assumes check-ROOT ==
+#    server-ROOT. They differ only if the check and the board run under different
+#    AGENT_WORKFORCE_DATA; on a mismatch this warn (and the trap's restore) is merely
+#    inaccurate - never a false pass, never a foreign marker removed (the trap's guard
+#    is "a marker present that was absent when WE started", which a foreign env cannot
+#    satisfy for the server's marker). The intended dedicated-account run shares one env.
+if [ "$SEEDED_BEFORE" = 0 ] && [ ! -f "$ROOT/.reauth-seeded" ]; then
   say "warn: session is usable but the redemption did NOT write .reauth-seeded (the #2030 marker) - the board may predate #2030; worth a look."
 fi
 
