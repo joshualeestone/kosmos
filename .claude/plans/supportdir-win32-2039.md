@@ -13,9 +13,14 @@ comment already warns about exactly this hazard, next to the copy that got it ri
 adding a win32 branch to create.js's copy would fix the instance and leave the class
 open (the next platform difference gets added to one copy and missed at the other).
 
-- The `AGENT_WORKFORCE_DATA` (sandbox) and mac results are byte-identical to before;
-  win32 is the only behaviour that changes, and it changes to correct (roaming
-  `%APPDATA%\AgentWorkforce`).
+- The `AGENT_WORKFORCE_DATA` (sandbox) and mac results are byte-identical to before for
+  every valid (absolute) input, which is every real caller; win32 is the only INTENDED
+  behaviour change (roaming `%APPDATA%\AgentWorkforce`). One edge differs, and it is a
+  strict improvement rather than a regression: a RELATIVE `AGENT_WORKFORCE_DATA` (which
+  nothing sets) used to resolve silently against cwd and now fails loud through
+  `store.dataRootFor`'s absolute-path guard (#1820's "refuse, do not silently
+  absolutize"). That guard is an existing property of `dataRootFor` inherited here, not
+  newly invented by this change.
 - create's own `homeDir()` is passed, so `AGENT_WORKFORCE_HOME` still applies.
 
 ## Grep for a THIRD copy (Splinter's instruction: two copies is a pattern, not a pair)
