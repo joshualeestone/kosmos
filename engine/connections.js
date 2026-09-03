@@ -30,8 +30,11 @@
  * ⚠️ EVERY AGENT GETS THE SAME WORDS. Unlike the reports-to block, nothing here
  * is per-agent: it is how the product works, not who this agent is. `blockBody`
  * therefore takes no argument, and a future caller must not be tempted to pass
- * one in and start describing THIS machine's state, which is the part that
- * needs a person's consent.
+ * one in and start baking THIS machine's state INTO the block. That is the part
+ * that would need consent, and it is distinct from the RUNTIME read the body
+ * points at: reading /api/accounts at request time is gated by the #1946 board
+ * token, so consent is enforced by the token rather than by asking, and the
+ * answer is never frozen into these static words.
  *
  * ⚠️ ONLY WHAT WAS READ OFF THE PRODUCT. Nothing below is remembered from
  * training or inferred from how such flows usually look. A wrong step in an
@@ -89,14 +92,16 @@ function blockBody() {
     '',
     '🔑 **Two different things here, and the rule flips between them.** This',
     'block carries no live state, but which providers are set up here is not a',
-    'mystery you have to ask about: **`GET /api/accounts` returns every',
-    'provider\'s accounts and, per account, a live-checked connection status.**',
-    'So for what is already set up, **look, do not ask** - read that and answer',
-    'from it rather than sending the person to read a screen you could have read',
-    'yourself. (On a board that enforces auth (kosmos#1946) that read needs the',
-    'board token. Do not hand-roll it: the `kosmos` CLI is the reference for',
-    'sending it safely, off the command line. An unauthenticated read is refused',
-    '- that is a gate to pass, not a sign you cannot see.)',
+    'mystery you have to ask about. The board records it and answers for it:',
+    '**`GET /api/accounts` on the local board (http://127.0.0.1:16180 unless',
+    '`KOSMOS_PORT` says otherwise) returns every provider\'s accounts and, per',
+    'account, a live-checked connection status.** There is no one-word CLI verb',
+    'for it, so it is a direct read of that route. So for what is already set up,',
+    '**look, do not ask** - read it rather than telling the person you cannot see',
+    'it. (On a board that enforces auth the read needs the board token; do not',
+    'hand-roll the header - the `kosmos` CLI is the reference for sending it',
+    'safely, off the command line, and an unauthenticated read is refused, which',
+    'is a gate to pass rather than a sign you are blind.)',
     '',
     '**What you genuinely cannot see is their live screen** - what it says right',
     'now, which button is in front of them, whether a download has run yet. For',
