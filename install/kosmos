@@ -623,16 +623,22 @@ cmd_reply() {
 
 cmd_post() {
   local project text body because _a
-  project="${1:-}"
-  shift 2>/dev/null || true
   # #1955: attaching a FILE to a room post is not supported yet. Detect the
-  # attempt -- a --file/--attach/-f flag, which today would otherwise be swept
-  # into `text="$*"` and posted as LITERAL room text ("--file findings.md") -- and
-  # say so honestly. An agent asked to post a document then learns the limit HERE,
-  # rather than by being asked for something it cannot deliver (an absent
-  # capability and a disregarded request are indistinguishable from the operator's
-  # side). The real capability is tracked as kosmos#1955 (attach) alongside
-  # kosmos#1943 (where an agent's produced document belongs).
+  # attempt -- a --file / --attach flag (or its `=` form), which today would
+  # otherwise be swept into `text="$*"` and posted as LITERAL room text
+  # ("--file findings.md") -- and say so honestly. An agent asked to post a
+  # document then learns the limit HERE, rather than by being asked for something
+  # it cannot deliver (an absent capability and a disregarded request are
+  # indistinguishable from the operator's side). The real capability is tracked as
+  # kosmos#1955 (attach) alongside kosmos#1943 (where an agent's produced document
+  # belongs).
+  # Scanned over the ORIGINAL args, BEFORE `project` is consumed, so a
+  # project-omitted attempt (`kosmos post --file x`) is caught too. Tradeoff, safe
+  # direction: a standalone `--file`/`--attach` WORD anywhere -- e.g. in unquoted
+  # prose like `post p remove the --file option` -- is treated as an attach and
+  # refused (recoverable: quote the message as one arg, which multi-word messages
+  # already are, and the mention passes). `--` is not specially honored; refusing
+  # a legit message is recoverable, posting literal `--file x` garbage is not.
   for _a in "$@"; do
     case "$_a" in
       --file|--file=*|--attach|--attach=*)
@@ -643,6 +649,8 @@ cmd_post() {
         ;;
     esac
   done
+  project="${1:-}"
+  shift 2>/dev/null || true
   text="$*"
   if [ -z "$project" ] || [ -z "$text" ]; then
     say "Usage: kosmos post <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)"

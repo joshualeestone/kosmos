@@ -51,6 +51,12 @@ test('#1955: `--attach` and the `=` forms are caught too', async () => {
   }
 });
 
+test('#1955: a project-omitted attach attempt (`post --file X`) is still caught, not swept into text', async () => {
+  const r = await run(['post', '--file', '/tmp/findings.md']);
+  assert.match(r.out, /not supported yet \(kosmos#1955\)/, 'the flag was consumed as the project and slipped past the guard');
+  assert.doesNotMatch(r.out, /not running/, 'it reached the network with a "--file" project id');
+});
+
 test('#1955 CONTROL: a real text message is NOT intercepted and still reaches the send path', async () => {
   const r = await run(['post', 'someproj', 'here are my findings']);
   assert.doesNotMatch(r.out, /not supported yet \(kosmos#1955\)/, 'a plain text post was wrongly treated as an attach');
