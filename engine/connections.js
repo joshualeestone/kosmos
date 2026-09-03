@@ -6,18 +6,26 @@
  * Josh, 2026-08-26 17:10: *"What I'm wanting is an agent to help me get some of
  * these things connected but they can't even see it to help with it."*
  *
- * 🔑 THIS BLOCK IS KNOWLEDGE, NOT ACCESS, and that is the whole design. The
- * card bundles three things with very different costs: knowing how connecting
- * works, seeing this machine's actual connection state, and acting on it. Only
- * the first is here. It has no security surface, it needs no consent, and the
- * card's own reading is that it delivers most of the value.
+ * 🔑 THIS BLOCK IS KNOWLEDGE, NOT STATE. The card bundles three things with
+ * very different costs: knowing how connecting works, seeing this machine's
+ * actual connection state, and acting on it. This block carries the first and
+ * POINTS AT where the second is readable (GET /api/accounts); it never bakes
+ * the state itself in, which is the line engine/connections.test.js enforces.
+ * Telling an agent WHERE to look is knowledge; embedding what it found would be
+ * state, and state in a static block goes stale the moment anything changes.
+ * (An earlier version of this note said the block carried ONLY "how it works"
+ * and had "no security surface, no consent" -- that produced the false clause
+ * #1034 removed, the one telling agents they could see NONE of the setup. They
+ * can: it is on the machine and readable, so pointing there is the fix.)
  *
- * ⭐ THE MODEL IS A PHONE CALL. A person helping another person connect
- * something cannot see their screen either, and manages perfectly well by
- * asking what they are looking at. An agent that knows the flow can do the
- * same. So this block ends by telling the agent it CANNOT see the screen and
- * must ask rather than assume, which is the difference between useful help and
- * confident nonsense about a button that is not there.
+ * ⭐ THE MODEL IS A PHONE CALL, BUT ONLY FOR THE SCREEN. A person helping
+ * another connect something cannot see their live screen, and manages by asking
+ * what they are looking at; an agent does the same for the screen. What it does
+ * NOT have to ask about is which providers are set up -- that is recorded on the
+ * machine and readable. So this block ends by splitting the two: ask about the
+ * live screen, look for the connection setup, rather than the old false absolute
+ * that said an agent could see none of it and confidently describe a button that
+ * is not there.
  *
  * ⚠️ EVERY AGENT GETS THE SAME WORDS. Unlike the reports-to block, nothing here
  * is per-agent: it is how the product works, not who this agent is. `blockBody`
@@ -80,14 +88,15 @@ function blockBody() {
     'key, and the usage is billed to them.',
     '',
     '🔑 **Two different things here, and the rule flips between them.** This',
-    'block carries no live state, but the connection state is not hidden from',
-    'you: **`GET /api/connections` and `GET /api/accounts` return which',
-    'providers are set up on this computer and which account each one uses.** So',
-    'for what is already set up, **look, do not ask** - read those and answer',
-    'from them rather than sending the person to read a screen you could have',
-    'read yourself. (On a board that enforces it, these reads take the same board',
-    'token the `kosmos` CLI already sends; an unauthenticated read is refused, so',
-    'send the token rather than concluding you cannot see it.)',
+    'block carries no live state, but which providers are set up here is not a',
+    'mystery you have to ask about: **`GET /api/accounts` returns every',
+    'provider\'s accounts and, per account, a live-checked connection status.**',
+    'So for what is already set up, **look, do not ask** - read that and answer',
+    'from it rather than sending the person to read a screen you could have read',
+    'yourself. (On a board that enforces auth (kosmos#1946) that read needs the',
+    'board token. Do not hand-roll it: the `kosmos` CLI is the reference for',
+    'sending it safely, off the command line. An unauthenticated read is refused',
+    '- that is a gate to pass, not a sign you cannot see.)',
     '',
     '**What you genuinely cannot see is their live screen** - what it says right',
     'now, which button is in front of them, whether a download has run yet. For',
