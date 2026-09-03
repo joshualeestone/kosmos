@@ -94,24 +94,54 @@ function readToken() {
  * group-traversable (every local account shares primary gid `staff`), so only an
  * owner-only mode is a real boundary against another local account. Idempotent:
  * a second call returns the same token.
+ *
+ * 🔑 RACE-SAFE ACROSS PROCESSES, and it returns the token that is actually ON
+ * DISK, never merely the one this call generated. Two boards started on the same
+ * account (a same-port pair is settled by the bind, but a DIFFERENT-port pair --
+ * `PORT=x kosmos start` twice -- both reach provisioning) could each generate a
+ * different token on a fresh first boot; whichever writes last would leave the
+ * other serving an in-memory token that no longer matches the file every client
+ * reads, and that board would 403 everyone. The claim is made with `link()`,
+ * which is atomic and fails with EEXIST if the target already exists: the winner
+ * returns its own token, and every loser ADOPTS the token already on disk. So the
+ * value returned always equals the file, whoever won. The content is written to a
+ * temp file FIRST (full, mode 0o600), so a reader never sees a half-written token
+ * -- `link` publishes an already-complete file atomically.
  */
 function ensureToken() {
   const existing = readToken();
-  if (existing) return existing;
+  if (existing) {
+    // Self-heal: re-tighten the mode in case a prior process (or a restore, or a
+    // umask slip) left the token file or its dir looser than owner-only. The
+    // token is only a boundary while it stays unreadable by another account.
+    try { fs.chmodSync(store.ROOT, 0o700); } catch { /* best-effort */ }
+    try { fs.chmodSync(tokenPath(), 0o600); } catch { /* best-effort */ }
+    return existing;
+  }
   const dir = store.ROOT;
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   // mkdir honours the mode only on creation; force it in case the dir pre-existed
   // with a looser mode.
   try { fs.chmodSync(dir, 0o700); } catch { /* best-effort: the file mode is the real guard */ }
   const token = generateToken();
-  // Write to a temp path then rename, and chmod BEFORE the rename so the token is
-  // never briefly world/group-readable at its final name (atomic-write discards
-  // the target's mode, so set it on the temp file).
+  // Write the full content to a temp path, chmod it 0o600 BEFORE it is published,
+  // then claim the final name with link() -- atomic, and EEXIST if a racer got
+  // there first, in which case we adopt whatever they wrote.
   const tmp = path.join(dir, `.${TOKEN_FILE}.${process.pid}.tmp`);
   fs.writeFileSync(tmp, token, { mode: 0o600 });
   try { fs.chmodSync(tmp, 0o600); } catch { /* writeFileSync mode already applied on most platforms */ }
-  fs.renameSync(tmp, tokenPath());
-  return token;
+  try {
+    fs.linkSync(tmp, tokenPath());   // atomic exclusive claim
+    return token;                     // we won the race
+  } catch (err) {
+    if (err && err.code === 'EEXIST') {
+      const winner = readToken();     // a racer published first; adopt its token
+      if (winner) return winner;
+    }
+    throw err;
+  } finally {
+    try { fs.unlinkSync(tmp); } catch { /* our temp; harmless if already gone */ }
+  }
 }
 
 /** Parse the token cookie out of a Cookie header, or null. */

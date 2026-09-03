@@ -8116,19 +8116,19 @@ function start(port = PORT) {
     const onListening = () => {
       server.removeListener('error', onError);
       /* #1946: decide enforcement and provision the token HERE -- AFTER the bind,
-         not at require and not before listen. At require, ensureToken() would
-         write to a real store on a bare `require('./server')` in a unit test; and
-         BEFORE the bind, two boards racing a fresh first boot (no token file yet)
-         would each generate a different token and the bind-LOSER could clobber the
-         file, leaving the serving board's in-memory token out of sync with the
-         file every client reads -- a board that 403s everyone. Only the process
-         that actually binds reaches onListening (the loser rejects in onError), so
-         provisioning here means exactly one writer. A prod board (nothing
-         sandboxed) enforces and gets a persisted mode-600 token, reused across
-         restarts so the operator's cookie survives one; a fully-sandboxed fixture
-         board (every test + browser-check) does not enforce and writes nothing.
-         Fail CLOSED: if provisioning throws (disk/permission), the board stays
-         enforcing with a null token, so it refuses rather than serving unguarded. */
+         not at require. At require, ensureToken() would write to a real store on a
+         bare `require('./server')` in a unit test. Provisioning after the bind also
+         means a same-port double-start settles cleanly: the bind-loser rejects in
+         onError and never provisions. A DIFFERENT-port same-account double-start
+         (`PORT=x kosmos start` twice) does reach here on both, so the token itself
+         must be race-safe, and it is: ensureToken() claims the file with an atomic
+         link() and RETURNS THE TOKEN ON DISK, so every process -- winner or loser
+         of the race -- ends up serving the same token clients read. A prod board
+         (nothing sandboxed) enforces and gets a persisted mode-600 token, reused
+         across restarts so the operator's cookie survives one; a fully-sandboxed
+         fixture board (every test + browser-check) does not enforce and writes
+         nothing. Fail CLOSED: if provisioning throws (disk/permission), the board
+         stays enforcing with a null token, refusing rather than serving unguarded. */
       boardAuthState.on = boardauth.enforced(process.env);
       if (boardAuthState.on) {
         try {
