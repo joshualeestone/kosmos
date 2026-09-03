@@ -5493,7 +5493,7 @@ const server = http.createServer((req, res) => {
           bad.status = 400; throw bad;
         }
         const file = body && typeof body.file === 'string' ? body.file : '';
-        const parsed = agentfile.importAgent(file, { identityFromText, nameUsable: create.nameUsable });
+        const parsed = agentfile.importAgent(file, { identityFromText, nameUsable: create.nameUsable, nameProblem: create.nameProblem });
         if (!parsed.ok) { sendJson(res, 200, { ok: false, because: parsed.because }); return; }
         sendJson(res, 200, {
           ok: true,

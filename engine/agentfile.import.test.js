@@ -28,7 +28,7 @@ const create = require('./create');
 
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
-const deps = { identityFromText: status.identityFromText, nameUsable: create.nameUsable };
+const deps = { identityFromText: status.identityFromText, nameUsable: create.nameUsable, nameProblem: create.nameProblem };
 const BODY = '# You are Casey Jones\n\nYou answer one question, and you answer it well.\n';
 
 /** A valid exported file to import, produced by the REAL export half. */
@@ -116,6 +116,43 @@ test('#1939: the name derivation lowercases and slugs, only if the result is usa
     assert.equal(out.ok, true, file + ' -> ' + out.because);
     assert.equal(out.name, want, file + ' should suggest ' + want);
   }
+});
+
+test('#1939: a derived name the create form would REJECT is not pre-filled (returns empty, form asks)', () => {
+  /* The suggestion is gated on the full nameProblem, not just path-safety, so a
+     slug that would bounce on confirm (a reserved word, a `-discord` name, a
+     one-character name) is returned empty rather than pre-filling a name that gets
+     refused -- which would reintroduce a mild form of the confusing rejection #1939
+     removes. The display name is still recognized; only the machine name is left
+     for the form to require. */
+  const cases = [
+    ['# You are **Something Discord**\n\nHi.\n', 'Something Discord'],   // slug ends -discord (reserved trap)
+    ['# You are **Kosmos Connect**\n\nHi.\n', 'Kosmos Connect'],         // slug is a reserved session name
+    ['You are Q, a helper.\n\nHi.\n', 'Q'],                              // slug "q" is under the 2-char floor
+  ];
+  for (const [file, wantDisplay] of cases) {
+    const out = agentfile.importAgent(file, deps);
+    assert.equal(out.ok, true, file + ' -> ' + out.because);
+    assert.equal(out.displayName, wantDisplay, file + ' should still recognize the display name');
+    assert.equal(out.name, '', file + ' should not pre-fill a name the form would reject');
+    assert.equal(out.recognizedFromContent, true);
+  }
+  // CONTROL: a slug the form ACCEPTS is pre-filled, so the empties above mean the gate fired.
+  assert.equal(agentfile.importAgent('You are Casey Jones.\n', deps).name, 'casey-jones');
+});
+
+test('#1939: an UNTERMINATED --- fence is treated as instructions, not a header (regex returns null)', () => {
+  /* "No header" is a file with no COMPLETE ---...--- block. A file that opens `---`
+     and never closes it makes the header regex return null, so it routes to the
+     instructions path: the whole file is the body, the name is derived from the
+     "You are X" line, and any name: line in the unclosed fence is never read. */
+  const unterminated = '---\nname: ../evil\n\n# You are Recovered\n\nStill an agent.\n';
+  const out = agentfile.importAgent(unterminated, deps);
+  assert.equal(out.ok, true, 'an unterminated fence should recognize the agent in the body: ' + out.because);
+  assert.equal(out.displayName, 'Recovered', 'the display name comes from the body, not the unclosed fence');
+  assert.equal(out.name, 'recovered', 'the machine name is derived from the body, never the path-unsafe name: line');
+  assert.equal(out.body, unterminated, 'the whole file (including the stray fence) is the instructions');
+  assert.notEqual(out.name, '../evil', 'the path-unsafe name from the unclosed fence must never be read');
 });
 
 test('#1652 REFUSED WHOLE: a header without the kosmos marker', () => {
