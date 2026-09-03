@@ -19,9 +19,15 @@
 # browser. The browser-side "polymer clicking" layer (page renders, JS runs) sits on
 # top and is a person or a headless browser check - named in the card, not replaced.
 #
+# INTENDED TARGET: a DEDICATED fresh staging account (the account IS the user). It is
+# safe to run against a shared board too - the redemption seeds `.reauth-seeded` server-
+# side (#2030), and this check RESTORES that state (removes a marker it created) so it
+# does not consume a real user's one-time self-heal. See the SEEDED_BEFORE note below.
+#
 #   bash tools/staging-experience-check.sh [port]
 #
-# Exit 0 usable / 1 broken (the #2023 class) / 2 cannot-tell (no enforcing board here).
+# Exit 0 usable (a 2xx on the sensitive route) / 1 broken (403 = #2023, or any other
+# non-2xx = board erroring/unreachable) / 2 cannot-tell (no enforcing board here).
 set -uo pipefail
 
 PORT="${1:-${KOSMOS_PORT:-16180}}"
@@ -55,6 +61,21 @@ if [ -z "$TOKEN" ]; then
   exit 2
 fi
 
+# Interrupt-safe cleanup: HF holds the durable board token at mode 600, CJ the cookie.
+# A signal between mktemp and the explicit rm would otherwise leak the token file.
+HF=""; CJ=""
+trap 'rm -f "$HF" "$CJ" 2>/dev/null || true' EXIT INT TERM
+
+# #2030 side-effect guard. A real redemption (step 2) seeds `.reauth-seeded` SERVER-side,
+# which stops setup.sh's next-update auto-open. On a DEDICATED fresh staging account -
+# this check's intended target - that is correct (the account itself redeemed). But run
+# against a SHARED board whose real user has NOT yet redeemed, seeding the marker would
+# consume their one-time self-heal. So record whether the marker existed BEFORE and
+# restore that state at the end: removing a marker THIS check created leaves the self-heal
+# armed, which is the safe direction (at worst one extra harmless tab, never a lockout).
+SEEDED_BEFORE=0
+[ -f "$ROOT/.reauth-seeded" ] && SEEDED_BEFORE=1
+
 # 1. Mint a single-use nonce, board token OFF argv via a mode-600 header file (#1979,
 #    the same shape setup.sh's open uses so `ps` never exposes the durable token).
 HF="$(mktemp "${TMPDIR:-/tmp}/staging-exp-auth.XXXXXXXX")" || { say "mktemp failed - cannot tell"; exit 2; }
@@ -78,20 +99,32 @@ if ! grep -q 'kosmos_board' "$CJ" 2>/dev/null; then
   exit 1
 fi
 
-# 3. Use the redeemed cookie on a sensitive route. It must NOT be refused. A 403 here
-#    means the session the browser would have is still locked out (unusable board).
+# 3. Use the redeemed cookie on a sensitive route. USABLE requires a 2xx - not merely
+#    "not 403". A 403 is the #2023 lockout; anything else non-2xx (500 board erroring,
+#    502, or 000 the board crashed/became unreachable between the redeem and here) is a
+#    board that is broken or gone, and must NOT read as USABLE (the false-pass a
+#    403-only guard leaves open).
 API_CODE="$(curl -sS -m 15 -o /dev/null -b "$CJ" -w '%{http_code}' "$URL/api/accounts" 2>/dev/null || true)"
 rm -f "$CJ"
-if [ "$API_CODE" = 403 ]; then
-  say "FAIL (#2023): the redeemed session still 403s /api/* - the board is unusable after update."
-  exit 1
-fi
+case "$API_CODE" in
+  2??) : ;;  # the redeemed session reached the sensitive route -> usable
+  403)
+    say "FAIL (#2023): the redeemed session still 403s /api/* - the board is unusable after update."
+    exit 1 ;;
+  *)
+    say "FAIL: the redeemed session got HTTP ${API_CODE:-000} from /api/accounts - not 2xx and not the #2023 403,"
+    say "  so the board is erroring or became unreachable after the redeem; cannot confirm the experience is usable."
+    exit 1 ;;
+esac
 
-# 4. #2030: a real redemption writes the reauth-seeded marker. Its presence confirms
-#    the self-heal fired; its absence after a successful redeem is worth surfacing
-#    (non-fatal - the session above already proved usable).
-if [ ! -f "$ROOT/.reauth-seeded" ]; then
-  say "warn: session is usable but .reauth-seeded is absent (the #2030 redemption marker) - worth a look."
+# 4. #2030 marker: restore the pre-check state (see the SEEDED_BEFORE note above). If
+#    THIS check created the marker, remove it so a real user's next-update auto-open
+#    still fires. If it was already there, leave it (not ours to touch). If a successful
+#    redeem left it absent, the board likely predates #2030 - surface it.
+if [ "$SEEDED_BEFORE" = 0 ] && [ -f "$ROOT/.reauth-seeded" ]; then
+  rm -f "$ROOT/.reauth-seeded" 2>/dev/null || true   # restore: leave the self-heal armed
+elif [ "$SEEDED_BEFORE" = 0 ]; then
+  say "warn: session is usable but the redemption did NOT write .reauth-seeded (the #2030 marker) - the board may predate #2030; worth a look."
 fi
 
 say "USABLE: a fresh session minted a nonce, redeemed the durable cookie, and reached /api/accounts (HTTP $API_CODE)."
