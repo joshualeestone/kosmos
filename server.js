@@ -1463,7 +1463,12 @@ function gateLog(req) {
   try {
     fs.mkdirSync(path.dirname(GATE_LOG), { recursive: true });
     const ua = String(req.headers['user-agent'] || '-').replace(/[\r\n\t]+/g, ' ');
-    fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${req.url} ${ua}\n`);
+    // #1946: never write the board token to a log, even a same-account one. It
+    // rides ONLY on the one `?token=` bootstrap request (every later request
+    // carries the httpOnly cookie instead), so redacting the query value here is
+    // enough to keep it out of the install-gate log.
+    const loggedUrl = String(req.url || '').replace(/([?&]token=)[^&]*/gi, '$1REDACTED');
+    fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${loggedUrl} ${ua}\n`);
   } catch { /* the instrument never becomes the defect */ }
 }
 

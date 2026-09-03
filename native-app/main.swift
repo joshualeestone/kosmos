@@ -278,14 +278,28 @@ func logLine(_ s: String) {
 }
 
 // #1946: the board authenticates the loopback bind so another macOS account
-// cannot reach it. The token lives in the per-account data dir the board writes it
-// to -- the same `~/Library/Application Support/AgentWorkforce` that store.ROOT
-// resolves to (via the standard Application Support API, so there is no hardcoded
-// path), mode 600, readable only by this account. nil when there is no token (a
+// cannot reach it. The token lives in the per-account data dir the board writes
+// it to, mode 600, readable only by this account. nil when there is no token (a
 // board that does not enforce, e.g. a sandbox).
+//
+// This mirrors store.ROOT's macOS branch (`dataRootFor`): the base is
+// `AGENT_WORKFORCE_DATA` when that override is set (so an operator who moved the
+// data dir is followed rather than silently read at the default), otherwise the
+// OS Application Support dir; the `AgentWorkforce/` subpath is the APP constant.
+// Swift cannot require the node store module, so this is a faithful re-derivation
+// of that one formula, not the single source itself -- the shipped app sets no
+// override, so the two agree.
 func boardTokenValue() -> String? {
-    guard let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
-    let file = dir.appendingPathComponent("AgentWorkforce/board.token")
+    let base: URL
+    let dataOverride = ProcessInfo.processInfo.environment["AGENT_WORKFORCE_DATA"]
+    if let dataOverride, !dataOverride.isEmpty {
+        base = URL(fileURLWithPath: dataOverride)
+    } else if let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        base = dir
+    } else {
+        return nil
+    }
+    let file = base.appendingPathComponent("AgentWorkforce/board.token")
     guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return nil }
     let tok = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     return tok.isEmpty ? nil : tok
