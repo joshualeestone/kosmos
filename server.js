@@ -2117,6 +2117,12 @@ const server = http.createServer((req, res) => {
            a success kills the server first). The overlay reads it to say
            a true sentence instead of spinning. */
         updateAttempt: updates.lastAttempt(),
+        /* #2055: a machine whose update keeps aborting at the pause (the board
+           would not stop) records a durable, counted marker; the installer's own
+           message is silent on the automatic path. Surface it so the board can
+           tell the user their machine has stopped receiving updates. Null when the
+           machine is not stuck. */
+        updateAbort: updates.updateAbort(),
         /* And the two facts the overlay needs even when the attempt record
            is gone with the old server: the diary's path (from the engine's
            root, never guessed by the page) and THIS server's boot identity,
