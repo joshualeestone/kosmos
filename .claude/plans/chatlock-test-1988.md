@@ -42,8 +42,8 @@ control at chat.test.js:1309, and filelock.js:88.)
   single acquire's wait never approaches `LOCK_STALE_MS` (10s). So a contended writer takes its turn
   instead of dropping its message, under any load, WITHOUT lengthening a single wait past the stale bound.
   (Age-based staleness can still let a 2s waiter cross 10s if the lock was already near-stale when it
-  arrived -- a pre-existing production property, unchanged here, and any resulting loss reds the restored
-  control rather than being masked.)
+  arrived -- a pre-existing production property, unchanged here, and any resulting double-entry loss reds
+  the LENGTH assertion, both writers recorded:true, rather than being masked.)
 - **The stale test restores the dropped control**: assert both children returned `'true'`. Now a give-up
   reds LEGIBLY ("a false here is a give-up under load, not a lock defect"), and a genuine loss (both
   recorded yet a message missing) is the ONLY thing that reds the `length` assertion -- so the test still
