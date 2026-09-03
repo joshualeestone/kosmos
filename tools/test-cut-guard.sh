@@ -134,11 +134,12 @@ if [ -n "$live_harness" ]; then
 else
   # #1967: this "cut proceeds" arm is the same CLASS as the mention arm below (a
   # concurrent run's real harness would make cut-start.sh refuse and red it), but
-  # it runs IMMEDIATELY after the pre-flight above with no `sleep` between, so its
-  # collision window is sub-millisecond -- versus the mention arm's window, which
-  # spans the `sleep 1` at step 4. The re-check is placed at the mention arm, the
-  # one with real exposure; this arm is left to the pre-flight deliberately, not
-  # by oversight.
+  # it runs on a FRESH pre-flight -- the only gap is a `bash` fork plus a
+  # `source lib/cut-guard.sh` (a few milliseconds), with no `sleep` between --
+  # whereas the mention arm asserts across the `sleep 1` at step 4, so its
+  # pre-flight is over a second stale. The re-check is placed at the mention arm,
+  # the one with real exposure; this arm is left to the fresh pre-flight
+  # deliberately, not by oversight.
   out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
   { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
     && pass "no harness running: the cut proceeds through the real pgrep" \
