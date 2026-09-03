@@ -39,9 +39,9 @@ per agent per tick is too costly). We respect that with a PER-ACCOUNT, CACHED, A
    a LATER tick.
 4. **Consult in reconcile**: a scraped `auth_failed` is SUPPRESSED only when the cached
    live-auth for that account is POSITIVELY HEALTHY and fresh. Then the state derives from the
-   report (or a recovered state) with the staleness surfaced: "its screen shows an old sign-in
-   rejection, but the account's sign-in is currently valid (checked Ns ago)" -- recovery made
-   visible (done-looks-like #1, #3). EXPIRED / UNKNOWN / no-cache / stale -> `auth_failed`
+   report (or a recovered state) with the staleness surfaced: "its screen shows an old Claude
+   sign-in rejection, but the account sign-in is currently valid, so the rejection is stale" --
+   recovery made visible (done-looks-like #1, #3). EXPIRED / UNKNOWN / no-cache / stale -> `auth_failed`
    stands, unchanged (done-looks-like #2: bounded by a real condition, never mere text).
 
 ### The safety property (no false calm -- the whole point of rule 3b)
@@ -51,8 +51,8 @@ check confirms healthy. So a real auth failure is NEVER suppressed. This is the 
 model as `#1885`/`verify-manifest.sh`: the live condition check is authoritative.
 
 ## Done looks like (card) -> coverage
-1. A displayed failure carries when it happened / is visibly stale -> the "checked Ns ago,
-   sign-in currently valid" evidence line on a suppressed stale 401.
+1. A displayed failure carries context / is visibly stale -> the "sign-in currently valid, so
+   the rejection is stale" evidence line on a suppressed stale 401.
 2. State from a timestamp/liveness/condition, not mere text -> the live-auth cache verdict.
 3. Recovery visible -> a repaired account's agents stop reading `auth_failed` once the cached
    check confirms healthy (no operator action needed; the card's "or a clear affordance" is
@@ -78,6 +78,20 @@ before. It is inherent to the off-tick cache #1885 mandates (a per-tick live che
 defect we refused); tokens last hours so a re-expiry inside 30s is rare; the stale-HEALTHY
 downgrade caps any UNBOUNDED exposure. Shortening TTL_MS trades a smaller window for more
 subprocess load. Documented in engine/authprobe.js at `verdict`.
+
+## Accepted residual: shared accounts (conscious sign-off)
+The live check is ACCOUNT-level (`claude auth status` on the config dir), answering a per-AGENT
+question, because accounts are shared (many agents per config dir) and the pane -- by this
+card's own finding -- cannot distinguish a stale 401 from a current one. So a narrow residual
+remains: if agents A and B share config dir D, D's token dies (both scrape 401), a person
+re-signs-in to D, and B is a RUNNING agent still in a live 401 retry loop that has NOT re-read
+the repaired credential, then `checkLive(D)` reads CONNECTED and B's CURRENT 401 is suppressed
+until B restarts. It is narrow (needs a still-running retry-looping agent that has not picked up
+the new token; many agents STOP at a 401 rather than loop, and a process that re-reads the token
+on retry recovers on its own) and inherent to using the best available signal (an account-level
+condition) for a per-agent question. Closing it fully needs per-AGENT liveness -- pane-change
+detection to tell a frozen dead agent from a live-looping one -- a larger, separate mechanism.
+Accepted and documented rather than papered over.
 
 ## Scope note
 This is a cross-module change (status.js reconcile + a cache + accounts/subscription wiring +

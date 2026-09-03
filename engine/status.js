@@ -3869,9 +3869,10 @@ function paneRoster() {
 const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
 
 /* #1930: the verdict value from engine/authprobe that means the account's sign-in was just
-   confirmed LIVE. Only this positive evidence suppresses a scraped auth_failed (rule 3b);
-   it must equal authprobe.HEALTHY, and a test pins the two together so they cannot drift. */
-const LIVE_AUTH_HEALTHY = 'healthy';
+   confirmed LIVE. Only this positive evidence suppresses a scraped auth_failed. Imported from
+   authprobe so there is ONE copy of the string, not two that can drift. (status -> authprobe ->
+   subscription has no back-edge, so the top-level require is cycle-safe.) */
+const LIVE_AUTH_HEALTHY = require('./authprobe').HEALTHY;
 
 /**
  * One state from two witnesses: the agent's own report and the pane reader.
