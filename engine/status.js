@@ -4462,6 +4462,13 @@ function snapshot() {
          and, decisively, a self-reported WORKING can sit over a checkLive === none
          (no login), so recording OK from it would paint green over a hard negative,
          the exact false-green this feature removes.
+         ⚠️ The one asymmetry: OK reads the RAW scrape, so unlike REJECTED it does not
+         inherit #1930's stale-scrollback suppression -- a stale "esc to interrupt"
+         line could record a brief OK. Accepted: a WORKING scrape still reflects a
+         token that was accepted for an in-flight request, the next ~60s sweep re-reads
+         the pane (a finished turn scrapes as idle, not streaming), and the freshness
+         window caps any stale green. A false GREEN self-heals; a false 401 would tell
+         a paying customer they are disconnected, which is why only REJECTED is suppressed.
        - REJECTED comes from status.state === AUTH_FAILED (POST-reconcile): a scraped
          401 that #1930's authprobe judged stale scrollback is no longer AUTH_FAILED
          here, so we never record "rejected" for a repaired account (accounts.js:297 --
