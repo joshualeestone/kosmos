@@ -31,6 +31,17 @@ create-instr textarea actually fills. No `node --test` can see a textarea's valu
   board is the recipe's responsibility (README).
 - Registered in the README table (the browser-checks-indexed test enforces that
   every check is named there).
+- WIRED into the runner (tools/browser-checks.sh) in the shared B8 board group,
+  right after render-create-form. #1387 (tools.browser-checks-wired.test.js)
+  requires every check be run by the runner or listed unwired-with-a-reason; a
+  walk that exists but runs nowhere is the unarmed-guard class, so it is wired,
+  not listed. B8 is the create-flow board (first run already complete); the check
+  is a non-creating create-flow check like render-create-form (fills the form,
+  never presses Create), so it persists nothing on the shared board. It is handed
+  AGENT_WORKFORCE_DATA="$sb7/data" because it POSTs first-run/complete and so
+  calls requireSandbox(), same as render-accounts-openai. Verified: 8/8 under the
+  B8 conditions (sandboxed board, first run pre-completed via curl), and
+  render-found-undo runs 28/28 AFTER it on the same board (no poisoning).
 
 ## Verification
 
