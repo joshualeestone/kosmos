@@ -479,7 +479,10 @@ test('the row summary counts what it can see AND says what it could not', () => 
   assert.equal(roster2.find((a) => a.sessionName === 'claudebot').state, 'needs_you', 'the agent itself still shows needs_you (the Agents page); its screen says working, so this is the report');
 
   /* An id no project owns (a name typed instead of an id) is nobody's question. */
-  assert.equal(selfreport.record('claudebot', { state: 'needs_you', project: 'Mixed' }).recorded, true);
+  // #1996: needs_you now requires actionable content (a note/--on/--owner); a
+  // project id alone is context, not an ask. Give it a reason so this project-row
+  // test still exercises the unattributed-project path it is about.
+  assert.equal(selfreport.record('claudebot', { state: 'needs_you', project: 'Mixed', because: 'a question' }).recorded, true);
   const roster4 = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('claudebot', { state: 'needs_you', screen: WORKING_SCREEN })]);
   const fourth = projects.list(roster4).find((p) => p.id === mixed.id);
   assert.equal(fourth.summary.needsYou, 0);

@@ -21,12 +21,12 @@ const SCRIPT = require('./test-support/page').scriptOf(PAGE);
    driven the way the page drives it: the block is lifted by its own anchor and
    run with a fake event. Anchored on `data-board-retry`, which is the contract
    between the markup and the handler and cannot drift without both moving. */
-function handler(tickImpl) {
+function handler(tickImpl, loadProjectsImpl = () => Promise.resolve()) {
   const at = SCRIPT.indexOf("const retry = e.target.closest('[data-board-retry]');");
   assert.ok(at > -1, 'the retry handler is gone or has been renamed');
   const end = SCRIPT.indexOf('\n  }', SCRIPT.indexOf('Promise.resolve(tick())', at)) + 4;
   // eslint-disable-next-line no-new-func
-  return new Function('tick', 'return (e) => {\n' + SCRIPT.slice(at, end) + '\n};')(tickImpl);
+  return new Function('tick', 'loadProjects', 'return (e) => {\n' + SCRIPT.slice(at, end) + '\n};')(tickImpl, loadProjectsImpl);
 }
 
 function button() {
@@ -69,6 +69,24 @@ test('a second press while one is in flight is ignored', async () => {
   fn(ev(btn));
   fn(ev(btn));
   assert.equal(calls, 1, 'a held button queued a second look');
+});
+
+test('the retry reloads the projects surface too, not only the agents grid (#2023)', async () => {
+  /* The signin/cannot-read card and its Reload button are shared with #pj-list,
+     but the handler used to re-poll only /api/status (tick). On the projects card
+     that cleared the shared not-signed-in flag without repainting #pj-list, which
+     stayed on stale copy until its own separate interval fired. loadProjects()
+     must be called too -- asserted here so reverting the fix reds this test. */
+  let tickCalls = 0; let projCalls = 0;
+  const btn = button();
+  const fn = handler(() => { tickCalls += 1; return Promise.resolve(); },
+    () => { projCalls += 1; return Promise.resolve(); });
+  fn(ev(btn));
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  assert.equal(tickCalls, 1, 'the retry stopped refreshing the agents grid');
+  assert.equal(projCalls, 1, 'the retry does not repaint the projects surface its button is shared with');
+  assert.equal(btn.disabled, false, 'the button did not restore after both reloads settled');
+  assert.equal(btn.textContent, 'Try again');
 });
 
 test('a tick that returns nothing at all still restores the button', async () => {

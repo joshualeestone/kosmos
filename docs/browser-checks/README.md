@@ -153,6 +153,7 @@ one invented by somebody who did not write them.
 | `render-openai-step.js` | The OpenAI install step at parity with Claude's, with an honest indicator (#1205) |
 | `render-openai-key-step.js` | The OpenAI key step in its approved box, sizes matched, link not colliding (#1207) |
 | `render-found-board.js` | The board's panel for agents on this Mac that Kosmos is not looking after |
+| `render-board-signin-403-2023.js` | A protected-read 403 (no board token, #1946) renders as not-signed-in with the `kosmos open` remedy, not as "cannot read" -- with a 200 control (normal board) and a 500 control (genuine failure still says cannot-read) (#2023) |
 | `render-scan-board.js` | The board's disk-scan panel (#1938): agents on this computer Kosmos has no record of Claude ever running in, found by walking the disk for CLAUDE.md files |
 | `render-found-undo.js` | Add and Undo on the found-agents row, pressed for real in a browser |
 | `render-adopt-1531.js` | The adopt prompt (#1531): a folder with no instruction file is offered as a question with an empty editable name field, an empty name is refused before the network, a typed name registers, and decline is one blameless click with Undo |
