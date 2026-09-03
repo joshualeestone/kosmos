@@ -174,8 +174,18 @@ other three. Do not read the merge as the card being done.
   ⭐ The lesson is not about `$^`. **A perturbation is a measuring instrument and
   gets no exemption from the rule it exists to enforce: if it reds something you
   did not predict, the instrument is a suspect before the code is.**
-- Full suite `bash tools/run-tests.sh`: **exit 0**, 4537 lines, zero failures,
-  and the new test runs inside it.
+- Full suite `bash tools/run-tests.sh` on the iteration-19 tree (`ebffef4f`):
+  **`SUITE_EXIT=0`**, terminal verdict `ALL PASS (33 arms)` present, 4666 log
+  lines, node:test reporting **3899/3899** with `fail 0`, and the new tests run
+  inside it. The lane was checked free first (`ps -eo pid,command | awk` for
+  `tools/run-tests.sh`); a prior check found Baron's `platform-pins-1777` run
+  holding it, so this waited rather than colliding.
+  ⚠️ The figure here previously read "4537 lines" and was stale by several
+  rounds. **A line count in a plan is a claim about a tree, and it goes stale
+  silently**, so it is cited with the commit it was measured on.
+  📌 The verdict is read from the TERMINAL LINE and the exit code, never from
+  the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
+  passing tally and has no failures in it either.
 
 ## THE FIX INTRODUCED THE DEFECT IT WAS CLOSING, AND A REVIEWER CAUGHT IT
 
