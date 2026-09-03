@@ -199,6 +199,7 @@ const reports = require('./engine/reports');
 const limits = require('./engine/limits');
 const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
+const observed = require('./engine/observed');
 /* #1304, second half: PigeonPete's live reader. It walks the pane's process tree
    to the claude descendant and reads the environment it is ACTUALLY running
    with, which is a better source than a startup file or a transcript for the
@@ -3382,7 +3383,44 @@ const server = http.createServer((req, res) => {
        to be cheaper still, make the sweep cheaper - do not add a window. */
     Promise.all([accounts.listLive(), openaiAccounts.listLive()])
       .then(([claudeRows, openaiRows]) => {
-        const claude = claudeRows.map((a) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', ...a }));
+        /* #1921: overlay each Claude account's badge with the LAST OBSERVED
+           real-call outcome (engine/observed), joined to the account via the SAME
+           accountForAgent the status route uses -- NOT a second copy of the
+           agent->account mapping (the "two derivations of one fact" habit this file
+           warns about, server.js:718). The badge then renders VERIFIED liveness (a
+           real request succeeded / was rejected recently), falling back to the
+           checkLive state only when nothing has been observed recently -- so a
+           credential that merely EXISTS never shows the confident green it showed
+           before (#874's rejected-token-sat-green). This is the "checking half" the
+           badge comment (web/index.html) deferred as a product call, delivered by
+           reading answers we already have, never a probe on the tick. */
+        const knownAccts = accounts.list();
+        const nowMs = Date.now();
+        const freshWindow = observed.freshMs();
+        // Freshest observation per account dir. accountForAgent maps a default
+        // agent (no configDir) to the default row, whose own `.dir` the claude rows
+        // carry too, so keying by dir joins both sides without a special case.
+        const obsByDir = new Map();
+        for (const o of observed.all()) {
+          const acct = accountForAgent(o.agent, knownAccts);
+          if (!acct || !acct.dir) continue;
+          const prev = obsByDir.get(acct.dir);
+          if (!prev || o.at > prev.at) obsByDir.set(acct.dir, { outcome: o.outcome, at: o.at });
+        }
+        const claude = claudeRows.map((a) => {
+          const obs = a.dir ? obsByDir.get(a.dir) : null;
+          const v = observed.verdict({
+            checkLiveState: a.connection && a.connection.state,
+            observedOutcome: obs && obs.outcome,
+            observedAt: obs && obs.at,
+            now: nowMs,
+            freshMs: freshWindow,
+          });
+          return {
+            provider: 'anthropic', providerName: 'Anthropic / Claude', ...a,
+            connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs },
+          };
+        });
         /* 🛑 `offerable` TRAVELS WITH THE ROW, for the same reason `memoryShared` does
            (#1488). When AGENT_WORKFORCE_CODEX_HOME names a home, engine/create.js
            collapses the OpenAI accounts to that ONE home and refuses every other. The

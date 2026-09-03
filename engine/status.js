@@ -20,6 +20,7 @@ const path = require('node:path');
 const store = require('./store');
 const selfreport = require('./selfreport');
 const wouldping = require('./wouldping');
+const observed = require('./observed');
 /* The two halves the pane used to supply on its own: the token store says
    WHICH agent, the liveness record says it is STILL RUNNING. Neither module
    requires this one, so there is no cycle. */
@@ -4445,6 +4446,28 @@ function snapshot() {
       confidence: status.confidence,
       because: status.because,
     });
+    /* #1921: record the LAST OBSERVED real-call outcome per agent, so the Settings
+       account badge can render what actually happened to a real request rather than
+       what `claude auth status` predicts (which is loggedIn:true even for a token
+       being rejected 401 -- #874). The mapping STATE->outcome lives HERE, the one
+       place STATE is defined, so engine/observed.js stays dependency-free and this
+       module can require it without a load-order cycle.
+       🔑 status.state (POST-reconcile), NOT scrapedStatus.state: a scraped 401 that
+       #1930's authprobe has judged stale scrollback is no longer AUTH_FAILED here,
+       so we do not record a "rejected" for a repaired account (accounts.js:297 --
+       telling a paying customer they are disconnected is a failure to prevent).
+       🔑 isNamedOurs gate: only a pane genuinely TIED to its name may attribute an
+       outcome to that name's account, the same identity discipline every name-keyed
+       write in this function honours. Best-effort: a badge signal must never break
+       the tick. */
+    try {
+      if (isNamedOurs(pane)) {
+        const outcome = status.state === STATE.WORKING ? observed.OUTCOME.OK
+          : status.state === STATE.AUTH_FAILED ? observed.OUTCOME.REJECTED
+          : null;
+        if (outcome) observed.saw(pane.name, outcome, now);
+      }
+    } catch { /* observation is best-effort; never sink the snapshot */ }
     // ⚠️ Identity, model and context are all filed under the NAME, and only a
     // pane whose SESSION NAME says it is ours has been tied to that name.
     //

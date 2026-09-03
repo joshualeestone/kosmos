@@ -12327,6 +12327,24 @@ function freshWords(seconds) {
   return 'Refreshed ' + days + (days === 1 ? ' day ago' : ' days ago');
 }
 
+/* #1921: the bare "N ago" phrase for the account badge (no "Refreshed" prefix),
+   from a millisecond age. Same discipline as freshWords: a number or nothing
+   (never Number(x), so a missing age is '' -- no fabricated freshness), rounds
+   DOWN at every step, and a negative age (clock skew) is '' rather than a false
+   "just now". Empty string means the caller omits the "· active {age}" clause. */
+function agoWords(ms) {
+  const n = typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? Math.floor(ms / 1000) : NaN;
+  if (!Number.isFinite(n)) return '';
+  if (n < 5) return 'just now';
+  if (n < 90) return n + ' seconds ago';
+  const mins = Math.floor(n / 60);
+  if (mins < 90) return mins + (mins === 1 ? ' minute ago' : ' minutes ago');
+  const hours = Math.floor(n / 3600);
+  if (hours < 36) return hours + (hours === 1 ? ' hour ago' : ' hours ago');
+  const days = Math.floor(n / 86400);
+  return days + (days === 1 ? ' day ago' : ' days ago');
+}
+
 /**
  * The one thing worth saying when nothing is answering at all.
  *
@@ -13863,9 +13881,35 @@ async function paintAccounts() {
     // dot he asked for is deliberately unchanged -- the word was the part that
     // lied, not the colour.
     const connectedWhy = 'this account is signed in. That does not prove a request would succeed, because a rejected token is not visible from here';
-    const connBadge = a.connection && a.connection.state === 'connected' ? '<span class="acct-connected" title="' + esc(connectedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>'
-      : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>'
-      : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
+    /* #1921: the badge renders VERIFIED liveness from the last OBSERVED real call
+       (server-side engine/observed), not the stored-login state alone. `working` is
+       the ONLY green and it means we SAW a request succeed -- so the pulsing dot's
+       "actively connected" (Josh, #864) is finally true rather than merely "a
+       credential exists". A credential that only EXISTS is `signed_in_unverified`:
+       muted, NOT green, which is the say-what-you-know half #874 could not reach. */
+    const badge = a.connection && a.connection.badge;
+    const ageStr = agoWords(a.connection && a.connection.observedAgeMs);
+    const workingWhy = 'a real request on this account succeeded recently' + (ageStr ? ' (' + ageStr + ')' : '') + '. This is an observed outcome, not a probe.';
+    const rejectedWhy = 'a real request on this account was rejected' + (ageStr ? ' (' + ageStr + ')' : '') + '. The sign-in needs renewing.';
+    const unverifiedWhy = 'a sign-in for this account exists on this computer, but no recent request has been seen to succeed, so we are not claiming it works. It verifies itself the next time an agent on it makes a call.';
+    let connBadge;
+    if (badge === 'working') {
+      connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? ' · active ' + esc(ageStr) : '') + '</span>';
+    } else if (badge === 'rejected') {
+      connBadge = '<span class="acct-none" title="' + esc(rejectedWhy) + '"><span class="dot" aria-hidden="true"></span>Not connected' + (ageStr ? ' · rejected ' + esc(ageStr) : '') + '</span>';
+    } else if (badge === 'signed_in_unverified') {
+      connBadge = '<span class="acct-unknown" title="' + esc(unverifiedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · not recently checked</span>';
+    } else if (badge === 'signed_out') {
+      connBadge = '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>';
+    } else if (badge === 'unchecked') {
+      connBadge = '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
+    } else {
+      /* Back-compat: a payload without `badge` (an older server) still renders the
+         legacy state ternary, so a version skew never blanks the badge. */
+      connBadge = a.connection && a.connection.state === 'connected' ? '<span class="acct-connected" title="' + esc(connectedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>'
+        : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>'
+        : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
+    }
     return '<div class="acct-box"><div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
       + '</b>' + qualTag + org + '</div>'
