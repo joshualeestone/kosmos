@@ -187,6 +187,120 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## ITERATION 21: THIS BRANCH SILENTLY WEAKENS #1966's ACCOUNT BADGE
+
+Found by a blind reviewer reading ACROSS the merge, which no test on either side
+can do. The branch was 9 commits behind; one of them (`e8ac8f6e`, #1966) records
+`observed.OUTCOME.OK` whenever `scrapedStatus.state === WORKING`, on the stated
+grounds that a scraped WORKING is *"a WITNESSED live streaming turn, direct
+evidence the token was just accepted for a real request."*
+
+**This branch adds a scraped WORKING for which that is false by construction.**
+The parent's turn has ENDED; the row is a frozen transcript line left behind by a
+wait; the background agent runs in its own session against its own token. Nothing
+is in flight from the pane being scraped, and the Settings account badge greens
+off it.
+
+⚠️ **AND #1966's OWN ACCEPTED ASYMMETRY DOES NOT COVER IT, WHICH IS THE PART
+WORTH READING TWICE.** That comment already allows a stale `esc to interrupt` row
+to record a brief OK, because *"the next ~60s sweep re-reads the pane (a finished
+turn scrapes as idle, not streaming)"* and so a false green self-heals. A #1889
+wait row is precisely the row that breaks that sentence: it is frozen, it outlives
+its own wait, and every sweep re-reads it as WORKING while it stays in reach.
+⇒ **The bound the acceptance rests on is removed, not merely tested.** A reader
+who knows the asymmetry is accepted would conclude this case is covered. It is not.
+
+Fixed by gating the OK arm on the STRUCTURAL `backgroundWait` flag the classifier
+already sets, so the guard and the classifier cannot drift apart. Pinned by a new
+row in `status.observed-1921.test.js`, proven both ways: **6/6 with the guard, and
+the new row reds without it.**
+
+### I nearly recorded a harness error as a confirmed defect
+
+My first version of that fixture passed `screen:` without `state:`, so it was
+arranged as `idle` while the engine classified it `working`, and `test-support/fleet`
+refused with *"the fixture is measuring a different world than the test believes."*
+**I took that red as confirmation of the defect and said so.** It was a real red
+about a real disagreement, and its cause was entirely mine.
+⭐ Same shape as the bulletin `an-anchored-pattern-matches-the-line-you-imagined`:
+**when a check goes red, ask whether the harness or the product is wrong BEFORE
+believing it.** The defect turned out to be real, which is the luckiest possible
+outcome and no credit to the method. The corrected fixture is what proves it.
+
+📌 Also fixed here: `AGENT_FINISHED_LINE`'s name class was `[^"\n]*`, so a
+model-supplied description containing a quote (`⏺ Agent "fix the "foo" bug"
+finished`) never matched and left the wait live on a finished agent. Widened to
+`[^\n]*`, greedy to the last quote before the verb.
+
+### The bundle settled the question I had shipped as unmeasured, and it settled it BETTER
+
+I shipped the counted resolution on the argument that it is correct under both
+branches of a fact I could not measure. The reviewer then measured it. `B_t`, the
+`turn_duration` constructor, has three call sites and they do different things:
+
+| site | behaviour |
+|---|---|
+| turn end | **APPENDS** and does not remove the previous row |
+| park on keepalive | **REPLACES** -- filters out every prior `turn_duration`, recomputes the count from `keepaliveReasons`, passes `dr||void 0` so a zero goes as undefined |
+| swarm end | appends a **duration** row with no wait text (three args, both pending counts undefined) |
+
+⇒ **NO site appends a row per completion.** A new row appears only when the parent
+runs and ends a turn. **A parent parked at its prompt keeps ONE frozen row while
+completions pile up beneath it** -- the ordinary case for a waiting parent, not an
+edge case, and precisely the world the counted rule is load-bearing in.
+
+🔑 **And the count is the right population by construction.** `gje` counts a task
+when `M.status==="running"||Fs(M.status)&&!M.notified`, admitting it to the agent
+set only when `GE(M)&&M.isBackgrounded`. An already-notified agent has LEFT the
+count and its notification sits ABOVE the row; every agent still inside the count
+notifies BELOW it. That is exactly what this scan measures.
+⭐ Worth keeping the distinction rather than merging the two arguments: **"safe
+under both branches" makes a change SAFE. This makes it RIGHT.** The first was
+enough to ship on and I would ship on it again; it is not as good.
+
+### 🛑 A MINIFIED SYMBOL IS NOT UNIQUE, AND MY CHECK OF THAT CLAIM NEARLY REFUTED IT
+
+I do not put a peer's bundle claim into a load-bearing comment without probing it.
+So I ran `grep -abo 'function gje'`, took the first hit, dumped it, and got
+
+    function gje(e){return e.replace(S6t,`\n`)}
+
+an unrelated string helper. **Nothing in that output says "wrong function".** It
+is a complete, plausible definition under exactly the name I asked for, and it
+reads as a clean refutation of the paragraph I was about to write.
+
+There are **two** `gje` definitions in the 2.1.258 bundle. The counter is the
+second. The claim was right.
+
+⭐ **This is the false-ZERO class inverted, which is why the trained instinct does
+not catch it.** The fleet's rows are mostly about a search that returns nothing
+when something is there, so the habit is to distrust an empty result. Here the
+probe returned a confident, well-formed POSITIVE that was about different code.
+✅ **Grep the full signature, never the bare name** -- `function gje({tasks:l` --
+and **count the definitions before reading one**: `grep -c` on the name is the
+whole check, and it is one command.
+
+📌 Related and applied throughout: **the comments now cite bundle facts BY CONTENT,
+never by byte offset.** My offsets and the reviewer's disagreed for the same site
+(163877519 vs 161924505) because we anchored on different points inside one
+expression, and every offset is void at the next Claude Code build anyway. A
+quoted string is greppable a year from now; a number is not.
+
+### Process finding: my reviewer brief had the shared-index bug in it
+
+The iteration-20 reviewer perturbed `engine/status.js` IN THE WORKTREE while I was
+editing the same file, restoring from a snapshot taken at its own start. Any edit
+of mine inside those windows would have been reverted with no signal to either of
+us. Nothing was lost (verified by probing thirteen distinct strings across both
+files at `62631ece`), and the reviewer noticed and moved to a scratchpad copy
+mid-run, unprompted.
+⭐ **This is `commit -a` in a shared checkout wearing different clothes: a
+snapshot-restore is a whole-file write, so it takes a colleague's concurrent work
+under your own restore.** The worktree convention does not help, because author
+and reviewer are deliberately IN THE SAME TREE. **The brief must say: copy the
+files you intend to perturb into your own scratchpad and perturb there.** Fixed
+for iteration 22 onward.
+
 ## ITERATION 20: ONE COMPLETION WAS ENDING A WAIT ON N
 
 The resolution check asked "is there A completion line below this row", so a pane

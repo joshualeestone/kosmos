@@ -1968,6 +1968,11 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     '  ⏺ Agent "r" was stopped · 5m 19s',
     '  ⏺ Agent "r" stopped at its 5-turn limit',
     '  ● Agent "r" finished · 5m 19s',
+    /* A QUOTE INSIDE THE NAME. Descriptions are model-supplied, so this is a real
+       row, and a name class stopping at the first inner quote left the wait live
+       on a finished agent. Miss direction, but it is now guarded rather than
+       enumerated as a limit. */
+    '  ⏺ Agent "fix the "foo" bug" finished · 1m',
   ]) {
     assert.notEqual(
       classify(pane, '✻ Waiting for 1 background agent to finish\n' + done + footer).state,

@@ -2073,8 +2073,16 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    miss is the direction this module already commits to everywhere else. The
    per-agent notification is a separate render site and still resolves those,
    so the loss is bounded by panes where the header is the only line drawn. */
+/* 📌 THE NAME CLASS IS `[^\n]*`, NOT `[^"\n]*`, AND THE DIFFERENCE IS REAL.
+   Agent descriptions are MODEL-SUPPLIED, so a name containing a quote is a
+   thing that happens: `⏺ Agent "fix the "foo" bug" finished · 1m` could not
+   match a class that stops at the first inner quote, and the wait stayed live
+   on a finished agent. Greedy to the LAST quote before the verb instead. The
+   line-start bullet and the trailing verb list still carry the discrimination;
+   the quotes only have to bracket a name, and they no longer have to be the
+   only two on the row. */
 const AGENT_FINISHED_LINE =
-  /^\s*[⏺●]\s*(?:Agent|[Bb]ackground\s+agent)\s+"[^"\n]*"\s+(?:finished|failed\b|was\s+stopped|stopped\s+at\s+its)/mu;
+  /^\s*[⏺●]\s*(?:Agent|[Bb]ackground\s+agent)\s+"[^\n]*"\s+(?:finished|failed\b|was\s+stopped|stopped\s+at\s+its)/mu;
 
 /* #1889. The two rows that end EVERY background agent at once, so they resolve a
    wait whatever its count. Kept separate from `AGENT_FINISHED_LINE` above because
@@ -2177,12 +2185,33 @@ function backgroundAgentWait(text) {
     if (anchor - i > BACKGROUND_AGENT_WAIT_REACH) continue;
     /* A completed-agent line between the row and the composer means THIS wait is
        over, whatever the row still says.
-       🛑 `continue`, NOT `return null`. A pane waiting on several agents draws a
-       new wait row each time one finishes, so the screen holds a STALE row, its
-       completion line, and a LIVE row below. Returning here let the stale row
-       short-circuit the scan and the live row was never examined: measured
+       🛑 `continue`, NOT `return null`. Returning here let a stale row
+       short-circuit the scan so the live row below was never examined: measured
        `idle` on a pane with a running agent. The sibling reach check above
        already continues; this was an asymmetry, not a decision.
+       📌 THE PREMISE, CORRECTED, AND IT USED TO OVERSTATE THE CASE. This comment
+       said a pane "draws a new wait row each time one finishes". The bundle does
+       not support that. `B_t` (the turn_duration constructor) has three call
+       sites and only one can leave a stale row:
+         CITED BY CONTENT, NOT BY BYTE OFFSET: offsets move with every build and
+         are worthless to the next reader. Grep the quoted strings instead.
+         · TURN END  APPENDS, does not remove the previous row.
+           `updater: nn => [...nn, B_t(...)]`, both pending counts passed.
+         · PARK ON KEEPALIVE  REPLACES. Find it by `parked on keepalive`; the
+           expression above it reads
+             filter((pr)=>!(pr.type==="system"&&pr.subtype==="turn_duration"))
+           so it strips EVERY prior turn_duration before appending, recomputing
+           the count live from `keepaliveReasons`. That path leaves exactly one
+           current row, and passes `dr||void 0`, so a zero count goes as undefined.
+         · SWARM END  `_deferSwarmDuration`, called INSTEAD of turn-end whenever a
+           task is still running. Three args, so both pending counts are undefined:
+           a DURATION row with no wait text at all.
+       ⇒ What is true: a new row is appended at every TURN END and the previous
+       one is not removed, so the screen CAN hold a stale row above a live one.
+       ⇒ And what it is not: NO site appends a row per completion. An agent
+       finishing draws a new row only if it makes the parent run and end a turn.
+       A parent parked at its prompt keeps ONE frozen row while completions pile
+       up beneath it, which is the ordinary case, not an edge case.
        ⚠️ The vendor writes four outcomes, not one -- `finished`, `failed: …`,
        `was stopped`, `stopped at its N-turn limit` -- and draws the bullet as
        `⏺` on macOS and `●` elsewhere. Keying on `finished` and `⏺` alone left
@@ -2195,14 +2224,27 @@ function backgroundAgentWait(text) {
        this card exists to close.
        ⇒ Count the per-agent completions in the span and require the row's own
        count. The two global banners are exempt and resolve any N.
-       🔑 WHY THIS IS SAFE WITHOUT KNOWING HOW THE VENDOR REDRAWS. I could not
-       settle from the bundle whether a FRESH wait row is appended each time one
-       of N completes. It does not matter, because the change is correct either
-       way: if fresh rows ARE drawn, the stale row now declines to resolve and
-       returns `working` -- the same verdict the live row below it would give; if
-       they are NOT, this is the only thing standing between N-1 running agents
-       and an `idle` card. A decision that holds under both branches of an
-       unmeasured fact does not need the fact. */
+       🔑 AND THE COUNT IS THE RIGHT POPULATION BY CONSTRUCTION, NOT AN
+       APPROXIMATION OF IT. The count on the row is built by
+         function gje({tasks:l,queuedCommands:p=[]})
+       which counts a task when `M.status==="running"||Fs(M.status)&&!M.notified`
+       and admits it to the AGENT set only when `GE(M)&&M.isBackgrounded`.
+       🛑 GREP THAT FULL SIGNATURE, NEVER THE BARE NAME. There are TWO functions
+       called `gje` in the 2.1.258 bundle and the FIRST is an unrelated string
+       helper (`e.replace(S6t,"\n")`). Probing `function gje` and taking the first
+       hit dumps the wrong function and reads as a clean REFUTATION of this whole
+       paragraph -- which is what happened to me while checking it. Measured: two
+       definitions, the counter is the second.
+       ⭐ A minified symbol is not unique, so a name-keyed probe into a bundle can
+       produce a confident FALSE NEGATIVE about code that is sitting right there.
+       So an
+       already-NOTIFIED agent has left the count, and its notification row sits
+       ABOVE the wait row; every agent still inside the count draws its
+       notification BELOW it. That is exactly the population this scan measures:
+       completions between the row and the composer, against the row's own N.
+       ⇒ This was originally justified only as "safe under both branches of a fact
+       I could not measure" -- true, but weaker, and it is worth keeping the
+       distinction: that argument makes a change SAFE, this one makes it RIGHT. */
     const span = rows.slice(i + 1, anchor);
     if (span.some((r) => AGENT_WAIT_CLEARED_BANNER.test(r))) continue;
     const done = span.reduce((n, r) => n + (AGENT_FINISHED_LINE.test(r) ? 1 : 0), 0);
@@ -5188,7 +5230,24 @@ function snapshot() {
     try {
       const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
       if (isNamedOurs(pane) && !isCodexPane) {
-        const outcome = scrapedStatus.state === STATE.WORKING ? observed.OUTCOME.OK
+        /* 🛑 #1889 EXCLUSION, AND IT IS NOT A TWEAK TO THE RULE ABOVE, IT IS THE
+           RULE ABOVE HOLDING. The OK arm's whole justification is that a scraped
+           WORKING is a WITNESSED live streaming turn. #1889 added one scraped
+           WORKING for which that is false by construction: the parent's turn has
+           ENDED and the row is a frozen transcript line left by a wait, with no
+           request in flight from this pane at all.
+           ⚠️ The stale-scrollback asymmetry this comment already accepts does NOT
+           cover it. That accepts a brief false green because "a finished turn
+           scrapes as idle, not streaming" on the next sweep. A wait row does not:
+           it is frozen, it outlives its own wait, and every sweep re-reads it as
+           WORKING while it stays in reach. The green does not self-heal, so the
+           bound the acceptance rests on is removed, not merely tested.
+           📌 Keyed on the STRUCTURAL flag the classifier sets, never on the
+           sentence, so the two cannot drift apart. Pinned by
+           `status.observed-1921.test.js`, whose row was confirmed to FAIL against
+           this line before the guard was added. */
+        const outcome = (scrapedStatus.state === STATE.WORKING
+          && scrapedStatus.backgroundWait !== true) ? observed.OUTCOME.OK
           : status.state === STATE.AUTH_FAILED ? observed.OUTCOME.REJECTED
           : null;
         if (outcome) observed.saw(pane.name, outcome, now);

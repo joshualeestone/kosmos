@@ -47,6 +47,43 @@ test('a WORKING named-ours pane records an OK observation, an AUTH_FAILED one re
     'a 401ing agent did not record an observed 401: ' + JSON.stringify(observed.all()));
 });
 
+test('#1889: a pane WAITING ON A BACKGROUND AGENT records no observed OK', () => {
+  /*
+   * 🛑 THE ONE SCRAPED `working` THAT IS NOT A WITNESSED REQUEST.
+   *
+   * The OK arm above reads the RAW scrape on the stated grounds that a scraped
+   * WORKING is "a WITNESSED live streaming turn, direct evidence the token was
+   * just accepted for a real request". #1889 added a source of scraped WORKING
+   * for which that is false BY CONSTRUCTION: the parent's turn has ENDED, and the
+   * row it is read from is a frozen transcript row left behind by a wait. No
+   * request is in flight from this pane, and the background agent runs in its own
+   * session against its own token.
+   *
+   * ⚠️ AND THE ASYMMETRY #1966 ALREADY ACCEPTS DOES NOT COVER IT. That comment
+   * allows a stale `esc to interrupt` row to record a brief OK, on the reasoning
+   * that "the next ~60s sweep re-reads the pane (a finished turn scrapes as idle,
+   * not streaming)" so a false green self-heals. A #1889 wait row is EXACTLY the
+   * case that breaks that argument: it is frozen, it does not stop rendering when
+   * the wait ends, and every subsequent sweep re-reads it as WORKING for as long
+   * as it stays within reach of the composer. The green does not self-heal, so
+   * the bound the upstream comment relies on is removed rather than merely tested.
+   *
+   * ⇒ Gated on the STRUCTURAL `backgroundWait` flag the classifier already sets,
+   * not on the sentence, so the two cannot drift apart.
+   */
+  const wait = ['✻ Waiting for 1 background agent to finish', '',
+    '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  fleet.install([fleet.agent('bgwait', { state: 'working', screen: wait })]);
+
+  /* CONTROL, and it is the whole point of the row: the same harness DOES record an
+     OK for an ordinary working pane, so a null here is this gate firing rather
+     than the fixture failing to register at all. */
+  assert.equal((observed.read('bgwait') || {}).outcome, undefined,
+    'a pane merely waiting on a background agent recorded a witnessed request: '
+    + JSON.stringify(observed.all()));
+});
+
 test('an IMPOSTOR pane (a stranger under a name) records NOTHING, even scraping a 401', () => {
   // A bare session running Claude is still an agent on the board, but it is NOT tied
   // to the name, so it must never attribute an outcome to that name's account.
