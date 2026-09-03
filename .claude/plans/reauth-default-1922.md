@@ -943,3 +943,45 @@ made" is a claim about a sweep and deserves the same suspicion as "nothing", "on
   `claudeResolved.present` TRUE; the dry-run probe refusal is what flips it
   (`if (!probe.ok || probe.dryRun) haveBinary = false`). **The file's own header said so 400 lines
   above, so it carried two accounts of one fact.** Corrected to match.
+
+## Instrument finding: the validation helper can record a pass it never ran (kosmos#1961)
+
+Found on this branch at iteration 7, escalated the same evening because it reached a live release
+path, filed as **#1961**. Recorded here because the challenge-loop validation route is one of the
+two exposed callers, so anyone re-running this loop needs it.
+
+**The mechanism, read from `~/.claude/scripts/lib/validation-log.sh`:**
+
+1. `validation_log_run_or_skip` hashes `git diff origin/<default>...HEAD` -- **committed state
+   only**. Uncommitted fixes do not move the hash, so it matches the previous entry and SKIPS,
+   printing a pass for a run that did not happen.
+2. **The dirty-tree guard exists and the skip jumps over it.** Line 619 refuses a dirty worktree
+   ("validation succeeded but worktree is dirty") and returns 1. **The skip returns at line 495,
+   124 lines upstream.** The guard's own comment says its purpose is forcing a commit before the
+   PR, which is exactly what the skip lets through. ⇒ **A guard that cannot be reached from the
+   dangerous path reads as protection to everyone who greps for it and finds it present.**
+3. **The only tell is on stderr** (line 493, `>&2`). A caller capturing stdout to a log keeps the
+   exit 0 and loses the sentence.
+4. **Skips chain and never re-lock:** the unlock condition is `last_status = clean OR skipped`, so
+   one skip unlocks the next.
+
+**Recorded instance, this branch's own log** (`~/.cache/claude-validation-proofs/<branch>.jsonl`):
+
+```
+1  clean    08630dd73064  01:41:34Z
+2  SKIPPED  08630dd73064  01:57:11Z   <- 16 min of editing, 5 modified files, IDENTICAL hash
+3  clean    d0a7adf348b5  02:00:27Z   <- after committing: new hash, genuinely ran
+```
+
+✅ **How it was caught, which is the part worth reusing: nothing failed and nothing looked wrong.
+The hash printed in the output was the one from BEFORE my edits.** A value was stale in a line I
+had no particular reason to read.
+
+✅ **THE TWO CHECKS, either sufficient:** `git status --porcelain` empty before validating, or
+capture stderr and require the ABSENCE of `validation-log: skipping`. **A pass with that line
+present measured nothing.**
+
+📌 **Audited for this branch: no iteration was certified on a skip.** Row 2 carries the same hash as
+row 1, so it certified nothing new and was replaced by a genuine run at a new hash. The later
+`failed` rows are the contention reds; the final `clean` (`7ea8aea49648`) ran at an idle window and,
+because the hash is cumulative, covers every commit on the branch.
