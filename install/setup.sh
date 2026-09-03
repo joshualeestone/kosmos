@@ -3956,14 +3956,16 @@ PLIST
     if "$OPEN_CMD" "$_board_url" </dev/null >/dev/null 2>&1; then _opened=yes
     else printf '  note: Kosmos could not be opened automatically; open the Kosmos app from your Applications folder.\n\n'; fi
   fi
-  # #2030: the repair marker is NO LONGER seeded here (setup.sh could only see the open
-  # DISPATCHED, never REDEEMED); it is written server-side the instant a `?boot=` nonce is
-  # truly redeemed (engine/boardauth.js seedReauthMarker, from server.js's bootstrap handler).
-  # #2033: this open block now runs the mint+open in BOTH the install-page (pkg) and the
-  # non-pkg branches, so a fresh .pkg install opens an authenticated ?boot dashboard whose
-  # redemption is what seeds the marker server-side -- setup.sh's only job here is to OPEN when
-  # the marker is absent (the gate above), and self-healing falls out: an un-redeemed machine
-  # stays unseeded and retries the open on the next update until one navigates.
+  # #2030: the repair marker is NOT seeded here (setup.sh could only see the launch
+  # DISPATCHED, never REDEEMED); it is written server-side when a durable cookie is
+  # truly taken (engine/boardauth.js seedReauthMarker, from server.js's bootstrap
+  # handler) -- #2073: on the app's `?token=` redemption, and still on a `?boot=`.
+  # #2073: this block LAUNCHES THE NATIVE APP (no mint, no `?boot=` browser dashboard)
+  # in both the install-page (pkg) and non-pkg branches; the app authenticates via
+  # `?token=` and that redemption seeds the marker server-side -- setup.sh's only job
+  # here is to LAUNCH when the marker is absent (the gate above), and self-healing
+  # falls out: an un-redeemed machine stays unseeded and re-launches on the next
+  # update until one navigates (narrowed by the accepted running-app / #2028 edges).
   # (_opened is set on the open paths but no longer read here; #2073 removed the
   # nonce/mint tracking. Left set to keep this diff to the open TARGET.)
 fi
