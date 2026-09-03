@@ -34,11 +34,13 @@ function check(name, pass, detail) {
 /* One named candidate and one that its file does not name. The named one Adds with
    no typed name (connect reads it from the file); the nameless one must be given a
    name before it will connect -- the two arms this panel exists to carry. */
-/* #2025: the second line is deliberately long. Under the old `white-space: pre`
-   it forced a horizontal scrollbar (the letterbox Josh hit on 0.6.25); under the
-   `pre-wrap` fix it wraps inside the bounded box. The no-horizontal-scroll check
-   below reads FAIL against origin/main and PASS here off exactly this line. */
-const NAMED_PREVIEW = 'You are **Site Monitor**, a Watcher.\n\nWatch the site around the clock and, when it goes down or slows to a crawl, tell the person in plain language what changed and what you already tried before you woke them up about it.\n';
+/* #2025: this preview carries two shapes that letterbox under the old
+   `white-space: pre` and must not under the fix. The long prose sentence wraps at
+   spaces (needs `pre-wrap`); the long unbroken path has no spaces to wrap at
+   (needs `overflow-wrap: anywhere`, which the fix pairs with pre-wrap). The
+   no-horizontal-scroll check below reads FAIL against origin/main and PASS here
+   off exactly these lines. */
+const NAMED_PREVIEW = 'You are **Site Monitor**, a Watcher.\n\nWatch the site around the clock and, when it goes down or slows to a crawl, tell the person in plain language what changed and what you already tried before you woke them up about it.\n\nWorking dir: /Users/site/Library/Application-Support/AgentWorkforce/projects/site-monitor/checks/a-very-long-unbroken-path-segment-with-no-spaces-to-wrap-at/config.json\n';
 const NAMELESS_PREVIEW = 'You are the thing that keeps the build green.\n\nRun the pipeline.\n';
 const CANDS = [
   { dir: '/Users/x/work/site-monitor', name: 'Site Monitor', role: 'Watcher', preview: NAMED_PREVIEW },

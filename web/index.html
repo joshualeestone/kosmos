@@ -4652,8 +4652,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      letterbox and had to scroll sideways to finish a sentence (Josh, 0.6.25
      screenshots). Wrapping keeps every line in view; the bounded max-height
      keeps a long file scrolling in place rather than pushing the Add button off
-     the row. */
-  white-space: pre-wrap; overflow: auto; }
+     the row. `overflow-wrap: anywhere` pairs with pre-wrap the way the file's
+     other preview surfaces do, so a single unbreakable token (a long pasted
+     path) breaks rather than re-opening the letterbox. */
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
 .fr-scanpreview:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .flabel-soft { font-weight: 400; color: var(--label-2); }
 /* ⚠️ CHIPS THAT WRAP, which is the pack's own rule and which the build had
