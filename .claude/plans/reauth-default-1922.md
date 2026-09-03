@@ -23,8 +23,15 @@ one thing the rest of this codebase deliberately never does.
 2. **A canary run on this Mac 2026-09-02** (recorded in `~/.claude/bin/which-account.sh`): a launch
    under `CLAUDE_CONFIG_DIR=$HOME/.claude` **bumped `~/.claude/.claude.json` at 11:04:33 and never
    touched `~/.claude.json` (09:46)**. Two files, one launch, timestamps showing which moved.
-3. **Both files exist on this Mac** at different sizes (`141259` vs `51732` bytes when measured at
-   17:57), and `install/setup.sh:2132` enumerates them as two separate files.
+3. ~~**Both files exist on this Mac** at different sizes, and `install/setup.sh` enumerates them as
+   two separate files.~~ **DOWNGRADED at iteration 8: this is not a third independent measurement
+   and should not have been counted as one.** Two files existing at different sizes is consistent
+   with the redirect but does not demonstrate it, and `install/setup.sh` enumerates
+   `$HOME/.claude.json` and `${CLAUDE_CONFIG_DIR:+"$CLAUDE_CONFIG_DIR/.claude.json"}`, which are
+   the two files under discussion **only when `CLAUDE_CONFIG_DIR` is already `$HOME/.claude`** --
+   the very thing being established. ⇒ **The claim rests on measurements 1 and 2, which carry it on
+   their own.** Kept visible rather than deleted, because "three measurements" appeared in this
+   plan's own summary and a silent drop to two would leave that number unexplained.
 
 ⭐ **This fleet was bitten by the identical root cause earlier the same day**, in `which-account.sh`,
 where it produced false account-drift reports. **Treating `$HOME/.claude` as if setting
@@ -492,9 +499,11 @@ checking.
 ### Two things that got better rather than merely corrected
 
 - **The launch control asserted presence, not absence of a later strip.**
-  `env CLAUDE_CONFIG_DIR=<dir> -u CLAUDE_CONFIG_DIR <bin>` satisfied the old equality **and still
-  stripped the variable**. Now asserts the slice plus no `-u`; mutation-proven red on exactly that
-  shape.
+  `env CLAUDE_CONFIG_DIR=<dir> -u CLAUDE_CONFIG_DIR <bin>` satisfied the old equality. Now asserts
+  the slice plus no `-u`; mutation-proven red on exactly that shape.
+  🛑 **This entry said "and still stripped the variable" and certified it as mutation-proven. FALSE,
+  corrected at iteration 8:** that argv strips nothing, it **exits 127** before `claude` runs. The
+  assertion was right; its stated reason was wrong in the same way the sibling arm's was.
 - **The sandbox warning fired on every green run**, which this file's own header says trains people
   to ignore warnings. Deleting both seams was the obvious fix and **breaks the arm** (measured: the
   flow never reaches a launch). So the warning is **captured and asserted** instead: the noise became
@@ -700,3 +709,79 @@ and it is PR-body material.
   `-u` may NOT sit after one).
 - `server.connect.test.js`: "BOTH ARMS DRIVE THE LIVE CHECK TO SIGNED-OUT" overstated the control.
   Now says installed-is-not-invoked, and why the labelled arm never reaches `checkLive`.
+
+## Findings from challenge-loop iteration 8
+
+### 🛑 MY ITERATION-7 CORRECTION WAS A PARTIAL SWEEP, WHICH IS THE CLASS THIS PLAN NAMES THREE TIMES
+
+Iteration 7 corrected a false `env` mechanism in the default launch arm. **The identical false
+sentence sat in the sibling control arm and in this plan's iteration-4 record, and I did not sweep
+either.** Both said `env CLAUDE_CONFIG_DIR=<dir> -u CLAUDE_CONFIG_DIR <bin>` "still strips the
+variable"; it strips nothing, it **exits 127**.
+
+⭐ **The damning detail: at iteration 7 I inserted a new paragraph DIRECTLY BENEATH the false
+sentence in the control arm, and did not read the two lines above my own insertion point.** Editing
+adjacent text is not reading it.
+
+⭐ **And the plan entry certified the false mechanism as "mutation-proven".** The mutation proof was
+real; it proved the assertion goes red on that argv. **It never proved WHY, and I wrote the why from
+belief and attached the proof's authority to it.** ⇒ **A mutation proof establishes that an
+assertion discriminates, never that your explanation of the mechanism is right.** That is the fourth
+instance of the recording-a-remedy class on this branch and the first where the false part was the
+*reason* rather than the *action*.
+
+✅ **Fixed at all three sites in one edit**, checked by grep rather than by memory this time.
+
+### ✅ AN UNREPEATABLE CITATION REPLACED WITH A DURABLE ONE FROM THIS REPO
+
+The tmux non-permuting property was cited as "verified live on tmux 3.6a", which **nobody can
+re-run**. The reviewer found standing evidence in-repo, and it is strictly better:
+
+`bin/agent-supervisor.sh` launches every codex pane as
+
+```
+tmux new-session -d -s <s> -c "$WORKDIR" ... "$CLAUDE" ... -c "$NOTIFY_CFG"
+```
+
+**`-c` IS a real `tmux new-session` flag** (`new-session [-c start-directory]`, confirmed in
+`man tmux`), and there are **two** of them: tmux's own before the command operand, the runner's
+after it. If tmux permuted, the second would be swallowed as a start-directory and the notify config
+would never reach the child. **It reaches it, in production, on every codex agent.**
+
+### ⚠️ AND THE COVERAGE GAP IS WIDER THAN THE COMMENT ADMITTED
+
+I had written that the fake terminal cannot see tmux's parser. True, and not the whole gap:
+`docs/browser-checks/live-connect.js`, the only real-tmux real-CLI exerciser, **sets
+`AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`**, so `launchDir` is always truthy there and it takes the
+assignment branch every time. ⇒ **The `-u` branch is the only production-reachable arm of this
+launch and NOTHING exercises it against a real tmux.** Now stated in the source.
+
+### The third "measurement" was not one
+
+The plan claimed three independent measurements that `CLAUDE_CONFIG_DIR=$HOME/.claude` redirects the
+CLI. The third (both files exist at different sizes; `install/setup.sh` enumerates them) is
+consistent with the redirect but does not demonstrate it, and the setup.sh enumeration only names
+those two files **when `CLAUDE_CONFIG_DIR` is already `$HOME/.claude`** -- the thing being
+established. Downgraded in place rather than deleted, so the "three" in the summary does not go
+unexplained. **The claim rests on 1 and 2, which carry it.**
+
+### Deferred, with reasoning
+
+- **The default arm asserts a mismatch warning that is not #1922's subject**, so removing that
+  warning would redden a #1922 arm. **Kept:** deleting the DIR seam is how the arm reaches the
+  no-launch-dir branch, and the warning firing is the only observable proving it got there. Without
+  it the arm could silently drift onto the assignment branch and still pass. The comment now says to
+  replace it with another positive signal rather than simply delete it.
+
+## 🛑 PR BODY: REQUIRED SENTENCE, DO NOT DROP IT
+
+Two reviewers have now independently said this must reach the PR body, so it is recorded here as an
+obligation rather than as prose:
+
+> On a machine whose stored default reads connected, "Sign in again" now returns almost immediately
+> having opened nothing, where it previously ran the whole OAuth flow into the wrong file. Both are
+> broken; the routing is no longer the reason. The flow behind the #1560 gate still cannot repair a
+> dead credential (bare `claude`, no login argument): that is **kosmos#1937**, not fixed here.
+
+**Why it is load-bearing:** the new failure is QUIETER than the old one, so without this sentence it
+gets re-filed as a fresh regression against this PR.
