@@ -977,6 +977,14 @@ if boot_board "$sb7" "$P8"; then
   run_one "contrast"            env KOSMOS_URL="$B8" node docs/browser-checks/contrast.js
   run_one "named-controls"      env KOSMOS_URL="$B8" node docs/browser-checks/named-controls.js
   run_one "render-create-form"  node docs/browser-checks/render-create-form.js "$B8"
+  # #1652: the import-my-existing-agent walk. A create-flow check like
+  # render-create-form (fills the form, never presses Create, so it persists
+  # nothing on this shared board). It POSTs /api/first-run/complete itself, so
+  # like render-accounts-openai it calls requireSandbox() and is handed THIS
+  # harness's sandbox root -- $sb7 is the board it targets. First run is already
+  # complete on B8 (the curl above); the check's own POST is idempotent
+  # (firstrun.complete() re-marks and returns done:true).
+  run_one "import-agent-flow"   env AGENT_WORKFORCE_DATA="$sb7/data" node docs/browser-checks/import-agent-flow.js "$B8"
   run_one "render-found-undo"   node docs/browser-checks/render-found-undo.js "$B8"
   # #1938: the disk-scan board panel. Same board as render-found-undo (first-run
   # complete, agents tab); it mocks its own /api/scan-agents + connect + decline routes.

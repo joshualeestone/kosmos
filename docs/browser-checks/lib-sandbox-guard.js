@@ -3,16 +3,16 @@
 /**
  * Refuse to drive a board that is not a fixture (#1156).
  *
- * 🛑 TEN CHECKS IN THIS DIRECTORY POST. ONLY FIVE ARE THE HAZARD, AND THE
+ * 🛑 ELEVEN CHECKS IN THIS DIRECTORY POST. ONLY SIX ARE THE HAZARD, AND THE
  * DIFFERENCE IS WHERE THE BOARD COMES FROM, NOT WHETHER THEY WRITE:
  *
- *   take a board as `argv[2]`   5   they POST to whatever you point them at
+ *   take a board as `argv[2]`   6   they POST to whatever you point them at
  *   self-boot a sandbox         5   they start the server and set no data root
  *                                   in their own environment, so they were never
  *                                   dangerous and guarding them would refuse a
  *                                   check that had nothing wrong with it
  *
- * `render-accounts-openai.js` POSTs `/api/first-run/complete`; `render-projects.js`
+ * `render-accounts-openai.js` and `import-agent-flow.js` POST `/api/first-run/complete`; `render-projects.js`
  * creates projects; `render-consolidated-layouts.js` changes style. **A command
  * that reads like a test can change a running system**, and the obvious move when
  * a bare invocation fails with `fetch failed` is to hand it your own board's URL.
