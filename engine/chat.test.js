@@ -884,6 +884,75 @@ test('a state we could not read gets a sentence too, and never renders as an idl
   assert.equal(chat.waitingNote(null), said);
 });
 
+test('#1889: the background-wait note survives the WHOLE PATH, card to sentence', () => {
+  /*
+   * 🛑 THE SIBLING ROW BELOW CALLS `waitingNote(..., true)`, WHICH TESTS THE
+   * FUNCTION AND NOT THE PATH -- exactly what this file's own header forbids
+   * ("EVERY CARD COMES FROM `test-support/fleet`, never from an object").
+   *
+   * Measured before this row existed: hard-coding `stateBackgroundWait: false` at
+   * BOTH card builders in status.js left all 296 tests in this repo green, while
+   * every pane on a background wait went back to being told "it will not read
+   * this until it finishes". The entire user-visible half of the feature could be
+   * removed with no signal, because nothing connected the field's PRODUCER to its
+   * CONSUMER. Two publish sites, one reader, zero assertions.
+   *
+   * ⭐ A FIELD IS NOT COVERED BY TESTING THE FUNCTION THAT READS IT. The seam that
+   * breaks is the one between the two, and only a test that crosses it can see.
+   */
+  const wait = ['✻ Waiting for 1 background agent to finish', '',
+    '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+
+  withFleet([fleet.agent('casey', { state: 'working', screen: wait })], (board) => {
+    /* The PRODUCER half: a real card, built by snapshot(), carries the flag. */
+    const card = board.card('casey');
+    assert.equal(card.stateBackgroundWait, true,
+      'the card built from a background-wait pane did not publish the flag');
+    assert.equal(card.state, 'working',
+      'the fixture stopped being a background wait, so the row below proves nothing');
+
+    /* The CONSUMER half, through deliver(), not through waitingNote(). */
+    /* 📌 THE NOTE IS `paneNote`, NOT `because`. My first version of this row
+       asserted `because` and went red, and `because` is null on a successful
+       delivery, so it read exactly like the feature being broken end to end. The
+       code was right and the assertion was aimed at the wrong field. Checked
+       which of the harness and the product was wrong BEFORE believing the red. */
+    const tmux = arm([ok(), ok()]);
+    const verdict = chat.deliver('casey', 'have a look at the lease', board.agents);
+    assert.equal(verdict.paneState, 'working', 'the delivery did not read the pane as working');
+    assert.doesNotMatch(String(verdict.paneNote || ''), /will not read this until it finishes/,
+      'a pane at its prompt was told through the real path that its message would go unread');
+    assert.match(String(verdict.paneNote || ''), /background agent/,
+      'the delivered note lost the background-wait sentence somewhere between card and text');
+    void tmux;
+  });
+
+});
+
+/* CONTROL FOR THE ROW ABOVE, IN ITS OWN BLOCK ON PURPOSE. `chat.resetForTests()`
+   runs in `beforeEach`, not between two `withFleet` calls, so a second delivery to
+   the same name inside one test does not start from a clean seam. Splitting it is
+   what makes the control a control rather than a second measurement of whatever
+   the first delivery left behind. */
+test('#1889: CONTROL, an ordinary mid-turn pane keeps the old sentence on the same path', () => {
+  withFleet([fleet.agent('casey', { state: 'working' })], (board) => {
+    assert.equal(board.card('casey').stateBackgroundWait, false,
+      'an ordinary working pane claimed a background wait');
+    arm([ok(), ok()]);
+    const verdict = chat.deliver('casey', 'have a look at the lease', board.agents);
+    /* 🛑 ASSERT THE VERDICT BEFORE THE SENTENCE. `waitingNote` deliberately DROPS
+       the settled-fact clause on an UNCONFIRMED delivery, so a fixture that fails
+       to deliver produces "it was mid-task" and this row reds as though the
+       feature were broken. Naming the verdict first makes a harness problem say
+       so instead of impersonating a product one. */
+    assert.equal(verdict.state, chat.DELIVERY.PLACED,
+      'the fixture did not place the message (verdict: ' + verdict.state + '), so the sentence below is the wrong one to read');
+    assert.match(String(verdict.paneNote || ''), /will not read this until it finishes/,
+      'the ordinary mid-turn sentence was lost, so the background-wait row proves nothing');
+  });
+});
+
 test('#1889: a pane waiting on a BACKGROUND agent is not told it will go unread', () => {
   /*
    * 🛑 ONE `working` MEANS THE OPPOSITE OF THE OTHER, FOR THIS SENTENCE.
