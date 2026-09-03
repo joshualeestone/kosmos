@@ -3794,8 +3794,17 @@ OPEN_CMD="${KOSMOS_OPEN_CMD:-/usr/bin/open}"
 # board cookie #1946's enforcement requires. #2073 LAUNCHES THE APP here (not a
 # browser): the app reads the board token and appends ?token= itself, the board
 # sets the cookie, and server.js seeds the reauth marker on that ?token= redemption
-# -- so a normal update (make_app refreshed the bundle) launches the app once and
-# then this gate stops.
+# -- so a normal update, WHEN THE APP WAS NOT ALREADY RUNNING, launches the app
+# once and then this gate stops.
+# ⚠️ RUNNING-APP EDGE, ACCEPTED not fixed here: if the app is ALREADY running at
+# update time, `open Kosmos.app` is an AppKit REOPEN (applicationShouldHandleReopen)
+# that only re-shows the window -- it does NOT re-navigate the WebView, so the board
+# sees no ?token= bootstrap, the marker is not seeded, and this gate re-fires
+# (bringing the app to front) on each later update until the next fresh relaunch.
+# Low impact: the cohort is enforcing-but-unseeded machines mid-migration, and the
+# cost is a window-to-front, not a broken state -- arguably fine for app-only. The
+# real fix is a Swift change (re-navigate on reopen), a native-app follow-up; the
+# old browser ?boot= always spawned a fresh navigation regardless of app state.
 # ⚠️ #2028 EDGE, ACCEPTED not fixed here: if the update did NOT refresh the bundle
 # (make_app skipped -- aliased Applications, a foreign bundle), the launched app can
 # be too old to carry tokenizedBoardURL, so it cannot seed the marker and this open
@@ -3813,7 +3822,7 @@ if [ -f "$_awnode_r" ] && [ -x "$_awnode_r" ]; then
   _awroot_r="$("$_awnode_r" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot_r=""
   [ -n "$_awroot_r" ] && _repair_seed="$_awroot_r/.reauth-seeded"
 fi
-_open_gate="$FRESH_INSTALL"; _minted_nonce=no; _opened=no
+_open_gate="$FRESH_INSTALL"; _opened=no
 # A first enforcing run (fresh OR update) that has not been SEEDED opens the browser
 # once. #2030: the seed marker is written server-side on nonce REDEMPTION now
 # (engine/boardauth.js seedReauthMarker), NOT here -- so this stays a READ of the
@@ -3825,7 +3834,16 @@ if [ -n "$_repair_seed" ] && [ ! -f "$_repair_seed" ] && [ -s "$_awroot_r/board.
 fi
 if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_OPEN:-}" ] && [ -z "${KOSMOS_APP_DIR:-}" ] \
    && { [ -z "${KOSMOS_SYS_APP_DIR:-}" ] || [ -n "${KOSMOS_OPEN_CMD:-}" ]; } \
+   && [ -d "$APP_DIR/Kosmos.app" ] \
    && command -v "$OPEN_CMD" >/dev/null 2>&1; then
+  # #2073: only auto-launch when the app actually EXISTS. On a fresh install where
+  # make_app failed (APP_MADE=no: a TCC denial, an unwritable Applications), there
+  # is no app to open -- the old code fell back to a browser dashboard, which
+  # app-only removes, so opening nothing and telling the person to "open the Kosmos
+  # app" would name an app that was not created. The APP_MADE=no messaging above
+  # already tells them what happened and how to recover (kosmos open). Checked on
+  # existence, not APP_MADE, because APP_MADE=no ALSO covers "bundle already current,
+  # not rewritten this run", where a valid app is present and must still launch.
   # Named before it happens, per the header's every-step rule: a browser
   # window appearing unannounced reads as "something went wrong", and on
   # a cold browser start the prompt returns seconds before the window.
@@ -3947,7 +3965,8 @@ PLIST
   # redemption is what seeds the marker server-side -- setup.sh's only job here is to OPEN when
   # the marker is absent (the gate above), and self-healing falls out: an un-redeemed machine
   # stays unseeded and retries the open on the next update until one navigates.
-  # (_minted_nonce and _opened are no longer read here; left set to keep this diff minimal.)
+  # (_opened is set on the open paths but no longer read here; #2073 removed the
+  # nonce/mint tracking. Left set to keep this diff to the open TARGET.)
 fi
 
 # ---- the last thing on screen is the thing you still have to do (#1334) -------

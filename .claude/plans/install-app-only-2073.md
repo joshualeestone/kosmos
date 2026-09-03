@@ -31,7 +31,12 @@ stages Kosmos.app into `$APP_DIR`; setup.sh then opened the browser instead of l
 - **`server.js`**: seed the #2023/#2030 reauth marker on a `?token=` bootstrap too, not only
   `?boot=`. Both take the durable cookie in the same 302; the app authenticates via `?token=`, so
   without this the enforcing-update open-gate (open iff the marker is absent) would re-launch the
-  app on **every** update. This is the subsumption edge I verified rather than assumed.
+  app on **every** update. This is the subsumption edge I verified rather than assumed. The
+  guarantee is "launches once then stops" **only when the app was not already running and the
+  bundle is current** — see the two accepted edges below.
+- **`install/setup.sh` open gate**: also guarded on `[ -d "$APP_DIR/Kosmos.app" ]` — only
+  auto-launch when the app actually exists (a fresh install where `make_app` failed has no app to
+  open, and app-only removes the old browser fallback).
 - **`install/pkg-scripts/installing.html`**: the ready branch no longer `location.replace()`s the
   browser onto the board; it says Kosmos is opening in its app and stops (hint reworded to match).
 
@@ -50,6 +55,20 @@ stages Kosmos.app into `$APP_DIR`; setup.sh then opened the browser instead of l
   run the harness here: one self-diagnoses as "dist/ predates #910 (--kosmos-app-port-selftest);
   rebuild"; the other is the added-files check, which is bundle-content-determined and identical on
   origin/main (my diff touches only the open flow, adds no files). Neither is caused by this change.
+
+## Accepted edges in the enforcing-update self-heal (documented, not fixed here)
+
+Both narrow the "launches once then stops" property for the transitional enforcing-but-unseeded
+update cohort; both are low impact (a window-to-front per update at worst, self-heals on the next
+fresh relaunch), and both are honestly documented in-code at the gate header:
+
+1. **App already running at update time.** `open Kosmos.app` on a running instance is an AppKit
+   reopen (only re-shows the window); it does not re-navigate the WebView, so no `?token=`
+   bootstrap, no marker seed → the gate re-fires (brings the app to front) each update. The real
+   fix is a Swift change (re-navigate on reopen) — a native-app follow-up.
+2. **#2028 stale bundle.** If an update did not refresh the bundle, the old app may lack
+   `tokenizedBoardURL` and cannot seed the marker. That is #2028's bug; the not-refreshed note
+   points the user at the remedy.
 
 ## Deferred / flagged (not this PR)
 
