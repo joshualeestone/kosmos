@@ -1893,12 +1893,30 @@ async function launchSignin(owner) {
   }
   cmd.push(claudeBinPath());
 
-  /* 📌 The `-u` below sits AFTER `env` in the tmux argv, so it is part of the
-     shell-command tmux runs and not an option tmux itself consumes. That holds
-     because tmux's getopt does not permute: the first operand (`env`) ends
-     option parsing. Verified live on tmux 3.6a. The fake terminal in the suite
-     replays argv and cannot see tmux's own parser, so NO TEST COVERS THIS -- it
-     is stated here because a reader cannot otherwise tell a guarded property
+  /* 📌 The `-u` pushed above sits AFTER `env` in the tmux argv, so it is part of
+     the shell-command tmux runs and not an option tmux itself consumes. That
+     holds because tmux's getopt does not permute: the first operand (`env`) ends
+     option parsing.
+
+     ✅ THE DURABLE EVIDENCE IS IN THIS REPO, not in an unrepeatable manual run.
+     `bin/agent-supervisor.sh` launches every codex pane as
+
+       tmux new-session -d -s <s> -c "$WORKDIR" ... "$CLAUDE" ... -c "$NOTIFY_CFG"
+
+     `-c` IS a real `tmux new-session` flag (`[-c start-directory]`), and there
+     are TWO of them: tmux's own before the operand, the runner's after it. If
+     tmux permuted, the second would be swallowed as a start-directory and the
+     notify config would never reach the child. It does reach it, in production,
+     on every codex agent. An earlier version of this comment cited a live 3.6a
+     run instead, which nobody can re-run.
+
+     ⚠️ STILL UNCOVERED BY ANY TEST, and by more than the fake terminal. The
+     suite replays argv and cannot see tmux's parser; and
+     `docs/browser-checks/live-connect.js`, the one real-tmux real-CLI exerciser,
+     sets `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, so `launchDir` is always truthy
+     there and it takes the ASSIGNMENT branch every time. **The `-u` branch is
+     the only production-reachable arm and nothing exercises it against a real
+     tmux.** Stated because a reader cannot otherwise tell a guarded property
      from an unguarded one. */
 
   const made = await tmux(['new-session', '-d', '-s', SESSION, '-x', '220', '-y', '50', ...cmd]);

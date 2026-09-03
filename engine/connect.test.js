@@ -588,7 +588,17 @@ driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CL
      firing on every green run trains people to ignore it. Deleting BOTH seams
      was tried and breaks the arm (the flow never reaches a launch), so the
      warning is turned into coverage instead: it MUST fire here, and asserting
-     that also guards the warning itself against silent removal. */
+     that also guards the warning itself against silent removal.
+
+     📌 KEPT DELIBERATELY, THOUGH IT COUPLES A #1922 ARM TO A WARNING THAT IS NOT
+     #1922's SUBJECT (so a legitimate future removal of that warning reddens this
+     arm). The coupling is load-bearing rather than incidental: deleting the DIR
+     seam is HOW this arm reaches the no-launch-dir branch at all, and the
+     warning firing is the only observable proving it got there. Without it the
+     arm could silently start exercising the assignment branch and still pass its
+     other assertions. If the warning is ever removed, replace this assertion
+     with another positive signal that the branch was taken -- do not simply
+     delete it. */
   const saved = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
   delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
   const warned = [];
@@ -670,8 +680,15 @@ driverTest('#1922 CONTROL: a LABELLED-account sign-in still sets CLAUDE_CONFIG_D
   assert.equal(made[i + 1], `CLAUDE_CONFIG_DIR=${dir}`,
     'a labelled account lost its own config dir, so its sign-in would write to the ambient default');
   /* ⚠️ PRESENCE IS NOT ENOUGH: `env CLAUDE_CONFIG_DIR=<dir> -u CLAUDE_CONFIG_DIR
-     <bin>` satisfies the assertion above and still strips the variable. Assert
-     nothing undoes it. */
+     <bin>` satisfies the assertion above. Assert nothing follows it.
+
+     🛑 AND THE MECHANISM IS NOT WHAT THIS COMMENT SAID FOR SIX ITERATIONS. It
+     claimed that argv "still strips the variable". It does not strip anything:
+     `env` stops option parsing at its first operand, so `-u` after an assignment
+     is read as a FILE TO EXECUTE. Measured, `env FOO=dir -u FOO /bin/sh -c ...`
+     -> `env: -u: No such file or directory`, **exit 127**. The launch dies before
+     `claude` is exec'd. Same table as the sibling arm above; the assertion was
+     always right and only its reason was wrong. */
   /* Bounded to the `env` slice, like its sibling in the default arm: an
      unrelated `-u` elsewhere in the tmux invocation is not this card's business.
 
@@ -681,7 +698,9 @@ driverTest('#1922 CONTROL: a LABELLED-account sign-in still sets CLAUDE_CONFIG_D
      it at i+1 costs nothing here. `-u` may NOT sit after one, which is why the
      sibling asserts ordering rather than position. */
   assert.ok(!made.slice(i).includes('-u'),
-    'the labelled launch also strips CLAUDE_CONFIG_DIR, so the assignment above is undone');
+    'a `-u` follows the assignment in the labelled launch\'s `env` slice: `env` stops option '
+    + 'parsing at its first operand, so this argv exits 127 with "env: -u: No such file or '
+    + 'directory" and the sign-in window never opens at all');
 });
 
 driverTest('the driver walks the measured flow end to end', async () => {
