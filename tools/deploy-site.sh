@@ -76,14 +76,28 @@ verify_sha() {  # <file> <sha256-url>
 
 mkdir -p "$SITE/dist"
 
-# the current release tarball + its sha + manifest, named by latest.json (source of truth)
+# The current release tarball is GITIGNORED, so it is carried from the working tree and MUST be
+# fetched. dist/latest.json (the served download pointer) is TRACKED, so site_deploy_export ships
+# the COMMITTED copy via `git archive HEAD`, NOT the working-tree copy this reads -- which is the
+# trap the guard below closes.
 LJ=$(curl -fsSL "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
 ART=$(printf '%s' "$LJ" | sed -n 's/.*"artifact":"\([^"]*\)".*/\1/p')
 MAN=$(printf '%s' "$LJ" | sed -n 's/.*"manifest":"\([^"]*\)".*/\1/p')
 [ -n "$ART" ] || { echo "deploy-site: latest.json names no artifact -- refusing"; exit 1; }
+# 🛑 COMMITTED-vs-LIVE POINTER GUARD (#2014 review). The served latest.json is the COMMITTED one
+# (git archive HEAD). If the checkout's committed latest.json names a DIFFERENT version than live,
+# the checkout is stale (HEAD behind the last release) or ahead (an unshipped version bump), and the
+# deploy would either serve a pointer to a version whose tarball this never fetched, or move the
+# installer version -- a software release's job, never a site-copy deploy. Refuse either way; a
+# marketing/copy deploy must leave the installer pointer exactly where the release left it.
+CART=$(git -C "$SITE" show "HEAD:dist/latest.json" 2>/dev/null | sed -n 's/.*"artifact":"\([^"]*\)".*/\1/p')
+[ "$CART" = "$ART" ] || { echo "deploy-site: the checkout's COMMITTED latest.json names '$CART' but LIVE names '$ART' -- refusing. The checkout is stale or ahead of the current release; a site-copy deploy must not move the installer version. Sync $SITE to the current release, then retry."; exit 1; }
 fetch "$HOST/dist/$ART"          "$SITE/dist/$ART"
 fetch "$HOST/dist/$ART.sha256"   "$SITE/dist/$ART.sha256"
 verify_sha "$SITE/dist/$ART" "$HOST/dist/$ART.sha256"
+# $MAN (the manifest) is TRACKED too, so git archive ships the committed copy; fetching it only
+# refreshes the working-tree copy the deploy does not use. Kept as a liveness probe (a live 404
+# refuses), harmless.
 [ -n "$MAN" ] && fetch "$HOST/dist/$MAN" "$SITE/dist/$MAN"
 
 # the macOS pkg triple (fixed names)
@@ -92,8 +106,11 @@ for f in Kosmos.pkg Kosmos.pkg.sha256 Kosmos.pkg.inputs; do
 done
 verify_sha "$SITE/dist/Kosmos.pkg" "$HOST/dist/Kosmos.pkg.sha256"
 
-# the Windows zip (see WINZIP note above). A STALE default (a new win build ships before #2008
-# lands) 404s, so fetch() REFUSES -- it fails safe (no deploy), it does NOT silently drop the zip.
+# The Windows zip is TRACKED, so git archive HEAD ships the COMMITTED copy and the honest-marker
+# check below confirms it was carried; this fetch is a LIVENESS PROBE (a live 404 -- e.g. a stale
+# $WINZIP default before #2008 lands -- refuses rather than deploying past a missing zip), not the
+# bytes that ship. The committed .sha256 travels with it via git archive, so the served pair stays
+# self-consistent without a fetch-side sha check.
 fetch "$HOST/dist/$WINZIP" "$SITE/dist/$WINZIP"
 
 # the tmux runtime + the unversioned alias tarball (#2014 review, BLOCKER). site_deploy_export
@@ -113,6 +130,11 @@ verify_sha "$SITE/dist/kosmos-arm64.tar.gz" "$HOST/dist/kosmos-arm64.tar.gz.sha2
 # are not enumerable here; if rollback coverage is ever needed, fetch them the same way.
 
 echo "deploy-site: fetched and verified the current live artifacts into $SITE/dist/"
+# ⚠️ This populated the SHARED site checkout's dist/ (also the live board, also shared with
+# tools/release.sh). It is by design and non-destructive: every byte is a sha-verified copy of what
+# is already live, so the checkout's content is unchanged even though dist/ mtimes moved. It is NOT
+# side-effect-free on the filesystem, so do not run a --publish concurrently with a release cut that
+# is populating the same dist/.
 
 # --- 2) build the export (carries pages + artifacts, writes the marker) -------
 # shellcheck source=/dev/null
@@ -153,7 +175,7 @@ rm -rf "$EXPORT"
 # the artifacts and checking the bytes catches it.
 REPO="$REPO" HOST="$HOST" sh "$REPO/tools/verify-served.sh" || { echo "deploy-site: SERVED verification FAILED after deploy -- the site may render with dead downloads. Investigate immediately (this is the #1669 shape)."; exit 1; }
 # verify-served.sh does not cover the Windows zip; confirm it explicitly.
-code=$(curl -sSL -o /dev/null -w '%{http_code}' "$HOST/dist/$WINZIP")
+code=$(curl -sSL -o /dev/null -w '%{http_code}' "$HOST/dist/$WINZIP") || { echo "deploy-site: could not reach $HOST/dist/$WINZIP to confirm it is served (transport error) -- investigate; the deploy already ran."; exit 1; }
 [ "$code" = "200" ] || { echo "deploy-site: the Windows zip $WINZIP is NOT served ($code) after deploy -- investigate."; exit 1; }
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."
