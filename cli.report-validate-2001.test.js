@@ -49,6 +49,20 @@ test('#2001: `report needs_you` with nothing is refused too', async () => {
   assert.equal(r.code, 2);
 });
 
+test('#2001: a WHITESPACE-ONLY --on/--owner/note is refused too (it names nothing)', async () => {
+  const forms = [
+    ['report', 'blocked', '--on', '   '],
+    ['report', 'blocked', '--owner', ' '],
+    ['report', 'needs_you', '   '],
+  ];
+  for (const args of forms) {
+    const r = await run(args);
+    assert.match(r.out, /needs at least one of --on/, `whitespace-only slipped the guard: ${args.join('|')}`);
+    assert.doesNotMatch(r.out, /not running/, `whitespace-only reached the network: ${args.join('|')}`);
+    assert.equal(r.code, 2, `whitespace-only should exit 2: ${args.join('|')}`);
+  }
+});
+
 test('#2001: any ONE of --on, --owner or a note lets a summoning state through', async () => {
   const forms = [
     ['report', 'blocked', '--on', 'provider api'],

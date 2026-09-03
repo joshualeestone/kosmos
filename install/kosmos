@@ -871,7 +871,11 @@ cmd_report() {
   # warning printed to a pane nobody is watching is the failure this class produces.
   case "$state" in
     blocked|needs_you)
-      if [ -z "$on" ] && [ -z "$owner" ] && [ -z "$text" ]; then
+      # -z alone would let a WHITESPACE-ONLY --on/--owner/note through, which
+      # names nothing anyone can act on exactly as an empty one does -- the hole
+      # the blind review caught. Strip whitespace across all three together and
+      # refuse if nothing real remains (#2001).
+      if [ -z "$(printf '%s' "$on$owner$text" | tr -d '[:space:]')" ]; then
         say "A '$state' report needs at least one of --on <what>, --owner <who>, or a note: that state summons a person, and an empty one names nothing to act on."
         exit 2
       fi ;;
