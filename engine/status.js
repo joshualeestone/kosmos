@@ -4256,6 +4256,20 @@ function panelessKeys(paneKeys) {
   return out;
 }
 
+/* #1930: the per-account live-auth verdict for a scraped auth_failed agent. Probe ONLY a
+   POSITIVELY-resolved job. An unresolvable job (readJobFn returns null or throws) returns
+   undefined so the caller leaves auth_failed standing -- it must NOT fall back to the DEFAULT
+   account, or a named agent on a NON-default account whose job is unreadable, with a genuinely
+   expired token, would be judged by the (possibly healthy) default account and its real 401
+   suppressed: false calm, the one direction this whole card forbids. A resolved job with no
+   configDir IS the default account, so probing it (verdictFn(null)) is then correct. */
+function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
+  let job;
+  try { job = readJobFn(name); } catch { return undefined; }
+  if (!job) return undefined;
+  return verdictFn(job.configDir || null);
+}
+
 function snapshot() {
   const { panes: read, rejected: unreadableLines, rejectedLines: unreadableSamples } = listPanes();
   const panes = onePanePerSession(read);
@@ -4272,9 +4286,10 @@ function snapshot() {
        need the name to resolve the account config dir); no probe for a healthy agent. */
     let liveAuth;
     if (scrapedStatus.state === STATE.AUTH_FAILED && isNamedOurs(pane)) {
-      let configDir = null;
-      try { const job = require('./create').readJob(pane.name); configDir = (job && job.configDir) || null; } catch { /* default account */ }
-      liveAuth = require('./authprobe').verdict(configDir, now);
+      liveAuth = liveAuthForAuthFailed(
+        pane.name,
+        (n) => require('./create').readJob(n),
+        (d) => require('./authprobe').verdict(d, now));
     }
     const status = reconcileReport(
       isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
@@ -4601,7 +4616,7 @@ module.exports = {
   setPaneSource, setPaneCapture, tmuxSaidNoServer, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, REPORT_WORKING_DECAY_MS,
+  reconcileReport, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
      agent LAST RAN AS into a job that never recorded a choice. Exported rather

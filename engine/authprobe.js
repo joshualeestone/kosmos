@@ -59,7 +59,7 @@ function verdictFromLive(live) {
 // the promise is intentionally not awaited by callers on the tick; it updates the cache when it
 // settles. A thrown checker is swallowed into UNKNOWN (never a rejected promise reaching the
 // tick, never a HEALTHY on error).
-function kickCheck(configDir, nowMs) {
+function kickCheck(configDir) {
   const key = dirKey(configDir);
   const cur = cache.get(key);
   if (cur && cur.checking) return;
@@ -75,12 +75,21 @@ function kickCheck(configDir, nowMs) {
  * Reads the cache; if the entry is absent or older than the TTL, kicks off an async re-check and
  * returns the LAST KNOWN verdict (or UNCHECKED). Only a fresh HEALTHY entry returns HEALTHY, so
  * a stale-but-formerly-healthy entry does not linger as a suppression past the TTL.
+ *
+ * ⚠️ ACCEPTED, BOUNDED false-calm window (a conscious sign-off, kosmos#1930): a HEALTHY verdict
+ * is trusted for up to TTL_MS. If an account is probed HEALTHY and then GENUINELY re-expires
+ * within that window, the board renders it calm over the fresh 401 until the next re-probe flips
+ * it to EXPIRED -- a new window that did not exist before (a fresh 401 used to read auth_failed
+ * immediately). It is bounded (<= TTL_MS) and self-healing, and it is inherent to the off-tick
+ * cache that #1885 mandates (a per-tick live check is the cost defect we refused). Tokens last
+ * hours, so a re-expiry inside a 30s window is rare; the stale-HEALTHY downgrade below caps any
+ * UNBOUNDED exposure. Shortening TTL_MS trades a smaller window for more subprocess load.
  */
 function verdict(configDir, nowMs = Date.now()) {
   const key = dirKey(configDir);
   const cur = cache.get(key);
   const fresh = cur && !cur.checking && (nowMs - cur.at) <= TTL_MS && cur.at > 0;
-  if (!cur || (nowMs - (cur.at || 0)) > TTL_MS) kickCheck(configDir, nowMs);
+  if (!cur || (nowMs - (cur.at || 0)) > TTL_MS) kickCheck(configDir);
   if (fresh) return cur.verdict;
   // A stale entry is not trusted; report its verdict only if it is EXPIRED/UNKNOWN (which keep
   // auth_failed standing anyway). A stale HEALTHY must NOT suppress -> downgrade to UNCHECKED.
@@ -88,4 +97,11 @@ function verdict(configDir, nowMs = Date.now()) {
   return UNCHECKED;
 }
 
-module.exports = { verdict, HEALTHY, EXPIRED, UNKNOWN, UNCHECKED, TTL_MS, dirKey, setChecker, resetForTest };
+module.exports = {
+  verdict,
+  HEALTHY, EXPIRED, UNKNOWN, UNCHECKED,
+  TTL_MS,
+  dirKey,
+  setChecker,   // test seam
+  resetForTest, // test seam
+};

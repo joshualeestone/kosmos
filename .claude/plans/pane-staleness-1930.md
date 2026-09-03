@@ -70,6 +70,15 @@ model as `#1885`/`verify-manifest.sh`: the live condition check is authoritative
 - The cache/async layer: injected `checkLive` seam; a stale/absent entry triggers a check and
   is not awaited; a fresh healthy entry is consulted without a new check; the debounce holds.
 
+## Accepted, bounded tradeoff (conscious sign-off)
+A HEALTHY verdict is trusted for up to TTL_MS (30s). If an account is probed HEALTHY and then
+GENUINELY re-expires within that window, the board renders it calm over the fresh 401 until the
+next re-probe -- a new, BOUNDED (<= 30s), self-healing false-calm window that did not exist
+before. It is inherent to the off-tick cache #1885 mandates (a per-tick live check is the cost
+defect we refused); tokens last hours so a re-expiry inside 30s is rare; the stale-HEALTHY
+downgrade caps any UNBOUNDED exposure. Shortening TTL_MS trades a smaller window for more
+subprocess load. Documented in engine/authprobe.js at `verdict`.
+
 ## Scope note
 This is a cross-module change (status.js reconcile + a cache + accounts/subscription wiring +
 server roster). It is the high-stakes "false calm" area, so the guard arm (expired/unchecked

@@ -2861,7 +2861,7 @@ test('a full model id beats a bare short form that happens to be later', () => {
  * shape, from the other side).
  * ------------------------------------------------------------------------- */
 
-const { reconcileReport, REPORT_WORKING_DECAY_MS } = require('./status');
+const { reconcileReport, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed } = require('./status');
 
 const T0 = Date.parse('2026-08-24T16:00:00Z');
 const rep = (state, extra) => ({ found: true, state, because: null, on: null, owner: null, until: null, at: new Date(T0).toISOString(), ...extra });
@@ -3027,12 +3027,9 @@ test('#966: a fresh report does NOT beat a scraped auth_failed -- 3b keeps the h
 // (that is #966 above). These pin the two directions.
 const authprobe = require('./authprobe');
 
-test('#1930: the drift guard -- LIVE_AUTH_HEALTHY in status.js equals authprobe.HEALTHY', () => {
-  // reconcileReport suppresses on liveAuth === 'healthy'; authprobe returns that exact string.
-  assert.equal(authprobe.HEALTHY, 'healthy');
-});
-
 test('#1930 CONTROL: a scraped auth_failed + a LIVE-HEALTHY account no longer reads auth_failed', () => {
+  // This arm doubles as the drift guard: it passes the real authprobe.HEALTHY string and asserts
+  // suppression, so it reds if authprobe.HEALTHY or status.js's LIVE_AUTH_HEALTHY drift apart.
   const got = reconcileReport(rep('working', { because: 'answering Joshua' }),
     scr(STATE.AUTH_FAILED, CONFIDENCE.SCRAPED, 'OAuth access token is invalid'),
     T0 + 60_000, authprobe.HEALTHY);
@@ -3047,6 +3044,27 @@ test('#1930 GUARD: no false calm -- expired / unknown / unchecked / absent all k
     assert.equal(got.state, STATE.AUTH_FAILED, `a genuinely-unconfirmed sign-in (${verdict}) must still read auth_failed`);
     assert.match(got.conflict, /sign-in is being rejected/);
   }
+});
+
+// #1930: liveAuthForAuthFailed must probe ONLY a positively-resolved job. Collapsing an
+// UNRESOLVABLE job into the default account would judge a named non-default agent by the
+// default account's health -> false calm.
+test('#1930 GUARD: an UNRESOLVABLE job does NOT probe (never falls back to the default account)', () => {
+  let probed = false;
+  const verdictFn = (d) => { probed = true; return authprobe.HEALTHY; };
+  // readJob returns null (missing/unreadable plist):
+  assert.equal(liveAuthForAuthFailed('who', () => null, verdictFn), undefined, 'null job -> no verdict');
+  // readJob throws:
+  assert.equal(liveAuthForAuthFailed('who', () => { throw new Error('bad plist'); }, verdictFn), undefined, 'throwing job -> no verdict');
+  assert.equal(probed, false, 'an unresolvable job must not probe any account (so nothing is suppressed)');
+});
+
+test('#1930: a resolved job probes its own account; a resolved default job probes with null configDir', () => {
+  const seen = [];
+  const verdictFn = (d) => { seen.push(d); return authprobe.HEALTHY; };
+  assert.equal(liveAuthForAuthFailed('named', () => ({ configDir: '/acct/x' }), verdictFn), authprobe.HEALTHY);
+  assert.equal(liveAuthForAuthFailed('deflt', () => ({ configDir: null }), verdictFn), authprobe.HEALTHY);
+  assert.deepEqual(seen, ['/acct/x', null], 'a resolved job probes its configDir; a default job probes with null');
 });
 
 /**
