@@ -81,8 +81,7 @@ let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
   || bad "the JSON check accepts a raw newline (control did not discriminate)"
 
 # --- all four esc_text sites carry the fix ---------------------------------
-n_new="$(grep -cE "esc_text=\\\$\(printf '%s' \"\\\$text\" \| sed 's/.*| tr '.t.r' '  ' \| sed -e ':a'" install/kosmos 2>/dev/null)"
-# The precise pattern is awkward to quote; count the distinguishing tail instead.
+# Count by the distinguishing tail of the fixed pipeline (the BSD-safe -e slurp).
 n_new="$(grep -cE "esc_text=.*sed -e ':a' -e 'N' -e '.\!ba' -e 's/" install/kosmos)"
 [ "$n_new" -eq 4 ] \
   && ok "all 4 esc_text sites use the paragraph-preserving BSD-safe pipeline" \

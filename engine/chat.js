@@ -292,7 +292,7 @@ function cleanMessage(raw) {
  * The person's text as it is KEPT, preserving paragraph breaks.
  *
  * ⚠️ THE STORE IS NOT THE PANE. `cleanMessage` above flattens because a newline
- * typed into a pane is Enter — it submits half a message and fires the agent
+ * typed into a pane is Enter -- it submits half a message and fires the agent
  * early (see MAX_TEXT). That constraint belongs to the pane, and applying it at
  * the store was the #1927 defect: every destination lost paragraphs, including
  * the operator's HTML view (which never had a pane's limit and which Josh reads
@@ -305,7 +305,7 @@ function cleanMessage(raw) {
  *   - three or more newlines → a single blank line (one paragraph break)
  *   - trim the ends.
  * After this the ONLY whitespace/control character left in range is `\n`, which
- * is exactly the one `CONTROL` now exempts — every other control char (ESC and
+ * is exactly the one `CONTROL` now exempts -- every other control char (ESC and
  * the rest) is preserved here so `messageProblem` still sees and refuses it.
  */
 function storeText(raw) {
@@ -330,7 +330,7 @@ function storeText(raw) {
  * 🛑 ONE EXEMPTION, AND ONLY ONE: `\n` (U+000A). The store keeps paragraph
  * breaks (#1927), so `messageProblem` now validates the STORED shape, in which
  * a legitimate newline survives. The range is split around 0x0A so newline
- * passes and EVERY OTHER control character — ESC (U+001B) included — is still
+ * passes and EVERY OTHER control character -- ESC (U+001B) included -- is still
  * refused. Do NOT widen this: the pane path (`deliver`) flattens the newline
  * back out before it is typed, so exempting it here costs the pane nothing,
  * while exempting anything else would let a real control character through to
