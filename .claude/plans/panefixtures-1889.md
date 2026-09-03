@@ -187,6 +187,60 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## ITERATION 23: THE SAME DEFECT, ONE CONSTANT OVER, FOR THE FOURTH ROUND RUNNING
+
+**Iteration 22 fixed the whitespace premise in `backgroundAgentWaitCount` and left
+it broken in `AGENT_FINISHED_LINE` and `AGENT_WAIT_CLEARED_BANNER`.** Same class,
+adjacent constants, same commit's blast radius. Measured, controls first (intact
+rows return `idle`, so the instrument can return the dangerous answer):
+
+    ⏺ Agent"a" finished                    -> working on a FINISHED agent
+    ⏺ Agent "a"finished                    -> working on a FINISHED agent
+    ⏺ Backgroundagent "a" was stopped ...  -> working
+    ⏺ Allbackground agents stopped         -> working FOREVER after an interrupt
+    ⏺ All background agentsstopped         -> working FOREVER after an interrupt
+    ⏺ 3 background agents werestopped ...  -> working
+
+⚠️ **REACHABILITY IS HIGHER ON THESE ROWS THAN ON THE WAIT ROW.** They carry a
+MODEL-SUPPLIED description and the plural banner interpolates every one of them,
+so they are the widest rows on screen and the likeliest to wrap. The fix landed on
+the narrow row and missed the wide ones.
+
+⭐ **THE PREMISE IS A PROPERTY OF THE TEXT, SO IT BELONGS TO EVERY REGEX THAT READS
+THAT TEXT.** When one constant's assumption about a row changes, list the others
+reading the same row and change them in the same commit or say why not. Four
+rounds, four fixes, four adjacent sites left behind.
+
+## A FIELD IS NOT COVERED BY TESTING THE FUNCTION THAT READS IT
+
+`stateBackgroundWait` was published by two card builders, read by one consumer, and
+asserted by nothing. **Hard-coding it `false` at both builders left all 296 tests
+green** while every pane on a background wait went back to being told "it will not
+read this until it finishes". The whole user-visible half of iteration 22, removable
+with no signal.
+
+The existing row called `waitingNote(state, outcome, true)` with a literal, which is
+the FUNCTION and not the PATH, and this file's own header already forbids that
+("EVERY CARD COMES FROM `test-support/fleet`, never from an object"). **The seam
+that breaks is between producer and consumer, and only a test that crosses it can
+see.** There is now one that builds a real card through `snapshot()` and delivers
+through `deliver()`, with the reviewer's exact perturbation as its proof.
+
+### Writing that test went wrong twice, in the same direction
+
+1. I asserted `verdict.because`. The note is `verdict.paneNote`, and `because` is
+   null on a successful delivery, so it read exactly like the feature being broken
+   end to end.
+2. I armed the fixture with two empty answers, so the delivery came back
+   `unconfirmed` -- and `waitingNote` DELIBERATELY drops the settled-fact clause on
+   an unconfirmed verdict. The sentence was correct and my fixture was measuring a
+   different world.
+
+Both times the red was real and its cause was mine. ✅ **The row now asserts the
+VERDICT before the SENTENCE**, so a harness problem says so instead of impersonating
+a product one. That one extra assertion is what turned the second failure from a
+puzzle into a message.
+
 ## ITERATION 22: A BLOCKER LIVING BETWEEN TWO GREEN FIXTURES
 
 **`BACKGROUND_AGENT_WAIT` spells every space `\s*`** on the `capture-pane -J`

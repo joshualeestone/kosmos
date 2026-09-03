@@ -1997,6 +1997,58 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
       composed, 'the composed-wait return lost or altered its evidence line');
   }
 
+  /**
+   * 🛑 THE RESOLUTION ROWS WRAP TOO, AND FOR FOUR ROUNDS ONLY THE WAIT ROW DID.
+   *
+   * `BACKGROUND_AGENT_WAIT` and the count were widened to `\s*` on the
+   * `capture-pane -J` premise. `AGENT_FINISHED_LINE` and
+   * `AGENT_WAIT_CLEARED_BANNER` kept `\s+`, so THE SAME JOIN THE MATCHER WAS
+   * WIDENED TO ACCEPT SILENTLY DISARMED RESOLUTION.
+   *
+   * ⚠️ REACHABILITY IS HIGHER HERE, NOT LOWER. These rows carry a MODEL-SUPPLIED
+   * description and the plural banner interpolates every one of them, so they are
+   * the widest rows on screen and the likeliest to wrap.
+   *
+   * Two harms, both already named elsewhere in this file as the ones not to be
+   * wrong about: a FINISHED agent reading `working` (the iteration-3 false calm),
+   * and the banner arm, where "after an interrupt nothing further is drawn, so
+   * the frozen wait row never leaves reach and the pane reads `working` FOREVER".
+   */
+  for (const joined of [
+    '  ⏺ Agent"a" finished · 5m',
+    '  ⏺ Agent "a"finished · 5m',
+    '  ⏺ Agent "a" wasstopped by Claude',
+    '  ⏺ Agent "a" stoppedat its 5-turn limit',
+    '  ⏺ Backgroundagent "a" was stopped by the user.',
+    '  ⏺ Background agent "a" wasstopped by the user.',
+    '  ⏺ Allbackground agents stopped',
+    '  ⏺ All background agentsstopped',
+    '  ⏺ 3 background agents werestopped by the user: a, b, c',
+  ]) {
+    assert.notEqual(
+      classify(pane, '✻ Waiting for 1 background agent to finish\n' + joined + footer).state,
+      'working',
+      'a wrap-joined completion or banner failed to resolve the wait: ' + joined.trim());
+  }
+
+  /* 🛑 AND THE RELAXATION MUST NOT COST THE NARROWING. What excludes a tool
+     header, a collapsed group header and prose is the REQUIRED QUOTED NAME and
+     the literal `background`, never the space, so these three must still leave
+     the wait live. Without this block, widening the verb list or dropping the
+     quote requirement would look free. */
+  for (const notACompletion of [
+    '  ⏺ Agent(Investigate the failed CI run)',
+    '  ⏺ Agent(Investigatethe failed CI run)',
+    '  ⏺ 3 agents finished',
+    '  ⏺ 3agents finished',
+    '  the agent finished its review',
+  ]) {
+    assert.equal(
+      classify(pane, '✻ Waiting for 1 background agent to finish\n' + notACompletion + footer).state,
+      'working',
+      'the wrap relaxation let a non-completion row resolve the wait: ' + notACompletion.trim());
+  }
+
   /* 🛑 THE CROSSING ROW: A WRAP-JOINED WAIT **AND** A COUNT. Neither dimension was
      wrong alone and nothing tested them together, so a BLOCKER lived between two
      green fixtures. The wrap rows above assert only `.state` on a wait with NO

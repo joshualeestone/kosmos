@@ -2089,8 +2089,27 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    line-start bullet and the trailing verb list still carry the discrimination;
    the quotes only have to bracket a name, and they no longer have to be the
    only two on the row. */
+/* 🛑 EVERY SPACE IS `\s*` HERE AND IN THE BANNER BELOW, FOR THE SAME REASON THE
+   WAIT MATCHER USES IT: `capture-pane -J` joins a wrapped row with NO separator.
+   These two constants spelled them `\s+` for four rounds after the matcher was
+   widened, so THE SAME JOIN THE MATCHER WAS WIDENED TO ACCEPT SILENTLY DISARMED
+   RESOLUTION. Measured, with intact rows as controls returning `idle`:
+     `⏺ Agent"a" finished`            -> working on a FINISHED agent
+     `⏺ Agent "a"finished`            -> working on a FINISHED agent
+     `⏺ Allbackground agents stopped` -> working FOREVER after an interrupt
+     `⏺ All background agentsstopped` -> same
+   ⚠️ REACHABILITY IS HIGHER HERE THAN ON THE WAIT ROW, not lower. These rows carry
+   a MODEL-SUPPLIED description, and the plural banner interpolates every one of
+   them, so they are the widest rows on screen and the likeliest to wrap.
+   ✅ The relaxation costs the narrowing nothing: what excludes the tool header
+   `⏺ Agent(Investigate …)` and the group header `⏺ 3 agents finished` is the
+   REQUIRED QUOTED NAME and the literal `background`, never the space.
+   ⭐ FOURTH ROUND RUNNING THAT A FIX LEFT ITS NEIGHBOUR UNFIXED. The premise is a
+   property of the TEXT, so it belongs to every regex that reads that text. When
+   one constant's assumption changes, list the others reading the same row and
+   change them in the same commit or state why not. */
 const AGENT_FINISHED_LINE =
-  /^\s*[⏺●]\s*(?:Agent|[Bb]ackground\s+agent)\s+"[^\n]*"\s+(?:finished|failed\b|was\s+stopped|stopped\s+at\s+its)/mu;
+  /^\s*[⏺●]\s*(?:Agent|[Bb]ackground\s*agent)\s*"[^\n]*"\s*(?:finished|failed\b|was\s*stopped|stopped\s*at\s*its)/mu;
 
 /* #1889. The two rows that end EVERY background agent at once, so they resolve a
    wait whatever its count. Kept separate from `AGENT_FINISHED_LINE` above because
@@ -2100,7 +2119,7 @@ const AGENT_FINISHED_LINE =
    which is the worst place to be wrong, since after an interrupt nothing further
    is drawn and the frozen wait row never leaves reach. */
 const AGENT_WAIT_CLEARED_BANNER =
-  /^\s*[⏺●]\s*(?:All\s+background\s+agents\s+stopped\b|\d+\s+background\s+agents?\s+(?:was|were)\s+stopped\b)/mu;
+  /^\s*[⏺●]\s*(?:All\s*background\s*agents\s*stopped\b|\d+\s*background\s*agents?\s*(?:was|were)\s*stopped\b)/mu;
 
 /* #1889. How many agents a wait row is waiting ON, read off the row itself.
    Returns 1 when no count can be read, which is the pre-existing behaviour: one
