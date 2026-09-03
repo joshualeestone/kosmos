@@ -558,17 +558,25 @@ function driverTest(name, fn) {
  * **On a COLD server it arrives from THIS process instead**, because
  * `new-session` starts the server and a fresh server inherits its launching
  * client's environment. The witness seeds a server first, so it measures only
- * the warm case; the cold case is the ordinary first-run path.
+ * the warm case. **The cold case is plausibly the first-run path, and that too is
+ * unmeasured** -- nobody here has counted how often a Kosmos machine has no tmux
+ * server when this launch runs.
  * ⚠️ THAT WITNESS RUNS ON A **PRIVATE** SOCKET WITH `-f /dev/null`, deliberately
  * (its header says a config extending `update-environment` would hide the
  * mechanism), so applying it to this launch's SHARED socket is an INFERENCE from
  * the mechanism, not a second measurement. The same qualifier is on the source
  * comment in `engine/connect.js`; it was added there first and not here, which
  * is the partial-sweep shape this branch keeps producing.
- * So the pane inherits whichever account started the server -- routinely a
- * DIFFERENT one on a Kosmos machine -- and the sign-in would write the refreshed
- * credential there instead of into the default account the person asked to
- * repair.
+ * So on a warm server the pane inherits whichever account started it, and the
+ * sign-in would write the refreshed credential there instead of into the default
+ * account the person asked to repair. ⚠️ An earlier version ended this paragraph
+ * "routinely a DIFFERENT one on a Kosmos machine". **Two problems: on the COLD
+ * path the server was started by this very process, so it is not a different
+ * account at all; and "routinely" was an unmeasured claim about typical machine
+ * state, asserted flatly inside a comment whose whole subject is the
+ * measured/unmeasured distinction.** The correction had been applied to the
+ * premise paragraph above and not to the paragraph drawing the conclusion from
+ * it, three lines later, in the same comment.
  *
  * ⭐ `env -u` is the right instrument precisely BECAUSE it runs inside the pane:
  * it strips the variable whatever its source, so it does not depend on knowing

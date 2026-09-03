@@ -566,6 +566,11 @@ suite is green.**
 
 ## Findings from challenge-loop iteration 5
 
+📌 **RESOLUTION NOTE, added at iteration 16 per this plan's own convention.** The absolute recorded
+in this section was retracted later; the correction lives in the iteration-15 section. It is left
+standing here rather than edited so the sequence is legible, but a reader arriving at this section
+first should not take it as current.
+
 **Zero BLOCKERs, three WARNINGs, two NITs, and the suite is green end to end** (`tools/run-tests.sh`
 exit 0, js 3834/3834, shell half passing) now that the neighbouring Playwright run finished.
 
@@ -847,7 +852,8 @@ an excuse:**
 | contender pid 97129 live (ppid 97115, 23s old, another agent's) | **3 FAIL again** |
 
 ⇒ The failing arms fail **only** while another run is live and pass when none is, on the same
-commit. And this branch touches **five files, none under `tools/` or `docs/`** (`git diff
+commit. And this branch touches **six files (five when this was written; the PR-body draft was
+added at iteration 14), none under `tools/` or `docs/`** (`git diff
 --name-only origin/main...HEAD`), so it cannot reach that harness at all.
 
 📌 **Two instrument notes worth keeping.** (1) The contender pid CHANGED between runs (15354 then
@@ -1364,3 +1370,55 @@ fix is unaffected: `env -u` strips the key inside the pane whichever layer leake
   moments.** Now cites the hash-match and the ran-not-skipped check instead of a count from
   elsewhere. ⭐ **Same defect as the trim figure, in the artifact reviewers actually read** -- which
   is why the PR body went into review scope rather than being written at the end.
+
+## Findings from challenge-loop iteration 16
+
+**A BLOCKER, in the one artifact that ships publicly.** The code was again found clean: the reviewer
+re-implemented the four launch assertions and drove **12 argv shapes** through them, reproduced the
+`env(1)` table via `spawnSync` including the silent operand-first arm, recomputed the validation hash
+under the helper's exact command, and re-checked every out-of-diff citation. All exact.
+
+### 🛑 THE PR BODY SHIPPED THE ABSOLUTE THIS BRANCH HAD ALREADY RETRACTED
+
+Iteration 15 corrected *"a value this process cannot inspect"* in `engine/connect.js` and
+`engine/connect.test.js`. **The PR body carried it verbatim, unqualified.**
+
+⭐ **Sixth partial sweep, and the worst-placed one: every previous instance was in a file only this
+team reads. This one was in the artifact reviewers read FIRST and the only one that leaves the
+repo.** ⇒ **The correction reached the two files I was editing and not the file I had written for
+other people.** That is the same asymmetry as the whole night's claim defect, one level up: I fix
+what I am looking at.
+
+### 🛑 AND INSIDE ONE COMMENT, THE CONCLUSION UNDID ITS OWN PREMISE
+
+`engine/connect.test.js` had the warm/cold split in its premise paragraph and, **three lines later**,
+concluded: *"So the pane inherits whichever account started the server -- routinely a DIFFERENT one
+on a Kosmos machine."* On the cold path the server was started by **this very process**, so it is not
+a different account.
+
+⇒ **A partial sweep within a single comment, across three lines.** The premise was corrected and the
+sentence that reasons from it was not. ⚠️ *"Routinely"* was also an unmeasured empirical claim about
+typical machine state, stated flatly **inside the comment whose subject is the measured/unmeasured
+distinction**. Both fixed, and "the ordinary first-run case" is now labelled unmeasured as well:
+nobody here has counted how often a Kosmos machine has no tmux server when this launch runs.
+
+### The PR body's validation paragraph could not stay true
+
+Two defects, both of the go-stale-silently kind:
+
+- It said the recorded hash byte-matches `origin/main...HEAD`. **The helper hashes that diff MINUS
+  the proof file** (`:!.claude/plans/<branch>-pre-challenge.md`), so the two are equal only while no
+  proof file exists -- and the same paragraph asserted the proof file IS committed. **The sentence
+  was self-falsifying.**
+- Perfect-tense claims about convergence and a committed proof file, written before either existed.
+
+✅ Replaced with **the check a reader can run** (`validation_log_current_diff_hash`, compare to the
+newest jsonl row, require `clean` not `skipped`) plus the pathspec caveat. ⇒ **A figure in a document
+goes stale silently; an instruction to measure does not.**
+
+### Also
+
+- The PR body called two different arms in two different files "the labelled control". Now named.
+- "this branch touches five files" is six at HEAD.
+- The iteration-5 section now carries the resolution note at its head, per this plan's own
+  convention, so a reader arriving there does not take a retracted absolute as current.
