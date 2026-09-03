@@ -28,7 +28,7 @@ silently: if discovery changes and a shape's behaviour flips, that test reds.
 | 2 | `2-current-agent.md` -> `CLAUDE.md` | a folder Claude has run in | standard current-format agent (**positive control**) | **YES, by name** | found() -> named agent `Fixture Nova`. If this is not found, discovery is broken. |
 | 3 | *(no file)* | a folder Claude ran in, with **no** CLAUDE.md | an agent with no instruction file (#1531) | **YES, as adoptable** | found().adoptable (offered, empty name). |
 | 4 | `4-codex-AGENTS.md` -> `AGENTS.md` | a folder Claude has run in | a Codex/AGENTS.md agent (alternate format) | **name IS readable via the Codex path** | The real Codex path (`codexIdentity` -> `identityFromText`) reads `Fixture Codex` from AGENTS.md. But if the folder has a Claude session record and no CLAUDE.md, `found()` looks for a CLAUDE.md, does not find one, and offers the folder EMPTY-name. So WHICH path picks it up depends on how the folder is recorded - not a claim that the name cannot be read. |
-| 5 | `5-handwritten-lowercase.md` -> `CLAUDE.md` | a folder Claude has run in | hand-written, lowercase name (#1493) | **YES, as adoptable (empty name)** | found().adoptable via unnamed-intro: "You are lilnacho" introduces somebody but names nobody readable -> offered with an empty name, never a guess. |
+| 5 | `5-handwritten-lowercase.md` -> `CLAUDE.md` | a folder Claude has run in | hand-written, lowercase name (#1493) | **YES, as adoptable (empty name)** | found().adoptable via unnamed-intro: "You are pip" introduces somebody but names nobody readable -> offered with an empty name, never a guess. |
 | 6 | `6-second-profile-agent.md` -> `CLAUDE.md` | a folder Claude has **never** run in (e.g. a second `.claude-work1` profile) | the disk-scan population (#1938) | **YES, by SCAN only** | scan() candidate; invisible to found() (no session record). |
 | 7 | `7-not-an-agent.md` -> `CLAUDE.md` | any folder | agent-ish doc with **no** "You are" line (**negative control**) | **NO - must be ignored** | absent from found/adoptable/scan. The load-bearing must-NOT-find: a discovery that offered everything would pass every other row but fail this one. |
 | 7b | `7b-you-are-an-expert.md` -> `CLAUDE.md` | a folder Claude has run in | template "You are an expert ..." (**over-eager case**) | **offered - documented, not desired** | found().adoptable: it opens with "You are", so it is OFFERED with an empty name though it introduces a ROLE, not a person. A known false-positive shape (three such files measured on real machines). |
@@ -44,7 +44,9 @@ silently: if discovery changes and a shape's behaviour flips, that test reds.
   is offered - the boundary between ignore and over-eager is exactly that one line.
 
 ## Constraint
-Fixtures #5 (hand-written lowercase `lilnacho`, #1493) and #6 (second profile, #1938) are
-FRESH files in those shapes. They are NOT the preserved real Lil Nacho files on Casey's
-machine (the live #1938 evidence); do not substitute those. (#1 is the Kosmos-CREATED shape,
-not a hand-written one.)
+All fixtures here are FRESH synthetic files. The hard constraint (Splinter): do NOT touch or
+substitute the preserved REAL files on Casey's machine - the real Lil Nacho files kept as the
+live #1938 evidence, and Casey's real second profile. The fresh stand-ins for those shapes are
+#1 (the Kosmos-created / #1938 Lil-Nacho shape), #5 (the #1493 hand-written lowercase-name case,
+Josh's sister - named `pip`, deliberately not `lilnacho`), and #6 (the Casey second-profile
+shape). None is an original.

@@ -18,8 +18,10 @@
  * offered every file indiscriminately would pass every other row here. #7 failing
  * to be ignored is the one that catches over-eagerness.
  *
- * 🛑 The Lil-Nacho-shape fixtures are FRESH files, never the preserved real ones
- * on Casey's machine (the live #1938 evidence).
+ * 🛑 FRESH files only. #1 (the Kosmos-created / #1938 Lil-Nacho shape), #5 (the
+ * #1493 hand-written lowercase-name case, named `pip` on purpose, not `lilnacho`),
+ * and #6 (the Casey second-profile shape) are synthetic stand-ins - never the
+ * preserved REAL files on Casey's machine (the live #1938 evidence).
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -91,7 +93,7 @@ test('#1 a Kosmos-created file is found by name; re-offer is runtime-roster-depe
 
 test('#3 no-file and #5 lowercase-name are ADOPTABLE (offered, empty name)', () => {
   assert.ok(adoptable.has('3-no-file'), 'a folder with no CLAUDE.md is adoptable (#1531)');
-  assert.ok(adoptable.has('5-handwritten-lowercase'), '"You are lilnacho" is adoptable with an empty name (#1493)');
+  assert.ok(adoptable.has('5-handwritten-lowercase'), '"You are pip" is adoptable with an empty name (#1493)');
   // Neither becomes a NAMED agent (never a guessed name).
   assert.ok(!named.has('5-handwritten-lowercase'), 'a lowercase name is never guessed into a named agent');
 });
