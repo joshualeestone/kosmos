@@ -97,6 +97,16 @@ node -e 'const f=process.argv[1],fs=require("node:fs");const j=JSON.parse(fs.rea
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sm" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "does not describe the bytes on disk" && [ ! -f "$Sm/dist/latest.json" ] && pass "promote: refuses when the staging sha != the served bytes (same-bytes invariant, before the gate)" || bad "promote sha-mismatch (rc=$rc, out=$out)"
 
+# THE load-bearing guarantee: --force overrides ONLY the experience gate, NEVER the
+# same-bytes invariant. Prove it decisively -- a byte-refusal (wrong pointer sha) with
+# --force AND a PASSING gate (GATE_RC_WANT=0) must still refuse, because the byte-refusal
+# precedes the gate. A future refactor that consulted --force before the byte-check would
+# turn this red (it is the one thing a reviewer asked to be pinned, this being a prod path).
+Smf="$(make_site)"; bash "$PUBLISH" "$Smf" >/dev/null 2>&1
+node -e 'const f=process.argv[1],fs=require("node:fs");const j=JSON.parse(fs.readFileSync(f,"utf8"));j.sha256="deadbeef";fs.writeFileSync(f,JSON.stringify(j)+"\n")' "$Smf/dist/latest-staging.json"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Smf" --force 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "does not describe the bytes on disk" && [ ! -f "$Smf/dist/latest.json" ] && pass "promote: --force does NOT override the same-bytes invariant (byte-refusal precedes the gate)" || bad "promote sha-mismatch --force (rc=$rc, out=$out)"
+
 # same-bytes invariant: promote runs its OWN verify-in-place, so an artifact tampered AFTER
 # publish (bytes changed, sidecar unchanged, pointer sha unchanged) is refused at promote time
 # even though the staging pointer still matches the (now stale) sidecar's sha.
