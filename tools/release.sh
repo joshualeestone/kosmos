@@ -201,6 +201,9 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # UNguarded and under set -e like cut-guard.sh above: a lib the cut cannot load
 # should abort the cut, not silently skip the guard.
 . "$REPO/tools/lib/cut-rerun-guard.sh"
+# #2017: the load guard for the gated steps (3, 3b). Sourced UNguarded under
+# set -e like the libs above: a lib the cut cannot load should abort, not skip.
+. "$REPO/tools/lib/cut-load-guard.sh"
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -401,6 +404,18 @@ trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/nu
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD"
 
+# #2017: do not run the gated steps (the suite here AND the browser layer at 3b)
+# into a box some OTHER heavy job is saturating. #1962 reserves the box against
+# agent SUITES but not arbitrary background load, and a gate on a loaded box
+# false-reds (an isolation-rerun, #2006, still runs inside the same starved box).
+# Wait for a quiet box HERE, at the ENTRY to the gated phase: a quiet box plus the
+# held reservation covers both step 3 and 3b, and this is where the leftover load
+# that starved the 0.6.25 cut (#1988's mktemp loops; #2018) is present -- from the
+# start. On a persistent-saturation timeout, gate_or_abort stops with the LOAD
+# named, never a phantom test-red. NOT re-checked before 3b on purpose: the 1-min
+# load there is still inflated by this suite's own just-finished processes, so a
+# second wait would stall on the cut's own residual rather than external load.
+kosmos_gate_or_abort "the gated steps (the suite and the headless page layer)" || exit 1
 step "== 3. the whole suite, on the tree that ships =="
 # 🔑 WHY THE CUT RUNS THE WHOLE SUITE ON MAIN ITSELF, and does not trust the green
 # PR checks of what it bundles (kosmos#1934). A green PR check is a statement about
