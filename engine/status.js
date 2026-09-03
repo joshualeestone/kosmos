@@ -20,6 +20,7 @@ const path = require('node:path');
 const store = require('./store');
 const selfreport = require('./selfreport');
 const wouldping = require('./wouldping');
+const observed = require('./observed');
 /* The two halves the pane used to supply on its own: the token store says
    WHICH agent, the liveness record says it is STILL RUNNING. Neither module
    requires this one, so there is no cycle. */
@@ -4445,6 +4446,54 @@ function snapshot() {
       confidence: status.confidence,
       because: status.because,
     });
+    /* #1921: record the LAST OBSERVED real-call outcome per agent, so the Settings
+       account badge can render what actually happened to a real request rather than
+       what `claude auth status` predicts (which is loggedIn:true even for a token
+       being rejected 401 -- #874). The mapping STATE->outcome lives HERE, the one
+       place STATE is defined, so engine/observed.js stays dependency-free and this
+       module can require it without a load-order cycle.
+       🔑 THE TWO ARMS READ DIFFERENT SIGNALS, on purpose, because green and
+       not-connected want opposite guarantees:
+       - OK comes from scrapedStatus.state === WORKING: a WITNESSED live streaming
+         turn, direct evidence the token was just accepted for a real request. NOT
+         status.state === WORKING, which reconcile ALSO produces from a fresh
+         SELF-REPORT (the agent's own claim, not a witnessed outcome, status.js:4229).
+         Green ("a real request succeeded, observed") must mean we saw one succeed --
+         and, decisively, a self-reported WORKING can sit over a checkLive === none
+         (no login), so recording OK from it would paint green over a hard negative,
+         the exact false-green this feature removes.
+         ⚠️ The one asymmetry: OK reads the RAW scrape, so unlike REJECTED it does not
+         inherit #1930's stale-scrollback suppression -- a stale "esc to interrupt"
+         line could record a brief OK. Accepted: a WORKING scrape still reflects a
+         token that was accepted for an in-flight request, the next ~60s sweep re-reads
+         the pane (a finished turn scrapes as idle, not streaming), and the freshness
+         window caps any stale green. A false GREEN self-heals; a false 401 would tell
+         a paying customer they are disconnected, which is why only REJECTED is suppressed.
+       - REJECTED comes from status.state === AUTH_FAILED (POST-reconcile): a scraped
+         401 that #1930's authprobe judged stale scrollback is no longer AUTH_FAILED
+         here, so we never record "rejected" for a repaired account (accounts.js:297 --
+         telling a paying customer they are disconnected is a failure to prevent).
+       🔑 isNamedOurs gate: only a pane genuinely TIED to its name may attribute an
+       outcome to that name's account, the same identity discipline every name-keyed
+       write in this function honours.
+       🛑 CLAUDE PANES ONLY, and this gate is load-bearing: a codex agent also
+       classifies WORKING / AUTH_FAILED, but the badge this feeds is the CLAUDE
+       account badge. A codex agent on the DEFAULT codex home records configDir=null,
+       which accountForAgent (server.js) maps to the DEFAULT CLAUDE account -- so a
+       working codex agent would green (or a codex 401 would redden) a Claude account
+       it has nothing to do with, the exact cross-provider false-green this feature
+       exists to remove. The store is Claude-only; the same codex test classify() uses
+       (status.js:2326) keeps it that way.
+       Best-effort: a badge signal must never break the tick. */
+    try {
+      const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
+      if (isNamedOurs(pane) && !isCodexPane) {
+        const outcome = scrapedStatus.state === STATE.WORKING ? observed.OUTCOME.OK
+          : status.state === STATE.AUTH_FAILED ? observed.OUTCOME.REJECTED
+          : null;
+        if (outcome) observed.saw(pane.name, outcome, now);
+      }
+    } catch { /* observation is best-effort; never sink the snapshot */ }
     // ⚠️ Identity, model and context are all filed under the NAME, and only a
     // pane whose SESSION NAME says it is ours has been tied to that name.
     //

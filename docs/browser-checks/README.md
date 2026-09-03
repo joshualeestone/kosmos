@@ -141,6 +141,7 @@ one invented by somebody who did not write them.
 | `render-made-before.js` | The never-recorded state, on a screen (#149/#150, 2026-08-23). |
 | `render-busy-line.js` | The "<name> is working…" line, rendered |
 | `render-reauth-reach-1918.js` | kosmos#1918: the agent page's "Sign in again" button (auth_failed) actually REACHES the re-auth surface. Clicks it and asserts the settings PANEL becomes visible and the detail panel hides, the browser-only check a jsdom test (which stubs showTab) cannot make. Red against the iteration-1 dead control that called settingsGo without showTab. |
+| `render-account-badge-1921.js` | kosmos#1921: the Settings account badge renders VERIFIED liveness from `connection.badge`. Drives the real paintAccounts against a stubbed /api/accounts (no board) and asserts the rendered `#set-accounts .acct-box` badge class + text per state. Load-bearing arm: a merely-existing credential (`signed_in_unverified`) renders the MUTED class, never the green `.acct-connected`, in a real DOM, the #874 false-green a source-only unit test cannot rule out. |
 | `render-room-scroll.js` | The project room keeps a reader on the floor when the composer resizes it (#1037) |
 | `render-alltasks.js` | Every task across every project, and the heading's number equals the rows on the screen (#1382). |
 | `render-composer-reset.js` | The composer goes back to one line after a send, measured as a rendered height (#1303 C). |
