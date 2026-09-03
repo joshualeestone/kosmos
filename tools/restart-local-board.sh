@@ -105,7 +105,7 @@ wait_for_want() {
     fi
     sleep 1
   done
-  echo "   THE LOCAL BOARD DID NOT COME BACK ON ${want} WITHIN ${WAIT_SECS}s (last answer: '${got:-none}'); check ~/Library/Logs/kosmos-board.log"
+  echo "   THE LOCAL BOARD DID NOT COME BACK ON ${want} WITHIN ${WAIT_SECS}s (last answer: '${got:-none}'); check ~/Library/Logs/kosmos-board.log" >&2
   return 1
 }
 
