@@ -21,6 +21,8 @@ const path = require('node:path');
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
   setRunner: 'test seam: injects the tmux runner',
+  setChecker: 'test seam (#1930): injects the live claude-auth checker so authprobe tests do not spawn a real subprocess',
+  resetForTest: 'test seam (#1930): clears the authprobe per-account cache between tests',
   setPauser: 'test seam: observes the codex Enter gap without sleeping (#571)',
   setDryRun: 'test seam: keeps suites off real panes',
   setClaudeProbe: 'test seam: injects the claude -p liveness probe so tests do not spawn a real claude (#1916)',

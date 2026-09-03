@@ -3989,6 +3989,12 @@ function paneRoster() {
    so a `working` older than this is a claim nobody is standing behind. */
 const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
 
+/* #1930: the verdict value from engine/authprobe that means the account's sign-in was just
+   confirmed LIVE. Only this positive evidence suppresses a scraped auth_failed. Imported from
+   authprobe so there is ONE copy of the string, not two that can drift. (status -> authprobe ->
+   subscription has no back-edge, so the top-level require is cycle-safe.) */
+const LIVE_AUTH_HEALTHY = require('./authprobe').HEALTHY;
+
 /**
  * One state from two witnesses: the agent's own report and the pane reader.
  * A fresh report is authoritative; the reader stays as corroboration and
@@ -4088,7 +4094,20 @@ function saidWords(reported, nowMs) {
   return '';
 }
 
-function reconcileReport(reported, scraped, nowMs) {
+function reconcileReport(reported, scraped, nowMs, liveAuth) {
+  /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
+     agent has reported. Handle it HERE, above the no-report early return below, so a
+     never-reported agent -- one that hit a 401 on launch and sits idle at a prompt after an
+     off-pane repair -- is not left reading auth_failed forever, which is the exact haunt this
+     card targets. Re-enter with the auth signal removed so the report rules (or the no-report
+     handling) produce the underlying state, with the staleness surfaced. ONLY positive
+     live-HEALTHY evidence reaches this branch; every other verdict falls through to rule 3b
+     and auth_failed stands (no false calm). The re-entry's scraped state is UNKNOWN, so this
+     cannot recurse. */
+  if (scraped.state === STATE.AUTH_FAILED && liveAuth === LIVE_AUTH_HEALTHY) {
+    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth);
+    return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
+  }
   if (!reported || reported.found !== true) {
     /* 🔑 "IT HAS NEVER SAID ANYTHING" IS A DIFFERENT FACT FROM "WE COULD NOT TELL",
        and only one of them is actionable (#1315). `selfreport.read` already
@@ -4155,6 +4174,13 @@ function reconcileReport(reported, scraped, nowMs) {
   // "at rest and nothing is needed" over a 401 retry loop is the same false
   // calm rule 3 exists for, one state over. Observed live on 0.5.31 (#880).
   if (scraped.state === STATE.AUTH_FAILED) {
+    /* Rule 3b (#886) + #1930: the live-HEALTHY case was already suppressed at the TOP of this
+       function (it applies with or without a report). Reaching here means liveAuth is NOT
+       HEALTHY -- expired / unknown / unchecked / absent -- so the scraped sign-in rejection
+       stands: a report cannot know about a dead token (the hook cannot fire once the request
+       is refused), and an idle report never decays (rule 6), which would render a 401 retry
+       loop "at rest" forever. Report freshness cannot rescue it either (#966): a fresh report
+       is necessarily from BEFORE a current failure and vouches for nothing now. */
     return { ...scraped, reported: false, conflict: 'its screen shows its Claude sign-in is being rejected, which its reports cannot know about' + saidWords(reported, nowMs) };
   }
   /* Rule 3b, rate-limit half (#966). The rule above states its own
@@ -4358,6 +4384,27 @@ function panelessKeys(paneKeys) {
   return out;
 }
 
+/* #1930: the per-account live-auth verdict for a scraped auth_failed agent. Probe ONLY a
+   POSITIVELY-resolved job. An unresolvable job (readJobFn returns null or throws) returns
+   undefined so the caller leaves auth_failed standing -- it must NOT fall back to the DEFAULT
+   account, or a named agent on a NON-default account whose job is unreadable, with a genuinely
+   expired token, would be judged by the (possibly healthy) default account and its real 401
+   suppressed: false calm, the one direction this whole card forbids. A resolved job with no
+   configDir IS the default account, so probing it (verdictFn(null)) is then correct. */
+function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
+  let job;
+  try { job = readJobFn(name); } catch { return undefined; }
+  if (!job) return undefined;
+  // A present-but-EMPTY configDir is a malformed job, not the default account; probing the
+  // default for it is the same misattribution the null-job guard above refuses, so return
+  // undefined (auth_failed stands). Unreachable via create.readJob today (it yields a non-empty
+  // string or null); a defensive guard so a future malformed source cannot reintroduce it.
+  if (job.configDir === '') return undefined;
+  // verdictFn is throw-safe by contract (authprobe.verdict), but wrap it too so the safety is
+  // LOCAL: a future change that threw must leave auth_failed standing, never crash the tick.
+  try { return verdictFn(job.configDir || null); } catch { return undefined; }
+}
+
 function snapshot() {
   const { panes: read, rejected: unreadableLines, rejectedLines: unreadableSamples } = listPanes();
   const panes = onePanePerSession(read);
@@ -4367,9 +4414,21 @@ function snapshot() {
     /* The agent's own account outranks the scrape when fresh (#188); only a
        pane TIED to the name may read that name's record, the same gate every
        name-keyed read below honours. */
+    const now = Date.now();
+    /* #1930: when the screen shows a Claude sign-in rejection, ask the actual auth CONDITION
+       whether it is stale -- a per-account, cached, ASYNC live check (engine/authprobe) that
+       never blocks this tick. Only for a scraped auth_failed on one of our named panes (we
+       need the name to resolve the account config dir); no probe for a healthy agent. */
+    let liveAuth;
+    if (scrapedStatus.state === STATE.AUTH_FAILED && isNamedOurs(pane)) {
+      liveAuth = liveAuthForAuthFailed(
+        pane.name,
+        (n) => require('./create').readJob(n),
+        (d) => require('./authprobe').verdict(d, now));
+    }
     const status = reconcileReport(
       isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
-      scrapedStatus, Date.now());
+      scrapedStatus, now, liveAuth);
     /* 🔑 WHAT A PING WOULD HAVE BEEN, AND NOBODY IS PINGED (#1494). The phone
        seam's automatic trigger cannot fire for a Kosmos agent: it hangs off
        `PermissionRequest` and every supervisor launch path passes
@@ -4692,7 +4751,7 @@ module.exports = {
   setPaneSource, setPaneCapture, tmuxSaidNoServer, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, REPORT_WORKING_DECAY_MS,
+  reconcileReport, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
      agent LAST RAN AS into a job that never recorded a choice. Exported rather

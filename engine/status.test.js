@@ -2861,7 +2861,7 @@ test('a full model id beats a bare short form that happens to be later', () => {
  * shape, from the other side).
  * ------------------------------------------------------------------------- */
 
-const { reconcileReport, REPORT_WORKING_DECAY_MS } = require('./status');
+const { reconcileReport, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed } = require('./status');
 
 const T0 = Date.parse('2026-08-24T16:00:00Z');
 const rep = (state, extra) => ({ found: true, state, because: null, on: null, owner: null, until: null, at: new Date(T0).toISOString(), ...extra });
@@ -3019,6 +3019,76 @@ test('#966: a fresh report does NOT beat a scraped auth_failed -- 3b keeps the h
   assert.equal(got.state, STATE.AUTH_FAILED, 'a fresh report suppressed a dead token');
   assert.equal(got.reported, false);
   assert.match(got.conflict, /sign-in is being rejected/);
+});
+
+// #1930: a scraped auth_failed can be STALE (the sign-in was repaired off-pane and the old
+// 401 still sits in scrollback). The ONLY signal that distinguishes it is the live auth
+// CONDITION, passed in as the 4th arg by snapshot (engine/authprobe). Report freshness cannot
+// (that is #966 above). These pin the two directions.
+const authprobe = require('./authprobe');
+
+test('#1930 CONTROL: a scraped auth_failed + a LIVE-HEALTHY account no longer reads auth_failed', () => {
+  // This arm doubles as the drift guard: it passes the real authprobe.HEALTHY string and asserts
+  // suppression, so it reds if authprobe.HEALTHY or status.js's LIVE_AUTH_HEALTHY drift apart.
+  const got = reconcileReport(rep('working', { because: 'answering Joshua' }),
+    scr(STATE.AUTH_FAILED, CONFIDENCE.SCRAPED, 'OAuth access token is invalid'),
+    T0 + 60_000, authprobe.HEALTHY);
+  assert.equal(got.state, STATE.WORKING, 'a stale 401 over a live-valid sign-in must stop reading auth_failed');
+  assert.match(got.conflict, /stale/, 'and the staleness is surfaced, not silently dropped');
+});
+
+test('#1930 GUARD: no false calm -- expired / unknown / unchecked / absent all keep auth_failed', () => {
+  const scraped = scr(STATE.AUTH_FAILED, CONFIDENCE.SCRAPED, 'OAuth access token is invalid');
+  for (const verdict of [authprobe.EXPIRED, authprobe.UNKNOWN, authprobe.UNCHECKED, undefined]) {
+    const got = reconcileReport(rep('working'), scraped, T0 + 60_000, verdict);
+    assert.equal(got.state, STATE.AUTH_FAILED, `a genuinely-unconfirmed sign-in (${verdict}) must still read auth_failed`);
+    assert.match(got.conflict, /sign-in is being rejected/);
+  }
+});
+
+// #1930: liveAuthForAuthFailed must probe ONLY a positively-resolved job. Collapsing an
+// UNRESOLVABLE job into the default account would judge a named non-default agent by the
+// default account's health -> false calm.
+test('#1930 GUARD: an UNRESOLVABLE job does NOT probe (never falls back to the default account)', () => {
+  let probed = false;
+  const verdictFn = (d) => { probed = true; return authprobe.HEALTHY; };
+  // readJob returns null (missing/unreadable plist):
+  assert.equal(liveAuthForAuthFailed('who', () => null, verdictFn), undefined, 'null job -> no verdict');
+  // readJob throws:
+  assert.equal(liveAuthForAuthFailed('who', () => { throw new Error('bad plist'); }, verdictFn), undefined, 'throwing job -> no verdict');
+  assert.equal(probed, false, 'an unresolvable job must not probe any account (so nothing is suppressed)');
+});
+
+test('#1930: a resolved job probes its own account; a resolved default job probes with null configDir', () => {
+  const seen = [];
+  const verdictFn = (d) => { seen.push(d); return authprobe.HEALTHY; };
+  assert.equal(liveAuthForAuthFailed('named', () => ({ configDir: '/acct/x' }), verdictFn), authprobe.HEALTHY);
+  assert.equal(liveAuthForAuthFailed('deflt', () => ({ configDir: null }), verdictFn), authprobe.HEALTHY);
+  assert.deepEqual(seen, ['/acct/x', null], 'a resolved job probes its configDir; a default job probes with null');
+});
+
+test('#1930: a throwing verdictFn leaves auth_failed standing (undefined), never crashes the tick', () => {
+  assert.equal(liveAuthForAuthFailed('who', () => ({ configDir: '/x' }), () => { throw new Error('boom'); }), undefined);
+});
+
+test('#1930: a malformed (empty-string) configDir does NOT probe the default account', () => {
+  let probed = false;
+  const r = liveAuthForAuthFailed('who', () => ({ configDir: '' }), () => { probed = true; return authprobe.HEALTHY; });
+  assert.equal(r, undefined, 'a present-but-empty configDir is unresolvable -> auth_failed stands');
+  assert.equal(probed, false, 'and it must not probe the default account');
+});
+
+// #1930: the suppression must reach a NEVER-REPORTED agent too -- a dead/idle agent that hit a
+// 401 and never self-reported is the card's actual subject; it would otherwise keep reading
+// auth_failed forever despite an off-pane repair. This pins the fix above the no-report return.
+test('#1930: a NEVER-REPORTED agent with a stale 401 + a LIVE-HEALTHY account stops reading auth_failed', () => {
+  const scraped = scr(STATE.AUTH_FAILED, CONFIDENCE.SCRAPED, 'OAuth access token is invalid');
+  const suppressed = reconcileReport({ found: false }, scraped, T0 + 60_000, authprobe.HEALTHY);
+  assert.notEqual(suppressed.state, STATE.AUTH_FAILED, 'a repaired-but-silent agent must not stay haunted');
+  assert.match(suppressed.conflict, /stale/, 'the staleness is surfaced');
+  // GUARD: with no live-HEALTHY confirmation, a never-reported 401 still stands (safe direction).
+  const stands = reconcileReport({ found: false }, scraped, T0 + 60_000, authprobe.EXPIRED);
+  assert.equal(stands.state, STATE.AUTH_FAILED);
 });
 
 /**
