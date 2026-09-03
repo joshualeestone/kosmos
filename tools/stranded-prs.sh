@@ -123,6 +123,13 @@ issue_of() {
   if [ -n "$_n" ]; then echo "$_n"; return; fi
   _n="$(printf '%s' "$_branch" | sed -n 's/^\([0-9][0-9]*\)-.*/\1/p')"
   if [ -n "$_n" ]; then echo "$_n"; return; fi
+  # Path-prefixed issue: a common convention is type/NNNN-desc (fix/1951-import-msg),
+  # where the issue sits mid-branch behind a "/" so neither the trailing nor leading
+  # arm sees it. Match the FIRST /NNNN. Fires only when both arms above missed, so it
+  # does not disturb a trailing/leading resolution. A "/" directly followed by digits
+  # cannot match an alpha-glued token (v2, oauth2).
+  _n="$(printf '%s' "$_branch" | grep -oE '/[0-9]+' | head -1 | grep -oE '[0-9]+')"
+  if [ -n "$_n" ]; then echo "$_n"; return; fi
   echo ""
 }
 

@@ -119,6 +119,9 @@ cat > "$PRJSON" <<'JSONEOF'
   {"number":885,"title":"hashooks fixture","isDraft":false,"updatedAt":"2026-09-03T00:15:00Z",
    "mergeable":"MERGEABLE","mergeStateStatus":"HAS_HOOKS","headRefName":"hk-885","body":"Addresses #885","url":"u",
    "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
+  {"number":920,"title":"path-prefixed issue fixture","isDraft":false,"updatedAt":"2026-09-03T00:06:00Z",
+   "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefName":"fix/1951-import-msg","body":"","url":"u",
+   "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
   {"number":910,"title":"multi-addresses fixture","isDraft":false,"updatedAt":"2026-09-03T00:05:00Z",
    "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefName":"ma-910",
    "body":"Addresses #910 (do not confuse with Addresses #1951 mentioned elsewhere)","url":"u",
@@ -209,6 +212,10 @@ chk "#910 does NOT false-flag ISSUE#1951-CLOSED"  ng '#910.*ISSUE#1951-CLOSED'
 # issue_of: a leading-N branch with a mid-number (912-fix-2-thing) resolves 912,
 # not "" -- the trailing arm must fall through to the leading arm.
 chk "#912 leading-N branch w/ mid-number -> 912"   g '#912.*#912'
+# issue_of: a path-prefixed branch fix/1951-import-msg (mid-number behind a "/",
+# no trailing/leading match) resolves 1951 via the /NNNN arm, so a CLOSED #1951
+# is caught as ISSUE-CLOSED instead of the row reading "safe".
+chk "#920 path-prefixed branch resolves 1951"      g '#920.*ISSUE#1951-CLOSED'
 
 # ---- age filter opens up at cutoff 0 ----------------------------------------
 OUT="$(run 0)"
