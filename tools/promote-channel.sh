@@ -79,6 +79,7 @@ esac
 # the same dir + rename): latest.json is the prod pointer every install fetches, so an
 # interrupted write must never leave it truncated. rename(2) within one directory is atomic.
 PTMP="$(mktemp "$SITE/dist/.latest.json.XXXXXX")" || { echo "promote-channel: could not make a temp file in $SITE/dist" >&2; exit 1; }
+trap 'rm -f "$PTMP"' EXIT   # a signal between mktemp and the rename must not leak the temp
 cp "$STAGING" "$PTMP" && mv "$PTMP" "$SITE/dist/latest.json" \
   || { echo "promote-channel: could not write latest.json" >&2; rm -f "$PTMP"; exit 1; }
 # Prove the promote landed: latest.json now names the same artifact + sha as staging.

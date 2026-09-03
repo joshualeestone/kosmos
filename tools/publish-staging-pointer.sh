@@ -55,6 +55,7 @@ SHA="$(awk '{print $1}' "$SITE/dist/$ARTIFACT.sha256")"
 # Written ATOMICALLY (temp in the same dir + rename) so an interrupted write never leaves a
 # truncated pointer that a deploy would carry. rename(2) within one directory is atomic.
 PTMP="$(mktemp "$SITE/dist/.latest-staging.json.XXXXXX")" || { echo "publish-staging: could not make a temp file in $SITE/dist" >&2; exit 1; }
+trap 'rm -f "$PTMP"' EXIT   # a signal between mktemp and the rename must not leak the temp
 KM_LJ_VERSION="$V" KM_LJ_SHA="$SHA" KM_LJ_ARTIFACT="$ARTIFACT" KM_LJ_MANIFEST="$MANIFEST" \
   node -e '
     const e = process.env;
