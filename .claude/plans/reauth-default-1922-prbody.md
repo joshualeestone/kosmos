@@ -29,6 +29,9 @@ Two edits, both small:
   inside the pane either way, which is why the fix does not depend on knowing the source. This makes the WRITE side match the rule
   `subscription.checkLive` already states for the READ side ("rather than trusting it to be unset").
   It strips that one key deliberately, mirroring the reader's scope; it is not pane sanitization.
+  📌 This also touches the plain FIRST sign-in, which takes the same `else` branch: writer and reader
+  now agree there too, where previously an ambient `CLAUDE_CONFIG_DIR` was honoured by the write and
+  ignored by the read.
 
 ## 🛑 The symptom changes DIRECTION, and this is the sentence to keep
 
@@ -38,11 +41,13 @@ REPORTS SUCCESS on a dead credential; it does not merely appear to do nothing.**
 the whole OAuth flow into the wrong file.
 
 ⚠️ **And the set of machines that see it WIDENS, which is the part worth knowing before testing.**
-Pre-fix, `checkLive` was pointed at the decoy config and returned NONE on an ordinary machine, so
-the flow genuinely ran. Post-fix it reads the real `~/.claude.json`, `claude auth status` credulously
-answers `loggedIn: true` (#874 / #1916), and the #1560 gate holds shut. **So the false-success
-outcome moves from the atypical decoy-connected machine to the ordinary default-account machine --
-the reporter's own population.** The write path is correct either way; the repair behind the gate is
+**Pre-fix behaviour was MACHINE-DEPENDENT and has not been measured on the reporter's machine.**
+`checkLive` was pointed at the decoy config, so the flow genuinely ran only where that decoy answered
+`NONE` specifically -- the gate is `state === NONE`, so a decoy answering UNKNOWN (unparseable output,
+ENOENT, timeout) took the same connected exit pre-fix. Post-fix it reads the real `~/.claude.json`,
+`claude auth status` credulously answers `loggedIn: true` (#874 / #1916), and the gate holds shut on
+**every** default-account machine. ⇒ **Post-fix the false success is uniform; pre-fix it depended on
+the decoy, so this change plausibly widens who sees it, and by how much is not established.** The write path is correct either way; the repair behind the gate is
 kosmos#1937.
 
 The flow behind the #1560 gate still cannot repair a dead credential: the launch is a bare `claude`

@@ -104,7 +104,9 @@ credulous check reports CONNECTED, and the press returns instantly with nothing 
 
 ```
 BEFORE   a flow that runs and lands nowhere
-AFTER    a button that appears to do nothing
+AFTER    a green "Successfully connected" on a dead credential   [corrected at iteration 18;
+         this box read "a button that appears to do nothing", which is softer than what the UI
+         actually paints]
 ```
 
 🛑 **Both are broken and the second is quieter, so it is the one that gets re-filed as a fresh
@@ -192,7 +194,7 @@ omitting the key entirely are equivalent, because `connect.js:911` demands
 `grep -n "typeof opts.configDir" engine/subscription.js` finds in `checkLive`. So mirroring `listLive`'s omit-the-parameter shape with a null does not diverge from it.
 
 🛑 **A LIMIT OF THE TEST, STATED SO IT IS NOT DISCOVERED LATER.** The harness SETS
-`AGENT_WORKFORCE_CLAUDE_CONFIG_DIR` (`server.connect.test.js:40`), so inside the suite `launchDir`
+`AGENT_WORKFORCE_CLAUDE_CONFIG_DIR` (`grep -n AGENT_WORKFORCE_CLAUDE_CONFIG_DIR server.connect.test.js` (first hit)), so inside the suite `launchDir`
 resolves to the sandbox rather than to undefined. ⇒ **These arms assert the ROUTING decision
 (`configDir` null vs the account's dir), which is the thing this card is about. They do NOT assert
 the launch-layer consequence**, and could not without unsetting a seam the whole file depends on.
@@ -652,7 +654,8 @@ had been rewritten, and another claimed two NIT fixes that a fail-fast helper ha
 
 On a machine whose decoy reads signed-out, the press used to run the whole OAuth flow into the wrong
 file; it now returns instantly with nothing opened. **"A flow that runs and lands nowhere" becomes
-"a button that appears to do nothing."** Both are broken; **the second is quieter, so it is the one
+"a button that appears to do nothing."** 🛑 **SUPERSEDED AT ITERATION 18: it paints a green
+"Successfully connected".** Both are broken; **the second is quieter, so it is the one
 that gets re-filed as a fresh regression.** One sentence in the PR body prevents that, and the plan
 now carries it.
 
@@ -1573,3 +1576,53 @@ together**, which is exactly the co-land constraint.
 📌 **Useful for the other half:** `/login` from that REPL yields the login-method chooser and a
 browser-open OAuth -- **the screens this driver already walks.** So #1937 is a wiring problem against
 existing machinery, not a design problem.
+
+## Findings from challenge-loop iteration 19
+
+**Ready to merge, no code defect.** The reviewer attacked the four launch assertions on its own
+construction, traced the UI consequence end to end itself, and re-verified every checkable PR-body
+claim. Both warnings are claims.
+
+### 🛑 I SHIPPED A CONDITIONAL AS A UNIVERSAL, IN THE COMMIT THAT WAS FIXING AN UNDERSTATEMENT
+
+The new sentence said pre-fix `checkLive` *"returned NONE on an ordinary machine, so the flow
+genuinely ran"*. **Two things are wrong and this plan already knew both:**
+
+- **The gate is `state === NONE`, not `!== CONNECTED`** (`engine/connect.js`). A decoy answering
+  UNKNOWN -- unparseable output, ENOENT, timeout -- took the same connected exit PRE-fix. So the
+  flow ran only where the decoy answered one specific way.
+- **This plan retracted that exact proposition at iteration 1**: *"pre-fix behaviour is
+  MACHINE-DEPENDENT, and neither pre- nor post-fix behaviour on the reporter's machine has been
+  measured."* And the only decoy anyone here has looked at -- this Mac's, 51KB and freshly written --
+  is a **counterexample** to "ordinary".
+
+⭐ **So I contradicted my own plan, in the artifact a tester sizes the change by, while correcting a
+different defect in the same sentence.** ⇒ **A rewrite is not a smaller act than a first draft. It
+gets the same scrutiny or it introduces its own defects, and mine has now done that twice.**
+
+✅ Corrected in both shipped homes: post-fix the false success is uniform; pre-fix it depended on the
+decoy; the widening is plausible and its size is unestablished.
+
+### The third false sweep-claim
+
+*"Corrected in all four homes"* -- **two plan copies still carried the superseded wording**, including
+the BEFORE/AFTER box that sits ABOVE the iteration log where a reader meets it first. Both annotated
+in place per this plan's own convention.
+
+📌 **Third time a sentence of mine asserting a completed sweep was false** (iterations 10, 17, 19).
+**The pattern is stable enough to state as a rule: I write the sweep claim in the same breath as the
+fix, before doing the sweep.** The fix and the claim need to be separated by an actual grep.
+
+### Also
+
+- The PR body did not mention that the `-u` change also touches the plain FIRST sign-in, which takes
+  the same `else` branch. A reader sizing blast radius from the PR body alone would under-count.
+- The last un-migrated `file:line` citation in this plan is now a reproducing grep.
+
+### Carried to #1937, not fixed here
+
+`acctFlowWatch` starts a 1 Hz poll of `/api/connect` after an immediate-`connected` response, and the
+dedup early-return means `acctFlowStop()` is never reached, so the poll runs for the life of the
+page. **Pre-existing** (`web/index.html` is untouched by this branch) **but this branch makes the
+immediate-`connected` outcome the common path rather than the rare one**, so it moves from a corner
+case to the ordinary one. Reported on #1937.
