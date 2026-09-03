@@ -164,4 +164,4 @@ async function run() {
   process.exit(failed.length ? 1 : 0);
 }
 
-run().catch((e) => { console.error('import-agent-flow: FATAL', e && e.message); process.exit(1); });
+run().catch((e) => { console.error(e); process.exit(1); });

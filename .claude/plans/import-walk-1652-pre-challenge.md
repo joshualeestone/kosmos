@@ -41,7 +41,7 @@ textarea assertion red, 7 passed 1 failed).
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs.
 - [NIT] the negative "refused with a reason" assertion did not re-apply the transient-message exclusion --> FIXED (added `!/Reading it/i` to the assertion).
 - [NIT] `/api/first-run/complete` was fire-and-forget --> FIXED (check `r.ok`, fail loud, like the sibling).
-**Converged** — the reviewer verified the counts by grep (6 requireSandbox callers, 2 first-run-completers, accurate), the positive-arm values against the real parser (`importFromInstructions`/`identityFromText`: name=testy-mctest, label=Testy McTest, instructions substring), the negative arm race-free and non-hanging, and every DOM id the check waits on exists.
+**Converged**. The reviewer verified the counts by grep (6 requireSandbox callers, 2 first-run-completers, accurate), the positive-arm values against the real parser (`importFromInstructions`/`identityFromText`: name=testy-mctest, label=Testy McTest, instructions substring), the negative arm race-free and non-hanging, and every DOM id the check waits on exists.
 
 ### Final Ledger
 
