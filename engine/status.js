@@ -4268,6 +4268,22 @@ function reconcileReport(reported, scraped, nowMs, liveAuth) {
       : 'it is waiting on something that is not you';
     return { state: STATE.BLOCKED, confidence: CONFIDENCE.STRUCTURED, because: said(what), reported: true, conflict: null };
   }
+  /* #1995: a reported idle/started must not read "at rest" when the screen shows a
+     live working spinner. classify returns WORKING only on a live spinner (gerund +
+     live timer, or "esc to interrupt"), never on the idle footer, so a scraped WORKING
+     is active work happening now -- most often a background job that keeps a spinner
+     while the Stop hook has already fired an automatic idle (the #1965 family; this is
+     only the sub-case where the screen DOES show working, since #1965's main case is
+     footer-IDLE with no screen signal to reconcile against). Every OTHER scraped
+     non-idle state already outranks a reported idle -- stopped (rule 2),
+     auth_failed/rate_limited (rule 3b), needs_you (rule 3); WORKING was the one gap.
+     The screen leads and the idle report becomes the conflict, the exact rule 3/3b
+     shape. Scoped to the fallback (idle/started) on purpose: a reported working keeps
+     its own branch above, and a reported needs_you/blocked must still outrank a working
+     screen, so this sits below those branches and cannot capture them. */
+  if (scraped.state === STATE.WORKING) {
+    return { ...scraped, reported: false, conflict: 'its screen shows it is working while its last report said it was at rest' };
+  }
   // `idle`, and `started` with nothing after it: at rest either way.
   return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: said('it is at rest and nothing is needed'), reported: true, conflict: null };
 }

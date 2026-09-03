@@ -2983,6 +2983,38 @@ test('#886: a scraped rate_limited stands over a stale working report rather tha
   assert.equal(calm.reported, true);
 });
 
+test('#1995: a scraped WORKING stands over a reported idle/started, conflict surfaced (a live spinner is not "at rest")', () => {
+  /* The one scraped non-idle state that had no guard: reported idle fell through to the
+     fallback and read "at rest and nothing is needed" even while the screen showed a
+     live working spinner. classify only returns WORKING on a live spinner, so the screen
+     is active work now; symmetric to #886's rule 3b for auth_failed one state over. */
+  const got = reconcileReport(rep('idle'),
+    scr(STATE.WORKING, CONFIDENCE.SCRAPED, 'it is mid-task'), T0 + 60_000);
+  assert.equal(got.state, STATE.WORKING, 'a working screen was rendered as at rest because the last report said idle');
+  assert.equal(got.confidence, CONFIDENCE.SCRAPED);
+  assert.equal(got.because, 'it is mid-task');
+  assert.equal(got.reported, false);
+  assert.match(got.conflict, /working while its last report said it was at rest/, 'the contradiction must be surfaced, never silently resolved');
+
+  /* `started` reconciles to the same at-rest fallback idle does, so it needs the guard too. */
+  const started = reconcileReport(rep('started'),
+    scr(STATE.WORKING, CONFIDENCE.SCRAPED, 'it is mid-task'), T0 + 1000);
+  assert.equal(started.state, STATE.WORKING);
+  assert.equal(started.reported, false);
+
+  /* CONTROL that returns the dangerous answer: a calm (IDLE) scrape beside a reported
+     idle still reads idle, so the rule is scoped to a scraped WORKING and does NOT turn
+     every idle report into working. */
+  const calm = reconcileReport(rep('idle'), scr(STATE.IDLE, CONFIDENCE.SCRAPED), T0);
+  assert.equal(calm.state, STATE.IDLE);
+  assert.equal(calm.reported, true);
+
+  /* And a reported needs_you must still outrank a working screen: the guard sits below
+     the needs_you branch and must not capture it. */
+  const asking = reconcileReport(rep('needs_you'), scr(STATE.WORKING, CONFIDENCE.SCRAPED, 'it is mid-task'), T0 + 1000);
+  assert.equal(asking.state, STATE.NEEDS_YOU);
+});
+
 test('#966: a FRESH report beats a scraped rate limit, because a usage limit does not stop the hook', () => {
   /* Josh's case, twice: a promotional banner matched RATE_LIMIT_MARKERS and the
      card read "Paused" while the agent answered two messages and reported
