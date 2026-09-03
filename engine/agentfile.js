@@ -54,6 +54,17 @@ const MAX_DISPLAY = 64;
    it never rejects a file the create flow would accept -- it only stops abuse. */
 const MAX_FILE = 512 * 1024;
 
+/* #1939: does this file INTRODUCE an agent, the way a `CLAUDE.md` does? The same
+   signal `engine/discover.js` reads (its `INTRODUCES`, mirrored here rather than
+   imported so this surface keeps its single dependency shape). A file that opens
+   "You are X" -- optionally under a Markdown heading -- is agent instructions,
+   not a random document, so a missing Kosmos header should name the wrong KIND
+   of file rather than the missing FIELD (which reads as "my file is right" and
+   invites an endless retry). Deliberately does NOT require a readable NAME: the
+   plain "You are lilnacho" form names nobody to `identityFromText` yet is still
+   plainly instructions, and that is exactly the file this message is for. */
+const INTRODUCES = /^[ \t]*(?:#+[ \t]*)?You are\s/mi;
+
 /**
  * The contract an importer must enforce. Stated here, beside the writer, so
  * whoever builds the import half is not inferring it from examples.
@@ -200,7 +211,26 @@ function importAgent(text, deps) {
 
   // (1) the `---` frontmatter block, the same shape `skills.readMeta` reads.
   const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!m) return { ok: false, because: 'this is not a Kosmos agent file: it has no header' };
+  if (!m) {
+    /* #1939: a file that plainly INTRODUCES an agent (a `CLAUDE.md`) is not a
+       random document, and telling the person it "has no header" names a missing
+       FIELD -- which reads as "my file is right, something is wrong with it" and
+       had a real user press the button over and over. Name the wrong KIND of
+       file instead: that ends the attempt and redirects. Both refusals keep
+       `ok:false`; only the sentence differs, which is the whole point.
+       ⚠️ NO POINTER TO THE DISK SCAN YET. The scan that would let a person add an
+       on-machine agent by finding it is #1938 and is not built, so this copy must
+       not send them to a route that does not exist. When #1938 lands, this
+       message should point at it. (Import is a trust boundary -- a browsed-to
+       file's provenance is unknown -- so this stays a REDIRECT, never an
+       accept-anyway.) */
+    if (INTRODUCES.test(src)) {
+      return { ok: false, because: 'this looks like an agent’s instructions '
+        + '(a CLAUDE.md), not a Kosmos agent file. A Kosmos agent file is one you '
+        + 'export from another Kosmos install to bring that agent to this computer.' };
+    }
+    return { ok: false, because: 'this is not a Kosmos agent file: it has no header' };
+  }
   const head = m[1];
   const field = (key) => {
     // `[ \t]*`, NOT `\s*`: `\s` matches a newline, so an empty `key:` line would

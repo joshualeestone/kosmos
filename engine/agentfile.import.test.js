@@ -60,6 +60,36 @@ test('#1652 REFUSED WHOLE: a plain markdown file with no header', () => {
   assert.equal(agentfile.importAgent(exportedFile('ctrl1'), deps).ok, true);
 });
 
+test('#1939 REDIRECT: a CLAUDE.md that introduces an agent is named the wrong KIND of file, not a missing field', () => {
+  // A real user pressed "Bring it in" repeatedly on his agent's CLAUDE.md because
+  // "it has no header" reads as "my file is right, something is wrong with it".
+  // A message that names the wrong kind of file ends the attempt.
+  const out = agentfile.importAgent('You are **lilnacho**, a project manager.\n\nYou keep track of things.\n', deps);
+  assert.equal(out.ok, false, 'still refused whole -- this is a redirect, never an accept-anyway (import is a trust boundary)');
+  assert.match(out.because, /instructions|CLAUDE\.md/, 'the message names what kind of file it is');
+  assert.match(out.because, /export/, 'and says where the right file comes from');
+  assert.doesNotMatch(out.because, /no header/, 'and does NOT name the missing field that invited the retry');
+  // 🔑 THE CONTROL THAT CAN RETURN THE DANGEROUS ANSWER (card #4): a file that
+  // does NOT introduce an agent still gets the generic "no header" message, so
+  // the two are distinguishable rather than one message for every headerless file.
+  const doc = agentfile.importAgent('# Just a document\n\nNo frontmatter here.\n', deps);
+  assert.match(doc.because, /no header/);
+  assert.notEqual(out.because, doc.because, 'the near-miss and the random document produce different messages');
+});
+
+test('#1939 the near-miss is detected even when the name is UNPARSEABLE', () => {
+  // The plain "You are lilnacho" form (no capital, no bold) names nobody to
+  // identityFromText -- which is the exact file #1527 measured -- yet it is still
+  // plainly agent instructions. Detection reads INTRODUCES, not a readable name,
+  // so this file gets the redirect too rather than the bare "no header".
+  assert.equal(status.identityFromText('You are lilnacho, a project manager.\n'), null,
+    'PRECONDITION: identityFromText cannot pull a name from the plain form');
+  const out = agentfile.importAgent('You are lilnacho, a project manager.\n\nNotes.\n', deps);
+  assert.equal(out.ok, false);
+  assert.match(out.because, /instructions|CLAUDE\.md/);
+  assert.doesNotMatch(out.because, /no header/);
+});
+
 test('#1652 REFUSED WHOLE: a header without the kosmos marker', () => {
   const out = agentfile.importAgent('---\nname: nope\n---\n\n# You are Nobody\n', deps);
   assert.equal(out.ok, false);
