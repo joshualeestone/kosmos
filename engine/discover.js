@@ -998,9 +998,22 @@ function connect(dir, opts) {
     return registerOnly(given, supplied, { create, store });
   }
   const id = status.identityFromText(text);
-  if (!id || !id.displayName) {
+  /* 🛑 A SUPPLIED NAME WINS EVEN WHEN THE FILE NAMES NOBODY (#1938, completing #1531's
+     ruling 2(a)). The file introduces somebody -- it says "You are ..." -- but the
+     parser could not read a name out of it (a lowercase name, an odd phrasing). The
+     screen already asked the person for one, and Josh's ruling is that the typed name
+     wins; refusing here made that name field a lie. So the refusal now fires ONLY when
+     the file names nobody AND nobody typed a name.
+     ⚠️ WHY THIS IS SAFE FOR THE FOUND/ADOPT FLOW TOO: the no-name refusal is unchanged
+     (connect-agent.test.js pins it), and the disk scan and found()'s unnamed-intro
+     rows both reach this path with a name in hand -- previously refused, and this is
+     the completion of the same ruling that already lets a typed name beat a basename
+     just below. The display name is then the one the person typed, since the file has
+     none to offer. */
+  if ((!id || !id.displayName) && !supplied) {
     return { ok: false, because: 'those instructions do not say who the agent is, so we cannot bring it in' };
   }
+  const displayName = (id && id.displayName) || supplied;
 
   /* 🔑 THE FOLDER'S OWN NAME IS THE AGENT'S NAME WHEN NOBODY SUPPLIES ONE, not the
      display name from the file. It is what tmux and launchd will carry, it is
@@ -1056,7 +1069,7 @@ function connect(dir, opts) {
      whose runner is codex (#571), because codex swallows an Enter that rides the
      paste burst. A codex agent labelled claude would be sent a message that sits
      in its composer unsent -- which looks exactly like an agent ignoring you. */
-  try { store.writeProfile(name, { dir: given, displayName: id.displayName, ...(runner === 'codex' ? { provider: 'openai' } : {}) }); }
+  try { store.writeProfile(name, { dir: given, displayName, ...(runner === 'codex' ? { provider: 'openai' } : {}) }); }
   catch { return { ok: false, because: 'we could not record where that agent lives' }; }
 
   /* The runner rides along, or an adopted Codex agent starts Claude in its own
@@ -1172,7 +1185,7 @@ function connect(dir, opts) {
     return { ok: false, because: job.because || 'we could not set it up to run' };
   }
 
-  return { ok: true, name, displayName: id.displayName, dir: given, started: job.started === true };
+  return { ok: true, name, displayName, dir: given, started: job.started === true };
 }
 
 /**

@@ -176,3 +176,36 @@ test('#1531 RULING 2(a): a typed name beats the folder basename when instruction
   fs.writeFileSync(path.join(dir2, 'CLAUDE.md'), '# x\n\nYou are **Testy Two**, a tester.\n');
   assert.equal(noRealCommands(() => discover.connect(dir2, {})).name, 'basename-wins');
 });
+
+test('#1938: a present-but-UNNAMED instructions file + a typed name is adopted (the ruling completes)', () => {
+  /* 🛑 THE BLOCKER #1938's DISK SCAN SURFACED, AND IT PRE-DATES THE SCAN. The scan and
+     found()'s unnamed-intro rows offer a folder whose CLAUDE.md INTRODUCES somebody
+     ("You are ...") but names nobody the parser can read, and the screen asks for a
+     name. Josh's ruling 2(a) is that the typed name wins -- but connect() refused this
+     whole population with "those instructions do not say who the agent is", so the name
+     field the screen showed was a lie: every nameless row was 100% un-addable. */
+  const dir = path.join(SB, 'unnamed-intro-typed');
+  fs.mkdirSync(dir, { recursive: true });
+  /* Lowercase name: INTRODUCES matches (the crude "You are" signal), but
+     identityFromText returns no displayName -- the exact shape the scan offers nameless. */
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'You are lilnacho, a project manager.\n');
+  const r = noRealCommands(() => discover.connect(dir, { name: 'lilnacho-monitor' }));
+  assert.equal(r.ok, true, r.because);
+  /* The typed name is BOTH the machine name and the display name, because the file
+     offers none -- so the profile is not left with a null displayName. */
+  assert.equal(r.name, 'lilnacho-monitor', 'the typed name did not become the agent name');
+  assert.equal(r.displayName, 'lilnacho-monitor', 'the display name was not the typed name');
+  assert.equal((store.readProfile('lilnacho-monitor') || {}).displayName, 'lilnacho-monitor',
+    'the typed display name did not reach the profile');
+
+  /* 🛑 CONTROL: the SAME unnamed file with NO typed name still refuses, so the change
+     is scoped to "a name was supplied" and connect-agent.test.js's no-name refusal
+     stands. Without this the arm above could pass on a connect() that stopped refusing
+     unnamed files entirely -- the over-correction. */
+  const dir2 = path.join(SB, 'unnamed-intro-noname');
+  fs.mkdirSync(dir2, { recursive: true });
+  fs.writeFileSync(path.join(dir2, 'CLAUDE.md'), 'You are lilnacho, a project manager.\n');
+  const refused = discover.connect(dir2, {});
+  assert.equal(refused.ok, false, 'an unnamed file with no typed name was adopted anyway');
+  assert.match(refused.because, /do not say who the agent is/i);
+});
