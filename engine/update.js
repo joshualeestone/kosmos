@@ -400,7 +400,14 @@ function lastAttemptView() {
    the in-process updater's curl|sh leaves unread, so a machine can stop receiving
    updates -- 155 consecutive aborts on one machine -- with nothing on any surface a
    person looks at. This exposes it so the board can say so. Returns
-   { count, reason, port, ts } when the machine is stuck, or null when it is not. */
+   { count, reason, port, ts } when the machine is stuck AT THE PAUSE, or null when it
+   is not.
+   🔑 SCOPE, so a reader does not over-read null: this tracks ONLY the
+   board-would-not-pause abort streak. null means "the last run got PAST the pause",
+   NOT "the last update succeeded" -- a later install failure (a 404, a checksum
+   refusal, a failed swap) is a DIFFERENT signal, carried by updateAttempt /
+   install.status. A board notice should treat this as "your machine is stuck at the
+   pause, N times", not as a general update-success flag. */
 function updateAbortFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'update-abort') : null; }
 function updateAbort() {
   const file = updateAbortFile();

@@ -2584,7 +2584,10 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   fi
   # #2055: got past the pause -- the update is proceeding, so the consecutive
   # board-would-not-pause abort streak is broken. Clear the marker so a machine
-  # that recovers stops surfacing the failure notice.
+  # that recovers stops surfacing the notice. NOTE the scope: this clears only the
+  # PAUSE-abort streak; it does NOT assert the update SUCCEEDED. A later failure (a
+  # 404, a checksum refusal, a failed swap) is a different signal (install.status /
+  # the #1728 in-flight marker), so clearing here on passing the pause is correct.
   rm -f "$LOG_DIR/update-abort" 2>/dev/null || true
 fi
 
