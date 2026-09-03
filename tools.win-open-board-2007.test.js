@@ -204,15 +204,54 @@ test('openInBrowser hands the resolved url to the opener (KOSMOS_OPEN_BIN seam)'
   const prev = process.env.KOSMOS_OPEN_BIN;
   process.env.KOSMOS_OPEN_BIN = stub;
   try {
-    const child = helper.openInBrowser(url);
-    await new Promise((resolve, reject) => {
-      child.on('exit', resolve);
-      child.on('error', reject);
-    });
+    // openInBrowser resolves on 'spawn' (after unref) with { child, ok }; await
+    // the child's exit so the recorder stub has finished writing before we read.
+    const { child, ok } = await helper.openInBrowser(url);
+    assert.equal(ok, true, 'the spawn should have succeeded');
+    await new Promise((resolve) => child.on('exit', resolve));
     assert.equal(fs.readFileSync(out, 'utf8'), url, 'the opener was not handed the resolved url');
   } finally {
     if (prev === undefined) delete process.env.KOSMOS_OPEN_BIN; else process.env.KOSMOS_OPEN_BIN = prev;
   }
+});
+
+test('openInBrowser reports a launch FAILURE (diagnostic not lost to process exit)', async () => {
+  // The #2007 iteration-5 WARNING: a bare unref + async 'error' handler could let
+  // the short-lived process exit before the handler wrote its diagnostic. Now
+  // openInBrowser awaits the spawn/error outcome, so a failed launch resolves
+  // { ok: false } and the stderr note is written before the caller returns. Point
+  // the seam at a binary that cannot exist so spawn emits 'error' (ENOENT).
+  const prev = process.env.KOSMOS_OPEN_BIN;
+  process.env.KOSMOS_OPEN_BIN = '/nonexistent/definitely-not-a-real-opener';
+  const origWrite = process.stderr.write.bind(process.stderr);
+  let err = '';
+  process.stderr.write = (chunk) => { err += String(chunk); return true; };
+  try {
+    const { ok } = await helper.openInBrowser('http://127.0.0.1:16180/?boot=abc123');
+    assert.equal(ok, false, 'a launch that cannot spawn should resolve ok:false');
+    assert.match(err, /could not launch the browser/, 'the launch-failure diagnostic was not written');
+  } finally {
+    process.stderr.write = origWrite;
+    if (prev === undefined) delete process.env.KOSMOS_OPEN_BIN; else process.env.KOSMOS_OPEN_BIN = prev;
+  }
+});
+
+test('a mint that returns a non-2xx (stale/wrong token -> 403) falls back to plain', async () => {
+  // The realistic enforcing-board failure: the board token on disk is stale, so
+  // POST /api/board-nonce returns 403 (not a malformed body). mintNonce must treat
+  // !r.ok as no-nonce and resolveOpenUrl fall back to the plain url.
+  const server = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/') { res.writeHead(200); res.end('board'); return; }
+    if (req.method === 'POST' && req.url === '/api/board-nonce') { res.writeHead(403); res.end('{"error":"nope"}'); return; }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const { appDir } = makeAppDir({ withToken: true });
+  try {
+    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 4000 });
+    assert.equal(url, `http://127.0.0.1:${port}`, 'a 403 mint should fall back to the plain url');
+  } finally { server.close(); }
 });
 
 test('a board that ACCEPTS the connection but never responds does not hang', async () => {

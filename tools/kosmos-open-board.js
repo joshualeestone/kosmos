@@ -73,6 +73,11 @@ function sleep(ms) {
  * needs a nonce. Mirrors cmd_open ensuring the board is up before it mints. */
 const PROBE_TIMEOUT_MS = 2000; // per-probe cap, mirrors cmd_open's `healthy` -m 2
 const MINT_TIMEOUT_MS = 15000; // mint cap, mirrors cmd_open's mint -m 15
+// A single fallback port for STANDALONE/TEST use only. Production never reaches it:
+// open-board.cmd always passes --port, baked from server.js by the build (the build
+// reads the real default from source precisely to avoid a hand-typed copy, so this
+// is not a second authority for the port - it is the "no one told us" fallback).
+const DEFAULT_PORT = '16180';
 
 async function waitForBoard(url, deadline) {
   while (Date.now() < deadline) {
@@ -184,42 +189,58 @@ function openInBrowser(url) {
     args = [url];
   }
   const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
-  child.on('error', (e) => {
-    process.stderr.write('kosmos-open-board: could not launch the browser (' + (e && e.message || e) + '); open it yourself: ' + url + '\n');
+  // Resolve only once the launch OUTCOME is known: 'spawn' (started - then unref so
+  // the browser outlives this short-lived launcher and the console window can exit)
+  // or 'error' (failed to start - PRINT the diagnostic BEFORE resolving). main()
+  // awaits this, so the process cannot exit before the error message is written -
+  // the race a bare unref+async-handler had, and the synchronous failure check
+  // cmd_open gets from `open ... || die`. The child is returned in the result so a
+  // test can still await its exit.
+  return new Promise((resolve) => {
+    let settled = false;
+    child.on('error', (e) => {
+      if (settled) return;
+      settled = true;
+      process.stderr.write('kosmos-open-board: could not launch the browser (' + (e && e.message || e) + '); open it yourself: ' + url + '\n');
+      resolve({ child, ok: false });
+    });
+    child.on('spawn', () => {
+      if (settled) return;
+      settled = true;
+      child.unref();
+      resolve({ child, ok: true });
+    });
   });
-  // Detach so the launcher's console window is free to exit while the browser
-  // stays open. Returned so a test can await it (production never does).
-  child.unref();
-  return child;
 }
 
 async function main() {
   // Default appDir is the zip-root layout (this script ships beside app/); the
   // .cmd passes --app explicitly, so this default only serves standalone/test use.
   const appDir = argValue('--app', path.join(__dirname, 'app'));
-  const port = argValue('--port', '16180');
+  const port = argValue('--port', DEFAULT_PORT);
   const timeoutMs = Number(argValue('--timeout-ms', '20000')) || 20000;
   const open = await resolveOpenUrl({ appDir, port, timeoutMs });
   // Print the PLAIN url as the human message (mirrors cmd_open's `say "$URL"`),
   // then OPEN the resolved url (nonced on an enforcing board). Printing the plain
   // url rather than the nonced one keeps the single-use boot nonce out of any
   // captured console log - the same reason cmd_open says the plain url and opens
-  // the nonce silently.
+  // the nonce silently. Await the open so a launch failure's diagnostic is written
+  // before the process exits.
   process.stdout.write(`http://127.0.0.1:${port}\n`);
-  openInBrowser(open);
+  await openInBrowser(open);
 }
 
 // Exported for the test; only run when invoked directly (mirrors the repo's
 // require-vs-run idiom so a test can drive resolveOpenUrl against a fixture board).
 if (require.main === module) {
-  main().catch((e) => {
+  main().catch(async (e) => {
     // Never crash without opening SOMETHING: the launcher's whole job is to get a
     // browser onto the board, and the plain url is the honest worst case (the
-    // pre-fix behavior).
+    // pre-fix behavior). Await the open so its own diagnostic is written first.
     process.stderr.write('kosmos-open-board: ' + (e && e.message || e) + '\n');
-    const url = `http://127.0.0.1:${argValue('--port', '16180')}`;
+    const url = `http://127.0.0.1:${argValue('--port', DEFAULT_PORT)}`;
     process.stdout.write(url + '\n');
-    openInBrowser(url);
+    await openInBrowser(url);
   });
 }
 
