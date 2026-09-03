@@ -82,13 +82,16 @@ test('#2 the positive control is found BY NAME (if not, discovery is broken)', (
   assert.equal(named.get('2-current').name, 'Fixture Nova');
 });
 
-test('#1 a Kosmos-created file is found by name; re-offer is runtime-roster-dependent', () => {
-  // found() lists it (it has a bold name); the kosmos:* markers do NOT suppress it.
-  // `already` reflects the runtime roster (alreadyIn) - false here (no running pane),
-  // so a scattered Kosmos file whose agent is not running WOULD be re-offered.
-  assert.ok(named.has('1-kosmos-created'), 'a Kosmos-created file is still listed by name');
-  assert.equal(named.get('1-kosmos-created').already, false,
-    'with no running pane, already=false - the finding: re-adopt suppression rides the roster, not the markers');
+test('#1 a Kosmos-created file is found as a NAMED agent, NOT adoptable (#1938 stands)', () => {
+  // It has a readable bold name, so it is a NAMED agent (found().agents), NEVER in the
+  // adoptable set - consistent with #1938 (a cleanly-named agent is never adoptable). The
+  // kosmos:* markers do NOT change that classification. `already` flags whether it is
+  // currently running (the runtime roster); what the adopt UI does with a found-but-not-
+  // running named agent is a separate flow this set does NOT measure - so this is not an
+  // adoptable-set re-offer, and does not refute #1938.
+  assert.ok(named.has('1-kosmos-created'), 'a Kosmos-created file is a named agent, found by name');
+  assert.ok(!adoptable.has('1-kosmos-created'), 'a cleanly-named agent is NOT in the adoptable set (#1938)');
+  assert.equal(named.get('1-kosmos-created').already, false, 'with no running pane, already=false');
 });
 
 test('#3 no-file and #5 lowercase-name are ADOPTABLE (offered, empty name)', () => {
