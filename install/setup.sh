@@ -3726,7 +3726,29 @@ OPEN_CMD="${KOSMOS_OPEN_CMD:-/usr/bin/open}"
 # one carve-out -- a set KOSMOS_OPEN_CMD re-enables it -- because the
 # probe passes are exactly where the recording stub must be allowed to
 # observe the open.
-if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_NO_OPEN:-}" ] && [ -z "${KOSMOS_APP_DIR:-}" ] \
+# #2023: also open ONCE on an enforcing UPDATE, to seed the httpOnly board cookie
+# that #1946's enforcement now requires. A fresh install opens the browser and gets
+# the cookie; an UPDATE never opened, so every updated machine's bookmarked board
+# 403s -- the fleet outage. This opens the OWNER's browser (mint a nonce, ?boot=),
+# which works regardless of the .app bundle's age -- the only remedy that does.
+# Gated on a marker beside board.token so it fires on the FIRST update carrying this
+# fix and never again (the cookie is Max-Age 400 days, so one seed carries every
+# later update forward -- the "no tab per update" property the header above keeps).
+# Enforcing-only: `-s board.token` (present and non-empty) is setup.sh's reading of
+# enforced() -- an enforcing board has a token, a sandbox/harness one does not.
+_awnode_r="$KOSMOS_HOME/runtime/bin/node"; _awroot_r=""; _repair_seed=""
+if [ -f "$_awnode_r" ] && [ -x "$_awnode_r" ]; then
+  _awroot_r="$("$_awnode_r" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot_r=""
+  [ -n "$_awroot_r" ] && _repair_seed="$_awroot_r/.reauth-seeded"
+fi
+_open_gate="$FRESH_INSTALL"; _seed_after_open=no; _minted_nonce=no; _opened=no
+# A first enforcing run (fresh OR update) that has not seeded opens and seeds: the
+# fresh case seeds so a later update does not needlessly re-open; the update case
+# IS the repair. FRESH_INSTALL already opens; this adds the enforcing-update path.
+if [ -n "$_repair_seed" ] && [ ! -f "$_repair_seed" ] && [ -s "$_awroot_r/board.token" ]; then
+  _open_gate=yes; _seed_after_open=yes
+fi
+if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_OPEN:-}" ] && [ -z "${KOSMOS_APP_DIR:-}" ] \
    && { [ -z "${KOSMOS_SYS_APP_DIR:-}" ] || [ -n "${KOSMOS_OPEN_CMD:-}" ]; } \
    && command -v "$OPEN_CMD" >/dev/null 2>&1; then
   # Named before it happens, per the header's every-step rule: a browser
@@ -3744,9 +3766,11 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
   # sandboxed); its public shell loads at a bare URL but every /api/* fetch then
   # 403s with no cookie, so the very first dashboard would be broken. The token is
   # derived from the same store.ROOT the board wrote it to, via the bundled node
-  # (the canonical `$KOSMOS_HOME/runtime/bin/node` that `kosmos` itself uses), so
-  # there is no second copy of the path formula. Empty on a non-enforcing (sandbox
-  # or harness) board -> the URL is left unchanged there. Both opens below use it.
+  # (the canonical `$KOSMOS_HOME/runtime/bin/node` that `kosmos` itself uses), so no
+  # hardcoded path can drift from where the board wrote the token. The #2023 repair
+  # gate above resolves ROOT with the identical node formula (not a hardcoded copy),
+  # so the two reads cannot diverge. Empty on a non-enforcing (sandbox or harness)
+  # board -> the URL is left unchanged there. Both opens below use it.
   _board_url="http://127.0.0.1:$PORT"
   _bt=""
   _awnode="$KOSMOS_HOME/runtime/bin/node"
@@ -3775,7 +3799,7 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
       # to the plain URL as intended. (cmd_open guards its mint the same way.)
       _nonce="$(curl -sS -m 15 -H @"$_nhf" -X POST "http://127.0.0.1:$PORT/api/board-nonce" 2>/dev/null | sed -n 's/.*"nonce":"\([0-9a-f]*\)".*/\1/p' || true)"
       rm -f "$_nhf" 2>/dev/null || true
-      [ -n "$_nonce" ] && _board_url="http://127.0.0.1:$PORT/?boot=$_nonce"
+      [ -n "$_nonce" ] && { _board_url="http://127.0.0.1:$PORT/?boot=$_nonce"; _minted_nonce=yes; }
     fi
   fi
   # 🛑 UNDER THE .PKG, NOT A BARE `open` (#663). Installer's postinstall runs
@@ -3840,23 +3864,44 @@ PLIST
       # requires AGENT_WORKFORCE_LAUNCH unset; this is the belt.
       [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || _open_plist=/dev/null/never
       if /bin/launchctl bootstrap "gui/$_open_uid" "$_open_plist" 2>/dev/null; then
+        # Handed to the login session (RunAtLoad). This is the best open-success
+        # signal available in pkg mode -- like a direct `open` returning 0, it
+        # confirms dispatch, not navigation; that residual is documented at the seed.
+        _opened=yes
         printf '  (handed to your login session as %s)\n\n' "$_open_label"
       else
         rm -f "$_open_plist"
         printf '  note: could not hand the open to your login session; trying directly.\n'
-        "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1 \
-          || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
+        if "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1; then _opened=yes
+        else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
       fi
     else
-      "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1 \
-        || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
+      if "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1; then _opened=yes
+      else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
     fi
   else
     # </dev/null: the spawned process must not inherit the curl|sh pipe --
     # the same class as cmd_start's measured never-returning install.
-    "$OPEN_CMD" "$_board_url" </dev/null >/dev/null 2>&1 \
-      || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
+    if "$OPEN_CMD" "$_board_url" </dev/null >/dev/null 2>&1; then _opened=yes
+    else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
   fi
+  fi
+  # #2023: seed the repair marker ONLY when a nonce was minted (_minted_nonce) AND
+  # the open actually SUCCEEDED (_opened), so this one-time repair fires on the first
+  # update that truly re-authed the browser and never again. Two failure modes both
+  # leave the marker UNWRITTEN so the repair RETRIES next update:
+  #   - mint FAILED (board HTTP not answering in the update window -> plain URL, no
+  #     ?boot=): _minted_nonce stays no.
+  #   - open FAILED (OPEN_CMD present but returned non-zero, e.g. no reachable GUI
+  #     session; the `|| note` branch fired): _opened stays no.
+  # Either seeding on its own would mark the machine done while its board stays 403,
+  # the exact state this fixes. The one residual: open succeeded (dispatched) but the
+  # browser never navigated to redeem the nonce (vanishingly rare); the recourse there
+  # is the owner running `kosmos open` in their terminal, the token-holding path
+  # (there is no safe in-app reconnect -- a no-cookie page cannot prove ownership).
+  if [ "${_seed_after_open:-no}" = "yes" ] && [ -n "${_repair_seed:-}" ] \
+     && [ "${_minted_nonce:-no}" = "yes" ] && [ "${_opened:-no}" = "yes" ]; then
+    : > "$_repair_seed" 2>/dev/null || true
   fi
 fi
 
