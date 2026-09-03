@@ -1849,13 +1849,19 @@ async function launchSignin(owner) {
     cmd.push(`CLAUDE_CONFIG_DIR=${launchDir}`);
   } else {
     /* 🛑 #1922: UNSET IT, DO NOT MERELY DECLINE TO SET IT. No launch dir means
-       "the true default account", NOT "whatever CLAUDE_CONFIG_DIR this process
-       happens to carry" -- and `env` without `-u` hands the child the caller's
-       environment, so an omitted assignment is NOT an unset variable. A
-       Kosmos-managed machine runs its own agents under a real
-       CLAUDE_CONFIG_DIR, so the ambient value here is routinely a DIFFERENT
-       account, and the sign-in would write the refreshed credential into that
-       account rather than the default one the person asked to repair.
+       "the true default account", NOT "whatever CLAUDE_CONFIG_DIR the pane
+       happens to inherit", and an omitted assignment is NOT an unset variable.
+
+       ⚠️ THE SOURCE OF THE LEAK IS THE TMUX SERVER, NOT THIS PROCESS, and the
+       distinction is not pedantic: `tools/witness-pane-env.sh` records it as
+       MEASURED on tmux 3.6a that tmux does NOT hand a client's environment to a
+       session made on an ALREADY-RUNNING server (the pre-#586 pane saw the
+       server's account while the client carried a different one). This launch
+       uses the shared socket with no `-e`, so on any machine whose tmux server
+       is already up -- the normal Kosmos case, since agent panes are forwarded
+       a CLAUDE_CONFIG_DIR -- the pane inherits whichever account STARTED THE
+       SERVER. That is a value this process cannot inspect, which makes the
+       exposure worse than a caller-side leak, not better.
 
        `subscription.checkLive` already defends the READ side of exactly this
        and states the rule: it builds its env and `delete env.CLAUDE_CONFIG_DIR`

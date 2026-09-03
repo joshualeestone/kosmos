@@ -550,12 +550,19 @@ function driverTest(name, fn) {
  * #1922: THE DEFAULT-ACCOUNT LAUNCH MUST UNSET `CLAUDE_CONFIG_DIR`, NOT MERELY
  * DECLINE TO SET IT.
  *
- * 🛑 THE HOLE. `env` without `-u` hands the child the caller's environment, so a
- * launch that omits the assignment still lets an ambient `CLAUDE_CONFIG_DIR`
- * through -- and a Kosmos-managed machine runs its own agents under a real one,
- * routinely pointing at a DIFFERENT account. The sign-in would then write the
- * refreshed credential into that account instead of the default the person asked
- * to repair.
+ * 🛑 THE HOLE. A launch that merely OMITS the assignment still lets an ambient
+ * `CLAUDE_CONFIG_DIR` reach the CLI. ⚠️ It arrives from the TMUX SERVER, not
+ * from this process: `tools/witness-pane-env.sh` records as measured on tmux
+ * 3.6a that tmux does not hand a client's environment to a session on an
+ * already-running server, and this launch uses the shared socket with no `-e`.
+ * So the pane inherits whichever account started the server -- routinely a
+ * DIFFERENT one on a Kosmos machine -- and the sign-in would write the refreshed
+ * credential there instead of into the default account the person asked to
+ * repair.
+ *
+ * ⭐ `env -u` is the right instrument precisely BECAUSE it runs inside the pane:
+ * it strips the variable whatever its source, so it does not depend on knowing
+ * which layer leaked it.
  *
  * ⭐ `subscription.checkLive` already defends the READ side and states the rule:
  * it builds its env and `delete env.CLAUDE_CONFIG_DIR` "rather than trusting it
@@ -594,9 +601,17 @@ driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CL
     assert.ok(made, 'no session was made, so this arm asserts nothing about the launch');
     const i = made.indexOf('env');
     assert.ok(i >= 0, 'the launch is not the measured multi-arg `env` form this assertion reads');
-    assert.deepEqual(made.slice(i, i + 3), ['env', '-u', 'CLAUDE_CONFIG_DIR'],
+    /* Order-independent on purpose: a future launch adding another assignment
+       ahead of `-u` would redden a slice-equality for a reason unrelated to this
+       card. Assert the pair is present, and (below) that nothing sets the
+       variable back. */
+    const u = made.indexOf('-u');
+    assert.ok(u > i && made[u + 1] === 'CLAUDE_CONFIG_DIR',
       'the default-account launch did not UNSET CLAUDE_CONFIG_DIR, so an ambient value '
-      + 'from this process leaks into the CLI and the credential lands on another account');
+      + '(from the tmux server, which this arm cannot see) reaches the CLI and the '
+      + 'credential lands on another account');
+    assert.ok(!made.some((a) => typeof a === 'string' && a.startsWith('CLAUDE_CONFIG_DIR=')),
+      'the default launch both unsets and re-assigns CLAUDE_CONFIG_DIR, so the unset is undone');
     assert.ok(warned.some((w) => w.includes('AGENT_WORKFORCE_CLAUDE_CONFIG is set without')),
       'the config/dir mismatch warning did not fire, so either the arm is no longer '
       + 'exercising the no-launch-dir path or the warning has been removed');
