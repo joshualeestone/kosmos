@@ -3,8 +3,8 @@
 /**
  * kosmos#1724: the Settings > Automation auto-handoff control (the capture half,
  * in the page). The real paintAutomation is lifted and run against a stub: it
- * must load a saved setting into the checkbox and threshold, default to off/85
- * when nothing is saved, and enable the controls. The trigger (the consume half)
+ * must load a saved setting into the checkbox and threshold, default to on/85
+ * when nothing is saved (#2013), and enable the controls. The trigger (the consume half)
  * is tested in engine/autohandoff.test.js; the route in server.test.js.
  *
  *   node --test web.autohandoff-1724.test.js

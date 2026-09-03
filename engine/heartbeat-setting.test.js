@@ -1,6 +1,6 @@
 'use strict';
-/* #1722: the persisted on/off + interval for the product heartbeat. Off by
- * default, a closed set of interval choices, validation refuses a nonsense
+/* #1722: the persisted on/off + interval for the product heartbeat. On by
+ * default (#2013), a closed set of interval choices, validation refuses a nonsense
  * period. Sandboxed data root before the require, exactly as notify.test.js. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

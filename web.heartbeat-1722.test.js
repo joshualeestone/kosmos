@@ -4,7 +4,7 @@
  * kosmos#1722: the Settings > Automation heartbeat control (the later addition to
  * the section #1724 created). The real paintHeartbeat is lifted and run against a
  * stub: it loads the in-force setting into the checkbox and interval select,
- * renders the interval choices the server names, defaults to off/17, and enables
+ * renders the interval choices the server names, defaults to on/17 (#2013), and enables
  * the controls. Unlike #1724's auto-save, this control is WIRED (the runner is
  * live in server.js), so it does not ship not-yet-active. The sweep is tested in
  * engine/heartbeat.test.js; the route in server.heartbeat-1722.test.js.

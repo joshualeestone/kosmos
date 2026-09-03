@@ -9628,7 +9628,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <h3 class="dlab">Auto-save</h3>
       <div class="field" style="margin-top:14px;">
         <label class="flabel" for="ah-enabled">Save your agents' progress</label>
-        <div class="fhint">When an agent's context is nearly full, Kosmos asks it to write its progress to a file, so a long piece of work is not lost as it reaches the limit. Off by default.</div>
+        <div class="fhint">When an agent's context is nearly full, Kosmos asks it to write its progress to a file, so a long piece of work is not lost as it reaches the limit. On by default.</div>
         <div class="frow" style="align-items:center; gap:10px;">
           <input type="checkbox" id="ah-enabled">
           <label for="ah-enabled" style="margin:0;">Ask agents to save their progress as their context fills</label>
@@ -9650,8 +9650,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <section class="dbox">
       <!-- #1722 (Josh, 2026-08-31): a heartbeat that checks which agents are
            working and asks you to chase anyone that has stopped. The later
-           addition the auto-save control above (#1724) reserved a slot for. Off
-           by default; the interval is adjustable. This is wired: the runner is
+           addition the auto-save control above (#1724) reserved a slot for. On
+           by default (#2013); the interval is adjustable. This is wired: the runner is
            live (server.js), so the control is not a dead toggle. -->
       <!-- #1843 (Josh, #admin 2026-09-02 07:12): the user-facing name is now
            "Prompter", so Settings > Automation reads as two named features a
@@ -9665,7 +9665,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <h3 class="dlab">Prompter</h3>
       <div class="field" style="margin-top:14px;">
         <label class="flabel" for="hb-enabled">Check on your agents</label>
-        <div class="fhint">Every so often, Kosmos looks at which of your agents are working and asks you to check on any that have stopped. It asks a question, never assumes, because an agent may be mid-something. Off by default.</div>
+        <div class="fhint">Every so often, Kosmos looks at which of your agents are working and asks you to check on any that have stopped. It asks a question, never assumes, because an agent may be mid-something. On by default.</div>
         <div class="frow" style="align-items:center; gap:10px;">
           <input type="checkbox" id="hb-enabled">
           <label for="hb-enabled" style="margin:0;">Ask me to check on any agent that has stopped</label>
@@ -13387,7 +13387,7 @@ document.getElementById('you-tz-save').addEventListener('click', async () => {
   }
 });
 /* #1724: the auto-handoff control in Settings > Automation. Loads the stored
-   setting (off/85 by default) and saves {enabled, threshold} to /api/settings. */
+   setting (on/85 by default, #2013) and saves {enabled, threshold} to /api/settings. */
 async function paintAutomation() {
   const en = document.getElementById('ah-enabled');
   const th = document.getElementById('ah-threshold');
@@ -13433,7 +13433,7 @@ document.getElementById('ah-save').addEventListener('click', async () => {
   }
 });
 /* #1722: the heartbeat control in Settings > Automation, a later addition to the
-   section #1724 created. Reads the in-force setting (off/17 by default; the runner
+   section #1724 created. Reads the in-force setting (on/17 by default, #2013; the runner
    reads the same file, so read == in force) and saves {on, intervalMinutes} to PUT
    /api/heartbeat-setting. The interval choices are rendered from the server so the
    select and the engine cannot disagree about what is valid (same shape as the
