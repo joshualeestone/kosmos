@@ -3795,8 +3795,12 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_O
   # window appearing unannounced reads as "something went wrong", and on
   # a cold browser start the prompt returns seconds before the window.
   # Under the .pkg, postinstall may already have the "Installing Kosmos" page
-  # open in the browser (#662); that page becomes the dashboard on its own the
-  # moment the board answers, so a second open here would be a second tab.
+  # open in the browser (#662). It USED to skip the mint+open here to avoid a
+  # second tab -- but that page links the board at a BARE url, which 403s on an
+  # enforcing board (#2033), so the skip left a fresh .pkg install cookie-less.
+  # We now do the authenticated ?boot open in both branches (the second tab is
+  # the price of a working dashboard); do NOT re-add the skip on the strength of
+  # the old "second tab" rationale.
   if [ "${KOSMOS_INSTALL_PAGE:-}" = "1" ]; then
     # #2033: the pkg install page is already open, but installing.html links the board at a
     # BARE url which 403s on an enforcing board -- exactly the update outage #2023 fixes. So

@@ -2187,6 +2187,11 @@ chk "the port is genuinely free after #918's scenario" "wait_port_free"
 # sandbox one has no token), so this asserts the OPEN happens and carries the board origin -- the
 # regression the fix closes -- not the ?boot nonce (unchanged, covered by cli.open-1957).
 # Red-capable: reverting setup.sh skips the open and opened.log does not grow.
+# HARNESS LIMIT: with KOSMOS_OPEN_CMD set and KOSMOS_INSTALL_VIA unset, this exercises the
+# DIRECT-open branch, not the LaunchAgent branch a real .pkg uses (KOSMOS_INSTALL_VIA=pkg needs
+# an unset KOSMOS_OPEN_CMD and a GUI session, neither available here). The regression the fix
+# closes -- reaching the mint+open at all under INSTALL_PAGE=1 -- is covered; the real-pkg
+# LaunchAgent+INSTALL_PAGE combination stays unexercised (the plan's stated weakest premise).
 _ip_before="$(wc -l < "$SB/opened.log" 2>/dev/null | tr -d ' ')"
 export KOSMOS_HOME="$SB/home4" KOSMOS_BIN_DIR="$SB/bin4"
 RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_INSTALL_PAGE=1 KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe-ip.log" 2>&1 || RC=$?
