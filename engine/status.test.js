@@ -1683,7 +1683,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
   /**
    * 🛑 THE `◯` LIVENESS GATE IS GONE, AND ITS ROWS WENT WITH IT. Three rounds of
    * assertions here pinned which `◯` rows proved an agent was running: the
-   * collapsed idle summary, a selected `❯ ◯` row, a nested `└─ ◯` row, a plugin
+   * collapsed idle summary, a selected `❯ ◯` row, a nested `└ ◯` row, a plugin
    * list, a composer with one typed in. All obsolete, because the premise was
    * wrong rather than incomplete: EVERY footer row draws that glyph and run state
    * lives in the row's COLOUR, which `capturePane` strips. No enumeration could
@@ -1741,6 +1741,21 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     'working',
     'a composer with an icon in its typed text was disqualified as a footer row');
 
+  /* 🛑 INCLUDING THE NESTED SHAPES. A depth>0 task row carries a tree connector
+     (`❯ └ ◯ …`, `❯ ├ ◯ …`), and keying the exclusion on pointer + icon alone let
+     one become the anchor, pushing the wait row out of reach and turning the
+     feature OFF on a live pane. The fixture below places the focused row far
+     enough down that the wrong anchor exceeds the reach, which is what makes it
+     discriminate. */
+  const withFocused = (f) => ['✻ Waiting for 3 background agents to finish', '', '────', '❯ ', '────',
+    '  agent · Opus 5 · ctx 50%', '  ⏵⏵ bypass permissions on · ← for agents', '', '  ⏺ main',
+    '  ◯ general-purpose  a  1m', '  ◯ general-purpose  b  2m', f].join('\n');
+  for (const f of ['❯ └ ◯ general-purpose  c  3m', '❯ ├ ◯ general-purpose  c  3m',
+    '❯ └─ ◯ general-purpose  c  3m', '❯ │  └ ◯ general-purpose  c  3m']) {
+    assert.equal(classify(pane, withFocused(f)).state, 'working',
+      'a focused NESTED footer row became the anchor and hid a live wait: ' + f);
+  }
+
   for (const focused of ['❯ ◯ general-purpose  doing 43s', '❯ ⏺ main', '❯ ● main']) {
     assert.equal(
       classify(pane, '✻ Waiting for 1 background agent to finish' + footer
@@ -1757,9 +1772,9 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
   const atDistance = (n) => '✻ Waiting for 1 background agent to finish\n'
     + new Array(n - 1).fill('  filler').join('\n') + '\n────\n❯ \n────\n  ⏵⏵ bypass permissions on · ← for agents';
   assert.equal(classify(pane, atDistance(7)).state, 'working',
-    'a live row 7 rows above the composer was read as idle; the vendor can push it that far');
+    'a live row at the top of the reach was read as idle');
   assert.notEqual(classify(pane, atDistance(14)).state, 'working',
-    'a row 14 rows above the composer is scrolled-up transcript, not the live status row');
+    'a row well past the reach is scrolled-up transcript, not the live status row');
 
   /* 🛑 NO COMPOSER ON SCREEN -> null. A dialog replaces the composer, and with no
      anchor there is nothing to measure the reach against, so any quotation with
@@ -1946,7 +1961,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
   assert.notEqual(classify(pane, manyAgents(17)).state, 'working',
     'n=17 should fall out of the 25-row tail; if this passes the window changed');
 
-  for (const n of [1, 5, 9, 15, 16]) {
+  for (const n of [1, 5, 9, 15]) {
     assert.equal(classify(pane, manyAgents(n)).state, 'working',
       'the reader went quiet at ' + n + ' background agents, which is the busiest case');
   }

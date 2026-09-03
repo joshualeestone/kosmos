@@ -1970,6 +1970,14 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    reach. Enumerating one call site and calling it the wording is the same mistake
    as enumerating one `◯` source and calling it liveness.
 
+   ⚠️ KNOWN LIMIT, SAME CLASS AS THE WAIT MATCHER'S: no wrap tolerance. Ink
+   hard-wraps this row too, and `-J` does not rejoin what Ink already split, so a
+   long agent description can push `finished · 5m 19s` onto a second physical row
+   carrying neither the bullet nor `Agent`. Both halves then fail and the wait is
+   never resolved: `working` on a finished agent. Not fixed here because the
+   halves cannot be rejoined from one row, and recorded rather than left to be
+   rediscovered.
+
    🔑 WHY A RESOLVED WAIT ROW PERSISTS AT ALL, which is the premise this check
    rests on. In the bundle the count is read as `let al = NZ ? …pendingBackground
    AgentCount ?? 0 : 0`, where `NZ` comes from `let [UZ] = d(SD)` -- `useState`
@@ -1982,7 +1990,7 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
 
    🛑 THIS REPLACED A `◯`-BASED LIVENESS GATE THAT COULD NOT WORK. Three rounds
    went into enumerating `◯` sources (a live task row, the collapsed
-   `◯ N idle agents` summary, a selected `❯ ◯` row, a nested `└─ ◯` row, a plugin
+   `◯ N idle agents` summary, a selected `❯ ◯` row, a nested `└ ◯` row, a plugin
    list, a composer with one typed into it) before the ceiling showed up: EVERY
    footer row draws `figures.circle`, and run state is carried in the row's
    COLOUR (`wge = WL(task) ? undefined : Yge(status)`). `capturePane` passes
@@ -2029,7 +2037,18 @@ function backgroundAgentWait(text) {
        the icon is `⏺` (macOS) or `●` for the VIEWED row rather than the main one,
        so `❯ ⏺ main` is a real focused row. Keying on `◯` alone let it become the
        anchor. An earlier version of this note wrote the shape without its
-       separating space and called `⏺` the main row's icon; both were wrong. */
+       separating space and called `⏺` the main row's icon; both were wrong.
+       🛑 AND IT MUST ALLOW THE TREE CONNECTOR. A nested task row is drawn as
+       pointer, then `indent + (├|└) + " "`, then the icon, so a focused depth>0
+       row reads `❯ └ ◯ general-purpose …`. The class also carries `─`, which the
+       bundle does not draw in this connector but which THIS MODULE treats as a
+       connector character in eight other prefix-stripping sites: a wrong guess
+       here silently turns the feature off, so it follows the module's own
+       convention rather than the narrower reading. Keying on `❯` + icon alone let that
+       row become the anchor, which pushed the wait row out of reach and turned
+       the whole feature OFF on a live pane. This comment already NAMED the nested
+       row two paragraphs up while its guard did not cover it: an enumerated shape
+       whose guard was never extended. */
     let anchor = -1;
     for (let j = i + 1; j < rows.length; j += 1) {
       /* 🛑 `❯` IS NOT UNIQUE TO THE COMPOSER. The task footer draws its selected
@@ -2045,7 +2064,7 @@ function backgroundAgentWait(text) {
          TEXT held a `◯` -- and an agent working on this reader is exactly who
          types one. Measured: the real composer was skipped, the anchor fell back
          to a quoted `❯` above it, and prose then satisfied liveness. */
-      if (/^\s*❯/.test(rows[j]) && !/^\s*❯\s*[◯⏺●]/.test(rows[j])) anchor = j;
+      if (/^\s*❯/.test(rows[j]) && !/^\s*❯[\s│├└─]*[◯⏺●]/.test(rows[j])) anchor = j;
     }
     /* No composer row found -> return null. A MISS, never a false calm, pinned by
        its own row.
@@ -2730,8 +2749,7 @@ function classify(pane, paneText) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
   }
   /**
-   * #1889. A SECOND no-timer shape that `WORKING_LINE`
-   * below cannot match it:
+   * #1889. A no-timer shape `WORKING_LINE` cannot match:
    *
    *   ✻ Waiting for 1 background agent to finish
    *
@@ -4658,6 +4676,17 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     }
     // Rule 5: the comparison happens BEFORE the decay.
     if (scraped.state === STATE.WORKING) {
+      /* 🛑 EXCEPT WHEN THE SCREEN SAYS IT IS WAITING ON A BACKGROUND AGENT, where
+         a decayed report is CORRECT rather than suspicious (#1889). The report
+         hook fires on PreToolUse; while the turn is over and only a background
+         agent runs, no tools fire, so a healthy reporter cannot heartbeat and any
+         wait past REPORT_WORKING_DECAY_MS decays by construction. Accusing it
+         then is not an edge case, it is the normal case for a long wait, and it
+         is the one field where reading this row made the board LESS truthful than
+         not reading it. The state stays `working`; only the false sentence goes. */
+      if (scraped.because === 'it is waiting on a background agent') {
+        return { ...scraped, reported: false, conflict: null };
+      }
       return { ...scraped, reported: false, conflict: 'its reports stopped arriving while its screen still shows work, so the reporter may be broken' };
     }
     return {
