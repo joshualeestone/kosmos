@@ -200,6 +200,7 @@ one invented by somebody who did not write them.
 | `render-org-drag.js` | The org chart's organic layer (#285): grab the hub, the rings follow, wires stay attached, a drag does not open an agent and a click does. |
 | `render-switch-states.js` | The four Settings switches come BACK once their settings read (#229) |
 | `render-optout-403-2020.js` | The two telemetry opt-out switches are 403-safe: a gated read draws could-not-read, never a false Off (#2020/#2047) |
+| `render-settings-403-2047.js` | The auto-update, engineering-mode and run-limits switches are 403-safe: a gated read draws could-not-read (hidden, no position, a message), never a false Off -- with a 200 control (#2047) |
 | `render-theme-toggle.js` | The light and dark control: two options, gold active, same geometry as the view toggle (#284) |
 | `render-thread.js` | Render and DRIVE the project thread in a real browser |
 | `render-url-state.js` | The view survives a refresh (#374): agent, project, task; and the overview writes a clean URL. |

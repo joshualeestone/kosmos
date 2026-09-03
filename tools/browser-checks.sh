@@ -1005,6 +1005,11 @@ if boot_board "$sb7" "$P8"; then
   # read draws could-not-read, never a false Off). The 403 arm is simulated with
   # page.route, so a non-enforcing board is fine.
   run_one "render-optout-403-2020" env KOSMOS_URL="$B8" node docs/browser-checks/render-optout-403-2020.js
+  # #2047: the auto-update, engineering-mode and run-limits switches are 403-safe
+  # (a gated read draws could-not-read, never a false Off). The 403 arm is simulated
+  # with page.route, so a non-enforcing board is fine -- same shape as the opt-out
+  # check above.
+  run_one "render-settings-403-2047" env KOSMOS_URL="$B8" node docs/browser-checks/render-settings-403-2047.js
   # ⚠️ THE FIRST-RUN FLOW WAS NOT COVERED BY THIS RUNNER AT ALL. render-first-run
   # exists, renders every step in both schemes and carries its own planted-failure
   # control, but it hardcoded port 4399 so it could never take the runner's
@@ -1023,7 +1028,7 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-full-width"   env KOSMOS_URL="$B8" node docs/browser-checks/render-full-width.js "$sb7/shots-fullwidth"
   run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline" "$B8_PID"
 else
-  for n in contrast named-controls render-create-form render-found-undo render-scan-board render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-optout-403-2020 render-first-run render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
+  for n in contrast named-controls render-create-form render-found-undo render-scan-board render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-optout-403-2020 render-settings-403-2047 render-first-run render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
 fi
 # #812 batch 2 (retried after the first attempt found four checks that
 # assumed compatibility with B8's fixture instead of verifying it -- those

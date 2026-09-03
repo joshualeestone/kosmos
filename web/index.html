@@ -15186,7 +15186,13 @@ async function paintLimits() {
   const msg = document.getElementById('lim-msg');
   const mine = ++LIM_EPOCH;
   try {
-    const r = await (await fetch('/api/limits')).json();
+    const res = await fetch('/api/limits');
+    // A 403 board returns a JSON error body; without this check .json() succeeds
+    // and lim-toggle paints a confident Off with no message (#2047). A non-ok
+    // status is an unread -> the catch's unread branch. (A corrupt read is a 200
+    // with {ok:false} and keeps its switch + its own sentence, below.)
+    if (!res.ok) throw new Error('unread');
+    const r = await res.json();
     if (mine !== LIM_EPOCH) return;
     paintLimitsFrom(r);
     msg.textContent = r.ok === false
@@ -15196,6 +15202,10 @@ async function paintLimits() {
        four -- but the SWITCH still read as a definite position beside the
        sentence admitting we had not looked. The words and the control were
        answering differently. */
+    /* #2047 review: epoch-guard the unread paint, matching refreshAutoUpdate's
+       catch. `if (!res.ok) throw` now routes a stale non-ok read here, and an
+       unguarded paint could hide a switch a newer read has already painted. */
+    if (mine !== LIM_EPOCH) return;
     msg.textContent = 'We could not read this setting just now.';
     paintSwitch('lim-toggle', null);
   }
@@ -15271,7 +15281,13 @@ let ENG_EPOCH = 0;
 async function refreshEngMode() {
   const mine = ++ENG_EPOCH;
   try {
-    const r = await (await fetch('/api/engmode')).json();
+    const res = await fetch('/api/engmode');
+    // A 403 board returns a JSON error body; without this check .json() succeeds
+    // and eng-toggle paints a confident Off nobody read (#2047). A non-ok status
+    // is an unread -> the catch's unread branch. (A corrupt read is a 200 with
+    // {ok:false} and keeps its switch, handled below.)
+    if (!res.ok) throw new Error('unread');
+    const r = await res.json();
     if (mine !== ENG_EPOCH) return ENG_ON;
     ENG_ON = r.on === true;
     /* Applied HERE, not by each caller's memory: a refresh that learns
@@ -15292,6 +15308,10 @@ async function refreshEngMode() {
        an unreadable preference must not reveal a surface nobody chose. The
        SWITCH stops claiming that is the person's answer; the BEHAVIOUR still
        fails toward hidden. */
+    /* #2047 review: epoch-guard the unread paint, matching refreshAutoUpdate's
+       catch. `if (!res.ok) throw` now routes a stale non-ok read here, and an
+       unguarded paint could hide a switch a newer read has already painted. */
+    if (mine !== ENG_EPOCH) return ENG_ON;
     paintSwitch('eng-toggle', null);
     const msg = document.getElementById('eng-msg');
     if (msg && !msg.textContent) msg.textContent = 'We could not read this setting just now.';
@@ -15396,7 +15416,15 @@ function autoPaint(r) {
 async function refreshAutoUpdate() {
   const mine = ++AUTO_EPOCH;
   try {
-    const r = await (await fetch('/api/autoupdate')).json();
+    const res = await fetch('/api/autoupdate');
+    // A 403 board (server.js gate) returns a JSON error body, so .json() would
+    // SUCCEED and autoPaint would render {error:...} as a real setting -- a
+    // confident OFF nobody set (#2047). A non-ok status means we never read the
+    // preference at all, the same as a network failure: route it into the
+    // catch's unread branch. A CORRUPT read is a 200 with {ok:false} and is
+    // handled inside autoPaint, so this does not disturb that path.
+    if (!res.ok) throw new Error('unread');
+    const r = await res.json();
     if (mine !== AUTO_EPOCH) return;
     autoPaint(r);
   } catch {
