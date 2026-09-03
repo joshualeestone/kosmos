@@ -575,8 +575,18 @@ driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CL
      one. `driverTest` clears the config, so `start()` falls through rather than
      taking the connected early exit. */
   connect.setDryRun(false);
+  /* 🛑 THE WARNING IS CAPTURED AND ASSERTED, NOT LEFT TO PRINT. Removing the
+     DIR seam while AGENT_WORKFORCE_CLAUDE_CONFIG stays set is exactly the
+     mismatch launchSignin warns about, and this file's header says a warning
+     firing on every green run trains people to ignore it. Deleting BOTH seams
+     was tried and breaks the arm (the flow never reaches a launch), so the
+     warning is turned into coverage instead: it MUST fire here, and asserting
+     that also guards the warning itself against silent removal. */
   const saved = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
   delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
+  const warned = [];
+  const realWarn = console.warn;
+  console.warn = (...a) => { warned.push(a.join(' ')); };
   try {
     await connect.start();
     await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
@@ -587,7 +597,11 @@ driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CL
     assert.deepEqual(made.slice(i, i + 3), ['env', '-u', 'CLAUDE_CONFIG_DIR'],
       'the default-account launch did not UNSET CLAUDE_CONFIG_DIR, so an ambient value '
       + 'from this process leaks into the CLI and the credential lands on another account');
+    assert.ok(warned.some((w) => w.includes('AGENT_WORKFORCE_CLAUDE_CONFIG is set without')),
+      'the config/dir mismatch warning did not fire, so either the arm is no longer '
+      + 'exercising the no-launch-dir path or the warning has been removed');
   } finally {
+    console.warn = realWarn;
     if (saved !== undefined) process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = saved;
   }
 });
@@ -610,6 +624,11 @@ driverTest('#1922 CONTROL: a LABELLED-account sign-in still sets CLAUDE_CONFIG_D
   assert.ok(i >= 0, 'the launch is not the measured multi-arg `env` form');
   assert.equal(made[i + 1], `CLAUDE_CONFIG_DIR=${dir}`,
     'a labelled account lost its own config dir, so its sign-in would write to the ambient default');
+  /* ⚠️ PRESENCE IS NOT ENOUGH: `env CLAUDE_CONFIG_DIR=<dir> -u CLAUDE_CONFIG_DIR
+     <bin>` satisfies the assertion above and still strips the variable. Assert
+     nothing undoes it. */
+  assert.ok(!made.includes('-u'),
+    'the labelled launch also strips CLAUDE_CONFIG_DIR, so the assignment above is undone');
 });
 
 driverTest('the driver walks the measured flow end to end', async () => {

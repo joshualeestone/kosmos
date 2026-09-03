@@ -1082,15 +1082,28 @@ async function start(opts) {
        RE-AUTH, AND THE REASON IS WORTH KEEPING SO IT IS NOT RE-PROPOSED ALONE.
        `checkLive` reports that a login EXISTS, never that it WORKS (#874), so a
        person repairing a dead credential is refused by the check that cannot see
-       it is dead. Opening the gate looks like the fix. MEASURED, IT IS NOT: the
-       flow this gate guards launches a BARE `claude` (no login argument), and
-       the repl arm below then re-reads the SAME config that already said
-       CONNECTED and calls finishConnected. The press ends at "already connected"
-       about a second later with nothing repaired.
+       it is dead. Opening the gate looks like the fix.
 
-       ⇒ Opening the gate is only useful TOGETHER WITH a launch that actually
-       re-authenticates. Doing it alone opens a safety gate for no benefit, so it
-       is deliberately NOT done here. */
+       🛑 READ FROM THE CONTROL FLOW, NOT MEASURED, AND THE DISTINCTION MATTERS
+       BECAUSE THIS COMMENT TELLS THE NEXT PERSON NOT TO TRY SOMETHING. The
+       chain: this flow launches a BARE `claude` (no login argument, see
+       launchSignin), and IF the pane then classifies as `repl`, the repl arm
+       re-reads the SAME config that already said CONNECTED and calls
+       finishConnected -- so the press ends where it started.
+
+       ⚠️ THE UNTESTED PREMISE, NAMED RATHER THAN BURIED: what a bare `claude`
+       actually shows when the stored credential has been REJECTED. Nothing in
+       this repo measures it. #874 measures `claude auth status --json`, the READ
+       side; the "Please run /login" text comes from `claude -p`, not the
+       interactive REPL. **If the interactive CLI prompts for a login on a dead
+       token, the pane classifies as login-method/browser-open, the driver walks
+       the sign-in, and opening this gate WOULD repair.**
+
+       ⇒ The gate is left shut for want of EVIDENCE, not because opening it is
+       known to be useless. Declining to open a safety gate on an auth path for
+       an unproven benefit is the conservative order, and that is the whole
+       argument. **What would settle it: capture a pane from a `claude` launched
+       against a genuinely rejected credential.** */
     if (!binaryOnDisk || live.state === subscription.STATE.NONE) {
       /**
        * ⚠️ TWO REASONS REACH HERE NOW, AND NEITHER IS AN ERROR TO SHOW SOMEBODY.
