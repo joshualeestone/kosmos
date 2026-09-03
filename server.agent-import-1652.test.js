@@ -64,14 +64,29 @@ test('#1652 ROUND TRIP over HTTP: a valid exported file parses into create-form 
     'the body is returned as `instructions`, the field POST /api/agents uses');
 });
 
-test('#1652 REFUSED WHOLE: a non-Kosmos file is refused with a reason', async () => {
+test('#1939 REFUSED WHOLE: a document that is not an agent is refused with a redirecting reason', async () => {
   const bad = await post('/api/agent-import', { file: '# Just a document\n\nno frontmatter here\n' });
   assert.equal(bad.status, 200);
   assert.equal(bad.json.ok, false);
-  assert.match(bad.json.because, /no header/);
+  assert.match(bad.json.because, /does not introduce an agent/);
+  assert.doesNotMatch(bad.json.because, /has no header/, 'the old retry-inviting message is gone (#1939)');
   // CONTROL: a valid file the same way IS accepted, so the refusal means something.
   const ok = await post('/api/agent-import', { file: exportedFile('ctrlimp', '# You are Ctrl\n\nsome body.\n') });
   assert.equal(ok.json.ok, true, ok.json.because);
+});
+
+test('#1939 over HTTP: a raw CLAUDE.md that names an agent is recognized and pre-fills the form', async () => {
+  // Josh's dead end (2026-09-03): picking an existing agent's CLAUDE.md refused with
+  // "it has no header". It now comes back as create-form material with the flag that
+  // says it was instructions, not an export.
+  const claudeMd = '# You are Lil Nacho, project manager.\n\nYou keep the team on track.\n';
+  const { status, json } = await post('/api/agent-import', { file: claudeMd });
+  assert.equal(status, 200);
+  assert.equal(json.ok, true, json.because);
+  assert.equal(json.displayName, 'Lil Nacho');
+  assert.equal(json.name, 'lil-nacho', 'a usable machine name is suggested for the form');
+  assert.equal(json.recognizedFromContent, true, 'the form is told this was instructions, not an export');
+  assert.ok(json.instructions.includes('You keep the team on track'), 'the whole file is returned as instructions');
 });
 
 test('#1652 REFUSED WHOLE: a path-unsafe name in the file is refused (importAgent enforces it at the boundary)', async () => {

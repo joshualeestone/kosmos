@@ -58,21 +58,91 @@ const MAX_FILE = 512 * 1024;
  * The contract an importer must enforce. Stated here, beside the writer, so
  * whoever builds the import half is not inferring it from examples.
  *
- * A file is a Kosmos agent file ONLY if:
+ * A file is a Kosmos EXPORT (the strict path) ONLY if:
  *   1. it opens with a `---` frontmatter block, and
  *   2. that block carries `kosmos: agent`, and
  *   3. `name:` is present and usable as an agent name, and
  *   4. the body names somebody (`status.identityFromText` finds a displayName).
  *
- * ⚠️ ANY OTHER FILE MUST BE REFUSED WHOLE, not half-applied. This surface takes
- * input from outside the machine: a file that parses half way is the one that
- * leaves an agent with somebody else's instructions and no name.
+ * ⚠️ A malformed EXPORT MUST BE REFUSED WHOLE, not half-applied. This surface
+ * takes input from outside the machine: a header that carries `kosmos: agent` but
+ * parses half way is the one that leaves an agent with somebody else's
+ * instructions and no name.
+ *
+ * 🔑 BUT A FILE WITH NO `---` HEADER AT ALL IS NOT A MALFORMED EXPORT -- it is a
+ * DIFFERENT KIND of thing (#1939). A person who made an agent with Claude and
+ * picked its `CLAUDE.md` has instructions, not an export. Refusing that with a
+ * field-missing message ("it has no header") reads as "your file is right, keep
+ * trying" and sends them back through the same wrong door -- the exact failure of
+ * #1918. So when the file has no header but its CONTENT introduces an agent
+ * (`identityFromText` finds a displayName, the same signal adoption trusts), we
+ * recognize it and hand the create form what it can pre-fill: the file as the
+ * instructions, the display name, and a machine-name SUGGESTION derived from it.
+ * This never creates an agent -- import only feeds the create form, which the
+ * person confirms -- so it cannot leave a nameless agent; a name that will not
+ * derive is returned empty for the form to require.
+ *
+ * ⚠️ A `---` header that is PRESENT but not `kosmos: agent` is deliberately NOT
+ * recognized this way: it is ambiguous (a botched export vs a file with unrelated
+ * frontmatter), so it keeps the strict "not a Kosmos agent file" refusal.
  */
 const IMPORT_CONTRACT = Object.freeze({
   marker: `${MARK}: ${KIND}`,
   required: Object.freeze(['kosmos', 'name']),
   bodyMustName: true,
 });
+
+/* A machine-name SUGGESTION derived from a display name, for the #1939 recognized-
+   instructions path. Lowercase, runs of non-`[a-z0-9]` collapsed to a single '-',
+   ends trimmed, capped at the 32-char name bound. Returned ONLY if it satisfies the
+   canonical `nameUsable` (so "Lil Nacho" -> "lil-nacho"); otherwise '' so the create
+   form asks for a name rather than pre-filling an unusable one. It is a suggestion,
+   never an identity: the person confirms or replaces it in the form. */
+function suggestName(displayName, nameUsable) {
+  const slug = String(displayName == null ? '' : displayName)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32)
+    .replace(/-+$/g, '');
+  return slug && nameUsable(slug) ? slug : '';
+}
+
+/**
+ * Recognize a plain agent-instructions file (a `CLAUDE.md`) that is NOT a Kosmos
+ * export, so the create form can pre-fill it instead of the user retrying a wrong
+ * door (#1939). The WHOLE file is the instructions; the display name comes from the
+ * body via the same parser adoption uses; the machine name is a derived suggestion.
+ */
+function importFromInstructions(src, deps) {
+  const identity = deps.identityFromText(src);
+  if (!identity || !identity.displayName) {
+    /* Genuinely not an agent file: no header AND nothing in the text introduces an
+       agent. Name the wrong KIND and point at the two real options, rather than the
+       old "it has no header" which invited a retry. */
+    return { ok: false, because:
+      'this file has no Kosmos header and its text does not introduce an agent. '
+      + 'Choose the file you exported from Kosmos, or an instructions file whose text '
+      + 'names the agent (a line like “You are …”).' };
+  }
+  const displayName = safeValue(identity.displayName);
+  if (!displayName) {
+    return { ok: false, because: 'the file’s display name carries a control or bidi character' };
+  }
+  if (displayName.length > MAX_DISPLAY) {
+    return { ok: false, because: 'the file’s display name is too long to be a name' };
+  }
+  return {
+    ok: true,
+    name: suggestName(displayName, deps.nameUsable),
+    displayName,
+    provider: null,
+    body: src,
+    /* So the caller can say "this looked like instructions, not an export" and,
+       when the derived name is empty, ask the person to name the agent. */
+    recognizedFromContent: true,
+  };
+}
 
 function safeValue(v) {
   const s = String(v == null ? '' : v).trim();
@@ -200,9 +270,9 @@ function importAgent(text, deps) {
 
   // (1) the `---` frontmatter block, the same shape `skills.readMeta` reads.
   const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!m) return { ok: false, because: 'this is not a Kosmos agent file: it has no header' };
-  const head = m[1];
+  const head = m ? m[1] : '';
   const field = (key) => {
+    if (!head) return null;
     // `[ \t]*`, NOT `\s*`: `\s` matches a newline, so an empty `key:` line would
     // cross the break and adopt the NEXT line's text as the value. A value is
     // always on its key's own line (matches the `namePresent` guard below).
@@ -218,7 +288,18 @@ function importAgent(text, deps) {
     return f ? safeValue(f[1]) : null;
   };
 
-  // (2) the self-identifying marker. Anything else is not ours; refuse whole.
+  // A file with NO `---` header is not a Kosmos export. It may still be agent
+  // INSTRUCTIONS a person made with Claude (a raw CLAUDE.md, #1939). Recognize that
+  // from its content rather than refusing with "it has no header", which reads as
+  // "your file is right, retry" and sends them back through the same wrong door
+  // (the #1918 failure). A `---` header that is present but not `kosmos: agent` is
+  // left to the strict refusal below: it is genuinely ambiguous (a botched export
+  // vs a file with unrelated frontmatter), so we do not reinterpret it here.
+  if (!m) {
+    return importFromInstructions(src, { identityFromText, nameUsable });
+  }
+
+  // (2) the self-identifying marker. A `---` header that is not ours; refuse whole.
   if (field('kosmos') !== KIND) {
     return { ok: false, because: 'this file is not a Kosmos agent file' };
   }

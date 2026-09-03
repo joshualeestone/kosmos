@@ -5501,6 +5501,11 @@ const server = http.createServer((req, res) => {
           displayName: parsed.displayName,
           provider: parsed.provider,
           instructions: parsed.body,
+          /* #1939: true when the file was recognized as agent INSTRUCTIONS (a raw
+             CLAUDE.md) rather than a Kosmos export. The form can note that and,
+             since a derived name may be empty, prompt for one. Absent (undefined)
+             on the export path, so existing callers are unaffected. */
+          recognizedFromContent: parsed.recognizedFromContent,
         });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
