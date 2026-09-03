@@ -551,10 +551,14 @@ function driverTest(name, fn) {
  * DECLINE TO SET IT.
  *
  * 🛑 THE HOLE. A launch that merely OMITS the assignment still lets an ambient
- * `CLAUDE_CONFIG_DIR` reach the CLI. ⚠️ It arrives from the TMUX SERVER, not
- * from this process: `tools/witness-pane-env.sh` records as measured on tmux
- * 3.6a that tmux does not hand a client's environment to a session on an
+ * `CLAUDE_CONFIG_DIR` reach the CLI. ⚠️ It arrives from the TMUX SERVER **when
+ * one is already running** -- `tools/witness-pane-env.sh` records as measured on
+ * tmux 3.6a that tmux does not hand a client's environment to a session on an
  * already-running server, and this launch uses the shared socket with no `-e`.
+ * **On a COLD server it arrives from THIS process instead**, because
+ * `new-session` starts the server and a fresh server inherits its launching
+ * client's environment. The witness seeds a server first, so it measures only
+ * the warm case; the cold case is the ordinary first-run path.
  * ⚠️ THAT WITNESS RUNS ON A **PRIVATE** SOCKET WITH `-f /dev/null`, deliberately
  * (its header says a config extending `update-environment` would hide the
  * mechanism), so applying it to this launch's SHARED socket is an INFERENCE from
@@ -655,8 +659,12 @@ driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CL
        `env` slice like its sibling in the control: an unrelated `-u` elsewhere
        in the tmux invocation is not this card's business. (The
        no-re-assignment assertion below deliberately scans the WHOLE argv, not
-       the slice: a tmux-level `-e CLAUDE_CONFIG_DIR=...` would put the value
-       back and IS this card's business.)
+       the slice. ⚠️ An earlier version justified that with "a tmux-level
+       `-e CLAUDE_CONFIG_DIR=...` would put the value back". **It would not:**
+       `-e` populates the SESSION environment and the `env -u` runs INSIDE the
+       pane afterwards, so the key is still stripped before `claude` is exec'd.
+       The wider scan is kept because it is fail-safe and costs nothing, not
+       because that shape defeats the fix.)
 
        🛑 BUT ORDER IS NOT FREE, AND THE VERSION OF THIS COMMENT THAT SHIPPED
        FIRST SAID IT WAS -- it called an assignment ahead of `-u` a reddening
@@ -671,6 +679,12 @@ driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CL
        The middle arm is the one that matters: WITHOUT the ordering assertion
        below, this test passes on an argv that cannot launch at all. */
     const envSlice = made.slice(i);
+    /* 📌 FIRST `-u` ONLY. `indexOf` stops at the first, so the
+       "order-independent" claim above holds while the slice carries at most one
+       `-u`; `['env','-u','OTHER','-u','CLAUDE_CONFIG_DIR',bin]` reddens this arm.
+       The launch emits one, and the direction is fail-safe (false red, never
+       false pass) -- same convention as the grammar walk's unrecognised
+       options. */
     const u = envSlice.indexOf('-u');
     assert.ok(u >= 0 && envSlice[u + 1] === 'CLAUDE_CONFIG_DIR',
       'the default-account launch did not UNSET CLAUDE_CONFIG_DIR, so an ambient value '

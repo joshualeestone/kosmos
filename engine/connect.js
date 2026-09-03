@@ -1851,12 +1851,20 @@ async function launchSignin(owner) {
        "the true default account", NOT "whatever CLAUDE_CONFIG_DIR the pane
        happens to inherit", and an omitted assignment is NOT an unset variable.
 
-       ⚠️ THE SOURCE OF THE LEAK IS THE TMUX SERVER, NOT THIS PROCESS. Measured
-       (#586, `tools/witness-pane-env.sh`, tmux 3.6a): tmux does NOT hand a
-       client's environment to a session made on an ALREADY-RUNNING server, so
-       the pane inherits whichever account STARTED the server -- a value this
-       process cannot inspect, which makes the exposure worse than a caller-side
-       leak, not better. ⚠️ That witness runs on a PRIVATE socket with
+       ⚠️ THE LEAK HAS TWO SOURCES AND THE WITNESS ONLY MEASURES ONE.
+       **WARM SERVER (measured):** #586, `tools/witness-pane-env.sh`, tmux 3.6a.
+       tmux does NOT hand a client's environment to a session made on an
+       ALREADY-RUNNING server, so the pane inherits whichever account STARTED the
+       server -- a value this process cannot inspect. The witness seeds a server
+       before measuring, so this is the only case it can answer.
+       **COLD SERVER (not measured, and the ordinary first-run case):** this
+       launch uses the DEFAULT socket with no `-L`, so when no server is running
+       `new-session` STARTS one, and a fresh server inherits its launching
+       client's environment -- meaning the leaked value is THIS process's own and
+       IS inspectable.
+       ⇒ An earlier version asserted only the first and called the value
+       uninspectable full stop. **The evidence was scoped to a warm server and
+       the sentence was not.** ⚠️ That witness runs on a PRIVATE socket with
        `-f /dev/null`, deliberately, so no config can mask the mechanism; this
        launch uses the SHARED socket, so applying it here is an inference from
        the mechanism, not a second measurement. It does not change the fix:
