@@ -120,15 +120,17 @@ test('#1939 INTRODUCES is mirrored from discover.js byte-for-byte (pin against s
   // else makes the two agree, so if discover's copy is widened and this one is not,
   // the two surfaces disagree about whether a file "introduces an agent". This pins
   // the literals equal so that drift is caught here rather than in the field.
-  // Capture the WHOLE declaration line, not up to the first `;`: a future literal
-  // carrying a `;` (in a character class, say) that diverged only AFTER it would
-  // truncate identically under `[^;]+` and pass falsely. `[^\n]+` pins the entire
-  // single-line literal. The `&&` short-circuit returns null (never throws) when
-  // the line is absent, so the assert below fails with a clear reason.
+  // Capture ONLY the regex literal (`/…/flags`), not the rest of the line: binding
+  // the whole line would pin a trailing comment or stray whitespace too, so a
+  // comment-only edit to either file -- or a directional comment on one and not the
+  // other -- would false-fail as if the pattern had drifted. `\/.*\/[a-z]*` is safe
+  // here because the literal carries no inner `/`; `.match` returns null (never
+  // throws) when the declaration is absent or reformatted across lines, and the
+  // assert below then fails with a clear reason.
   const literal = (file) => {
     const src = fs.readFileSync(path.join(__dirname, file), 'utf8');
-    const m = src.match(/^const INTRODUCES = ([^\n]+)$/m);
-    return m ? m[1].trim() : null;
+    const m = src.match(/const INTRODUCES = (\/.*\/[a-z]*);/);
+    return m ? m[1] : null;
   };
   const here = literal('agentfile.js');
   const there = literal('discover.js');
