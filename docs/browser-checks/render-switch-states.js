@@ -28,10 +28,12 @@ const { chromium } = require('playwright');
   /* Since settings-nav the five switches are in three sections (talking,
      updates, advanced) and only one is on screen at a time, so each is
      measured from inside its own section or its rect reads zero. */
-  /* 📌 tell-toggle and notify-toggle went with the telemetry rows Josh
-     removed on 2026-08-26 (item 3). Naming a switch that is not on the
-     page made this check red on a product doing exactly what he asked. */
-  const WHERE = { 'lim-toggle': 'talking', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
+  /* 📌 tell-toggle and notify-toggle are BACK (#2020, Josh 2026-09-03: "on, and
+     they can turn it off" needs the opt-out controls he removed 08-26). They are in
+     the updates section beside auto-toggle, and this "renders once read" check
+     covers them on a readable board; the COULD-NOT-READ (403) arm they matter for
+     is render-optout-403-2020.js. */
+  const WHERE = { 'lim-toggle': 'talking', 'tell-toggle': 'updates', 'notify-toggle': 'updates', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
   const seen = [];
   for (const id of Object.keys(WHERE)) {
     await pg.click('#s-nav button[data-go="' + WHERE[id] + '"]');
