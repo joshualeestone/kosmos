@@ -21365,7 +21365,7 @@ async function paintScanBoard() {
   if (body.dismissed === true) { wrap.hidden = true; list.innerHTML = ''; return; }
 
   const cands = body.candidates;
-  const sig = cands.map((c) => c.dir).sort().join(' ');
+  const sig = cands.map((c) => c.dir).sort().join('\u0000');
   if (!cands.length) { SCAN_SIG = sig; wrap.hidden = true; list.innerHTML = ''; return; }
 
   const n = cands.length;
