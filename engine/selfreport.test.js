@@ -173,16 +173,47 @@ test('#900: a DELIBERATE idle still clears a block, or nothing ever could', () =
   assert.equal(selfreport.read('freed').state, 'idle');
 });
 
-test('#900: automatic working, stopped and started all still land over a block', () => {
-  /* A rule that refused every automatic write would strand an agent blocked
-     forever. Only `idle` is refused, so the next real activity clears it. */
+test('#1949: automatic stopped and started still land over a block, but automatic working no longer does', () => {
+  /* #900 refused only automatic `idle`, on the theory that the next `working`
+     was real activity and should clear the block. #1949 overturns that half:
+     the report hook fires `working` (auto) on EVERY PreToolUse, so it is
+     continuous noise, not a resume. `stopped` (session end) and `started`
+     (a new run) are one-time transitions and still land, so a rule that
+     refused every automatic write cannot strand a blocked agent forever. */
   selfreport.record('moving', { state: 'blocked', because: 'waiting' });
-  assert.equal(selfreport.record('moving', { state: 'working', because: 'answering a prompt', auto: true }).recorded, true);
-  assert.equal(selfreport.read('moving').state, 'working');
+  const autoWork = selfreport.record('moving', { state: 'working', because: 'answering a prompt', auto: true });
+  assert.equal(autoWork.recorded, false, 'an automatic working erased a standing block');
+  assert.equal(autoWork.skipped, 'waiting');
+  assert.equal(selfreport.read('moving').state, 'blocked');
 
   selfreport.record('ending', { state: 'needs_you', because: 'a question' });
   assert.equal(selfreport.record('ending', { state: 'stopped', auto: true }).recorded, true);
   assert.equal(selfreport.read('ending').state, 'stopped');
+});
+
+test('#1949 CONTROL: an automatic working does not erase a standing needs_you', () => {
+  /* Splinter2's control, and it fails against the pre-#1949 guard: raise
+     needs_you, fire an automatic working, assert the state is STILL needs_you.
+     The hook fires `working` on every PreToolUse, so before the fix a standing
+     needs_you erased itself within seconds of the agent running any command. */
+  selfreport.record('asker', { state: 'needs_you', because: 'cannot authenticate to GitHub' });
+  const autoWork = selfreport.record('asker', { state: 'working', because: 'running a command', auto: true });
+  assert.equal(autoWork.recorded, false, 'an automatic working erased a standing needs_you');
+  assert.equal(autoWork.skipped, 'waiting');
+  assert.match(autoWork.because, /waiting on a person/);
+  assert.equal(selfreport.read('asker').state, 'needs_you');
+});
+
+test('#1949 PROPERTY: an AGENT-WRITTEN working still clears a standing needs_you (a real resume)', () => {
+  /* The property the fix must not break. The discriminator is `auto`, not the
+     word `working`: a deliberate (agent-written) working of the SAME state an
+     automatic one is refused for still lands, so an agent that genuinely
+     resumes can clear its own needs_you. Without this the fix would strand an
+     agent needs_you forever. */
+  selfreport.record('resumer', { state: 'needs_you', because: 'which venue?' });
+  const deliberate = selfreport.record('resumer', { state: 'working', because: 'got the answer, back at it' });
+  assert.equal(deliberate.recorded, true, 'a deliberate working was refused, so an agent can never clear its own needs_you');
+  assert.equal(selfreport.read('resumer').state, 'working');
 });
 
 test('#900: an automatic idle lands normally when nothing is waiting', () => {
@@ -262,39 +293,39 @@ test('an agent that never reported has no writer either', () => {
     'found:false carries no reading at all, so a caller cannot read a writer off it');
 });
 
-test('#900 refuses ONLY an automatic idle, so marking the hook\'s other reports auto is inert', () => {
+test('#1949 refuses automatic idle AND working, but the hook\'s one-time and waiting reports still land', () => {
   /* 🛑 THIS GUARDS THE RISK #1453 CREATED, NOT THE FIX.
-     install/kosmos-report-hook.sh now passes --auto on all SEVEN of its report
-     calls, so the record can say who wrote a line.
+     install/kosmos-report-hook.sh passes --auto on all SEVEN of its report
+     calls, so the record can say who wrote a line. #900 refused only automatic
+     `idle`; #1949 widens that to `idle` AND `working`, because the hook fires
+     `working` on every PreToolUse and it was erasing standing needs_you within
+     seconds of any command.
 
-     ⚠️ It said SIX until #1466, and the missing one was `started` -- the
-     synchronous delivery check, written as a command substitution, which the
-     #1453 sweep did not reach. So this loop was exercising `started` with
-     `auto: true` while the hook was actually producing it WITHOUT the flag:
-     a test asserting a shape the code did not emit. The loop was right about
-     what SHOULD happen and wrong about what did, which is the quietest way for
-     a test to be green and uninformative. That is safe only while
-     #900's rule stays scoped to `idle`. If anyone ever widens it to refuse
-     other automatic writes, the hook's `blocked`, `needs_you`, `working`,
-     `started` and `stopped` become refusable -- and a rule that refused every
-     automatic write would strand the agent blocked forever, which is the
-     failure #900 exists to prevent, arriving from the other direction.
+     The other automatic reports must STILL land over a waiting state, or the
+     hook could no longer emit them: `started` (a new run) and `stopped`
+     (session end) are one-time transitions, not continuous; an automatic
+     `needs_you` or `blocked` is itself a waiting report, not a clear. A rule
+     that refused every automatic write would strand the agent blocked forever,
+     which is the failure #900 exists to prevent, arriving from the other
+     direction.
 
-     The control below is what makes the five passes mean anything: without it,
-     five recorded:true is equally consistent with the guard being dead. */
-  for (const state of ['started', 'working', 'needs_you', 'blocked', 'stopped']) {
+     The controls below are what make the four passes mean anything: without
+     them, four recorded:true is equally consistent with the guard being dead. */
+  for (const state of ['started', 'needs_you', 'blocked', 'stopped']) {
     selfreport.record('inert', { state: 'needs_you', because: 'standing waiting state' });
     const got = selfreport.record('inert', { state, because: 'the machine wrote this', auto: true });
     assert.equal(got.recorded, true,
-      'an automatic `' + state + '` was refused over a standing needs_you. #900\'s '
-      + 'rule has been widened beyond idle, and the report hook marks all seven of '
-      + 'its calls --auto, so it can no longer report ' + state + '.');
+      'an automatic `' + state + '` was refused over a standing needs_you. #1949\'s '
+      + 'rule has been widened beyond {idle, working}, and the report hook marks all '
+      + 'seven of its calls --auto, so it can no longer report ' + state + '.');
     assert.equal(selfreport.read('inert').by, 'auto');
   }
 
-  selfreport.record('inert-control', { state: 'needs_you', because: 'standing waiting state' });
-  const refused = selfreport.record('inert-control', { state: 'idle', because: 'finished responding', auto: true });
-  assert.equal(refused.recorded, false, 'THE CONTROL: the guard must still refuse an automatic idle');
-  assert.equal(refused.skipped, 'waiting');
-  assert.equal(selfreport.read('inert-control').state, 'needs_you');
+  for (const refusedState of ['idle', 'working']) {
+    selfreport.record('inert-control', { state: 'needs_you', because: 'standing waiting state' });
+    const refused = selfreport.record('inert-control', { state: refusedState, because: 'the machine wrote this', auto: true });
+    assert.equal(refused.recorded, false, 'THE CONTROL: the guard must refuse an automatic ' + refusedState);
+    assert.equal(refused.skipped, 'waiting');
+    assert.equal(selfreport.read('inert-control').state, 'needs_you');
+  }
 });
