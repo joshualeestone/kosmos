@@ -2412,6 +2412,55 @@ test('the room serves a plain-text tail for `kosmos room`, and says so when it c
   });
 });
 
+test('#1895: the room text view renders a broadcast as "the room" in the operator zone, through the SERVER not a copy', async () => {
+  /* ⚠️ WHY THIS EXISTS ALONGSIDE room-clock-1895.test.js. That suite proved
+     roomClock in isolation and REPLICATED server.js's line composition into a
+     local postLine(), with a docstring vouching that the assertions run "against
+     the EXACT expressions server.js composes". Measured, that was false: reverting
+     server.js to the slice(11,16) version left all seven green (Splinter2's own
+     perturbation). Copying an expression is not executing it. This test appends a
+     `to:[]` post to the record and reads the real `?as=text` endpoint, so a revert
+     of EITHER shipped fix -- the `&& m.to.length` room fallback or the roomClock
+     wiring -- reds it. */
+  reset();
+  const fsx = require('node:fs');
+  const store = require('./engine/store');
+  const messages = require('./engine/messages');
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    try {
+      // UTC+9, so the reported instant's operator-zone time (04:50) can never
+      // coincide with the raw UTC slice (19:50) the old code cut out of the string.
+      store.writeSettings({ timezone: 'Asia/Tokyo' });
+      const at = '2026-09-02T19:50:17.326Z';
+      // The exact shape from the report: an EMPTY recipient array. Array.isArray([])
+      // is true, so the "the room" fallback was unreachable until the length guard.
+      fsx.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id: 'room-1895-broadcast', from: 'splinter2', to: [], operator: false,
+        text: 'to the whole room', at, project: project.id, outcomes: {},
+      }) + '\n');
+      const body = (await req(`/api/project/${project.id}/room?as=text`)).body;
+      const line = body.split('\n').find((l) => l.includes('to the whole room'));
+      assert.ok(line, 'the appended broadcast did not render at all');
+      // The empty-array fix: names the room, not "-> :". Reverting `&& m.to.length` reds this.
+      assert.match(line, /^\d\d:\d\d {2}splinter2 -> the room: to the whole room$/,
+        'a to:[] broadcast must render "-> the room:", not the "splinter2 -> :" bug');
+      // The zone wiring: rendered through roomClock in the operator's zone (04:50),
+      // not the raw UTC slice (19:50). Reverting the roomClock wiring reds these.
+      const shown = line.slice(0, 5);
+      assert.equal(shown, '04:50', 'the room line is not in the operator zone (Asia/Tokyo)');
+      assert.equal(shown, messages.roomClock(at, 'Asia/Tokyo'));
+      assert.notEqual(shown, String(at).slice(11, 16), 'the room line is still the raw UTC slice');
+    } finally {
+      /* The record and settings are shared across tests here; leave them as found,
+         the same discipline the #563 test below applies to the log. A settings
+         timezone or a stray broadcast left behind would silently reach a later
+         room-text test. */
+      try { store.writeSettings({ timezone: null }); } catch { /* fine */ }
+      try { fsx.rmSync(messages.LOG, { force: true }); } catch { /* fine */ }
+    }
+  });
+});
+
 test('#563: the text view carries the unanswered line the page shows, from the same computation, under the post it is about', async () => {
   reset();
   const messages = require('./engine/messages');

@@ -263,6 +263,41 @@ function validTimeZone(tz) {
   catch { return false; }
 }
 
+/* #1895: one room line's clock, in the operator's own zone.
+
+   🛑 THE TEXT VIEW WAS UTC AND SAID NOTHING. `kosmos room` rendered a line's
+   time by cutting characters 11-15 out of the stored ISO string, which is UTC.
+   The PAGE has always been right (it formats with toLocaleTimeString), so the
+   two surfaces showed the same post at times a whole UTC offset apart and
+   neither named a zone. The page is read by the operator and the text view is
+   read by AGENTS, so the surface that was wrong is the one feeding a machine
+   that then quotes times back to them.
+
+   🔑 The stored zone first (#1668, the same one the delivery path reads), then
+   the machine's own -- which is the zone the board process is running in, and
+   what the Settings dropdown defaults to before anyone chooses. An unknown id
+   falls through to the machine rather than dropping the time: losing every
+   timestamp in the room because one setting is stale is worse than showing it
+   in the board's zone.
+
+   ⚠️ Never throws inside the render path. An unreadable instant degrades to
+   the same '--:--' the caller used before. */
+function roomClock(at, timezone) {
+  if (!at) return '--:--';
+  const when = new Date(at);
+  if (Number.isNaN(when.getTime())) return '--:--';
+  /* en-GB for a zero-padded 24-hour HH:MM, the shape the text view already
+     had; hour12:false alone still yields '24:05' at midnight on some ICU. */
+  const shape = { hour: '2-digit', minute: '2-digit', hour12: false };
+  if (timezone) {
+    try {
+      return new Intl.DateTimeFormat('en-GB', { ...shape, timeZone: timezone }).format(when);
+    } catch { /* stale or unknown id: the machine's zone below */ }
+  }
+  try { return new Intl.DateTimeFormat('en-GB', shape).format(when); }
+  catch { return '--:--'; }
+}
+
 /* Injectable for tests, mirroring chat.setRunner: one tmux question, "whose
    session is this pane in". */
 let runner = null;
@@ -1585,7 +1620,7 @@ function sweepUnanswered(roster, now) {
 
 module.exports = {
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
-  operatorDirect, operatorNowLabel, validTimeZone,
+  operatorDirect, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,

@@ -521,7 +521,7 @@ cmd_reply() {
   local text body because
   text="$*"
   if [ -z "$text" ]; then
-    say "Usage: kosmos reply <what you want to tell them>"
+    say "Usage: kosmos reply <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated)"
     exit 2
   fi
   if ! healthy; then
@@ -880,8 +880,9 @@ if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
     msg|reply|post|report|room|adopt|whoami) set -- "$1" ;;
     *)
-      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | whoami\n\n'
-      printf '  Run any of them with no arguments to see what that one takes.\n'
+      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | adopt | whoami\n\n'
+      printf '  Add --help to any command; it never acts, except adopt and whoami, which show their read-only output.\n'
+      printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
       exit 0
       ;;
@@ -904,7 +905,7 @@ case "${1:-}" in
   whoami)  shift; cmd_whoami "$@" ;;
   room)    shift; cmd_room "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | whoami\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | adopt | whoami\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;
