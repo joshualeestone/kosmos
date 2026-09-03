@@ -69,6 +69,14 @@ reset
 printf 'garbage-not-a-claim\n' > "$CLAIM_FILE"
 if kosmos_refuse_if_machine_claimed 'this test run' >/dev/null 2>&1; then ok "a MALFORMED claim does not refuse (FAIL-OPEN)"; else bad "a malformed claim refused -- a broken file would wedge the fleet"; fi
 [ -f "$CLAIM_FILE" ] && ok "a malformed claim is left in place (a mid-write publisher will overwrite)" || bad "a malformed claim was deleted -- could race a concurrent writer"
+# A PARTIAL line (fewer than 5 fields) with a coincidentally-live pid must fail
+# open, not refuse -- the exact direction the field-count guard defends.
+reset
+printf 'part-cookie %s %s\n' "$$" "$(( $(now) + 600 ))" > "$CLAIM_FILE"   # 3 fields, live pid, unexpired
+if kosmos_refuse_if_machine_claimed 'this test run' >/dev/null 2>&1; then ok "a 3-field partial line (live pid) does NOT refuse (FAIL-OPEN)"; else bad "a partial line refused -- corruption + a live pid would wedge the fleet"; fi
+reset
+printf 'part4-cookie %s %s host\n' "$$" "$(( $(now) + 600 ))" > "$CLAIM_FILE"   # 4 fields (no label)
+if kosmos_refuse_if_machine_claimed 'this test run' >/dev/null 2>&1; then ok "a 4-field partial line (no label) does NOT refuse (FAIL-OPEN)"; else bad "a 4-field line refused"; fi
 reset
 : > "$CLAIM_FILE"   # empty
 kosmos_refuse_if_machine_claimed 'this test run' >/dev/null 2>&1 && ok "an EMPTY claim file does not refuse" || bad "an empty claim file refused"

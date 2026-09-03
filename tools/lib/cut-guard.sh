@@ -390,8 +390,16 @@ _kosmos_machine_claim_active() {
   [ -f "$f" ] || return 0
   line="$(cat "$f" 2>/dev/null)" || return 0
   [ -n "$line" ] || return 0
+  # FAIL-OPEN field-count guard (#1962): a real claim is exactly the 5-field shape
+  # kosmos_claim_machine writes ("<cookie> <pid> <exp> <host> <label>", label never
+  # empty, host never empty), so anything with fewer than 5 fields is a partial or
+  # corrupt file and must be treated as NO claim -- never a refusal. Without this a
+  # 3-field line whose 2nd field happened to be a live pid would REFUSE a gate,
+  # which is the one direction this whole design forbids. mv is atomic, so our own
+  # writer never produces a short line; this defends only against outside corruption.
+  [ "$(printf '%s' "$line" | awk '{print NF}')" -ge 5 ] 2>/dev/null || return 0
   # Parse the five fields. Extra trailing words fold into label (spaces allowed
-  # in a label); a line with fewer than the fixed fields is malformed -> ignore.
+  # in a label).
   cookie="$(printf '%s' "$line" | awk '{print $1}')"
   pid="$(printf '%s'    "$line" | awk '{print $2}')"
   exp="$(printf '%s'    "$line" | awk '{print $3}')"
