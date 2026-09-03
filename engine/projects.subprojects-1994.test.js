@@ -158,6 +158,24 @@ test('renaming a parent keeps the child grouped -- the id is stable across a ren
   assert.equal(seen.parentName, 'Parent Renamed', 'and it now resolves to the new name');
 });
 
+test('parentArchived is published so the board can decide how to render a hidden group', () => {
+  reset();
+  const parent = mk('Parent');
+  const child = mk('Child');
+  projects.edit(child.id, { parent: parent.id });
+  // A live parent reports archived false.
+  assert.equal(projects.get(child.id, null).parentArchived, false);
+  // Archiving a parent that still has children is allowed; the child keeps
+  // naming it and now reports parentArchived true, so the board can hide or
+  // badge the group rather than showing a child under an invisible parent.
+  projects.edit(parent.id, { archived: true });
+  const seen = projects.get(child.id, null);
+  assert.equal(seen.parentName, 'Parent', 'the name still resolves');
+  assert.equal(seen.parentArchived, true, 'and the board is told the group is archived');
+  // A project with no parent has nothing to be archived: null, not false.
+  assert.equal(projects.get(parent.id, null).parentArchived, null);
+});
+
 test('a dangling parent id renders the child at top level (parentName null), never vanishing', () => {
   reset();
   const child = mk('Child');

@@ -964,16 +964,26 @@ function describe(project, roster, all) {
     // asked for). Normalized to null for a legacy record, like the fields
     // above.
     parent: (typeof project.parent === 'string' && project.parent) ? project.parent : null,
-    // The parent's current display name, resolved here so no reader has to
-    // join rows itself. Null when the parent id resolves to no project (a
-    // parent removed by a hand edit -- delete-with-children is refused, so
-    // this only happens off the normal path): the child then renders at top
-    // level, it never vanishes.
-    parentName: (() => {
+    // The parent's display name AND whether the parent is archived, resolved
+    // here (one lookup) so no reader has to join rows itself.
+    //
+    // - parentName is null when the parent id resolves to no project (a parent
+    //   removed by a hand edit -- delete-with-children is refused, so this only
+    //   happens off the normal path): the child then renders at top level, it
+    //   never vanishes.
+    // - parentArchived is published because archiving a project with children
+    //   is allowed, so a child can point at a parent the board hides in its
+    //   archived disclosure. The board decides how to render that (top level,
+    //   or a muted "under <archived>" badge) -- this publishes the FACT so it
+    //   need not re-join, the same posture as parentName. Null when there is no
+    //   resolvable parent. The #1994 UI follow-up consumes it.
+    ...(() => {
       const pid = (typeof project.parent === 'string' && project.parent) ? project.parent : null;
-      if (!pid || !Array.isArray(all)) return null;
-      const par = all.find((p) => p && p.id === pid);
-      return par ? par.name : null;
+      const par = (pid && Array.isArray(all)) ? all.find((p) => p && p.id === pid) : null;
+      return {
+        parentName: par ? par.name : null,
+        parentArchived: par ? (par.archived === true) : null,
+      };
     })(),
     // Same normalization rule as description/archived above: the healed
     // shape has to hold for API readers too, so a legacy project reads as
