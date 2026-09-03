@@ -418,9 +418,22 @@ cmd_open() {
   # The server validates the query token, sets an httpOnly cookie, and redirects
   # to the clean URL, so the token does not linger in the address bar. Empty on a
   # non-enforcing board -> plain URL, unchanged.
-  local _bt; _bt="$(board_token)"
-  if [ -n "$_bt" ]; then exec /usr/bin/open "$URL/?token=$_bt"; fi
-  exec /usr/bin/open "$URL"
+  local _bt _open_url
+  # board_token returns non-zero on a non-enforcing board (no token). Under the
+  # script's `set -e`, a bare `_bt="$(board_token)"` ABORTS there -- exit 1, no
+  # output -- which the #1946 comment's "plain URL, unchanged" did not intend and
+  # `set -e` does not honour. Tolerate the failure so a non-enforcing board falls
+  # through to the plain URL as documented.
+  _bt="$(board_token || true)"
+  if [ -n "$_bt" ]; then _open_url="$URL/?token=$_bt"; else _open_url="$URL"; fi
+  # #1957: say what is happening and CHECK the result, rather than exec-ing
+  # /usr/bin/open silently. `open` prints nothing on success and, on a Mac with
+  # no display, exits 0 while nothing visibly opens -- so a bare `kosmos open` was
+  # silence-plus-exit-0, indistinguishable from success. Name the URL (a person
+  # with no browser can go there themselves) and name a real failure with a
+  # non-zero exit instead of swallowing it. KOSMOS_OPEN_BIN is a test seam.
+  say "Opening the dashboard at $URL in your browser. If it does not open, go there yourself."
+  "${KOSMOS_OPEN_BIN:-/usr/bin/open}" "$_open_url" || die "Could not open a browser. Go to the dashboard yourself: $URL"
 }
 
 # The direct look the board names when it cannot read the agents (#274).
