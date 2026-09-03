@@ -165,8 +165,15 @@ test('a test run never reaches the real network', () => {
   }
 });
 
-test('the created-ping has NO control left, and therefore does not send', () => {
+test('the created-ping CREATE-PAGE control stays absent, and it does not default ON', () => {
   /**
+   * 📌 #2020 NOTE: ping's opt-out is BACK, but as the Settings > Updates row
+   * (tell-row/tell-toggle, covered in notify.test.js), NOT the create-page
+   * checkbox. This test pins that the CREATE-PAGE control (`create-tell*`) stays
+   * absent - the create screen is not where the opt-out lives - and that ping
+   * still defaults OFF (step 3, the on-flip, is Josh's). So "no control left" in
+   * the old title meant no CREATE-PAGE control; ping is controllable in Settings.
+   *
    * 🛑 THIS TEST USED TO ASSERT THE CHECKBOX AND NOW ASSERTS ITS ABSENCE, which
    * is the third home this disclosure has had. It sat on the welcome screen,
    * moved to the point of the act when Josh cut the lawyer-speak (2026-08-22),

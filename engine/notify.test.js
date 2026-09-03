@@ -111,26 +111,49 @@ test('CONTROL: with no injected sender under test, nothing is sent even when on,
   }
 });
 
-test('both telemetry rows are GONE from Settings, and stay gone', () => {
-  /* 🛑 THIS ASSERTED THE OPPOSITE UNTIL 2026-08-26. Josh, his item 3: "We are
-     still showing the 'Let Kosmos team know when an agent posts or answers you'
-     section, and the 'Let the Kosmos team know when you create an agent' - they
-     both need to be removed." They were, and this test then failed on copy that
-     no longer existed, taking the whole suite red and refusing every cut.
-     ⭐ It now pins his deletion instead, which is the version of this test that
-     can still be wrong in a useful direction. */
+test('both telemetry opt-out rows are PRESENT and wired, and the sends stay OFF by default (#2020 step 1)', () => {
+  /* 🛑 THE HISTORY, so nobody re-derives it: this pinned the rows PRESENT before
+     2026-08-26, then their ABSENCE after Josh removed both (his item 3). #2020
+     restores them as opt-out CONTROLS (Josh 09-03: "on, and they can turn it off"),
+     so it pins their PRESENCE again - TOGETHER with the send still being OFF by
+     default. The control and the default are ONE decision (#2013): step 1 restores
+     the control and leaves the default OFF; when Josh flips the default ON (step 3,
+     held), the default assertions below flip WITH it - never a default-on without a
+     control, which is the exact "removed opt-out" state the deletion existed to
+     prevent. */
   const page = fs.readFileSync(nodePath.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-  for (const id of ['id="notify-row"', 'id="notify-msg"', 'id="tell-row"']) {
-    assert.equal(page.includes(id), false,
-      'a telemetry row is back in Settings (' + id + '); Josh removed both by name');
+  for (const id of ['id="notify-row"', 'id="notify-msg"', 'id="notify-toggle"',
+    'id="tell-row"', 'id="tell-msg"', 'id="tell-toggle"']) {
+    assert.ok(page.includes(id), 'a telemetry opt-out control is missing from Settings (' + id + ')');
   }
-  /* The control on the control: the section that HELD them must still exist, or
-     this passes because Settings itself went missing. */
+  /* The control on the control: the section that HOLDS them must still exist, or
+     the presences above prove nothing. */
   assert.match(page, /id="auto-row"/,
-    'the Updates section is gone entirely, so the absences above prove nothing');
-  /* ⚠️ And the payload is still shaped, deliberately: engine/notify.js is
-     required by nothing but this file. If a row ever returns, the copy-matches-
-     payload check this replaced is the one to re-derive, not to reinvent. */
-  const keys = Object.keys(notify.payload({ kind: 'posted', agent: 'x', project: 'y' }));
-  assert.ok(keys.length > 0, 'the payload lost its shape while nothing was watching');
+    'the Updates section is gone entirely, so the presences above prove nothing');
+  /* 🛑 #2047: the reads must be 403-SAFE. A gated GET (every /api/* is gated on an
+     enforcing board) must draw COULD-NOT-READ, never a confident Off - a privacy
+     opt-out that falsely reads Off tells a person nothing is sent while the engine
+     may be. Pin that both refreshers bail to a null paint on a non-ok response, so
+     that safety cannot be silently removed. */
+  assert.match(page, /if \(!res\.ok\) \{ if \(mine === TELL_EPOCH\) tellPaint\(null\)/,
+    'refreshTell does not guard on a non-ok read (#2047: a 403 would draw a false Off)');
+  assert.match(page, /if \(!res\.ok\) \{ if \(mine === NOTIFY_EPOCH\) notifyPaint\(null\)/,
+    'refreshNotify does not guard on a non-ok read (#2047: a 403 would draw a false Off)');
+  /* The half absence alone cannot cover (ping.test.js's rule, applied here): the
+     control is back AND the send still defaults OFF. A fresh machine has no pref
+     file, so read() returns the default. */
+  const ping = require('./ping');
+  assert.equal(notify.read().on, false, 'the notify send defaults ON with no step-3 ruling from Josh');
+  assert.equal(ping.read().on, false, 'the ping send defaults ON with no step-3 ruling from Josh');
+  /* 🛑 THE DISCLOSURE COPY MUST COVER WHAT THE PAYLOAD SENDS (#2020 step 2 = honest
+     disclosure). This pins the payload's EXACT field set; the notify row's copy above
+     is human-verified to name each one - the agent's name and session, kind
+     (posted/answered), project, at (when), an event id, and installId (a random
+     per-install id) - and it says the content ("the words") is never sent. A field
+     added to payload() reds HERE, forcing the disclosure copy to be reviewed rather
+     than silently under-disclosing. That is the copy-matches-payload check the prior
+     version of this test asked to re-derive when the row returned. */
+  const keys = Object.keys(notify.payload({ kind: 'posted', id: 'e1', agent: 'x', session: 's', project: 'y' })).sort();
+  assert.deepEqual(keys, ['agent', 'at', 'id', 'installId', 'kind', 'project', 'session'],
+    'notify.payload() changed shape; review the Settings disclosure copy for the new/removed field before updating this set');
 });

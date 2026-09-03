@@ -9562,7 +9562,7 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
     getAttribute(k) { return this.attrs[k]; },
     removeAttribute(k) { delete this.attrs[k]; },
   });
-  for (const id of ['tell-toggle', 'tell-msg', 'auto-toggle', 'auto-msg']) {
+  for (const id of ['tell-toggle', 'tell-msg', 'notify-toggle', 'notify-msg', 'auto-toggle', 'auto-msg']) {
     const e = el(id); e.classList._s = e.classes;
   }
   const raw3 = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
@@ -9593,13 +9593,19 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
     return new Function('document', helper + '\n' + sc3.slice(at, end) + '\nreturn ' + name + ';')({ getElementById: el });
   };
 
-  /* 📌 THE TELL SWITCH IS GONE (Josh, 2026-08-26, item 3): both telemetry rows
-     were removed from Settings and `tellPaint` went with them, so this loop was
-     lifting a function that is not in the page and reporting "tellPaint
-     vanished" as a failure. The rule it checks is unchanged and still worth
-     checking on the switch that survives. engine/notify.test.js pins that the
-     rows stay gone. */
-  for (const [paint, toggle, msg] of [['autoPaint', 'auto-toggle', 'auto-msg']]) {
+  /* 📌 THE TELL AND NOTIFY SWITCHES ARE BACK (#2020, Josh 2026-09-03: "on, and
+     they can turn it off" needs the opt-out controls he removed 08-26). They are
+     restored as controls with the send still OFF by default (the default flip is
+     step 3, held for Josh), and they are tested here on the SAME three-state rule
+     as autoPaint - and it matters MORE for these two: they are the telemetry
+     opt-outs, so an unread setting drawing a confident Off would tell a person
+     nothing is sent while the engine may be (#2047). engine/notify.test.js pins
+     the rows present + the sends off by default. */
+  for (const [paint, toggle, msg] of [
+    ['autoPaint', 'auto-toggle', 'auto-msg'],
+    ['tellPaint', 'tell-toggle', 'tell-msg'],
+    ['notifyPaint', 'notify-toggle', 'notify-msg'],
+  ]) {
     const p = lift(paint);
 
     /* Presence before absence: prove it CAN say a real position first, or the
@@ -9620,7 +9626,7 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
     assert.equal(el(toggle).getAttribute('aria-checked'), undefined,
       paint + ': a hidden switch kept a position, which reads as a definite answer if anything un-hides it');
     assert.equal(el(toggle).classes.has('on'), false, paint + ': unread rendered as on');
-    assert.match(el(msg).textContent, /could not read/,
+    assert.match(el(msg).textContent, /could not/,
       paint + ': an unread setting says nothing, so the switch is the only claim on screen');
     /* ⚠️ AND IT COMES BACK WHEN THE ANSWER DOES, asserted AFTER the sentence
        above rather than before it: a recovery paint clears that message, so
@@ -9637,8 +9643,20 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
    * they drive the painter directly. The defect lives in the seam between the
    * two, which is exactly where a test that only exercises one half cannot see.
    */
-  /* Same removal as above: refreshTell went with the row it refreshed. */
-  for (const [refresh, toggle, url] of [['refreshAutoUpdate', 'auto-toggle', '/api/autoupdate']]) {
+  /* #2020: refreshTell and refreshNotify are restored, so this seam test now covers
+     ALL THREE refreshers (it previously ran only refreshAutoUpdate, and the earlier
+     ternary scaffolding for refreshTell was never activated and had no arm for
+     refreshNotify). The painter and epoch are carried in the tuple rather than
+     derived by a ternary, so a fourth refresher is one row, not another branch.
+     🛑 AND ALL THREE ARE RUN: the previous version `return`ed inside the loop, so
+     only the first tuple was ever exercised - a second entry would have been silently
+     skipped. Promise.all runs every one. */
+  const seams = [
+    ['refreshAutoUpdate', 'auto-toggle', 'autoPaint', 'AUTO_EPOCH'],
+    ['refreshTell', 'tell-toggle', 'tellPaint', 'TELL_EPOCH'],
+    ['refreshNotify', 'notify-toggle', 'notifyPaint', 'NOTIFY_EPOCH'],
+  ];
+  return Promise.all(seams.map(([refresh, toggle, painterName, epoch]) => {
     el(toggle).setAttribute('aria-checked', 'false');   // the static markup's lie
     const at = sc3.indexOf('async function ' + refresh + '(');
     assert.ok(at > -1, refresh + ' vanished from the page');
@@ -9647,34 +9665,33 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
       if (sc3[k] === '{') depth += 1;
       else if (sc3[k] === '}') { depth -= 1; if (depth === 0) { end = k + 1; break; } }
     }
-    const painterName = refresh === 'refreshTell' ? 'tellPaint' : 'autoPaint';
     const pAt = sc3.indexOf('function ' + painterName + '(');
+    assert.ok(pAt > -1, painterName + ' vanished from the page');
     let pd = 0; let pEnd = -1;
     for (let k = sc3.indexOf('{', pAt); k < sc3.length; k += 1) {
       if (sc3[k] === '{') pd += 1;
       else if (sc3[k] === '}') { pd -= 1; if (pd === 0) { pEnd = k + 1; break; } }
     }
-    const epoch = refresh === 'refreshTell' ? 'TELL_EPOCH' : 'AUTO_EPOCH';
     // eslint-disable-next-line no-new-func
     const run = new Function('document', 'fetch',
       'let ' + epoch + ' = 0;\n' + sourceOf('paintSwitch') + '\n'
       + sc3.slice(pAt, pEnd) + '\n' + sc3.slice(at, end)
       + '\nreturn ' + refresh + ';')(
       { getElementById: el }, () => Promise.reject(new Error('offline')));
-    void url;
     return run().then(() => {
       /* 🛑 THE THIRD STATE IS THE ABSENCE OF THE CONTROL. `switch` is a
          two-state role and ARIA says outright it does not support `mixed`, so
          the third position this used to assert was not a state the role
          defines (Mona Lisa, #229). What the caller must produce is no control
-         at all, which is a claim nobody can misread. */
+         at all, which is a claim nobody can misread. For the two telemetry
+         opt-outs this is the #2047 safety: a thrown/gated read must not leave a
+         confident Off that says nothing is sent while the engine may be. */
       assert.equal(el(toggle).hidden, true,
         refresh + ': a thrown fetch left a switch on screen showing a position nobody read');
       assert.equal(el(toggle).getAttribute('aria-checked'), undefined,
         refresh + ': the hidden switch kept a position, which reads as a definite answer if anything un-hides it');
     });
-  }
-  return undefined;
+  }));
 });
 
 test('the rows arrive one at a time, and an unrevealed row says it is working', () => {

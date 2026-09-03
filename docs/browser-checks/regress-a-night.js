@@ -83,9 +83,10 @@ function seed() {
 
     await pg.click('.tab:has-text("Settings")');
     await pg.waitForTimeout(1800);
-    /* 📌 tell-toggle and notify-toggle are GONE (Josh, 2026-08-26, item 3):
-       both telemetry rows were removed from Settings. The rule below is about
-       the switches that ship, so it now names only those. */
+    /* 📌 tell-toggle and notify-toggle are BACK (#2020, Josh 2026-09-03): the
+       telemetry opt-out controls he removed 08-26, restored so the sends "can be
+       turned off". On a readable board they resolve to a real position like the
+       rest, so the rule below names them again. */
     /* 🛑 THE COUNT IS DERIVED, NOT TYPED (#1360). This said "all five switches
        resolved" while asserting over three: the list was correctly narrowed when
        both telemetry rows were removed on 2026-08-26 and the label was not.
@@ -95,7 +96,7 @@ function seed() {
        first move establishing that two switches were not MISSING from the array.
        A count written beside a list will drift from it; one taken FROM the list
        cannot. */
-    const SWITCH_IDS = ['lim-toggle', 'auto-toggle', 'eng-toggle'];
+    const SWITCH_IDS = ['lim-toggle', 'tell-toggle', 'notify-toggle', 'auto-toggle', 'eng-toggle'];
     const sw = await pg.evaluate((ids) => ids
       .map((id) => document.getElementById(id).getAttribute('aria-checked')), SWITCH_IDS);
     /* Every switch is born `mixed` and must resolve. A switch still reading

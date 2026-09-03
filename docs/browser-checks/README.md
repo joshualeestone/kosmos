@@ -198,6 +198,7 @@ one invented by somebody who did not write them.
 | `render-accounts-openai.js` | An OpenAI account added from the Accounts page with a pasted key, listed by provider and offered on the create form (#540); driven against a stand-in codex so no real key is involved. |
 | `render-org-drag.js` | The org chart's organic layer (#285): grab the hub, the rings follow, wires stay attached, a drag does not open an agent and a click does. |
 | `render-switch-states.js` | The four Settings switches come BACK once their settings read (#229) |
+| `render-optout-403-2020.js` | The two telemetry opt-out switches are 403-safe: a gated read draws could-not-read, never a false Off (#2020/#2047) |
 | `render-theme-toggle.js` | The light and dark control: two options, gold active, same geometry as the view toggle (#284) |
 | `render-thread.js` | Render and DRIVE the project thread in a real browser |
 | `render-url-state.js` | The view survives a refresh (#374): agent, project, task; and the overview writes a clean URL. |
