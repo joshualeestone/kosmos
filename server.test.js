@@ -11521,7 +11521,7 @@ test('#570: two runs of one agent report, and the record says WHICH RUN said eac
   }
 });
 
-test('#900: the Stop hook\'s idle does not erase a blocked, and the BOARD still shows it', async () => {
+test('#900/#1949: the Stop hook\'s automatic idle or working does not erase a blocked, and the BOARD still shows it', async () => {
   /* End to end, because the defect was only visible on the board: an agent
      files blocked mid-turn, its own Stop hook fires seconds later at the end
      of that turn, and the agent reads as at-rest and finished. */
@@ -11535,20 +11535,29 @@ test('#900: the Stop hook\'s idle does not erase a blocked, and the BOARD still 
 
     assert.equal(JSON.parse((await post({ state: 'blocked', text: 'needs Josh to sign in', owner: 'Josh', from_pane: '%7' })).body).recorded, true);
 
-    /* The hook's own end-of-turn write. It must be refused, and refused in a
+    /* The hook's own end-of-turn writes. An automatic idle AND an automatic
+       working must both be refused (#1949) -- the report hook fires working on
+       every PreToolUse, so an allowed automatic working would erase the block
+       within seconds of the agent running any command -- and refused in a
        sentence rather than looking like a failure the hook should retry. */
-    const stop = JSON.parse((await post({ state: 'idle', text: 'finished responding', auto: true, from_pane: '%7' })).body);
-    assert.equal(stop.recorded, false);
-    assert.match(stop.because, /waiting on a person/);
+    const stopIdle = JSON.parse((await post({ state: 'idle', text: 'finished responding', auto: true, from_pane: '%7' })).body);
+    assert.equal(stopIdle.recorded, false);
+    assert.match(stopIdle.because, /waiting on a person/);
+
+    const stopWorking = JSON.parse((await post({ state: 'working', text: 'answering a prompt', auto: true, from_pane: '%7' })).body);
+    assert.equal(stopWorking.recorded, false);
+    assert.match(stopWorking.because, /waiting on a person/);
 
     const row = JSON.parse((await req('/api/status')).body).agents.find((a) => a.sessionName === 'waiting');
     assert.equal(row.state, 'blocked', 'the board read a blocked agent as at rest, which is the whole defect');
     assert.equal(row.because, 'needs Josh to sign in');
 
-    /* And it is not a trap: the next real turn clears it. */
-    assert.equal(JSON.parse((await post({ state: 'working', text: 'answering a prompt', auto: true, from_pane: '%7' })).body).recorded, true);
+    /* And it is not a trap: a DELIBERATE (agent-written) working still clears
+       it, so an agent that genuinely resumes reports its own way out. The
+       discriminator is `auto`, not the word working. */
+    assert.equal(JSON.parse((await post({ state: 'working', text: 'back at it', from_pane: '%7' })).body).recorded, true);
     const row2 = JSON.parse((await req('/api/status')).body).agents.find((a) => a.sessionName === 'waiting');
-    assert.equal(row2.state, 'working', 'a real block became permanent');
+    assert.equal(row2.state, 'working', 'a genuine resume could not clear a real block');
   } finally {
     messagesEngine.resetForTests();
     board.restore();
