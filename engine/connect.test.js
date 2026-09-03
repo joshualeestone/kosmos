@@ -571,9 +571,14 @@ function driverTest(name, fn) {
  * 🔑 WHY THIS SITS HERE AND NOT IN THE ROUTE SUITE. Both route harnesses SET
  * `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, so `launchDir` is always truthy there and
  * the branch under test never executes. ⚠️ THAT MADE THIS LOOK UNGUARDABLE, AND
- * IT WAS NOT: the fix is to observe what the launch ARGV carries rather than to
- * remove the condition that hides it. **"Unguardable" was "I picked the harder
- * observation point."**
+ * IT WAS NOT -- but not for the reason an earlier version of this docblock gave.
+ * It said the fix was to observe the ARGV "rather than to remove the condition
+ * that hides it". **This arm DOES remove it** (`delete
+ * process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, below), and must: the `else`
+ * branch is unreachable while the seam is set. What was actually wrong was the
+ * belief that removing it would not be ENOUGH. It is enough, once the
+ * observation point is the launch ARGV via `connect.setRunner` rather than a
+ * config file. **"Unguardable" was "I picked the harder observation point."**
  */
 driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CLI', async () => {
   const term = fakeTerminal();

@@ -437,9 +437,13 @@ test('#1585 CONTROL: an UNVERIFIABLE live check keeps connected rather than forc
  *
  * ⚠️ WHAT IT DOES NOT BUY, STATED BECAUSE AN EARLIER VERSION OF THIS BLOCK
  * CLAIMED IT DID. These arms do NOT reach a launch decision either way: the
- * harness sets `AGENT_WORKFORCE_DRY_RUN=1` and points the bin at `/bin/echo`,
- * so `haveBinary` is false and `start()` returns at the install-confirm guard
- * before claiming a driver. The routing value they assert is written by
+ * harness sets `AGENT_WORKFORCE_DRY_RUN=1`, so `start()` returns at the
+ * install-confirm guard before claiming a driver. ⚠️ NOT because of `/bin/echo`:
+ * that makes `claudeResolved.present` TRUE, and `haveBinary` starts as exactly
+ * that. It is the dry-run probe refusal that flips it
+ * (`if (!probe.ok || probe.dryRun) haveBinary = false`), which is also what the
+ * header of this file says 400 lines above. An earlier version of this block
+ * credited `/bin/echo` and contradicted its own file. The routing value they assert is written by
  * `writeState({phase: IDLE})` ABOVE both gates, so it is reachable regardless --
  * mutation-proven: with the pre-fix route and `setRunner` removed, the routing
  * arm is still RED. **`setRunner` is load-bearing only for the connected-gate

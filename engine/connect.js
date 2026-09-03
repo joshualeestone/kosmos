@@ -1851,20 +1851,16 @@ async function launchSignin(owner) {
        "the true default account", NOT "whatever CLAUDE_CONFIG_DIR the pane
        happens to inherit", and an omitted assignment is NOT an unset variable.
 
-       ⚠️ THE SOURCE OF THE LEAK IS THE TMUX SERVER, NOT THIS PROCESS, and the
-       distinction is not pedantic: `tools/witness-pane-env.sh` records it as
-       MEASURED on tmux 3.6a that tmux does NOT hand a client's environment to a
-       session made on an ALREADY-RUNNING server (the pre-#586 pane saw the
-       server's account while the client carried a different one). This launch
-       uses the shared socket with no `-e`, so on any machine whose tmux server
-       is already up the pane inherits whichever account STARTED THE SERVER.
-       (An earlier draft supported that with "agent panes are forwarded a
-       CLAUDE_CONFIG_DIR". That clause is struck: `bin/agent-supervisor.sh`
-       forwards it with `tmux -e`, which populates THAT SESSION's environment,
-       not the server's, so it was never evidence for a server-level value. The
-       claim above stands on `tools/witness-pane-env.sh` alone, which measured
-       it directly.) That is a value this process cannot inspect, which makes the
-       exposure worse than a caller-side leak, not better.
+       ⚠️ THE SOURCE OF THE LEAK IS THE TMUX SERVER, NOT THIS PROCESS. Measured
+       (#586, `tools/witness-pane-env.sh`, tmux 3.6a): tmux does NOT hand a
+       client's environment to a session made on an ALREADY-RUNNING server, so
+       the pane inherits whichever account STARTED the server -- a value this
+       process cannot inspect, which makes the exposure worse than a caller-side
+       leak, not better. ⚠️ That witness runs on a PRIVATE socket with
+       `-f /dev/null`, deliberately, so no config can mask the mechanism; this
+       launch uses the SHARED socket, so applying it here is an inference from
+       the mechanism, not a second measurement. It does not change the fix:
+       `env -u` strips the variable inside the pane whatever leaked it.
 
        `subscription.checkLive` already defends the READ side of exactly this
        and states the rule: it builds its env and `delete env.CLAUDE_CONFIG_DIR`
@@ -1879,32 +1875,24 @@ async function launchSignin(owner) {
      holds because tmux's getopt does not permute: the first operand (`env`) ends
      option parsing.
 
-     ✅ THE DURABLE EVIDENCE IS IN THIS REPO, not in an unrepeatable manual run.
-     `bin/agent-supervisor.sh` launches every codex pane as
+     ✅ THE EVIDENCE IS STANDING AND IN THIS REPO, not an unrepeatable manual
+     run. `bin/agent-supervisor.sh` launches every codex pane with TWO `-c`
+     flags around the operand -- tmux's own before it, the runner's after it:
 
        tmux new-session -d -s <s> -c "$WORKDIR" ... "$CLAUDE" ... -c "$NOTIFY_CFG"
 
-     `-c` IS a real `tmux new-session` flag (`[-c start-directory]`), and there
-     are TWO of them: tmux's own before the operand, the runner's after it. If
-     tmux permuted, the second would be swallowed as a start-directory and the
-     notify config would never reach the child. It does reach it, in production,
-     on every codex agent. An earlier version of this comment cited a live 3.6a
-     run instead, which nobody can re-run.
+     `-c` IS a real `tmux new-session` flag (`[-c start-directory]`). If tmux
+     permuted, the second would be swallowed and the notify config would never
+     reach the child. It reaches it, in production, on every codex agent.
 
-     ⚠️ STILL UNCOVERED BY ANY TEST, and by more than the fake terminal. The
-     suite replays argv and cannot see tmux's parser; and
-     `docs/browser-checks/live-connect.js`, the one real-tmux real-CLI exerciser,
-     sets `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, so `launchDir` is always truthy
-     there and it takes the ASSIGNMENT branch every time.
-
-     ⇒ **So nothing exercises the `-u` arm against a real tmux.** (An earlier
-     version said `-u` was "the only production-reachable arm". FALSE: the
-     assignment arm is reached in production whenever `owner.configDir` is set,
-     which is every labelled-account re-auth and every "add a second account"
-     press. What is true is narrower -- `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR` is
-     never SET anywhere outside tests and `docs/browser-checks`, so the seam is
-     the only way live-connect reaches that arm.) Stated because a reader cannot
-     otherwise tell a guarded property from an unguarded one. */
+     ⚠️ NOTHING EXERCISES THE `-u` ARM AGAINST A REAL TMUX. The suite replays
+     argv and cannot see tmux's parser, and `docs/browser-checks/live-connect.js`
+     -- the only real-tmux real-CLI exerciser -- sets
+     `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, so it takes the ASSIGNMENT branch every
+     time. (That seam is set nowhere outside tests and `docs/browser-checks`.
+     Both arms ARE production-reachable; only the coverage is one-sided.) Stated
+     because a reader cannot otherwise tell a guarded property from an unguarded
+     one. */
 
   const made = await tmux(['new-session', '-d', '-s', SESSION, '-x', '220', '-y', '50', ...cmd]);
   if (!made.ok) {
