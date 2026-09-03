@@ -957,6 +957,24 @@ function describe(project, roster, all) {
     // non-string or unparseable value beside archived:true must not become
     // "Archived 1/1/1970" through new Date().
     archivedAt: project.archived === true ? cleanArchivedAt(project.archivedAt) : null,
+    // #1994: the id of the project this one is grouped under, or null. DISPLAY
+    // ONLY -- the board groups by it and nothing else reads it; nothing
+    // inherits settings, agents, or access through a parent (each of those is
+    // its own product decision with its own failure modes, and none was
+    // asked for). Normalized to null for a legacy record, like the fields
+    // above.
+    parent: (typeof project.parent === 'string' && project.parent) ? project.parent : null,
+    // The parent's current display name, resolved here so no reader has to
+    // join rows itself. Null when the parent id resolves to no project (a
+    // parent removed by a hand edit -- delete-with-children is refused, so
+    // this only happens off the normal path): the child then renders at top
+    // level, it never vanishes.
+    parentName: (() => {
+      const pid = (typeof project.parent === 'string' && project.parent) ? project.parent : null;
+      if (!pid || !Array.isArray(all)) return null;
+      const par = all.find((p) => p && p.id === pid);
+      return par ? par.name : null;
+    })(),
     // Same normalization rule as description/archived above: the healed
     // shape has to hold for API readers too, so a legacy project reads as
     // "no tasks yet", never as fields that simply are not there.
@@ -1590,6 +1608,11 @@ function create({ name, folder, agents, roster, description, made } = {}) {
       a, Array.isArray(roster) ? roster.some((c) => c && c.sessionName === a) : null,
     ])),
     told: {},
+    /* #1994: the project this one is grouped under, or null. DISPLAY ONLY --
+       the board groups by it; nothing inherits settings, agents, or access
+       through it. Set/cleared later via edit({ parent }); see cleanParent for
+       the self-parent and cycle refusals. A new project starts ungrouped. */
+    parent: null,
     /* Who asked for this project (#327): 'screen' is the operator's own page
        (the route derives it, never the request body), 'process' is anything
        else on this machine, with the pane's agent name when one was offered
@@ -1618,6 +1641,49 @@ function mutate(id, fn) {
 }
 
 /**
+ * Validate a proposed parent for a project (#1994), returning the parent id to
+ * store or null to un-group. Throws LOUDLY and BEFORE any write on the cases
+ * that would corrupt the tree, so edit's "apply whole or not at all" still
+ * holds when a parent is carried alongside a name or description.
+ *
+ * - null / '' un-groups (a display field the settings screen offers clearing).
+ * - a project cannot be its own parent.
+ * - the parent must exist.
+ * - a cycle is refused: walking the proposed parent's OWN ancestor chain must
+ *   never reach the child, or A-under-B-under-A would be a loop the board
+ *   could recurse on forever. The walk carries a seen-set so a store that
+ *   ALREADY holds a loop (a hand edit) bounds the walk rather than hanging it.
+ */
+function cleanParent(value, childId) {
+  if (value === null || value === undefined || value === '') return null;
+  const parentId = String(value).trim();
+  if (!parentId) return null;
+  if (parentId === childId) {
+    throw new Error('a project cannot be its own sub-project');
+  }
+  const all = readAll();
+  const byId = new Map(all.map((p) => [p.id, p]));
+  if (!byId.has(parentId)) {
+    throw new Error('there is no project to group this one under');
+  }
+  // Walk the proposed parent up its own chain. Reaching the child means this
+  // link would close a loop; reaching a missing parent or the top ends it. The
+  // seen-set bounds the walk against a store that already carries a loop.
+  const seen = new Set();
+  let cursor = parentId;
+  while (cursor) {
+    if (cursor === childId) {
+      throw new Error('that would put a project underneath one of its own sub-projects');
+    }
+    if (seen.has(cursor)) break;
+    seen.add(cursor);
+    const node = byId.get(cursor);
+    cursor = node && typeof node.parent === 'string' ? node.parent : null;
+  }
+  return parentId;
+}
+
+/**
  * Every writable field, applied in ONE mutate.
  *
  * ⚠️ One write on purpose. The PUT route used to run rename, setDescription
@@ -1636,7 +1702,13 @@ function edit(id, fields = {}) {
   if (fields.archived !== undefined && typeof fields.archived !== 'boolean') {
     throw new Error('archived must be true or false');
   }
-  if (!Object.keys(want).length && fields.archived === undefined) {
+  // #1994: parent validated (self/cycle/missing refused) BEFORE the write, like
+  // every other carried field, so a body mixing parent with name or description
+  // still applies whole or not at all. `undefined` = not carried; cleanParent
+  // returns null (un-group) or a valid parent id.
+  let parentWant;
+  if (fields.parent !== undefined) parentWant = cleanParent(fields.parent, id);
+  if (!Object.keys(want).length && fields.archived === undefined && fields.parent === undefined) {
     // A save that would move nothing is refused, not answered "saved": a
     // typo'd key reporting success is a save the person believes happened.
     throw new Error('nothing here we can change');
@@ -1652,6 +1724,9 @@ function edit(id, fields = {}) {
         ? ((p.archived === true && cleanArchivedAt(p.archivedAt)) || new Date().toISOString())
         : null;
     }
+    // #1994: the validated parent (or null to un-group). Only when carried, so
+    // a save that does not mention parent leaves the grouping untouched.
+    if (fields.parent !== undefined) next.parent = parentWant;
     return next;
   });
 }
@@ -1803,6 +1878,18 @@ function remove(id) {
   const all = readAll();
   const found = all.find((p) => p.id === id);
   if (!found) throw new Error('there is no project by that name');
+  // #1994: refuse rather than orphan or cascade. Deleting a parent out from
+  // under its sub-projects would either leave dangling parent ids or force a
+  // cascade nobody asked for; the cheapest correct answer, and the easiest to
+  // relax later, is to make the person re-parent or remove the children first.
+  // Carries a 409 so the route does not report this as a 404 "no such project"
+  // -- the project is right there.
+  const children = all.filter((p) => p.parent === id);
+  if (children.length) {
+    const err = new Error(`this project has sub-projects (${andList(children.map((c) => c.name))}); re-parent or remove them first`);
+    err.status = 409;
+    throw err;
+  }
   writeAll(all.filter((p) => p.id !== id));
   return found;
 }
