@@ -42,8 +42,10 @@
  * .cmd from a Mac where it cannot be run. Opening here keeps open-board.cmd to one
  * plain `node.exe <script> <args>` line - the smallest possible untestable
  * surface - and puts every branch that can go wrong in node, which IS testable on
- * a Mac. The url is also printed to stdout for logs and for a person who wants to
- * open it themselves; all diagnostics go to stderr.
+ * a Mac. The PLAIN url is printed to stdout as a human message (mirroring
+ * cmd_open's `say "$URL"`, which keeps the single-use boot nonce out of any
+ * captured console log); the nonced url is opened silently. All diagnostics go to
+ * stderr.
  *
  * THE OPENER IS SEAMED (KOSMOS_OPEN_BIN), exactly like cmd_open's KOSMOS_OPEN_BIN,
  * so a test drives the open without launching a real browser. In production the
@@ -198,8 +200,12 @@ async function main() {
   const port = argValue('--port', '16180');
   const timeoutMs = Number(argValue('--timeout-ms', '20000')) || 20000;
   const open = await resolveOpenUrl({ appDir, port, timeoutMs });
-  // Print the url (for logs / a person who wants to open it themselves), then open.
-  process.stdout.write(open + '\n');
+  // Print the PLAIN url as the human message (mirrors cmd_open's `say "$URL"`),
+  // then OPEN the resolved url (nonced on an enforcing board). Printing the plain
+  // url rather than the nonced one keeps the single-use boot nonce out of any
+  // captured console log - the same reason cmd_open says the plain url and opens
+  // the nonce silently.
+  process.stdout.write(`http://127.0.0.1:${port}\n`);
   openInBrowser(open);
 }
 

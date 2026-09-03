@@ -32,10 +32,17 @@ const helper = require('./tools/kosmos-open-board.js');
 /* ---- half 1: the build wires the helper --------------------------------- */
 
 test('open-board.cmd runs the helper and NOT the pre-fix plain open (#2007)', () => {
-  // Isolate the open-board.cmd heredoc block.
-  const m = WIN.match(/\{\n([\s\S]*?)\n\} > "\$STAGE\/open-board\.cmd"/);
-  assert.ok(m, 'the open-board.cmd block was not found; the scan is broken');
-  const block = m[1];
+  // Isolate the open-board.cmd heredoc PRECISELY: the nearest `{` before its
+  // closer. A non-greedy `/\{\n([\s\S]*?)\n\} > .../` would capture from the FIRST
+  // `{` in the file (~50 lines earlier), so a stray `start "" http://` added in
+  // the preceding region would false-fail this test. lastIndexOf finds the block's
+  // own open.
+  const closer = '} > "$STAGE/open-board.cmd"';
+  const endIdx = WIN.indexOf(closer);
+  assert.ok(endIdx > -1, 'the open-board.cmd block closer was not found; the scan is broken');
+  const startIdx = WIN.lastIndexOf('{\n', endIdx);
+  assert.ok(startIdx > -1 && startIdx < endIdx, 'could not find the block open before its closer');
+  const block = WIN.slice(startIdx, endIdx);
   assert.match(block, /open-board\.js" --port %s --app "%%~dp0app"/,
     'open-board.cmd does not run the helper with --port and --app');
   assert.match(block, /runtime\\\\node\.exe/, 'open-board.cmd does not use the bundled node.exe');
@@ -150,10 +157,12 @@ test('an UNREADABLE token warns (not a silent 403), but a MISSING one is silent'
     try {
       let url;
       const err = await captureStderr(async () => { url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 4000 }); });
-      // If the runner is root (can read 000), skip the assertion honestly rather
-      // than pass vacuously - root defeats the permission, not the logic.
-      const canForce = (() => { try { fs.readFileSync(tokFile); return true; } catch { return false; } })();
-      if (canForce) {
+      // The permission only forces EACCES for a NON-root user; root reads a 000
+      // file regardless, defeating the permission (not the logic), so assert only
+      // when the file is genuinely unreadable to THIS process. On non-root that is
+      // true and the treatment runs; on root it is readable and we skip honestly.
+      const isUnreadable = (() => { try { fs.readFileSync(tokFile); return false; } catch { return true; } })();
+      if (isUnreadable) {
         assert.match(err, /board\.token exists but could not be read/, 'no warning on an unreadable token');
         assert.equal(url, `http://127.0.0.1:${port}`, 'an unreadable token should fall back to the plain url');
       }
