@@ -3741,7 +3741,7 @@ if [ -f "$_awnode_r" ] && [ -x "$_awnode_r" ]; then
   _awroot_r="$("$_awnode_r" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot_r=""
   [ -n "$_awroot_r" ] && _repair_seed="$_awroot_r/.reauth-seeded"
 fi
-_open_gate="$FRESH_INSTALL"; _seed_after_open=no; _minted_nonce=no
+_open_gate="$FRESH_INSTALL"; _seed_after_open=no; _minted_nonce=no; _opened=no
 # A first enforcing run (fresh OR update) that has not seeded opens and seeds: the
 # fresh case seeds so a later update does not needlessly re-open; the update case
 # IS the repair. FRESH_INSTALL already opens; this adds the enforcing-update path.
@@ -3862,34 +3862,43 @@ PLIST
       # requires AGENT_WORKFORCE_LAUNCH unset; this is the belt.
       [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || _open_plist=/dev/null/never
       if /bin/launchctl bootstrap "gui/$_open_uid" "$_open_plist" 2>/dev/null; then
+        # Handed to the login session (RunAtLoad). This is the best open-success
+        # signal available in pkg mode -- like a direct `open` returning 0, it
+        # confirms dispatch, not navigation; that residual is documented at the seed.
+        _opened=yes
         printf '  (handed to your login session as %s)\n\n' "$_open_label"
       else
         rm -f "$_open_plist"
         printf '  note: could not hand the open to your login session; trying directly.\n'
-        "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1 \
-          || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
+        if "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1; then _opened=yes
+        else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
       fi
     else
-      "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1 \
-        || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
+      if "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1; then _opened=yes
+      else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
     fi
   else
     # </dev/null: the spawned process must not inherit the curl|sh pipe --
     # the same class as cmd_start's measured never-returning install.
-    "$OPEN_CMD" "$_board_url" </dev/null >/dev/null 2>&1 \
-      || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
+    if "$OPEN_CMD" "$_board_url" </dev/null >/dev/null 2>&1; then _opened=yes
+    else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
   fi
   fi
-  # #2023: seed the repair marker ONLY when the browser was actually handed a
-  # ?boot=<nonce> (_minted_nonce), so this one-time repair fires on the first update
-  # carrying it and never again. If the mint FAILED (board HTTP not answering in the
-  # update window -> plain URL with no ?boot=) the marker is NOT written and the
-  # repair RETRIES next update -- otherwise a mint failure would mark the machine
-  # done while its board stays 403, the exact state this fixes. The one residual:
-  # the browser launched but never navigated (vanishingly rare); the recourse there
+  # #2023: seed the repair marker ONLY when a nonce was minted (_minted_nonce) AND
+  # the open actually SUCCEEDED (_opened), so this one-time repair fires on the first
+  # update that truly re-authed the browser and never again. Two failure modes both
+  # leave the marker UNWRITTEN so the repair RETRIES next update:
+  #   - mint FAILED (board HTTP not answering in the update window -> plain URL, no
+  #     ?boot=): _minted_nonce stays no.
+  #   - open FAILED (OPEN_CMD present but returned non-zero, e.g. no reachable GUI
+  #     session; the `|| note` branch fired): _opened stays no.
+  # Either seeding on its own would mark the machine done while its board stays 403,
+  # the exact state this fixes. The one residual: open succeeded (dispatched) but the
+  # browser never navigated to redeem the nonce (vanishingly rare); the recourse there
   # is the owner running `kosmos open` in their terminal, the token-holding path
   # (there is no safe in-app reconnect -- a no-cookie page cannot prove ownership).
-  if [ "${_seed_after_open:-no}" = "yes" ] && [ -n "${_repair_seed:-}" ] && [ "${_minted_nonce:-no}" = "yes" ]; then
+  if [ "${_seed_after_open:-no}" = "yes" ] && [ -n "${_repair_seed:-}" ] \
+     && [ "${_minted_nonce:-no}" = "yes" ] && [ "${_opened:-no}" = "yes" ]; then
     : > "$_repair_seed" 2>/dev/null || true
   fi
 fi
