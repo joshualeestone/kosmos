@@ -16,7 +16,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 
 const SCRIPT = path.resolve(__dirname, 'tools/publish-kosmos-windows.sh');
 
@@ -47,6 +47,23 @@ function freshSite() {
   const site = fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-site-'));
   fs.mkdirSync(path.join(site, 'dist'), { recursive: true });
   return site;
+}
+
+// Like run(), but captures stderr on a SUCCESSFUL run (execFileSync returns only stdout), so the
+// NOTICE-on-stderr arm can assert what was and was not printed. Asserts a clean exit itself.
+function runCaptureStderr(zip, site, extraEnv = {}) {
+  const r = spawnSync('sh', [SCRIPT, zip], {
+    env: { ...process.env, KOSMOS_SITE: site, ...extraEnv },
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 0, `publish must succeed; stderr:\n${r.stderr}`);
+  return r.stderr;
+}
+
+// fixtureZip writes kosmos-win-x64.zip into `dir`, so each version needs its own dir to coexist.
+function fixtureZipIn(version) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-fix-'));
+  return fixtureZip(dir, version);
 }
 
 test('#2008: stages the alias, a versioned copy, sha sidecars and latest-win.json', () => {
@@ -189,4 +206,38 @@ test('#2008: the version guard ACCEPTS a legitimate build-metadata version (+ an
     'a version using the allowed . + _ - characters must be staged, not refused');
   const lj = JSON.parse(fs.readFileSync(path.join(dist, 'latest-win.json'), 'utf8'));
   assert.equal(lj.version, V, 'latest-win.json.version must carry the build-metadata version verbatim');
+});
+
+test('#2008: the ARCH path-escape guard refuses an arch with a path separator, staging nothing', () => {
+  // ARCH feeds the same staged filenames as VERSION; a "/" in it (KOSMOS_WIN_ARCH=../x) would make
+  // cp write outside dist/. The reject side of the VERSION guard is covered (../evil); this is the
+  // matching reject test for ARCH, so the guard cannot regress silently.
+  const site = freshSite();
+  assert.throws(() => run(fixtureZipIn('1.0.0'), site, { KOSMOS_WIN_ARCH: '../x' }),
+    /refusing an implausible arch/, 'an arch with a path separator must be refused');
+  assert.deepEqual(fs.readdirSync(path.join(site, 'dist')), [], 'a refused arch must stage nothing');
+});
+
+test('#2008: the repoint NOTICE fires only on re-publishing an already-present version, not on a forward release or a same-version rerun', () => {
+  const site = freshSite();
+  const zip1 = fixtureZipIn('1.0.0');
+  const zip2 = fixtureZipIn('2.0.0');
+  // Forward release of a NEW version: no NOTICE (2.0.0 was never in dist).
+  runCaptureStderr(zip1, site);
+  const fwd = runCaptureStderr(zip2, site);
+  assert.doesNotMatch(fwd, /repoints the alias/,
+    'a forward release of a not-yet-present version must NOT print the repoint notice');
+  // Same-version rerun (idempotent re-stage of the CURRENT alias version): no NOTICE.
+  const same = runCaptureStderr(zip2, site);
+  assert.doesNotMatch(same, /repoints the alias/,
+    'a same-version rerun must NOT print the repoint notice (PREV_V == VERSION)');
+  // Re-publishing an ALREADY-PRESENT version while the alias is on a different one (the sidecar-
+  // regen / rollback shape): NOTICE fires, naming both versions. zip1's versioned copy still exists
+  // from the first publish, and its bytes are identical (same file), so the immutability guard passes.
+  const back = runCaptureStderr(zip1, site);
+  assert.match(back, /re-publishing already-present version 1\.0\.0 repoints the alias .* off the current 2\.0\.0/,
+    're-publishing an already-present version must print the repoint notice naming both versions');
+  // And it actually moved: the alias now serves 1.0.0.
+  const lj = JSON.parse(fs.readFileSync(path.join(site, 'dist', 'latest-win.json'), 'utf8'));
+  assert.equal(lj.version, '1.0.0', 'the alias manifest must reflect the repointed version');
 });

@@ -71,6 +71,12 @@ esac
 ALIAS="kosmos-win-$ARCH.zip"
 VERSIONED="kosmos-$VERSION-win-$ARCH.zip"
 
+# Was this exact versioned name already in dist BEFORE this run? Captured once, before any cp,
+# and reused twice below: by the immutability guard, and by the backward-repoint NOTICE. A
+# re-publish of an ALREADY-PUBLISHED version is the signal both care about.
+VERSIONED_PREEXISTED=no
+[ -f "$SITE/dist/$VERSIONED" ] && VERSIONED_PREEXISTED=yes
+
 # The VERSIONED name is a promise of IMMUTABILITY: a client that pinned kosmos-<v>-win-<arch>.zip
 # must always get the same bytes, so republishing DIFFERENT bytes under it seeds a stale-cache
 # incident (release.sh refuses the same way for the versioned tarball). Check FIRST, before ANY
@@ -79,21 +85,25 @@ VERSIONED="kosmos-$VERSION-win-$ARCH.zip"
 # sidecar and latest-win.json still describe the old bytes -- an inconsistent dist that fails
 # shasum -c and serves un-manifested bytes, the very "serve the wrong thing" class this fights.
 # Re-running with the SAME bytes is fine (cmp matches), so a retry after a partial run is safe.
-if [ -f "$SITE/dist/$VERSIONED" ] && ! cmp -s "$ZIP" "$SITE/dist/$VERSIONED"; then
+if [ "$VERSIONED_PREEXISTED" = yes ] && ! cmp -s "$ZIP" "$SITE/dist/$VERSIONED"; then
   echo "publish-win: $VERSIONED already exists with DIFFERENT bytes -- refusing to republish a versioned name (it is immutable). Bump the version, or remove the old artifact deliberately." >&2
   exit 1
 fi
 # The ALIAS is intentionally MUTABLE -- it points at the MOST-RECENTLY-PUBLISHED build, not
-# necessarily the highest version. That distinction is a footgun: re-publishing an OLDER build
-# (e.g. to regenerate a missing sidecar) passes the immutability guard above (its bytes match
-# its own existing versioned copy) and then moves the button target BACKWARD to those old bytes.
-# Moving the alias is legitimate; moving it SILENTLY is the hazard. So if the alias currently
-# names a different version, say so out loud before repointing -- this does not block the move,
-# it just refuses to do it invisibly.
-if [ -f "$SITE/dist/latest-win.json" ]; then
+# necessarily the highest version. That distinction is a footgun in ONE specific case: re-publishing
+# an ALREADY-PUBLISHED build (e.g. to regenerate a missing sidecar) passes the immutability guard
+# above (its bytes match its own existing versioned copy) and then repoints the button off whatever
+# it currently serves -- typically an OLDER build, since re-staging is usually a rollback/sidecar
+# fix, not a release. A normal forward release (a version NOT yet in dist) is the expected case and
+# needs no notice; warning on every release would just train the operator to ignore this line, so it
+# would not be there when it matters. Fire ONLY when re-publishing a version that already existed AND
+# the alias currently names a different one -- the one time a repoint is likely unintended. We do not
+# claim a direction (semver ordering in POSIX sh is costly and error-prone); we state both versions
+# and let the operator judge. It informs, it does not block.
+if [ "$VERSIONED_PREEXISTED" = yes ] && [ -f "$SITE/dist/latest-win.json" ]; then
   PREV_V="$(KM_MF="$SITE/dist/latest-win.json" node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.env.KM_MF,"utf8")).version||""))}catch{}')"
   if [ -n "$PREV_V" ] && [ "$PREV_V" != "$VERSION" ]; then
-    echo "publish-win: NOTICE the alias $ALIAS is being repointed from version $PREV_V to $VERSION (the button will serve $VERSION after the next deploy)" >&2
+    echo "publish-win: NOTICE re-publishing already-present version $VERSION repoints the alias $ALIAS off the current $PREV_V (the button will serve $VERSION after the next deploy). Re-staging an existing build is usually a sidecar fix, not a release -- if you meant to release, bump the version." >&2
   fi
 fi
 # Stage both names from the one built zip. COPY, not link: the site deploy carries files, and a
