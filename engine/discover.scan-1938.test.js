@@ -241,6 +241,46 @@ test('SANDBOX GUARD: a bare scan with no explicit roots refuses to walk the real
   } finally { if (had !== undefined) process.env.AGENT_WORKFORCE_SCAN_ROOTS = had; }
 });
 
+test('SCAN_ROOTS is split on path.delimiter, so several roots in one env var each get scanned', () => {
+  /**
+   * #1777 / #1732 sibling. `scanRootsFromEnv` reads AGENT_WORKFORCE_SCAN_ROOTS as a
+   * `path.delimiter`-separated list. This proves the split HAPPENS at all: two roots
+   * joined by path.delimiter must each contribute a candidate, not collapse into one
+   * unwalkable fragment.
+   *
+   * ⚠️ This behavioural arm CANNOT catch a regression to a hardcoded ':' -- on POSIX
+   * path.delimiter IS ':', so `split(':')` and `split(path.delimiter)` are identical
+   * here, exactly as #1732 documents for github.js. The source pin below is the arm
+   * that catches the Windows-hostile regression on the platform we actually test on.
+   */
+  const rootA = path.join(SB, 'multi', 'a');
+  const rootB = path.join(SB, 'multi', 'b');
+  fs.mkdirSync(path.join(rootA, 'projA'), { recursive: true });
+  fs.writeFileSync(path.join(rootA, 'projA', 'CLAUDE.md'), 'You are **MultiA**');
+  fs.mkdirSync(path.join(rootB, 'projB'), { recursive: true });
+  fs.writeFileSync(path.join(rootB, 'projB', 'CLAUDE.md'), 'You are **MultiB**');
+
+  const had = process.env.AGENT_WORKFORCE_SCAN_ROOTS;
+  process.env.AGENT_WORKFORCE_SCAN_ROOTS = [rootA, rootB].join(path.delimiter);
+  try {
+    const dirs = discover.scan().candidates.map((c) => c.dir);
+    assert.ok(dirs.includes(path.join(rootA, 'projA')), 'the first path.delimiter-joined root was not scanned');
+    assert.ok(dirs.includes(path.join(rootB, 'projB')), 'the second path.delimiter-joined root was not scanned');
+  } finally {
+    if (had !== undefined) process.env.AGENT_WORKFORCE_SCAN_ROOTS = had;
+    else delete process.env.AGENT_WORKFORCE_SCAN_ROOTS;
+  }
+});
+
+/* #1777 / #1732: a SOURCE pin against discover.js regressing to a hardcoded
+   separator is deliberately NOT added here. The #1732 ratchet
+   (engine/windows-coupling-audit-1732.test.js) scans every engine/*.js for the
+   path-delimiter-literal family, so a regression of this site to `split(':')`
+   already reds there (measured). A co-located one-off pin would duplicate that
+   coverage and is exactly the "pin them one at a time" anti-pattern #1777 names.
+   The behavioural arm above is kept because it is genuine coverage the ratchet
+   does not provide (that the split actually walks both roots). */
+
 test('CONTROL: the sandbox disk is really being scanned', () => {
   /* Without this, every absence above could pass on a scan that found nothing at
      all -- the shape of a test that stopped exercising its subject. */

@@ -8,16 +8,26 @@ Windows** - so running the suite on a real Windows box would still not catch thi
 class. This document names the class, records what we know, and points at the
 mechanism that keeps it from growing silently.
 
-## The two known instances (the corpus, n=2)
+## The known instances (the corpus)
 
-Both were found by luck, late, and pinned one at a time. Both were the **same
-shape**: a platform-dependent operation using a hardcoded POSIX constant instead
-of the platform-aware API.
+All were found by luck, late, and pinned one at a time. Two shapes so far:
+a platform-dependent operation using a hardcoded POSIX constant instead of the
+platform-aware API (the delimiter/root family), and an `fs.constants` open flag
+that is **undefined on win32** and so silently vanishes when OR-ed in (#1777).
 
 | # | site | the bug | fix-shape |
 |---|---|---|---|
 | #1592 | `engine/github.js` | split `AGENT_WORKFORCE_GH_CANDIDATES` on a hardcoded `':'`. On Windows a real override is `C:\tools\gh.exe;D:\alt\gh.exe`, so `':'` yields three broken fragments and gh reports missing with no diagnostic. **Found at iteration 45 of a challenge loop.** | `split(path.delimiter)` (`:` on POSIX, `;` on Windows) + a source-pin. |
 | #1510 | `engine/store.js` `dataRootFor` | joined with the **ambient** `path` (which off Windows is `path.posix`), so the win32 branch answered with `/`. | `joinerFor(platform)` → `path.win32`/`path.posix`, and a test that **asks the function about win32 from macOS**. |
+| #1761 / #1776 | `engine/securewrite.js`, `engine/sendertoken.js` | an `O_NOFOLLOW` symlink guard OR-ed into an `open()`. `O_NOFOLLOW` is **undefined on win32**, and `X | undefined === X`, so the guard **evaporates on the one platform the module ships to** - with no error and, worse, no macOS signal, because on macOS the kernel enforces the refusal via the same flag so the call has *no observable effect there at all*. | capture the maybe-undefined flag undefined-safe (`(NOFOLLOW || 0)`) **and** make the protection platform-INDEPENDENT - a `refuseSymlinkTarget` hand check that runs even when the kernel flag is absent, pinned behaviourally so its presence is testable on macOS. |
+
+**A third instance, `engine/discover.js` `scanRootsFromEnv` (#1777),** was the
+delimiter family at a *second* call site: it splits `AGENT_WORKFORCE_SCAN_ROOTS`
+on `path.delimiter` correctly, but had no pin. It needed no new one-off pin -
+the ratchet below scans every `engine/*.js`, so a regression of that site to a
+hardcoded `':'` already reds (measured). That is the ratchet composing, which is
+the whole point of #1777: a fix at one site should not leave the next site as
+unguarded as the first.
 
 ## The recommended fix-shape for a real hit
 
@@ -45,11 +55,13 @@ Do **not** reach for a hardcoded separator/root at all:
 | a hardcoded `'\n'` written to a file the Windows side re-parses | `os.EOL`, or normalize on read |
 
 This table is remediation **advice**. It is NOT the same as what the ratchet
-auto-scans: only three families are scanned - `path-delimiter-literal`,
-`fs-root-literal`, and `env-home`. Manual `a + '/' + b` concat and hardcoded
-`'\n'` EOL are advice here but not scanned (concat is dominated by legitimate URL
-building; EOL has no low-noise syntactic signature). Use the portable form
-anyway.
+auto-scans: four families are scanned - `path-delimiter-literal`,
+`fs-root-literal`, `env-home`, and `fs-const-platform-flag` (an `fs.constants`
+open flag that is undefined on win32 - `O_NOFOLLOW`/`O_SYMLINK`/`O_NONBLOCK` and
+the rest of the win32-undefined set; the always-defined flags are deliberately
+not matched). Manual `a + '/' + b` concat and hardcoded `'\n'` EOL are advice
+here but not scanned (concat is dominated by legitimate URL building; EOL has no
+low-noise syntactic signature). Use the portable form anyway.
 
 ## The ratchet: `engine/windows-coupling-audit-1732.test.js`
 
@@ -64,17 +76,20 @@ an in-file `INVENTORY` with a disposition + one-line reason, and:
   one) - it fires when someone **adds** a hardcoded platform coupling, which is
   when a reviewer should be thinking about Windows;
 - **reds on a stale inventory entry** - a classified site removed or reshaped - so the inventory cannot rot into a vacuous pass;
-- carries **positive pins** for the two known sites (github.js uses
-  `path.delimiter`; store.js uses `joinerFor`), so it independently red-guards a
+- carries **positive pins** for the known-fixed sites (github.js uses
+  `path.delimiter`; store.js uses `joinerFor`; securewrite.js ORs `O_NOFOLLOW` in
+  undefined-safe as `(NOFOLLOW || 0)`), so it independently red-guards a
   regression.
 
 Every arm is perturbation-proven: reverting the github.js fix reds the coupling
-arm **and** the github pin; a synthetic new `.split(':')` reds the coupling arm;
-neutralizing a classified site reds the stale arm; the unmodified tree is green.
+arm **and** the github pin; a synthetic new `.split(':')` or `fs.constants.O_SYMLINK`
+reds the coupling arm; neutralizing a classified site reds the stale arm;
+dropping securewrite's `(NOFOLLOW || 0)` guard reds the #1776 pin; the unmodified
+tree is green.
 
 ### What the ratchet does and does not claim (read this before trusting it)
 
-With a corpus of **n=2**, the ratchet **prevents NEW instances of KNOWN shapes**.
+The ratchet **prevents NEW instances of KNOWN shapes**.
 It **claims nothing about finding existing instances** already in the tree, and
 **nothing about catching unknown shapes** - a subtler Windows assumption (`\r\n`
 vs `\n` in a file the Windows side parses, a case-insensitive-filesystem

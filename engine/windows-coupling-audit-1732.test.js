@@ -38,8 +38,8 @@
  * from source), so the inventory cannot rot into a vacuous pass.
  *
  * STATED LIMIT (do not oversell this): the ratchet only covers Windows-hostility
- * that takes one of the ENUMERATED syntactic shapes below. The known corpus is
- * n=2 and both fit; a subtler assumption (\r\n vs \n in a file the Windows side
+ * that takes one of the ENUMERATED syntactic shapes below. The known corpus fits
+ * the four families; a subtler assumption (\r\n vs \n in a file the Windows side
  * parses, a case-insensitive-FS assumption, a POSIX-only child process) would
  * slip through. This reduces the surface; it does not close it. See
  * docs/windows-source-coupling-1732.md.
@@ -201,6 +201,23 @@ const FAMILIES = [
     // (const {HOME} = process.env) is not caught -- documented in the doc's limits.
     re: /process\.env(?:\.HOME\b|\[\s*(['"])HOME\1\s*\])/,
   },
+  {
+    name: 'fs-const-platform-flag',
+    // An fs.constants open flag that is UNDEFINED on win32. OR-ing an undefined
+    // value in (`X | undefined === X`) makes the flag SILENTLY VANISH there, with
+    // no error and no behavioural signal on macOS where the flag IS defined -- the
+    // #1761 / #1776 class (an O_NOFOLLOW symlink guard that evaporates on the one
+    // platform the module ships to). Only the win32-UNDEFINED members are listed;
+    // the always-defined ones (O_RDONLY/O_WRONLY/O_RDWR/O_CREAT/O_EXCL/O_TRUNC/
+    // O_APPEND) never vanish and are deliberately NOT matched, to keep the family
+    // low-noise. The portable-fix shape is NOT "use a portable API" (there is none
+    // for O_NOFOLLOW) but "make the guard's effect testable regardless of the flag"
+    // -- capture it undefined-safe and behaviour-pin the protection platform-
+    // independently, as engine/securewrite.js does (its refuseSymlinkTarget hand
+    // check runs even when the kernel flag is absent). See
+    // docs/windows-source-coupling-1732.md.
+    re: /fs\.constants\.O_(?:NOFOLLOW|SYMLINK|DIRECTORY|DIRECT|NOATIME|NONBLOCK|DSYNC|SYNC)\b/,
+  },
 ];
 
 // --- THE INVENTORY ------------------------------------------------------------
@@ -228,6 +245,12 @@ const FAMILIES = [
 //   sanitizer        -- deliberately replaces path-ish chars; already handles '\\'
 //   posix-root-fallback -- os.tmpdir() is used; '/tmp' is an extra known root, harmless on Windows
 //   macos-only-branch   -- reached only on the macOS path (tmux / launchd), not on Windows
+//   guarded-vanish      -- an fs.constants flag undefined on win32, captured undefined-safe
+//                          (`|| 0`) AND behaviour-pinned platform-independently (securewrite)
+//   macos-covers-removal -- on macOS a behavioural arm catches the flag's REMOVAL; the win32
+//                          hardening of its vanish is #1777 item 3, deferred for the beta
+//   benign-nonblock     -- O_NONBLOCK is a fifo-avoidance flag, not a security guard; its
+//                          win32 absence changes nothing that matters
 // Add a row ONLY after confirming the site is not a real Windows bug; a real hit
 // gets FIXED (and carded per instance), not inventoried.
 const INVENTORY = [
@@ -251,6 +274,11 @@ const INVENTORY = [
   { file: 'engine/status.js', family: 'fs-root-literal', count: 1, contains: "process.env.TMUX_TMPDIR || '/tmp'", disposition: 'macos-only-branch', why: 'tmux socket path; tmux does not exist on Windows so this branch is macOS-only' },
   // --- macOS-only launchd path ---
   { file: 'engine/machine.js', family: 'env-home', count: 1, contains: "path.join(process.env.HOME || '', 'Library', 'LaunchAgents')", disposition: 'macos-only-branch', why: 'macOS LaunchAgents path; the Library/LaunchAgents branch is macOS-only' },
+  // --- fs.constants flags undefined on win32 (the #1761/#1776 vanishing-guard class) ---
+  { file: 'engine/instructions.js', family: 'fs-const-platform-flag', count: 1, contains: 'fs.constants.O_NOFOLLOW ', disposition: 'macos-covers-removal', why: 'symlink-refusing open flag; on macOS its removal is caught behaviourally (the symlink/fifo refusal arms in instructions.test.js), win32 hardening is #1777 item 3, deferred for beta' },
+  { file: 'engine/instructions.js', family: 'fs-const-platform-flag', count: 1, contains: 'fs.constants.O_NONBLOCK', disposition: 'benign-nonblock', why: 'paired with O_NOFOLLOW to avoid blocking on a fifo; its win32 absence is not a security regression' },
+  { file: 'engine/securewrite.js', family: 'fs-const-platform-flag', count: 1, contains: 'const NOFOLLOW = fs.constants.O_NOFOLLOW', disposition: 'guarded-vanish', why: 'THE EXEMPLAR (#1776): captured undefined-safe as (NOFOLLOW || 0) and the refuseSymlinkTarget hand check runs even when the kernel flag is absent, so the protection is platform-independent and pinned in securewrite.test.js' },
+  { file: 'engine/workerfile.js', family: 'fs-const-platform-flag', count: 1, contains: 'fs.constants.O_RDONLY | fs.constants.O_NONBLOCK', disposition: 'benign-nonblock', why: 'O_NONBLOCK avoids blocking on a fifo during a read-open; its win32 absence changes nothing that matters' },
 ];
 
 // Count family matches per (file, family), scanning non-comment lines only.
@@ -373,4 +401,22 @@ test('#1732 pin: engine/store.js dataRootFor joins with the platform it was aske
   assert.doesNotMatch(code, /path\.join\(\s*(?:home|e\.APPDATA|e\.AGENT_WORKFORCE_DATA)\b/,
     'engine/store.js dataRootFor joins a data-root arg with the AMBIENT path.join -- the #1510 bug. ' +
     'Use p.join from joinerFor(platform).');
+});
+
+test('#1776 pin: engine/securewrite.js handles O_NOFOLLOW vanishing on win32 undefined-safe', () => {
+  // The exemplar for the fs-const-platform-flag family. On win32 O_NOFOLLOW is
+  // undefined; a bare `... | fs.constants.O_NOFOLLOW` would silently drop the flag
+  // AND, worse, the guard would be a no-op with nothing testing it. securewrite
+  // captures the maybe-undefined constant and ORs it in undefined-safe as
+  // `(NOFOLLOW || 0)`, so the open call is well-formed on every platform, and the
+  // real protection is a platform-INDEPENDENT hand check (refuseSymlinkTarget),
+  // pinned behaviourally in securewrite.test.js. This pin guards the source marker
+  // of that fix, belt-and-suspenders with the family's inventory row.
+  const code = codeText('engine/securewrite.js');
+  assert.match(code, /NOFOLLOW\s*=\s*fs\.constants\.O_NOFOLLOW/,
+    'engine/securewrite.js must capture the maybe-undefined O_NOFOLLOW into a named local (#1776). ' +
+    'See docs/windows-source-coupling-1732.md.');
+  assert.match(code, /\(\s*NOFOLLOW\s*\|\|\s*0\s*\)/,
+    'engine/securewrite.js must OR O_NOFOLLOW in undefined-safe as (NOFOLLOW || 0), so the flag ' +
+    'vanishing on win32 cannot malform the open flags (#1776).');
 });
