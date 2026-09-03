@@ -375,14 +375,17 @@ test('every emit site in every check prints a line the gate can quote', () => {
      site -- so it is now BOTH quotable and counted, taking the total to 28. `bad`
      is empty and all 28 sites are quotable. The archaeology of the count's prior
      values lives in that PR, not here. */
-  /* 31 after kosmos#1531 added render-adopt-1531.js, whose `check()` helper prints
+  /* 32 after kosmos#2023 added render-board-signin-403-2023.js, whose `check()`
+     helper prints `${pass ? 'PASS' : 'FAIL'}  ${name}` -- one SHAPE-1 finding-emit
+     site, confirmed quotable. Was 31 after kosmos#1531 added render-adopt-1531.js,
+     whose `check()` helper prints
      `${pass ? 'PASS' : 'FAIL'}  ${name}` -- a SHAPE-1 finding-emit site, confirmed
      quotable (the matcher counts it, so a red names the failing assertion). Was
      30 after kosmos#1921 added render-account-badge-1921.js, whose per-problem
      `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
      quotable (the matcher counts it). Was 29 after kosmos#1918 added
      render-reauth-reach-1918.js, whose loop is the same shape. */
-  const EXPECTED_SITES = 31;
+  const EXPECTED_SITES = 32;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '

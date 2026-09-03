@@ -12488,6 +12488,9 @@ async function tick() {
          where something did answer. (A flag rather than a property on the
          error, because three tests slice this block by its throw line.) */
       answered = true;
+      // #2023: a 403 is not-signed-in (no board token, #1946), a known state with
+      // a remedy -- flag it so the render shows the remedy, not "cannot read".
+      BOARD_NEEDS_SIGNIN = (res.status === 403);
       throw new Error(parts.join(' · '));
     }
     const data = await res.json();
@@ -12552,6 +12555,7 @@ async function tick() {
     // still not told us what is on this machine.
     BOARD_LOOKED = true;
     BOARD_LOOK_FAILED = null;
+    BOARD_NEEDS_SIGNIN = false; // #2023: a successful read means this browser is authed.
     // ⚠️ The picker is repainted here rather than only on open, because the
     // add-a-project flow suppresses the projects poll while it is up. Without
     // this, a person who opened it before the first status landed kept an empty
@@ -13010,8 +13014,9 @@ async function tick() {
        fix is to depend on the thing that is static and always there. */
     document.getElementById('orgmap').innerHTML = '';
     ORG_HTML = null;
-    document.getElementById('orgnote').textContent =
-      'We cannot read the agents right now, so this is not drawn. It is not saying there are none.';
+    document.getElementById('orgnote').textContent = BOARD_NEEDS_SIGNIN
+      ? SIGNIN_SENTENCE
+      : 'We cannot read the agents right now, so this is not drawn. It is not saying there are none.';
     /* The tiles are claims too. Left alone they hold last-success numbers
        beside "we cannot see them" -- concrete headline counts asserting a
        fleet this poll just failed to read. "?" is the tile-sized unknown.
@@ -16159,6 +16164,28 @@ let BOARD_LOOKED = false;
 // the person finished the flow with no agents on the project. The honest
 // sentence is the board's: we cannot see them, which is not that there are none.
 let BOARD_LOOK_FAILED = null;
+/* #2023: a 403 on a protected board read is NOT "cannot read". It is a KNOWN
+   state -- this browser holds no board token (#1946's loopback auth) -- with a
+   specific remedy, so it must not fall into the honest-but-wrong "we cannot read
+   right now" path, which invites waiting that cannot supply a token. Set by any
+   protected read that gets a 403 (agents, projects), cleared when one succeeds.
+   Kept apart from BOARD_LOOK_FAILED so a GENUINE unreadable board still says so. */
+let BOARD_NEEDS_SIGNIN = false;
+/* One source for the not-signed-in copy so the agents box, the org note and the
+   projects surfaces cannot drift. The #1946 cookie is per-origin, so once
+   `kosmos open` sets it (via the #1979 boot nonce), reloading THIS stale tab
+   picks it up -- which is why "then reload" is the true remedy, not a false one. */
+const SIGNIN_SENTENCE = 'This board is not signed in, so its agents and projects cannot be read. Open it with `kosmos open` from a terminal, then reload this page.';
+function boardSigninHtml() {
+  return '<div class="pj-empty boardfail">'
+    + '<p><b>This board is not signed in.</b><br>'
+    + 'Its agents and projects cannot be read until it is. Open it with '
+    + '<code>kosmos open</code> from a terminal, then reload this page. A bookmark '
+    + 'or a typed 127.0.0.1 address reaches the board without its access token; '
+    + '<code>kosmos open</code> hands the token over, and this page picks it up on reload.</p>'
+    + '<button class="btn" type="button" data-board-retry>Reload</button>'
+    + '</div>';
+}
 
 /**
  * What the board says when it is holding no cards, which is THREE answers.
@@ -16176,6 +16203,8 @@ let BOARD_LOOK_FAILED = null;
  * filled, and this is not that.
  */
 function boardEmpty() {
+  // #2023: a not-signed-in board is a known state with a remedy, not "cannot read".
+  if (BOARD_NEEDS_SIGNIN) return boardSigninHtml();
   if (BOARD_LOOK_FAILED) {
     return '<div class="pj-empty boardfail">'
       + '<p><b>We cannot read your agents right now.</b><br>'
@@ -26964,7 +26993,10 @@ async function loadProjects() {
     // answers 500 with `projectsUnreadable` rather than `{projects: []}`, and
     // painting [] here would put "No projects yet" in front of somebody who
     // has projects we simply could not read.
-    if (!res.ok || body.projectsUnreadable) throw new Error(body.error || 'we cannot read your projects right now');
+    if (!res.ok || body.projectsUnreadable) {
+      if (res.status === 403) BOARD_NEEDS_SIGNIN = true; // #2023: not-signed-in, not unreadable.
+      throw new Error(body.error || 'we cannot read your projects right now');
+    }
     PROJECTS = body.projects || [];
     PJ_LOADED_ONCE = true;
     /* The project deep link (#374), once: the first load that can see the
@@ -26992,6 +27024,7 @@ async function loadProjects() {
     }
     PJ_AGENTS_UNREADABLE = body.agentsUnreadable === true;
     PJ_READ_FAILED = false;
+    BOARD_NEEDS_SIGNIN = false; // #2023: a readable projects response means this browser is authed.
     /* After the outcome is recorded, never before: the sentence's "no
        projects" verdict reads PJ_READ_FAILED, and a read that recovers on an
        empty board would otherwise paint one poll of the wrong sentence. */
@@ -27006,14 +27039,15 @@ async function loadProjects() {
     // showing the state from before the change with no error anywhere visible.
     // A screen asserting a state nobody checked is the failure this whole app
     // is built against, and it had crept back in through an error path.
-    const note = 'We cannot read your projects right now. This is not saying you have none, it is saying we cannot see them.';
+    const note = BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
+      : 'We cannot read your projects right now. This is not saying you have none, it is saying we cannot see them.';
     // ⚠️ Through the SAME change-guard as the success path. The poll re-enters
     // here every 5 seconds while the store stays unreadable, and these are
     // aria-live regions -- so an unguarded write read the same sentence aloud
     // every 5 seconds, forever. The error path was the one caller that skipped
     // the guard written for exactly this.
-    setIfChanged(document.getElementById('pj-list'),
-      '<div class="err"><b>We cannot read your projects right now.</b><br>'
+    setIfChanged(document.getElementById('pj-list'), BOARD_NEEDS_SIGNIN ? boardSigninHtml()
+      : '<div class="err"><b>We cannot read your projects right now.</b><br>'
       + 'This is not saying you have none, it is saying we cannot see them.</div>');
     // The tiles are claims too: confident counts one element above the
     // could-not-look sentence are the same stale juxtaposition the
@@ -27058,12 +27092,16 @@ async function loadProjects() {
   // wrote (and only that sentence, matched exactly): the failed-restore
   // flow left "We cannot read your projects right now..." in #pj-one-msg
   // beside a page the next poll had already repainted healthy.
+  // #2023: retire EITHER the cannot-read sentence OR the not-signed-in one this
+  // path may have written, so a re-authed board does not keep a stale remedy.
+  const staleReadMsg = (t) => t.startsWith('We cannot read your projects right now')
+    || t.startsWith('This board is not signed in');
   const oneMsg = document.getElementById('pj-one-msg');
-  if (oneMsg && oneMsg.textContent.startsWith('We cannot read your projects right now')) {
+  if (oneMsg && staleReadMsg(oneMsg.textContent)) {
     oneMsg.textContent = '';
   }
   const setMsg = document.getElementById('pjs-read-msg');
-  if (setMsg && setMsg.textContent.startsWith('We cannot read your projects right now')) {
+  if (setMsg && staleReadMsg(setMsg.textContent)) {
     setMsg.textContent = '';
   }
   return true;
