@@ -1727,7 +1727,17 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
      pinned; keying the exclusion on `◯` alone let the main row become the
      anchor. The completion line sits between the composer and the focused row so
      the two anchor choices diverge. */
-  for (const focused of ['❯ ◯ general-purpose  doing 43s', '❯⏺  main']) {
+  /* And the exclusion must be the FOOTER SHAPE, not "any row containing an
+     icon": a genuine composer whose TYPED TEXT holds one must still anchor.
+     Someone working on this reader is exactly who types a circle into a prompt. */
+  assert.equal(
+    classify(pane, '✻ Waiting for 1 background agent to finish'
+      + '\n────\n❯ why is ◯ drawn on every footer row\n────'
+      + '\n  ⏵⏵ bypass permissions on · ← for agents').state,
+    'working',
+    'a composer with an icon in its typed text was disqualified as a footer row');
+
+  for (const focused of ['❯ ◯ general-purpose  doing 43s', '❯ ⏺ main', '❯ ● main']) {
     assert.equal(
       classify(pane, '✻ Waiting for 1 background agent to finish' + footer
         + '\n  ⏺ Agent "x" finished · 5m\n' + focused).state,

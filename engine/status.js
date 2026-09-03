@@ -1835,12 +1835,19 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    🛑 A `dynamic workflows?` ALTERNATIVE WAS REMOVED, AND REMOVING IT IS THE FIX.
    With it, a WORKFLOW-ONLY wait matched and then could never be resolved: the
    resolution check below keys on the vendor's agent-completion notification, and
-   there is no workflow equivalent in the bundle (only `Workflow "${name}" not
-   found`). So such a pane read `working` forever, which is worse than the state
-   this card set out to fix, and the reason it read `working` was a phrase I
-   widened to from the render JSX WITHOUT a live capture -- the exact thing the
-   do-not-widen rule below forbids. The composed form is unaffected; only the
-   never-observed workflow-only render is given up.
+   nothing the reader knows about could resolve it, so such a pane read `working`
+   forever: worse than the state this card set out to fix.
+
+   🛑 AND MY FIRST REASON FOR DELETING IT WAS FALSE. I wrote that no workflow
+   completion string exists in the bundle. Both `Dynamic workflow "${name}"
+   completed` and `… failed: …` are there, and `local_workflow` tasks carry the
+   same notification flag agent tasks do. A workflow arm PLUS its own resolution
+   marker is buildable; I closed the question with a sentence one grep refutes.
+   ⇒ The deletion stands on the RULE instead: I widened to that phrase from the
+   render JSX with NO LIVE CAPTURE, which is exactly what the do-not-widen note
+   below forbids. Give it back when someone captures a workflow-only wait, and add
+   its completion marker in the same change. The composed form is unaffected; only
+   the never-observed workflow-only render is given up.
 
    🛑 THE `$` IS LOAD-BEARING, BUT IT MUST ALLOW THE VENDOR'S ` · …` SUFFIXES.
    Without any anchor the pattern matches every sentence CONTAINING the phrase,
@@ -1885,11 +1892,9 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
 
    📌 A STATIC GREP COULD NOT HAVE FOUND THIS LINE: the counts are interpolated,
    so the literal is nowhere in the bundle. Found only by capturing a live pane.
-   📌 The workflow counter IS handled (the `dynamic\s*workflows?` arm above), which
-   the comments below this constant once denied. It was derived from the bundle's
-   render JSX rather than from a live capture, which is weaker evidence than this
-   file's own rule asks for, and it is recorded as such rather than as an
-   observation.
+   📌 The workflow counter is NOT handled: its arm was removed (see above). A
+   composed `… N background agents and M dynamic workflows …` row still matches,
+   through the agent phrase.
    📌 History, corrections, and the measurements behind every number above:
    `.claude/plans/panefixtures-1889.md`. */
 const BACKGROUND_AGENT_WAIT =
@@ -1919,8 +1924,9 @@ const BACKGROUND_AGENT_WAIT =
    ⇒ The stable anchor is the COMPOSER ROW (`❯`), because everything variable --
    subagent rows, the status line, the hint line -- is drawn BELOW it, while this
    status line is always drawn just above it.
-   MEASURED live on 2.1.258: every genuinely-live instance sat 3 rows above the
-   composer row. A 7 and a 13 were also observed, both on panes whose wait had
+   MEASURED live on 2.1.258: live instances sit 3 to 5 rows above the composer,
+   the spread coming from optional rows the vendor inserts (a notification row, a
+   tip block). A 7 and a 13 were also observed, both on panes whose wait had
    already RESOLVED, so they are not evidence about the live case and 12 is not
    fitted to them.
    ⚠️ 8 IS THE EXACT LOWER EDGE, NOT A VALUE WITH SLACK BELOW IT. Swept: the
@@ -1978,9 +1984,6 @@ const AGENT_FINISHED_LINE =
  */
 function backgroundAgentWait(text) {
   const rows = String(text == null ? '' : text).split('\n');
-  let last = rows.length - 1;
-  while (last >= 0 && rows[last].trim() === '') last -= 1;
-  if (last < 0) return null;
   for (let i = 0; i < rows.length; i += 1) {
     if (!BACKGROUND_AGENT_WAIT.test(rows[i])) continue;
     /* The composer row below this line, if there is one. A live status line is
@@ -1988,7 +1991,10 @@ function backgroundAgentWait(text) {
        is not. With no composer on screen (a dialog replaces it) this returns
        null: a MISS, never a false calm. An earlier version of this sentence
        described a fallback to the last non-empty row; that fallback was removed
-       and the sentence was not, so it described the opposite of the code. */
+       and the sentence was not, so it described the opposite of the code.
+       ⚠️ The last-non-empty-row bookkeeping went with it: a whitespace-only row
+       can never match the composer pattern, so bounding the scan at it and at
+       rows.length were the same scan. Both perturbations were green. */
     /* 🛑 THE LAST `❯`, NOT THE FIRST. The composer is the BOTTOM prompt row, so
        taking the first one below the wait line anchors on any `❯` that happens to
        be in the transcript -- a quoted shell prompt, a pasted terminal session, a
@@ -1999,11 +2005,13 @@ function backgroundAgentWait(text) {
        whose fixture makes the two anchor choices DIVERGE -- an earlier fixture
        had them agree, so it discriminated nothing.
        🛑 THE EXCLUSION MUST COVER EVERY FOOTER ICON, NOT JUST `◯`. The vendor
-       draws a focused footer row as pointer + THAT ROW'S OWN ICON, and the main
-       row's icon is `⏺`, so `❯⏺  main` is a real focused row. Keying on `◯`
-       alone let it become the anchor. */
+       draws a focused footer row as `N.pointer + " "` then that row's icon, and
+       the icon is `⏺` (macOS) or `●` for the VIEWED row rather than the main one,
+       so `❯ ⏺ main` is a real focused row. Keying on `◯` alone let it become the
+       anchor. An earlier version of this note wrote the shape without its
+       separating space and called `⏺` the main row's icon; both were wrong. */
     let anchor = -1;
-    for (let j = i + 1; j <= last; j += 1) {
+    for (let j = i + 1; j < rows.length; j += 1) {
       /* 🛑 `❯` IS NOT UNIQUE TO THE COMPOSER. The task footer draws its selected
          or hovered row as `figures.pointer + " "` then `figures.circle`, i.e.
          `❯ ◯ general-purpose …`, so a selected background-agent row would become
@@ -2019,8 +2027,13 @@ function backgroundAgentWait(text) {
          to a quoted `❯` above it, and prose then satisfied liveness. */
       if (/^\s*❯/.test(rows[j]) && !/^\s*❯\s*[◯⏺●]/.test(rows[j])) anchor = j;
     }
-    /* No composer on screen (a dialog replaces it) -> return null. A MISS, never
-       a false calm, and pinned by its own row. */
+    /* No composer row found -> return null. A MISS, never a false calm, pinned by
+       its own row.
+       ⚠️ THE POPULATION IS WIDER THAN "A DIALOG REPLACED IT". The vendor composes
+       the prompt as `prefix: qe ? "!" : N.pointer`, so BASH MODE draws `!` and one
+       state draws no prefix at all. On those ordinary screens this reader simply
+       declines. Recorded rather than fixed: keying on `!` as well needs a live
+       capture of a bash-mode pane mid-wait, which nobody has. */
     if (anchor === -1) return null;
     if (anchor - i > BACKGROUND_AGENT_WAIT_REACH) continue;
     /* A completed-agent line between the row and the composer means THIS wait is
@@ -2742,13 +2755,13 @@ function classify(pane, paneText) {
    * 📌 THE STRONGEST NAMED RISK IS NOT IN THAT LIST AND IS WORTH STATING FIRST.
    * The vendor's own `turn_duration` schema carries `pendingBackgroundAgentCount`
    * AND `pendingWorkflowCount` side by side, with a `describe()` saying the REPL
-   * renders one line from them. That workflow shape IS NOW HANDLED by the
-   * `dynamic\s*workflows?` arm, keyed from the render JSX rather than from a live
-   * capture. Weaker evidence than a capture, and recorded as such.
+   * renders one line from them. A workflow-ONLY row is deliberately NOT handled:
+   * see the constant's own comment for why the arm was added from JSX and then
+   * removed.
    *
-   * 🛑 THIS KEYS ON THE TWO COUNTER PHRASES THE RENDER COMPOSES, and nothing
-   * else. Every OTHER `Waiting for …` string is a NAMED, UNRESOLVED RISK rather
-   * than a handled case: none has been seen
+   * 🛑 THIS KEYS ON ONE COUNTER PHRASE, `background agents?`, and nothing else.
+   * The composed two-counter row matches through it. Every OTHER `Waiting for …`
+   * string is a NAMED, UNRESOLVED RISK rather than a handled case: none has been seen
    * rendered, and this repo's standard is that a static string is a screen and
    * not the truth. Do not widen this without a live capture of the shape you are
    * widening it to, and route the human-blocked ones to NEEDS_YOU, never here.
