@@ -110,10 +110,22 @@ async function makeAnna(page, { seen }) {
      exact substitution bug this flake was masking), the mark is drawing, and a row
      is still working so we caught it mid-flight rather than after it settled. None
      of those is implied by "a row exists", so each can still fail. */
-  await page.waitForFunction(() => {
-    const s = document.getElementById('cstep-made');
-    return !!s && !s.hidden && s.querySelectorAll('.tick').length > 0;
-  }, { timeout: 8000 });
+  /* 20000ms, matching the never-seen arm below, NOT 8000ms: this arm presses the
+     same real Create button in the same dry-run sandbox, so it incurs the SAME
+     #1916 `claude -p` probe latency (~7s) before the making starts (measured: rows
+     drawing at ~8s). An 8000ms ceiling sits right on that boundary and would time
+     out under load, reintroducing the exact flake this fixes. On timeout, emit a
+     labelled FAIL naming which sync never completed rather than throwing a raw
+     stack to the outer catch (the file's own made-hello wait models this). */
+  try {
+    await page.waitForFunction(() => {
+      const s = document.getElementById('cstep-made');
+      return !!s && !s.hidden && s.querySelectorAll('.tick').length > 0;
+    }, { timeout: 20000 });
+  } catch {
+    check('the making starts within 20s, so the mid-state assertions below mean something',
+      false, 'no progress row appeared; everything after this would be reading a screen that never started making');
+  }
 
   const early = await page.evaluate((inkSrc) => {
     const step = document.getElementById('cstep-made');
@@ -263,14 +275,19 @@ async function makeAnna(page, { seen }) {
      absorbs that variable latency -- it does not violate the rule below, because the
      rule protects the SETTLE-SLEEP (the negative assertions), which stays, now
      anchored after the sync so it measures the settled state rather than the probe. */
-  await page.waitForFunction(() => {
-    const s = document.getElementById('cstep-made');
-    const cv = document.getElementById('made-mark');
-    if (!s || s.hidden || !cv) return false;
-    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
-    for (let i = 3; i < d.length; i += 4) if (d[i] >= 40) return true; // any opaque pixel
-    return false;
-  }, { timeout: 20000 });
+  try {
+    await page.waitForFunction(() => {
+      const s = document.getElementById('cstep-made');
+      const cv = document.getElementById('made-mark');
+      if (!s || s.hidden || !cv || !cv.width || !cv.height) return false; // width/height: getImageData throws on a 0-sized canvas
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      for (let i = 3; i < d.length; i += 4) if (d[i] >= 40) return true; // any opaque pixel
+      return false;
+    }, { timeout: 20000 });
+  } catch {
+    check('the never-seen making starts within 20s, so the control below means something',
+      false, 'the mark never began drawing; the control cannot judge a mark that never appeared');
+  }
   /* 🛑 THIS SLEEP STAYS (see the rule above the seen-arm). The assertions below are
      NEGATIVES -- no greeting is offered, the mark never completes into a tick -- and
      you cannot wait for something that will never happen. The sleep gives the board
