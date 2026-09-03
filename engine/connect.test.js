@@ -610,17 +610,38 @@ driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CL
     assert.ok(made, 'no session was made, so this arm asserts nothing about the launch');
     const i = made.indexOf('env');
     assert.ok(i >= 0, 'the launch is not the measured multi-arg `env` form this assertion reads');
-    /* Order-independent on purpose: a future launch adding another assignment
-       ahead of `-u` would redden a slice-equality for a reason unrelated to this
-       card. Assert the pair is present, and (below) that nothing sets the
-       variable back. */
-    const u = made.indexOf('-u');
-    assert.ok(u > i && made[u + 1] === 'CLAUDE_CONFIG_DIR',
+    /* Order-independent for DETECTION, and bounded to the `env` slice like its
+       sibling in the control: an unrelated `-u` elsewhere in the tmux
+       invocation is not this card's business.
+
+       🛑 BUT ORDER IS NOT FREE, AND THE VERSION OF THIS COMMENT THAT SHIPPED
+       FIRST SAID IT WAS -- it called an assignment ahead of `-u` a reddening
+       "for a reason unrelated to this card". That is measurably false. `env`
+       stops option parsing at its first operand, so an assignment pushed AHEAD
+       of `-u` does not reorder the launch, it KILLS it. Measured, three arms:
+
+         env -u LEAK sh -c ...        -> LEAK=[UNSET]                  exit 0
+         env FOO=1 -u LEAK sh -c ...  -> env: -u: No such file or dir  exit 127
+         env -u LEAK FOO=1 sh -c ...  -> LEAK=[UNSET] FOO=[1]          exit 0
+
+       The middle arm is the one that matters: WITHOUT the ordering assertion
+       below, this test passes on an argv that cannot launch at all. */
+    const envSlice = made.slice(i);
+    const u = envSlice.indexOf('-u');
+    assert.ok(u >= 0 && envSlice[u + 1] === 'CLAUDE_CONFIG_DIR',
       'the default-account launch did not UNSET CLAUDE_CONFIG_DIR, so an ambient value '
       + '(from the tmux server, which this arm cannot see) reaches the CLI and the '
       + 'credential lands on another account');
     assert.ok(!made.some((a) => typeof a === 'string' && a.startsWith('CLAUDE_CONFIG_DIR=')),
       'the default launch both unsets and re-assigns CLAUDE_CONFIG_DIR, so the unset is undone');
+    /* The ordering half of the pair above: `-u` must precede EVERY assignment in
+       the `env` slice, or `env` treats it as a file to execute and exits 127. */
+    const firstAssign = envSlice.findIndex(
+      (a) => typeof a === 'string' && /^[A-Za-z_][A-Za-z0-9_]*=/.test(a));
+    assert.ok(firstAssign === -1 || u < firstAssign,
+      'an assignment sits ahead of `-u` in the `env` slice (' + JSON.stringify(envSlice) + '): '
+      + '`env` stops option parsing at its first operand, so this launch exits 127 with '
+      + '"env: -u: No such file or directory" instead of signing anyone in');
     assert.ok(warned.some((w) => w.includes('AGENT_WORKFORCE_CLAUDE_CONFIG is set without')),
       'the config/dir mismatch warning did not fire, so either the arm is no longer '
       + 'exercising the no-launch-dir path or the warning has been removed');
@@ -652,7 +673,13 @@ driverTest('#1922 CONTROL: a LABELLED-account sign-in still sets CLAUDE_CONFIG_D
      <bin>` satisfies the assertion above and still strips the variable. Assert
      nothing undoes it. */
   /* Bounded to the `env` slice, like its sibling in the default arm: an
-     unrelated `-u` elsewhere in the tmux invocation is not this card's business. */
+     unrelated `-u` elsewhere in the tmux invocation is not this card's business.
+
+     📌 WHY THIS ARM IS POSITIONAL (`made[i + 1]`) WHILE ITS SIBLING IS NOT, since
+     the two rationales read as contradictory: the constraint is one-sided. An
+     assignment MAY sit first (`env VAR=x <bin>` is the ordinary form), so pinning
+     it at i+1 costs nothing here. `-u` may NOT sit after one, which is why the
+     sibling asserts ordering rather than position. */
   assert.ok(!made.slice(i).includes('-u'),
     'the labelled launch also strips CLAUDE_CONFIG_DIR, so the assignment above is undone');
 });

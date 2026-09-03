@@ -5133,7 +5133,17 @@ const server = http.createServer((req, res) => {
              `accounts.listLive` and `/api/agent/:name/account-status` already
              scope the default this way and say why; this route did not, which is
              the asymmetry the card is about. Omitting it lets the CLI use its own
-             default resolution, which is what finds the real account. */
+             default resolution, which is what finds the real account.
+
+             ⚠️ WHAT THIS FIX DOES NOT DO, RECORDED HERE BECAUSE THE RESIDUAL IS
+             QUIETER THAN THE DEFECT AND WILL OTHERWISE BE RE-FILED AS A FRESH
+             REGRESSION. On a machine whose stored default reads CONNECTED, the
+             press now returns almost immediately having opened nothing, where it
+             used to run the whole OAuth flow into the wrong file. Both are
+             broken; the routing is simply no longer the reason. **The flow
+             behind the #1560 gate still cannot repair a dead credential: the
+             launch is a bare `claude` with no login argument. That is kosmos#1937
+             and it is not fixed here.** */
           return connect.start({
             configDir: known.isDefault ? null : known.dir,
             requireInstallConfirm: true,

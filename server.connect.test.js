@@ -427,9 +427,13 @@ test('#1585 CONTROL: an UNVERIFIABLE live check keeps connected rather than forc
  * files, two accounts. `accounts.listLive` and `/api/agent/:name/account-status`
  * both scope the default with NO configDir for this reason; this route did not.
  *
- * 🔑 BOTH ARMS DRIVE THE LIVE CHECK TO SIGNED-OUT VIA `subscription.setRunner`,
+ * 🔑 BOTH ARMS INSTALL A SIGNED-OUT LIVE CHECK VIA `subscription.setRunner`,
  * BECAUSE THAT IS THE STATE THE CARD IS ABOUT -- a person whose credential is
- * dead, asking to repair it.
+ * dead, asking to repair it. **INSTALLED IS NOT INVOKED, and only the default
+ * arm invokes it:** the labelled arm's fixture writes `work1/.claude.json` with
+ * only `oauthAccount.emailAddress`, so `subscription.check` never returns
+ * CONNECTED, `start()` never enters the block holding the sole `checkLive`
+ * call, and that arm's injected runner is never called at all.
  *
  * ⚠️ WHAT IT DOES NOT BUY, STATED BECAUSE AN EARLIER VERSION OF THIS BLOCK
  * CLAIMED IT DID. These arms do NOT reach a launch decision either way: the

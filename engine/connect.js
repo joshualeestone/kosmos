@@ -1091,18 +1091,36 @@ async function start(opts) {
        re-reads the SAME config that already said CONNECTED and calls
        finishConnected -- so the press ends where it started.
 
-       ⚠️ THE UNTESTED PREMISE, NAMED RATHER THAN BURIED: what a bare `claude`
-       actually shows when the stored credential has been REJECTED. Nothing in
-       this repo measures it. #874 measures `claude auth status --json`, the READ
-       side; the "Please run /login" text comes from `claude -p`, not the
-       interactive REPL. **If the interactive CLI prompts for a login on a dead
-       token, the pane classifies as login-method/browser-open, the driver walks
-       the sign-in, and opening this gate WOULD repair.**
+       ⚠️ THE PREMISE, NARROWED TO WHAT IS ACTUALLY UNMEASURED. An earlier
+       version of this comment said "nothing in this repo measures it" and
+       attributed the "Please run /login" line to `claude -p`. BOTH WERE WRONG,
+       and wrong in the direction that UNDERSTATED this gate's own case:
+
+         • `engine/status.js` (AUTH_FRIENDLY_MESSAGE, #1884) carries a real
+           external tester's pane verbatim -- `● Please run /login · API Error:
+           401 OAuth access token has expired. / Re-authenticate to continue.`
+           -- pinned as a classifier input at `engine/status.test.js` (BEN).
+         • That pane is an INTERACTIVE session, not `claude -p`:
+           `bin/agent-supervisor.sh` launches agent panes as
+           `claude --dangerously-skip-permissions [--model X]`, with no `-p` on
+           any arm.
+
+       ⇒ So a REJECTED credential in a RUNNING interactive session prints an
+       error line. It does not offer a login chooser. That supports keeping this
+       gate shut rather than opening it.
+
+       🔑 WHAT IS STILL GENUINELY UNMEASURED, AND IT IS THE ONLY THING THIS
+       GATE TURNS ON: what a FRESHLY LAUNCHED interactive `claude` shows when the
+       stored credential is ALREADY dead. Ben's token expired UNDER a live
+       session ("has expired"), which is a different moment from a cold start,
+       and `launchSignin` performs a cold start. If a cold start PROMPTS, the
+       pane classifies as login-method/browser-open, the driver walks the
+       sign-in, and opening this gate WOULD repair.
 
        ⇒ The gate is left shut for want of EVIDENCE, not because opening it is
        known to be useless. Declining to open a safety gate on an auth path for
        an unproven benefit is the conservative order, and that is the whole
-       argument. **What would settle it: capture a pane from a `claude` launched
+       argument. **What would settle it: capture a pane from a COLD `claude` launched
        against a genuinely rejected credential.** */
     if (!binaryOnDisk || live.state === subscription.STATE.NONE) {
       /**
@@ -1858,9 +1876,13 @@ async function launchSignin(owner) {
        session made on an ALREADY-RUNNING server (the pre-#586 pane saw the
        server's account while the client carried a different one). This launch
        uses the shared socket with no `-e`, so on any machine whose tmux server
-       is already up -- the normal Kosmos case, since agent panes are forwarded
-       a CLAUDE_CONFIG_DIR -- the pane inherits whichever account STARTED THE
-       SERVER. That is a value this process cannot inspect, which makes the
+       is already up the pane inherits whichever account STARTED THE SERVER.
+       (An earlier draft supported that with "agent panes are forwarded a
+       CLAUDE_CONFIG_DIR". That clause is struck: `bin/agent-supervisor.sh`
+       forwards it with `tmux -e`, which populates THAT SESSION's environment,
+       not the server's, so it was never evidence for a server-level value. The
+       claim above stands on `tools/witness-pane-env.sh` alone, which measured
+       it directly.) That is a value this process cannot inspect, which makes the
        exposure worse than a caller-side leak, not better.
 
        `subscription.checkLive` already defends the READ side of exactly this
@@ -1870,6 +1892,14 @@ async function launchSignin(owner) {
     cmd.push('-u', 'CLAUDE_CONFIG_DIR');
   }
   cmd.push(claudeBinPath());
+
+  /* 📌 The `-u` below sits AFTER `env` in the tmux argv, so it is part of the
+     shell-command tmux runs and not an option tmux itself consumes. That holds
+     because tmux's getopt does not permute: the first operand (`env`) ends
+     option parsing. Verified live on tmux 3.6a. The fake terminal in the suite
+     replays argv and cannot see tmux's own parser, so NO TEST COVERS THIS -- it
+     is stated here because a reader cannot otherwise tell a guarded property
+     from an unguarded one. */
 
   const made = await tmux(['new-session', '-d', '-s', SESSION, '-x', '220', '-y', '50', ...cmd]);
   if (!made.ok) {
