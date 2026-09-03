@@ -47,21 +47,56 @@ kosmos_failing_test_files() {
 # shows it re-ran and why (the card's acceptance).
 kosmos_isolation_rerun_verdict() {
   local log="$1" repo="$2" max="${3:-3}"
-  local line files file attempt rc dismissed
+  local line files file attempt rc dismissed fail_count testat_count
+
+  # A COMPLETENESS cross-check, so an incomplete parse cannot false-green. The
+  # whole safety of dismissing rests on having found EVERY failure: if a real
+  # regression were reported in a shape with no flush-left "test at <file>" line
+  # WHILE another failing file is dismissable, the missed one would sail through
+  # as "contention". node prints an aggregate "ℹ fail N" summary and one "test
+  # at" line per failing test (measured, node 26), so cross-check the two:
+  #  - no readable tally (the suite was killed before printing one) => cannot
+  #    prove completeness => abort;
+  #  - node reported ZERO failing tests => the red is a LATER stage (a shell
+  #    test, the browser-check gate, or the coverage assertion; run-tests.sh runs
+  #    those only after the node suite is green), which is not an isolable node
+  #    file -- and a stray "test at" echoed by such a stage must NOT be mistaken
+  #    for the failure => abort;
+  #  - fewer "test at" lines than node's fail count => a failure is in a shape
+  #    this does not parse => abort.
+  # The ONLY path that proceeds to a rerun is a red that IS a node test failure,
+  # fully accounted for. When unsure this aborts exactly as the cut would without
+  # the feature: it only ever makes the cut more lenient when PROVEN safe.
+  fail_count="$(grep -E '^ℹ fail [0-9]+' "$log" 2>/dev/null | tail -1 | grep -oE '[0-9]+' | tail -1)"
+  testat_count="$({ grep -cE '^test at ' "$log" 2>/dev/null || true; })"
+  if [ -z "$fail_count" ]; then
+    echo "isolation-rerun: could not read node's 'fail N' tally from the log (the suite may have been killed before printing one), so the failure list cannot be proven complete. Not dismissing; the cut aborts."
+    return 1
+  fi
+  if [ "$fail_count" -eq 0 ]; then
+    echo "isolation-rerun: node reported 0 failing tests, so this red is a later stage (a shell test, the browser-check gate, or the coverage assertion), not an isolable node test file. Not dismissing; the cut aborts."
+    return 1
+  fi
 
   files=()
   while IFS= read -r line; do
     [ -n "$line" ] && files+=("$line")
   done < <(kosmos_failing_test_files "$log")
 
-  if [ "${#files[@]}" -eq 0 ]; then
-    echo "isolation-rerun: the red names no node test file ('test at <file>' absent), so it is a shell test, the browser-check gate, the coverage assertion, or a could-not-run. That is not isolable here and must not be auto-dismissed; the cut aborts."
+  if [ "${#files[@]}" -eq 0 ] || [ "$testat_count" -lt "$fail_count" ]; then
+    echo "isolation-rerun: found $testat_count 'test at' failure line(s) for ${#files[@]} file(s), but node reported $fail_count failing test(s), so at least one failure is in a shape this does not parse. Not dismissing; the cut aborts."
     return 1
   fi
 
-  echo "isolation-rerun: the suite was red on ${#files[@]} node test file(s): ${files[*]}"
+  echo "isolation-rerun: the suite was red on ${#files[@]} node test file(s) ($fail_count failing test(s)): ${files[*]}"
   echo "isolation-rerun: re-running each ALONE (contention makes false reds, never false greens, so a single green alone means the suite red was starvation)."
 
+  # The rerun is a bare `node --test <file>` (exactly run-tests.sh:190's "rerun
+  # the failing file alone"), so it does NOT inherit run-tests.sh's per-run
+  # TMPDIR or coverage-assertion harness. The suite's tests self-sandbox (every
+  # store-using test sandboxes before requiring; see run-tests.sh), so this is
+  # correct today; a test that depended on harness-provided setup could behave
+  # differently alone, which would show as a red that stays red -> abort (safe).
   for file in "${files[@]}"; do
     if [ ! -f "$repo/$file" ]; then
       echo "  $file: NOT FOUND under $repo, so it cannot be re-run in isolation and cannot be dismissed. The cut aborts."

@@ -26,6 +26,9 @@ const { test } = require('node:test'); const a = require('node:assert');
 test('fails alone', () => { a.equal(1, 2); });
 EOF
 
+# A node-suite tally line, as node prints it (aggregate "ℹ fail N").
+tally() { printf '\xe2\x84\xb9 tests %s\n\xe2\x84\xb9 pass %s\n\xe2\x84\xb9 fail %s\n' "$1" "$2" "$3"; }
+
 # --- kosmos_failing_test_files: extraction ---
 log_pass="$WORK/log-pass"
 {
@@ -34,6 +37,7 @@ log_pass="$WORK/log-pass"
   echo "test at pass.test.js:2:1"
   echo "  passes alone (5ms)"
   echo "      at TestContext.<anonymous> (/abs/pass.test.js:2:1)"
+  tally 3 2 1
 } > "$log_pass"
 got="$(kosmos_failing_test_files "$log_pass")"
 [ "$got" = "pass.test.js" ] && ok "extracts the failing file and ignores the indented stack frame" \
@@ -47,7 +51,7 @@ got="$(kosmos_failing_test_files "$log_none")"
 
 # --- CONTENTION: a file that passes alone is dismissed -> verdict 0 ---
 if out="$(kosmos_isolation_rerun_verdict "$log_pass" "$WORK" 1)"; then rc=0; else rc=$?; fi
-[ "$rc" -eq 0 ] && ok "a file that passes alone -> verdict 0 (contention dismissed, cut proceeds)" \
+[ "$rc" -eq 0 ] && ok "a file that passes alone (tally accounts for it) -> verdict 0 (contention dismissed)" \
   || bad "contention case: rc=$rc, expected 0"
 printf '%s\n' "$out" | grep -q "Dismissed" && ok "narration says the file was dismissed (re-ran and why)" \
   || bad "narration missing 'Dismissed'"
@@ -56,12 +60,37 @@ printf '%s\n' "$out" | grep -q "The cut proceeds" && ok "narration says the cut 
 
 # --- CONTROL (dangerous answer): a file that stays red alone must NOT be dismissed -> verdict 1 ---
 log_fail="$WORK/log-fail"
-{ echo "failing tests:"; echo "test at fail.test.js:2:1"; echo "  fails alone (5ms)"; } > "$log_fail"
+{ echo "failing tests:"; echo "test at fail.test.js:2:1"; echo "  fails alone (5ms)"; tally 2 1 1; } > "$log_fail"
 if out="$(kosmos_isolation_rerun_verdict "$log_fail" "$WORK" 2)"; then rc=0; else rc=$?; fi
 [ "$rc" -eq 1 ] && ok "a file red in isolation across all attempts -> verdict 1 (abort), NOT dismissed" \
   || bad "real-red case: rc=$rc, expected 1"
 printf '%s\n' "$out" | grep -q "real failure" && ok "narration names it a real failure" \
   || bad "narration missing 'real failure'"
+
+# --- COMPLETENESS: node reported 0 failing tests (a shell/gate red) -> verdict 1 ---
+# Even with a STRAY 'test at' line echoed to the log, a fail-0 red must not be dismissed.
+log_shellred="$WORK/log-shellred"
+{ tally 100 100 0; echo "test at pass.test.js:2:1"; echo "some shell gate then failed"; } > "$log_shellred"
+if out="$(kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
+[ "$rc" -eq 1 ] && ok "node fail 0 + a red (a later shell/gate stage) -> verdict 1, even past a stray 'test at'" \
+  || bad "fail-0 case: rc=$rc, expected 1"
+printf '%s\n' "$out" | grep -q "0 failing tests" && ok "narration names the fail-0 later-stage reason" \
+  || bad "narration missing the fail-0 reason"
+
+# --- COMPLETENESS: an INCOMPLETE parse (more failures than 'test at' lines) -> verdict 1 ---
+# node says 2 failed but only one has a parseable 'test at' line: do NOT dismiss on the parseable one.
+log_incomplete="$WORK/log-incomplete"
+{ echo "test at pass.test.js:2:1"; echo "  passes alone"; tally 5 3 2; } > "$log_incomplete"
+if out="$(kosmos_isolation_rerun_verdict "$log_incomplete" "$WORK" 1)"; then rc=0; else rc=$?; fi
+[ "$rc" -eq 1 ] && ok "2 failures reported but 1 parseable -> verdict 1 (incomplete parse, abort)" \
+  || bad "incomplete-parse case: rc=$rc, expected 1"
+
+# --- COMPLETENESS: no readable tally at all -> verdict 1 ---
+log_notally="$WORK/log-notally"
+{ echo "test at pass.test.js:2:1"; echo "  killed before the tally"; } > "$log_notally"
+if out="$(kosmos_isolation_rerun_verdict "$log_notally" "$WORK" 1)"; then rc=0; else rc=$?; fi
+[ "$rc" -eq 1 ] && ok "no 'fail N' tally (suite killed) -> verdict 1 (cannot prove completeness, abort)" \
+  || bad "no-tally case: rc=$rc, expected 1"
 
 # --- SAFE FALLBACK: a red naming no node file cannot be isolated -> verdict 1 ---
 if out="$(kosmos_isolation_rerun_verdict "$log_none" "$WORK" 1)"; then rc=0; else rc=$?; fi
@@ -70,7 +99,7 @@ if out="$(kosmos_isolation_rerun_verdict "$log_none" "$WORK" 1)"; then rc=0; els
 
 # --- SAFE FALLBACK: a named-but-missing file cannot be isolated -> verdict 1 ---
 log_missing="$WORK/log-missing"
-{ echo "test at ghost.test.js:1:1"; echo "  ghost"; } > "$log_missing"
+{ echo "test at ghost.test.js:1:1"; echo "  ghost"; tally 2 1 1; } > "$log_missing"
 if out="$(kosmos_isolation_rerun_verdict "$log_missing" "$WORK" 1)"; then rc=0; else rc=$?; fi
 [ "$rc" -eq 1 ] && ok "a named-but-missing file -> verdict 1 (cannot isolate, abort)" \
   || bad "missing-file case: rc=$rc, expected 1"
@@ -79,7 +108,7 @@ printf '%s\n' "$out" | grep -q "NOT FOUND" && ok "narration says NOT FOUND" \
 
 # --- MIXED: one dismissable + one real -> verdict 1 (a real failure among contention still aborts) ---
 log_mixed="$WORK/log-mixed"
-{ echo "test at pass.test.js:2:1"; echo "  passes alone"; echo "test at fail.test.js:2:1"; echo "  fails alone"; } > "$log_mixed"
+{ echo "test at pass.test.js:2:1"; echo "  passes alone"; echo "test at fail.test.js:2:1"; echo "  fails alone"; tally 4 2 2; } > "$log_mixed"
 if out="$(kosmos_isolation_rerun_verdict "$log_mixed" "$WORK" 2)"; then rc=0; else rc=$?; fi
 [ "$rc" -eq 1 ] && ok "mixed (a real failure alongside a dismissable one) -> verdict 1 (abort)" \
   || bad "mixed case: rc=$rc, expected 1"
