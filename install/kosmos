@@ -636,9 +636,13 @@ cmd_post() {
   # project-omitted attempt (`kosmos post --file x`) is caught too. Tradeoff, safe
   # direction: a standalone `--file`/`--attach` WORD anywhere -- e.g. in unquoted
   # prose like `post p remove the --file option` -- is treated as an attach and
-  # refused (recoverable: quote the message as one arg, which multi-word messages
-  # already are, and the mention passes). `--` is not specially honored; refusing
-  # a legit message is recoverable, posting literal `--file x` garbage is not.
+  # refused. Recoverable: pass the message as ONE quoted arg (the mention then
+  # passes, as the test pins); `--` is not specially honored. Refusing a legit
+  # message is recoverable; posting literal `--file x` garbage is not.
+  # Out of scope, on record: a BARE path (`post proj findings.md`) or an `@file`
+  # form is NOT detected -- it is indistinguishable from a text message, so it is
+  # left to the real attach capability (Done #1, coupled to kosmos#1943), not
+  # guessed at here.
   for _a in "$@"; do
     case "$_a" in
       --file|--file=*|--attach|--attach=*)
