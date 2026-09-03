@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -238,4 +238,53 @@ test('#1253 CONTROL: the delivery guard fails when the verbs move to an old head
   const offered = moved.filter((s) => !legacy.includes(s.heading));
   assert.ok(!offered.some((s) => /kosmos report needs_you/.test(s.text)),
     'the regression is not detectable: a legacy agent would still somehow be offered the verbs');
+});
+
+/**
+ * #1943. Two agents on two machines each invented a folder for their output, or
+ * left it as a chat artifact, and the operator placed the files by hand both
+ * times. The block never said where a file belongs, so an agent chose somewhere.
+ *
+ * 🔑 PINNED AS CONTENT, like #1253 and #1272: the version test catches any
+ * change to the block; this says which change must not be undone. The rule has
+ * to name three things or it does not answer the report: a project's work goes
+ * in the project's folder, your own work goes in your own folder, and nothing
+ * is invented or left only in the chat.
+ */
+test('#1943: the block says where a file belongs', () => {
+  const b = defaults.block();
+  assert.match(b, /Work you do for a project goes in that project’s folder/,
+    'project work is not pointed at the project folder');
+  assert.match(b, /Work that is\s+your own goes in your own folder/,
+    'own work is not pointed at your own folder');
+  assert.match(b, /do not invent a new place/,
+    'the invented-folder failure the card reports is not forbidden');
+  assert.match(b, /only as a message in\s+this window/,
+    'the chat-artifact failure the card reports is not forbidden');
+  // A missing tellAgent path degrades to a question, not a guess.
+  assert.match(b, /not a licence to guess/);
+});
+
+/**
+ * #1943 DELIVERY. The rule is worthless if it reaches only agents born after
+ * it, because the two agents that hit this already exist. It landed under a NEW
+ * heading for exactly the version 5/6/7 reason, so `missingFrom` offers it to a
+ * legacy agent that holds every other heading.
+ */
+test('#1943: an agent holding the old headings is still offered the new rule', () => {
+  const all = defaults.sections();
+  const owner = all.filter((s) => s.heading === '### Where the files you make go');
+  assert.equal(owner.length, 1, 'the where-files-go section is missing or duplicated');
+
+  const legacy = all.filter((s) => s.heading !== owner[0].heading)
+    .map((s) => s.heading + '\n' + s.text).join('\n\n');
+  const offered = defaults.missingFrom(legacy);
+  assert.ok(offered.some((s) => s.heading === '### Where the files you make go'),
+    'a legacy agent would never be offered the where-files-go rule');
+
+  /* CONTROL: an agent that already holds the section is offered nothing, so the
+     positive result above means the filter actually discriminated. */
+  const complete = all.map((s) => s.heading + '\n' + s.text).join('\n\n');
+  assert.ok(!defaults.missingFrom(complete).some((s) => s.heading === '### Where the files you make go'),
+    'the section is offered to an agent that already has it, so missingFrom is not filtering');
 });

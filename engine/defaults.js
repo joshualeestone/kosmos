@@ -270,6 +270,23 @@ const BLOCK = [
   'exactly like an agent working, and that is the cheapest possible way to lose a',
   'day.',
   '',
+  '### Where the files you make go',
+  '',
+  '**Work you do for a project goes in that project\u2019s folder. Work that is',
+  'your own goes in your own folder. You do not invent a new place for it, and',
+  'you do not leave a finished file sitting in this chat as its only copy.**',
+  '',
+  'When your work is a project\u2019s, its folder on this computer is named for',
+  'you in these instructions: put the files there, in the obvious spot inside',
+  'it, not in a deeper path you made up under it. When the work is your own and',
+  'not tied to a project, your own folder is where it goes.',
+  '',
+  'The reason is that a person looks for their work where they keep it. A file',
+  'in a folder they never named, or a document that lives only as a message in',
+  'this window, is work they cannot find and did not really get. If you cannot',
+  'tell which folder a thing belongs in, that is one short question for them,',
+  'not a licence to guess.',
+  '',
   '### What you hand a person',
   '',
   '**When you make something for a person, make it in the format they would',
@@ -394,8 +411,27 @@ function block() {
  *     and the same class of instruction already lost once here. It removes a
  *     second, independent reason the reply cannot happen; it is not proof the
  *     first one is fixed. Capturing the answer without opt-in would be better.
+ *
+ *   8. kosmos#1943. Two agents on two machines each invented a folder for their
+ *     output (one made up `work/worker/<name>/findings/<date>/`) or left it as a
+ *     chat artifact, and the operator had to place the files by hand both times.
+ *     The block never said where a file belongs, so an agent with nowhere named
+ *     chose somewhere. A NEW section states the default plainly: a project's
+ *     work goes in the project's folder (which `projects.tellAgent` already
+ *     writes into the instruction file), your own work goes in your own folder,
+ *     and nothing is invented or left only in the chat.
+ *     ⭐ NEW HEADING, deliberately, for the version 5/6/7 delivery reason:
+ *     `missingFrom` matches by heading, so this reaches agents that already
+ *     exist, not only newly created ones. An edit inside an existing section
+ *     would have healed none of the fleet, which is the exact mistake those
+ *     three versions were spent on.
+ *     ⚠️ WEAKEST PREMISE, NAMED: the project-folder half assumes `tellAgent`
+ *     put the path in the file, and its result is three-state (TOLD/COULD_NOT/
+ *     NOT_TRIED). Where it could not, the path is absent; the copy covers that
+ *     by telling the agent to ask which folder rather than guess, so a missing
+ *     path degrades to a question, not a made-up path.
  */
-const DOCTRINE_VERSION = 7;
+const DOCTRINE_VERSION = 8;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
