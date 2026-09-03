@@ -1,0 +1,93 @@
+'use strict';
+
+/**
+ * The first-run Accessibility step (fr-pane-5) copy + button style (#1940).
+ *
+ * Josh's ask, Mona Lisa's design: the copy names the exact action ("Turn on
+ * 'Tmux' in Accessibility"), the "Open Accessibility settings" button uses the
+ * gold-outline `fr-sleepbtn` style (matching the sleep-settings button), and the
+ * "This one is optional" line is gone (Continue already lets a skipper move on).
+ *
+ * 🛑 ASSERTED IN A REAL RENDER, not by grepping the file: the button's COMPUTED
+ * style must actually be the gold-outline one (a class name in the markup that
+ * no rule matches would pass a source grep and fail on screen), and the copy is
+ * read off the rendered pane. Each arm is written so it would FAIL on the
+ * pre-#1940 markup (old copy present, plain `.btn` background, optional line
+ * present), so the check discriminates.
+ *
+ *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-a11y-copy-1940.js
+ */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-a11y-'));
+const ROOTS = [SANDBOX];
+const mkroot = (t) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-a11y-' + t)); ROOTS.push(d); return d; };
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.env.AGENT_WORKFORCE_WORKERS = mkroot('workers-');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_CONFIG_ROOT = mkroot('config-');
+process.env.AGENT_WORKFORCE_LAUNCH = mkroot('launch-');
+process.env.AGENT_WORKFORCE_PROJECTS = mkroot('projects-');
+process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
+
+const { chromium } = require('playwright');
+const srv = require('../../server.js');
+const { stepForAnchor } = require('./lib-firstrun-steps.js');
+
+const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'a11y-shots-'));
+const fail = [];
+function chk(ok, label, extra) {
+  console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
+  if (!ok) fail.push(label);
+}
+
+(async () => {
+  const server = await srv.start(0);
+  const BASE = 'http://127.0.0.1:' + server.address().port;
+  const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
+  try {
+    const page = await browser.newPage({ viewport: { width: 900, height: 820 } });
+    const errs = [];
+    page.on('pageerror', (e) => errs.push(e.message));
+    // Discover the Accessibility step from its own anchor (#1214/#1801 renumbered
+    // the panes; a hard-coded 5 would rot), then deep-link straight to it.
+    await page.goto(`${BASE}/?first-run=1`, { waitUntil: 'domcontentloaded' });
+    const step = await stepForAnchor(page, '#fr-a11y-open');
+    await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('#fr-pane-5:not([hidden])', { timeout: 8000 });
+    await page.waitForTimeout(250);
+
+    const m = await page.evaluate(() => {
+      const pane = document.getElementById('fr-pane-5');
+      const btn = document.getElementById('fr-a11y-open');
+      const cs = getComputedStyle(btn);
+      return {
+        paneText: pane.textContent.replace(/\s+/g, ' ').trim(),
+        btnHasSleep: btn.classList.contains('fr-sleepbtn'),
+        btnBg: cs.backgroundColor,
+        btnBorder: cs.borderColor || cs.borderTopColor,
+      };
+    });
+
+    chk(/Turn on 'Tmux' in Accessibility to enable this/.test(m.paneText),
+      "the copy names the exact action (Turn on 'Tmux' in Accessibility)", m.paneText.slice(0, 90));
+    chk(!/Kosmos agents can work in your other applications/.test(m.paneText),
+      'the old copy is gone', m.paneText.slice(0, 60));
+    chk(m.btnHasSleep, 'the Open-Accessibility button carries the gold fr-sleepbtn class', 'bg=' + m.btnBg);
+    chk(!/This one is optional/.test(m.paneText),
+      'the "This one is optional" line is deleted (Continue already lets a skipper move on)');
+
+    await page.screenshot({ path: path.join(OUT, 'fr-pane-5-a11y.png') });
+    console.log('screenshot: ' + path.join(OUT, 'fr-pane-5-a11y.png'));
+    chk(errs.length === 0, 'no page errors', errs.join(' | '));
+  } finally {
+    await browser.close();
+    server.close();
+    for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  }
+
+  if (fail.length) { console.log('\n' + fail.length + ' FAILED'); process.exit(1); }
+  console.log('\nall fr-pane-5 accessibility-copy checks passed');
+})().catch((e) => { console.error(e); process.exit(1); });
