@@ -92,6 +92,17 @@ if out="$(kosmos_isolation_rerun_verdict "$log_notally" "$WORK" 1)"; then rc=0; 
 [ "$rc" -eq 1 ] && ok "no 'fail N' tally (suite killed) -> verdict 1 (cannot prove completeness, abort)" \
   || bad "no-tally case: rc=$rc, expected 1"
 
+# --- ERREXIT regression guard: as a DIRECT caller under set -euo pipefail (release.sh's
+# context, but WITHOUT its if-wrapper that suspends errexit), the no-tally path must RETURN
+# and narrate, not abort at the fail_count assignment. Runs in a fresh set -e shell. ---
+export REPO WORK log_notally
+eset_out="$(bash -c 'set -euo pipefail; . "$REPO/tools/lib/cut-rerun-guard.sh"; kosmos_isolation_rerun_verdict "$log_notally" "$WORK" 1' 2>&1)"; eset_rc=$?
+if [ "$eset_rc" -eq 1 ] && printf '%s\n' "$eset_out" | grep -q "cannot be proven complete"; then
+  ok "as a DIRECT caller under set -euo pipefail, no-tally returns 1 and narrates (errexit-safe)"
+else
+  bad "errexit-safety: a direct set -e caller aborted before narrating -- rc=$eset_rc out=[$eset_out]"
+fi
+
 # --- SAFE FALLBACK: a red naming no node file cannot be isolated -> verdict 1 ---
 if out="$(kosmos_isolation_rerun_verdict "$log_none" "$WORK" 1)"; then rc=0; else rc=$?; fi
 [ "$rc" -eq 1 ] && ok "a failure that names no node file -> verdict 1 (not auto-dismissed)" \

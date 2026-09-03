@@ -60,6 +60,18 @@ Card items 1 (harden #1618's own harness) and 2 (redefine what "quiet the box" m
 for #1962) are related but out of scope here; the Acceptance is item 3. If the
 isolation-rerun does not make #1618's own flakiness moot, that is its own follow-up.
 
+**Runner scope (important): this covers STEP 3 only, the node `node --test` suite (the
+`yarn test` gate in release.sh). It relieves ONE contention source: the cut's own 382-file
+parallelism starving itself (a file that goes green alone). It does NOT cover step 3b, the
+headless browser checks (`tools/browser-checks.sh`, a separate runner); and it does NOT
+shed EXTERNAL box load. The 0.6.25 cut died at step 3b because a heavy background job (a
+`while :; mktemp` IO-stress harness, #1988) drove fseventsd to ~70% CPU and saturated the
+box -- and Baron's point is the crux: "an isolation-rerun still runs INSIDE the same
+starved box; the reservation needs to actually shed the load." So external load starves the
+alone-rerun too, and #2006 correctly aborts rather than dismissing (the safe direction), but
+the cut still does not get out. That load-shedding fix (for both runners) is carded as
+#2017. This is a deliberate, explicit scope, not a silent one-runner cover.**
+
 ## Test
 
 `tools/test-cut-rerun-guard.sh` (wired into `test:shell`): 11 assertions covering

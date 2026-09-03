@@ -67,7 +67,7 @@ kosmos_isolation_rerun_verdict() {
   # The ONLY path that proceeds to a rerun is a red that IS a node test failure,
   # fully accounted for. When unsure this aborts exactly as the cut would without
   # the feature: it only ever makes the cut more lenient when PROVEN safe.
-  fail_count="$(grep -E '^ℹ fail [0-9]+' "$log" 2>/dev/null | tail -1 | grep -oE '[0-9]+' | tail -1)"
+  fail_count="$(grep -E '^ℹ fail [0-9]+' "$log" 2>/dev/null | tail -1 | grep -oE '[0-9]+' | tail -1 || true)"
   testat_count="$({ grep -cE '^test at ' "$log" 2>/dev/null || true; })"
   if [ -z "$fail_count" ]; then
     echo "isolation-rerun: could not read node's 'fail N' tally from the log (the suite may have been killed before printing one), so the failure list cannot be proven complete. Not dismissing; the cut aborts."

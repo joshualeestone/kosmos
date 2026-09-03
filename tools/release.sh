@@ -447,6 +447,12 @@ if [ "$_suite_exit" -ne 0 ]; then
   # was starved by the cut's own parallel suite (contention makes false reds,
   # never false greens), not broken by the change; a file that stays red alone,
   # or a failure that is not an isolable node test file, is real and aborts.
+  # SCOPE: this guards the step-3 node/shell suite (`yarn test`) only, and only
+  # the cut's OWN-parallelism contention (a file that goes green alone). It does
+  # NOT cover step 3b, the headless browser checks below (a separate runner), and
+  # it does NOT shed EXTERNAL box load: a heavy background job saturating the box
+  # starves the alone-rerun too, so this aborts (safe) but the cut still stalls.
+  # That load-shedding fix, for both runners, is carded as #2017.
   # `if VAR=$(...)` captures the verdict's exit WITHOUT tripping errexit and
   # WITHOUT a pipe -- a pipe would let a downstream exit mask the verdict's.
   echo "--- #2006: re-running the failing file(s) in isolation before deciding ---"
