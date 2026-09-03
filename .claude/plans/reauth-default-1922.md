@@ -338,3 +338,51 @@ one-line excuse in that guard is *"a claim someone can check"* about his code.
 
 📌 **Recorded as inherited-red, NOT as green.** My five arms pass; the suite does not, and those are
 different statements.
+
+## Findings from challenge-loop iteration 3
+
+**One BLOCKER, five WARNINGs, two NITs. The BLOCKER was right and it cost me my own fix.**
+
+### 🛑 I OPENED A GATE WITHOUT CHECKING WHAT WAS BEHIND IT
+
+Recorded in full in *The fix, and what it does NOT fix*. In one line: the flow the gate guards
+launches a **bare `claude`** with no login argument, and the repl arm re-reads the same config that
+already said CONNECTED, so the press ends where it started. **The bypass is removed.**
+
+⭐ **The class, and it is the reusable half: a gate was opened without checking that the machine
+behind the gate could do the thing the gate was blocking.** Every check I ran was about whether the
+bypass was *reachable* and *safe*; none asked whether the flow it unlocked could *repair anything*.
+**"Is this change correct?" and "does this change accomplish the thing?" are different questions and
+I only asked the first.**
+
+### Three false claims of mine, and one is a new shape
+
+- **A comment I wrote was silently falsified by my own later commit on the same branch.** The
+  `setRunner` rationale said forcing signed-out was load-bearing "or the arm takes the early exit" --
+  true when written, then the bypass made it irrelevant, and **the docblock renders identically
+  either way.** ⇒ **A later commit can invalidate an earlier commit's stated reasoning with no
+  signal at all.** (The bypass's removal makes it true again, which is luck, not process.)
+- **An arm named "runs the sign-in" never ran one.** It returns at the install-confirm guard with
+  `phase: idle`; its only assertion, `notEqual(phase, 'connected')`, is satisfied by almost every
+  state. It did discriminate on the flag, so it was not vacuous -- but **a negative assertion cannot
+  carry a positive claim**, and the plan's sentence about it was false. Arm removed with its subject.
+- **My teardown reasoning cited a window these arms never reach.** They return before a driver is
+  claimed, so there is no un-awaited `runFlow` and the cancel is a no-op. Corrected at both sites
+  rather than deleted, because a reader would otherwise inherit the false reason.
+
+### ⚠️ THE BLOCKER REACHES BEYOND THIS BRANCH
+
+**#1918 merged a `#d-reauth` "Sign in again" button on the agent detail page** whose entire purpose
+is giving a broken sign-in a reachable remedy. **It leads into this same flow.** So the remedy it
+makes reachable cannot currently repair a credential either. Raised with the PM rather than assumed
+known.
+
+### Suite state, stated as two claims rather than one
+
+```
+js half     3834 pass, 0 fail          <- covers everything this branch changes
+shell half  3 FAILURES, EXIT_CODE=1    <- another agent's live Playwright run (pid 71512)
+```
+
+✅ **Control: `origin/main` fails identically** (`rc=1`, same three assertions, same live pid), and
+this branch touches none of the files that test reads. **Recorded as environment, NOT as green.**
