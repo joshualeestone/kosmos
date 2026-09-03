@@ -187,6 +187,66 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## ITERATION 22: A BLOCKER LIVING BETWEEN TWO GREEN FIXTURES
+
+**`BACKGROUND_AGENT_WAIT` spells every space `\s*`** on the `capture-pane -J`
+wrap-join premise, and the branch asserts those joins as real renders.
+**`backgroundAgentWaitCount` spelled them `\s+`.** So on exactly the rows the
+matcher was widened to accept, N fell through to the unreadable-row fallback of 1
+and one completion resolved a wait on N: the iteration-20 false calm restored, in
+the wrap mode the module already treats as live. Measured, each reading `working`
+alone and `idle` with one completion below it:
+
+    ✻ Waiting for 2 backgroundagents to finish
+    ✻ Waiting for 2background agents to finish
+    ✻ Waiting for 3 background agentsto finish     (2 running agents hidden)
+
+⭐ **TWO REGEXES READING ONE ROW MUST SHARE ITS WHITESPACE PREMISE.** Neither was
+wrong alone. Nothing tested them TOGETHER: the wrap fixtures assert only `.state`
+on a wait with no completions, and the count fixtures use unwrapped rows. **The
+only fixture that can catch this is one that varies BOTH dimensions at once**, and
+it is in now, with a both-completions control so it cannot pass by the reader
+simply having stopped matching wrapped waits.
+
+### Three more, two of them false calms
+
+- **`chat.waitingNote` told a person their message would go unread.** A pane on a
+  background wait classifies `working`, but its turn has ENDED and its composer
+  takes the text immediately, so "it will not read this until it finishes" is the
+  opposite of what happens. **The only one of this family a PERSON reads** (the
+  siblings were rule 5 and the #1921 badge). The card now publishes
+  `stateBackgroundWait`; polarity is `=== true` so absence keeps the old sentence.
+- **The banner `continue` was unarmed.** It sits one line from the count
+  `continue`, which WAS pinned. Perturbing the banner one to `return null` left
+  the suite green while reading `idle` on a live agent below a banner-cleared
+  stale row. ⚠️ **Splitting the two arms into separate constants is what left one
+  unpinned** -- the split was made to keep them clear and it created the hole.
+- **A composed wait was cleared by its agent half alone.**
+  `Waiting for 1 background agent and 3 dynamic workflows to finish` plus one
+  agent completion returned `idle` with three workflows running. The reader now
+  DECLINES on a composed row. The bundle does carry `Dynamic workflow "x"
+  completed`, but this branch's rule is to widen only on a live capture of the
+  shape being widened to, and there is none. **Resolving on a marker I have not
+  seen rendered would be the same error facing the other way.**
+
+### Comments that misdescribed their own subject
+
+- The focused-footer sentence claimed the vendor draws `pointer + " "` then the
+  icon. It draws `[Zp, Vp, "  "]` with the pointer immediately followed by the
+  icon and two spaces AFTER. The exclusion spells the gap `*` so nothing broke,
+  and **that sentence had already been corrected once, in the other direction**.
+- The suffix enumeration was missing a fourth child (`· N still running`). Inside
+  the suffix group anyway, and gated so it cannot co-occur with the wait text.
+- `Number.isFinite(n) && n > 0` is unreachable and now says so. Perturbing the
+  line to `return n` leaves the suite green. **An unreachable expression that
+  LOOKS like a guard is worse than no expression**: it tells the next reader the
+  input is checked when nothing checks it.
+
+⭐ **The pattern across iterations 19 to 22, stated once:** every defect this loop
+found after the original one was introduced BY A FIX, and three of them disarmed a
+guard rather than breaking a behaviour. **A green suite is evidence about the code
+you changed and says nothing about the guards you moved out from under.**
+
 ## ITERATION 21: THIS BRANCH SILENTLY WEAKENS #1966's ACCOUNT BADGE
 
 Found by a blind reviewer reading ACROSS the merge, which no test on either side
