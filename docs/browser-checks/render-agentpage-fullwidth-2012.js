@@ -26,13 +26,17 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fw-'));
+// Every mktemp root is collected so the finally can remove ALL of them, not
+// just DATA -- a check that leaks four temp dirs per run is its own small mess.
+const ROOTS = [];
+const mkroot = (tag) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fw-' + tag)); ROOTS.push(d); return d; };
+const SANDBOX = mkroot('');
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
-process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fw-workers-'));
+process.env.AGENT_WORKFORCE_WORKERS = mkroot('workers-');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
-process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fw-config-'));
-process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fw-launch-'));
-process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fw-projects-'));
+process.env.AGENT_WORKFORCE_CONFIG_ROOT = mkroot('config-');
+process.env.AGENT_WORKFORCE_LAUNCH = mkroot('launch-');
+process.env.AGENT_WORKFORCE_PROJECTS = mkroot('projects-');
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
 const { chromium } = require('playwright');
@@ -116,7 +120,7 @@ function chk(ok, label, extra) {
   } finally {
     await browser.close();
     server.close();
-    fs.rmSync(SANDBOX, { recursive: true, force: true });
+    for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
 
   if (fail.length) { console.log('\n' + fail.length + ' FAILED'); process.exit(1); }

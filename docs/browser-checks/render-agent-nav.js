@@ -164,7 +164,15 @@ function chk(ok, label, extra) {
       // box, so `box.hidden === false` alone would pass a revived gate.
       chk(term.box === false && term.pre === false && term.msg === true,
         `[${theme}] the window box shows a capture with Engineering mode off`, JSON.stringify(term));
-      chk(term.cap === '560px', `[${theme}] the window cap is 560px on this box`, term.cap);
+      // #2012: the window fills the page height now (max-height: calc(100vh - 220px)),
+      // not the old fixed 560px. At this check's 950px-tall viewport that resolves to
+      // ~730px; assert it is viewport-relative (past the old 560 cap, the control) and
+      // still a cap that leaves chrome room (under the full viewport height).
+      {
+        const cap = parseFloat(term.cap);
+        chk(Number.isFinite(cap) && cap > 560 && cap < 950,
+          `[${theme}] the window fills the page height (#2012), past the old 560px cap`, term.cap);
+      }
 
       // Narrow: the nav becomes a row above the content, and nothing overflows.
       await page.setViewportSize({ width: 420, height: 900 });

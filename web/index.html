@@ -4265,7 +4265,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    the cap becomes viewport-relative: the box grows into the empty page instead
    of stopping at 560px, with its own scroll (`.pj-screen` is `overflow:auto`).
    The 220px offset leaves room for the header, the section chrome and the
-   composer; it is a single tunable number, not a layout invariant.
+   composer; it is a single tunable number, not a layout invariant. On a SHORT
+   window (under ~780px tall) this resolves below the old 560px, which is
+   correct, not a regression: the box has its own scroll (`overflow:auto`), so
+   it fits the window instead of the old fixed 560px overflowing it; nothing is
+   lost, it scrolls.
    STILL a cap, not a height: a quiet agent draws a short box, exactly as
    before. It lives on the id, not `.pj-screen`, because four surfaces share
    that rule and only this one is the agent page's window. */
