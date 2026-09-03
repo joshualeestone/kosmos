@@ -70,10 +70,12 @@ fetch() {  # <url> <dest>  -- refuse on any failure, because a missing artifact 
   # -fsSL follows redirects (#2014 review): HOST defaults to installkosmos.com (no redirect), but
   # if KOSMOS_SITE_URL is ever pointed at chaoskosmos.com it 308-redirects /dist, and without -L
   # this would fetch a 15-byte "Redirecting..." stub and refuse (or verify) against the wrong bytes.
-  curl -fsSL "$1" -o "$2" || { echo "deploy-site: could not fetch $1 -- refusing (a missing artifact would drop from the live site)"; exit 1; }
+  # -H no-cache: a stale CDN copy would drive a false refuse or verify a stale artifact; the rest of
+  # the pipeline (verify-served.sh, pkg-inputs) sends it too, so match them.
+  curl -fsSL -H 'Cache-Control: no-cache' "$1" -o "$2" || { echo "deploy-site: could not fetch $1 -- refusing (a missing artifact would drop from the live site)"; exit 1; }
 }
 verify_sha() {  # <file> <sha256-url>
-  want=$(curl -fsSL "$2" 2>/dev/null | awk '{print $1}')
+  want=$(curl -fsSL -H 'Cache-Control: no-cache' "$2" 2>/dev/null | awk '{print $1}')
   got=$(shasum -a 256 "$1" | awk '{print $1}')
   [ -n "$want" ] && [ "$got" = "$want" ] || { echo "deploy-site: sha mismatch for $1 (want '$want' got '$got') -- refusing"; exit 1; }
 }
@@ -93,7 +95,7 @@ H=$(git -C "$SITE" rev-parse HEAD 2>/dev/null) || { echo "deploy-site: cannot re
 # the trap the guard below closes. Tracked artifacts are NEVER fetched into the shared checkout
 # (that would leave dirty tracked files a later `git commit -a` could sweep up); only the gitignored
 # set is fetched, and every fetched byte is sha-verified.
-LJ=$(curl -fsSL "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
+LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
 # tolerant of an optional space after the colon in case latest.json is ever pretty-printed; an empty
 # result still refuses at the [ -n "$ART" ] guard (fail-safe).
 ART=$(printf '%s' "$LJ" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p')
@@ -107,7 +109,7 @@ ART=$(printf '%s' "$LJ" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p'
 # copy/marketing change never touches dist/latest.json, so committed == live exactly in the intended
 # workflow and this never false-refuses. (Both sides are command-substitution captures, so a
 # trailing-newline difference cannot cause a false refusal.)
-CJ=$(git -C "$SITE" show "$H:dist/latest.json" 2>/dev/null)
+CJ=$(git -C "$SITE" show "$H:dist/latest.json" 2>/dev/null) || CJ=""   # a git-show failure must not set-e abort before the friendly refuse below
 [ "$CJ" = "$LJ" ] || { echo "deploy-site: the checkout's COMMITTED latest.json differs from LIVE -- refusing. The checkout is stale or ahead of the current release; a site-copy deploy must not move the installer pointer. Sync $SITE to the current release, then retry."; exit 1; }
 fetch "$HOST/dist/$ART"          "$SITE/dist/$ART"
 fetch "$HOST/dist/$ART.sha256"   "$SITE/dist/$ART.sha256"
@@ -166,7 +168,15 @@ site_deploy_export "$SITE" "$EXPORT" "$H" || { echo "deploy-site: site_deploy_ex
 [ -f "$EXPORT/dist/$ART" ]       || { echo "deploy-site: the export did not carry the current tarball $ART -- refusing"; rm -rf "$EXPORT"; exit 1; }
 [ -f "$EXPORT/dist/tmux-arm64.tar.gz" ]   || { echo "deploy-site: the export did not carry tmux-arm64.tar.gz -- refusing (the installer fetches it on every install; #2014 review)"; rm -rf "$EXPORT"; exit 1; }
 [ -f "$EXPORT/dist/kosmos-arm64.tar.gz" ] || { echo "deploy-site: the export did not carry the unversioned alias kosmos-arm64.tar.gz -- refusing (setup.sh's cache-busted fallback; #2014 review)"; rm -rf "$EXPORT"; exit 1; }
-[ -f "$EXPORT/dist/$WINZIP" ]    || { echo "deploy-site: the export did not carry the Windows zip $WINZIP -- refusing"; rm -rf "$EXPORT"; exit 1; }
+# the .sha256 sidecars the installer verifies each gitignored tarball against: gitignored and
+# glob-carried like the tarballs, so a missing one drops the same way. Check them too.
+for s in "$ART.sha256" tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz.sha256; do
+  [ -f "$EXPORT/dist/$s" ] || { echo "deploy-site: the export did not carry the checksum $s -- refusing (the installer verifies against it)"; rm -rf "$EXPORT"; exit 1; }
+done
+# The Windows zip is TRACKED (git archive carries the committed copy). A refusal here almost always
+# means the committed win-zip name no longer matches the hardcoded $WINZIP after a version bump
+# (#2008), NOT a genuine carry failure.
+[ -f "$EXPORT/dist/$WINZIP" ]    || { echo "deploy-site: the export has no $WINZIP -- refusing. If the Windows build was bumped, the committed zip name changed and the hardcoded default is stale (#2008); set KOSMOS_WIN_ZIP to the current name or land the unversioned alias."; rm -rf "$EXPORT"; exit 1; }
 [ -f "$EXPORT/.kosmos-release-export" ] || { echo "deploy-site: the export has no .kosmos-release-export marker -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
 # --- 4) the .vercelignore guard, exactly as the release runs it ---------------
@@ -188,7 +198,7 @@ rm -rf "$EXPORT"
 # the artifacts and checking the bytes catches it.
 REPO="$REPO" HOST="$HOST" sh "$REPO/tools/verify-served.sh" || { echo "deploy-site: SERVED verification FAILED after deploy -- the site may render with dead downloads. Investigate immediately (this is the #1669 shape)."; exit 1; }
 # verify-served.sh does not cover the Windows zip; confirm it explicitly.
-code=$(curl -sSL -o /dev/null -w '%{http_code}' "$HOST/dist/$WINZIP") || { echo "deploy-site: could not reach $HOST/dist/$WINZIP to confirm it is served (transport error) -- investigate; the deploy already ran."; exit 1; }
+code=$(curl -sSL -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/$WINZIP") || { echo "deploy-site: could not reach $HOST/dist/$WINZIP to confirm it is served (transport error) -- investigate; the deploy already ran."; exit 1; }
 [ "$code" = "200" ] || { echo "deploy-site: the Windows zip $WINZIP is NOT served ($code) after deploy -- investigate."; exit 1; }
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."
