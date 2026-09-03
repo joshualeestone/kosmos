@@ -137,7 +137,9 @@ tester reproduces this on a LABELLED account, this diagnosis is wrong.**
 
 ## The layer below the fix, checked because a routing fix can be right and still lose the write
 
-**`engine/connect.js:1821`:** `const launchDir = owner.configDir || process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;`
+**`grep -n 'const launchDir' engine/connect.js`:** `const launchDir = owner.configDir || process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;`
+(Cited by the reproducing grep, not by a line number. The number here read `1821` and had drifted to
+1865 by iteration 7, inside the very section iteration 6 recorded as repaired.)
 
 With `configDir` null -- the default-account path this fix creates -- the launch directory falls back
 to that env var. **If it resolved to something on a real machine, the routing fix would be correct
@@ -448,6 +450,24 @@ from `claude -p`, not the interactive REPL. **Neither measures the interactive p
 review that established the chain drove a pane to chosen content; it never ran a real dead
 credential.
 
+🛑 **BOTH SENTENCES IN THAT PARAGRAPH ARE FALSE. Corrected at iteration 7; left standing above so the
+correction is legible rather than silent.** The repo DOES hold the measurement, in a file this
+branch never touches: `engine/status.js` (AUTH_FRIENDLY_MESSAGE, #1884) carries a real external
+tester's pane verbatim, pinned as a classifier input in `engine/status.test.js`, and
+`bin/agent-supervisor.sh` launches agent panes as `claude --dangerously-skip-permissions`, with **no
+`-p` on any arm** -- so the line came from an INTERACTIVE session, not print mode.
+
+⭐ **And the error ran AGAINST my own conclusion, which is the part worth keeping.** A rejected
+credential in a running interactive session prints an error line rather than offering a login
+chooser, which SUPPORTS keeping the gate shut. I wrote "nothing measures it" and thereby understated
+my own case. **The direction of an error is not evidence about its cause: I was not shading toward a
+convenient answer, I simply did not look outside the files I was editing.**
+
+✅ **What survives, narrowed to what is genuinely unmeasured:** Ben's token expired UNDER a live
+session ("has expired"). `launchSignin` performs a COLD start, and no capture exists of a cold
+interactive `claude` against an already-dead credential. That distinction, not the original one, is
+what the gate turns on, and it is now what the comment and #1937 say.
+
 ✅ **Corrected in place: the comment now says it is read from the control flow, names the untested
 premise, and says what would settle it.** The gate stays shut **for want of evidence, not because
 opening it is known useless** -- which is a different and weaker claim than the one I shipped.
@@ -605,3 +625,78 @@ including `server.js`** -- one of the files my arms read. **The empty result was
 the repo.** ⇒ **A rebase orphans every recorded run, and the check that tells you whether the
 measurement survives can itself be the thing that is broken.** Re-ran the suite: green on the rebased
 head, 3897 pass / 0 fail / exit 0, all four shell blocks, all four arms.
+
+## Findings from challenge-loop iteration 7
+
+**Context: this iteration was run twice.** The first run's results were lost when the session was
+restarted mid-flight, so nothing from it survives; this is a fresh blind pass over the same head.
+
+### 🛑 A SHIPPED COMMENT TOLD THE NEXT PERSON A QUESTION WAS UNMEASURED. THE REPO ANSWERS IT.
+
+The gate comment in `engine/connect.js` said, of what a `claude` shows on a rejected credential,
+**"Nothing in this repo measures it"**, and attributed the `Please run /login` line to `claude -p`.
+Both false, and the reviewer found them in one pass by looking in files this branch never touches:
+
+| claim I shipped | what the repo holds |
+|---|---|
+| nothing measures the interactive pane | `engine/status.js` AUTH_FRIENDLY_MESSAGE (#1884) carries a real tester's pane verbatim; `engine/status.test.js` pins it as a classifier input |
+| the string comes from `claude -p` | `bin/agent-supervisor.sh` launches agent panes as `claude --dangerously-skip-permissions`, **no `-p` on any of its four arms** |
+
+⭐ **The error ran AGAINST my own conclusion, and that is the part worth keeping.** A rejected
+credential in a RUNNING interactive session prints an error rather than offering a login chooser,
+which supports keeping the gate shut. I understated my own case. ⇒ **The direction of an error is
+not evidence about its cause.** My iteration-4 note said every error of mine ran toward CLOSING a
+question; this one ran the other way and had the same single cause, which is the honest reading:
+**I did not look outside the files I was editing.** A premise about the product cannot be settled
+from the diff.
+
+✅ **What survives, and it is narrower and sharper.** Ben's token expired UNDER a live session
+("has expired"). `launchSignin` performs a **COLD** start. **No capture exists of a cold interactive
+`claude` against an already-dead credential**, and that, not the original claim, is what the gate
+turns on. Corrected in the comment, in the plan's iteration-4 section, and on #1937.
+
+### 🛑 AN ASSERTION I DELIBERATELY LOOSENED PERMITTED A LAUNCH THAT CANNOT RUN
+
+Iteration 6 made the default launch arm order-independent, with this rationale: *"a future launch
+adding another assignment ahead of `-u` would redden a slice-equality for a reason unrelated to this
+card."* **Measured, three arms, on this machine:**
+
+```
+env -u LEAK sh -c ...        -> LEAK=[UNSET]                  exit 0
+env FOO=1 -u LEAK sh -c ...  -> env: -u: No such file or dir  exit 127   <- NOT "unrelated"
+env -u LEAK FOO=1 sh -c ...  -> LEAK=[UNSET] FOO=[1]          exit 0
+```
+
+`env` stops option parsing at its first operand, so an assignment ahead of `-u` does not reorder the
+launch, **it kills it (exit 127)**. The loosened assertion passed on exactly that argv.
+
+⭐ **So the rationale was not merely wrong, it was wrong in the direction of removing a guard**, and
+it read as principled test hygiene while doing it. **Mutation-proven both ways:** pushing
+`PERTURB=1` ahead of `-u` now reddens the arm and prints the offending argv; the pre-fix assertion
+evaluates true on that same argv (`i=0`, `u=2`, `made[3] === 'CLAUDE_CONFIG_DIR'`). Restored, 54/54
+green.
+
+### The residual now lives in the artifact, not only in the plan
+
+The reviewer flagged that the branch trades a loud wrong behaviour for a quiet one (a press that
+used to run the whole flow into the wrong file now returns instantly doing nothing) and that
+**nothing shipped named the residual or a follow-up**. The follow-up does exist and is
+**kosmos#1937**, which the reviewer had no way to see. Named now in the source comment and here,
+and it is PR-body material.
+
+### Corrected, all in this iteration
+
+- `engine/connect.js` gate: both false sentences replaced; premise narrowed to a COLD launch, with
+  the three supporting sites cited by name.
+- `engine/connect.js` leak comment: struck the clause "agent panes are forwarded a
+  CLAUDE_CONFIG_DIR". `bin/agent-supervisor.sh` forwards it with `tmux -e`, which populates **that
+  session's** environment, not the server's, so it was never evidence for a server-level value. The
+  core claim stands on `tools/witness-pane-env.sh`, which measured it directly.
+- `engine/connect.js` launch: states that `-u` sits after `env` in the tmux argv and is therefore
+  the command's, not tmux's, **because tmux's getopt does not permute** (live on 3.6a), and states
+  plainly that **no test covers this** since the fake terminal cannot see tmux's parser.
+- `engine/connect.test.js`: default arm bounded to the `env` slice like its sibling; the two arms'
+  contradictory rationales reconciled (the constraint is one-sided: an assignment MAY sit first,
+  `-u` may NOT sit after one).
+- `server.connect.test.js`: "BOTH ARMS DRIVE THE LIVE CHECK TO SIGNED-OUT" overstated the control.
+  Now says installed-is-not-invoked, and why the labelled arm never reaches `checkLive`.
