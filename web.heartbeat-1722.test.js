@@ -70,7 +70,7 @@ function makePaint(served, notifyOn = true, ok = true) {
     if (String(url).indexOf('notify-setting') !== -1) return { ok: true, json: async () => ({ on: notifyOn, ok: true }) };
     return { ok, json: async () => served };
   };
-  const body = lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintHeartbeat') + '\nreturn paintHeartbeat;';
+  const body = 'let HB_EPOCH=0;\n' + lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintHeartbeat') + '\nreturn paintHeartbeat;';
   const paint = new Function('document', 'fetch', body)(d.document, fetchStub);
   return { paint, calls, ...d };
 }
@@ -105,6 +105,29 @@ test('#2054 ACCEPTANCE: a NON-default stored value paints as itself, and paint w
   assert.deepEqual(writes, [], 'paint issued a write (' + JSON.stringify(writes) + '); a paint that saves can reset a stored value');
 });
 
+test('#2054: a stale in-flight paint cannot repaint over a newer one (HB_EPOCH guard)', async () => {
+  // Same race as the autohandoff epoch test. The notify-setting GET auto-resolves so
+  // only the heartbeat-setting GET is controllable; without the guard the late stale
+  // paint (on/17) would land last and win.
+  const d = dom();
+  const fetchResolvers = [];
+  const fetchStub = (url) => {
+    if (String(url).indexOf('notify-setting') !== -1) return Promise.resolve({ ok: true, json: async () => ({ on: true, ok: true }) });
+    return new Promise((resolve) => { fetchResolvers.push(resolve); });
+  };
+  const body = 'let HB_EPOCH=0;\n' + lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintHeartbeat') + '\nreturn paintHeartbeat;';
+  const paintHeartbeat = new Function('document', 'fetch', body)(d.document, fetchStub);
+  const p1 = paintHeartbeat(); // mine=1 (older/stale)
+  const p2 = paintHeartbeat(); // mine=2 (newer)
+  fetchResolvers[1]({ ok: true, json: async () => ({ on: false, intervalMinutes: 60, intervals: [5, 10, 17, 60], ok: true }) });
+  await p2;
+  assert.equal(d.els['hb-toggle'].getAttribute('aria-checked'), 'false', 'sanity: the newer paint set the toggle off');
+  fetchResolvers[0]({ ok: true, json: async () => ({ on: true, intervalMinutes: 17, intervals: [5, 10, 17, 60], ok: true }) });
+  await p1;
+  assert.equal(d.els['hb-toggle'].getAttribute('aria-checked'), 'false', 'the stale paint repainted over the newer one -- HB_EPOCH guard missing/ineffective');
+  assert.equal(d.els['hb-interval'].value, '60', 'the stale interval (17) overwrote the newer 60');
+});
+
 test('#2054 ACCEPTANCE (executable): an interval change BEFORE the setting loads writes nothing', async () => {
   // The interact-side guard, executed rather than regex-matched: a change firing before
   // the first read (toggle hidden, no aria-checked) must not write a default over the
@@ -112,7 +135,7 @@ test('#2054 ACCEPTANCE (executable): an interval change BEFORE the setting loads
   const d = dom(); // hb-toggle starts with no aria-checked (unloaded)
   const calls = [];
   const fetchStub = async (url, opts) => { calls.push({ method: (opts && opts.method) || 'GET' }); return { ok: true, json: async () => ({}) }; };
-  const body = 'let HB_SAVING=false;\n'
+  const body = 'let HB_SAVING=false;\nlet HB_EPOCH=0;\n'
     + lift(SCRIPT, 'saveHeartbeat') + '\n'
     + lift(SCRIPT, 'hbIntervalChange') + '\nreturn hbIntervalChange;';
   const hbIntervalChange = new Function('document', 'fetch', body)(d.document, fetchStub);
@@ -125,7 +148,7 @@ test('#2054 ACCEPTANCE (executable): an interval change BEFORE the setting loads
 test('kosmos#1722/#2054: a could-not-read read HIDES the knob (status control), never a false Off', async () => {
   // Hard failure: a thrown fetch.
   const d = dom();
-  const body = lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintHeartbeat') + '\nreturn paintHeartbeat;';
+  const body = 'let HB_EPOCH=0;\n' + lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintHeartbeat') + '\nreturn paintHeartbeat;';
   const paint = new Function('document', 'fetch', body)(d.document, async () => { throw new Error('down'); });
   await paint();
   assert.equal(d.els['hb-toggle'].hidden, true, 'a read failure hides the knob rather than showing a stale toggle');

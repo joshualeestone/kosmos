@@ -13459,17 +13459,25 @@ document.getElementById('you-tz-save').addEventListener('click', async () => {
    #2054: now a `.toggle` slider that saves on flip, with the threshold saving on
    change and hidden while off (the lim pattern). A STATUS control -- could-not-read
    HIDES the knob (paintSwitch(null)) and says so, never a false Off. Reads are
-   403-safe: a non-ok GET is could-not-read, not a position (the #2047 rule). */
+   403-safe: a non-ok GET is could-not-read, not a position (the #2047 rule).
+   AH_EPOCH is the same stale-response guard the sibling pairs use (LIM_EPOCH,
+   TELL_EPOCH, ...): paint and save share one epoch, so a GET that lands after a
+   newer paint or save cannot repaint over the fresher state -- which is the exact
+   "a moved setting keeps its stored value" acceptance under tab churn. */
+let AH_EPOCH = 0;
 async function paintAutomation() {
+  const mine = ++AH_EPOCH;
   const th = document.getElementById('ah-threshold');
   const msg = document.getElementById('ah-msg');
   const row = document.getElementById('ah-threshold-row');
   try {
     const res = await fetch('/api/settings', { cache: 'no-store' });
+    if (mine !== AH_EPOCH) return;
     /* 🛑 #2047: do NOT .json() a non-ok response into a switch position -- a 403 on
        an enforcing board, or a 500, is could-not-read, not Off. */
     if (!res.ok) throw new Error('not ok');
     const r = await res.json();
+    if (mine !== AH_EPOCH) return;
     const a = (r && r.autohandoff) || { enabled: true, threshold: 85 };
     /* #1724: the sweep (engine/autohandoff-sweep.js, wired in server.js) acts on this
        setting, so the control is live. */
@@ -13478,6 +13486,7 @@ async function paintAutomation() {
     row.hidden = a.enabled !== true;
     msg.textContent = '';
   } catch {
+    if (mine !== AH_EPOCH) return;
     paintSwitch('ah-toggle', null);
     row.hidden = true;
     msg.textContent = 'We could not read this setting just now.';
@@ -13495,6 +13504,7 @@ let AH_SAVING = false;
 async function saveAutohandoff(enabled, threshold) {
   if (AH_SAVING) return;
   AH_SAVING = true;
+  const mine = ++AH_EPOCH;
   const msg = document.getElementById('ah-msg');
   const row = document.getElementById('ah-threshold-row');
   try {
@@ -13503,6 +13513,7 @@ async function saveAutohandoff(enabled, threshold) {
       body: JSON.stringify({ autohandoff: { enabled, threshold } }),
     });
     const out = await res.json().catch(() => ({}));
+    if (mine !== AH_EPOCH) return;
     /* On a non-ok save just show the reason: the toggle never moved optimistically
        (it is painted only from the server's stored value), so there is nothing to
        revert -- and calling paintAutomation() here would re-read and immediately wipe
@@ -13543,8 +13554,12 @@ document.getElementById('ah-threshold').addEventListener('change', ahThresholdCh
    while off (the lim pattern). A STATUS control -- could-not-read HIDES the knob
    (paintSwitch(null)) and says so; a non-ok GET is could-not-read, not a position
    (#2047). The notify-off hint stays inline (not a shared helper) so this function
-   remains liftable for its unit test. */
+   remains liftable for its unit test. HB_EPOCH is the same stale-response guard the
+   sibling pairs use: paint and save share one epoch, so a setting GET that lands after
+   a newer paint or save cannot repaint over the fresher state. */
+let HB_EPOCH = 0;
 async function paintHeartbeat() {
+  const mine = ++HB_EPOCH;
   const iv = document.getElementById('hb-interval');
   const msg = document.getElementById('hb-msg');
   const row = document.getElementById('hb-interval-row');
@@ -13552,8 +13567,10 @@ async function paintHeartbeat() {
   if (!iv) return;
   try {
     const res = await fetch('/api/heartbeat-setting', { cache: 'no-store' });
+    if (mine !== HB_EPOCH) return;
     if (!res.ok) throw new Error('not ok');
     const r = await res.json();
+    if (mine !== HB_EPOCH) return;
     if (Array.isArray(r.intervals)) {
       const html = r.intervals.map((m) => '<option value="' + m + '">' + m + ' minutes</option>').join('');
       if (iv.innerHTML !== html) iv.innerHTML = html;
@@ -13563,6 +13580,7 @@ async function paintHeartbeat() {
     if (row) row.hidden = r.on !== true;
     if (msg) msg.textContent = '';
   } catch {
+    if (mine !== HB_EPOCH) return;
     paintSwitch('hb-toggle', null);
     if (row) row.hidden = true;
     if (msg) msg.textContent = 'We could not read this setting just now.';
@@ -13589,6 +13607,7 @@ let HB_SAVING = false;
 async function saveHeartbeat(on, intervalMinutes) {
   if (HB_SAVING) return;
   HB_SAVING = true;
+  const mine = ++HB_EPOCH;
   const msg = document.getElementById('hb-msg');
   const row = document.getElementById('hb-interval-row');
   try {
@@ -13597,6 +13616,7 @@ async function saveHeartbeat(on, intervalMinutes) {
       body: JSON.stringify({ on, intervalMinutes }),
     });
     const out = await res.json().catch(() => ({}));
+    if (mine !== HB_EPOCH) return;
     if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
     paintSwitch('hb-toggle', out.on === true);
     document.getElementById('hb-interval').value = String(out.intervalMinutes || 17);

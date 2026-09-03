@@ -70,7 +70,7 @@ function makePaint(saved, ok = true) {
     calls.push({ url: String(url), method: (opts && opts.method) || 'GET' });
     return { ok, json: async () => ({ autohandoff: saved }) };
   };
-  const body = lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintAutomation') + '\nreturn paintAutomation;';
+  const body = 'let AH_EPOCH=0;\n' + lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintAutomation') + '\nreturn paintAutomation;';
   const paint = new Function('document', 'fetch', body)(d.document, fetchStub);
   return { paint, calls, ...d };
 }
@@ -105,6 +105,29 @@ test('#2054 ACCEPTANCE: a NON-default stored value paints as itself, and paint w
   assert.deepEqual(writes, [], 'paint issued a write (' + JSON.stringify(writes) + '); a paint that saves can reset a stored value');
 });
 
+test('#2054: a stale in-flight paint cannot repaint over a newer one (AH_EPOCH guard)', async () => {
+  // The move's acceptance under tab churn: if an older paint's GET resolves after a
+  // newer one has already painted, the stale response must be discarded. Discriminating
+  // by construction -- without the epoch guard the late stale paint would land LAST and
+  // win (on/90), so this test returns the dangerous answer if the guard is removed.
+  const d = dom();
+  const fetchResolvers = [];
+  const fetchStub = () => new Promise((resolve) => { fetchResolvers.push(resolve); });
+  const body = 'let AH_EPOCH=0;\n' + lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintAutomation') + '\nreturn paintAutomation;';
+  const paintAutomation = new Function('document', 'fetch', body)(d.document, fetchStub);
+  const p1 = paintAutomation(); // mine=1 (older/stale), fetch pending
+  const p2 = paintAutomation(); // mine=2 (newer), fetch pending
+  // The NEWER paint completes first -> off/80.
+  fetchResolvers[1]({ ok: true, json: async () => ({ autohandoff: { enabled: false, threshold: 80 } }) });
+  await p2;
+  assert.equal(d.els['ah-toggle'].getAttribute('aria-checked'), 'false', 'sanity: the newer paint set the toggle off');
+  // The STALE paint's GET resolves LATE and must be a no-op.
+  fetchResolvers[0]({ ok: true, json: async () => ({ autohandoff: { enabled: true, threshold: 90 } }) });
+  await p1;
+  assert.equal(d.els['ah-toggle'].getAttribute('aria-checked'), 'false', 'the stale paint repainted over the newer one -- AH_EPOCH guard missing/ineffective');
+  assert.equal(d.els['ah-threshold'].value, '80', 'the stale threshold (90) overwrote the newer 80');
+});
+
 test('#2054 ACCEPTANCE (executable): a threshold change BEFORE the setting loads writes nothing', async () => {
   // The interact-side of "a moved setting must not silently reset": if a change event
   // fires before the first read lands (toggle still hidden, no aria-checked), the
@@ -114,7 +137,7 @@ test('#2054 ACCEPTANCE (executable): a threshold change BEFORE the setting loads
   const d = dom(); // ah-toggle starts with no aria-checked (unloaded)
   const calls = [];
   const fetchStub = async (url, opts) => { calls.push({ method: (opts && opts.method) || 'GET' }); return { ok: true, json: async () => ({}) }; };
-  const body = 'let AH_SAVING=false;\n'
+  const body = 'let AH_SAVING=false;\nlet AH_EPOCH=0;\n'
     + lift(SCRIPT, 'saveAutohandoff') + '\n'
     + lift(SCRIPT, 'ahThresholdChange') + '\nreturn ahThresholdChange;';
   const ahThresholdChange = new Function('document', 'fetch', body)(d.document, fetchStub);
@@ -127,7 +150,7 @@ test('#2054 ACCEPTANCE (executable): a threshold change BEFORE the setting loads
 test('#2054: a could-not-read read HIDES the knob (status control), never a false Off', async () => {
   // Hard failure: a thrown fetch.
   const d = dom();
-  const body = lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintAutomation') + '\nreturn paintAutomation;';
+  const body = 'let AH_EPOCH=0;\n' + lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintAutomation') + '\nreturn paintAutomation;';
   const paint = new Function('document', 'fetch', body)(d.document, async () => { throw new Error('down'); });
   await paint();
   assert.equal(d.els['ah-toggle'].hidden, true, 'a read failure hides the knob rather than showing a stale/false position');
