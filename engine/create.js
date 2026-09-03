@@ -101,8 +101,22 @@ const runners = require('./runners'); // #1616: one definition of runnable
 const MODELS = [
   { key: 'fable', provider: 'anthropic', label: 'Claude Fable 5', arg: 'claude-fable-5',
     why: 'The most capable, and the most expensive to run. For work where being right matters more than being quick.' },
+  // #1356: Josh asked for Fable 5.1 (2026-09-01) alongside Opus 4.8. The id is
+  // pinned from the tool's own model list (claude-fable-5-1), matching the
+  // claude-fable-5 point-release shape; the `why` is grounded in the runner's
+  // own banner ("writes better code and reports progress on long tasks") rather
+  // than invented. Added alongside Fable 5 (Josh said "add"), not replacing it.
+  { key: 'fable51', provider: 'anthropic', label: 'Claude Fable 5.1', arg: 'claude-fable-5-1',
+    why: 'The newest Fable. Strong on code, and it reports progress as it works through a long task.' },
   { key: 'opus', provider: 'anthropic', label: 'Claude Opus 5', arg: 'claude-opus-5',
     why: 'Slower, and it holds more of a long job in its head.' },
+  // #1356: Josh asked to add Opus 4.8 (2026-08-28). The product already knew it
+  // (status.js names it and carries a measured 1M context ceiling); only the
+  // picker was missing it. The `why` states what is measured (a very large
+  // context) and does NOT assert the separate, unmeasured claim that it loops
+  // less -- that is Part 2 of #1356 and is not settled here.
+  { key: 'opus48', provider: 'anthropic', label: 'Claude Opus 4.8', arg: 'claude-opus-4-8',
+    why: 'The previous Opus generation, with a very large context for long, involved work.' },
   { key: 'sonnet', provider: 'anthropic', label: 'Claude Sonnet 5', arg: 'claude-sonnet-5', default: true,
     why: 'The everyday choice. Quick, and good at most work.' },
   { key: 'haiku', provider: 'anthropic', label: 'Claude Haiku 4.5', arg: 'claude-haiku-4-5-20251001',

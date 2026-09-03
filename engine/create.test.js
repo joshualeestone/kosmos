@@ -3782,13 +3782,38 @@ test('disabledJobs reads the launchd overrides and fails soft to an empty set (#
 
 test("#1026: modelsFor scopes to the provider, and today OpenAI's list is empty", () => {
   const create = require('./create');
-  assert.equal(create.modelsFor('anthropic').length, 4);
+  // #1356: six anthropic models after Opus 4.8 and Fable 5.1 were added.
+  assert.equal(create.modelsFor('anthropic').length, 6);
   assert.deepEqual(create.modelsFor('openai'), [],
     'an OpenAI model appeared without anyone adding one, or the filter is wrong');
   // Every entry carries one, or the filter silently drops it from both lists.
   for (const m of create.MODELS) {
     assert.ok(m.provider === 'anthropic' || m.provider === 'openai',
       `${m.key} has no usable provider: ${m.provider}`);
+  }
+});
+
+test('#1356: the picker offers Claude Opus 4.8 and Claude Fable 5.1, and the board names both', () => {
+  const create = require('./create');
+  const status = require('./status');
+  // The two models Josh asked for, each pinned by the id that actually runs it.
+  // The dangerous answer: if a row is dropped, mis-keyed, or given the wrong id,
+  // find() returns undefined and this fails rather than silently offering less.
+  const want = [
+    { arg: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+    { arg: 'claude-fable-5-1', label: 'Claude Fable 5.1' },
+  ];
+  for (const w of want) {
+    const row = create.MODELS.find((m) => m.arg === w.arg);
+    assert.ok(row, `${w.arg} is not offered by the picker`);
+    assert.equal(row.provider, 'anthropic', `${w.arg} must be an anthropic model`);
+    assert.equal(row.label, w.label, `${w.arg} is offered as "${row.label}", not "${w.label}"`);
+    assert.ok(!row.default, `${w.arg} must not be the default (Sonnet 5 is)`);
+    assert.ok(row.why && row.why.length > 10, `${w.arg} needs a why line a person can choose by`);
+    // The board must name it the same as the picker offers it (the overlap the
+    // create.test.js:1947 guard protects, asserted here for the two new ids).
+    assert.equal(status.modelDisplayName(w.arg), w.label,
+      `the picker offers ${w.arg} as "${w.label}" but the board reports "${status.modelDisplayName(w.arg)}"`);
   }
 });
 
