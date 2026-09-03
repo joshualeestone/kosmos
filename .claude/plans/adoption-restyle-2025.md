@@ -1,4 +1,4 @@
-# Plan: adoption disk-scan offer — placement + letterbox (#2025)
+# Plan: adoption disk-scan offer, placement + letterbox (#2025)
 
 Branch: `adoption-restyle-2025`. Card: kosmos#2025. Lane: design/presentation (Mona Lisa).
 Design spec: `Josh-Brain/Projects/kosmos-adoption-offer-restyle-2025-design-spec.md`.
@@ -16,10 +16,10 @@ Design spec: `Josh-Brain/Projects/kosmos-adoption-offer-restyle-2025-design-spec
 
 Josh reported the offer "appears everywhere" and that its file preview is read "through a letterbox".
 Re-measured against current `main`: the #1938 rework already gave the panel real `.btn.uprime` rows,
-identity-first content, and a toggle + arming dismiss head — so the older "unstyled / raw anchor tags /
+identity-first content, and a toggle + arming dismiss head, so the older "unstyled / raw anchor tags /
 three actions" complaints are already addressed. Two defects survive and are this plan's scope.
 
-## Approach (exact `#found-wrap` mirrors — low risk, not new mechanism)
+## Approach (exact `#found-wrap` mirrors, low risk, not new mechanism)
 
 1. **Placement.** `#scan-wrap` is hidden nowhere on the way off the Agents tab, and the 5s poll is
    gated to the Agents tab, so once shown it persists on every other tab.
@@ -41,9 +41,9 @@ three actions" complaints are already addressed. Two defects survive and are thi
 
 ## Test plan
 
-- Extend `docs/browser-checks/render-scan-board.js`: (a) no horizontal letterbox — behavioural
+- Extend `docs/browser-checks/render-scan-board.js`: (a) no horizontal letterbox, behavioural
   (`scrollWidth <= clientWidth + 2`) on a long prose line and a long unbroken path, plus the computed
   `white-space`; (b) the panel hides on an in-page tab switch, read synchronously at 300ms (well under
   the 5s poll, so it measures the handler not the poll) with an `onAgentsTab === false` cross-check.
-- Positive control: run the same check against `origin/main` — both new assertions must FAIL there.
+- Positive control: run the same check against `origin/main`, and both new assertions must FAIL there.
 - Full repo suite (node + shell gate) green; challenge-loop to convergence.
