@@ -18,6 +18,30 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const Module = require('module');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+// ⚠️ SANDBOX BEFORE REQUIRING `./reports`, because `personName()` reads the
+// real record through `require('./you').read()` (which resolves `you.json`
+// under `store.ROOT`), and `managerName()` reads the real profile store
+// through `store.readProfile()`. Both honour `AGENT_WORKFORCE_DATA`.
+//
+// Without this the suite reads the operator's live store. It was green on
+// every developer machine only because our machines have no operator NAME
+// saved, so `personName()` fell back to the generic phrase and the fallback
+// assertions were satisfied by accident. The first real user has a name, so
+// `you.read()` returns it, the fallback assertions go red, and the CONTROL
+// test goes red too, a failure the population that runs the tests can never
+// see (kosmos#1912). Seeding a name is the positive control.
+//
+// And the exposure is not only a false red: a suite that READS the real data
+// root is one assertion away from one that WRITES it. Every sibling that
+// touches the store sandboxes this variable first (see status.test.js,
+// you.test.js); this file is the odd sibling that skipped the convention.
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'reports-test-'));
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 
 const reports = require('./reports');
 
