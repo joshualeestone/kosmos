@@ -3071,6 +3071,13 @@ test('#1930: a throwing verdictFn leaves auth_failed standing (undefined), never
   assert.equal(liveAuthForAuthFailed('who', () => ({ configDir: '/x' }), () => { throw new Error('boom'); }), undefined);
 });
 
+test('#1930: a malformed (empty-string) configDir does NOT probe the default account', () => {
+  let probed = false;
+  const r = liveAuthForAuthFailed('who', () => ({ configDir: '' }), () => { probed = true; return authprobe.HEALTHY; });
+  assert.equal(r, undefined, 'a present-but-empty configDir is unresolvable -> auth_failed stands');
+  assert.equal(probed, false, 'and it must not probe the default account');
+});
+
 // #1930: the suppression must reach a NEVER-REPORTED agent too -- a dead/idle agent that hit a
 // 401 and never self-reported is the card's actual subject; it would otherwise keep reading
 // auth_failed forever despite an off-pane repair. This pins the fix above the no-report return.

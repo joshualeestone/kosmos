@@ -4274,6 +4274,11 @@ function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
   let job;
   try { job = readJobFn(name); } catch { return undefined; }
   if (!job) return undefined;
+  // A present-but-EMPTY configDir is a malformed job, not the default account; probing the
+  // default for it is the same misattribution the null-job guard above refuses, so return
+  // undefined (auth_failed stands). Unreachable via create.readJob today (it yields a non-empty
+  // string or null); a defensive guard so a future malformed source cannot reintroduce it.
+  if (job.configDir === '') return undefined;
   // verdictFn is throw-safe by contract (authprobe.verdict), but wrap it too so the safety is
   // LOCAL: a future change that threw must leave auth_failed standing, never crash the tick.
   try { return verdictFn(job.configDir || null); } catch { return undefined; }
