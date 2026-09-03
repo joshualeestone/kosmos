@@ -119,6 +119,13 @@ cat > "$PRJSON" <<'JSONEOF'
   {"number":885,"title":"hashooks fixture","isDraft":false,"updatedAt":"2026-09-03T00:15:00Z",
    "mergeable":"MERGEABLE","mergeStateStatus":"HAS_HOOKS","headRefName":"hk-885","body":"Addresses #885","url":"u",
    "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
+  {"number":910,"title":"multi-addresses fixture","isDraft":false,"updatedAt":"2026-09-03T00:05:00Z",
+   "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefName":"ma-910",
+   "body":"Addresses #910 (do not confuse with Addresses #1951 mentioned elsewhere)","url":"u",
+   "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
+  {"number":912,"title":"leading-mid fixture","isDraft":false,"updatedAt":"2026-09-03T00:04:00Z",
+   "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefName":"912-fix-2-thing","body":"","url":"u",
+   "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
   {"number":895,"title":"TABBED\tTITLE","isDraft":false,"updatedAt":"2026-09-03T00:12:00Z",
    "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefName":"tab-895","body":"Addresses #895","url":"u",
    "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
@@ -195,6 +202,13 @@ chk "#890 0x1F in body sanitized, title intact" g '#890.*CTRLCHARTITLE'
 # framing -- the whole reason for the US-delimiter design. The row parses and the
 # title's leading text survives.
 chk "#895 tab-in-title row parses, title survives" g '#895.*TABBED'
+# issue_of: a body with TWO "Addresses #N" resolves the FIRST (#910 open), not the
+# last (#1951 closed) -- else a spurious ISSUE-CLOSED misroutes the human.
+chk "#910 resolves the FIRST Addresses #N (910)"  g '#910.*#910'
+chk "#910 does NOT false-flag ISSUE#1951-CLOSED"  ng '#910.*ISSUE#1951-CLOSED'
+# issue_of: a leading-N branch with a mid-number (912-fix-2-thing) resolves 912,
+# not "" -- the trailing arm must fall through to the leading arm.
+chk "#912 leading-N branch w/ mid-number -> 912"   g '#912.*#912'
 
 # ---- age filter opens up at cutoff 0 ----------------------------------------
 OUT="$(run 0)"

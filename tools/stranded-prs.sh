@@ -36,7 +36,8 @@ NOW="${KOSMOS_NOW_EPOCH:-$(date +%s)}"
 # GNU date. Empty/unparseable -> empty (caller treats as "age unknown", never as
 # "fresh", so an unparseable timestamp does not hide a stranded PR).
 iso_to_epoch() {
-  _iso="$1"
+  local _iso="$1"
+  local _e=""
   [ -n "$_iso" ] || { echo ""; return; }
   # BSD date (macOS) first, then GNU date.
   _e="$(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$_iso" '+%s' 2>/dev/null)" \
@@ -107,14 +108,21 @@ CUTOFF=$(awk -v now="$NOW" -v h="$MAX_AGE_HOURS" 'BEGIN{printf "%d", now - (h*36
 # the body. Returns "" when none is found. Same priority order as create-pr's
 # detector: explicit #N wins, then branch trailing/leading -N.
 issue_of() {
-  _branch="$1"; _body="$2"
-  case "$_body" in
-    *[Aa]ddresses\ #[0-9]*) printf '%s' "$_body" | sed -n 's/.*[Aa]ddresses #\([0-9][0-9]*\).*/\1/p' | head -1; return ;;
-  esac
-  case "$_branch" in
-    *[!0-9]-[0-9]*) printf '%s' "$_branch" | sed -n 's/.*-\([0-9][0-9]*\)$/\1/p' | head -1; return ;;
-    [0-9]*-*) printf '%s' "$_branch" | sed -n 's/^\([0-9][0-9]*\)-.*/\1/p' | head -1; return ;;
-  esac
+  local _branch="$1"
+  local _body="$2"
+  local _n=""
+  # Body "Addresses #N" wins, FIRST occurrence (create-pr parity; a greedy sed
+  # would take the LAST). grep -o yields each match in order; head -1 the first.
+  _n="$(printf '%s' "$_body" | grep -oiE 'addresses #[0-9]+' | head -1 | grep -oE '[0-9]+' | head -1)"
+  if [ -n "$_n" ]; then echo "$_n"; return; fi
+  # Branch: trailing -N (ends in -digits) wins, ELSE leading N-. Each arm only
+  # returns when it actually matched, so a branch like 1-fix-2-thing (mid-number,
+  # no trailing digits) falls through the trailing arm to the leading arm and
+  # resolves 1, instead of the trailing arm short-circuiting to "".
+  _n="$(printf '%s' "$_branch" | sed -n 's/.*-\([0-9][0-9]*\)$/\1/p')"
+  if [ -n "$_n" ]; then echo "$_n"; return; fi
+  _n="$(printf '%s' "$_branch" | sed -n 's/^\([0-9][0-9]*\)-.*/\1/p')"
+  if [ -n "$_n" ]; then echo "$_n"; return; fi
   echo ""
 }
 
