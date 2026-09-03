@@ -1090,3 +1090,31 @@ the plan-only commit that added the section).
 **Yes, after the test hole above** -- now closed. The reviewer independently verified every
 out-of-diff citation, both control arms' load-bearing-ness, and the whole #1961 section line by line
 against `validation-log.sh`. Remaining findings are documentation accuracy and commentary density.
+
+## Rebased onto current main after iteration 11, and every recorded run is now orphaned
+
+`origin/main` had moved **12 commits** ahead of my merge-base. `merge-tree --write-tree` predicted a
+clean merge (exit 0, no conflicts), and the rebase confirmed it: **17 ahead, 0 behind, clean tree.**
+
+🛑 **THE PREVIOUS GREEN DOES NOT SURVIVE, AND I CHECKED RATHER THAN ASSUMED.** Two questions, both
+answered:
+
+```
+merge-base --is-ancestor 3e23cc1a HEAD                 -> ORPHANED
+git diff --name-only <old-base>..origin/main -- <the files the runs execute>
+                                                       -> server.js
+```
+
+⇒ The second is the one that matters. **An orphaned sha whose executed bytes are unchanged is still
+a valid measurement; here the bytes changed** -- main edited `server.js`, which both route arms
+load. So the clean run at `7ea8aea49648` measured a different artifact and is retired, not merely
+re-parented.
+
+📌 **Commit shas cited in the iteration sections above (`594c0605`, `7aed4b7d`, `62dc5f78`,
+`3e23cc1a`, `0ff1b467`, `fc1ed387`) are all pre-rebase and no longer resolve to ancestors of HEAD.**
+They are left in place deliberately: the correction is to the COLUMN, not to the rows, and deleting
+them would destroy the record of what was found when. **What they name is still findable by message.**
+
+✅ **Owed before the proof file: one full validation on the rebased head.** It cannot skip -- the
+rebase moved the diff hash -- and per #1961 the check is that the output says `running validation
+sequence`, not `skipping`.
