@@ -8,6 +8,20 @@ engine half (PR #2062) records a durable, consecutive-counted marker and exposes
 `/api/status -> updateAbort = { count, reason, port, ts } | null`. This is the board notice
 that reads it: the follow-up half, routed to me because it needs a browser check.
 
+## Why this notice is the ONLY exit, not a courtesy (the deadlock)
+Two measurements, made independently and then put together (Splinter, 2026-09-03):
+- the update aborts because the board will not pause (setup.sh:2525-2534, Angel + me);
+- the board can only be restarted BY an update, with no separate self-relaunch and no
+  launchd KeepAlive (server.js:8539, Mona Lisa) -- "the board restarting IS the update".
+⇒ A board in this state can never be restarted by the system, and therefore never updated:
+the loop is closed, and 155 consecutive aborts is not bad luck, it is the only possible
+outcome once the state is entered, repeating on a timer forever. So "Quit and reopen Kosmos"
+is the SOLE action that breaks it, because a human quitting the process is the one event the
+system cannot generate for itself. This notice is the escape hatch, not a logging tidy-up.
+It also explains why all three affordances died (the privacy off-toggle, "Update now", the
+quit button): each tried to route the remedy through the system, and the system is exactly
+what cannot act here. One mistake made three times; only the person can act.
+
 ## What (frontend only; independent of #2062's merge)
 - A `#uabort-slot` in the board's notice stack (its own slot, hidden while `:empty`), and
   `paintUpdateAbort(ab)` called from tick()'s SUCCESS path.
