@@ -1,9 +1,10 @@
 'use strict';
 
 /**
- * The Plus Account tab (Josh, 2026-08-23 19:15): a holding place FIRST,
- * with the real flow gated on this machine actually having a relay
- * configured, and no hostname anywhere in the copy.
+ * The Kosmos Plus tab (Josh, 2026-08-23 19:15): a holding place FIRST, with the
+ * real flow gated on this machine being ENROLLED (#1615: not merely `configured`,
+ * which is `Boolean(RELAY())` and therefore always true), and no hostname anywhere
+ * in the copy.
  */
 
 const test = require('node:test');
@@ -64,31 +65,33 @@ test('no hostname or price appears in the Plus copy: the domain is temporary and
   assert.doesNotMatch(SEC, /\$\d/, 'a price leaked into the copy; pricing is not ruled');
 });
 
-test('the flow gates on configured, and the section paints on arrival', () => {
+test('the flow gates on enrolled, and the section paints on arrival', () => {
   const SCRIPT = PAGE.slice(PAGE.lastIndexOf('<script>'));
   const pStart = SCRIPT.indexOf('async function paintPlus(');
   const pEnd = SCRIPT.indexOf("document.getElementById('plus-switch')", pStart);
   assert.ok(pStart > -1 && pEnd > pStart, 'the paintPlus region moved; re-anchor (an open-ended slice would pass against the whole script)');
   const paint = SCRIPT.slice(pStart, pEnd);
-  assert.match(paint, /configured !== true/, 'the flow no longer gates on the machine being configured');
-  /* #1615: the pane is three states now, so this asserts the RULE across all three
-     rather than the two-line shape it used to pin. An unconfigured machine shows state 1
-     and hides BOTH the sign-in and the connected flow; a configured one shows only the
-     flow. Pinning the old literal would have cemented a spelling that the design
-     deliberately replaced. */
-  /* 🛑 THIS PINNED `state2.hidden = true` IN BOTH BRANCHES, WHICH CEMENTED THE DEFECT.
-     State 2 is unreachable today because nothing tells the app somebody has paid. Asserting
-     that in both branches encoded "state 2 is never shown" as the RULE, so the very edit
-     that wires it up would have gone red - a guard standing in the way of the intended next
-     step, which is worse than no guard.
-     ⇒ Assert what must NOT regress and leave state 2 free: an unconfigured machine shows
-     state 1 and NOT the connected flow; a configured one shows the flow and NOT state 1.
-     Whether state 2 is visible is the thing that will legitimately change. */
-  assert.match(paint, /state1\.hidden = false;/, 'the unconfigured state no longer shows state 1');
+  /* #1615: gate on `enrolled`, NOT `configured`. `configured` is `Boolean(RELAY())` with a
+     production default, so it is permanently true and the old gate showed the on-switch to
+     every user with no paid gate; `enrolled` can be false and matches the engine's own
+     connection gate (remote.js:201 `wanted = on && enrolled()`). Pin the fix in both
+     directions: the gate must READ enrolled and must NOT read configured. */
+  assert.match(paint, /enrolled !== true/, 'the flow no longer gates on the machine being enrolled');
+  assert.doesNotMatch(paint, /r\.configured !== true/,
+    'the flow regressed to gating on configured, which is Boolean(RELAY()) and always true');
+  /* The pane is three states, so this asserts the RULE across all three rather than a
+     two-line shape. An unenrolled machine shows state 1 and hides BOTH the sign-in and the
+     connected flow; an enrolled one shows only the flow.
+     🛑 DO NOT PIN `state2.hidden = true` IN BOTH BRANCHES: state 2's paid signal does not
+     exist yet, so pinning it hidden in both branches would encode "state 2 is never shown"
+     as the RULE, and the very edit that wires the paid gate would go red. Assert what must
+     NOT regress and leave state 2 free: an unenrolled machine shows state 1 and NOT the
+     flow; an enrolled one shows the flow and NOT state 1. */
+  assert.match(paint, /state1\.hidden = false;/, 'the unenrolled state no longer shows state 1');
   assert.match(paint, /state1\.hidden = false;[\s\S]{0,120}flow\.hidden = true;/,
-    'the unconfigured state no longer hides the connected flow');
+    'the unenrolled state no longer hides the connected flow');
   assert.match(paint, /state1\.hidden = true;[\s\S]{0,120}flow\.hidden = false;/,
-    'the configured state no longer shows the flow with state 1 hidden');
+    'the enrolled state no longer shows the flow with state 1 hidden');
   assert.match(SCRIPT, /if \(section === 'plus'\) paintPlus\(\);/,
     'the tab no longer paints on arrival');
 });

@@ -9120,7 +9120,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <button type="button" data-go="automation" aria-controls="s-sec-automation">Automation</button>
     <button type="button" data-go="usage" aria-controls="s-sec-usage">Token Usage</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
-    <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Plus Account</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
+    <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Kosmos Plus</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="styles" aria-controls="s-sec-styles">Styles</button>
     <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
   </nav>
@@ -9789,8 +9789,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        tab starts working without a rebuild. No domain appears anywhere in
        this section on purpose: the address arrives from the service, and
        the name Josh has ruled durable is "Plus", not any hostname. -->
-  <section class="dsec" id="s-sec-plus" data-sec="plus" tabindex="-1" aria-label="Plus Account" hidden>
-    <h2>Plus Account</h2>
+  <section class="dsec" id="s-sec-plus" data-sec="plus" tabindex="-1" aria-label="Kosmos Plus" hidden>
+    <h2>Kosmos Plus</h2>
     <p class="fhint">Use your Kosmos from anywhere.</p>
 
     <!-- #1615, design/plus-flow.html section 5: this pane is THREE states, not one.
@@ -22730,7 +22730,7 @@ if (document.getElementById('style-theme')) document.getElementById('style-theme
     applyStyle(body.tokens);
   } catch { msg.textContent = 'we could not save the style'; paintStyles(false); }
 });
-/* ---- Plus Account (the relay service's Settings home) -----------------
+/* ---- Kosmos Plus (the relay service's Settings home) -----------------
    The holding place is the RESTING state: the flow renders only when this
    machine actually has a relay configured, so nothing on the tab can look
    like a working button before the service can honour it. All wording
@@ -23037,7 +23037,16 @@ async function paintPlus() {
   let r = null;
   try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
   if (epoch !== PLUS_EPOCH) return;
-  if (!r || r.configured !== true) {
+  /* #1615: gate the connected flow on `enrolled`, NOT `configured`. `configured` is
+     `Boolean(RELAY())` and RELAY() falls back to a production default (engine/remote.js),
+     so it is permanently true and showed the on-switch to every user with no paid gate.
+     `enrolled` (served by /api/remote; engine/remote.js enrolled() = state dir + certificate)
+     can be false, and the ENGINE already gates the real connection on it (remote.js:201
+     `wanted = on && enrolled()`), so this makes the screen agree with the engine instead of
+     inventing a rule. Nobody can enrol or pay yet (#1742, #1886), so today this rests every
+     machine at state1 (no switch). state2's paid sign-in still has no signal and stays
+     hidden; an already-enrolled machine keeps the flow so it can still turn Plus OFF. */
+  if (!r || r.enrolled !== true) {
     state1.hidden = false;
     state2.hidden = true;
     flow.hidden = true;

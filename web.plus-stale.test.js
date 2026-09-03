@@ -87,8 +87,17 @@ test('#1012: it can only hide further, never reveal on an unenrolled Mac', async
   r.enrolled = false;
   const w = world(r);
   await paint(w);
-  assert.equal(w.el('plus-second').hidden, true,
-    'an unenrolled Mac cannot sign the reset, so the control must stay hidden whatever the device count');
+  /* #1615: paintPlus now gates the whole connected flow on `enrolled`, so an unenrolled Mac
+     rests at state 1 with `#plus-flow` (which CONTAINS the reset control) hidden. That is a
+     stronger form of the #1012 guarantee than the reset self-hiding: a person with no
+     enrolment cannot reach "I lost my phone" whatever their device count, because the flow it
+     lives in is not shown at all. Against the pre-change page (gate on `configured`, always
+     true) the connected stub keeps the flow open, so this assertion fails there, which keeps
+     the test falsifiable. */
+  assert.equal(w.el('plus-flow').hidden, true,
+    'an unenrolled Mac must show state 1 with the connected flow (and the reset inside it) hidden');
+  assert.equal(w.el('plus-state1').hidden, false,
+    'an unenrolled Mac must fall back to the state 1 holding place');
 });
 
 test('#1011: being connected clears a stale SETUP failure', async () => {
