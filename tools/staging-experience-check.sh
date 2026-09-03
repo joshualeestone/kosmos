@@ -92,6 +92,10 @@ trap cleanup EXIT INT TERM
 # consume their one-time self-heal. So record whether the marker existed BEFORE and
 # restore that state at the end: removing a marker THIS check created leaves the self-heal
 # armed, which is the safe direction (at worst one extra harmless tab, never a lockout).
+# NOTE this guard is not race-free on a SHARED board: a real user who redeems between this
+# read and cleanup would have their fresh marker satisfy "was absent, now present" and be
+# removed. That is inherent to a shared board, the intended target is a dedicated account,
+# and the removal only re-arms the harmless auto-open - so it is accepted, not a lockout.
 SEEDED_BEFORE=0
 [ -f "$ROOT/.reauth-seeded" ] && SEEDED_BEFORE=1
 
