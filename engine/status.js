@@ -2041,8 +2041,33 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    signal that never existed.
    ⇒ Replaced by two things that survive colour-stripping: this positive
    completion marker, and the reach above. */
+/* 🛑 IT MUST NOT MATCH THE COLLAPSED TASK-GROUP HEADER, WHICH IS A
+   DIFFERENT ROW WITH THE SAME WORDS. The vendor renders a resolved Task group as
+   `${l.length} ${L ? L + " agents" : "agents"} finished`, where
+   `L = allSameType && type !== "Agent" ? type : null`. So a group of SYNCHRONOUS
+   subagents whose types differ, or whose type is the literal `Agent`, draws the
+   bare row `⏺ 3 agents finished` -- and an earlier version of this pattern
+   matched it through the `\d+\s+` arm, resolving a LIVE background wait on the
+   completion of subagents that were never part of it. Measured on the shipped
+   code: a pane holding a live wait row plus that header returned `idle`.
+   ⭐ Its sibling `⏺ 2 general-purpose agents finished` did NOT match, so two
+   spellings of one row behaved oppositely -- the tell that the arm was keyed on
+   an accident of wording rather than on the row.
+   ⇒ Every arm below now requires something the group header cannot carry: the
+   quoted agent NAME that `enqueueAgentNotification` writes
+   (`Agent "` + name + `" ` + outcome), or the literal word `background` in the
+   two kill-path banners.
+
+   ⚠️ WHAT THIS GIVES UP, STATED RATHER THAN GLOSSED. `O = M.every(a => a.isAsync)`
+   selects the `launched` wording, so `N agents finished` is drawn when a
+   fully-resolved group is NOT all-async -- which includes a MIXED group holding a
+   real background agent. Narrowing therefore trades a false CALM (idle while an
+   agent runs) for a possible MISS (working after a mixed group finished), and the
+   miss is the direction this module already commits to everywhere else. The
+   per-agent notification is a separate render site and still resolves those,
+   so the loss is bounded by panes where the header is the only line drawn. */
 const AGENT_FINISHED_LINE =
-  /^\s*[⏺●]\s*(?:All\s+|\d+\s+)?(?:[Bb]ackground\s+)?[Aa]gents?\b[^\n]*\b(?:finished|failed|was stopped|were stopped|stopped at its|stopped\s*$)/mu;
+  /^\s*[⏺●]\s*(?:(?:Agent|[Bb]ackground\s+agent)\s+"[^"\n]*"\s+(?:finished|failed\b|was\s+stopped|stopped\s+at\s+its)|All\s+background\s+agents\s+stopped\b|\d+\s+background\s+agents?\s+(?:was|were)\s+stopped\b)/mu;
 
 /**
  * The live background-agent wait line, or null.

@@ -1694,16 +1694,6 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    * within reach of the composer AND no completed-agent line stands between them.
    * The rows below pin that pair.
    */
-  /* The evidence contract. Real captures carry trailing pad, and the 240-char
-     cap is this module's convention for anything reaching a person's screen. */
-  const padded = classify(pane, '✻ Waiting for 1 background agent to finish     ' + footer);
-  assert.equal(padded.evidence, '✻ Waiting for 1 background agent to finish',
-    'the evidence line kept its trailing pad, against the module convention');
-  const longLine = '✻ Waiting for 1 background agent and ' + 'x'.repeat(400) + ' dynamic workflows to finish';
-  const capped = classify(pane, longLine + footer);
-  assert.ok(capped.evidence.length <= 241, 'the evidence cap did not apply: ' + capped.evidence.length);
-  assert.ok(capped.evidence.endsWith('…'), 'a truncated evidence line must say so');
-
   /* The anchor takes the LAST `❯` (the composer), not the first, and skips a
      selected `❯ ◯` footer row. Both were fixed in earlier rounds with comments
      claiming a test row existed; neither had one. */
@@ -1743,7 +1733,17 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
      one become the anchor, pushing the wait row out of reach and turning the
      feature OFF on a live pane. The fixture below places the focused row far
      enough down that the wrong anchor exceeds the reach, which is what makes it
-     discriminate. */
+     discriminate.
+     📌 THE LAST TWO ROWS ARE DELIBERATE OVER-COVERAGE AND ARE LABELLED AS SUCH.
+     `└─` and `│  ` are connector spellings I have NOT confirmed 2.1.258 draws
+     here; I could not resolve the connector's construction out of the binary in
+     a bounded sweep, so I am not asserting either way. They are kept because the
+     exclusion is deliberately keyed on the SHAPE CLASS (pointer, then any run of
+     box-drawing/space, then a footer icon) rather than on an exact alphabet, and
+     a fixture set that only holds the two spellings I could confirm would pass
+     just as well against an exclusion narrowed to those two literals. Rows that
+     cost nothing and would red a silent narrowing are worth keeping; the honest
+     part is saying which ones are confirmed captures and which are not. */
   const withFocused = (f) => ['✻ Waiting for 3 background agents to finish', '', '────', '❯ ', '────',
     '  agent · Opus 5 · ctx 50%', '  ⏵⏵ bypass permissions on · ← for agents', '', '  ⏺ main',
     '  ◯ general-purpose  a  1m', '  ◯ general-purpose  b  2m', f].join('\n');
@@ -1836,6 +1836,30 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     assert.equal(
       classify(pane, '✻ Waiting for 1 background agent to finish\n' + prose + footer).state,
       'working', 'ordinary prose resolved the wait: ' + prose.trim());
+  }
+
+  /* 🛑 NOR MAY THE COLLAPSED TASK-GROUP HEADER RESOLVE IT. The vendor draws a
+     fully-resolved Task group as `${count} ${type ? type + " agents" : "agents"}
+     finished`, so a group of SYNCHRONOUS subagents renders `⏺ 3 agents finished`
+     -- a row about work that was never part of this wait. The pattern's old
+     `\d+\s+` arm matched it and returned `idle` on a live background agent, which
+     is the exact false calm this whole block exists to close.
+     ⭐ The two spellings behaved OPPOSITELY, which is what made it invisible:
+     `⏺ 2 general-purpose agents finished` never matched, because the type label
+     sits between the count and `agents`. A fixture holding only the typed
+     spelling would have passed throughout. Both are pinned below.
+     📌 `launched` is the all-async group's wording and is not a completion at
+     all; it is here so that widening the verb list reds a row. */
+  for (const groupHeader of [
+    '  ⏺ 3 agents finished',
+    '  ⏺ 1 agent finished',
+    '  ⏺ 2 general-purpose agents finished',
+    '  ● 3 agents finished',
+    '  ⏺ 3 background agents launched',
+  ]) {
+    assert.equal(
+      classify(pane, '✻ Waiting for 1 background agent to finish\n' + groupHeader + footer).state,
+      'working', 'a collapsed Task-group header resolved a live wait: ' + groupHeader.trim());
   }
 
   /* 🛑 THIS ARM MUST OUTRANK THE `Worked for` IDLE RULE. A previous turn's
@@ -2012,6 +2036,43 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
     + 'Do you want to proceed?\n❯ 1. Yes\n  2. No';
   assert.equal(classify(pane, blocked + footer).state, 'needs_you',
     'the background-agent rule outranked a blocking prompt, hiding an agent that needs a person');
+});
+
+/**
+ * The evidence contract for the wait line, in its OWN test block.
+ *
+ * 🛑 IT IS SEPARATE ON PURPOSE, AND THE REASON IS THE BRANCH'S OWN INSTRUMENT.
+ * `node:test` aborts a block at its first failing assertion, so while these rows
+ * sat inside the 400-line reader test, ANY perturbation that stopped the reader
+ * matching killed the block here and silently skipped every row below it -- the
+ * precedence, reach, anchor, resolution and kill-chord rows. Measured under three
+ * separate perturbations: each reported only the assertions above this point. It
+ * could never produce a false green, but it disarmed per-guard perturbation at
+ * exactly the spot the plan warns about, which is worse than a weak assertion:
+ * it made twenty good ones invisible.
+ * ⇒ Splitting costs two duplicated fixture lines and buys a perturbation that
+ * reds HERE and still reports what the other twenty rows think.
+ */
+test('#1889: the evidence contract for the background-agent wait line', () => {
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+
+  /* Real captures carry trailing pad, and the 240-char cap is this module's
+     convention for anything reaching a person's screen. */
+  const padded = classify(pane, '✻ Waiting for 1 background agent to finish     ' + footer);
+  assert.equal(padded.evidence, '✻ Waiting for 1 background agent to finish',
+    'the evidence line kept its trailing pad, against the module convention');
+
+  const longLine = '✻ Waiting for 1 background agent and ' + 'x'.repeat(400) + ' dynamic workflows to finish';
+  const capped = classify(pane, longLine + footer);
+  /* Read it as a string before measuring it. `capped.evidence.length` on a
+     non-match throws a TypeError, which reports as an error in this file rather
+     than as the assertion that actually failed. */
+  assert.ok(typeof capped.evidence === 'string' && capped.evidence.length > 0,
+    'the long wait line produced no evidence at all, so the cap rows below cannot mean anything');
+  assert.ok(capped.evidence.length <= 241, 'the evidence cap did not apply: ' + capped.evidence.length);
+  assert.ok(capped.evidence.endsWith('…'), 'a truncated evidence line must say so');
 });
 
 test('#1889: a decayed report on a background wait is not a broken reporter', () => {
