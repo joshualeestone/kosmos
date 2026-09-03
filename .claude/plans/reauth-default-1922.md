@@ -166,8 +166,8 @@ on the real account. **The fix holds at the launch layer.**
 
 📌 **A separate normalization question, settled by Splinter rather than by me:** `configDir: null` and
 omitting the key entirely are equivalent, because `connect.js:911` demands
-`typeof opts.configDir === 'string' && opts.configDir`, the same normalization `subscription.js:325`
-uses. So mirroring `listLive`'s omit-the-parameter shape with a null does not diverge from it.
+`typeof opts.configDir === 'string' && opts.configDir`, the same normalization
+`grep -n "typeof opts.configDir" engine/subscription.js` finds in `checkLive`. So mirroring `listLive`'s omit-the-parameter shape with a null does not diverge from it.
 
 🛑 **A LIMIT OF THE TEST, STATED SO IT IS NOT DISCOVERED LATER.** The harness SETS
 `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR` (`server.connect.test.js:40`), so inside the suite `launchDir`
@@ -753,8 +753,16 @@ would never reach the child. **It reaches it, in production, on every codex agen
 I had written that the fake terminal cannot see tmux's parser. True, and not the whole gap:
 `docs/browser-checks/live-connect.js`, the only real-tmux real-CLI exerciser, **sets
 `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`**, so `launchDir` is always truthy there and it takes the
-assignment branch every time. ⇒ **The `-u` branch is the only production-reachable arm of this
-launch and NOTHING exercises it against a real tmux.** Now stated in the source.
+assignment branch every time. ⇒ **Nothing exercises the `-u` arm against a real tmux.** Now stated
+in the source.
+
+🛑 **THIS SENTENCE SHIPPED AS "the `-u` branch is the ONLY production-reachable arm" AND THAT IS
+FALSE. Caught at iteration 9, in three sites again.** The assignment arm is reached in production
+whenever `owner.configDir` is set: every labelled-account re-auth, and every "add a second account"
+press (`server.js`, the `{ another: true }` path). **This branch's own CONTROL arm exists to pin
+that arm**, so the claim was contradicted by my own test file. The true, narrower statement:
+`AGENT_WORKFORCE_CLAUDE_CONFIG_DIR` is never SET outside tests and `docs/browser-checks`, so the
+seam is the only route by which `live-connect.js` reaches the assignment arm.
 
 ### The third "measurement" was not one
 
@@ -785,3 +793,79 @@ obligation rather than as prose:
 
 **Why it is load-bearing:** the new failure is QUIETER than the old one, so without this sentence it
 gets re-filed as a fresh regression against this PR.
+
+### ⚠️ THE ITERATION-8 VALIDATION RED WAS CONTENTION, AND IT IS RECORDED RATHER THAN WAVED AWAY
+
+`validation_log_run_or_skip` exited 1 on the iteration-8 head. **The node half was 3897 pass / 0
+fail;** the red was entirely in the shell half, in `tools/test-browser-run-guard.sh`, which refuses
+while another Playwright run is live.
+
+**Controlled in both directions on an unchanged head, which is what makes it a diagnosis rather than
+an excuse:**
+
+| machine state | `tools/test-browser-run-guard.sh` |
+|---|---|
+| contender pid 15354 live (`bash tools/browser-checks.sh`, 13:22 elapsed, full chromium stack) | **3 FAIL** |
+| no contender | **11 PASS, exit 0, "all clear"** |
+| contender pid 97129 live (ppid 97115, 23s old, another agent's) | **3 FAIL again** |
+
+⇒ The failing arms fail **only** while another run is live and pass when none is, on the same
+commit. And this branch touches **five files, none under `tools/` or `docs/`** (`git diff
+--name-only origin/main...HEAD`), so it cannot reach that harness at all.
+
+📌 **Two instrument notes worth keeping.** (1) The contender pid CHANGED between runs (15354 then
+97129), so "the same failure" was two different agents' runs, not one persistent one. (2) I checked
+the contender was not my own process before attributing it: ppid 97115, my shell 98591. **On a box
+with sixteen agents, "another run is live" is a claim about someone else and deserves that check.**
+
+🛑 **This does NOT license shipping on a red.** The proof file requires a genuinely clean run, and a
+clean full run on an idle box is still owed before the gate closes. What is settled is the CAUSE.
+
+## Findings from challenge-loop iteration 9
+
+### 🛑 A FALSE UNIVERSAL, WRITTEN WHILE FIXING A FALSE UNIVERSAL, AND MY OWN TEST FILE REFUTED IT
+
+Iteration 8's correction introduced: *"the `-u` branch is the only production-reachable arm."*
+**False.** The assignment arm is reached in production whenever `owner.configDir` is set, which is
+every labelled-account re-auth and every "add a second account" press (`server.js`, the
+`{ another: true }` path, verified in source).
+
+⭐ **The refutation was already inside this branch.** The CONTROL arm in `engine/connect.test.js`
+exists precisely to pin the assignment arm. **I wrote "nothing reaches this in production" about a
+path my own control arm was written to cover**, in the same iteration where I was correcting a
+different false universal.
+
+⭐ **The generating mistake is now legible and it is the same one three times:** I observed something
+narrow and true (`live-connect.js` sets the seam, so it never takes the `-u` arm) and published it
+as a claim about **production**. ⇒ **A statement about what a TEST HARNESS reaches is not a
+statement about what PRODUCTION reaches, and "only" is the word that silently converts one into the
+other.** Same shape as "nothing in this repo measures it" (iteration 7) and "still strips the
+variable" (iteration 8): the observation was fine, the quantifier was invented.
+
+📌 **And it was in three sites again** (source, plan, commit message `7aed4b7d`). Source and plan
+corrected; **the commit message cannot be, since it is pushed, so it is recorded here instead** --
+anyone reading `7aed4b7d`'s body should read this section.
+
+### The gate comment was trimmed under this file's OWN rule
+
+`engine/connect.js` states, about 800 lines above the gate, the rule a prior branch wrote for itself
+after two reviewers flagged 25 lines of non-operative archaeology in a hot path: **HISTORY MOVES TO
+THE PLAN, THEN TRIMS. Never trim first.** My gate comment had grown to ~45 lines, most of it a
+running retraction log ("an earlier version said...", "BOTH WERE WRONG", "that clause is struck").
+
+✅ **Moved, then trimmed: ~45 lines to ~24.** What stays is operative (why the gate is shut, the one
+unmeasured premise, what would settle it, the citations). The history is already carried here at
+iterations 4, 7 and 8 and on #1922/#1937. ⚠️ **The comment points at CARD NUMBERS, not at this plan's
+filename**, per the same paragraph's warning that a dated plan file is a branch artifact.
+
+⭐ **Worth noting against myself: the rule was in the file I was editing, and I read past it four
+times.** A convention does not bind by existing nearby.
+
+### Also corrected
+
+- `engine/connect.test.js`: a comment claimed a block was "bounded to the `env` slice" when only the
+  `-u` search is bounded; the no-re-assignment assertion scans the whole argv **deliberately** (a
+  tmux-level `-e CLAUDE_CONFIG_DIR=...` would put the value back and IS this card's business). The
+  assertion was right; the description was wrong. Same shape as iteration 8's finding.
+- The last drifted line citation in this plan (`subscription.js:325`, actually 326) replaced with its
+  reproducing grep. Iteration 9 checked the neighbouring citations and found them exact.
