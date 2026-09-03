@@ -262,7 +262,10 @@ more than the assertion covered.** Fixed by the `setRunner` change above.
 - **NIT:** a dead `work1` binding in the default arm, created only to be removed. Gone.
 - **NIT:** the plan claimed three `connect.start(` sites; there is a fourth in
   `docs/browser-checks/live-connect.js:90` (takes no options, unaffected). And "both other consumers"
-  undercounts: `engine/create.js:741`, `:776`, `:2050`, `:2310` do the same thing.
+  undercounts: `engine/create.js` does the same thing in **four** places, which
+  `grep -n 'isDefault ? null :' engine/create.js` reproduces. ⚠️ **Two of the four line numbers
+  originally quoted here pointed at unrelated code, and an independent reviewer checking them got a
+  different pair from mine** -- which is the argument for the command rather than for better digits.
 - ⭐ **The reviewer completed the sweep I had listed under "what I have NOT established" and it came
   back clean:** every other place that turns an account into a `configDir` already scopes the default.
   **There is no second instance of this defect in the tree.** That was my largest open question and I
@@ -293,8 +296,9 @@ better:**
 per-start latency, no dependency on another card, and it does not change what the check reports --
 it declines to let the check veto a person naming an account.
 
-🔑 **The in-repo evidence for it is #874, not another agent's card.** `web/index.html:13855-13857`
-already records the measurement with its consequence: *"this badge cannot see a REJECTED token:
+🔑 **The in-repo evidence for it is #874, not another agent's card.** `web/index.html` already
+records the measurement with its consequence (find it with
+`grep -n 'cannot see a REJECTED token' web/index.html`): *"this badge cannot see a REJECTED token:
 `claude auth status` answers loggedIn:true for a transparently invalid one"*, against *"a green row
 and a token being 401'd ten times in a row"*. **Citing that makes the argument stand on this repo's
 own evidence** rather than on #1916, which matters because it is the argument that decides whether
@@ -333,6 +337,12 @@ at both sites.
   harness rather than introduced here; now stated in the docblock.
 
 ### 🛑 AND THE SUITE WENT RED FOR A REASON THAT IS NOT MINE
+
+📌 **RESOLVED SINCE: this no longer reproduces.** The `setClaudeProbe` excuse merged, the contending
+Playwright run finished, and the full suite is green on this branch (`tools/run-tests.sh` exit 0,
+3834/3834 js, shell half passing). **Kept as a record of how it was ruled out, not as a live
+condition** -- the retraction is placed at the head for the reason this plan gives elsewhere: an
+append-only log puts it after the claim, where a reader may never reach it.
 
 `engine.reachable.test.js` fails: `engine/create.js exports setClaudeProbe`, a test seam that is
 exported, exercised by its own tests, and referenced by nothing else.
@@ -384,6 +394,9 @@ makes reachable cannot currently repair a credential either. Raised with the PM 
 known.
 
 ### Suite state, stated as two claims rather than one
+
+📌 **RESOLVED SINCE -- the contention cleared and the suite is green end to end.** Kept because the
+method of ruling it out is the reusable part.
 
 ```
 js half     3834 pass, 0 fail          <- covers everything this branch changes
@@ -460,5 +473,57 @@ js half     3834 pass, 0 fail
 shell half  3 FAILURES  <- another agent's live Playwright run
 ```
 
-✅ **Control run at the same moment: `origin/main` fails identically (rc=1, same three checks).**
-Recorded as environment, not green.
+✅ **Control run at the same moment: `origin/main` failed identically (rc=1, same three checks).**
+Recorded as environment, not green. 📌 **Since resolved: the neighbour's run finished and the full
+suite is green.**
+
+## Findings from challenge-loop iteration 5
+
+**Zero BLOCKERs, three WARNINGs, two NITs, and the suite is green end to end** (`tools/run-tests.sh`
+exit 0, js 3834/3834, shell half passing) now that the neighbouring Playwright run finished.
+
+### 🛑 THE `-u` FIX IS RIGHT AND THE MECHANISM I GAVE FOR IT WAS WRONG
+
+I wrote that the leak was "whatever `CLAUDE_CONFIG_DIR` **this process** carries", and that `env`
+without `-u` hands the child **the caller's** environment.
+
+**This launch is `tmux new-session` on the shared socket with no `-e`.** And
+`tools/witness-pane-env.sh` already records, as measured on tmux 3.6a: *"tmux does NOT hand a
+client's environment to a session it makes on an already-running server"* -- the pre-#586 pane saw
+the **server's** account while the client carried a different one.
+
+⇒ **The value that leaks is whichever account STARTED THE TMUX SERVER**, which this process cannot
+inspect. **That is worse than what I described, not better.** Corrected at all three sites, including
+an assertion message that named a source the arm cannot see.
+
+⭐ **The class, and I hit its sibling earlier on this branch: A CONTROL PROVES ONLY THE ARM YOU AIM
+IT AT.** My supporting measurement (`env -u sh -c` versus `env sh -c`) was a REAL measurement of the
+WRONG SUBJECT -- aimed at `env`, where the code path is `tmux new-session -> env`. It produced the
+right conclusion for a reason that does not hold, which is the most durable kind of wrong.
+
+📌 **The fix survives the correction intact, and is stronger than its old rationale:** `env -u` runs
+INSIDE the pane, so it strips the variable whatever layer leaked it. It does not depend on knowing
+the source -- which is exactly why the wrong rationale went unnoticed.
+
+### Stale-as-live, twice, and one of them was the suite
+
+- **Two sections described a red suite in the present tense** that no longer reproduces. Both now
+  carry a resolution note **at the head**, per this plan's own rule about append-only logs.
+- **Two of four `create.js` citations pointed at unrelated code**, the #874 quote had drifted, and
+  the `server.js` / `connect.js` numbers were pre-fix. ⭐ **An independent reviewer re-checking my
+  citations got a different pair than I measured** -- so the fix is a reproducing command
+  (`grep -n 'isDefault ? null :' engine/create.js`), not better digits. **When two readers disagree
+  about line numbers, the line numbers are the wrong artifact.**
+
+### Two arms made genuinely stronger
+
+- The `-u` assertion was **order-dependent** (a slice equality requiring `-u` first), so an unrelated
+  future assignment would have reddened it. Now order-independent, **plus a new assertion that
+  nothing re-assigns the variable afterwards** -- both re-proven by mutation after the rewrite,
+  because a rewritten assertion is a new assertion.
+
+📌 **Adopted mid-round from a fleet warning (kosmos#1923): no `cd <dir> && <tool> <relative-path>`.**
+A deny rule cannot resolve a relative path after a `cd`, so it escalates to a human and the agent
+cannot answer the dialog blocking it. `git -C <abs>` and absolute paths instead -- which the worktree
+rule wants anyway, since the Bash tool resets cwd between calls. **The rule now goes into every
+subagent prompt too: a subagent inherits none of it.**
