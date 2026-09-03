@@ -130,6 +130,11 @@ const FOUND = {
   check('adopt row shows the folder path', shownDir === ADOPT_DIR, JSON.stringify(shownDir));
 
   // 3. The name field is an empty, editable input AND reachable (not painted-over).
+  /* Scroll it into view first: page.evaluate does NOT auto-scroll the way page.click
+     does, so if a layout change ever pushes this row below the viewport,
+     elementFromPoint at its centre would return null and this arm would false-FAIL
+     (it can only fail safe, never pass wrongly, but a flaky red still reds a cut). */
+  await page.locator(`${rowSel} .fr-adoptinput`).scrollIntoViewIfNeeded().catch(() => {});
   const field = await page.evaluate((sel) => {
     const input = document.querySelector(`${sel} .fr-adoptinput`);
     if (!input) return { present: false };
