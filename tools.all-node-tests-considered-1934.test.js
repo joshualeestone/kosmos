@@ -72,8 +72,8 @@ test('run-tests.sh keeps the coverage assertion that refuses to run a subset (#1
   const runner = fs.readFileSync('tools/run-tests.sh', 'utf8');
   assert.match(runner, /_considered/,
     'run-tests.sh no longer gathers the test set into a counted variable; the #1934 coverage guard is gone');
-  assert.match(runner, /-lt\s+"\$_exist"/,
-    'run-tests.sh no longer compares the considered count against the count that exist; a narrowed glob would pass green again (#1934)');
+  assert.match(runner, /-ne\s+"\$_exist"/,
+    'run-tests.sh no longer refuses on a considered-vs-exist mismatch (-ne, both directions); a narrowed glob or a find/glob discrepancy would pass green again (#1934)');
   assert.match(runner, /node --test "\$\{KOSMOS_TEST_FILES\[@\]\}"/,
     'run-tests.sh no longer runs the SAME counted set it asserted on, so the count and the run can drift apart (#1934)');
 });
