@@ -45,9 +45,9 @@
 # install's own, and names anything it leaves). macOS may show its own one-time
 # "Terminal wants to manage apps" dialog for the icon step. It never
 # touches any other app. A fresh
-# install that confirms its own board is running finishes by opening your
-# browser at the Kosmos dashboard; updates never do, and KOSMOS_NO_OPEN=1
-# turns it off.
+# install that confirms its own board is running finishes by launching the
+# Kosmos app (#2073: app-only, no browser); updates never do, and
+# KOSMOS_NO_OPEN=1 turns it off.
 #
 # ⚠️ THE SHEBANG SAYS sh BECAUSE THE PAGE SAYS sh. This file's contract is
 # the interpreter the marketing line actually invokes: macOS /bin/sh, which
@@ -3688,7 +3688,7 @@ fi
 # healthy() accepts ANY board identifying as Kosmos on the port, so on a
 # Mac where another account's Kosmos already holds it, a fresh install
 # "succeeds" without ever starting its own board -- and the closing
-# sentences (and the browser open below) would present the OTHER
+# sentences (and the app launch below) would present the OTHER
 # install's board as the result of this one. Measured in review: a fresh
 # install onto an occupied port printed "Kosmos is running" and opened a
 # stranger's board. The pidfile cmd_start writes for a board it actually
@@ -3704,7 +3704,7 @@ if [ -f "$KOSMOS_HOME/board.pid" ]; then
       # path -- deliberately STRICTER than install/kosmos's running_pid,
       # which matches any *app/server.js*: a recycled pid, or another
       # install's live server behind a stale pidfile, must not read as
-      # ours, because this flag gates the browser open. The harness pins
+      # ours, because this flag gates the app launch. The harness pins
       # the anchoring with another install's live server pid; do not
       # "align" the two patterns.
       case "$(/bin/ps -ww -p "$_bpid" -o command= 2>/dev/null)" in
@@ -3759,12 +3759,12 @@ printf '  To remove it later:  curl -fsSL https://installkosmos.com/setup | sh -
 # first real clean-machine run (2026-08-13): every step succeeded and the
 # tester's report opened with "It did not open the window or the app" --
 # for this installer's audience, a URL printed in a transcript is not a
-# running product. Fresh installs only: yanking the browser on an update
+# running product. Fresh installs only: yanking the app launch on an update
 # would punish exactly the people who already know where the board is.
 # Best-effort by design (`|| true`): over ssh or headless, `open` fails and
 # the URL two lines up is still the whole answer.
 #
-# Opening the RAW URL is safe because the gate below requires BOARD_OURS:
+# Launching the app is safe because the gate below requires BOARD_OURS:
 # the pidfile proof above established that the thing answering the port
 # is the board THIS install started, not merely something identifying as
 # Kosmos (cmd_start's healthy() cannot tell those apart, which is exactly
@@ -3879,7 +3879,7 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_O
   # asuser promises. The one mechanism Apple supports for an installer reaching
   # the person's desktop is a LaunchAgent bootstrapped into gui/<uid>: launchd
   # runs it INSIDE the login session, where `open` is ordinary. So in pkg mode
-  # the open is a one-shot agent that opens the dashboard and deletes its own
+  # the open is a one-shot agent that launches the app and deletes its own
   # plist (a RunAtLoad job that has exited stays idle until logout; with the
   # plist gone it never runs again). The BOARD_OURS gate above still decides whether
   # this runs at all; only the delivery changes. Everything else (paste
@@ -3997,7 +3997,7 @@ fi
 # shell, so its PATH is the one they are about to type into.
 #
 # 📌 It is not an error and it does not say "warning". Nothing failed: the board
-# is running and the browser is open. The only thing wrong is that the person
+# is running and the Kosmos app is open. The only thing wrong is that the person
 # would reasonably conclude the install broke, so this replaces that conclusion
 # rather than apologising for it.
 case ":$PATH:" in

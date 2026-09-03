@@ -34,9 +34,11 @@ stages Kosmos.app into `$APP_DIR`; setup.sh then opened the browser instead of l
   app on **every** update. This is the subsumption edge I verified rather than assumed. The
   guarantee is "launches once then stops" **only when the app was not already running and the
   bundle is current** — see the two accepted edges below.
-- **`install/setup.sh` open gate**: also guarded on `[ -d "$APP_DIR/Kosmos.app" ]` — only
-  auto-launch when the app actually exists (a fresh install where `make_app` failed has no app to
-  open, and app-only removes the old browser fallback).
+- **`install/setup.sh` open gate**: also guarded on `bundle_is_ours "$APP_DIR/Kosmos.app"` — only
+  auto-launch OUR OWN app that exists. This fires for a fresh or already-current owned bundle,
+  skips the `make_app`-failed case (no app — app-only removed the old browser fallback, so opening
+  nothing beats naming an app that was not created), AND refuses a symlinked/foreign bundle (the
+  aliased-`~/Applications` multi-account case where a bare `-d` would launch a stranger's app).
 - **`install/pkg-scripts/installing.html`**: the ready branch no longer `location.replace()`s the
   browser onto the board; it says Kosmos is opening in its app and stops (hint reworded to match).
 
