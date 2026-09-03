@@ -67,6 +67,14 @@ machine to verify Windows-specific behaviour, and the acceptance allows neutral 
   (the server fix is unit-tested; the client logic is pure and Mac-transparent) and
   flag the Windows-render confirm as windows-orchestrator's step. Leave-for-review.
 
+## The wider class (out of this card's scope, named for the next person)
+The same macOS-only wording lives on two surfaces OUTSIDE the first-run screen, left
+for a follow-on so this PR stays scoped to the card:
+- `web/index.html:9528` - the Settings `#set-reveal` section: "Drag it onto the Dock".
+- `web/index.html:12592` - the not-answering toast: "Open Kosmos from your Applications
+  folder" (machine.js/client toast copy).
+Both can adopt the same `findAppHint`/`frFindAppHint` helper this PR introduces.
+
 ## Coordination
 - PigeonPete owns #2007 (agents-pane 403), also in `web/index.html` - coordinated to
   avoid a collision; his edit is the agents pane, mine is the first-run instructions.
