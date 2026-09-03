@@ -7758,7 +7758,10 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (!project) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
-    const member = (project.agents || []).find((m) => m.sessionName === name) || null;
+    // #2005: resolve case-tolerantly (chat.resolveCard), so a mis-cased name reaches
+    // the project agent the same way the recovery route already does. A READ; the
+    // downstream history/viewport pass `name` and case-fold internally.
+    const member = chat.resolveCard(project.agents || [], name);
     if (!member) { sendJson(res, 404, { error: 'that agent is not on this project' }); return; }
 
     /**
@@ -7962,7 +7965,11 @@ const server = http.createServer((req, res) => {
           missing.status = 404;
           throw missing;
         }
-        if (!(project.agents || []).some((m) => m.sessionName === name)) {
+        // #2005: case-tolerant presence (chat.resolveCard). Safe on the SEND path:
+        // the actual delivery is ours-gated downstream (chat.deliver -> addressable
+        // refuses isNamedOurs !== true), so a case-folded non-ours match passes
+        // presence but is refused at send, exactly like #989.
+        if (!chat.resolveCard(project.agents || [], name)) {
           const notOn = new Error('that agent is not on this project');
           notOn.status = 404;
           throw notOn;
@@ -7971,9 +7978,10 @@ const server = http.createServer((req, res) => {
            the only thing between a typed reply and a dialog whose default
            answer ends the session. Same rule as the agent-thread route. */
         {
-          const card = Array.isArray(roster)
-            ? (roster.find((a) => a && a.sessionName === name && a.isNamedOurs === true) || null)
-            : null;
+          // #2005: ourCardByName (chat.resolveCard filtered to isNamedOurs), the
+          // same helper the agent-thread route uses at 5731/5946, so the trust hold
+          // resolves the card the same way every other send route does.
+          const card = ourCardByName(roster, name);
           const trustHeld = trustDialogHold(card, null, () => chat.viewport(name, roster));
           if (trustHeld) throw trustHeld;
         }

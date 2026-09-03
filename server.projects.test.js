@@ -1142,6 +1142,59 @@ test('a blind roster reaches BOTH thread routes as agentsUnreadable, never as an
     });
 });
 
+/**
+ * #2005: the project thread routes (read presence 7761, send presence 7965,
+ * trust-hold 7975) now resolve a name the way the #989 recovery route does --
+ * exact-first, then case-fold, never safeKey-strip, ours-preferring -- so every
+ * send route agrees on which card a name reaches. Three arms: a mis-cased name
+ * REACHES; a strip-only name does NOT (the case-fold-not-strip boundary #989
+ * drew); and a case-folded NON-ours match passes presence but is still refused
+ * at delivery, so the looser presence gate opens no send hole.
+ */
+test('#2005: a mis-cased name reaches the project agent on both the read and send routes', async () => {
+  reset();
+  await withThread(fleet.agent('mara', { state: 'idle' }), [said('on the lease'), said(), said()],
+    async ({ project, calls }) => {
+      // READ (server.js:7761): a mis-cased GET resolves to the real card, not a 404.
+      const read = await req(`/api/project/${project.id}/thread/Mara`);
+      assert.equal(read.status, 200, 'the READ route must resolve a mis-cased name (#2005)');
+      assert.equal(json(read).agent.sessionName, 'mara', 'resolved to the card, not the typed case');
+      // SEND (server.js:7965): a mis-cased POST places the text into the agent.
+      const sent = json(await post(`/api/project/${project.id}/thread/Mara`, { text: 'have a look' }));
+      assert.equal(sent.delivery.state, 'placed', 'the send must reach an OURS agent under a mis-cased name');
+      assert.equal(calls.sends()[0][0], 'send-keys', 'and the text was actually typed');
+    });
+});
+
+test('#2005: a strip-only name does NOT resolve on the thread routes (case-fold, never safeKey)', async () => {
+  reset();
+  // `Ma.ra` sanitises to `mara` under store.safeKey but does not CASE-FOLD to it.
+  // #989 keeps the send path stricter than the route gate: a name that merely
+  // strips to a live agent must be refused, or a send types into a conversation it
+  // was never aimed at. resolveCard case-folds only, so this stays a 404 on both.
+  await withThread(fleet.agent('mara', { state: 'idle' }), [said(), said()],
+    async ({ project }) => {
+      assert.equal((await req(`/api/project/${project.id}/thread/Ma.ra`)).status, 404,
+        'a strip-only name must not resolve on the READ route');
+      assert.equal((await post(`/api/project/${project.id}/thread/Ma.ra`, { text: 'x' })).status, 404,
+        'nor on the SEND route');
+    });
+});
+
+test('#2005: a case-folded NON-ours match passes presence but is refused at delivery', async () => {
+  reset();
+  // The send-path safety the case-fold must not break: a pane holding somebody
+  // else's session under one of our names resolves for PRESENCE (resolveCard) but
+  // is refused at DELIVERY (chat.deliver -> addressable requires isNamedOurs), so
+  // the mis-cased presence gate opens no send hole.
+  await withThread(fleet.stranger('mara', { state: 'idle' }), [said(), said()],
+    async ({ project }) => {
+      const sent = json(await post(`/api/project/${project.id}/thread/Mara`, { text: 'hello' }));
+      assert.equal(sent.delivery.state, 'could_not',
+        'a NON-ours like-named pane is refused at delivery even when presence case-folds');
+    });
+});
+
 test('sending places the text into the agent’s own session, and says only that', async () => {
   reset();
   await withThread(fleet.agent('zeta', { state: 'idle' }), [said(), said()],
