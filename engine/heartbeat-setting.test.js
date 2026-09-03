@@ -25,9 +25,9 @@ test.afterEach(() => {
   fs.rmSync(hb.FILE, { force: true });
 });
 
-test('defaults: off, interval 17 (the fleet reference cadence), and a clean read', () => {
+test('defaults: ON (Josh 2026-09-03), interval 17 (the fleet reference cadence), and a clean read', () => {
   const s = hb.read();
-  assert.equal(s.on, false);
+  assert.equal(s.on, true, 'an absent store is never-configured, which is on by default');
   assert.equal(s.intervalMinutes, 17);
   assert.equal(s.ok, true);
 });

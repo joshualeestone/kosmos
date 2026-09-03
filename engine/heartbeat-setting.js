@@ -5,11 +5,13 @@
  * decision (tick), unit-tested over synthetic rows with no disk. This one owns
  * the setting the person controls in Settings > Automation, persisted exactly as
  * engine/notify.js persists its own on/off (atomic tmp + rename, read defaults
- * to off, a write failure returns a reason and never throws). The runner reads
+ * to on, a write failure returns a reason and never throws). The runner reads
  * this to decide whether to sweep and how often; the HTTP routes read/write it.
  *
- * OFF BY DEFAULT, like notify: nothing nudges the person until they ask for it.
- * The interval is a CLOSED set of minute choices so the UI selector and the
+ * ON BY DEFAULT (Josh, 2026-09-03: on is the product default, off requires a
+ * stated reason). An absent store means never-configured, which reads on; an
+ * unreadable or corrupt one still falls to off so a bad config never drives the
+ * runner. The interval is a CLOSED set of minute choices so the UI selector and the
  * stored value cannot disagree about what is valid, and 17 is the default
  * because it mirrors the fleet reference cadence (StartInterval 1020s = 17 min).
  *
@@ -47,13 +49,15 @@ function read() {
   try {
     raw = fs.readFileSync(FILE, 'utf8');
   } catch (err) {
-    if (err && err.code === 'ENOENT') return { on: false, intervalMinutes: DEFAULT_INTERVAL, ok: true };
+    if (err && err.code === 'ENOENT') return { on: true, intervalMinutes: DEFAULT_INTERVAL, ok: true };
     return { on: false, intervalMinutes: DEFAULT_INTERVAL, ok: false };
   }
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return { on: false, intervalMinutes: DEFAULT_INTERVAL, ok: false }; }
   if (!parsed || typeof parsed !== 'object') return { on: false, intervalMinutes: DEFAULT_INTERVAL, ok: false };
-  const on = parsed.on === true;
+  // ON by default: a stored file missing the flag (an old build, a hand-edit)
+  // reads on, exactly as an absent one does; only an explicit false is off.
+  const on = typeof parsed.on === 'boolean' ? parsed.on : true;
   // A stored interval outside the closed set (an old build, a hand-edit) falls
   // back to the default rather than driving the runner with a nonsense period.
   const intervalMinutes = isValidInterval(parsed.intervalMinutes) ? parsed.intervalMinutes : DEFAULT_INTERVAL;

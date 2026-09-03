@@ -76,12 +76,14 @@ function handoffPrompt(fillPct, path) {
 /**
  * The stored setting, normalised. enabled is a boolean; threshold is one of the
  * offered options, defaulting to DEFAULT_THRESHOLD. A store that has never been
- * written returns the safe default (off), so the feature is opt-in.
+ * written returns the default (on), so the feature is opt-out (Josh, 2026-09-03:
+ * on by default; only an explicit false is off). autohandoff acts for the user
+ * on their own machine, so there is no phone-home fail-safe to preserve here.
  */
 function settingFrom(stored) {
   const a = (stored && stored.autohandoff) || {};
   const threshold = THRESHOLD_OPTIONS.includes(a.threshold) ? a.threshold : DEFAULT_THRESHOLD;
-  return { enabled: a.enabled === true, threshold };
+  return { enabled: typeof a.enabled === 'boolean' ? a.enabled : true, threshold };
 }
 
 /**
