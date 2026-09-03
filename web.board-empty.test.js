@@ -43,13 +43,16 @@ function boardEmpty(state) {
      on screen, and a stub would let an escaping bug through the one branch
      that renders a value this code did not write. */
   // eslint-disable-next-line no-new-func
-  return new Function('BOARD_SEEN', 'BOARD_LOOK_FAILED',
-    lift('esc') + '\n' + lift('boardEmpty') + '\nreturn boardEmpty();')(state.seen, state.failed);
+  return new Function('BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN',
+    lift('esc') + '\n' + lift('boardSigninHtml') + '\n' + lift('boardEmpty') + '\nreturn boardEmpty();')(state.seen, state.failed, state.signin || false);
 }
 
 const LOOKING = { seen: false, failed: null };
 const NONE = { seen: true, failed: null };
 const CANNOT = { seen: true, failed: 'tmux is not answering' };
+/* #2023: a 403 sets BOTH the signin flag and BOARD_LOOK_FAILED (it is a failed
+   read), so this state carries both -- the signin branch must win. */
+const NEEDS_SIGNIN = { seen: true, failed: 'this browser holds no board token', signin: true };
 
 test('before the first answer it says it is looking, and offers nothing to press', () => {
   const html = boardEmpty(LOOKING);
@@ -91,6 +94,26 @@ test('a look that FAILED refuses to call the board empty', () => {
      one would be the only unescaped path on the board. */
   const evil = boardEmpty({ seen: true, failed: '<img src=x onerror=1>' });
   assert.ok(!/<img/.test(evil), 'the failure reason reaches the page unescaped');
+});
+
+test('a 403 renders as NOT SIGNED IN, not as an unreadable board (#2023)', () => {
+  /* 🛑 THE CLAIM. A 403 (this browser holds no board token, #1946) is a KNOWN
+     state with a remedy, and must not fall into the honest-but-wrong "cannot
+     read" copy, which invites waiting that cannot supply a token. The signin
+     branch wins even though a 403 also sets BOARD_LOOK_FAILED. */
+  const html = boardEmpty(NEEDS_SIGNIN);
+  assert.match(html, /not signed in/i, 'a not-signed-in board did not say so');
+  /* The ONLY remedy that works: self-heal on the next update. Every user-action
+     remedy failed on a real machine (stale bundle, bare name off PATH). */
+  assert.match(html, /fix(es)? itself the next time Kosmos updates/i,
+    'the self-heal remedy is missing, so the box names no way out that works');
+  assert.ok(!/We cannot read your agents right now/.test(html),
+    'a not-signed-in board rendered as a generic unreadable one');
+  assert.ok(!/No agents yet/.test(html), 'a not-signed-in board claimed it is empty');
+  /* The terminal footnote MUST show the full path: a bare `kosmos open` is not
+     on PATH in a shell without ~/.zprofile (how it failed for Josh). */
+  assert.match(html, /~\/\.local\/share\/kosmos\/bin\/kosmos open/,
+    'the terminal footnote is missing or shows a bare name instead of the full path');
 });
 
 test('both empty states weight their one action the same', () => {

@@ -3003,10 +3003,10 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     else if (script[k] === '}') { d -= 1; if (d === 0) { beEnd = k + 1; break; } }
   }
   // eslint-disable-next-line no-new-func
-  new Function('document', 'checked', 'esc', 'err', 'BOARD_SEEN', 'BOARD_LOOK_FAILED',
+  new Function('document', 'checked', 'esc', 'err', 'BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN',
     script.slice(beAt, beEnd) + '\n' + script.slice(from, end))(
     { getElementById: (id) => els[id] }, checked, (s) => String(s), { message: 'boom' },
-    true, 'boom');
+    true, 'boom', false);
 
   // The rendered failure card proves the extracted block really ran.
   assert.match(els.grid.innerHTML, /cannot read your agents/,
@@ -7087,7 +7087,7 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
     + pageFnSource('pjMember') + '\n'
     + pageFnSource('paintFreeAgentPicker') + '\n'
     + 'const setIfChanged = (el, html) => { el.innerHTML = html; };\n'
-    + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = null;\n');
+    + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = null; let BOARD_NEEDS_SIGNIN = false;\n');
   const box = { innerHTML: '' };
   const addPick = { innerHTML: '', value: '' };
   global.document = { getElementById: (id) => (id === 'pjs-members' ? box : id === 'pjs-add-pick' ? addPick : null) };
@@ -7122,6 +7122,53 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
     // engine because (the row would degrade generic and still pass).
     assert.ok(box.innerHTML.includes('never seen an agent by this name'),
       'a never-seen member lost the engine\'s specific reason');
+  } finally {
+    delete global.document;
+  }
+});
+
+test('the free-agent picker names the not-signed-in state distinctly on a 403 (#2023)', () => {
+  /* The signin branch of `emptyBecause` had no assertion: the harness above only
+     BINDS BOARD_NEEDS_SIGNIN to stop a ReferenceError, it never sets it true and
+     reads the option text. Driven directly here, with a control. */
+  const prelude = 'const esc = (s) => String(s == null ? "" : s);\n'
+    + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = null;\n';
+  const paintOn = pageFunction('paintFreeAgentPicker', prelude + 'let BOARD_NEEDS_SIGNIN = true;\n');
+  const selOn = { __lastPicker: null, value: '', innerHTML: '' };
+  paintOn({ agents: [] }, selOn, null);
+  assert.match(selOn.innerHTML, /not signed in/i,
+    'a 403 board must name the signin state in the picker, not the generic "cannot see any agents"');
+  /* 🔑 THE CONTROL. Flag OFF with the same empty board must say the ORDINARY
+     empty reason, NOT signin -- so the assertion above discriminates rather than
+     matching whatever the empty picker happens to render. */
+  const paintOff = pageFunction('paintFreeAgentPicker', prelude + 'let BOARD_NEEDS_SIGNIN = false;\n');
+  const selOff = { __lastPicker: null, value: '', innerHTML: '' };
+  paintOff({ agents: [] }, selOff, null);
+  assert.ok(!/not signed in/i.test(selOff.innerHTML) && /cannot see any agents/i.test(selOff.innerHTML),
+    'the control: flag off shows the ordinary empty reason: ' + selOff.innerHTML);
+});
+
+test('paintAddAgents shows the not-signed-in copy on a 403, and cannot-read otherwise (#2023)', () => {
+  /* paintAddAgents' BOARD_NEEDS_SIGNIN branch (checked BEFORE BOARD_LOOK_FAILED)
+     had no assertion. A 403 sets BOTH flags, so the signin branch must win.
+     Driven directly with a control on the flag so the assertion discriminates
+     rather than matching whatever the add-project view happens to render. */
+  const box = { innerHTML: '' };
+  global.document = { getElementById: (id) => (id === 'pj-add-agents' ? box : null) };
+  try {
+    const base = 'const esc = (s) => String(s == null ? "" : s);\n'
+      + 'const setLive = (el, html) => { el.innerHTML = html; };\n'
+      + 'const SIGNIN_SENTENCE = ' + JSON.stringify(pageConst('SIGNIN_SENTENCE')) + ';\n'
+      + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = "boom";\n';
+    // flag ON: a 403 also set BOARD_LOOK_FAILED; the signin branch must win.
+    pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = true;\n')();
+    assert.match(box.innerHTML, /not signed in/i, 'a 403 add-project view showed cannot-read, not the signin copy');
+    assert.ok(!/cannot read the agents/i.test(box.innerHTML), 'the signin branch leaked the generic cannot-read copy');
+    // CONTROL: flag OFF with the same failed read must show cannot-read.
+    box.innerHTML = '';
+    pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = false;\n')();
+    assert.match(box.innerHTML, /cannot read the agents/i, 'the control: a non-403 failure must still show cannot-read');
+    assert.ok(!/not signed in/i.test(box.innerHTML), 'the control: cannot-read must not say signin');
   } finally {
     delete global.document;
   }
