@@ -3139,7 +3139,6 @@ function createAgentInner(opts) {
   // machine says which guard fired. Recorded as a gap, not fixed here — the
   // create result has no slot that shows a person a non-failure.
   let trusted = null;
-  let bypassed = null;
   if (!DRY_RUN && weMadeTheFolder) {
     /* 🛑 #1629, THE CREATE HALF. This call had no `configDir`, so creating an
        agent on a NEWLY ADDED Claude account wrote the trust entry into the
@@ -3167,12 +3166,18 @@ function createAgentInner(opts) {
        `configDir` is a CODEX_HOME and this is a CLAUDE consent, so it is Claude-only.
        Non-gating and best-effort, exactly like the trust write -- the cost of it failing is
        a prompt the board now RENDERS as needs_you (#1933), not a failed creation.
-       The key is per-ACCOUNT (settings.json), shared by every agent on that account, so the
-       2nd+ agent gets `already:true` and writes nothing; the failed-start rollback below
-       undoes it only when THIS creation wrote it (`already === false`), never a key another
-       agent still needs. */
+       🛑 NOT UNDONE ON ROLLBACK, and the asymmetry with the trust write above is the whole
+       reason. trustFolder's key is per-FOLDER -- the folder being deleted -- so a failed
+       creation's rollback cleans up after it. The bypass key is per-ACCOUNT (settings.json),
+       shared by every agent on that account and OUTLIVING this one: the 2nd+ agent gets
+       `already:true` and writes nothing, and undoing it on THIS agent's failed start would
+       remove a preference a concurrent or existing agent on the account still relies on
+       (`already === false` proves only that no other agent needed it at PREACCEPT time, not
+       at rollback time). Leaving an inert account preference set is the safe direction -- the
+       operator chose bypass mode for this account when they started the creation -- so this
+       is fire-and-forget with no undo, unlike the trust write. */
     if (provider !== 'openai') {
-      try { bypassed = require('./trust').preacceptBypass(configDir); }
+      try { require('./trust').preacceptBypass(configDir); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
     }
   }
@@ -3235,15 +3240,10 @@ function createAgentInner(opts) {
       catch { undone = false; }
       if (!undone) steps.push({ label: 'took back the folder trust', ok: false });
     }
-    // #1919: the bypass pre-accept goes back too, and ONLY when THIS creation wrote it
-    // (`already` false) -- never a key another agent on the same account still needs. Same
-    // shape and same failed-undo reporting as the trust undo above.
-    if (bypassed && bypassed.ok === true && bypassed.already === false) {
-      let undoneBypass = false;
-      try { undoneBypass = require('./trust').forgetBypass(configDir, bypassed.displaced, bypassed.madeFile).ok === true; }
-      catch { undoneBypass = false; }
-      if (!undoneBypass) steps.push({ label: 'took back the bypass acceptance', ok: false });
-    }
+    // #1919: the bypass pre-accept is deliberately NOT undone here -- it is an account-level
+    // preference, not state about the folder being deleted, and undoing it could remove a key
+    // a concurrent or existing agent on the same account relies on (see the create-half write
+    // above). Leaving it set is inert and safe.
     // ⚠️ INCLUDING THE JOB, and including UNLOADING it. It was left installed
     // here, so an agent reported as "not running yet" would have started at the
     // person's next login anyway -- the one outcome nobody would predict from

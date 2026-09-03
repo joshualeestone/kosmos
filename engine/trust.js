@@ -572,44 +572,11 @@ function preacceptBypass(configDir) {
   return { ok: true, already: false, target, displaced, madeFile };
 }
 
-/**
- * Undo a preacceptBypass write, for an agent whose creation is being rolled back. Symmetric
- * with forgetFolder: restore the EXACT prior state. If we created the file, remove it only
- * when it now holds nothing but our key (never delete a settings file that gained other
- * keys). If the key was absent before, delete it; if it held an explicit value, put it back.
- */
-function forgetBypass(configDir, displaced, madeFile) {
-  const target = SETTINGS(configDir || null);
-  let data;
-  try {
-    if (fs.lstatSync(target).isSymbolicLink()) return { ok: false, because: 'their settings file is a symlink' };
-    data = JSON.parse(fs.readFileSync(target, 'utf8'));
-  } catch (err) {
-    if (err && err.code === 'ENOENT') return { ok: true, already: true };   // nothing to undo
-    return { ok: false, because: 'we could not read their settings file' };
-  }
-  if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return { ok: false, because: 'their settings file is not shaped the way we expect' };
-  }
-  if (displaced === undefined) delete data[BYPASS_KEY]; else data[BYPASS_KEY] = displaced;
+/* No forgetBypass: the bypass pre-accept is deliberately NOT undone. Unlike trustFolder's
+   per-FOLDER key, BYPASS_KEY is per-ACCOUNT (settings.json) and shared by every agent on the
+   account, so undoing it on one agent's failed creation could remove a key a concurrent or
+   existing agent still relies on. Leaving an inert account preference set is the safe
+   direction (see the rollback comment in create.js). An undo would need forgetFolder's
+   "only if it still says what we wrote" window guard AND could still delete a shared key. */
 
-  if (madeFile && Object.keys(data).length === 0) {
-    try { fs.unlinkSync(target); return { ok: true }; }
-    catch { return { ok: false, because: 'we could not remove their settings file' }; }
-  }
-
-  let prevMode = 0o600;
-  try { prevMode = fs.statSync(target).mode & 0o7777; } catch { /* default */ }
-  const tmp = tempPath(target);
-  try {
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { flag: 'wx', mode: prevMode });
-    fs.chmodSync(tmp, prevMode);
-    fs.renameSync(tmp, target);
-  } catch (err) {
-    if (!err || err.code !== 'EEXIST') { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
-    return { ok: false, because: 'we could not write to their settings file' };
-  }
-  return { ok: true };
-}
-
-module.exports = { trustFolder, forgetFolder, preacceptBypass, forgetBypass, KEY, BYPASS_KEY, recordWrite, recordedWrite, dropRecord };
+module.exports = { trustFolder, forgetFolder, preacceptBypass, KEY, BYPASS_KEY, recordWrite, recordedWrite, dropRecord };

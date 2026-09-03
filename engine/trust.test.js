@@ -19,7 +19,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = CONFIG;
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-const { trustFolder, forgetFolder, preacceptBypass, forgetBypass, KEY, BYPASS_KEY } = require('./trust');
+const { trustFolder, forgetFolder, preacceptBypass, KEY, BYPASS_KEY } = require('./trust');
 
 let n = 0;
 /** A folder that exists, fresh per test. */
@@ -736,34 +736,8 @@ test('#1919: preacceptBypass records a displaced explicit value (e.g. a prior fa
   fs.writeFileSync(sPath(d), JSON.stringify({ [BYPASS_KEY]: false }));
   const r = preacceptBypass(d);
   assert.equal(r.ok, true);
-  assert.equal(r.displaced, false, 'so the undo can put the false back, not delete the key');
+  assert.equal(r.displaced, false, 'the prior explicit value is reported (merge awareness), not silently overwritten unseen');
   assert.equal(sRead(d)[BYPASS_KEY], true);
-});
-
-test('#1919: forgetBypass removes a file we created iff it holds nothing else', () => {
-  const d = acctDir();
-  const r = preacceptBypass(d);          // madeFile: true, key only
-  const u = forgetBypass(d, r.displaced, r.madeFile);
-  assert.equal(u.ok, true);
-  assert.equal(fs.existsSync(sPath(d)), false, 'a settings file we invented and then rolled back is gone');
-});
-
-test('#1919: forgetBypass on a merge restores absent, keeping the other keys', () => {
-  const d = acctDir();
-  fs.writeFileSync(sPath(d), JSON.stringify({ defaultMode: 'bypassPermissions' }));
-  const r = preacceptBypass(d);          // madeFile: false, displaced undefined
-  forgetBypass(d, r.displaced, r.madeFile);
-  const back = sRead(d);
-  assert.equal(BYPASS_KEY in back, false, 'the key we added is gone');
-  assert.equal(back.defaultMode, 'bypassPermissions', 'the file we did not create survives');
-});
-
-test('#1919: forgetBypass restores a displaced explicit value rather than deleting', () => {
-  const d = acctDir();
-  fs.writeFileSync(sPath(d), JSON.stringify({ [BYPASS_KEY]: false }));
-  const r = preacceptBypass(d);
-  forgetBypass(d, r.displaced, r.madeFile);
-  assert.equal(sRead(d)[BYPASS_KEY], false, 'the prior false is back, not deleted');
 });
 
 test('#1919: preacceptBypass refuses a symlinked settings target rather than sever it', () => {

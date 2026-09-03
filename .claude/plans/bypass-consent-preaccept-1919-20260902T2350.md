@@ -74,8 +74,15 @@ never global.
      the preaccept there too. A default-account agent (configDir null, ~/.claude which
      already carries the key on this fleet) needs nothing; a non-default account (a fresh
      product install, the #1919 case) is the one that hits the prompt.
-   Rollback: wherever creation calls forgetFolder on a bootstrap failure, also call
-   forgetBypass(configDir, displaced, madeFile) to undo the settings.json write.
+   Rollback: the bypass pre-accept is DELIBERATELY NOT undone on a failed-start rollback
+   (decided during the challenge loop, iter 1). trustFolder's key is per-FOLDER (the folder
+   being deleted), so its rollback cleans up after the deleted agent; BYPASS_KEY is
+   per-ACCOUNT (settings.json), shared by every agent on the account and outliving this one.
+   Undoing it on one agent's failed creation could remove a key a concurrent or existing
+   agent still relies on (`already===false` proves only no other agent needed it at PREACCEPT
+   time, not at rollback time). Leaving an inert account preference set is the safe direction.
+   So there is no forgetBypass and no rollback wiring for it -- fire-and-forget on both call
+   sites, unlike the trust write.
 
 ## STATUS (checkpoint)
 DONE and unit-tested: `preacceptBypass` + `forgetBypass` + `SETTINGS`/`BYPASS_KEY` in
