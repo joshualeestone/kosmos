@@ -71,7 +71,7 @@ CI_JQ='
         then "FAIL"
       elif any($c[];
              ((.status // "" | ascii_upcase) as $s | ($s=="QUEUED" or $s=="IN_PROGRESS" or $s=="PENDING" or $s=="WAITING"))
-             or ((.state // "" | ascii_upcase)=="PENDING")
+             or ((.state // "" | ascii_upcase) as $st | ($st=="PENDING" or $st=="EXPECTED"))
              or ((.conclusion // null)==null and (.state // null)==null))
         then "PENDING"
       else "PASS" end;'
@@ -90,10 +90,16 @@ ROWS="$(printf '%s' "$PR_JSON" | jq -r "$CI_JQ"'
       .headRefName,
       (.body // ""),
       (.title // "") ]
-  | @tsv' 2>/dev/null)" || {
+  | @tsv' 2>/dev/null | tr '\t' '\037')" || {
   echo "stranded-prs: could not parse the PR list (jq error)" >&2
   exit 2
 }
+# NOTE on the delimiter: @tsv escapes any tab/newline that appears WITHIN a field
+# (to literal \t/\n), so the only real tabs are field separators. We translate
+# those to US (0x1F) and read with IFS=US below. A tab is IFS-*whitespace*, so
+# `read` would FOLD adjacent tabs and shift fields when an intermediate field
+# (e.g. an empty PR body) is blank; US is not IFS-whitespace, so empty fields are
+# preserved. Newlines within a field stay escaped, so row framing is intact.
 
 CUTOFF=$(awk -v now="$NOW" -v h="$MAX_AGE_HOURS" 'BEGIN{printf "%d", now - (h*3600)}')
 
@@ -118,8 +124,11 @@ printf '%-6s  %-5s  %-9s  %-9s  %-8s  %s\n' "PR" "AGEh" "CI" "MERGE" "ISSUE" "FL
 printf '%-6s  %-5s  %-9s  %-9s  %-8s  %s\n' "----" "----" "---" "-----" "-----" "-------------"
 
 COUNT=0
-# TSV read; tabs are the only delimiter, so titles/bodies with spaces are safe.
-while IFS="$(printf '\t')" read -r num updated mergeable mergestate ci branch body title; do
+# US-delimited read (see the delimiter NOTE above): fields with spaces, tabs, or
+# newlines are safe (@tsv escaped in-field tab/newline), and an empty intermediate
+# field (e.g. a PR with no body) is preserved rather than folded, so the title is
+# never shifted into the body.
+while IFS="$(printf '\037')" read -r num updated mergeable mergestate ci branch body title; do
   [ -n "${num:-}" ] || continue
   upe="$(iso_to_epoch "$updated")"
   # Age filter: skip PRs newer than the cutoff. An unknown (empty) age is NOT
@@ -137,6 +146,17 @@ while IFS="$(printf '\t')" read -r num updated mergeable mergestate ci branch bo
     DIRTY|CONFLICTING) flags="${flags}CONFLICTING(needs-rebase) " ;;
     BLOCKED)           flags="${flags}BLOCKED(needs review/required-check) " ;;
     BEHIND)            flags="${flags}BEHIND(needs update-branch) " ;;
+    UNKNOWN)           flags="${flags}MERGE-UNKNOWN(mergeability not computed -- may become CONFLICTING) " ;;
+  esac
+  # Cross-check the mergeable field (coarser than mergeStateStatus, fetched at the
+  # gh call above): if GitHub does not report a clean MERGEABLE and no merge-state
+  # flag already fired, surface it rather than let the row read "safe to merge".
+  case "$mergeable" in
+    MERGEABLE|'') : ;;
+    *) case "$flags" in
+         *CONFLICTING*|*BLOCKED*|*BEHIND*|*MERGE-UNKNOWN*) : ;;
+         *) flags="${flags}NOT-MERGEABLE($mergeable) " ;;
+       esac ;;
   esac
   # Overruled-alternative smell: the PR addresses an issue that is already CLOSED.
   # A closed issue on an open PR means either another PR already settled it (the

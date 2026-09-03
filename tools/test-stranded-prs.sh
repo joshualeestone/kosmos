@@ -103,7 +103,16 @@ cat > "$PRJSON" <<'JSONEOF'
    "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
   {"number":840,"title":"action-required fixture","isDraft":false,"updatedAt":"2026-09-03T03:00:00Z",
    "mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","headRefName":"act-840","body":"Addresses #840","url":"u",
-   "statusCheckRollup":[{"conclusion":"ACTION_REQUIRED","status":"COMPLETED"}]}
+   "statusCheckRollup":[{"conclusion":"ACTION_REQUIRED","status":"COMPLETED"}]},
+  {"number":850,"title":"expected-check fixture","isDraft":false,"updatedAt":"2026-09-03T02:00:00Z",
+   "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefName":"exp-850","body":"Addresses #850","url":"u",
+   "statusCheckRollup":[{"state":"EXPECTED"}]},
+  {"number":860,"title":"unknown-merge fixture","isDraft":false,"updatedAt":"2026-09-03T01:00:00Z",
+   "mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","headRefName":"unk-860","body":"Addresses #860","url":"u",
+   "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
+  {"number":870,"title":"EMPTYBODYTITLE","isDraft":false,"updatedAt":"2026-09-03T00:30:00Z",
+   "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefName":"eb-870","body":"","url":"u",
+   "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]}
 ]
 JSONEOF
 
@@ -152,6 +161,14 @@ chk "#830 NOT called safe to merge"            ng '#830.*clean: looks safe'
 # never fall through to green.
 chk "#840 ACTION_REQUIRED reads CI-FAIL"        g '#840.*CI-FAIL'
 chk "#840 NOT called safe to merge"            ng '#840.*clean: looks safe'
+# EXPECTED is a required check not yet reported -> PENDING, not green.
+chk "#850 EXPECTED state reads CI-PENDING"      g '#850.*PENDING'
+chk "#850 NOT called safe to merge"            ng '#850.*clean: looks safe'
+# UNKNOWN mergeStateStatus = mergeability not computed -> must NOT read safe.
+chk "#860 UNKNOWN merge state flagged"          g '#860.*MERGE-UNKNOWN'
+chk "#860 NOT called safe to merge"            ng '#860.*clean: looks safe'
+# Empty-body PR: the title must survive (US delimiter, not folded tabs).
+chk "#870 empty-body PR keeps its title"        g '#870.*EMPTYBODYTITLE'
 
 # ---- age filter opens up at cutoff 0 ----------------------------------------
 OUT="$(run 0)"
