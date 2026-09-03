@@ -29,10 +29,19 @@
  * Needs a SANDBOXED board (all four roots, fake-tmux) -- see the README in this
  * directory. This script completes first run itself via /api/first-run/complete
  * so the launch overlay does not intercept the create picks (Escape does not
- * reliably clear it for the create flow, only for read-only views).
+ * reliably clear it for the create flow, only for read-only views). Because it
+ * POSTs, it calls requireSandbox() first (like render-accounts-openai.js): it
+ * refuses unless its OWN AGENT_WORKFORCE_DATA is a temp root, so a misaimed run
+ * cannot complete first run on a live board.
  *
- * Run (headless, from any session -- no MCP, no claude-fe):
- *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
+ * It runs HEADLESS unconditionally: every assertion reads DOM state (a textarea's
+ * value, hidden flags), never paint or geometry, so SwiftShader-vs-real-compositor
+ * does not matter and it works in any bot session with no console.
+ *
+ * Run (from any session -- no MCP, no claude-fe). The check POSTs to the board, so
+ * its OWN data root must be the sandbox too; point AGENT_WORKFORCE_DATA at the same
+ * $SB the board booted under, or run it through tools/browser-checks.sh:
+ *   NODE_PATH=~/work/pw-runtime/node_modules AGENT_WORKFORCE_DATA="$SB/data" \
  *     node docs/browser-checks/import-agent-flow.js http://127.0.0.1:4399
  * (Renet Tilley measured 2026-09-03 that the committed headless checks run from
  * a plain bot session via ~/work/pw-runtime; the interactive MCP is a separate
@@ -41,6 +50,11 @@
 'use strict';
 
 const playwright = require('playwright');
+
+// This check POSTs /api/first-run/complete to whatever board BASE points at, so it
+// refuses to run unless its own data root is a sandbox. Same guard, same reason,
+// as render-accounts-openai.js.
+require('./lib-sandbox-guard.js').requireSandbox('import-agent-flow.js');
 
 const BASE = process.argv[2] || 'http://127.0.0.1:4399';
 
@@ -80,12 +94,14 @@ async function openImportPanel(page) {
 }
 
 async function run() {
-  const browser = await playwright.chromium.launch({ headless: process.env.HEADED !== '1' ? true : false });
+  // DOM-state assertions only, so headless unconditionally (see the header).
+  const browser = await playwright.chromium.launch({ headless: true });
   try {
     // ── POSITIVE: a valid file fills the form ────────────────────────────────
     const p = await browser.newPage();
     await openImportPanel(p);
-    check('the import option is offered on the create flow', true, '#pick-import visible');
+    const importOffered = await p.evaluate(() => { const e = document.getElementById('pick-import'); return !!e && !e.hidden; });
+    check('the import option is offered on the create flow', importOffered, `#pick-import visible=${importOffered}`);
     await p.fill('#import-text', AGENT_FILE);
     await p.click('#import-load');
     // The success outcome advances to the name step with the fields laid on.
@@ -116,7 +132,17 @@ async function run() {
     await openImportPanel(p2);
     await p2.fill('#import-text', HOSTILE_FILE);
     await p2.click('#import-load');
-    await p2.waitForTimeout(2000);
+    // Wait for the TERMINAL refusal state, not a fixed sleep. importLoad writes a
+    // transient "Reading it…" BEFORE the fetch, then on refusal re-enables the
+    // button and writes the reason; on success it leaves the button disabled and
+    // advances. A fixed sleep could read the transient message with the form not
+    // yet applied and green vacuously. Wait for: button re-enabled AND a message
+    // that is neither empty nor the transient "Reading it…".
+    await p2.waitForFunction(() => {
+      const b = document.getElementById('import-load');
+      const m = document.getElementById('import-msg');
+      return b && !b.disabled && m && m.textContent && !/Reading it/i.test(m.textContent);
+    }, { timeout: 8000 }).catch(() => { /* assertions below report the miss */ });
     const neg = await p2.evaluate(() => ({
       msg: (document.getElementById('import-msg') || {}).textContent || '',
       msgShown: document.getElementById('import-msg') ? !document.getElementById('import-msg').hidden : false,

@@ -290,13 +290,13 @@ and three live typed a test message into two real agents' panes and rewrote thei
 
 ### `lib-sandbox-guard.js` is a library, not a check
 
-It is the only `.js` in here that does not drive a browser. **Five checks take their
-base URL as `argv[2]` and POST to it**, and one of those completes first run. A bare
+It is the only `.js` in here that does not drive a browser. **Six checks take their
+base URL as `argv[2]` and POST to it**, and two of those complete first run. A bare
 invocation fails with `fetch failed`, and the obvious next move is to hand it a board
 that already exists, which is how a command that reads like a test changes a running
 system.
 
-So those five call `requireSandbox()` before their first POST. It refuses unless
+So those six call `requireSandbox()` before their first POST. It refuses unless
 `AGENT_WORKFORCE_DATA` is under a temp root, **exits 2 rather than 1** so a runner can
 tell "declined to run" from "found a defect", and **refuses rather than throwing**:
 an error takes a whole file down, which on the same discriminator once failed 161
