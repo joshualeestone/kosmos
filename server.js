@@ -862,6 +862,13 @@ function readBody(req, limit) {
  * keeps a healthy agent reachable under its normalised name.
  */
 function claimantFor(name) {
+  // The route GATE stays safeKey-tolerant (keeps an agent REPORTABLE under its
+  // sanitised name, #18). It is deliberately MORE tolerant than chat's send path
+  // (chat.resolveCard case-folds only): a WRITE/SEND that merely sanitises to a
+  // live agent must be refused (engine/chat.test.js:181), a READ need not be.
+  // #989 only needed the SEND to stop being stricter on CASE than this gate; it
+  // did not need this gate to loosen, so this is intentionally NOT unified with
+  // chat.resolveCard.
   const roster = paneRoster();
   const asked = String(name);
 
@@ -874,6 +881,16 @@ function claimantFor(name) {
   });
   if (!claimants.length) return null;
   return claimants.find((a) => a.isNamedOurs === true) || claimants[0];
+}
+
+// #989: the SEND-path "resolve this name to OUR card, tolerating case" rule, in
+// one place. chat.resolveCard case-folds (never strips, unlike the claimantFor
+// gate above), and we re-impose the isNamedOurs REQUIREMENT the route-level
+// card/askingCard matches had. Single-sourced so the two direct-thread routes do
+// not carry two copies of one derivation.
+function ourCardByName(roster, name) {
+  const rc = chat.resolveCard(roster, name);
+  return rc && rc.isNamedOurs === true ? rc : null;
 }
 
 /**
@@ -5706,9 +5723,12 @@ const server = http.createServer((req, res) => {
      * claim is only that nothing below re-reads the ROSTER.
      */
     const roster = safeRoster();
-    const card = Array.isArray(roster)
-      ? (roster.find((a) => a && a.sessionName === name && a.isNamedOurs === true) || null)
-      : null;
+    // #989: resolve case-tolerantly via chat.resolveCard (the SAME case-fold the
+    // send uses), so a mis-cased name that now reaches the agent also drives this
+    // route's presence/question display -- a bare `sessionName === name` would
+    // exact-miss it and show presence with no question. Case-fold, NOT the safeKey
+    // gate, so the send stays stricter on strip; isNamedOurs preserved.
+    const card = ourCardByName(roster, name);
 
     /**
      * ⚠️ TWO HISTORY CHANNELS, NOT THREE. `historyOther` has no meaning here:
@@ -5917,9 +5937,13 @@ const server = http.createServer((req, res) => {
         /* ONE capture per send, shared with the button block below: the tests
            feed the tmux seam one answer per call, and a second capture here
            shifted every button arm's sequence. */
-        const askingCard = Array.isArray(roster)
-          ? (roster.find((a) => a && a.sessionName === name && a.isNamedOurs === true) || null)
-          : null;
+        // #989: case-tolerant (chat.resolveCard, same case-fold as the send), so a
+        // mis-cased name that now reaches the agent ALSO gets this route's fresh
+        // trust-dialog hold -- a bare match would exact-miss it, leave asking=false,
+        // skip the capture, and a typed reply's Enter could pick "No, exit" on the
+        // very first-run trust prompt this card is about. Case-fold not safeKey;
+        // isNamedOurs preserved.
+        const askingCard = ourCardByName(roster, name);
         const seenNow = (askingCard && askingCard.state === STATE.NEEDS_YOU) ? chat.viewport(name, roster) : null;
         {
           const trustHeld = trustDialogHold(askingCard, seenNow, () => chat.viewport(name, roster));

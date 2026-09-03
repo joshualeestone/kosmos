@@ -433,13 +433,64 @@ function wireText(text) {
  *
  * A roster of `null` means the caller could not look, which is not permission.
  */
+/**
+ * Find the roster card for a name on the SEND path, tolerating CASE.
+ *
+ * 🛑 #989: THE SEND AND THE ROUTE GATE DISAGREED ON CASE. server.js's
+ * `claimantFor` (which `knownAgent` gates every route on) resolves a name
+ * exact-first and then by `store.safeKey`, so `Casey` reaches the agent whose
+ * session is `casey`. `addressable`/`viewport` here did a BARE case-sensitive
+ * `sessionName === key`, so the SAME name the route just admitted was then
+ * refused "by exactly this name" -- Josh changed an agent's model, the restart's
+ * recovery route resolved a name whose case differed from the tmux session, and
+ * the send was refused while the agent looked alive (kosmos#989). This resolver
+ * closes THAT disagreement (case) and only that.
+ *
+ * ⚠️ CASE-FOLD, NOT `store.safeKey` -- AND THE DIFFERENCE IS DELIBERATE. safeKey
+ * also STRIPS to [a-z0-9_-], and the SEND path is intentionally STRICTER than the
+ * read gate: a name that merely SANITISES to a live agent (`Ca.sey` -> `casey`)
+ * must be REFUSED here, or a send types into a conversation it was never aimed at.
+ * engine/chat.test.js:181 pins exactly that contract ("a spelling that merely
+ * sanitises to a live agent is refused"), and the repo has restored the same hole
+ * three times (profile route, projects.tellAgent, remove). So the gate stays
+ * safeKey-tolerant (keeps an agent REPORTABLE under its sanitised name, #18) and
+ * the send tolerates case only -- they now AGREE on case and still DIFFER on
+ * strip, on purpose.
+ *
+ * Exact match wins outright (no behaviour change for an exact name; `casey` still
+ * resolves to `casey` even beside an external `tmux new -s Casey`). Otherwise a
+ * case-insensitive match, preferring the `isNamedOurs` card so a stranger's
+ * like-cased pane never wins over ours. The caller's `isNamedOurs`/`isAgentPane`
+ * checks still run on the returned card, so tolerating case loosens no gate.
+ */
+function resolveCard(roster, key) {
+  if (!Array.isArray(roster)) return null;
+  const exact = roster.filter((a) => a && a.sessionName === key);
+  if (exact.length) return exact.find((a) => a.isNamedOurs === true) || exact[0];
+  // #989: tolerate CASE ONLY, not store.safeKey. safeKey ALSO strips to
+  // [a-z0-9_-], and the send path must stay STRICTER than the route gate: a name
+  // that merely SANITISES to a live agent (`Ca.sey` -> `casey`) must be REFUSED
+  // here, or a send types into a conversation it was never aimed at -- a hole this
+  // repo has closed three times (engine/chat.test.js:181, the profile route,
+  // projects.tellAgent, remove). Case is the only difference #989 reported, and
+  // lowercasing closes exactly that and nothing more. isNamedOurs preference
+  // matches claimantFor so a stranger's like-cased pane never wins over ours.
+  // Guard the key too, not just the roster: this is now a public export the test
+  // suite calls directly, and a non-string/null key would throw on .toLowerCase().
+  const want = String(key == null ? '' : key).toLowerCase();
+  const same = roster.filter((a) => a && typeof a.sessionName === 'string'
+    && a.sessionName.toLowerCase() === want);
+  if (!same.length) return null;
+  return same.find((a) => a.isNamedOurs === true) || same[0];
+}
+
 function addressable(sessionName, roster) {
   const key = String(sessionName == null ? '' : sessionName);
   if (!key) return { ok: false, because: 'we do not have an agent to send this to' };
   if (!Array.isArray(roster)) {
     return { ok: false, because: 'we could not check which agents are running, so we did not type anything anywhere' };
   }
-  const card = roster.find((a) => a && a.sessionName === key) || null;
+  const card = resolveCard(roster, key);
   if (!card) {
     return { ok: false, because: 'we cannot see an agent by exactly this name on this computer right now' };
   }
@@ -917,7 +968,7 @@ function viewport(sessionName, roster) {
   if (!Array.isArray(roster)) {
     return { text: null, because: 'we could not check which agents are running, so we cannot show you its screen' };
   }
-  const card = roster.find((a) => a && a.sessionName === key) || null;
+  const card = resolveCard(roster, key); // #989: exact-first, then case-fold (send stays stricter than the gate)
   if (!card) {
     return { text: null, because: 'we cannot see an agent by exactly this name on this computer right now' };
   }
@@ -1983,7 +2034,7 @@ function looksLikeManager(role) {
 
 module.exports = {
   DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES,
-  cleanMessage, storeText, messageProblem, addressable, paneTarget, wireText,
+  cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,
