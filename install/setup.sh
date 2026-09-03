@@ -3755,6 +3755,12 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
     [ -n "$_awroot" ] && _bt="$(cat "$_awroot/board.token" 2>/dev/null || true)"
   fi
   [ -n "$_bt" ] && _board_url="http://127.0.0.1:$PORT/?token=$_bt"
+  # #1970 BOUNDED RESIDUAL: the plist FILE is mode-600, but when launchd runs the
+  # open-once job the URL (with the token) is on the `sh`/`open` argv, which macOS
+  # `ps` exposes cross-account for that one launch. install/kosmos moved every CLI
+  # call off argv; the browser handoff still needs the URL as an argument. Accepted
+  # as bounded (a single first-boot open); the proper fix is a server one-shot nonce,
+  # tracked as a #1970 follow-up. Do not read the cookie-swap as closing the argv leak.
   # 🛑 UNDER THE .PKG, NOT A BARE `open` (#663). Installer's postinstall runs
   # as root and drops to the person with `launchctl asuser` + `sudo -u`; the
   # first real fresh-account run (Josh, 2026-08-24) reached this line, said
