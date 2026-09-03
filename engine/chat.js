@@ -289,27 +289,68 @@ function cleanMessage(raw) {
 }
 
 /**
+ * The person's text as it is KEPT, preserving paragraph breaks.
+ *
+ * ⚠️ THE STORE IS NOT THE PANE. `cleanMessage` above flattens because a newline
+ * typed into a pane is Enter — it submits half a message and fires the agent
+ * early (see MAX_TEXT). That constraint belongs to the pane, and applying it at
+ * the store was the #1927 defect: every destination lost paragraphs, including
+ * the operator's HTML view (which never had a pane's limit and which Josh reads
+ * daily). So the store keeps `\n`; only `deliver()` still flattens on the way
+ * to a pane. Mirrors `engine/you.js` `clean(v, {multiline:true})` and also
+ * normalises CR, since a bare `\r` is a control character `messageProblem`
+ * would otherwise refuse:
+ *   - CRLF and lone CR → LF
+ *   - runs of spaces/tabs → one space (a tab cannot survive to a pane either)
+ *   - three or more newlines → a single blank line (one paragraph break)
+ *   - trim the ends.
+ * After this the ONLY whitespace/control character left in range is `\n`, which
+ * is exactly the one `CONTROL` now exempts — every other control char (ESC and
+ * the rest) is preserved here so `messageProblem` still sees and refuses it.
+ */
+function storeText(raw) {
+  return String(raw == null ? '' : raw)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
  * Why this message cannot be sent, or null.
  *
  * ⚠️ CONTROL CHARACTERS ARE REFUSED, NOT STRIPPED, and ESC is the reason. `-l`
  * sends characters literally, so an ESC inside the text is the Escape KEY
  * arriving in a TUI: in Claude Code that cancels what is on screen. A message
  * that quietly cancels the agent's current prompt and then types the rest of
- * itself is not the message anybody wrote. The whitespace collapse above has
- * already dealt with the ordinary ones (tab, newline, carriage return), so
- * anything left in this range got there on purpose or by paste accident, and
- * refusing names it.
+ * itself is not the message anybody wrote. `storeText` has already dealt with
+ * the ordinary ones (tab → space, CR → LF), so anything left in this range got
+ * there on purpose or by paste accident, and refusing names it.
+ *
+ * 🛑 ONE EXEMPTION, AND ONLY ONE: `\n` (U+000A). The store keeps paragraph
+ * breaks (#1927), so `messageProblem` now validates the STORED shape, in which
+ * a legitimate newline survives. The range is split around 0x0A so newline
+ * passes and EVERY OTHER control character — ESC (U+001B) included — is still
+ * refused. Do NOT widen this: the pane path (`deliver`) flattens the newline
+ * back out before it is typed, so exempting it here costs the pane nothing,
+ * while exempting anything else would let a real control character through to
+ * a terminal.
  */
 // eslint-disable-next-line no-control-regex
-const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+const CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/;
 
 function messageProblem(raw) {
-  // ⚠️ A non-string is refused, not coerced. cleanMessage's String() would
+  // ⚠️ A non-string is refused, not coerced. storeText's String() would
   // turn {"text": {}} into the literal "[object Object]" and this module's
   // whole contract is that what was CHECKED is what gets TYPED into a
   // person's agent -- a coerced artifact was never checked by anyone.
   if (raw != null && typeof raw !== 'string') return 'that message is not text';
-  const text = cleanMessage(raw);
+  // ⚠️ VALIDATE THE STORED SHAPE, not the pane-flattened one (#1927). The store
+  // keeps `\n`; `deliver` flattens it for the pane afterwards. Checking the
+  // stored shape is what lets a legitimate newline reach `CONTROL` (which now
+  // exempts it) while ESC and every other control char are still seen and
+  // refused -- `storeText` leaves those untouched.
+  const text = storeText(raw);
   if (!text) return 'write something to send';
   if (text.length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
   if (CONTROL.test(text)) return 'that message has characters we will not type into a terminal';
@@ -1717,7 +1758,10 @@ function appendLocked(projectId, agent, entry, bornAt) {
     projectBornAt: existing.projectBornAt || (bornAt ? String(bornAt) : null),
     messages: [...existing.messages, {
       at: (entry && entry.at) || new Date().toISOString(),
-      text: cleanMessage(entry && entry.text),
+      // #1927: store the paragraph-preserving shape. `deliver` still flattens
+      // for the pane; `wire` (one field down) stays flattened because it is the
+      // single-line thing that was actually typed (a menu digit).
+      text: storeText(entry && entry.text),
       /**
        * 🛑 WHO SPOKE, AND THE ABSENCE OF THIS FIELD IS WHY AN AGENT COULD NOT
        * ANSWER AT ALL. Every row in a thread was the operator's by definition
@@ -1939,7 +1983,7 @@ function looksLikeManager(role) {
 
 module.exports = {
   DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES,
-  cleanMessage, messageProblem, addressable, paneTarget, wireText,
+  cleanMessage, storeText, messageProblem, addressable, paneTarget, wireText,
   deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,

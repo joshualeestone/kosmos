@@ -3762,7 +3762,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .thread.dragging, #d-dmthread.dragging { outline: 2px dashed var(--gold-deep); outline-offset: -2px; background: rgba(214,166,46,.06); }
 .dm-b { max-width: 92%; padding: 9px 13px; border-radius: 12px; font-size: .9375rem;
   line-height: 1.45; background: var(--k-sunk, rgba(20,22,26,.05));
-  overflow-wrap: anywhere; }
+  /* #1927: the store keeps paragraph breaks now, so render them. `pre-wrap`
+     shows the stored `\n`; `storeText` already collapsed space RUNS, so this
+     does not resurrect ragged whitespace. Both surfaces that draw a message
+     bubble -- the operator DM view (`dmRow`) and the project room -- use this
+     one class, so this covers both. `overflow-wrap: anywhere` still breaks a
+     long unbroken token. */
+  white-space: pre-wrap; overflow-wrap: anywhere; }
 .dm.mine .dm-b { background: rgba(214,166,46,.14); }
 /* 🛑 THERE IS NO RULE FOR `.theirs`, AND ADDING ONE MADE IT WORSE. The first
    version set `background: var(--k-surface); border: 1px solid var(--k-rule)`
