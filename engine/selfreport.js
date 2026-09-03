@@ -80,10 +80,19 @@ function capped(value, cap) {
    normalise CRLF/CR to LF and tabs to a space (a stored sentence is not tab-aligned
    layout), then trim only the OUTER whitespace so leading/trailing blank lines do
    not survive while the internal breaks do. JSONL storage is unaffected -
-   JSON.stringify escapes the `\n`, so one record still occupies one physical line. */
+   JSON.stringify escapes the `\n`, so one record still occupies one physical line.
+   ⚠️ ALL line-terminators are normalised, not just `\r\n`: U+2028/U+2029 (LINE and
+   PARAGRAPH SEPARATOR) also become `\n`, and the remaining control whitespace
+   (`\t`, `\v`, `\f`) becomes a space. Otherwise one of those exotic terminators
+   would survive raw inside the stored sentence, since `.trim()` only strips the
+   outer edges - the newline we keep is `\n` and nothing else. */
 function cappedSentence(value, cap) {
   if (value === null || value === undefined) return null;
-  const s = String(value).replace(/\r\n?/g, '\n').replace(/\t/g, ' ').trim();
+  const s = String(value)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u2028\u2029]/g, '\n')
+    .replace(/[\t\v\f]/g, ' ')
+    .trim();
   return s ? s.slice(0, cap) : null;
 }
 

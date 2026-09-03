@@ -68,12 +68,17 @@ test('#1996: because KEEPS paragraph breaks; single-value fields stay flattened;
   // still normalising CR->LF and tab->space (a stored sentence is not tab layout).
   // The single-value fields (on/owner/until/project/instance) must STILL flatten -
   // a newline in `on` would be a display/injection hazard, not a paragraph.
-  selfreport.record('krang-discord', { state: 'working', because: 'line one\nline two\tafter tab\rcarriage' + 'x'.repeat(5000), on: 'p\nq\tr' });
+  selfreport.record('krang-discord', { state: 'working', because: 'line one\nline two\tafter tab\rcarriage' + 'x'.repeat(5000), on: 'p\nq\tr', owner: 'a\nb\tc' });
   const back = selfreport.read('krang-discord');
   assert.ok(back.because.includes('\n'), 'the paragraph break in because was flattened (K-13 not fixed)');
   assert.ok(!/[\t\r]/.test(back.because), 'a tab or carriage return survived into because');
-  assert.ok(back.because.length <= 1000, 'because is not capped');
+  // the 5000-char input guarantees truncation, so assert the cap ENGAGED at exactly
+  // the boundary, not merely that the result is under it.
+  assert.equal(back.because.length, 1000, 'the because cap did not engage at exactly 1000');
+  // single-value fields still flatten ALL whitespace - assert two of them directly,
+  // not just one, since a newline in any of them is a display/injection hazard.
   assert.ok(!/[\n\t\r]/.test(back.on), 'a single-value field (on) kept whitespace it should flatten');
+  assert.ok(!/[\n\t\r]/.test(back.owner), 'a single-value field (owner) kept whitespace it should flatten');
 });
 
 /* #1996: the two "a person is the blocker" states must carry a reason, and the
