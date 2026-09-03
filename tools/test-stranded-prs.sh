@@ -37,7 +37,7 @@ if [ "$sub" = "pr" ] && [ "$obj" = "view" ]; then
   case "$n" in
     800) printf '%s\n' "Held for Josh's eyeball per the frontend rule; ready to merge on his nod." \
                        "browser-check gate green, screenshot of the rendered tile attached." ;;
-    810) printf '%s\n' "Held for Josh's decision on notify vs ping wording -- a real product call." ;;
+    810) printf '%s\n' "Held for Josh's decision on notify vs ping wording; see the screenshot of the two options." ;;
     *)   : ;;   # no comments
   esac
   exit 0
@@ -94,7 +94,16 @@ cat > "$PRJSON" <<'JSONEOF'
    "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
   {"number":810,"title":"genuine-hold fixture","isDraft":false,"updatedAt":"2026-09-03T06:00:00Z",
    "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefName":"notify-810","body":"Addresses #810","url":"u",
-   "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]}
+   "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
+  {"number":820,"title":"blocked fixture","isDraft":false,"updatedAt":"2026-09-03T05:00:00Z",
+   "mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","headRefName":"blk-820","body":"Addresses #820","url":"u",
+   "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
+  {"number":830,"title":"behind fixture","isDraft":false,"updatedAt":"2026-09-03T04:00:00Z",
+   "mergeable":"MERGEABLE","mergeStateStatus":"BEHIND","headRefName":"bhd-830","body":"Addresses #830","url":"u",
+   "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
+  {"number":840,"title":"action-required fixture","isDraft":false,"updatedAt":"2026-09-03T03:00:00Z",
+   "mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","headRefName":"act-840","body":"Addresses #840","url":"u",
+   "statusCheckRollup":[{"conclusion":"ACTION_REQUIRED","status":"COMPLETED"}]}
 ]
 JSONEOF
 
@@ -130,6 +139,19 @@ chk "#800 NOT called plain safe-to-merge"     ng '#800.*clean: looks safe'
 # wolf on real holds (the #2041 class Kitty told us to leave alone).
 chk "#810 genuine hold NOT false-flagged"     ng '#810.*FALSE-HOLD-SUSPECT'
 chk "#810 present as an ordinary clean row"   g '#810.*clean: looks safe'
+# #810 mentions a bare 'screenshot' but no browser-check -- the tightened
+# verification regex must NOT treat that as author-verification, so the two-part
+# AND still does not fire (this is the precision fix for the #2041 carve-out).
+
+# ---- non-CLEAN merge states that green CI would otherwise hide --------------
+chk "#820 BLOCKED flagged"                     g '#820.*BLOCKED'
+chk "#820 NOT called safe to merge"            ng '#820.*clean: looks safe'
+chk "#830 BEHIND flagged"                      g '#830.*BEHIND'
+chk "#830 NOT called safe to merge"            ng '#830.*clean: looks safe'
+# ACTION_REQUIRED is a blocking check conclusion, not a pass: it must read CI-FAIL,
+# never fall through to green.
+chk "#840 ACTION_REQUIRED reads CI-FAIL"        g '#840.*CI-FAIL'
+chk "#840 NOT called safe to merge"            ng '#840.*clean: looks safe'
 
 # ---- age filter opens up at cutoff 0 ----------------------------------------
 OUT="$(run 0)"
@@ -150,6 +172,14 @@ OUT="$(run 2)"
 chk "negative control: known-absent token is absent" ng 'zzz-never-emitted-token'
 chk "negative control: g detects a real miss as fail" sh -c '
   OUT="no hundred here"; if printf "%s" "$OUT" | grep -qE "#100.*clean"; then exit 1; else exit 0; fi'
+
+# ---- input validation: multi-dot / lone-dot rejected, real decimal accepted -
+RC=0; GH_STUB_PRJSON="$PRJSON" KOSMOS_GH_CMD="$STUB" KOSMOS_NOW_EPOCH="$NOW" STRANDED_PRS_REPO="t/r" bash "$SCRIPT" 1.2.3 >/dev/null 2>&1 || RC=$?
+chk "multi-dot max-age (1.2.3) rejected exit 2" test "$RC" = 2
+RC=0; GH_STUB_PRJSON="$PRJSON" KOSMOS_GH_CMD="$STUB" KOSMOS_NOW_EPOCH="$NOW" STRANDED_PRS_REPO="t/r" bash "$SCRIPT" . >/dev/null 2>&1 || RC=$?
+chk "lone-dot max-age (.) rejected exit 2" test "$RC" = 2
+RC=0; GH_STUB_PRJSON="$PRJSON" KOSMOS_GH_CMD="$STUB" KOSMOS_NOW_EPOCH="$NOW" STRANDED_PRS_REPO="t/r" bash "$SCRIPT" 1.5 >/dev/null 2>&1 || RC=$?
+chk "valid decimal max-age (1.5) accepted" sh -c '[ "$1" != 2 ]' _ "$RC"
 
 echo "test-stranded-prs: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

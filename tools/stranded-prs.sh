@@ -25,7 +25,7 @@ set -uo pipefail
 
 MAX_AGE_HOURS="${1:-2}"
 case "$MAX_AGE_HOURS" in
-  ''|*[!0-9.]*) echo "stranded-prs: max-age-hours must be a number (got '$MAX_AGE_HOURS')" >&2; exit 2 ;;
+  ''|.|*[!0-9.]*|*.*.*) echo "stranded-prs: max-age-hours must be a number (got '$MAX_AGE_HOURS')" >&2; exit 2 ;;
 esac
 
 GH="${KOSMOS_GH_CMD:-gh}"
@@ -65,7 +65,8 @@ CI_JQ='
     | if ($c|length)==0 then "NONE"
       elif any($c[];
              (.conclusion // "" | ascii_upcase) as $x
-             | ($x=="FAILURE" or $x=="ERROR" or $x=="CANCELLED" or $x=="TIMED_OUT")
+             | ($x=="FAILURE" or $x=="ERROR" or $x=="CANCELLED" or $x=="TIMED_OUT"
+                or $x=="ACTION_REQUIRED" or $x=="STARTUP_FAILURE" or $x=="STALE")
                or ((.state // "" | ascii_upcase)=="FAILURE" or (.state // "" | ascii_upcase)=="ERROR"))
         then "FAIL"
       elif any($c[];
@@ -134,6 +135,8 @@ while IFS="$(printf '\t')" read -r num updated mergeable mergestate ci branch bo
   flags=""
   case "$mergestate" in
     DIRTY|CONFLICTING) flags="${flags}CONFLICTING(needs-rebase) " ;;
+    BLOCKED)           flags="${flags}BLOCKED(needs review/required-check) " ;;
+    BEHIND)            flags="${flags}BEHIND(needs update-branch) " ;;
   esac
   # Overruled-alternative smell: the PR addresses an issue that is already CLOSED.
   # A closed issue on an open PR means either another PR already settled it (the
@@ -157,14 +160,17 @@ while IFS="$(printf '\t')" read -r num updated mergeable mergestate ci branch bo
   # verification already passed* is the #1983 class -- an invented approval gate,
   # not a real hold. The two-part AND is load-bearing: matching the "held for
   # Josh" phrasing ALONE would false-positive a genuine product-decision hold
-  # (#2041), which cites a person but claims no author verification. Only scan
-  # comments on otherwise-clean PRs (fast + scoped). The irreducible half -- does
-  # the cited rule actually gate merge -- stays a human read, so this ROUTES to a
-  # human, never merges.
+  # (#2041), which cites a person but claims no author verification. The
+  # verification half requires the AUTOMATED signal (a browser-check / #1720 gate
+  # / "verified ... render") that #1983 actually carried -- NOT a bare "screenshot"
+  # mention, which a decision hold can reference too and would defeat the #2041
+  # carve-out. Only scan comments on otherwise-clean PRs (fast + scoped). The
+  # irreducible half -- does the cited rule actually gate merge -- stays a human
+  # read, so this ROUTES to a human, never merges.
   if [ -z "$flags" ] && [ "$ci" = "PASS" ]; then
     _comments="$("$GH" pr view "$num" --repo "$REPO" --json comments -q '.comments[].body' 2>/dev/null || true)"
     if printf '%s' "$_comments" | grep -iqE 'held for josh|eyeball|on his nod|per the .* (frontend )?rule|awaiting josh|wait(ing)? (on|for) (josh|his (nod|approval))' \
-       && printf '%s' "$_comments" | grep -iqE 'browser-check|browser check|screenshot|browser.?test|#1720|verified.*(render|tile|page)'; then
+       && printf '%s' "$_comments" | grep -iqE 'browser-check|browser check|browser.?test|#1720|verified.*(render|tile|page)'; then
       flags="FALSE-HOLD-SUSPECT(author verified but held for a person -- read the cited rule) "
     fi
   fi
