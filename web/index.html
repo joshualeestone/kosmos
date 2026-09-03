@@ -25146,7 +25146,14 @@ document.addEventListener('click', (e) => {
       retry.disabled = false;
       retry.textContent = said;
     };
-    Promise.resolve(tick()).then(done, done);
+    /* #2023: reload the projects surface too. The signin/cannot-read card and
+       its Reload button are shared with #pj-list, but this handler re-polled only
+       /api/status (tick) -- so a Reload on the projects card cleared the shared
+       BOARD_NEEDS_SIGNIN flag without repainting #pj-list, which stayed on stale
+       copy until its own separate interval fired (up to 5s). loadProjects()
+       repaints it; both are idempotent and generation-guarded, so calling both
+       from either surface is safe and "Reload" honestly reloads what is shown. */
+    Promise.all([Promise.resolve(tick()), Promise.resolve(loadProjects())]).then(done, done);
     return;
   }
 });
