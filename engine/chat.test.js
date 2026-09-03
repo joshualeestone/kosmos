@@ -1289,9 +1289,38 @@ test('two windows sending at once do not lose a message', () => {
   fs.writeFileSync(writer, [
     "process.env.AGENT_WORKFORCE_DATA = process.argv[2];",
     "const chat = require(" + JSON.stringify(require.resolve('./chat')) + ");",
-    "const kept = chat.appendMessage(process.argv[4] || 'race', 'casey', {",
-    "  text: process.argv[3], delivery: { state: chat.DELIVERY.PLACED },",
-    "});",
+    "// #1988: RETRY on a busy give-up. A single appendMessage fails SAFE",
+    "// (recorded:false) if it cannot take the lock within filelock's default",
+    "// LOCK_WAIT_MS (2s); under a saturated CI the holder's section can outlast",
+    "// that, so a single-shot writer gives up and its message is lost -- correct",
+    "// production behaviour, but it makes the two-writer invariant tests red for a",
+    "// benign TIMEOUT. That is the OBSERVED cause of the flake. (A SEPARATE, harder",
+    "// possibility -- a plausible cross-process stale-steal TOCTOU in filelock.js,",
+    "// filed as kosmos#1991 -- could ALSO red this test, but as a GENUINE loss: both",
+    "// writers recorded:true yet a message missing, which the restored control below",
+    "// does NOT mask. This retry only re-fires on a give-up, so it cannot green a",
+    "// real double-entry.) Retry until it records or a generous",
+    "// total deadline. Each attempt keeps the DEFAULT <2s wait on purpose, and the",
+    "// retry RE-ATTEMPTS rather than lengthening one wait -- so a single acquire's",
+    "// wait never approaches LOCK_STALE_MS (10s). Raising the single-call budget",
+    "// above the stale bound (the reverted AGENT_WORKFORCE_LOCK_MS=30000 fix) would",
+    "// make ONE waiter reliably wait past 10s and steal a LIVE holder's lock -- the",
+    "// double-entry this test guards. (Age-based staleness can still let a 2s waiter",
+    "// cross 10s if the lock was already near-stale when it arrived; that is a",
+    "// pre-existing production property, unchanged here, and a resulting double-entry",
+    "// loss reds the LENGTH assertion below (both writers recorded:true, so the",
+    "// give-up control passes) rather than being masked.)",
+    "const deadline = Date.now() + 30000;",
+    "let kept;",
+    "for (;;) {",
+    "  kept = chat.appendMessage(process.argv[4] || 'race', 'casey', {",
+    "    text: process.argv[3], delivery: { state: chat.DELIVERY.PLACED },",
+    "  });",
+    "  if (kept.recorded) break;",
+    "  if (Date.now() > deadline) break;",
+    "  // Only a lock/busy give-up is retryable; any other refusal would just spin.",
+    "  if (!/lock|busy|another window|stopped/i.test(kept.because || '')) break;",
+    "}",
     "process.stdout.write(JSON.stringify(kept.recorded));",
   ].join('\n'));
 
@@ -1410,9 +1439,19 @@ test('two writers that both see a stale lock do not both get inside', () => {
         (err, out) => resolve(out));
     }));
 
-  return Promise.all(both).then(() => {
+  return Promise.all(both).then((answers) => {
+    /* #1988: assert the children's RETURNS, the control this test dropped while
+       its non-stale sibling kept it. Without it, a writer that gives up under
+       load (recorded:false, message never written) is indistinguishable from a
+       lost/overwritten append -- so a benign timeout was misreported as "a
+       message was lost breaking a stale lock" and read as a lock-race regression.
+       With writer.js's bounded retry (above) a contended writer no longer times
+       out, and with this control a genuine loss (both believed they recorded, yet
+       a message is missing) is the ONLY thing that reds the length assertion. */
+    assert.deepEqual(answers, ['true', 'true'],
+      `the control: both writers must believe they recorded (a false here is a give-up under load, not a lock defect): ${JSON.stringify(answers)}`);
     const said = chat.readThread('stalerace', 'casey').messages.map((m) => m.text);
-    assert.equal(said.length, 2, `a message was lost breaking a stale lock: ${JSON.stringify(said)}`);
+    assert.equal(said.length, 2, `both writers recorded but a message is missing -- a real stale-lock loss: ${JSON.stringify(said)}`);
     assert.ok(said.includes('stale A') && said.includes('stale B'));
   });
 });
