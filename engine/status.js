@@ -3973,6 +3973,19 @@ function saidWords(reported, nowMs) {
 }
 
 function reconcileReport(reported, scraped, nowMs, liveAuth) {
+  /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
+     agent has reported. Handle it HERE, above the no-report early return below, so a
+     never-reported agent -- one that hit a 401 on launch and sits idle at a prompt after an
+     off-pane repair -- is not left reading auth_failed forever, which is the exact haunt this
+     card targets. Re-enter with the auth signal removed so the report rules (or the no-report
+     handling) produce the underlying state, with the staleness surfaced. ONLY positive
+     live-HEALTHY evidence reaches this branch; every other verdict falls through to rule 3b
+     and auth_failed stands (no false calm). The re-entry's scraped state is UNKNOWN, so this
+     cannot recurse. */
+  if (scraped.state === STATE.AUTH_FAILED && liveAuth === LIVE_AUTH_HEALTHY) {
+    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth);
+    return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
+  }
   if (!reported || reported.found !== true) {
     /* 🔑 "IT HAS NEVER SAID ANYTHING" IS A DIFFERENT FACT FROM "WE COULD NOT TELL",
        and only one of them is actionable (#1315). `selfreport.read` already
@@ -4039,20 +4052,13 @@ function reconcileReport(reported, scraped, nowMs, liveAuth) {
   // "at rest and nothing is needed" over a 401 retry loop is the same false
   // calm rule 3 exists for, one state over. Observed live on 0.5.31 (#880).
   if (scraped.state === STATE.AUTH_FAILED) {
-    /* #1930: a scraped auth_failed can be STALE -- the sign-in was repaired OFF-PANE and the
-       old 401 still sits in the bottom rows, identical bytes before and after, so the pane
-       cannot tell "failing now" from "failed and since repaired". Report freshness cannot
-       either (#966): an auth failure refuses the request, so the reporting hook cannot fire
-       DURING one, so a fresh report is from BEFORE any current failure and vouches for nothing
-       now. The one signal that can is the actual auth CONDITION -- a live `claude auth status`,
-       run per-account / cached / async OFF the tick (engine/authprobe). Suppress ONLY on
-       positive live-HEALTHY evidence; expired / unknown / unchecked leave auth_failed standing,
-       so a genuine failure is never suppressed (the false calm rule 3b exists to prevent).
-       Re-enter with the auth signal removed rather than copying the report rules. */
-    if (liveAuth === LIVE_AUTH_HEALTHY) {
-      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth);
-      return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
-    }
+    /* Rule 3b (#886) + #1930: the live-HEALTHY case was already suppressed at the TOP of this
+       function (it applies with or without a report). Reaching here means liveAuth is NOT
+       HEALTHY -- expired / unknown / unchecked / absent -- so the scraped sign-in rejection
+       stands: a report cannot know about a dead token (the hook cannot fire once the request
+       is refused), and an idle report never decays (rule 6), which would render a 401 retry
+       loop "at rest" forever. Report freshness cannot rescue it either (#966): a fresh report
+       is necessarily from BEFORE a current failure and vouches for nothing now. */
     return { ...scraped, reported: false, conflict: 'its screen shows its Claude sign-in is being rejected, which its reports cannot know about' + saidWords(reported, nowMs) };
   }
   /* Rule 3b, rate-limit half (#966). The rule above states its own
@@ -4267,7 +4273,9 @@ function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
   let job;
   try { job = readJobFn(name); } catch { return undefined; }
   if (!job) return undefined;
-  return verdictFn(job.configDir || null);
+  // verdictFn is throw-safe by contract (authprobe.verdict), but wrap it too so the safety is
+  // LOCAL: a future change that threw must leave auth_failed standing, never crash the tick.
+  try { return verdictFn(job.configDir || null); } catch { return undefined; }
 }
 
 function snapshot() {

@@ -3067,6 +3067,23 @@ test('#1930: a resolved job probes its own account; a resolved default job probe
   assert.deepEqual(seen, ['/acct/x', null], 'a resolved job probes its configDir; a default job probes with null');
 });
 
+test('#1930: a throwing verdictFn leaves auth_failed standing (undefined), never crashes the tick', () => {
+  assert.equal(liveAuthForAuthFailed('who', () => ({ configDir: '/x' }), () => { throw new Error('boom'); }), undefined);
+});
+
+// #1930: the suppression must reach a NEVER-REPORTED agent too -- a dead/idle agent that hit a
+// 401 and never self-reported is the card's actual subject; it would otherwise keep reading
+// auth_failed forever despite an off-pane repair. This pins the fix above the no-report return.
+test('#1930: a NEVER-REPORTED agent with a stale 401 + a LIVE-HEALTHY account stops reading auth_failed', () => {
+  const scraped = scr(STATE.AUTH_FAILED, CONFIDENCE.SCRAPED, 'OAuth access token is invalid');
+  const suppressed = reconcileReport({ found: false }, scraped, T0 + 60_000, authprobe.HEALTHY);
+  assert.notEqual(suppressed.state, STATE.AUTH_FAILED, 'a repaired-but-silent agent must not stay haunted');
+  assert.match(suppressed.conflict, /stale/, 'the staleness is surfaced');
+  // GUARD: with no live-HEALTHY confirmation, a never-reported 401 still stands (safe direction).
+  const stands = reconcileReport({ found: false }, scraped, T0 + 60_000, authprobe.EXPIRED);
+  assert.equal(stands.state, STATE.AUTH_FAILED);
+});
+
 /**
  * #1259. The precedence is right and is not what this pins. What it pins is
  * that winning it must not DELETE the losing witness's evidence.
