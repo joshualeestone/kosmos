@@ -123,13 +123,13 @@ issue_of() {
   if [ -n "$_n" ]; then echo "$_n"; return; fi
   _n="$(printf '%s' "$_branch" | sed -n 's/^\([0-9][0-9]*\)-.*/\1/p')"
   if [ -n "$_n" ]; then echo "$_n"; return; fi
-  # Path-prefixed issue: a common convention is type/NNNN-desc (fix/1951-import-msg),
-  # where the issue sits mid-branch behind a "/" so neither the trailing nor leading
-  # arm sees it. Match the FIRST /NNNN. Fires only when both arms above missed, so it
-  # does not disturb a trailing/leading resolution. A "/" directly followed by digits
-  # cannot match an alpha-glued token (v2, oauth2).
-  _n="$(printf '%s' "$_branch" | grep -oE '/[0-9]+' | head -1 | grep -oE '[0-9]+')"
-  if [ -n "$_n" ]; then echo "$_n"; return; fi
+  # Deliberately NOT resolved: a path-prefixed number (type/NNNN-desc, fix/1951-import
+  # -msg). It is create-pr's own scope boundary (body-Addresses / branch trailing-N /
+  # leading-N only), and any /NNNN heuristic is ambiguous -- it cannot tell an issue
+  # branch (fix/1951-...) from a throwaway (wip/2, feat/1/2), so it draws spurious
+  # ISSUE-CLOSED flags on low numbers that are near-certainly closed. Missing the smell
+  # on a path-prefixed branch is a missed HINT (the PR still lists for the human);
+  # inventing a wrong issue actively misroutes. Prefer the miss.
   echo ""
 }
 

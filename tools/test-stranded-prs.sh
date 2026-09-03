@@ -212,10 +212,12 @@ chk "#910 does NOT false-flag ISSUE#1951-CLOSED"  ng '#910.*ISSUE#1951-CLOSED'
 # issue_of: a leading-N branch with a mid-number (912-fix-2-thing) resolves 912,
 # not "" -- the trailing arm must fall through to the leading arm.
 chk "#912 leading-N branch w/ mid-number -> 912"   g '#912.*#912'
-# issue_of: a path-prefixed branch fix/1951-import-msg (mid-number behind a "/",
-# no trailing/leading match) resolves 1951 via the /NNNN arm, so a CLOSED #1951
-# is caught as ISSUE-CLOSED instead of the row reading "safe".
-chk "#920 path-prefixed branch resolves 1951"      g '#920.*ISSUE#1951-CLOSED'
+# issue_of DELIBERATELY does not resolve a path-prefixed number (fix/1951-import-msg):
+# a /NNNN heuristic cannot tell an issue branch from a throwaway (wip/2), so it would
+# draw spurious ISSUE-CLOSED flags. #920 must therefore NOT be flagged ISSUE-CLOSED and
+# must read as an ordinary clean row -- a missed hint, never an invented misroute.
+chk "#920 path-prefixed branch NOT spuriously flagged" ng '#920.*ISSUE#1951-CLOSED'
+chk "#920 path-prefixed branch reads clean"         g '#920.*clean: looks safe'
 
 # ---- age filter opens up at cutoff 0 ----------------------------------------
 OUT="$(run 0)"
