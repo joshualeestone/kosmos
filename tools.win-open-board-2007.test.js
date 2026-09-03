@@ -160,6 +160,25 @@ test('openInBrowser hands the resolved url to the opener (KOSMOS_OPEN_BIN seam)'
   }
 });
 
+test('a board that ACCEPTS the connection but never responds does not hang', async () => {
+  // The dangerous case a per-fetch timeout guards: the tcp connect succeeds, so a
+  // fetch with no AbortSignal would await a response that never comes, forever,
+  // opening no browser. With the per-probe AbortSignal the helper must give up and
+  // fall back to the plain url in bounded time.
+  const server = http.createServer(() => { /* accept, then never respond */ });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const { appDir } = makeAppDir({ withToken: true });
+  const t0 = Date.now();
+  try {
+    // deadline shorter than one probe timeout + a probe, so this resolves via the
+    // deadline while a probe is aborted rather than hung. Generous ceiling below.
+    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 2500 });
+    assert.equal(url, `http://127.0.0.1:${port}`, 'a hung board did not fall back to the plain url');
+    assert.ok(Date.now() - t0 < 12000, 'the helper hung on an unresponsive board instead of timing out');
+  } finally { server.close(); }
+});
+
 test('board never comes up: opens the plain url within the timeout', async () => {
   // Nothing listening on this port; the helper must give up and return the plain
   // url rather than hang or crash.

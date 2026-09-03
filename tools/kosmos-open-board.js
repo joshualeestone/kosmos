@@ -29,10 +29,12 @@
  * this mirrors the nonce flow, not the pre-#1979 token flow.
  *
  * THE TOKEN NEVER TOUCHES ARGV HERE: this process reads board.token off disk
- * itself and, if it sends it at all, sends it in a fetch() header - never as a
- * subprocess argument. (The mint route is loopback-only and does not currently
- * require the header; it is sent anyway to match cmd_open and stay correct if the
- * route ever checks it.)
+ * itself and sends it in a fetch() header - never as a subprocess argument. That
+ * header is REQUIRED, not decorative: on an ENFORCING board the server gates every
+ * /api/ path (board-nonce included) on the board token via its sensitive-route
+ * check (server.js: `sensitive = pathname.startsWith('/api/') ...`, then a 403 if
+ * `!tokenOk`). The helper only reaches the mint when board.token was present, i.e.
+ * on an enforcing board, so the mint would 403 without this header. Never drop it.
  *
  * WHY THIS OPENS THE BROWSER ITSELF rather than printing the url for the .cmd to
  * open: capturing a quoted command's stdout in cmd.exe needs a `for /f "usebackq"`
@@ -67,12 +69,20 @@ function sleep(ms) {
 /* The board is "answering" as soon as it returns ANY http response, including a
  * 403 - a 403 means the board is up AND enforcing, which is exactly the case that
  * needs a nonce. Mirrors cmd_open ensuring the board is up before it mints. */
+const PROBE_TIMEOUT_MS = 2000; // per-probe cap, mirrors cmd_open's `healthy` -m 2
+const MINT_TIMEOUT_MS = 15000; // mint cap, mirrors cmd_open's mint -m 15
+
 async function waitForBoard(url, deadline) {
   while (Date.now() < deadline) {
     try {
-      const r = await fetch(url + '/', { method: 'GET' });
+      // AbortSignal.timeout bounds each in-flight probe: without it a board that
+      // ACCEPTS the tcp connection but never answers would hang this fetch forever
+      // (the deadline is only checked BETWEEN iterations, not during one), and no
+      // browser would ever open - the exact "crash with no url" the fallback is
+      // meant to prevent. cmd_open bounds each curl the same way (-m 2).
+      const r = await fetch(url + '/', { method: 'GET', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
       if (r && typeof r.status === 'number') return true;
-    } catch (_e) { /* not up yet */ }
+    } catch (_e) { /* not up yet, or the probe timed out; retry until the deadline */ }
     await sleep(400);
   }
   return false;
@@ -99,6 +109,9 @@ async function mintNonce(url, token) {
     const r = await fetch(url + '/api/board-nonce', {
       method: 'POST',
       headers: { 'x-kosmos-board-token': token },
+      // Bound the mint too (a board that accepts but never answers must not hang
+      // the launcher); mirrors cmd_open's `-m 15` on the mint.
+      signal: AbortSignal.timeout(MINT_TIMEOUT_MS),
     });
     if (!r || !r.ok) return '';
     const body = await r.json();
