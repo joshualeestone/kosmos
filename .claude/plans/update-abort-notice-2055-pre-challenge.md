@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: update-abort-notice-2055
-diff_hash: e37b03e99c78144d8311954a94ab5eb82ef4f25866a7d83f4ea880ee50cc458e
+diff_hash: 9406ce852614b9e40d4c98c6193d15fd8cd6908b233b5334f5ca5bc95fd28622
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-03T17:57:12Z
@@ -55,3 +55,17 @@ only be restarted by an update that itself aborts, so a human quit is the only e
   garbage; proven non-vacuous by the reviewer's mutation (the three controls red).
 - The engine field is Angel's #2062 (separate, independently mergeable); this
   frontend reads null when the field is absent, so it merges either order.
+
+### Post-merge (after the iter-1 convergence)
+Merged origin/main (which had since landed #2020's render-optout-403-2020.js and
+#2062's updateAbort engine field). The reviewed code (paintUpdateAbort + the notice)
+auto-merged byte-identical; only two test-wiring reconciliations were needed, each
+self-verified by the very test that checks it:
+- reason-grep EXPECTED_SITES 33 -> 34 (base 32 + #2020's optout check + this check);
+  the reason-grep test counts 34 and passes.
+- removed the now-stale `updateAbort` entry from server.test.js UNREAD_ON_PURPOSE
+  (#2062 added it while no page read the field; this page reads it, so the test's own
+  drawn-control required it gone). "no field the board sends is unknown to the page"
+  passes.
+All suites re-run green on the merged tree (server.test.js 255/0, browser check 8/8,
+guards + unit as above). diff_hash above is the post-merge value.
