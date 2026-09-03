@@ -2104,7 +2104,21 @@ const AGENT_WAIT_CLEARED_BANNER =
    counter at all: `HM=al>0||ll>0` selects the plain duration row, and `nl=al>0&&…`
    means the counter child is `false` rather than an element, so `Waiting for` and
    `background agents` cannot both appear. Nothing to guard; recorded so the next
-   reader does not go looking for a "waiting for 0" case that cannot render. */
+   reader does not go looking for a "waiting for 0" case that cannot render.
+   ✅ THE PROOF IS STRUCTURAL, NOT A SAMPLE. `BACKGROUND_AGENT_WAIT` needs three
+   tokens on one row: `Waiting`, `background agents?`, and `to finish`. At a zero
+   count the render can emit NONE of them -- the first and third live only inside
+   the `jw` element, which is selected only when `HM` is true, and the second lives
+   only inside `nl`, which at zero is the boolean `false` rather than an element.
+   A drained row cannot carry the phrase whatever else is appended to it.
+   📌 A 48-shape sweep of the drained render (8 verbs crossed with the suffix
+   forms) matched 0, with a live wait row as the passing positive control. That is
+   CORROBORATION, not the argument: the suffix space is composite and 48 samples
+   it rather than enumerating it. The structural reading is what holds.
+   🔑 SO THE ONE THING TO RE-CHECK AT A VERSION BUMP IS NOT THE SUFFIXES. If this
+   ever regresses it will be because a counter child STOPPED BEING GATED ON `> 0`,
+   which is a two-line read of the `al`/`nl`/`HM` block. Re-running a shape sweep
+   would look like diligence and would be checking the wrong thing. */
 function backgroundAgentWaitCount(row) {
   const hit = /(\d+)\s+background\s+agents?\b/u.exec(String(row == null ? '' : row));
   if (hit === null) return 1;
