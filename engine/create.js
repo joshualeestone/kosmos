@@ -705,11 +705,52 @@ function setAccount(name, dir) {
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_NAME };
   }
-  const accounts = require('./accounts');
-  const all = accounts.list();
+
+  /* #1496: read the job FIRST, so we know the runner before we look up an
+     account. An agent already on OpenAI has no Claude account to change -- but
+     it does have an OpenAI SIGN-IN to change, and branching by runner here is
+     what gives that path a door. Before this the runner check lived below the
+     Claude account lookup, so a codex agent met the generic REFUSE_ACCOUNT
+     ("we do not know that account") before its runner was ever read. */
+  const job = readJob(clean);
+  if (!job) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `we could not read how ${spoken} is started, so we have not changed it.`,
+    };
+  }
+
   /* The empty string means "back to the default account", which is a real
      choice and not a missing value. */
   const wanted = dir === '' || dir == null ? null : String(dir);
+
+  if (job.runner === 'codex') {
+    /* #1496: an OpenAI agent's account rides CODEX_HOME, and its accounts come
+       from openaiaccounts.list(), not accounts.list(). There is NO memoryShared
+       gate -- codex history is not ours to move (#540), so there is no
+       separate-history trap to guard against here -- and no trust/bypass write,
+       which seal a CLAUDE_CONFIG_DIR a codex agent does not use. plistFor writes
+       CODEX_HOME rather than CLAUDE_CONFIG_DIR when the runner is codex, so the
+       one writer stays the one writer. */
+    const openai = require('./openaiaccounts');
+    const openaiAll = openai.list();
+    const acct = wanted === null
+      ? openaiAll.find((a) => a.isDefault)
+      : openaiAll.find((a) => a.dir === wanted);
+    if (!acct) {
+      return { outcome: OUTCOME.REFUSED, because: REFUSE_ACCOUNT };
+    }
+    try {
+      fs.writeFileSync(plistPath(clean),
+        plistFor(clean, job.claude, job.tmux, job.model, acct.isDefault ? null : acct.dir, 'codex'), 'utf8');
+    } catch {
+      return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
+    }
+    return { outcome: OUTCOME.CREATED, because: null, account: acct, trust: null, bypass: null };
+  }
+
+  const accounts = require('./accounts');
+  const all = accounts.list();
   const acct = wanted === null ? all.find((a) => a.isDefault) : all.find((a) => a.dir === wanted);
   if (!acct) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_ACCOUNT };
@@ -721,20 +762,6 @@ function setAccount(name, dir) {
         + `${spoken} would arrive there with nothing it has ever done. Point that `
         + 'account at your agents\' history first.',
     };
-  }
-
-  const job = readJob(clean);
-  if (!job) {
-    return {
-      outcome: OUTCOME.REFUSED,
-      because: `we could not read how ${spoken} is started, so we have not changed it.`,
-    };
-  }
-  if (job.runner === 'codex') {
-    // Accounts here are Claude accounts (CLAUDE_CONFIG_DIR), which mean
-    // nothing to codex; writing one anyway would claim an account change
-    // that changes nothing (#245 v1).
-    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on OpenAI, so there is no Claude account to change` };
   }
   try {
     fs.writeFileSync(plistPath(clean),

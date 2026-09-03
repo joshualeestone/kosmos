@@ -3287,6 +3287,107 @@ test('an account we do not know, and an agent Kosmos did not start, are both ref
   assert.match(nobody.because, /could not read how neverexisted is started/);
 });
 
+/* #1496: an agent already on OpenAI can change WHICH OpenAI sign-in it runs on.
+   setAccount now reads the job FIRST and branches by runner: a codex agent's
+   account rides CODEX_HOME and comes from openaiaccounts.list(), not
+   accounts.list(), with no memoryShared gate (#540 -- codex history is not ours
+   to move). Before this a codex agent hit the Claude account lookup and met the
+   generic REFUSE_ACCOUNT before its runner was ever read. */
+const codexHomeOf = (text) => {
+  const m = text.match(/<key>CODEX_HOME<\/key>\s*<string>([\s\S]*?)<\/string>/);
+  return m ? m[1] : null;
+};
+const seedOpenaiAccount = (dir, key) => {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'),
+    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: key }), 'utf8');
+};
+
+test('#1496: an OpenAI agent can be moved to a different OpenAI sign-in, and CODEX_HOME comes with it', () => {
+  recorder();
+  create.setDryRun(false);
+  /* The ordinary machine, with no override home in force: the default row then
+     writes NO CODEX_HOME, which is the arm this test needs (#1600). */
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  const a = nodePath.join(home, '.codex-ick1496a');
+  const b = nodePath.join(home, '.codex-ick1496b');
+  seedOpenaiAccount(a, 'sk-proj-ICK1496A');
+  seedOpenaiAccount(b, 'sk-proj-ICK1496B');
+
+  const name = 'openaimover1496';
+  const made = create.createAgent({ ...BINS, name, role: 'pm', provider: 'openai', codexBin: CODEX_BIN, account: a });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  assert.equal(codexHomeOf(fs.readFileSync(create.plistPath(name), 'utf8')), a,
+    'the codex agent was not created on the .codex-ick1496a sign-in');
+
+  /* The move itself: a codex agent to another OpenAI sign-in. Before #1496 this
+     was REFUSED with "we do not know that account" because the Claude account
+     list has no such dir. */
+  const out = create.setAccount(name, b);
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  assert.equal(out.account.provider, 'openai', 'the move reported a non-OpenAI account for a codex agent');
+  assert.equal(out.account.dir, b, 'the move did not report the OpenAI sign-in it moved to');
+  assert.equal(codexHomeOf(fs.readFileSync(create.plistPath(name), 'utf8')), b,
+    'the move did not rewrite CODEX_HOME to the new sign-in');
+  /* No trust/bypass for codex: those seal a CLAUDE_CONFIG_DIR a codex agent
+     does not use. Present-and-null, so a caller reading the field is not misled. */
+  assert.equal(out.trust, null, 'a codex move reported a Claude trust write it did not do');
+  assert.equal(out.bypass, null, 'a codex move reported a Claude bypass write it did not do');
+});
+
+test('#1496: moving an OpenAI agent to the empty string is the default sign-in, and writes no CODEX_HOME', () => {
+  recorder();
+  create.setDryRun(false);
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  const def = nodePath.join(home, '.codex');
+  const labelled = nodePath.join(home, '.codex-ick1496c');
+  const hadDefault = fs.existsSync(def);
+  seedOpenaiAccount(def, 'sk-proj-ICK1496DEFAULT');
+  seedOpenaiAccount(labelled, 'sk-proj-ICK1496C');
+  try {
+    const name = 'openaidefault1496';
+    const made = create.createAgent({ ...BINS, name, role: 'pm', provider: 'openai', codexBin: CODEX_BIN, account: labelled });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    assert.equal(codexHomeOf(fs.readFileSync(create.plistPath(name), 'utf8')), labelled,
+      'the agent was not created on the labelled sign-in');
+
+    const back = create.setAccount(name, '');
+    assert.equal(back.outcome, create.OUTCOME.CREATED, back.because);
+    assert.equal(back.account.isDefault, true, 'the empty string did not resolve to the default OpenAI sign-in');
+    /* Absent CODEX_HOME means the default home, the same rule the create path
+       keeps: stamping the default would make every unrelated rewrite look like
+       a sign-in change (#1600, no override in force). */
+    assert.equal(codexHomeOf(fs.readFileSync(create.plistPath(name), 'utf8')), null,
+      'moving to the default OpenAI sign-in pinned a CODEX_HOME instead of leaving it absent');
+  } finally {
+    /* Only remove the default home if this test created it, so a sibling test
+       that relies on the shared sandbox default is not disturbed. */
+    if (!hadDefault) fs.rmSync(def, { recursive: true, force: true });
+  }
+});
+
+test('#1496: an OpenAI agent moved to a sign-in we do not know is refused, and stays where it is', () => {
+  recorder();
+  create.setDryRun(false);
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  const a = nodePath.join(home, '.codex-ick1496d');
+  seedOpenaiAccount(a, 'sk-proj-ICK1496D');
+
+  const name = 'openairefuse1496';
+  const made = create.createAgent({ ...BINS, name, role: 'pm', provider: 'openai', codexBin: CODEX_BIN, account: a });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+
+  const unknown = create.setAccount(name, '/tmp/not-a-codex-home-1496');
+  assert.equal(unknown.outcome, create.OUTCOME.REFUSED, 'moving a codex agent to an unknown dir was not refused');
+  assert.match(unknown.because, /do not know that account/);
+  /* A refused move must not have rewritten the sign-in. */
+  assert.equal(codexHomeOf(fs.readFileSync(create.plistPath(name), 'utf8')), a,
+    'a refused codex move still rewrote CODEX_HOME');
+});
+
 test('a new agent can be created on another account, and its history is still shared', () => {
   const { home } = seedAccounts();
   const name = 'bornelsewhere';
@@ -3899,7 +4000,11 @@ test('each refusal sentence exists exactly once, so no site can reintroduce a co
   for (const [sentence, constant, uses] of [
     ['that is not a name we can act on', 'REFUSE_NAME', 3],
     ['pick a provider from the list', 'REFUSE_PROVIDER', 2],
-    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 2],
+    /* 3, not 2, since #1496: setAccount now has TWO account-lookup sites -- the
+       Claude path and the codex path -- and both refuse an unknown account with
+       the shared constant rather than a re-spelled sentence, which is exactly
+       what this invariant is for. */
+    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 3],
   ]) {
     const literals = src.split(`'${sentence}'`).length - 1;
     assert.equal(
