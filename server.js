@@ -1526,6 +1526,22 @@ const server = http.createServer((req, res) => {
       return;
     }
     const sensitive = pathname.startsWith('/api/') || WRITE_METHODS.has(req.method);
+    // REMOTE_AGENT_ROUTES (POST /api/report, /api/reply) are exempt because a
+    // REMOTE agent reaches them with an agent token (remoteWriteGuard validates
+    // it), not a board token. ⚠️ RESIDUAL, stated honestly: that agent-token check
+    // is mandatory only for a REMOTE peer. A LOOPBACK caller -- which now includes
+    // the cross-account process #1946 exists to stop -- still reaches report/reply,
+    // and resolveAgentSender falls back to a `from_pane` sender when no token is
+    // presented, so a second account could post a spoofed report/reply (and fire a
+    // notify push) with no credential. This is NOT code execution (POST /api/agents
+    // is gated) and it is the PRE-EXISTING report/reply model, not a regression
+    // introduced here; exploitability is low (a valid `from_pane` is required and
+    // the victim's tmux socket is mode-700, so panes are not cross-account
+    // enumerable). Tightening it -- require the board token OR an agent token, drop
+    // the pane fallback, on an enforcing board -- is a change to the report/reply
+    // auth subsystem and its same-account callers, tracked as a follow-up, not
+    // folded into this boundary fix. The code-execution surface this card targets
+    // is closed regardless.
     const exemptAgent = REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`);
     if (sensitive && !exemptAgent && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) {
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });

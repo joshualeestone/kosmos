@@ -290,10 +290,14 @@ func logLine(_ s: String) {
 // of that one formula, not the single source itself -- the shipped app sets no
 // override, so the two agree.
 func boardTokenValue() -> String? {
+    let env = ProcessInfo.processInfo.environment
     let base: URL
-    let dataOverride = ProcessInfo.processInfo.environment["AGENT_WORKFORCE_DATA"]
-    if let dataOverride, !dataOverride.isEmpty {
+    if let dataOverride = env["AGENT_WORKFORCE_DATA"], !dataOverride.isEmpty {
+        // store.ROOT: join(AGENT_WORKFORCE_DATA, APP)
         base = URL(fileURLWithPath: dataOverride)
+    } else if let homeOverride = env["AGENT_WORKFORCE_HOME"], !homeOverride.isEmpty {
+        // dataRootFor's home is AGENT_WORKFORCE_HOME || homedir(); honor the override.
+        base = URL(fileURLWithPath: homeOverride).appendingPathComponent("Library/Application Support")
     } else if let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
         base = dir
     } else {
