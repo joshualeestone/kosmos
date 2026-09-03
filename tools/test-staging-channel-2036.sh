@@ -32,8 +32,9 @@ make_site() {
   printf '%s' "$s"
 }
 jget() { node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]]||""))}catch{}' "$1" "$2" 2>/dev/null; }
-# A stub gate that exits with $GATE_RC_WANT, so promote's three arms run with no board.
-STUB="$T/stub-gate.sh"; printf '#!/usr/bin/env bash\nexit "${GATE_RC_WANT:-0}"\n' > "$STUB"; chmod +x "$STUB"
+# A stub gate that echoes its received port (arg1) and exits with $GATE_RC_WANT, so promote's
+# three arms run with no board AND a test can assert the [port] was forwarded to the gate.
+STUB="$T/stub-gate.sh"; printf '#!/usr/bin/env bash\nprintf "gate-arg1:%%s\\n" "${1:-}"\nexit "${GATE_RC_WANT:-0}"\n' > "$STUB"; chmod +x "$STUB"
 GATE="bash $STUB"
 
 # ---- publish-staging-pointer ----
@@ -50,7 +51,7 @@ EXP_SHA="$(awk '{print $1}' "$S/dist/$ART.sha256")"
 # publish refuses a missing artifact (empty dist)
 S2="$(mktemp -d "$T/site.XXXXXX")"; mkdir -p "$S2/dist"
 out="$(bash "$PUBLISH" "$S2" 9.9.9 2>&1)"; rc=$?
-[ "$rc" = 1 ] && has "$out" "does not exist" && pass "publish: refuses a missing artifact" || bad "publish missing-artifact (rc=$rc, out=$out)"
+[ "$rc" = 1 ] && has "$out" "nothing to point at" && pass "publish: refuses a missing artifact" || bad "publish missing-artifact (rc=$rc, out=$out)"
 
 # publish refuses when the sidecar does not verify (corrupt the artifact after the sidecar)
 S3="$(make_site)"; printf 'TAMPERED\n' >> "$S3/dist/$ART"
@@ -124,6 +125,27 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sx" 2>&1
 Smn="$(make_site)"; bash "$PUBLISH" "$Smn" >/dev/null 2>&1; rm -f "$Smn/dist/$MAN"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Smn" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "missing manifest" && [ ! -f "$Smn/dist/latest.json" ] && pass "promote: refuses a pointer whose manifest went missing" || bad "promote missing-manifest (rc=$rc, out=$out)"
+
+# [port] is forwarded to the gate (its arg1), so an operator gives the fresh board's port
+# rather than being pushed toward --force by a wrong-port HOLD.
+Spt="$(make_site)"; bash "$PUBLISH" "$Spt" >/dev/null 2>&1
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Spt" 17999 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "gate-arg1:17999" && has "$out" "(port 17999)" && [ -f "$Spt/dist/latest.json" ] && pass "promote: forwards [port] to the experience gate" || bad "promote port forward (rc=$rc, out=$out)"
+
+# a non-numeric [port] is refused before anything runs
+out="$(bash "$PROMOTE" "$Spt" notaport 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "expected a numeric" && pass "promote: refuses a non-numeric [port]" || bad "promote non-numeric port (rc=$rc, out=$out)"
+
+# defense in depth: a staging pointer whose artifact/manifest is a path (not a bare filename)
+# is refused before it is used as a filesystem path.
+Spy="$(make_site)"; bash "$PUBLISH" "$Spy" >/dev/null 2>&1
+node -e 'const f=process.argv[1],fs=require("node:fs");const j=JSON.parse(fs.readFileSync(f,"utf8"));j.artifact="../evil.tar.gz";fs.writeFileSync(f,JSON.stringify(j)+"\n")' "$Spy/dist/latest-staging.json"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Spy" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "not a bare filename" && [ ! -f "$Spy/dist/latest.json" ] && pass "promote: refuses a path-bearing artifact name in the pointer (basename guard)" || bad "promote pathy-artifact (rc=$rc, out=$out)"
+
+# the shared pointer writer refuses a missing field rather than emitting a malformed pointer
+out="$(KM_LJ_VERSION="" KM_LJ_SHA=x KM_LJ_ARTIFACT=a KM_LJ_MANIFEST=m node "$HERE/lib/write-latest-pointer.js" "$T/should-not-exist.json" 2>&1)"; rc=$?
+[ "$rc" != 0 ] && [ ! -f "$T/should-not-exist.json" ] && has "$out" "missing field" && pass "write-latest-pointer: refuses an empty field" || bad "write-latest-pointer empty field (rc=$rc, out=$out)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-staging-channel-2036: ALL PASS"; else echo "test-staging-channel-2036: FAILURES above"; exit 1; fi

@@ -727,17 +727,12 @@ echo "   kosmos-$V-arm64.tar.gz.sha256 names its file and verifies in place (sha
 # (arm64 is the only arch released today; a multi-arch release would carry per-arch entries.)
 KM_ARTIFACT_SHA="$(awk '{print $1}' "$REPO/dist/kosmos-arm64.tar.gz.sha256")"
 [ -n "$KM_ARTIFACT_SHA" ] || { echo "could not read the artifact sha256 for latest.json" >&2; exit 1; }
+# The prod pointer shape comes from the ONE shared writer (tools/lib/write-latest-pointer.js),
+# the same writer publish-staging-pointer.sh uses, so the prod and staging pointers cannot
+# diverge in shape (#2036) -- promote copies the staging pointer verbatim onto this file.
 KM_LJ_VERSION="$V" KM_LJ_SHA="$KM_ARTIFACT_SHA" \
 KM_LJ_ARTIFACT="kosmos-$V-arm64.tar.gz" KM_LJ_MANIFEST="kosmos-$V-arm64.manifest.json" \
-  node -e '
-    const e = process.env;
-    require("node:fs").writeFileSync(process.argv[1], JSON.stringify({
-      version: e.KM_LJ_VERSION,
-      sha256: e.KM_LJ_SHA,
-      artifact: e.KM_LJ_ARTIFACT,
-      manifest: e.KM_LJ_MANIFEST,
-    }) + "\n");
-  ' "$SITE/dist/latest.json"
+  node "$(cd "$(dirname "$0")" && pwd)/lib/write-latest-pointer.js" "$SITE/dist/latest.json"
 echo "   latest.json -> $(cat "$SITE/dist/latest.json")"
 
 # 🛑 THE INSTALLER, SERVED FROM THE SITE ROOT AND NOT FROM dist/. Copying the

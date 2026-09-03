@@ -55,21 +55,16 @@ MANIFEST="kosmos-$V-$ARCH.manifest.json"
 SHA="$(awk '{print $1}' "$SITE/dist/$ARTIFACT.sha256")"
 [ -n "$SHA" ] || { echo "publish-staging: could not read the artifact sha256" >&2; exit 1; }
 
-# Same shape as latest.json (release.sh ~730), so a consumer reads either pointer identically.
-# Written ATOMICALLY (temp in the same dir + rename) so an interrupted write never leaves a
-# truncated pointer that a deploy would carry. rename(2) within one directory is atomic.
+# Same shape as latest.json, from the ONE shared pointer-writer both this and release.sh
+# use (tools/lib/write-latest-pointer.js), so the prod and staging pointers cannot diverge
+# in shape -- promote-channel.sh copies this file verbatim onto latest.json, so a divergence
+# would silently downgrade the promoted prod pointer. Written ATOMICALLY (temp in the same
+# dir + rename) so an interrupted write never leaves a truncated pointer a deploy would carry.
+POINTER_WRITER="$(cd "$(dirname "$0")" && pwd)/lib/write-latest-pointer.js"
 PTMP="$(mktemp "$SITE/dist/.latest-staging.json.XXXXXX")" || { echo "publish-staging: could not make a temp file in $SITE/dist" >&2; exit 1; }
 trap 'rm -f "$PTMP"' EXIT   # a signal between mktemp and the rename must not leak the temp
 KM_LJ_VERSION="$V" KM_LJ_SHA="$SHA" KM_LJ_ARTIFACT="$ARTIFACT" KM_LJ_MANIFEST="$MANIFEST" \
-  node -e '
-    const e = process.env;
-    require("node:fs").writeFileSync(process.argv[1], JSON.stringify({
-      version: e.KM_LJ_VERSION,
-      sha256: e.KM_LJ_SHA,
-      artifact: e.KM_LJ_ARTIFACT,
-      manifest: e.KM_LJ_MANIFEST,
-    }) + "\n");
-  ' "$PTMP" \
+  node "$POINTER_WRITER" "$PTMP" \
   && mv "$PTMP" "$SITE/dist/latest-staging.json" \
   || { echo "publish-staging: could not write latest-staging.json" >&2; rm -f "$PTMP"; exit 1; }
 
