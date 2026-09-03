@@ -74,18 +74,20 @@ test('kosmos#1214/#1940: the Settings box name is stable; #1940 removed the firs
   assert.ok(hIdx > -1, 'the button sits under a labelled Settings box');
   const boxLabel = PAGE.slice(hIdx).match(/<h3 class="dlab"[^>]*>([^<]+)<\/h3>/)[1].trim();
   assert.equal(boxLabel, 'Keeping agents running',
-    'the Settings box that holds the accessibility toggle is still named "Keeping agents running"');
+    'sanity: the box holding the button is the one this offer names');
 
-  // ⚠️ #1940 (Josh's copy, Mona Lisa's design) DELETED the first-run offer's
-  // "This one is optional ... or later in Settings, under Keeping agents running"
-  // line, so the first-run offer no longer NAMES that box. The #1214 property
-  // (first-run points at the box by name) is intentionally gone; the out is now the
-  // Continue button (offer-not-require unchanged). Assert its ABSENCE so a re-added
-  // pointer is a deliberate choice, not a silent revert. (Flagged to Mona Lisa: the
-  // deletion removed the "where to turn it on later" pointer along with the
-  // "optional" word -- Josh's call whether to keep a pointer without that framing.)
-  assert.ok(!OFFER.includes('later in Settings'),
-    '#1940: the first-run offer no longer points at "later in Settings" (the line was deleted)');
+  // The #1214 property that matters: the first-run offer POINTS a person at THAT
+  // box by its real name, so a Settings reorganisation fails here rather than
+  // leaving a wrong direction on a live screen. #1940 REWORDED the pointer (Mona
+  // Lisa's decision after I flagged that deleting the whole line silently reverted
+  // this out): the pushy "This one is optional ... now, or later" framing is gone,
+  // but the orientation "You can turn this on anytime in Settings, under Keeping
+  // agents running" stays -- so the location pin still holds.
+  assert.ok(OFFER.includes(boxLabel),
+    'the first-run offer must name the box that actually holds the button ('
+    + boxLabel + '); a Settings reorganisation would break this, which is the point');
+  assert.doesNotMatch(OFFER, /This one is optional/,
+    '#1940: the pushy "optional / now-or-later" framing is gone (the pointer stays, reworded)');
 });
 
 test('kosmos#1214: the step is wired -- 7 steps, Accessibility at 5, Continue proceeds without granting', () => {

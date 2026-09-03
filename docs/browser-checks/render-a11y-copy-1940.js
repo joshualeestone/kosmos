@@ -77,7 +77,9 @@ function chk(ok, label, extra) {
       'the old copy is gone', m.paneText.slice(0, 60));
     chk(m.btnHasSleep, 'the Open-Accessibility button carries the gold fr-sleepbtn class', 'bg=' + m.btnBg);
     chk(!/This one is optional/.test(m.paneText),
-      'the "This one is optional" line is deleted (Continue already lets a skipper move on)');
+      'the pushy "This one is optional / now-or-later" framing is gone');
+    chk(/You can turn this on anytime in Settings, under Keeping agents running/.test(m.paneText),
+      'the reworded where-to-do-it-later pointer stays (#1214 out, kept per Mona Lisa without the "optional" framing)');
 
     await page.screenshot({ path: path.join(OUT, 'fr-pane-5-a11y.png') });
     console.log('screenshot: ' + path.join(OUT, 'fr-pane-5-a11y.png'));

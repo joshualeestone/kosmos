@@ -7559,6 +7559,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            'Tmux' in Accessibility to enable this.</p>
         <button class="btn fr-sleepbtn" id="fr-a11y-open" type="button">Open Accessibility settings</button>
         <p class="fr-msg" id="fr-a11y-msg" role="status" aria-live="polite"></p>
+        <p class="fr-next">You can turn this on anytime in Settings, under Keeping agents running.</p>
       </div>
 
       <!-- 4. About you. The pack's step, its copy verbatim: two required
@@ -33054,10 +33055,11 @@ function frGo(step) {
   } else if (step === 5) {
     // #1214: the Accessibility offer. Continue proceeds whether or not the person
     // opened the setting (Josh ruled offer-not-require, 2026-09-01); the in-pane
-    // button is the offer and THIS Continue is the out. (#1940 removed the in-pane
-    // "This one is optional ... or later in Settings" sentence per Josh's copy --
-    // Continue already lets a skipper move on, so the sentence was redundant; the
-    // offer-not-require ruling is unchanged, it just is not spelled out in the pane.)
+    // button is the offer and the "anytime in Settings, under Keeping agents
+    // running" sentence is the where-to-do-it-later out. (#1940 REWORDED that
+    // sentence -- dropped the pushy "This one is optional ... now, or later"
+    // framing, kept the orientation -- Josh's copy via Mona Lisa. Continue is the
+    // skip; the pointer is the out; the offer-not-require ruling is unchanged.)
     // The pane claims no state because accessibility (TCC) cannot be read, so there
     // is nothing to gate Continue on and no "you already did this" to show.
     document.getElementById('fr-title').textContent = 'Let your agents work in your other apps.';
