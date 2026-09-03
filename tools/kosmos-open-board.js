@@ -13,7 +13,10 @@
  * costume of the expected "no agents on Windows" state.
  *
  * WHAT cmd_open DOES, AND WHAT THIS MIRRORS, step for step:
- *   1. ensure the board is up (cmd_open: `healthy || cmd_start`);
+ *   1. wait for the board to be up. NOTE: cmd_open STARTS it (`healthy || cmd_start`);
+ *      this helper only POLLS (waitForBoard) - it cannot start server.js itself.
+ *      Kosmos.cmd already launches server.js concurrently (its own last line), so
+ *      the start is covered there; here we only wait for that to come up;
  *   2. read the durable board token from `store.ROOT/board.token` - present only
  *      on an ENFORCING board - purely to decide whether to mint (cmd_open gates on
  *      `_bt` non-empty);
