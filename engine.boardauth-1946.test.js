@@ -92,6 +92,7 @@ test('bootstrap(): a valid ?token= on a GET nav returns cookie + clean location 
   assert.ok(b, 'a valid query token on a nav bootstraps');
   assert.equal(b.location, '/?first-run=1', 'token stripped, first-run kept');
   assert.match(b.setCookie, /^kosmos_board=T; HttpOnly; SameSite=Strict; Path=\//);
+  assert.match(b.setCookie, /Max-Age=\d+/, 'persistent cookie so a bookmarked bare URL survives a browser restart');
 });
 
 test('bootstrap(): a WRONG ?token= does NOT bootstrap (no cookie handed out for a bad token)', () => {

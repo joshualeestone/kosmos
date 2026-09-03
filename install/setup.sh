@@ -3798,6 +3798,12 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
 </plist>
 PLIST
     then
+      # #1946: this plist now carries the board token in its URL. The token file
+      # itself is forced to mode 600 because the design distrusts directory
+      # permissions ($HOME is group-traversable), so the plist holding the same
+      # secret must not sit at the default umask (644). Owner-only, before it is
+      # loaded. Self-removes after RunAtLoad regardless.
+      chmod 600 "$_open_plist" 2>/dev/null || true
       # The sandbox gate, restated within reach of the call (the sweep test
       # reads 12 lines above every launchctl): gui/<uid> is always the REAL
       # domain, so a harness must never get here. The enclosing if already

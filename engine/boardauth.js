@@ -53,6 +53,19 @@ const HEADER_NAME = 'x-kosmos-board-token';
  * every surface and this is false. A half-sandbox override (HALF_SANDBOX_OK) that
  * leaves a surface live is NOT fully sandboxed, so it stays enforced -- the safe
  * direction.
+ *
+ * ⚠️ INHERITED LIMIT, STATED SO IT IS NOT SILENT: `sandbox.audit` keys on each var
+ * being SET, not on it pointing at a genuine stub (tmuxInert is `Boolean(TMUX_BIN)`,
+ * not a check that the binary is inert). This predicate began life only as a
+ * refuse-to-boot check (#634); the token guard now also reads it as a security
+ * boundary, so the "set, therefore safe" assumption is worth naming. The residual
+ * is an operator who points ALL FOUR data/launch/workers/projects dirs AND
+ * TMUX_BIN at REAL paths: that board runs fully live with the token OFF. It is not
+ * attacker-reachable -- it needs the victim's own boot env, the real installer and
+ * launcher set NONE of these, and it is the operator disarming their own board --
+ * so it is inherited deliberately rather than re-validated here. The partial-
+ * sandbox boot refusal is what leaves "all four set + tmux inert" as the only
+ * non-enforcing shape a booting board can take.
  */
 function fullySandboxed(env) {
   return sandbox.audit(env || {}).live.length === 0;
@@ -195,9 +208,17 @@ function matches(presented, expected) {
 /** `Set-Cookie` value for the board token. HttpOnly so page JS cannot read it;
  * SameSite=Strict so another site cannot cause it to be sent (defence in depth
  * alongside crossSiteWrite); Path=/ so every route carries it. Not Secure: the
- * board is plain http on loopback. */
+ * board is plain http on loopback.
+ *
+ * Max-Age makes it PERSISTENT rather than a session cookie, so a browser-only
+ * operator who reopens a bookmarked bare URL after quitting the browser is not met
+ * by a 403 shell until they re-run `kosmos open`. This costs nothing in security:
+ * the token already persists in the mode-600 file (the cookie only caches it), the
+ * cookie lives in this account's own browser profile (unreadable by another
+ * account), and if the token is ever rotated a stale cookie simply re-bootstraps.
+ * 34560000s (400 days) is the ceiling browsers actually honour. */
 function cookieHeader(token) {
-  return `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/`;
+  return `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=34560000`;
 }
 
 /** The request path with the `token` query param removed, other params kept.

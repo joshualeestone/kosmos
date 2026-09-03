@@ -1539,7 +1539,7 @@ const server = http.createServer((req, res) => {
     // the victim's tmux socket is mode-700, so panes are not cross-account
     // enumerable). Tightening it -- require the board token OR an agent token, drop
     // the pane fallback, on an enforcing board -- is a change to the report/reply
-    // auth subsystem and its same-account callers, tracked as a follow-up, not
+    // auth subsystem and its same-account callers, tracked as kosmos#1968, not
     // folded into this boundary fix. The code-execution surface this card targets
     // is closed regardless.
     const exemptAgent = REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`);
