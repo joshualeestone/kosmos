@@ -36186,16 +36186,17 @@ fetch('/api/roles').then((r) => (r.ok ? r.json() : null)).then((j) => {
 setTimeout(revealBoot, 3000);
 firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1);
 
+/* #2066: the corner marker paints before the first poll too -- a built board shows
+   its baked version from the first frame even if no poll ever lands; channel defaults
+   to prod until the first /api/status tick supplies it (a prod marker is exactly the
+   safe default when the channel is unknown). Ordered before the build line so
+   `paintBuildLine(null); tick();` stay adjacent (web.baked-version.test.js pins it). */
+paintBuildMark(null, 'prod');
 /* 🔑 BEFORE THE FIRST POLL, not after it. The whole point of baking the version
    is that it is readable when no poll will ever succeed, and painting it from
    `tick()` alone would have kept the empty line on exactly the machine this was
    written for. */
 paintBuildLine(null);
-/* #2066: same reasoning for the corner marker -- a built board shows its baked
-   version from the first frame even if no poll ever lands; channel defaults to prod
-   until the first /api/status tick supplies it (a prod marker is exactly the safe
-   default when the channel is unknown). */
-paintBuildMark(null, 'prod');
 tick();
 setInterval(tick, 5000);
 </script>
