@@ -78,7 +78,7 @@ for (const f of paths) { let s = fs.readFileSync(f, 'utf8'); const was = s; ${EX
 " $(git ls-files '*.js' '*.html' '*.sh' 'install/kosmos' | tr '\n' ' ') 2>/dev/null
 
 if git diff --quiet; then
-  echo "    ⚠️  THE MUTATION DID NOT APPLY — nothing changed, so nothing was proven."
+  echo "    ⚠️  THE MUTATION DID NOT APPLY - nothing changed, so nothing was proven."
   exit 1
 fi
 git diff --stat | tail -1 | sed 's/^/    changed: /'
@@ -134,8 +134,8 @@ case "$TESTFILE" in
       echo "       runs the script (engine/create.test.js runs the supervisor), or at"
       echo "       tools/test-install.sh, which really installs (minutes, not seconds)."
       echo
-      echo "       If your guard READS the file instead — the port copies, a banned"
-      echo "       phrase, an ordering check — that is a legitimate proof and this"
+      echo "       If your guard READS the file instead - the port copies, a banned"
+      echo "       phrase, an ordering check - that is a legitimate proof and this"
       echo "       is the wrong refusal. Say so and it runs:"
       echo "           SHELL_READ_ONLY=1 bash tools/prove-it-fails.sh ..."
       git checkout -q -- .

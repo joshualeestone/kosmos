@@ -55,7 +55,7 @@ head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 # ── the floor, read from the repo rather than remembered ─────────────────────
 if [ ! -f "$REPO/tools/macos-floor" ]; then
-  echo "cannot read $REPO/tools/macos-floor — pass --repo. Refusing to certify a floor I cannot read." >&2
+  echo "cannot read $REPO/tools/macos-floor - pass --repo. Refusing to certify a floor I cannot read." >&2
   exit 2
 fi
 FLOOR="$(cat "$REPO/tools/macos-floor")"
@@ -152,7 +152,7 @@ else bad "sha256 MISMATCH: published $PUB, served bytes $GOT"; fi
 # A tester following good practice hits a broken verification step.
 PUBNAME="$(curl -fsSL "$TGZ_URL.sha256" 2>/dev/null | awk '{print $2}' | sed 's/^\*//')"
 if [ -n "$PUBNAME" ] && [ "$PUBNAME" != "kosmos-$VER-arm64.tar.gz" ]; then
-  bad "the .sha256 names '$PUBNAME' but the served file is 'kosmos-$VER-arm64.tar.gz' — 'shasum -c' fails for anyone verifying by hand"
+  bad "the .sha256 names '$PUBNAME' but the served file is 'kosmos-$VER-arm64.tar.gz' - 'shasum -c' fails for anyone verifying by hand"
 else
   ok "the .sha256 names the file it describes"
 fi
@@ -172,26 +172,26 @@ if cc -o "$WORK/ctl" "$WORK/ctl.c" 2>/dev/null; then
   case "$cmaj" in ''|*[!0-9]*) : ;; *) [ "$cmaj" -gt "$FLOOR_MAJOR" ] && CTL_FIRED=yes ;; esac
 fi
 [ "$CTL_FIRED" = yes ] && ok "control fired: a binary built on this host ($cm) is correctly seen as above the floor" \
-                       || unp "control did not fire — cannot prove this check can detect an over-floor binary"
+                       || unp "control did not fire - cannot prove this check can detect an over-floor binary"
 FOUND=0; OVER=0
 while IFS= read -r f; do
   file "$f" 2>/dev/null | grep -q Mach-O || continue
   FOUND=$((FOUND+1))
   rel="${f#$WORK/u/}"
   slices="$(minos_all "$f")"
-  if [ -z "$slices" ]; then bad "$rel — no readable deployment target in any slice; refusing to certify (green-on-blind)"; OVER=$((OVER+1)); continue; fi
+  if [ -z "$slices" ]; then bad "$rel - no readable deployment target in any slice; refusing to certify (green-on-blind)"; OVER=$((OVER+1)); continue; fi
   for m in $slices; do
     maj="${m%%.*}"; min="${m#*.}"; min="${min%%.*}"
-    case "$maj$min" in *[!0-9]*|'') bad "$rel — unparseable deployment target '$m'"; OVER=$((OVER+1)); continue ;; esac
+    case "$maj$min" in *[!0-9]*|'') bad "$rel - unparseable deployment target '$m'"; OVER=$((OVER+1)); continue ;; esac
     if [ "$maj" -gt "$FLOOR_MAJOR" ] || { [ "$maj" -eq "$FLOOR_MAJOR" ] && [ "$min" -gt "$FLOOR_MINOR" ]; }; then
-      bad "$rel requires macOS $m — ABOVE the installer's $FLOOR floor (this is #927's shape)"
+      bad "$rel requires macOS $m - ABOVE the installer's $FLOOR floor (this is #927's shape)"
       OVER=$((OVER+1))
     fi
   done
 done <<EOFIND
 $( { find "$WORK/u" -type f -perm +111 2>/dev/null; find "$WORK/u" -type f -name '*.dylib' 2>/dev/null; } | sort -u )
 EOFIND
-[ "$FOUND" -eq 0 ] && unp "found no Mach-O binaries at all — the walk is probably broken, not the bundle clean"
+[ "$FOUND" -eq 0 ] && unp "found no Mach-O binaries at all - the walk is probably broken, not the bundle clean"
 [ "$FOUND" -gt 0 ] && [ "$OVER" -eq 0 ] && ok "all $FOUND shipped Mach-O binaries are at or below $FLOOR"
 
 head_ "Code signing"
@@ -212,15 +212,15 @@ while IFS= read -r f; do
   auth="$(printf '%s' "$cs" | sed -n 's/^Authority=//p' | head -1)"
   case "$rel" in *.app/*) nested=yes ;; *) nested=no ;; esac
   if [ -n "$auth" ]; then
-    ok "$rel — $auth"
+    ok "$rel - $auth"
   elif printf '%s' "$cs" | grep -q 'adhoc'; then
     if [ "$nested" = yes ]; then
-      bad "$rel is ad-hoc signed INSIDE an .app bundle — this invalidates the bundle's notarisation"
+      bad "$rel is ad-hoc signed INSIDE an .app bundle - this invalidates the bundle's notarisation"
     else
-      ok "$rel — ad-hoc (executes; lands beside the app, not inside it, so notarisation is unaffected)"
+      ok "$rel - ad-hoc (executes; lands beside the app, not inside it, so notarisation is unaffected)"
     fi
   else
-    bad "$rel is UNSIGNED — an unsigned Mach-O does not execute on Apple silicon at all"
+    bad "$rel is UNSIGNED - an unsigned Mach-O does not execute on Apple silicon at all"
   fi
 done <<EOFSIG
 $( { find "$WORK/u" -type f -perm +111 2>/dev/null; find "$WORK/u" -type f -name '*.dylib' 2>/dev/null; } | sort -u )
@@ -252,11 +252,11 @@ if grep -qIE "$PAT" "$WORK/ctl.js"; then
     bad "credential-shaped strings found:"; grep -rIlE "$PAT" "$WORK/u" 2>/dev/null | sed "s|$WORK/u/|      |"
   else
     ok "control fired; no known-prefix credentials in the bundle"
-    printf '        (bounded: this detects KNOWN PREFIXES only — a bare secret with no\n'
+    printf '        (bounded: this detects KNOWN PREFIXES only - a bare secret with no\n'
     printf '         recognisable shape is invisible to it. Absence here is not proof.)\n'
   fi
 else
-  unp "control did not fire — the credential patterns are broken, so a clean result means nothing"
+  unp "control did not fire - the credential patterns are broken, so a clean result means nothing"
 fi
 
 head_ "Verdict"
