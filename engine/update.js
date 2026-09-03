@@ -393,6 +393,29 @@ function lastAttemptView() {
   if (!lastAttempt) seedFromDisk();
   return lastAttempt ? { ...lastAttempt } : null;
 }
+/* #2055: the durable board-would-not-pause abort marker. setup.sh writes it (with a
+   CONSECUTIVE count) each time an update aborts at the pause, and clears it once an
+   update gets past the pause. It is the ONLY signal on the AUTOMATIC update path: the
+   installer's own "could not be paused" message goes to stderr / install.log, which
+   the in-process updater's curl|sh leaves unread, so a machine can stop receiving
+   updates -- 155 consecutive aborts on one machine -- with nothing on any surface a
+   person looks at. This exposes it so the board can say so. Returns
+   { count, reason, port, ts } when the machine is stuck, or null when it is not. */
+function updateAbortFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'update-abort') : null; }
+function updateAbort() {
+  const file = updateAbortFile();
+  if (!file) return null;
+  let raw = '';
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return null; }
+  const kv = {};
+  for (const line of raw.split('\n')) {
+    const m = /^([a-z_]+)=(.*)$/.exec(line);
+    if (m) kv[m[1]] = m[2];
+  }
+  const count = Number(kv.count);
+  if (!Number.isInteger(count) || count <= 0) return null;   // absent/blank/garbage/0 => not stuck
+  return { count, reason: kv.reason || 'unknown', port: kv.port || null, ts: kv.ts || null };
+}
 
 /**
  * The two things that must happen when an installer child fails, wherever the
@@ -527,6 +550,7 @@ function resetCache() { cache = { at: 0, latest: null, reached: false, readable:
 
 module.exports = {
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
+  updateAbort, // #2055: the durable board-would-not-pause abort marker ({count,reason,port,ts} or null)
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
   resetCache, RUNNING, TTL, lastLook, checkNow,
