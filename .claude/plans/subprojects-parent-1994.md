@@ -71,7 +71,7 @@ foundation it builds on: the PUT route already accepts `parent`, and `describe` 
 
 ## Weakest premise
 
-That the data model is worth landing ahead of the UI. Mitigation: it is complete and 12-arm
+That the data model is worth landing ahead of the UI. Mitigation: it is complete and 15-arm
 tested, it is reachable via the existing PUT route, and it unblocks the UI without locking its
 shape. What would change the plan: Josh wanting the whole feature in one PR, or the UI proving it
 needs a different engine shape (it should not — parent-by-id + parentName is the minimal surface a

@@ -940,6 +940,10 @@ function describe(project, roster, all) {
     };
   });
 
+  // #1994: the parent id (or null), derived once and used both as the `parent`
+  // field and to resolve parentName/parentArchived below.
+  const parentId = (typeof project.parent === 'string' && project.parent) ? project.parent : null;
+
   return {
     ...project,
     folder: project.folder,
@@ -963,9 +967,10 @@ function describe(project, roster, all) {
     // its own product decision with its own failure modes, and none was
     // asked for). Normalized to null for a legacy record, like the fields
     // above.
-    parent: (typeof project.parent === 'string' && project.parent) ? project.parent : null,
+    parent: parentId,
     // The parent's display name AND whether the parent is archived, resolved
-    // here (one lookup) so no reader has to join rows itself.
+    // here (one lookup, off the `parentId` derived above) so no reader has to
+    // join rows itself.
     //
     // - parentName is null when the parent id resolves to no project (a parent
     //   removed by a hand edit -- delete-with-children is refused, so this only
@@ -978,8 +983,7 @@ function describe(project, roster, all) {
     //   need not re-join, the same posture as parentName. Null when there is no
     //   resolvable parent. The #1994 UI follow-up consumes it.
     ...(() => {
-      const pid = (typeof project.parent === 'string' && project.parent) ? project.parent : null;
-      const par = (pid && Array.isArray(all)) ? all.find((p) => p && p.id === pid) : null;
+      const par = (parentId && Array.isArray(all)) ? all.find((p) => p && p.id === parentId) : null;
       return {
         parentName: par ? par.name : null,
         parentArchived: par ? (par.archived === true) : null,
