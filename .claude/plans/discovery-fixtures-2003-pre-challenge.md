@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: discovery-fixtures-2003
-diff_hash: df9b8df1c83c3790ab0e59026f45210a50e65c238d826047fd3127256e67cf57
+diff_hash: bbf251b9a0b17d04d3ba53a5b85410c55ff9db1e3e481739a990fe1719cacff5
 validation: passed
 timestamp: 2026-09-03T12:32:49Z
-iterations: 2
+iterations: 3
 converged: true
 ---
 
@@ -53,6 +53,18 @@ mechanism). Every outcome was MEASURED against the real discover.found()/scan() 
 
 **Converged**: the CONVENTION fix is a targeted documentation correction (rename + attribution),
 verified; a third full review on a doc-attribution change would be disproportionate.
+
+#### Iteration 3 (Splinter's post-acceptance catch - a real possible conflict, not a nitpick)
+After accepting the PR, Splinter flagged that my stated #1 finding ("a Kosmos-created file is
+re-offered when its agent is not running") might contradict #1938 (a cleanly-named agent is never
+in the adoptable set, discover.js:602). Measured precisely: fixture #1 cleanly names
+(identityFromText -> "Fixture Baron", bold arm), so it lands in found().agents (a NAMED agent), NOT
+in the adoptable set - which is exactly #1938's claim. My wording conflated "found as a named agent
+(with an `already` flag)" with "offered in the adoptable set". --> FIXED: reworded the fixture,
+README row + bullet, and the test, and ADDED `assert(!adoptable.has('1-kosmos-created'))` so the
+test now PROVES #1938 rather than muddying it. Answered on #2003 and #1938. 7/7 still pass.
+This is the check-the-premise / retract-in-the-artifact discipline: a stated finding that could
+have misdirected Josh (about to scatter these) was corrected before it did.
 
 ### Final Ledger
 
