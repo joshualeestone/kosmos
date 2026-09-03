@@ -597,3 +597,11 @@ now carries it.
 
 **Control re-proven after both assertion rewrites**: pushing `-u` unconditionally still reddens the
 labelled control, and dropping the push still reddens the default arm.
+
+📌 **Rebase note, and the control is the point.** After rebasing onto 13 new commits from main, my
+first overlap check returned EMPTY and would have said "nothing my arms read changed, the previous
+green survives". **A positive control (what did those commits touch at all?) returned 37 files
+including `server.js`** -- one of the files my arms read. **The empty result was my ref range, not
+the repo.** ⇒ **A rebase orphans every recorded run, and the check that tells you whether the
+measurement survives can itself be the thing that is broken.** Re-ran the suite: green on the rebased
+head, 3897 pass / 0 fail / exit 0, all four shell blocks, all four arms.
