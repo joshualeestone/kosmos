@@ -68,7 +68,17 @@ kosmos_isolation_rerun_verdict() {
   # fully accounted for. When unsure this aborts exactly as the cut would without
   # the feature: it only ever makes the cut more lenient when PROVEN safe.
   fail_count="$(grep -E '^ℹ fail [0-9]+' "$log" 2>/dev/null | tail -1 | grep -oE '[0-9]+' | tail -1 || true)"
-  testat_count="$({ grep -cE '^test at ' "$log" 2>/dev/null || true; })"
+  # MUST use the SAME '\.test\.js' anchor as kosmos_failing_test_files: a failing
+  # test whose "test at" line names a NON-.test.js path (node emits e.g. "test at
+  # engine/helper.js:5:3" when a failing test() is registered from a required
+  # helper) is dropped from `files` and cannot be re-run, so it must also NOT be
+  # counted here -- otherwise it inflates testat_count to meet fail_count and the
+  # completeness gate passes while a real failure is silently unaccounted for.
+  # Counting the narrow pattern makes such a line drop testat_count below
+  # fail_count -> abort. (Raw line count, not ${#files[@]}: files is deduped, so a
+  # multi-test file legitimately has more lines than files; the count must match
+  # node's per-test fail tally, and it does when every failing test is in a .test.js.)
+  testat_count="$({ grep -cE '^test at [^ ]+\.test\.js' "$log" 2>/dev/null || true; })"
   if [ -z "$fail_count" ]; then
     echo "isolation-rerun: could not read node's 'fail N' tally from the log (the suite may have been killed before printing one), so the failure list cannot be proven complete. Not dismissing; the cut aborts."
     return 1

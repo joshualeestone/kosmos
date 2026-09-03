@@ -85,6 +85,19 @@ if out="$(kosmos_isolation_rerun_verdict "$log_incomplete" "$WORK" 1)"; then rc=
 [ "$rc" -eq 1 ] && ok "2 failures reported but 1 parseable -> verdict 1 (incomplete parse, abort)" \
   || bad "incomplete-parse case: rc=$rc, expected 1"
 
+# --- COMPLETENESS control (pattern mismatch): a 'test at' line naming a NON-.test.js path
+# (a test registered in a required helper) must NOT count toward completeness, or a real
+# failure it represents would be dropped from the rerun set while a dismissable .test.js
+# failure gets the cut waved through. Here: pass.test.js (dismissable) + engine/helper.js
+# (a real failure, not a .test.js) + fail 2. testat_count must count only the .test.js line
+# (1) < fail 2 -> abort. If it counted the broad '^test at ' pattern (2 == 2) it would
+# dismiss on pass.test.js and let the helper.js failure through. ---
+log_helper="$WORK/log-helper"
+{ echo "test at pass.test.js:2:1"; echo "  passes alone"; echo "test at engine/helper.js:5:3"; echo "  a real failure registered from a helper"; tally 4 2 2; } > "$log_helper"
+if out="$(kosmos_isolation_rerun_verdict "$log_helper" "$WORK" 1)"; then rc=0; else rc=$?; fi
+[ "$rc" -eq 1 ] && ok "a failure on a non-.test.js path (helper) + a dismissable .test.js -> verdict 1 (abort, not dismissed)" \
+  || bad "pattern-mismatch case: rc=$rc, expected 1 (a broad testat_count would wrongly dismiss)"
+
 # --- COMPLETENESS: no readable tally at all -> verdict 1 ---
 log_notally="$WORK/log-notally"
 { echo "test at pass.test.js:2:1"; echo "  killed before the tally"; } > "$log_notally"
@@ -98,9 +111,19 @@ if out="$(kosmos_isolation_rerun_verdict "$log_notally" "$WORK" 1)"; then rc=0; 
 export REPO WORK log_notally
 eset_out="$(bash -c 'set -euo pipefail; . "$REPO/tools/lib/cut-rerun-guard.sh"; kosmos_isolation_rerun_verdict "$log_notally" "$WORK" 1' 2>&1)"; eset_rc=$?
 if [ "$eset_rc" -eq 1 ] && printf '%s\n' "$eset_out" | grep -q "cannot be proven complete"; then
-  ok "as a DIRECT caller under set -euo pipefail, no-tally returns 1 and narrates (errexit-safe)"
+  ok "as a DIRECT caller under set -euo pipefail, no-tally returns 1 and narrates (errexit-safe, early branch)"
 else
   bad "errexit-safety: a direct set -e caller aborted before narrating -- rc=$eset_rc out=[$eset_out]"
+fi
+
+# Deeper errexit coverage: a CONTENTION log reaches the while-read loop, the rerun for-loop,
+# and the node --test rerun under active set -e, then dismisses. Guards those paths too.
+export log_pass
+eset2_out="$(bash -c 'set -euo pipefail; . "$REPO/tools/lib/cut-rerun-guard.sh"; kosmos_isolation_rerun_verdict "$log_pass" "$WORK" 1' 2>&1)"; eset2_rc=$?
+if [ "$eset2_rc" -eq 0 ] && printf '%s\n' "$eset2_out" | grep -q "Dismissed"; then
+  ok "as a DIRECT caller under set -euo pipefail, a contention log reaches the rerun loop and dismisses (errexit-safe, deep)"
+else
+  bad "errexit-safety (deep): rc=$eset2_rc out=[$eset2_out]"
 fi
 
 # --- SAFE FALLBACK: a red naming no node file cannot be isolated -> verdict 1 ---
