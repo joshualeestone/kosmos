@@ -1407,12 +1407,33 @@ test('two writers that both see a stale lock do not both get inside', () => {
     new Promise((resolve) => {
       const { execFile } = require('node:child_process');
       execFile(process.execPath, [writer, SANDBOX, text, 'stalerace'], { encoding: 'utf8' },
-        (err, out) => resolve(out));
+        // #1988: capture the child's recorded-flag and any crash, so an
+        // intermittent red under load SELF-CLASSIFIES (see the assert below).
+        (err, out) => resolve({ recorded: (out || '').trim(), failed: err ? (err.code || err.signal || 'ERR') : 0 }));
     }));
 
-  return Promise.all(both).then(() => {
+  return Promise.all(both).then((writers) => {
     const said = chat.readThread('stalerace', 'casey').messages.map((m) => m.text);
-    assert.equal(said.length, 2, `a message was lost breaking a stale lock: ${JSON.stringify(said)}`);
+    /**
+     * ⚠️ #1988: this reds intermittently under full-suite load and passes in
+     * isolation (measured: 326 targeted trials + 36 parallel full-file runs, 0
+     * losses; the rename-steal serializes two stale writers correctly). Because it
+     * only appears under the suite, the failure message now carries the two
+     * writers' outcomes so the NEXT red decides the lock-vs-test fork with no local
+     * repro needed:
+     *   - a writer recorded:"false" (or a non-zero `failed`) DROPPED its message by
+     *     FAILING SAFE under saturation (a lock-wait timeout, or a crashed child) —
+     *     that points at THIS test's liveness assumption, not the lock.
+     *   - both recorded:"true" with a message MISSING is a genuine LOST UPDATE
+     *     (both entered the critical section and one clobbered the other's write) —
+     *     that points at the lock (engine/filelock.js).
+     * The length assertion is UNCHANGED, so detection is not weakened, only
+     * diagnosed; the deterministic guard for the actual race is the separate
+     * "breaker that LOSES the steal stays outside" test below.
+     */
+    assert.equal(said.length, 2,
+      `a message was lost breaking a stale lock. writers=${JSON.stringify(writers)}; thread=${JSON.stringify(said)}. `
+      + 'recorded:"false"/failed = a fail-safe drop (test/liveness); both "true" with one missing = a lost update (filelock.js). #1988');
     assert.ok(said.includes('stale A') && said.includes('stale B'));
   });
 });
