@@ -25152,7 +25152,15 @@ document.addEventListener('click', (e) => {
        BOARD_NEEDS_SIGNIN flag without repainting #pj-list, which stayed on stale
        copy until its own separate interval fired (up to 5s). loadProjects()
        repaints it; both are idempotent and generation-guarded, so calling both
-       from either surface is safe and "Reload" honestly reloads what is shown. */
+       from either surface is safe and "Reload" honestly reloads what is shown.
+       Both write the shared BOARD_NEEDS_SIGNIN, but they cannot DISAGREE on it:
+       /api/status and /api/projects are gated by the SAME #1946 token check, so
+       within one page load both are authed or both 403. The only window in which
+       a concurrent pair could differ is a cookie arriving between the two fetches
+       (an update or another tab minting it mid-poll); that self-corrects on the
+       next poll and never leaves a stale value standing -- the no-latch invariant
+       the anti-latch tests pin. Do not "fix" this by serialising the two writers;
+       there is no divergent outcome to order. */
     Promise.all([Promise.resolve(tick()), Promise.resolve(loadProjects())]).then(done, done);
     return;
   }
