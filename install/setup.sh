@@ -3750,7 +3750,7 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
   _board_url="http://127.0.0.1:$PORT"
   _bt=""
   _awnode="$KOSMOS_HOME/runtime/bin/node"
-  if [ -x "$_awnode" ]; then
+  if [ -f "$_awnode" ] && [ -x "$_awnode" ]; then
     _awroot="$("$_awnode" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot=""
     [ -n "$_awroot" ] && _bt="$(cat "$_awroot/board.token" 2>/dev/null || true)"
   fi
