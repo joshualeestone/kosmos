@@ -304,6 +304,34 @@ testing an impossible pane. And five assertions pinning which `◯` rows proved
 liveness were DELETED rather than adjusted: adjusting them would have preserved
 the appearance of coverage over a premise that was false.
 
+## WHERE THE DEFECTS ACTUALLY CAME FROM, AFTER TEN ROUNDS
+
+The original defect took ten minutes to find and one line to describe. Everything
+since has been my own work being wrong, and the split is worth recording because
+it is not what I expected going in.
+
+| round | found in | kind |
+|---|---|---|
+| 1-3 | the original reader, and my description of it | real, pre-existing |
+| 4-6 | fixes I made in rounds 3-5 | self-inflicted |
+| 7-8 | the vendor's render code, unreachable from live panes | real, latent |
+| 9 | a subsystem I added in round 3 (unsound by construction) | self-inflicted |
+| 10 | the redesign I shipped in round 9 | self-inflicted |
+
+⇒ **Seven of ten rounds found defects in code that did not exist before this
+branch started.** That is not an argument against the loop: every one of those
+was a real false calm or false idle that would have shipped. It is an argument
+about what this kind of work costs. Scraping a vendor TUI means each fix has a
+blast radius the fix's author cannot see, and the only instrument that reliably
+found them was a reader who had not just written the code.
+
+⭐ THE FAILURE MODE THAT REPEATED MOST, in one sentence: **a guard, a
+measurement, or a claim that was true when written and silently stopped being
+true when something else changed.** An early return that disarmed four
+assertions. A cleanup that deleted the guards of the round before it. A comment
+describing an anchor that had been replaced. A number measured against a design
+that no longer existed. None of these fail loudly; all of them read as coverage.
+
 ## Weakest premise
 
 That the background-agent line is stable enough to key on. It is one observation
