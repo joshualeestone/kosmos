@@ -5154,7 +5154,12 @@ const server = http.createServer((req, res) => {
              `state === NONE`, so an UNKNOWN decoy (unparseable, ENOENT, timeout)
              took the connected exit too. Post-fix it reads the real file,
              `claude auth status` answers loggedIn (#874/#1916), and the #1560
-             gate holds shut on every default-account machine. Both are broken; the routing is no longer
+             gate holds shut WHEREVER THAT STATUS REPORTS A LOGIN EXISTS -- the
+             dead-but-present population this card is about. **Not every
+             default-account machine:** `checkLive` returns NONE on a recognised
+             `loggedIn: false`, so a genuinely signed-out user still opens the
+             gate and the flow runs (asserted by the `#1560` "world says signed
+             out" arm), and a missing binary opens it too. Both are broken; the routing is no longer
              the reason, and the repair is #1937. **The flow
              behind the #1560 gate still cannot repair a dead credential: the
              launch is a bare `claude` with no login argument. That is kosmos#1937

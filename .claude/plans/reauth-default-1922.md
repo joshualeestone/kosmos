@@ -17,7 +17,7 @@ one thing the rest of this codebase deliberately never does.
 
 **Three independent measurements, none of them mine, none requiring a credential:**
 
-1. **`engine/accounts.js:287-299`**, written by whoever built `listLive`: *"confirmed live on this
+1. **`grep -n 'confirmed live on this machine' engine/accounts.js`**, written by whoever built `listLive`: *"confirmed live on this
    machine, `CLAUDE_CONFIG_DIR=<HOME>/.claude` makes the real `claude` binary read
    `<HOME>/.claude/.claude.json` instead."*
 2. **A canary run on this Mac 2026-09-02** (recorded in `~/.claude/bin/which-account.sh`): a launch
@@ -178,7 +178,7 @@ and the credential would still go astray, one layer down.** Measured:
 
 | checked | result |
 |---|---|
-| setters anywhere in the repo | **one**, `docs/browser-checks/live-connect.js:29` (a browser-check sandbox) |
+| setters anywhere in the repo | **one**, `grep -n AGENT_WORKFORCE_CLAUDE_CONFIG_DIR docs/browser-checks/live-connect.js` (a browser-check sandbox) |
 | `install/`, `bin/`, `deploy/` | none |
 | launchd plists on this machine | none |
 | the ambient environment here | unset |
@@ -189,7 +189,7 @@ default resolution -- which is precisely what `accounts.listLive` depends on and
 on the real account. **The fix holds at the launch layer.**
 
 📌 **A separate normalization question, settled by Splinter rather than by me:** `configDir: null` and
-omitting the key entirely are equivalent, because `connect.js:911` demands
+omitting the key entirely are equivalent, because `grep -n "typeof opts.configDir" engine/connect.js` demands
 `typeof opts.configDir === 'string' && opts.configDir`, the same normalization
 `grep -n "typeof opts.configDir" engine/subscription.js` finds in `checkLive`. So mirroring `listLive`'s omit-the-parameter shape with a null does not diverge from it.
 
@@ -236,7 +236,7 @@ If that names a paid plan and `checkLive` does not return `NONE`, **`start()` ta
 early exit and the sign-in never launches at all.**
 
 ⚠️ **That is the card's exact machine state.** Default account, credential dead, row painted green.
-And `subscription.js:393` maps `parsed.loggedIn === true` straight to `CONNECTED`, while Angel
+And `grep -n 'loggedIn === true' engine/subscription.js` maps it straight to `CONNECTED`, while Angel
 measured that `claude auth status` reports `loggedIn: true` for a dead token. ⇒ **After this fix,
 "Sign in again" on that machine can answer "connected" instantly and do nothing.**
 
@@ -244,7 +244,7 @@ measured that `claude auth status` reports `loggedIn: true` for a dead token. �
 decoy". BOTH HALVES WERE WRONG.**
 
 1. **Wrong mechanism.** `subscription.check({configDir})` resolves through `accounts.configFile()`
-   (`subscription.js:123-124`), which special-cases the default to `<HOME>/.claude.json` -- **the
+   (`grep -n 'configFile' engine/subscription.js`), which special-cases the default to `<HOME>/.claude.json` -- **the
    REAL file, not the decoy.** It is `checkLive({configDir})` that exports `CLAUDE_CONFIG_DIR` and
    therefore reaches the decoy. I attributed the decoy read to the wrong function.
 2. **"Always" is unestablished, and this plan contradicts it two sections down.** A decoy holding a
@@ -278,7 +278,7 @@ I swept `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, found it a test-only seam, and conc
 carries** -- and on a Kosmos-managed machine that is routinely a different account. This very shell
 carries one.
 
-⭐ **The codebase already states the rule on the read side** (`subscription.js:336-338`): it builds
+⭐ **The codebase already states the rule on the read side** (`grep -n 'trusting it to be unset' engine/subscription.js`): it builds
 its env and `delete env.CLAUDE_CONFIG_DIR` **"rather than trusting it to be unset"**. ⇒ **The reader
 deleted; the writer merely omitted.** Fixed: the no-launch-dir branch now pushes `-u
 CLAUDE_CONFIG_DIR`, so the writer matches the reader.
@@ -326,7 +326,7 @@ more than the assertion covered.** Fixed by the `setRunner` change above.
   the config file). Benign only because the next test overwrites it. Fixed.
 - **NIT:** a dead `work1` binding in the default arm, created only to be removed. Gone.
 - **NIT:** the plan claimed three `connect.start(` sites; there is a fourth in
-  `docs/browser-checks/live-connect.js:90` (takes no options, unaffected). And "both other consumers"
+  `grep -n 'connect.start' docs/browser-checks/live-connect.js` (takes no options, unaffected). And "both other consumers"
   undercounts: `engine/create.js` does the same thing in **four** places, which
   `grep -n 'isDefault ? null :' engine/create.js` reproduces -- it returns **five** lines, one of
   them prose inside a comment, so the reader discounts one hit. ⚠️ **Two of the four line numbers
@@ -400,7 +400,7 @@ at both sites.
   rounds. **"Corrected where it was made" is a claim about a sweep, and I wrote it having corrected
   one site.**
 - **The route's conditional spread was a third spelling** of a decision `engine/create.js` writes as
-  a one-liner in four places. Now matches them. The repo's own rule, at `accounts.js:80-86`: *"Two
+  a one-liner in four places. Now matches them. The repo's own rule, at `grep -n 'Two spellings' engine/accounts.js`: *"Two
   derivations of one fact is this codebase's most expensive habit."*
 - **The fixture splits across two sandbox files what production keeps in one.** Inherited from the
   harness rather than introduced here; now stated in the docblock.
@@ -1600,7 +1600,9 @@ genuinely ran"*. **Two things are wrong and this plan already knew both:**
 different defect in the same sentence.** ⇒ **A rewrite is not a smaller act than a first draft. It
 gets the same scrutiny or it introduces its own defects, and mine has now done that twice.**
 
-✅ Corrected in both shipped homes: post-fix the false success is uniform; pre-fix it depended on the
+✅ Corrected in both shipped homes: post-fix the false success is bounded to accounts whose stored login is
+present-but-dead (NOT every default-account machine: a recognised `loggedIn: false` returns NONE and
+opens the gate, as this branch's own `#1560` arm asserts); pre-fix it additionally depended on the
 decoy; the widening is plausible and its size is unestablished.
 
 ### The third false sweep-claim
@@ -1617,7 +1619,11 @@ fix, before doing the sweep.** The fix and the claim need to be separated by an 
 
 - The PR body did not mention that the `-u` change also touches the plain FIRST sign-in, which takes
   the same `else` branch. A reader sizing blast radius from the PR body alone would under-count.
-- The last un-migrated `file:line` citation in this plan is now a reproducing grep.
+- One un-migrated `file:line` citation became a reproducing grep. ⚠️ **I wrote "the last" and that
+  was false -- three more sit in the front matter above the iteration log** (`engine/accounts.js`,
+  `docs/browser-checks/live-connect.js`, and `connect.js:911`, the last in a file this branch edits).
+  **Fourth consecutive false sweep-claim**, written one section below the rule I had just stated
+  about writing sweep claims before doing sweeps.
 
 ### Carried to #1937, not fixed here
 
@@ -1626,3 +1632,61 @@ dedup early-return means `acctFlowStop()` is never reached, so the poll runs for
 page. **Pre-existing** (`web/index.html` is untouched by this branch) **but this branch makes the
 immediate-`connected` outcome the common path rather than the rare one**, so it moves from a corner
 case to the ordinary one. Reported on #1937.
+
+## Findings from challenge-loop iteration 20
+
+**A BLOCKER, and it is the trap iteration 19 named one round before I fell into it.**
+
+### 🛑 THE REWRITE THAT FIXED A FALSE PRE-FIX UNIVERSAL SHIPPED A FALSE POST-FIX UNIVERSAL
+
+Iteration 19 replaced *"returned NONE on an ordinary machine"* with *"the gate holds shut on **every**
+default-account machine"* / *"post-fix the false success is uniform"*, in three homes including the
+PR body.
+
+**False, and this branch's own passing test refutes it:**
+
+- `checkLive` returns `STATE.NONE` on a **positively recognised** `loggedIn: false`.
+- The gate opens on `!binaryOnDisk || state === NONE`.
+- ⇒ On a default-account machine whose user is genuinely **signed out**, the gate OPENS and the
+  sign-in runs. That is exactly what `#1560: a connected-looking FILE does not block sign-in when
+  the world says signed out` asserts, with no `configDir`, and it passes on this branch.
+
+⭐ **So I wrote a universal that my own green test contradicts, one paragraph away from a commit
+message about having just done that.** ⇒ **Recognising a class does not stop you reproducing it,
+because the recognition happens while reading and the reproduction happens while writing.** Second
+time that exact sentence applies to me on this branch.
+
+✅ Bounded in all three homes: post-fix the false success occurs **wherever `claude auth status`
+reports a login exists** -- the dead-but-present population this card is about -- not on every
+default-account machine.
+
+### The PR body contradicted itself 35 lines apart
+
+"What was wrong" stated the pre-fix symptom flat; the direction-change section then said the flow
+ran *"only where that decoy answered NONE specifically"*. **The machine-dependence qualifier reached
+`server.js` at iteration 11 and the PR body was created at iteration 14, after -- so it was written
+without the correction its own source home already carried.** ⇒ **A new artifact does not inherit
+the corrections made before it existed, and nothing flags that.**
+
+### THE FOURTH FALSE SWEEP-CLAIM, AND THE CHECK THAT FINALLY CAUGHT ONE
+
+*"The last un-migrated `file:line` citation is now a reproducing grep"* was false: the reviewer found
+three more. ⭐ **And when I actually ran the sweep, there were EIGHT** -- five the reviewer had not
+listed either.
+
+✅ **This is the first time the discipline worked in the right order: sweep, verify, THEN claim.** The
+verification is one line and it caught what both of us had missed:
+
+```
+grep -nE '`[a-z/._-]+\.(js|sh|html):[0-9]+' <plan> | awk -F: '$1 < 420'   -> now empty
+```
+
+📌 **Scope stated rather than implied:** the front matter (live guidance) is migrated; citations
+inside iteration records are history and are left as written.
+
+### Also
+
+- `setDryRun(false)` was justified with "a dry run does not make a launch". **With an injected runner
+  it would** -- `run()` returns `runner(...)` before it consults DRY_RUN, so the `new-session` is
+  recorded either way. The call is right and is the file's universal convention; only the reason was
+  wrong.

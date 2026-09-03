@@ -624,9 +624,11 @@ function driverTest(name, fn) {
 driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CLI', async () => {
   const term = fakeTerminal();
   connect.setRunner(term.runner);
-  /* Not dry-run: the launch is what this asserts, and a dry run does not make
-     one. `driverTest` clears the config, so `start()` falls through rather than
-     taking the connected early exit. */
+  /* `setDryRun(false)` is this file's universal convention for `driverTest`.
+     ⚠️ NOT because "a dry run does not make a launch" -- with an injected runner
+     it would: `run()` returns `runner(...)` BEFORE it consults DRY_RUN, so the
+     `new-session` is recorded either way. `driverTest` clears the config, so
+     `start()` falls through rather than taking the connected early exit. */
   connect.setDryRun(false);
   /* 🛑 THE WARNING IS CAPTURED AND ASSERTED, NOT LEFT TO PRINT. Removing the
      DIR seam while AGENT_WORKFORCE_CLAUDE_CONFIG stays set is exactly the
