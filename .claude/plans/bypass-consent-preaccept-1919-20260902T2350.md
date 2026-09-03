@@ -61,10 +61,30 @@ never global.
    an atomic write with mode preservation; return `{ ok, already?, displaced?, madeFile? }`
    for an undo symmetric with trustFolder/forgetFolder. Refuse on a symlinked target and a
    non-object shape, exactly as trustFolder does.
-2. Call it from create.js at create time, next to the trustFolder call (~create.js:751-780),
-   for a Claude agent with a resolved configDir. Best-effort like trustCodexFolder (a
-   failure here should not fail the whole creation, but SHOULD be reported, not swallowed -
-   the agent will hit the prompt and the read-side detector will now at least render it).
+2. Call it from create.js. WIRING MAP (measured during the build, correcting the plan's
+   first guess): the sole trustFolder call (create.js:775) is in `setAccount` (the
+   account-CHANGE path), gated `if (job.runner === 'codex') REFUSE` so it is Claude-only.
+   So preacceptBypass belongs in TWO places, both moments a Claude agent's config dir
+   becomes real:
+   - setAccount (create.js:~772-780), right after the trustFolder call, same best-effort /
+     non-gating / reported-not-swallowed pattern, adding a `bypass` field to its return.
+   - the INITIAL create path (`createAgentInner`), where a new agent's account is first
+     established. STILL TO MAP: createAgentInner does not itself call trustFolder (the only
+     call is setAccount's), so find where a NEW agent's config dir / trust is set and add
+     the preaccept there too. A default-account agent (configDir null, ~/.claude which
+     already carries the key on this fleet) needs nothing; a non-default account (a fresh
+     product install, the #1919 case) is the one that hits the prompt.
+   Rollback: wherever creation calls forgetFolder on a bootstrap failure, also call
+   forgetBypass(configDir, displaced, madeFile) to undo the settings.json write.
+
+## STATUS (checkpoint)
+DONE and unit-tested: `preacceptBypass` + `forgetBypass` + `SETTINGS`/`BYPASS_KEY` in
+engine/trust.js (the novel, safety-critical writer). Smoke-tested all arms: create-if-absent,
+already, undo-created (file removed), merge (other keys preserved), undo-merge, symlink
+refused. Existing trust.test.js still 29/29.
+REMAINING: map createAgentInner's trust moment and wire preacceptBypass there + in
+setAccount + forgetBypass on rollback; formal trust.test.js arms (the smoke test is the
+template); a create.js test that the create path invokes it; challenge-loop; PR.
 
 ## Tests (control-bearing)
 

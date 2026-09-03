@@ -77,6 +77,21 @@ const CONFIG = (dir) => {
 
 const KEY = 'hasTrustDialogAccepted';
 
+/* #1919 launch side. The Bypass-Permissions consent is lifted by this TOP-LEVEL key in
+   settings.json (measured: every fleet config dir carries it, which is why fleet agents
+   never meet the prompt and a fresh product install does). settings.json is a DIFFERENT
+   file than CONFIG's .claude.json, at a DIFFERENT path -- `<config-dir>/settings.json`,
+   where the config dir is the account's own dir, else $CLAUDE_CONFIG_DIR, else ~/.claude.
+   NOT `~/.claude.json`. Writing the key to the wrong file is a SILENT no-op, the exact
+   failure trustFolder's comments warn about, so the resolution is spelled out here rather
+   than reused from CONFIG (which resolves .claude.json and would put it in the wrong place). */
+const BYPASS_KEY = 'skipDangerousModePermissionPrompt';
+const SETTINGS = (dir) => {
+  if (dir) return path.join(String(dir), 'settings.json');
+  if (process.env.CLAUDE_CONFIG_DIR) return path.join(process.env.CLAUDE_CONFIG_DIR, 'settings.json');
+  return path.join(homeDir(), '.claude', 'settings.json');
+};
+
 /**
  * A temp path that is OURS, not a predictable one.
  *
@@ -482,4 +497,119 @@ function dropRecord(name) {
   try { writeRecordFile(data); } catch { /* the record stays; a later removal retries */ }
 }
 
-module.exports = { trustFolder, forgetFolder, KEY, recordWrite, recordedWrite, dropRecord };
+/**
+ * Pre-accept Claude Code's Bypass-Permissions consent for an agent KOSMOS created (#1919).
+ *
+ * The supervisor launches the agent with `--dangerously-skip-permissions`, a decision the
+ * operator made by creating the agent in bypass mode. The FIRST time that flag runs in a
+ * config dir, Claude Code shows a one-time consent dialog (default `No, exit`), and the
+ * supervisor runs non-interactively into tmux, so a fresh agent parks on it and never
+ * starts. Setting BYPASS_KEY true in the account's settings.json ahead of time skips that
+ * redundant gate. It GRANTS NOTHING NEW -- the flag already set what the agent may do; this
+ * only removes the interactive prompt for a decision already made -- and it is scoped to the
+ * per-agent config dir, never global, and to this ONE consent, no other prompt.
+ *
+ * Unlike trustFolder (which refuses to CREATE .claude.json, because that file holds session
+ * state and creating it would fabricate a history), this CREATES settings.json if absent: a
+ * settings file holding only `{ BYPASS_KEY: true }` is a valid minimal PREFERENCE, not a
+ * fabricated history, and creating it is what makes this work on a fresh product install --
+ * the case #1919 was filed from. Same SAFETY otherwise: refuse a symlinked target, refuse a
+ * non-object shape, merge (never replace) so other settings survive, preserve mode, atomic
+ * `wx` write, and return the prior value for an undo.
+ *
+ * @param {string|null} configDir the ACCOUNT's config dir (null = this process's own).
+ * @returns {{ok:true, already:boolean, target:string, displaced:*, madeFile:boolean}
+ *          | {ok:false, because:string}}
+ */
+function preacceptBypass(configDir) {
+  const target = SETTINGS(configDir || null);
+
+  // A symlinked target is somebody's arrangement; renaming over it severs the link. Refuse,
+  // as trustFolder does. (Absent is the create case, handled below.)
+  try { if (fs.lstatSync(target).isSymbolicLink()) return { ok: false, because: 'their settings file is a symlink' }; }
+  catch { /* absent handled below */ }
+
+  let data;
+  let prevMode = 0o600;   // a created settings file is born private; an existing one keeps its mode
+  let madeFile = false;
+  try {
+    const st = fs.statSync(target);
+    prevMode = st.mode & 0o7777;
+    if (st.size === 0) data = {};   // an empty settings file is safe to fill (preferences, no history)
+    else data = JSON.parse(fs.readFileSync(target, 'utf8'));
+  } catch (err) {
+    if (err && err.code === 'ENOENT') { data = {}; madeFile = true; }   // CREATE-if-absent (see docblock)
+    else if (err instanceof SyntaxError) return { ok: false, because: 'we could not read their settings file' };
+    else return { ok: false, because: 'we could not read their settings file' };
+  }
+
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { ok: false, because: 'their settings file is not shaped the way we expect' };
+  }
+
+  const had = (BYPASS_KEY in data);
+  if (had && data[BYPASS_KEY] === true) return { ok: true, already: true, target };
+  const displaced = had ? data[BYPASS_KEY] : undefined;
+
+  // Merge into the object rather than replace it: settings.json carries the person's other
+  // preferences (defaultMode, hooks, ...); a fresh one-key object would delete them.
+  data[BYPASS_KEY] = true;
+
+  // Read-modify-write on a file Claude Code also writes: the same milliseconds-wide race
+  // trustFolder documents (a concurrent whole-file save can drop this). The rename is atomic,
+  // so the file is never half-written; "never corrupt" is not "never lost".
+  try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* exists, or the write reports it */ }
+  const tmp = tempPath(target);
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { flag: 'wx', mode: prevMode });
+    fs.chmodSync(tmp, prevMode);   // umask exactness, as trustFolder
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    if (!err || err.code !== 'EEXIST') { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+    return { ok: false, because: 'we could not write to their settings file' };
+  }
+
+  return { ok: true, already: false, target, displaced, madeFile };
+}
+
+/**
+ * Undo a preacceptBypass write, for an agent whose creation is being rolled back. Symmetric
+ * with forgetFolder: restore the EXACT prior state. If we created the file, remove it only
+ * when it now holds nothing but our key (never delete a settings file that gained other
+ * keys). If the key was absent before, delete it; if it held an explicit value, put it back.
+ */
+function forgetBypass(configDir, displaced, madeFile) {
+  const target = SETTINGS(configDir || null);
+  let data;
+  try {
+    if (fs.lstatSync(target).isSymbolicLink()) return { ok: false, because: 'their settings file is a symlink' };
+    data = JSON.parse(fs.readFileSync(target, 'utf8'));
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return { ok: true, already: true };   // nothing to undo
+    return { ok: false, because: 'we could not read their settings file' };
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { ok: false, because: 'their settings file is not shaped the way we expect' };
+  }
+  if (displaced === undefined) delete data[BYPASS_KEY]; else data[BYPASS_KEY] = displaced;
+
+  if (madeFile && Object.keys(data).length === 0) {
+    try { fs.unlinkSync(target); return { ok: true }; }
+    catch { return { ok: false, because: 'we could not remove their settings file' }; }
+  }
+
+  let prevMode = 0o600;
+  try { prevMode = fs.statSync(target).mode & 0o7777; } catch { /* default */ }
+  const tmp = tempPath(target);
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { flag: 'wx', mode: prevMode });
+    fs.chmodSync(tmp, prevMode);
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    if (!err || err.code !== 'EEXIST') { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+    return { ok: false, because: 'we could not write to their settings file' };
+  }
+  return { ok: true };
+}
+
+module.exports = { trustFolder, forgetFolder, preacceptBypass, forgetBypass, KEY, BYPASS_KEY, recordWrite, recordedWrite, dropRecord };
