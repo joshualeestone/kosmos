@@ -1218,6 +1218,24 @@ test('#2005: a mis-cased send RECORDS under the canonical name, and a mis-cased 
     });
 });
 
+test('#2005: a mis-cased URL to a CAPITALIZED ours agent stays unfilable (canonical name, not a lowercased key)', async () => {
+  reset();
+  // The fix files under member.sessionName. For an ours agent whose canonical name is
+  // itself non-safeKey (a capital), that name is GENUINELY unfilable, and the fix must
+  // PRESERVE that -- resolving 'casey' -> card 'Casey' must stay unfilable, not get
+  // silently filed under the lowercased key a safeKey-based fix would have produced.
+  // (This is the case-fold-not-safeKey boundary, one layer in: it pins that the record
+  // key is the resolved canonical name, not store.safeKey(name).)
+  await withThread(fleet.agent('Casey', { state: 'idle' }), [said(), said(), said()],
+    async ({ project }) => {
+      const sent = json(await post(`/api/project/${project.id}/thread/casey`, { text: 'hi' }));
+      assert.equal(sent.delivery.state, 'placed', 'delivery still works (deliver case-folds to the pane)');
+      assert.equal(sent.recorded, false, 'a genuinely-unfilable ours name is not silently filed under a lowercased key');
+      const read = json(await req(`/api/project/${project.id}/thread/CASEY`));
+      assert.equal(read.historyUnfilable, true, 'the genuinely-unfilable state is preserved for a capitalized ours name');
+    });
+});
+
 test('sending places the text into the agent’s own session, and says only that', async () => {
   reset();
   await withThread(fleet.agent('zeta', { state: 'idle' }), [said(), said()],
