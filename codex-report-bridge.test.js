@@ -130,3 +130,43 @@ test('#1456: the turn-complete report says the MACHINE wrote it, so it cannot er
   assert.equal(typeof body.auto, 'boolean',
     'the route reads `body.auto === true`, so a truthy non-boolean is a false');
 });
+
+/* #1968: the bridge ALSO presents the board token (from the mode-600 file the
+ * board wrote) so a Codex self-report survives an ENFORCING board -- the
+ * agent-token arm above is empty for almost every agent, so without this a
+ * turn-complete report would be refused as the cross-account spoof path. Same
+ * load-bearing pair as cli.presents-board-token-1968.test.js: the present case
+ * proves the header can travel, so the absent case is evidence and not a sender
+ * that was quietly broken. The token is read via boardauth from store.ROOT, so
+ * sandbox AGENT_WORKFORCE_DATA and drop a board.token into it. */
+const fsB = require('node:fs');
+const osB = require('node:os');
+
+test('#1968: the bridge presents the board token when the board wrote one', async () => {
+  const data = fsB.mkdtempSync(nodePath.join(osB.tmpdir(), 'aw-1968-bridge-'));
+  try {
+    // store.ROOT is `<AGENT_WORKFORCE_DATA>/AgentWorkforce`, and boardauth reads
+    // `<store.ROOT>/board.token`; write it where the bridge will actually look.
+    const root = nodePath.join(data, 'AgentWorkforce');
+    fsB.mkdirSync(root, { recursive: true });
+    fsB.writeFileSync(nodePath.join(root, 'board.token'), 'abc123boardtoken');
+    const seen = await drive(TURN, { AGENT_WORKFORCE_DATA: data });
+    assert.equal(seen.length, 1, 'the bridge did not report at all');
+    assert.equal(seen[0].headers['x-kosmos-board-token'], 'abc123boardtoken',
+      'the board token did not reach the board, so an enforcing board would refuse the self-report');
+  } finally {
+    fsB.rmSync(data, { recursive: true, force: true });
+  }
+});
+
+test('#1968: the bridge sends NO board-token header when there is no token file', async () => {
+  const data = fsB.mkdtempSync(nodePath.join(osB.tmpdir(), 'aw-1968-bridge-none-'));
+  try {
+    const seen = await drive(TURN, { AGENT_WORKFORCE_DATA: data });
+    assert.equal(seen.length, 1, 'the bridge did not report at all');
+    assert.equal(seen[0].headers['x-kosmos-board-token'], undefined,
+      'no token file, so no board-token header may be sent');
+  } finally {
+    fsB.rmSync(data, { recursive: true, force: true });
+  }
+});

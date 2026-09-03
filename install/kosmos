@@ -285,6 +285,13 @@ port_taken_by_stranger() {
 # (the ?token= is swapped for an httpOnly cookie and 302-stripped) and matches the
 # pre-existing x-kosmos-agent-token delivery, so it is documented and tracked
 # rather than closed here; the durable secret stays in the mode-600 file.
+# 🛑 CALL IT AS `_bt="$(board_token || true)"` UNDER `set -euo pipefail` (kosmos#1968).
+# It RETURNS 1 whenever there is no token to hand back -- a non-enforcing board
+# (no token file), or an install layout where `$NODE` is not present. A bare
+# `_bt="$(board_token)"` then makes `set -e` ABORT the whole command with exit 1
+# and no output, so on a non-enforcing board `kosmos report`/`reply`/`msg`/`post`/
+# `whoami` silently did nothing. The `|| true` keeps the failure local: `_bt` is
+# the token or empty, and every caller already guards with `${_bt:+-H ...}`.
 board_token() {
   local _root _tok
   _root="$("$NODE" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || return 1
@@ -528,7 +535,7 @@ cmd_msg() {
   # No -f: an HTTP error still carries the server's own sentence, and
   # "could not reach" is a wrong diagnosis for a reachable server that
   # refused. Only a transport failure gets the unreachable sentence.
-  local _bt; _bt="$(board_token)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   body=$(curl -sS -m 15 -X POST "$URL/api/msg" \
     -H 'content-type: application/json' \
     ${_bt:+-H "x-kosmos-board-token: $_bt"} \
@@ -591,8 +598,14 @@ cmd_reply() {
   local esc_text esc_pane
   esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g')
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  # #1968: present the board token so an enforcing board keeps this reply. Without
+  # it, a same-account `kosmos reply` carries only a pane, which the board now
+  # refuses on an enforcing board (a bare pane is the cross-account spoof path).
+  # Inert (omitted) when empty -- a non-enforcing board writes no token file.
+  local _bt; _bt="$(board_token || true)"
   body=$(curl -sS -m 15 -X POST "$URL/api/reply" \
     -H 'content-type: application/json' \
+    ${_bt:+-H "x-kosmos-board-token: $_bt"} \
     --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
     say "We could not reach Kosmos to keep that. Is it running at $URL?"
     exit 1
@@ -645,7 +658,7 @@ cmd_post() {
   # exit 28 vs the rest): "could not reach" for a server mid-delivery is
   # the misdiagnosis cmd_msg's own comment warns about, and it invites
   # the re-post the unconfirmed state exists to stop.
-  local _bt; _bt="$(board_token)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   body=$(curl -sS -m 120 -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
     ${_bt:+-H "x-kosmos-board-token: $_bt"} \
@@ -718,7 +731,7 @@ cmd_whoami() {
     ''|*[!0-9a-f]*) ;;
     *) _tok="$KOSMOS_AGENT_TOKEN" ;;
   esac
-  local _bt; _bt="$(board_token)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   body=$(curl -sS -m 15 -X POST "$URL/api/whoami" \
     -H 'content-type: application/json' \
     ${_tok:+-H "x-kosmos-agent-token: $_tok"} \
@@ -808,9 +821,15 @@ cmd_report() {
     ''|*[!0-9a-f]*) ;;
     *) _tok="$KOSMOS_AGENT_TOKEN" ;;
   esac
+  # #1968: ALSO present the board token. The agent-token arm above is empty for
+  # almost every agent (the common case), so on an enforcing board a bare-pane
+  # report is now refused as the cross-account spoof path -- the board token is
+  # what a same-account report presents instead. Inert (omitted) when empty.
+  local _bt; _bt="$(board_token || true)"
   body=$(curl -sS -m 15 -X POST "$URL/api/report" \
     -H 'content-type: application/json' \
     ${_tok:+-H "x-kosmos-agent-token: $_tok"} \
+    ${_bt:+-H "x-kosmos-board-token: $_bt"} \
     --data "{\"state\":\"$esc_state\",\"text\":\"$esc_text\",\"on\":\"$esc_on\",\"owner\":\"$esc_owner\",\"until\":\"$esc_until\",\"project\":\"$esc_project\",\"auto\":$([ "$auto" = 1 ] && printf 'true' || printf 'false'),\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
     say "We could not reach Kosmos to record that. Is it running at $URL?"
     exit 1
@@ -861,7 +880,7 @@ cmd_room() {
   fi
   local esc_project
   esc_project=$(printf '%s' "$project" | sed "s/[^A-Za-z0-9._-]//g")
-  local _bt; _bt="$(board_token)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   if ! curl -sS -m 15 ${_bt:+-H "x-kosmos-board-token: $_bt"} "$URL/api/project/$esc_project/room?as=text" 2>/dev/null; then
     say "We could not reach Kosmos to read that room. Is it running at $URL?"
     exit 1

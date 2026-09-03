@@ -32,7 +32,7 @@ const fleet = require('./test-support/fleet');
    the server uses, so this tests the SHIPPED text rather than a copy. */
 function loadHelper() {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
-  const start = src.indexOf('function resolveAgentSender(req, body, roster) {');
+  const start = src.indexOf('function resolveAgentSender(req, body, roster, opts) {');
   assert.ok(start > 0, 'resolveAgentSender is gone from server.js');
   const end = src.indexOf('\nfunction ', start + 10);
   assert.ok(end > start, 'could not find the end of resolveAgentSender');
