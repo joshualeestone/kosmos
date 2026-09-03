@@ -14,49 +14,56 @@ const fs = require('node:fs');
 const { codeOnly } = require('./test-support/code-only');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 
-test('the settings body is the nav and one 34rem column, centred; narrow windows get the fluid column back', () => {
-  assert.match(PAGE, /#panel-settings \.dbody, #panel-detail \.dbody \{ grid-template-columns: 176px 34rem; justify-content: center; \}/);
+test('Settings keeps its 34rem column; the agent page (#panel-detail) now goes full-width (#2012)', () => {
+  // #2012 REVERSES the 2026-08-25 "match settings width" decision FOR THE AGENT
+  // PAGE ONLY: Josh asked for it to be full-width ("a small box in a mostly-empty
+  // window"). Settings stays a 34rem reading column; the base rule is now SPLIT,
+  // not grouped. The narrow-window media rules still group both (settings relaxes
+  // to fluid at 60rem, both stack at 56rem; the agent page is already fluid, so
+  // the grouped media rule is a harmless no-op for it).
+  assert.match(PAGE, /#panel-settings \.dbody \{ grid-template-columns: 176px 34rem; justify-content: center; \}/);
+  assert.match(PAGE, /#panel-detail \.dbody \{ grid-template-columns: 176px minmax\(0, 1fr\); justify-content: stretch; \}/);
   assert.match(PAGE, /@media \(max-width: 60rem\) \{ #panel-settings \.dbody, #panel-detail \.dbody \{ grid-template-columns: 176px minmax\(0, 1fr\); justify-content: stretch; \} \}/);
-  // at phone width the nav stacks above the section: the id-selector rule must be restated inside the 56rem block, after the 60rem one
   const i60 = PAGE.indexOf('@media (max-width: 60rem) { #panel-settings .dbody, #panel-detail .dbody');
   const i56 = PAGE.indexOf('@media (max-width: 56rem) {', i60); // the sheet has several 56rem blocks; the one that counts follows the 60rem rule
   assert.ok(i60 > 0 && i56 > i60, 'the 56rem block comes after the 60rem rule');
-  const iBase = PAGE.indexOf('#panel-settings .dbody, #panel-detail .dbody { grid-template-columns: 176px 34rem;');
   // each rule exactly once: a copy pasted after the block would win there while the originals stay put
   const count = (s) => PAGE.split(s).length - 1;
-  assert.equal(count('#panel-settings .dbody, #panel-detail .dbody { grid-template-columns: 176px 34rem;'), 1, 'one base rule');
+  assert.equal(count('#panel-settings .dbody { grid-template-columns: 176px 34rem;'), 1, 'one settings base rule');
+  // leading newline: the base rule sits at line start; the grouped media rules
+  // carry `#panel-detail .dbody` after `, ` (mid-line), so `\n#panel-detail`
+  // counts only the standalone base rule, not the 60rem/56rem restatements.
+  assert.equal(count('\n#panel-detail .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch;'), 1, 'one detail full-width base rule');
   assert.equal(count('@media (max-width: 60rem) { #panel-settings .dbody, #panel-detail .dbody'), 1, 'one 60rem rule');
   assert.equal(count('#panel-settings .dbody, #panel-detail .dbody { grid-template-columns: minmax(0, 1fr); }'), 1, 'one restatement');
-  assert.ok(iBase > 0 && iBase < i56, 'the base Settings/detail rule also sits above the 56rem block (same specificity; below it, it would win on phones)');
-  assert.ok(iBase < i60, 'and above the 60rem rule (same specificity; below it, the 56 to 60rem band would get the centred pair)');
-  // the block's closing brace: the window is the block, not a byte count. Assumes every
-  // line inside the block is indented (they are); a nested block closed at column 0 would
-  // shrink the window and the next assertion would then blame placement.
+  // both base rules sit above the media blocks (same specificity; below them they would win there)
+  const iSet = PAGE.indexOf('#panel-settings .dbody { grid-template-columns: 176px 34rem;');
+  const iDet = PAGE.indexOf('#panel-detail .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch;');
+  assert.ok(iSet > 0 && iSet < i60 && iSet < i56, 'the settings base rule sits above the media blocks');
+  assert.ok(iDet > 0 && iDet < i60 && iDet < i56, 'the detail base rule sits above the media blocks');
   const end56 = PAGE.indexOf('\n}', i56);
   assert.ok(end56 > i56, 'the 56rem block closes');
-  assert.match(PAGE.slice(i56, end56), /#panel-settings \.dbody, #panel-detail \.dbody \{ grid-template-columns: minmax\(0, 1fr\); \}/, 'the restatement sits inside the FIRST 56rem block after the 60rem rule (if a new 56rem block was added between them, this is that block, not a misplaced rule)');
+  assert.match(PAGE.slice(i56, end56), /#panel-settings \.dbody, #panel-detail \.dbody \{ grid-template-columns: minmax\(0, 1fr\); \}/, 'the restatement sits inside the FIRST 56rem block after the 60rem rule');
 });
 
-/* #770 gave Settings this width; Josh asked, 2026-08-25 10:07 CDT, for the
-   agent detail page ("the viewing agent") to match it, "the same width as
-   we did on the settings stuff... fit centered". Settings and the agent
-   page share .dbody/.snav/.dsec by design (see the comment above Settings'
-   own nav in the markup), so the fix above threads #panel-detail through
-   the same selector rather than duplicating Settings' rule -- covered by
-   the test above. This test covers the one thing Settings does not have
-   and the agent page does: a header (.dhead: avatar, name, state) that
-   sits BEFORE .dbody as a sibling, not inside it, so capping .dbody alone
-   would leave the header spanning the full window while the sections below
-   it centre to 746px. */
-test('the agent detail header matches .dbody’s own width so it does not disagree with the sections below it', () => {
-  assert.match(PAGE, /#panel-detail \.dhead \{ max-width: calc\(176px \+ 26px \+ 34rem\); margin: 0 auto 30px; \}/);
+/* The agent page has one thing Settings does not: a header (.dhead: avatar,
+   name, state) that sits BEFORE .dbody as a sibling, not inside it. Its width
+   must AGREE with .dbody's, or the two disagree about the page's width. Under
+   the 2026-08-25 "match settings" decision that meant capping both to 34rem;
+   under #2012 (the agent page goes full-width) it means the OPPOSITE -- the
+   header spans full width too, matching the now-full-width body. Capping the
+   header at 34rem while the body went wide would recreate the disagreement in
+   reverse. (Making the header a sticky banner the nav pins under is a
+   deliberate #2012 follow-up: .snav is already sticky, so the coordination
+   wants interactive visual verification.) */
+test('the agent detail header spans full width, matching the now-full-width .dbody (#2012)', () => {
+  assert.match(PAGE, /#panel-detail \.dhead \{ max-width: none; margin: 0 0 30px; \}/);
+  // the 60rem rule stays (now a harmless no-op, since the base is already none),
+  // and still sits after .dbody's own 60rem rule
   assert.match(PAGE, /@media \(max-width: 60rem\) \{ #panel-detail \.dhead \{ max-width: none; margin: 0 0 30px; \} \}/);
-  // the 60rem relaxation must sit where .dbody's own 60rem rule sits (the
-  // two go fluid together), not orphaned somewhere the cascade cannot reach
-  // it at the intended breakpoint
   const iBodyRelax = PAGE.indexOf('@media (max-width: 60rem) { #panel-settings .dbody, #panel-detail .dbody');
   const iHeadRelax = PAGE.indexOf('@media (max-width: 60rem) { #panel-detail .dhead');
-  assert.ok(iBodyRelax > 0 && iHeadRelax > iBodyRelax, 'the header’s 60rem relaxation follows .dbody’s own 60rem rule');
+  assert.ok(iBodyRelax > 0 && iHeadRelax > iBodyRelax, 'the header’s 60rem rule follows .dbody’s own 60rem rule');
 });
 
 test('You is Your Profile: one-size picture buttons, no disclaimer by default, a short name field, a yellow Save', () => {

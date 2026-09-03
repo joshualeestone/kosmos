@@ -1673,7 +1673,19 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    two Settings rules below that block and phones get the nav beside the
    section again. web.settings-width.test.js pins both rules' place above the
    block; render-settings-nav.js renders the result at 420, 920 and 1400. */
-#panel-settings .dbody, #panel-detail .dbody { grid-template-columns: 176px 34rem; justify-content: center; }
+#panel-settings .dbody { grid-template-columns: 176px 34rem; justify-content: center; }
+/* #2012: the AGENT page goes full-width (Josh's ask + Mona Lisa's mock). It
+   drops the 34rem centre cap that Settings keeps and falls back to the base
+   .dbody's 176px + fluid column, so the dialogue grows into what was empty
+   margin. Split from the Settings rule above on purpose -- Settings stays
+   capped; only #panel-detail widens. */
+#panel-detail .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch; }
+/* #2012: prose keeps a readable measure even though the column is now wide -- a
+   1000px-long line is unreadable. The message BODY caps near 66ch, left-aligned
+   in the wide column; the chrome around it (avatar, timestamps, composer) still
+   spans. This is the mock's full-width principle: chrome spans, prose keeps a
+   measure. */
+#panel-detail .msg-b { max-width: 66ch; }
 @media (max-width: 60rem) { #panel-settings .dbody, #panel-detail .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch; } }
 /* Josh, 2026-08-25 10:07 CDT: "make the width of the viewing agent the same
    as we did on the settings stuff... it could all kind of fit centered."
@@ -1688,7 +1700,14 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    .dbody's own values) so the header's left/right edges line up with the
    grid below it, and relaxed at the same 60rem breakpoint Settings uses so
    the two behave as one page, not two independently-tuned widths. */
-#panel-detail .dhead { max-width: calc(176px + 26px + 34rem); margin: 0 auto 30px; }
+/* #2012: the header spans the full width now, matching the full-width .dbody
+   below it -- capping it to the old 34rem total while the body went wide would
+   make the header and the sections disagree about the page's width (the exact
+   misalignment the note above warns of, in reverse). Making it a sticky banner
+   that the nav pins under is a deliberate follow-up: .snav is already sticky,
+   so a sticky header must coordinate the nav's `top` with the header's height,
+   which wants interactive visual verification. */
+#panel-detail .dhead { max-width: none; margin: 0 0 30px; }
 @media (max-width: 60rem) { #panel-detail .dhead { max-width: none; margin: 0 0 30px; } }
 .snav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 16px; }
 .snav button { position: relative; display: block; width: 100%; text-align: center; padding: 8px 28px;
@@ -4239,13 +4258,18 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pj-question { margin: var(--space-5) 0; padding-left: var(--space-4);
   border-left: 2px solid var(--warn-ink); }
 .pj-question .pj-screen { max-height: 240px; }
-/* 🔑 THE AGENT PAGE'S WINDOW IS TALLER, AND THE NUMBER IS SCOPED TO IT. The
-   box is fed 60 lines (`chat.viewport`); at this line height that is ~796px.
-   Josh saw 800 and took it down 30% on sight, 2026-08-22: 560px shows about
-   42 of the 60 and the rest scrolls. It lives on the id, not `.pj-screen`,
-   because four surfaces share that rule and only this one was ruled taller.
-   A cap, not a height: a quiet agent still draws a short box. */
-#d-window { max-height: 560px; }
+/* 🔑 THE AGENT PAGE'S WINDOW FILLS THE PAGE'S HEIGHT (#2012). It is fed 60 lines
+   (`chat.viewport`); the old fixed 560px cap (Josh took 800 -> 560 on
+   2026-08-22, ~42 of the 60 visible) was tuned for the NARROW pre-#2012 layout.
+   #2012 makes the agent page full-width and asks for a much bigger dialogue, so
+   the cap becomes viewport-relative: the box grows into the empty page instead
+   of stopping at 560px, with its own scroll (`.pj-screen` is `overflow:auto`).
+   The 220px offset leaves room for the header, the section chrome and the
+   composer; it is a single tunable number, not a layout invariant.
+   STILL a cap, not a height: a quiet agent draws a short box, exactly as
+   before. It lives on the id, not `.pj-screen`, because four surfaces share
+   that rule and only this one is the agent page's window. */
+#d-window { max-height: calc(100vh - 220px); }
 /* The pack's Fresh start stack (Josh, 2026-08-23 19:57): three big
    full-width buttons, one per line, matching his screenshot. */
 .freshstack .btn { display: block; width: 100%; margin-top: 10px;

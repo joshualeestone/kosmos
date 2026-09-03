@@ -101,7 +101,10 @@ test('the agent window no longer answers to the Engineering mode switch on this 
   assert.match(PAGE, /Show agents' windows on project pages/, 'the switch still claims to govern each agent\'s window');
   assert.match(PAGE, /Each agent's own page always shows its window\./, 'the switch copy does not say where the window still is');
   assert.doesNotMatch(PAGE, /Show the window each agent is running in/, 'the old switch label survives somewhere');
-  assert.match(PAGE, /#d-window \{ max-height: 560px; \}/, 'the window cap is not scoped to the agent page box');
+  // #2012: the window fills the page height (viewport-relative), no longer the
+  // fixed 560px cap tuned for the narrow pre-#2012 layout. Still on the id (not
+  // .pj-screen), so the taller cap stays scoped to the agent page's own box.
+  assert.match(PAGE, /#d-window \{ max-height: calc\(100vh - 220px\); \}/, 'the window cap is viewport-relative and scoped to the agent page box');
 });
 
 test('the nav names the agent in the two places a bare label would be unsafe', () => {
