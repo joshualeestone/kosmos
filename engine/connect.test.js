@@ -568,9 +568,18 @@ function driverTest(name, fn) {
  * it builds its env and `delete env.CLAUDE_CONFIG_DIR` "rather than trusting it
  * to be unset". These arms are the WRITE side of the same guarantee.
  *
- * 🔑 WHY THIS SITS HERE AND NOT IN THE ROUTE SUITE. Both route harnesses SET
- * `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, so `launchDir` is always truthy there and
- * the branch under test never executes. ⚠️ THAT MADE THIS LOOK UNGUARDABLE, AND
+ * 🔑 WHY THIS SITS HERE AND NOT IN THE ROUTE SUITE. **The binding reason is the
+ * DRY RUN, not the config seam**, and an earlier version of this docblock named
+ * the seam. `server.connect.test.js` sets `AGENT_WORKFORCE_DRY_RUN = '1'` at
+ * MODULE SCOPE, so `start()` returns at the install-confirm guard and never
+ * reaches a launch decision at all -- the sibling docblock in that file says so
+ * itself. ⇒ A launch arm cannot live there whatever the seam does.
+ *
+ * ⚠️ The seam reason was wrong three ways and is kept struck rather than deleted,
+ * because it reads plausibly: it said "both route harnesses" (ELEVEN
+ * `server.*.test.js` files set it); it is not what blocks a launch (the dry run
+ * is); and it is self-defeating, since THIS ARM DELETES THE SEAM at line 27 and
+ * therefore proves it is deletable. ⚠️ THAT MADE THIS LOOK UNGUARDABLE, AND
  * IT WAS NOT -- but not for the reason an earlier version of this docblock gave.
  * It said the fix was to observe the ARGV "rather than to remove the condition
  * that hides it". **This arm DOES remove it** (`delete
@@ -672,11 +681,23 @@ driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CL
        The operand form LAUNCHES. `claude` receives `-u CLAUDE_CONFIG_DIR` as junk argv and the
        variable is never stripped, so the sign-in runs and writes to the leaked account -- exactly
        the #1922 defect, wearing a green test. */
-    /* The launch pushes the binary LAST, so the operand is the final element of the slice.
-       Requiring the `-u` PAIR to end before it is exactly "the option precedes the operand":
-         good  ['env','-u','CLAUDE_CONFIG_DIR', bin]  u=1, u+1=2 < 3   PASS
-         bad   ['env', bin,'-u','CLAUDE_CONFIG_DIR']  u=2, u+1=3 < 3   FAIL  */
-    assert.ok(u + 1 < envSlice.length - 1,
+    /* 🔑 WALK `env`'s ARGUMENT GRAMMAR TO FIND THE FIRST OPERAND, rather than assuming
+       the operand is the last element. An earlier version asserted
+       `u + 1 < envSlice.length - 1`, which says "the `-u` pair is not the final two
+       elements". That equals the property we want ONLY while the launch pushes exactly
+       one operand and pushes it last -- and **kosmos#1937's stated remedy is to add a
+       login argument after the binary**, which would break that invariant and leave this
+       arm passing on `['env', bin, '-u', 'CLAUDE_CONFIG_DIR', '<arg>']` while it leaks.
+       Assert the property directly instead: options and assignments may precede the
+       first operand; `-u` must be among them. */
+    let opIdx = 1;
+    while (opIdx < envSlice.length) {
+      const tok = envSlice[opIdx];
+      if (tok === '-u') { opIdx += 2; continue; }
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tok)) { opIdx += 1; continue; }
+      break;
+    }
+    assert.ok(u < opIdx,
       'the command operand sits ahead of `-u` in the `env` slice (' + JSON.stringify(envSlice) + '): '
       + '`env` stops option parsing at its first operand, so this argv EXITS 0, launches the CLI '
       + 'with `-u CLAUDE_CONFIG_DIR` as junk flags, and never unsets the variable -- the defect '
@@ -727,9 +748,11 @@ driverTest('#1922 CONTROL: a LABELLED-account sign-in still sets CLAUDE_CONFIG_D
      it at i+1 costs nothing here. `-u` may NOT sit after one, which is why the
      sibling asserts ordering rather than position. */
   assert.ok(!made.slice(i).includes('-u'),
-    'a `-u` follows the assignment in the labelled launch\'s `env` slice: `env` stops option '
-    + 'parsing at its first operand, so this argv exits 127 with "env: -u: No such file or '
-    + 'directory" and the sign-in window never opens at all');
+    'a `-u` follows the assignment in the labelled launch\'s `env` slice. `env` stops option '
+    + 'parsing at its first operand, so BOTH shapes are broken and they fail DIFFERENTLY: '
+    + '`env VAR=x -u OTHER <bin>` exits 127 ("env: -u: No such file or directory") and opens '
+    + 'nothing, while `env VAR=x <bin> -u OTHER` exits 0 and hands `-u OTHER` to the CLI as '
+    + 'junk argv. This assertion catches both; do not assume the loud one');
 });
 
 driverTest('the driver walks the measured flow end to end', async () => {
