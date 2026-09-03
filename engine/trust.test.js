@@ -683,8 +683,8 @@ test('the trust-writes record round-trips, keeps displaced-absent distinct, and 
 });
 
 // ---------------------------------------------------------------------------
-// #1919 launch side: preacceptBypass / forgetBypass write skipDangerousMode-
-// PermissionPrompt into the ACCOUNT's settings.json (a different file than
+// #1919 launch side: preacceptBypass writes skipDangerousModePermissionPrompt
+// into the ACCOUNT's settings.json (a different file than
 // trustFolder's .claude.json), CREATING it if absent (a preference, not a
 // fabricated history), so a fresh agent does not park on the bypass consent.
 // Sandboxed by passing a temp configDir -> SETTINGS resolves <dir>/settings.json.
