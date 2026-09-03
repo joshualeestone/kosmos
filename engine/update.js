@@ -90,9 +90,14 @@ function poke() {
  * Returns the handle so a caller can clear it.
  */
 function startPolling(intervalMs) {
+  // Guard the cadence: a non-positive or non-numeric interval would make
+  // setInterval a tight fn-per-tick loop that burns the event loop (poke() is
+  // TTL-gated regardless, so it bounds the event-loop cost, not the network).
+  // Owning the default here means a caller can pass a raw, unvalidated value.
+  const ms = Number(intervalMs) > 0 ? Number(intervalMs) : 60 * 1000;
   const t = setInterval(() => {
     try { poke(); } catch { /* a look that cannot run must cost the board nothing */ }
-  }, intervalMs);
+  }, ms);
   if (t && typeof t.unref === 'function') t.unref();
   return t;
 }

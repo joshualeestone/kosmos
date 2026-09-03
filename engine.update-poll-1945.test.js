@@ -72,6 +72,19 @@ test('#1945: server.js arms the update poll in start(), so the fix is wired and 
     'server.js no longer calls updates.startPolling: a headless board is back to viewer-only /api/status poking (#1945)');
 });
 
+test('#1945: startPolling clamps a bad interval to the default instead of a busy loop', () => {
+  // 0 / undefined would be a tight fn-per-tick setInterval without the guard.
+  for (const bad of [0, undefined, -5, NaN]) {
+    const handle = updates.startPolling(bad);
+    try {
+      assert.equal(typeof handle.unref, 'function',
+        `startPolling(${String(bad)}) did not yield a valid timer handle: the interval guard is gone`);
+    } finally {
+      clearInterval(handle);
+    }
+  }
+});
+
 test('#1945: startPolling returns an unref-able handle that never holds the process open', () => {
   updates.resetCache();
   updates.setFetcher(async () => ({ ok: true, json: async () => ({ version: '0.0.1' }) }));
