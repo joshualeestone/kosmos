@@ -177,6 +177,12 @@ the launch-layer consequence**, and could not without unsetting a seam the whole
 The launch layer is covered by the measurement above, which is evidence of a different kind and
 weaker: it is true of this machine today rather than enforced by a test.
 
+🛑 **STALE AS OF ITERATION 6, CORRECTED AT ITERATION 10. The launch layer IS enforced by a test
+now** -- two arms in `engine/connect.test.js` (the default arm asserts the `-u` push and its
+ordering; the labelled control asserts the assignment and that nothing strips it). ⚠️ **This
+paragraph is in the VERIFICATION section, which a reader consults BEFORE the iteration log**, so it
+was the most load-bearing stale sentence in the file and survived four sweeps.
+
 ## What I have NOT established
 
 - **Why `~/.claude/.claude.json` on this Mac is 51KB and freshly written**, where the build-box
@@ -266,8 +272,14 @@ was written and which my change did not touch.
 🛑 **I CALLED THIS UNGUARDABLE AND IT WAS NOT. THE GUARD EXISTS NOW.** Both harnesses SET the seam,
 so `launchDir` is always truthy and the `else` branch never fires -- and I concluded a test would
 have to remove that seam. **Wrong observation point, not an absent one:** `engine/connect.test.js`
-already intercepts the tmux runner, so the launch ARGV is directly observable without touching the
-seam at all.
+already intercepts the tmux runner, so the launch ARGV is directly observable.
+
+🛑 **CORRECTED AT ITERATION 10: this said "without touching the seam at all", and the shipped arm
+touches it** (`delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`). Removing the seam is
+REQUIRED, since the `else` branch is unreachable while it is set. **My original conclusion was
+right; what was wrong was the belief that removing it would not be ENOUGH.** It is enough once the
+observation point is the launch ARGV rather than a config file. ⇒ **I retracted a correct conclusion
+and kept the wrong half of it**, which is a new direction for this branch's claim defect.
 
 ⭐ **The general form, and it is the most reusable thing on this branch: when a test looks
 unguardable, ask whether you are trying to DELETE A CONDITION when you could be OBSERVING AN EFFECT.
@@ -359,7 +371,10 @@ at both sites.
 
 ### The rest
 
-- **My "unguardable" claim was false** and is corrected where it was made.
+- **My "unguardable" claim was false** and is corrected where it was made. ⚠️ **That sentence was
+  itself false until iteration 10:** the Verification section's copy stood unannotated for four more
+  rounds. **"Corrected where it was made" is a claim about a sweep, and I wrote it having corrected
+  one site.**
 - **The route's conditional spread was a third spelling** of a decision `engine/create.js` writes as
   a one-liner in four places. Now matches them. The repo's own rule, at `accounts.js:80-86`: *"Two
   derivations of one fact is this codebase's most expensive habit."*
@@ -869,3 +884,62 @@ times.** A convention does not bind by existing nearby.
   assertion was right; the description was wrong. Same shape as iteration 8's finding.
 - The last drifted line citation in this plan (`subscription.js:325`, actually 326) replaced with its
   reproducing grep. Iteration 9 checked the neighbouring citations and found them exact.
+
+## Findings from challenge-loop iteration 10
+
+### 🛑 I APPLIED A RULE TO ONE BLOCK AND NOT TO ITS TWO SIBLINGS, IN THE SAME COMMIT
+
+Iteration 9 trimmed the gate comment under this file's own MOVE-THEN-TRIM rule. **The two launch-site
+blocks 800 lines below carried exactly the same retraction archaeology and I left them** ("An earlier
+draft supported that with...", "An earlier version of this comment cited a live 3.6a run", "An
+earlier version said `-u` was ... FALSE").
+
+📌 **102 of the 109 added source lines across `engine/connect.js` and `server.js` were comment**, for
+a two-token behaviour change and a ternary. **What was removed is the correction LOG, not the
+reasoning** -- the operative claims, the citations and the honest coverage gap all stay.
+
+⚠️ **MEASURED, because my first draft of this entry cited the two blocks' before/after sizes and
+those overstate the result.** The replacements add text back, so the net is smaller than the block
+counts suggest: `git diff --numstat origin/main -- engine/connect.js` gives **82 added lines before
+the trim, 70 after** (source total across both files 109 -> 100). ⇒ **A trim is a claim about a
+NET, and quoting the part you deleted without the part you added inflates it.** Ninth claim on this
+branch corrected by measuring the thing rather than describing it.
+
+⭐ **This is the partial-sweep class for the fourth time, and the tell was available:** I performed a
+sweep for a false SENTENCE at iteration 9 and never asked whether the PATTERN I was fixing had
+siblings. **A sweep aimed at a string cannot find a sibling that says something different in the same
+bad way.**
+
+### 🛑 I RETRACTED A CORRECT CONCLUSION AND KEPT THE WRONG HALF
+
+The docblock said the fix was to observe the launch ARGV "rather than to remove the condition that
+hides it", and the plan said the ARGV was observable "without touching the seam at all".
+**The shipped arm deletes the seam** (`delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`), and
+must: the `else` branch is unreachable while it is set.
+
+⭐ **My original instinct ("a test would have to remove that seam") was RIGHT.** What was wrong was
+only the belief that removing it would not be ENOUGH. I then wrote a retraction that discarded the
+true half and kept the false one. ⇒ **A new direction for this branch's defect: not an invented
+quantifier, but a correction that over-corrected.**
+
+### The most load-bearing stale sentence was in the section a reader reaches FIRST
+
+The Verification section still said the launch layer "is true of this machine today rather than
+enforced by a test". **Two arms have enforced it since iteration 2.** It survived four sweeps, and it
+sits ABOVE the iteration log, so a reader consults it before any of the corrections.
+
+📌 **And the plan separately asserted that my "unguardable" claim "is corrected where it was made".
+That sentence was itself false** -- I wrote it having corrected one site. **"Corrected where it was
+made" is a claim about a sweep and deserves the same suspicion as "nothing", "only" and "every".**
+
+### Two mechanism corrections, same class as iterations 8 and 9
+
+- **The leak comment generalized past its measurement.** `tools/witness-pane-env.sh` measures on a
+  **private** socket with `-f /dev/null`, deliberately, so that no config can mask the mechanism; my
+  comment stated the property of **the shared socket** as established. Now labelled as an inference
+  from the measured mechanism rather than a second measurement. **The fix is unaffected: `env -u`
+  strips inside the pane whatever leaked it.**
+- **`server.connect.test.js` credited `/bin/echo` for `haveBinary` being false.** `/bin/echo` makes
+  `claudeResolved.present` TRUE; the dry-run probe refusal is what flips it
+  (`if (!probe.ok || probe.dryRun) haveBinary = false`). **The file's own header said so 400 lines
+  above, so it carried two accounts of one fact.** Corrected to match.
