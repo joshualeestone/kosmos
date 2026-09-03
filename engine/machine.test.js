@@ -758,11 +758,19 @@ test('the app-location check looks in both folders and answers all four states',
   const home = path.join(sb, 'home-Applications');
   fs.mkdirSync(sys); fs.mkdirSync(home);
 
-  // Nowhere: attention, with the absence-is-not-absence sentence.
-  const none = machine.appLocationCheck({ appDirs: [sys, home] });
+  // Nowhere: attention, with the absence-is-not-absence sentence. macOS keeps the
+  // Spotlight wording; a non-mac platform must NOT get it (kosmos#2086: a Windows
+  // user was shown "Spotlight" on the first-run screen). Platform is passed
+  // explicitly so both branches are asserted regardless of the test host's OS.
+  const none = machine.appLocationCheck({ appDirs: [sys, home], platform: 'darwin' });
   assert.equal(none.state, machine.STATE.ATTENTION);
   assert.match(none.detail, /not the same as it not being there/);
   assert.match(none.detail, /Spotlight/);
+  const noneWin = machine.appLocationCheck({ appDirs: [sys, home], platform: 'win32' });
+  assert.equal(noneWin.state, machine.STATE.ATTENTION, 'the state is the same off macOS; only the wording changes');
+  assert.match(noneWin.detail, /not the same as it not being there/);
+  assert.doesNotMatch(noneWin.detail, /Spotlight|the Dock|Applications folder/,
+    'a Windows user was shown a macOS-only instruction on the first-run screen (#2086)');
 
   // In the system folder: ok, the plain Applications title.
   fs.mkdirSync(path.join(sys, 'Kosmos.app'));
@@ -837,6 +845,19 @@ test('the app-location check looks in both folders and answers all four states',
   assert.throws(() => machine.appLocationCheck({ appDirs: [123] }), /non-empty list of folders/);
 
   fs.rmSync(sb, { recursive: true, force: true });
+});
+
+test('#2086: findAppHint gives macOS the Spotlight wording and every other platform neutral wording', () => {
+  // The macOS branch keeps the Spotlight instruction.
+  assert.match(machine.findAppHint('darwin'), /Spotlight/);
+  // Every non-mac platform must carry NO macOS-only instruction. This is the
+  // control that can return the dangerous answer: if the gate were absent,
+  // findAppHint('win32') would still say Spotlight and this reds.
+  assert.doesNotMatch(machine.findAppHint('win32'), /Spotlight|the Dock|Applications folder/);
+  assert.doesNotMatch(machine.findAppHint('linux'), /Spotlight|the Dock|Applications folder/);
+  // And the two branches genuinely differ (the gate is live, not two copies of
+  // one string).
+  assert.notEqual(machine.findAppHint('darwin'), machine.findAppHint('win32'));
 });
 
 test('the app-location answer rides BESIDE the machine report, never among its rows', () => {

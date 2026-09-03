@@ -35715,8 +35715,7 @@ async function frPaintReturn() {
     rowEl.innerHTML = frCheckRow({
       state: 'unknown',
       title: 'We could not check where the Kosmos icon is right now',
-      detail: 'Nothing is wrong. Type Kosmos into Spotlight, the magnifying glass at the top '
-        + 'right of your screen, and it will find it.',
+      detail: 'Nothing is wrong. ' + frFindAppHint(),   // #2086: macOS-only Spotlight wording off macOS
     });
     msgEl.innerHTML = '';
   }
@@ -36027,6 +36026,35 @@ function revealBoot() {
   if (c) c.hidden = true;
 }
 
+/* Platform-aware first-run copy (kosmos#2086). The board UI had no platform
+   awareness and showed a Windows user macOS-only instructions (Spotlight, the
+   Dock) on the first-run screen, before the agents pane. macOS keeps its
+   wording; every other platform gets platform-NEUTRAL wording. Neutral, not
+   Windows-specific (Start menu / taskbar), on purpose: the Windows-specific
+   behaviour and the machine's own app-location logic are the #570 Windows
+   umbrella's; this only stops the macOS-only instruction from showing off
+   macOS. The server mirror is engine/machine.js findAppHint, which drives the
+   app-location row's detail (the Spotlight text a Windows user normally hits). */
+function frIsMac() {
+  try {
+    const d = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+    if (/mac/i.test(d)) return true;
+    if (/win/i.test(d)) return false;
+    return /Mac|Macintosh/i.test(navigator.userAgent || '');
+  } catch { return true; }   // no navigator: keep the historical mac wording
+}
+function frFindAppHint() {
+  return frIsMac()
+    ? 'Type Kosmos into Spotlight, the magnifying glass at the top right of your screen, and it will find it.'
+    : 'Open Kosmos the way you normally open apps on this computer, and it will start.';
+}
+function frApplyPlatformCopy() {
+  if (frIsMac()) return;   // macOS keeps the static Spotlight/Dock wording in the markup
+  const keep = document.getElementById('fr-return-keep');
+  if (keep) keep.innerHTML = '<b>Keep it one click away.</b> Pin Kosmos wherever you '
+    + 'keep the apps you use most, so it is one click away.';
+}
+
 async function firstRunBoot(force, step) {
   try {
     let state;
@@ -36042,6 +36070,7 @@ async function firstRunBoot(force, step) {
     if (!state || typeof state !== 'object') return;
     if (state.done && !force) return;
     FR = state;
+    frApplyPlatformCopy();   // #2086: gate the macOS-only first-run copy before any screen paints
     frOpen();
     // ⚠️ Only after `frOpen` has painted step 1, so a forced deep link cannot
     // land on a step whose buttons were never wired.
