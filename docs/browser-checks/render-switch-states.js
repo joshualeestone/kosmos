@@ -25,15 +25,18 @@ const { chromium } = require('playwright');
   await pg.waitForTimeout(1200);
   const fails = [];
   const say = (ok, l, x) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + l + (x ? '  ' + x : '')); if (!ok) fails.push(l); };
-  /* Since settings-nav the five switches are in three sections (talking,
-     updates, advanced) and only one is on screen at a time, so each is
-     measured from inside its own section or its rect reads zero. */
+  /* The switches live in three sections (automation, updates, advanced) and only
+     one is on screen at a time, so each is measured from inside its own section or
+     its rect reads zero. */
   /* 📌 tell-toggle and notify-toggle are BACK (#2020, Josh 2026-09-03: "on, and
      they can turn it off" needs the opt-out controls he removed 08-26). They are in
      the updates section beside auto-toggle, and this "renders once read" check
      covers them on a readable board; the COULD-NOT-READ (403) arm they matter for
      is render-optout-403-2020.js. */
-  const WHERE = { 'lim-toggle': 'talking', 'tell-toggle': 'updates', 'notify-toggle': 'updates', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
+  /* #2054: lim-toggle moved into 'automation' (the Agents Talking tab was deleted),
+     and ah-toggle/hb-toggle (Auto-save/Prompter, now sliders) joined it there -- so
+     the "renders once read" invariant now covers all three automation switches. */
+  const WHERE = { 'lim-toggle': 'automation', 'ah-toggle': 'automation', 'hb-toggle': 'automation', 'tell-toggle': 'updates', 'notify-toggle': 'updates', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
   const seen = [];
   for (const id of Object.keys(WHERE)) {
     await pg.click('#s-nav button[data-go="' + WHERE[id] + '"]');

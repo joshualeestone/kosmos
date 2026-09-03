@@ -112,7 +112,9 @@ const SURFACES = [
      `.danger` pill and the dot on gold are measured on the way). */
   ...['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'].map((sec) => ['agent panel: ' + sec, 'SECTION:' + sec]),
   ['projects', 'PROJECTS'],
-  ...['you', 'accounts', 'connect', 'talking', 'mac', 'updates', 'advanced'].map((sec) => ['settings: ' + sec, 'SETTINGS:' + sec]),
+  // #2054: 'talking' deleted, its block folded into 'automation' -- sweep the section
+  // that now holds those controls (same components already covered in sibling sections).
+  ...['you', 'accounts', 'connect', 'automation', 'mac', 'updates', 'advanced'].map((sec) => ['settings: ' + sec, 'SETTINGS:' + sec]),
 ];
 
 (async () => {

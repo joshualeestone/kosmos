@@ -105,6 +105,25 @@ test('#2054 ACCEPTANCE: a NON-default stored value paints as itself, and paint w
   assert.deepEqual(writes, [], 'paint issued a write (' + JSON.stringify(writes) + '); a paint that saves can reset a stored value');
 });
 
+test('#2054 ACCEPTANCE (executable): a threshold change BEFORE the setting loads writes nothing', async () => {
+  // The interact-side of "a moved setting must not silently reset": if a change event
+  // fires before the first read lands (toggle still hidden, no aria-checked), the
+  // handler must refuse to save -- otherwise it writes a markup default over the stored
+  // value. Executed, not regex-matched, so a logically-inverted guard FAILS here: an
+  // inverted guard would fall through into saveAutohandoff and issue a POST.
+  const d = dom(); // ah-toggle starts with no aria-checked (unloaded)
+  const calls = [];
+  const fetchStub = async (url, opts) => { calls.push({ method: (opts && opts.method) || 'GET' }); return { ok: true, json: async () => ({}) }; };
+  const body = 'let AH_SAVING=false;\n'
+    + lift(SCRIPT, 'saveAutohandoff') + '\n'
+    + lift(SCRIPT, 'ahThresholdChange') + '\nreturn ahThresholdChange;';
+  const ahThresholdChange = new Function('document', 'fetch', body)(d.document, fetchStub);
+  assert.equal(d.els['ah-toggle'].hasAttribute('aria-checked'), false, 'precondition: the toggle is unloaded');
+  ahThresholdChange();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(calls, [], 'a pre-load threshold change issued a fetch (' + JSON.stringify(calls) + '); an inverted guard would write a default over the stored value');
+});
+
 test('#2054: a could-not-read read HIDES the knob (status control), never a false Off', async () => {
   // Hard failure: a thrown fetch.
   const d = dom();

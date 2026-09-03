@@ -105,6 +105,23 @@ test('#2054 ACCEPTANCE: a NON-default stored value paints as itself, and paint w
   assert.deepEqual(writes, [], 'paint issued a write (' + JSON.stringify(writes) + '); a paint that saves can reset a stored value');
 });
 
+test('#2054 ACCEPTANCE (executable): an interval change BEFORE the setting loads writes nothing', async () => {
+  // The interact-side guard, executed rather than regex-matched: a change firing before
+  // the first read (toggle hidden, no aria-checked) must not write a default over the
+  // stored value. An inverted guard would fall through into saveHeartbeat and PUT.
+  const d = dom(); // hb-toggle starts with no aria-checked (unloaded)
+  const calls = [];
+  const fetchStub = async (url, opts) => { calls.push({ method: (opts && opts.method) || 'GET' }); return { ok: true, json: async () => ({}) }; };
+  const body = 'let HB_SAVING=false;\n'
+    + lift(SCRIPT, 'saveHeartbeat') + '\n'
+    + lift(SCRIPT, 'hbIntervalChange') + '\nreturn hbIntervalChange;';
+  const hbIntervalChange = new Function('document', 'fetch', body)(d.document, fetchStub);
+  assert.equal(d.els['hb-toggle'].hasAttribute('aria-checked'), false, 'precondition: the toggle is unloaded');
+  hbIntervalChange();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(calls, [], 'a pre-load interval change issued a fetch (' + JSON.stringify(calls) + '); an inverted guard would write a default over the stored value');
+});
+
 test('kosmos#1722/#2054: a could-not-read read HIDES the knob (status control), never a false Off', async () => {
   // Hard failure: a thrown fetch.
   const d = dom();

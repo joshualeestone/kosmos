@@ -13503,7 +13503,11 @@ async function saveAutohandoff(enabled, threshold) {
       body: JSON.stringify({ autohandoff: { enabled, threshold } }),
     });
     const out = await res.json().catch(() => ({}));
-    if (!res.ok) { msg.textContent = out.because || 'We could not save that setting.'; paintAutomation(); return; }
+    /* On a non-ok save just show the reason: the toggle never moved optimistically
+       (it is painted only from the server's stored value), so there is nothing to
+       revert -- and calling paintAutomation() here would re-read and immediately wipe
+       this error line. Symmetric with saveHeartbeat's non-ok path. */
+    if (!res.ok) { msg.textContent = out.because || 'We could not save that setting.'; return; }
     const a = out.autohandoff || { enabled, threshold };
     paintSwitch('ah-toggle', a.enabled === true);
     document.getElementById('ah-threshold').value = String(a.threshold || 85);
