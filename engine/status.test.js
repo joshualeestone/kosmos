@@ -1777,6 +1777,20 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
   assert.notEqual(classify(pane, atDistance(14)).state, 'working',
     'a row well past the reach is scrolled-up transcript, not the live status row');
 
+  /* 🛑 THE SCAN STARTS BELOW THE WAIT ROW, and that is load-bearing. A `❯` ABOVE
+     the row (a quoted prompt in a pasted transcript) must NOT become the anchor:
+     with `j = 0` it does, `anchor - i` goes negative so the reach check passes,
+     and the slice `(i+1, anchor)` is empty so the resolution check cannot fire
+     either. Measured: this screen reads `unknown` as shipped and `working`
+     perturbed, which is the false calm the no-composer rule exists to close.
+     The other no-composer fixture has no `❯` at all, so it cannot discriminate. */
+  assert.notEqual(
+    classify(pane, ['❯ quoted prompt in a pasted transcript', '  some text',
+      '✻ Waiting for 1 background agent to finish',
+      '  a dialog row that replaced the composer', '  another row'].join('\n')).state,
+    'working',
+    'a ❯ ABOVE the wait row became the anchor, so a pane with no composer read working');
+
   /* 🛑 NO COMPOSER ON SCREEN -> null. A dialog replaces the composer, and with no
      anchor there is nothing to measure the reach against, so any quotation with
      any completion state below it would be judged on distance from the last row.
@@ -1803,6 +1817,10 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
        FOREVER on an agent free at its prompt. */
     '  ⏺ All background agents stopped',
     '  ● All background agents stopped',
+    /* The vendor's own per-canceller wordings, which the bare `was stopped`
+       alternative covers but no fixture pinned. */
+    '  ⏺ Agent "r" was stopped by Claude',
+    '  ⏺ Agent "r" was stopped by user',
   ]) {
     assert.notEqual(
       classify(pane, '✻ Waiting for 1 background agent to finish\n' + killed + footer).state,
@@ -2014,8 +2032,13 @@ test('#1889: a decayed report on a background wait is not a broken reporter', ()
   assert.equal(scraped.backgroundWait, true, 'the scraped result must carry the structural flag');
 
   const now = Date.now();
+  /* 🛑 `at` MUST BE AN ISO STRING, WHICH IS WHAT `selfreport.read` RETURNS. An
+     earlier version passed a raw epoch NUMBER; `Date.parse(number)` is NaN, so
+     the report went stale through the `!Number.isFinite` arm rather than through
+     AGE, and this row would have passed identically if the decay window were a
+     year. It exercised the gate while testing nothing about the window it names. */
   const stale = { found: true, state: 'working', because: 'running Bash',
-    at: now - (REPORT_WORKING_DECAY_MS + 60000), auto: true };
+    at: new Date(now - (REPORT_WORKING_DECAY_MS + 60000)).toISOString(), auto: true };
   const got = reconcileReport(stale, scraped, now);
   assert.equal(got.state, 'working', 'the state must stay working');
   assert.equal(got.conflict, null,

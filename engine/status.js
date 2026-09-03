@@ -1973,8 +1973,9 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
 
    🛑 A THIRD SITE ON THE SAME KILL PATH. The `agents_killed` subtype renders
    `⏺ All background agents stopped` (bullet + dimmed text), produced by the
-   `wn.length === 0` arm of the SAME handler whose else-arm produces the two
-   `was stopped by the user` wordings above. `All …` cannot match a pattern that
+   zero-survivors arm of the SAME handler that also produces the two
+   `was stopped by the user` wordings above, so it ACCOMPANIES them rather than
+   replacing them. `All …` cannot match a pattern that
    expects a count or `Background` after the bullet, so it was missed. Verified in
    2.1.258 AND 2.1.259.
    ⚠️ AND IT IS THE WORST PLACE TO MISS ONE: after an interrupt nothing further is
@@ -1982,16 +1983,26 @@ const BACKGROUND_AGENT_WAIT_REACH = 8;
    FOREVER on an agent sitting free at its prompt.
    ⇒ Three enumerations of this family, three misses. Treat the set as open.
 
-   ⚠️ AND THE SET IS STILL NOT PROVABLY CLOSED. The bundle's notification prefixes
-   sit together as `"Background command "`, `'Agent "'` and `'Remote task "'`; the
-   third is NOT matched here. Whether a remote task can reach
-   `pendingBackgroundAgentCount` could not be established from the minified
-   source, so this is a NAMED RISK rather than a demonstrated defect -- but its
-   failure direction is an unresolvable wait reading `working` forever, which is
-   what got the workflow arm deleted. Two enumerations of this family have already
-   been wrong; treat a third as likely rather than settled.
+   📌 THE `Remote task "` PREFIX IS NOT A RISK, RESOLVED RATHER THAN CARRIED. A
+   task reaches `pendingBackgroundAgentCount` only through a guard requiring
+   `type === "local_agent"`, and remote tasks are registered as `remote_agent`, so
+   one can never appear in this count and its notification can never need
+   matching. Recorded as closed rather than left as a standing worry.
+   ⚠️ THE SET IS STILL NOT PROVABLY CLOSED, though. There is a SECOND, currently
+   dead renderer that would draw these rows with a different glyph entirely
+   (`∷ All background agents stopped`); its gate returns false in 2.1.258, so the
+   "verified in 2.1.258 and 2.1.259" above covers the legacy renderer ONLY. If
+   that path is ever enabled, every wording here stops matching at once.
 
-   ⚠️ KNOWN LIMIT: an ordinary assistant narration row also matches. Claude Code
+   ⚠️ KNOWN LIMIT, AND ITS COMMONEST INSTANCE IS STRUCTURAL RATHER THAN PROSE.
+   The tool-header row for a spawned agent is drawn `⏺ Agent(<description>)`, so
+   ANY agent whose description contains `finished`, `failed` or `stopped` -- e.g.
+   `⏺ Agent(Investigate the failed CI run)` -- resolves the wait above it
+   (measured). Free prose rarely puts `Agent` immediately after the bullet; the
+   tool header does it every time. Calling this "narration" understates it, and a
+   future editor would not think to guard a tool header.
+
+   ⚠️ ALSO A KNOWN LIMIT: ordinary assistant narration matches too. Claude Code
    draws every assistant text block with `⏺`, so `⏺ Agent work finished for the
    day, still one more running` RESOLVES a live wait (measured). Not a regression
    against `origin/main`, and likelier than the `Remote task "` risk below, since
