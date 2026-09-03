@@ -94,8 +94,8 @@ function chk(ok, label, extra) {
     chk(/You can turn this on anytime in Settings, under Keeping agents running/.test(m.paneText),
       'the reworded where-to-do-it-later pointer stays (#1214 out, kept per Mona Lisa without the "optional" framing)');
 
-    await page.screenshot({ path: path.join(OUT, 'fr-pane-5-a11y.png') });
-    console.log('screenshot: ' + path.join(OUT, 'fr-pane-5-a11y.png'));
+    await page.screenshot({ path: path.join(OUT, `fr-pane-${step}-a11y.png`) });
+    console.log('screenshot: ' + path.join(OUT, `fr-pane-${step}-a11y.png`));
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     await browser.close();
