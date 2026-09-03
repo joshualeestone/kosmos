@@ -5160,6 +5160,8 @@ function firstRunHarness(name, state, opts = {}) {
     const esc = ${realEsc.toString()};
     ${tables}
     const frCheckRow = ${realRow.toString()};
+    ${pageFnSource('frIsMac')}
+    ${pageFnSource('frFindAppHint')}
     const __els = {};
     const document = { getElementById: (id) => (__els[id] = __els[id] || { innerHTML: '', textContent: '' }) };
     let FR = ${JSON.stringify(state.FR)};
@@ -5550,6 +5552,8 @@ test('the return step: entries share one in-flight look, and a stale look cannot
     const esc = ${realEsc.toString()};
     ${tables}
     const frCheckRow = ${realRow.toString()};
+    ${pageFnSource('frIsMac')}
+    ${pageFnSource('frFindAppHint')}
     const __els = {};
     const document = { getElementById: (id) => (__els[id] = __els[id] || { innerHTML: '', textContent: '' }) };
     let FR_RETURN_GEN = 0;
