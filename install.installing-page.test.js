@@ -55,9 +55,10 @@ test('settling stops the K loader where it sits, and freezes the bar in place, i
 });
 
 test('the loader never finishes into a checkmark on either ending -- neither is the pack\'s "clean finish"', () => {
-  // The taken branch found someone else's board (not success); the real
-  // ready branch calls location.replace() in the same tick settle() runs,
-  // so a 900ms tick animation would never be seen. finish() stays unused.
+  // The taken branch found someone else's board (not success); the real ready
+  // branch (#2073) hides the shape and says Kosmos is opening in its app, then
+  // stops -- it no longer redirects, so a 900ms tick animation is not the point.
+  // finish() stays unused either way.
   assert.doesNotMatch(HTML, /loader\.finish\(\)/, 'something now calls finish() -- confirm that ending is a genuine clean success before keeping this');
   assert.match(HTML, /stop: function \(\) \{ stopped = 1; \}/, 'the stop() capability this file adds on top of the ported source is gone');
 });

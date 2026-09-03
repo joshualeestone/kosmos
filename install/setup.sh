@@ -3823,37 +3823,36 @@ if [ -f "$_awnode_r" ] && [ -x "$_awnode_r" ]; then
   [ -n "$_awroot_r" ] && _repair_seed="$_awroot_r/.reauth-seeded"
 fi
 _open_gate="$FRESH_INSTALL"; _opened=no
-# A first enforcing run (fresh OR update) that has not been SEEDED opens the browser
-# once. #2030: the seed marker is written server-side on nonce REDEMPTION now
-# (engine/boardauth.js seedReauthMarker), NOT here -- so this stays a READ of the
-# marker (open iff absent), and a machine whose browser never redeemed stays unseeded
-# and RETRIES the open on the next update until one actually navigates. FRESH_INSTALL
-# already opens; this adds the enforcing-update path.
+# A first enforcing run (fresh OR update) that has not been SEEDED launches the app
+# once. #2030/#2073: the seed marker is written server-side on the app's ?token=
+# redemption (engine/boardauth.js seedReauthMarker), NOT here -- so this stays a READ
+# of the marker (launch iff absent), and a machine whose app never redeemed stays
+# unseeded and RE-LAUNCHES on the next update until one actually navigates (narrowed
+# by the accepted running-app / #2028 edges documented below). FRESH_INSTALL already
+# launches; this adds the enforcing-update path.
 if [ -n "$_repair_seed" ] && [ ! -f "$_repair_seed" ] && [ -s "$_awroot_r/board.token" ]; then
   _open_gate=yes
 fi
 if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_OPEN:-}" ] && [ -z "${KOSMOS_APP_DIR:-}" ] \
    && { [ -z "${KOSMOS_SYS_APP_DIR:-}" ] || [ -n "${KOSMOS_OPEN_CMD:-}" ]; } \
-   && [ -d "$APP_DIR/Kosmos.app" ] \
+   && bundle_is_ours "$APP_DIR/Kosmos.app" \
    && command -v "$OPEN_CMD" >/dev/null 2>&1; then
-  # #2073: only auto-launch when the app actually EXISTS. On a fresh install where
-  # make_app failed (APP_MADE=no: a TCC denial, an unwritable Applications), there
-  # is no app to open -- the old code fell back to a browser dashboard, which
-  # app-only removes, so opening nothing and telling the person to "open the Kosmos
-  # app" would name an app that was not created. The APP_MADE=no messaging above
-  # already tells them what happened and how to recover (kosmos open). Checked on
-  # existence, not APP_MADE, because APP_MADE=no ALSO covers "bundle already current,
-  # not rewritten this run", where a valid app is present and must still launch.
-  # Named before it happens, per the header's every-step rule: a browser
-  # window appearing unannounced reads as "something went wrong", and on
-  # a cold browser start the prompt returns seconds before the window.
-  # Under the .pkg, postinstall may already have the "Installing Kosmos" page
-  # open in the browser (#662). It USED to skip the mint+open here to avoid a
-  # second tab -- but that page links the board at a BARE url, which 403s on an
-  # enforcing board (#2033), so the skip left a fresh .pkg install cookie-less.
-  # We now do the authenticated ?boot open in both branches (the second tab is
-  # the price of a working dashboard); do NOT re-add the skip on the strength of
-  # the old "second tab" rationale.
+  # #2073: only auto-launch OUR OWN app, and only when it exists. bundle_is_ours
+  # (not a bare `-d`) because `-d` follows a symlink onto a FOREIGN Kosmos.app in
+  # the multi-account / aliased-~/Applications case, where the resolver set
+  # APP_DIR at a bundle it deliberately refused to claim -- launching a stranger's
+  # app right after the transcript said we left it alone. bundle_is_ours refuses a
+  # symlink and requires our KOSMOS_HOME anchor, so it: fires for our fresh or
+  # already-current bundle (APP_MADE=no still has a valid app that must launch),
+  # skips the make_app-failed case (no bundle -> the old browser fallback is gone,
+  # so opening nothing beats naming an app that was not created; the APP_MADE=no
+  # messaging above already guides recovery), AND skips the foreign bundle.
+  # Named before it happens, per the header's every-step rule: the app window
+  # appearing unannounced reads as "something went wrong". Under the .pkg,
+  # postinstall may have the "Installing Kosmos" progress page open in the
+  # browser (#662); #2073 makes installing.html stop turning itself into the
+  # dashboard, so it stays a progress page and the app is the dashboard -- there
+  # is no "second tab / becomes your dashboard" behaviour to reconcile any more.
   # #2073: Josh ruled Kosmos APP-ONLY, no browser. LAUNCH THE NATIVE APP instead of
   # opening a browser dashboard. Kosmos.app (staged into $APP_DIR by make_app above)
   # resolves the port, starts the board if it is not up, and loads it in its OWN
