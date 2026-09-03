@@ -82,7 +82,7 @@ HF="$(mktemp "${TMPDIR:-/tmp}/staging-exp-auth.XXXXXXXX")" || { say "mktemp fail
 chmod 600 "$HF" 2>/dev/null || true
 printf 'x-kosmos-board-token: %s\n' "$TOKEN" > "$HF"
 NONCE="$(curl -sS -m 15 -H @"$HF" -X POST "$URL/api/board-nonce" 2>/dev/null | sed -n 's/.*"nonce":"\([0-9a-f]*\)".*/\1/p' | head -1)"
-rm -f "$HF"
+rm -f "$HF"; HF=""   # cleared so the EXIT trap's rm is exact, not a no-op on a stale path
 if [ -z "$NONCE" ]; then
   say "FAIL: could not mint a browser-open nonce (board not answering on :$PORT, or the token was refused)."
   exit 1
@@ -99,13 +99,21 @@ if ! grep -q 'kosmos_board' "$CJ" 2>/dev/null; then
   exit 1
 fi
 
-# 3. Use the redeemed cookie on a sensitive route. USABLE requires a 2xx - not merely
-#    "not 403". A 403 is the #2023 lockout; anything else non-2xx (500 board erroring,
-#    502, or 000 the board crashed/became unreachable between the redeem and here) is a
-#    board that is broken or gone, and must NOT read as USABLE (the false-pass a
-#    403-only guard leaves open).
+# 3. Prove the route GATES, then that the redeemed cookie is granted access. A NO-COOKIE
+#    request must be refused (403) FIRST: if /api/accounts were ever exempted, a cookie'd
+#    2xx would pass for anyone and this check would silently weaken. Then the cookie'd
+#    request must be a 2xx - not merely "not 403". A 403 WITH the cookie is the #2023
+#    lockout; any other non-2xx (500 erroring, 000 unreachable) is a broken or gone board
+#    and must NOT read as USABLE (the false-pass a 403-only guard would leave open).
+GATE_CODE="$(curl -sS -m 15 -o /dev/null -w '%{http_code}' "$URL/api/accounts" 2>/dev/null || true)"
+if [ "$GATE_CODE" != 403 ]; then
+  rm -f "$CJ"; CJ=""
+  say "cannot-tell: /api/accounts did not 403 without a cookie (got ${GATE_CODE:-000}) - the probe route is not gating,"
+  say "  so a cookie'd 2xx would not prove an authenticated session. Point this check at a gated route."
+  exit 2
+fi
 API_CODE="$(curl -sS -m 15 -o /dev/null -b "$CJ" -w '%{http_code}' "$URL/api/accounts" 2>/dev/null || true)"
-rm -f "$CJ"
+rm -f "$CJ"; CJ=""
 case "$API_CODE" in
   2??) : ;;  # the redeemed session reached the sensitive route -> usable
   403)
@@ -121,6 +129,11 @@ esac
 #    THIS check created the marker, remove it so a real user's next-update auto-open
 #    still fires. If it was already there, leave it (not ours to touch). If a successful
 #    redeem left it absent, the board likely predates #2030 - surface it.
+#    ⚠️ This reads/writes the marker at the CHECK's resolved $ROOT, which assumes
+#    check-ROOT == server-ROOT. They differ only if the check and the board run under
+#    different AGENT_WORKFORCE_DATA; on a mismatch the restore/warn is merely inaccurate
+#    (it would not find the server's marker), never a false pass and never a foreign
+#    marker removed - it errs safe. The intended dedicated-account run shares one env.
 if [ "$SEEDED_BEFORE" = 0 ] && [ -f "$ROOT/.reauth-seeded" ]; then
   rm -f "$ROOT/.reauth-seeded" 2>/dev/null || true   # restore: leave the self-heal armed
 elif [ "$SEEDED_BEFORE" = 0 ]; then
