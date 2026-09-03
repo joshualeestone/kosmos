@@ -38,12 +38,17 @@ reason (which job, what load) is in the cut's log.
   threshold, wait (polling, naming the top consumer) until it quiets or `max_wait_s`
   (default 600) elapses. Returns 0 if quiet (or it quieted), 1 on timeout.
 
-`release.sh` sources the lib (unguarded, under set -e, like the sibling libs) and calls the
-guard before step 3 and before step 3b. On a timeout it stops with a LOAD-attributed
-message ("reap the named job and re-cut") -- an honest, actionable stop, never a phantom
-test-red or browser flake. In the common case the box quiets (an abandoned job finishes or
-is reaped, possibly by #2018) and the gate runs on a clean box, so the false-red source is
-removed.
+`release.sh` sources the lib (unguarded, under set -e, like the sibling libs) and calls
+`kosmos_gate_or_abort` ONCE, at the ENTRY to the gated phase (before step 3). A quiet box
+there plus the held reservation covers step 3 AND step 3b, and the entry is where the
+leftover load that caused the incident lives (present from the cut's start). It does NOT
+re-check before step 3b: the 1-min load there is still inflated by this suite's own
+just-finished processes, so a second wait would stall on the cut's own residual rather than
+external load. `kosmos_gate_or_abort` lives in the lib (so the abort DECISION is unit-tested,
+not only bash -n'd inline) and, on a timeout, narrates a LOAD-attributed stop and returns 1,
+which release.sh turns into `exit 1` -- an honest, actionable stop, never a phantom test-red.
+In the common case the box quiets (an abandoned job finishes or is reaped, possibly by
+#2018) and the gate runs on a clean box, so the false-red source is removed.
 
 ## Why stop-on-timeout rather than proceed
 
@@ -62,15 +67,17 @@ quiet box before gating, and #2006 handles the suite's own-parallelism contentio
 
 ## Test
 
-`tools/test-cut-load-guard.sh` (wired into `test:shell`): 13 assertions -- threshold
-(default + override), the float compare (over / not / fail-open), and the wait's three
-paths (quiet-immediately, persistent-saturation timeout with load attribution, and
-saturated-then-quiets-after-a-poll via a load-reader override), plus an errexit-safety
-guard (a direct set -euo pipefail caller returns cleanly).
+`tools/test-cut-load-guard.sh` (wired into `test:shell`): 16 assertions -- threshold
+(default + override), the float compare (over / not / fail-open), the wait's three paths
+(quiet-immediately, persistent-saturation timeout with load attribution, and
+saturated-then-quiets-after-a-poll via a load-reader override), `kosmos_gate_or_abort`
+(quiet -> proceed, saturated -> abort with the load-attributed narration -- the release.sh
+integration point, so the abort decision is unit-tested), and an errexit-safety guard (a
+direct set -euo pipefail caller returns cleanly).
 
 ## Validation
 
-- `bash tools/test-cut-load-guard.sh` -> ALL PASS (13).
+- `bash tools/test-cut-load-guard.sh` -> ALL PASS (16).
 - `bash -n` clean on the lib and release.sh.
 - No `web/` change (no #1720 gate); added a `test-*.sh` not a `*.test.js` (the #1934
   node-coverage count is unaffected); no node engine change.

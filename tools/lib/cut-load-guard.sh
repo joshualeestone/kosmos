@@ -43,7 +43,9 @@ kosmos_cut_load_threshold() {
   fi
   local ncpu
   ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
-  awk -v n="$ncpu" 'BEGIN { printf "%.1f", n * 1.5 }'
+  # LC_ALL=C: sysctl always prints a `.`-decimal load, so the compare and format
+  # must not follow a comma-decimal LC_NUMERIC.
+  LC_ALL=C awk -v n="$ncpu" 'BEGIN { printf "%.1f", n * 1.5 }'
 }
 
 # The top CPU consumers right now, for attribution ("what is loading the box").
@@ -59,7 +61,7 @@ kosmos_top_cpu_consumers() {
 kosmos_load_over_threshold() {
   local load="$1" thresh="$2"
   [ -n "$load" ] || return 1
-  awk -v l="$load" -v t="$thresh" 'BEGIN { exit !(l+0 > t+0) }'
+  LC_ALL=C awk -v l="$load" -v t="$thresh" 'BEGIN { exit !(l+0 > t+0) }'
 }
 
 # Wait until the box's 1-minute load is at or below the threshold, or until
@@ -94,5 +96,21 @@ kosmos_wait_for_quiet_box() {
 
   echo "cut-load-guard: the box did NOT quiet within ${max_wait}s (1-min load ${load} > ${thresh}). This is LOAD, not a test defect: a heavy background job is saturating the machine. Not running $label into it, as it would red on contention rather than on the change. Reap the offending job (below) and re-cut:"
   kosmos_top_cpu_consumers 4 | sed 's/^/    /'
+  return 1
+}
+
+# The release.sh integration point, kept in the lib (not inline in release.sh)
+# so the abort DECISION is unit-tested rather than only bash -n'd. Waits for a
+# quiet box; on a persistent-saturation timeout it narrates a LOAD-attributed
+# stop (never a phantom test-red) and returns 1, which release.sh turns into an
+# `exit 1`. Returns 0 when the box is (or becomes) quiet.
+# Usage: kosmos_gate_or_abort <label> [max_wait_s] [poll_s]
+kosmos_gate_or_abort() {
+  local label="$1"
+  shift
+  if kosmos_wait_for_quiet_box "$label" "$@"; then
+    return 0
+  fi
+  echo "aborting the cut: NOT running $label. The box is saturated by background LOAD, not by the change (the offending job is named above). This is not a test failure or a browser flake; reap that job and re-cut."
   return 1
 }
