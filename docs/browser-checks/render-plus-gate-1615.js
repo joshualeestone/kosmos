@@ -48,6 +48,11 @@ const ENROLLED = { configured: true, on: false, ok: true, enrolled: true, email:
 
 async function openPlus(page, remote) {
   // Stub /api/remote (the gate's input) and the devices list (empty) BEFORE anything paints.
+  // UNROUTE first: openPlus runs twice on the SAME page (unenrolled then enrolled), and a
+  // second page.route STACKS a handler rather than replacing it, so clear the prior scenario's
+  // stub so only this one can answer (part of the #1615 flake).
+  await page.unroute('**/api/remote');
+  await page.unroute('**/api/remote/devices**');
   await page.route('**/api/remote', (route, req) => {
     const m = req.method();
     if (m === 'GET' || m === 'HEAD') {
@@ -62,15 +67,21 @@ async function openPlus(page, remote) {
   await page.click('.tab[data-tab="settings"]');
   await page.waitForSelector('#panel-settings:not([hidden])');
   await page.click('#s-nav button[data-go="plus"]');
-  // Wait for paintPlus to settle to a definitive state instead of a fixed sleep: state1 and
-  // the connected flow are mutually exclusive here (state2 has no signal), so wait until
-  // exactly one of them has real height. Robust to a slow paint without a fragile timeout.
-  await page.waitForFunction(() => {
+  // Wait for the SPECIFIC final state this scenario expects, not merely "exactly one of
+  // state1/plus-flow is visible". paintPlus reads /api/remote asynchronously, and during the
+  // loading window state1 is up while plus-flow is still hidden -- which satisfied the old
+  // XOR and let the assert race the paint (the ~50% #1615 flake: light-enrolled passed while
+  // dark-enrolled read the stale unenrolled state, and under a cut's load both failed).
+  // Waiting for the exact expected shape (enrolled -> flow up, state1 gone; unenrolled ->
+  // state1 up, flow gone) closes that window without a fragile fixed sleep.
+  const wantEnrolled = remote.enrolled === true;
+  await page.waitForFunction((want) => {
     const s1 = document.getElementById('plus-state1');
     const fl = document.getElementById('plus-flow');
     if (!s1 || !fl) return false;
-    return (s1.offsetHeight > 0) !== (fl.offsetHeight > 0);
-  }, null, { timeout: 5000 });
+    return want ? (fl.offsetHeight > 0 && s1.offsetHeight === 0)
+                : (s1.offsetHeight > 0 && fl.offsetHeight === 0);
+  }, wantEnrolled, { timeout: 5000 });
 }
 
 (async () => {
