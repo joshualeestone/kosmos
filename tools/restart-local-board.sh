@@ -56,6 +56,12 @@ WAIT_SECS="${KOSMOS_BOARD_WAIT_SECS:-45}"
 case "$WAIT_SECS" in
   ''|*[!0-9]*) echo "   KOSMOS_BOARD_WAIT_SECS must be a non-negative integer (got '$WAIT_SECS')" >&2; exit 1 ;;
 esac
+# Normalise to base 10 ONCE, here, so downstream arithmetic never re-interprets a
+# zero-padded value as octal. Without this, an all-digit but zero-padded knob like
+# '08' or '09' passes the digit check above and then aborts at `$(( ))` with "value
+# too great for base" (8 and 9 are not octal), and '010' silently becomes 8 -- both
+# are exactly the cryptic-abort / wrong-value class the guard exists to close.
+WAIT_SECS=$(( 10#$WAIT_SECS ))
 
 # The version the board must serve for the restart to count as done: the code now on
 # disk (this repo's package.json). Overridable so the test can name a version its

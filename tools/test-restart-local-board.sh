@@ -116,5 +116,14 @@ if [ "$rc" -eq 1 ] && has "$out" "must be a non-negative integer"; then pass "ba
 out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="http://127.0.0.1:1/api/status" KOSMOS_BOARD_WANT="" KOSMOS_BOARD_WAIT_SECS=2 bash "$SCRIPT" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "wanted version is empty"; then pass "empty-want arm: an empty target is a failure, not a false pass"; else fail "empty-want arm (rc=$rc, out=$out)"; fi
 
+# 7. Zero-padded knob arm: an all-digit but zero-padded KOSMOS_BOARD_WAIT_SECS like
+#    '08' (NOT valid octal) must be read as decimal 8, not abort the arithmetic with
+#    "value too great for base" -- the exact cryptic abort the knob guard exists to
+#    close. Board already serves WANT, so this exits 0 fast.
+start_stub "$WANT"
+out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$URL" KOSMOS_BOARD_WANT="$WANT" KOSMOS_BOARD_WAIT_SECS=08 bash "$SCRIPT" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && ! has "$out" "value too great for base"; then pass "zero-padded knob arm: '08' is decimal 8, not an octal abort"; else fail "zero-padded knob arm (rc=$rc, out=$out)"; fi
+stop_stub
+
 echo ""
 if [ "$fails" -eq 0 ]; then echo "ALL PASS"; else echo "$fails FAILED"; exit 1; fi
