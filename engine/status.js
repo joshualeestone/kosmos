@@ -2076,7 +2076,11 @@ function backgroundAgentWait(text) {
        draws a focused footer row as `N.pointer + " "` then that row's icon, and
        the icon is `⏺` (macOS) or `●` for the VIEWED row rather than the main one,
        so `❯ ⏺ main` is a real focused row. Keying on `◯` alone let it become the
-       anchor. An earlier version of this note wrote the shape without its
+       anchor. Residual, named rather than left to be rediscovered: a composer
+       whose TYPED TEXT BEGINS with an icon (`❯ ● is the icon`) is still
+       disqualified and the pane reads idle. Inherent ambiguity, a miss not a
+       false calm, and not worth a heuristic.
+       An earlier version of this note wrote the shape without its
        separating space and called `⏺` the main row's icon; both were wrong.
        🛑 AND IT MUST ALLOW THE TREE CONNECTOR. A nested task row is drawn as
        pointer, then `indent + (├|└) + " "`, then the icon, so a focused depth>0

@@ -294,7 +294,7 @@ incomplete, and every patch made the comment above it more confident.
   - the REACH, now 8. Live status rows sit 3 to 5 rows above the composer, and
     the vendor can add a notification row, a two-row tip block and one row per
     queued message between them, so the realistic ceiling is about 7. Resolved
-    waits have been observed at 7, 13 and 17 rows up: the 7 is the one that
+    waits have been observed at 7 and 13 rows up (the source comment records the same pair; an earlier version of this line added a 17 that appears in no other record of the measurement): the 7 is the one that
     matters, because it is INSIDE the reach, which is exactly why the resolution
     check below earns its place rather than being redundant with distance.
     ⚠️ The suite is green only for [8, 14]. 8 is the exact lower edge, not a
@@ -429,6 +429,31 @@ fleet, so it is raised rather than taken from this card.
 ⭐ Worth noticing about my own attention: I spent three paragraphs, a structural
 flag and a dedicated test on rule 5, and never looked at rule 6 sitting directly
 beneath it.
+
+## I DELETED A WARNING ABOUT CLEANUPS REMOVING GUARDS, AND THE DELETION REMOVED GUARDS
+
+Iteration 18, and it is the branch's defining failure in its purest form.
+
+A reviewer suggested trimming purely-archival comment paragraphs. One of them was
+the note recording that iteration 9's cleanup had deleted iteration 8's evidence
+guards as collateral. My regex for cutting it included the closing `*/`.
+
+⇒ The comment was left UNCLOSED, so it ran to the next `*/` and swallowed the two
+assertions beneath it. **The suite still reported 174/174**, because a
+commented-out assertion does not fail, it simply stops existing.
+
+🛑 A GREEN TEST COUNT CANNOT SEE A DISABLED ASSERTION. The test count did not
+change, no row went red, and nothing in the run said anything. I caught it only
+because I counted `/*` against `*/` after a cut that I knew had touched a
+terminator, and then re-perturbed the two guards to confirm they bit again.
+
+⭐ SO THE LESSON THE DELETED PARAGRAPH WAS CARRYING IS TRUE ENOUGH TO HAVE
+DESTROYED ITS OWN RECORD: a cleanup that removes a guard is the same defect as a
+fix that never lands, and both are invisible to the suite. The only instrument
+that sees either is a perturbation aimed at the specific guard.
+
+✅ AFTER ANY COMMENT EDIT, COUNT THE MARKERS AND RE-PERTURB. `node --check` passes
+on an unclosed block comment, and so does the whole suite.
 
 ## Weakest premise
 

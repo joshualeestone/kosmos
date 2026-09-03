@@ -1695,11 +1695,7 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
    * The rows below pin that pair.
    */
   /* The evidence contract. Real captures carry trailing pad, and the 240-char
-     cap is this module's convention for anything reaching a person's screen.
-     ⚠️ RE-ADDED: iteration 8 added these, and iteration 9's cleanup of the
-     obsolete `◯` assertions deleted them as collateral while its commit message
-     still claimed they were armed. A cleanup that removes a guard is the same
-     defect as a fix that never lands. */
+     cap is this module's convention for anything reaching a person's screen. */
   const padded = classify(pane, '✻ Waiting for 1 background agent to finish     ' + footer);
   assert.equal(padded.evidence, '✻ Waiting for 1 background agent to finish',
     'the evidence line kept its trailing pad, against the module convention');
@@ -1826,10 +1822,21 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
       classify(pane, '✻ Waiting for 1 background agent to finish\n' + killed + footer).state,
       'working', 'a killed background agent did not resolve the wait: ' + killed.trim());
   }
-  /* And prose about stopping must NOT resolve it. */
-  assert.equal(
-    classify(pane, '✻ Waiting for 1 background agent to finish\n  I asked the agent about stopped builds' + footer).state,
-    'working', 'ordinary prose mentioning an agent and stopping resolved the wait');
+  /* 🛑 PROSE MUST NOT RESOLVE IT, AND THE FIXTURE HAS TO BE ABLE TO SAY SO. The
+     line-start `[⏺●]` prefix is the ONLY thing separating a vendor notification
+     from narration, and an earlier fixture here ("I asked the agent about stopped
+     builds") could not test it: `stopped` is followed by ` builds`, so no
+     plausible widening reaches it and dropping the whole prefix left the suite
+     green. This row uses a sentence that DOES end in a completion word, so
+     removing the anchor flips it. Measured: shipped `working`, unanchored `idle`. */
+  for (const prose of [
+    '  the agent finished its review',
+    '  I asked the agent about stopped builds',
+  ]) {
+    assert.equal(
+      classify(pane, '✻ Waiting for 1 background agent to finish\n' + prose + footer).state,
+      'working', 'ordinary prose resolved the wait: ' + prose.trim());
+  }
 
   /* 🛑 THIS ARM MUST OUTRANK THE `Worked for` IDLE RULE. A previous turn's
      `✻ Worked for 3m 12s` sits in the same 25-row tail as this turn's live wait
