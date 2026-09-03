@@ -3159,7 +3159,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      board's full-width notice bars do not belong over the consolidated grid;
      the news line already lives in the header notice slot. found-wrap and
      removed-wrap are board-management chrome for the tab view. */
-  html[data-layout="consolidated"] body.consolidated > #found-wrap, html[data-layout="consolidated"] body.consolidated > #removed-wrap, html[data-layout="consolidated"] body.consolidated > #restart-wrap { display: none; }
+  html[data-layout="consolidated"] body.consolidated > #found-wrap, html[data-layout="consolidated"] body.consolidated > #scan-wrap, html[data-layout="consolidated"] body.consolidated > #removed-wrap, html[data-layout="consolidated"] body.consolidated > #restart-wrap { display: none; }
   /* #867 shipped this as flat, borderless cards "like the mock" -- a
      citation nobody actually checked. The real mock (installkosmos.com/
      consolidated-mock) draws Tasks/Members/Files as white, bordered,
@@ -4647,7 +4647,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   border: 0.5px solid var(--border-strong); border-radius: var(--radius-control);
   padding: 10px 12px; box-sizing: border-box;
   margin-top: var(--space-2); resize: vertical; min-height: 4.5rem; max-height: 16rem;
-  white-space: pre; overflow: auto; }
+  /* #2025: pre-WRAP, not pre. A scanned CLAUDE.md has long instruction lines;
+     `pre` forced a horizontal scrollbar so the person read the file through a
+     letterbox and had to scroll sideways to finish a sentence (Josh, 0.6.25
+     screenshots). Wrapping keeps every line in view; the bounded max-height
+     keeps a long file scrolling in place rather than pushing the Add button off
+     the row. */
+  white-space: pre-wrap; overflow: auto; }
 .fr-scanpreview:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .flabel-soft { font-weight: 400; color: var(--label-2); }
 /* ⚠️ CHIPS THAT WRAP, which is the pack's own rule and which the build had
@@ -13293,6 +13299,13 @@ function showTab(tab) {
        followed a person to Projects, a task, the create form and every
        Settings screen (Josh, 2026-08-24 15:48, with screenshots). */
     document.getElementById('found-wrap').hidden = true;
+    /* #2025: the disk-scan panel (#1938) is the sibling of found-wrap and was
+       never hidden on the way off the Agents tab, so it followed the person to
+       Projects, the create forms and every Settings page (Josh, 2026-09-03,
+       "it appears everywhere"). paintScanBoard only hides it when it runs, and
+       the 5s poll is gated to the Agents tab, so off-tab nothing hid it. Mirror
+       the found-wrap line exactly. */
+    document.getElementById('scan-wrap').hidden = true;
     // ⚠️ And the message with it. It deliberately lives outside the wrap so a
     // repaint cannot erase it -- which also means nothing else hides it, so a
     // sentence about the removed list would otherwise sit under Settings or

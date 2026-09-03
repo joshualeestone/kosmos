@@ -34,7 +34,11 @@ function check(name, pass, detail) {
 /* One named candidate and one that its file does not name. The named one Adds with
    no typed name (connect reads it from the file); the nameless one must be given a
    name before it will connect -- the two arms this panel exists to carry. */
-const NAMED_PREVIEW = 'You are **Site Monitor**, a Watcher.\n\nWatch the site and report.\n';
+/* #2025: the second line is deliberately long. Under the old `white-space: pre`
+   it forced a horizontal scrollbar (the letterbox Josh hit on 0.6.25); under the
+   `pre-wrap` fix it wraps inside the bounded box. The no-horizontal-scroll check
+   below reads FAIL against origin/main and PASS here off exactly this line. */
+const NAMED_PREVIEW = 'You are **Site Monitor**, a Watcher.\n\nWatch the site around the clock and, when it goes down or slows to a crawl, tell the person in plain language what changed and what you already tried before you woke them up about it.\n';
 const NAMELESS_PREVIEW = 'You are the thing that keeps the build green.\n\nRun the pipeline.\n';
 const CANDS = [
   { dir: '/Users/x/work/site-monitor', name: 'Site Monitor', role: 'Watcher', preview: NAMED_PREVIEW },
@@ -107,6 +111,12 @@ const CANDS = [
       dirs: rows.map((r) => r.dataset.foundDir),
       previewValue: preview ? preview.value : null,
       previewReadonly: preview ? preview.readOnly : null,
+      /* #2025 letterbox: the fix is `white-space: pre-wrap`, but the DEFECT is a
+         horizontal scrollbar, so assert the behaviour (no horizontal overflow on
+         a long line) not just the property. Both are read so a failure names the
+         cause. */
+      previewWhiteSpace: preview ? getComputedStyle(preview).whiteSpace : null,
+      previewNoHScroll: preview ? (preview.scrollWidth <= preview.clientWidth + 2) : null,
       namelessHasNameField: Boolean(namelessRow && namelessRow.querySelector('.fr-adoptinput')),
       namedHasNameField: Boolean(namedRow && namedRow.querySelector('.fr-adoptinput')),
       pressable: Boolean(at && at.closest && at.closest('.fr-foundgo') === first),
@@ -124,6 +134,11 @@ const CANDS = [
   check('the preview shows the file content', seen.previewValue === NAMED_PREVIEW,
     JSON.stringify(seen.previewValue));
   check('the preview is read-only', seen.previewReadonly === true);
+  /* #2025: a long instruction line wraps inside the box instead of forcing a
+     horizontal scrollbar, so the person is not reading prose through a letterbox. */
+  check('the preview wraps a long line (no horizontal letterbox)',
+    seen.previewNoHScroll === true && seen.previewWhiteSpace === 'pre-wrap',
+    `whiteSpace=${seen.previewWhiteSpace} noHScroll=${seen.previewNoHScroll}`);
   check('a nameless folder gets a name field', seen.namelessHasNameField);
   check('a named folder does NOT get a name field', !seen.namedHasNameField);
   check('its buttons can be touched', seen.pressable);
@@ -169,6 +184,23 @@ const CANDS = [
   });
   check('Skip declines the folder and offers an undo', skipped.declined && skipped.undoBtn,
     `declined=${skipped.declined} undo=${skipped.undoBtn}`);
+
+  /* #2025: the panel must NOT follow the person off the Agents tab. It was hidden
+     on the way off found-wrap but not scan-wrap, and the 5s poll is gated to the
+     Agents tab, so once shown scan-wrap stayed on Projects and every Settings page
+     ("it appears everywhere", Josh 2026-09-03). This is the tab-SWITCH handler, so
+     it must read hidden immediately -- well under the 5s poll, or the check would
+     be measuring the poll instead of the fix. FAIL against origin/main. */
+  await page.click('[data-tab="settings"]');
+  await page.waitForTimeout(300);
+  const offtab = await page.evaluate(() => {
+    const wrap = document.getElementById('scan-wrap');
+    const bar = document.getElementById('boardbar');
+    return { hidden: wrap ? wrap.hidden : true, onAgentsTab: bar ? !bar.hidden : null };
+  });
+  check('the scan panel hides when you leave the Agents tab',
+    offtab.hidden === true && offtab.onAgentsTab === false,
+    `hidden=${offtab.hidden} onAgentsTab=${offtab.onAgentsTab}`);
 
   check('no page errors', errors.length === 0, errors.join(' | '));
 
