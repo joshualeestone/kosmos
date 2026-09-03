@@ -24,7 +24,7 @@
  *     That holds only if both waiters rename at the same instant. A deschedule
  *     between the stat that measured staleness and the rename lets the OTHER waiter
  *     complete a full steal and re-acquire a FRESH LIVE lock at the path first;
- *     `rename` then moves that live lock aside and SUCCEEDS, and both proceed — the
+ *     `rename` then moves that live lock aside and SUCCEEDS, and both proceed, the
  *     same double-entry `rmdir` had. So the stat captures the lock's mtime, and
  *     after the rename we confirm the moved dir carries that mtime; since staleness
  *     is itself an mtime bound, a stolen-stale lock's mtime is >LOCK_STALE_MS old
@@ -126,8 +126,9 @@ function withFileLock(file, fn, opts = {}) {
           // rather than proceed beside its holder. Restoring is what makes the
           // re-wait safe: leaving `lock` empty would let our own next `mkdirSync`
           // acquire it and double-enter anyway. If the path was re-occupied in the
-          // meantime the restore throws; the moved dir is then an inert `.stale`
-          // leftover the staleness rule collects, and we re-wait regardless.
+          // meantime the restore throws; the moved dir is then a `.stale`-suffixed
+          // leftover no reader matches (nothing enumerates `.stale` files, so it is
+          // not auto-collected, only inert), and we re-wait regardless.
           // The restore does open a narrow new window -- between moving the live
           // lock aside and putting it back, a THIRD process could `mkdir(lock)` and
           // enter beside its holder. That is strictly smaller than what it replaces:
@@ -135,7 +136,7 @@ function withFileLock(file, fn, opts = {}) {
           // whenever the deschedule happens; with it, a third double-entry needs the
           // deschedule AND a sub-millisecond third-process mkdir landing in the gap.
           // A conditional-rename syscall would close it, but POSIX has none.
-          try { fs.renameSync(aside, lock); } catch { /* path re-occupied; leave the leftover for the staleness rule */ }
+          try { fs.renameSync(aside, lock); } catch { /* path re-occupied; leave the inert `.stale` leftover in place */ }
           pauseMs(LOCK_SPIN_MS);
           continue;
         }
