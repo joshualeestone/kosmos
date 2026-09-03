@@ -9628,7 +9628,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <h3 class="dlab">Auto-save</h3>
       <div class="field" style="margin-top:14px;">
         <label class="flabel" for="ah-enabled">Save your agents' progress</label>
-        <div class="fhint">When an agent's context is nearly full, Kosmos asks it to write its progress to a file, so a long piece of work is not lost as it reaches the limit. Off by default.</div>
+        <div class="fhint">When an agent's context is nearly full, Kosmos asks it to write its progress to a file, so a long piece of work is not lost as it reaches the limit. On by default.</div>
         <div class="frow" style="align-items:center; gap:10px;">
           <input type="checkbox" id="ah-enabled">
           <label for="ah-enabled" style="margin:0;">Ask agents to save their progress as their context fills</label>
@@ -9650,8 +9650,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <section class="dbox">
       <!-- #1722 (Josh, 2026-08-31): a heartbeat that checks which agents are
            working and asks you to chase anyone that has stopped. The later
-           addition the auto-save control above (#1724) reserved a slot for. Off
-           by default; the interval is adjustable. This is wired: the runner is
+           addition the auto-save control above (#1724) reserved a slot for. On
+           by default (#2013); the interval is adjustable. This is wired: the runner is
            live (server.js), so the control is not a dead toggle. -->
       <!-- #1843 (Josh, #admin 2026-09-02 07:12): the user-facing name is now
            "Prompter", so Settings > Automation reads as two named features a
@@ -9665,7 +9665,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <h3 class="dlab">Prompter</h3>
       <div class="field" style="margin-top:14px;">
         <label class="flabel" for="hb-enabled">Check on your agents</label>
-        <div class="fhint">Every so often, Kosmos looks at which of your agents are working and asks you to check on any that have stopped. It asks a question, never assumes, because an agent may be mid-something. Off by default.</div>
+        <div class="fhint">Every so often, Kosmos looks at which of your agents are working and asks you to check on any that have stopped. It asks a question, never assumes, because an agent may be mid-something. On by default.</div>
         <div class="frow" style="align-items:center; gap:10px;">
           <input type="checkbox" id="hb-enabled">
           <label for="hb-enabled" style="margin:0;">Ask me to check on any agent that has stopped</label>
@@ -10158,6 +10158,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <div class="stat alert" id="st-attn-tile" hidden>
       <span class="haz" aria-hidden="true">!</span>
       <b id="st-attn" data-count="attn">0</b><span class="slab">Needs you</span>
+    </div>
+    <!-- #1898: of the "Needs you" above, the ones that named NO project. A
+         needs_you without a project lights no project tile, so a person scanning
+         the Projects board never sees it; this is where the omission is caught.
+         🔑 A DRILL-DOWN OF THE RED TILE, NOT A NEW STATE. It is a SUBSET of
+         "Needs you", so it does not enter the Working + Idle + Needs you = Agents
+         arithmetic, and it sits immediately after its parent tile. Hidden at zero
+         exactly as its parent is, so a healthy board (and the common case where
+         every question named its project) is unchanged and it only appears when
+         there is an omission to catch. The count is `counts.needsYouUnattributed`
+         from /api/status (engine/status.js countAgents), the fleet subset the
+         per-project engine/projects.js `needsYouUnattributed` mirrors. -->
+    <div class="stat alert" id="st-attn-noproj-tile" hidden title="Agents that need you but named no project">
+      <span class="haz" aria-hidden="true">!</span>
+      <b id="st-attn-noproj" data-count="attn-noproj">0</b><span class="slab">No project</span>
     </div>
   </div>
   <div class="viewtoggle" role="group" aria-label="How to show agents" data-scope="agents">
@@ -12859,6 +12874,13 @@ async function tick() {
        and the cards, which is where a stopped agent is read. */
     document.getElementById('st-attn').textContent = String(c.needsYou || 0);
     document.getElementById('st-attn-tile').hidden = !c.needsYou;
+    /* #1898: the no-project subset of "Needs you". Same hide-at-zero grammar as
+       its parent tile above, so it appears only when an agent needs you AND named
+       no project -- the case that lights no project tile and is otherwise caught
+       only on the agent's own card. `needsYouUnattributed` is served on the
+       /api/status counts alongside `needsYou`. */
+    document.getElementById('st-attn-noproj').textContent = String(c.needsYouUnattributed || 0);
+    document.getElementById('st-attn-noproj-tile').hidden = !c.needsYouUnattributed;
     /* #734 (Josh, 2026-08-24 21:08: "remove this text at the top and make
        sure that it's not open for other things to populate into"): the loose
        line under the counts is gone and so is its slot. The facts it carried
@@ -13033,6 +13055,10 @@ async function tick() {
        change than this one (Mona Lisa raised it; recorded, not half-built). */
     document.getElementById('st-attn').textContent = '?';
     document.getElementById('st-attn-tile').hidden = true;
+    /* #1898: blank the no-project drill-down on a failed poll too, so a stale
+       count from the last good tick cannot linger beside a `?`. */
+    document.getElementById('st-attn-noproj').textContent = '?';
+    document.getElementById('st-attn-noproj-tile').hidden = true;
     /* The residual summary is a claim from the last successful tick (or the
        boot "Loading…"): "N we could not read" beside the failure card is a
        count this poll cannot stand behind -- the same rule as the tiles
@@ -13387,7 +13413,7 @@ document.getElementById('you-tz-save').addEventListener('click', async () => {
   }
 });
 /* #1724: the auto-handoff control in Settings > Automation. Loads the stored
-   setting (off/85 by default) and saves {enabled, threshold} to /api/settings. */
+   setting (on/85 by default, #2013) and saves {enabled, threshold} to /api/settings. */
 async function paintAutomation() {
   const en = document.getElementById('ah-enabled');
   const th = document.getElementById('ah-threshold');
@@ -13395,7 +13421,7 @@ async function paintAutomation() {
   const msg = document.getElementById('ah-msg');
   try {
     const r = await (await fetch('/api/settings', { cache: 'no-store' })).json();
-    const a = (r && r.autohandoff) || { enabled: false, threshold: 85 };
+    const a = (r && r.autohandoff) || { enabled: true, threshold: 85 };
     if (document.activeElement !== en) en.checked = a.enabled === true;
     if (document.activeElement !== th) th.value = String(a.threshold || 85);
     /* #1724: the sweep (engine/autohandoff-sweep.js, wired in server.js) now acts on
@@ -13433,7 +13459,7 @@ document.getElementById('ah-save').addEventListener('click', async () => {
   }
 });
 /* #1722: the heartbeat control in Settings > Automation, a later addition to the
-   section #1724 created. Reads the in-force setting (off/17 by default; the runner
+   section #1724 created. Reads the in-force setting (on/17 by default, #2013; the runner
    reads the same file, so read == in force) and saves {on, intervalMinutes} to PUT
    /api/heartbeat-setting. The interval choices are rendered from the server so the
    select and the engine cannot disagree about what is valid (same shape as the

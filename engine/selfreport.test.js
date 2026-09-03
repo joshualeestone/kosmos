@@ -62,11 +62,83 @@ test('one corrupt line does not eat the record, and an unknown-state line is ski
   assert.equal(back.because, 'finished');
 });
 
-test('fields are capped and flattened: a report is a sentence, not a transcript dump', () => {
-  selfreport.record('krang-discord', { state: 'working', because: 'a\nb\tc\r' + 'x'.repeat(5000) });
+test('#1996: because KEEPS paragraph breaks; single-value fields stay flattened; the cap holds', () => {
+  // K-13 residual: `because` used to have its newlines flattened to spaces at the
+  // store, undoing #1927's paragraph-break goal. It now preserves internal \n while
+  // still normalising CR->LF and tab->space (a stored sentence is not tab layout).
+  // The single-value fields (on/owner/until/project/instance) must STILL flatten -
+  // a newline in `on` would be a display/injection hazard, not a paragraph.
+  selfreport.record('krang-discord', { state: 'working', because: 'line one\nline two\tafter tab\rcarriage' + 'x'.repeat(5000), on: 'p\nq\tr', owner: 'a\nb\tc' });
   const back = selfreport.read('krang-discord');
-  assert.ok(back.because.length <= 1000);
-  assert.ok(!/[\n\t\r]/.test(back.because), 'newlines survived into a single-line record');
+  assert.ok(back.because.includes('\n'), 'the paragraph break in because was flattened (K-13 not fixed)');
+  assert.ok(!/[\t\r]/.test(back.because), 'a tab or carriage return survived into because');
+  // the 5000-char input guarantees truncation, so assert the cap ENGAGED at exactly
+  // the boundary, not merely that the result is under it.
+  assert.equal(back.because.length, 1000, 'the because cap did not engage at exactly 1000');
+  // single-value fields still flatten ALL whitespace - assert two of them directly,
+  // not just one, since a newline in any of them is a display/injection hazard.
+  assert.ok(!/[\n\t\r]/.test(back.on), 'a single-value field (on) kept whitespace it should flatten');
+  assert.ok(!/[\n\t\r]/.test(back.owner), 'a single-value field (owner) kept whitespace it should flatten');
+});
+
+/* #1996: the two "a person is the blocker" states must carry a reason, and the
+   STORED record must carry the text. Every assertion below reads the STORED VALUE
+   (selfreport.read), never the exit code: an empty string that round-trips as
+   success passes every status check, which is the silent-discard shape this card
+   exists to close. */
+test('#1996: needs_you with an empty reason is REFUSED, and nothing is stored', () => {
+  const who = 'empty-needs-you';
+  for (const because of [undefined, '', '   ', '\n\t ']) {
+    const got = selfreport.record(who, { state: 'needs_you', because });
+    assert.equal(got.recorded, false, 'a reasonless needs_you recorded success: ' + JSON.stringify(because));
+    assert.match(got.because, /needs at least one of/);
+  }
+  assert.equal(selfreport.read(who).found, false, 'a refused needs_you still left a stored record');
+});
+
+test('#1996: blocked with an empty reason is REFUSED (same WAITING_ON_A_PERSON rule)', () => {
+  const got = selfreport.record('empty-blocked', { state: 'blocked', because: '   ' });
+  assert.equal(got.recorded, false);
+  assert.match(got.because, /needs at least one of/);
+  assert.equal(selfreport.read('empty-blocked').found, false);
+});
+
+test('#1996 CONTROL: blocked with --on (or --owner) but NO note is ACCEPTED (matches #2001, not stricter)', () => {
+  // The server rule must mirror #2001's CLI rule exactly: actionable content is a
+  // note OR --on OR --owner, not the note alone. A server stricter than the CLI
+  // would reject a report the CLI just approved. This control fails if the guard
+  // is narrowed to "requires a note".
+  const a = selfreport.record('blocked-with-on', { state: 'blocked', on: 'the deploy pipeline' });
+  assert.equal(a.recorded, true, 'blocked --on with no note was refused (server stricter than #2001)');
+  assert.equal(selfreport.read('blocked-with-on').on, 'the deploy pipeline');
+  const b = selfreport.record('needs-with-owner', { state: 'needs_you', owner: 'Josh' });
+  assert.equal(b.recorded, true, 'needs_you --owner with no note was refused');
+  assert.equal(selfreport.read('needs-with-owner').owner, 'Josh');
+});
+
+test('#1996: needs_you WITH a reason succeeds and the STORED record carries the reason', () => {
+  const who = 'good-needs-you';
+  const reason = 'I need Josh to approve the deploy';
+  assert.equal(selfreport.record(who, { state: 'needs_you', because: reason }).recorded, true);
+  const back = selfreport.read(who);
+  assert.equal(back.state, 'needs_you');
+  assert.equal(back.because, reason, 'the reason was accepted but not stored (silent discard)');
+});
+
+test('#1996: a multi-line reason round-trips with its paragraph break intact (K-13)', () => {
+  const who = 'multiline-reason';
+  const reason = 'first paragraph\n\nsecond paragraph';
+  assert.equal(selfreport.record(who, { state: 'blocked', because: reason }).recorded, true);
+  assert.equal(selfreport.read(who).because, reason, 'the newline was flattened in the stored record');
+});
+
+test('#1996: the other four states keep because OPTIONAL (a bare working heartbeat records)', () => {
+  const who = 'bare-working';
+  assert.equal(selfreport.record(who, { state: 'working' }).recorded, true);
+  assert.equal(selfreport.read(who).because, null, 'a bare working report should store no note');
+  // an explicitly empty note on a non-waiting state is fine too - not the acute case
+  assert.equal(selfreport.record(who, { state: 'idle', because: '' }).recorded, true);
+  assert.equal(selfreport.record(who, { state: 'stopped' }).recorded, true);
 });
 
 test('a name that cannot key a file refuses in a sentence rather than throwing', () => {
@@ -97,12 +169,12 @@ test('#763: a report names its project; a later report without one inherits it; 
   assert.equal(q.project, 'p-christmas', 'a question that names no project is about the project the agent last said it was on');
   assert.equal(q.projectInferred, true, 'and the reading admits the project was carried forward, not stated');
   assert.equal(selfreport.read(who).projectInferred, true);
-  assert.equal(selfreport.record(who, { state: 'needs_you', project: 'p-other' }).recorded, true);
+  assert.equal(selfreport.record(who, { state: 'needs_you', project: 'p-other', because: 'a hand, please' }).recorded, true); // #1996: needs_you needs a reason; incidental here
   assert.equal(selfreport.read(who).project, 'p-other', 'a report that names a project moves the agent to it');
   assert.equal(selfreport.read(who).projectInferred, false, 'stated by this report');
   assert.equal(selfreport.record(who, { state: 'stopped' }).recorded, true);
   assert.equal(selfreport.read(who).project, null, 'nothing from a previous run may leak into the next');
-  assert.equal(selfreport.record(who, { state: 'needs_you' }).recorded, true);
+  assert.equal(selfreport.record(who, { state: 'needs_you', because: 'a hand, please' }).recorded, true); // #1996: needs_you needs a reason; incidental to this #763 test
   assert.equal(selfreport.read(who).project, null, 'after a stop, a question with no project is unattributed');
   assert.equal(selfreport.read(who).projectInferred, false, 'nothing to infer from');
 });
@@ -126,7 +198,7 @@ test('#763: a naming row that fell off the tail read fails safe: no project, not
   assert.equal(selfreport.record(who, { state: 'working', project: 'p-far' }).recorded, true);
   const rows = Math.ceil(selfreport.TAIL_BYTES / 60) + 5;
   for (let i = 0; i < rows; i++) selfreport.record(who, { state: 'working' });
-  assert.equal(selfreport.record(who, { state: 'needs_you' }).recorded, true);
+  assert.equal(selfreport.record(who, { state: 'needs_you', because: 'a hand, please' }).recorded, true); // #1996: needs_you needs a reason; incidental to this #763 test
   const back = selfreport.read(who);
   assert.equal(back.state, 'needs_you');
   assert.equal(back.project, null, 'the naming row is outside the tail; the reading must not guess');
@@ -137,7 +209,9 @@ test('#763: started --project X begins the run on X (the clear runs first, then 
   const who = 'rae-discord';
   assert.equal(selfreport.record(who, { state: 'working', project: 'p-old' }).recorded, true);
   assert.equal(selfreport.record(who, { state: 'started', project: 'p-new' }).recorded, true);
-  assert.equal(selfreport.record(who, { state: 'needs_you' }).recorded, true);
+  // #1996: needs_you now requires a reason; this test is about #763 project
+  // carry-forward, so give it one (the empty reason was incidental here).
+  assert.equal(selfreport.record(who, { state: 'needs_you', because: 'a hand, please' }).recorded, true);
   const back = selfreport.read(who);
   assert.equal(back.project, 'p-new', 'a start that names its project is not discarded');
   assert.equal(back.projectInferred, true);

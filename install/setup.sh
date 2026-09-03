@@ -3184,6 +3184,43 @@ else
   fi
 fi
 
+# ---- #2028: make a skipped/failed app-bundle write VISIBLE ------------------
+# APP_MADE=no means make_app did not (re)write the bundle this run: it was
+# skipped (APP_SKIP_ICON -- e.g. an aliased Applications folder), diverted
+# (APP_HOME_FOREIGN), or failed. On an UPDATE that leaves the PREVIOUS bundle in
+# place, which is latent until the engine requires something only a newer bundle
+# supports -- exactly what board-token enforcement did (#1946/#1972): an app
+# older than tokenizedBoardURL cannot authenticate, so a machine that had ever
+# skipped make_app is locked out of its own board by an update it accepted.
+# Before this, the skip was reported only as "no icon", which reads as cosmetic.
+#
+# This block is deliberately keyed on the GENERAL condition (APP_MADE != yes on
+# an update), not on any one arm, so it is correct whichever arm fired -- the
+# stale bundle is the defect either way and the remedy does not change (#2028).
+#
+# (1) A greppable marker in the LOG on EVERY run (not the terminal), recording
+# the actual outcome and reason, so "which arm fired" is answerable from the log
+# alone next time, without needing the affected machine (#2028's part 1). Direct
+# append: $LOG exists and is written by here (the tee at ~1013). errexit-guarded.
+# The `{ ...; } 2>/dev/null` groups the redirect so that a FAILED append-open
+# (e.g. the logs dir gone) is itself suppressed -- a bare `printf >> "$LOG"
+# 2>/dev/null` does NOT catch the shell's own redirect-open error. `|| true`
+# keeps errexit from aborting the install over a diagnostic line.
+{ printf '[%s] app-bundle: made=%s skip_icon=%s skip_reason=%s fresh_install=%s sys_stale=%s sys_failed=%s home_foreign=%s\n' \
+  "$$" "$APP_MADE" "$APP_SKIP_ICON" "${APP_SKIP_REASON:-none}" "$FRESH_INSTALL" \
+  "${APP_SYS_STALE:-no}" "${APP_SYS_FAILED:-no}" "${APP_HOME_FOREIGN:-no}" \
+  >> "$LOG"; } 2>/dev/null || true
+# (2) On an UPDATE that did not rewrite the bundle, route the operator to the
+# reliable open path rather than a relaunch. This never ASSERTS the app is stale
+# (it may not be); it routes around the possibility, and is correct on every
+# not-made arm. Aligned with the standing #2023 rule: do NOT offer "relaunch the
+# app" as a remedy -- it is measured-unreliable. Gated to updates (a fresh
+# install has no previous bundle to be stale, and its own open already fired).
+if [ "$FRESH_INSTALL" = "no" ] && [ "$APP_MADE" != "yes" ]; then
+  info "note: this update did not refresh the Kosmos app itself. If the app opens to an"
+  info "empty dashboard, open Kosmos from your browser, or run: kosmos open"
+fi
+
 # ---- the permission acceptance (#46, Josh's ruling 2026-08-17) --------------
 # Agents run Claude Code with permission prompts skipped; the FIRST such run
 # on a machine shows Claude Code's own full-screen acceptance wall, and an

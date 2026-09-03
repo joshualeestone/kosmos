@@ -4696,6 +4696,14 @@ function countAgents(agents, unreadableLines, unreadableSamples) {
   return {
     total: agents.length,
     needsYou: agents.filter((a) => a.state === STATE.NEEDS_YOU).length,
+    /* #1898: of those needs_you, how many named NO project (`stateProject`
+       null). A needs_you without `--project` lights no project tile, so it is
+       the easy-to-miss case a person scanning the Projects board never sees; the
+       Agents-page tile that reads this makes the omission legible. Fleet-level
+       and computed over the same (removed-agents-filtered) board as `needsYou`,
+       so it is a subset of that count -- the per-project `needsYouUnattributed`
+       in engine/projects.js is the same idea scoped to a project's members. */
+    needsYouUnattributed: agents.filter((a) => a.state === STATE.NEEDS_YOU && a.stateProject === null).length,
     unknown: agents.filter((a) => a.state === STATE.UNKNOWN).length,
     /* ⚠️ "we tried to read a transcript and could not", which is why a
        paneless agent is not counted here. Its context is absent by
