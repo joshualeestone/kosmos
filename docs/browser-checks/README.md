@@ -152,6 +152,7 @@ one invented by somebody who did not write them.
 | `render-openai-step.js` | The OpenAI install step at parity with Claude's, with an honest indicator (#1205) |
 | `render-openai-key-step.js` | The OpenAI key step in its approved box, sizes matched, link not colliding (#1207) |
 | `render-found-board.js` | The board's panel for agents on this Mac that Kosmos is not looking after |
+| `render-scan-board.js` | The board's disk-scan panel (#1938): agents on this computer Kosmos has no record of Claude ever running in, found by walking the disk for CLAUDE.md files |
 | `render-found-undo.js` | Add and Undo on the found-agents row, pressed for real in a browser |
 | `render-connect-skip.js` | The predicate that gates the 281MB confirm says skip when Claude already runs and ask when the launcher does not. Reads `frClaudeInstallNeeded()`, does not click. Needs TWO boards booted WITHOUT dry-run (#1573) |
 | `render-full-width.js` | The board, settings and create form at 1760px: one row lining up with another (#286, #287) |

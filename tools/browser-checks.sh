@@ -978,6 +978,9 @@ if boot_board "$sb7" "$P8"; then
   run_one "named-controls"      env KOSMOS_URL="$B8" node docs/browser-checks/named-controls.js
   run_one "render-create-form"  node docs/browser-checks/render-create-form.js "$B8"
   run_one "render-found-undo"   node docs/browser-checks/render-found-undo.js "$B8"
+  # #1938: the disk-scan board panel. Same board as render-found-undo (first-run
+  # complete, agents tab); it mocks its own /api/scan-agents + connect + decline routes.
+  run_one "render-scan-board"   node docs/browser-checks/render-scan-board.js "$B8"
   run_one "render-made-endings" node docs/browser-checks/render-made-endings.js "$B8"
   run_one "render-rename-say"   node docs/browser-checks/render-rename-say.js "$B8"
   run_one "render-role-limit"   node docs/browser-checks/render-role-limit.js "$B8"

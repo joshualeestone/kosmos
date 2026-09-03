@@ -5116,6 +5116,21 @@ function firstRunHarness(name, state, opts = {}) {
     let FR_FOUND_GEN = 0;
     let FR_STEP = 6;   // the fleet screen is the LAST step, not the machine check
     function frFindAgents() {}
+    /* #1938: the DISK SCAN, first run's side. Like FR_FOUND, null means "not looked
+       yet" -- the create ending then paints "Looking for agents already here" and
+       returns. The default is an ANSWER (loaded, empty), so every pre-#1938 ending
+       assertion reads the same branch it always did; a caller that wants the scan
+       offer or the looking state passes FR_SCAN explicitly. frScanOffer is the REAL
+       function (a pure read of FR_SCAN); frScanAgents and frPaintScan are stubbed, as
+       frFindAgents and (for non-frPaintFound targets) frPaintFound are.
+       ⚠️ THIS HARNESS LIFTS frPaintFleet OUT OF ITS MODULE and cannot see an
+       integration defect; the wired scan behaviour is covered by
+       docs/browser-checks/render-scan-board.js and render-first-run.js. */
+    let FR_SCAN = ${JSON.stringify(state.FR_SCAN === undefined ? { ok: true, candidates: [] } : state.FR_SCAN)};
+    let FR_SCAN_GEN = 0;
+    function frScanAgents() {}
+    const frScanOffer = ${pageFunction('frScanOffer').toString()};
+    ${name === 'frPaintScan' ? '' : 'function frPaintScan() {}'}
     /* frPaintSubscription closes the install confirm on every repaint, so a
        verdict flipping to connected while the panel is open cannot leave a live
        Confirm sitting under a green Connected button. Stubbed here because this

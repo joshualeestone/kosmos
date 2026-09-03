@@ -4014,6 +4014,39 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /**
+   * The DISK SCAN: agents on this computer that `/api/found-agents` cannot reach
+   * (#1938). Complementary to it -- `found()` owns every folder Claude has a record
+   * of, this walks a bounded set of sensible roots for `CLAUDE.md` files it does not,
+   * and returns each candidate WITH the file's first bytes so the screen can SHOW it
+   * and ask "is this one of yours?" rather than assert.
+   *
+   * ⚠️ READ-ONLY, GET. It reads files and reports; it starts, writes and connects
+   * nothing. Adding a scanned agent goes through the same `/api/connect-agent` the
+   * found rows use, and skipping one through `/api/found-agents/decline`.
+   *
+   * 🛑 EVERY BOUND IS IN THE ENGINE, NOT HERE (`discover.scan`): a fixed root set,
+   * per-root depth, a directory-visit cap, a candidate cap, a per-file byte cap, no
+   * symlink escape, and the same sandbox refusal `configRoots` applies. The route
+   * only surfaces the answer.
+   */
+  if (pathname === '/api/scan-agents' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let out;
+    try { out = discover.scan(); }
+    catch (err) {
+      /* Never 500s for a state question, the same contract /api/found-agents keeps:
+         "we could not look" is an ANSWER the screen can render. */
+      sendJson(res, 200, { ok: false, candidates: [],
+        because: 'we could not scan this computer for agents',
+        detail: String((err && err.message) || err) });
+      return;
+    }
+    /* Whether the person sent the found-agents block away for good is carried here
+       too, so the scan screen honours the same "forever" the board does. */
+    sendJson(res, 200, { ...out, dismissed: discover.dismissed() });
+    return;
+  }
+
   /* "Dismiss this forever": remembered on disk, behind the same cross-site
      guard as every other write. There is no route back on purpose; the word
      Josh chose was forever, and the confirmation on the board says so. */
