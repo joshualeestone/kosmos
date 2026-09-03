@@ -55,6 +55,22 @@ out="$(KOSMOS_FAKE_LOAD=20 KOSMOS_CUT_MAX_LOAD=10 kosmos_gate_or_abort "step G" 
 printf '%s\n' "$out" | grep -q "aborting the cut" && ok "gate_or_abort narrates the LOAD-attributed abort (not a test-red)" \
   || bad "gate_or_abort narration missing 'aborting the cut'"
 
+# --- LIVE parse (no fake seam), so a wrong-field regression is caught, not only the fake path.
+# kosmos_box_load_1min must extract sysctl's 1-min field (2), never the `{` or the 5-min load. ---
+live_load="$(kosmos_box_load_1min)"
+printf '%s' "$live_load" | grep -qE '^[0-9]+(\.[0-9]+)?$' \
+  && ok "kosmos_box_load_1min returns a numeric 1-min load from live sysctl ($live_load)" \
+  || bad "kosmos_box_load_1min live parse is non-numeric: [$live_load]"
+sys1="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
+[ -n "$sys1" ] && [ "$live_load" = "$sys1" ] \
+  && ok "the live 1-min load matches sysctl's field 2 directly (guards the field index)" \
+  || bad "live load [$live_load] != sysctl field 2 [$sys1]"
+# kosmos_top_cpu_consumers must skip the ps header row (never emit the PID/COMMAND line).
+top="$(kosmos_top_cpu_consumers 2)"
+printf '%s\n' "$top" | grep -qE '^[[:space:]]*PID' \
+  && bad "kosmos_top_cpu_consumers leaked the ps header row" \
+  || ok "kosmos_top_cpu_consumers skips the ps header (no PID row in its output)"
+
 # --- wait: saturated THEN quiets after a poll -> 0 (exercises the re-check loop) ---
 # Override the load reader to return 20 on the first read and 5 after, via a counter.
 CF="$WORK/loadcount"; echo 0 > "$CF"

@@ -65,9 +65,20 @@ This is the concurrent-LOAD half. It does not reap abandoned background work (th
 rerun). The three compose: #2018 keeps abandoned load from accumulating, this waits for a
 quiet box before gating, and #2006 handles the suite's own-parallelism contention.
 
+**Known residual (safe-direction, deliberate):** the gate fires ONCE at the phase entry,
+so a heavy EXTERNAL job that STARTS during step 3 can still saturate the box by step 3b,
+which is not re-checked. This is accepted rather than fixed with a naive pre-3b wait,
+because at 3b the 1-min load is dominated by the cut's own just-finished parallel suite, so
+a re-check would false-WAIT on the cut's own residual, not external load. The residual is
+only ever a false-RED at 3b (a wasted cut), never a false-green (load makes only false
+reds), so it is an honest partial fix, not a regression. The incident this card was filed
+for -- leftover load present from the cut's start -- IS covered by the entry gate. A
+foreign-load check at 3b (measuring load minus the cut's own process tree) is a possible
+follow-up if mid-cut external load proves a real problem.
+
 ## Test
 
-`tools/test-cut-load-guard.sh` (wired into `test:shell`): 16 assertions -- threshold
+`tools/test-cut-load-guard.sh` (wired into `test:shell`): 19 assertions -- threshold
 (default + override), the float compare (over / not / fail-open), the wait's three paths
 (quiet-immediately, persistent-saturation timeout with load attribution, and
 saturated-then-quiets-after-a-poll via a load-reader override), `kosmos_gate_or_abort`
@@ -77,7 +88,7 @@ direct set -euo pipefail caller returns cleanly).
 
 ## Validation
 
-- `bash tools/test-cut-load-guard.sh` -> ALL PASS (16).
+- `bash tools/test-cut-load-guard.sh` -> ALL PASS (19).
 - `bash -n` clean on the lib and release.sh.
 - No `web/` change (no #1720 gate); added a `test-*.sh` not a `*.test.js` (the #1934
   node-coverage count is unaffected); no node engine change.
