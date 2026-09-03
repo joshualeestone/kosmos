@@ -28,6 +28,7 @@ process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const { start, server, boardAuthState } = require('./server');
+const boardauth = require('./engine/boardauth'); // #2030: same singleton the server uses, so reauthMarkerPath() resolves to the sandbox store.ROOT.
 
 const TOK = 'BOARDNONCE_test_0123456789abcdef';
 let base;
@@ -87,6 +88,35 @@ test('a nonce is SINGLE-USE: the same ?boot= a second time does not bootstrap', 
 test('a garbage ?boot= does not bootstrap (and does not leak whether a nonce existed)', async () => {
   const r = await nav('/?boot=not-a-real-nonce');
   assert.notEqual(r.code, 302, 'an unknown nonce is not a bootstrap');
+});
+
+test('#2030: a ?boot= REDEMPTION seeds the reauth marker; a ?token= bootstrap and a garbage boot do NOT', async () => {
+  const marker = boardauth.reauthMarkerPath();
+  const clean = () => { try { fs.rmSync(marker, { force: true }); } catch { /* best effort */ } };
+
+  // The whole point: the #2023 repair marker is written server-side the moment a
+  // nonce is truly REDEEMED, not by setup.sh when an open is merely dispatched.
+  clean();
+  assert.equal(fs.existsSync(marker), false, 'precondition: no marker before redemption');
+  const m = await mint({ 'x-kosmos-board-token': TOK });
+  const r = await nav(`/?first-run=1&boot=${m.nonce}`);
+  assert.equal(r.code, 302, 'precondition: the boot nonce redeemed');
+  assert.equal(fs.existsSync(marker), true, 'a ?boot= redemption must seed the reauth marker (the #2023 repair signal, moved here from setup.sh dispatch)');
+
+  // A ?token= bootstrap sets the SAME cookie but is not a redemption -> must NOT
+  // seed, or a durable-token bookmark would mark a machine done without proving its
+  // browser navigated (the exact false-done #2030 removes).
+  clean();
+  const t = await nav(`/?token=${TOK}`);
+  assert.equal(t.code, 302, 'precondition: the ?token= bootstrapped');
+  assert.equal(fs.existsSync(marker), false, 'a ?token= bootstrap must NOT seed the marker -- only a real redemption does');
+
+  // A failed/garbage boot never navigated, so it must not seed (the self-healing
+  // property: an un-redeemed machine stays unseeded and retries next update).
+  clean();
+  await nav('/?boot=not-a-real-nonce');
+  assert.equal(fs.existsSync(marker), false, 'a garbage boot must not seed the marker');
+  clean();
 });
 
 test('the durable ?token= path still works (back-compat for a bookmarked/manual URL)', async () => {

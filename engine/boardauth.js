@@ -42,6 +42,10 @@ const sandbox = require('./sandbox');
 const store = require('./store');
 
 const TOKEN_FILE = 'board.token';
+// #2030: the marker whose ABSENCE tells install/setup.sh to open the browser once
+// on an enforcing update (the #2023 board-auth repair). Written on a successful
+// `?boot=` REDEMPTION (see seedReauthMarker / bootstrap), never at dispatch.
+const REAUTH_SEEDED_FILE = '.reauth-seeded';
 const COOKIE_NAME = 'kosmos_board';
 const HEADER_NAME = 'x-kosmos-board-token';
 
@@ -84,6 +88,43 @@ function enforced(env) {
  */
 function tokenPath() {
   return path.join(store.ROOT, TOKEN_FILE);
+}
+
+/**
+ * #2030: the reauth-seeded marker path, same `store.ROOT` source of truth as
+ * tokenPath() (and the same path install/setup.sh reads to decide whether to open).
+ */
+function reauthMarkerPath() {
+  return path.join(store.ROOT, REAUTH_SEEDED_FILE);
+}
+
+/**
+ * #2030: ensure the reauth-seeded marker exists, called on a successful `?boot=`
+ * nonce REDEMPTION rather than by setup.sh at dispatch. Dispatch is not redemption:
+ * setup.sh cannot see whether the browser actually navigated and took the cookie,
+ * so seeding there marked machines done whose board still 403s. Writing it only when
+ * a nonce is truly redeemed makes the #2023 repair self-healing -- a machine whose
+ * browser never navigated stays unseeded and retries the auto-open on the next
+ * update until it works, while a machine that DID redeem is seeded exactly once (by
+ * the redeemer) and never re-opens.
+ *
+ * Idempotent, BEST-EFFORT and NON-GATING: by the time this runs the browser has
+ * already been handed the durable cookie, so a failed marker write must never fail
+ * the redemption -- its only cost is one more harmless tab on a later update.
+ * Returns true if the marker exists after the call, false if the write failed.
+ */
+function seedReauthMarker() {
+  try {
+    // store.ROOT exists on any enforcing board (it holds board.token), so the
+    // mkdir is a no-op in prod; it is here only so the marker still lands if the
+    // dir is somehow absent, rather than silently failing the one write that
+    // decides whether a later update re-opens.
+    fs.mkdirSync(store.ROOT, { recursive: true });
+    fs.writeFileSync(reauthMarkerPath(), '');
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** A fresh 256-bit token as hex. */
@@ -347,7 +388,11 @@ function bootstrap({ token, req, routingBase, method }) {
      most once per request (the dispatch calls bootstrap once). */
   const boot = bootNonce(req, routingBase);
   if (boot && redeemNonce(boot)) {
-    return { location: pathWithoutParam(req, routingBase, 'boot'), setCookie: cookieHeader(token) };
+    /* #2030: `viaBootNonce` tells the caller THIS was a real nonce redemption (the
+       browser navigated and is taking the durable cookie), which is the point to
+       seed the #2023 reauth marker -- distinct from a `?token=` bootstrap below,
+       which does not seed. `bootstrap` stays PURE; the caller does the write. */
+    return { location: pathWithoutParam(req, routingBase, 'boot'), setCookie: cookieHeader(token), viaBootNonce: true };
   }
   const q = queryToken(req, routingBase);
   if (!q || !matches(q, token)) return null;    // no/invalid query token -> not a bootstrap
@@ -370,4 +415,6 @@ module.exports = {
   pathWithoutParam, bootstrap, tokenOk, COOKIE_NAME, HEADER_NAME,
   // #1979: single-use browser-open nonces.
   mintNonce, redeemNonce, bootNonce, _setNonceClock,
+  // #2030: reauth-seeded marker, written on `?boot=` redemption not at dispatch.
+  reauthMarkerPath, seedReauthMarker, REAUTH_SEEDED_FILE,
 };

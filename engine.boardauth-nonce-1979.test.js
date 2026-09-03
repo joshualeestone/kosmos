@@ -74,6 +74,21 @@ test('#1979: bootstrap redeems a valid ?boot= for the cookie, strips boot, and i
   });
 });
 
+test('#2030: a ?boot= redemption is flagged viaBootNonce (so the caller seeds the reauth marker); a ?token= bootstrap is NOT', () => {
+  withClock(() => {
+    const n = boardauth.mintNonce();
+    const viaBoot = boardauth.bootstrap({ token: 'TOK', req: { url: `/?boot=${n}`, headers: {} }, routingBase: 'http://localhost', method: 'GET' });
+    assert.ok(viaBoot, 'a valid ?boot= must bootstrap');
+    assert.equal(viaBoot.viaBootNonce, true, 'a nonce redemption must be flagged viaBootNonce so the caller writes the #2023 marker on REDEMPTION');
+    // The `?token=` path sets the SAME cookie but is a bootstrap, not a redemption:
+    // seeding must NOT fire for it (only a real ?boot= redemption proves the browser
+    // navigated). A durable-token bootstrap can recur; it must not mark the machine seeded.
+    const viaToken = boardauth.bootstrap({ token: 'TOK', req: { url: '/?token=TOK', headers: {} }, routingBase: 'http://localhost', method: 'GET' });
+    assert.ok(viaToken, 'a valid ?token= must bootstrap');
+    assert.notEqual(viaToken.viaBootNonce, true, 'a ?token= bootstrap must NOT be flagged viaBootNonce -- only redemption seeds');
+  });
+});
+
 test('#1979: a cookie already present short-circuits before the nonce is even touched', () => {
   withClock(() => {
     const n = boardauth.mintNonce();

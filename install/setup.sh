@@ -3741,12 +3741,15 @@ if [ -f "$_awnode_r" ] && [ -x "$_awnode_r" ]; then
   _awroot_r="$("$_awnode_r" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot_r=""
   [ -n "$_awroot_r" ] && _repair_seed="$_awroot_r/.reauth-seeded"
 fi
-_open_gate="$FRESH_INSTALL"; _seed_after_open=no; _minted_nonce=no; _opened=no
-# A first enforcing run (fresh OR update) that has not seeded opens and seeds: the
-# fresh case seeds so a later update does not needlessly re-open; the update case
-# IS the repair. FRESH_INSTALL already opens; this adds the enforcing-update path.
+_open_gate="$FRESH_INSTALL"; _minted_nonce=no; _opened=no
+# A first enforcing run (fresh OR update) that has not been SEEDED opens the browser
+# once. #2030: the seed marker is written server-side on nonce REDEMPTION now
+# (engine/boardauth.js seedReauthMarker), NOT here -- so this stays a READ of the
+# marker (open iff absent), and a machine whose browser never redeemed stays unseeded
+# and RETRIES the open on the next update until one actually navigates. FRESH_INSTALL
+# already opens; this adds the enforcing-update path.
 if [ -n "$_repair_seed" ] && [ ! -f "$_repair_seed" ] && [ -s "$_awroot_r/board.token" ]; then
-  _open_gate=yes; _seed_after_open=yes
+  _open_gate=yes
 fi
 if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_OPEN:-}" ] && [ -z "${KOSMOS_APP_DIR:-}" ] \
    && { [ -z "${KOSMOS_SYS_APP_DIR:-}" ] || [ -n "${KOSMOS_OPEN_CMD:-}" ]; } \
@@ -3886,23 +3889,18 @@ PLIST
     else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
   fi
   fi
-  # #2023: seed the repair marker ONLY when a nonce was minted (_minted_nonce) AND
-  # the open actually SUCCEEDED (_opened), so this one-time repair fires on the first
-  # update that truly re-authed the browser and never again. Two failure modes both
-  # leave the marker UNWRITTEN so the repair RETRIES next update:
-  #   - mint FAILED (board HTTP not answering in the update window -> plain URL, no
-  #     ?boot=): _minted_nonce stays no.
-  #   - open FAILED (OPEN_CMD present but returned non-zero, e.g. no reachable GUI
-  #     session; the `|| note` branch fired): _opened stays no.
-  # Either seeding on its own would mark the machine done while its board stays 403,
-  # the exact state this fixes. The one residual: open succeeded (dispatched) but the
-  # browser never navigated to redeem the nonce (vanishingly rare); the recourse there
-  # is the owner running `kosmos open` in their terminal, the token-holding path
-  # (there is no safe in-app reconnect -- a no-cookie page cannot prove ownership).
-  if [ "${_seed_after_open:-no}" = "yes" ] && [ -n "${_repair_seed:-}" ] \
-     && [ "${_minted_nonce:-no}" = "yes" ] && [ "${_opened:-no}" = "yes" ]; then
-    : > "$_repair_seed" 2>/dev/null || true
-  fi
+  # #2030: the repair marker is NO LONGER seeded here. setup.sh could only see the
+  # open DISPATCHED (a nonce minted, `open` returned 0), never REDEEMED -- so seeding
+  # here marked a machine done while its browser had not actually navigated and its
+  # board still 403'd, the "open succeeded but never redeemed" residual the #2023
+  # comment named as the one hole. The marker is now written server-side the instant
+  # a `?boot=` nonce is truly redeemed (engine/boardauth.js seedReauthMarker, from
+  # server.js's bootstrap handler). setup.sh's only job is to OPEN when the marker is
+  # absent (the gate above); whether that open redeems is what decides seeding, and
+  # only the board can observe it. Self-healing falls out: an un-redeemed machine
+  # stays unseeded and retries the open on the next update until one navigates.
+  # (_minted_nonce and _opened are no longer read here; left set to keep this
+  # security-path diff minimal -- prunable separately.)
 fi
 
 # ---- the last thing on screen is the thing you still have to do (#1334) -------
