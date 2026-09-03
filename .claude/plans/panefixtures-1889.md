@@ -289,9 +289,14 @@ of life: seven sources, of which I had handled one.
 incomplete, and every patch made the comment above it more confident.
 
 ✅ REPLACED WITH TWO SIGNALS THAT SURVIVE COLOUR-STRIPPING:
-  - the REACH, tightened 12 -> 6. A live status row sits 3 rows above the
-    composer; a resolved one has scrolled up (17 measured on a real resolved
-    pane).
+  - the REACH, now 8. Live status rows sit 3 to 5 rows above the composer, and
+    the vendor can add a notification row, a two-row tip block and one row per
+    queued message between them, so the realistic ceiling is about 7. Resolved
+    waits have been observed at 7, 13 and 17 rows up: the 7 is the one that
+    matters, because it is INSIDE the reach, which is exactly why the resolution
+    check below earns its place rather than being redundant with distance.
+    ⚠️ The suite is green only for [8, 14]. 8 is the exact lower edge, not a
+    value with slack beneath it.
   - a POSITIVE COMPLETION MARKER: an `⏺ Agent … finished` line standing between
     the wait row and the composer means the wait is over, whatever the row says.
 
@@ -331,6 +336,38 @@ true when something else changed.** An early return that disarmed four
 assertions. A cleanup that deleted the guards of the round before it. A comment
 describing an anchor that had been replaced. A number measured against a design
 that no longer existed. None of these fail loudly; all of them read as coverage.
+
+## WHY THE RESOLUTION CHECK IS NOT REDUNDANT WITH THE REACH
+
+The obvious simplification is to delete it and let distance do the work. That is
+wrong, and the reason is in the vendor's code rather than in any pane.
+
+The count is read as `let al = NZ ? …pendingBackgroundAgentCount ?? 0 : 0`, where
+`NZ` comes from `let [UZ] = d(SD)`: `useState` with the setter DISCARDED. It is
+computed once at mount and never recomputed, and the count is a frozen property
+of the transcript message. **So the wait row does not stop rendering when the wait
+ends.** It is a frozen transcript row that outlives its own wait, and the
+completion notification is appended below it, in exactly the span the check scans.
+
+⇒ A resolved wait row can and does sit within the reach (observed at 7). Distance
+alone would call it live.
+
+## A WIDENING I MADE WITHOUT A LIVE CAPTURE, AND HAD TO DELETE
+
+I added a `dynamic workflows?` alternative to the matcher, derived from the render
+JSX, three lines below this file's own rule saying not to widen without a live
+capture of the shape.
+
+🛑 A workflow-only wait then matched and could NEVER BE RESOLVED. The resolution
+check keys on the vendor's agent-completion notification, and there is no
+workflow equivalent anywhere in the bundle. Such a pane read `working` forever,
+which is worse than `origin/main` and worse than the defect this card exists to
+fix.
+
+⇒ Deleted. The composed form (`… 1 background agent and 2 dynamic workflows …`)
+still matches through its agent phrase; only the never-observed workflow-only
+render is given up. The rule was right and I broke it in the same file that
+states it.
 
 ## Weakest premise
 
