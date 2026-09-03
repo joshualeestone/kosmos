@@ -138,9 +138,28 @@ decoy-producing path. A test written after a fix that has never been seen to fai
 
 ## Falsifiable prediction, published so it can be checked against a real user
 
-**Re-auth should FAIL on the DEFAULT account and WORK on a labelled one.** Ben has exactly two
-accounts, and the one with the greyed Disconnect (Kitty's finding, #1917) is the default. ⇒ **If a
-tester reproduces this on a LABELLED account, this diagnosis is wrong.**
+🛑 **RETIRED AT ITERATION 11. THE ORIGINAL CRITERION CANNOT DISCRIMINATE, UNDER EITHER READING**,
+and it sat here above the iteration log for ten rounds where a reader meets it first.
+
+~~Re-auth should FAIL on the DEFAULT account and WORK on a labelled one. If a tester reproduces
+this on a LABELLED account, this diagnosis is wrong.~~
+
+- **Read as "the button does nothing":** a LABELLED account whose credential is dead-but-present
+  still names a plan in its own config, still gets `loggedIn: true` from the credulous live check
+  (#1916), and so takes the SAME #1560 early exit. A tester would reproduce it there and falsely
+  refute a correct routing diagnosis.
+- **Read as "the decoy-file write":** a labelled account cannot reproduce that by construction, so
+  the criterion is vacuous.
+
+✅ **REPLACEMENT, which is machine-independent and checks the thing this card actually fixes -- WHERE
+THE CREDENTIAL LANDS, not whether the button appears to work:**
+
+> After a DEFAULT-account "Sign in again" that completes, `~/.claude.json` must be the file that
+> changed, and `~/.claude/.claude.json` must NOT have been written.
+> ⇒ **If the refreshed credential lands in `~/.claude/.claude.json`, this fix did not work.**
+
+**Why it discriminates where the old one did not:** it does not depend on what the button appears to
+do, on whether a decoy file exists, or on which account type is used. It observes the write.
 
 ## The layer below the fix, checked because a routing fix can be right and still lose the write
 
@@ -900,8 +919,19 @@ reasoning** -- the operative claims, the citations and the honest coverage gap a
 
 ⚠️ **MEASURED, because my first draft of this entry cited the two blocks' before/after sizes and
 those overstate the result.** The replacements add text back, so the net is smaller than the block
-counts suggest: `git diff --numstat origin/main -- engine/connect.js` gives **82 added lines before
-the trim, 70 after** (source total across both files 109 -> 100). ⇒ **A trim is a claim about a
+counts suggest: **82 added lines before the trim, 70 after.**
+
+🛑 **AND THE SOURCE TOTAL I PUBLISHED HERE (100) WAS WRONG. It is 97, corrected at iteration 11.**
+I measured with `git diff --numstat origin/main` -- **TWO dots** -- which compares against the
+current tip of main. Main has moved **12 commits** since my merge-base and **those commits touch
+`server.js`, which my branch also touches**, so the two-dot form folded another lane's changes into
+my count and read 30 for `server.js` instead of 27. The three-dot form
+(`origin/main...HEAD`, merge-base) gives **70 + 27 = 97**.
+
+⭐ **So the entry written to correct an inflated number was itself inflated, by three lines, via the
+diff base rather than via the description.** ⇒ **A number is only as good as its BASE, and on a
+shared repo the base moves under you.** This is the same hazard the challenge-loop skill warns about
+for the proof hash (#1472): a base that silently absorbs other lanes' commits. ⇒ **A trim is a claim about a
 NET, and quoting the part you deleted without the part you added inflates it.** Ninth claim on this
 branch corrected by measuring the thing rather than describing it.
 
@@ -960,8 +990,12 @@ two exposed callers, so anyone re-running this loop needs it.
    124 lines upstream.** The guard's own comment says its purpose is forcing a commit before the
    PR, which is exactly what the skip lets through. ⇒ **A guard that cannot be reached from the
    dangerous path reads as protection to everyone who greps for it and finds it present.**
-3. **The only tell is on stderr** (line 493, `>&2`). A caller capturing stdout to a log keeps the
-   exit 0 and loses the sentence.
+3. **The only IN-BAND tell is on stderr** (line 493, `>&2`). A caller capturing stdout to a log
+   keeps the exit 0 and loses the sentence. ⚠️ **"Only tell" overstates it and is contradicted by
+   this section's own evidence:** `validation_log_skip_record "skipped"` also writes a
+   `status: skipped` row to `~/.cache/claude-validation-proofs/<branch>.jsonl`, which is the
+   artifact the recorded instance below is read FROM. The row is out-of-band and after the fact;
+   the stderr line is the only thing the caller sees at the time.
 4. **Skips chain and never re-lock:** the unlock condition is `last_status = clean OR skipped`, so
    one skip unlocks the next.
 
@@ -984,4 +1018,75 @@ present measured nothing.**
 📌 **Audited for this branch: no iteration was certified on a skip.** Row 2 carries the same hash as
 row 1, so it certified nothing new and was replaced by a genuine run at a new hash. The later
 `failed` rows are the contention reds; the final `clean` (`7ea8aea49648`) ran at an idle window and,
-because the hash is cumulative, covers every commit on the branch.
+because the hash is cumulative, covers every commit up to `3e23cc1a`. ⚠️ **NOT every commit on the
+branch:** that run necessarily predates `0ff1b467`, the plan-only commit adding this very section.
+Harmless in substance (the trailing commit touches no code) and corrected anyway, because a loose
+claim about coverage is precisely the defect this section documents.
+
+## Findings from challenge-loop iteration 11
+
+### 🛑 THE ORDERING ASSERTION I ADDED AT ITERATION 8 GUARDED THE LOUD FAILURE AND MISSED THE SILENT ONE
+
+Iteration 8 established that `env` stops option parsing at its first operand, and I asserted that
+`-u` precedes any **assignment**. **An assignment is not the only operand: the BINARY is one too.**
+
+```
+['env', <bin>, '-u', 'CLAUDE_CONFIG_DIR']
+```
+
+satisfies every assertion that arm had -- `-u` present, followed by the right name, no `NAME=`
+token anywhere -- and is exactly the failure the arm's own table describes.
+
+**Measured, both bad forms, and the asymmetry is the point:**
+
+```
+env FOO=1 -u LEAK sh -c ...   -> "env: -u: No such file..."   exit 127   LOUD
+env sh -c '...' -u LEAK       -> LEAK=[present]               exit 0     SILENT
+```
+
+⇒ **The operand form LAUNCHES.** `claude` gets `-u CLAUDE_CONFIG_DIR` as junk argv, the variable is
+never stripped, and the sign-in writes to the leaked account. **That is the #1922 defect itself,
+reinstated, wearing a green test.**
+
+✅ **Mutation-proven both ways:** moving `cmd.push(claudeBinPath())` ahead of the `-u` push reddens
+the new assertion and prints the offending argv; **the pre-existing assertions all passed on that
+same argv** (53 of 54 green, only the new one red), which is what proves it closes a hole rather
+than restating one.
+
+⭐ **The lesson generalises past this card: I derived a rule from a measurement ("`-u` must come
+first") and then guarded the INSTANCE I had measured rather than the RULE.** The measurement was
+about operands; I wrote the assertion about assignments, because assignments were what I had in
+front of me.
+
+### The falsifiable prediction could not falsify anything, and it sat where a reader meets it first
+
+"Re-auth should FAIL on the DEFAULT account and WORK on a labelled one" fails under both readings: a
+labelled account with a dead-but-present credential takes the same #1560 early exit (so a tester
+would falsely refute a correct diagnosis), and under the narrow reading a labelled account cannot
+reproduce the decoy write at all (so it is vacuous). **Ten iterations, never revisited.**
+
+✅ Replaced with one that observes the WRITE rather than the button: after a completed default-account
+re-auth, `~/.claude.json` must be the file that changed and `~/.claude/.claude.json` must not have
+been written. Machine-independent, and it tests what the card fixes.
+
+### A number I corrected was still wrong, and the cause was the DIFF BASE
+
+The iteration-10 entry existed to replace an inflated trim figure with a measured one. **The
+measured one was also wrong: 100, actually 97.** I used `git diff --numstat origin/main` (two dots),
+which compares against main's CURRENT tip. **Main has moved 12 commits since my merge-base and those
+commits touch `server.js`, which my branch also touches**, so another lane's changes were folded into
+my count (30 for `server.js` instead of 27).
+
+⇒ **A number is only as good as its base, and on a shared repo the base moves under you.** Same
+hazard the challenge-loop skill flags for the proof hash (#1472).
+
+📌 **Also corrected in the #1961 section:** "the only tell is on stderr" overstated it (the
+`status: skipped` jsonl row is an out-of-band tell, and is the artifact my own recorded instance is
+read from), and "covers every commit on the branch" was off by one (it covers up to `3e23cc1a`, not
+the plan-only commit that added the section).
+
+### Merge readiness, per this iteration's reviewer
+
+**Yes, after the test hole above** -- now closed. The reviewer independently verified every
+out-of-diff citation, both control arms' load-bearing-ness, and the whole #1961 section line by line
+against `validation-log.sh`. Remaining findings are documentation accuracy and commentary density.
