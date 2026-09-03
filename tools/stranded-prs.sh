@@ -88,8 +88,8 @@ ROWS="$(printf '%s' "$PR_JSON" | jq -r "$CI_JQ"'
       (.mergeStateStatus // "UNKNOWN"),
       ci,
       .headRefName,
-      (.body // ""),
-      (.title // "") ]
+      ((.body // "") | gsub("\u001f"; " ")),
+      ((.title // "") | gsub("\u001f"; " ")) ]
   | @tsv' 2>/dev/null | tr '\t' '\037')" || {
   echo "stranded-prs: could not parse the PR list (jq error)" >&2
   exit 2
@@ -142,22 +142,26 @@ while IFS="$(printf '\037')" read -r num updated mergeable mergestate ci branch 
 
   issue="$(issue_of "$branch" "$body")"
   flags=""
+  # Only a CLEAN mergeStateStatus is safe. Enumerate the known non-CLEAN states for
+  # a specific message, and a catch-all so ANY other non-CLEAN value (UNSTABLE,
+  # HAS_HOOKS, or a state GitHub adds later) is flagged rather than read as safe --
+  # whitelisting the BAD states by name would silently pass a new one through.
   case "$mergestate" in
+    CLEAN)             : ;;
     DIRTY|CONFLICTING) flags="${flags}CONFLICTING(needs-rebase) " ;;
     BLOCKED)           flags="${flags}BLOCKED(needs review/required-check) " ;;
     BEHIND)            flags="${flags}BEHIND(needs update-branch) " ;;
     UNKNOWN)           flags="${flags}MERGE-UNKNOWN(mergeability not computed -- may become CONFLICTING) " ;;
+    UNSTABLE)          flags="${flags}UNSTABLE(a check is non-passing for merge) " ;;
+    *)                 flags="${flags}MERGE-${mergestate}(not clean) " ;;
   esac
-  # Cross-check the mergeable field (coarser than mergeStateStatus, fetched at the
-  # gh call above): if GitHub does not report a clean MERGEABLE and no merge-state
-  # flag already fired, surface it rather than let the row read "safe to merge".
-  case "$mergeable" in
-    MERGEABLE|'') : ;;
-    *) case "$flags" in
-         *CONFLICTING*|*BLOCKED*|*BEHIND*|*MERGE-UNKNOWN*) : ;;
-         *) flags="${flags}NOT-MERGEABLE($mergeable) " ;;
-       esac ;;
-  esac
+  # Only when mergeStateStatus is CLEAN, cross-check the coarser mergeable field: it
+  # can still report the PR is not cleanly MERGEABLE (a rare state/rollup lag), and a
+  # CLEAN state must not read "safe" if mergeable disputes it. (mergeable is jq-
+  # defaulted to UNKNOWN, so it is never empty.)
+  if [ "$mergestate" = "CLEAN" ] && [ "$mergeable" != "MERGEABLE" ]; then
+    flags="${flags}NOT-MERGEABLE($mergeable) "
+  fi
   # Overruled-alternative smell: the PR addresses an issue that is already CLOSED.
   # A closed issue on an open PR means either another PR already settled it (the
   # #1951 shape) or the issue was retired -- either way a human must confirm the

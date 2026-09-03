@@ -112,6 +112,15 @@ cat > "$PRJSON" <<'JSONEOF'
    "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
   {"number":870,"title":"EMPTYBODYTITLE","isDraft":false,"updatedAt":"2026-09-03T00:30:00Z",
    "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefName":"eb-870","body":"","url":"u",
+   "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
+  {"number":880,"title":"unstable fixture","isDraft":false,"updatedAt":"2026-09-03T00:20:00Z",
+   "mergeable":"MERGEABLE","mergeStateStatus":"UNSTABLE","headRefName":"uns-880","body":"Addresses #880","url":"u",
+   "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
+  {"number":885,"title":"hashooks fixture","isDraft":false,"updatedAt":"2026-09-03T00:15:00Z",
+   "mergeable":"MERGEABLE","mergeStateStatus":"HAS_HOOKS","headRefName":"hk-885","body":"Addresses #885","url":"u",
+   "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
+  {"number":890,"title":"CTRLCHARTITLE","isDraft":false,"updatedAt":"2026-09-03T00:10:00Z",
+   "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefName":"cc-890","body":"pre\u001fpost injected separator","url":"u",
    "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]}
 ]
 JSONEOF
@@ -169,6 +178,16 @@ chk "#860 UNKNOWN merge state flagged"          g '#860.*MERGE-UNKNOWN'
 chk "#860 NOT called safe to merge"            ng '#860.*clean: looks safe'
 # Empty-body PR: the title must survive (US delimiter, not folded tabs).
 chk "#870 empty-body PR keeps its title"        g '#870.*EMPTYBODYTITLE'
+# Only CLEAN is safe: UNSTABLE and an unlisted state (HAS_HOOKS -> catch-all) must
+# both be flagged, not read as safe -- whitelisting bad states would pass a new one.
+chk "#880 UNSTABLE flagged"                      g '#880.*UNSTABLE'
+chk "#880 NOT called safe to merge"            ng '#880.*clean: looks safe'
+chk "#885 HAS_HOOKS caught by catch-all"        g '#885.*MERGE-HAS_HOOKS'
+chk "#885 NOT called safe to merge"            ng '#885.*clean: looks safe'
+# A body carrying an embedded 0x1F (jq decodes \u001f to a raw byte) must be
+# sanitized by the jq gsub so it cannot act as a field separator -- the row still
+# parses and the title survives.
+chk "#890 0x1F in body sanitized, title intact" g '#890.*CTRLCHARTITLE'
 
 # ---- age filter opens up at cutoff 0 ----------------------------------------
 OUT="$(run 0)"
