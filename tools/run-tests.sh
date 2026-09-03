@@ -104,24 +104,26 @@ fi
 # a pseudo-namespace at the ROOT -- `engine.reachable.test.js`, `install.banner.test.js`
 # -- while a real `engine/` directory also exists. So `engine.X` (root) and `engine/X`
 # (dir) coexist and read identically, and a path glob like `engine/*.test.js` matches
-# the 127 in the directory and silently MISSES the 247 at the root, INCLUDING the five
-# named `engine.*` that most strongly imply they were included. That is exactly how a
+# only the files IN the directory and silently MISSES the far larger set at the root,
+# INCLUDING the five named `engine.*` that most strongly imply they were included. That
+# is exactly how a
 # red `engine.reachable.test.js` sat under four merges: the pre-merge validation globbed
 # `engine/*` and never saw the root file, and a glob matching a subset still exits 0 with
 # a healthy tally. So gather the set ONCE and REFUSE TO RUN if it does not cover every
 # *.test.js in the tree -- a narrowed glob, or a suite that lands in a new subdirectory,
 # fails loudly with the count instead of passing green on a fraction. `find` prunes
-# node_modules; if a real test dir beyond root/engine/ is ever added, update the glob
-# here (the point of this guard is that you cannot forget to).
+# node_modules and .git -- the same set the durable test's walker skips, so the runtime
+# guard and the test agree on what counts. If a real test dir beyond root/engine/ is ever
+# added, update the glob here (the point of this guard is that you cannot forget to).
 shopt -s nullglob
 KOSMOS_TEST_FILES=(engine/*.test.js *.test.js)
 shopt -u nullglob
 _considered=${#KOSMOS_TEST_FILES[@]}
-_exist=$(find . -name node_modules -prune -o -name '*.test.js' -print | wc -l | tr -d ' ')
+_exist=$(find . \( -name node_modules -o -name .git \) -prune -o -name '*.test.js' -print | wc -l | tr -d ' ')
 if [ "$_considered" -lt "$_exist" ]; then
   echo "run-tests: COVERAGE GAP (kosmos#1934) -- the suite would run $_considered test file(s) but $_exist exist." >&2
   echo "  A path glob is missing some *.test.js (root suites, or a new subdirectory). The naming" >&2
-  echo "  convention puts 247 suites at the ROOT with a dot (engine.reachable.test.js), which no" >&2
+  echo "  convention puts most suites at the ROOT with a dot (engine.reachable.test.js), which no" >&2
   echo "  engine/* glob can match. Run the canonical helper (yarn test / tools/run-tests.sh), and" >&2
   echo "  if a real new test directory was added, widen the glob above so it is considered." >&2
   exit 1
