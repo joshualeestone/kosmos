@@ -55,6 +55,7 @@ PUBLISH=0
 git -C "$SITE" rev-parse --verify HEAD >/dev/null 2>&1 || { echo "deploy-site: $SITE is not a git checkout with a HEAD"; exit 1; }
 [ -f "$SITE/.vercel/project.json" ] || { echo "deploy-site: no $SITE/.vercel/project.json; the CLI would not know the project"; exit 1; }
 [ -f "$REPO/tools/lib/site-deploy.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/site-deploy.sh"; exit 1; }
+[ -f "$REPO/tools/lib/pkg-inputs.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/pkg-inputs.sh (defines pkg_upload_filter_excludes)"; exit 1; }
 [ -f "$REPO/tools/verify-served.sh" ]  || { echo "deploy-site: cannot find $REPO/tools/verify-served.sh"; exit 1; }
 command -v vercel >/dev/null 2>&1 || { echo "deploy-site: vercel CLI not found"; exit 1; }
 
@@ -62,10 +63,13 @@ command -v vercel >/dev/null 2>&1 || { echo "deploy-site: vercel CLI not found";
 # The export carries whatever is in dist/. We make the critical current artifacts present
 # and correct so the deploy cannot drop them; a stale or empty checkout is then safe.
 fetch() {  # <url> <dest>  -- refuse on any failure, because a missing artifact drops from live
-  curl -fsS "$1" -o "$2" || { echo "deploy-site: could not fetch $1 -- refusing (a missing artifact would drop from the live site)"; exit 1; }
+  # -fsSL follows redirects (#2014 review): HOST defaults to installkosmos.com (no redirect), but
+  # if KOSMOS_SITE_URL is ever pointed at chaoskosmos.com it 308-redirects /dist, and without -L
+  # this would fetch a 15-byte "Redirecting..." stub and refuse (or verify) against the wrong bytes.
+  curl -fsSL "$1" -o "$2" || { echo "deploy-site: could not fetch $1 -- refusing (a missing artifact would drop from the live site)"; exit 1; }
 }
 verify_sha() {  # <file> <sha256-url>
-  want=$(curl -fsS "$2" 2>/dev/null | awk '{print $1}')
+  want=$(curl -fsSL "$2" 2>/dev/null | awk '{print $1}')
   got=$(shasum -a 256 "$1" | awk '{print $1}')
   [ -n "$want" ] && [ "$got" = "$want" ] || { echo "deploy-site: sha mismatch for $1 (want '$want' got '$got') -- refusing"; exit 1; }
 }
@@ -73,7 +77,7 @@ verify_sha() {  # <file> <sha256-url>
 mkdir -p "$SITE/dist"
 
 # the current release tarball + its sha + manifest, named by latest.json (source of truth)
-LJ=$(curl -fsS "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
+LJ=$(curl -fsSL "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
 ART=$(printf '%s' "$LJ" | sed -n 's/.*"artifact":"\([^"]*\)".*/\1/p')
 MAN=$(printf '%s' "$LJ" | sed -n 's/.*"manifest":"\([^"]*\)".*/\1/p')
 [ -n "$ART" ] || { echo "deploy-site: latest.json names no artifact -- refusing"; exit 1; }
@@ -88,14 +92,36 @@ for f in Kosmos.pkg Kosmos.pkg.sha256 Kosmos.pkg.inputs; do
 done
 verify_sha "$SITE/dist/Kosmos.pkg" "$HOST/dist/Kosmos.pkg.sha256"
 
-# the Windows zip (see WINZIP note above)
+# the Windows zip (see WINZIP note above). A STALE default (a new win build ships before #2008
+# lands) 404s, so fetch() REFUSES -- it fails safe (no deploy), it does NOT silently drop the zip.
 fetch "$HOST/dist/$WINZIP" "$SITE/dist/$WINZIP"
+
+# the tmux runtime + the unversioned alias tarball (#2014 review, BLOCKER). site_deploy_export
+# carries dist/*.tar.gz by a GLOB (tools/lib/site-deploy.sh:78), so ANY tarball absent from the
+# checkout DROPS from the deploy. Both of these are new-install-critical: the installer fetches
+# tmux-arm64 on every install (install/setup.sh:821) and falls back to the unversioned
+# kosmos-arm64 alias (setup.sh:898). Dropping either is the #1669 shape, one artifact over.
+# (arm64 only: tmux-x64 is not served -- measured 404 -- because the installer target is macOS.)
+for f in tmux-arm64.tar.gz tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz kosmos-arm64.tar.gz.sha256; do
+  fetch "$HOST/dist/$f" "$SITE/dist/$f"
+done
+verify_sha "$SITE/dist/tmux-arm64.tar.gz"   "$HOST/dist/tmux-arm64.tar.gz.sha256"
+verify_sha "$SITE/dist/kosmos-arm64.tar.gz" "$HOST/dist/kosmos-arm64.tar.gz.sha256"
+# Historical version tarballs (kosmos-0.6.08-arm64.tar.gz ..) are gitignored rollback URLs and are
+# DELIBERATELY OUT OF SCOPE here: rollback-only, not new-install-critical. A clean checkout drops
+# them (breaking a rollback link, not a new install). There is no manifest of the full set, so they
+# are not enumerable here; if rollback coverage is ever needed, fetch them the same way.
 
 echo "deploy-site: fetched and verified the current live artifacts into $SITE/dist/"
 
 # --- 2) build the export (carries pages + artifacts, writes the marker) -------
 # shellcheck source=/dev/null
 . "$REPO/tools/lib/site-deploy.sh"
+# pkg_upload_filter_excludes (the .vercelignore guard, step 4) lives in pkg-inputs.sh, NOT
+# site-deploy.sh -- release.sh sources both. Sourcing only site-deploy.sh left the guard call as a
+# "command not found" that the release path never hits because it sources pkg-inputs.sh first.
+# shellcheck source=/dev/null
+. "$REPO/tools/lib/pkg-inputs.sh"
 EXPORT=$(mktemp -d "${TMPDIR:-/tmp}/deploy-site.XXXXXX")
 site_deploy_export "$SITE" "$EXPORT" HEAD || { echo "deploy-site: site_deploy_export failed -- nothing deployed"; exit 1; }
 
@@ -104,6 +130,8 @@ site_deploy_export "$SITE" "$EXPORT" HEAD || { echo "deploy-site: site_deploy_ex
 # would drop the download. Refuse rather than ship a marker that lies.
 [ -f "$EXPORT/dist/Kosmos.pkg" ] || { echo "deploy-site: the export did not carry Kosmos.pkg -- refusing (the marker would be dishonest and the macOS download would drop)"; rm -rf "$EXPORT"; exit 1; }
 [ -f "$EXPORT/dist/$ART" ]       || { echo "deploy-site: the export did not carry the current tarball $ART -- refusing"; rm -rf "$EXPORT"; exit 1; }
+[ -f "$EXPORT/dist/tmux-arm64.tar.gz" ]   || { echo "deploy-site: the export did not carry tmux-arm64.tar.gz -- refusing (the installer fetches it on every install; #2014 review)"; rm -rf "$EXPORT"; exit 1; }
+[ -f "$EXPORT/dist/kosmos-arm64.tar.gz" ] || { echo "deploy-site: the export did not carry the unversioned alias kosmos-arm64.tar.gz -- refusing (setup.sh's cache-busted fallback; #2014 review)"; rm -rf "$EXPORT"; exit 1; }
 [ -f "$EXPORT/dist/$WINZIP" ]    || { echo "deploy-site: the export did not carry the Windows zip $WINZIP -- refusing"; rm -rf "$EXPORT"; exit 1; }
 [ -f "$EXPORT/.kosmos-release-export" ] || { echo "deploy-site: the export has no .kosmos-release-export marker -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
@@ -112,7 +140,7 @@ DROP=$(pkg_upload_filter_excludes "$EXPORT/.vercelignore") || { echo "deploy-sit
 [ -z "$DROP" ] || { echo "deploy-site: the export .vercelignore would drop $DROP -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
 if [ "$PUBLISH" != 1 ]; then
-  echo "DRY RUN complete. The export at $EXPORT carries Kosmos.pkg, the current tarball ($ART), the Windows zip, and an honest marker, and the .vercelignore guard passed. Re-run with --publish to deploy."
+  echo "DRY RUN complete. The export at $EXPORT carries Kosmos.pkg, the current tarball ($ART), tmux-arm64, the unversioned alias, the Windows zip, and an honest marker, and the .vercelignore guard passed. Re-run with --publish to deploy."
   exit 0
 fi
 
@@ -125,7 +153,7 @@ rm -rf "$EXPORT"
 # the artifacts and checking the bytes catches it.
 REPO="$REPO" HOST="$HOST" sh "$REPO/tools/verify-served.sh" || { echo "deploy-site: SERVED verification FAILED after deploy -- the site may render with dead downloads. Investigate immediately (this is the #1669 shape)."; exit 1; }
 # verify-served.sh does not cover the Windows zip; confirm it explicitly.
-code=$(curl -sS -o /dev/null -w '%{http_code}' "$HOST/dist/$WINZIP")
+code=$(curl -sSL -o /dev/null -w '%{http_code}' "$HOST/dist/$WINZIP")
 [ "$code" = "200" ] || { echo "deploy-site: the Windows zip $WINZIP is NOT served ($code) after deploy -- investigate."; exit 1; }
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."
