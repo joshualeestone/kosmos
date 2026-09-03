@@ -66,7 +66,9 @@ async function run() {
     for (const id of IDS) {
       const s = await readSwitch(p1, id);
       check(id + ' [200 control]: renders when the setting reads', s.hidden === false, JSON.stringify(s));
-      check(id + ' [200 control]: carries a real position', s.checked === 'true' || s.checked === 'false', String(s.checked));
+      // reads OFF specifically, not merely "some position": an independent, browser-level
+      // catch on a default-flipped-to-ON regression (step 3, the on-flip, is held for Josh).
+      check(id + ' [200 control]: reads OFF by default (step 3 on-flip is held)', s.checked === 'false', String(s.checked));
     }
     await p1.close();
 
