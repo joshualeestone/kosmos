@@ -68,7 +68,7 @@ test('the poll for what is waiting reads a file and never spawns; the verbs shel
 });
 
 test('the Plus tab carries the needs-you dot in the nav’s own grammar', () => {
-  assert.match(PAGE, /data-go="plus" aria-controls="s-sec-plus"><span>Plus Account<\/span><span class="dot" aria-hidden="true"><\/span><span class="vh"> \(needs you\)<\/span>/);
+  assert.match(PAGE, /data-go="plus" aria-controls="s-sec-plus"><span>Kosmos Plus<\/span><span class="dot" aria-hidden="true"><\/span><span class="vh"> \(needs you\)<\/span>/);
   assert.match(JS, /#s-nav button\[data-go="plus"\]/);
 });
 
