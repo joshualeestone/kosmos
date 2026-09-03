@@ -119,6 +119,9 @@ cat > "$PRJSON" <<'JSONEOF'
   {"number":885,"title":"hashooks fixture","isDraft":false,"updatedAt":"2026-09-03T00:15:00Z",
    "mergeable":"MERGEABLE","mergeStateStatus":"HAS_HOOKS","headRefName":"hk-885","body":"Addresses #885","url":"u",
    "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
+  {"number":895,"title":"TABBED\tTITLE","isDraft":false,"updatedAt":"2026-09-03T00:12:00Z",
+   "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefName":"tab-895","body":"Addresses #895","url":"u",
+   "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]},
   {"number":890,"title":"CTRLCHARTITLE","isDraft":false,"updatedAt":"2026-09-03T00:10:00Z",
    "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefName":"cc-890","body":"pre\u001fpost injected separator","url":"u",
    "statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]}
@@ -188,6 +191,10 @@ chk "#885 NOT called safe to merge"            ng '#885.*clean: looks safe'
 # sanitized by the jq gsub so it cannot act as a field separator -- the row still
 # parses and the title survives.
 chk "#890 0x1F in body sanitized, title intact" g '#890.*CTRLCHARTITLE'
+# A literal TAB inside a title (@tsv escapes it to \t) must not break field
+# framing -- the whole reason for the US-delimiter design. The row parses and the
+# title's leading text survives.
+chk "#895 tab-in-title row parses, title survives" g '#895.*TABBED'
 
 # ---- age filter opens up at cutoff 0 ----------------------------------------
 OUT="$(run 0)"
