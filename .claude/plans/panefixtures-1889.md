@@ -155,7 +155,7 @@ other three. Do not read the merge as the card being done.
 
 - New test pinned from the verbatim live line, plus the plural form.
 - **Perturbed to prove it can fail**: replacing the regex with one that cannot
-  match now reds 2 of 160 in `status.test.js` (the aimed assertion and the
+  match now reds 3 of 174 in `status.test.js` (the aimed assertion, the contract table and the reconcile row; re-measured after the rebase, and the
   contract table); restoring returns 160/160. The older "1 of 159" predates both
   the table and the extra test.
 - Full suite `bash tools/run-tests.sh`: **exit 0**, 4537 lines, zero failures,
@@ -378,6 +378,57 @@ live capture.
 still matches through its agent phrase; only the never-observed workflow-only
 render is given up. The rule was right and I broke it in the same file that
 states it.
+
+## REBASED, AND EVERY EARLIER NUMBER IN THIS FILE WAS ORPHANED BY IT
+
+The branch was 41 commits behind `origin/main`, two of them touching
+`engine/status.js` and `engine/status.test.js` (#1919's consent-prompt arm and
+#1930's auth-staleness branch). Every measurement recorded above had been taken
+against a base that will not be merged.
+
+Rebased cleanly (0 conflict markers predicted, 0 encountered). Numbers re-taken on
+the new head:
+
+- suite: **174/174** (was 161; upstream added 13)
+- all 15 perturbations still bite, including the two new `AGENT_FINISHED_LINE`
+  arms, the structural flag, and the `reconcileReport` gate
+- live behaviour unchanged: a live wait reads `working` with `backgroundWait:
+  true`; a resolved one reads `idle`
+
+⚠️ Any number in this file written before that rebase describes a tree that no
+longer exists. Re-measure before citing.
+
+## RULE 6 CAN VOID THIS ENTIRE READER, AND IT IS NOT FIXED HERE
+
+The most consequential thing found in 16 rounds, and it is not in the reader.
+
+`reconcileReport` gives a FRESH report precedence over the scrape, and
+`install/kosmos-report-hook.sh` maps `Stop -> report idle --auto`. **Stop fires at
+end of turn, which is exactly when this wait row is drawn** (the row replaces
+`Worked for …`). So a hooked agent reports `idle` at the same moment its screen
+starts saying it is waiting.
+
+Measured:
+
+| report state | board says |
+|---|---|
+| fresh idle | **idle** (this reader's verdict discarded, no conflict surfaced) |
+| fresh working | working |
+| none | working |
+
+⇒ This reader helps where there is NO report, a STALE one, or a WORKING one. It is
+voided where a fresh auto-idle exists: usually seconds on this fleet, because the
+background agent's own tool calls re-heartbeat the parent to `working`, but the
+WHOLE WAIT wherever that agent is quiet or does not share the hook session.
+
+📌 THE ARGUABLE FIX IS IN RULE 6, NOT HERE. The Stop hook asserts THE TURN ENDED,
+which is true and is not in conflict with "a background agent is still running".
+The board conflates the two. Changing that precedence affects every agent on the
+fleet, so it is raised rather than taken from this card.
+
+⭐ Worth noticing about my own attention: I spent three paragraphs, a structural
+flag and a dedicated test on rule 5, and never looked at rule 6 sitting directly
+beneath it.
 
 ## Weakest premise
 
