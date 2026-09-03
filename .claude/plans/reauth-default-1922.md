@@ -829,12 +829,25 @@ Two reviewers have now independently said this must reach the PR body, so it is 
 obligation rather than as prose:
 
 > On a machine whose stored default reads connected, "Sign in again" now returns almost immediately
-> having opened nothing, where it previously ran the whole OAuth flow into the wrong file. Both are
-> broken; the routing is no longer the reason. The flow behind the #1560 gate still cannot repair a
-> dead credential (bare `claude`, no login argument): that is **kosmos#1937**, not fixed here.
+> and paints a green "Successfully connected to your Claude account", having opened nothing. **It
+> REPORTS SUCCESS on a dead credential**, where it previously ran the whole OAuth flow into the wrong
+> file. And the population WIDENS: pre-fix `checkLive` read the decoy and returned NONE on an
+> ordinary machine, so the flow ran; post-fix it reads the real `~/.claude.json`, `claude auth status`
+> answers `loggedIn: true` (#874 / #1916), and the #1560 gate holds shut -- so the false success moves
+> from the atypical decoy-connected machine to the ORDINARY default-account machine. The flow behind
+> that gate still cannot repair a dead credential (bare `claude`, no login argument): that is
+> **kosmos#1937**, not fixed here.
 
-**Why it is load-bearing:** the new failure is QUIETER than the old one, so without this sentence it
-gets re-filed as a fresh regression against this PR.
+**Why it is load-bearing:** without it the new failure gets re-filed as a fresh regression against
+this PR.
+
+🛑 **CORRECTED AT ITERATION 18, AND THE EARLIER VERSION WAS WRONG IN THE DIRECTION THAT MATTERED.**
+It said the press "appears to do nothing". Traced through the UI: `connect.start()` returns
+`phase: 'connected'`, `acctAddStart` hands that to `acctFlowPaint`, which paints `✓ Connected` and
+calls `acctShowSuccess('your Claude account')`. ⇒ **The sentence written specifically to prevent a
+re-file described a QUIETER failure than the one a tester actually meets, and omitted that this
+branch moves the false success onto the reporter's own population.** Verified in `web/index.html`
+before rewriting, not inferred.
 
 ### ⚠️ THE ITERATION-8 VALIDATION RED WAS CONTENTION, AND IT IS RECORDED RATHER THAN WAVED AWAY
 
@@ -1518,3 +1531,45 @@ seconds, and I checked none of them.**
 that contains a CITATION, a NUMBER, or a SCOPE claim gets verified before the commit that carries
 it.** That is the same standard I apply to the code, applied to the prose about the code -- which is
 where six consecutive rounds of findings have lived.
+
+## Findings from challenge-loop iteration 18, and the premise resolved from outside
+
+**No code defect, no security issue, no regression** -- reached by construction: a live `env -u`
+control on this box, an independent enumeration of the argv space, and a sibling-site sweep the
+reviewer ran itself.
+
+### 🛑 THE DIRECTION-CHANGE SENTENCE UNDERSTATED THE SYMPTOM, IN THE SENTENCE WRITTEN TO PREVENT A RE-FILE
+
+It said the press "appears to do nothing". **Traced through the UI and verified before rewriting:**
+`connect.start()` returns `phase: 'connected'`, `acctAddStart` hands that to `acctFlowPaint`, which
+paints `✓ Connected` and calls `acctShowSuccess('your Claude account')`. ⇒ **The press REPORTS
+SUCCESS on a dead credential.**
+
+⚠️ **And the population widens, which none of the four homes said.** Pre-fix, `checkLive` was pointed
+at the decoy and returned NONE on an ordinary machine, so the flow genuinely ran. Post-fix it reads
+the real `~/.claude.json`, `claude auth status` answers `loggedIn: true` (#874/#1916), and the #1560
+gate holds shut. **So the false success moves from the atypical decoy-connected machine to the
+ORDINARY default-account machine -- the reporter's own population.**
+
+⭐ **The write-path fix is still correct and #1937 still owns the repair. But a sentence whose entire
+job was to stop a re-file described a quieter failure than the one a tester meets, and omitted that
+this branch moves that failure ONTO them.** Corrected in all four homes.
+
+### ✅ THE UNMEASURED PREMISE IS MEASURED, FROM OUTSIDE THIS BRANCH, AND IT KEEPS THE GATE SHUT
+
+Ice Cream Kitty ran it cold on a fabricated account (#1937): **a cold bare `claude` against a dead
+credential DROPS INTO THE REPL** -- "Not logged in - Run /login", no auto-prompt, no walkable
+chooser.
+
+⇒ **The "if it prompts, the smaller fix is enough" branch is FALSIFIED**, and the gate comment had
+been telling readers to go and measure something now answered. Updated in place to record the result
+and its source.
+
+⭐ **It also vindicates the iteration-3 decision to REMOVE the bypass**: opening the #1560 gate alone
+buys nothing, because the tick re-reads the still-CONNECTED file and finishes connected. That was
+argued from control flow at the time and is now measured. ⇒ **The gate and the launch must change
+together**, which is exactly the co-land constraint.
+
+📌 **Useful for the other half:** `/login` from that REPL yields the login-method chooser and a
+browser-open OAuth -- **the screens this driver already walks.** So #1937 is a wiring problem against
+existing machinery, not a design problem.
