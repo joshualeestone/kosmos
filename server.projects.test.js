@@ -1142,6 +1142,100 @@ test('a blind roster reaches BOTH thread routes as agentsUnreadable, never as an
     });
 });
 
+/**
+ * #2005: the project thread routes (read presence 7761, send presence 7965,
+ * trust-hold 7975) now resolve a name the way the #989 recovery route does --
+ * exact-first, then case-fold, never safeKey-strip, ours-preferring -- so every
+ * send route agrees on which card a name reaches. Three arms: a mis-cased name
+ * REACHES; a strip-only name does NOT (the case-fold-not-strip boundary #989
+ * drew); and a case-folded NON-ours match passes presence but is still refused
+ * at delivery, so the looser presence gate opens no send hole.
+ */
+test('#2005: a mis-cased name reaches the project agent on both the read and send routes', async () => {
+  reset();
+  await withThread(fleet.agent('mara', { state: 'idle' }), [said('on the lease'), said(), said()],
+    async ({ project, calls }) => {
+      // READ (server.js:7761): a mis-cased GET resolves to the real card, not a 404.
+      const read = await req(`/api/project/${project.id}/thread/Mara`);
+      assert.equal(read.status, 200, 'the READ route must resolve a mis-cased name (#2005)');
+      assert.equal(json(read).agent.sessionName, 'mara', 'resolved to the card, not the typed case');
+      // SEND (server.js:7965): a mis-cased POST places the text into the agent.
+      const sent = json(await post(`/api/project/${project.id}/thread/Mara`, { text: 'have a look' }));
+      assert.equal(sent.delivery.state, 'placed', 'the send must reach an OURS agent under a mis-cased name');
+      assert.equal(calls.sends()[0][0], 'send-keys', 'and the text was actually typed');
+    });
+});
+
+test('#2005: a strip-only name does NOT resolve on the thread routes (case-fold, never safeKey)', async () => {
+  reset();
+  // `Ma.ra` sanitises to `mara` under store.safeKey but does not CASE-FOLD to it.
+  // #989 keeps the send path stricter than the route gate: a name that merely
+  // strips to a live agent must be refused, or a send types into a conversation it
+  // was never aimed at. resolveCard case-folds only, so this stays a 404 on both.
+  await withThread(fleet.agent('mara', { state: 'idle' }), [said(), said()],
+    async ({ project }) => {
+      assert.equal((await req(`/api/project/${project.id}/thread/Ma.ra`)).status, 404,
+        'a strip-only name must not resolve on the READ route');
+      assert.equal((await post(`/api/project/${project.id}/thread/Ma.ra`, { text: 'x' })).status, 404,
+        'nor on the SEND route');
+    });
+});
+
+test('#2005: a case-folded NON-ours match passes presence but is refused at delivery', async () => {
+  reset();
+  // The send-path safety the case-fold must not break: a pane holding somebody
+  // else's session under one of our names resolves for PRESENCE (resolveCard) but
+  // is refused at DELIVERY (chat.deliver -> addressable requires isNamedOurs), so
+  // the mis-cased presence gate opens no send hole.
+  await withThread(fleet.stranger('mara', { state: 'idle' }), [said(), said()],
+    async ({ project }) => {
+      const sent = json(await post(`/api/project/${project.id}/thread/Mara`, { text: 'hello' }));
+      assert.equal(sent.delivery.state, 'could_not',
+        'a NON-ours like-named pane is refused at delivery even when presence case-folds');
+    });
+});
+
+test('#2005: a mis-cased send RECORDS under the canonical name, and a mis-cased read FINDS it (no false "unfilable")', async () => {
+  reset();
+  // The thread file keys on the canonical name (threadFile requires safeKey(key)===key),
+  // so once presence case-folds, the read/write must use member.sessionName or a filable
+  // agent (mara) is wrongly called unfilable for a mis-cased URL (Mara) -- the send would
+  // deliver but not record, and the read would show an empty "we cannot keep a conversation"
+  // panel. Round-trip proves both routes file under the canonical name.
+  await withThread(fleet.agent('mara', { state: 'idle' }), [said(), said(), said(), said(), said()],
+    async ({ project }) => {
+      const sent = json(await post(`/api/project/${project.id}/thread/Mara`, { text: 'have a look' }));
+      assert.equal(sent.delivery.state, 'placed');
+      assert.equal(sent.recorded, true, 'a mis-cased send must RECORD, not just deliver (#2005 sibling)');
+      // a DIFFERENTLY mis-cased read finds the canonically-filed message, not an empty unfilable panel
+      const read = json(await req(`/api/project/${project.id}/thread/MARA`));
+      assert.deepEqual(read.messages.map((m) => m.text), ['have a look'],
+        'the mis-cased read finds the message filed under the canonical name');
+      assert.notEqual(read.historyUnfilable, true, 'a filable agent must not be called unfilable for a mis-cased URL');
+      // and the exact-case read agrees -- same file
+      const exact = json(await req(`/api/project/${project.id}/thread/mara`));
+      assert.deepEqual(exact.messages.map((m) => m.text), ['have a look']);
+    });
+});
+
+test('#2005: a mis-cased URL to a CAPITALIZED ours agent stays unfilable (canonical name, not a lowercased key)', async () => {
+  reset();
+  // The fix files under member.sessionName. For an ours agent whose canonical name is
+  // itself non-safeKey (a capital), that name is GENUINELY unfilable, and the fix must
+  // PRESERVE that -- resolving 'casey' -> card 'Casey' must stay unfilable, not get
+  // silently filed under the lowercased key a safeKey-based fix would have produced.
+  // (This is the case-fold-not-safeKey boundary, one layer in: it pins that the record
+  // key is the resolved canonical name, not store.safeKey(name).)
+  await withThread(fleet.agent('Casey', { state: 'idle' }), [said(), said(), said()],
+    async ({ project }) => {
+      const sent = json(await post(`/api/project/${project.id}/thread/casey`, { text: 'hi' }));
+      assert.equal(sent.delivery.state, 'placed', 'delivery still works (deliver case-folds to the pane)');
+      assert.equal(sent.recorded, false, 'a genuinely-unfilable ours name is not silently filed under a lowercased key');
+      const read = json(await req(`/api/project/${project.id}/thread/CASEY`));
+      assert.equal(read.historyUnfilable, true, 'the genuinely-unfilable state is preserved for a capitalized ours name');
+    });
+});
+
 test('sending places the text into the agent’s own session, and says only that', async () => {
   reset();
   await withThread(fleet.agent('zeta', { state: 'idle' }), [said(), said()],
@@ -2751,6 +2845,21 @@ test('#1629: the project thread refuses to type at an agent on the trust dialog 
       assert.equal(typed.status, 409, typed.body);
       assert.match(json(typed).error, /No, exit/);
       assert.equal(calls.sends().length, 0, 'nothing was typed into the pane');
+    });
+});
+
+test('#2005: a mis-cased send to an ours agent on the trust dialog is STILL held (7975 via ourCardByName)', async () => {
+  reset();
+  // Before #2005 a mis-cased name 404'd at presence and never reached the trust hold.
+  // Now presence case-folds, so the hold (ourCardByName, case-folding like the
+  // agent-thread route at 5731/5946) must catch a mis-cased send too, not let it through.
+  await withThread(fleet.agent('zeta', { state: 'needs_you', screen: TRUST_DIALOG_SCREEN }),
+    [said(TRUST_DIALOG_SCREEN), said(), said()],
+    async ({ project, calls }) => {
+      const typed = await post(`/api/project/${project.id}/thread/Zeta`, { text: 'yes, go ahead' });
+      assert.equal(typed.status, 409, typed.body);
+      assert.match(json(typed).error, /No, exit/);
+      assert.equal(calls.sends().length, 0, 'nothing typed into the pane under a mis-cased trust-held send');
     });
 });
 
