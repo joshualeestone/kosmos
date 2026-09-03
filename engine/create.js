@@ -770,14 +770,24 @@ function setAccount(name, dir) {
    * point 3 and its own piece of work.
    */
   let trust = null;
+  let bypass = null;
   if (!DRY_RUN) {
+    const configDir = acct.isDefault ? null : acct.dir;
     try {
-      trust = require('./trust').trustFolder(workerDir(clean),
-        { configDir: acct.isDefault ? null : acct.dir });
+      trust = require('./trust').trustFolder(workerDir(clean), { configDir });
     } catch { trust = { ok: false, because: 'we could not read that account\'s config file' }; }
+    /* #1919: the account we are MOVING the agent to needs the Bypass-Permissions pre-accept
+       in ITS settings.json too, for the same reason the trust write does -- the agent will
+       start under this configDir and meet the one-time consent if the key was never written
+       there. setAccount is already Claude-only (codex is refused above), so no provider
+       guard. Best-effort / non-gating, as trustFolder is here: a failed write is a prompt the
+       board now renders as needs_you (#1933), not a failed account flip. */
+    try {
+      bypass = require('./trust').preacceptBypass(configDir);
+    } catch { bypass = { ok: false, because: 'we could not read that account\'s settings file' }; }
   }
 
-  return { outcome: OUTCOME.CREATED, because: null, account: acct, trust };
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, trust, bypass };
 }
 
 /**
@@ -3129,6 +3139,7 @@ function createAgentInner(opts) {
   // machine says which guard fired. Recorded as a gap, not fixed here — the
   // create result has no slot that shows a person a non-failure.
   let trusted = null;
+  let bypassed = null;
   if (!DRY_RUN && weMadeTheFolder) {
     /* 🛑 #1629, THE CREATE HALF. This call had no `configDir`, so creating an
        agent on a NEWLY ADDED Claude account wrote the trust entry into the
@@ -3147,6 +3158,23 @@ function createAgentInner(opts) {
        entry into a codex home. OpenAI behaviour is left exactly as it was. */
     try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir }); }
     catch { /* another tool's file; an agent that asks once is not a failed creation */ }
+    /* 🛑 #1919, THE SAME CREATE MOMENT. The supervisor launches with
+       --dangerously-skip-permissions, and Claude Code shows a one-time Bypass-Permissions
+       consent (default `No, exit`) the FIRST time that flag runs in a config dir -- which
+       on a newly-added account has never been written. Pre-accept it here, BEFORE bootstrap
+       (the prompt is asked at startup, so a write after would land too late), so a fresh
+       agent does not park on it. Same provider guard as the trust write above: on OpenAI,
+       `configDir` is a CODEX_HOME and this is a CLAUDE consent, so it is Claude-only.
+       Non-gating and best-effort, exactly like the trust write -- the cost of it failing is
+       a prompt the board now RENDERS as needs_you (#1933), not a failed creation.
+       The key is per-ACCOUNT (settings.json), shared by every agent on that account, so the
+       2nd+ agent gets `already:true` and writes nothing; the failed-start rollback below
+       undoes it only when THIS creation wrote it (`already === false`), never a key another
+       agent still needs. */
+    if (provider !== 'openai') {
+      try { bypassed = require('./trust').preacceptBypass(configDir); }
+      catch { /* another tool's file; an agent that asks once is not a failed creation */ }
+    }
   }
 
   const started = step('started it', () => {
@@ -3206,6 +3234,15 @@ function createAgentInner(opts) {
       try { undone = require('./trust').forgetFolder(trusted.key, trusted.displaced, trusted.madeEntry).ok === true; }
       catch { undone = false; }
       if (!undone) steps.push({ label: 'took back the folder trust', ok: false });
+    }
+    // #1919: the bypass pre-accept goes back too, and ONLY when THIS creation wrote it
+    // (`already` false) -- never a key another agent on the same account still needs. Same
+    // shape and same failed-undo reporting as the trust undo above.
+    if (bypassed && bypassed.ok === true && bypassed.already === false) {
+      let undoneBypass = false;
+      try { undoneBypass = require('./trust').forgetBypass(configDir, bypassed.displaced, bypassed.madeFile).ok === true; }
+      catch { undoneBypass = false; }
+      if (!undoneBypass) steps.push({ label: 'took back the bypass acceptance', ok: false });
     }
     // ⚠️ INCLUDING THE JOB, and including UNLOADING it. It was left installed
     // here, so an agent reported as "not running yet" would have started at the
