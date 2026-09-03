@@ -89,12 +89,14 @@ function record(sessionName, entry) {
   if (!STATES.includes(state)) {
     return { recorded: false, because: 'that is not a state we know. The states are: ' + STATES.join(', ') };
   }
-  /* 🛑 #900: AN AUTOMATIC `idle` MAY NOT ERASE A DELIBERATE `blocked` OR
-     `needs_you`. The Stop hook fires at the end of EVERY turn and writes idle,
-     so a waiting state an agent filed mid-turn survived only until its own turn
-     ended, seconds later. Latest-report-wins then rendered an agent waiting on
-     a person as at-rest and finished. Two throwaway walk agents found this
-     about themselves on 0.5.34 and traced it correctly.
+  /* 🛑 #900/#1949: AN AUTOMATIC `idle` OR `working` MAY NOT ERASE A DELIBERATE
+     `blocked` OR `needs_you`. The Stop hook fires at the end of EVERY turn and
+     writes idle, and the report hook fires working on EVERY PreToolUse, so a
+     waiting state an agent filed mid-turn survived only until its own next
+     command, seconds later. Latest-report-wins then rendered an agent waiting
+     on a person as at-rest and finished. Two throwaway walk agents found the
+     idle half about themselves on 0.5.34 and traced it correctly; #1949 added
+     the working half (see below).
 
      ⚠️ THE DISCRIMINATOR IS `auto`, NOT THE WORD. A person or an agent
      deliberately saying `idle` still clears a waiting state, which is how a
