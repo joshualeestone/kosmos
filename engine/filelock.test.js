@@ -105,6 +105,72 @@ test('release removes OUR lock, never a successor that stole ours mid-section', 
     'the successor’s lock was replaced rather than left alone');
 });
 
+test('#1991: the steal refuses to move a FRESH lock created between the stat and the rename', () => {
+  // The TOCTOU the card traces: process Y measures a lock stale, is descheduled,
+  // process X completes a full steal and re-acquires a FRESH LIVE lock at the path,
+  // then Y resumes at renameSync carrying its cached "stale" verdict. rename moves
+  // whatever is at the path NOW (X's live lock), SUCCEEDS, and Y enters the section
+  // beside X. Reproduced deterministically by substituting the fresh lock inside a
+  // renameSync mock -- the realistic sub-case the chat.test.js "breaker" test does
+  // NOT reach, because it mocks rename to throw ENOENT (an EMPTY path), never to
+  // succeed on a live one.
+  const file = tmpFile();
+  const lock = file + '.lock';
+  fs.mkdirSync(lock);                                   // L0
+  const old = (Date.now() - LOCK_STALE_MS - 5000) / 1000;
+  fs.utimesSync(lock, old, old);                        // measured stale
+
+  const realRename = fs.renameSync;
+  const keep = lock + '.orig-l0';
+  let substituted = false;
+  let fnRan = false;
+  fs.renameSync = (from, to) => {
+    // On the stealer's first rename(lock -> aside), stand a FRESH LIVE lock (L1) at
+    // the path, as a racing process would. L0 is kept (not deleted) so its identity
+    // is unambiguously distinct and its mtime stays the stale value we measured.
+    if (!substituted && from === lock) {
+      substituted = true;
+      realRename(lock, keep);                           // L0 -> keep (still alive)
+      fs.mkdirSync(lock);                               // L1: fresh mtime (~now), NOT stale
+      fs.writeFileSync(path.join(lock, 'owner'), 'the-live-holder');
+    }
+    return realRename(from, to);                        // move whatever is at `from` now
+  };
+  try {
+    const r = withFileLock(file, () => { fnRan = true; return 'should-not-run'; },
+      { busy: 'still held', waitMs: 150 });
+    // The stealer moved L1 aside, saw its mtime differ from the stale mtime it
+    // measured, restored L1, and re-waited rather than entering the section.
+    assert.equal(fnRan, false, 'the stealer entered the section beside a live holder (double-entry)');
+    assert.deepEqual(r, { ok: false, because: 'still held' }, 'the stealer acquired instead of failing safe');
+    assert.ok(fs.existsSync(lock), 'the fresh live lock was destroyed rather than restored');
+    assert.equal(fs.readFileSync(path.join(lock, 'owner'), 'utf8'), 'the-live-holder',
+      'the fresh live holder’s lock was replaced rather than left intact');
+  } finally {
+    fs.renameSync = realRename;
+    const dir = path.dirname(lock);
+    for (const f of fs.readdirSync(dir)) {
+      try { fs.rmSync(path.join(dir, f), { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  }
+});
+
+test('#1991 CONTROL: the normal steal (no race) still matches identity and runs the section', () => {
+  // The mtime check must not turn every legitimate steal into a restore-and-rewait.
+  // A genuinely stale lock, stolen with no substitution, has an aside whose mtime
+  // equals the measured one, so the steal proceeds. Without this control, a fix that
+  // ALWAYS restored (e.g. an mtime comparison that never matches) would pass the
+  // race test above while silently breaking every real stale-lock recovery.
+  const file = tmpFile();
+  const lock = file + '.lock';
+  fs.mkdirSync(lock);
+  const old = (Date.now() - LOCK_STALE_MS - 5000) / 1000;
+  fs.utimesSync(lock, old, old);
+  const r = withFileLock(file, () => 'ran-after-clean-steal');
+  assert.deepEqual(r, { ok: true, value: 'ran-after-clean-steal' }, 'a clean stale-lock steal no longer runs the section');
+  assert.ok(!fs.existsSync(lock), 'the stolen-then-run lock was not released');
+});
+
 test('a non-EEXIST acquire failure is REPORTED, not thrown (opts.cannotAccess)', () => {
   // A lock path whose parent does not exist -> mkdirSync throws ENOENT (not EEXIST).
   const file = path.join(os.tmpdir(), 'filelock-test-nonexistent-' + process.pid, 'deep', 'target');

@@ -16,10 +16,20 @@
  *     measure one lock as stale; with `rmdir` both remove it and both proceed — the
  *     second demolishing the first's brand-new lock and entering the section beside
  *     it, the exact interleave the lock exists to prevent, reached through the path
- *     that repairs it. `rename` of a path succeeds ONCE: the loser gets ENOENT and
- *     loops back to wait like any other contender. Rename also copes with a
- *     non-empty lock dir a crash can leave (a `.DS_Store`, say), which `rmdir`
- *     cannot — that ENOTEMPTY once spun the synchronous POST handler forever.
+ *     that repairs it. Rename also copes with a non-empty lock dir a crash can leave
+ *     (a `.DS_Store`, say), which `rmdir` cannot — that ENOTEMPTY once spun the
+ *     synchronous POST handler forever.
+ *   - THE STEAL VERIFIES IDENTITY BY MTIME (kosmos#1991). It is tempting to think
+ *     `rename` of a path succeeds only ONCE, so the loser gets ENOENT and re-waits.
+ *     That holds only if both waiters rename at the same instant. A deschedule
+ *     between the stat that measured staleness and the rename lets the OTHER waiter
+ *     complete a full steal and re-acquire a FRESH LIVE lock at the path first;
+ *     `rename` then moves that live lock aside and SUCCEEDS, and both proceed, the
+ *     same double-entry `rmdir` had. So the stat captures the lock's mtime, and
+ *     after the rename we confirm the moved dir carries that mtime; since staleness
+ *     is itself an mtime bound, a stolen-stale lock's mtime is >LOCK_STALE_MS old
+ *     while a re-acquired one's is ~now, so they cannot collide. A mismatch means we
+ *     grabbed a lock we never measured stale, and we put it back and re-wait.
  *   - Staleness is by AGE, not owner liveness, so a crash between the `mkdir` and
  *     the owner write — an owner-less lock no liveness check could break — is still
  *     collected once it outlives LOCK_STALE_MS.
@@ -87,11 +97,49 @@ function withFileLock(file, fn, opts = {}) {
       // not spin the loop forever (measured: a synchronous handler wedged 15s).
       if (Date.now() > until) return { ok: false, because: msgOf(opts.busy, 'the file is locked by another writer') };
       let age = 0;
-      try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch { age = Infinity; }
+      // Capture the lock's MTIME alongside its age, from the SAME stat, so the
+      // steal below can prove it moved the same dir it measured (kosmos#1991).
+      let measuredMtime = null;
+      try { const st = fs.statSync(lock); measuredMtime = st.mtimeMs; age = Date.now() - st.mtimeMs; } catch { age = Infinity; }
       if (age > LOCK_STALE_MS) {
         const aside = `${lock}.${process.pid}.${Date.now()}.stale`;
         try { fs.renameSync(lock, aside); }
         catch { pauseMs(LOCK_SPIN_MS); continue; }   // someone else won the steal, or it vanished
+        // ⚠️ THE STEAL IS TWO NON-ATOMIC SYSCALLS (kosmos#1991). Between the stat
+        // that measured `lock` stale and this rename, another process can have
+        // STOLEN the same stale lock AND re-acquired a FRESH LIVE one at the same
+        // path. `rename` moves whatever stands at the path NOW, not the dir we
+        // measured, so a fresh lock does NOT make it throw -- it succeeds, moving a
+        // live holder's lock aside, and without this check we would `rmSync` it and
+        // enter the section beside that holder: a lost update, the exact interleave
+        // the lock exists to prevent, reached through the path that repairs it.
+        // Verify by MTIME that we moved the SAME dir we measured. `rename` preserves
+        // mtime, and staleness is itself an mtime bound, so the measured lock's
+        // mtime is >LOCK_STALE_MS old while any freshly re-acquired lock's is ~now:
+        // the two cannot collide the way a reused inode could. A match means we
+        // stole the measured-stale lock; a mismatch (or an mtime we could not read)
+        // means a fresh lock was substituted.
+        let stolenMtime = null;
+        try { stolenMtime = fs.statSync(aside).mtimeMs; } catch { stolenMtime = null; }
+        if (measuredMtime == null || stolenMtime == null || stolenMtime !== measuredMtime) {
+          // We moved a lock we did not measure stale -- put it back and re-wait,
+          // rather than proceed beside its holder. Restoring is what makes the
+          // re-wait safe: leaving `lock` empty would let our own next `mkdirSync`
+          // acquire it and double-enter anyway. If the path was re-occupied in the
+          // meantime the restore throws; the moved dir is then a `.stale`-suffixed
+          // leftover no reader matches (nothing enumerates `.stale` files, so it is
+          // not auto-collected, only inert), and we re-wait regardless.
+          // The restore does open a narrow new window -- between moving the live
+          // lock aside and putting it back, a THIRD process could `mkdir(lock)` and
+          // enter beside its holder. That is strictly smaller than what it replaces:
+          // without this branch the race is a GUARANTEED two-process double-entry
+          // whenever the deschedule happens; with it, a third double-entry needs the
+          // deschedule AND a sub-millisecond third-process mkdir landing in the gap.
+          // A conditional-rename syscall would close it, but POSIX has none.
+          try { fs.renameSync(aside, lock); } catch { /* path re-occupied; leave the inert `.stale` leftover in place */ }
+          pauseMs(LOCK_SPIN_MS);
+          continue;
+        }
         // chmod so the recursive remove can readdir to recurse: a holder that
         // crashed under an owner-bit-clearing umask left the dir un-readable
         // (force suppresses ENOENT, not EACCES). Best-effort; the `.stale` leftover
