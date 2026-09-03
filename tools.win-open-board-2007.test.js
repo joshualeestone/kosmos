@@ -226,11 +226,49 @@ test('a board that ACCEPTS the connection but never responds does not hang', asy
   const { appDir } = makeAppDir({ withToken: true });
   const t0 = Date.now();
   try {
-    // deadline shorter than one probe timeout + a probe, so this resolves via the
-    // deadline while a probe is aborted rather than hung. Generous ceiling below.
+    // Runs ~4.8s, not ~2.5s: at ~2.4s (after the first 2s probe aborts + a 400ms
+    // sleep) the deadline is not yet reached, so a SECOND probe launches and runs
+    // its full 2s abort (to ~4.4s) before the loop re-checks the deadline and exits.
+    // The point is it is BOUNDED (well under the 12s ceiling) and never hangs - the
+    // exact timing is a property of PROBE_TIMEOUT_MS, not a correctness concern.
     const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 2500 });
     assert.equal(url, `http://127.0.0.1:${port}`, 'a hung board did not fall back to the plain url');
     assert.ok(Date.now() - t0 < 12000, 'the helper hung on an unresponsive board instead of timing out');
+  } finally { server.close(); }
+});
+
+test('main() end-to-end: stdout is the PLAIN url, the opener gets the NONCED url', async () => {
+  // main() holds the security-relevant coupling "print the plain url (nonce stays
+  // out of logs), open the nonced url". resolveOpenUrl/openInBrowser are tested in
+  // isolation but nothing exercises main(), so a regression that printed the nonced
+  // url to stdout would pass silently. Run the helper as a real subprocess (the
+  // production invocation) against a fixture enforcing board.
+  const { execFile } = require('node:child_process');
+  const napms = (ms) => new Promise((r) => setTimeout(r, ms));
+  const { server, port } = await startFixtureBoard();      // returns a hex nonce
+  const { appDir } = makeAppDir({ withToken: true });        // enforcing (token present)
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kob-main-'));
+  const out = path.join(dir, 'opened.txt');
+  const stub = path.join(dir, 'opener.sh');
+  fs.writeFileSync(stub, `#!/bin/bash\nprintf '%s' "$1" > ${JSON.stringify(out)}\n`);
+  fs.chmodSync(stub, 0o755);
+  try {
+    const stdout = await new Promise((resolve, reject) => {
+      execFile(
+        process.execPath,
+        [path.join(__dirname, 'tools', 'kosmos-open-board.js'), '--port', String(port), '--app', appDir, '--timeout-ms', '4000'],
+        { env: { ...process.env, KOSMOS_OPEN_BIN: stub } },
+        (err, so) => (err ? reject(err) : resolve(so)),
+      );
+    });
+    // stdout is the human message: the PLAIN url, and NO nonce.
+    assert.equal(stdout.trim(), `http://127.0.0.1:${port}`, 'stdout was not the plain url');
+    assert.doesNotMatch(stdout, /boot=/, 'the single-use nonce leaked into stdout');
+    // The opener (a detached grandchild) receives the NONCED url. It may lag the
+    // subprocess exit, so poll briefly rather than reading once and racing.
+    let opened = '';
+    for (let i = 0; i < 40 && !opened; i++) { try { opened = fs.readFileSync(out, 'utf8'); } catch (_e) { /* not yet */ } if (!opened) await napms(100); }
+    assert.match(opened, new RegExp(`^http://127\\.0\\.0\\.1:${port}/\\?boot=[0-9a-f]+$`), 'the opener did not receive the nonced url');
   } finally { server.close(); }
 });
 
