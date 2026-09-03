@@ -3741,7 +3741,7 @@ if [ -f "$_awnode_r" ] && [ -x "$_awnode_r" ]; then
   _awroot_r="$("$_awnode_r" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot_r=""
   [ -n "$_awroot_r" ] && _repair_seed="$_awroot_r/.reauth-seeded"
 fi
-_open_gate="$FRESH_INSTALL"; _seed_after_open=no
+_open_gate="$FRESH_INSTALL"; _seed_after_open=no; _minted_nonce=no
 # A first enforcing run (fresh OR update) that has not seeded opens and seeds: the
 # fresh case seeds so a later update does not needlessly re-open; the update case
 # IS the repair. FRESH_INSTALL already opens; this adds the enforcing-update path.
@@ -3797,7 +3797,7 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_O
       # to the plain URL as intended. (cmd_open guards its mint the same way.)
       _nonce="$(curl -sS -m 15 -H @"$_nhf" -X POST "http://127.0.0.1:$PORT/api/board-nonce" 2>/dev/null | sed -n 's/.*"nonce":"\([0-9a-f]*\)".*/\1/p' || true)"
       rm -f "$_nhf" 2>/dev/null || true
-      [ -n "$_nonce" ] && _board_url="http://127.0.0.1:$PORT/?boot=$_nonce"
+      [ -n "$_nonce" ] && { _board_url="http://127.0.0.1:$PORT/?boot=$_nonce"; _minted_nonce=yes; }
     fi
   fi
   # 🛑 UNDER THE .PKG, NOT A BARE `open` (#663). Installer's postinstall runs
@@ -3880,11 +3880,16 @@ PLIST
       || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
   fi
   fi
-  # #2023: seed the repair marker after the open above, so this one-time repair
-  # fires on the FIRST update carrying it and never again. Best-effort: a machine
-  # with no writable store ROOT still opened, it may just re-open on the next
-  # update, which is harmless (the cookie simply refreshes).
-  if [ "${_seed_after_open:-no}" = "yes" ] && [ -n "${_repair_seed:-}" ]; then
+  # #2023: seed the repair marker ONLY when the browser was actually handed a
+  # ?boot=<nonce> (_minted_nonce), so this one-time repair fires on the first update
+  # carrying it and never again. If the mint FAILED (board HTTP not answering in the
+  # update window -> plain URL with no ?boot=) the marker is NOT written and the
+  # repair RETRIES next update -- otherwise a mint failure would mark the machine
+  # done while its board stays 403, the exact state this fixes. The one residual:
+  # the browser launched but never navigated (vanishingly rare); the recourse there
+  # is the owner running `kosmos open` in their terminal, the token-holding path
+  # (there is no safe in-app reconnect -- a no-cookie page cannot prove ownership).
+  if [ "${_seed_after_open:-no}" = "yes" ] && [ -n "${_repair_seed:-}" ] && [ "${_minted_nonce:-no}" = "yes" ]; then
     : > "$_repair_seed" 2>/dev/null || true
   fi
 fi
