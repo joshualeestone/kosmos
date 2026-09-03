@@ -89,6 +89,21 @@ function main() {
   const token = String(process.env.KOSMOS_AGENT_TOKEN || '').trim();
   if (/^[0-9a-f]+$/.test(token)) headers['x-kosmos-agent-token'] = token;
 
+  /* #1968: ALSO present the board token. The agent-token arm above is empty for
+     almost every agent (the common case), and #1946 makes an enforcing board
+     refuse a bare-pane report as the cross-account spoof path. The board token
+     is the same-account credential a report presents instead; this bridge runs
+     INSIDE the agent's pane, same account as the board, so it can read the
+     mode-600 token file. Read via boardauth (the ONE source of truth for the
+     path -- no formula duplicated here). Guarded to the letter of this file's
+     cardinal rule: a token we cannot read must never break the agent, so any
+     failure just omits the header and the pane arm carries the report exactly as
+     before on a non-enforcing board. */
+  try {
+    const boardTok = require('../engine/boardauth').readToken();
+    if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
+  } catch { /* a missed board token must never become a failed turn */ }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   fetch(`http://127.0.0.1:${port}/api/report`, {

@@ -401,9 +401,25 @@ const os = require('node:os');
  * would have reported. Worth fixing by storing the original name at mint time
  * if it ever matters; it does not yet.
  */
-function resolveAgentSender(req, body, roster) {
+function resolveAgentSender(req, body, roster, opts) {
   const presented = (req && req.headers && req.headers['x-kosmos-agent-token']) || (body && body.token);
-  if (!presented) return messages.resolveSender(body && body.from_pane, roster);
+  if (!presented) {
+    /* #1968: the bare-pane fallback is a NO-CREDENTIAL path. On an enforcing
+       board it is exactly how a second macOS account spoofs a report/reply --
+       loopback is machine-wide, report/reply are exempt from the board token,
+       and a pane id is enumerable (`tmux list-panes`). So report/reply pass
+       `denyPaneFallback` (true only on an enforcing board with no valid board
+       token); with it set we refuse rather than trust the pane. This is the
+       "board token OR agent token" tightening: the agent-token arm is the
+       `presented` branch above, the board-token arm is decided by the caller
+       and reaches us as `denyPaneFallback === false`. A bare 3-arg call (the
+       `new Function` extraction test, and any non-enforcing caller) leaves
+       `opts` undefined, so the fallback works exactly as before. */
+    if (opts && opts.denyPaneFallback) {
+      return { ok: false, because: opts.denyBecause || 'this board only accepts a report from the account that started it, or an agent with a token' };
+    }
+    return messages.resolveSender(body && body.from_pane, roster);
+  }
 
   const carded = sendertoken.resolve(presented, roster);
   if (carded.ok) return carded;
@@ -1542,22 +1558,21 @@ const server = http.createServer((req, res) => {
       return;
     }
     const sensitive = pathname.startsWith('/api/') || WRITE_METHODS.has(req.method);
-    // REMOTE_AGENT_ROUTES (POST /api/report, /api/reply) are exempt because a
+    // REMOTE_AGENT_ROUTES (POST /api/report, /api/reply) are exempt HERE because a
     // REMOTE agent reaches them with an agent token (remoteWriteGuard validates
-    // it), not a board token. ⚠️ RESIDUAL, stated honestly: that agent-token check
-    // is mandatory only for a REMOTE peer. A LOOPBACK caller -- which now includes
-    // the cross-account process #1946 exists to stop -- still reaches report/reply,
-    // and resolveAgentSender falls back to a `from_pane` sender when no token is
-    // presented, so a second account could post a spoofed report/reply (and fire a
-    // notify push) with no credential. This is NOT code execution (POST /api/agents
-    // is gated) and it is the PRE-EXISTING report/reply model, not a regression
-    // introduced here; exploitability is low (a valid `from_pane` is required and
-    // the victim's tmux socket is mode-700, so panes are not cross-account
-    // enumerable). Tightening it -- require the board token OR an agent token, drop
-    // the pane fallback, on an enforcing board -- is a change to the report/reply
-    // auth subsystem and its same-account callers, tracked as kosmos#1968, not
-    // folded into this boundary fix. The code-execution surface this card targets
-    // is closed regardless.
+    // it), not a board token -- so this dispatch gate must let a token-carrying
+    // remote agent through without a board token.
+    // 🔑 #1968: the LOOPBACK residual this exemption used to leave open is now
+    // CLOSED one layer down, inside the report/reply handlers. A LOOPBACK caller
+    // (which includes the cross-account process #1946 exists to stop) reaches
+    // report/reply exempt from THIS gate, but the handlers now pass
+    // `denyPaneFallback` to `resolveAgentSender` when the board is enforcing and
+    // no valid board token is presented, so the bare-`from_pane` (no-credential)
+    // spoof is refused there -- require the board token OR an agent token, exactly
+    // as documented for #1968. The fix lives in the handlers rather than here
+    // because only they have parsed the body (an agent token may ride in
+    // `body.token`, which this pre-body gate cannot see). The code-execution
+    // surface (POST /api/agents) is gated by this board-token check regardless.
     const exemptAgent = REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`);
     if (sensitive && !exemptAgent && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) {
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
@@ -5283,7 +5298,18 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { recorded: false, because: 'we could not check which agents are running, so we could not tell who this is from' });
           return;
         }
-        const sender = resolveAgentSender(req, body, roster);
+        /* #1968: on an enforcing board, a loopback report with NO credential
+           (neither an agent token nor the board token) must not be trusted on a
+           bare pane -- that is the cross-account spoof #1946 exists to stop, on
+           the one surface it left exempt. A valid board token (the same-account
+           owner's `kosmos report`) or an agent token still passes. Off on a
+           non-enforcing board, so the test/browser-check suite is unchanged. */
+        const denyPaneFallback = boardAuthState.on
+          && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+        const sender = resolveAgentSender(req, body, roster, {
+          denyPaneFallback,
+          denyBecause: 'this board only records a report from the account that started it; run `kosmos report` from that account, or present an agent token',
+        });
         if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
@@ -5381,7 +5407,15 @@ const server = http.createServer((req, res) => {
            🛑 AND IT IS ALSO A CONTAINMENT GAP: a pane name is guessable, so
            retiring the fallback on /api/report alone would have left this route
            forging-capable. The pane path has to leave BOTH or neither. */
-        const sender = resolveAgentSender(req, body, roster);
+        /* #1968: BOTH, per the line above. Same tightening as /api/report -- on
+           an enforcing board a loopback reply with no agent token and no board
+           token is refused rather than trusted on a bare (enumerable) pane. */
+        const denyPaneFallback = boardAuthState.on
+          && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+        const sender = resolveAgentSender(req, body, roster, {
+          denyPaneFallback,
+          denyBecause: 'this board only keeps a reply from the account that started it; run `kosmos reply` from that account, or present an agent token',
+        });
         if (!sender.ok) { sendJson(res, 200, { kept: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
