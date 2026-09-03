@@ -441,6 +441,15 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .dav-wrap { position: relative; width: 88px; height: 88px; flex: 0 0 88px; }
 .dav-wrap .detail-av { width: 88px; height: 88px; }
 .dav-wrap .membadge { top: 0; right: -8px; }
+/* #1915: the memory ring on the DETAIL avatar. It was on the board cards
+   (.agauge/ring) and the consolidated rows (.lring) but never on the agent's own
+   page, where a person actually looks; this puts the at-a-glance signal there, off
+   the same reading the MEMORY panel shows. The ring sits just outside the 88px
+   avatar (the pack allows the ring to extend past the avatar's box), on the shared
+   .gt/.gf colours and weight. First child of .dav-wrap so the avatar + membadge
+   stack above it. */
+.dring { position: absolute; inset: -6px; width: 100px; height: 100px; pointer-events: none; }
+.dring svg { width: 100px; height: 100px; display: block; }
 .dnamerow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 /* ⚠️ Beats `.astate`'s own `margin: 12px auto 0` on specificity (0,2,0 to
    0,1,0), which is what stops the badge dropping a line and centring itself
@@ -5980,6 +5989,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
        gaps in the plan). -->
   <div class="dhead">
     <div class="dav-wrap">
+      <span class="dring" id="d-ring" aria-hidden="true"></span>
       <div class="detail-av">
         <img id="d-img" alt="" hidden>
         <div id="d-initials" class="detail-initials"></div>
@@ -6071,6 +6081,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            than something we are asking for. -->
       <p class="detail-saidlab" id="d-said-lab" hidden></p>
       <blockquote class="detail-said" id="d-said" hidden></blockquote>
+      <!-- kosmos#1918: the evidence quote above can relay the CLI's "Please run
+           /login", which is correct in a terminal and FALSE here: the Terminal tab is
+           read-only and the message box under it talks to the AGENT, not the shell, so
+           there is nowhere in the product to run it. When sign-in is what is broken,
+           give a REACHABLE in-product path to the one surface that fixes it: Settings ->
+           Accounts, where each Claude account carries its own "Sign in again". A real
+           affordance, not a reworded dead end (#1918 forbids the wording-only close).
+           Shown ONLY for auth_failed (paintDetail toggles it) so it never reads as an
+           action a healthy agent needs. Aiming it at THIS agent's specific account is a
+           follow-up gated on #1916/#1917; the account list is the honest floor. -->
+      <button type="button" class="detail-reauth linkish" id="d-reauth" hidden>Sign in again</button>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
            projects this agent is on, read from the agent's end, and it carried a
@@ -11398,6 +11419,20 @@ function lrowRing(a) {
     <circle class="gf ${band}" cx="17" cy="17" r="${R}" fill="none" stroke-width="2.5" stroke-dasharray="${(pct / 100) * C} ${C}" transform="rotate(-90 17 17)"/>
   </svg>`;
 }
+/* #1915: the same memory ring for the DETAIL avatar, scaled to sit just outside the
+   88px avatar. Same reading (pctOf) and band (memBand) as the board rings and the
+   MEMORY panel, so all surfaces agree. Unknown (pct null) draws no ring, matching
+   lrowRing; the detail's .membadge (unk) and MEMORY panel carry the unknown case. */
+function detailRing(a) {
+  const pct = pctOf(a.context);
+  if (pct === null) return '';
+  const R = 47, C = 2 * Math.PI * R;
+  const band = memBand(pct);
+  return `<svg viewBox="0 0 100 100" aria-hidden="true">
+    <circle class="gt" cx="50" cy="50" r="${R}" fill="none" stroke-width="4"/>
+    <circle class="gf ${band}" cx="50" cy="50" r="${R}" fill="none" stroke-width="4" stroke-dasharray="${(pct / 100) * C} ${C}" transform="rotate(-90 50 50)"/>
+  </svg>`;
+}
 function lrow(a) {
   /**
    * 🛑 THE LIST IS HALF THE BOARD, and the card branch alone is how this file
@@ -14012,7 +14047,32 @@ async function paintAccounts() {
          produce exactly the silence this handler exists to prevent, on the day
          somebody drops the title from that branch. If there is nothing to say,
          say the short form rather than nothing. */
-      const say = btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.';
+      /* #1917: THE REFUSAL NOW NAMES A WAY OUT, because the default row is exactly
+         where a real tester dead-ended. Kosmos will not remove `~/.claude`, and when
+         it is the account whose sign-in is broken (Ben, 0.6.22: the agent 401'd on
+         the account it could not remove) the pure refusal was a wall. `Sign in again`
+         (#1492, `data-reauth`) is on this same row and re-auths this account in place,
+         which is the recovery to TRY -- so the pressed refusal points at it. Appended
+         to the SPOKEN message only, never to `btn.title`: the title stays pinned to the
+         engine's `because` (web.account-qualifier.test.js anchors title=" against it),
+         and this remedy is UI-specific ("above") so it does not belong in the engine
+         sentence.
+         \ud83d\uded1 A THING TO TRY, NOT A FIX, AND THE MESSAGE IS TRUE WHETHER OR NOT REAUTH
+         CAPTURES. Confirmed from Ben (via Josh, 2026-09-02): `Sign in again` runs the
+         whole flow, returns a green check "like everything's active", and does NOT
+         capture a working credential -- his agent kept 401'ing after it. So this must
+         NOT promise that `Sign in again` fixes the account, or it loops a user back to a
+         false green. It points at the step to try AND warns that the green check proves a
+         sign-in RAN, not that it took -- the same thing #874 measured about the row badge,
+         which cannot see a rejected token. That warning is true in both worlds, so the
+         sentence stays correct however the reauth defect resolves.
+         \u26a0\ufe0f DOWNSTREAM of the reauth-returns-green-without-capturing defect (Splinter
+         filing its own card; recurring -- it also hit Casey, not one-off on Ben's Mac).
+         When reauth is fixed so a green check means a captured credential, this wording
+         can be strengthened to name it as the fix. Noted on the card so that owner sees
+         it. */
+      const say = (btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.')
+        + ' If its sign-in is not working you can try \u201cSign in again\u201d above, then check that an agent on it actually connects: a green check here confirms a sign-in ran, not that it captured a working credential.';
       /* ⚠️ setTimeout, NOT requestAnimationFrame: rAF is throttled or suspended
          outright in a hidden or background tab, so the clear-then-set would
          leave the region BLANK there -- worse than the unchanged text it is
@@ -16503,6 +16563,48 @@ function threadAtBottom(el) {
   if (!el.clientHeight) return false;
   return (el.scrollHeight - el.scrollTop - el.clientHeight) <= THREAD_BOTTOM_SLACK;
 }
+/* #1926: WHICH MESSAGE the reader is looking at, not just the pixel they are
+   parked on. The 5s poll replaces the whole thread, and content ABOVE the reader
+   can change height between polls -- a relative timestamp ticks ("a minute ago"
+   -> "2 minutes ago"), an image finishes loading -- so restoring the same
+   scrollTop leaves them on a DIFFERENT message ("it jumps to different spots").
+   `data-mid` is stamped by dmRow. Returns the first row whose bottom is past the
+   viewport top (the one the reader is on) with its offset below the fold, or null
+   on a box with no rows (a note, a first paint) where there is nothing to hold. */
+function threadAnchor(el) {
+  if (!el || typeof el.querySelectorAll !== 'function') return null;
+  const top = el.scrollTop;
+  const rows = el.querySelectorAll('[data-mid]');
+  for (let i = 0; i < rows.length; i += 1) {
+    const r = rows[i];
+    /* Skip a row the search filter has hidden (offsetHeight 0): it is not what
+       the reader is looking at, and anchoring to it would restore against a
+       zero-height row next poll. */
+    if (!r.offsetHeight) continue;
+    if (r.offsetTop + r.offsetHeight > top) {
+      return { mid: r.getAttribute('data-mid'), delta: r.offsetTop - top };
+    }
+  }
+  return null;
+}
+/* Put the anchored message back at the same offset below the viewport top.
+   Returns false when the message is gone (its id left the thread), so the caller
+   falls back to the pixel offset rather than leaving the reader unmoved. */
+function restoreThreadAnchor(el, a) {
+  if (!a || !el || typeof el.querySelectorAll !== 'function') return false;
+  const rows = el.querySelectorAll('[data-mid]');
+  for (let i = 0; i < rows.length; i += 1) {
+    if (rows[i].getAttribute('data-mid') === a.mid) {
+      /* The message is still in the thread but the filter now HIDES it
+         (offsetHeight 0): restoring to `0 - delta` would jump. Fall back to the
+         pixel offset instead, which is no worse than the old behaviour. */
+      if (!rows[i].offsetHeight) return false;
+      el.scrollTop = rows[i].offsetTop - a.delta;
+      return true;
+    }
+  }
+  return false;
+}
 function setThread(el, html, key) {
   /* ⚠️ THE AGENT THREAD GETS THIS TOO, and not for symmetry: `#d-say` sits
      under it in the same column, and a thread that never resizes today is one
@@ -16533,9 +16635,14 @@ function setThread(el, html, key) {
      note never updates it, and therefore cannot overwrite what it is about to
      destroy. web.thread-scroll.test.js is that measurement, kept. */
   const showedList = el.__lastCount !== null && el.__lastCount !== undefined;
+  let anchor = null;
   if (showedList) {
     el.__heldTop = el.scrollTop;
     el.__heldAtBottom = threadAtBottom(el);
+    /* #1926: only when scrolled back -- a reader at the floor is pinned there and
+       needs no anchor. Captured BEFORE the write, while the old rows are still on
+       screen to measure. */
+    if (el.__heldAtBottom === false) anchor = threadAnchor(el);
   }
   const rewrote = el.__lastThread !== html;
   if (rewrote) {
@@ -16560,7 +16667,12 @@ function setThread(el, html, key) {
      there. `!== false` rather than `=== true` so a first-ever paint, which has
      no remembered posture, still lands on the newest row. */
   if (el.__heldAtBottom !== false) { pinToBottom(el); return; }
-  // Otherwise they are reading back. Put them exactly where they were.
+  /* #1926: put the anchored MESSAGE back where it was in the viewport, so content
+     that changed height above the reader (a ticking timestamp, a late image) does
+     not slide them onto a different message. */
+  if (restoreThreadAnchor(el, anchor)) return;
+  // No anchor to find (a first list paint, or the row's id changed): fall back to
+  // the pixel offset, which is the old behaviour and no worse than it was.
   if (el.__heldTop !== undefined && el.scrollTop !== el.__heldTop) el.scrollTop = el.__heldTop;
 }
 /**
@@ -16891,8 +17003,17 @@ function dmRow(m, name) {
    * screen reads: the append IS the arrival, and printing "Sent" beside it
    * would invent a mechanism that did not happen.
    */
+  /* #1926: a STABLE per-row key so the poll's repaint can keep a reader who has
+     scrolled back on the SAME MESSAGE. `id` first (the store's own identity),
+     `at` as the fallback the thread key already trusts. Read by setThread's
+     anchor, so the 5s repaint restores the reader to the message they were on
+     rather than to a pixel offset that now points at different content.
+     ⚠️ Degrades gracefully: if `id` is absent and two rows share a millisecond
+     `at`, the anchor matches the FIRST -- a drift of at most one adjacent row,
+     no worse than the pixel offset it replaces. */
+  const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
   if (m && m.from) {
-    return '<div class="dm theirs"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
+    return '<div class="dm theirs" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
       + '<span class="dm-w">' + esc(dmWho(m.from, name)) + pjWhenPart(m.at) + '</span></div>';
   }
   const v = pjVerdict(m, name);
@@ -16940,7 +17061,7 @@ function dmRow(m, name) {
      puts it, and no longer inside the verdict. The verdict is silent on an
      ordinary success now, and a timestamp that lived inside it would have gone
      silent with it -- on every message that worked. */
-  return '<div class="dm mine"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
+  return '<div class="dm mine" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
     + '<span class="dm-w">You' + v.when + wire + ' '
     + '<span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span></span></div>';
 }
@@ -18098,6 +18219,14 @@ function openDetail(sessionName, section) {
       saidLab.hidden = !line;
     }
   }
+  /* kosmos#1918: the reachable remedy for a broken sign-in. The evidence quote
+     above may name "/login", which has no surface in this product; this button is
+     that surface. Shown ONLY when the state is auth_failed, so a healthy agent
+     never sees a control it does not need, and hidden again the moment the state
+     is anything else. The click (wired once below) opens Settings -> Accounts,
+     the existing re-auth surface. */
+  const reauthBtn = document.getElementById('d-reauth');
+  if (reauthBtn) reauthBtn.hidden = a.state !== 'auth_failed';
   /* The pack's header badge and the two reading boxes, all off the same
      shared derivations the board uses (memBand/pctOf/modelLine). */
   const dpct = pctOf(a.context);
@@ -18111,6 +18240,7 @@ function openDetail(sessionName, section) {
   dbadge.className = 'membadge' + (dpct === null ? ' unk' : '');
   dbadge.textContent = memPrint(a.context, dpct);
   dbadge.hidden = !(dpct === null || dpct >= NEARLY_FULL);
+  document.getElementById('d-ring').innerHTML = detailRing(a);
   document.getElementById('d-memory').innerHTML = memoryBox(a);
   const drun = document.getElementById('d-runson');
   /* The design's one line: model and account together, "Claude Opus 5
@@ -18411,6 +18541,26 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
     loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
   }
 });
+/* kosmos#1918: wire the agent page's "Sign in again" affordance ONCE (paintDetail
+   only toggles its visibility). It opens Settings -> Accounts, the existing re-auth
+   surface, so a person looking at an agent whose sign-in is broken has an in-product
+   path to the fix instead of the CLI's unreachable "/login".
+   🛑 showTab('settings') FIRST, then the section. The button lives on the DETAIL
+   panel, and the top-level panels are mutually exclusive, so settingsGo/settingsOpen
+   (which only switch sections WITHIN the settings panel) would toggle an off-screen
+   section and the user, still on the detail page, would see nothing happen: a dead
+   control, the exact wording-only dead end #1918 forbids. showTab('settings') runs
+   paintSettings (which paints Accounts), so the landed surface is populated. This
+   mirrors the st-agents tile precedent (showTab then settingsOpen).
+   🔑 NO focus:false. settingsGo focuses the landed section's .dsec by default; passing
+   focus:false would strand keyboard/screen-reader focus on this button, which is now
+   inside the hidden detail panel. Letting it focus the Accounts section is exactly what
+   clicking the Accounts nav pill does, and it lands focus on the surface a stuck user
+   needs to act on. */
+(() => {
+  const rb = document.getElementById('d-reauth');
+  if (rb) rb.addEventListener('click', () => { showTab('settings'); settingsOpen('accounts'); });
+})();
 /* Settings has the same shape: seven sections, one on screen, the nav says
    which. No arrival work here (nothing in Settings measures layout or
    captures a pane), so this is the agent page's switch with the extras
@@ -24282,7 +24432,23 @@ function fillCreateAccounts() {
   const working = list.filter((x) => !x.connection || x.connection.state !== 'none');
   const movable = openai ? working : working.filter((x) => x.memoryShared);
   const usable = movable.length ? movable : working;
-  const nameOf = (x) => x.email || (x.provider === 'openai' && x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir;
+  /* #1917: two accounts on one email rendered as two identical options, so a real
+     tester (Ben, 0.6.22) could not tell which to pick and ran his agent on the dead
+     one for an hour. The Settings list already disambiguates duplicated rows via
+     `accountQualifiers` (the default is `main`, the others by their own label); the
+     picker threw that away and rendered by email alone -- the exact bug the Settings
+     render was fixed for, one screen over. Compute the same qualifier over the rows
+     actually OFFERED and append it, so a duplicated email is distinct and the default
+     (the original account) reads `(main)`. It is empty for a unique email, so the
+     common single-account case is unchanged.
+     🛑 DISCRIMINATES BY LABEL / DEFAULT, NOT BY SIGN-IN STATE. The badge cannot see a
+     REJECTED token (#874; #1916 is Angel's, the account that 401s still reads
+     `connected`), so a liveness-based discriminator would still hide the dead one.
+     `main` names WHICH account is the original, which is the discriminator that does
+     not depend on a check the page cannot make. */
+  const acctQual = accountQualifiers(usable);
+  const qualOf = (x) => { const q = acctQual.get(String(x.dir || '')); return q ? ' (' + q + ')' : ''; };
+  const nameOf = (x) => (x.email || (x.provider === 'openai' && x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir) + qualOf(x);
   const labelOf = (x) => x.connection && x.connection.state === 'unknown' ? esc(nameOf(x)) + ' (could not check just now)' : esc(nameOf(x));
   asel.innerHTML = usable.length
     ? usable.map((x) =>

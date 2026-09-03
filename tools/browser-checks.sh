@@ -1058,7 +1058,7 @@ fi
 # fleet.install, runs bare. Proven standalone 25/25 green, and proven RED against
 # the pre-#1841 page (the doctrine prompt in the header not the tab, no bold role,
 # no #d-instr-reports element), which is the arm that makes the 25 mean anything.
-for n in live-connect render-agent-nav render-busy-line render-head-row render-room-scroll render-made-before render-detail-header-1841 render-memory-words render-org-drag render-pjsettings render-settings-nav render-prompter-label-1843 render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset render-agent-lines render-long-title render-project-rows; do
+for n in live-connect render-agent-nav render-busy-line render-reauth-reach-1918 render-head-row render-room-scroll render-made-before render-detail-header-1841 render-memory-words render-org-drag render-pjsettings render-settings-nav render-prompter-label-1843 render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset render-agent-lines render-long-title render-project-rows; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 # --- the rich board: four checks that could not be wired for want of a fixture

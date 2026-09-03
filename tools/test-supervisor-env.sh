@@ -28,7 +28,7 @@ AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
 # gets that far. `${VAR:-}` keeps `set -u` happy for the ones it never reaches.
 #
 # ⇒ ADD A NEW TEMP DIR TO THIS LINE. Do not write another trap.
-trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB:-}" "${SB2:-}" "${DATA2:-}"' EXIT
+trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB:-}" "${SB2:-}" "${DATA2:-}" "${SB3:-}" "${DATA3:-}"' EXIT
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -99,6 +99,50 @@ else
   bad "#1139: no token minted with engine-path present -- an installed agent still cannot identify itself: $(grep -c . "$ARGS2") args, $(tail -3 "$SB2/out.log")"
 fi
 if grep -q "$PWD/engine" "$SB2/out.log" "$SB2/start.log" 2>/dev/null; then bad "the engine path leaked into a log"; else ok "the pointer does not appear in the supervisor's output"; fi
+
+# ---------------------------------------------------------------- #1897
+# THE INSTALLED PATH, FAITHFULLY. The SB2 arm above mints -- but only because
+# `command -v node` finds node on the TEST's PATH, the one fallback a real agent
+# does NOT have: launchd hands the supervisor exactly /usr/bin:/bin:/usr/sbin:/sbin
+# and there is no node there. Before #1897 the bundled-node candidate was derived
+# from $_app (SUPPORT_DIR/..), which never pointed at the runtime, so with node
+# off PATH BOTH candidates were empty and no installed agent ever minted a token.
+# This arm strips PATH to the launchd set and lays the bundled node beside app
+# the way install/kosmos does (runtime a sibling of app). It asserts a token IS
+# present, so it FAILS on the old supervisor and passes only once node is derived
+# from the engine pointer that already resolves ($_eng/../../runtime/bin/node).
+#
+# 🛑 STORE-FREE. sendertoken.js here is a stub whose mint returns a fixed hex
+# token, so this proves NODE RESOLUTION without minting a real credential into
+# any store -- the real mint is engine/sendertoken's own tests.
+SB3="$(mktemp -d)"   # removed by the single trap above
+mkdir -p "$SB3/bin" "$SB3/work" "$SB3/root/app/engine" "$SB3/root/runtime/bin"
+cp bin/agent-supervisor.sh "$SB3/bin/agent-supervisor.sh"
+cp "$SB/tmux" "$SB3/tmux"
+cat > "$SB3/root/app/engine/sendertoken.js" <<'STUBJS'
+module.exports = { mint: () => ({ ok: true, token: 'deadbeef' }) };
+STUBJS
+# The bundled node, beside app exactly as the installer lays it out. A real dir
+# tree (not a symlinked engine), so `$_eng/../..` resolves to the layout root and
+# not to a symlink target's parent.
+ln -s "$(command -v node)" "$SB3/root/runtime/bin/node"
+printf '%s\n' "$SB3/root/app/engine" > "$SB3/bin/engine-path"
+DATA3="$(mktemp -d)"
+# 🛑 THE LAUNCHD PATH, exactly -- no node, only coreutils. /bin/bash by absolute
+# path so stripping PATH cannot lose the interpreter itself; PATH exported inside
+# the subshell so the supervisor and everything it spawns sees the launchd set.
+(
+  export AGENT_WORKFORCE_DATA="$DATA3" STUB_DIR="$SB3" AGENT_WORKFORCE_WAIT_POLL_SECS=1
+  export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+  /bin/bash "$SB3/bin/agent-supervisor.sh" nodetest "$SB3/work" /usr/bin/true "$SB3/tmux" "$SB3/start.log"
+) > "$SB3/out.log" 2>&1 || true
+ARGS3="$SB3/new-session.args"
+if [ -s "$ARGS3" ]; then ok "the launchd-PATH run reached new-session"; else bad "launchd-PATH run never reached new-session: $(tail -3 "$SB3/out.log")"; fi
+if grep -qx 'KOSMOS_AGENT_TOKEN=deadbeef' "$ARGS3"; then
+  ok "#1897: node derived from the engine pointer mints with NO node on PATH -- the layout every installed agent runs in"
+else
+  bad "#1897: no token from the bundled node with node off PATH -- an installed agent still cannot identify itself: $(grep -c . "$ARGS3") args, $(tail -3 "$SB3/out.log")"
+fi
 
 [ "$FAILS" -eq 0 ] && echo "supervisor env handoff: all hold" || echo "supervisor env handoff: $FAILS FAILED"
 exit "$FAILS"
