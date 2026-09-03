@@ -3754,13 +3754,30 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
     _awroot="$("$_awnode" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot=""
     [ -n "$_awroot" ] && _bt="$(cat "$_awroot/board.token" 2>/dev/null || true)"
   fi
-  [ -n "$_bt" ] && _board_url="http://127.0.0.1:$PORT/?token=$_bt"
-  # #1970 BOUNDED RESIDUAL: the plist FILE is mode-600, but when launchd runs the
-  # open-once job the URL (with the token) is on the `sh`/`open` argv, which macOS
-  # `ps` exposes cross-account for that one launch. install/kosmos moved every CLI
-  # call off argv; the browser handoff still needs the URL as an argument. Accepted
-  # as bounded (a single first-boot open); the proper fix is a server one-shot nonce,
-  # tracked as #1979 (a #1970 follow-up). Do not read the cookie-swap as closing the argv leak.
+  # #1979: hand the browser a single-use, short-TTL NONCE, not the durable token.
+  # The board is up by here (we just read its token), and the open-once plist is
+  # RunAtLoad, so a nonce minted now (2-min TTL) is redeemed within seconds. The
+  # board token authenticates the mint OFF argv via a mode-600 header file (a plain
+  # `sh` inline of install/kosmos's kosmos_curl), so only the nonce -- useless once
+  # redeemed and after its TTL -- ever reaches the plist/`sh`/`open` argv that macOS
+  # `ps` exposes cross-account. Fall back to the plain URL (never ?token=) if the
+  # mint fails, so the durable token is never put on argv. This applies to BOTH the
+  # pkg open-once plist and the direct-open fallback below, which share _board_url.
+  if [ -n "$_bt" ]; then
+    _nhf="$(mktemp "${TMPDIR:-/tmp}/kosmos-open-auth.XXXXXX" 2>/dev/null || echo '')"
+    if [ -n "$_nhf" ]; then
+      chmod 600 "$_nhf" 2>/dev/null || true
+      printf 'x-kosmos-board-token: %s\n' "$_bt" > "$_nhf" 2>/dev/null || true
+      # `|| true` is load-bearing under this script's `set -euo pipefail`: a curl
+      # connection failure (exit 7, board died in the window after the health
+      # check) or a timeout (exit 28) makes the pipeline non-zero, and without the
+      # guard `set -e` would ABORT the fresh install here rather than falling back
+      # to the plain URL as intended. (cmd_open guards its mint the same way.)
+      _nonce="$(curl -sS -m 15 -H @"$_nhf" -X POST "http://127.0.0.1:$PORT/api/board-nonce" 2>/dev/null | sed -n 's/.*"nonce":"\([0-9a-f]*\)".*/\1/p' || true)"
+      rm -f "$_nhf" 2>/dev/null || true
+      [ -n "$_nonce" ] && _board_url="http://127.0.0.1:$PORT/?boot=$_nonce"
+    fi
+  fi
   # 🛑 UNDER THE .PKG, NOT A BARE `open` (#663). Installer's postinstall runs
   # as root and drops to the person with `launchctl asuser` + `sudo -u`; the
   # first real fresh-account run (Josh, 2026-08-24) reached this line, said

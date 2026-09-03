@@ -239,18 +239,92 @@ function cookieHeader(token) {
   return `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=34560000`;
 }
 
-/** The request path with the `token` query param removed, other params kept.
- * Used to strip the bootstrap token out of the URL after setting the cookie, so
- * it does not linger in history or a Referer. */
-function pathWithoutToken(req, routingBase) {
+/** The request path with one query param removed, other params kept. Used to
+ * strip the bootstrap secret (`token` or `boot`) out of the URL after setting the
+ * cookie, so it does not linger in history or a Referer. */
+function pathWithoutParam(req, routingBase, param) {
   try {
     const u = new URL(req.url, routingBase);
-    u.searchParams.delete('token');
+    u.searchParams.delete(param);
     const q = u.searchParams.toString();
     return u.pathname + (q ? `?${q}` : '');
   } catch {
     return '/';
   }
+}
+
+/** Back-compat name for the `?token=` bootstrap strip. */
+function pathWithoutToken(req, routingBase) { return pathWithoutParam(req, routingBase, 'token'); }
+
+// --- Single-use browser-open nonces (#1979) ----------------------------------
+// The `?token=` bootstrap works, but it puts the DURABLE board token on the
+// browser-open argv: `kosmos open` runs `open "$URL/?token=<durable>"` and the
+// install open-once plist runs `/bin/sh -c 'open "$0"...' "$URL/?token=<durable>"`,
+// and macOS `ps -ww -o args` shows that argv to every account on the box. The
+// token is the SAME durable secret as the mode-600 file, so the exposure is
+// forever.
+//
+// The closure: the caller (which already holds the board token, presented OFF
+// argv via `kosmos_curl`'s `-H @file`) mints a single-use, short-TTL NONCE and
+// hands the BROWSER the nonce. The browser redeems it for the same httpOnly
+// cookie on its first nav. A nonce is useless once redeemed (single-use) and
+// after its TTL, so where it appears on argv the exposure is bounded to a few
+// minutes and one use, not forever.
+//
+// 🛑 RESIDUAL, STATED HONESTLY (not "no cross-account risk"): the nonce STILL
+// rides the `open`/`sh`/browser argv -- you cannot hand a browser a URL without
+// putting a redeemable value on argv -- so the exact #1946 hostile-second-account
+// (`ps -ww -o args` in a tight loop) can, WITHIN the TTL, `curl .../?boot=<nonce>`
+// and redeem it before the victim's browser does. The 302 sets `cookieHeader(token)`
+// = `kosmos_board=<durable-token>`, so a race-winner recovers the DURABLE TOKEN
+// ITSELF (in the Set-Cookie), not merely a session-scoped cookie -- winning the
+// race is as good as the old leak. What #1979 changes is the SIZE of that exposure,
+// not its existence: instead of reading the durable token off argv at leisure,
+// forever, an attacker must now WIN a bounded (~2 min), single-use race -- the
+// window is ~2 min not forever, one use not unlimited, and, BECAUSE it is
+// single-use, a lost race is DETECTABLE to the victim (their dashboard 403s /
+// re-prompts instead of silently sharing a live secret). The TTL below is the knob that trades that window against redeem
+// reliability (it must outlast `kosmos open`'s immediate redeem and setup.sh's
+// RunAtLoad open). Fully removing the argv value would need a different handoff
+// than `open <url>` and is out of scope here.
+//
+// In-memory and process-local: the board process both mints (via POST
+// /api/board-nonce) and redeems (in `bootstrap`), so a Map in this module is the
+// whole store -- modeled on engine/githubdevice.js's in-memory expiring state.
+// The nonce is its OWN random value; it never encodes or carries the durable
+// token. The clock is a seam (`_setNonceClock`) because the repo's suite advances
+// time and a wall-clock TTL that cannot be driven is exactly what killed a prior
+// TTL cache (#1618).
+const NONCE_TTL_MS = 120000; // 2 min: covers `kosmos open`'s immediate redeem and the install open-once delay, and no more.
+const _nonces = new Map(); // nonce -> expiresAt (epoch ms)
+let _nonceNow = () => Date.now();
+function _setNonceClock(fn) { _nonceNow = typeof fn === 'function' ? fn : (() => Date.now()); }
+function _sweepNonces(now) { for (const [n, exp] of _nonces) { if (exp <= now) _nonces.delete(n); } }
+
+/** Mint a single-use nonce, valid for NONCE_TTL_MS. Sweeps expired entries so a
+ *  board that mints many opens does not grow the map without bound. */
+function mintNonce() {
+  const now = _nonceNow();
+  _sweepNonces(now);
+  const nonce = crypto.randomBytes(32).toString('hex');
+  _nonces.set(nonce, now + NONCE_TTL_MS);
+  return nonce;
+}
+
+/** Redeem a nonce. Returns true only for a known, unexpired nonce, and BURNS it
+ *  either way (single-use: a second redeem, or a redeem after expiry, is false),
+ *  so a nonce that leaked onto argv cannot be replayed. */
+function redeemNonce(nonce) {
+  if (typeof nonce !== 'string' || !nonce) return false;
+  const exp = _nonces.get(nonce);
+  if (exp === undefined) return false;
+  _nonces.delete(nonce);              // single-use: gone whether valid or stale
+  return exp > _nonceNow();
+}
+
+/** The `?boot=<nonce>` query value, or null. */
+function bootNonce(req, routingBase) {
+  try { return new URL(req.url, routingBase).searchParams.get('boot') || null; } catch { return null; }
 }
 
 /**
@@ -266,6 +340,15 @@ function bootstrap({ token, req, routingBase, method }) {
   const isNav = method === 'GET' || method === 'HEAD';
   if (!isNav) return null;
   if (cookieToken(req)) return null;            // already have the cookie -> no redirect loop
+  /* #1979: a `?boot=<nonce>` from `kosmos open` / the install open-once handoff
+     redeems (single-use) for the SAME cookie the `?token=` path sets -- so the
+     durable token stays off the browser-open argv. Tried before `?token=` so the
+     nonce path is preferred; `redeemNonce` burns the nonce, so this must run at
+     most once per request (the dispatch calls bootstrap once). */
+  const boot = bootNonce(req, routingBase);
+  if (boot && redeemNonce(boot)) {
+    return { location: pathWithoutParam(req, routingBase, 'boot'), setCookie: cookieHeader(token) };
+  }
   const q = queryToken(req, routingBase);
   if (!q || !matches(q, token)) return null;    // no/invalid query token -> not a bootstrap
   return { location: pathWithoutToken(req, routingBase), setCookie: cookieHeader(token) };
@@ -284,5 +367,7 @@ function tokenOk({ token, req, routingBase }) {
 module.exports = {
   fullySandboxed, enforced, tokenPath, generateToken, readToken, ensureToken,
   cookieToken, presentedToken, queryToken, matches, cookieHeader, pathWithoutToken,
-  bootstrap, tokenOk, COOKIE_NAME, HEADER_NAME,
+  pathWithoutParam, bootstrap, tokenOk, COOKIE_NAME, HEADER_NAME,
+  // #1979: single-use browser-open nonces.
+  mintNonce, redeemNonce, bootNonce, _setNonceClock,
 };

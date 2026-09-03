@@ -284,15 +284,16 @@ port_taken_by_stranger() {
 # which macOS `ps -ww -o args` exposes cross-account -- a side channel around the
 # mode-600 file. CLOSED for every CLI call: `kosmos_curl` now writes the header to
 # a mode-600 temp file and passes curl `-H @file`, so no CLI call puts the token on
-# argv. BOUNDED RESIDUAL: `cmd_open` (and setup.sh's open-once plist) still hand the
-# token to the browser as `$URL/?token=$_bt`, and `open` takes the URL as an
-# argument -- so the LONG-LIVED board token (the same durable secret, not a swappable
-# nonce) is on argv for the duration of each such launch. The `?token=` is swapped
-# for an httpOnly cookie and 302-stripped from the address bar, but that does NOT
-# close the argv channel. "Infrequent/interactive" is a property of the intended flow,
-# not an enforced bound (`kosmos open` can be re-run or scripted), so this is accepted
-# as a bounded residual rather than called transient. The proper fix is a server
-# one-shot nonce the browser redeems for the cookie; tracked as #1979 (a #1970 follow-up).
+# argv. THE BROWSER-OPEN RESIDUAL IS NOW MUCH SMALLER (#1979): `cmd_open` (and
+# setup.sh's open-once plist) used to hand the browser `$URL/?token=$_bt`, putting
+# the DURABLE token (forever-valid) on the `open`/`sh`/browser argv. They now POST
+# /api/board-nonce (board token OFF argv, via `kosmos_curl -H @file`) to mint a
+# SINGLE-USE, short-TTL nonce and open `$URL/?boot=<nonce>` instead. `board_token`
+# itself is now only ever consumed off argv (kosmos_curl / the setup.sh header
+# file), never in a URL -- that leak IS closed. What remains on argv is the nonce,
+# which a cross-account `ps` watcher could still race to redeem within the ~2-min
+# TTL; that is bounded, single-use, and a lost race is detectable (see the RESIDUAL
+# note in engine/boardauth.js), not the forever-secret the durable token was.
 # 🛑 CALL IT AS `_bt="$(board_token || true)"` UNDER `set -euo pipefail` (kosmos#1968).
 # It RETURNS 1 whenever there is no token to hand back -- a non-enforcing board
 # (no token file), or an install layout where `$NODE` is not present. A bare
@@ -466,14 +467,13 @@ cmd_status() {
 
 cmd_open() {
   healthy || cmd_start
-  # #1946: hand the browser the board token so it can act on an enforcing board.
-  # The server validates the query token, sets an httpOnly cookie, and redirects
-  # to the clean URL, so the token does not linger in the address bar. Empty on a
-  # non-enforcing board -> plain URL, unchanged.
-  # #1970 BOUNDED RESIDUAL: `open` takes the URL as an argument, so the token is on
-  # argv for this one launch (see board_token's note). The cookie-swap clears the
-  # address bar, not the argv channel. Accepted for this infrequent interactive
-  # path; the proper fix (a server one-shot nonce) is tracked as #1979 (a #1970 follow-up).
+  # #1946/#1979: hand the browser a way to get the httpOnly board cookie on an
+  # enforcing board. #1979 CLOSES the #1970 residual: instead of putting the
+  # DURABLE board token on the `open` argv (macOS `ps` shows argv cross-account,
+  # and the token is the same forever-valid secret as the mode-600 file), mint a
+  # single-use, short-TTL NONCE and hand the browser the nonce. The board token
+  # authenticates the mint OFF argv via `kosmos_curl`'s `-H @file`; only the nonce
+  # (useless once redeemed, and after ~2 min) reaches the `open`/browser argv.
   local _bt _open_url
   # board_token returns non-zero on a non-enforcing board (no token). Under the
   # script's `set -e`, a bare `_bt="$(board_token)"` ABORTS there -- exit 1, no
@@ -481,7 +481,18 @@ cmd_open() {
   # `set -e` does not honour. Tolerate the failure so a non-enforcing board falls
   # through to the plain URL as documented.
   _bt="$(board_token || true)"
-  if [ -n "$_bt" ]; then _open_url="$URL/?token=$_bt"; else _open_url="$URL"; fi
+  _open_url="$URL"
+  if [ -n "$_bt" ]; then
+    # Mint the nonce with the board token OFF argv (kosmos_curl -> -H @file), then
+    # hand the browser `?boot=<nonce>`. Fall back to the plain URL (the static
+    # shell is exempt from the board token; the operator can re-run `kosmos open`)
+    # rather than EVER putting the durable token on argv -- closing the residual,
+    # not narrowing it.
+    local _resp _nonce
+    _resp="$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/board-nonce" 2>/dev/null || true)"
+    _nonce="$(printf '%s' "$_resp" | sed -n 's/.*"nonce":"\([0-9a-f]*\)".*/\1/p')"
+    [ -n "$_nonce" ] && _open_url="$URL/?boot=$_nonce"
+  fi
   # #1957: say what is happening and CHECK the result, rather than exec-ing
   # /usr/bin/open silently. `open` prints nothing on success and, on a Mac with
   # no display, exits 0 while nothing visibly opens -- so a bare `kosmos open` was
