@@ -48,6 +48,14 @@ victim's already-running board; the guard is decided at the victim board's own b
 - `presentedToken(req, ROUTING_BASE)`: cookie `kosmos_board` || header `x-kosmos-board-token` || `?token=` query.
 - `matches(a, b)`: `crypto.timingSafeEqual`, length-guarded (return false on length mismatch).
 
+> SHIPPED DELTA (recorded so this plan does not misdescribe the code): the
+> `GET /api/health` exempt probe below was NOT built. It was unnecessary once the
+> boundary was scoped to gate `/api/*` while leaving the static shell `/` PUBLIC:
+> `healthy()` and setup.sh keep probing `/` (which stays reachable on an enforcing
+> board and works on older boards with no `/api/health`). Ignore the `/api/health`
+> mentions below; the shipped exemptions are the static shell, `/icons/*`, and
+> `REMOTE_AGENT_ROUTES`.
+
 ### server.js
 - Module scope (after the sandbox audit block): `const boardauth = require('./engine/boardauth'); const BOARD_AUTH = boardauth.enforced(process.env); const BOARD_TOKEN = BOARD_AUTH ? boardauth.ensureToken() : null;`
 - In the dispatch, after `remoteWriteGuard` (so remote agents on report/reply are handled first), add the board-auth guard:
