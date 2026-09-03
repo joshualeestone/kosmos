@@ -2922,3 +2922,73 @@ test('#1629: the thread page is told up front that this answer belongs in the te
     assert.match(String(body.answerNote || ''), /No, exit/, 'the project thread says it too');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sub-projects: the parent field over the wire (#1994)
+//
+// The engine's rules are unit-tested in engine/projects.subprojects-1994.test.js;
+// these arms prove the ROUTE wiring the engine tests cannot see: PUT forwards
+// `parent` into edit (and a cycle surfaces as a 400 refusal, not a 500), and
+// DELETE returns the new 409 through the route rather than a misleading 404.
+// ---------------------------------------------------------------------------
+
+async function put(p, body) {
+  return req(p, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', origin: base },
+    body: JSON.stringify(body || {}),
+  });
+}
+
+test('#1994: PUT parent groups a child, and the response resolves the parent name', async () => {
+  reset();
+  const parent = json(await post('/api/projects', { name: 'Parent', folder: folder('sp-parent') })).project;
+  const child = json(await post('/api/projects', { name: 'Child', folder: folder('sp-child') })).project;
+  const res = await put(`/api/project/${child.id}`, { parent: parent.id });
+  assert.equal(res.status, 200);
+  const got = json(res).project;
+  assert.equal(got.parent, parent.id);
+  assert.equal(got.parentName, 'Parent', 'describe resolves the name through the route');
+});
+
+test('#1994: PUT null un-groups a child over the wire', async () => {
+  reset();
+  const parent = json(await post('/api/projects', { name: 'Parent', folder: folder('sp-p2') })).project;
+  const child = json(await post('/api/projects', { name: 'Child', folder: folder('sp-c2') })).project;
+  await put(`/api/project/${child.id}`, { parent: parent.id });
+  const res = await put(`/api/project/${child.id}`, { parent: null });
+  assert.equal(res.status, 200);
+  assert.equal(json(res).project.parent, null);
+});
+
+test('#1994: a cycle over the wire is a 400 (a refusal), not a 500', async () => {
+  reset();
+  const a = json(await post('/api/projects', { name: 'Ay', folder: folder('sp-a') })).project;
+  const b = json(await post('/api/projects', { name: 'Bee', folder: folder('sp-b') })).project;
+  await put(`/api/project/${b.id}`, { parent: a.id }); // B under A
+  const res = await put(`/api/project/${a.id}`, { parent: b.id }); // would close a loop
+  assert.equal(res.status, 400, 'a refused request is the caller’s to fix, not a server error');
+  assert.match(json(res).error, /underneath one of its own sub-projects/);
+});
+
+test('#1994: DELETE a parent with sub-projects is a 409 through the route, and the project survives', async () => {
+  reset();
+  const parent = json(await post('/api/projects', { name: 'Parent', folder: folder('sp-dp') })).project;
+  const child = json(await post('/api/projects', { name: 'Kid', folder: folder('sp-dk') })).project;
+  await put(`/api/project/${child.id}`, { parent: parent.id });
+  const res = await req(`/api/project/${parent.id}`, { method: 'DELETE', headers: { origin: base } });
+  assert.equal(res.status, 409, 'the project exists, so it is a conflict, not a 404');
+  assert.match(json(res).error, /sub-projects/);
+  const still = json(await req('/api/projects')).projects.some((p) => p.id === parent.id);
+  assert.ok(still, 'the refused delete did not remove it');
+});
+
+test('#1994: after un-grouping the child, the parent deletes cleanly (200)', async () => {
+  reset();
+  const parent = json(await post('/api/projects', { name: 'Parent', folder: folder('sp-dp2') })).project;
+  const child = json(await post('/api/projects', { name: 'Kid', folder: folder('sp-dk2') })).project;
+  await put(`/api/project/${child.id}`, { parent: parent.id });
+  await put(`/api/project/${child.id}`, { parent: null });
+  const res = await req(`/api/project/${parent.id}`, { method: 'DELETE', headers: { origin: base } });
+  assert.equal(res.status, 200);
+});

@@ -1656,7 +1656,16 @@ function mutate(id, fn) {
  */
 function cleanParent(value, childId) {
   if (value === null || value === undefined || value === '') return null;
-  const parentId = String(value).trim();
+  if (typeof value !== 'string') {
+    // A parent is a project id (a string) or null to un-group. A non-string --
+    // an array, an object, a number from a hand-built body -- is refused as a
+    // type error rather than coerced: `String([])` is `''` and would silently
+    // un-group a save nobody asked to un-group, and `String({})`/`String(123)`
+    // become literal ids refused later as "missing", which reads as the wrong
+    // error. This mirrors how edit refuses a non-boolean archived.
+    throw new Error('a parent has to be a project id, or null to un-group');
+  }
+  const parentId = value.trim();
   if (!parentId) return null;
   if (parentId === childId) {
     throw new Error('a project cannot be its own sub-project');

@@ -172,6 +172,38 @@ test('a dangling parent id renders the child at top level (parentName null), nev
   assert.equal(seen.parentName, null, 'but it resolves to no name, so the board groups it nowhere');
 });
 
+test('the cycle walk terminates over a store that ALREADY holds a loop (the seen-set is load-bearing)', () => {
+  reset();
+  const a = mk('Alpha');
+  const b = mk('Beta');
+  const c = mk('Gamma');
+  // Hand-build a loop the engine would never allow: A<->B. Without the seen-set
+  // in cleanParent, walking either node's chain runs A->B->A->B... forever.
+  const all = projects.readAll();
+  all.find((p) => p.id === a.id).parent = b.id;
+  all.find((p) => p.id === b.id).parent = a.id;
+  projects.writeAll(all);
+  // Parenting C under A does not close a cycle THROUGH C (C is not in the loop),
+  // so it must COMPLETE rather than hang, and succeed. If this test hangs, the
+  // seen-set was dropped.
+  projects.edit(c.id, { parent: a.id });
+  assert.equal(projects.get(c.id, null).parent, a.id, 'C is grouped under A and the walk terminated');
+  // And a re-parent that WOULD close a loop through the child is still refused,
+  // terminating the same way: B under A reaches B (the child) up A's chain.
+  assert.throws(() => projects.edit(b.id, { parent: a.id }), /underneath one of its own sub-projects/);
+});
+
+test('a non-string parent is refused as a type error, not silently coerced', () => {
+  reset();
+  const a = mk('Alpha');
+  // String([]) is '' (would silently un-group); String({})/String(123) become
+  // literal ids. All are refused as a type error instead.
+  assert.throws(() => projects.edit(a.id, { parent: [] }), /a project id, or null/);
+  assert.throws(() => projects.edit(a.id, { parent: {} }), /a project id, or null/);
+  assert.throws(() => projects.edit(a.id, { parent: 123 }), /a project id, or null/);
+  assert.equal(projects.get(a.id, null).parent, null, 'and the store is untouched');
+});
+
 test('edit applies name and parent atomically: an invalid parent refuses the whole save', () => {
   reset();
   const a = mk('Alpha');
