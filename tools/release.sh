@@ -1021,7 +1021,16 @@ step "== 10. the board on THIS Mac, if it runs from this repo =="
 # board runs the repo under launchd and never did, so every release left it
 # serving the previous code until somebody noticed (#360). Gated on the job
 # existing AND running from this repo; it says which case it found.
-bash "$MAIN_REPO/tools/restart-local-board.sh"
+# ⚠️ #2087: a generous deadline HERE, because this runs on a LOADED release machine
+# (the full suite + a full build + a sandboxed install just ran). restart-local-board.sh
+# already passes a slow-but-healthy board that flips late (exit 0) and only reds a board
+# that NEVER serves the new version -- but its 45s default was measured too short under a
+# cut's load: 0.6.27's board flipped at ~50s and read as "never served", failing a cut
+# whose bytes had already shipped and verified at steps 8-9. 120s keeps the #360 catch
+# (a genuinely stale board still reds, just later) while a slow-but-fine board no longer
+# false-reds. Costs nothing on a healthy cut (the check exits the instant the board flips),
+# and an operator env override still wins.
+KOSMOS_BOARD_WAIT_SECS="${KOSMOS_BOARD_WAIT_SECS:-120}" bash "$MAIN_REPO/tools/restart-local-board.sh"
 
 step "== 11. the installed kosmos CLI on THIS Mac =="
 # 🛑 Same #360 shape as step 10, for the COMMAND rather than the board (#1758).
