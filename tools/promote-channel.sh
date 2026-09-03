@@ -75,8 +75,12 @@ case "$GATE_RC" in
 esac
 
 # Promote: copy the staging pointer to prod. A pointer copy - the artifact bytes are already
-# served and unchanged; only which pointer prod fetches changes.
-cp "$STAGING" "$SITE/dist/latest.json"
+# served and unchanged; only which pointer prod fetches changes. Written ATOMICALLY (temp in
+# the same dir + rename): latest.json is the prod pointer every install fetches, so an
+# interrupted write must never leave it truncated. rename(2) within one directory is atomic.
+PTMP="$(mktemp "$SITE/dist/.latest.json.XXXXXX")" || { echo "promote-channel: could not make a temp file in $SITE/dist" >&2; exit 1; }
+cp "$STAGING" "$PTMP" && mv "$PTMP" "$SITE/dist/latest.json" \
+  || { echo "promote-channel: could not write latest.json" >&2; rm -f "$PTMP"; exit 1; }
 # Prove the promote landed: latest.json now names the same artifact + sha as staging.
 PROD_ART="$(node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).artifact||""))}catch{}' "$SITE/dist/latest.json" 2>/dev/null || true)"
 PROD_SHA="$(node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).sha256||""))}catch{}' "$SITE/dist/latest.json" 2>/dev/null || true)"

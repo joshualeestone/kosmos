@@ -64,6 +64,9 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sp" 2>&1
 [ "$rc" = 0 ] && pass "promote: gate 0 -> exit 0" || bad "promote gate0 exit (rc=$rc, out=$out)"
 [ -f "$Sp/dist/latest.json" ] && pass "promote: wrote the prod pointer latest.json" || bad "promote did not write latest.json"
 [ "$(jget "$Sp/dist/latest.json" artifact)" = "$ART" ] && [ "$(jget "$Sp/dist/latest.json" sha256)" = "$(jget "$Sp/dist/latest-staging.json" sha256)" ] && pass "promote: latest.json names the SAME bytes as staging (pointer copy, no rebuild)" || bad "promote did not match staging"
+# The atomic write (temp + rename) must leave no temp file behind.
+leftovers="$(ls -a "$Sp/dist" | grep -c '\.latest.*\.[A-Za-z0-9]\{6\}$' || true)"
+[ "$leftovers" = 0 ] && pass "publish+promote: no .latest* temp file left behind (atomic rename cleaned up)" || bad "atomic-write left $leftovers temp file(s) in dist"
 
 # gate 1 -> refuse, latest.json unchanged; and --force still refuses a provably-broken board
 Sb="$(make_site)"; bash "$PUBLISH" "$Sb" >/dev/null 2>&1

@@ -52,6 +52,9 @@ SHA="$(awk '{print $1}' "$SITE/dist/$ARTIFACT.sha256")"
 [ -n "$SHA" ] || { echo "publish-staging: could not read the artifact sha256" >&2; exit 1; }
 
 # Same shape as latest.json (release.sh ~730), so a consumer reads either pointer identically.
+# Written ATOMICALLY (temp in the same dir + rename) so an interrupted write never leaves a
+# truncated pointer that a deploy would carry. rename(2) within one directory is atomic.
+PTMP="$(mktemp "$SITE/dist/.latest-staging.json.XXXXXX")" || { echo "publish-staging: could not make a temp file in $SITE/dist" >&2; exit 1; }
 KM_LJ_VERSION="$V" KM_LJ_SHA="$SHA" KM_LJ_ARTIFACT="$ARTIFACT" KM_LJ_MANIFEST="$MANIFEST" \
   node -e '
     const e = process.env;
@@ -61,7 +64,9 @@ KM_LJ_VERSION="$V" KM_LJ_SHA="$SHA" KM_LJ_ARTIFACT="$ARTIFACT" KM_LJ_MANIFEST="$
       artifact: e.KM_LJ_ARTIFACT,
       manifest: e.KM_LJ_MANIFEST,
     }) + "\n");
-  ' "$SITE/dist/latest-staging.json"
+  ' "$PTMP" \
+  && mv "$PTMP" "$SITE/dist/latest-staging.json" \
+  || { echo "publish-staging: could not write latest-staging.json" >&2; rm -f "$PTMP"; exit 1; }
 
 echo "publish-staging: wrote $SITE/dist/latest-staging.json (prod latest.json untouched):"
 echo "   -> $(cat "$SITE/dist/latest-staging.json")"
