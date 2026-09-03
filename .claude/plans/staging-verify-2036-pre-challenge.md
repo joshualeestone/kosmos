@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: staging-verify-2036
-diff_hash: cdb9159ef16d32edf267f5d1952b8dbf57551b5acaedaab3b7e07e5935a3fb7c
+diff_hash: 2bc67d475eae9732244d38eef56d9b20f7f7dc021087433530ee6b7e1db18bab
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-03T17:44:00Z
@@ -68,8 +68,7 @@ origin/main advanced during the loop and #2059 (stranded-prs detector) also appe
 JSON; validated: both run green in the merged suite). My check/test/spec are byte-identical
 through the merge. A fresh blind pass on the merged state found **0 BLOCKERs / 0 WARNINGs /
 0 CONVENTIONs** (2 NITs, both already-documented: the test's port-19998 assumption; the
-deliberate gating-regression → cannot-tell). **Converged.** The diff_hash above is the
-post-merge hash.
+deliberate gating-regression → cannot-tell). **Converged.** The diff_hash above is the post-merge hash. (A later trivial re-merge of origin/main unioned #2062 update-abort-2055 into the same test:shell line; code unchanged, hash refreshed.)
 - [NIT] test arm 2 hardcodes port 19998 --> NOTED (a false pass would need a listener
   returning a valid nonce and passing the whole gate flow - effectively impossible).
 - [NIT] the shared-board restore is not race-free (TOCTOU) --> FIXED (added the one-line
