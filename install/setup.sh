@@ -2531,6 +2531,23 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   _pausebody="$(curl -fsS -m 2 "http://127.0.0.1:$PORT/" 2>/dev/null)" || _pausebody=""
   case "$_pausebody" in
     *"Agent Workforce"*|*Kosmos*)
+      # #2055: on the AUTOMATIC update path this die is SILENT -- the board's own
+      # in-process updater spawned this curl|sh, so the message goes to stderr /
+      # install.log and nobody reads it. One machine aborted here 155 times before
+      # anyone noticed. Record the abort durably (in the same logs/ dir the board
+      # reads install.status from) with a CONSECUTIVE count, so the board can surface
+      # "this machine keeps failing to update". The count is cleared below once an
+      # update gets past the pause, so a machine that recovers stops showing it.
+      _abortf="$LOG_DIR/update-abort"
+      _abortn=0
+      if [ -f "$_abortf" ]; then
+        _abortn="$(sed -n 's/^count=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
+      fi
+      case "$_abortn" in ''|*[!0-9]*) _abortn=0 ;; esac
+      _abortn=$((_abortn + 1))
+      { printf 'count=%s\nreason=board-would-not-pause\nport=%s\nts=%s\n' \
+          "$_abortn" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
+          > "$_abortf"; } 2>/dev/null || true
       die "A Kosmos board is still running on port $PORT and could not be paused for the update. Stop it first ('kosmos stop', or quit whatever started it), then paste the install line again."
       ;;
     "") ;;
@@ -2565,6 +2582,10 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
       die "A process is still holding port $PORT after the pause (pid $_pids). Quit it (or run 'kill $_pids'), then paste the install line again."
     fi
   fi
+  # #2055: got past the pause -- the update is proceeding, so the consecutive
+  # board-would-not-pause abort streak is broken. Clear the marker so a machine
+  # that recovers stops surfacing the failure notice.
+  rm -f "$LOG_DIR/update-abort" 2>/dev/null || true
 fi
 
 step "Setting up the pieces Kosmos needs."
