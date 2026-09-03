@@ -301,6 +301,11 @@ const UNREAD_ON_PURPOSE = {
   unknownFullness: 'a count the summary line covers in words rather than by '
     + 'number',
   unreadableTokens: 'as above',
+  updateAbort: '#2055: the board-would-not-pause abort marker ({count,reason,port,ts} '
+    + 'or null). The board NOTICE that renders it is a browser-verified follow-up '
+    + '(routed to Renet), so the field is sent but not yet drawn ON PURPOSE. Like '
+    + '`overCeiling` below, it comes OFF this list the moment the page reads it -- the '
+    + 'drawn-control at the end of this test enforces that.',
   /* `overCeiling` was parked here for one hour on 2026-08-22 and is now drawn
      as the word `Full` (#260). The line came off because the allowlist's own
      control failed the moment the page started reading it, which is the whole
