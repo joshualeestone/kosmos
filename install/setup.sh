@@ -3739,6 +3739,22 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
     printf '  Your browser is already showing the install page; it becomes your dashboard now.\n\n'
   else
   printf '  Opening your dashboard in the browser...\n\n'
+  # #1946: append the board token so the FIRST dashboard a fresh install opens is
+  # authenticated. A fresh prod install produces an ENFORCING board (nothing
+  # sandboxed); its public shell loads at a bare URL but every /api/* fetch then
+  # 403s with no cookie, so the very first dashboard would be broken. The token is
+  # derived from the same store.ROOT the board wrote it to, via the bundled node
+  # (the canonical `$KOSMOS_HOME/runtime/bin/node` that `kosmos` itself uses), so
+  # there is no second copy of the path formula. Empty on a non-enforcing (sandbox
+  # or harness) board -> the URL is left unchanged there. Both opens below use it.
+  _board_url="http://127.0.0.1:$PORT"
+  _bt=""
+  _awnode="$KOSMOS_HOME/runtime/bin/node"
+  if [ -f "$_awnode" ] && [ -x "$_awnode" ]; then
+    _awroot="$("$_awnode" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot=""
+    [ -n "$_awroot" ] && _bt="$(cat "$_awroot/board.token" 2>/dev/null || true)"
+  fi
+  [ -n "$_bt" ] && _board_url="http://127.0.0.1:$PORT/?token=$_bt"
   # 🛑 UNDER THE .PKG, NOT A BARE `open` (#663). Installer's postinstall runs
   # as root and drops to the person with `launchctl asuser` + `sudo -u`; the
   # first real fresh-account run (Josh, 2026-08-24) reached this line, said
@@ -3757,13 +3773,19 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
     _open_label=com.kosmos.open-once
     _open_dir="$HOME/Library/LaunchAgents"
     _open_plist="$_open_dir/$_open_label.plist"
-    _open_url="http://127.0.0.1:$PORT"
+    _open_url="$_board_url"
     # No pre-emptive removal of a stale open-once job here: the agent removes
     # itself, and if one is somehow still loaded the bootstrap below fails and
     # we fall back to a direct open. The install path must never contain a
     # removal of any launchd job (install.board-job.test.js: the update that
     # runs this installer is itself a launchd job).
-    if mkdir -p "$_open_dir" 2>/dev/null && cat > "$_open_plist" <<PLIST
+    # #1946: create the token-bearing plist owner-only FROM THE FIRST BYTE via a
+    # umask-scoped subshell (a plain `cat >` would create it at the default umask,
+    # 644, and only the later chmod would tighten it -- a window). The subshell
+    # keeps the umask change from leaking to the rest of the installer. The chmod
+    # below still runs, for the case where a stale plist pre-existed (`cat >`
+    # truncates it but does not change an existing file's mode).
+    if mkdir -p "$_open_dir" 2>/dev/null && ( umask 077; cat > "$_open_plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -3781,7 +3803,14 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$FRESH_INSTALL" = "yes" ] && [ -z "${KOSMOS_N
 </dict>
 </plist>
 PLIST
+    )
     then
+      # #1946: this plist now carries the board token in its URL. The token file
+      # itself is forced to mode 600 because the design distrusts directory
+      # permissions ($HOME is group-traversable), so the plist holding the same
+      # secret must not sit at the default umask (644). Owner-only, before it is
+      # loaded. Self-removes after RunAtLoad regardless.
+      chmod 600 "$_open_plist" 2>/dev/null || true
       # The sandbox gate, restated within reach of the call (the sweep test
       # reads 12 lines above every launchctl): gui/<uid> is always the REAL
       # domain, so a harness must never get here. The enclosing if already
@@ -3802,7 +3831,7 @@ PLIST
   else
     # </dev/null: the spawned process must not inherit the curl|sh pipe --
     # the same class as cmd_start's measured never-returning install.
-    "$OPEN_CMD" "http://127.0.0.1:$PORT" </dev/null >/dev/null 2>&1 \
+    "$OPEN_CMD" "$_board_url" </dev/null >/dev/null 2>&1 \
       || printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'
   fi
   fi

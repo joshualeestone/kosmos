@@ -256,6 +256,11 @@ die() { printf '  %s\n' "$*" >&2; exit 1; }
 # 250KB page, so the pipeline reports failure on a page that MATCHED --
 # which here would call our own running board a stranger. Measured in the
 # bundle build's smoke test, which failed its own healthy bundle this way.
+# #1946: still probes `/`, which stays PUBLIC on an enforcing board -- the app
+# shell carries no account data, so it is exempt from the board token. The token
+# gates the /api/* surface, not the page, so this identity match ('Agent
+# Workforce'/'Kosmos') works unchanged on an enforcing board AND on an older board
+# that predates the token (no compatibility break, no /api/health dependency).
 healthy() {
   local _body
   _body="$(/usr/bin/curl -fsS -m 2 "$URL/" 2>/dev/null)" || return 1
@@ -267,6 +272,26 @@ healthy() {
 # The port answers but not with our page: somebody else lives there.
 port_taken_by_stranger() {
   /usr/bin/curl -s -o /dev/null -m 2 "$URL/" 2>/dev/null && ! healthy
+}
+
+# #1946: the board token, read from the file the board wrote at boot. ONE source
+# of truth for the path -- `store.ROOT` (the same function the server uses), asked
+# via node so this shell never re-implements the ~/Library/Application Support
+# formula. Empty (return 1) if the board has not booted yet or does not enforce
+# (a token is only written on the enforcing path); callers that need it run after
+# the board is up.
+# ⚠️ RESIDUAL (kosmos#1970): callers pass this on curl/open ARGV, which macOS `ps`
+# exposes cross-account for the brief window each command runs. It is transient
+# (the ?token= is swapped for an httpOnly cookie and 302-stripped) and matches the
+# pre-existing x-kosmos-agent-token delivery, so it is documented and tracked
+# rather than closed here; the durable secret stays in the mode-600 file.
+board_token() {
+  local _root _tok
+  _root="$("$NODE" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || return 1
+  [ -n "$_root" ] || return 1
+  _tok="$(cat "$_root/board.token" 2>/dev/null)" || return 1
+  [ -n "$_tok" ] || return 1
+  printf '%s' "$_tok"
 }
 
 running_pid() {
@@ -389,6 +414,12 @@ cmd_status() {
 
 cmd_open() {
   healthy || cmd_start
+  # #1946: hand the browser the board token so it can act on an enforcing board.
+  # The server validates the query token, sets an httpOnly cookie, and redirects
+  # to the clean URL, so the token does not linger in the address bar. Empty on a
+  # non-enforcing board -> plain URL, unchanged.
+  local _bt; _bt="$(board_token)"
+  if [ -n "$_bt" ]; then exec /usr/bin/open "$URL/?token=$_bt"; fi
   exec /usr/bin/open "$URL"
 }
 
@@ -484,8 +515,10 @@ cmd_msg() {
   # No -f: an HTTP error still carries the server's own sentence, and
   # "could not reach" is a wrong diagnosis for a reachable server that
   # refused. Only a transport failure gets the unreachable sentence.
+  local _bt; _bt="$(board_token)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   body=$(curl -sS -m 15 -X POST "$URL/api/msg" \
     -H 'content-type: application/json' \
+    ${_bt:+-H "x-kosmos-board-token: $_bt"} \
     --data "{\"to\":\"$esc_to\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
     say "We could not reach Kosmos to send that. Is it running at $URL?"
     exit 1
@@ -599,8 +632,10 @@ cmd_post() {
   # exit 28 vs the rest): "could not reach" for a server mid-delivery is
   # the misdiagnosis cmd_msg's own comment warns about, and it invites
   # the re-post the unconfirmed state exists to stop.
+  local _bt; _bt="$(board_token)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   body=$(curl -sS -m 120 -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
+    ${_bt:+-H "x-kosmos-board-token: $_bt"} \
     --data "{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null)
   rc=$?
   if [ "$rc" -eq 28 ]; then
@@ -670,9 +705,11 @@ cmd_whoami() {
     ''|*[!0-9a-f]*) ;;
     *) _tok="$KOSMOS_AGENT_TOKEN" ;;
   esac
+  local _bt; _bt="$(board_token)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   body=$(curl -sS -m 15 -X POST "$URL/api/whoami" \
     -H 'content-type: application/json' \
     ${_tok:+-H "x-kosmos-agent-token: $_tok"} \
+    ${_bt:+-H "x-kosmos-board-token: $_bt"} \
     -d "{\"from_pane\":\"$esc_pane\"}" 2>&1) || {
       say "Kosmos did not answer, so we cannot tell you which account you are on."
       exit 1
@@ -811,7 +848,8 @@ cmd_room() {
   fi
   local esc_project
   esc_project=$(printf '%s' "$project" | sed "s/[^A-Za-z0-9._-]//g")
-  if ! curl -sS -m 15 "$URL/api/project/$esc_project/room?as=text" 2>/dev/null; then
+  local _bt; _bt="$(board_token)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  if ! curl -sS -m 15 ${_bt:+-H "x-kosmos-board-token: $_bt"} "$URL/api/project/$esc_project/room?as=text" 2>/dev/null; then
     say "We could not reach Kosmos to read that room. Is it running at $URL?"
     exit 1
   fi

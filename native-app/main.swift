@@ -277,6 +277,55 @@ func logLine(_ s: String) {
     }
 }
 
+// #1946: the board authenticates the loopback bind so another macOS account
+// cannot reach it. The token lives in the per-account data dir the board writes
+// it to, mode 600, readable only by this account. nil when there is no token (a
+// board that does not enforce, e.g. a sandbox).
+//
+// This mirrors store.ROOT's macOS branch (`dataRootFor`): the base is
+// `AGENT_WORKFORCE_DATA` when that override is set (so an operator who moved the
+// data dir is followed rather than silently read at the default), otherwise the
+// OS Application Support dir; the `AgentWorkforce/` subpath is the APP constant.
+// Swift cannot require the node store module, so this is a faithful re-derivation
+// of that one formula, not the single source itself -- the shipped app sets no
+// override, so the two agree.
+func boardTokenValue() -> String? {
+    let env = ProcessInfo.processInfo.environment
+    let base: URL
+    if let dataOverride = env["AGENT_WORKFORCE_DATA"], !dataOverride.isEmpty {
+        // store.ROOT: join(AGENT_WORKFORCE_DATA, APP)
+        base = URL(fileURLWithPath: dataOverride)
+    } else if let homeOverride = env["AGENT_WORKFORCE_HOME"], !homeOverride.isEmpty {
+        // dataRootFor's home is AGENT_WORKFORCE_HOME || homedir(); honor the override.
+        base = URL(fileURLWithPath: homeOverride).appendingPathComponent("Library/Application Support")
+    } else if let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        base = dir
+    } else {
+        return nil
+    }
+    let file = base.appendingPathComponent("AgentWorkforce/board.token")
+    guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+    let tok = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    return tok.isEmpty ? nil : tok
+}
+
+// A board URL with the token added as a `?token=` query item, for a WebView load:
+// the board validates it, sets an httpOnly cookie, and redirects to the clean URL,
+// so subsequent same-origin requests carry the cookie automatically. Adds nothing
+// when there is no token (a non-enforcing board) or when a `token` item is already
+// present, and preserves any existing query rather than clobbering it (so a
+// KOSMOS_URL override that already carries `?first-run=1` keeps it).
+func tokenizedBoardURL(_ urlString: String) -> URL? {
+    guard var comps = URLComponents(string: urlString) else { return URL(string: urlString) }
+    if let tok = boardTokenValue(),
+       !(comps.queryItems ?? []).contains(where: { $0.name == "token" }) {
+        var items = comps.queryItems ?? []
+        items.append(URLQueryItem(name: "token", value: tok))
+        comps.queryItems = items
+    }
+    return comps.url ?? URL(string: urlString)
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     var window: NSWindow!
     var webView: WKWebView!
@@ -388,7 +437,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // resolve/start path entirely. Not present in the shipped app's
         // decision tree -- KOSMOS_URL is never set by the installer.
         if let urlString = ProcessInfo.processInfo.environment["KOSMOS_URL"] {
-            guard let url = URL(string: urlString) else {
+            // #1946: tokenize the override too, so pointing KOSMOS_URL at an
+            // enforcing board loads a working board rather than a 403 shell. A
+            // sandbox board has no token, so this is a no-op there (the test path's
+            // usual target).
+            guard let url = tokenizedBoardURL(urlString) else {
                 showStartupFailureAlert(detail: "The address \(urlString) is not a valid URL.")
                 return
             }
@@ -525,7 +578,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     self.showStartupFailureAlert(detail: "Something went wrong while \(whose) was starting. \(remedy): open installkosmos.com and click Download for macOS. Your agents and settings stay on this computer; installing again does not remove them.")
                 case .alreadyRunningOrStarted:
                     let urlString = "http://127.0.0.1:\(resolved.port)"
-                    guard let url = URL(string: urlString) else {
+                    guard let url = tokenizedBoardURL(urlString) else {
                         self.showStartupFailureAlert(detail: "The address \(urlString) is not a valid URL.")
                         return
                     }
@@ -1034,6 +1087,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             return
         }
         var req = URLRequest(url: url)
+        // #1946: /api/status is gated on an enforcing board. URLSession.shared uses
+        // its own cookie store (not the WKWebView's, which holds the bootstrap
+        // cookie), so this probe must carry the token itself or it 403s on every
+        // prod board and the stale-app notice can never fire. The header, not a
+        // cookie, is the reliable channel across the two stores.
+        if let tok = boardTokenValue() {
+            req.setValue(tok, forHTTPHeaderField: "x-kosmos-board-token")
+        }
         req.timeoutInterval = 8
         req.cachePolicy = .reloadIgnoringLocalCacheData
         URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in

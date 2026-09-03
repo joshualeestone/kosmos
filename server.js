@@ -184,6 +184,12 @@ function engineFreshness() {
 const store = require('./engine/store');
 const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
+const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
+/* #1946: whether this board enforces the board token, and the token, resolved at
+   start() (real boot) rather than at require -- ensureToken() writes a file, and a
+   bare `require('./server')` in a unit test must not touch the real store. The
+   dispatch closure below reads this holder; start() populates it. */
+const boardAuthState = { on: false, token: null };
 /* Sandboxed whole or not at all (#634): refused before anything listens or
    writes. In-process (a test requiring this file) it throws; as the program it
    says the sentence and exits 2. */
@@ -1473,7 +1479,12 @@ function gateLog(req) {
   try {
     fs.mkdirSync(path.dirname(GATE_LOG), { recursive: true });
     const ua = String(req.headers['user-agent'] || '-').replace(/[\r\n\t]+/g, ' ');
-    fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${req.url} ${ua}\n`);
+    // #1946: never write the board token to a log, even a same-account one. It
+    // rides ONLY on the one `?token=` bootstrap request (every later request
+    // carries the httpOnly cookie instead), so redacting the query value here is
+    // enough to keep it out of the install-gate log.
+    const loggedUrl = String(req.url || '').replace(/([?&]token=)[^&]*/gi, '$1REDACTED');
+    fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${loggedUrl} ${ua}\n`);
   } catch { /* the instrument never becomes the defect */ }
 }
 
@@ -1504,6 +1515,54 @@ const server = http.createServer((req, res) => {
   if (remoteRefusal) {
     sendJson(res, 403, { error: remoteRefusal });
     return;
+  }
+
+  /* #1946: ALSO before every route, and for the same "covered by default"
+     reason. Loopback is machine-wide, not account-wide, so `remoteWriteGuard`
+     (which keys on the socket peer) treats a second macOS account's connection
+     as trusted-local. The board token -- a secret only the account that started
+     the board can read from a mode-600 file -- gates the SENSITIVE surface: every
+     `/api/*` route (which is where all account data and every write live,
+     including `POST /api/agents`, the code-execution route) plus any write
+     method, EXCEPT the remote agent surface (its own agent-token auth). The
+     static shell (`web/index.html`) and `/icons/*` stay open: they are the same
+     public bundle for every install and carry no account data, so leaving them
+     reachable keeps the install flow and `healthy()` (which matches on the
+     public page) working without a token, on new and old boards alike. Off
+     entirely on a fully-sandboxed fixture board, so the test + browser-check
+     suite is unchanged. */
+  if (boardAuthState.on) {
+    // A valid ?token= on a nav (from `kosmos open` / the native app) sets the
+    // cookie and redirects to the clean URL; runs on every route so the operator
+    // can land tokenized on the shell and have later /api calls carry the cookie.
+    const boot = boardauth.bootstrap({ token: boardAuthState.token, req, routingBase: ROUTING_BASE, method: req.method });
+    if (boot) {
+      res.writeHead(302, { location: boot.location, 'set-cookie': boot.setCookie, 'cache-control': 'no-store' });
+      res.end();
+      return;
+    }
+    const sensitive = pathname.startsWith('/api/') || WRITE_METHODS.has(req.method);
+    // REMOTE_AGENT_ROUTES (POST /api/report, /api/reply) are exempt because a
+    // REMOTE agent reaches them with an agent token (remoteWriteGuard validates
+    // it), not a board token. ⚠️ RESIDUAL, stated honestly: that agent-token check
+    // is mandatory only for a REMOTE peer. A LOOPBACK caller -- which now includes
+    // the cross-account process #1946 exists to stop -- still reaches report/reply,
+    // and resolveAgentSender falls back to a `from_pane` sender when no token is
+    // presented, so a second account could post a spoofed report/reply (and fire a
+    // notify push) with no credential. This is NOT code execution (POST /api/agents
+    // is gated) and it is the PRE-EXISTING report/reply model, not a regression
+    // introduced here; exploitability is low (a valid `from_pane` is required and
+    // the victim's tmux socket is mode-700, so panes are not cross-account
+    // enumerable). Tightening it -- require the board token OR an agent token, drop
+    // the pane fallback, on an enforcing board -- is a change to the report/reply
+    // auth subsystem and its same-account callers, tracked as kosmos#1968, not
+    // folded into this boundary fix. The code-execution surface this card targets
+    // is closed regardless.
+    const exemptAgent = REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`);
+    if (sensitive && !exemptAgent && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) {
+      sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
+      return;
+    }
   }
 
   if (pathname === '/api/status' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -8178,6 +8237,31 @@ function start(port = PORT) {
     const onError = (err) => { server.removeListener('listening', onListening); reject(err); };
     const onListening = () => {
       server.removeListener('error', onError);
+      /* #1946: decide enforcement and provision the token HERE -- AFTER the bind,
+         not at require. At require, ensureToken() would write to a real store on a
+         bare `require('./server')` in a unit test. Provisioning after the bind also
+         means a same-port double-start settles cleanly: the bind-loser rejects in
+         onError and never provisions. A DIFFERENT-port same-account double-start
+         (`PORT=x kosmos start` twice) does reach here on both, so the token itself
+         must be race-safe, and it is: ensureToken() claims the file with an atomic
+         link() and RETURNS THE TOKEN ON DISK, so every process -- winner or loser
+         of the race -- ends up serving the same token clients read. A prod board
+         (nothing sandboxed) enforces and gets a persisted mode-600 token, reused
+         across restarts so the operator's cookie survives one; a fully-sandboxed
+         fixture board (every test + browser-check) does not enforce and writes
+         nothing. Fail CLOSED: if provisioning throws (disk/permission), the board
+         stays enforcing with a null token, refusing rather than serving unguarded. */
+      boardAuthState.on = boardauth.enforced(process.env);
+      if (boardAuthState.on) {
+        try {
+          boardAuthState.token = boardauth.ensureToken();
+        } catch (err) {
+          boardAuthState.token = null;
+          process.stderr.write(`Kosmos board-auth: could not provision the board token, refusing all requests until fixed: ${String(err && err.message)}\n`);
+        }
+      } else {
+        boardAuthState.token = null;
+      }
       // Keep a listener attached for the life of the process. Without one, an
       // error after a successful bind is uncaught and exits with a raw stack.
       server.on('error', (err) => {
@@ -8544,4 +8628,11 @@ module.exports = {
      reach. `bindHost` proves the default is unchanged; `REMOTE_AGENT_ROUTES` is
      the allowlist under test. */
   remoteWriteGuard, isLoopbackPeer, bindHost, REMOTE_AGENT_ROUTES,
+  /* #1946: the board-auth module (its `decide`/`matches` are pinned directly as
+     pure functions) and the live enforcement holder. `boardAuthState` is exported
+     so a test can boot a SANDBOXED board (guard off, no real-store side effect)
+     and then flip enforcement on in memory to drive the real dispatch wiring
+     (403 / 302-bootstrap / proceed) over HTTP, which a sandbox-safe boot could
+     not otherwise reach. */
+  boardauth, boardAuthState,
 };
