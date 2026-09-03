@@ -1922,69 +1922,27 @@ const BACKGROUND_AGENT_WAIT =
    📌 NOT the same quantity as `TRUST_PROMPT_REACH` (12), which counts rows BELOW
    its marker on a different axis. They are not calibrated together and should not
    be read as a pair. */
-const BACKGROUND_AGENT_WAIT_REACH = 12;
+const BACKGROUND_AGENT_WAIT_REACH = 6;
 
-/* #1889. A LIVE background-agent row, drawn in the footer below the composer:
-   * ◯ general-purpose  Verifying claudeHatchAvailable … 3m 57s · ↓ 169.3k tokens
-     (sample `*`-prefixed so this file does not match its own reader)
+/* #1889. A completed background agent, drawn into the transcript:
+   *   ⏺ Agent "Blind review" finished · 5m 19s
+   If one sits BETWEEN the wait row and the composer, the wait it describes is
+   over, whatever the row still says.
 
-   🛑 THIS IS THE LIVENESS TEST, AND WITHOUT IT THE READER INVENTS A FALSE CALM.
-   The wait line is a TRANSCRIPT line, not an ephemeral status row: it stays on
-   screen after the background agent finishes. So "the line is present" means
-   "this agent waited at some point", NOT "this agent is waiting now". Measured
-   2026-09-02 on six panes carrying the line: a `◯` row was present on exactly
-   the four that were genuinely waiting, and absent on exactly the two whose wait
-   had RESOLVED -- including my own pane, which the first version of this reader
-   reported as `working` while it sat finished at its prompt. On this board
-   `idle` means "it finished and is waiting for you", so that hid a finished
-   agent for as long as the stale line stayed within reach. That is the exact
-   direction #1889 exists to close, introduced by the fix for it.
-
-   ⚠️ `⏺` IS NOT THE DISCRIMINATOR AND MUST NOT BE USED AS ONE. `⏺` prefixes
-   ordinary transcript bullets, which every pane has in quantity.
-
-   🛑 THE OPTIONAL `❯` PREFIX IS REQUIRED, NOT DECORATION. The footer draws its
-   SELECTED or hovered row as `figures.pointer + " "` then `figures.circle`, so a
-   selected background-agent row reads `❯ ◯ general-purpose …` and the circle is
-   no longer line-initial. Without the prefix this pattern missed exactly the row
-   a person had highlighted, and the agent read `idle` while working. Found by a
-   test written for the ANCHOR half of the same problem: the selected row broke
-   both the anchor and this pattern, and fixing only the anchor left it red.
-
-   🛑 AND `◯` DOES NOT MEAN "RUNNING". Read from the bundle rather than inferred:
-   it is `figures.circle`, used by the teammate/task list renderer as the
-   NOT-CURRENTLY-VIEWED marker (`i6 ? vr : N.circle`, where `vr` is the very `⏺`
-   ruled out above). So `◯`-vs-`⏺` is VIEW state, not RUN state, and what this
-   gate actually detects is that THE TASK FOOTER LIST IS BEING DRAWN AT ALL --
-   which a pane with no running background agent does not draw. That is a weaker
-   and more honest statement than "◯ marks a running agent", and it is the one the
-   vendor's code supports. It also degrades on a non-unicode terminal, where
-   `figures` falls back to `( )` and this gate simply stops matching: a miss.
-   🛑 AND IT IS NOT UNIQUE TO THAT LIST EITHER, WHICH IS WHY THE SCAN IS SCOPED. It is the vendor's shared `figures.circle` glyph, also drawn at line
-   start by the plugin permission list, the MCP "not installed" row, pending step
-   rows and todo columns. An unscoped scan would let any pane showing one of those
-   lists satisfy liveness, and a stale wait line would then read `working` again --
-   the very defect this gate closes. So the scan runs ONLY BELOW THE COMPOSER,
-   where the subagent footer is drawn: measured live, the `◯` rows sit BELOW the
-   composer while the wait line sits 3 rows ABOVE it. (Relative distance only:
-   absolute row numbers depend on the capture depth and would not reproduce.) A prose
-   `◯` in the transcript is above the composer and is therefore ignored.
-
-   ✅ FAILS SAFE. If the vendor stops drawing `◯`, this returns null and the
-   reader simply goes quiet, which is `origin/main`'s behaviour -- a miss, not a
-   false calm. Losing a true positive is the acceptable direction here; claiming
-   a finished agent is busy is not. */
-const LIVE_BACKGROUND_AGENT_ROW = /^\s*(?:❯\s*)?[│├└─\s]*◯\s/mu;
-
-/* #1889. The task footer's COLLAPSED SUMMARY row for teammates that are idle:
-     *   ◯ 3 idle agents
-   🛑 IT USES THE SAME `◯` AND IS DRAWN BELOW THE COMPOSER, so it satisfies the
-   liveness scan while meaning the exact opposite. Reproduced: a RESOLVED wait
-   plus this row classified `working` -- the finished-agent false calm the gate
-   exists to close, reopened by the one `◯` source the enumeration missed.
-   ⇒ The gate's earlier claim, that a pane with no running background agent does
-   not draw the footer list at all, is simply false. It draws this instead. */
-const IDLE_AGENT_SUMMARY_ROW = /\bidle agents?\b/iu;
+   🛑 THIS REPLACED A `◯`-BASED LIVENESS GATE THAT COULD NOT WORK. Three rounds
+   went into enumerating `◯` sources (a live task row, the collapsed
+   `◯ N idle agents` summary, a selected `❯ ◯` row, a nested `└─ ◯` row, a plugin
+   list, a composer with one typed into it) before the ceiling showed up: EVERY
+   footer row draws `figures.circle`, and run state is carried in the row's
+   COLOUR (`wge = WL(task) ? undefined : Yge(status)`). `capturePane` passes
+   `-p -J` and no `-e`, so colour is stripped before this module sees the text.
+   The glyph carries NO run-state information, and the gate accepted completed,
+   failed, idle, parked and header rows as proof of life. It was not
+   under-enumerated; it was unsound, and each round patched one more source of a
+   signal that never existed.
+   ⇒ Replaced by two things that survive colour-stripping: this positive
+   completion marker, and the reach above. */
+const AGENT_FINISHED_LINE = /^\s*⏺\s*Agent\b[^\n]*\bfinished\b/mu;
 
 /**
  * The live background-agent wait line, or null.
@@ -2037,11 +1995,9 @@ function backgroundAgentWait(text) {
     if (anchor - i > BACKGROUND_AGENT_WAIT_REACH) continue;
     /* The wait line survives the wait. Only a live `◯` row proves the agent is
        still running; without one this is a resolved wait and the pane is idle. */
-    /* A row must look like a live task row AND not be the collapsed idle
-       summary, which uses the same glyph to mean the opposite. */
-    const live = rows.slice(anchor + 1).some((row) => LIVE_BACKGROUND_AGENT_ROW.test(row)
-      && !IDLE_AGENT_SUMMARY_ROW.test(row));
-    if (!live) return null;
+    /* A completed-agent line between the row and the composer means this wait is
+       over, whatever the row still says. */
+    if (AGENT_FINISHED_LINE.test(rows.slice(i + 1, anchor).join('\n'))) return null;
     const line = rows[i].trim();
     return line.length > 240 ? line.slice(0, 240) + '…' : line;
   }

@@ -269,6 +269,41 @@ nobody re-runs is the cheapest false claim to publish, and that CORRECTING one i
 not safer than making one: my correction was published with the same confidence
 and was wrong in the same direction.
 
+## THE LIVENESS GATE WAS UNSOUND, NOT UNDER-ENUMERATED
+
+Iteration 9, and the most important finding on this branch.
+
+I spent three rounds patching `◯` sources one at a time: a live task row, then
+the selected `❯ ◯` row, then the nested `└─ ◯` row, then the collapsed
+`◯ N idle agents` summary. Each round I wrote a comment claiming the enumeration
+was complete. Each round a reviewer found another.
+
+🛑 **THE CEILING: EVERY footer row draws `figures.circle`.** Run state is carried
+in the row's COLOUR (`wge = WL(task) ? undefined : Yge(status)`), and
+`capturePane` passes `-p -J` with no `-e`, so colour is stripped before this
+module sees the text. **The glyph carries no run-state information at all.** The
+gate accepted completed, failed, idle, parked, header and summary rows as proof
+of life: seven sources, of which I had handled one.
+
+⇒ No further enumeration could have fixed it. The premise was false, not
+incomplete, and every patch made the comment above it more confident.
+
+✅ REPLACED WITH TWO SIGNALS THAT SURVIVE COLOUR-STRIPPING:
+  - the REACH, tightened 12 -> 6. A live status row sits 3 rows above the
+    composer; a resolved one has scrolled up (17 measured on a real resolved
+    pane).
+  - a POSITIVE COMPLETION MARKER: an `⏺ Agent … finished` line standing between
+    the wait row and the composer means the wait is over, whatever the row says.
+
+All seven false-calm sources now read `idle`; the genuinely-live control still
+reads `working`; both new guards perturb red in both directions.
+
+⭐ TWO THINGS I WOULD HAVE MISSED WITHOUT THIS. My resolved-wait fixture placed
+the completed line BELOW the composer, a screen no render produces, so it was
+testing an impossible pane. And five assertions pinning which `◯` rows proved
+liveness were DELETED rather than adjusted: adjusting them would have preserved
+the appearance of coverage over a premise that was false.
+
 ## Weakest premise
 
 That the background-agent line is stable enough to key on. It is one observation

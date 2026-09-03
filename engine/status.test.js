@@ -1689,93 +1689,25 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
   assert.equal(classify(pane, '✻ Waiting for permission' + footer + liveRow).state, 'idle',
     'documenting the known gap: a human-blocked wait reads idle, it is not handled');
 
+
+
+
   /**
-   * 🛑 THE WAIT LINE SURVIVES THE WAIT, SO PRESENCE IS NOT LIVENESS. It is a
-   * TRANSCRIPT line, not an ephemeral status row: it stays on screen after the
-   * background agent finishes. The first version of this reader therefore
-   * reported `working` on a RESOLVED wait, hiding a finished agent -- and on this
-   * board `idle` means "it finished and is waiting for you", so that is a false
-   * calm in the exact direction #1889 exists to close, introduced by the fix
-   * for it. Caught on my own pane.
+   * 🛑 THE `◯` LIVENESS GATE IS GONE, AND ITS ROWS WENT WITH IT. Three rounds of
+   * assertions here pinned which `◯` rows proved an agent was running: the
+   * collapsed idle summary, a selected `❯ ◯` row, a nested `└─ ◯` row, a plugin
+   * list, a composer with one typed in. All obsolete, because the premise was
+   * wrong rather than incomplete: EVERY footer row draws that glyph and run state
+   * lives in the row's COLOUR, which `capturePane` strips. No enumeration could
+   * have finished.
    *
-   * The discriminator is the live `◯ <agent-type> … <elapsed>` footer row.
-   * Measured across six panes carrying the line: `◯` present on exactly the four
-   * genuinely waiting, absent on exactly the two resolved.
-   * ⚠️ `⏺` is NOT the discriminator; it prefixes ordinary transcript bullets,
-   * which every pane has in quantity.
+   * What replaces them survives colour-stripping: a wait row is live if it sits
+   * within reach of the composer AND no completed-agent line stands between them.
+   * The rows below pin that pair.
    */
-  assert.notEqual(classify(pane, live + footer + '\n  ⏺ Agent "x" finished · 5m 19s').state, 'working',
-    'a RESOLVED wait was reported as working, which hides a finished agent');
-
   const resolvedWait = '✻ Waiting for 1 background agent to finish\n  ⏺ Agent "x" finished · 5m 19s';
-  /* The evidence contract, which nothing pinned: real captures carry trailing pad
-     spaces, and the 240-char cap is the module's convention for anything on its
-     way to a person's screen. */
-  const padded = classify(pane, '✻ Waiting for 1 background agent to finish     ' + footer + liveRow);
-  assert.equal(padded.evidence, '✻ Waiting for 1 background agent to finish',
-    'the evidence line kept its trailing pad, against the module convention');
-  const longLine = '✻ Waiting for 1 background agent and ' + 'x'.repeat(400) + ' dynamic workflows to finish';
-  const capped = classify(pane, longLine + footer + liveRow);
-  assert.ok(capped.evidence.length <= 241,
-    'the evidence cap did not apply: ' + capped.evidence.length);
-  assert.ok(capped.evidence.endsWith('…'), 'a truncated evidence line must say so');
-
-  /**
-   * 🛑 `◯` HAS THREE SOURCES BELOW THE COMPOSER AND ONLY ONE MEANS "RUNNING".
-   * The gate once claimed a pane with no running background agent does not draw
-   * the footer list at all. It draws the COLLAPSED IDLE SUMMARY instead, with the
-   * same glyph and the opposite meaning, so a resolved wait plus `◯ 3 idle
-   * agents` read as `working`. Rejected explicitly.
-   * A nested task row carries a tree connector (`└─ ◯ …`) and was missed, which
-   * is a coverage gap rather than a false calm; connectors are now allowed.
-   */
-  assert.notEqual(
-    classify(pane, resolvedWait + footer + '\n  ◯ 3 idle agents').state, 'working',
-    'the collapsed idle-agent summary satisfied a liveness gate that means the opposite');
-  assert.equal(
-    classify(pane, live + footer + '\n  ⏺ main\n  └─ ◯ general-purpose  doing a thing 43s').state,
-    'working',
-    'a nested task row with a tree connector was not recognised as live');
-
-  /**
-   * 🛑 THE COMPOSER EXCLUSION IS THE FOOTER SHAPE, NOT ANY `◯` IN THE ROW.
-   * Testing the whole row disqualified a genuine composer whose TYPED TEXT held a
-   * circle, and an agent working on this reader is exactly who types one. The
-   * real composer was skipped, the anchor fell back to a quoted `❯` above it, and
-   * prose satisfied liveness: a false calm on a resolved wait.
-   */
-  assert.notEqual(
-    classify(pane, resolvedWait
-      + '\n  ❯ some quoted shell prompt\n  ◯ plugin-name (not installed)'
-      + '\n────\n❯ grep ◯ engine/status.js\n────\n  ⏵⏵ bypass permissions on · ← for agents').state,
-    'working',
-    'a composer containing a typed ◯ was disqualified, so prose above it satisfied liveness');
-
-  /**
-   * 🛑 A SELECTED TASK-FOOTER ROW IS NOT THE COMPOSER. The footer draws its
-   * selected/hovered row as `❯ ◯ …`, which matched the composer pattern and
-   * became the anchor, cutting the liveness slice above the rows it needs.
-   * Measured before the fix: selected -> `idle` while unselected -> `working` on
-   * the same screen. A composer row never carries `◯`.
-   */
-  assert.equal(
-    classify(pane, live + footer + '\n  ⏺ main\n❯ ◯ general-purpose  doing a thing 43s').state,
-    'working',
-    'a selected task-footer row was mistaken for the composer');
-
-  /**
-   * 🛑 THE ANCHOR IS THE LAST `❯`, NOT THE FIRST. The composer is the BOTTOM
-   * prompt row. Taking the first one below the wait line anchors on any `❯` in the
-   * transcript -- a quoted shell prompt, a pasted session, a selector row -- and
-   * then the liveness slice is no longer "below the composer", so a plugin-list
-   * `◯` in ordinary output satisfies it. Measured with the first-match version:
-   * this fixture classified `working` on a RESOLVED wait, reopening the finished-
-   * agent false calm that the gate exists to close.
-   */
-  assert.notEqual(
-    classify(pane, resolvedWait + '\n  ❯ some quoted shell prompt\n  ◯ plugin-name (not installed)' + footer).state,
-    'working',
-    'a quoted ❯ became the anchor, so prose below it satisfied the liveness gate');
+  assert.notEqual(classify(pane, resolvedWait + footer).state, 'working',
+    'a completed-agent line between the row and the composer did not resolve the wait');
 
   /**
    * 🛑 `to finish` MUST END THE LINE. Without the `$` anchor the pattern matched
@@ -1848,17 +1780,6 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
       'a composed background-agent/workflow wait was read as idle: ' + composed);
   }
 
-  /**
-   * 🛑 THE LIVENESS SCAN IS SCOPED BELOW THE COMPOSER, because `◯` is the
-   * vendor's shared `figures.circle`, not a background-agent marker: the plugin
-   * permission list, the MCP "not installed" row, pending step rows and todo
-   * columns all draw it at line start. An unscoped scan would let a pane showing
-   * any of those satisfy liveness, so a RESOLVED wait would read `working` again.
-   * Measured live: the real `◯` rows sit below the composer; prose is above it.
-   */
-  const proseCircle = '✻ Waiting for 1 background agent to finish\n  ◯ some plugin row\n' + footer;
-  assert.notEqual(classify(pane, proseCircle).state, 'working',
-    'a ◯ ABOVE the composer satisfied the liveness gate, so a resolved wait read as working');
 
   /**
    * 🛑 THE GLYPH CLASS EXCLUDES `*`, UNLIKE `WORKING_LINE`'s. That sibling can
