@@ -168,6 +168,7 @@ one invented by somebody who did not write them.
 | `render-memory-words.js` | Measure the two unknown-memory captions on all three surfaces that draw them, |
 | `render-create-form.js` | Step two of Create an agent: no rules, half widths, Josh's order, the stepped model group |
 | `render-create-made.js` | The last step: the mark, the paced rows, and the greeting you are handed at the end |
+| `import-agent-flow.js` | The fourth create option (#1652): a valid agent file fills the instructions textarea and advances; a non-agent file is refused whole. Needs a sandboxed board; completes first run itself |
 | `render-survival.js` | The panel naming the agents that will not come back after a restart (#277) |
 | `render-not-running.js` | The card and the tile for an agent Kosmos knows about that is not running (#278) |
 | `render-offline-note.js` | What the page says when the server it was loaded from is killed under it (#269) |
