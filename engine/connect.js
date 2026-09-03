@@ -1079,49 +1079,30 @@ async function start(opts) {
       ? await subscription.checkLive(configDir ? { configDir } : undefined)
       : { state: subscription.STATE.UNKNOWN };
     /* 📌 #1922 CONSIDERED AND REJECTED BYPASSING THIS GATE FOR AN EXPLICIT
-       RE-AUTH, AND THE REASON IS WORTH KEEPING SO IT IS NOT RE-PROPOSED ALONE.
+       RE-AUTH. Kept short deliberately, per the MOVE-THEN-TRIM rule this file
+       states above: the retraction history lives on #1922 and #1937, not here.
+
        `checkLive` reports that a login EXISTS, never that it WORKS (#874), so a
-       person repairing a dead credential is refused by the check that cannot see
-       it is dead. Opening the gate looks like the fix.
+       person repairing a dead credential is refused by a check that cannot see
+       it is dead. Opening the gate looks like the fix. It is not, on its own:
+       `launchSignin` launches a bare `claude` with no login argument, and the
+       repl arm re-reads the same config that already said CONNECTED, so the
+       press ends where it started. That is #1937, and the gate and the launch
+       have to change together.
 
-       🛑 READ FROM THE CONTROL FLOW, NOT MEASURED, AND THE DISTINCTION MATTERS
-       BECAUSE THIS COMMENT TELLS THE NEXT PERSON NOT TO TRY SOMETHING. The
-       chain: this flow launches a BARE `claude` (no login argument, see
-       launchSignin), and IF the pane then classifies as `repl`, the repl arm
-       re-reads the SAME config that already said CONNECTED and calls
-       finishConnected -- so the press ends where it started.
+       🔑 THE ONE PREMISE THIS TURNS ON, AND IT IS UNMEASURED: what a COLD
+       interactive `claude` shows when the stored credential is ALREADY dead. A
+       REJECTED credential in a RUNNING session prints an error rather than a
+       login chooser -- see AUTH_FRIENDLY_MESSAGE in `engine/status.js` (#1884),
+       pinned at `engine/status.test.js`, from an interactive pane
+       (`bin/agent-supervisor.sh` launches with no `-p`). But that token expired
+       UNDER a live session, and this is a cold start. If a cold start PROMPTS,
+       the pane classifies as login-method/browser-open and opening the gate
+       WOULD repair.
 
-       ⚠️ THE PREMISE, NARROWED TO WHAT IS ACTUALLY UNMEASURED. An earlier
-       version of this comment said "nothing in this repo measures it" and
-       attributed the "Please run /login" line to `claude -p`. BOTH WERE WRONG,
-       and wrong in the direction that UNDERSTATED this gate's own case:
-
-         • `engine/status.js` (AUTH_FRIENDLY_MESSAGE, #1884) carries a real
-           external tester's pane verbatim -- `● Please run /login · API Error:
-           401 OAuth access token has expired. / Re-authenticate to continue.`
-           -- pinned as a classifier input at `engine/status.test.js` (BEN).
-         • That pane is an INTERACTIVE session, not `claude -p`:
-           `bin/agent-supervisor.sh` launches agent panes as
-           `claude --dangerously-skip-permissions [--model X]`, with no `-p` on
-           any arm.
-
-       ⇒ So a REJECTED credential in a RUNNING interactive session prints an
-       error line. It does not offer a login chooser. That supports keeping this
-       gate shut rather than opening it.
-
-       🔑 WHAT IS STILL GENUINELY UNMEASURED, AND IT IS THE ONLY THING THIS
-       GATE TURNS ON: what a FRESHLY LAUNCHED interactive `claude` shows when the
-       stored credential is ALREADY dead. Ben's token expired UNDER a live
-       session ("has expired"), which is a different moment from a cold start,
-       and `launchSignin` performs a cold start. If a cold start PROMPTS, the
-       pane classifies as login-method/browser-open, the driver walks the
-       sign-in, and opening this gate WOULD repair.
-
-       ⇒ The gate is left shut for want of EVIDENCE, not because opening it is
-       known to be useless. Declining to open a safety gate on an auth path for
-       an unproven benefit is the conservative order, and that is the whole
-       argument. **What would settle it: capture a pane from a COLD `claude` launched
-       against a genuinely rejected credential.** */
+       ⇒ Shut for want of EVIDENCE, not because opening it is known useless.
+       What would settle it: capture a pane from a COLD `claude` against a
+       genuinely rejected credential. */
     if (!binaryOnDisk || live.state === subscription.STATE.NONE) {
       /**
        * ⚠️ TWO REASONS REACH HERE NOW, AND NEITHER IS AN ERROR TO SHOW SOMEBODY.
@@ -1914,10 +1895,16 @@ async function launchSignin(owner) {
      suite replays argv and cannot see tmux's parser; and
      `docs/browser-checks/live-connect.js`, the one real-tmux real-CLI exerciser,
      sets `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, so `launchDir` is always truthy
-     there and it takes the ASSIGNMENT branch every time. **The `-u` branch is
-     the only production-reachable arm and nothing exercises it against a real
-     tmux.** Stated because a reader cannot otherwise tell a guarded property
-     from an unguarded one. */
+     there and it takes the ASSIGNMENT branch every time.
+
+     ⇒ **So nothing exercises the `-u` arm against a real tmux.** (An earlier
+     version said `-u` was "the only production-reachable arm". FALSE: the
+     assignment arm is reached in production whenever `owner.configDir` is set,
+     which is every labelled-account re-auth and every "add a second account"
+     press. What is true is narrower -- `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR` is
+     never SET anywhere outside tests and `docs/browser-checks`, so the seam is
+     the only way live-connect reaches that arm.) Stated because a reader cannot
+     otherwise tell a guarded property from an unguarded one. */
 
   const made = await tmux(['new-session', '-d', '-s', SESSION, '-x', '220', '-y', '50', ...cmd]);
   if (!made.ok) {

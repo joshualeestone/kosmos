@@ -620,9 +620,12 @@ driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CL
     assert.ok(made, 'no session was made, so this arm asserts nothing about the launch');
     const i = made.indexOf('env');
     assert.ok(i >= 0, 'the launch is not the measured multi-arg `env` form this assertion reads');
-    /* Order-independent for DETECTION, and bounded to the `env` slice like its
-       sibling in the control: an unrelated `-u` elsewhere in the tmux
-       invocation is not this card's business.
+    /* Order-independent for DETECTION, and the `-u` SEARCH is bounded to the
+       `env` slice like its sibling in the control: an unrelated `-u` elsewhere
+       in the tmux invocation is not this card's business. (The
+       no-re-assignment assertion below deliberately scans the WHOLE argv, not
+       the slice: a tmux-level `-e CLAUDE_CONFIG_DIR=...` would put the value
+       back and IS this card's business.)
 
        🛑 BUT ORDER IS NOT FREE, AND THE VERSION OF THIS COMMENT THAT SHIPPED
        FIRST SAID IT WAS -- it called an assignment ahead of `-u` a reddening
