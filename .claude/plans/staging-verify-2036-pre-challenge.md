@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: staging-verify-2036
-diff_hash: 87948e3d58d403ada8711e0536e89cf072ec6980319cdf661c142cc7bdb5d1ab
+diff_hash: cdb9159ef16d32edf267f5d1952b8dbf57551b5acaedaab3b7e07e5935a3fb7c
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-03T17:36:00Z
-iterations: 4
+timestamp: 2026-09-03T17:44:00Z
+iterations: 5
 converged: true
 ---
 
@@ -60,6 +60,16 @@ found a real issue, including a leak bug introduced by iteration 1's own fix.
 **Converged** - no new actionable findings. 5 strengths confirmed (gate ordering /
 false-pass resistance, trap correctness + set-u safety, token off-argv, honest test arms,
 #2030 server-side correctness).
+
+#### Iteration 5 (post-merge re-review)
+origin/main advanced during the loop and #2059 (stranded-prs detector) also appended to
+`package.json` `test:shell`, a conflict. Merged origin/main and resolved it to include BOTH
+`test-stranded-prs.sh` and the two staging-experience entries (union, no duplication, valid
+JSON; validated: both run green in the merged suite). My check/test/spec are byte-identical
+through the merge. A fresh blind pass on the merged state found **0 BLOCKERs / 0 WARNINGs /
+0 CONVENTIONs** (2 NITs, both already-documented: the test's port-19998 assumption; the
+deliberate gating-regression → cannot-tell). **Converged.** The diff_hash above is the
+post-merge hash.
 - [NIT] test arm 2 hardcodes port 19998 --> NOTED (a false pass would need a listener
   returning a valid nonce and passing the whole gate flow - effectively impossible).
 - [NIT] the shared-board restore is not race-free (TOCTOU) --> FIXED (added the one-line
