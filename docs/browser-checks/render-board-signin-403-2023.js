@@ -1,7 +1,11 @@
 /**
  * The board's protected reads, refused with 403, must render AS NOT-SIGNED-IN --
- * with the remedy (`kosmos open`) -- not as the honest-but-wrong "we cannot read
- * right now" (kosmos#2023).
+ * leading with the remedy that self-heals on the next Kosmos update -- not as the
+ * honest-but-wrong "we cannot read right now" (kosmos#2023). The full-path CLI
+ * (~/.local/share/kosmos/bin/kosmos open) is a footnote, never the lead and never
+ * a bare name: every user-action remedy was measured to fail on a real machine
+ * (a stale app bundle cannot sign in #2028, the bare CLI name is off PATH, and a
+ * page cannot mint the token it by definition lacks -- so (b) was dropped).
  *
  * 🛑 THE REGRESSION THIS PINS SHIPPED IN 0.6.25 AND REACHED REAL USERS. #1946's
  * loopback auth landed, so a board opened from a bookmark / a typed 127.0.0.1 (no
@@ -44,7 +48,14 @@ function check(name, pass, detail) {
 const AUTH_403 = { error: 'this board belongs to the account that started it; open it with `kosmos open`' };
 
 const SIGNIN = /not signed in/i;
-const REMEDY = /kosmos open/i;
+/* The remedy that actually works (#2023): the board self-heals on the next
+   Kosmos update. Every user-action remedy -- a terminal kosmos open, relaunch
+   the app, a page button -- was measured to FAIL on a real machine, so the copy
+   LEADS with self-heal and this is what the check asserts leads. */
+const SELF_HEAL = /fix(?:es)? itself the next time Kosmos updates/i;
+/* The terminal line is a footnote, and it MUST be the full path: the bare name
+   is not on PATH in a shell without ~/.zprofile (how it failed for Josh). */
+const FULL_PATH = /~\/\.local\/share\/kosmos\/bin\/kosmos open/;
 const CANNOT_READ_AGENTS = /We cannot read your agents right now/i;
 
 (async () => {
@@ -72,7 +83,8 @@ const CANNOT_READ_AGENTS = /We cannot read your agents right now/i;
       return { boardText, org: (orgnote && orgnote.textContent) || '' };
     });
     check('agents 403: the board says NOT SIGNED IN', SIGNIN.test(seen.boardText), seen.boardText.slice(0, 120));
-    check('agents 403: it names the remedy `kosmos open`', REMEDY.test(seen.boardText), seen.boardText.slice(0, 120));
+    check('agents 403: it LEADS with the self-heal remedy (the only one that works)', SELF_HEAL.test(seen.boardText), seen.boardText.slice(0, 160));
+    check('agents 403: the terminal footnote uses the FULL path, never a bare name', FULL_PATH.test(seen.boardText), seen.boardText.slice(0, 200));
     check('agents 403: it does NOT say the generic "cannot read your agents"', !CANNOT_READ_AGENTS.test(seen.boardText), seen.boardText.slice(0, 120));
     check('agents 403: the org note also says not signed in', SIGNIN.test(seen.org), seen.org.slice(0, 120));
     await ctx.close();
@@ -87,7 +99,8 @@ const CANNOT_READ_AGENTS = /We cannot read your agents right now/i;
     await page.waitForTimeout(600);
     const pj = await page.evaluate(() => (document.getElementById('pj-list') || {}).textContent || '');
     check('projects 403: #pj-list says NOT SIGNED IN', SIGNIN.test(pj), pj.slice(0, 120));
-    check('projects 403: #pj-list names the remedy', REMEDY.test(pj), pj.slice(0, 120));
+    check('projects 403: #pj-list LEADS with the self-heal remedy', SELF_HEAL.test(pj), pj.slice(0, 160));
+    check('projects 403: #pj-list footnote uses the FULL path', FULL_PATH.test(pj), pj.slice(0, 200));
     check('projects 403: #pj-list does NOT say the generic "cannot read your projects"', !/We cannot read your projects right now/i.test(pj), pj.slice(0, 120));
     await ctx.close();
   }
@@ -98,7 +111,7 @@ const CANNOT_READ_AGENTS = /We cannot read your agents right now/i;
     await page.goto(BASE + '/?tab=agents', { waitUntil: 'networkidle' });
     await page.waitForTimeout(600);
     const t = await page.evaluate(() => (document.getElementById('grid') || {}).textContent || '');
-    check('CONTROL 200: a normal board shows no not-signed-in message', !SIGNIN.test(t) && !REMEDY.test(t), t.slice(0, 100));
+    check('CONTROL 200: a normal board shows no not-signed-in message', !SIGNIN.test(t) && !SELF_HEAL.test(t), t.slice(0, 100));
     await ctx.close();
   }
 

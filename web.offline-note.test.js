@@ -96,12 +96,12 @@ test('a server that ANSWERED with a refusal is not "not answering": the note pai
     // The catch branch repaints the board's failure state; everything it
     // touches beyond the note is a stub, so the only thing measured here is
     // the one call this test is about.
-    await new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED',
+    await new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN',
       `${page.lift(SCRIPT, 'tick')}\nreturn tick();`)(
       (down) => painted.push(down),
       fetchImpl,
       { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] },
-      0, () => '', () => {}, null, null,
+      0, () => '', () => {}, null, null, false,
     );
     return painted;
   };

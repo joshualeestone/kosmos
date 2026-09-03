@@ -2981,10 +2981,10 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     else if (script[k] === '}') { d -= 1; if (d === 0) { beEnd = k + 1; break; } }
   }
   // eslint-disable-next-line no-new-func
-  new Function('document', 'checked', 'esc', 'err', 'BOARD_SEEN', 'BOARD_LOOK_FAILED',
+  new Function('document', 'checked', 'esc', 'err', 'BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN',
     script.slice(beAt, beEnd) + '\n' + script.slice(from, end))(
     { getElementById: (id) => els[id] }, checked, (s) => String(s), { message: 'boom' },
-    true, 'boom');
+    true, 'boom', false);
 
   // The rendered failure card proves the extracted block really ran.
   assert.match(els.grid.innerHTML, /cannot read your agents/,
@@ -7063,7 +7063,7 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
     + pageFnSource('pjMember') + '\n'
     + pageFnSource('paintFreeAgentPicker') + '\n'
     + 'const setIfChanged = (el, html) => { el.innerHTML = html; };\n'
-    + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = null;\n');
+    + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = null; let BOARD_NEEDS_SIGNIN = false;\n');
   const box = { innerHTML: '' };
   const addPick = { innerHTML: '', value: '' };
   global.document = { getElementById: (id) => (id === 'pjs-members' ? box : id === 'pjs-add-pick' ? addPick : null) };

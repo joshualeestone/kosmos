@@ -12968,6 +12968,11 @@ async function tick() {
     // the projects poll is suppressed while it is open — so a failure that only
     // reached `#grid` was invisible exactly where it mattered most.
     BOARD_LOOK_FAILED = err && err.message ? err.message : 'we could not read the agents';
+    /* #2023: a fetch that never ANSWERED is an outage, not a signin state. The
+       403 path above (answered) sets BOARD_NEEDS_SIGNIN correctly; a genuine
+       no-answer must clear it, or the board draws "not signed in" AND "not
+       answering" at once -- the self-contradiction #268 exists to forbid. */
+    if (!answered) BOARD_NEEDS_SIGNIN = false;
     /* 🔑 HERE, AND NOWHERE ELSE, WHICH IS THE WHOLE OF THE SECOND RULE. This
        branch runs only once a poll has RETURNED a failure; while the first one
        is merely in flight nothing has called it, so nothing is drawn. On a slow
@@ -16167,22 +16172,35 @@ let BOARD_LOOK_FAILED = null;
 /* #2023: a 403 on a protected board read is NOT "cannot read". It is a KNOWN
    state -- this browser holds no board token (#1946's loopback auth) -- with a
    specific remedy, so it must not fall into the honest-but-wrong "we cannot read
-   right now" path, which invites waiting that cannot supply a token. Set by any
-   protected read that gets a 403 (agents, projects), cleared when one succeeds.
+   right now" path, which invites waiting that cannot supply a token. Set by a
+   protected read that gets a 403 (agents, projects), cleared when one succeeds
+   OR when a poll fails for any OTHER reason: a genuine outage is not a signin
+   state, so it must not inherit a prior 403's flag (see the tick catch and
+   loadProjects, where a sticky true drew "not signed in" over "not answering").
    Kept apart from BOARD_LOOK_FAILED so a GENUINE unreadable board still says so. */
 let BOARD_NEEDS_SIGNIN = false;
 /* One source for the not-signed-in copy so the agents box, the org note and the
-   projects surfaces cannot drift. The #1946 cookie is per-origin, so once
-   `kosmos open` sets it (via the #1979 boot nonce), reloading THIS stale tab
-   picks it up -- which is why "then reload" is the true remedy, not a false one. */
-const SIGNIN_SENTENCE = 'This board is not signed in, so its agents and projects cannot be read. Open it with `kosmos open` from a terminal, then reload this page.';
+   projects surfaces cannot drift.
+   THE REMEDY IS THAT THE BOARD SELF-HEALS ON THE NEXT KOSMOS UPDATE (Angel's
+   #2023(a): the update re-opens the browser, which mints this origin's token via
+   the #1979 boot nonce). We do NOT tell the person to relaunch the app or to run
+   a terminal command as the lead, because BOTH were measured to FAIL on a real
+   machine: relaunch is unreliable (an app bundle older than the token-support
+   commit 6e775359 cannot sign in at all, #2028), and the bare CLI name is not on
+   PATH in a shell that has not loaded ~/.zprofile (it failed for Josh with
+   command-not-found). The full-path CLI line is a disclosure footnote for someone
+   who wants it sooner, never the primary instruction. */
+const SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your agents or projects. It fixes itself the next time Kosmos updates.';
 function boardSigninHtml() {
   return '<div class="pj-empty boardfail">'
     + '<p><b>This board is not signed in.</b><br>'
-    + 'Its agents and projects cannot be read until it is. Open it with '
-    + '<code>kosmos open</code> from a terminal, then reload this page. A bookmark '
-    + 'or a typed 127.0.0.1 address reaches the board without its access token; '
-    + '<code>kosmos open</code> hands the token over, and this page picks it up on reload.</p>'
+    + 'It cannot read your agents or projects yet. It will fix itself the next '
+    + 'time Kosmos updates, with no action from you. A bookmark or a typed '
+    + '127.0.0.1 address reaches the board without its access token; the next '
+    + 'update hands the token over.</p>'
+    + '<details class="fr-hatch"><summary>Need it sooner?</summary>'
+    + 'Run <code>~/.local/share/kosmos/bin/kosmos open</code> in a terminal. Use '
+    + 'the full path shown: the bare name is not always on your PATH.</details>'
     + '<button class="btn" type="button" data-board-retry>Reload</button>'
     + '</div>';
 }
@@ -26976,6 +26994,7 @@ let PJ_GEN = 0;
 
 async function loadProjects() {
   const mine = ++PJ_GEN;
+  let got403 = false; // #2023: did THIS read get a 403 (not-signed-in), specifically?
   // Returns whether THIS call's read is the one that landed (true on either
   // outcome, success or recorded failure; false when a newer call retired
   // it). Callers that branch on PJ_READ_FAILED right after awaiting need to
@@ -26983,6 +27002,7 @@ async function loadProjects() {
   // (round 21).
   try {
     const res = await fetch('/api/projects');
+    got403 = res.status === 403; // #2023: captured before json(), so a 403 with an unparseable body still flags.
     const body = await res.json();
     if (mine !== PJ_GEN) return false;
     // ⚠️ Checked BEFORE anything is assigned. The first version of this fix
@@ -26994,7 +27014,9 @@ async function loadProjects() {
     // painting [] here would put "No projects yet" in front of somebody who
     // has projects we simply could not read.
     if (!res.ok || body.projectsUnreadable) {
-      if (res.status === 403) BOARD_NEEDS_SIGNIN = true; // #2023: not-signed-in, not unreadable.
+      // #2023: a 403 is not-signed-in; ANY other failure (incl. a genuine
+      // projectsUnreadable 500) must clear the flag, not leave a prior true.
+      BOARD_NEEDS_SIGNIN = got403;
       throw new Error(body.error || 'we cannot read your projects right now');
     }
     PROJECTS = body.projects || [];
@@ -27031,6 +27053,10 @@ async function loadProjects() {
     paintPjNone();
   } catch {
     if (mine !== PJ_GEN) return false;
+    // #2023: only a MEASURED 403 is a signin state. A fetch reject, a non-403
+    // error, or an unparseable body must not inherit a prior poll's true flag
+    // (a sticky true drew the signin remedy over a genuine outage).
+    BOARD_NEEDS_SIGNIN = got403;
     PJ_READ_FAILED = true;
     paintPjNone();
     // ⚠️ Reported where the person is LOOKING, not only into the list. Both the
@@ -28258,11 +28284,13 @@ function paintOneProject() {
 function paintFreeAgentPicker(p, sel, btn) {
   const on = new Set((p.agents || []).map((a) => a.sessionName));
   const free = LAST.filter((a) => !on.has(a.sessionName));
-  const emptyBecause = BOARD_LOOK_FAILED
-    ? 'we cannot see the agents right now'
-    : !BOARD_LOOKED ? 'looking for the agents…'
-      : !LAST.length ? 'we cannot see any agents on this computer'
-        : 'every agent we can see is already on it';
+  const emptyBecause = BOARD_NEEDS_SIGNIN // #2023: distinct from "cannot see them".
+    ? 'this board is not signed in yet'
+    : BOARD_LOOK_FAILED
+      ? 'we cannot see the agents right now'
+      : !BOARD_LOOKED ? 'looking for the agents…'
+        : !LAST.length ? 'we cannot see any agents on this computer'
+          : 'every agent we can see is already on it';
   const html = free.length
     ? free.map((a) => '<option value="' + esc(a.sessionName) + '">' + esc(a.name) + '</option>').join('')
     : '<option value="">' + esc(emptyBecause) + '</option>';
@@ -31594,6 +31622,14 @@ function pjChoose(p) {
  */
 function paintAddAgents() {
   const box = document.getElementById('pj-add-agents');
+  // #2023: a not-signed-in board is a known state with a remedy, not "cannot
+  // read". Checked first so a 403 (which also sets BOARD_LOOK_FAILED) draws the
+  // self-heal copy here too, not the generic could-not-see-them sentence.
+  if (BOARD_NEEDS_SIGNIN) {
+    setLive(box, '<p class="fhint">' + SIGNIN_SENTENCE + ' You can still '
+      + 'add the project and put agents on it later.</p>');
+    return;
+  }
   // ⚠️ "We have not looked yet" is NOT "there are none", and saying the second
   // for the first is the one thing this product refuses to do.
   if (BOARD_LOOK_FAILED) {
