@@ -54,7 +54,13 @@ function read() {
   }
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return { on: false, intervalMinutes: DEFAULT_INTERVAL, ok: false }; }
-  if (!parsed || typeof parsed !== 'object') return { on: false, intervalMinutes: DEFAULT_INTERVAL, ok: false };
+  // `typeof [] === 'object'`, so a bare object check lets an ARRAY through, and
+  // `[].on` is undefined -> the ON default: a corrupt config would then phone
+  // home, the one thing this fail-safe path exists to prevent. Reject arrays (and
+  // any non-plain-object JSON value) so a corrupt config always falls to safe-off.
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { on: false, intervalMinutes: DEFAULT_INTERVAL, ok: false };
+  }
   // ON by default: a stored file missing the flag (an old build, a hand-edit)
   // reads on, exactly as an absent one does; only an explicit false is off.
   const on = typeof parsed.on === 'boolean' ? parsed.on : true;

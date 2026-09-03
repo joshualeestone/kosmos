@@ -84,6 +84,22 @@ test('a corrupt file reads as safe defaults with ok:false', () => {
   assert.equal(s.ok, false);
 });
 
+test('a JSON ARRAY is corrupt too, and falls to safe-OFF, not the ON default (#2013)', () => {
+  /* 🛑 THE FAIL-SAFE HOLE. `typeof [] === 'object'`, so an array passed the bare
+     object guard; `[].on` is then undefined and the ON-by-default rule turned a
+     corrupt config INTO phoning home -- the exact direction the corrupt path must
+     never take. A JSON scalar (string/number) already fell to off via the typeof
+     check; the array was the one corrupt shape that slipped through. */
+  fs.writeFileSync(hb.FILE, JSON.stringify([1, 2, 3]));
+  const s = hb.read();
+  assert.equal(s.on, false, 'a corrupt array config must fall to OFF, never inherit the ON default');
+  assert.equal(s.ok, false, 'a corrupt array must report ok:false');
+  /* CONTROL: a real object still reads ON, so the assertion above is
+     discriminating rather than turning every read off. */
+  fs.writeFileSync(hb.FILE, JSON.stringify({ on: true }));
+  assert.equal(hb.read().on, true, 'the control: a genuine object is not treated as corrupt');
+});
+
 test('set validates BOTH fields before writing either (atomic)', () => {
   hb.set({ on: false, intervalMinutes: 10 }); // baseline
   const bad = hb.set({ on: true, intervalMinutes: 7 }); // valid on + invalid interval
