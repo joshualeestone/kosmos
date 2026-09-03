@@ -19,8 +19,12 @@ Two edits, both small:
   `engine/create.js` already uses in four places, and `connect.js` normalizes `null` identically to
   an omitted key.
 - `engine/connect.js`: the sign-in launch pushes `env -u CLAUDE_CONFIG_DIR` when there is no launch
-  dir. Unsetting is not the same as declining to set: a pane inherits whichever account started the
-  tmux server, a value this process cannot inspect. This makes the WRITE side match the rule
+  dir. Unsetting is not the same as declining to set. **On a WARM tmux server** (one already running)
+  the pane inherits whichever account started that server, a value this process cannot inspect;
+  measured in `tools/witness-pane-env.sh`, which seeds a server before measuring and so answers only
+  that case. **On a COLD server** `new-session` starts one, and a fresh server inherits its
+  launching client's environment, so the leaked value is this process's own. `env -u` strips the key
+  inside the pane either way, which is why the fix does not depend on knowing the source. This makes the WRITE side match the rule
   `subscription.checkLive` already states for the READ side ("rather than trusting it to be unset").
   It strips that one key deliberately, mirroring the reader's scope; it is not pane sanitization.
 
@@ -41,10 +45,10 @@ failure is the kind that gets re-filed as a fresh regression against this PR.
 
 Four arms, each mutation-proven red for its own reason:
 
-- revert the route -> the default-route arm reds
-- force `configDir: null` for a labelled account -> the labelled control reds
-- drop the `-u` push -> the default launch arm reds
-- push `-u` unconditionally -> the labelled control reds
+- revert the route -> the default-route arm reds (`server.connect.test.js`)
+- force `configDir: null` for a labelled account -> the ROUTE control reds (`server.connect.test.js`)
+- drop the `-u` push -> the default launch arm reds (`engine/connect.test.js`)
+- push `-u` unconditionally -> the LAUNCH control reds (`engine/connect.test.js`)
 
 The launch arm also asserts ORDERING, which matters and is measured: `env` stops option parsing at
 its first operand, so an assignment ahead of `-u` exits 127 (loud) and the BINARY ahead of `-u`
@@ -62,10 +66,18 @@ a login argument after the binary.
 
 ## Validation
 
-Full suite green **at the exact head being merged**: the validation log holds a `clean` row whose
-diff hash byte-matches this branch's `origin/main...HEAD` diff, with a clean worktree, and the run
-genuinely executed rather than skipping (kosmos#1961 is the shape where a skip prints a pass; the
-check is that the output says `running validation sequence`). Exit 0, all shell blocks clear.
+The challenge loop ran to convergence; its proof file is the final commit on this branch.
 
-The challenge loop ran to convergence and its proof file is committed as the final commit before
-this PR was opened.
+**To check the validation yourself rather than take this paragraph's word** (the honest form, since
+any later commit moves the hash and a sentence asserting a figure would go stale with no signal):
+
+```
+source ~/.claude/scripts/lib/validation-log.sh && validation_log_current_diff_hash
+tail -1 ~/.cache/claude-validation-proofs/reauth-default-1922.jsonl
+```
+
+The newest row must read `status: clean` with a `hash` equal to that value. ⚠️ **Note the helper
+hashes `origin/main...HEAD` MINUS the proof file** (`:!.claude/plans/<branch>-pre-challenge.md`), so
+a bare `git diff origin/main...HEAD | shasum` will NOT match once the proof file is committed. And
+per kosmos#1961 a run that SKIPPED also prints a pass, so the log's `clean` (not `skipped`) is the
+field that matters.
