@@ -34,6 +34,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
 const { chromium } = require('playwright');
 const srv = require('../../server.js');
+const fleet = require('../../test-support/fleet');
 const { stepForAnchor } = require('./lib-firstrun-steps.js');
 
 const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'a11y-shots-'));
@@ -44,6 +45,11 @@ function chk(ok, label, extra) {
 }
 
 (async () => {
+  // Install a fixture fleet so the server's tmux reads answer from the fixture,
+  // never the operator's live fleet (AGENT_WORKFORCE_TMUX_BIN is /bin/echo, which
+  // stubs writes but whose reads would otherwise fall through -- the guard in
+  // engine/status.tmux-bin.test.js catches a /bin/echo check with no fleet.install).
+  fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix' })]);
   const server = await srv.start(0);
   const BASE = 'http://127.0.0.1:' + server.address().port;
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -100,6 +106,7 @@ function chk(ok, label, extra) {
   } finally {
     await browser.close();
     server.close();
+    fleet.restore();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
 
