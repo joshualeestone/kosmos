@@ -56,26 +56,39 @@ function chk(ok, label, extra) {
     await page.goto(`${BASE}/?first-run=1`, { waitUntil: 'domcontentloaded' });
     const step = await stepForAnchor(page, '#fr-a11y-open');
     await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
-    await page.waitForSelector('#fr-pane-5:not([hidden])', { timeout: 8000 });
+    // Derive the pane id from the discovered step too (not a hard-coded 5), so a
+    // future renumber moves the whole check together.
+    await page.waitForSelector(`#fr-pane-${step}:not([hidden])`, { timeout: 8000 });
     await page.waitForTimeout(250);
 
-    const m = await page.evaluate(() => {
-      const pane = document.getElementById('fr-pane-5');
+    const m = await page.evaluate((paneStep) => {
+      const pane = document.getElementById('fr-pane-' + paneStep);
       const btn = document.getElementById('fr-a11y-open');
       const cs = getComputedStyle(btn);
+      // A plain .btn control in the SAME #firstrun context: the gold-outline check
+      // must be a COMPUTED-style comparison, not a class-name read -- a phantom
+      // `fr-sleepbtn` (class present, no rule) would compute to this plain style.
+      const plain = document.createElement('button');
+      plain.className = 'btn';
+      (pane || document.body).appendChild(plain);
+      const plainBg = getComputedStyle(plain).backgroundColor;
+      plain.remove();
       return {
         paneText: pane.textContent.replace(/\s+/g, ' ').trim(),
         btnHasSleep: btn.classList.contains('fr-sleepbtn'),
         btnBg: cs.backgroundColor,
         btnBorder: cs.borderColor || cs.borderTopColor,
+        plainBtnBg: plainBg,
       };
-    });
+    }, step);
 
     chk(/Turn on 'Tmux' in Accessibility to enable this/.test(m.paneText),
       "the copy names the exact action (Turn on 'Tmux' in Accessibility)", m.paneText.slice(0, 90));
     chk(!/Kosmos agents can work in your other applications/.test(m.paneText),
       'the old copy is gone', m.paneText.slice(0, 60));
-    chk(m.btnHasSleep, 'the Open-Accessibility button carries the gold fr-sleepbtn class', 'bg=' + m.btnBg);
+    chk(m.btnHasSleep && m.btnBg === 'rgba(0, 0, 0, 0)' && m.btnBg !== m.plainBtnBg,
+      'the Open-Accessibility button RENDERS the gold-outline fr-sleepbtn style (transparent bg, distinct from a plain filled .btn) -- computed, so a phantom class would red',
+      'bg=' + m.btnBg + ' plainBtn=' + m.plainBtnBg);
     chk(!/This one is optional/.test(m.paneText),
       'the pushy "This one is optional / now-or-later" framing is gone');
     chk(/You can turn this on anytime in Settings, under Keeping agents running/.test(m.paneText),
