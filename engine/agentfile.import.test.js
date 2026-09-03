@@ -90,6 +90,37 @@ test('#1939 the near-miss is detected even when the name is UNPARSEABLE', () => 
   assert.doesNotMatch(out.because, /no header/);
 });
 
+test('#1939 the near-miss covers the HEADING form, which is the most common real CLAUDE.md shape', () => {
+  // Real agent CLAUDE.md files routinely open "# You are X" (a Markdown H1), which
+  // is exactly the `(?:#+[ \t]*)?` branch of INTRODUCES. The bold and plain cases
+  // above leave that branch unexercised, so a future edit could break it silently.
+  for (const first of ['# You are Casey Jones', '## You are Casey Jones', '#   You are Casey Jones']) {
+    const out = agentfile.importAgent(first + '\n\nHe answers one question well.\n', deps);
+    assert.equal(out.ok, false, first);
+    assert.match(out.because, /instructions|CLAUDE\.md/, first + ' -> redirect message');
+    assert.doesNotMatch(out.because, /no header/, first + ' -> not the missing-field message');
+  }
+});
+
+test('#1939 INTRODUCES is mirrored from discover.js byte-for-byte (pin against silent drift)', () => {
+  // The regex is duplicated in engine/discover.js (discovery, which SURFACES a
+  // file) and engine/agentfile.js (import, which VALIDATES one) on purpose -- import
+  // keeps its single-dependency shape rather than importing discover. But nothing
+  // else makes the two agree, so if discover's copy is widened and this one is not,
+  // the two surfaces disagree about whether a file "introduces an agent". This pins
+  // the literals equal so that drift is caught here rather than in the field.
+  const literal = (file) => {
+    const src = fs.readFileSync(path.join(__dirname, file), 'utf8');
+    const m = src.match(/const INTRODUCES = ([^;]+);/);
+    return m && m[1].trim();
+  };
+  const here = literal('agentfile.js');
+  const there = literal('discover.js');
+  assert.ok(here, 'agentfile.js INTRODUCES literal not found');
+  assert.ok(there, 'discover.js INTRODUCES literal not found -- did discover move it? update this pin');
+  assert.equal(here, there, 'the mirrored INTRODUCES regexes have drifted; keep them byte-identical or share one constant');
+});
+
 test('#1652 REFUSED WHOLE: a header without the kosmos marker', () => {
   const out = agentfile.importAgent('---\nname: nope\n---\n\n# You are Nobody\n', deps);
   assert.equal(out.ok, false);
