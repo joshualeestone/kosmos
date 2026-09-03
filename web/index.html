@@ -15186,7 +15186,13 @@ async function paintLimits() {
   const msg = document.getElementById('lim-msg');
   const mine = ++LIM_EPOCH;
   try {
-    const r = await (await fetch('/api/limits')).json();
+    const res = await fetch('/api/limits');
+    // A 403 board returns a JSON error body; without this check .json() succeeds
+    // and lim-toggle paints a confident Off with no message (#2047). A non-ok
+    // status is an unread -> the catch's unread branch. (A corrupt read is a 200
+    // with {ok:false} and keeps its switch + its own sentence, below.)
+    if (!res.ok) throw new Error('unread');
+    const r = await res.json();
     if (mine !== LIM_EPOCH) return;
     paintLimitsFrom(r);
     msg.textContent = r.ok === false
@@ -15271,7 +15277,13 @@ let ENG_EPOCH = 0;
 async function refreshEngMode() {
   const mine = ++ENG_EPOCH;
   try {
-    const r = await (await fetch('/api/engmode')).json();
+    const res = await fetch('/api/engmode');
+    // A 403 board returns a JSON error body; without this check .json() succeeds
+    // and eng-toggle paints a confident Off nobody read (#2047). A non-ok status
+    // is an unread -> the catch's unread branch. (A corrupt read is a 200 with
+    // {ok:false} and keeps its switch, handled below.)
+    if (!res.ok) throw new Error('unread');
+    const r = await res.json();
     if (mine !== ENG_EPOCH) return ENG_ON;
     ENG_ON = r.on === true;
     /* Applied HERE, not by each caller's memory: a refresh that learns
@@ -15396,7 +15408,15 @@ function autoPaint(r) {
 async function refreshAutoUpdate() {
   const mine = ++AUTO_EPOCH;
   try {
-    const r = await (await fetch('/api/autoupdate')).json();
+    const res = await fetch('/api/autoupdate');
+    // A 403 board (server.js gate) returns a JSON error body, so .json() would
+    // SUCCEED and autoPaint would render {error:...} as a real setting -- a
+    // confident OFF nobody set (#2047). A non-ok status means we never read the
+    // preference at all, the same as a network failure: route it into the
+    // catch's unread branch. A CORRUPT read is a 200 with {ok:false} and is
+    // handled inside autoPaint, so this does not disturb that path.
+    if (!res.ok) throw new Error('unread');
+    const r = await res.json();
     if (mine !== AUTO_EPOCH) return;
     autoPaint(r);
   } catch {
