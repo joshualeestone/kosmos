@@ -173,12 +173,12 @@ test('#900: a DELIBERATE idle still clears a block, or nothing ever could', () =
   assert.equal(selfreport.read('freed').state, 'idle');
 });
 
-test('#1949: automatic stopped and started still land over a block, but automatic working no longer does', () => {
+test('#1949: automatic started and stopped still land over a waiting state, but automatic working no longer does', () => {
   /* #900 refused only automatic `idle`, on the theory that the next `working`
      was real activity and should clear the block. #1949 overturns that half:
      the report hook fires `working` (auto) on EVERY PreToolUse, so it is
-     continuous noise, not a resume. `stopped` (session end) and `started`
-     (a new run) are one-time transitions and still land, so a rule that
+     continuous noise, not a resume. `started` (a new run) and `stopped`
+     (session end) are one-time transitions and still land, so a rule that
      refused every automatic write cannot strand a blocked agent forever. */
   selfreport.record('moving', { state: 'blocked', because: 'waiting' });
   const autoWork = selfreport.record('moving', { state: 'working', because: 'answering a prompt', auto: true });
@@ -186,6 +186,11 @@ test('#1949: automatic stopped and started still land over a block, but automati
   assert.equal(autoWork.skipped, 'waiting');
   assert.equal(selfreport.read('moving').state, 'blocked');
 
+  /* started (a new run) is one-time, not continuous, so it still lands over the block. */
+  assert.equal(selfreport.record('moving', { state: 'started', auto: true }).recorded, true);
+  assert.equal(selfreport.read('moving').state, 'started');
+
+  /* and stopped (session end) still lands over a needs_you. */
   selfreport.record('ending', { state: 'needs_you', because: 'a question' });
   assert.equal(selfreport.record('ending', { state: 'stopped', auto: true }).recorded, true);
   assert.equal(selfreport.read('ending').state, 'stopped');
@@ -196,12 +201,12 @@ test('#1949 CONTROL: an automatic working does not erase a standing needs_you', 
      needs_you, fire an automatic working, assert the state is STILL needs_you.
      The hook fires `working` on every PreToolUse, so before the fix a standing
      needs_you erased itself within seconds of the agent running any command. */
-  selfreport.record('asker', { state: 'needs_you', because: 'cannot authenticate to GitHub' });
-  const autoWork = selfreport.record('asker', { state: 'working', because: 'running a command', auto: true });
+  selfreport.record('askerControl', { state: 'needs_you', because: 'cannot authenticate to GitHub' });
+  const autoWork = selfreport.record('askerControl', { state: 'working', because: 'running a command', auto: true });
   assert.equal(autoWork.recorded, false, 'an automatic working erased a standing needs_you');
   assert.equal(autoWork.skipped, 'waiting');
   assert.match(autoWork.because, /waiting on a person/);
-  assert.equal(selfreport.read('asker').state, 'needs_you');
+  assert.equal(selfreport.read('askerControl').state, 'needs_you');
 });
 
 test('#1949 PROPERTY: an AGENT-WRITTEN working still clears a standing needs_you (a real resume)', () => {
