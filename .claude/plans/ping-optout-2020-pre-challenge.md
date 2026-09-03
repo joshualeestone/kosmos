@@ -2,11 +2,12 @@
 pre_challenge: true
 method: challenge-loop
 branch: ping-optout-2020
-diff_hash: 199b2b4ee9c933456f1d162a5bb6e2d91799e48b1622ec3fdb309f77459d574b
+diff_hash: 5a9dc83ebf21608f80e1a47edebf8840872011883e06197818a2215d754370d3
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-03T17:04:35Z
 iterations: 5
+merged_main: true (resolved reason-grep count 32->33; main #2023 + this #2020 both add a check)
 converged: true
 ---
 
