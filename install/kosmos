@@ -280,6 +280,11 @@ port_taken_by_stranger() {
 # formula. Empty (return 1) if the board has not booted yet or does not enforce
 # (a token is only written on the enforcing path); callers that need it run after
 # the board is up.
+# ⚠️ RESIDUAL (kosmos#1970): callers pass this on curl/open ARGV, which macOS `ps`
+# exposes cross-account for the brief window each command runs. It is transient
+# (the ?token= is swapped for an httpOnly cookie and 302-stripped) and matches the
+# pre-existing x-kosmos-agent-token delivery, so it is documented and tracked
+# rather than closed here; the durable secret stays in the mode-600 file.
 board_token() {
   local _root _tok
   _root="$("$NODE" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || return 1

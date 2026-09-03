@@ -108,18 +108,27 @@ function readToken() {
  * owner-only mode is a real boundary against another local account. Idempotent:
  * a second call returns the same token.
  *
- * 🔑 RACE-SAFE ACROSS PROCESSES, and it returns the token that is actually ON
- * DISK, never merely the one this call generated. Two boards started on the same
- * account (a same-port pair is settled by the bind, but a DIFFERENT-port pair --
- * `PORT=x kosmos start` twice -- both reach provisioning) could each generate a
- * different token on a fresh first boot; whichever writes last would leave the
- * other serving an in-memory token that no longer matches the file every client
- * reads, and that board would 403 everyone. The claim is made with `link()`,
- * which is atomic and fails with EEXIST if the target already exists: the winner
- * returns its own token, and every loser ADOPTS the token already on disk. So the
- * value returned always equals the file, whoever won. The content is written to a
- * temp file FIRST (full, mode 0o600), so a reader never sees a half-written token
- * -- `link` publishes an already-complete file atomically.
+ * 🔑 RACE-SAFE ON THE NORMAL PATH: it returns the token actually ON DISK, not
+ * merely the one this call generated. Two boards on the same account (a same-port
+ * pair is settled by the bind, but a DIFFERENT-port pair -- `PORT=x kosmos start`
+ * twice -- both reach provisioning) could each generate a different token on a
+ * fresh first boot; whichever writes last would otherwise leave the other serving
+ * a token that no longer matches the file every client reads, and that board would
+ * 403 everyone. The claim is made with `link()`, atomic and EEXIST if the target
+ * exists: the winner returns its own token, and every loser ADOPTS the token
+ * already on disk, so the returned value equals the file. Content is written to a
+ * temp FIRST (full, mode 0o600), so a reader never sees a half-written token --
+ * `link` publishes an already-complete file atomically.
+ *
+ * ⚠️ ONE PATH IS BEST-EFFORT, NOT RACE-SAFE, and it is only reachable by outside
+ * corruption: a target that EXISTS but is empty/whitespace (external truncation).
+ * `link` cannot adopt an unreadable token, so we replace it with `rename` and then
+ * re-read to return whatever is on disk. Under TRUE concurrency (two boards
+ * recovering the SAME corrupt file at once) a later rename can still land after our
+ * re-read, so the two may briefly disagree until one restarts. This never arises
+ * from our own writes (they publish complete content), needs a corrupt file AND a
+ * concurrent different-port boot, and self-heals on the next single boot -- so it
+ * is accepted as a bounded recovery rather than guarded with a lock.
  */
 function ensureToken() {
   const existing = readToken();
@@ -151,14 +160,14 @@ function ensureToken() {
       const winner = readToken();     // a racer published first; adopt its token
       if (winner) return winner;
       // The target EXISTS but readToken() found it empty/whitespace (external
-      // truncation or a corrupt file) -- link() would EEXIST here forever and the
-      // board would 403 every request with no self-recovery short of a human
-      // deleting the file. Replace the useless file with our freshly-written temp
-      // (rename clobbers), so a corrupt token heals on the next boot instead of
-      // deadlocking. Our own writes never produce this: content is written before
-      // publish, so the target is only ever empty via outside corruption.
+      // truncation) -- link() would EEXIST here forever and the board would 403
+      // every request with no self-recovery short of a human deleting the file.
+      // Replace the useless file (rename clobbers) and RE-READ, so we return the
+      // value that is actually on disk -- ours, or a concurrent recoverer's that
+      // landed first -- rather than blindly the token we generated. Best-effort
+      // under true concurrency (see the docblock); it heals the deadlock.
       fs.renameSync(tmp, tokenPath());
-      return token;
+      return readToken() || token;
     }
     throw err;
   } finally {
