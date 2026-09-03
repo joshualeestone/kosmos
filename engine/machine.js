@@ -610,17 +610,39 @@ function restartCheck(runner) {
    =========================================================================== */
 
 /**
+ * The "how to find and open the Kosmos app" hint, PLATFORM-AWARE (kosmos#2086).
+ *
+ * The board's UI had no platform awareness and told everyone to use Spotlight (a
+ * macOS thing), which a Windows user hit on the first-run screen before ever
+ * reaching the agents pane. macOS keeps the Spotlight wording; every other
+ * platform gets platform-NEUTRAL wording. Neutral, not Windows-specific ("Start
+ * menu"), on purpose: the Windows app-location LOGIC (where Kosmos installs on
+ * Windows, and the Windows equivalent of the /Applications check below) is the
+ * #570 Windows umbrella's to add; this change only stops the macOS-only
+ * instruction from showing OFF macOS. When #570 adds real Windows locations it
+ * can extend this one helper rather than a second copy.
+ *
+ * Takes `platform` as an ARG (like #2039's store.dataRootFor), so the two
+ * branches are assertable from any OS, not only the one the test runs on.
+ */
+function findAppHint(platform) {
+  return platform === 'darwin'
+    ? 'Type Kosmos into Spotlight, the magnifying glass at the top right of your '
+        + 'screen, and it will find it.'
+    : 'Open Kosmos the way you normally open apps on this computer, and it will start.';
+}
+
+/**
  * The could-not-look answer, defined ONCE. The /api/machine route's degraded
  * catch path publishes this same row, and a second hand-copied literal there
  * went stale the moment this wording moved.
  */
-function appLocationUnknown() {
+function appLocationUnknown(platform) {
   return {
     key: 'app-location',
     state: STATE.UNKNOWN,
     title: 'We could not check where the Kosmos icon is',
-    detail: 'Nothing is wrong. Type Kosmos into Spotlight, the magnifying glass at the '
-      + 'top right of your screen, and it will find it.',
+    detail: 'Nothing is wrong. ' + findAppHint(platform || process.platform),
   };
 }
 
@@ -660,6 +682,10 @@ function appLocationUnknown() {
  * it not being there").
  */
 function appLocationCheck(opts) {
+  // Platform drives only the "how to find it" WORDING (kosmos#2086), not the
+  // look below. Defaults to this machine; overridable so both branches are
+  // testable from any OS.
+  const platform = (opts && opts.platform) || process.platform;
   // ⚠️ A malformed override THROWS rather than silently probing the real
   // machine. The fallback used to require length exactly 2, so a test passing
   // one or three directories by mistake read the operator's real
@@ -716,14 +742,13 @@ function appLocationCheck(opts) {
   }
   if (errored) {
     // "Could not look" must never render as "it is not there".
-    return appLocationUnknown();
+    return appLocationUnknown(platform);
   }
   return {
     key: 'app-location',
     state: STATE.ATTENTION,
     title: 'We could not find the Kosmos icon',
-    detail: 'That is not the same as it not being there. Type Kosmos into Spotlight, the '
-      + 'magnifying glass at the top right of your screen, and it will find it.',
+    detail: 'That is not the same as it not being there. ' + findAppHint(platform),
   };
 }
 
@@ -1051,4 +1076,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, installedCheck, appLocationCheck, appLocationUnknown, restartCheck, labelTruthCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, revealApp, setAppRevealRunner, STATE };
