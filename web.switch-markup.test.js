@@ -38,7 +38,11 @@ function openingTag(id) {
 
 // Every switch on the Settings surface. The card names the update switch, but
 // the defect class is shared, and #229's paint fix generalised to all of them.
-const SWITCHES = ['auto-toggle', 'lim-toggle', 'eng-toggle'];
+// #2054: ah-toggle and hb-toggle joined the family (Auto-save and Prompter became
+// sliders); tell-toggle and notify-toggle (the #2020 telemetry opt-outs) were a gap
+// in this guard from the start and are added here while the list is being touched --
+// they are switches painted only by paintSwitch, so they belong under the same rule.
+const SWITCHES = ['auto-toggle', 'lim-toggle', 'eng-toggle', 'ah-toggle', 'hb-toggle', 'tell-toggle', 'notify-toggle'];
 
 test('#229: no switch carries a static aria-checked in the markup', () => {
   for (const id of SWITCHES) {

@@ -1,11 +1,21 @@
 'use strict';
 
 /**
- * kosmos#1724: the Settings > Automation auto-handoff control (the capture half,
- * in the page). The real paintAutomation is lifted and run against a stub: it
- * must load a saved setting into the checkbox and threshold, default to on/85
- * when nothing is saved (#2013), and enable the controls. The trigger (the consume half)
- * is tested in engine/autohandoff.test.js; the route in server.test.js.
+ * kosmos#1724 / #2054: the Settings > Automation auto-handoff control (the capture
+ * half, in the page). #2054 turned it from a checkbox + Save button into the app's
+ * `.toggle` slider that saves on flip, with the threshold saving on change and hidden
+ * while off (the lim pattern). The real paintAutomation is lifted (with the real
+ * paintSwitch) and run against a stub: it must load a saved setting into the toggle and
+ * threshold, default to on/85 when nothing is saved (#2013), and, as a STATUS control,
+ * HIDE the knob on a could-not-read read rather than show a false Off.
+ *
+ * ⭐ #2054 ACCEPTANCE (Mona Lisa, unprompted): a moved setting must keep its stored
+ * VALUE, not reset to a default. The value lives server-side and is read on paint, so
+ * the guarantee is (a) a non-default stored value paints as itself, and (b) paint issues
+ * no write. Both are pinned below.
+ *
+ * The trigger (the consume half) is tested in engine/autohandoff.test.js; the route in
+ * server.test.js.
  *
  *   node --test web.autohandoff-1724.test.js
  */
@@ -18,11 +28,24 @@ const { scriptOf, lift } = require('./test-support/page');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const SCRIPT = scriptOf(PAGE);
 
+/** A stub toggle element that the real paintSwitch can drive. */
+function toggleEl() {
+  const attrs = {};
+  return {
+    hidden: true,
+    classList: { toggle() {}, remove() {}, add() {} },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    getAttribute(k) { return k in attrs ? attrs[k] : null; },
+    removeAttribute(k) { delete attrs[k]; },
+    hasAttribute(k) { return k in attrs; },
+  };
+}
+
 function dom() {
   const els = {
-    'ah-enabled': { checked: false, disabled: true },
-    'ah-threshold': { value: '', disabled: true },
-    'ah-save': { disabled: true },
+    'ah-toggle': toggleEl(),
+    'ah-threshold': { value: '' },
+    'ah-threshold-row': { hidden: false },
     'ah-msg': { textContent: '' },
   };
   return {
@@ -34,48 +57,89 @@ function dom() {
   };
 }
 
-/** paintAutomation, the REAL one, wired to a stub fetch returning `saved`. */
-function makePaint(saved) {
+/**
+ * paintAutomation, the REAL one (with the real paintSwitch), wired to a stub fetch.
+ * `saved` is what GET /api/settings returns as `.autohandoff` (undefined => no value
+ * stored). `ok` is the HTTP ok flag; a false ok is could-not-read. `calls` records every
+ * fetch so a test can assert paint never WRITES.
+ */
+function makePaint(saved, ok = true) {
   const d = dom();
-  const fetchStub = async () => ({ json: async () => ({ autohandoff: saved }) });
-  const paint = new Function('document', 'fetch',
-    lift(SCRIPT, 'paintAutomation') + '\nreturn paintAutomation;')(d.document, fetchStub);
-  return { paint, ...d };
+  const calls = [];
+  const fetchStub = async (url, opts) => {
+    calls.push({ url: String(url), method: (opts && opts.method) || 'GET' });
+    return { ok, json: async () => ({ autohandoff: saved }) };
+  };
+  const body = lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintAutomation') + '\nreturn paintAutomation;';
+  const paint = new Function('document', 'fetch', body)(d.document, fetchStub);
+  return { paint, calls, ...d };
 }
 
-test('kosmos#1724: a saved setting LOADS into the controls, which are live once the sweep exists', async () => {
+test('kosmos#1724: a saved setting LOADS into the slider and threshold', async () => {
   const { paint, els } = makePaint({ enabled: true, threshold: 90 });
   await paint();
-  assert.equal(els['ah-enabled'].checked, true, 'enabled reflects the saved value');
+  assert.equal(els['ah-toggle'].getAttribute('aria-checked'), 'true', 'the toggle reflects the saved on');
+  assert.equal(els['ah-toggle'].hidden, false, 'the toggle is shown once its position is known');
   assert.equal(els['ah-threshold'].value, '90', 'threshold reflects the saved value');
-  // The sweep (engine/autohandoff-sweep.js, wired in server.js) now acts on the setting,
-  // so the control is live: enabled and honoured. It shipped not-yet-active only while the
-  // sweep was missing; that note would be a false statement now, so it is gone.
-  assert.equal(els['ah-enabled'].disabled, false, 'live: the toggle is enabled');
-  assert.equal(els['ah-save'].disabled, false, 'live: Save is enabled');
-  assert.equal(els['ah-msg'].textContent, '', 'no not-yet-active note once the sweep is live');
+  assert.equal(els['ah-threshold-row'].hidden, false, 'the threshold row shows while on');
+  assert.equal(els['ah-msg'].textContent, '', 'no message on a clean read');
 });
 
 test('kosmos#1724/#2013: defaults to ON and 85% when nothing is saved', async () => {
   const { paint, els } = makePaint(undefined);
   await paint();
-  // #2013: the fallback default flipped ON with the engine, so the two copies do
-  // not drift; a paint with no served value shows the on-by-default state.
-  assert.equal(els['ah-enabled'].checked, true, 'on by default');
+  assert.equal(els['ah-toggle'].getAttribute('aria-checked'), 'true', 'on by default');
   assert.equal(els['ah-threshold'].value, '85', 'threshold defaults to 85');
 });
 
-test('kosmos#1724: the control is wired -- section, controls, painted on open, saved to the route', () => {
+test('#2054 ACCEPTANCE: a NON-default stored value paints as itself, and paint writes nothing', async () => {
+  // enabled:false / threshold:95 is the opposite of the on/85 default, so a control
+  // that "silently reset" on the move would show on/85 here instead of off/95.
+  const { paint, els, calls } = makePaint({ enabled: false, threshold: 95 });
+  await paint();
+  assert.equal(els['ah-toggle'].getAttribute('aria-checked'), 'false', 'the stored OFF survived the move (not the default on)');
+  assert.equal(els['ah-threshold'].value, '95', 'the stored threshold survived the move (not the default 85)');
+  assert.equal(els['ah-threshold-row'].hidden, true, 'the threshold row hides while off');
+  // The core of "a moved setting must not silently reset": paint READS, never WRITES.
+  const writes = calls.filter((c) => c.method !== 'GET' && c.method !== 'HEAD');
+  assert.deepEqual(writes, [], 'paint issued a write (' + JSON.stringify(writes) + '); a paint that saves can reset a stored value');
+});
+
+test('#2054: a could-not-read read HIDES the knob (status control), never a false Off', async () => {
+  // Hard failure: a thrown fetch.
+  const d = dom();
+  const body = lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintAutomation') + '\nreturn paintAutomation;';
+  const paint = new Function('document', 'fetch', body)(d.document, async () => { throw new Error('down'); });
+  await paint();
+  assert.equal(d.els['ah-toggle'].hidden, true, 'a read failure hides the knob rather than showing a stale/false position');
+  assert.equal(d.els['ah-toggle'].hasAttribute('aria-checked'), false, 'and strips aria-checked, so nothing reads it as Off');
+  assert.equal(d.els['ah-threshold-row'].hidden, true, 'the threshold row is hidden too');
+  assert.match(d.els['ah-msg'].textContent, /could not read/i, 'and it says the read failed');
+
+  // 403 on an enforcing board: a NON-OK response is could-not-read, not a position.
+  const gated = makePaint({ enabled: true, threshold: 90 }, false);
+  await gated.paint();
+  assert.equal(gated.els['ah-toggle'].hidden, true, 'a non-ok GET (403) hides the knob rather than painting a position from it');
+  assert.equal(gated.els['ah-toggle'].hasAttribute('aria-checked'), false, 'a 403 draws no aria-checked');
+});
+
+test('kosmos#1724/#2054: the control is wired -- section, slider + threshold, painted on open, saved on interact', () => {
   assert.ok(PAGE.includes('id="s-sec-automation"'), 'the Automation section is in the page');
   assert.ok(PAGE.includes('data-go="automation"'), 'the Automation nav item is in the page');
-  for (const id of ['ah-enabled', 'ah-threshold', 'ah-save', 'ah-msg']) {
+  for (const id of ['ah-toggle', 'ah-threshold', 'ah-threshold-row', 'ah-msg']) {
     assert.ok(PAGE.includes('id="' + id + '"'), id + ' is present');
   }
+  // No Save button any more: the slider commits on flip, like every other .toggle.
+  assert.ok(!PAGE.includes('id="ah-save"'), 'the ah-save button should be gone (#2054: sliders commit on flip)');
   const paintSettings = lift(SCRIPT, 'paintSettings');
   assert.match(paintSettings, /paintAutomation\(\)/, 'paintSettings calls paintAutomation');
-  const saveAt = SCRIPT.indexOf("getElementById('ah-save').addEventListener");
-  assert.ok(saveAt > -1, 'the ah-save click handler exists');
-  const handler = SCRIPT.slice(saveAt, saveAt + 800);
-  assert.match(handler, /fetch\('\/api\/settings',[\s\S]*method: 'POST'/, 'Save POSTs to /api/settings');
-  assert.match(handler, /autohandoff:/, 'it sends the autohandoff setting');
+  // Save on interact: a toggle click and a threshold change both save.
+  assert.match(SCRIPT, /getElementById\('ah-toggle'\)\.addEventListener\('click', ahToggleClick\)/, 'the toggle click is wired to ahToggleClick');
+  assert.match(SCRIPT, /getElementById\('ah-threshold'\)\.addEventListener\('change', ahThresholdChange\)/, 'the threshold change is wired to ahThresholdChange');
+  const save = lift(SCRIPT, 'saveAutohandoff');
+  assert.match(save, /fetch\('\/api\/settings',[\s\S]*method: 'POST'/, 'a save POSTs to /api/settings');
+  assert.match(save, /autohandoff:/, 'it sends the autohandoff setting');
+  // The pre-load guards that stop a write from resetting a stored value.
+  const change = lift(SCRIPT, 'ahThresholdChange');
+  assert.match(change, /hasAttribute\('aria-checked'\)/, 'the threshold handler refuses to save before the setting has loaded');
 });
