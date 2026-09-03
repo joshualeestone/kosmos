@@ -286,11 +286,13 @@ port_taken_by_stranger() {
 # a mode-600 temp file and passes curl `-H @file`, so no CLI call puts the token on
 # argv. BOUNDED RESIDUAL: `cmd_open` (and setup.sh's open-once plist) still hand the
 # token to the browser as `$URL/?token=$_bt`, and `open` takes the URL as an
-# argument -- so the durable token is on argv for that one launch. The `?token=` is
-# swapped for an httpOnly cookie and 302-stripped from the address bar, but that does
-# NOT close the argv channel, so this is accepted as a bounded residual (an
-# infrequent, interactive open) rather than called transient. The proper fix is a
-# server one-shot nonce the browser redeems for the cookie; tracked as a follow-up.
+# argument -- so the LONG-LIVED board token (the same durable secret, not a swappable
+# nonce) is on argv for the duration of each such launch. The `?token=` is swapped
+# for an httpOnly cookie and 302-stripped from the address bar, but that does NOT
+# close the argv channel. "Infrequent/interactive" is a property of the intended flow,
+# not an enforced bound (`kosmos open` can be re-run or scripted), so this is accepted
+# as a bounded residual rather than called transient. The proper fix is a server
+# one-shot nonce the browser redeems for the cookie; tracked as #1979 (a #1970 follow-up).
 # 🛑 CALL IT AS `_bt="$(board_token || true)"` UNDER `set -euo pipefail` (kosmos#1968).
 # It RETURNS 1 whenever there is no token to hand back -- a non-enforcing board
 # (no token file), or an install layout where `$NODE` is not present. A bare
@@ -315,7 +317,9 @@ board_token() {
 # is supposed to be the only per-account boundary (#1946). Instead we write the
 # present auth headers to a mode-600 temp file and hand curl `-H @file`, which
 # reads the header from the file, so the value never reaches argv. Only the file
-# PATH appears on the command line, and the file is 0600 in a per-user temp dir.
+# PATH appears on the command line, and the file is mode 0600 -- its owner-only
+# mode, not the directory, is the protection: TMPDIR is the per-user temp dir, but
+# the `${TMPDIR:-/tmp}` fallback is world-writable /tmp, so the 0600 is load-bearing.
 #
 #   $1   = board token (empty -> the board header is omitted, as before)
 #   $2   = agent token (empty -> the agent header is omitted, as before)
@@ -469,7 +473,7 @@ cmd_open() {
   # #1970 BOUNDED RESIDUAL: `open` takes the URL as an argument, so the token is on
   # argv for this one launch (see board_token's note). The cookie-swap clears the
   # address bar, not the argv channel. Accepted for this infrequent interactive
-  # path; the proper fix (a server one-shot nonce) is tracked as a #1970 follow-up.
+  # path; the proper fix (a server one-shot nonce) is tracked as #1979 (a #1970 follow-up).
   local _bt _open_url
   # board_token returns non-zero on a non-enforcing board (no token). Under the
   # script's `set -e`, a bare `_bt="$(board_token)"` ABORTS there -- exit 1, no
