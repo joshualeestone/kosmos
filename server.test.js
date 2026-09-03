@@ -9507,7 +9507,7 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
     getAttribute(k) { return this.attrs[k]; },
     removeAttribute(k) { delete this.attrs[k]; },
   });
-  for (const id of ['tell-toggle', 'tell-msg', 'auto-toggle', 'auto-msg']) {
+  for (const id of ['tell-toggle', 'tell-msg', 'notify-toggle', 'notify-msg', 'auto-toggle', 'auto-msg']) {
     const e = el(id); e.classList._s = e.classes;
   }
   const raw3 = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
@@ -9538,13 +9538,19 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
     return new Function('document', helper + '\n' + sc3.slice(at, end) + '\nreturn ' + name + ';')({ getElementById: el });
   };
 
-  /* 📌 THE TELL SWITCH IS GONE (Josh, 2026-08-26, item 3): both telemetry rows
-     were removed from Settings and `tellPaint` went with them, so this loop was
-     lifting a function that is not in the page and reporting "tellPaint
-     vanished" as a failure. The rule it checks is unchanged and still worth
-     checking on the switch that survives. engine/notify.test.js pins that the
-     rows stay gone. */
-  for (const [paint, toggle, msg] of [['autoPaint', 'auto-toggle', 'auto-msg']]) {
+  /* 📌 THE TELL AND NOTIFY SWITCHES ARE BACK (#2020, Josh 2026-09-03: "on, and
+     they can turn it off" needs the opt-out controls he removed 08-26). They are
+     restored as controls with the send still OFF by default (the default flip is
+     step 3, held for Josh), and they are tested here on the SAME three-state rule
+     as autoPaint - and it matters MORE for these two: they are the telemetry
+     opt-outs, so an unread setting drawing a confident Off would tell a person
+     nothing is sent while the engine may be (#2047). engine/notify.test.js pins
+     the rows present + the sends off by default. */
+  for (const [paint, toggle, msg] of [
+    ['autoPaint', 'auto-toggle', 'auto-msg'],
+    ['tellPaint', 'tell-toggle', 'tell-msg'],
+    ['notifyPaint', 'notify-toggle', 'notify-msg'],
+  ]) {
     const p = lift(paint);
 
     /* Presence before absence: prove it CAN say a real position first, or the
