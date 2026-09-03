@@ -1865,7 +1865,14 @@ async function launchSignin(owner) {
        `subscription.checkLive` already defends the READ side of exactly this
        and states the rule: it builds its env and `delete env.CLAUDE_CONFIG_DIR`
        "rather than trusting it to be unset". This is the WRITE side of the same
-       guarantee, which had been left to trust. */
+       guarantee, which had been left to trust.
+
+       📌 ONE KEY, DELIBERATELY -- THIS IS NOT PANE SANITISATION. `-u` strips
+       `CLAUDE_CONFIG_DIR` and nothing else, mirroring the single `delete` on the
+       read side. Other inherited variables that steer the CLI (`ANTHROPIC_*`,
+       for instance) still reach the pane. Matching the reader's scope is the
+       right scope for #1922; a general scrub is a different card and would need
+       its own evidence about what each variable does. */
     cmd.push('-u', 'CLAUDE_CONFIG_DIR');
   }
   cmd.push(claudeBinPath());

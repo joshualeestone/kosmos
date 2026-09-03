@@ -568,18 +568,29 @@ function driverTest(name, fn) {
  * it builds its env and `delete env.CLAUDE_CONFIG_DIR` "rather than trusting it
  * to be unset". These arms are the WRITE side of the same guarantee.
  *
- * 🔑 WHY THIS SITS HERE AND NOT IN THE ROUTE SUITE. **The binding reason is the
- * DRY RUN, not the config seam**, and an earlier version of this docblock named
- * the seam. `server.connect.test.js` sets `AGENT_WORKFORCE_DRY_RUN = '1'` at
- * MODULE SCOPE, so `start()` returns at the install-confirm guard and never
- * reaches a launch decision at all -- the sibling docblock in that file says so
- * itself. ⇒ A launch arm cannot live there whatever the seam does.
+ * 🔑 WHY THIS SITS HERE AND NOT IN THE ROUTE SUITE, STATED AS A HARNESS FACT
+ * RATHER THAN AN IMPOSSIBILITY. `server.connect.test.js` sets
+ * `AGENT_WORKFORCE_DRY_RUN = '1'` at MODULE SCOPE, so `start()` returns at the
+ * install-confirm guard and never reaches a launch decision **as that harness is
+ * currently configured**.
  *
- * ⚠️ The seam reason was wrong three ways and is kept struck rather than deleted,
- * because it reads plausibly: it said "both route harnesses" (ELEVEN
- * `server.*.test.js` files set it); it is not what blocks a launch (the dry run
- * is); and it is self-defeating, since THIS ARM DELETES THE SEAM at line 27 and
- * therefore proves it is deletable. ⚠️ THAT MADE THIS LOOK UNGUARDABLE, AND
+ * 🛑 IT IS NOT AN IMPOSSIBILITY, AND TWO EARLIER VERSIONS OF THIS PARAGRAPH SAID
+ * IT WAS, IN THE SAME WAY, ONE ROUND APART:
+ *   1. "both route harnesses SET the seam" -- wrong (ELEVEN of the 34
+ *      `server.*.test.js` files do), not the blocker, and self-defeating, since
+ *      THIS ARM DELETES THE SEAM (see the `delete process.env...` below).
+ *   2. "a launch arm CANNOT live there whatever the seam does" -- **carries the
+ *      identical flaw**. `connect.setDryRun` is exported and the arm below
+ *      escapes the dry run with it; the route suite already requires the same
+ *      module and calls `resetForTests()`, so it could do exactly that.
+ * ⇒ **Each replacement diagnosed its predecessor's absolute and then asserted a
+ * new one.** The honest form names the configuration, not a law.
+ *
+ * ⚠️ WHAT THAT FORECLOSES, SO THE GAP IS VISIBLE RATHER THAN IMPLIED: **nothing
+ * exercises the route's `known.isDefault ? null : known.dir` through to the
+ * launch argv.** Route arms stop at the install-confirm guard; these engine arms
+ * call `connect.start()` directly. Both halves are covered, their composition is
+ * not. ⚠️ THAT MADE THIS LOOK UNGUARDABLE, AND
  * IT WAS NOT -- but not for the reason an earlier version of this docblock gave.
  * It said the fix was to observe the ARGV "rather than to remove the condition
  * that hides it". **This arm DOES remove it** (`delete
