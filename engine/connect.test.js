@@ -555,6 +555,12 @@ function driverTest(name, fn) {
  * from this process: `tools/witness-pane-env.sh` records as measured on tmux
  * 3.6a that tmux does not hand a client's environment to a session on an
  * already-running server, and this launch uses the shared socket with no `-e`.
+ * ⚠️ THAT WITNESS RUNS ON A **PRIVATE** SOCKET WITH `-f /dev/null`, deliberately
+ * (its header says a config extending `update-environment` would hide the
+ * mechanism), so applying it to this launch's SHARED socket is an INFERENCE from
+ * the mechanism, not a second measurement. The same qualifier is on the source
+ * comment in `engine/connect.js`; it was added there first and not here, which
+ * is the partial-sweep shape this branch keeps producing.
  * So the pane inherits whichever account started the server -- routinely a
  * DIFFERENT one on a Kosmos machine -- and the sign-in would write the refreshed
  * credential there instead of into the default account the person asked to
@@ -699,8 +705,13 @@ driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CL
        one operand and pushes it last -- and **kosmos#1937's stated remedy is to add a
        login argument after the binary**, which would break that invariant and leave this
        arm passing on `['env', bin, '-u', 'CLAUDE_CONFIG_DIR', '<arg>']` while it leaks.
-       Assert the property directly instead: options and assignments may precede the
-       first operand; `-u` must be among them. */
+       Assert the property directly instead. ⚠️ THE WALK RECOGNISES EXACTLY TWO
+       TOKEN KINDS: `-u NAME` and `NAME=value`. Any other legal `env(1)` option
+       (`-i`, `-0`, `-C`, `-P`, `-S`, `--`) is classified as the OPERAND, so an
+       argv using one would redden this arm. **The launch emits neither today, and
+       the direction is fail-safe** (a false red, never a false pass), so this is
+       a maintenance signal rather than a hole: whoever adds such an option must
+       teach the walk about it. */
     let opIdx = 1;
     while (opIdx < envSlice.length) {
       const tok = envSlice[opIdx];
@@ -753,11 +764,16 @@ driverTest('#1922 CONTROL: a LABELLED-account sign-in still sets CLAUDE_CONFIG_D
   /* Bounded to the `env` slice, like its sibling in the default arm: an
      unrelated `-u` elsewhere in the tmux invocation is not this card's business.
 
-     📌 WHY THIS ARM IS POSITIONAL (`made[i + 1]`) WHILE ITS SIBLING IS NOT, since
-     the two rationales read as contradictory: the constraint is one-sided. An
-     assignment MAY sit first (`env VAR=x <bin>` is the ordinary form), so pinning
-     it at i+1 costs nothing here. `-u` may NOT sit after one, which is why the
-     sibling asserts ordering rather than position. */
+     📌 WHY THIS ARM IS POSITIONAL (`made[i + 1]`) WHILE ITS SIBLING IS NOT.
+     ⚠️ An earlier rationale here said "an assignment MAY sit first, so pinning it
+     at i+1 costs nothing". **That argues for PERMITTING other assignments, not
+     for pinning THIS one**, and the sibling arm was deliberately made
+     order-independent against exactly that hypothetical. The honest reason is
+     narrower: this control exists to prove the labelled account's OWN directory
+     is passed, the launch emits it as the first token after `env`, and pinning
+     the position is the strictest available statement of that. If the launch
+     ever emits another assignment first, this arm goes RED and a red here is
+     fail-safe -- it is a false alarm, never a false pass. */
   assert.ok(!made.slice(i).includes('-u'),
     'a `-u` follows the assignment in the labelled launch\'s `env` slice. `env` stops option '
     + 'parsing at its first operand, so BOTH shapes are broken and they fail DIFFERENTLY: '

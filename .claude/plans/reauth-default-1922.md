@@ -45,8 +45,11 @@ first sign-in  (the fall-through)            connect.start({ })                 
 RE-AUTH        (the `accountDir` branch)     connect.start({ configDir: known.dir })  UNCONDITIONAL <- the defect
 ```
 
-**Reproduce the three sites:** `grep -n 'connect.start(' server.js`. **The launch:**
-`grep -n 'const launchDir' engine/connect.js`.
+**Reproduce the three sites:** `grep -n 'connect.start(' server.js` **returns FOUR lines; the one at
+4616 is prose inside a comment.** (The same caveat this plan already carries for the `create.js`
+grep, and it was missing here for four iterations. **A reproducing command is only better than a
+line number if its output is described accurately** -- otherwise it just moves the drift from the
+number to the count.) **The launch:** `grep -n 'const launchDir' engine/connect.js`.
 
 Both other consumers of an account scope the default correctly and say why:
 `accounts.listLive` (`row.isDefault ? checkLive() : checkLive({configDir: row.dir})`) and
@@ -915,8 +918,10 @@ blocks 800 lines below carried exactly the same retraction archaeology and I lef
 draft supported that with...", "An earlier version of this comment cited a live 3.6a run", "An
 earlier version said `-u` was ... FALSE").
 
-📌 **102 of the 109 added source lines across `engine/connect.js` and `server.js` were comment**, for
-a two-token behaviour change and a ternary. **What was removed is the correction LOG, not the
+📌 **The overwhelming majority of the added source lines across `engine/connect.js` and `server.js` are
+comment**, for a two-token behaviour change and a ternary. ⚠️ **A bare "102 of 109" stood here and
+went stale twice**: the pair is re-measured below by command, and iterations 12 to 14 each moved it
+again. **Do not quote a figure from this paragraph; run the command.** **What was removed is the correction LOG, not the
 reasoning** -- the operative claims, the citations and the honest coverage gap all stay.
 
 ⚠️ **MEASURED, because my first draft of this entry cited the two blocks' before/after sizes and
@@ -1255,3 +1260,54 @@ rather than on my say-so.
 **The mandated PR-body sentence has not landed anywhere yet**, because no PR exists. It is recorded
 above under "PR BODY: REQUIRED SENTENCE" and must go in the PR body when it is opened, or the
 quieter new failure gets re-filed as a fresh regression against this PR.
+
+## Findings from challenge-loop iteration 14
+
+**Ready to merge, no BLOCKER, no code defect.** The reviewer reimplemented all four launch
+assertions and drove **13 argv shapes** through them, confirming every leaking or non-launching form
+is caught and that the four assertions are complementary rather than restating each other (each
+catches a shape another passes). All five findings are documentation.
+
+### 🛑 THE PARTIAL SWEEP AGAIN, ON THE CORRECTION THAT WAS ITSELF A PARTIAL-SWEEP FIX
+
+Iteration 10 added the private-vs-shared socket qualifier to `engine/connect.js`: the witness runs on
+a **private** socket with `-f /dev/null`, so applying it to this launch's **shared** socket is an
+inference, not a second measurement. **The sibling docblock in `engine/connect.test.js` states the
+witness result and "this launch uses the shared socket" side by side with no qualifier**, so a reader
+concludes the shared case was measured.
+
+⭐ **Fourth instance, and the pattern is now specific enough to act on: when I correct a CLAIM, I
+correct the instance I am looking at and not the claim's other homes.** The remedy is mechanical and
+I have not been doing it: **after correcting a sentence, grep a short token from it across source,
+tests and plan before moving on.**
+
+### A rationale that argued for the opposite of its assertion
+
+The control arm's stated reason was *"an assignment MAY sit first, so pinning it at i+1 costs
+nothing"*. **That argues for PERMITTING other assignments, not for pinning this one** -- and the
+sibling arm was deliberately made order-independent against exactly that hypothetical. Replaced with
+the honest reason: the launch emits the account's own directory first, pinning the position is the
+strictest statement of that, and a red here is fail-safe.
+
+### The walk's description was wider than the walk
+
+The comment said "options and assignments may precede the first operand". **The walk recognises
+exactly `-u NAME` and `NAME=value`.** Any other legal `env(1)` option (`-i`, `-0`, `-C`, `-P`, `-S`,
+`--`) is classified as the operand and would redden the arm. The launch emits none of them and the
+error direction is fail-safe, so it is a maintenance signal rather than a hole -- now stated as
+exactly that.
+
+### Two more figures that describe rather than measure
+
+- **"102 of the 109 added source lines"** is the pre-trim pair; at HEAD it is 77 + 32 = 109 again for
+  a different reason. The headline no longer quotes a figure at all and points at the command.
+- **`grep -n 'connect.start(' server.js` returns FOUR lines, not three** (4616 is prose in a
+  comment). This plan already carries that caveat for the `create.js` grep and not for this one.
+  ⇒ **A reproducing command is only better than a line number if its output is described accurately;
+  otherwise the drift just moves from the number to the count.**
+
+### The deferral was checked again, not re-accepted
+
+Commentary density: the reviewer independently re-verified the house-consistency defence
+(`server.js:781`, `:1553`, `:4995`, all outside this diff) rather than taking iteration 12's word or
+mine. Deferral stands on measured grounds for the third round running.
