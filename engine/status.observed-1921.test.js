@@ -2,14 +2,24 @@
 
 /*
  * kosmos#1921 -- snapshot() records the LAST OBSERVED real-call outcome per agent
- * (engine/observed), from status.state (POST-reconcile), gated on isNamedOurs so an
- * impostor pane can never attribute an outcome to a name's account. Drives the real
- * snapshot() through test-support/fleet (pane lines built from PANE_COLUMNS by name).
+ * (engine/observed): OK from a WITNESSED scrape (scrapedStatus.state === WORKING),
+ * REJECTED from status.state === AUTH_FAILED (post-reconcile, inheriting #1930's
+ * stale suppression), gated on isNamedOurs AND non-codex. Drives the real snapshot()
+ * through test-support/fleet (pane lines built from PANE_COLUMNS by name).
  */
+
+// Sandbox the store BEFORE requiring anything: store.js resolves its root at module
+// load, and one test writes a real self-report (selfreport writes under the store root).
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-observed-1921-'));
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fleet = require('../test-support/fleet');
+const status = require('./status');
+const selfreport = require('./selfreport');
 const observed = require('./observed');
 const subscription = require('./subscription');
 
@@ -55,6 +65,22 @@ test('a CODEX agent records NOTHING even while WORKING -- the store is Claude-on
   assert.equal(board.card('codexer').state, 'working', 'fixture is not in the would-record state, so the assertion below is vacuous');
   assert.equal(observed.read('codexer'), null,
     'a working codex agent tainted a Claude account badge: ' + JSON.stringify(observed.all()));
+});
+
+test('a fresh SELF-REPORTED working (a claim, not witnessed) does NOT record ok -- green needs a WITNESSED scrape', () => {
+  // reconcile turns a fresh self-report of "working" into status.state === WORKING even
+  // when the SCRAPE is idle (status.js:4229). That claim can sit over a checkLive===none,
+  // so recording ok from it would paint green over a hard negative. OK must come ONLY
+  // from the witnessed scrape, so this self-reported-but-idle-scraped pane records nothing.
+  selfreport.record('claimer', { state: 'working', because: 'mid task' });
+  status.setPaneSource(() => fleet.line({ session: 'claimer-discord', command: fleet.CLAUDE_COMMAND }));
+  status.setPaneCapture(() => fleet.SCREEN.idle); // the SCRAPE is idle, not working
+  const board = status.snapshot();
+  const card = board.agents.find((a) => a.sessionName === 'claimer');
+  assert.equal(card && card.state, 'working',
+    'the self-report did not reconcile to WORKING over the idle scrape, so the assertion below is vacuous');
+  assert.equal(observed.read('claimer'), null,
+    'a self-reported working (unwitnessed) painted the badge green: ' + JSON.stringify(observed.all()));
 });
 
 test('an IDLE tick does not clobber a prior real observation', () => {

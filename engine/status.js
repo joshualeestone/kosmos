@@ -4452,19 +4452,20 @@ function snapshot() {
        being rejected 401 -- #874). The mapping STATE->outcome lives HERE, the one
        place STATE is defined, so engine/observed.js stays dependency-free and this
        module can require it without a load-order cycle.
-       🔑 status.state (POST-reconcile) for BOTH arms, and WORKING means more than
-       a scraped stream -- state it precisely so a future reader does not over-trust it:
-       - AUTH_FAILED: a scraped 401 that #1930's authprobe judged stale scrollback is
-         no longer AUTH_FAILED here, so we never record "rejected" for a repaired
-         account (accounts.js:297 -- telling a paying customer they are disconnected is
-         a failure to prevent).
-       - WORKING: the board's considered verdict that the agent is running a turn --
-         witnessed in the scrape OR a fresh self-report (its own claim) -- NOT
-         overridden by a scraped 401 (reconcile Rule 3b). Either source means a request
-         was accepted for a running turn, real evidence the token works; a dead token
-         surfaces as AUTH_FAILED and overrides. The one bounded soft spot is the plan's
-         #1930 open question (authprobe wrongly suppressing a real 401) paired with a
-         fresh working self-report, and self-report freshness (5 min) caps even that.
+       🔑 THE TWO ARMS READ DIFFERENT SIGNALS, on purpose, because green and
+       not-connected want opposite guarantees:
+       - OK comes from scrapedStatus.state === WORKING: a WITNESSED live streaming
+         turn, direct evidence the token was just accepted for a real request. NOT
+         status.state === WORKING, which reconcile ALSO produces from a fresh
+         SELF-REPORT (the agent's own claim, not a witnessed outcome, status.js:4229).
+         Green ("a real request succeeded, observed") must mean we saw one succeed --
+         and, decisively, a self-reported WORKING can sit over a checkLive === none
+         (no login), so recording OK from it would paint green over a hard negative,
+         the exact false-green this feature removes.
+       - REJECTED comes from status.state === AUTH_FAILED (POST-reconcile): a scraped
+         401 that #1930's authprobe judged stale scrollback is no longer AUTH_FAILED
+         here, so we never record "rejected" for a repaired account (accounts.js:297 --
+         telling a paying customer they are disconnected is a failure to prevent).
        🔑 isNamedOurs gate: only a pane genuinely TIED to its name may attribute an
        outcome to that name's account, the same identity discipline every name-keyed
        write in this function honours.
@@ -4480,7 +4481,7 @@ function snapshot() {
     try {
       const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
       if (isNamedOurs(pane) && !isCodexPane) {
-        const outcome = status.state === STATE.WORKING ? observed.OUTCOME.OK
+        const outcome = scrapedStatus.state === STATE.WORKING ? observed.OUTCOME.OK
           : status.state === STATE.AUTH_FAILED ? observed.OUTCOME.REJECTED
           : null;
         if (outcome) observed.saw(pane.name, outcome, now);

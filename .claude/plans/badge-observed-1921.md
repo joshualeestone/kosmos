@@ -30,9 +30,9 @@ Take the FRESHEST observation for the account (the card's "last observed outcome
 Freshness gates BOTH positive and negative: a stale 401 does NOT keep asserting "not connected" (the person may have re-authed) -- it falls back to checkLive. This honors the repeated invariant (server.js:3378): a stale/blind signal must never manufacture a confident connected/not-connected.
 
 Observation outcomes recorded -- ONLY strong evidence, never overwrite with a weak state:
-- `STATE.WORKING` → `ok` (the board's post-reconcile verdict that the agent is running a turn, witnessed in the scrape OR a fresh self-report, not overridden by a scraped 401: a request was accepted for a running turn, real evidence the token works. A dead token surfaces as AUTH_FAILED and overrides via Rule 3b.)
-- `STATE.AUTH_FAILED` → `401`
-- IDLE / NEEDS_YOU / anything else → record NOTHING (idle is not evidence of a working call; overwriting would re-introduce a false green)
+- `ok` is recorded ONLY from `scrapedStatus.state === WORKING`: a WITNESSED live streaming turn (direct evidence the token was just accepted for a real request). NOT `status.state === WORKING`, which reconcile also produces from a fresh SELF-REPORT (a claim, not a witnessed outcome) that can sit over a `checkLive === none` -- recording ok from that would paint green over a hard negative, the exact false-green this feature removes. So green requires a witnessed scrape.
+- `401` is recorded from `status.state === AUTH_FAILED` (POST-reconcile), which inherits #1930's stale-scrollback suppression (a repaired account's old on-screen 401 does not record a false "rejected").
+- Anything else records NOTHING and never overwrites a prior real observation: an idle scrape, a needs-you, an unknown, OR a fresh self-reported `working` whose SCRAPE is not WORKING (a claim, not a witnessed call). Recording ok from any of these would re-introduce a false green.
 
 Store: in-memory (module-level Map), keyed by agent name, `{outcome, at}`. In-memory is correct here: observation + badge render are the SAME Node process; on restart nothing has been observed yet, so "not recently checked" is the honest default. No disk-write storm in the tick.
 
