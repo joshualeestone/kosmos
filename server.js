@@ -5493,7 +5493,7 @@ const server = http.createServer((req, res) => {
           bad.status = 400; throw bad;
         }
         const file = body && typeof body.file === 'string' ? body.file : '';
-        const parsed = agentfile.importAgent(file, { identityFromText, nameUsable: create.nameUsable });
+        const parsed = agentfile.importAgent(file, { identityFromText, nameUsable: create.nameUsable, nameProblem: create.nameProblem });
         if (!parsed.ok) { sendJson(res, 200, { ok: false, because: parsed.because }); return; }
         sendJson(res, 200, {
           ok: true,
@@ -5501,6 +5501,11 @@ const server = http.createServer((req, res) => {
           displayName: parsed.displayName,
           provider: parsed.provider,
           instructions: parsed.body,
+          /* #1939: true when the file was recognized as agent INSTRUCTIONS (a raw
+             CLAUDE.md) rather than a Kosmos export. The form can note that and,
+             since a derived name may be empty, prompt for one. Absent (undefined)
+             on the export path, so existing callers are unaffected. */
+          recognizedFromContent: parsed.recognizedFromContent,
         });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
