@@ -80,7 +80,8 @@ function chk(ok, label, extra) {
         const vis = (n) => !!(n.offsetWidth || n.offsetHeight || n.getClientRects().length);
         const headings = [...el.querySelectorAll('h3.dlab')].map((h) => h.textContent.trim());
         const promHeading = [...el.querySelectorAll('h3.dlab')].find((h) => h.textContent.trim() === 'Prompter');
-        const btn = el.querySelector('#hb-save');
+        // #2054: the Prompter is now a .toggle slider (no Save button).
+        const tog = el.querySelector('#hb-toggle');
         // Walk visible text nodes so a comment reading "heartbeat" cannot count.
         const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
         let heartbeatSeen = false; let n;
@@ -91,7 +92,8 @@ function chk(ok, label, extra) {
           height: el.getBoundingClientRect().height,
           promVisible: !!(promHeading && vis(promHeading)),
           headings,
-          saveAria: btn ? btn.getAttribute('aria-label') : null,
+          promToggle: !!(tog && vis(tog)),
+          promToggleAria: tog ? tog.getAttribute('aria-label') : null,
           heartbeatSeen,
         };
       });
@@ -101,10 +103,13 @@ function chk(ok, label, extra) {
       // heartbeatSeen check below non-vacuous (a height-0 section would let a
       // "no visible Heartbeat" pass mean nothing).
       chk(sec.promVisible, `[${theme}] the Prompter heading is actually visible on screen`, String(sec.promVisible));
-      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter']),
-        `[${theme}] the two control headings read Auto-save then Prompter`, JSON.stringify(sec.headings));
-      chk(sec.saveAria === 'Save prompter settings',
-        `[${theme}] the save button's accessible name is the new one`, String(sec.saveAria));
+      // #2054: three blocks now -- Auto-save, Prompter, and the moved "Agents talking
+      // to each other" limit. Daily report (#2037) is not built yet.
+      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Agents talking to each other']),
+        `[${theme}] the Automation headings read Auto-save, Prompter, Agents talking`, JSON.stringify(sec.headings));
+      // #2054: the Prompter is a .toggle slider on screen with the visible-word aria.
+      chk(sec.promToggle === true && sec.promToggleAria === 'Ask me to check on any agent that has stopped',
+        `[${theme}] the Prompter is a slider on screen with its accessible name`, JSON.stringify({ t: sec.promToggle, a: sec.promToggleAria }));
       chk(sec.heartbeatSeen === false,
         `[${theme}] no visible text in the section still reads Heartbeat`, String(sec.heartbeatSeen));
     }

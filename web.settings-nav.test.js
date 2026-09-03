@@ -35,7 +35,12 @@ test('each settings box lives in the section the mock puts it in', () => {
     // 'set-account' (the standalone subscription-summary box) is gone
     // since #864 -- retired, not moved, so it has no section to check.
     'set-accounts': 'accounts',
-    'lim-toggle': 'talking', 'lim-tier': 'talking',
+    // #2054: the "Agents Talking" tab was deleted and its one block (the
+    // conversation limit) moved into Automation, alongside Auto-save and Prompter,
+    // which became sliders in the same change.
+    'lim-toggle': 'automation', 'lim-tier': 'automation',
+    'ah-toggle': 'automation', 'ah-threshold': 'automation',
+    'hb-toggle': 'automation', 'hb-interval': 'automation',
     'set-applocation': 'mac', 'set-reveal': 'mac', 'set-machine': 'mac',
     'upd-btn': 'updates', 'auto-toggle': 'updates',
     'eng-toggle': 'advanced', 'hist-go': 'advanced', 'hist-count': 'advanced',
@@ -61,7 +66,7 @@ test('the nav is in the ruled order, only You shows before a click, and the two 
      obeyed. ⚠️ The POSITION within the nav is mine and carries no ruling: it sits
      with the other machine-wide, non-account sections. Moving it costs one line
      here and one in the page; the SHAPE is the part with a decision behind it. */
-  assert.deepEqual(gos, ['you', 'accounts', 'connect', 'gskills', 'policy', 'talking', 'mac', 'automation', 'usage', 'updates', 'plus', 'styles', 'advanced']); // AI policy after Global Skills (#479); Styles before Advanced (#480); Automation after Mac, both machine-wide (#1724)
+  assert.deepEqual(gos, ['you', 'accounts', 'connect', 'gskills', 'policy', 'mac', 'automation', 'usage', 'updates', 'plus', 'styles', 'advanced']); // AI policy after Global Skills (#479); Styles before Advanced (#480); Automation after Mac, both machine-wide (#1724); 'talking' removed and folded into Automation (#2054)
   const secs = [...BODY.matchAll(/<section class="dsec" id="s-sec-[a-z]+" data-sec="([a-z]+)"[^>]*?( hidden)?>/g)]
     .map((m) => ({ key: m[1], hidden: !!m[2] }));
   assert.deepEqual(secs.map((s) => s.key), gos, 'the sections are not in the order the nav lists them');
@@ -69,6 +74,23 @@ test('the nav is in the ruled order, only You shows before a click, and the two 
   assert.match(BODY, /<h3 class="dlab">Connections<\/h3>/, 'the task-board box is not headed Connections');
   assert.match(BODY, /<h3 class="dlab">Agents talking to each other<\/h3>/, 'the conversations box keeps its old heading');
   assert.doesNotMatch(BODY, /Your task board<\/h3>|Agent conversations<\/h3>/, 'an old heading survives');
+});
+
+// #2054: the consolidated Automation section, in Mona Lisa's ruled order. The
+// "Agents Talking" top-level tab is gone (checked by the nav-order test above,
+// which no longer lists 'talking'); its one block lives here as block 3. Daily
+// report (#2037) is not built yet, so it is not asserted -- it becomes block 4.
+test('#2054: Automation holds Auto-save, Prompter, Agents talking in order, and Agents Talking is no longer its own tab', () => {
+  const at = BODY.indexOf('id="s-sec-automation"');
+  assert.ok(at > -1, 'the Automation section is gone');
+  const end = BODY.indexOf('<section class="dsec"', at + 1);
+  const sec = BODY.slice(at, end > at ? end : undefined);
+  const headings = [...sec.matchAll(/<h3 class="dlab">([^<]+)<\/h3>/g)].map((m) => m[1]);
+  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Agents talking to each other'],
+    'the Automation blocks are not Auto-save, Prompter, Agents talking in that order');
+  // The tab and its section are deleted, not merely hidden.
+  assert.doesNotMatch(BODY, /data-go="talking"/, 'the Agents Talking nav pill survives');
+  assert.doesNotMatch(BODY, /id="s-sec-talking"/, 'the Agents Talking section survives');
 });
 
 test('the poll and the painter never choose the section', () => {

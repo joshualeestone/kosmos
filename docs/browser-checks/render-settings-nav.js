@@ -41,7 +41,9 @@ const srv = require('../../server.js');
 require('../../engine/you').save({ name: 'Josh', does: 'runs the company', know: null });
 
 const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'snav-shots-'));
-const SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'talking', 'mac', 'updates', 'plus', 'styles', 'advanced'];
+// #2054: 'talking' removed -- the Agents Talking tab is deleted and its block folded
+// into Automation. 'automation' is exercised by render-prompter-label-1843.js.
+const SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'mac', 'updates', 'plus', 'styles', 'advanced'];
 const fail = [];
 function chk(ok, label, extra) {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
@@ -115,7 +117,10 @@ function chk(ok, label, extra) {
       /* 📌 tell-toggle and notify-toggle are BACK (#2020, Josh 2026-09-03: the
          opt-out controls he removed 08-26, restored so telemetry "can be turned
          off"). They live in the updates section beside auto-toggle. */
-      const WHERE = { 'lim-toggle': 'talking', 'tell-toggle': 'updates', 'notify-toggle': 'updates', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
+      /* #2054: lim-toggle moved into 'automation' (the Agents Talking tab was
+         deleted). ah-toggle and hb-toggle are the Auto-save/Prompter sliders now
+         living there too, so they get the same on-screen-with-a-position check. */
+      const WHERE = { 'lim-toggle': 'automation', 'ah-toggle': 'automation', 'hb-toggle': 'automation', 'tell-toggle': 'updates', 'notify-toggle': 'updates', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
       for (const id of Object.keys(WHERE)) {
         await page.click('#s-nav button[data-go="' + WHERE[id] + '"]');
         await page.waitForTimeout(150);

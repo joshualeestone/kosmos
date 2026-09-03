@@ -57,7 +57,9 @@ const SURFACES = [
       await pg.click('#d-nav button[data-go="' + sec + '"]');
     }]),
   ['projects', async (pg) => { await pg.evaluate(() => showTab('projects')); }],
-  ...['you', 'accounts', 'connect', 'talking', 'mac', 'updates', 'advanced'].map((sec) => [
+  // #2054: 'talking' deleted, folded into 'automation' -- sweep the section that now
+  // holds the moved conversation-limit control plus the Auto-save/Prompter sliders.
+  ...['you', 'accounts', 'connect', 'automation', 'mac', 'updates', 'advanced'].map((sec) => [
     'settings: ' + sec, async (pg) => {
       await pg.evaluate(() => showTab('settings'));
       await pg.waitForTimeout(400);
