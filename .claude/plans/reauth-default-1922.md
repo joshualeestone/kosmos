@@ -1474,3 +1474,47 @@ sentence was in the plan.**
   permutes by default, BSD does not. The claim is true for the platform this ships on, which is
   where the standing evidence was taken; the sentence's scope was wider than the evidence's.
 - *"ELEVEN of the 34"* is correct today and goes stale silently. Replaced with the re-count command.
+
+## The loop's own shape, measured at iteration 17, and the wrong conclusion I nearly drew
+
+**Every one of iteration 17's four warnings points at prose I added in an earlier FIX commit**
+(`bc4a2c00`, `a9904cb0`, `6d78877f`, `650dbb6d`), not at the implementation. Measured with
+`git log -S` per site.
+
+| rounds | code defects | claim defects |
+|---|---|---|
+| 7-11 | **yes** (the silent argv leak; the operand hole) | yes |
+| 12-17 | **zero** | yes, all in prose added while fixing |
+
+⚠️ **This is the moving-target shape, and the standing bulletin is explicit that it is NOT permission
+to stop** -- its own author rejected that reading, because his rounds 4-8 still produced real code
+findings. Mine stopped at 11. **So the loop continues; what changes is what I do at the fix step.**
+
+### 🛑 AND MY FIRST PROPOSED CHANGE WAS WRONG. I CHECKED BEFORE ACTING AND IT DID NOT SURVIVE.
+
+I was about to strip the retraction archaeology ("an earlier version said X") out of shipped source
+under this file's MOVE-THEN-TRIM rule, reasoning that my own additions were generating the findings.
+**Measured first:**
+
+```
+sites matching that idiom in the four files:  22
+  added by this branch (mine):                 9
+  PRE-EXISTING:                               13
+```
+
+⇒ **The idiom is house style, by a majority I did not put there. Trimming mine would have made this
+branch the OUTLIER**, which is the opposite of the consistency I was invoking the rule for. Three
+reviewers had already checked that deferral independently and it held; I nearly overturned it on a
+hunch about my own diff.
+
+### ⭐ So the actual cause, stated correctly
+
+**The findings are not caused by archaeology existing. They are caused by individual claims inside it
+being wrong** -- a citation I never opened ("the header 400 lines above"), a hedge applied to one of
+two sites, a ratio with no re-count command. **Every one was checkable at the moment I wrote it, in
+seconds, and I checked none of them.**
+
+✅ **The change at the fix step, and it is a discipline rather than a deletion: every sentence I add
+that contains a CITATION, a NUMBER, or a SCOPE claim gets verified before the commit that carries
+it.** That is the same standard I apply to the code, applied to the prose about the code -- which is
+where six consecutive rounds of findings have lived.
