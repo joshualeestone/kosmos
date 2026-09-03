@@ -45,9 +45,9 @@
 # install's own, and names anything it leaves). macOS may show its own one-time
 # "Terminal wants to manage apps" dialog for the icon step. It never
 # touches any other app. A fresh
-# install that confirms its own board is running finishes by opening your
-# browser at the Kosmos dashboard; updates never do, and KOSMOS_NO_OPEN=1
-# turns it off.
+# install that confirms its own board is running finishes by launching the
+# Kosmos app (#2073: app-only, no browser); updates never do, and
+# KOSMOS_NO_OPEN=1 turns it off.
 #
 # ⚠️ THE SHEBANG SAYS sh BECAUSE THE PAGE SAYS sh. This file's contract is
 # the interpreter the marketing line actually invokes: macOS /bin/sh, which
@@ -3242,7 +3242,7 @@ fi
 # install has no previous bundle to be stale, and its own open already fired).
 if [ "$FRESH_INSTALL" = "no" ] && [ "$APP_MADE" != "yes" ]; then
   info "note: this update did not refresh the Kosmos app itself. If the app opens to an"
-  info "empty dashboard, open Kosmos from your browser, or run: kosmos open"
+  info "empty dashboard, open the Kosmos app from your Applications folder, or run: kosmos open"
 fi
 
 # ---- the permission acceptance (#46, Josh's ruling 2026-08-17) --------------
@@ -3688,7 +3688,7 @@ fi
 # healthy() accepts ANY board identifying as Kosmos on the port, so on a
 # Mac where another account's Kosmos already holds it, a fresh install
 # "succeeds" without ever starting its own board -- and the closing
-# sentences (and the browser open below) would present the OTHER
+# sentences (and the app launch below) would present the OTHER
 # install's board as the result of this one. Measured in review: a fresh
 # install onto an occupied port printed "Kosmos is running" and opened a
 # stranger's board. The pidfile cmd_start writes for a board it actually
@@ -3704,7 +3704,7 @@ if [ -f "$KOSMOS_HOME/board.pid" ]; then
       # path -- deliberately STRICTER than install/kosmos's running_pid,
       # which matches any *app/server.js*: a recycled pid, or another
       # install's live server behind a stale pidfile, must not read as
-      # ours, because this flag gates the browser open. The harness pins
+      # ours, because this flag gates the app launch. The harness pins
       # the anchoring with another install's live server pid; do not
       # "align" the two patterns.
       case "$(/bin/ps -ww -p "$_bpid" -o command= 2>/dev/null)" in
@@ -3716,8 +3716,11 @@ fi
 
 if [ "$BOARD_OURS" = "yes" ]; then
   printf '\n  Kosmos is running.\n'
-  printf '  Open it and it will walk you through connecting your AI account.\n'
-  printf '  Your dashboard: http://127.0.0.1:%s\n\n' "$PORT"
+  # #2073: app-only. The Kosmos app is the dashboard; the board URL is demoted to a
+  # technical note (it still serves there for `kosmos open`), not presented as the
+  # thing to open in a browser.
+  printf '  Open the Kosmos app from your Applications folder; it will walk you through connecting your AI account.\n'
+  printf '  (Advanced: the board also serves at http://127.0.0.1:%s, which `kosmos open` uses.)\n\n' "$PORT"
 else
   # 🛑 THE CAUSE IS NOT ASSERTED ANY MORE, and the old sentence was confidently
   # wrong for the likeliest stranger. It said "often another account's Kosmos",
@@ -3756,12 +3759,12 @@ printf '  To remove it later:  curl -fsSL https://installkosmos.com/setup | sh -
 # first real clean-machine run (2026-08-13): every step succeeded and the
 # tester's report opened with "It did not open the window or the app" --
 # for this installer's audience, a URL printed in a transcript is not a
-# running product. Fresh installs only: yanking the browser on an update
+# running product. Fresh installs only: yanking the app launch on an update
 # would punish exactly the people who already know where the board is.
 # Best-effort by design (`|| true`): over ssh or headless, `open` fails and
 # the URL two lines up is still the whole answer.
 #
-# Opening the RAW URL is safe because the gate below requires BOARD_OURS:
+# Launching the app is safe because the gate below requires BOARD_OURS:
 # the pidfile proof above established that the thing answering the port
 # is the board THIS install started, not merely something identifying as
 # Kosmos (cmd_start's healthy() cannot tell those apart, which is exactly
@@ -3787,14 +3790,31 @@ OPEN_CMD="${KOSMOS_OPEN_CMD:-/usr/bin/open}"
 # one carve-out -- a set KOSMOS_OPEN_CMD re-enables it -- because the
 # probe passes are exactly where the recording stub must be allowed to
 # observe the open.
-# #2023: also open ONCE on an enforcing UPDATE, to seed the httpOnly board cookie
-# that #1946's enforcement now requires. A fresh install opens the browser and gets
-# the cookie; an UPDATE never opened, so every updated machine's bookmarked board
-# 403s -- the fleet outage. This opens the OWNER's browser (mint a nonce, ?boot=),
-# which works regardless of the .app bundle's age -- the only remedy that does.
+# #2023/#2073: also open ONCE on an enforcing UPDATE to establish the httpOnly
+# board cookie #1946's enforcement requires. #2073 LAUNCHES THE APP here (not a
+# browser): the app reads the board token and appends ?token= itself, the board
+# sets the cookie, and server.js seeds the reauth marker on that ?token= redemption
+# -- so a normal update, WHEN THE APP WAS NOT ALREADY RUNNING, launches the app
+# once and then this gate stops.
+# ⚠️ RUNNING-APP EDGE, ACCEPTED not fixed here: if the app is ALREADY running at
+# update time, `open Kosmos.app` is an AppKit REOPEN (applicationShouldHandleReopen)
+# that only re-shows the window -- it does NOT re-navigate the WebView, so the board
+# sees no ?token= bootstrap, the marker is not seeded, and this gate re-fires
+# (bringing the app to front) on each later update until the next fresh relaunch.
+# Low impact: the cohort is enforcing-but-unseeded machines mid-migration, and the
+# cost is a window-to-front, not a broken state -- arguably fine for app-only. The
+# real fix is a Swift change (re-navigate on reopen), a native-app follow-up; the
+# old browser ?boot= always spawned a fresh navigation regardless of app state.
+# ⚠️ #2028 EDGE, ACCEPTED not fixed here: if the update did NOT refresh the bundle
+# (make_app skipped -- aliased Applications, a foreign bundle), the launched app can
+# be too old to carry tokenizedBoardURL, so it cannot seed the marker and this open
+# re-fires every update. The old browser ?boot= repair "worked regardless of bundle
+# age" only because it did not touch the app at all; app-only makes the app the
+# single surface, so a stale bundle (that is #2028's bug) loses the self-heal. The
+# not-refreshed note earlier (APP_MADE != yes) points the user at the remedy.
 # Gated on a marker beside board.token so it fires on the FIRST update carrying this
 # fix and never again (the cookie is Max-Age 400 days, so one seed carries every
-# later update forward -- the "no tab per update" property the header above keeps).
+# later update forward -- the "no launch per update" property the header keeps).
 # Enforcing-only: `-s board.token` (present and non-empty) is setup.sh's reading of
 # enforced() -- an enforcing board has a token, a sandbox/harness one does not.
 _awnode_r="$KOSMOS_HOME/runtime/bin/node"; _awroot_r=""; _repair_seed=""
@@ -3802,83 +3822,55 @@ if [ -f "$_awnode_r" ] && [ -x "$_awnode_r" ]; then
   _awroot_r="$("$_awnode_r" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot_r=""
   [ -n "$_awroot_r" ] && _repair_seed="$_awroot_r/.reauth-seeded"
 fi
-_open_gate="$FRESH_INSTALL"; _minted_nonce=no; _opened=no
-# A first enforcing run (fresh OR update) that has not been SEEDED opens the browser
-# once. #2030: the seed marker is written server-side on nonce REDEMPTION now
-# (engine/boardauth.js seedReauthMarker), NOT here -- so this stays a READ of the
-# marker (open iff absent), and a machine whose browser never redeemed stays unseeded
-# and RETRIES the open on the next update until one actually navigates. FRESH_INSTALL
-# already opens; this adds the enforcing-update path.
+_open_gate="$FRESH_INSTALL"; _opened=no
+# A first enforcing run (fresh OR update) that has not been SEEDED launches the app
+# once. #2030/#2073: the seed marker is written server-side on the app's ?token=
+# redemption (engine/boardauth.js seedReauthMarker), NOT here -- so this stays a READ
+# of the marker (launch iff absent), and a machine whose app never redeemed stays
+# unseeded and RE-LAUNCHES on the next update until one actually navigates (narrowed
+# by the accepted running-app / #2028 edges documented below). FRESH_INSTALL already
+# launches; this adds the enforcing-update path.
 if [ -n "$_repair_seed" ] && [ ! -f "$_repair_seed" ] && [ -s "$_awroot_r/board.token" ]; then
   _open_gate=yes
 fi
 if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_OPEN:-}" ] && [ -z "${KOSMOS_APP_DIR:-}" ] \
    && { [ -z "${KOSMOS_SYS_APP_DIR:-}" ] || [ -n "${KOSMOS_OPEN_CMD:-}" ]; } \
+   && bundle_is_ours "$APP_DIR/Kosmos.app" \
    && command -v "$OPEN_CMD" >/dev/null 2>&1; then
-  # Named before it happens, per the header's every-step rule: a browser
-  # window appearing unannounced reads as "something went wrong", and on
-  # a cold browser start the prompt returns seconds before the window.
-  # Under the .pkg, postinstall may already have the "Installing Kosmos" page
-  # open in the browser (#662). It USED to skip the mint+open here to avoid a
-  # second tab -- but that page links the board at a BARE url, which 403s on an
-  # enforcing board (#2033), so the skip left a fresh .pkg install cookie-less.
-  # We now do the authenticated ?boot open in both branches (the second tab is
-  # the price of a working dashboard); do NOT re-add the skip on the strength of
-  # the old "second tab" rationale.
-  if [ "${KOSMOS_INSTALL_PAGE:-}" = "1" ]; then
-    # #2033: the pkg install page is already open, but installing.html links the board at a
-    # BARE url which 403s on an enforcing board -- exactly the update outage #2023 fixes. So
-    # this branch must NOT skip the mint+open below: the ?boot open sets the httpOnly cookie
-    # for the origin, which signs in the already-open install page too (same origin).
-    printf '  Signing your browser in so the install page becomes your dashboard...\n\n'
-  else
-    printf '  Opening your dashboard in the browser...\n\n'
-  fi
-  # #2033: the authenticated ?boot open below runs in BOTH cases now -- a fresh curl|sh install
-  # and a fresh .pkg install both land on an enforcing board and both need the cookie set; only
-  # the message above differs. Seeding is server-side on nonce REDEMPTION now (#2030), so the pkg
-  # path is marked repaired exactly when its browser truly redeems, identically to the curl|sh path.
-  # #1946: append the board token so the FIRST dashboard a fresh install opens is
-  # authenticated. A fresh prod install produces an ENFORCING board (nothing
-  # sandboxed); its public shell loads at a bare URL but every /api/* fetch then
-  # 403s with no cookie, so the very first dashboard would be broken. The token is
-  # derived from the same store.ROOT the board wrote it to, via the bundled node
-  # (the canonical `$KOSMOS_HOME/runtime/bin/node` that `kosmos` itself uses), so no
-  # hardcoded path can drift from where the board wrote the token. The #2023 repair
-  # gate above resolves ROOT with the identical node formula (not a hardcoded copy),
-  # so the two reads cannot diverge. Empty on a non-enforcing (sandbox or harness)
-  # board -> the URL is left unchanged there. Both opens below use it.
-  _board_url="http://127.0.0.1:$PORT"
-  _bt=""
-  _awnode="$KOSMOS_HOME/runtime/bin/node"
-  if [ -f "$_awnode" ] && [ -x "$_awnode" ]; then
-    _awroot="$("$_awnode" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot=""
-    [ -n "$_awroot" ] && _bt="$(cat "$_awroot/board.token" 2>/dev/null || true)"
-  fi
-  # #1979: hand the browser a single-use, short-TTL NONCE, not the durable token.
-  # The board is up by here (we just read its token), and the open-once plist is
-  # RunAtLoad, so a nonce minted now (2-min TTL) is redeemed within seconds. The
-  # board token authenticates the mint OFF argv via a mode-600 header file (a plain
-  # `sh` inline of install/kosmos's kosmos_curl), so only the nonce -- useless once
-  # redeemed and after its TTL -- ever reaches the plist/`sh`/`open` argv that macOS
-  # `ps` exposes cross-account. Fall back to the plain URL (never ?token=) if the
-  # mint fails, so the durable token is never put on argv. This applies to BOTH the
-  # pkg open-once plist and the direct-open fallback below, which share _board_url.
-  if [ -n "$_bt" ]; then
-    _nhf="$(mktemp "${TMPDIR:-/tmp}/kosmos-open-auth.XXXXXX" 2>/dev/null || echo '')"
-    if [ -n "$_nhf" ]; then
-      chmod 600 "$_nhf" 2>/dev/null || true
-      printf 'x-kosmos-board-token: %s\n' "$_bt" > "$_nhf" 2>/dev/null || true
-      # `|| true` is load-bearing under this script's `set -euo pipefail`: a curl
-      # connection failure (exit 7, board died in the window after the health
-      # check) or a timeout (exit 28) makes the pipeline non-zero, and without the
-      # guard `set -e` would ABORT the fresh install here rather than falling back
-      # to the plain URL as intended. (cmd_open guards its mint the same way.)
-      _nonce="$(curl -sS -m 15 -H @"$_nhf" -X POST "http://127.0.0.1:$PORT/api/board-nonce" 2>/dev/null | sed -n 's/.*"nonce":"\([0-9a-f]*\)".*/\1/p' || true)"
-      rm -f "$_nhf" 2>/dev/null || true
-      [ -n "$_nonce" ] && { _board_url="http://127.0.0.1:$PORT/?boot=$_nonce"; _minted_nonce=yes; }
-    fi
-  fi
+  # #2073: only auto-launch OUR OWN app, and only when it exists. bundle_is_ours
+  # (not a bare `-d`) because `-d` follows a symlink onto a FOREIGN Kosmos.app in
+  # the multi-account / aliased-~/Applications case, where the resolver set
+  # APP_DIR at a bundle it deliberately refused to claim -- launching a stranger's
+  # app right after the transcript said we left it alone. bundle_is_ours refuses a
+  # symlink and requires our KOSMOS_HOME anchor, so it: fires for our fresh or
+  # already-current bundle (APP_MADE=no still has a valid app that must launch),
+  # skips the make_app-failed case (no bundle -> the old browser fallback is gone,
+  # so opening nothing beats naming an app that was not created; the APP_MADE=no
+  # messaging above already guides recovery), AND skips the foreign bundle.
+  # Named before it happens, per the header's every-step rule: the app window
+  # appearing unannounced reads as "something went wrong". Under the .pkg,
+  # postinstall may have the "Installing Kosmos" progress page open in the
+  # browser (#662); #2073 makes installing.html stop turning itself into the
+  # dashboard, so it stays a progress page and the app is the dashboard -- there
+  # is no "second tab / becomes your dashboard" behaviour to reconcile any more.
+  # #2073: Josh ruled Kosmos APP-ONLY, no browser. LAUNCH THE NATIVE APP instead of
+  # opening a browser dashboard. Kosmos.app (staged into $APP_DIR by make_app above)
+  # resolves the port, starts the board if it is not up, and loads it in its OWN
+  # WebKit window -- and it reads the board token from its mode-600 file and appends
+  # ?token= ITSELF (native-app/main.swift's tokenizedBoardURL), so the board sets the
+  # enforcing httpOnly cookie and the app is authenticated on first paint. That
+  # SUBSUMES the whole #1946/#1979/#2033 browser-nonce dance: no ?boot= mint, and the
+  # token never reaches argv (the app reads it in-process), so the cross-account `ps`
+  # exposure that dance existed to avoid cannot arise here at all. The #2023/#2030
+  # reauth marker is now seeded on the app's ?token= redemption too (server.js), so
+  # the enforcing-update gate above launches the app once and then stops.
+  # The old messages ("Opening your dashboard in the browser", the ?boot mint, the
+  # install-page "signing your browser in") are gone with the browser they described.
+  printf '  Opening Kosmos...\n\n'
+  # `_board_url` now holds the app bundle to hand `open`, not a URL -- the pkg
+  # open-once plist and the direct-open fallback below both `open "$_board_url"`,
+  # which launches the app. Kept the name to keep this diff to the open TARGET.
+  _board_url="$APP_DIR/Kosmos.app"
   # 🛑 UNDER THE .PKG, NOT A BARE `open` (#663). Installer's postinstall runs
   # as root and drops to the person with `launchctl asuser` + `sudo -u`; the
   # first real fresh-account run (Josh, 2026-08-24) reached this line, said
@@ -3887,7 +3879,7 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_O
   # asuser promises. The one mechanism Apple supports for an installer reaching
   # the person's desktop is a LaunchAgent bootstrapped into gui/<uid>: launchd
   # runs it INSIDE the login session, where `open` is ordinary. So in pkg mode
-  # the open is a one-shot agent that opens the dashboard and deletes its own
+  # the open is a one-shot agent that launches the app and deletes its own
   # plist (a RunAtLoad job that has exited stays idle until logout; with the
   # plist gone it never runs again). The BOARD_OURS gate above still decides whether
   # this runs at all; only the delivery changes. Everything else (paste
@@ -3929,11 +3921,13 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_O
 PLIST
     )
     then
-      # #1946: this plist now carries the board token in its URL. The token file
-      # itself is forced to mode 600 because the design distrusts directory
-      # permissions ($HOME is group-traversable), so the plist holding the same
-      # secret must not sit at the default umask (644). Owner-only, before it is
-      # loaded. Self-removes after RunAtLoad regardless.
+      # #2073: this plist's ProgramArguments now carry only $APP_DIR/Kosmos.app --
+      # a non-secret bundle path, NOT a token or nonce (the app reads the board
+      # token in-process). So the owner-only mode below is no longer guarding a
+      # secret; it is kept as cheap belt-and-braces on a $HOME-group-traversable
+      # LaunchAgents dir. (It used to matter: #1946's plist carried the token in a
+      # ?token= URL, which is exactly the argv exposure #2073 removes.) The plist
+      # self-removes after RunAtLoad regardless.
       chmod 600 "$_open_plist" 2>/dev/null || true
       # The sandbox gate, restated within reach of the call (the sweep test
       # reads 12 lines above every launchctl): gui/<uid> is always the REAL
@@ -3950,27 +3944,30 @@ PLIST
         rm -f "$_open_plist"
         printf '  note: could not hand the open to your login session; trying directly.\n'
         if "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1; then _opened=yes
-        else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
+        else printf '  note: Kosmos could not be opened automatically; open the Kosmos app from your Applications folder.\n\n'; fi
       fi
     else
       if "$OPEN_CMD" "$_open_url" </dev/null >/dev/null 2>&1; then _opened=yes
-      else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
+      else printf '  note: Kosmos could not be opened automatically; open the Kosmos app from your Applications folder.\n\n'; fi
     fi
   else
     # </dev/null: the spawned process must not inherit the curl|sh pipe --
     # the same class as cmd_start's measured never-returning install.
     if "$OPEN_CMD" "$_board_url" </dev/null >/dev/null 2>&1; then _opened=yes
-    else printf '  note: your browser could not be opened; the address above is your dashboard.\n\n'; fi
+    else printf '  note: Kosmos could not be opened automatically; open the Kosmos app from your Applications folder.\n\n'; fi
   fi
-  # #2030: the repair marker is NO LONGER seeded here (setup.sh could only see the open
-  # DISPATCHED, never REDEEMED); it is written server-side the instant a `?boot=` nonce is
-  # truly redeemed (engine/boardauth.js seedReauthMarker, from server.js's bootstrap handler).
-  # #2033: this open block now runs the mint+open in BOTH the install-page (pkg) and the
-  # non-pkg branches, so a fresh .pkg install opens an authenticated ?boot dashboard whose
-  # redemption is what seeds the marker server-side -- setup.sh's only job here is to OPEN when
-  # the marker is absent (the gate above), and self-healing falls out: an un-redeemed machine
-  # stays unseeded and retries the open on the next update until one navigates.
-  # (_minted_nonce and _opened are no longer read here; left set to keep this diff minimal.)
+  # #2030: the repair marker is NOT seeded here (setup.sh could only see the launch
+  # DISPATCHED, never REDEEMED); it is written server-side when a durable cookie is
+  # truly taken (engine/boardauth.js seedReauthMarker, from server.js's bootstrap
+  # handler) -- #2073: on the app's `?token=` redemption, and still on a `?boot=`.
+  # #2073: this block LAUNCHES THE NATIVE APP (no mint, no `?boot=` browser dashboard)
+  # in both the install-page (pkg) and non-pkg branches; the app authenticates via
+  # `?token=` and that redemption seeds the marker server-side -- setup.sh's only job
+  # here is to LAUNCH when the marker is absent (the gate above), and self-healing
+  # falls out: an un-redeemed machine stays unseeded and re-launches on the next
+  # update until one navigates (narrowed by the accepted running-app / #2028 edges).
+  # (_opened is set on the open paths but no longer read here; #2073 removed the
+  # nonce/mint tracking. Left set to keep this diff to the open TARGET.)
 fi
 
 # ---- the last thing on screen is the thing you still have to do (#1334) -------
@@ -4000,7 +3997,7 @@ fi
 # shell, so its PATH is the one they are about to type into.
 #
 # 📌 It is not an error and it does not say "warning". Nothing failed: the board
-# is running and the browser is open. The only thing wrong is that the person
+# is running and the Kosmos app is open. The only thing wrong is that the person
 # would reasonably conclude the install broke, so this replaces that conclusion
 # rather than apologising for it.
 case ":$PATH:" in

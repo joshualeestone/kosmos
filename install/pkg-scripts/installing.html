@@ -66,8 +66,8 @@
   <p id="steps">Setting up. Usually a minute or two.</p>
   <!-- 🔑 THE DESCRIPTION IS ITS OWN ELEMENT, and that is structural rather than
        tidy. #steps carries STATE and gets overwritten three times at runtime: the
-       elapsed counter at 45s, "Opening your dashboard." on success, and emptied
-       on the taken branch. Putting the description in it meant the one sentence
+       elapsed counter at 45s, "Kosmos is opening in its own app..." on success
+       (#2073), and emptied on the taken branch. Putting the description in it meant the one sentence
        explaining the wait was destroyed at exactly 45 seconds, which is when
        somebody starts wondering whether it is stuck.
        ⇒ A state element and a description element are different things, and one
@@ -76,9 +76,9 @@
   <!-- "Nothing to do." deleted (Josh, 2026-08-26 22:05, item 4). The rest of the
        line stays: it is the one sentence that tells a person what this page
        BECOMES, which is why they should leave it open. The element and its id
-       stay too -- line 322 hides #hint when the install finishes, and removing
-       the node would make that a null. -->
-  <p class="muted" id="hint">This page becomes your dashboard when Kosmos is ready.</p>
+       stay too -- the finish/success branches below hide #hint by id when the
+       install finishes, and removing the node would make that a null. -->
+  <p class="muted" id="hint">This page shows install progress. Kosmos opens in its own app when it is ready.</p>
   <!-- ⚠️ TRIMMED, not rewritten (#920): the download fact moved up to #shape, so
        repeating it here is the thing Josh cuts out of everything. What is left is
        the part that is only true once it HAS been slow, plus where to look. -->
@@ -220,10 +220,10 @@
        heading with the mark still breathing, which is true and is the point.
        ⚠️ NOT CALLED ANYWHERE IN THIS FILE. Neither of installing.html's own
        endings is the pack's "clean finish": the taken branch found someone
-       else's board, which is not success, and the real-ready branch calls
-       location.replace() in the same tick settle() runs, so a 900ms tick
-       animation would never be seen before the page navigates away. Kept
-       so this stays the one true copy of the function rather than a
+       else's board, which is not success, and the real-ready branch (#2073)
+       hides the shape and says Kosmos is opening in its app, then stops -- it
+       no longer redirects, so the page is not a dashboard to "finish" into.
+       Kept so this stays the one true copy of the function rather than a
        silently-diverged one. */
     var CHECK_LOAD = [99.1,27.2,2.4,103.1,27.9,2.2,94.1,35.8,2.4,99.7,34.2,2.8,99.9,32.3,3.6,101.4,34.8,3.6,101.5,36,2.8,106.1,31,3.5,108.8,35.4,3.4,92.4,39.9,3.5,95.5,38.6,3.3,97,40.8,2.2,98.9,37.2,3.1,104.1,43.7,3.4,105.2,43.2,3.5,109.9,36.5,3.1,84.5,51,3.6,86.4,50.8,3.6,90.1,46.8,3.4,93.5,46.9,2.3,95.4,50.3,3.4,95.6,46.4,3.6,97.3,45.5,3.6,99.1,48.6,2.7,100.5,49.2,3.2,101.5,48.3,3,101.8,47.8,2.9,102.5,46.8,2.6,78.4,59.8,2.9,82.1,59.8,3.5,82.7,58,2.1,83.2,55.3,3.5,87.4,57.8,3.3,87.5,55.6,2.5,88.5,53.5,2.7,91.6,52.5,2.9,93.1,52.9,3.2,96.3,58.6,3.1,97.8,55.8,2.3,74.7,67.1,3.6,77,66,3.4,81.4,63.4,2.7,81.8,63.7,2.3,85.6,64.7,3.6,85.6,62.2,3.6,88.5,63.6,2.5,88.6,63.9,3.1,93.2,63.7,3.3,24.1,75.5,2.1,73.1,71,3.6,77,75.8,2.6,78.8,74.3,3.5,78.8,73.4,2.6,79.7,69.5,2.3,84.2,70.8,3.2,85.8,74.3,2.9,85.8,69.4,3.5,88.8,69.9,3.2,26.4,78.4,3.5,27.1,83.3,3.6,27.4,82.7,3.1,30.2,83.4,2.7,65.8,83.8,2.4,67.6,77.8,3.1,67.9,82.2,3.1,67.9,80.4,3.6,73.4,77,3.5,73.7,77.2,3.4,77.9,81,2.4,79.8,81.1,2.2,80,77.2,3,82.4,79.6,3.3,15.7,87.4,3.3,20.3,88.2,2.5,22,89.8,3.2,27.8,85.8,2.9,28.2,88.4,3.4,29.4,91.4,2.3,30,84.9,3.6,33.5,89.6,3.6,33.7,89.7,2.9,60.3,89.7,2.3,62.6,84.3,2.6,62.7,86,3,65.2,85.6,3.3,65.9,88.7,3.5,69.5,88,2.2,70.9,85.9,3.5,72.5,85.9,3.4,74.4,85.3,2.8,77.7,85.4,3.6,79.5,84.2,2.8,20.7,93,2.3,28.2,92.1,3.4,29.8,98.7,3.6,30.4,98.3,3.5,31.7,97.1,3,32.1,92.2,3.2,32.4,93.7,2.6,34.1,99.6,3.5,34.2,93.7,2.6,35.8,94.2,3.3,37.2,93.1,2.2,41.3,94.2,3.4,41.6,97.5,2.8,44.4,95.8,3.1,54.3,96.7,3.1,57.2,95.4,3.6,58.2,95.6,3.4,58.4,95.6,3.2,59.1,97.3,2.7,61.5,92.4,3.4,62.5,98.8,2.9,65.3,93.7,3.2,65.4,97.7,2.3,66.5,93.6,2.9,67.5,92.5,3.6,70.4,93.6,2.7,71,94.1,3.6,36.5,103.8,2.4,37.3,107,3.6,38.4,102.1,3.6,39.4,101.2,2.8,40.4,106.8,2.4,41.5,106.5,3.1,43.4,105.2,2.2,45.6,106.8,3.3,47,100.5,3.5,47.2,104.7,3.4,51.6,106.4,3.6,52.8,106.5,2.6,57.1,103.4,2.5,58.1,107,2.1,58.2,107.5,3.5,58.9,107.6,3.3,59.3,105,3.3,60,102.7,3.5,60.9,101.4,3.6,42.6,111,3,42.9,109.9,3.5,43.3,113.5,2.6,43.8,115.7,3.6,46.5,115.9,3.6,46.6,113.4,2.9,46.9,109.6,2.3,47.5,109,3.5,48.2,110.2,3.2,51.2,109.1,2.9,52.3,111,2.7,53.7,112.9,3.6,55.6,112.5,3.4,56,110.4,2.3,60,108.2,2.5,61.9,110.7,3.1,47.4,117.8,3.2];
     for (var ci = 0; ci < CHECK_LOAD.length; ci += 3) {
@@ -368,11 +368,16 @@
       }
       settle();
       document.getElementById("title").textContent = "Kosmos is ready";
-      document.getElementById("steps").textContent = "Opening your dashboard.";
+      // #2073: APP-ONLY (Josh's ruling: no browser surface). This page must NOT
+      // redirect itself onto the board -- that was the second browser dashboard.
+      // The installer launches the native Kosmos app, which IS the dashboard now;
+      // this page just says so and stops. Its "becomes your dashboard" hint is
+      // cleared here because it never does.
+      document.getElementById("steps").textContent = "Kosmos is opening in its own app. You can close this page.";
       // #920: same rule as the taken branch. The wait is over, so describing it
       // is describing something that is no longer happening.
       document.getElementById("shape").style.display = "none";
-      location.replace(base + "/");
+      document.getElementById("hint").style.display = "none";
     };
     img.onerror = function(){
       first = false;

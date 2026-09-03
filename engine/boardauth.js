@@ -426,10 +426,14 @@ function bootstrap({ token, req, routingBase, method }) {
      most once per request (the dispatch calls bootstrap once). */
   const boot = bootNonce(req, routingBase);
   if (boot && redeemNonce(boot)) {
-    /* #2030: `viaBootNonce` tells the caller THIS was a real nonce redemption (the
-       browser navigated and is taking the durable cookie), which is the point to
-       seed the #2023 reauth marker -- distinct from a `?token=` bootstrap below,
-       which does not seed. `bootstrap` stays PURE; the caller does the write. */
+    /* #2030: `viaBootNonce` flags a real `?boot=` nonce redemption vs a `?token=`
+       bootstrap. #2073 NOTE: it is now VESTIGIAL for seeding -- the caller
+       (server.js) seeds the #2023 reauth marker on BOTH paths (the app-only install
+       authenticates via `?token=`, and both paths take the durable cookie in the
+       same 302, so both are a redemption to mark). The flag is left in place (still
+       set, still asserted by engine.boardauth-nonce-1979.test.js) in case a future
+       caller needs to tell the two apart; nothing reads it to gate seeding any more.
+       `bootstrap` stays PURE; the caller does the write. */
     return { location: pathWithoutParam(req, routingBase, 'boot'), setCookie: cookieHeader(token), viaBootNonce: true };
   }
   const q = queryToken(req, routingBase);

@@ -33,7 +33,16 @@ const SETUP = fs.readFileSync(nodePath.join(__dirname, 'install', 'setup.sh'), '
    cannot satisfy the test. */
 const ACTION = SETUP.indexOf('One more thing: typing');
 const RUNNING = SETUP.lastIndexOf('Kosmos is running.');
-const DASHBOARD = SETUP.lastIndexOf('Your dashboard: http://127.0.0.1');
+// #2073: app-only. The "here is your dashboard" success line is now the app-open
+// line (the app is the dashboard); the old "Your dashboard: http://" line was
+// demoted to an advanced note. The position property is unchanged: the action must
+// still come AFTER this success line.
+// ⚠️ Anchored on the "; it will walk you through" CLAUSE, not on "Open the Kosmos
+// app" alone: the fallback error notes lower in the file say "open the Kosmos app
+// from your Applications folder" too, and separating them by capital-O vs
+// lowercase-o would be brittle (capitalize a note and this anchor jumps onto it).
+// The semicolon clause is unique to the one success line.
+const DASHBOARD = SETUP.lastIndexOf('Open the Kosmos app from your Applications folder; it will walk you through');
 
 test('the installer tells you the one thing you still have to do', () => {
   assert.notEqual(ACTION, -1, 'nothing tells the person their current Terminal cannot see kosmos');
@@ -57,7 +66,7 @@ test('nothing that sounds like success comes after it', () => {
      line", which is a different and stricter thing: one cheerful printf added
      underneath later would undo this without touching the action at all. */
   const after = SETUP.slice(ACTION);
-  for (const claim of ['Kosmos is running', 'Your dashboard', 'installed successfully', 'Installation complete']) {
+  for (const claim of ['Kosmos is running', 'Open the Kosmos app from your Applications folder; it will', 'installed successfully', 'Installation complete']) {
     assert.ok(!after.includes(claim),
       `"${claim}" is printed after the action, which puts the action back in the middle`);
   }

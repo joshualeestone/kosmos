@@ -74,18 +74,20 @@ test('#1979: bootstrap redeems a valid ?boot= for the cookie, strips boot, and i
   });
 });
 
-test('#2030: a ?boot= redemption is flagged viaBootNonce (so the caller seeds the reauth marker); a ?token= bootstrap is NOT', () => {
+test('a ?boot= redemption is flagged viaBootNonce, a ?token= bootstrap is not (the flag distinguishes them; #2073 no longer gates SEEDING on it)', () => {
   withClock(() => {
     const n = boardauth.mintNonce();
     const viaBoot = boardauth.bootstrap({ token: 'TOK', req: { url: `/?boot=${n}`, headers: {} }, routingBase: 'http://localhost', method: 'GET' });
     assert.ok(viaBoot, 'a valid ?boot= must bootstrap');
-    assert.equal(viaBoot.viaBootNonce, true, 'a nonce redemption must be flagged viaBootNonce so the caller writes the #2023 marker on REDEMPTION');
-    // The `?token=` path sets the SAME cookie but is a bootstrap, not a redemption:
-    // seeding must NOT fire for it (only a real ?boot= redemption proves the browser
-    // navigated). A durable-token bootstrap can recur; it must not mark the machine seeded.
+    assert.equal(viaBoot.viaBootNonce, true, 'a nonce redemption is flagged viaBootNonce');
+    // #2073: the `?token=` path sets the SAME cookie and is now ALSO a seed point
+    // (server.js seeds on both -- app-only authenticates via ?token=). This test
+    // still pins the FLAG, which stays distinct (boot=true, token=not-true) in case a
+    // future caller needs to tell the two apart; it no longer implies token does not
+    // seed. Seeding behaviour is tested in server.board-nonce-1979.test.js.
     const viaToken = boardauth.bootstrap({ token: 'TOK', req: { url: '/?token=TOK', headers: {} }, routingBase: 'http://localhost', method: 'GET' });
     assert.ok(viaToken, 'a valid ?token= must bootstrap');
-    assert.notEqual(viaToken.viaBootNonce, true, 'a ?token= bootstrap must NOT be flagged viaBootNonce -- only redemption seeds');
+    assert.notEqual(viaToken.viaBootNonce, true, 'a ?token= bootstrap is NOT flagged viaBootNonce (the flag distinguishes the paths)');
   });
 });
 

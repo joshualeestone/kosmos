@@ -90,7 +90,7 @@ test('a garbage ?boot= does not bootstrap (and does not leak whether a nonce exi
   assert.notEqual(r.code, 302, 'an unknown nonce is not a bootstrap');
 });
 
-test('#2030: a ?boot= REDEMPTION seeds the reauth marker; a ?token= bootstrap and a garbage boot do NOT', async () => {
+test('#2073: a ?boot= redemption AND a ?token= bootstrap both seed the reauth marker; a garbage boot does NOT', async () => {
   const marker = boardauth.reauthMarkerPath();
   const clean = () => { try { fs.rmSync(marker, { force: true }); } catch { /* best effort */ } };
 
@@ -103,13 +103,18 @@ test('#2030: a ?boot= REDEMPTION seeds the reauth marker; a ?token= bootstrap an
   assert.equal(r.code, 302, 'precondition: the boot nonce redeemed');
   assert.equal(fs.existsSync(marker), true, 'a ?boot= redemption must seed the reauth marker (the #2023 repair signal, moved here from setup.sh dispatch)');
 
-  // A ?token= bootstrap sets the SAME cookie but is not a redemption -> must NOT
-  // seed, or a durable-token bookmark would mark a machine done without proving its
-  // browser navigated (the exact false-done #2030 removes).
+  // #2073: a ?token= bootstrap sets the SAME cookie and NOW seeds the marker too.
+  // App-only install: the native app authenticates with ?token= (never a browser
+  // ?boot=), and it IS the surface now, so a ?token= bootstrap is the real
+  // navigation that must mark the machine authenticated -- otherwise the
+  // enforcing-update open-gate in setup.sh (open iff the marker is absent) would
+  // re-launch the app on every update. The old "durable-token browser bookmark
+  // marks a machine done" worry is moot under app-only: there is no browser
+  // surface to bookmark; only the app and `kosmos open` carry ?token=.
   clean();
   const t = await nav(`/?token=${TOK}`);
   assert.equal(t.code, 302, 'precondition: the ?token= bootstrapped');
-  assert.equal(fs.existsSync(marker), false, 'a ?token= bootstrap must NOT seed the marker -- only a real redemption does');
+  assert.equal(fs.existsSync(marker), true, 'a ?token= bootstrap seeds the marker too (#2073: app-only uses ?token=)');
 
   // A failed/garbage boot never navigated, so it must not seed (the self-healing
   // property: an un-redeemed machine stays unseeded and retries next update).

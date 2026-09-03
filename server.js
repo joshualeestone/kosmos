@@ -1576,13 +1576,19 @@ const server = http.createServer((req, res) => {
     // can land tokenized on the shell and have later /api calls carry the cookie.
     const boot = boardauth.bootstrap({ token: boardAuthState.token, req, routingBase: ROUTING_BASE, method: req.method });
     if (boot) {
-      /* #2030: a `?boot=` REDEMPTION (not a `?token=` bootstrap) is the moment the
-         browser actually takes the durable cookie, so it is the moment to seed the
-         #2023 reauth marker -- moved here from install/setup.sh, which could only
-         see the open DISPATCHED, not redeemed. Best-effort and non-gating: the
-         cookie is already in this 302, so a failed marker write must not change the
-         redirect (its only cost is one more harmless tab on a later update). */
-      if (boot.viaBootNonce) boardauth.seedReauthMarker();
+      /* #2030: the reauth marker is seeded at REDEMPTION -- the moment a durable
+         cookie is actually taken -- moved here from install/setup.sh, which could
+         only see the open DISPATCHED, not redeemed. #2073: BOTH a `?boot=` nonce
+         redemption AND a `?token=` bootstrap take the durable cookie in this same
+         302 (bootstrap sets it either way), so both are that moment. Seeding on
+         the `?token=` path too is what lets the app-only install (the native app
+         loads with `?token=`, never a browser `?boot=`) mark the machine
+         authenticated -- otherwise the enforcing-update open-gate in setup.sh,
+         which opens iff this marker is absent, would re-launch the app on every
+         update. Best-effort and non-gating: the cookie is already in this 302, so
+         a failed marker write must not change the redirect (its only cost is one
+         more harmless launch on a later update). */
+      boardauth.seedReauthMarker();
       res.writeHead(302, { location: boot.location, 'set-cookie': boot.setCookie, 'cache-control': 'no-store' });
       res.end();
       return;
