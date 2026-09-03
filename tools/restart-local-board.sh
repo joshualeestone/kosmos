@@ -50,12 +50,21 @@ CHECK=0
 [ "${1:-}" = "--check" ] && CHECK=1
 
 WAIT_SECS="${KOSMOS_BOARD_WAIT_SECS:-45}"
+# Validate the knob: a non-numeric value would make the arithmetic below error and,
+# being a plain assignment, abort the whole cut under set -e with a cryptic message.
+# A clear refusal is better than that.
+case "$WAIT_SECS" in
+  ''|*[!0-9]*) echo "   KOSMOS_BOARD_WAIT_SECS must be a non-negative integer (got '$WAIT_SECS')" >&2; exit 1 ;;
+esac
 
 # The version the board must serve for the restart to count as done: the code now on
 # disk (this repo's package.json). Overridable so the test can name a version its
 # stub controls.
 want_version() {
-  if [ -n "${KOSMOS_BOARD_WANT:-}" ]; then
+  # Honoured when SET even to empty (the test's empty case), so the empty-target
+  # guard in wait_for_want can be exercised; a `:-` default would treat an explicit
+  # empty as unset and fall through to package.json. Same idiom as refresh-local-cli.
+  if [ "${KOSMOS_BOARD_WANT+set}" = set ]; then
     printf '%s' "$KOSMOS_BOARD_WANT"
   else
     node -e "console.log(JSON.parse(require('fs').readFileSync('${REPO}/package.json','utf8')).version)"
@@ -77,6 +86,13 @@ board_version() {
 # failure, whatever its cause.
 wait_for_want() {
   local url="$1" want="$2" got="" now deadline
+  # An empty target would make "$got" = "$want" true the instant a DOWN board answers
+  # with nothing, reporting a false "back on " success. If we cannot name the version
+  # the board must serve, we cannot verify it -- that is a failure, not a pass.
+  if [ -z "$want" ]; then
+    echo "   cannot verify the local board: the wanted version is empty (could not read it from package.json?)" >&2
+    return 1
+  fi
   now="$(date +%s)"; deadline=$(( now + WAIT_SECS ))
   while :; do
     got="$(board_version "$url")"

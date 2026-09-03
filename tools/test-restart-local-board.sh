@@ -66,15 +66,21 @@ if [ "$rc" -eq 0 ]; then pass "success arm: board on WANT -> exit 0"; else fail 
 if has "$out" "back on ${WANT}"; then pass "success arm names the version"; else fail "success arm message: $out"; fi
 stop_stub
 
-# 2. Slow-but-healthy arm: the stub serves an OLD version, then flips to WANT ~2s in.
-#    With a 20s deadline the wait must SUCCEED -- this is the exact case the old fixed
-#    ~10s cap broke (a healthy board answering just past the cap). It proves the wait
-#    tracks the OUTCOME, not a fixed window.
+# 2. Past-the-old-cap arm (the regression #2044 fixes): the stub serves an OLD
+#    version and flips to WANT ~11s in -- PAST the old fixed ~10s poll cap (10x
+#    `sleep 1`). With a 20s deadline the wait must SUCCEED, and it must have taken
+#    MORE than 10s to do so. The old code would have exited 1 at ~10s on this exact
+#    healthy-but-slow board; the elapsed assertion is what proves the window really
+#    extended past the old cap rather than the arm passing for a cheaper reason.
+#    (~11s runtime; this is the one deliberately slow arm.)
 start_stub "old-1.2.3"
-( sleep 2; printf '%s' "$WANT" > "$VF" ) &
+( sleep 11; printf '%s' "$WANT" > "$VF" ) &
+t0="$(date +%s)"
 out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$URL" KOSMOS_BOARD_WANT="$WANT" KOSMOS_BOARD_WAIT_SECS=20 bash "$SCRIPT" 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ]; then pass "slow-but-healthy arm: late flip to WANT -> exit 0"; else fail "slow arm exit 0 (rc=$rc, out=$out)"; fi
-if has "$out" "back on ${WANT}"; then pass "slow arm confirms the board came back"; else fail "slow arm message: $out"; fi
+elapsed=$(( $(date +%s) - t0 ))
+if [ "$rc" -eq 0 ]; then pass "past-the-old-cap arm: flip at ~11s -> exit 0"; else fail "past-cap arm exit 0 (rc=$rc, out=$out)"; fi
+if [ "$elapsed" -ge 10 ]; then pass "past-the-old-cap arm genuinely waited past the old ~10s cap (${elapsed}s)"; else fail "past-cap arm returned in ${elapsed}s; the old 10s cap would NOT have been exceeded, so it does not prove the fix"; fi
+if has "$out" "back on ${WANT}"; then pass "past-cap arm confirms the board came back"; else fail "past-cap arm message: $out"; fi
 stop_stub
 
 # 3. Failure arm (the perturbation that must go red): the stub NEVER serves WANT.
@@ -97,6 +103,18 @@ sleep 0.3
 out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$deadurl" KOSMOS_BOARD_WANT="$WANT" KOSMOS_BOARD_WAIT_SECS=2 bash "$SCRIPT" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "not-answering arm: no board -> exit 1"; else fail "not-answering arm exit 1 (rc=$rc, out=$out)"; fi
 if has "$out" "last answer: 'none'"; then pass "not-answering arm reports 'none'"; else fail "not-answering arm message: $out"; fi
+
+# 5. Bad-knob arm: a non-numeric KOSMOS_BOARD_WAIT_SECS is refused with a clear
+#    message, not a cryptic set -e abort on the arithmetic. The validation runs
+#    before any wait, so the dead URL is never contacted.
+out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="http://127.0.0.1:1/api/status" KOSMOS_BOARD_WANT="$WANT" KOSMOS_BOARD_WAIT_SECS="45s" bash "$SCRIPT" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && has "$out" "must be a non-negative integer"; then pass "bad-knob arm: non-numeric KOSMOS_BOARD_WAIT_SECS is refused"; else fail "bad-knob arm (rc=$rc, out=$out)"; fi
+
+# 6. Empty-want arm: if the wanted version cannot be determined (empty), that is a
+#    failure -- NOT a false 'back on ' success against a silent board. The guard
+#    fires before any poll, so this is instant.
+out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="http://127.0.0.1:1/api/status" KOSMOS_BOARD_WANT="" KOSMOS_BOARD_WAIT_SECS=2 bash "$SCRIPT" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && has "$out" "wanted version is empty"; then pass "empty-want arm: an empty target is a failure, not a false pass"; else fail "empty-want arm (rc=$rc, out=$out)"; fi
 
 echo ""
 if [ "$fails" -eq 0 ]; then echo "ALL PASS"; else echo "$fails FAILED"; exit 1; fi
