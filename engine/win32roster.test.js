@@ -113,6 +113,16 @@ test('#570 emit guard: a corrupt store with an OWN __proto__ key + a live sessio
   assert.equal(src(), '', 'an invalid id is never emitted, even when a matching own key exists in the store');
 });
 
+test('#570 emit guard: a corrupt store with a ZERO-WIDTH name + a live session of that id is NOT emitted (validName gate)', () => {
+  // The name pair of the id guard above: a hand-corrupted store could hold a
+  // zero-width name (bypassing record()'s write-time gate). The bare truthiness
+  // belt AND status.js's .trim() would both pass it, emitting a degenerate
+  // invisible row that reads as ours. The emit-loop validName gate rejects it.
+  const owned = { 'aaaa-1111': { name: '\u200b\u200b', runner: '' } };
+  const src = win32roster.make({ run: () => [OURS], record: { read: () => owned } });
+  assert.equal(src(), '', 'a zero-width recorded name is not emitted (validName re-checked at read time)');
+});
+
 // ---- win32sessions record store (the ownership authority) ----
 
 test('#570 record: record/read/isOurs/forget round-trip, keyed on sessionId', () => {

@@ -63,6 +63,18 @@ function validId(id) {
     && !RESERVED_ID.has(id);
 }
 
+/* A name is valid iff it carries at least one VISIBLE character. .trim() alone is
+   too narrow (it strips only JS-whitespace, so an all-zero-width name -- U+200B
+   etc, category Cf -- would slip through and render an invisible card). Require one
+   char that is neither whitespace (\s, \p{Z}) nor a control/format/other (\p{C}) --
+   a real glyph. Exported so the emit path (win32roster) re-checks it against a
+   possibly-corrupted store at read time the same way validId is re-checked, rather
+   than trusting record()'s write-time gate alone -- one definition, two call sites,
+   symmetric with the id gate. */
+function validName(name) {
+  return typeof name === 'string' && /[^\s\p{Z}\p{C}]/u.test(name);
+}
+
 /** The whole record, sessionId -> { name, runner, at }. Empty on any read fault. */
 function read() {
   let raw;
@@ -88,14 +100,11 @@ function record(sessionId, meta) {
   if (!validId(sessionId)) return { ok: false, because: 'that is not a session id we can key a record under' };
   const name = meta && typeof meta.name === 'string' ? meta.name : '';
   const runner = meta && typeof meta.runner === 'string' ? meta.runner : '';
-  // A name must carry at least one VISIBLE character, else it emits a degenerate
-  // roster row whose session/claim/title are blank-or-invisible and (claim===name)
-  // read as ours, with no agent behind it. .trim() alone is too narrow: it strips
-  // only JS-whitespace, so an all-zero-width name (U+200B etc, category Cf) would
-  // slip through and render an invisible card. Require one char that is neither
-  // whitespace (\s, \p{Z}) nor a control/format/other (\p{C}) -- a real glyph. A
-  // real create-side name is never blank, so this only rejects the degenerate case.
-  if (!/[^\s\p{Z}\p{C}]/u.test(name)) return { ok: false, because: 'a Kosmos-created session must record the name it runs under' };
+  // A name must carry at least one VISIBLE character (see validName), else it emits
+  // a degenerate roster row whose session/claim/title are blank-or-invisible and
+  // (claim===name) read as ours, with no agent behind it. A real create-side name
+  // is never blank, so this only rejects the degenerate case.
+  if (!validName(name)) return { ok: false, because: 'a Kosmos-created session must record the name it runs under' };
   let current = read();
   current[sessionId] = { name, runner, at: new Date().toISOString() };
   try {
@@ -141,4 +150,4 @@ function isOurs(sessionId) {
   return Object.prototype.hasOwnProperty.call(rec, sessionId);
 }
 
-module.exports = { get DIR() { return dir(); }, get FILE() { return file(); }, read, record, forget, isOurs, validId };
+module.exports = { get DIR() { return dir(); }, get FILE() { return file(); }, read, record, forget, isOurs, validId, validName };

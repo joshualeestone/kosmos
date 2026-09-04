@@ -122,11 +122,15 @@ function make(opts) {
       const rec = owned[id] || {};
       // The claim must MATCH the pane's name (status.isNamedOurs), so the emitted
       // name and claim are the SAME value. Prefer the recorded name (what Kosmos
-      // filed it under) and fall back to the live name. record() guarantees a stored
-      // rec.name has a visible character, so this truthiness belt is enough here (the
-      // full visible-char gate is the record's job, not duplicated per board tick).
+      // filed it under) and fall back to the live name.
       const name = flat(rec.name || a.name || '');
-      if (!name) continue; // a nameless row cannot be tied to an agent; skip it.
+      // Re-check the name against the SAME visible-char gate record() writes under,
+      // for the SAME reason validId is re-checked above: a hand-corrupted store could
+      // hold a whitespace/zero-width name that a bare truthiness test (and status.js's
+      // own .trim(), which does not strip U+200B) would pass, emitting a degenerate
+      // invisible row that reads as ours. One definition (win32sessions.validName),
+      // two call sites -- symmetric with the id gate, not a duplicated regex.
+      if (!win32sessions.validName(name)) continue;
       const runner = flat(rec.runner || '');
       // PANE_COLUMNS order: session \t pane \t command \t inMode \t claim \t runner \t title
       // pane "0.0" (one synthetic pane per session); inMode "0" (never copy-mode
