@@ -27392,6 +27392,14 @@ function pjPillOf(p, unreadable) {
   const s = p.summary || {};
   if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Needs you' };
   if (!unreadable && s.working) return { cls: '', glyph: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>', label: 'Working' };
+  /* #2019: the projects-list rollup is the 7th agent-state surface. A project
+     whose only active agent is mid-restart must NOT fall through to "Nothing
+     running" (the gone-lie this card refuses). This reads a summary.restarting
+     count the engine half (Renet) folds into p.summary; it is INERT until that
+     field arrives, exactly like the rest of this presentation PR, and ranks below
+     working (something genuinely working wins) but above the not-running
+     fallback. The K matches the card's mark. */
+  if (!unreadable && s.restarting) return { cls: '', glyph: GLYPH.restarting, label: 'Restarting' };
   /* 🔑 NO STATUS AT ALL FOR A PROJECT WITH NO AGENTS (kosmos#1303 E). Josh: "On
      the Projects tab I don't want to show 'no agents' as a status for a
      project." An empty label is the signal; the row builder omits the pill
