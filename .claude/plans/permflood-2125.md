@@ -62,11 +62,15 @@ plumbing are retained because `importScan` uses them (no longer dormant).
 
 ## Tests
 
-`engine/discover.tcc-roots-2125.test.js` (3 arms): a `Documents/` folder is skipped by the walk
-(SCAN_SKIP) with a `work/` control that IS found; Downloads/Desktop likewise skipped with a
-`projects/` control; `defaultScanRoots()` names none of Documents/Downloads/Desktop but DOES still
-include work/projects/dev/src/code/repos. Existing discover.scan-1938 (18) and discover.import-1652
-(9) stay green.
+`engine/discover.tcc-roots-2125.test.js` (5 arms). AUTO-path arms: a `Documents/` folder is skipped
+by the walk (SCAN_SKIP) with a `work/` control that IS found; Downloads/Desktop likewise skipped with
+a `projects/` control; `defaultScanRoots()` names none of Documents/Downloads/Desktop but DOES still
+include work/projects/dev/src/code/repos. IMPORT-path arms (the #1652 reconcile):
+`defaultScanRoots({importScan:true})` DOES include Documents (deep, non-importOnly) + Downloads/Desktop
+(importOnly), with a control that the auto roots still exclude them; and a `Documents`-named directory
+given AS A ROOT is walked (proving SCAN_SKIP filters children, not a root's own start, which is how
+importScan reaches ~/Documents). Existing discover.scan-1938 (18) and discover.import-1652 (9) stay
+green.
 
 ## NOT in this slice (follow-up slices of #2125)
 
