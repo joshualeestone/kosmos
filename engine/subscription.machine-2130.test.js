@@ -69,6 +69,13 @@ test('#2130: checkMachine(accountList) threaded in matches the self-fetched resu
   const selfFetched = sub.checkMachine();      // fallback self-fetch
   assert.equal(threaded.state, sub.STATE.CONNECTED);
   assert.deepEqual(threaded, selfFetched, 'threading the list must not change the verdict');
+  // Prove the passed list is actually CONSULTED, not silently replaced by a
+  // self-fetch: an EMPTY list must yield not-connected even though a self-fetch
+  // finds the connected non-default dir. (Without this, the deepEqual above would
+  // still pass if checkMachine ignored its argument entirely.)
+  sub.resetCache();
+  assert.notEqual(sub.checkMachine([]).state, sub.STATE.CONNECTED,
+    'an empty accountList must be honored, not overridden by a self-fetch');
 });
 
 test('#2130: default file itself connected -> checkMachine CONNECTED (unchanged behaviour)', () => {
