@@ -119,7 +119,7 @@ test('an adversarial body round-trips verbatim and executes NOTHING (the injecti
   const sentinel = path.join(h.data, 'PWNED-must-not-exist');
   // Ends in a non-whitespace token so the engine's trailing-\s normalization
   // (write() does .replace(/\s*$/, '') + '\n') is a no-op and the expected body
-  // is exactly `evil + "\n"` — an exact, non-vacuous round-trip assertion.
+  // is exactly `evil + "\n"`: an exact, non-vacuous round-trip assertion.
   const evil = [
     'double " and single \' quotes',
     'backtick `echo NOPE` then cmd-sub $(touch ' + sentinel + ')',
