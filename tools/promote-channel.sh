@@ -112,6 +112,29 @@ PROD_ART="$(node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs
 PROD_SHA="$(node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).sha256||""))}catch{}' "$SITE/dist/latest.json" 2>/dev/null || true)"
 [ "$PROD_ART" = "$ARTIFACT" ] && [ "$PROD_SHA" = "$SHA" ] || { echo "promote-channel: latest.json was written but does not read back as the promoted pointer (unexpected - a faulty filesystem?). It now holds a copy of the verified staging pointer." >&2; exit 1; }
 
+# #2036: refresh the unversioned prod alias (kosmos-<arch>.tar.gz) to the promoted bytes. The
+# alias is the prod download fallback (old installers, and a modern install whose versioned fetch
+# fails) and must track the CURRENT prod version. A staging cut deliberately leaves the alias at
+# the prior prod bytes (release.sh gates its alias publish on a prod cut), so the PROMOTE is where
+# the alias moves. Copy the just-verified versioned artifact onto the alias and re-derive its
+# .sha256 named for the alias (verified in place by sha256_publish_as). The next deploy carries it.
+_arch="${ARTIFACT#kosmos-$V-}"; _arch="${_arch%.tar.gz}"
+ALIAS="kosmos-$_arch.tar.gz"
+# REFUSE rather than report a successful promote with a stale or wrongly-named alias. latest.json
+# is already promoted here, so a silent stale prod alias (an old installer/fallback keeps getting
+# the prior version) is exactly the prod-facing surprise this card exists to prevent. The
+# recomposition check catches any artifact whose name does not have the kosmos-<V>-<arch>.tar.gz
+# shape (e.g. a version/name mismatch): then the strip is a no-op and the recomposed name differs.
+if [ -z "$_arch" ] || [ "$ARTIFACT" != "kosmos-$V-$_arch.tar.gz" ]; then
+  echo "promote-channel: cannot derive the prod alias from $ARTIFACT (expected kosmos-$V-<arch>.tar.gz) -- latest.json was promoted but the prod alias would be stale. Refusing; refresh kosmos-<arch>.tar.gz by hand or fix the artifact name." >&2
+  exit 1
+fi
+cp "$SITE/dist/$ARTIFACT" "$SITE/dist/$ALIAS" || { echo "promote-channel: could not refresh the prod alias $ALIAS" >&2; exit 1; }
+. "$(cd "$(dirname "$0")" && pwd)/lib/sha256-name.sh"
+sha256_publish_as "$SITE/dist/$ARTIFACT.sha256" "$SITE/dist/$ALIAS.sha256" "$ALIAS" \
+  || { echo "promote-channel: could not write $ALIAS.sha256 (the alias may be half-refreshed)" >&2; exit 1; }
+echo "   refreshed the prod alias $ALIAS to $V"
+
 echo "promote-channel: PROMOTED $V to prod - latest.json now points at the exact bytes staging verified ($ARTIFACT)."
 echo "   -> $(cat "$SITE/dist/latest.json")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."

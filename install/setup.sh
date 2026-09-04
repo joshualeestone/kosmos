@@ -2228,14 +2228,21 @@ printf '  This takes a couple of minutes and does not need your password.\n'
 # handing out an old pointer would quietly aim the whole run at the past.
 # An unreachable pointer degrades to a versionless run that says so.
 TARGET_VERSION=""
+# #2036: which channel pointer to read. DEFAULT latest.json (prod) -- a bare `curl | sh` install
+# is byte-for-byte today's behavior. KOSMOS_UPDATE_CHANNEL=staging reads latest-staging.json, so a
+# staging-channel install/update resolves the STAGING version and downloads the staging versioned
+# artifact (kosmos-<staging-V>-arm64.tar.gz) below. update.js passes this through on an auto-update
+# so the pointer it decided on and the pointer this installer reads are the SAME channel.
+_PTR_FILE="latest.json"
+[ "${KOSMOS_UPDATE_CHANNEL:-}" = staging ] && _PTR_FILE="latest-staging.json"
 # file:// bases (thumb drives, the test harness) have no cache to bust,
 # and a query string there is a different, missing filename.
 BUST=""
 case "$KOSMOS_RELEASE_BASE" in http://*|https://*) BUST=yes ;; esac
 if [ -n "$BUST" ]; then
-  _ptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/latest.json?nocache=$$" 2>/dev/null)" || _ptr=""
+  _ptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/$_PTR_FILE?nocache=$$" 2>/dev/null)" || _ptr=""
 else
-  _ptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/latest.json" 2>/dev/null)" || _ptr=""
+  _ptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/$_PTR_FILE" 2>/dev/null)" || _ptr=""
 fi
 # ⚠️ The || guard is load-bearing under set -euo pipefail: a giant 200
 # page full of version keys makes head close the pipe early, sed takes

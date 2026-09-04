@@ -77,9 +77,15 @@ else
 fi
 
 echo "== what an existing install polls =="
-served=$(curl -fsS -H 'Cache-Control: no-cache' "$HOST/dist/latest.json")
+# #2036: which pointer to check. DEFAULT latest.json (prod) -- unchanged for every existing
+# caller. A staging cut passes KOSMOS_VERIFY_POINTER=latest-staging.json so the STAGING
+# pointer's version is the one verified (prod latest.json still names the prior version then,
+# which release.sh asserts separately). The versioned-artifact, sha and /setup checks above are
+# pointer-independent, so only this polled-pointer read is parameterized.
+POINTER="${KOSMOS_VERIFY_POINTER:-latest.json}"
+served=$(curl -fsS -H 'Cache-Control: no-cache' "$HOST/dist/$POINTER")
 want=$(node -e "console.log(require('$REPO/package.json').version)")
-if printf '%s' "$served" | grep -q "\"$want\""; then say "/dist/latest.json" "$served"; else say "/dist/latest.json" "$served -- expected $want"; fail=1; fi
+if printf '%s' "$served" | grep -q "\"$want\""; then say "/dist/$POINTER" "$served"; else say "/dist/$POINTER" "$served -- expected $want"; fail=1; fi
 
 echo "== what the installer downloads =="
 for a in kosmos tmux; do

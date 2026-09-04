@@ -76,6 +76,14 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sp" 2>&1
 # The atomic write (temp + rename) must leave no temp file behind.
 leftovers="$(ls -a "$Sp/dist" | grep -c '\.latest.*\.[A-Za-z0-9]\{6\}$' || true)"
 [ "$leftovers" = 0 ] && pass "publish+promote: no .latest* temp file left behind (atomic rename cleaned up)" || bad "atomic-write left $leftovers temp file(s) in dist"
+# #2036: promote refreshes the unversioned prod alias (kosmos-arm64.tar.gz) to the promoted bytes.
+# A staging cut leaves the alias at the prior prod bytes (release.sh gates its alias publish on a
+# prod cut), so the promote is where the alias moves. The alias must be created, equal the promoted
+# versioned artifact, and its sidecar must verify in place. Red-capable: without the refresh the
+# alias is absent and all three fail.
+[ -f "$Sp/dist/kosmos-arm64.tar.gz" ] && pass "promote: refreshed the prod alias kosmos-arm64.tar.gz" || bad "promote did not refresh the prod alias"
+cmp -s "$Sp/dist/kosmos-arm64.tar.gz" "$Sp/dist/$ART" && pass "promote: the alias bytes equal the promoted versioned artifact" || bad "alias bytes differ from the versioned artifact"
+( cd "$Sp/dist" && shasum -a 256 --status -c kosmos-arm64.tar.gz.sha256 ) && pass "promote: the refreshed alias .sha256 verifies in place" || bad "alias .sha256 does not verify"
 
 # gate 1 -> refuse, latest.json unchanged; and --force still refuses a provably-broken board
 Sb="$(make_site)"; bash "$PUBLISH" "$Sb" >/dev/null 2>&1

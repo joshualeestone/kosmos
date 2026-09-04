@@ -32,6 +32,27 @@ const FETCH_TIMEOUT = 3000;
 
 let base = process.env.AGENT_WORKFORCE_RELEASE_BASE || DEFAULT_BASE;
 let fetcher = null;            // tests inject; null means global fetch
+// #2036: which pointer this machine's channel fetches. DEFAULT prod (latest.json) -- every
+// existing install stays byte-for-byte on today's path; ONLY an explicit staging channel
+// changes it. A staging-channel machine (AGENT_WORKFORCE_UPDATE_CHANNEL=staging) fetches
+// latest-staging.json, so it updates to staging builds BEFORE they are promoted to prod. The
+// pointer names a versioned artifact (setup.sh prefers kosmos-<V>-arm64 over the shared alias),
+// so staging and prod machines pull DIFFERENT bytes. Any value other than 'staging' is prod.
+// 🛑 This is the consume half of the #2036 loop and is the client update path -- a bug here is
+// the 0.6.25 class itself. It is opt-in and default-prod until the loop is proven end-to-end on
+// a real fresh machine (see tools/release.sh + docs); the default channel does not move here.
+function updateChannel() {
+  // Honor either env name so an operator who sets KOSMOS_UPDATE_CHANNEL on an existing box (the
+  // name setup.sh reads, and the one this poller forwards to the spawned installer) is not
+  // silently ignored by the auto-updater. AGENT_WORKFORCE_ prefix wins, matching this module's
+  // AGENT_WORKFORCE_RELEASE_BASE convention. Any value other than 'staging' -- including unset --
+  // resolves to prod.
+  const c = process.env.AGENT_WORKFORCE_UPDATE_CHANNEL || process.env.KOSMOS_UPDATE_CHANNEL;
+  return c === 'staging' ? 'staging' : 'prod';
+}
+function updatePointer() {
+  return updateChannel() === 'staging' ? 'latest-staging.json' : 'latest.json';
+}
 // reached: did the LAST look actually get an answer from the host?
 // "could not reach the update server" must never render as "up to date",
 // so the cache carries the distinction rather than flattening both into
@@ -109,7 +130,7 @@ async function refresh() {
   const started = Date.now();
   let landed = false;
   try {
-    const res = await doFetch(`${base}/latest.json`, { signal: ctl.signal, cache: 'no-store' });
+    const res = await doFetch(`${base}/${updatePointer()}`, { signal: ctl.signal, cache: 'no-store' });
     if (res) {
       // ANY response object means the host was reached; reached false is
       // reserved for silence (throws, timeouts, DNS). readable means the
@@ -541,7 +562,10 @@ function beginInstall(opts) {
   const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s\n" "$code" "$3" > "$2"; if [ "$4" != /dev/null ]; then rm -f "$4"; fi', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, startedMarker], {
     detached: true,
     stdio: 'ignore',
-    env: { ...process.env, KOSMOS_RELEASE_BASE: base },
+    // #2036: pass the channel so the spawned setup.sh re-reads the SAME pointer this refresh
+    // decided on. Without it, a staging update would fetch latest-staging.json here but setup.sh
+    // would re-fetch latest.json and install the PROD artifact -- a split-brain update.
+    env: { ...process.env, KOSMOS_RELEASE_BASE: base, KOSMOS_UPDATE_CHANNEL: updateChannel() },
   });
   wireChild(child, opts);
   child.unref();
