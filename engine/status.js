@@ -1776,6 +1776,52 @@ function authErrorLineCount(paneText) {
 }
 
 /**
+ * #2146: the freshest evidence this agent was ACTIVELY doing something, and from
+ * where. Report-first (Pete's locked contract): freshest-of { a report heartbeat
+ * (liveness.js, written by the report route on EVERY report -- including a refused
+ * auto-working over a standing needs_you, so it fires on any runner), a live pane
+ * WORKING_LINE this tick (Mac-only) }. Priority is by RECENCY, so a caller gets
+ * one { atMs, source } or null.
+ *
+ * 🔑 null-not-false: null means NO evidence at all, and a caller must not read
+ * that as "not active". The pane leg exists only on a Mac pane; the heartbeat leg
+ * is what makes this work on a Windows/Codex agent that has no pane to read
+ * `working` off of -- non-negotiable, or the primitive re-introduces the paneless
+ * blind spot it exists to remove.
+ */
+function freshestActivity(name, opts) {
+  const o = opts || {};
+  const nowMs = Number.isFinite(o.nowMs) ? o.nowMs : Date.now();
+  let best = null;
+  const consider = (atMs, source) => {
+    if (Number.isFinite(atMs) && (best === null || atMs > best.atMs)) best = { atMs, source };
+  };
+  if (o.paneWorking === true) consider(nowMs, 'pane');
+  if (name) {
+    const beat = liveness.read(name);
+    if (beat && beat.found) consider(Date.parse(beat.at || ''), 'report');
+  }
+  return best;
+}
+
+/**
+ * #2146: the COEXISTENCE decision, pure so both card paths (pane + paneless)
+ * share ONE rule and a test can pin the dangerous-answer control directly.
+ * Returns true only when the reconciled state is a WAITING state (needs_you /
+ * blocked) AND there is fresh active-working evidence: a live pane WORKING_LINE
+ * this tick (definitionally after any past ask), or a report heartbeat STRICTLY
+ * newer than the ask. The strict `>` on the heartbeat leg is what excludes the
+ * waiting report's OWN beat (the route pins it to the report's `at`), so a
+ * just-filed needs_you never self-triggers a false "still working".
+ */
+function activeWhileWaitingFrom(state, freshest, askedAtMs) {
+  if (state !== STATE.NEEDS_YOU && state !== STATE.BLOCKED) return false;
+  if (!freshest) return false;
+  if (freshest.source === 'pane') return true;
+  return Number.isFinite(askedAtMs) && freshest.atMs > askedAtMs;
+}
+
+/**
  * #1884. Claude Code's FRIENDLY (non-JSON) auth-failure line, the shape a real
  * external tester (Ben) was stuck on, 2026-09-02. His pane, verbatim:
  *
@@ -4495,6 +4541,17 @@ function panelessCard(key, nowMs) {
     selfreport.read(key),
     { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'it has no window on this computer to read, and it has not said anything yet' },
     nowMs);
+  /* #2146 for a PANELESS agent (the case this whole role exists for). No pane, so
+     the ONLY active-while-waiting signal is the report heartbeat leg -- a beat
+     newer than the standing needs_you/blocked report. This is why the report route
+     beats liveness even on a refused auto-working: a Windows/Codex agent working
+     under a sticky needs_you has nothing else to show it is alive AND active. */
+  let activeWhileWaiting = false;
+  if (status.state === STATE.NEEDS_YOU || status.state === STATE.BLOCKED) {
+    const waitReport = selfreport.read(key);
+    const fresh = freshestActivity(key, { nowMs, paneWorking: false });
+    activeWhileWaiting = activeWhileWaitingFrom(status.state, fresh, waitReport.found === true ? Date.parse(waitReport.at || '') : NaN);
+  }
   return {
     name: identity.displayName,
     sessionName: key,
@@ -4536,6 +4593,9 @@ function panelessCard(key, nowMs) {
        pane is recreated IS covered by the pane path above; but the fully-paneless
        gap is real and not yet covered here (challenge iter 1). */
     disruption: status.disruption || null,
+    /* #2146: additive coexistence flag; on a paneless card it can only be set by
+       the heartbeat leg (there is no pane to read working off of). */
+    activeWhileWaiting,
     stateReported: status.reported === true,
     stateConflict: status.conflict || null,
     context: {
@@ -4827,6 +4887,27 @@ function snapshot() {
     const identity = tied
       ? readIdentity(pane.name)
       : { displayName: pane.name, role: null, derived: false };
+    /* #2146: COEXISTENCE flag. A sticky needs_you/blocked REPORT wins over the
+       transient working state (rule 6 -- needs_you never decays), which HIDES an
+       agent that is actively working while a real needs_you pends. This surfaces
+       that -- ADDITIVE, never a state or count change (needs_you stays counted;
+       our doctrine has agents work the next card WHILE a needs_you pends). Angel's
+       render paints the working animation alongside the pending needs_you.
+       Evidence = freshestActivity STRICTLY NEWER than the waiting report's own
+       `at` (Pete's dangerous-answer control): the report route pins the report's
+       own liveness beat to that `at`, so `>` excludes it and a just-filed needs_you
+       does NOT self-trigger; a pane WORKING_LINE this tick is definitionally after
+       any past ask, so it always counts. Mutually exclusive with disruption.timedOut
+       (that lives on RESTARTING; this only on needs_you/blocked). */
+    let activeWhileWaiting = false;
+    if (status.state === STATE.NEEDS_YOU || status.state === STATE.BLOCKED) {
+      const waitReport = tied ? selfreport.read(pane.name) : { found: false };
+      const fresh = freshestActivity(tied ? pane.name : null, {
+        nowMs: now,
+        paneWorking: scrapedStatus.state === STATE.WORKING,
+      });
+      activeWhileWaiting = activeWhileWaitingFrom(status.state, fresh, waitReport.found === true ? Date.parse(waitReport.at || '') : NaN);
+    }
     return {
       name: identity.displayName,
       sessionName: pane.name,
@@ -4893,6 +4974,12 @@ function snapshot() {
          reads a fact rather than an absence, and the frontend renders the copy
          (cause + the model field above) and the animated K from it. */
       disruption: status.disruption || null,
+      /* #2146: true when the reconciled state is a sticky needs_you/blocked but
+         the agent is ALSO actively working (fresh activity newer than the ask).
+         ADDITIVE: the state and its count are unchanged; the render shows the
+         working animation alongside the pending needs_you. False for every other
+         state and whenever there is no fresh post-ask activity. */
+      activeWhileWaiting,
       /* Whether the state above is the agent's own account (#188's third
          verb) rather than a pane reading. */
       stateReported: status.reported === true,
@@ -5120,6 +5207,7 @@ module.exports = {
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
      agent LAST RAN AS into a job that never recorded a choice. Exported rather
