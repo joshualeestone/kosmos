@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: staging-channel-wire-2036
-diff_hash: 76a026053ec5059ef7d245dbb9f7c51877575f331cd683639b64bee158cc7c00
+diff_hash: d28098c547beb221c1be892bd829ead56ce27ead36480354bec92c5b8397c74b
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-04T15:31:30Z
