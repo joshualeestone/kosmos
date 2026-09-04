@@ -215,6 +215,7 @@ one invented by somebody who did not write them.
 | `render-thread.js` | Render and DRIVE the project thread in a real browser |
 | `render-url-state.js` | The view survives a refresh (#374): agent, project, task; and the overview writes a clean URL. |
 | `render-update-toast.js` | **no header sentence.** Read it before running it, and give it one. |
+| `render-viewtoggle-header-2154.js` | The board-view toggle (#2154): one press flips tabs <-> consolidated, it persists through /api/style, it lives in the header on the tabbed view and in the agents rail on the consolidated view, and it is hidden below 960px. |
 | `thread-server.js` | A server for looking at the project thread, with NOTHING pointed at the real |
 
 ## Two rules for writing one, learned on 2026-08-24

@@ -740,6 +740,12 @@ if boot_board "$sb2" "$P2"; then
   # so it stands alone if render-projects fails; puts the layout back after.
   run_one "render-consolidated-layouts" env AGENT_WORKFORCE_DATA="$sb2/data" node docs/browser-checks/render-consolidated-layouts.js \
     "http://127.0.0.1:$P2" "$sb2"
+  # #2154: the board-view toggle in the header (tabbed) and the agents rail
+  # (consolidated). It only PUTs /api/style and restores the saved layout after,
+  # seeding no project, so it is safe on this shared board and above the
+  # width check below. Same <url> <sandbox> args as the consolidated check.
+  run_one "render-viewtoggle-header-2154" env AGENT_WORKFORCE_DATA="$sb2/data" node docs/browser-checks/render-viewtoggle-header-2154.js \
+    "http://127.0.0.1:$P2" "$sb2"
   # #1310 item 2: the projects grid card matches the agents board width, and a
   # long title truncates instead of widening the card.
   # ⚠️ LAST IN THIS BLOCK ON PURPOSE. It POSTs a long-titled project to seed
