@@ -53,8 +53,13 @@ test('#1920: latest.json carries the artifact sha256 and a manifest pointer, not
   // release.sh must WRITE latest.json through the one shared pointer-writer (#2036), passing the
   // verified sha as KM_LJ_SHA, so the prod pointer's shape cannot drift from the staging pointer's.
   assert.match(RELEASE, /KM_LJ_SHA="\$KM_ARTIFACT_SHA"/, 'release.sh must feed the verified sidecar sha to the pointer writer');
-  assert.match(RELEASE, /node "\$\(cd "\$\(dirname "\$0"\)" && pwd\)\/lib\/write-latest-pointer\.js" "\$SITE\/dist\/latest\.json"/,
-    'release.sh must write latest.json via the shared tools/lib/write-latest-pointer.js');
+  // #2036: release.sh now writes the CHANNEL pointer ($POINTER_FILE) via the shared writer, not a
+  // hardcoded latest.json. The channel defaults to prod, and prod's pointer file IS latest.json,
+  // so the prod path is unchanged -- assert both the parameterized write and the prod default.
+  assert.match(RELEASE, /node "\$\(cd "\$\(dirname "\$0"\)" && pwd\)\/lib\/write-latest-pointer\.js" "\$SITE\/dist\/\$POINTER_FILE"/,
+    'release.sh must write the channel pointer via the shared tools/lib/write-latest-pointer.js');
+  assert.match(RELEASE, /CUT_CHANNEL="\$\{KOSMOS_CUT_CHANNEL:-prod\}"/, 'the cut channel must default to prod (#2036 invariant)');
+  assert.match(RELEASE, /prod\)\s+POINTER_FILE="latest\.json"/, 'the prod channel pointer file must be latest.json (prod path unchanged)');
   // The written object carries the sha and a pointer to the served manifest, alongside version.
   // These live in the shared writer now, so assert them THERE (the shape's single source).
   assert.match(POINTER_WRITER, /sha256: e\.KM_LJ_SHA/, 'the pointer writer no longer writes the artifact sha256');
