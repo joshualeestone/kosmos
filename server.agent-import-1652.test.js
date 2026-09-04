@@ -125,9 +125,11 @@ process.env.AGENT_WORKFORCE_SCAN_ROOTS = SCANROOT;
    plain note (not importable). */
 const SHARED = path.join(SCANROOT, 'shared.agent.md');
 const SWAPME = path.join(SCANROOT, 'swapme.agent.md');
+const FIFOME = path.join(SCANROOT, 'fifome.agent.md');
 const NOTE = path.join(SCANROOT, 'notes.md');
 fs.writeFileSync(SHARED, exportedFile('sharedagent', '# You are Shared Agent\n\nYou answer one question well.\n', 'claude'));
 fs.writeFileSync(SWAPME, exportedFile('swapme', '# You are Swap Me\n\nOne job, done well.\n', 'claude'));
+fs.writeFileSync(FIFOME, exportedFile('fifome', '# You are Fifo Me\n\nOne job, done well.\n', 'claude'));
 fs.writeFileSync(NOTE, '# Notes\n\nnothing about an agent here\n');
 
 test('#1652 PR2 POSITIVE: a discovered agent file is read by path and parses into create material', async () => {
@@ -166,6 +168,27 @@ test('#1652 PR2 SECURITY: a path swapped to a symlink after discovery is refused
   fs.symlinkSync('/etc/passwd', SWAPME);
   const { json } = await post('/api/agent-import-file', { file: SWAPME });
   assert.equal(json.ok, false, 'a symlink swapped in after discovery must be refused');
+  assert.match(json.because, /no longer a readable file/);
+});
+
+test('#1652 PR2 SECURITY: a path swapped to a FIFO after discovery is refused WITHOUT hanging the board', async () => {
+  // TOCTOU DoS: FIFOME was a real agent file at scan time (known member), then is replaced
+  // by a named pipe with no writer. A plain synchronous open of a FIFO BLOCKS forever and
+  // would hang the single-threaded board; O_NONBLOCK keeps the open from blocking and the
+  // fstat isFile check then refuses it. If O_NONBLOCK regressed, this test would hang (the
+  // fetch never returns) rather than pass -- which is the guard.
+  const { execFileSync } = require('node:child_process');
+  const ok = await post('/api/agent-import-file', { file: FIFOME });
+  assert.equal(ok.json.ok, true, 'PRECONDITION: the file should import before the swap');
+  fs.rmSync(FIFOME);
+  try {
+    execFileSync('mkfifo', [FIFOME]);
+  } catch {
+    // mkfifo unavailable (non-POSIX host): nothing to test here.
+    return;
+  }
+  const { json } = await post('/api/agent-import-file', { file: FIFOME });
+  assert.equal(json.ok, false, 'a fifo swapped in after discovery must be refused');
   assert.match(json.because, /no longer a readable file/);
 });
 

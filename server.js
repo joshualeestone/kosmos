@@ -5694,12 +5694,15 @@ const server = http.createServer((req, res) => {
      paths this route will read are the ones the current scan itself returned in its
      importable set. discover.scan() already realpath-dedups and refuses symlinks, so a
      path in importable is inside the scanned roots by construction. On top of that the
-     read opens with O_NOFOLLOW and works off the fd (fstat + read by fd), so a symlink
-     swapped in for the final component after the scan -- TOCTOU -- makes the open fail
-     rather than being followed, and the path is resolved exactly once; the size is capped
-     before the buffer is allocated. Both guards are required: membership proves the path
-     was legitimate at scan time, O_NOFOLLOW proves the open resolves to a real file and
-     not a redirect at read time. */
+     read refuses anything but a real regular file at read time, by two layers: a
+     platform-INDEPENDENT lstat hand check (the symlink/non-file refusal, which is the
+     layer the macOS TOCTOU test arm exercises and which works even where the kernel flag
+     is absent), plus an undefined-safe O_NOFOLLOW|O_NONBLOCK open (O_NOFOLLOW closes the
+     lstat->open symlink TOCTOU atomically on macOS; O_NONBLOCK keeps a fifo swapped into
+     that same window from blocking the open). The read then works off the fd (fstat + read
+     by fd), so the path is resolved exactly once; the size is capped before the buffer is
+     allocated. Both membership and the read-time guards are required: membership proves the
+     path was legitimate at scan time, the guards prove it still resolves to a real file. */
   if (pathname === '/api/agent-import-file' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
@@ -5739,13 +5742,19 @@ const server = http.createServer((req, res) => {
            Everything after the open is on the fd (fstat + read by fd), so the path resolves
            once. MAX_IMPORT_FILE caps the allocation (matches agentfile's own MAX_FILE). */
         const NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
+        // O_NONBLOCK, paired with O_NOFOLLOW exactly as engine/instructions.js and
+        // engine/workerfile.js do: if the file were swapped to a FIFO in the TOCTOU window,
+        // a plain synchronous open would BLOCK forever waiting for a writer and hang the
+        // single-threaded board. O_NONBLOCK makes the open return at once; the fstat isFile
+        // check below then refuses the fifo. Undefined-safe (|| 0) for the same win32 reason.
+        const NONBLOCK = fs.constants.O_NONBLOCK || 0;
         const MAX_IMPORT_FILE = 512 * 1024;
         let text;
         let fd = null;
         try {
           const lst = fs.lstatSync(file);
           if (lst.isSymbolicLink() || !lst.isFile()) { sendJson(res, 200, { ok: false, because: 'that file is no longer a readable file' }); return; }
-          fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW);
+          fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);
           const st = fs.fstatSync(fd);
           if (!st.isFile()) { sendJson(res, 200, { ok: false, because: 'that file is no longer a readable file' }); return; }
           if (st.size > MAX_IMPORT_FILE) { sendJson(res, 200, { ok: false, because: 'that file is too large to be an agent file' }); return; }
