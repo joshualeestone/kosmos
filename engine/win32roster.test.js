@@ -1,7 +1,7 @@
 'use strict';
 /**
  * #570: the win32 roster provider synthesizes PANE_COLUMNS text from
- * `claude agents --json`, and it must FAIL CLOSED — only Kosmos-created sessions
+ * `claude agents --json`, and it must FAIL CLOSED - only Kosmos-created sessions
  * become ours, and the ownership PROCESS arm must never rescue an unrecorded
  * session. These tests drive the provider through the REAL status.js parse +
  * ownership logic (the strongest check: the synthesized line must work with the
@@ -71,7 +71,7 @@ test('#570: a failed `claude agents --json` returns NULL, not "" (so listPanes r
   assert.equal(src(), null, 'run() null -> provider null (a failed look, not an empty machine)');
 });
 
-test('#570: an empty roster (no recorded / no live agents) returns "" (readable empty — unblocks create)', () => {
+test('#570: an empty roster (no recorded / no live agents) returns "" (readable empty - unblocks create)', () => {
   assert.equal(providerWith([], {})(), '', 'no agents -> empty readable roster');
   assert.equal(providerWith([THEIRS], {})(), '', 'only unrecorded agents -> empty readable roster');
 });
@@ -99,6 +99,11 @@ test('#570 record: a record with no name is refused; a bad id is refused', () =>
   assert.equal(win32sessions.record('sess-ok', {}).ok, false, 'no name -> refused');
   assert.equal(win32sessions.record('has space', { name: 'x' }).ok, false, 'a bad id -> refused');
   assert.equal(win32sessions.isOurs(''), false, 'empty id is not ours');
+});
+
+test('#570 record: an all-whitespace name is refused (no degenerate " " row that reads as ours)', () => {
+  assert.equal(win32sessions.record('sess-blank', { name: '   ' }).ok, false, 'blank name -> refused');
+  assert.equal(win32sessions.isOurs('sess-blank'), false, 'a blank-named session is never recorded/ours');
 });
 
 test('#570 record: a JS-reserved key (__proto__) is refused HONESTLY, not ok:true on a silent no-op', () => {

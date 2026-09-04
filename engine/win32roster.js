@@ -22,11 +22,22 @@
  *   2. command = "claude.exe", NOT a version string. `status.isClaudeCommand`
  *      accepts "claude.exe" so an emitted row classifies as a real agent
  *      (typeable / restartable), but `status.isNativeClaude` matches ONLY a
- *      three-segment version (e.g. 2.1.212), so the "ours" PROCESS arm does NOT
- *      fire on a synthesized row. Ownership on win32 is therefore decided
- *      SOLELY by the claim column (isNamedOurs), i.e. by the record above.
- * The two are belt-and-suspenders: even were an unrecorded row ever emitted, the
- * process arm could not silently claim it.
+ *      three-segment version (e.g. 2.1.212), so the ownership PROCESS arm
+ *      (`isNativeClaude(command)`) does NOT fire on a synthesized row.
+ *
+ * 🛑 PROPERTY 1 IS THE LOAD-BEARING ONE; PROPERTY 2 IS NOT AN INDEPENDENT
+ * BACKSTOP. It is tempting to say "even if an unrecorded row were emitted, the
+ * process arm could not claim it, so property 2 alone is a safety net." That is
+ * FALSE, and stating it would invite someone to lean on property 2. `isNamedOurs`
+ * has a legacy arm that matches a session NAME ending in `-discord`, entirely
+ * independent of the claim column and of the command -- so an unrecorded row
+ * named `*-discord` with an empty claim WOULD read as ours despite property 2.
+ * Property 2 defeats only the isNativeClaude PROCESS arm; it does not neutralize
+ * the `-discord$` NAME arm. What actually closes the hole is property 1: an
+ * unrecorded session is never emitted at all, so no such row exists to be claimed
+ * by any arm. Operator `claude agents --json` sessions are named like `agent1-d2`,
+ * not `*-discord`, so this is not reachable today -- but the guarantee is
+ * property 1, and property 2 is a defense-in-depth that narrows, not closes.
  *
  * ⚠️ A read failure returns NULL, never "". `listPanes` treats null as "we could
  * not see what is running" and refuses honestly, exactly as a failed

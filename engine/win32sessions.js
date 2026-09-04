@@ -88,7 +88,10 @@ function record(sessionId, meta) {
   if (!validId(sessionId)) return { ok: false, because: 'that is not a session id we can key a record under' };
   const name = meta && typeof meta.name === 'string' ? meta.name : '';
   const runner = meta && typeof meta.runner === 'string' ? meta.runner : '';
-  if (!name) return { ok: false, because: 'a Kosmos-created session must record the name it runs under' };
+  // .trim() so an all-whitespace name is refused too: a blank name would emit a
+  // roster row whose session/claim are " " and (claim===name) read as ours, a
+  // degenerate row with no agent behind it. A real create-side name is never blank.
+  if (!name.trim()) return { ok: false, because: 'a Kosmos-created session must record the name it runs under' };
   let current = read();
   current[sessionId] = { name, runner, at: new Date().toISOString() };
   try {
