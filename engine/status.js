@@ -27,6 +27,11 @@ const observed = require('./observed');
 const sendertoken = require('./sendertoken');
 const liveness = require('./liveness');
 const disruption = require('./disruption');
+/* #1930 per-pattern freshness store. Named `activityStore` (not `activity`) on
+   purpose: reconcileReport takes an `activity` VERDICT param, and shadowing the
+   module with the param inside that function would be a footgun. The caller
+   below reads/records/clears the STORE; reconcileReport reads the VERDICT. */
+const activityStore = require('./activity');
 /* For SESSION only: the sign-in flow's own tmux session name, defined once
    where the session is created. No cycle: connect never requires status. */
 const connect = require('./connect');
@@ -1741,6 +1746,110 @@ const AUTH_FAILED_MARKERS = [
  * of that line, so the rest of that line is the discriminator.
  */
 const AUTH_ENVELOPE = /"type":\s*"error"/i;
+
+/**
+ * #1930: how many real 401 auth-error lines are on this screen right now -- the
+ * per-pattern COUNT the freshness guard baselines and compares (engine/activity.js).
+ *
+ * 🔑 A COUNT OF REAL ENVELOPE LINES, NOT A HASH. A row counts only if it carries
+ * an auth marker AND the `"type":"error"` envelope on the SAME row -- the
+ * `wholeOnOneRow` half of `authFailed`'s detection -- so prose that merely
+ * mentions a marker (#1233) is not counted, and the count tracks actual 401
+ * lines. It is a count and not a hash because a live loop redrawing the SAME 401
+ * text has a constant hash; what changes when the loop is live is how many 401
+ * lines have accumulated (Pete's contract, point 4).
+ *
+ * 📌 It counts ONLY the single-row form, NOT `authFailed`'s `wrapJoined`
+ * (payload split across two wrapped rows) form. A capture clipped mid-redraw
+ * that splits a 401 could therefore UNDERCOUNT by one -- which fails toward the
+ * base HEALTHY-suppression (the safe direction), so the count is conservative,
+ * not wrong. Kept simple deliberately; the escape hatch (newest-line identity)
+ * would subsume this too.
+ *
+ * ⚠️ The friendly non-JSON auth line (#1884) has no envelope and is not counted;
+ * that form is a single static login prompt, not a scrolling loop, so counting
+ * it would not help, and a miss fails toward the base HEALTHY-suppression (safe).
+ * Markers are non-global regexes, so `.test()` here is stateless.
+ */
+function authErrorLineCount(paneText) {
+  const rows = String(paneText == null ? '' : paneText)
+    .split('\n')
+    .map((line) => line.replace(/^[\s>│├└─*❯›]+/, ''));
+  let n = 0;
+  for (const row of rows) {
+    if (AUTH_FAILED_MARKERS.some((re) => re.test(row)) && AUTH_ENVELOPE.test(row)) n++;
+  }
+  return n;
+}
+
+/* How long a work-activity marker keeps meaning "actively working" before it
+   ages out. The report hook throttles working heartbeats to one per 60s, so
+   three of those is 180s -- an agent that has not produced a working report in
+   that long is not actively working now, whatever it last did. Independent of
+   liveness.STALE_AFTER_MS by intent (they coincide today but answer different
+   questions: that one is "still alive", this one is "still WORKING"), so tuning
+   one never silently moves the other. */
+const ACTIVE_WORK_STALE_MS = 180 * 1000;
+
+/**
+ * #2146: the freshest evidence this agent was ACTIVELY WORKING, and from where.
+ * Report-first (Pete's locked contract): freshest-of { a WORK-ACTIVITY MARKER
+ * (engine/activity.js key 'working', written by the report route on a `working`
+ * report ONLY -- including a refused auto-working over a standing needs_you, so
+ * it fires on any runner), a live pane WORKING_LINE this tick (Mac-only) }.
+ * Priority is by RECENCY, so a caller gets one { atMs, source } or null.
+ *
+ * 🛑 WORK, NOT MERE LIFE. This deliberately does NOT read liveness.js: that beat
+ * fires on EVERY report, including the Stop hook's end-of-turn `report idle`, so
+ * it would read "still working" on an agent that just finished a turn and went
+ * idle (the exact false positive a review caught). Only a `working` report writes
+ * the marker this reads, and the marker is FRESHNESS-BOUNDED (ACTIVE_WORK_STALE_MS)
+ * so it ages out once the agent stops working -- a stale marker is not activity.
+ *
+ * 🔑 null-not-false: null means NO fresh work evidence, and a caller must not read
+ * that as "not active" for any other purpose. The pane leg exists only on a Mac
+ * pane; the marker leg is what makes this work on a Windows/Codex agent that has
+ * no pane to read `working` off of -- non-negotiable, or the primitive
+ * re-introduces the paneless blind spot it exists to remove.
+ */
+function freshestActivity(name, opts) {
+  const o = opts || {};
+  const nowMs = Number.isFinite(o.nowMs) ? o.nowMs : Date.now();
+  const workStaleMs = Number.isFinite(o.workStaleMs) ? o.workStaleMs : ACTIVE_WORK_STALE_MS;
+  let best = null;
+  const consider = (atMs, source) => {
+    if (Number.isFinite(atMs) && (best === null || atMs > best.atMs)) best = { atMs, source };
+  };
+  if (o.paneWorking === true) consider(nowMs, 'pane');
+  if (name) {
+    const w = activityStore.read(name, 'working');
+    if (w && w.found) {
+      const at = Date.parse(w.at || '');
+      /* Freshness measured against the caller's nowMs (not the store's real-clock
+         ageMs) so a test can pin the moment. A stale marker is dropped, never
+         considered. */
+      if (Number.isFinite(at) && (nowMs - at) <= workStaleMs) consider(at, 'report');
+    }
+  }
+  return best;
+}
+
+/**
+ * #2146: the COEXISTENCE decision, pure so both card paths (pane + paneless)
+ * share ONE rule and a test can pin the dangerous-answer control directly.
+ * Returns true only when the reconciled state is a WAITING state (needs_you /
+ * blocked) AND there is fresh active-working evidence: a live pane WORKING_LINE
+ * this tick (definitionally after any past ask), or a report heartbeat STRICTLY
+ * newer than the ask. The strict `>` on the heartbeat leg is what excludes the
+ * waiting report's OWN beat (the route pins it to the report's `at`), so a
+ * just-filed needs_you never self-triggers a false "still working".
+ */
+function activeWhileWaitingFrom(state, freshest, askedAtMs) {
+  if (state !== STATE.NEEDS_YOU && state !== STATE.BLOCKED) return false;
+  if (!freshest) return false;
+  if (freshest.source === 'pane') return true;
+  return Number.isFinite(askedAtMs) && freshest.atMs > askedAtMs;
+}
 
 /**
  * #1884. Claude Code's FRIENDLY (non-JSON) auth-failure line, the shape a real
@@ -4114,7 +4223,7 @@ function saidWords(reported, nowMs) {
   return '';
 }
 
-function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth) {
+function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity) {
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
      agent has reported. Handle it HERE, above the no-report early return below, so a
      never-reported agent -- one that hit a 401 on launch and sits idle at a prompt after an
@@ -4125,7 +4234,32 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
      and auth_failed stands (no false calm). The re-entry's scraped state is UNKNOWN, so this
      cannot recurse. */
   if (scraped.state === STATE.AUTH_FAILED && liveAuth === LIVE_AUTH_HEALTHY) {
-    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth);
+    /* #1930 ONE-DIRECTIONAL FRESHNESS GUARD. The base behaviour (below) SUPPRESSES a
+       scraped auth_failed under a live-HEALTHY probe -- the rejection is stale
+       scrollback from before the account was repaired. The guard WITHHOLDS that
+       suppression (shows the red) on ONE condition only: POSITIVE evidence that the
+       auth-error region is still producing NEW lines since the account went healthy
+       (activity.newErrorsSinceHealthy === true) -- a live 401 loop under a probe that
+       cached healthy a moment ago (sub-case-2). It never ADDS suppression of its own,
+       and unknown / no-sample activity (activity null or newErrorsSinceHealthy false)
+       leaves the base suppression standing, so control (b) -- HEALTHY + no-new-errors
+       -- stays SUPPRESSED and there is NO regression. The guard STRICTLY REDUCES
+       false-calm, never increases it. (The other false-calm source -- a healthy report
+       that has actually gone quiet/stuck -- is #2019's bounded timeout's job, not this
+       guard's; this one is additive/positive-only so it never false-alarms an idle-but-
+       healthy agent.) */
+    if (activity && activity.newErrorsSinceHealthy === true) {
+      /* Handled explicitly here, NOT by falling through to rule 3b below: rule 3b's
+         invariant is "reaching here means liveAuth is NOT HEALTHY", and this case is
+         HEALTHY. Show the scraped auth_failed with its evidence line and an honest
+         conflict naming the split (probe healthy, screen still rejecting). */
+      return {
+        ...scraped,
+        reported: false,
+        conflict: 'the account sign-in currently reads valid, but its screen is still producing new Claude sign-in rejections, so a live rejection loop is running' + saidWords(reported, nowMs),
+      };
+    }
+    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
     return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
   }
   /* #2019: a dead pane is "gone" UNLESS we are the ones who just took it out. If
@@ -4147,14 +4281,22 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
      never a spinner that lies forever. */
   if (disruptionRec && disruptionRec.cause
       && scraped.state === STATE.STOPPED && scraped.confidence === CONFIDENCE.STRUCTURED) {
+    const timedOut = disruptionRec.timedOut === true;
     return {
       state: STATE.RESTARTING,
       confidence: CONFIDENCE.STRUCTURED,
       /* A plain fallback sentence for non-frontend consumers and tests; the
          board renders the real copy ("Restarting agent" / "Switching to
-         <model>") from `disruption.cause` + the card's model field. */
-      because: 'we are restarting this agent, so it is briefly out of view',
-      disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt },
+         <model>") from `disruption.cause` + the card's model field. On timeout
+         the copy is the honest "not back yet", and `timedOut` tells the render to
+         STOP the animated K (it is no longer in-progress, it has overrun) and show
+         that message rather than a spinner that lies forever (#920). We stay in
+         the RESTARTING FAMILY -- never a bare STOPPED that reads as "this agent
+         doesn't exist", which is the whole point of the card. */
+      because: timedOut
+        ? 'we restarted this agent and it has not come back yet'
+        : 'we are restarting this agent, so it is briefly out of view',
+      disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt, timedOut },
       reported: false,
       conflict: null,
     };
@@ -4287,7 +4429,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     const atRl = Date.parse(reported.at || '');
     const freshRl = Number.isFinite(atRl) && (nowMs - atRl) <= REPORT_WORKING_DECAY_MS;
     if (freshRl) {
-      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth);
+      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
     }
     return { ...scraped, reported: false, conflict: 'its screen shows it has hit a usage limit, which its reports cannot know about' + saidWords(reported, nowMs) };
@@ -4429,6 +4571,17 @@ function panelessCard(key, nowMs) {
     selfreport.read(key),
     { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'it has no window on this computer to read, and it has not said anything yet' },
     nowMs);
+  /* #2146 for a PANELESS agent (the case this whole role exists for). No pane, so
+     the ONLY active-while-waiting signal is the report heartbeat leg -- a beat
+     newer than the standing needs_you/blocked report. This is why the report route
+     beats liveness even on a refused auto-working: a Windows/Codex agent working
+     under a sticky needs_you has nothing else to show it is alive AND active. */
+  let activeWhileWaiting = false;
+  if (status.state === STATE.NEEDS_YOU || status.state === STATE.BLOCKED) {
+    const waitReport = selfreport.read(key);
+    const fresh = freshestActivity(key, { nowMs, paneWorking: false });
+    activeWhileWaiting = activeWhileWaitingFrom(status.state, fresh, waitReport.found === true ? Date.parse(waitReport.at || '') : NaN);
+  }
   return {
     name: identity.displayName,
     sessionName: key,
@@ -4470,6 +4623,9 @@ function panelessCard(key, nowMs) {
        pane is recreated IS covered by the pane path above; but the fully-paneless
        gap is real and not yet covered here (challenge iter 1). */
     disruption: status.disruption || null,
+    /* #2146: additive coexistence flag; on a paneless card it can only be set by
+       the heartbeat leg (there is no pane to read working off of). */
+    activeWhileWaiting,
     stateReported: status.reported === true,
     stateConflict: status.conflict || null,
     context: {
@@ -4580,8 +4736,31 @@ function snapshot() {
        back ALIVE (state != STOPPED) in order to clear it, so gating the read on
        STOPPED would defeat that and reinstate the residual it removes. The read
        is one ENOENT stat per owned pane per tick for every agent NOT mid-restart
-       -- negligible, and only agents actually being restarted have a file. */
-    const disruptionRec = isNamedOurs(pane) ? disruption.active(pane.name) : null;
+       -- negligible, and only agents actually being restarted have a file.
+
+       #2019 HONEST TIMEOUT: `active` returns null past the window, and the OLD
+       behaviour then let the pane's normal STOPPED stand -- a SILENT window-elapse
+       that reads to the person as "this agent doesn't exist", the exact message
+       this card removes. So when `active` is null we ALSO read the raw record: if
+       one is still on file (a restart that has NOT visibly come back), we carry it
+       forward with `timedOut:true` so reconcileReport can show an HONEST "we
+       restarted it and it has not come back yet", never a silent absence. This is
+       NOT the #920 spinner trap: the timeout produces an honest MESSAGE (the render
+       stops the animation on `timedOut`), not a spinner that lies forever, and it
+       self-heals the instant the pane comes back live (the forward heal below
+       clears any record -- fresh or aged -- once the state is a definite live one). */
+    let disruptionRec = null;
+    if (isNamedOurs(pane)) {
+      const fresh = disruption.active(pane.name);
+      if (fresh) {
+        disruptionRec = fresh;
+      } else {
+        const full = disruption.read(pane.name);
+        if (full.found) {
+          disruptionRec = { cause: full.cause, startedAt: full.startedAt, ageMs: full.ageMs, timedOut: true };
+        }
+      }
+    }
     /* #2093: a RUNNING codex agent whose screen says nothing we recognise (UNKNOWN) may be one
        whose credential died on turn 1 (the #1906 fail-open residual). Ask the actual OpenAI auth
        CONDITION -- a per-account, cached, ASYNC live check (engine/codexauthprobe) that never
@@ -4597,9 +4776,92 @@ function snapshot() {
         (n) => require('./create').readJob(n),
         (d) => require('./codexauthprobe').verdict(d, now));
     }
+    /* #1930 freshness verdict: is a scraped auth_failed under a live-HEALTHY
+       probe STALE scrollback, or a live 401 loop still producing new lines? This
+       caller owns the baseline-vs-compare state machine (the disruption
+       begin/clear split) so reconcileReport stays a pure function of its inputs.
+       Only meaningful for a scraped auth_failed on one of our named panes, which
+       is exactly the case `liveAuth` was resolved for above.
+         - probe HEALTHY, no baseline yet -> record the current auth-error line
+           count as the baseline (the healthy transition) and report no evidence.
+         - probe HEALTHY, baseline on file -> newErrorsSinceHealthy = count grew.
+         - probe resolved-but-NOT-healthy -> the account left healthy; clear so the
+           next healthy transition re-baselines against a fresh count.
+       A single object `{ newErrorsSinceHealthy }` so the signature stays stable as
+       #2146 (activeWhileWaiting) and #2019 land more fields on it (Pete). */
+    let activityFresh;
+    if (isNamedOurs(pane)) {
+      if (scrapedStatus.state === STATE.AUTH_FAILED) {
+        if (liveAuth === LIVE_AUTH_HEALTHY) {
+          /* PER-TICK DELTA, not since-a-fixed-baseline. The verdict is "is the
+             auth-error region producing new lines RIGHT NOW", so we compare the
+             current 401-line count against the count on the PREVIOUS tick and
+             then store the current count for the next one. A count that GREW
+             since last tick means the loop is live now (fire the red); a count
+             that is static -- even if elevated -- means the loop has stopped and
+             its lines are merely lingering in the captured tail, so we do NOT
+             fire and the base HEALTHY-suppression resumes. That last case is the
+             one a fixed-baseline compare got wrong: `count > baseline` kept
+             showing "a live rejection loop is running" on a recovered-but-idle
+             agent until the old lines scrolled off -- the exact haunt #1930
+             removes. Per-tick delta's only failure is UNDER-firing a very slow
+             loop (one that adds a line less often than we sample), which falls to
+             the base suppression -- the already-accepted #1930-first-half
+             residual, the SAFE direction.
+
+             🛑 TAIL SATURATION, the residual this deliberately accepts (Pete,
+             2026-09-04). currentCount is a count over the BOUNDED capture-pane
+             tail, not a monotonic session total, so a FAST loop that fills the
+             tail sits at the ceiling every tick (new 401 in, old 401 out) and the
+             delta reads ~0 -> a MISS on a hot loop. This cannot be closed by
+             OR-ing an absolute-ceiling arm: a recovered-IDLE agent produces no new
+             output, so ITS saturated 401 lines never scroll off either -- the two
+             states are INDISTINGUISHABLE by any bounded-tail count. It is a forced
+             choice, and #1930's doctrine decides it: #1930 is additive/positive-
+             only and must NEVER false-alarm a healthy-but-idle agent (went-quiet
+             is #2019's timeout's job). A ceiling arm would put a PERMANENT false
+             red on a recovered-idle healthy agent -- the named haunt. Per-tick
+             delta instead misses a hot loop ONLY in the narrow window before
+             authprobe's cached HEALTHY catches up.
+             ⏱ THE BOUND, STATED SO IT IS CHECKABLE, NOT ASSERTED (Pete,
+             2026-09-04): the false-calm window is exactly the auth-probe cache
+             TTL -- authprobe.TTL_MS, 30s today -- because a real hot loop means
+             the account IS being rejected, so within one TTL the cached HEALTHY
+             expires to EXPIRED/UNCHECKED (both non-HEALTHY) and this branch no
+             longer applies; rule 3b (`scraped.state === AUTH_FAILED`, below) then
+             shows the auth_failed DIRECTLY. rule 3b is the closer; the probe TTL
+             is the bound. ⚠️ If that TTL is ever lengthened, this false-calm
+             window lengthens with it -- reconsider this residual then. So the miss
+             is transient + probe-backstopped; the haunt would be permanent. The only
+             true discriminator is NOT a count -- it is the newest-401-line
+             IDENTITY (a new distinct newest line = new content = live), the
+             documented escape hatch if the race window ever proves to matter. */
+          const currentCount = authErrorLineCount(text);
+          const prev = activityStore.read(pane.name, 'auth-error');
+          activityFresh = { newErrorsSinceHealthy: prev.found ? (currentCount > prev.count) : false };
+          activityStore.record(pane.name, 'auth-error', currentCount);
+        } else if (liveAuth !== undefined) {
+          /* A definite non-healthy verdict (expired / unknown / unchecked). An
+             UNRESOLVABLE probe (undefined) means we cannot tell, so we leave any
+             baseline untouched rather than clearing on no information. */
+          activityStore.clear(pane.name, 'auth-error');
+        }
+      } else {
+        /* The 401 is NO LONGER on screen, so the auth_failed episode is over.
+           Clear the baseline so a LATER stale 401 (under a still-cached-HEALTHY
+           probe, with no intervening non-healthy tick to clear it) re-baselines
+           against its OWN count instead of comparing to a PRIOR episode's
+           baseline -- which could compute a false increase and un-suppress a
+           stale rejection (a re-haunt). The baseline must mean "count since THIS
+           episode's healthy transition", not an older one. Fails toward
+           suppression, the safe direction. Not run mid-episode (the scrape is
+           auth_failed every tick then), so it never drops a live baseline. */
+        activityStore.clear(pane.name, 'auth-error');
+      }
+    }
     const status = reconcileReport(
       isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
-      scrapedStatus, now, liveAuth, disruptionRec, codexLiveAuth);
+      scrapedStatus, now, liveAuth, disruptionRec, codexLiveAuth, activityFresh);
     /* #2019 forward self-heal (challenge iter 2): a disruption record on file
        but a reconciled state that is a confident LIVE reading means the restart
        COMPLETED -- drop the record now rather than waiting out the window. This
@@ -4707,6 +4969,27 @@ function snapshot() {
     const identity = tied
       ? readIdentity(pane.name)
       : { displayName: pane.name, role: null, derived: false };
+    /* #2146: COEXISTENCE flag. A sticky needs_you/blocked REPORT wins over the
+       transient working state (rule 6 -- needs_you never decays), which HIDES an
+       agent that is actively working while a real needs_you pends. This surfaces
+       that -- ADDITIVE, never a state or count change (needs_you stays counted;
+       our doctrine has agents work the next card WHILE a needs_you pends). Angel's
+       render paints the working animation alongside the pending needs_you.
+       Evidence = freshestActivity STRICTLY NEWER than the waiting report's own
+       `at` (Pete's dangerous-answer control): the report route pins the report's
+       own liveness beat to that `at`, so `>` excludes it and a just-filed needs_you
+       does NOT self-trigger; a pane WORKING_LINE this tick is definitionally after
+       any past ask, so it always counts. Mutually exclusive with disruption.timedOut
+       (that lives on RESTARTING; this only on needs_you/blocked). */
+    let activeWhileWaiting = false;
+    if (status.state === STATE.NEEDS_YOU || status.state === STATE.BLOCKED) {
+      const waitReport = tied ? selfreport.read(pane.name) : { found: false };
+      const fresh = freshestActivity(tied ? pane.name : null, {
+        nowMs: now,
+        paneWorking: scrapedStatus.state === STATE.WORKING,
+      });
+      activeWhileWaiting = activeWhileWaitingFrom(status.state, fresh, waitReport.found === true ? Date.parse(waitReport.at || '') : NaN);
+    }
     return {
       name: identity.displayName,
       sessionName: pane.name,
@@ -4773,6 +5056,12 @@ function snapshot() {
          reads a fact rather than an absence, and the frontend renders the copy
          (cause + the model field above) and the animated K from it. */
       disruption: status.disruption || null,
+      /* #2146: true when the reconciled state is a sticky needs_you/blocked but
+         the agent is ALSO actively working (fresh activity newer than the ask).
+         ADDITIVE: the state and its count are unchanged; the render shows the
+         working animation alongside the pending needs_you. False for every other
+         state and whenever there is no fresh post-ask activity. */
+      activeWhileWaiting,
       /* Whether the state above is the agent's own account (#188's third
          verb) rather than a pane reading. */
       stateReported: status.reported === true,
@@ -5000,6 +5289,7 @@ module.exports = {
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
      agent LAST RAN AS into a job that never recorded a choice. Exported rather

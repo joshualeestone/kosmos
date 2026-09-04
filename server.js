@@ -292,6 +292,7 @@ const heartbeatSetting = require('./engine/heartbeat-setting');
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
+const activity = require('./engine/activity');
 const connections = require('./engine/connections');
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
@@ -5561,6 +5562,42 @@ const server = http.createServer((req, res) => {
              refused over a standing waiting state; see selfreport.record. */
           auto: body.auto === true,
         });
+        /* #2146 WORK-ACTIVITY MARKER (Renet Tilley). A separate, WORK-SPECIFIC
+           signal, distinct from the liveness beat below. It records that the
+           agent was ACTIVELY WORKING at a moment, so #2146's activeWhileWaiting
+           heartbeat leg can surface an agent working UNDER a sticky needs_you --
+           and, critically, tell that apart from a mere proof-of-life beat.
+
+           🛑 WHY NOT REUSE THE LIVENESS BEAT (the trap this avoids). Liveness
+           carries NO state ({at} only), and the report hook beats it on EVERY
+           report -- including the Stop hook's end-of-turn `report idle --auto`.
+           So a needs_you agent that merely finished a turn would look "still
+           working" one tick after asking. Only a WORKING report writes THIS
+           marker (idle/needs_you/blocked/stopped never do), so it means work, not
+           just life. It is also freshness-bounded on the read side, so a marker
+           from the agent's last burst of work ages out once it stops.
+
+           🔑 WRITTEN BEFORE THE RECORDED-CHECK so a REFUSED auto-`working` (over a
+           standing needs_you, #900) still records it: a refused working is still
+           proof the agent is actively working, and on a paneless Windows/Codex
+           agent it is the ONLY such signal (no pane to read `working` off of).
+           An accepted report is pinned to its own `kept.at`; a refused one beats
+           at now (undefined -> now), which is exactly the newer-than-the-ask
+           signal the leg needs. The count is unused (only the timestamp matters);
+           `1` is a placeholder. Throw-safe -- a bookkeeping write never fails a
+           recorded report.
+
+           📌 NEVER EXPLICITLY CLEARED, unlike the 'auth-error' store (which the
+           snapshot caller clears on recovery). The asymmetry is deliberate: the
+           auth-error store is read as an ABSOLUTE per-tick count where a stale
+           value would mislead the delta, so it must be reset between episodes;
+           this 'working' marker is read FRESHNESS-BOUNDED (freshestActivity drops
+           it past ACTIVE_WORK_STALE_MS), so a stale value is already ignored and
+           there is nothing to clear -- exactly like liveness.js, which also only
+           ages out. One bounded file per agent, no leak. */
+        if (body.state === 'working') {
+          try { activity.record(who, 'working', 1, kept.recorded === true ? kept.at : undefined); } catch { /* the report stands; the marker is best-effort */ }
+        }
         if (kept.recorded !== true) {
           sendJson(res, 200, { recorded: false, because: kept.because });
           return;

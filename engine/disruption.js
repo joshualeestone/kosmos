@@ -118,9 +118,16 @@ function read(sessionName) {
 
 /**
  * The disruption record ONLY while it is fresh, else null.
- * ⚠️ This is what the state layer calls. Returning null past the window is the
- * self-heal: a restart that never came back stops reading as RESTARTING and the
- * board reverts to its honest absence reading, with no cleanup required.
+ * ⚠️ This is what the state layer calls for the IN-PROGRESS reading. Returning
+ * null past the window means "no longer a fresh restart".
+ * 📌 UPDATED (#2019 timeout, Renet Tilley): null past the window is NO LONGER a
+ * revert-to-absence. The snapshot caller, on `active()===null`, reads the RAW
+ * record (`read`) and, if one is still on file, carries it forward as a
+ * TIMED-OUT restart -- staying in the RESTARTING family with an honest "not come
+ * back yet" message rather than reading as "this agent doesn't exist". So
+ * `active()` returning null hands off to the timeout path, it does not end the
+ * state. `active` still self-heals the IN-PROGRESS animation; the timeout path
+ * self-heals when the pane returns live (the caller clears the record then).
  */
 function active(sessionName, windowMs) {
   const r = read(sessionName);
