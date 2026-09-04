@@ -51,6 +51,7 @@ const create = require('./create');
 const liveExec = require('./live-execution');
 const store = require('./store');
 const status = require('./status');
+const disruption = require('./disruption');
 
 const OUTCOME = { REMOVED: 'removed', RESTORED: 'restored', RESTARTED: 'restarted', REFUSED: 'refused', PARTIAL: 'partial' };
 
@@ -1288,7 +1289,7 @@ function restore(name) { return markDryRun(restoreInner(name)); }
  * pane merely borrowing the name is somebody else's work, and killing it would
  * be the most destructive thing this product can do to a bystander.
  */
-function restartInner(name) {
+function restartInner(name, cause) {
   const clean = create.cleanName(name);
   const unsafe = unsafeToActOn(clean);
   if (unsafe) return { outcome: OUTCOME.REFUSED, because: unsafe, steps: [] };
@@ -1324,6 +1325,17 @@ function restartInner(name) {
     };
   }
 
+  /* #2019: we are committed to acting on a real fleet agent, so record the
+     deliberate disruption BEFORE we take the pane down. Written here, ahead of
+     the kill, so there is no instant where the pane is dead but the board has
+     no record of why -- which is the exact "this agent doesn't exist" flash
+     this removes. If the kill then fails (PARTIAL, the agent is still running),
+     the record is cleared below so a still-live agent is never marked
+     restarting. Best-effort: a bookkeeping write must never sink a restart, so
+     `begin` never throws and its result is not gated on. The cause (restart /
+     model / provider / account / instructions) rides through from the route. */
+  disruption.begin(clean, cause);
+
   const tmuxBinPath = process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
   const steps = [];
   const step = (label, fn) => {
@@ -1350,6 +1362,11 @@ function restartInner(name) {
   });
 
   if (!ended) {
+    /* #2019: the kill failed, so the agent is still running the older
+       instructions -- nothing was disrupted. Clear the record we set above so
+       this still-live agent does not read as RESTARTING if it later stops for a
+       real reason. */
+    disruption.clear(clean);
     return {
       outcome: OUTCOME.PARTIAL,
       steps,
@@ -1389,7 +1406,7 @@ function restartInner(name) {
   };
 }
 
-function restart(name) { return markDryRun(restartInner(name)); }
+function restart(name, cause) { return markDryRun(restartInner(name, cause)); }
 
 /**
  * Drops an agent's removal record, and nothing else.
