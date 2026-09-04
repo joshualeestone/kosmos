@@ -742,3 +742,55 @@ test('#1026 accountModels: an absent account says nobody signed in, never a fetc
   assert.equal(out.ok, false);
   assert.match(String(out.because), /signed in/);
 });
+
+test('#2095: addWithKey persists the EXACT typed name (not the path slug) and serves it as `name`', () => {
+  const out = openai.addWithKey({ key: 'sk-proj-namedkeynamedkeyNAM1', label: 'My Work Account', codexBin: FAKE_CODEX });
+  assert.equal(out.ok, true, out.because);
+  // The dir/label is slug-sanitised for a safe path...
+  assert.equal(out.account.label, 'my-work-account');
+  // ...but the NAME preserves exactly what the person typed. This is the whole
+  // point of the card: the slug is not a display name.
+  assert.equal(out.account.name, 'My Work Account');
+  // and it lives verbatim in the sidecar, never carrying the key.
+  const nf = nodePath.join(SANDBOX, '.codex-my-work-account', '.kosmos-name');
+  assert.equal(fs.readFileSync(nf, 'utf8').trim(), 'My Work Account');
+  assert.ok(!fs.readFileSync(nf, 'utf8').includes('namedkey'), 'the name file must never hold the key');
+});
+
+test('#2095: list() serves the stored name for a named account', () => {
+  writeAuth('.codex-listnamed', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-listnamedkeyLST1' });
+  openai.writeName(nodePath.join(SANDBOX, '.codex-listnamed'), 'Renamed On List');
+  const row = openai.list().find((r) => r.label === 'listnamed');
+  assert.ok(row, 'the named account is listed');
+  assert.equal(row.name, 'Renamed On List');
+});
+
+test('#2095: an account with NO name file has name:null and still lists (fail-open, the dangerous answer)', () => {
+  // The load-bearing control: a missing sidecar must NEVER throw or drop the
+  // account -- it must read as a plain "no name" so an unnamed account still works.
+  writeAuth('.codex-nameless', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-nonamekeynonaNONM' });
+  const row = openai.list().find((r) => r.label === 'nameless');
+  assert.ok(row, 'a nameless account still lists');
+  assert.equal(row.name, null, 'no name file -> name is null, not an error');
+});
+
+test('#2095: readName/writeName are fail-open and trim; an empty name is not written', () => {
+  // Missing dir -> null, never a throw.
+  assert.equal(openai.readName(nodePath.join(SANDBOX, '.codex-doesnotexist')), null);
+  const d = nodePath.join(SANDBOX, '.codex-rn');
+  fs.mkdirSync(d, { recursive: true });
+  assert.equal(openai.writeName(d, '  Spaced Name  '), true);
+  assert.equal(openai.readName(d), 'Spaced Name', 'a written name round-trips, whitespace-trimmed');
+  // An empty/whitespace-only name is not a name: it is not written, and reads null.
+  const e = nodePath.join(SANDBOX, '.codex-empty-name');
+  fs.mkdirSync(e, { recursive: true });
+  assert.equal(openai.writeName(e, '   '), false);
+  assert.equal(openai.readName(e), null);
+});
+
+test('#2095: addWithKey with no label leaves name null (a work-slot account is not falsely named)', () => {
+  const out = openai.addWithKey({ key: 'sk-proj-nolabelkeynolabNOL1', codexBin: FAKE_CODEX });
+  assert.equal(out.ok, true, out.because);
+  assert.match(out.account.label, /^work\d+$/);
+  assert.equal(out.account.name, null, 'an auto-slotted account has no human-chosen name');
+});

@@ -60,6 +60,37 @@ function authFile(dir) {
 }
 
 /**
+ * #2095: the human-chosen display NAME, kept in a small sidecar file INSIDE the
+ * account dir (beside auth.json). It is deliberately SEPARATE from the dir label:
+ * the label is `cleanLabel`-slugged to a safe path (`[a-z0-9-]`, lowercased), so
+ * "My Work Account" becomes the path fragment "my-work-account" -- fine for a
+ * directory, wrong for a screen. This preserves EXACTLY what the person typed,
+ * and unlike the label it also exists for a default `~/.codex` account (which has
+ * no `.codex-<label>` to read a name out of).
+ *
+ * Best-effort and fail-open EVERYWHERE, on purpose: a missing/unreadable file is
+ * a real "no name" (null), never an error, so an account with no name still lists
+ * and still works; and a failed WRITE never fails the add -- the account is fully
+ * usable unnamed. Being inside the dir, it rides the forget-rename with everything
+ * else, and `list()` never sees it (that scan is of homeDir for `.codex-*` DIRS).
+ */
+function nameFile(dir) {
+  return path.join(path.resolve(String(dir || '')), '.kosmos-name');
+}
+function readName(dir) {
+  try {
+    const n = fs.readFileSync(nameFile(dir), 'utf8').trim();
+    return n || null;
+  } catch { return null; }
+}
+function writeName(dir, name) {
+  const n = String(name == null ? '' : name).trim();
+  if (!n) return false;
+  try { fs.writeFileSync(nameFile(dir), n); return true; }
+  catch { return false; }
+}
+
+/**
  * The one read of auth.json, shared by identityOf() and checkLive() so
  * "the file is absent" and "the file is present but corrupted/unreadable"
  * stay two DIFFERENT facts everywhere in this module, not just where it
@@ -120,6 +151,9 @@ function rowFor(dir, isDefault) {
     providerName: PROVIDER_NAME,
     dir,
     label: isDefault ? null : path.basename(dir).replace(/^\.codex-/, ''),
+    // #2095: the exact human-chosen name, null if it was never set. Kept apart
+    // from `label` so a screen can show what the person typed, not the path slug.
+    name: readName(dir),
     isDefault: isDefault === true,
     email: who.email,
     authMode: who.authMode,
@@ -363,6 +397,12 @@ function addWithKey({ key, label, codexBin }) {
     // stdout and stderr are DROPPED: codex's own messages could echo the key.
     stdio: ['pipe', 'ignore', 'ignore'],
   });
+  // #2095: persist the EXACT name the person typed (the RAW `label`, before
+  // cleanLabel slugged it into the path) BEFORE rowFor reads it, so the returned
+  // account carries the name. Best-effort: a failed write leaves a fully working
+  // account that simply has no display name. Only on a successful login (a failed
+  // login is torn down below, so a name file there would be litter).
+  if (run.status === 0 && label != null && String(label).trim()) writeName(spot.dir, label);
   const row = run.status === 0 ? rowFor(spot.dir, false) : null;
   if (!row) {
     // Anti-litter: a failed add leaves no half-made account behind.
@@ -738,4 +778,5 @@ module.exports = {
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
   accountModels, chatModelsFromList,
+  readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };
