@@ -89,11 +89,15 @@ test('#1629 create half: an OpenAI agent never gets a CODEX_HOME as its CLAUDE t
   create.setRunner(() => ({ ok: true }));
   create.setDryRun(false);
   withTrustSpy((seen) => {
-    create.createAgent({ ...BINS, name: 'ct-openai', role: 'pm', provider: 'openai' });
-    // PRECONDITION, not a vacuous escape: the OpenAI arm DOES reach the Claude
-    // trust write (verified through the real create path). Asserting it means a
-    // future change that refuses before the write fails this guard loudly rather
-    // than passing it vacuously.
+    // codexBin MUST be a runnable path: an OpenAI agent's runner is codex, and
+    // createAgent refuses before the trust write if the runner is not runnable
+    // (create.js runnerRunnable gate). On a machine WITHOUT codex on PATH (CI),
+    // the default codexBin is unresolvable, the arm refuses, and `seen` stays
+    // empty -- which is exactly why the earlier `if (!seen.length) return` escape
+    // existed and why it could pass vacuously. Passing a runnable stub makes the
+    // arm reach the write deterministically everywhere, so the precondition below
+    // is real rather than environment-dependent.
+    create.createAgent({ ...BINS, codexBin: '/bin/echo', name: 'ct-openai', role: 'pm', provider: 'openai' });
     assert.ok(seen.length >= 1, 'PRECONDITION: the create path reached the trust write');
     const [, opts] = seen[0];
     assert.equal(opts && opts.configDir, null,
@@ -125,7 +129,9 @@ test('#2129 create half: an OpenAI agent does NOT createIfAbsent a CLAUDE config
   create.setRunner(() => ({ ok: true }));
   create.setDryRun(false);
   withTrustSpy((seen) => {
-    create.createAgent({ ...BINS, name: 'ct-openai-fresh', role: 'pm', provider: 'openai' });
+    // Runnable codexBin so the OpenAI arm reaches the trust write on a machine
+    // without codex (CI); see the note in the sibling OpenAI test above.
+    create.createAgent({ ...BINS, codexBin: '/bin/echo', name: 'ct-openai-fresh', role: 'pm', provider: 'openai' });
     assert.ok(seen.length >= 1, 'PRECONDITION: the create path reached the trust write');
     const [, opts] = seen[0];
     assert.notEqual(opts && opts.createIfAbsent, true,
