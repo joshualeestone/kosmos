@@ -33,7 +33,6 @@ function writeJSON(file, obj) {
   fs.mkdirSync(nodePath.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(obj, null, 2), 'utf8');
 }
-function rm(file) { try { fs.rmSync(file, { force: true }); } catch { /* ignore */ } }
 // A non-default account dir: ~/.claude-<name>, credential inside it.
 function acctFile(name) { return nodePath.join(HOME_SB, `.claude-${name}`, '.claude.json'); }
 const CONNECTED = { oauthAccount: { emailAddress: 'her@example.com', organizationType: 'claude_max' } };
@@ -41,8 +40,9 @@ const FREE = { oauthAccount: { emailAddress: 'her@example.com', organizationType
 const NO_ACCT = { someOtherKey: true };  // present file, no oauthAccount
 
 function clean() {
-  // Reset the sandbox to empty between cases, and drop the memo.
-  for (const e of fs.readdirSync(HOME_SB)) rm(nodePath.join(HOME_SB, e)) || fs.rmSync(nodePath.join(HOME_SB, e), { recursive: true, force: true });
+  // Reset the sandbox to empty between cases (recursive+force handles both files
+  // and account dirs), and drop the memo.
+  for (const e of fs.readdirSync(HOME_SB)) fs.rmSync(nodePath.join(HOME_SB, e), { recursive: true, force: true });
   sub.resetCache();
 }
 
