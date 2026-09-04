@@ -53,11 +53,12 @@ test('#2098 (source): applyCreateProviderUI hides the model ROW whole on OpenAI,
   assert.match(fn, /modelRow\.hidden = openai/, 'the model row hide is not keyed on the openai provider');
 });
 
-test('#2097(2) (source): fillCreateAccounts hides the account row when there is <=1 account', () => {
+test('#2097(2) (source): the account row is NOT hidden at one account (Josh ruling preserved)', () => {
+  // Josh: "if this user only has one account then that would be the only thing in the box" --
+  // the account row is the middle rung of the provider->account->model narrowing and stays shown.
   const start = PAGE.indexOf('function fillCreateAccounts');
   const fn = PAGE.slice(start, PAGE.indexOf('\nfunction ', start + 1));
-  assert.match(fn, /create-account-row/, 'the account row is no longer hidden when there is nothing to pick');
-  assert.match(fn, /acctRow\.hidden = usable\.length <= 1/, 'the account-row hide condition changed shape');
+  assert.doesNotMatch(fn, /acctRow\.hidden|create-account-row/, 'the account row hides itself again -- that reverses Josh\'s "shown even at one account" ruling (index.html markup, ~8037)');
 });
 
 // resetCreateProvider decides the default BEFORE CREATE_ACCOUNTS is fetched, so loadCreateExtras

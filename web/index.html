@@ -8042,9 +8042,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              this user only has one account then that would be the only thing in
              the box." -->
         <div class="mstep">
-          <!-- #2097: named so the whole row can be hidden when there is exactly one
-               account for the chosen provider (nothing to pick). -->
-          <div class="frow" id="create-account-row">
+          <div class="frow">
             <select id="create-account" aria-label="Account"></select>
           </div>
           <div class="mstep">
@@ -25326,12 +25324,12 @@ function fillCreateAccounts() {
     ? usable.map((x) =>
       `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${labelOf(x)}</option>`).join('')
     : (openai ? '<option value="">The OpenAI sign-in on this computer</option>' : '<option value="">Your Claude account</option>');
-  /* #2097: hide the account dropdown when there is nothing to pick -- exactly one
-     account for this provider (or none, where the single placeholder is not a
-     choice either). The <select> keeps its selected value while hidden, so the
-     create request still carries the account; only the pointless step goes away. */
-  const acctRow = document.getElementById('create-account-row');
-  if (acctRow) acctRow.hidden = usable.length <= 1;
+  /* #2097: the account row is deliberately SHOWN even at one account -- Josh's
+     ruling preserved at the account markup ("if this user only has one account
+     then that would be the only thing in the box"): it is the middle rung of the
+     provider -> account -> model narrowing, and a missing rung reads as a broken
+     diagram. An earlier version of this card hid it at <=1; that reversed the
+     ruling and is not done. */
 }
 /* #1834: the provider's UI side effects -- disable the model picker for OpenAI,
    fill the account menu by provider, set the model-why note -- live in ONE named
