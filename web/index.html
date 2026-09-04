@@ -4750,6 +4750,19 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      path) breaks rather than re-opening the letterbox. */
   white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
 .fr-scanpreview:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+/* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
+   its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
+   rule the scan panel keeps), then a single Import action. Dressed with the shared
+   tokens so it reads as part of the import panel. */
+.import-found { margin-top: var(--space-3); display: grid; gap: var(--space-3); }
+.fr-importrow { display: block; padding: var(--space-3);
+  border: 0.5px solid var(--border-strong); border-radius: var(--radius-control);
+  background: var(--field-fill); }
+.fr-importtext { display: grid; gap: 2px; }
+.fr-importname { font-weight: 600; color: var(--label); }
+.fr-importrole { color: var(--label-2); font: var(--text-caption) var(--font-ui); }
+.fr-importpath { color: var(--label-2); font: var(--text-caption) var(--font-mono); overflow-wrap: anywhere; }
+.fr-importact { display: block; margin-top: var(--space-3); }
 .flabel-soft { font-weight: 400; color: var(--label-2); }
 /* ⚠️ CHIPS THAT WRAP, which is the pack's own rule and which the build had
    replaced with a single-column grid of full-width rows. That is why Josh
@@ -7942,6 +7955,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
           <button class="btn uprime" type="button" id="import-load">Bring it in</button>
         </div>
         <p class="rolelimit" id="import-msg" role="status" aria-live="polite" hidden></p>
+        <!-- #1652 PR2: the "or choose one below" list -- agent files this computer already
+             holds, found by the disk scan and offered for one-click import. Hidden until
+             the scan finds any; the paste/choose controls above work regardless. -->
+        <div class="import-found" id="import-found" hidden></div>
       </div>
       </fieldset>
     </div>
@@ -25730,7 +25747,12 @@ function pickMode(mode) {
      after the person moved on, and give the panel a fresh enabled button whenever
      it is shown. */
   IMPORT_GEN += 1;
-  if (importing) document.getElementById('import-load').disabled = false;
+  if (importing) {
+    document.getElementById('import-load').disabled = false;
+    // #1652 PR2: fill (or refresh) the found-on-this-computer list each time the panel
+    // opens. Best-effort and async; the paste/choose controls do not wait on it.
+    populateFoundImports();
+  }
   if (mode === 'pm') {
     PICKED = (roleByKey('pm') || ROLES[0]).key;
   } else if (mode === 'own') {
@@ -26003,6 +26025,16 @@ async function importLoad() {
     return;
   }
   if (gen !== IMPORT_GEN) return;   // superseded during the fetch
+  await finishImport(data, gen, btn);
+}
+
+/* #1652 PR2: the shared tail of an import, reached from BOTH the paste/choose path
+   (importLoad) and the discovered-file path (importFoundFile). `data` is the parsed
+   shape /api/agent-import and /api/agent-import-file both return; `btn` is the control
+   to re-enable on a stay-on-panel outcome (the Bring-it-in button, or the found row's
+   Import button). Extracted so the two entry points cannot drift in how they map an
+   imported file onto the create form. */
+async function finishImport(data, gen, btn) {
   // The stay-on-panel outcomes re-enable the button; the success advance below
   // leaves it disabled (cstep hides this panel) and pickMode/openCreate re-enable
   // it whenever the panel is shown again.
@@ -26059,6 +26091,94 @@ async function importLoad() {
     if (gen === IMPORT_GEN) { btn.disabled = false; importMsg('We could not open the form. (' + err.message + ')'); }
   }
 }
+
+/* #1652 PR2: the "or choose one below" half of the import panel -- the agent files this
+   computer already holds, found by the disk scan (discover.scan().importable). A person
+   who was SENT or downloaded an agent file drops it in Downloads/Documents/etc.; rather
+   than making them navigate to it with the OS picker, the scan finds it and offers it
+   here. Clicking one reads it by path (POST /api/agent-import-file, which refuses any
+   path the scan did not itself return) and hands the parsed result to the SAME
+   finishImport the paste/choose path uses. */
+function foundImportRowsHtml(items) {
+  return (items || []).map((c) => {
+    const file = String(c && c.file ? c.file : '');
+    const name = String(c && c.name ? c.name : '');
+    const role = c && c.role ? String(c.role) : '';
+    const preview = String(c && c.preview != null ? c.preview : '');
+    const id = cssId(file);
+    return '<div class="fr-importrow" data-import-file="' + esc(file) + '">'
+      + '<span class="fr-importtext">'
+      + '<span class="fr-importname">' + (name ? esc(name) : 'An agent file with no name in it') + '</span>'
+      + '<span class="fr-importrole">' + esc(role || 'No title in its instructions') + '</span>'
+      + '<span class="fr-importpath">' + esc(file) + '</span>'
+      + '</span>'
+      + '<label class="fr-scanhint" for="impprev-' + esc(id) + '">What it says</label>'
+      + '<textarea class="fr-scanpreview" id="impprev-' + esc(id) + '" rows="4" readonly spellcheck="false"'
+      + ' aria-label="Instructions in ' + esc(file) + '">' + esc(preview) + '</textarea>'
+      + '<span class="fr-importact">'
+      + '<button class="btn uprime fr-importgo" type="button" aria-label="Import ' + esc(file) + '">Import this one</button>'
+      + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+/* Fetches the disk scan and paints the importable files into the import panel. Called
+   when the import radio is chosen (pickMode). Best-effort: if the scan cannot be read,
+   or finds nothing, the found block simply stays hidden and the paste/choose path is
+   unaffected. */
+async function populateFoundImports() {
+  const wrap = document.getElementById('import-found');
+  if (!wrap) return;
+  let body = null;
+  try {
+    // #1652 PR2: the ON-DEMAND import scan (/api/scan-import), NOT the auto /api/scan-agents.
+    // It scans the TCC folders (Downloads/Desktop/Documents) a person keeps downloaded/shared
+    // agent files in; fetched only here, when the user chose to import, so a TCC prompt is
+    // expected and contextual (the auto first-run scan stays TCC-free, #2125).
+    const res = await fetch('/api/scan-import', { cache: 'no-store' });
+    if (!res.ok) { wrap.hidden = true; wrap.innerHTML = ''; return; }
+    body = await res.json().catch(() => null);
+  } catch { wrap.hidden = true; wrap.innerHTML = ''; return; }
+  const items = body && Array.isArray(body.importable) ? body.importable : [];
+  if (!items.length) { wrap.hidden = true; wrap.innerHTML = ''; return; }
+  const more = body && body.bounded && body.bounded.importable
+    ? '<p class="fr-scanhint">There may be more than shown here.</p>' : '';
+  wrap.innerHTML = '<p class="flabel">Agent files found on this computer</p>'
+    + foundImportRowsHtml(items) + more;
+  wrap.hidden = false;
+}
+
+/* Import one discovered file: read it by path (server-validated against the scan), then
+   the shared finishImport. Mirrors importLoad's generation-token guard so switching
+   modes mid-read cannot touch the form. */
+async function importFoundFile(file, btn) {
+  if (!file || (btn && btn.disabled)) return;
+  const gen = ++IMPORT_GEN;
+  if (btn) btn.disabled = true;
+  importMsg('Reading it…');
+  let data;
+  try {
+    const r = await fetch('/api/agent-import-file', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ file: file }),
+    });
+    data = await r.json().catch(() => null);
+  } catch (err) {
+    if (gen === IMPORT_GEN) { if (btn) btn.disabled = false; importMsg('We could not reach the board to read it. (' + err.message + ')'); }
+    return;
+  }
+  if (gen !== IMPORT_GEN) return;
+  await finishImport(data, gen, btn || document.getElementById('import-load'));
+}
+
+document.getElementById('import-found').addEventListener('click', (e) => {
+  const btn = e.target.closest('.fr-importgo');
+  if (!btn) return;
+  const row = btn.closest('.fr-importrow');
+  const file = row && row.getAttribute('data-import-file');
+  if (file) importFoundFile(file, btn);
+});
 
 /** One tick line. `state` is 'done' | 'fail' | 'undone' | 'waiting'. */
 function tickLine(state, text) {

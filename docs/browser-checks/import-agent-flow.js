@@ -103,6 +103,19 @@ async function run() {
     await openImportPanel(p);
     const importOffered = await p.evaluate(() => { const e = document.getElementById('pick-import'); return !!e && !e.hidden; });
     check('the import option is offered on the create flow', importOffered, `#pick-import visible=${importOffered}`);
+    /* #1652 PR2: the import panel carries the "or choose one below" found-on-this-computer
+       list container, INSIDE #importpick (where populateFoundImports fills it from the disk
+       scan on panel open). On this sandboxed board the scan finds no planted files, so the
+       block stays hidden -- this is a structural guard that the container exists and sits in
+       the import panel (a regression reds it if the container is removed or moved out), not a
+       claim about population. The row markup, the populate/click wiring, and the by-path
+       route are covered by web.import-found-1652.test.js and server.agent-import-1652.test.js. */
+    const foundInPanel = await p.evaluate(() => {
+      const el = document.getElementById('import-found');
+      const panel = document.getElementById('importpick');
+      return !!el && !!panel && panel.contains(el);
+    });
+    check('the import panel carries the found-on-this-computer list container', foundInPanel, `#import-found in #importpick=${foundInPanel}`);
     await p.fill('#import-text', AGENT_FILE);
     await p.click('#import-load');
     // The success outcome advances to the name step with the fields laid on.

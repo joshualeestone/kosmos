@@ -118,6 +118,20 @@ const subscription = require('./engine/subscription');
 let scanCache = { at: 0, result: null };
 const SCAN_CACHE_MS = 30000;
 function scanCacheInvalidate() { scanCache = { at: 0, result: null }; }
+/* #1652 PR2: the ON-DEMAND import scan is a DIFFERENT population from the auto scan --
+   discover.scan({importScan:true}) re-adds the TCC-protected home folders
+   (~/Documents deep, ~/Downloads/~/Desktop shallow, #2125/#2148) that the auto scan
+   deliberately never walks. It therefore needs its OWN cache: reusing scanCache would
+   either leak the TCC roots into the auto poll or hide them from the import flow. Fresh
+   within SCAN_CACHE_MS; a scan that throws yields null so callers refuse rather than read. */
+let importScanCache = { at: 0, result: null };
+function getImportScan() {
+  const now = Date.now();
+  if (importScanCache.result && now - importScanCache.at < SCAN_CACHE_MS) return importScanCache.result;
+  let out = null;
+  try { out = discover.scan({ importScan: true }); importScanCache = { at: now, result: out }; } catch { out = null; }
+  return out;
+}
 const connect = require('./engine/connect');
 const machine = require('./engine/machine');
 const updates = require('./engine/update');
@@ -5677,6 +5691,125 @@ const server = http.createServer((req, res) => {
              CLAUDE.md) rather than a Kosmos export. The form can note that and,
              since a derived name may be empty, prompt for one. Absent (undefined)
              on the export path, so existing callers are unaffected. */
+          recognizedFromContent: parsed.recognizedFromContent,
+        });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
+    return;
+  }
+
+  /* #1652 PR2: the ON-DEMAND import scan. Distinct from /api/scan-agents (the auto
+     first-run poll, TCC-free per #2125): this one calls discover.scan({importScan:true}),
+     which re-adds the TCC-protected home folders (~/Documents, ~/Downloads, ~/Desktop) so
+     a person's downloaded/shared agent files are found. It is fetched by the create import
+     panel's found-list ONLY when the user chooses to import -- a TCC prompt there is
+     expected and contextual, which is the whole reason this is separate from the auto scan.
+     Returns the same {candidates, importable, bounded, dismissed} shape; the import UI reads
+     `importable`. Read-only GET, so no cross-site write guard applies. */
+  if (pathname === '/api/scan-import' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const out = getImportScan();
+    if (!out) {
+      sendJson(res, 200, { ok: false, importable: [], candidates: [],
+        because: 'we could not scan this computer for agent files' });
+      return;
+    }
+    sendJson(res, 200, { ...out, dismissed: discover.dismissed() });
+    return;
+  }
+
+  /* #1652 PR2: import a DISCOVERED file. The scan (discover.scan().importable) finds
+     loose agent files a person downloaded or was sent; this route reads ONE of them by
+     path and returns the same parsed shape as /api/agent-import, so the create form
+     pre-fills identically. It never creates the agent (same as /api/agent-import) and
+     is loopback-only for the same reason.
+
+     🛑 THE PATH IS NEVER TRUSTED. A request can name any absolute path, so the ONLY
+     paths this route will read are the ones the current scan itself returned in its
+     importable set. discover.scan() already realpath-dedups and refuses symlinks, so a
+     path in importable is inside the scanned roots by construction. On top of that the
+     read refuses anything but a real regular file at read time, by two layers: a
+     platform-INDEPENDENT lstat hand check (the symlink/non-file refusal, which is the
+     layer the macOS TOCTOU test arm exercises and which works even where the kernel flag
+     is absent), plus an undefined-safe O_NOFOLLOW|O_NONBLOCK open (O_NOFOLLOW closes the
+     lstat->open symlink TOCTOU atomically on macOS; O_NONBLOCK keeps a fifo swapped into
+     that same window from blocking the open). The read then works off the fd (fstat + read
+     by fd), so the path is resolved exactly once; the size is capped before the buffer is
+     allocated. Both membership and the read-time guards are required: membership proves the
+     path was legitimate at scan time, the guards prove it still resolves to a real file.
+     Residual (accepted): O_NOFOLLOW and the lstat check guard the FINAL component only, so
+     an intermediate directory swapped to a symlink after scan time would be followed. That
+     is outside the threat model here -- loopback-only, board-token-gated, single-user home;
+     anyone who can rename a directory in your home already runs as you. */
+  if (pathname === '/api/agent-import-file' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read');
+          bad.status = 400; throw bad;
+        }
+        const file = body && typeof body.file === 'string' ? body.file : '';
+        if (!file) { sendJson(res, 200, { ok: false, because: 'no file was named to import' }); return; }
+
+        /* Membership check against the ON-DEMAND import scan (importScan:true — the same
+           population GET /api/scan-import offered), NOT the auto scan: a discovered file
+           lives in a TCC folder the auto scan never walks, so it would never be a member
+           there. A scan that cannot run leaves `known` false, so the route refuses rather
+           than reading. */
+        const scan = getImportScan();
+        const known = !!(scan && Array.isArray(scan.importable) && scan.importable.some((c) => c && c.file === file));
+        if (!known) {
+          sendJson(res, 200, { ok: false, because: 'that file is not one we found on this computer to import' });
+          return;
+        }
+
+        /* Bounded, symlink-safe read of the validated path, shaped like the #1776 exemplar
+           in engine/securewrite.js so the guard does not evaporate on win32. Two layers:
+           (1) a platform-INDEPENDENT lstat hand check that refuses a symlink (or non-file)
+               outright -- this runs regardless of whether the kernel flag exists, and is
+               what the server.agent-import-1652.test.js TOCTOU arm exercises on macOS;
+           (2) O_NOFOLLOW, captured undefined-safe as `NOFOLLOW || 0` (it is UNDEFINED on
+               win32, and `X | undefined === X` would silently drop it), which on macOS
+               makes the open atomic and closes the lstat->open TOCTOU window; on win32 it
+               is absent and layer (1) is the guard (a narrow accepted residual).
+           Everything after the open is on the fd (fstat + read by fd), so the path resolves
+           once. MAX_IMPORT_FILE caps the allocation (matches agentfile's own MAX_FILE). */
+        const NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
+        // O_NONBLOCK, paired with O_NOFOLLOW exactly as engine/instructions.js and
+        // engine/workerfile.js do: if the file were swapped to a FIFO in the TOCTOU window,
+        // a plain synchronous open would BLOCK forever waiting for a writer and hang the
+        // single-threaded board. O_NONBLOCK makes the open return at once; the fstat isFile
+        // check below then refuses the fifo. Undefined-safe (|| 0) for the same win32 reason.
+        const NONBLOCK = fs.constants.O_NONBLOCK || 0;
+        const MAX_IMPORT_FILE = 512 * 1024;
+        let text;
+        let fd = null;
+        try {
+          const lst = fs.lstatSync(file);
+          if (lst.isSymbolicLink() || !lst.isFile()) { sendJson(res, 200, { ok: false, because: 'that file is no longer a readable file' }); return; }
+          fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);
+          const st = fs.fstatSync(fd);
+          if (!st.isFile()) { sendJson(res, 200, { ok: false, because: 'that file is no longer a readable file' }); return; }
+          if (st.size > MAX_IMPORT_FILE) { sendJson(res, 200, { ok: false, because: 'that file is too large to be an agent file' }); return; }
+          const b = Buffer.alloc(st.size);
+          const n = fs.readSync(fd, b, 0, st.size, 0);
+          text = b.slice(0, n).toString('utf8');
+        } catch {
+          // ELOOP (a symlink at the final component), a vanished file, or any read error.
+          sendJson(res, 200, { ok: false, because: 'that file is no longer a readable file' });
+          return;
+        } finally {
+          if (fd !== null) { try { fs.closeSync(fd); } catch { /* already gone */ } }
+        }
+
+        const parsed = agentfile.importAgent(text, { identityFromText, nameUsable: create.nameUsable, nameProblem: create.nameProblem });
+        if (!parsed.ok) { sendJson(res, 200, { ok: false, because: parsed.because }); return; }
+        sendJson(res, 200, {
+          ok: true,
+          name: parsed.name,
+          displayName: parsed.displayName,
+          provider: parsed.provider,
+          instructions: parsed.body,
           recognizedFromContent: parsed.recognizedFromContent,
         });
       })
