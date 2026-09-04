@@ -511,7 +511,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let other = otherRunningInstance()
         if shouldDeferToExistingInstance(handoff: handoff, otherRunning: other != nil) {
             logLine("#2124: another Kosmos instance is already running; activating it and exiting this duplicate")
-            other?.activate()
+            /* Raise the survivor's WINDOWS, not just its process: .activateAllWindows brings
+               the existing instance's window forward so the person sees it after this
+               duplicate exits, rather than a process that is frontmost with nothing on
+               screen. Log the result so a declined activation is diagnosable.
+               ⚠️ ACCEPTED RESIDUAL: if the survivor's window was CLOSED (this app hides via
+               orderOut rather than quitting, closingWindowQuits=false), it is off the window
+               server and activation cannot bring it back -- only the survivor's own
+               applicationShouldHandleReopen re-shows it, and macOS does not route a reopen
+               here because the duplicate is a different bundle PATH. In the reported #2124
+               scenario the survivor's window is freshly shown (visible), so this surfaces it;
+               the hidden-window edge is a rarer follow-up (a cross-process reopen/notify). */
+            if let survivor = other, !survivor.activate(options: [.activateAllWindows]) {
+                logLine("#2124: activation of the existing instance was declined by the OS")
+            }
             /* 🛑 SET THIS BEFORE terminate, exactly as the #2094 relaunch path does.
                NSApp.terminate re-enters applicationShouldTerminate, which -- with this
                flag false -- shows the "Your agents keep running" quit dialog and, if the

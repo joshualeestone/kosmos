@@ -26,13 +26,22 @@ test('the pure decision is present and encodes BOTH arms (!handoff && otherRunni
   assert.match(SRC, /return\s*!handoff\s*&&\s*otherRunning/, 'the decision is not `!handoff && otherRunning`; a relaunch could be deduped to nothing, or a duplicate let through');
 });
 
+// The dedup guard runs from the start of applicationDidFinishLaunching down to the
+// normal-launch path's NSApp.setActivationPolicy(.regular); slice to that landmark so
+// the assertions do not go brittle as the explanatory comments grow.
+function deferBlock() {
+  const start = SRC.indexOf('func applicationDidFinishLaunching(');
+  assert.ok(start > 0, 'applicationDidFinishLaunching moved');
+  const end = SRC.indexOf('NSApp.setActivationPolicy(.regular)', start);
+  assert.ok(end > start, 'the normal-launch landmark after the defer block moved');
+  return SRC.slice(start, end);
+}
+
 test('applicationDidFinishLaunching dedups: consume handoff, then defer -> activate other + terminate', () => {
-  const m = SRC.match(/func applicationDidFinishLaunching\([\s\S]{0,1600}/);
-  assert.ok(m, 'applicationDidFinishLaunching moved');
-  const head = m[0];
+  const head = deferBlock();
   assert.ok(head.includes('consumeFreshRelaunchHandoff('), 'the guard does not consume the relaunch handoff -- the #2094 relaunch would be treated as a duplicate');
   assert.ok(head.includes('shouldDeferToExistingInstance('), 'the guard does not call the decision');
-  assert.ok(head.includes('other?.activate()') && head.includes('NSApp.terminate('), 'a duplicate must activate the existing instance and terminate itself');
+  assert.ok(head.includes('.activate(options: [.activateAllWindows])') && head.includes('NSApp.terminate('), 'a duplicate must raise the existing instance (activateAllWindows, not a bare process activate) and terminate itself');
 });
 
 test('the defer block terminates CLEANLY: sets isActuallyQuitting BEFORE terminate (no quit dialog can cancel the dedup)', () => {
@@ -40,9 +49,7 @@ test('the defer block terminates CLEANLY: sets isActuallyQuitting BEFORE termina
   // keep running" quit dialog unless isActuallyQuitting is set -- and a dismissed dialog
   // returns .terminateCancel, leaving the DUPLICATE open and defeating #2124. The dedup
   // is not a person-initiated quit, so it must set the flag first, like the #2094 relaunch.
-  const i = SRC.indexOf('shouldDeferToExistingInstance(handoff: handoff');
-  assert.ok(i > 0, 'the defer guard moved');
-  const block = SRC.slice(i, i + 800);
+  const block = deferBlock();
   const flagAt = block.indexOf('isActuallyQuitting = true');
   const termAt = block.indexOf('NSApp.terminate(');
   assert.ok(flagAt > 0, 'the defer block does not set isActuallyQuitting -- a dedup would pop the quit dialog and a dismissal leaves the duplicate open');
