@@ -109,3 +109,24 @@ test('the reasons are latched, so a repeating navigation cannot bury the log', (
   assert.match(SRC, /loggedQuietStaleReasons\.insert\([^)]*\)\.inserted/,
     'the latch is no longer consulted before logging, so a repeating navigation can bury the diagnostic file');
 });
+
+test('#2094: the relaunch targets the FRESH installed copy, not this stale process\'s own bundle', () => {
+  /* offerRelaunch used to reopen Bundle.main.bundleURL -- the path THIS
+     possibly-stale process was launched from -- so a stale window (Josh, three
+     0.6.26 instances against a 0.6.27 board) relaunched itself forever and the
+     version never advanced. It must now prefer the installed copy that carries the
+     board's version, falling back to Bundle.main only when none is fresher (never
+     worse than before). The pure `pickFresh` core is unit-tested in the swift
+     --kosmos-app-stale-selftest hatch; this pins the WIRING in source so the JS
+     suite catches a regression too. */
+  assert.match(SRC, /let target = Self\.freshAppURL\(theirs:\s*theirs\)\s*\?\?\s*Bundle\.main\.bundleURL/,
+    'offerRelaunch no longer resolves a fresh target before Bundle.main (the #2094 loop is back)');
+  assert.match(SRC, /openApplication\(at:\s*target,/,
+    'the relaunch opens Bundle.main directly again instead of the resolved fresh target');
+  assert.match(SRC, /static func pickFresh\(/,
+    'the pure pickFresh core is gone (nothing left to unit-test the target choice)');
+  assert.match(SRC, /conf\.createsNewApplicationInstance = true/,
+    'the relaunch must ALWAYS force a new instance: the fresh copy shares this stale process\'s bundle id, so dedup-by-activation (createsNewApplicationInstance=false) would activate the stale instance and quit to nothing. The pile-up is fixed by targeting a DIFFERENT fresh bundle above, not by dedup.');
+  assert.doesNotMatch(SRC, /createsNewApplicationInstance = relaunchingSelf/,
+    'the dangerous same-bundle-id dedup is back: activating an existing instance of the fresh path lands on THIS stale process and terminates to nothing');
+});

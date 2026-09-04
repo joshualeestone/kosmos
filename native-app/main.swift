@@ -1149,6 +1149,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }.resume()
     }
 
+    /* #2094: which app to relaunch. The pure core, kept apart from the filesystem
+       read so the selftest can drive it without real bundles on disk. Given
+       (candidate url, its version-or-nil) pairs and the board's version `theirs`,
+       return the FIRST candidate that carries `theirs` -- the fresh installed copy --
+       or nil when none does. First-match order is deliberate: the caller lists the
+       canonical /Applications copy first. An unreadable candidate (version nil) is
+       skipped, never chosen. */
+    static func pickFresh(_ candidates: [(url: URL, version: String?)], theirs: String) -> URL? {
+        for c in candidates where c.version == theirs { return c.url }
+        return nil
+    }
+
+    /* #2094: the installed Kosmos.app that actually carries the board's version,
+       if one exists somewhere other than this possibly-stale process's own bundle.
+       offerRelaunch used to reopen `Bundle.main.bundleURL` -- the path THIS process
+       was launched FROM -- so a person launching a stale leftover copy (Josh, on a
+       new account, with three 0.6.26 windows against a 0.6.27 board) relaunched the
+       SAME stale bundle forever and the version never advanced. Prefer the canonical
+       install that carries `theirs`; nil when none does, so the caller falls back to
+       today's behaviour and is never worse off. Reads each candidate's Info.plist,
+       never this running process's. */
+    static func freshAppURL(theirs: String) -> URL? {
+        let candidates = [
+            URL(fileURLWithPath: "/Applications/Kosmos.app"),
+            URL(fileURLWithPath: NSHomeDirectory() + "/Applications/Kosmos.app"),
+        ]
+        let pairs: [(url: URL, version: String?)] = candidates.map { url in
+            guard FileManager.default.fileExists(atPath: url.path) else { return (url, nil) }
+            /* 🔑 Bundle(url:) hands back a CACHED Bundle for a URL that already has
+               one -- so if THIS stale process was launched from a candidate path
+               (e.g. /Applications/Kosmos.app) that was then updated on disk, this
+               reads the in-memory (stale) version and that candidate looks
+               non-matching. That is why the caller's `?? Bundle.main.bundleURL`
+               fallback is LOAD-BEARING, not decoration: in that exact case
+               freshAppURL returns nil and the fallback relaunches the same path
+               with createsNewApplicationInstance=true, spawning a new process from
+               the FRESH on-disk bytes -- correct. Do NOT drop that fallback trusting
+               freshAppURL alone; the self-path case depends on it. Josh's scenario (a
+               stale LEFTOVER copy at a different, uncached URL) reads the real on-disk
+               version and is selected here directly. */
+            return (url, Bundle(url: url)?.infoDictionary?["CFBundleShortVersionString"] as? String)
+        }
+        return pickFresh(pairs, theirs: theirs)
+    }
+
     private func offerRelaunch(mine: String, theirs: String) {
         /* #1182. Reopening was already tried at this exact version and we are
            still here, so it is not the remedy. Say so, offer nothing that loops,
@@ -1209,9 +1254,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            first and hoping is how a person ends up with no Kosmos at all, which
            is far worse than the stale menu bar this fixes. The new instance is
            launched FIRST, and this one only exits once macOS confirms it. */
+        /* #2094: relaunch the CANONICAL install that carries the board's version,
+           NOT Bundle.main -- the path this possibly-stale process was launched from.
+           Falling back to Bundle.main when no fresher copy is found keeps this no
+           worse than before (showCannotSelfHeal still bounds the loop). */
+        let target = Self.freshAppURL(theirs: theirs) ?? Bundle.main.bundleURL
         let conf = NSWorkspace.OpenConfiguration()
+        /* 🛑 ALWAYS force a new instance -- do NOT try to dedup by activating an
+           existing one. The fresh copy and this stale process share a
+           CFBundleIdentifier, and LaunchServices keys "already running" on the
+           BUNDLE ID, not the path: opening the fresh path with
+           createsNewApplicationInstance=false would ACTIVATE this same stale
+           instance instead of launching the fresh copy, the completion handler
+           would read that as "replacement started" and terminate -- quitting to
+           NOTHING. The pile-up Josh saw came from relaunching the SAME stale
+           bundle over and over; targeting the FRESH copy above already fixes that,
+           and the old instance still exits below once the new one is confirmed, so
+           this settles to a fresh window (two momentarily if a fresh one was already
+           open, and the stale one then exits -- never zero) without the dedup that
+           could leave him with none. */
         conf.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: conf) { app, err in
+        NSWorkspace.shared.openApplication(at: target, configuration: conf) { app, err in
             DispatchQueue.main.async {
                 if app != nil, err == nil {
                     logLine("relaunch: replacement started, this instance is exiting")
@@ -2207,6 +2270,34 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
         exit(1)
     }
     ran += 6
+
+    /* 🛑 #2094: THE RELAUNCH TARGET, AS ROWS. Josh's window ran a stale 0.6.26
+       bundle against a 0.6.27 board; offerRelaunch reopened Bundle.main (that same
+       stale bundle) forever. pickFresh chooses the installed copy that carries the
+       board's version instead. Row 2 is the one that returns nil so the caller
+       FALLS BACK to Bundle.main -- proving the fix is never worse than before when
+       no fresh copy exists anywhere. */
+    var freshBad = 0
+    func freshCheck(_ got: URL?, _ want: URL?, _ what: String) {
+        let ok = got?.path == want?.path
+        if !ok { freshBad += 1 }
+        print((ok ? "PASS  " : "FAIL  ") + "fresh-relaunch: " + what + " -> \(got?.path ?? "nil")")
+    }
+    let sysApp = URL(fileURLWithPath: "/Applications/Kosmos.app")
+    let homeApp = URL(fileURLWithPath: "/Users/x/Applications/Kosmos.app")
+    freshCheck(AppDelegate.pickFresh([(sysApp, "0.6.27"), (homeApp, "0.6.26")], theirs: "0.6.27"), sysApp,
+               "the /Applications copy carrying the board version is chosen over a stale one")
+    freshCheck(AppDelegate.pickFresh([(sysApp, "0.6.26"), (homeApp, "0.6.26")], theirs: "0.6.27"), nil,
+               "no copy carries the board version -> nil, so the caller falls back (never worse)")
+    freshCheck(AppDelegate.pickFresh([(sysApp, nil), (homeApp, "0.6.27")], theirs: "0.6.27"), homeApp,
+               "an UNREADABLE candidate is skipped, not chosen")
+    freshCheck(AppDelegate.pickFresh([(sysApp, "0.6.27"), (homeApp, "0.6.27")], theirs: "0.6.27"), sysApp,
+               "with two matches the first listed (canonical /Applications) wins")
+    if freshBad > 0 {
+        print("\nstale-check: the #2094 fresh-copy relaunch target is wrong, which is the loop Josh hit")
+        exit(1)
+    }
+    ran += 4
 
     /* 🛑 #1182: THE ESCAPE MUST NOT BE THE MISLEADING BUTTON. "Not Now" was the
        only way out of the loop and it reads as declining the update. This spec
