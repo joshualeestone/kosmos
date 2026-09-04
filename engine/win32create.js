@@ -23,8 +23,9 @@
  *      "--bg manages the session id; ignoring --session-id" and mints its own --
  *      so a backgrounded session would never carry the id we recorded, and the
  *      roster (fail-closed) would never emit it. The win32 agent is an
- *      interactive session, the same kind Mac agents are, which is also what
- *      win32roster/win32sessions already assume (kind: "interactive").
+ *      interactive session, the same kind Mac agents are. Neither win32roster
+ *      nor win32sessions inspects the `kind` field, so this is a constraint on
+ *      the SPAWN, not a check either module enforces today.
  *   2. A fresh top-level session only registers in `claude agents --json` when it
  *      is NOT a child of another Claude session (a `CLAUDE_CODE_CHILD_SESSION`
  *      environment marker suppresses registration and turns transcript saving

@@ -63,9 +63,12 @@ with a timeout, where the pin is deterministic and needs neither.
 ## Scope
 
 This module is the RECORD + ARG producer, unit-tested on a Mac through the real
-`win32sessions` store (7 tests, including an end-to-end run of a prepared session
-through the real `win32roster` + `status.js`: what create WRITES is exactly what
-the board READS). `abandon()` drops a session whose spawn never started.
+`win32sessions` store (8 tests: the single-mint-point invariant, the UUID shape,
+distinct ids, the runner default, fail-closed name refusal with no leak, a
+store-write-fault passthrough, `abandon()`, and an end-to-end run of a prepared
+session through the real `win32roster` + `status.js` -- what create WRITES is
+exactly what the board READS). `abandon()` drops a session whose spawn never
+started.
 
 It is DELIBERATELY NOT wired into `create.js` yet. `create.js` launches only via
 launchctl/plist (Mac); recording a session that no spawn will start would file
