@@ -1,9 +1,9 @@
 'use strict';
-/* #1994: sub-projects UI — a project can name a parent, shown as a tree in the
+/* #1994: sub-projects UI: a project can name a parent, shown as a tree in the
  * wide Projects tab (indent) and a "under <parent>" chip everywhere narrow, plus
  * a set-parent <select> in project settings that can only offer a valid parent.
  * Drives the SHIPPED paintProjects / projectCard / paintProjectSettings against a
- * real fixture PROJECTS tree in the real page — not a copy. Controls that can
+ * real fixture PROJECTS tree in the real page, not a copy. Controls that can
  * return the dangerous answer: nothing vanishes (a child of an archived/dangling
  * parent still renders), a stored cycle still renders every row without hanging,
  * and the parent select excludes self + descendants (offer a cycle and the

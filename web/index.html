@@ -28906,6 +28906,10 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
   const msg = document.getElementById('pjs-msg');
   msg.textContent = '';
   pjFieldOk('pjs-desc', 'pjs-desc-err');
+  // #1994: clear a prior parent refusal too, or a red border + aria-invalid
+  // left by an earlier refusal would persist on a now-valid field after a later
+  // save (pjPaintParentSelect clears only the error text, not the field state).
+  pjFieldOk('pjs-parent', 'pjs-parent-err');
   const btn = document.getElementById('pjs-save');
   /* #1303 G: checked BEFORE the round trip, so the reason appears at the field
      rather than as a refusal below a button the person has already scrolled
@@ -28960,8 +28964,13 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
         return;
       }
       /* #1994: a parent refusal (self, a cycle, or a parent that has since gone)
-         belongs at the parent field, same rule as the description one above. */
-      if (got.error && /parent|sub-?project|cycle|circular|itself/i.test(got.error)) {
+         belongs at the parent field, same rule as the description one above. The
+         alternation includes the engine's exact "gone" wording
+         ("there is no project to group this one under", engine/projects.js) --
+         that message carries none of the other tokens, so a parent deleted
+         between paint and save (a TOCTOU) would otherwise fall through to the
+         generic button line instead of annotating the field. */
+      if (got.error && /parent|sub-?project|cycle|circular|itself|no project to group|group this one under/i.test(got.error)) {
         pjFieldBad('pjs-parent', 'pjs-parent-err', pjSentence(got.error) || String(got.error));
         msg.textContent = 'Nothing saved. There is something to fix above.';
         return;
