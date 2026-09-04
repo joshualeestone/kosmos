@@ -36,6 +36,12 @@ jget() { node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").
 # three arms run with no board AND a test can assert the [port] was forwarded to the gate.
 STUB="$T/stub-gate.sh"; printf '#!/usr/bin/env bash\nprintf "gate-arg1:%%s\\n" "${1:-}"\nexit "${GATE_RC_WANT:-0}"\n' > "$STUB"; chmod +x "$STUB"
 GATE="bash $STUB"
+# #2036/#2129: promote now runs a SECOND gate (the agent-spawn gate) after the experience
+# gate passes. Stub it too, defaulting to PASS (0) so every existing experience-gate case is
+# unchanged; its own arms (1 refuse / 2 HOLD / 2+force) get dedicated cases below.
+AGENT_STUB="$T/stub-agent-gate.sh"; printf '#!/usr/bin/env bash\nexit "${AGENT_RC_WANT:-0}"\n' > "$AGENT_STUB"; chmod +x "$AGENT_STUB"
+export KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AGENT_STUB"
+export AGENT_RC_WANT=0
 
 # ---- publish-staging-pointer ----
 S="$(make_site)"
@@ -154,6 +160,28 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Spy" 2>&
 # the shared pointer writer refuses a missing field rather than emitting a malformed pointer
 out="$(KM_LJ_VERSION="" KM_LJ_SHA=x KM_LJ_ARTIFACT=a KM_LJ_MANIFEST=m node "$HERE/lib/write-latest-pointer.js" "$T/should-not-exist.json" 2>&1)"; rc=$?
 [ "$rc" != 0 ] && [ ! -f "$T/should-not-exist.json" ] && has "$out" "missing field" && pass "write-latest-pointer: refuses an empty field" || bad "write-latest-pointer empty field (rc=$rc, out=$out)"
+
+# ---- the SECOND (agent-spawn) gate, #2036/#2129 ----
+# experience gate PASSES but the agent gate says WEDGED (1) -> refuse, latest.json NOT written.
+Sa1="$(make_site)"; bash "$PUBLISH" "$Sa1" >/dev/null 2>&1
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=1 bash "$PROMOTE" "$Sa1" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "agent-spawn gate FAILED" && [ ! -f "$Sa1/dist/latest.json" ] && pass "promote: experience-ok but agent gate 1 (#2129) -> refuse, no promote" || bad "promote agent-gate-1 (rc=$rc, out=$out)"
+
+# --force does NOT override a provably-broken agent gate (1), same as the experience gate.
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=1 bash "$PROMOTE" "$Sa1" --force 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ ! -f "$Sa1/dist/latest.json" ] && pass "promote: agent gate 1 is NOT forceable" || bad "promote agent-gate-1-force (rc=$rc, out=$out)"
+
+# agent gate cannot-tell (2) -> HOLD (exit 2), no promote; --force promotes on a hand check.
+Sa2="$(make_site)"; bash "$PUBLISH" "$Sa2" >/dev/null 2>&1
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=2 bash "$PROMOTE" "$Sa2" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && [ ! -f "$Sa2/dist/latest.json" ] && pass "promote: agent gate 2 (cannot-tell) -> HOLD, no promote" || bad "promote agent-gate-2 (rc=$rc, out=$out)"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=2 bash "$PROMOTE" "$Sa2" --force 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$Sa2/dist/latest.json" ] && pass "promote: agent gate 2 + --force -> promote on hand check" || bad "promote agent-gate-2-force (rc=$rc, out=$out)"
+
+# BOTH gates pass -> promote (the ordinary path, asserted explicitly with the agent gate present).
+Sa0="$(make_site)"; bash "$PUBLISH" "$Sa0" >/dev/null 2>&1
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=0 bash "$PROMOTE" "$Sa0" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "agent-spawn gate PASSED" && [ -f "$Sa0/dist/latest.json" ] && pass "promote: both gates pass -> promote" || bad "promote both-gates (rc=$rc, out=$out)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-staging-channel-2036: ALL PASS"; else echo "test-staging-channel-2036: FAILURES above"; exit 1; fi

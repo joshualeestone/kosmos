@@ -27,14 +27,24 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
      its launchd env). update.js then fetches `latest-staging.json` and hands the same channel to
      the installer it spawns, so both read the staging pointer and the staging **versioned**
      artifact is installed (setup.sh prefers `kosmos-<V>-arm64` over the shared alias).
-3. **Exercise it.** Open the board and click -- a person, or an agent driving a browser. The
-   server-side fresh-user experience gate is `tools/staging-experience-check.sh` (#2063): it mints
-   a nonce with the board token off argv, redeems `?boot=` for the cookie, and asserts a fresh
-   session can use a sensitive `/api/*` -- exactly the check every 0.6.25 verification was blind to.
+3. **Exercise it -- TWO gates, two classes.** Open the board and click -- a person, or an agent
+   driving a browser. Two independent server-side gates back the promote:
+   - **Board reachability (#2063), `tools/staging-experience-check.sh`:** mints a nonce with the
+     board token off argv, redeems `?boot=` for the cookie, and asserts a fresh session can use a
+     sensitive `/api/*` -- the #2023 class every 0.6.25 verification was blind to.
+   - **Agent spawn (#2129), `tools/staging-agent-online-check.sh`:** the board gate does NOT
+     exercise agent spawn, and #2129 was exactly that gap -- spawned agents wedged at the Claude
+     Code trust prompt while the board served fine, so the board gate alone would PASS a #2129
+     build. This gate creates a Claude agent AND an OpenAI agent and confirms each comes ONLINE
+     (state idle/working, never a `needs_you` trust wedge). It **creates real agents**, so it
+     refuses on a populated fleet board unless `KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1`; run it on the
+     fresh staging machine with both providers signed in.
 4. **Promote.** `tools/promote-channel.sh <site-checkout> <that-board's-port>` points `latest.json`
-   at the same bytes `latest-staging.json` names, gated on (a) the served sha matching and (b) the
-   experience gate passing. It **HOLDS** (exit 2) on a board that cannot enforce (e.g. the dev box),
-   so you cannot promote from a machine that cannot test.
+   at the same bytes `latest-staging.json` names, gated on (a) the served sha matching, (b) the
+   board-reachability gate passing, and (c) the agent-spawn gate passing. Either gate: exit 1
+   (provably broken) refuses and is **not** `--force`able; exit 2 (cannot-tell -- e.g. the dev box,
+   or a provider not signed in) **HOLDS**, `--force`able only after a hand check. So you cannot
+   promote from a machine that cannot test either class.
 5. **Deploy the promoted pointer** (the next `tools/deploy-site.sh --publish` carries it).
 6. **Rollback** = promote a prior staging pointer, or flip `latest.json` back. No rebuild.
 
@@ -54,8 +64,12 @@ is done.
   `tools/lib/write-latest-pointer.js` (the one pointer-shape writer).
 - consume: `engine/update.js` + `install/setup.sh` (`AGENT_WORKFORCE_UPDATE_CHANNEL` /
   `KOSMOS_UPDATE_CHANNEL`).
-- verify + promote: `tools/staging-experience-check.sh`, `tools/promote-channel.sh`.
+- verify + promote: `tools/staging-experience-check.sh` (board reachability, #2063),
+  `tools/staging-agent-online-check.sh` (agent spawn, #2129), `tools/promote-channel.sh` (runs both
+  gates; override the commands via `KOSMOS_PROMOTE_GATE_CMD` / `KOSMOS_PROMOTE_AGENT_GATE_CMD`).
 - abort safety: `release_site_restore` in `tools/lib/release-freeze.sh` cleans up an uncommitted
   staging pointer.
 - tests: `engine/update.test.js` (consume selector), `tools/test-staging-wire-2036.sh` (release +
-  setup selectors + restore cleanup), `tools/test-staging-channel-2036.sh` (pointer/promote tools).
+  setup selectors + restore cleanup), `tools/test-staging-channel-2036.sh` (pointer/promote tools,
+  both gate arms), `tools/test-staging-agent-online-check.sh` (the agent-spawn gate's
+  online/wedge/refuse discrimination, red-capable via the `KOSMOS_AOC_CURL` transport seam).
