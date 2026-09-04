@@ -10423,7 +10423,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          written by nothing here yet; a future pack rule or drive lands on
          them for free -->
     <div class="stat"><b id="st-agents" data-count="agents">0</b><span class="slab">Agents</span></div>
-    <div class="stat"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><b id="st-working" data-count="working">0</b><span class="slab">Working</span></div>
+    <!-- #2157: the Working tile (chip + its .act animation) hides at a KNOWN zero,
+         the same grammar the alert tile uses, so a board with nothing working does
+         not carry an animated "0 Working". It stays VISIBLE when the count is a
+         floor (unknowns present) -- hiding there would claim "none working" on a
+         read that cannot stand behind it, the same reason the failed-poll path
+         shows "?" rather than hiding (render + the reasoning at st-working = '?'). -->
+    <div class="stat" id="st-working-tile"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><b id="st-working" data-count="working">0</b><span class="slab">Working</span></div>
     <div class="stat"><span class="rest" aria-hidden="true"></span><b id="st-idle" data-count="idle">0</b><span class="slab">Idle</span></div>
     <!-- 🔑 THE FOURTH TILE, and it is the row's existing grammar with one more
          member rather than a new idea: a TOTAL followed by STATES, with a rule
@@ -13316,8 +13322,13 @@ async function tick() {
     const unknowns = data.agents.filter((a) => a.state === 'unknown').length;
     const stateFloor = floor || unknowns > 0;
     document.getElementById('st-agents').textContent = tileCount(c.total, floor);
-    document.getElementById('st-working').textContent =
-      tileCount(data.agents.filter((a) => a.state === 'working').length, stateFloor);
+    const workingCount = data.agents.filter((a) => a.state === 'working').length;
+    document.getElementById('st-working').textContent = tileCount(workingCount, stateFloor);
+    /* #2157: hide the Working tile (chip + its .act animation) at a KNOWN zero,
+       the alert tile's grammar. stateFloor true means unknowns cloud the count
+       (it renders "0+"), so hiding there would claim "none working" on a read
+       that cannot stand behind it -- keep it shown, as the failed-poll "?" is. */
+    document.getElementById('st-working-tile').hidden = workingCount === 0 && !stateFloor;
     document.getElementById('st-idle').textContent =
       tileCount(data.agents.filter((a) => a.state === 'idle').length, stateFloor);
     /* ⚠️ FROM THE COUNT, not from filtering the roster on `running`. The two
@@ -13512,6 +13523,10 @@ async function tick() {
        card above already says the whole board is blind. */
     document.getElementById('st-agents').textContent = '?';
     document.getElementById('st-working').textContent = '?';
+    /* #2157: a failed poll shows "?" and must un-hide the Working tile -- a prior
+       known-zero tick may have hidden it, and staying hidden would claim "none
+       working" on the one poll that knows nothing. Same reason it shows "?". */
+    document.getElementById('st-working-tile').hidden = false;
     document.getElementById('st-idle').textContent = '?';
     /* ⚠️ SHOWN AS UNKNOWN RATHER THAN HIDDEN, unlike the alert tile beside it,
        and the two differ for a reason. Red hides at zero because a red zero
