@@ -7017,7 +7017,7 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
   // dependency has to be a real one. Stubbing them would keep the test green
   // while quietly no longer exercising the branch that draws the face.
   const prelude = TOLD_PRELUDE
-    + 'const STATE_COPY = { idle: { label: "Idle" }, unknown: { label: "Can\'t tell" } };\n'
+    + 'const STATE_COPY = { idle: { label: "Idle" }, restarting: { label: "Restarting agent" }, unknown: { label: "Can\'t tell" } };\n'
     + pageConstSource('DISC_TINTS') + '\n'
     + pageConstSource('DISC_INKS') + '\n'
     + pageFnSource('discIndex') + '\n'
@@ -7025,7 +7025,13 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
     + pageFnSource('discInk') + '\n'
     + pageFnSource('initials') + '\n'
     + pageFnSource('pjToldLine') + '\n'
-    + pageFnSource('pjMemberHasIt') + '\n';
+    + pageFnSource('pjMemberHasIt') + '\n'
+    /* #2019: pjMember now reads the shared stateCopyOf() for the state word (so the
+       members list cannot drift from card/row/detail), which needs restartingLabel;
+       both join the prelude, and STATE_COPY above gains the 'restarting' key the
+       fallback path reads. A stub would let this pass while the shipped helper differed. */
+    + pageFnSource('restartingLabel') + '\n'
+    + pageFnSource('stateCopyOf') + '\n';
   const member = pageFunction('pjMember', prelude);
   const toldLine = pageFunction('pjToldLine', TOLD_PRELUDE);
 
@@ -8319,7 +8325,12 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
        now delegates its casing to the one shared dresser, so the prelude
        without it evaluates a body calling an undefined function. */
     + '\n' + pageFnSource('saidLine') + '\n' + pageFnSource('asSentence')
-    + '\n' + pageFnSource('conflictNote');
+    + '\n' + pageFnSource('conflictNote')
+    /* #2019: the badge's `copy` now comes from `stateCopyOf` (the shared state-copy
+       derivation), which for 'restarting' names the cause via `restartingLabel`.
+       Both join the prelude for the same reason as the others: a stub would let this
+       pass while the shipped helper said something else. */
+    + '\n' + pageFnSource('restartingLabel') + '\n' + pageFnSource('stateCopyOf');
 
   const dmAt = script.indexOf('  const dm = cardStOf(a);');
   assert.ok(dmAt > -1,
@@ -8328,7 +8339,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   // `copy` is declared just above the badge lines. Searched BACKWARDS from the
   // badge rather than forwards from the top: `card()` declares a `copy` of its
   // own earlier in the file, and a forward search finds that one.
-  const from = script.lastIndexOf('  const copy = STATE_COPY[a.state]', dmAt);
+  const from = script.lastIndexOf('  const copy = stateCopyOf(a)', dmAt);
   assert.ok(from > -1 && from < dmAt, 'the state copy lookup moved away from the badge');
   const TAIL = 'dtask.hidden = !dtask.textContent;';
   const end = script.indexOf(TAIL, from);
