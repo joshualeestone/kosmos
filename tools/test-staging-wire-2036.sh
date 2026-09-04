@@ -113,6 +113,17 @@ grep -q 'tar -xzOf "\$SITE/dist/kosmos-arm64.tar.gz" app/package.json' "$REPO/to
   && no "step 6: still reads the unversioned alias (the #2036 staging step-6 bug is back)" \
   || ok "step 6: no longer reads the unversioned prod alias"
 
+# --- the staging fresh-install hand-off command must put KOSMOS_UPDATE_CHANNEL on the sh (RIGHT
+#     of the pipe), never on curl. An env prefix binds to the LEFT of a pipe, so
+#     `KOSMOS_UPDATE_CHANNEL=staging curl ... | sh` sets the var for curl and the setup script (in
+#     sh) never sees it -> it installs PROD, not staging. This bit a live fresh-machine test.
+grep -q 'KOSMOS_UPDATE_CHANNEL=staging curl' "$REPO/tools/release.sh" \
+  && no "staging hand-off: the fresh-install command sets the channel var on curl (LEFT of pipe) - setup installs PROD" \
+  || ok "staging hand-off: no channel-var-on-curl (the pipe-precedence bug is absent)"
+grep -qE 'curl -fsSL .*/setup \| KOSMOS_UPDATE_CHANNEL=staging sh' "$REPO/tools/release.sh" \
+  && ok "staging hand-off: the fresh-install command puts the channel var on the sh (right of the pipe)" \
+  || no "staging hand-off: the fresh-install command does not set the channel var on the sh"
+
 echo "----"
 echo "test-staging-wire-2036: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
