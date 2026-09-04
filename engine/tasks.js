@@ -266,7 +266,7 @@ function assignPart(projectId, n, partId, who, made) {
   // Only a real move is recorded: a resubmit of the current assignee (moved
   // false) changed nothing and types no pane line, so it leaves no transcript
   // line either. `who: null` is a real event -- somebody was taken off.
-  if (moved) taskchat.record(projectId, Number(n), { kind: 'assigned', partId, who: whoKey });
+  if (moved) taskchat.record(projectId, Number(n), { kind: 'assigned', partId: Number(partId), who: whoKey });
   return { ok: true, task, changed: moved };
 }
 
@@ -284,7 +284,7 @@ function setPartClosed(projectId, n, partId, closedAt) {
     return { ...x, closedAt };
   }));
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
-  if (transition) taskchat.record(projectId, Number(n), { kind: closedAt ? 'part-closed' : 'part-reopened', partId });
+  if (transition) taskchat.record(projectId, Number(n), { kind: closedAt ? 'part-closed' : 'part-reopened', partId: Number(partId) });
   return { ok: true, task };
 }
 
