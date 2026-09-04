@@ -24096,7 +24096,11 @@ async function paintOpenaiDetailModel(a, forWhom) {
   const acctDir = (a && a.account && a.account.dir) ? a.account.dir : '';
   if (row) row.hidden = false;
   if (msg) msg.textContent = '';
-  // Loading: the box shows a disabled loading option, never a Claude model.
+  // Loading: the box shows a disabled loading option, never a Claude model. Clear
+  // the why-note synchronously too (as paintOpenaiCreateModel does), so a prior
+  // agent's hint cannot linger visible through the /v1/models round-trip.
+  const why = document.getElementById('d-model-why');
+  if (why) { why.textContent = ''; why.hidden = true; }
   sel.disabled = true;
   sel.innerHTML = '<option value="">Loading this account\'s models…</option>';
   (async () => {
