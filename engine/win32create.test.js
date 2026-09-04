@@ -14,6 +14,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
+const crypto = require('node:crypto');
 
 // A sandbox data root BEFORE requiring anything that reads the store, so these
 // tests never touch the real ownership record.
@@ -99,7 +100,7 @@ test('#570 END TO END: a prepared session that goes live is emitted by the REAL 
   const liveAgents = [
     { pid: 1, cwd: '/w/e', kind: 'interactive', startedAt: 1, sessionId: out.sessionId, name: 'endtoend-cwdname', status: 'idle' },
     // an UNRECORDED session (the operator's own) must stay invisible.
-    { pid: 2, cwd: '/Users/agent1', kind: 'interactive', startedAt: 2, sessionId: crypto_uuid(), name: 'agent1-d2', status: 'busy' },
+    { pid: 2, cwd: '/Users/agent1', kind: 'interactive', startedAt: 2, sessionId: crypto.randomUUID(), name: 'agent1-d2', status: 'busy' },
   ];
   const src = win32roster.make({ run: () => liveAgents });   // real record, real store
   const panes = status.parsePanes(src());
@@ -112,7 +113,6 @@ test('#570 END TO END: a prepared session that goes live is emitted by the REAL 
   assert.equal(ours[0].claim, 'endtoend-7', 'the claim equals the recorded name so isNamedOurs matches');
   assert.equal(status.isAgentSession(ours[0]), true, 'it classifies as a real agent (typeable/restartable)');
 });
-
-// A UUID for the test's "operator's own" fixture, independent of the module under
-// test (do not reuse prepareSession -- that would record it, defeating the point).
-function crypto_uuid() { return require('node:crypto').randomUUID(); }
+// The "operator's own" fixture above mints its id straight from crypto.randomUUID
+// (imported at module scope), NOT via prepareSession -- calling prepareSession
+// would RECORD it, defeating the point of an UNRECORDED session.
