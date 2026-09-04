@@ -6123,8 +6123,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <div class="dnamerow">
         <span class="dname" id="d-name"></span>
         <!-- ⚠️ THE SAME BADGE THE CARD DRAWS, off the same three derivations
-             (`cardStOf` for the class, `STATE_COPY` for the word, `GLYPH` for
-             the mark). Josh asked for the badge here; building a second one
+             (`cardStOf` for the class, `stateCopyOf` for the word -- the shared
+             wrapper over STATE_COPY that also names a restarting cause, #2019 --
+             and `GLYPH` for the mark). Josh asked for the badge here; building a second one
              would be two renderings of one state, free to disagree the day a
              state is added, which is this codebase's named worst habit.
              The classes are set by the painter, not here, because the state
@@ -11537,7 +11538,12 @@ function card(a) {
    * inverse of the defect this file keeps finding (Mona Lisa, measured).
    * 📌 The `off` modifier on the card and the row is a different thing and stays.
    */
-  if (a.running === false) {
+  /* #2019: a restarting agent must NOT be swallowed by this offline early-return.
+     Today the engine hard-sets running:true for a live (restarting) agent, so this
+     cannot co-occur, but that invariant is implicit and unpinned by the contract;
+     the guard makes the presentation self-contained, so a future running:false
+     restarting payload still renders the honest restarting state, not "Not running". */
+  if (a.running === false && a.state !== 'restarting') {
     /* #668: the one offline row whose "Not running" would be a lie. The board
        can see no session, but launchd says the agent's background job holds a
        live process -- so the pill says the could-not-check word instead of a
@@ -11675,7 +11681,10 @@ function lrow(a) {
    * ⚠️ Same ruling as the card: record fields only, no memory bar, no model,
    * no task. Not blanks and not stale values.
    */
-  if (a.running === false) {
+  /* #2019: same guard as card() -- a restarting agent bypasses the offline
+     early-return so it renders the honest restarting row, never "Not running",
+     even if a future engine emits running:false with state:'restarting'. */
+  if (a.running === false && a.state !== 'restarting') {
     /**
      * 🛑 SEVEN SLOTS, ALWAYS (#856 widened this from five: title and model
      * pulled out of .lname into their own columns), AND THE FIRST VERSION
@@ -18355,7 +18364,14 @@ async function paintTalk(sessionName, agentName) {
          ⇒ The reading is not withheld, because it is still the last true thing
          we knew and hiding it would lose information. It is marked as PAST, in
          the one place the reader is already looking. */
-      markStateRemembered(true);
+      /* #2019: EXCEPT a deliberately-live restarting agent. During a restart the
+         pane is briefly gone so this live check reads presence 'off', but the badge
+         is honestly "Restarting agent" in the PRESENT tense; past-marking it
+         ("· when last seen") is the same gone/past inversion the state refuses on
+         every other surface. Suppress the marker for 'restarting' (the composer's
+         "cannot be reached right now" line above stays -- you genuinely cannot hand
+         a mid-restart agent a message; only the badge past-marking is wrong). */
+      markStateRemembered(!(CURRENT && CURRENT.state === 'restarting'));
   } else if (body.presence === 'unsure') {
     off.textContent = 'We could not check whether ' + name + ' is running. '
       + 'You can still send this, and we will tell you if it did not land.';
