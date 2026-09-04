@@ -1330,11 +1330,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func showCannotSelfHeal(mine: String, theirs: String) {
         window?.makeKeyAndOrderFront(nil)
         let alert = NSAlert()
-        alert.messageText = "This window cannot update itself"
-        alert.informativeText = "It is running version \(mine) and the rest of Kosmos is on "
-            + "\(theirs). Opening it again has already been tried and did not change that, so "
-            + "Kosmos will stop asking. Your agents are running normally and nothing needs "
-            + "signing in to again. Installing Kosmos again is what replaces this window."
+        /* #2101: Josh read the old wording ("This window cannot update itself ...
+           Installing Kosmos again is what replaces this window") as hostile -- a
+           dead-end. Same facts, calmer framing: it drops the "cannot update / already
+           tried / we will stop asking" tone and names ONE reliable action.
+           🔑 THE ACTION IS DOWNLOAD, NOT "open from Applications". This dialog is
+           reached only when a relaunch already came back to the SAME version
+           (staleAdvice == .cannotSelfHeal); post-#2094 the relaunch targets the
+           fresh /Applications copy (freshAppURL), so the case where a fresh copy IS
+           there self-heals and never reaches here. Reaching here means no fresh copy
+           is reachable (freshAppURL nil, or the /Applications copy is itself stale),
+           so telling the person to open Applications is telling them to repeat the
+           thing that just failed. Downloading the current build always works, which
+           is what the design rules above mean by PROMISES NOTHING / NAMES NO CAUSE.
+           The window still stops re-asking (relaunchedAtVersion cleared below). */
+        alert.messageText = "This window is on an older version of Kosmos"
+        alert.informativeText = "It is running version \(mine), and Kosmos is on \(theirs). "
+            + "Reopening this window did not move it to the newer version. Your agents kept "
+            + "running the whole time, and nothing needs signing in to again. To get the current "
+            + "version, download the latest Kosmos from installkosmos.com and open it."
         alert.alertStyle = .informational
         let spec = AppDelegate.cannotSelfHealButtons
         for (i, title) in spec.titles.enumerated() {
