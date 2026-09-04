@@ -23,6 +23,7 @@ process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 const status = require('./status');
 const win32roster = require('./win32roster');
 const win32sessions = require('./win32sessions');
+const fleet = require('../test-support/fleet');
 
 // A fixture straight from real `claude agents --json` output.
 const OURS = { pid: 100, cwd: '/w/raph', kind: 'interactive', startedAt: 1, sessionId: 'aaaa-1111', name: 'raph-9a', status: 'idle' };
@@ -62,8 +63,9 @@ test('#570 fail-closed: an UNRECORDED live session (the operator\'s own) is NEVE
 
 test('#570 belt-and-suspenders: even a hand-built claude.exe pane with an EMPTY claim is NOT ours (process arm does not rescue it)', () => {
   // Prove the second fail-closed property directly: were an unrecorded row ever
-  // emitted (empty claim), the ownership process arm must not claim it.
-  const text = ['agent1-d2', '0.0', 'claude.exe', '0', '', '', 'agent1-d2'].join('\t') + '\n';
+  // emitted (empty claim), the ownership process arm must not claim it. Built via
+  // the sanctioned fleet.line() (from PANE_COLUMNS) rather than a hand-typed line.
+  const text = fleet.line({ session: 'agent1-d2', command: 'claude.exe', claim: '', title: 'agent1-d2' }) + '\n';
   const panes = status.parsePanes(text);
   const list = (panes.panes || panes || []);
   const p = (Array.isArray(list) ? list : [])[0];
