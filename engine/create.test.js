@@ -2389,32 +2389,64 @@ test('a new agent does not stop to ask whether it can trust the folder we just m
   assert.equal(readCfg().projects[dir].hasTrustDialogAccepted, true);
 });
 
-test('#1919: creating an agent pre-accepts the bypass consent in the config dir settings.json', () => {
+test('#1919/#2129: creating a default-account agent pre-accepts the bypass in the AGENT home settings, not the engine CLAUDE_CONFIG_DIR', () => {
   /**
    * 🛑 THE GUARD MUST BE ARMED, not merely present. This proves the create path
-   * actually INVOKES preacceptBypass and the key lands: without the classify /
-   * launch fix a fresh agent parks on the Bypass-Permissions consent (default
-   * `No, exit`) and never starts. settings.json is a DIFFERENT file than the
-   * trust .claude.json, resolved from CLAUDE_CONFIG_DIR, so it is pointed into
-   * the sandbox here (AGENT_WORKFORCE_CLAUDE_CONFIG still wins for .claude.json,
-   * so the trust write is unaffected).
+   * actually INVOKES preacceptBypass and the key lands WHERE THE AGENT WILL READ
+   * IT: a default-account agent launches with no CLAUDE_CONFIG_DIR, so it reads
+   * <home>/.claude/settings.json -- NOT the engine's CLAUDE_CONFIG_DIR settings.
+   * #2129 (the update wedge): the board can inherit CLAUDE_CONFIG_DIR from the
+   * app's launch env, so the bypass write must IGNORE it, or the agent clears the
+   * trust prompt and then stops on the bypass one instead. AGENT_WORKFORCE_HOME
+   * sandboxes the home settings; the trust .claude.json write is unaffected
+   * (AGENT_WORKFORCE_CLAUDE_CONFIG still wins for it).
    */
   recorder();
   create.setDryRun(false);
   writeCfg({ projects: {} });
   const prev = process.env.CLAUDE_CONFIG_DIR;
-  const cfgDir = nodePath.join(SANDBOX, 'cfgdir-1919');
-  fs.mkdirSync(cfgDir, { recursive: true });
-  process.env.CLAUDE_CONFIG_DIR = cfgDir;
+  const engineDir = nodePath.join(SANDBOX, 'engine-cfgdir-1919');   // the used-machine state the wedge needs
+  fs.mkdirSync(engineDir, { recursive: true });
+  process.env.CLAUDE_CONFIG_DIR = engineDir;
   try {
     const r = create.createAgent({ ...BINS, name: 'bypass-one', role: 'pm' });
     assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
-    const settings = JSON.parse(fs.readFileSync(nodePath.join(cfgDir, 'settings.json'), 'utf8'));
+    const settings = JSON.parse(fs.readFileSync(nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.claude', 'settings.json'), 'utf8'));
     assert.equal(settings.skipDangerousModePermissionPrompt, true,
-      'the create path did not pre-accept the bypass consent, so a fresh agent would park on it');
+      'the create path did not pre-accept the bypass consent in the config the default agent reads');
+    assert.equal(fs.existsSync(nodePath.join(engineDir, 'settings.json')), false,
+      '#2129: the bypass must NOT be written to the engine CLAUDE_CONFIG_DIR -- a default agent never reads there');
   } finally {
     if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = prev;
   }
+});
+
+test('#2129: creation and setAccount opt the trust + bypass writes into the default-account resolution (wiring guard)', () => {
+  /* Without this, the trust.js default-account fix would sit inert: the write
+     functions resolve correctly but nothing tells them the agent is on the
+     default account, so a default agent would still trust the engine's config.
+     Asserted on the source, like the #1315 dismissal guard above. */
+  const src = fs.readFileSync(nodePath.join(__dirname, 'create.js'), 'utf8');
+  assert.match(src, /trustFolder\(workerDir\(name\), \{[^}]*agentDefaultAccount: provider !== 'openai' && !configDir[^}]*\}\)/,
+    'the create-path Claude trust write no longer opts into the default-account resolution');
+  assert.match(src, /trustFolder\(workerDir\(clean\), \{[^}]*agentDefaultAccount: !configDir[^}]*\}\)/,
+    'the setAccount trust write no longer opts into the default-account resolution');
+  assert.equal((src.match(/preacceptBypass\(configDir, !configDir\)/g) || []).length, 2,
+    'both the create and setAccount bypass writes must pass the default-account flag');
+  assert.match(src, /trustCodexFolder\(workerDir\(name\), configDir, !configDir\)/,
+    'the create-path codex trust write no longer opts into the default-account resolution');
+  // The remaining flag-threading sites, so a future refactor cannot silently drop the
+  // flag on one arm without a red test (the paths are internally consistent today, but
+  // this fix is only correct as long as EVERY per-account startup write opts in):
+  assert.match(src, /trustCodexFolder\(workerDir\(clean\), acct\.dir, !acct\.dir\)/,
+    'the setProvider codex trust write no longer opts into the default-account resolution');
+  assert.match(src, /trustCodexFolder\(workerDir\(clean\), configDir, !configDir\)/,
+    'the adopt codex trust write no longer opts into the default-account resolution');
+  assert.match(src, /dismissCodexUpdateNotice\(configDir, !configDir\)/,
+    'a codex update-notice dismissal no longer opts into the default-account resolution');
+  const rmSrc = fs.readFileSync(nodePath.join(__dirname, 'remove.js'), 'utf8');
+  assert.match(rmSrc, /forgetCodexFolder\(create\.workerDir\(clean\), codexHome, !codexHome\)/,
+    'the remove untrust no longer opts into the default-account resolution, so create/remove would desync on the home');
 });
 
 test('a folder the PERSON already made is refused outright, so nothing downstream can touch it', () => {
@@ -4119,10 +4151,10 @@ test('#1315: creation actually CALLS the dismissal, beside the trust write', () 
      📌 It is deliberately anchored to the trust write, because the two belong
      together: both answer a first-run prompt that nothing else will answer. */
   const src = fs.readFileSync(nodePath.join(__dirname, 'create.js'), 'utf8');
-  const trust = src.indexOf('trustCodexFolder(workerDir(name), configDir);');
+  const trust = src.indexOf('trustCodexFolder(workerDir(name), configDir, !configDir);');
   assert.ok(trust > 0, 'the trust write moved: this guard is anchored to it and needs re-aiming');
   const near = src.slice(trust, trust + 600);
-  assert.match(near, /dismissCodexUpdateNotice\(configDir\)/,
+  assert.match(near, /dismissCodexUpdateNotice\(configDir, !configDir\)/,
     'creation no longer dismisses the update notice: a new codex agent will stop at a prompt nothing answers');
 });
 
@@ -4131,7 +4163,7 @@ test('#1315 CONTROL: that guard can fail', () => {
      wrong, or the string always present, it would pass regardless. This proves
      the same search returns nothing for a call that is not there. */
   const src = fs.readFileSync(nodePath.join(__dirname, 'create.js'), 'utf8');
-  const trust = src.indexOf('trustCodexFolder(workerDir(name), configDir);');
+  const trust = src.indexOf('trustCodexFolder(workerDir(name), configDir, !configDir);');
   const near = src.slice(trust, trust + 600);
   assert.doesNotMatch(near, /dismissSomethingThatDoesNotExist\(/,
     'the window matches anything: the guard above proves nothing');
