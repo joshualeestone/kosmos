@@ -116,6 +116,48 @@ const CASES = [
           `${tag} the calm because-line is present`, JSON.stringify(res.task));
       }
 
+      // ---- paneless: a restarting agent whose pane is GONE still reads restarting -
+      // The whole point of #2019 is the tmux gap: mid-restart the pane is gone, so the
+      // engine's snapshot carries running:false / present:false while state:'restarting'.
+      // The card()/lrow() offline early-return is guarded (`&& a.state !== 'restarting'`)
+      // and the members present-branch is forced for restarting, so it must NOT fall to
+      // "Not running" / off / unseen. This arm exercises the running:false path the
+      // per-cause cases above (present:true) never touch, so the guard is not unarmed.
+      const paneless = await page.evaluate(() => {
+        const a = {
+          name: 'April', sessionName: 'april', displayName: 'April', role: 'a researcher',
+          modelName: 'Opus 5', context: null, stateConfidence: 'reported',
+          state: 'restarting', disruption: { cause: 'restart', startedAt: '2026-09-04T01:00:00.000Z' },
+          running: false, present: false,
+        };
+        const d = document.createElement('div'); d.innerHTML = card(a);
+        const cardEl = d.firstElementChild;
+        const pill = cardEl.querySelector('.astate');
+        return {
+          cardClass: cardEl.className,
+          pillClass: pill ? pill.className : null,
+          label: (cardEl.querySelector('.astate b') || {}).textContent || '',
+          hasK: !!cardEl.querySelector('.kspin img'),
+          notRunning: /Not running/.test(cardEl.textContent),
+        };
+      });
+      chk(/\brestarting\b/.test(paneless.cardClass) && !/\b(off|unk|notrunning)\b/.test(paneless.cardClass),
+        `[${theme}] paneless (running:false) restarting card is restarting, never off/unk/notrunning`, paneless.cardClass);
+      chk(/st-restarting/.test(paneless.pillClass || '') && paneless.hasK && !paneless.notRunning,
+        `[${theme}] paneless restarting shows the K + label, never "Not running"`, JSON.stringify({ p: paneless.pillClass, k: paneless.hasK, nr: paneless.notRunning }));
+      // CONTROL: the SAME running:false with a non-restarting state MUST still render
+      // "Not running". This proves the paneless-restarting pass above is the guard
+      // (`&& a.state !== 'restarting'`) doing its job, not a globally-defeated offline
+      // early-return -- an assertion that passed either way would mean nothing.
+      const offline = await page.evaluate(() => {
+        const a = { name: 'April', sessionName: 'april', displayName: 'April', role: 'a researcher',
+          modelName: 'Opus 5', context: null, stateConfidence: 'reported', state: 'idle', running: false };
+        const d = document.createElement('div'); d.innerHTML = card(a);
+        return { txt: d.firstElementChild.textContent, cls: d.firstElementChild.className };
+      });
+      chk(/Not running/.test(offline.txt) && /\bnotrunning\b/.test(offline.cls),
+        `[${theme}] CONTROL: a non-restarting running:false agent still reads "Not running"`, offline.cls);
+
       // ---- reduced motion: the K holds static AND fully visible -----------------
       // Inject a restarting card, read the K's animation under each motion setting.
       await page.evaluate(() => {
