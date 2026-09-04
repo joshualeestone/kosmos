@@ -6,9 +6,10 @@
  * LISTABLE (the picker with "Let OpenAI choose" first + the account's models,
  * kept in the separate OPENAI_PICK_MODELS cache -- NOT merged into the Claude-only
  * CREATE_MODELS -- so paintModelWhy resolves them without polluting the Claude
- * menus), NOT LISTABLE (row
- * hidden, no stale value, a note keyed to accountModels' `because`), and no
- * account chosen. Plus the copy map is asserted case by case.
+ * menus), NOT LISTABLE (the box shows "OpenAI picks its own model for now" as its
+ * single disabled option -- never a Claude model, per Josh's 2026-09-04 refinement --
+ * with a note keyed to accountModels' `because`), and no account chosen. Plus the
+ * copy map is asserted case by case.
  *
  *   node --test web.picker-openai-model-2140.test.js
  */
@@ -81,22 +82,28 @@ test('#2140 LISTABLE: the picker shows "Let OpenAI choose" first + the account m
   assert.match(r.calls.fetchUrl, /home.*codex/, 'the fetch did not carry the selected account dir');
 });
 
-test('#2140 NOT LISTABLE: the row hides, no stale value remains, and the note is keyed to the reason', async () => {
+test('#2140 NOT LISTABLE: the box SHOWS "OpenAI picks its own model for now" as the single option (Josh 2026-09-04), never a Claude model, with the keyed note', async () => {
   const r = await runPicker({
     fetchOk: true,
     fetchBody: { ok: false, because: 'this sign-in cannot list models yet; it is not an API key' },
     acctDir: '/home/.codex',
     seedModels: [{ key: 'claude-sonnet', provider: 'anthropic', label: 'Claude Sonnet 5', why: 'x' }],
   });
-  assert.equal(r.els['create-model-row'].hidden, true, 'a not-listable account must hide the picker row');
-  assert.match(r.els['create-model'].innerHTML, /value=""/, 'a not-listable account must leave no stale (Claude) value to submit');
-  assert.equal(r.els['create-model-why'].hidden, false, 'the fallback note must be shown');
+  // Josh's refinement: the model box stays VISIBLE with a single OpenAI option, not hidden.
+  assert.equal(r.els['create-model-row'].hidden, false, 'the model box must stay shown when OpenAI cannot expose a choice');
+  const html = r.els['create-model'].innerHTML;
+  assert.match(html, /value="" selected>OpenAI picks its own model for now</, 'the single option must be "OpenAI picks its own model for now"');
+  assert.doesNotMatch(html, /Claude|sonnet|opus/i, 'no Claude model may appear under OpenAI');
+  assert.equal(r.els['create-model'].disabled, true, 'the single-option box is not a real choice, so it is disabled');
+  assert.equal(r.els['create-model-why'].hidden, false, 'the reason note must be shown below');
   assert.match(r.els['create-model-why'].textContent, /signed in with ChatGPT/, 'the note was not keyed to the not-an-API-key reason');
 });
 
-test('#2140 NO ACCOUNT: with nothing chosen, the row hides and the auto note shows without a fetch', async () => {
+test('#2140 NO ACCOUNT: the box shows the single OpenAI option (no Claude model) and the auto note, without a fetch', async () => {
   const r = await runPicker({ fetchOk: false, fetchBody: {}, acctDir: '' });
-  assert.equal(r.els['create-model-row'].hidden, true);
+  assert.equal(r.els['create-model-row'].hidden, false, 'the model box must stay shown');
+  assert.match(r.els['create-model'].innerHTML, /value="" selected>OpenAI picks its own model for now</);
+  assert.doesNotMatch(r.els['create-model'].innerHTML, /Claude|sonnet|opus/i);
   assert.equal(r.els['create-model-why'].hidden, false);
   assert.match(r.els['create-model-why'].textContent, /Once this account is signed in/);
   assert.equal(r.calls.fetchUrl, null, 'no account was chosen, so no models fetch should have fired');

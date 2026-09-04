@@ -5,7 +5,8 @@
  * now a per-account picker (not the old fixed "OpenAI picks its own model" note),
  * fed the account's /v1/models via /api/accounts/openai/models. Three states:
  * LISTABLE (the picker with "Let OpenAI choose" first + the account's models),
- * NOT LISTABLE (row hidden, no stale value, a note keyed to why), LOADING.
+ * NOT LISTABLE (the box shows "OpenAI picks its own model for now" as its single
+ * disabled option -- never a Claude model, per Josh 2026-09-04 -- with a keyed note), LOADING.
  *
  * ⚠️ WHY A BROWSER, and why a STUBBED fetch. Drives the real
  * paintOpenaiCreateModel against the real create picker in web/index.html and
@@ -80,7 +81,10 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     paintOpenaiCreateModel();
     await settle();
     const notListable = {
-      rowHidden: !!row.hidden,
+      rowShown: !row.hidden,
+      onlyOption: sel.options.length === 1,
+      optionText: sel.options[0] ? sel.options[0].textContent : '',
+      noClaude: !/Claude|sonnet|opus/i.test(sel.innerHTML),
       noStaleValue: sel.value === '',
       whyText: why.textContent || '',
       whyShown: !why.hidden,
@@ -98,7 +102,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!r.listable.firstAuto) problems.push('LISTABLE: the first option is not the empty-valued "Let OpenAI choose"');
     if (!r.listable.hasModels) problems.push('LISTABLE: the account models (gpt-5-codex, o3) are not offered');
     if (!/reasoning/i.test(r.listable.whyOnSelect) || !r.listable.whyShownOnSelect) problems.push('LISTABLE: selecting a model did not surface its why-line');
-    if (!r.notListable.rowHidden) problems.push('NOT LISTABLE: the picker row is NOT hidden');
+    if (!r.notListable.rowShown) problems.push('NOT LISTABLE: the model box is hidden -- it must show "OpenAI picks its own model for now" (Josh 2026-09-04)');
+    if (!r.notListable.onlyOption || !/OpenAI picks its own model for now/.test(r.notListable.optionText)) problems.push('NOT LISTABLE: the box is not a single "OpenAI picks its own model for now" option: ' + JSON.stringify(r.notListable.optionText));
+    if (!r.notListable.noClaude) problems.push('NOT LISTABLE: a Claude model appears under OpenAI');
     if (!r.notListable.noStaleValue) problems.push('NOT LISTABLE: a stale model value remains and could be submitted');
     if (!/signed in with ChatGPT/.test(r.notListable.whyText) || !r.notListable.whyShown) problems.push('NOT LISTABLE: the reason-keyed fallback note is missing');
   }
@@ -109,5 +115,5 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-create-openai-model-2140: the OpenAI picker lists the account models with "Let OpenAI choose" first and shows a selected model why; a not-listable account hides the row with no stale value and a reason-keyed note.');
+  console.log('render-create-openai-model-2140: the OpenAI picker lists the account models with "Let OpenAI choose" first and shows a selected model why; a not-listable account shows the box with the single "OpenAI picks its own model for now" option (no Claude model) and a reason-keyed note.');
 })();

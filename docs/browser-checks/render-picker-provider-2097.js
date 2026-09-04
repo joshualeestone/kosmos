@@ -50,9 +50,15 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!modelRow) return { error: '#create-model-row is missing (the #2098 hide-whole row was not added)' };
     const read = () => {
       const w = document.getElementById('create-model-why') || {};
+      const sel = document.getElementById('create-model') || { innerHTML: '', options: [] };
       // #2098: textContent returns the string even on a HIDDEN element, so the note's
       // VISIBILITY must be read separately or a hidden note reads as present (false green).
-      return { modelRowHidden: !!modelRow.hidden, whyText: w.textContent || '', whyHidden: !!w.hidden };
+      return {
+        modelRowHidden: !!modelRow.hidden, whyText: w.textContent || '', whyHidden: !!w.hidden,
+        // #2140 (Josh 2026-09-04): on OpenAI the box shows a single "OpenAI picks its own
+        // model for now" option, never a Claude one -- the no-stale-Claude-value invariant.
+        modelHtml: sel.innerHTML || '',
+      };
     };
     prov.value = 'openai';    applyCreateProviderUI(); const openai = read();
     prov.value = 'anthropic'; applyCreateProviderUI(); const anthropic = read();
@@ -87,7 +93,13 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (r.error) {
     problems.push(r.error);
   } else {
-    if (!r.openai.modelRowHidden) problems.push('OpenAI: the model row is NOT hidden -- a stale Claude model still shows under an OpenAI key (#2098)');
+    /* #2140 (Josh 2026-09-04) refined #2098: OpenAI now SHOWS the model box with a
+       single "OpenAI picks its own model for now" option (never a Claude model), rather
+       than hiding it. On this account-less file:// page that is the not-listable/no-account
+       state. The no-stale-Claude-value invariant #2098 exists for is asserted here as the
+       ABSENCE of a Claude model under OpenAI, plus the single OpenAI option present. */
+    if (/Claude|sonnet|opus/i.test(r.openai.modelHtml)) problems.push('OpenAI: a Claude model shows under an OpenAI key (the #2098/#2140 no-stale-Claude-value invariant)');
+    if (!/OpenAI picks its own model for now/.test(r.openai.modelHtml)) problems.push('OpenAI: the model box does not show the single "OpenAI picks its own model for now" option (#2140)');
     /* #2140 replaced the fixed "OpenAI picks its own model for now." note with a
        per-account picker. On this file:// page there is no /api/accounts fetch and
        no account chosen, so the picker is in its NOT-LISTABLE state: the row hides
