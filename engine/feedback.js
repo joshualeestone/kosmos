@@ -110,9 +110,12 @@ function read(date) {
 function readBody(date) {
   const raw = read(date);
   if (raw == null) return null;
-  // Strip a leading `---\n...\n---\n` header if present; otherwise the whole file.
+  // Strip a leading `---\n...\n---\n` header if present; otherwise the whole
+  // file. The header regex consumes the header's own trailing newline, so the
+  // remainder is returned faithfully (no leading-blank-line stripping, which
+  // would silently drop a body the author meant to begin with blank lines).
   const m = raw.match(/^---\n[\s\S]*?\n---\n?/);
-  return m ? raw.slice(m[0].length).replace(/^\n+/, '') : raw;
+  return m ? raw.slice(m[0].length) : raw;
 }
 
 /** True when a report exists for the day. */

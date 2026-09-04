@@ -3272,9 +3272,15 @@ const server = http.createServer((req, res) => {
         if (typeof body.body !== 'string' || !body.body.trim()) {
           sendJson(res, 400, { error: 'a report body is required' }); return;
         }
+        // Validate the date HERE so a malformed date is a clean 400. Everything
+        // left for write() to throw is then an IO failure (ENOSPC/EACCES/...),
+        // which is a 500, not "your date is wrong" (a misleading 400).
+        if (body.date != null && !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) {
+          sendJson(res, 400, { error: 'the date must be YYYY-MM-DD' }); return;
+        }
         let saved;
         try { saved = feedback.write(body.body, body.date ? { date: body.date } : undefined); }
-        catch { sendJson(res, 400, { error: 'the date must be YYYY-MM-DD' }); return; }
+        catch { sendJson(res, 500, { error: 'we could not save that report' }); return; }
         sendJson(res, 200, { ok: true, date: saved.date });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that report' }));

@@ -86,6 +86,17 @@ test('GET with a malformed date is refused (400), not treated as a path', async 
   assert.equal(r.status, 400);
 });
 
+test('POST with a malformed date is a clean 400 (validated at the route, before the write)', async (t) => {
+  const base = await boot(t);
+  const r = await fetch(`${base}/api/feedback`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ date: '../../oops', body: 'real body' }),
+  });
+  assert.equal(r.status, 400);
+  const j = await r.json();
+  assert.match(j.error, /YYYY-MM-DD/);
+});
+
 test('GET for a day with no report returns report: null, not an error', async (t) => {
   const base = await boot(t);
   const r = await fetch(`${base}/api/feedback?date=2020-01-01`);
