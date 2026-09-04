@@ -2222,7 +2222,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    reuses this markup and would run out of room) -- both fall back to the chip. */
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row { margin-left: calc(var(--pj-depth, 0) * 22px); }
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child { border-left: 2px solid var(--k-rule); }
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-parent { display: none; }
+/* Hide the chip ONLY on rows the indent already places (.child). A child whose
+   parent is archived/dangling falls back to depth 0 with no indent and no
+   .child border, so in list mode it would otherwise be indistinguishable from a
+   real top-level project -- keep its chip so the relationship stays visible in
+   every view, not just the grid and the rail. */
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display: none; }
 /* The pack's .pc-t, name included: the pack spends `.pjdesc` on the DETAIL
    page's description (.9375rem/1.45), so the card's sentence takes the
    card's own pack class or the pjone rebuild inherits 14px by collision. */

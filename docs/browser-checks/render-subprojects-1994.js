@@ -51,13 +51,20 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       PJ_SORT = 'az';
       const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
       document.getElementById('panel-projects').hidden = false;
+      // Force the wide LIST sub-view (not the asgrid grid) so the chip-vs-indent
+      // rules under test apply: indent carries a nested child, the chip carries
+      // an orphan. The --pj-depth STYLE attribute is set regardless of mode, so
+      // the depth assertions below are mode-independent; only chipDisplay is not.
+      document.getElementById('pj-list').classList.remove('asgrid');
+      document.body.classList.remove('consolidated');
       paintProjects();
       const rows = Array.from(document.querySelectorAll('#pj-list .pj-row'));
       const by = {};
-      rows.forEach((r, i) => { by[r.getAttribute('data-project')] = {
+      rows.forEach((r, i) => { const chipEl = r.querySelector('.pj-parent'); by[r.getAttribute('data-project')] = {
         i, depth: Number(r.style.getPropertyValue('--pj-depth') || 0),
         sub: (r.querySelector('.pjsub') || {}).textContent || '',
-        chip: (r.querySelector('.pj-parent') || {}).textContent || '',
+        chip: (chipEl || {}).textContent || '',
+        chipDisplay: chipEl ? getComputedStyle(chipEl).display : 'none',
         childClass: r.classList.contains('child') };
       });
       return { count: rows.length, ids: rows.map((r) => r.getAttribute('data-project')), by };
@@ -80,6 +87,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' archived-parent child keeps its chip', /under Archived one/.test(tree.by.ac.chip), tree.by.ac.chip);
     // the chip carries the parent name for a nested child too
     ok(t + ' nested child has parent chip', /under Kosmos/.test(tree.by.app.chip), tree.by.app.chip);
+    // In the wide LIST view the indent carries a nested child's relationship, so
+    // its chip is hidden; but an orphan (archived/dangling parent) has no indent,
+    // so ITS chip must stay visible or the relationship would vanish in list mode.
+    ok(t + ' nested child chip hidden in list view', tree.by.app.chipDisplay === 'none', tree.by.app.chipDisplay);
+    ok(t + ' orphan chip stays visible in list view', tree.by.ac.chipDisplay !== 'none', 'ac chipDisplay=' + tree.by.ac.chipDisplay);
     // CONTROL: without nesting, app would be at the same depth as k. Prove the
     // instrument can see the dangerous answer by checking depth actually varies.
     ok(t + ' CONTROL depth varies (grouping is real, not flat)', new Set(Object.values(tree.by).map((x) => x.depth)).size >= 3);
