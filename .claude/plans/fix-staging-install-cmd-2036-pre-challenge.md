@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: fix-staging-install-cmd-2036
-diff_hash: 3dc28993358043188f490650a00fb3c4e4f586d78e8c039bc2ed3bfdc170b6ff
+diff_hash: 57443f8c89ee36135a5556c09deea4ee78d5cb9f0e5a4bc79097cbb084f47d09
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-04T21:32:10Z
