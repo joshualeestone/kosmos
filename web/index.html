@@ -33885,8 +33885,10 @@ async function frPaintYou() {
   } catch { /* absent is the normal start; the fields just start empty */ }
   /* #1994: prefill the saved time zone (a separate store), so returning to this
      step shows the zone already chosen rather than resetting to the machine
-     default. Left untouched while the person has the select focused, same
-     draft-safety as the fields above. */
+     default. Left untouched while the person has the select focused. (A select
+     always carries a value, so the "only fill when empty" test the name/does
+     fields use does not apply; the focus guard is the analog, matching the
+     Settings paintYouTz prefill.) */
   try {
     const sr = await (await fetch('/api/settings', { cache: 'no-store' })).json();
     if (entry !== FR_YOU_GEN) return;

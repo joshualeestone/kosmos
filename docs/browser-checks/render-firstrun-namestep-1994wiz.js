@@ -146,6 +146,15 @@ function chk(ok, label, extra) {
     // Continue actually saves the zone (pre-#1994 there was no tz to save).
     await page.fill('#fr-you-name', 'Alex');
     await page.fill('#fr-you-do', 'I run a company');
+
+    // Screenshot and the page-error arm are scoped to the NAME STEP, before the
+    // Continue click advances the wizard: the shot must show the filled name step
+    // (not the step it advances to), and a pageerror from the NEXT step's paint
+    // must not red an arm that is about this step.
+    await page.screenshot({ path: path.join(OUT, `fr-pane-${step}-namestep.png`) });
+    console.log('screenshot: ' + path.join(OUT, `fr-pane-${step}-namestep.png`));
+    chk(errs.length === 0, 'no page errors rendering the name step', errs.join(' | '));
+
     const tzToSave = m.tzValue;
     const settingsPost = page.waitForRequest(
       (r) => r.url().includes('/api/settings') && r.method() === 'POST',
@@ -158,10 +167,6 @@ function chk(ok, label, extra) {
       'Continue POSTs /api/settings with a timezone', 'body=' + JSON.stringify(postBody));
     chk(!!postBody && postBody.timezone === tzToSave,
       'the POSTed timezone matches the selected zone', 'posted=' + (postBody && postBody.timezone) + ' selected=' + tzToSave);
-
-    await page.screenshot({ path: path.join(OUT, `fr-pane-${step}-namestep.png`) });
-    console.log('screenshot: ' + path.join(OUT, `fr-pane-${step}-namestep.png`));
-    chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     await browser.close();
     server.close();
