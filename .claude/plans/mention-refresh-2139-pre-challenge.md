@@ -2,17 +2,26 @@
 pre_challenge: true
 method: challenge-loop
 branch: mention-refresh-2139
-diff_hash: acef0607dcdd51ec8707cb7b807720a930452d485070c673d27d76af826b2cf6
+diff_hash: 0098f1140895fa45d04440166279c196b219ffb7c401a63fe8e2ec6960680331
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-04T18:12:47Z
-iterations: 3
+timestamp: 2026-09-04T18:46:44Z
+iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 3 (1 initial-validation baseline + 2 fresh, blind review passes)
+**Iterations:** 4 (1 initial-validation baseline + 3 fresh, blind review passes)
+
+**Plan-file + hash note:** the plan file `.claude/plans/mention-refresh-2139.md` was missing at first
+(the gate refused PR creation for it), so it was added and a 3rd blind pass run on the plan-added
+tree; that pass surfaced one NIT (a comment claimed loadProjects "returns false" on a read error when
+it returns true there — corrected to state only the true, load-bearing property: it swallows its read
+errors in an internal try/catch and never rethrows). This proof's `diff_hash` covers the plan file and
+the comment fix. A clean validation window was hard to catch on the shared Mac (a release cut held the
+machine, then concurrent browser-check runs tripped the cut/browser-run guards); every red was
+confirmed contention (the guard tests pass alone), and the final validation ran clean.
 **Converged:** Yes (the 2nd review pass surfaced zero new BLOCKER/WARNING/CONVENTION findings)
 **Total findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 3 NITs
 **Fixed:** 1 WARNING + (test tightened) | **Deferred:** 3 NITs | **Asked:** 0
