@@ -57,11 +57,15 @@ test('POST writes a report to local disk and GET reads it back', async (t) => {
 
 test('POST with no body is refused (400), nothing written', async (t) => {
   const base = await boot(t);
+  // A unique date nothing else in this file writes, so "nothing written" is
+  // provable in isolation (the tests share one sandbox data root, no per-test
+  // cleanup): the route must reject on the empty body BEFORE it writes anything.
   const r = await fetch(`${base}/api/feedback`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ body: '   ' }),
+    body: JSON.stringify({ date: '2019-06-15', body: '   ' }),
   });
   assert.equal(r.status, 400);
+  assert.equal(feedback.has('2019-06-15'), false, 'a rejected empty-body POST still wrote a report');
 });
 
 test('GET ?date= returns that day; a written past day round-trips', async (t) => {
