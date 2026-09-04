@@ -132,10 +132,11 @@ async function state() {
 
      📌 COST, weighed rather than waved past. This adds one `claude auth status`
      to a route that already shells out to `tmux list-panes` through `fleet()`
-     below, and Settings pays the same price on every open. `server.js:1702`'s
-     five-second status tick keeps `checkCached()` and is untouched: that one IS
-     a poll, and the cost note at `server.js:3211` is about `/api/found-agents`,
-     not about this.
+     below, and Settings pays the same price on every open. The five-second
+     status tick (the `/api/status` handler) reads `subscription.checkMachine()`
+     and is untouched by this route: that one is a cached poll (memoized over
+     every account's config stat, #2130), so the cost note at `server.js:3211`
+     is about `/api/found-agents`, not about this.
 
      🛑 CORRECTED (#1556): that last clause was wrong and it is fixed here rather
      than left to contradict the newer note below. `server.js:3211` explains why
