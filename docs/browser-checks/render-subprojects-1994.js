@@ -62,6 +62,10 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const by = {};
       rows.forEach((r, i) => { const chipEl = r.querySelector('.pj-parent'); by[r.getAttribute('data-project')] = {
         i, depth: Number(r.style.getPropertyValue('--pj-depth') || 0),
+        // The COMPUTED indent, not the inline --pj-depth var we set: a typo in
+        // the `calc(var(--pj-depth,0)*22px)` rule (wrong var/unit) would ship
+        // green if we only read back the property we wrote.
+        marginLeft: getComputedStyle(r).marginLeft,
         sub: (r.querySelector('.pjsub') || {}).textContent || '',
         chip: (chipEl || {}).textContent || '',
         chipDisplay: chipEl ? getComputedStyle(chipEl).display : 'none',
@@ -92,6 +96,10 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // so ITS chip must stay visible or the relationship would vanish in list mode.
     ok(t + ' nested child chip hidden in list view', tree.by.app.chipDisplay === 'none', tree.by.app.chipDisplay);
     ok(t + ' orphan chip stays visible in list view', tree.by.ac.chipDisplay !== 'none', 'ac chipDisplay=' + tree.by.ac.chipDisplay);
+    // COMPUTED indent renders (not just the inline var): depth 1 -> 22px, depth 2 -> 44px, top level -> 0.
+    ok(t + ' computed indent depth1 = 22px', tree.by.app.marginLeft === '22px', tree.by.app.marginLeft);
+    ok(t + ' computed indent depth2 = 44px', tree.by.mob.marginLeft === '44px', tree.by.mob.marginLeft);
+    ok(t + ' computed indent top level = 0px', tree.by.k.marginLeft === '0px', tree.by.k.marginLeft);
     // CONTROL: without nesting, app would be at the same depth as k. Prove the
     // instrument can see the dangerous answer by checking depth actually varies.
     ok(t + ' CONTROL depth varies (grouping is real, not flat)', new Set(Object.values(tree.by).map((x) => x.depth)).size >= 3);
@@ -105,6 +113,24 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       return Array.from(document.querySelectorAll('#pj-list .pj-row')).map((r) => r.getAttribute('data-project')).sort();
     });
     ok(t + ' cycle renders all rows (no vanish, no hang)', cyc.length === 3 && cyc.join(',') === 'a,b,c', JSON.stringify(cyc));
+
+    // ---- Layer 1c: the GRID view drops the indent and shows the chip ----
+    // The headline "chip carries the relationship where there is no indent":
+    // in the asgrid grid a nested child has no indent (margin 0) and its chip
+    // is visible, the inverse of list mode.
+    const grid = await page.evaluate(() => {
+      const mk = (id, name, parent, parentName) => ({ id, name, parent: parent || null, parentName: parentName || null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App', 'k', 'Kosmos')];
+      PJ_SORT = 'az';
+      document.body.classList.remove('consolidated');
+      document.getElementById('pj-list').classList.add('asgrid');   // grid sub-view
+      paintProjects();
+      const row = document.querySelector('#pj-list .pj-row[data-project="app"]');
+      const chip = row.querySelector('.pj-parent');
+      return { marginLeft: getComputedStyle(row).marginLeft, chipDisplay: chip ? getComputedStyle(chip).display : 'none' };
+    });
+    ok(t + ' grid view drops the indent', grid.marginLeft === '0px', grid.marginLeft);
+    ok(t + ' grid view shows the chip', grid.chipDisplay !== 'none', grid.chipDisplay);
 
     // ---- Layer 2: the set-parent select ----
     const select = await page.evaluate(() => {

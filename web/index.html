@@ -28915,8 +28915,9 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
   msg.textContent = '';
   pjFieldOk('pjs-desc', 'pjs-desc-err');
   // #1994: clear a prior parent refusal too, or a red border + aria-invalid
-  // left by an earlier refusal would persist on a now-valid field after a later
-  // save (pjPaintParentSelect clears only the error text, not the field state).
+  // left by an earlier refusal would persist on a now-valid field. This save
+  // path needs its own reset because pjPaintParentSelect (which also calls
+  // pjFieldOk) is not invoked on save, only on opening the settings panel.
   pjFieldOk('pjs-parent', 'pjs-parent-err');
   const btn = document.getElementById('pjs-save');
   /* #1303 G: checked BEFORE the round trip, so the reason appears at the field
