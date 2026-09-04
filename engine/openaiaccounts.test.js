@@ -828,7 +828,8 @@ test('#2095: the clamp is code-point-safe (an emoji at the boundary is not split
   openai.writeName(d, 'a'.repeat(119) + '\u{1F600}' + 'tail');
   const got = openai.readName(d);
   assert.ok(!got.includes('�'), 'no replacement char from a split surrogate');
-  assert.equal([...got].length <= 120, true, 'clamped by code point');
+  assert.ok(got.includes('\u{1F600}'), 'the astral char at the 120th code point survives WHOLE, not dropped or halved');
+  assert.equal([...got].length, 120, 'clamped to exactly 120 code points (119 + the whole emoji)');
 });
 
 test('#2095: a made-dir live-rejection removes the whole dir including the name file (belt-and-suspenders)', async () => {

@@ -79,7 +79,10 @@ function nameFile(dir) {
 }
 function readName(dir) {
   try {
-    const n = fs.readFileSync(nameFile(dir), 'utf8').trim();
+    // Re-apply the same code-point clamp on READ, not only on write, so the
+    // bound holds however the bytes got into the file (a hand-edited or legacy
+    // sidecar), not merely for names this module itself wrote.
+    const n = [...fs.readFileSync(nameFile(dir), 'utf8').trim()].slice(0, NAME_MAX).join('').trimEnd();
     return n || null;
   } catch { return null; }
 }
