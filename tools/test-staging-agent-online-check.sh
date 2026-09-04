@@ -88,6 +88,9 @@ case "$route" in
       emit "{\"accounts\":[$rows]}" 200
     fi;;
   /api/status)
+    # status-garbage: a 200 with NO recognized agent list - the gate must FAIL CLOSED (exit 2),
+    # never read it as "0 agents" and let the fleet guard pass.
+    if [ "${MOCK_AGENT_STATE:-idle}" = status-garbage ]; then emit '{"unexpected":"shape"}' 200; exit 0; fi
     pre="${MOCK_PREEXISTING:-0}"; parts=""; first=1; i=0
     while [ "$i" -lt "$pre" ]; do
       [ "$first" = 1 ] || parts="$parts,"; first=0
@@ -147,6 +150,7 @@ run_case "unexpected create-400 (not sign-in) -> cannot-tell" 2 MOCK_ACCOUNTS=bo
 run_case "agent never appears (shape mismatch) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=noshow
 run_case "populated fleet, no override -> REFUSE"       2  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5
 run_case "garbage MAX_EXISTING still guards a populated fleet" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_AGENT_ONLINE_MAX_EXISTING=abc
+run_case "unreadable /api/status (200, no agent list) -> FAIL CLOSED" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=status-garbage
 run_case "populated fleet WITH allow-live + online"     0  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1
 run_case "no openai account -> cannot-tell"             2  MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=idle
 run_case "Claude present but signed OUT -> cannot-tell"  2  MOCK_ACCOUNTS=claude-signedout MOCK_AGENT_STATE=idle

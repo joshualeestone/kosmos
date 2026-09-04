@@ -115,14 +115,13 @@ api_get() {
   RESP_BODY="$(cat "$_BODYF" 2>/dev/null)"
 }
 api_post() {
-  local route="$1" json="$2" tries=0
-  while :; do
-    : > "$_BODYF"
-    HTTP_CODE="$("$CURL" -sS --max-time 30 -H @"$HF" -H 'content-type: application/json' \
-      -X POST --data "$json" -o "$_BODYF" -w '%{http_code}' "$URL$route" 2>/dev/null || true)"
-    case "$HTTP_CODE" in ""|000) ;; *) break ;; esac
-    tries=$((tries+1)); [ "$tries" -ge 4 ] && break; sleep 1
-  done
+  local route="$1" json="$2"
+  # NO retry here (unlike api_get): POST /api/agents is NOT idempotent - a retry after a lost
+  # response could create a DUPLICATE agent. A lost/empty POST response leaves HTTP_CODE
+  # empty, which the caller reads as non-200 -> cannot-tell (2), the safe direction.
+  : > "$_BODYF"
+  HTTP_CODE="$("$CURL" -sS --max-time 30 -H @"$HF" -H 'content-type: application/json' \
+    -X POST --data "$json" -o "$_BODYF" -w '%{http_code}' "$URL$route" 2>/dev/null || true)"
   RESP_BODY="$(cat "$_BODYF" 2>/dev/null)"
 }
 
@@ -135,7 +134,10 @@ fi
 # --- discover one CONNECTED account dir per provider (node parses the JSON) ---
 # Prints "anthropic\t<dir>" and/or "openai\t<dir>" for providers with a live-connected
 # account. A provider with no connected account is omitted -> we cannot test it fresh.
-PROV_DIRS="$("$NODE" -e '
+# Feed the board body to node via a printf pipe (not an unquoted heredoc): printf never
+# interprets its argument, so a hostile field in a build-under-test's response cannot be
+# expanded by the shell. Same pattern as the create/status parses below.
+PROV_DIRS="$(printf '%s' "$ACCTS" | "$NODE" -e '
 let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
   let j; try{ j=JSON.parse(s) }catch{ process.exit(0) }
   const rows = Array.isArray(j) ? j : (j.accounts || j.rows || []);
@@ -156,10 +158,7 @@ let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
     const dir = r.dir || r.account || r.accountDir || "";
     if (!seen[prov]) { seen[prov]=1; process.stdout.write(prov+"\t"+dir+"\n"); }
   }
-})' <<EOF
-$ACCTS
-EOF
-)"
+})')"
 
 get_dir() { printf '%s\n' "$PROV_DIRS" | awk -F'\t' -v p="$1" '$1==p{print $2; exit}'; }
 ANTHROPIC_DIR="$(get_dir anthropic)"
@@ -179,22 +178,35 @@ api_get /api/status; STATUS0="$RESP_BODY"
 if [ "$HTTP_CODE" != "200" ]; then
   say "GET /api/status -> HTTP ${HTTP_CODE:-<none>} - cannot tell"; exit 2
 fi
-N_EXISTING="$("$NODE" -e '
+# Count existing agents. Emit ERR (not 0) when the body does not parse OR carries no
+# recognized agent list, so an unreadable /api/status FAILS CLOSED below rather than reading
+# as "0 agents" and letting the fleet guard pass on a board we cannot actually count.
+N_EXISTING="$(printf '%s' "$STATUS0" | "$NODE" -e '
 let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
-  let j; try{ j=JSON.parse(s) }catch{ process.stdout.write("0"); return }
-  const a = j.agents || j.cards || j.fleet || (Array.isArray(j)?j:[]);
-  process.stdout.write(String(Array.isArray(a)?a.length:0));
-})' <<EOF
-$STATUS0
-EOF
-)"
+  let j; try{ j=JSON.parse(s) }catch{ process.stdout.write("ERR"); return }
+  let a;
+  if (Array.isArray(j)) a=j;
+  else if (Array.isArray(j.agents)) a=j.agents;
+  else if (Array.isArray(j.cards)) a=j.cards;
+  else if (Array.isArray(j.fleet)) a=j.fleet;
+  else { process.stdout.write("ERR"); return }
+  process.stdout.write(String(a.length));
+})')"
+# FAIL CLOSED: a 200 we cannot count (contract drift, unparseable) must not let the fleet
+# guard pass - refusing here is the safe direction (never spawn test agents on a board whose
+# population we cannot read). This also numeric-validates N_EXISTING before the -gt below.
+case "$N_EXISTING" in
+  ''|*[!0-9]*)
+    say "GET /api/status returned 200 but no readable agent list (got '${N_EXISTING}') - cannot count the fleet."
+    say "  refusing to create test agents on a board we cannot read (fail closed) - cannot tell"; exit 2 ;;
+esac
 MAX_EXISTING="${KOSMOS_AGENT_ONLINE_MAX_EXISTING:-2}"
 # 🛑 This guard is the ONE thing stopping test-agent spawn on a populated fleet, so its
 # threshold must never be garbage: a non-numeric MAX would make the `-gt` test below error,
 # the `&&` short-circuit, and the guard silently NOT fire - spawning agents among live
 # sessions. Fall back to the safe default on anything non-numeric rather than disabling.
 case "$MAX_EXISTING" in ''|*[!0-9]*) say "KOSMOS_AGENT_ONLINE_MAX_EXISTING='${MAX_EXISTING}' is not numeric - using the safe default 2"; MAX_EXISTING=2 ;; esac
-if [ "${N_EXISTING:-0}" -gt "$MAX_EXISTING" ] && [ "${KOSMOS_STAGING_VERIFY_ALLOW_LIVE:-}" != "1" ]; then
+if [ "$N_EXISTING" -gt "$MAX_EXISTING" ] && [ "${KOSMOS_STAGING_VERIFY_ALLOW_LIVE:-}" != "1" ]; then
   say "this board already carries ${N_EXISTING} agents (> ${MAX_EXISTING}) - looks like a populated FLEET, not a fresh staging machine."
   say "  refusing to create test agents here. Set KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1 only if you are certain this is a throwaway board - cannot tell"
   exit 2
