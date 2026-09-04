@@ -29550,14 +29550,24 @@ function pjRichSpans(seg) {
 }
 function pjRich(text) {
   const raw = String(text == null ? '' : text);
-  /* Fast path: no inline marker, no block-marker line, no URL -> exactly the
-     old `esc(raw)`, byte for byte. `*`, `_`, backtick and `~` (which also
-     cover `***`/`___` rules, `*` lists and ``` fences) disqualify it; the
-     remaining block starts (`#` heading, `>` quote, `-`/`+` list, `N.` list,
-     `---` rule) are checked at line start only, so `#tag`, `well-being` and
-     `C#` stay literal. */
+  /* Fast path: no inline marker, no block-marker line, no URL, no `[text](url)`
+     link -> exactly the old `esc(raw)`, byte for byte. `*`, `_`, backtick and
+     `~` (which also cover `***`/`___` rules, `*` lists and ``` fences)
+     disqualify it; the remaining block starts (`#` heading, `>` quote, `-`/`+`
+     list, `N.` list, `---` rule) are checked at line start only, so `#tag`,
+     `well-being` and `C#` stay literal. The `[text](url)` disqualifier is what
+     routes a link to ANY target (a relative path, `mailto:`, an anchor -- not
+     just http) to the slow path, where its syntax is stripped to the text; the
+     http/https checks alone would leave a non-http link showing raw markup.
+     ⚠️ A content-dependent consequence on `.pj-msg-text` (which is not
+     `pre-wrap`): a plain multiline message keeps its literal `\n` here (renders
+     as before), while a message carrying any marker/URL/link takes the slow
+     path and its breaks become `<br>`, so two messages on that surface can wrap
+     differently by content. Intended (see rule 2); noted so it is not a
+     surprise. */
   if (!/[*_`~]/.test(raw)
       && !/(^|\n)[ \t]*(#{1,6}[ \t]|>[ \t]?|[-+][ \t]|\d+\.[ \t]|-{3,}[ \t]*(\n|$))/.test(raw)
+      && !/\[[^\]\n]+\]\([^)\n]+\)/.test(raw)
       && raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1) {
     return esc(raw);
   }

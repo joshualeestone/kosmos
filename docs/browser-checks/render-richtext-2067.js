@@ -90,6 +90,10 @@ function ok(name, cond, detail) {
         urlQuote: pj('https://x.test/"onmouseover="alert(1)'),
         jsLink: pj('[x](javascript:alert(1))'),
         mdLink: pj('[click here](https://evil.test)'),
+        // a markdown link to a NON-http target must ALSO strip to its text, not
+        // show raw [text](url) markup (the http-only fast path used to leak it).
+        mdLinkRel: pj('[the docs](docs/help.md)'),
+        mdLinkMail: pj('[email me](mailto:x@y.test)'),
         fenceNoLink: pj('```\nhttps://x.test\n```'),
         headingHtml: pj('# <b>hi</b>'),
         // the three URL/emphasis-interaction vectors an earlier version got
@@ -144,6 +148,10 @@ function ok(name, cond, detail) {
     ok(t + ' url quote cannot break attr', !/onmouseover="alert/.test(r.urlQuote) && /&quot;/.test(r.urlQuote), r.urlQuote);
     ok(t + ' no javascript: link', !/href="javascript:/.test(r.jsLink), r.jsLink);
     ok(t + ' md link text only, not anchored', /click here/.test(r.mdLink) && !/href="https:\/\/evil\.test"/.test(r.mdLink), r.mdLink);
+    ok(t + ' md link (relative) stripped to text', r.mdLinkRel === 'the docs', r.mdLinkRel);
+    ok(t + ' md link (relative) no raw markup', !/\]\(/.test(r.mdLinkRel) && !r.mdLinkRel.includes('docs/help.md'), r.mdLinkRel);
+    ok(t + ' md link (mailto) stripped to text', r.mdLinkMail === 'email me', r.mdLinkMail);
+    ok(t + ' md link (mailto) no raw markup', !/\]\(/.test(r.mdLinkMail) && !r.mdLinkMail.includes('mailto:'), r.mdLinkMail);
     ok(t + ' fenced code not linkified', !/<a class="xlink"/.test(r.fenceNoLink), r.fenceNoLink);
     ok(t + ' heading html inert', /<span class="mdh">&lt;b&gt;hi&lt;\/b&gt;<\/span>/.test(r.headingHtml), r.headingHtml);
     ok(t + ' bare url autolink kept', /<a class="xlink" href="https:\/\/x\.test\/p"/.test(r.url), r.url);
