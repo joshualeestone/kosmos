@@ -57,7 +57,13 @@ Two prior guards contradicted Josh's live reversal and were updated (not weakene
 ## Verification
 - Smoke (real headless browser): copy gone; name input computed max-width 320px (20rem); tz select
   present, 418 zones, defaulted to the machine zone.
-- All 21 name-step-related node tests pass (firstrun-you, firstrun-you-behaviour, firstrun-a11y,
+- All name-step-related node tests pass (firstrun-you, firstrun-you-behaviour, firstrun-a11y,
   found-every-path, firstrun-you-reach-1772).
-- TODO: committed headless browser-check docs/browser-checks/render-firstrun-namestep-1994wiz.js +
-  registration; full run-tests.sh; challenge-loop to convergence.
+- Committed headless browser-check docs/browser-checks/render-firstrun-namestep-1994wiz.js: DONE,
+  registered in tools/browser-checks.sh and docs/browser-checks/README.md. Proven RED against the
+  pre-#1994 page (10 of 12 arms fail); it captures the real POST /api/settings to prove the save
+  wiring, and reads computed max-width so a stale CSS rule reds.
+- Full run-tests.sh: PASSED green (the release cut-guard reds seen once were confirmed contention
+  from a concurrent suite's install harness, green when re-run alone).
+- Challenge-loop: converged (no new BLOCKER/WARNING/CONVENTION on the final pass); proof file at
+  .claude/plans/firstrun-namestep-1994wiz-pre-challenge.md.
