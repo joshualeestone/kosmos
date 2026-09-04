@@ -671,7 +671,9 @@ const SCAN = Object.freeze({
      its own wall against a machine with thousands of markdown files. */
   MAX_MD_READS: 3000,
   /* Shallow depth for the download/save locations (Downloads, Desktop): a shared
-     agent file lands at the top, not nested deep. */
+     agent file lands at the top, not nested deep. #2125: used only on the
+     user-triggered import scan (defaultScanRoots({importScan:true})); the auto
+     first-run scan omits these roots so it never fires a TCC prompt. */
   DROP_DEPTH: 1,
 });
 
@@ -681,15 +683,27 @@ const SCAN = Object.freeze({
 const SCAN_SKIP = new Set([
   'node_modules', 'target', 'vendor', 'dist', 'build',
   'Library', 'Applications', 'Music', 'Movies', 'Pictures', 'Downloads',
-  'Public', 'Desktop', 'Photos Library.photoslibrary',
+  // #2125: Documents is skipped by the shallow $HOME walk too (HOME_DEPTH would
+  // otherwise descend into it), not just dropped from SCAN_DEEP_NAMES -- entering
+  // ~/Documents at all fires the macOS Documents-access prompt on a fresh install.
+  'Public', 'Desktop', 'Documents', 'Photos Library.photoslibrary',
 ]);
 
 /* The curated project parents under $HOME, scanned deep. Names only; only those
    that actually exist become roots. This is the "sensible roots" set, and it is
    deliberately NOT the whole disk. Josh's call to widen; a wrong root is a
    candidate the person Skips in one click, because the screen SHOWS the file. */
+// 🛑 #2125: the TCC-protected home folders (Documents, Downloads, Desktop) are
+// NOT scanned. Deep-walking ~/Documents fired a macOS "would like to access your
+// Documents folder" prompt on a fresh install (and denying it BROKE the first-run
+// scan), which is the regression Josh reported: "I've always been able to go to
+// this screen, not get prompted." Standard agent/code folders (work, projects,
+// dev, src, code, repos, Developer) are all still scanned; only the prompt-
+// triggering, non-standard-for-agents TCC roots are dropped. Discovery inside
+// those folders can return as an explicit user-triggered rescan later (#2125
+// follow-up) rather than an auto-fired scan that prompts a brand-new user.
 const SCAN_DEEP_NAMES = Object.freeze([
-  'work', 'projects', 'Projects', 'Developer', 'dev', 'src', 'code', 'repos', 'Documents', 'Kosmos', 'kosmos',
+  'work', 'projects', 'Projects', 'Developer', 'dev', 'src', 'code', 'repos', 'Kosmos', 'kosmos',
 ]);
 
 /**
@@ -716,7 +730,8 @@ function scanRootsFromEnv() {
   return roots.length ? roots : null;
 }
 
-function defaultScanRoots() {
+function defaultScanRoots(opts) {
+  const importScan = !!(opts && opts.importScan);
   const home = os.homedir();
   /* 🔑 THE DEEP CURATED PARENTS FIRST, `$HOME` LAST. Agents live under `work`,
      `projects` and the like; `$HOME` is a shallow catch-all. Ordering them first,
@@ -726,14 +741,25 @@ function defaultScanRoots() {
   const roots = [];
   for (const name of SCAN_DEEP_NAMES) roots.push({ dir: path.join(home, name), maxDepth: SCAN.DEEP_DEPTH });
   roots.push({ dir: home, maxDepth: SCAN.HOME_DEPTH });
-  /* #1652: the download/save locations, scanned SHALLOW and IMPORT-ONLY. A shared or
-     downloaded agent file lands here (mail clients and chat apps hand you a file, not a
-     directory), so this is where "import my existing agent" material lives -- but nobody
-     RUNS an agent in Downloads, so these roots offer importable FILES only and never a
-     connect FOLDER row. They are added as explicit roots because SCAN_SKIP excludes them
-     as descended children of the deep roots; naming them as roots is what reaches them. */
-  for (const name of ['Downloads', 'Desktop']) {
-    roots.push({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true });
+  /* 🛑 #2125: the TCC-protected home folders are reached ONLY under importScan.
+     The AUTO first-run scan (discover.scan() with no importScan) never names them,
+     so a brand-new user is not bombarded with macOS Documents/Downloads/Desktop
+     prompts before doing anything (and denying the Documents one no longer breaks
+     the scan). The USER-TRIGGERED import scan (Renet's #1652 GET /api/scan-import,
+     calling scan({importScan:true})) DOES add them: a TCC prompt is expected and
+     contextual there because the person just asked to find their agent files. This
+     re-adds exactly the roots #1938 (Documents, deep) and #1652 (Downloads/Desktop,
+     import-only) contributed, but gated behind the explicit action.
+     ⚠️ ~/Documents is added as an explicit ROOT even though it is in SCAN_SKIP:
+     SCAN_SKIP filters CHILDREN during descent, so it keeps ~/Documents out of the
+     $HOME walk (path 2), but a root is its own walk start and is not self-skipped.
+     Downloads/Desktop are import-only (loose FILES only; nobody RUNS an agent
+     there), which is why they carry importOnly + the shallow DROP_DEPTH. */
+  if (importScan) {
+    roots.push({ dir: path.join(home, 'Documents'), maxDepth: SCAN.DEEP_DEPTH });
+    for (const name of ['Downloads', 'Desktop']) {
+      roots.push({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true });
+    }
   }
   return roots;
 }
@@ -787,7 +813,7 @@ function scan(opts) {
        count is zero. */
     return { ok: true, candidates: [], importable: [], bounded: { depth: false, dirs: false, count: false, visited: 0, importable: false }, because: null };
   }
-  const roots = explicit || defaultScanRoots();
+  const roots = explicit || defaultScanRoots(o);   // #2125: o.importScan re-adds the TCC roots (on-demand import only)
   const maxDirs = Number.isFinite(o.maxDirs) && o.maxDirs > 0 ? o.maxDirs : SCAN.MAX_DIRS;
   const maxCandidates = Number.isFinite(o.maxCandidates) && o.maxCandidates > 0 ? o.maxCandidates : SCAN.MAX_CANDIDATES;
   /* #1652: the whole-walk loose-file read budget, overridable like maxDirs/maxCandidates
@@ -1436,4 +1462,9 @@ module.exports = { alreadyIn,
   foundCodex,
   codexIdentity,
   runningUnderName, found, scan, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
-  declined, decline, undecline, DECLINED_FILE };
+  declined, decline, undecline, DECLINED_FILE,
+  // #2125: exposed so a test can assert the AUTO scan roots exclude the
+  // TCC-protected home folders (Documents/Downloads/Desktop) while the import
+  // scan (defaultScanRoots({importScan:true})) includes them, without walking the
+  // operator's real home. Building the list touches no filesystem.
+  defaultScanRoots };
