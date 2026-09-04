@@ -90,9 +90,12 @@ want_version() {
 }
 
 # Ask the board at $1 which version it is serving (empty string if it is not
-# answering or the response is not the expected JSON).
+# answering or the response is not the expected JSON). $2 is the curl timeout in
+# seconds (default 3). The post-deadline classification uses a LONGER timeout so a
+# board that is UP but slow under load -- including a slow STALE one -- is not
+# mistaken for "not answering" (#2109 review).
 board_version() {
-  curl -s -m 3 "$1" 2>/dev/null \
+  curl -s -m "${2:-3}" "$1" 2>/dev/null \
     | node -e "let s='';process.stdin.on('data',(c)=>s+=c).on('end',()=>{try{console.log(JSON.parse(s).version||'')}catch{console.log('')}})" 2>/dev/null \
     || true
 }
@@ -134,14 +137,26 @@ wait_for_want() {
     fi
     sleep 1
   done
+  # The in-loop polls used a short (3s) timeout. Under the heavy load this check runs
+  # in, that can time out even against a board that is UP -- and a slow-but-UP board
+  # might be a STALE one. So before deciding "not answering", take ONE PATIENT poll
+  # (10s) to let a slow board reveal its version. Without this, a stale board whose
+  # short poll timed out at the deadline would be mis-downgraded to a warning and
+  # ship stale code to the developer's review board silently (#2109 review).
+  got="$(board_version "$url" 10)"
+  if [ "$got" = "$want" ]; then
+    echo "   the local board is back on ${got} (answered on a patient final poll)"
+    return 0
+  fi
   if [ -n "$got" ]; then
     # Serving a different, non-empty version after the deadline: launchd did not pick
     # up the new code. Genuinely stale (#360), the exact fault this step exists for.
     echo "   THE LOCAL BOARD IS STILL SERVING ${got}, NOT ${want}, AFTER ${WAIT_SECS}s -- launchd did not pick up the new code (#360); check ~/Library/Logs/kosmos-board.log" >&2
     return 1
   fi
-  # Not answering at all: down or mid-restart, NOT serving stale code.
-  echo "   the local board did not answer within ${WAIT_SECS}s (last answer: 'none')" >&2
+  # Not answering at all, even to the patient poll: down or mid-restart, NOT serving
+  # stale code.
+  echo "   the local board did not answer within ${WAIT_SECS}s, even on a patient final poll (last answer: 'none')" >&2
   return 2
 }
 
@@ -155,7 +170,7 @@ board_outcome_exit() {
   case "$rc" in
     0) exit 0 ;;
     2)
-      echo "   WARNING: the local board did not come back within ${WAIT_SECS}s and is NOT answering. It is not serving stale code (a board that runs from this repo comes back on the code on disk), and this release is already served and verified, so the cut is NOT failed on this. If the board stays down, check ~/Library/Logs/kosmos-board.log." >&2
+      echo "   WARNING: the local board did not come back within ${WAIT_SECS}s and is NOT answering. It is not serving stale code (a board that runs from this repo comes back on the code on disk), and this release is already served and verified, so the cut is NOT failed on this. If the board stays down the new code may be failing to start on this machine -- check ~/Library/Logs/kosmos-board.log." >&2
       exit 0
       ;;
     *) exit 1 ;;

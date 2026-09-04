@@ -31,20 +31,21 @@ WANT="9.9.9-test"
 cat > "$T/stub.js" <<'JS'
 const http = require('http'), fs = require('fs');
 const VF = process.env.VF, PF = process.env.PF;
+const DELAY = Number(process.env.DELAY || 0);  // ms to wait before responding (slow-board sim)
 const srv = http.createServer((req, res) => {
   let v = '';
   try { v = fs.readFileSync(VF, 'utf8').trim(); } catch {}
-  res.writeHead(200, { 'content-type': 'application/json' });
-  res.end(JSON.stringify({ version: v }));
+  const send = () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ version: v })); };
+  if (DELAY > 0) setTimeout(send, DELAY); else send();
 });
 srv.listen(0, '127.0.0.1', () => { fs.writeFileSync(PF, String(srv.address().port)); });
 JS
 
 VF="$T/ver"; PF="$T/port"
-start_stub() {  # $1 = initial version served
+start_stub() {  # $1 = initial version served; STUB_DELAY (ms) delays each response
   rm -f "$PF"
   printf '%s' "$1" > "$VF"
-  VF="$VF" PF="$PF" node "$T/stub.js" &
+  VF="$VF" PF="$PF" DELAY="${STUB_DELAY:-0}" node "$T/stub.js" &
   STUB_PID=$!
   disown "$STUB_PID" 2>/dev/null || true   # keep bash from printing a "Terminated" notice on kill
   local _
@@ -119,6 +120,20 @@ stale_out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$URL" KOSMOS_BOAR
 sdead="$URL"; stop_stub; sleep 0.3
 silent_out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$sdead" KOSMOS_BOARD_WANT="$WANT" KOSMOS_BOARD_WAIT_SECS=2 bash "$SCRIPT" 2>&1)"; silent_rc=$?
 if [ "$stale_rc" -eq 1 ] && [ "$silent_rc" -eq 0 ]; then pass "divergence: stale exits 1, silent exits 0 (they do not collapse)"; else fail "divergence: stale_rc=$stale_rc silent_rc=$silent_rc"; fi
+
+# 4c. Slow-stale arm (#2109 review): a STALE board that is UP but SLOW under load --
+#     its short (3s) in-loop poll times out and returns empty (looks like "not
+#     answering"), but the PATIENT (10s) final poll reveals it is serving OLD code ->
+#     exit 1. Without the patient poll this misclassifies as silent (exit 0) and ships
+#     stale code to the review board silently. The stub delays each response 4s: past
+#     the 3s in-loop timeout, within the 10s patient timeout. (~7s runtime.)
+STUB_DELAY=4000
+start_stub "stale-0.0.0"
+out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$URL" KOSMOS_BOARD_WANT="$WANT" KOSMOS_BOARD_WAIT_SECS=2 bash "$SCRIPT" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "slow-stale arm: a slow-but-stale board is caught by the patient final poll -> exit 1"; else fail "slow-stale arm exit 1 (rc=$rc, out=$out)"; fi
+if has "$out" "STILL SERVING stale-0.0.0"; then pass "slow-stale arm names the stale version the patient poll saw"; else fail "slow-stale arm message: $out"; fi
+unset STUB_DELAY
+stop_stub
 
 # 5. Bad-knob arm: a non-numeric KOSMOS_BOARD_WAIT_SECS is refused with a clear
 #    message, not a cryptic set -e abort on the arithmetic. The validation runs
