@@ -29,9 +29,19 @@
 # the outage. The fetch is not caution; it is what makes the marker truthful.
 #
 # =============================================================================
-# 🛑 REVIEW GATE. Baron owns the release/deploy pipeline. Do NOT run --publish against
-# prod until he has reviewed this script. The dry run (default, no flag) is safe: it
-# fetches, builds the export, runs every guard, and STOPS before any deploy.
+# ✅ --publish REVIEWED AND BLESSED (Baron, 2026-09-03, #2014). Baron owns the release/deploy
+# pipeline and reviewed the --publish path: the pre-deploy fetch + per-artifact sha-verify +
+# export + .vercelignore guard are exercised by the dry run (green), and the post-deploy served
+# verification is sound -- served_matches sha-checks each installer artifact AND its .sha256
+# sidecar against what was deployed, the served latest.json is name-checked for the current
+# artifact, and the Windows zip + /setup are 200-checked. It deliberately does NOT use
+# verify-served.sh (that keys every expectation to agent-workforce's package.json, which in this
+# standalone between-release window is routinely ahead of the site's released version -- the
+# #2014 version-skew BLOCKER); it references the SITE's OWN version instead. --publish is safe.
+# 🛑 STILL COORDINATE A PRODUCTION DEPLOY. --publish is a live `vercel deploy --prod`: do not run
+# it concurrently with a release cut populating the same dist/ (see the concurrency note below),
+# and coordinate with the release owner so two deploys cannot race. The dry run (default, no
+# flag) remains safe -- it fetches, builds the export, runs every guard, and STOPS before deploy.
 # =============================================================================
 #
 # Usage:
