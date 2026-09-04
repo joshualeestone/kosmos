@@ -4010,6 +4010,10 @@ const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
    authprobe so there is ONE copy of the string, not two that can drift. (status -> authprobe ->
    subscription has no back-edge, so the top-level require is cycle-safe.) */
 const LIVE_AUTH_HEALTHY = require('./authprobe').HEALTHY;
+/* #2093: the verdict value from engine/codexauthprobe that means the codex account's sign-in is
+   POSITIVELY dead (checkLive NONE). Imported here so there is ONE copy of the string, the same
+   discipline LIVE_AUTH_HEALTHY above follows. */
+const CODEX_AUTH_EXPIRED = require('./codexauthprobe').EXPIRED;
 
 /**
  * One state from two witnesses: the agent's own report and the pane reader.
@@ -4110,7 +4114,7 @@ function saidWords(reported, nowMs) {
   return '';
 }
 
-function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec) {
+function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth) {
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
      agent has reported. Handle it HERE, above the no-report early return below, so a
      never-reported agent -- one that hit a 401 on launch and sits idle at a prompt after an
@@ -4153,6 +4157,41 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec) {
       disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt },
       reported: false,
       conflict: null,
+    };
+  }
+  /* #2093: a running codex agent whose screen says nothing we recognise (UNKNOWN) but whose
+     OpenAI sign-in is POSITIVELY dead (codexauthprobe verdict EXPIRED, from a checkLive NONE) is
+     the #1906 fail-open residual surfacing on turn 1: an unreachable-at-create-but-actually-dead
+     key that create.accountConnectable let through, now 401ing raw. Surface it as auth_failed
+     with a re-auth remedy instead of leaving the raw 401 unclassified, so the person gets an
+     action rather than a mystery. This is the codex analog of the CLAUDE `authFailed(tail)`
+     scrape (classify() ~2418) which the codex classify branch has no equivalent of.
+
+     Placed HERE at the top, above the no-report early return, for the SAME reason the disruption
+     branch is: a turn-1-401 codex agent usually has NO fresh self-report (the request 401s
+     before any hook can fire), so a check buried in the report rules would miss the exact case.
+     And a dead credential outranks any report the same way a scraped Claude auth_failed does
+     (#886/#874): once the token is rejected no hook fires, so the reporter's last word cannot
+     know it is stale.
+
+     🛑 codexLiveAuth is resolved by the caller ONLY for a codex pane whose scrape was UNKNOWN
+     (snapshot()), and the probe returns EXPIRED ONLY on a POSITIVE checkLive NONE -- unreachable
+     / unchecked / stale / connected never reach here, so a good or unverifiable account never
+     reddens. The `scraped.state === STATE.UNKNOWN` guard is belt-and-braces: it keeps this from
+     ever overriding a screen that DID say something (a real WORKING/NEEDS_YOU codex pane), even
+     if a future caller resolved the signal more broadly. */
+  if (scraped.state === STATE.UNKNOWN && codexLiveAuth === CODEX_AUTH_EXPIRED) {
+    return {
+      state: STATE.AUTH_FAILED,
+      confidence: CONFIDENCE.SCRAPED,
+      because: 'its OpenAI sign-in is not working',
+      /* No pane line to ride along (the whole point is the screen said nothing usable); a fixed
+         remedy sentence, the codex analog of the friendly Claude line's "Please run /login". */
+      evidence: 'Its OpenAI sign-in is not working. Reconnect the account to continue.',
+      reported: false,
+      conflict: reported && reported.found === true
+        ? 'its OpenAI sign-in is being rejected, which its reports cannot know about' + saidWords(reported, nowMs)
+        : null,
     };
   }
   if (!reported || reported.found !== true) {
@@ -4492,6 +4531,22 @@ function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
   try { return verdictFn(job.configDir || null); } catch { return undefined; }
 }
 
+/* #2093: the per-account live-auth verdict for a running codex agent whose screen said nothing
+   usable (UNKNOWN). Resolve the agent's OWN codex home from its job and probe that account only.
+   Mirrors liveAuthForAuthFailed's discipline exactly: an unresolvable job returns undefined so
+   the caller leaves UNKNOWN standing (never a produce off a guess), and a job whose runner is not
+   codex returns undefined -- an OpenAI check must never judge a Claude agent (the same
+   cross-provider misattribution the #1921 badge comment guards against, one layer up). A codex
+   job with no configDir IS the default codex home; the probe resolves null to defaultDir(). */
+function codexLiveAuthFor(name, readJobFn, verdictFn) {
+  let job;
+  try { job = readJobFn(name); } catch { return undefined; }
+  if (!job) return undefined;
+  if (job.runner !== 'codex') return undefined;
+  if (job.configDir === '') return undefined; // malformed job, same guard as liveAuthForAuthFailed
+  try { return verdictFn(job.configDir || null); } catch { return undefined; }
+}
+
 function snapshot() {
   const { panes: read, rejected: unreadableLines, rejectedLines: unreadableSamples } = listPanes();
   const panes = onePanePerSession(read);
@@ -4527,9 +4582,24 @@ function snapshot() {
        is one ENOENT stat per owned pane per tick for every agent NOT mid-restart
        -- negligible, and only agents actually being restarted have a file. */
     const disruptionRec = isNamedOurs(pane) ? disruption.active(pane.name) : null;
+    /* #2093: a RUNNING codex agent whose screen says nothing we recognise (UNKNOWN) may be one
+       whose credential died on turn 1 (the #1906 fail-open residual). Ask the actual OpenAI auth
+       CONDITION -- a per-account, cached, ASYNC live check (engine/codexauthprobe) that never
+       blocks this tick. Gated tightly: only a codex pane, only when the scrape was UNKNOWN (so
+       it can never override a screen that DID say something), and only on one of our named panes
+       (we need the name to resolve the account home). No probe for a Claude pane, a healthy read,
+       or a codex pane the scrape already classified. */
+    let codexLiveAuth;
+    if ((pane.runner === 'codex' || isCodexCommand(pane.command))
+        && scrapedStatus.state === STATE.UNKNOWN && isNamedOurs(pane)) {
+      codexLiveAuth = codexLiveAuthFor(
+        pane.name,
+        (n) => require('./create').readJob(n),
+        (d) => require('./codexauthprobe').verdict(d, now));
+    }
     const status = reconcileReport(
       isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
-      scrapedStatus, now, liveAuth, disruptionRec);
+      scrapedStatus, now, liveAuth, disruptionRec, codexLiveAuth);
     /* #2019 forward self-heal (challenge iter 2): a disruption record on file
        but a reconciled state that is a confident LIVE reading means the restart
        COMPLETED -- drop the record now rather than waiting out the window. This
@@ -4929,7 +4999,7 @@ module.exports = {
   setPaneSource, setPaneCapture, tmuxSaidNoServer, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed,
+  reconcileReport, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
      agent LAST RAN AS into a job that never recorded a choice. Exported rather
