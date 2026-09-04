@@ -121,10 +121,15 @@ in_keep "$SERVED_VERSION" || KEEP_LIST="${KEEP_LIST}${SERVED_VERSION} "
 # kosmos-0.6.05-arm64.tar.gz -- the dist zero-pads), the version-string protection
 # above would miss the real on-disk triple and prune it. Deriving the protected
 # version from the artifact filename (parsed the same way as the glob) closes that
-# gap; the two protections are belt and suspenders, and either alone is safe -- so
-# the "artifact" field is OPTIONAL. The trailing "|| true" makes that true in
-# practice: without it, grep exiting 1 on a missing "artifact" key would abort the
-# whole tool here under set -e + pipefail, silently making the field mandatory.
+# gap. The two protections are complementary: the served release is protected when
+# the "version" field matches the filename format OR the "artifact" field names the
+# file. The only UNPROTECTED shape is the compound one -- the version format is
+# skewed from the filename AND the artifact field is absent -- which the real
+# pipeline never produces (publish-staging-pointer derives the version FROM the
+# artifact and always writes both, consistently). The artifact field is therefore
+# optional in practice, not a formal guarantee on adversarial input. The trailing
+# "|| true" is still required: without it, grep exiting 1 on a missing "artifact"
+# key would abort the whole tool here under set -e + pipefail.
 SERVED_ARTIFACT="$(grep -o '"artifact"[[:space:]]*:[[:space:]]*"[^"]*"' "$DIST/latest.json" | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
 case "$SERVED_ARTIFACT" in
   kosmos-[0-9]*-arm64.tar.gz)

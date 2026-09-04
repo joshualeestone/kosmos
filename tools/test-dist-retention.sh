@@ -193,6 +193,19 @@ out="$(bash "$TOOL" --dist "$D" --keep 12 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "missing artifact key: still runs (field is optional)" || no "missing artifact key: aborted rc=$rc -- $out"
 echo "$out" | grep -q "served version (protected): 0.6.20" && ok "missing artifact key: version protection still applies" || no "missing artifact key: served not protected -- $out"
 
+# --- Arm 15: version-string protection works with NO artifact field ----------
+# Isolates the version-string served protection. latest.json carries ONLY a
+# "version" (a real shape -- test-install.sh and site-restore write version-only),
+# so the artifact-filename path cannot mask it. Served = 0.6.08, oldest, outside a
+# keep-12 window: only the version-string protection can save it. If that
+# protection is removed, 0.6.08 is pruned and this arm goes red.
+D="$TMP/a15"; make_fixture "$D" 0.6.08 0.6.08 0.6.09 0.6.10 0.6.11 0.6.12 0.6.13 0.6.14 0.6.15 0.6.16 0.6.17 0.6.18 0.6.19 0.6.20 0.6.21 0.6.22
+printf '{"version":"0.6.08"}\n' > "$D/latest.json"
+bash "$TOOL" --dist "$D" --keep 12 --prune --yes >/dev/null 2>&1
+{ present "$D" kosmos-0.6.08-arm64.tar.gz && present "$D" kosmos-0.6.08-arm64.tar.gz.sha256 && present "$D" kosmos-0.6.08-arm64.manifest.json; } \
+  && ok "version-only latest.json: served 0.6.08 protected by version-string path" \
+  || no "version-only latest.json: served release PRUNED (version-string protection broken)"
+
 echo "----"
 echo "test-dist-retention: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
