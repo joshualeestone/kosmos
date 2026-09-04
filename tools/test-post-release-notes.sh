@@ -22,6 +22,11 @@ cat > "$PAGE" <<'HTML'
         <span class="rel-d">September 4, 2026, 1:00 PM CDT</span></div>
       <p>Version 0.9.9 does a specific memorable thing worth announcing to the world.</p>
     </article>
+    <article class="rel" id="v0-9-8">
+      <div class="rel-h"><h2 class="rel-v"><a href="#v0-9-8"><span class="num">0.9.8</span></a></h2>
+        <span class="rel-d">September 3, 2026, 1:00 PM CDT</span></div>
+      <p>Version 0.9.8 is a very long release note designed to exceed the X character budget so the truncation path runs. It goes on and on about many improvements and fixes and refinements across the whole product, far more than any single tweet could hold, which is exactly the point of this fixture, so keep reading because there is even more filler here to be certain the composed X post must be trimmed with an ellipsis before the link.</p>
+    </article>
 </body></html>
 HTML
 
@@ -73,6 +78,7 @@ has "$LAST_OUT" "prod-only" && pass "staging: names the prod-only reason" || bad
 # 3. --publish but AUTOPOST off -> dry-run
 run "publish without autopost opt-in" 0 --publish KOSMOS_SECRETS_MAP="$MAP_OK"
 published && bad "no-autopost: published without KOSMOS_SOCIAL_AUTOPOST=1" || pass "no-autopost: nothing published"
+has "$LAST_OUT" "auto-posting is OFF" && pass "no-autopost: names the reason (red-capable for the autopost gate)" || bad "no-autopost: no reason string"
 
 # 4. --publish + autopost but NO creds -> dry-run
 run "publish + autopost, no creds" 0 --publish KOSMOS_SOCIAL_AUTOPOST=1 KOSMOS_SECRETS_MAP="$MAP_NO"
@@ -95,9 +101,26 @@ run "already-announced -> idempotent skip" 0 --publish KOSMOS_SOCIAL_AUTOPOST=1 
 published && bad "idempotent: re-posted an already-announced version" || pass "idempotent: skipped, nothing re-published"
 has "$LAST_OUT" "already announced" && pass "idempotent: names the skip" || bad "idempotent: no skip notice"
 
+# 6c. PER-PLATFORM retry: with only x already announced, a run posts ONLY linkedin (never re-posts x)
+PREC="$T/partial.log"; printf '0.9.9:x\n' > "$PREC"; : > "$REC"
+env KOSMOS_VERSIONS_PAGE="$PAGE" KOSMOS_SOCIAL_PREVIEW_DIR="$PREVIEW" KOSMOS_SOCIAL_APPROVAL_MARKER="$MARKER" \
+  KOSMOS_SOCIAL_POST_CMD="bash $POSTER" KOSMOS_SOCIAL_ANNOUNCED_RECORD="$PREC" \
+  KOSMOS_SOCIAL_AUTOPOST=1 KOSMOS_SECRETS_MAP="$MAP_OK" bash "$SCRIPT" 0.9.9 --publish >/dev/null 2>&1
+{ grep -q '^linkedin:' "$REC" && ! grep -q '^x:' "$REC"; } && pass "per-platform retry: re-posts ONLY the un-announced platform (linkedin), never double-posts x" || bad "per-platform retry: wrong ($(tr '\n' ',' < "$REC"))"
+
 # 7. the X post is <= 280 chars
 XLEN="$(env KOSMOS_VERSIONS_PAGE="$PAGE" KOSMOS_SOCIAL_PREVIEW_DIR="$PREVIEW" bash "$SCRIPT" 0.9.9 2>&1 | awk -F', ' '/--- X \(/{gsub(/[^0-9]/,"",$2); print $2}')"
 [ -n "$XLEN" ] && [ "$XLEN" -le 280 ] && pass "X post is <= 280 chars ($XLEN)" || bad "X post length wrong ($XLEN)"
+
+# 7b. truncation: a LONG note (0.9.8 fixture) forces the trim path - result <=280, ends with an
+# ellipsis before the link. Exercises post-release-notes.sh's cut+ellipsis branch, which the short
+# 0.9.9 note never reaches.
+XOUT="$(env KOSMOS_VERSIONS_PAGE="$PAGE" KOSMOS_SOCIAL_PREVIEW_DIR="$PREVIEW" bash "$SCRIPT" 0.9.8 2>&1 | awk '/^   Kosmos 0\.9\.8 is out\./{print; exit}')"
+XOUT="${XOUT#   }"
+XN=${#XOUT}
+{ [ "$XN" -le 280 ] && has "$XOUT" "…" && has "$XOUT" "installkosmos.com/versions.html"; } \
+  && pass "truncation: long note trimmed with an ellipsis, <=280, link kept ($XN)" \
+  || bad "truncation: wrong (len=$XN)"
 
 # 8. a version with NO page entry -> generic note, still dry-run exit 0
 run_missing() {

@@ -146,24 +146,26 @@ if [ ! -f "$APPROVAL_MARKER" ]; then
   write_preview; exit 0
 fi
 
-# Gate 6: idempotency - never announce the same version twice. A prod cut, a promote+deploy, and a
-# re-deploy can each reach a live-post path; the announced-versions record makes the live post fire
-# exactly once per version.
+# Gate 6: idempotency - PER PLATFORM, so a version is never announced twice on the same platform.
+# The record keys are "$V:<platform>", written ONLY on a per-platform success. This is why it is
+# per-platform and not per-version: if a first run posts X and then LinkedIn fails, a retry must
+# re-post ONLY LinkedIn, never double-post X. A prod cut, a promote+deploy, and a re-deploy can
+# each reach a live-post path; this makes each platform's post fire exactly once per version.
 ANNOUNCED_RECORD="${KOSMOS_SOCIAL_ANNOUNCED_RECORD:-$HOME/.config/secrets/kosmos-announced-versions.log}"
-if [ -f "$ANNOUNCED_RECORD" ] && grep -qxF "$V" "$ANNOUNCED_RECORD" 2>/dev/null; then
-  say "post-release-notes: $V was already announced (idempotent skip). Nothing published."
+already() { [ -f "$ANNOUNCED_RECORD" ] && grep -qxF "$V:$1" "$ANNOUNCED_RECORD" 2>/dev/null; }
+mark()    { mkdir -p "$(dirname "$ANNOUNCED_RECORD")" 2>/dev/null; printf '%s:%s\n' "$V" "$1" >> "$ANNOUNCED_RECORD" 2>/dev/null; }
+if already x && already linkedin; then
+  say "post-release-notes: $V was already announced on X and LinkedIn (idempotent skip). Nothing published."
   exit 0
 fi
 
-# All gates passed: publish for real.
-say "post-release-notes: all safety gates passed - publishing $V release notes to X + LinkedIn."
+# All gates passed: publish for real, per platform, skipping any already announced.
+say "post-release-notes: all safety gates passed - publishing $V release notes."
 rc=0
-publish_one x        "$X_POST"  || rc=$?
-publish_one linkedin "$LI_POST" || rc=$?
-if [ "$rc" = 0 ]; then
-  say "post-release-notes: published to X + LinkedIn."
-  mkdir -p "$(dirname "$ANNOUNCED_RECORD")" 2>/dev/null; printf '%s\n' "$V" >> "$ANNOUNCED_RECORD" 2>/dev/null
-else
-  say "post-release-notes: at least one publish FAILED (rc=$rc) - NOT recording as announced, so a retry can complete it."
-fi
+for _p in x linkedin; do
+  if already "$_p"; then say "  [$_p] already announced $V - skipping"; continue; fi
+  case "$_p" in x) _txt="$X_POST" ;; linkedin) _txt="$LI_POST" ;; esac
+  if publish_one "$_p" "$_txt"; then say "  [$_p] published $V."; mark "$_p"
+  else rc=1; say "  [$_p] publish FAILED - NOT recorded, so a retry re-attempts ONLY $_p (no double-post)."; fi
+done
 exit "$rc"
