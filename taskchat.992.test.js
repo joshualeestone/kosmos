@@ -63,6 +63,15 @@ test('#992 no transcript and unreadable both read as [], never an error', () => 
   assert.deepEqual(taskchat.read('proj-A', 0), []); // invalid number
 });
 
+test('#992 a projectId that sanitises to nothing reads/keys as absent, never throws', () => {
+  // store.safeKey THROWS on an all-disallowed-char id ('...', '!!!'); keyOf must
+  // catch that so read()/taskChatFile() honour the fail-soft contract.
+  assert.doesNotThrow(() => taskchat.read('...', 1));
+  assert.deepEqual(taskchat.read('...', 1), []);
+  assert.equal(taskchat.taskChatFile('!!!', 1), null);
+  assert.equal(taskchat.record('...', 1, { kind: 'x' }), false);
+});
+
 test('#992 record is fail-soft: a bad key/number/event returns false, never throws', () => {
   assert.equal(taskchat.record(null, 1, { kind: 'x' }), false);
   assert.equal(taskchat.record('p', 0, { kind: 'x' }), false);
@@ -152,6 +161,30 @@ test('#992 a refused task write records nothing (agent not on the project)', () 
   const made = tasks.create(p.id, { sentence: 'real', made: { via: 'screen' } });
   const rows = taskchat.read(p.id, made.number);
   assert.deepEqual(rows.map((r) => r.kind), ['created']);
+});
+
+test('#992 the rest of the lifecycle records too: part-added, part-closed/reopened, unassign', () => {
+  const p = freshProject(['ada', 'bo']);
+  const made = tasks.create(p.id, { sentence: 'work', who: 'ada', made: { via: 'screen' } });
+  // add a second part (assigned to bo)
+  const add = tasks.addPart(p.id, made.number, { sentence: 'the other half', who: 'bo', made: { via: 'screen' } });
+  assert.equal(add.ok, true);
+  // close then reopen that part
+  const proj = projects.readAll().find((x) => x.id === p.id);
+  const parts = tasks.partsOf(tasks.byNumber(proj, made.number));
+  const partId = parts[parts.length - 1].id; // the just-added part
+  assert.equal(tasks.setPartClosed(p.id, made.number, partId, new Date().toISOString()).ok, true);
+  assert.equal(tasks.setPartClosed(p.id, made.number, partId, null).ok, true);
+  // take somebody off a part (unassign to null is a real event)
+  const firstPart = parts[0].id;
+  const un = tasks.assignPart(p.id, made.number, firstPart, null, { via: 'screen' });
+  assert.equal(un.ok, true);
+  assert.equal(un.changed, true);
+
+  const kinds = taskchat.read(p.id, made.number).map((r) => r.kind);
+  assert.deepEqual(kinds, ['created', 'part-added', 'part-closed', 'part-reopened', 'assigned']);
+  const unassign = taskchat.read(p.id, made.number).find((r) => r.kind === 'assigned');
+  assert.equal(unassign.who, null, 'an unassign records who: null');
 });
 
 test.after(() => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
