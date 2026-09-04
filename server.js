@@ -5694,10 +5694,12 @@ const server = http.createServer((req, res) => {
      paths this route will read are the ones the current scan itself returned in its
      importable set. discover.scan() already realpath-dedups and refuses symlinks, so a
      path in importable is inside the scanned roots by construction. On top of that the
-     read is lstat-guarded (a regular file only, so a symlink swapped in after the scan
-     -- TOCTOU -- is refused) and size-capped before it is allocated. Both guards are
-     required: membership proves the path was legitimate at scan time, the lstat proves
-     it still is at read time. */
+     read opens with O_NOFOLLOW and works off the fd (fstat + read by fd), so a symlink
+     swapped in for the final component after the scan -- TOCTOU -- makes the open fail
+     rather than being followed, and the path is resolved exactly once; the size is capped
+     before the buffer is allocated. Both guards are required: membership proves the path
+     was legitimate at scan time, O_NOFOLLOW proves the open resolves to a real file and
+     not a redirect at read time. */
   if (pathname === '/api/agent-import-file' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
@@ -5725,20 +5727,30 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        /* Bounded, symlink-safe read of the validated path. lstat (not stat) so a
-           symlink is refused rather than followed; MAX_IMPORT_FILE caps the allocation
-           (matches agentfile's own MAX_FILE, which would refuse a larger file anyway --
-           this only avoids reading the bytes to find that out). */
+        /* Bounded, symlink-safe read of the validated path, with NO path re-resolution
+           after the check. `O_NOFOLLOW` makes the open itself refuse (ELOOP) if the final
+           component is a symlink -- atomically, so unlike an lstat-then-readFileSync there
+           is no window where a symlink swapped in between the check and the read is
+           followed. Everything after is on the fd (fstat for the kind + size, read by fd),
+           so the path is resolved exactly once. MAX_IMPORT_FILE caps the allocation
+           (matches agentfile's own MAX_FILE, which would refuse a larger file anyway). */
         const MAX_IMPORT_FILE = 512 * 1024;
         let text;
+        let fd = null;
         try {
-          const st = fs.lstatSync(file);
+          fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+          const st = fs.fstatSync(fd);
           if (!st.isFile()) { sendJson(res, 200, { ok: false, because: 'that file is no longer a readable file' }); return; }
           if (st.size > MAX_IMPORT_FILE) { sendJson(res, 200, { ok: false, because: 'that file is too large to be an agent file' }); return; }
-          text = fs.readFileSync(file, 'utf8');
+          const b = Buffer.alloc(st.size);
+          const n = fs.readSync(fd, b, 0, st.size, 0);
+          text = b.slice(0, n).toString('utf8');
         } catch {
-          sendJson(res, 200, { ok: false, because: 'we could not read that file just now' });
+          // ELOOP (a symlink at the final component), a vanished file, or any read error.
+          sendJson(res, 200, { ok: false, because: 'that file is no longer a readable file' });
           return;
+        } finally {
+          if (fd !== null) { try { fs.closeSync(fd); } catch { /* already gone */ } }
         }
 
         const parsed = agentfile.importAgent(text, { identityFromText, nameUsable: create.nameUsable, nameProblem: create.nameProblem });

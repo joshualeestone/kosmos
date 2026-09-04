@@ -32,7 +32,9 @@ function loadRowsFn() {
   const src = SCRIPT.slice(start, end + 2);
   const esc = (s) => String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const cssId = (s) => String(s == null ? '' : s).replace(/[^A-Za-z0-9_-]/g, '-');
+  // Mirror the page's cssId, including its trailing .slice(-60) truncation, so the stub
+  // models the real helper rather than only its escaping.
+  const cssId = (s) => String(s == null ? '' : s).replace(/[^A-Za-z0-9_-]/g, '-').slice(-60);
   // eslint-disable-next-line no-new-func
   return new Function('esc', 'cssId', src + '\nreturn foundImportRowsHtml;')(esc, cssId);
 }
