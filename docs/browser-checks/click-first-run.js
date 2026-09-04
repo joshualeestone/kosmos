@@ -130,6 +130,11 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     console.log('   ...clicking through every step, in the pack\'s order');
     ok(/Set up Kosmos/.test(await page.locator('#fr-next').textContent()), 'the Success primary is Set up Kosmos');
     await page.click('#fr-next');
+    // #2163: the pre-flight expectations interstitial now sits between Success and
+    // Welcome (outside the numbered count). Click through it before Welcome.
+    ok(!(await page.locator('#fr-pane-intro').isHidden()), 'the pre-flight expectations interstitial shows after Success (#2163)');
+    ok(/Continue/.test(await page.locator('#fr-next').textContent()), 'the interstitial action is Continue');
+    await page.click('#fr-next');
     ok(await page.locator('#fr-title').textContent() === 'Create and manage AI agents that work for you.', 'step 2, Welcome');
     /* The segment count is (steps minus the intro), built dynamically by frGo
        from FR_STEPS. Assert it against the STATIC pane count rather than a
