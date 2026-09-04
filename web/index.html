@@ -4684,6 +4684,22 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   border-left: 1px solid var(--label-3); border-bottom: 1px solid var(--label-3);
   border-bottom-left-radius: 6px; pointer-events: none;
 }
+/* 🛑 THE ACCOUNT RUNG COLLAPSES CLEANLY WHEN IT IS HIDDEN (#2097 -> this cut).
+   #2097 hides the account row (create-account-row) at fewer than two usable
+   accounts -- Josh's ruling, "if there's only one account we don't show the
+   account dropdown". It hid the ROW but left the account `.mstep` that wraps it,
+   and that mstep still drew its elbow: a stray connector stub pointing at the
+   now-absent account, and a second rung of indent under it, so the model sat two
+   levels in with an orphan corner beside it (measured on a 1-account board, both
+   engines). When the account row is gone the cascade is just provider -> model,
+   which must read as TWO clean rungs with ONE elbow, not three with a dangling
+   one. `:has` scopes this to exactly the hidden-account state, so the normal
+   two-or-more-accounts layout (three rungs, two elbows) is untouched.
+   ⚠️ `content: none` REMOVES the pseudo-element, which is what drops the orphan
+   elbow; `padding-left: 0` drops this mstep's own rung of indent so the nested
+   model mstep steps in a single level from the provider rather than two. */
+#cstep-name .mstep:has(> #create-account-row[hidden]) { padding-left: 0; }
+#cstep-name .mstep:has(> #create-account-row[hidden])::before { content: none; }
 
 /* 🔑 THE CHECKBOX AND THE BUTTON ON ONE LINE (Josh). `.sfoot` is shared with
    step one, which has a single button in it -- and `space-between` on one child

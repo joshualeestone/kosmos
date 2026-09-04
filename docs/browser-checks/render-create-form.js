@@ -124,6 +124,18 @@ function check(name, pass, detail) {
         providers: Array.from(id('create-provider').options).map((o) => [o.textContent, o.disabled]),
         acctShown: live(id('create-account')),
         acctCount: id('create-account').options.length,
+        /* #2097: the account ROW hides at fewer than two usable accounts (Josh's
+           hide-at-one ruling). Read straight off the element the code toggles. */
+        acctRowHidden: id('create-account-row') ? id('create-account-row').hidden : null,
+        /* This cut: when the row is hidden, the account `.mstep` that wraps it must
+           NOT still draw its elbow (an orphan stub pointing at the absent account).
+           `content: none` on the ::before is how the CSS drops it; read it back. */
+        acctElbowPainted: (() => {
+          const arow = id('create-account-row');
+          const st = arow ? arow.closest('.mstep') : null;
+          if (!st) return null;
+          return getComputedStyle(st, '::before').content !== 'none';
+        })(),
         /* #1917: the rendered option TEXT of each account, read out of the live
            <select>. A source test executes fillCreateAccounts' string-building; only
            a browser sees what actually lands in the control. */
@@ -246,8 +258,23 @@ function check(name, pass, detail) {
         && /model/i.test(seen.openaiParks.why || '')
         && seen.openaiParks.reModelEnabled && seen.openaiParks.reAcctEnabled,
       JSON.stringify(seen.openaiParks));
-    check(`[${engine}] the account rung is drawn even with one account in it`,
-      seen.acctShown && seen.acctCount >= 1, `${seen.acctCount} options`);
+    /* #2097 (Josh's hide-at-one ruling, reversing the old show-at-one this check
+       was written for): the account rung is HIDDEN at fewer than two usable
+       accounts and SHOWN at two or more. Each usable account is one option and the
+       zero-usable case draws a single placeholder, so `options >= 2` is exactly
+       "two or more usable" -- the same threshold fillCreateAccounts hides on. This
+       is the invariant on ANY machine: the check used to pass on a multi-account
+       box and fail on a one-account box (the build box), which is the staleness. */
+    check(`[${engine}] the account rung follows #2097: hidden at one account, shown at two or more`,
+      seen.acctShown === (seen.acctCount >= 2),
+      `${seen.acctCount} option(s), row ${seen.acctShown ? 'shown' : 'hidden'}`);
+    /* And when the rung is hidden, its elbow goes with it: #2097 hid the row but
+       left the wrapping `.mstep` drawing an orphan connector at the absent account
+       (this cut). The CSS `:has(> #create-account-row[hidden])` drops it; assert the
+       stub is gone whenever the row is hidden, so the regression cannot come back. */
+    check(`[${engine}] a hidden account rung draws no orphan elbow`,
+      seen.acctRowHidden ? seen.acctElbowPainted === false : true,
+      `row ${seen.acctRowHidden ? 'hidden' : 'shown'}, elbow painted ${seen.acctElbowPainted}`);
     /* #1917: two accounts on ONE email used to render as two IDENTICAL options, so a
        real tester could not tell which to pick and ran his agent on the dead one. The
        rendered option TEXT must be distinct per account -- a claim a source test cannot
@@ -259,22 +286,34 @@ function check(name, pass, detail) {
     check(`[${engine}] every account option is distinctly labelled (#1917)`,
       new Set(seen.acctOptionTexts).size === seen.acctOptionTexts.length,
       JSON.stringify(seen.acctOptionTexts));
-    check(`[${engine}] each menu steps in from the one above`,
-      seen.stepIn.acct > seen.stepIn.prov + 10 && seen.stepIn.model > seen.stepIn.acct + 10,
-      `${Math.round(seen.stepIn.prov)} / ${Math.round(seen.stepIn.acct)} / ${Math.round(seen.stepIn.model)}`);
+    /* Each VISIBLE menu steps in from the one above it. With the account rung
+       hidden (#2097, one account) the cascade is just provider -> model and the
+       model steps in a single level; a hidden account select reports left 0, which
+       is not a rung and must not be measured as one. With the rung shown it is the
+       full provider -> account -> model. The visible rungs are what a person reads. */
+    check(`[${engine}] each visible menu steps in from the one above`,
+      seen.acctShown
+        ? (seen.stepIn.acct > seen.stepIn.prov + 10 && seen.stepIn.model > seen.stepIn.acct + 10)
+        : (seen.stepIn.model > seen.stepIn.prov + 10),
+      `${seen.acctShown ? 'shown' : 'hidden'}: prov ${Math.round(seen.stepIn.prov)} / acct ${Math.round(seen.stepIn.acct)} / model ${Math.round(seen.stepIn.model)}`);
     /* 🛑 THE ELBOW IS THE PART THAT CANNOT BE READ FROM SOURCE. It is one box
        with two borders, and a zero on either dimension leaves a line that goes
        down but never across, or across but never down. */
     check(`[${engine}] no elbow is drawn through a menu (#322)`,
       Array.isArray(seen.clashes) && seen.clashes.length === 0,
       JSON.stringify(seen.clashes));
-    /* Two RENDERED arms exactly, or the guard against hidden pollution has
-       itself gone vacuous: this form draws two msteps, and a count of zero
-       would mean the visible-only filter silently ate everything. */
+    /* One RENDERED arm per VISIBLE rung with a menu, and it lands on that menu's
+       middle. With the account rung shown that is two (account + model); with it
+       hidden (#2097, one account) it is one (model) -- the account mstep's select
+       is height 0 and its elbow is dropped by the CSS above, so it is neither
+       measured nor drawn. An expected count that tracks the visible rungs keeps the
+       "not zero" guard meaningful (a silent visible-only filter eating everything
+       would read as zero, not as the expected one or two). */
+    const expectedArms = seen.acctShown ? 2 : 1;
     check(`[${engine}] each elbow's arm lands on the middle of its menu`,
-      Array.isArray(seen.armOffCentre) && seen.armOffCentre.length === 2
+      Array.isArray(seen.armOffCentre) && seen.armOffCentre.length === expectedArms
         && seen.armOffCentre.every((n) => Math.abs(n) <= 2),
-      JSON.stringify(seen.armOffCentre));
+      `expected ${expectedArms} arm(s): ${JSON.stringify(seen.armOffCentre)}`);
     check(`[${engine}] and an elbow is drawn into the gutter`,
       seen.elbow && parseFloat(seen.elbow.w) > 4 && parseFloat(seen.elbow.h) > 8,
       seen.elbow ? `${seen.elbow.w} x ${seen.elbow.h} in ${seen.elbow.color}` : 'no ::before');
