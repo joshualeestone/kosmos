@@ -866,6 +866,16 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .acct-ok-big { animation: none; } }
 .fmsg.is-connected, .dhint.is-connected { color: var(--ok, #1f7a4d); font-weight: 600; }
 .dwarn-m { color: var(--danger, #b3261e); font-weight: 700; margin-right: 6px; }
+/* #2164: the OpenAI key step's marker, parallel to .dwarn-m but NEUTRAL. Josh
+   asked for the same "nice checkbox and formatted text" the Claude connect
+   callout has, in place of the flat grey .dhint that read as unformatted. This
+   callout REASSURES (the key stays on this computer and is never shown again)
+   where the Claude one WARNS, so it deliberately reuses NEITHER status colour:
+   red (.dwarn-m) is danger, and the green (.acct-ok) is this file's "connected"
+   vocabulary ("one vocabulary for one outcome"), which a not-yet-connected key
+   step must not borrow. Ink keeps the mark visible and calm. Like .dwarn-m the
+   glyph is aria-hidden decoration; the words carry the meaning. */
+.dwarn-ok { color: var(--k-ink); font-weight: 700; margin-right: 6px; }
 /* #727: the provider choice on Accounts; the pressed one reads pressed. */
 .acct-pick .btn[aria-pressed="true"] { background: var(--attn-bg); border-color: var(--border-strong); font-weight: 600; }
 /* #734: a floored Agents count is a way to This Mac. */
@@ -7343,7 +7353,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <p class="dhint" id="acct-openai-install-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
       </div>
       <div id="acct-openai-key-step">
-      <p class="dhint" style="margin:0 0 8px;">Paste an OpenAI API key. It stays on this computer with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
+      <!-- #2164 (Josh, 2026-09-04): match the Claude connect callout beside it.
+           This was flat grey .dhint ("just gray text that is not formatted in any
+           way"); it now wears the same .dwarn callout formatting the Claude flow
+           uses (#acct-claude-warn) -- full ink, callout font, a marker glyph and a
+           bold lead -- so the two providers read alike. The marker is neutral ink,
+           not the Claude flow's red (this reassures rather than warns) and not the
+           connected-green (a key not yet added must not wear the connected mark). -->
+      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Paste an OpenAI API key.</b> It stays on this computer with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
       <div class="frow">
         <input type="password" id="acct-openai-key" autocomplete="new-password" spellcheck="false"
                aria-label="OpenAI API key" placeholder="sk-…">

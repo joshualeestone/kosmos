@@ -162,6 +162,7 @@ one invented by somebody who did not write them.
 | `render-conn-url.js` | The sign-in fallback button does not overlap the line above it (#1209) |
 | `render-openai-step.js` | The OpenAI install step at parity with Claude's, with an honest indicator (#1205) |
 | `render-openai-key-step.js` | The OpenAI key step in its approved box, sizes matched, link not colliding (#1207) |
+| `render-openai-key-callout-2164.js` | The add-a-provider OpenAI key step is formatted like the Claude connect callout (#2164), not flat grey. |
 | `render-found-board.js` | The board's panel for agents on this Mac that Kosmos is not looking after |
 | `render-board-signin-403-2023.js` | A protected-read 403 (no board token, #1946) renders as not-signed-in with the `kosmos open` remedy, not as "cannot read" -- with a 200 control (normal board) and a 500 control (genuine failure still says cannot-read) (#2023) |
 | `render-update-abort-2055.js` | A silently-aborting update (the `updateAbort` marker off /api/status) shows a board notice naming N, painted only on a successful read; with a clean control (healthy board shows nothing) plus null and garbage-count controls (#2055) |
