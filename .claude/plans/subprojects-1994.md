@@ -60,7 +60,7 @@ project list + the settings control, which is what the card asks for.
 
 ## Verification
 
-- `docs/browser-checks/render-subprojects-1994.js` (headless, both themes, 40 assertions): drives
+- `docs/browser-checks/render-subprojects-1994.js` (headless, both themes, 64 assertions): drives
   the shipped functions against a fixture tree — nesting/depth/sub-counts/chips, orphan + archived-
   parent fallback (nothing vanishes), a stored cycle renders all rows without hanging, and the
   select excludes self+descendants+archived with a control that can return the dangerous answer.
