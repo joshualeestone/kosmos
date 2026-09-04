@@ -8849,6 +8849,18 @@ if (require.main === module) {
   } else {
     process.stderr.write('Kosmos: platform ' + process.platform + ' is not supported (macOS only); live execution not armed, agent operations will refuse.\n');
   }
+  /* #570: on Windows there is no tmux, so the roster's list-panes source is the
+     win32 provider (`claude agents --json` -> PANE_COLUMNS), wired behind the
+     setPaneSource seam so the engine ownership/classification path is unchanged.
+     DELIBERATELY independent of the platform gate above: that gate still refuses
+     live execution until SUPPORTED includes win32 (the last step of the port),
+     but the roster must be READABLE before create can even reach the gate, or
+     win32 dead-ends earlier on "couldn't check which agents are running". Reusing
+     the process.platform read this region already makes; the win32roster logic
+     itself is platform-agnostic and unit-tested with injected inputs. */
+  if (process.platform === 'win32') {
+    require('./engine/status').setPaneSource(require('./engine/win32roster').make());
+  }
   /* 🛑 PINNED TO $HOME, NOT AT IMPORT, ONLY WHEN THIS IS THE REAL BOARD
      PROCESS (#923). Nothing anywhere in this file or engine/ ever calls
      process.chdir(), so this process's own cwd is whatever directory
