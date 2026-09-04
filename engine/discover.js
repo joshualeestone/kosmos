@@ -652,6 +652,27 @@ const SCAN = Object.freeze({
   HOME_DEPTH: 2,
   /* The curated project parents are scanned DEEP, enough for nested worktrees. */
   DEEP_DEPTH: 5,
+  /* #1652: loose importable agent FILES (an agent .md a person downloaded or was
+     sent, to bring in via the import flow), distinct from the CLAUDE.md agent
+     FOLDERS above. A person cannot act on hundreds, so the returned list is capped
+     like MAX_CANDIDATES. */
+  MAX_IMPORTABLE: 60,
+  /* Loose `.md` files we will READ the head of per folder. A folder with a wall of
+     markdown (a docs tree) cannot make the scan open all of them. This is a
+     read-budget wall, NOT a "the agent file is in here somewhere" guarantee: the cap
+     is applied over `readdirSync` order, which is arbitrary and OS-dependent, so a
+     folder with more than MAX_MD_PER_DIR `.md` files could sort a real agent file
+     past the cap. When that happens `bounded.importable` is set, so the screen says
+     "there may be more" rather than silently dropping it. A person's imported agent
+     file normally sits in a folder with a handful of files, well under the cap. */
+  MAX_MD_PER_DIR: 40,
+  /* Total loose `.md` head-reads across the whole walk. The connect scan is bounded
+     by directory visits (MAX_DIRS); importable collection reads FILES, so it needs
+     its own wall against a machine with thousands of markdown files. */
+  MAX_MD_READS: 3000,
+  /* Shallow depth for the download/save locations (Downloads, Desktop): a shared
+     agent file lands at the top, not nested deep. */
+  DROP_DEPTH: 1,
 });
 
 /* Folder NAMES never descended. Every dotdir is skipped by rule below, so this is
@@ -705,6 +726,15 @@ function defaultScanRoots() {
   const roots = [];
   for (const name of SCAN_DEEP_NAMES) roots.push({ dir: path.join(home, name), maxDepth: SCAN.DEEP_DEPTH });
   roots.push({ dir: home, maxDepth: SCAN.HOME_DEPTH });
+  /* #1652: the download/save locations, scanned SHALLOW and IMPORT-ONLY. A shared or
+     downloaded agent file lands here (mail clients and chat apps hand you a file, not a
+     directory), so this is where "import my existing agent" material lives -- but nobody
+     RUNS an agent in Downloads, so these roots offer importable FILES only and never a
+     connect FOLDER row. They are added as explicit roots because SCAN_SKIP excludes them
+     as descended children of the deep roots; naming them as roots is what reaches them. */
+  for (const name of ['Downloads', 'Desktop']) {
+    roots.push({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true });
+  }
   return roots;
 }
 
@@ -751,14 +781,18 @@ function scan(opts) {
      env override) has declared where to look on purpose and is exempt, exactly as
      a CONFIG_ROOT override is. */
   if (!explicit && status.sandboxIsInconsistent()) {
-    /* Same `bounded` shape as the normal return, so a consumer never has to tell an
-       empty object from a fully-shaped one: nothing was walked, so every flag is
-       false and the visit count is zero. */
-    return { ok: true, candidates: [], bounded: { depth: false, dirs: false, count: false, visited: 0 }, because: null };
+    /* Same shape as the normal return, so a consumer never has to tell an empty
+       object from a fully-shaped one: nothing was walked, so both lists are empty,
+       every bounded flag (including #1652's `importable`) is false, and the visit
+       count is zero. */
+    return { ok: true, candidates: [], importable: [], bounded: { depth: false, dirs: false, count: false, visited: 0, importable: false }, because: null };
   }
   const roots = explicit || defaultScanRoots();
   const maxDirs = Number.isFinite(o.maxDirs) && o.maxDirs > 0 ? o.maxDirs : SCAN.MAX_DIRS;
   const maxCandidates = Number.isFinite(o.maxCandidates) && o.maxCandidates > 0 ? o.maxCandidates : SCAN.MAX_CANDIDATES;
+  /* #1652: the whole-walk loose-file read budget, overridable like maxDirs/maxCandidates
+     so a test can exercise the wall without writing thousands of files. */
+  const maxMdReads = Number.isFinite(o.maxMdReads) && o.maxMdReads > 0 ? o.maxMdReads : SCAN.MAX_MD_READS;
 
   /* 🔑 EVERYTHING `found()` ALREADY KNOWS IS EXCLUDED, so the scan offers only the
      complementary population. A folder Claude has a record of is BETTER found by
@@ -797,6 +831,14 @@ function scan(opts) {
   let hitCount = false;
   let hitDepth = false;
 
+  /* #1652: loose importable agent FILES, keyed by canonical realpath so the same file
+     reached through two aliased roots is offered once. Bounded by MAX_IMPORTABLE (rows)
+     and MAX_MD_READS (total head-reads), independent of the connect scan's dir budget. */
+  const byFile = new Map();
+  const seenFiles = new Set();
+  let mdReads = 0;
+  let hitImportable = false;
+
   outer:
   for (const root of roots) {
     let rootStat;
@@ -817,7 +859,7 @@ function scan(opts) {
 
     /* Iterative, with an explicit stack: depth is a real bound and a deep tree
        cannot recurse the process to death. */
-    const stack = [{ dir: root.dir, depth: 0 }];
+    const stack = [{ dir: root.dir, depth: 0, importOnly: root.importOnly === true }];
     while (stack.length) {
       if (byDir.size >= maxCandidates) { hitCount = true; break outer; }
       if (visited >= maxDirs) { hitDirs = true; break outer; }
@@ -832,8 +874,11 @@ function scan(opts) {
       try { names = fs.readdirSync(cur.dir); } catch { continue; }
 
       /* The CLAUDE.md in THIS folder, read BEFORE descending so a folder that IS an
-         agent still counts even when it sits exactly at the depth cap. */
-      if (!byDir.has(cur.dir) && !known.has(cur.dir)) {
+         agent still counts even when it sits exactly at the depth cap.
+         #1652: skipped on an importOnly root (Downloads/Desktop) -- nobody RUNS an agent
+         there, so a folder-connect row would be wrong; only loose importable FILES below
+         are collected from those locations. */
+      if (!cur.importOnly && !byDir.has(cur.dir) && !known.has(cur.dir)) {
         const text = readClaudeHead(path.join(cur.dir, 'CLAUDE.md'));
         if (text != null) {
           const id = status.identityFromText(text);
@@ -865,6 +910,51 @@ function scan(opts) {
         }
       }
 
+      /* #1652: loose importable agent FILES in THIS folder. A person's "import my
+         existing agent" file is a loose `.md` (downloaded or shared), NOT a folder with a
+         `CLAUDE.md` -- so `foo.md` / `susan.agent.md` with the same "You are ..." head is
+         invisible to the connect scan above and must be found here. Excludes CLAUDE.md and
+         AGENTS.md, which are folder-agent markers the connect scan (and foundCodex) own.
+         Same content gate as the connect scan -- identity OR INTRODUCES -- so a template or
+         a README stays out; the row SHOWS the preview so a wrong offer is a one-click skip.
+         Bounded three ways: MAX_MD_PER_DIR per folder, MAX_MD_READS across the walk, and
+         MAX_IMPORTABLE rows returned. Runs on BOTH normal and importOnly roots. */
+      if (byFile.size >= SCAN.MAX_IMPORTABLE || mdReads >= maxMdReads) {
+        /* Already at a global cap and there is still a folder to walk: we will collect
+           no more importable files even if they exist here, so say so honestly. This is
+           the "filled the list on an earlier folder" case the in-loop breaks below cannot
+           see (they only fire when a break happens INSIDE a folder's read). */
+        hitImportable = true;
+      } else {
+        let perDir = 0;
+        for (const name of names) {
+          if (byFile.size >= SCAN.MAX_IMPORTABLE) { hitImportable = true; break; }
+          if (mdReads >= maxMdReads) { hitImportable = true; break; }
+          if (perDir >= SCAN.MAX_MD_PER_DIR) { hitImportable = true; break; }  // read this folder short: there may be more
+          const lower = name.toLowerCase();
+          if (!lower.endsWith('.md') && !lower.endsWith('.markdown')) continue;
+          if (lower === 'claude.md' || lower === 'agents.md') continue;  // folder-agent markers, not import files
+          const file = path.join(cur.dir, name);
+          let freal;
+          try { freal = fs.realpathSync(file); } catch { freal = file; }
+          if (seenFiles.has(freal)) continue;
+          seenFiles.add(freal);
+          perDir += 1;
+          mdReads += 1;
+          const text = readClaudeHead(file);   // regular-file + symlink-safe + byte-bounded, same as CLAUDE.md
+          if (text == null) continue;
+          const id = status.identityFromText(text);
+          if ((id && id.displayName) || INTRODUCES.test(text)) {
+            byFile.set(freal, {
+              file,
+              name: (id && id.displayName) || '',
+              role: (id && id.role) || null,
+              preview: text,
+            });
+          }
+        }
+      }
+
       /* Do not descend past the cap. The CLAUDE.md above was still read, so a
          folder at the cap is offered; only its children are out of reach. */
       if (cur.depth >= maxDepth) { hitDepth = true; continue; }
@@ -879,15 +969,29 @@ function scan(opts) {
            kind rather than by resolving and comparing paths. */
         try { cst = fs.lstatSync(child); } catch { continue; }
         if (!cst.isDirectory()) continue;
-        stack.push({ dir: child, depth: cur.depth + 1 });
+        stack.push({ dir: child, depth: cur.depth + 1, importOnly: cur.importOnly });
       }
     }
   }
 
   const candidates = [...byDir.values()].sort((a, b) => String(a.name || a.dir).localeCompare(String(b.name || b.dir)));
+  /* #1652: loose importable agent files, sorted like the connect candidates (name, then
+     path) so the two lists read the same way. A DISTINCT array from `candidates`: an
+     importable row carries a `file` and its action is IMPORT (parse -> pre-fill create),
+     never `discover.connect(dir)`, which is for a work FOLDER. Kept separate so a consumer
+     that only knows the connect list is unaffected, and so connect can never be handed a
+     loose file's parent directory. */
+  /* #1652: the shared dir/count caps (`break outer`) stop the WHOLE walk, so loose-file
+     collection was cut short too even though no importable-specific cap was hit. Fold
+     them into hitImportable so a consumer keying only on `bounded.importable` does not
+     under-report -- the connect note keys on count||dirs, but a PR2 importable list may
+     not. */
+  if (hitCount || hitDirs) hitImportable = true;
+  const importable = [...byFile.values()].sort((a, b) => String(a.name || a.file).localeCompare(String(b.name || b.file)));
   return {
     ok: true,
     candidates,
+    importable,
     /* Says whether the walk stopped early and why, so the screen can add "and there
        may be more" honestly rather than presenting a truncated list as complete.
        ⚠️ THE SCREEN SURFACES `count` AND `dirs`, NOT `depth`, DELIBERATELY. Hitting the
@@ -896,8 +1000,10 @@ function scan(opts) {
        cap is the normal case: almost every machine has some folder deeper than the cap,
        so surfacing it would show "there may be more" nearly always and train the person
        to ignore it. `depth` is still reported here for a caller that wants it; the note
-       is gated on the two that signal a real early stop. */
-    bounded: { depth: hitDepth, dirs: hitDirs, count: hitCount, visited },
+       is gated on the two that signal a real early stop. `importable` is the #1652
+       loose-file-read wall, surfaced like the others so the screen can say "and there may
+       be more files". */
+    bounded: { depth: hitDepth, dirs: hitDirs, count: hitCount, visited, importable: hitImportable },
     because: null,
   };
 }
