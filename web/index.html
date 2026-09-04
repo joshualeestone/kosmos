@@ -18823,7 +18823,8 @@ function openDetail(sessionName, section) {
   document.getElementById('d-meta').innerHTML = metaParts.join(' · ');
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
-     class, `GLYPH` the mark, `STATE_COPY` the word. A card and its detail page
+     class, `GLYPH` the mark, `stateCopyOf` the word (the shared wrapper over
+     STATE_COPY that also names a restarting cause, #2019). A card and its detail page
      disagreeing about an agent's state is worse than either being wrong. */
   const dm = cardStOf(a);
   const dst = document.getElementById('d-state');
