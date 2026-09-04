@@ -65,3 +65,31 @@ member, and the lstat backstops regardless.
 Route + web + browser-check assertions here. The fresh-user-with-sample-files end-to-end (place
 files, open create, import one, agent runs) is a batched clean-machine pass (needs Josh);
 needs-operator, do not wait on it.
+
+## REWORK (2026-09-04) - reconcile with #2125 / Angel #2148, per Splinter
+
+Collision found: this PR's discovery of Downloads/Desktop was hosted on the AUTO first-run scan
+(discover.scan()'s defaultScanRoots, added by PR1 #2141). Angel's #2125 slice 1 (#2148) REMOVES
+Documents/Downloads/Desktop from that auto scan because deep-walking them unprompted on a fresh
+macOS install fires a TCC permission bombardment (Josh's other regression). Both fixes are right;
+the resolution (Splinter's call, agreed with Angel directly) moves the loose-file discovery OFF
+the unprompted auto scan and ONTO the ON-DEMAND import path, where a TCC prompt is expected because
+the user asked to find their files.
+
+Agreed seam (Angel owns the engine, I own the surface - no double-build):
+- **Angel #2148 (discover.js):** adds `discover.scan({importScan:true})`, which re-adds the TCC
+  roots (Downloads/Desktop/Documents) via the retained importOnly/DROP_DEPTH plumbing; the bare
+  `discover.scan()` (auto first-run) stays TCC-free. defaultScanRoots() names none of them.
+- **Me #2147 (server.js + web, rework):**
+  - Add a dedicated ON-DEMAND route `GET /api/scan-import` (beside /api/agent-import-file) that
+    calls `discover.scan({importScan:true})` and returns `importable[]`. NOT a param on the auto
+    `/api/scan-agents` (keep that route + its 30s cache as the auto scan).
+  - `populateFoundImports()` fetches `/api/scan-import` (was `/api/scan-agents`).
+  - The `/api/agent-import-file` membership check validates against `discover.scan({importScan:true})`
+    (was bare `discover.scan()`), so a Downloads/Documents file is a valid member.
+  - This branch does NOT touch discover.js (PR1 did the engine; Angel owns the roots+flag). No
+    discover.js/server.js collision - I own server.js's import routes, he owns discover.js.
+- **Sequencing:** #2148 merges first (engine flag on main), then rebase this branch onto it and
+  make the surface changes against the real flag, re-run the challenge-loop, un-draft, merge.
+- Marked DRAFT until reworked so the auto-reading version cannot merge. No cut pressure: this
+  reconciled discovery rides a follow-up cut, not the immediate agents-online re-cut.
