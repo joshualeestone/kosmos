@@ -1333,8 +1333,13 @@ function restartInner(name, cause) {
      the record is cleared below so a still-live agent is never marked
      restarting. Best-effort: a bookkeeping write must never sink a restart, so
      `begin` never throws and its result is not gated on. The cause (restart /
-     model / provider / account / instructions) rides through from the route. */
-  disruption.begin(clean, cause);
+     model / provider / account / instructions) rides through from the route.
+     ⚠️ DRY_RUN-gated the way recordRemoval and the trust writer are: a pure
+     dry-run (no injected runner) must not touch the disruption store. It was
+     incidentally clean already -- a pure dry-run fails the `ended` check below
+     and reaches disruption.clear -- but an explicit gate matches the module's
+     convention rather than relying on that coupling (challenge iter 1). */
+  if (!(DRY_RUN && !runner)) disruption.begin(clean, cause);
 
   const tmuxBinPath = process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
   const steps = [];

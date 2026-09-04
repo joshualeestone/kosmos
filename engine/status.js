@@ -4121,7 +4121,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec) {
      and auth_failed stands (no false calm). The re-entry's scraped state is UNKNOWN, so this
      cannot recurse. */
   if (scraped.state === STATE.AUTH_FAILED && liveAuth === LIVE_AUTH_HEALTHY) {
-    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth);
+    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec);
     return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
   }
   /* #2019: a dead pane is "gone" UNLESS we are the ones who just took it out. If
@@ -4419,10 +4419,17 @@ function panelessCard(key, nowMs) {
     /* #2019: the field a pane card carries for a deliberate restart. A paneless
        agent has no STOPPED pane to misread, so it never reaches the RESTARTING
        branch and this is always null here; carried anyway so both card kinds
-       have one shape. Surfacing a RESTARTING state for a PANELESS (Windows /
-       non-tmux) agent mid-restart -- keeping its card on the board through the
-       disruption window instead of dropping it when its heartbeat stops -- is a
-       delineated follow-up, not this slice. */
+       have one shape. Surfacing RESTARTING for a PANELESS agent mid-restart --
+       keeping its card on the board through the disruption window instead of
+       dropping it -- is a delineated follow-up, and it covers TWO cases, not
+       one: (a) a Windows / non-tmux agent that never had a pane, and (b) the
+       brief interval on a Mac between `kill-session` (which removes the whole
+       pane) and launchd recreating the session -- during which even a normal
+       tmux restart is momentarily fully paneless. The Mac gap is short (restart
+       does bootout+bootstrap immediately rather than waiting on the ~30s
+       KeepAlive throttle) and the more visible Claude-booting interval AFTER the
+       pane is recreated IS covered by the pane path above; but the fully-paneless
+       gap is real and not yet covered here (challenge iter 1). */
     disruption: status.disruption || null,
     stateReported: status.reported === true,
     stateConflict: status.conflict || null,

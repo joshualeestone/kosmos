@@ -68,10 +68,18 @@ is a tunable constant, documented in `disruption.js`.
 
 ## Scope boundary (delineated follow-ups, not this slice)
 
-- **Paneless (Windows / non-tmux) restarting.** A paneless agent mid-restart drops off the
-  board (its heartbeat stops) rather than showing RESTARTING. Needs the disruption signal
-  to keep a paneless card on the board through its window. Card field carried (always null
-  there) so the shape is ready.
+- **Paneless restarting — TWO cases (challenge iter 1 sharpened this).** A paneless agent
+  mid-restart drops off the board rather than showing RESTARTING. This covers (a) a Windows /
+  non-tmux agent that never had a pane, AND (b) the brief interval on a **Mac** between
+  `kill-session` (which removes the whole pane) and launchd recreating the session — during
+  which even a normal tmux restart is momentarily fully paneless. The Mac gap is short
+  (bootout+bootstrap is immediate, not the ~30s KeepAlive throttle) and the more visible
+  Claude-booting interval AFTER the pane is recreated IS covered by the pane path in this
+  slice; the fully-paneless gap is real but unlikely to be caught by a ~60s tick.
+  Deferred deliberately: covering it needs either a second RESTARTING producer (the design
+  keeps reconcileReport the single source) or a reconcile-contract change, both more invasive
+  than a short, mitigated, self-healing gap warrants for this additive slice. Card field is
+  carried on the paneless card (always null there) so the shape is ready for the follow-up.
 - **Turn-1 `auth_failed` surfacing** (Ice Cream Kitty's #1906 fail-open follow-up) — a
   running agent whose cred 401s is the same "is it actually answering" question; it folds
   into this liveness module when filed. Coordinated; she files it against this layer.

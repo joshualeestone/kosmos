@@ -9429,6 +9429,58 @@ test('the model route writes the choice AND restarts, because either alone is a 
   }
 });
 
+test('#2019: the restart route threads an optional cause, and a bodyless POST stays backward-compatible', async () => {
+  /* The route was rewritten from a synchronous handler to an async readBody so
+     the stale-instructions notice can send {cause:'instructions'} and the board
+     can name WHY the agent went quiet. A bodyless POST (a plain Restart click)
+     must still work and record the generic 'restart'. This asserts the cause
+     the route actually recorded, at the route layer -- neither arm was covered
+     before (challenge iter 1). */
+  const create = require('./engine/create');
+  const removal = require('./engine/remove');
+  const statusEngine = require('./engine/status');
+  const disruption = require('./engine/disruption');
+  const name = 'routecause';
+
+  create.setRunner(() => ({ ok: true, stdout: '' }));
+  create.setDryRun(false);
+  statusEngine.setPaneSource(() => '');
+  const made = create.createAgent({ claudeBin: '/bin/echo', tmuxBin: '/bin/echo', name, role: 'pm' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  create.setRunner(null);
+
+  statusEngine.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
+  removal.setRunner((f, a) => (a && a[0] === 'has-session' ? { ok: false, code: 1 } : { ok: true, stdout: '' }));
+  removal.setDryRun(false);
+  try {
+    disruption.clear(name);
+    // A cause in the body rides through to the disruption record.
+    const withCause = await req('/api/agent/' + name + '/restart', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cause: 'instructions' }),
+    });
+    assert.equal(withCause.status, 200, withCause.body);
+    assert.equal(JSON.parse(withCause.body).outcome, 'restarted');
+    assert.equal(disruption.active(name).cause, 'instructions',
+      'the route did not thread the body cause to the disruption record');
+
+    // A bodyless POST still works and records the generic 'restart'.
+    disruption.clear(name);
+    const bodyless = await req('/api/agent/' + name + '/restart', { method: 'POST' });
+    assert.equal(bodyless.status, 200, bodyless.body);
+    assert.equal(JSON.parse(bodyless.body).outcome, 'restarted');
+    assert.equal(disruption.active(name).cause, 'restart',
+      'a bodyless restart did not fall back to the generic cause');
+  } finally {
+    removal.setRunner(null);
+    removal.setDryRun(true);
+    create.setDryRun(true);
+    statusEngine.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
 test('the profile route stores a reporting line, clears it, and refuses a self-loop', async () => {
   seedWorker('angel', 'You are **Angel**, a tester.\n');
   /* A pane by this name, STUBBED. The comment below says `angel` is used
