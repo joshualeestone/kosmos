@@ -7764,7 +7764,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            'Tmux' in Accessibility to enable this.</p>
         <button class="btn fr-sleepbtn" id="fr-a11y-open" type="button">Open Accessibility settings</button>
         <p class="fr-msg" id="fr-a11y-msg" role="status" aria-live="polite"></p>
-        <p class="fr-next">You can turn this on anytime in Settings, under Keeping agents running.</p>
+        <!-- #2125 slice 3 (Josh, 2026-09-04): GATE Continue until Accessibility is
+             actually enabled, verified, superseding the 09-01 offer-not-require.
+             So the old "you can turn this on anytime in Settings" skip-out is gone
+             (it is no longer optional at this step), replaced by what-to-toggle
+             guidance and a live status line the gate poll writes. The guidance
+             names BOTH grants tmux needs: Accessibility (the list) AND, when macOS
+             asks, Automation ("control your computer"). -->
+        <p class="fr-a11y-guide" id="fr-a11y-guide">Find <b>Tmux</b> in the Accessibility list and switch it on. If macOS also
+           asks to let Tmux control your computer, allow that too. Then come back to this window.</p>
+        <p class="fr-next" id="fr-a11y-status" role="status" aria-live="polite"></p>
       </div>
 
       <!-- 4. About you. The pack's step, its copy verbatim: two required
@@ -34084,6 +34093,41 @@ const FR_STEP_YOU = 6;
 // from "left and came back", and the stale save advancing a fresh entry
 // mid-typing is exactly the class the return step already solved.
 let FR_YOU_GEN = 0;
+// #2125 slice 3: the Accessibility-gate generation + poll timer. Same generation
+// contract as FR_YOU_GEN -- a poll captured on step 5 must do NOTHING once the step
+// moves (the user opened System Settings and wandered, or pressed Back).
+let FR_A11Y_GEN = 0;
+let FR_A11Y_TIMER = null;
+function frA11yStop() { if (FR_A11Y_TIMER) { clearInterval(FR_A11Y_TIMER); FR_A11Y_TIMER = null; } }
+/* Poll /api/a11y-status and gate the Continue button. The posture is FAIL-SAFE and
+   POSITIVE-ONLY, mirroring the engine: Continue is DISABLED only on positive
+   evidence the check ran and Accessibility is NOT trusted (checkable:true &&
+   trusted:false). Trusted, uncheckable (a browser, or no native reading yet), a
+   fetch failure -- all leave Continue ENABLED. So the gate can never strand a
+   browser tester or a user whose reading we cannot take; it only ever blocks when
+   we KNOW it is off. The user grants it in System Settings and the next poll
+   (1.5s) re-enables Continue, so no manual "check again" is needed. */
+async function frPollA11y(gen) {
+  if (gen !== FR_A11Y_GEN) return;
+  let r;
+  try { r = await (await fetch('/api/a11y-status')).json(); }
+  catch { r = { checkable: false }; }
+  if (gen !== FR_A11Y_GEN) return; // step moved while the fetch was in flight
+  const next = document.getElementById('fr-next');
+  const status = document.getElementById('fr-a11y-status');
+  const notTrusted = !!(r && r.checkable === true && r.trusted !== true);
+  if (notTrusted) {
+    next.disabled = true;
+    next.setAttribute('aria-disabled', 'true');
+    if (status) status.textContent = 'Accessibility is not on yet. Turn on Tmux above, then this will unlock.';
+  } else {
+    next.disabled = false;
+    next.removeAttribute('aria-disabled');
+    if (status) status.textContent = (r && r.checkable === true && r.trusted === true)
+      ? 'Accessibility is on. You can continue.'
+      : '';
+  }
+}
 let FR = null;            // what /api/first-run said
 let FR_STEP = 1;
 let FR_RETURN = null;     // where the keyboard was before this opened
@@ -34221,6 +34265,9 @@ function frGo(step) {
   // async, and a settlement landing after the person moved on must not
   // advance a step or repaint a pane they are no longer on.
   if (step !== FR_STEP_YOU) FR_YOU_GEN += 1;
+  // #2125 slice 3: leaving the Accessibility step stops its gate poll and
+  // invalidates any in-flight one (bumping the generation), same contract as above.
+  if (step !== 5) { FR_A11Y_GEN += 1; frA11yStop(); }
   FR_STEP = step;
   // The dot field warms from grey toward the golds as the steps advance
   // (the pack's progression; only the colour survives of the old gather).
@@ -34289,10 +34336,18 @@ function frGo(step) {
     // sentence -- dropped the pushy "This one is optional ... now, or later"
     // framing, kept the orientation -- Josh's copy via Mona Lisa. Continue is the
     // skip; the pointer is the out; the offer-not-require ruling is unchanged.)
-    // The pane claims no state because accessibility (TCC) cannot be read, so there
-    // is nothing to gate Continue on and no "you already did this" to show.
+    // #2125 slice 3 (Josh, 2026-09-04): SUPERSEDES the 09-01 offer-not-require.
+    // Continue is now GATED on a real Accessibility check (the native app writes an
+    // AXIsProcessTrusted reading, attributed to tmux; the engine surfaces it at
+    // /api/a11y-status). frPollA11y disables Continue ONLY on a positive
+    // not-trusted reading and re-enables the instant the user turns it on -- so a
+    // browser (uncheckable) and any read failure fail SAFE (Continue stays live).
     document.getElementById('fr-title').textContent = 'Let your agents work in your other apps.';
-    frActions({ label: 'Continue', go: () => frGo(6) });
+    frActions({ label: 'Continue', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(6); } });
+    frA11yStop();
+    const a11yGen = ++FR_A11Y_GEN;
+    frPollA11y(a11yGen);
+    FR_A11Y_TIMER = setInterval(() => frPollA11y(a11yGen), 1500);
   } else if (step === 6) {
     document.getElementById('fr-title').textContent = 'Who are your agents working for?';
     frPaintYou();
