@@ -115,6 +115,28 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' select excludes archived', !select.opts.includes('arch'), JSON.stringify(select.opts));
     ok(t + ' select includes valid parents (k, site)', select.opts.includes('k') && select.opts.includes('site'), JSON.stringify(select.opts));
 
+    // ---- Layer 2b: a current parent that is ARCHIVED must stay represented ----
+    // Engine allows archiving a project that has children; if the select could
+    // not show that parent it would read "Top level (none)" and a later save of
+    // an unrelated field would silently send parent:null. The select must keep
+    // the archived parent as its preselected value so the diff stays honest.
+    const arch = await page.evaluate(() => {
+      const mk = (id, name, parent, parentName, parentArchived, archived) => ({ id, name, parent: parent || null, parentName: parentName || null, parentArchived: !!parentArchived, archived: !!archived, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [
+        mk('k', 'Kosmos', null, null, false, true),          // the parent, now ARCHIVED
+        mk('app', 'App', 'k', 'Kosmos', true, false),        // child of the archived parent
+        mk('site', 'Site', null, null, false, false),
+      ];
+      PJ_SORT = 'az'; PJ_CURRENT = 'app';
+      paintProjectSettings(pjById('app'));
+      const sel = document.getElementById('pjs-parent');
+      const cur = Array.from(sel.options).find((o) => o.value === 'k');
+      return { value: sel.value, hasArchivedParentOption: !!cur, label: cur ? cur.textContent : '' };
+    });
+    ok(t + ' archived parent stays the select value (no silent un-group)', arch.value === 'k', arch.value);
+    ok(t + ' archived parent shown with an option', arch.hasArchivedParentOption, JSON.stringify(arch));
+    ok(t + ' archived parent option is labelled archived', /archived/i.test(arch.label), arch.label);
+
     await page.close();
   }
   await browser.close();

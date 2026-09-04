@@ -28730,10 +28730,29 @@ function pjPaintParentSelect(p) {
   if (!sel) return;
   const banned = pjDescendantIds(p.id);
   const opts = ['<option value="">Top level (none)</option>'];
+  let hasCurrent = !p.parent;   // "Top level (none)" always represents no parent
   for (const q of sortProjects(PROJECTS.filter((x) => !x.archived), PJ_SORT)) {
     if (q.id === p.id || banned.has(q.id)) continue;
+    if (q.id === p.parent) hasCurrent = true;
     opts.push('<option value="' + esc(q.id) + '"' + (q.id === p.parent ? ' selected' : '') + '>'
       + esc(q.name) + '</option>');
+  }
+  /* Keep the select HONEST about the current parent even when it is not among
+     the offered options. The engine explicitly ALLOWS archiving a project that
+     has children (projects.js), and an archived project is filtered out of the
+     list above -- so without this, a child whose parent is archived (or a
+     dangling id) would show "Top level (none)", and a later save of an
+     UNRELATED field would compute parent-changed and send parent:null, silently
+     un-grouping a project nobody touched. Representing the real value with its
+     own preselected option keeps the changed-fields diff true; the person can
+     still deliberately move it. It is not offered as a NEW parent to anyone
+     else (the active filter still excludes archived), only shown as the
+     existing one here. */
+  if (!hasCurrent && p.parent) {
+    const label = p.parentName
+      ? p.parentName + (p.parentArchived ? ' (archived)' : '')
+      : 'Current parent (no longer available)';
+    opts.splice(1, 0, '<option value="' + esc(p.parent) + '" selected>' + esc(label) + '</option>');
   }
   sel.innerHTML = opts.join('');
   sel.value = p.parent || '';
