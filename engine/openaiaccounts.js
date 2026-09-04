@@ -60,6 +60,49 @@ function authFile(dir) {
 }
 
 /**
+ * #2095: the human-chosen display NAME, kept in a small sidecar file INSIDE the
+ * account dir (beside auth.json). It is deliberately SEPARATE from the dir label:
+ * the label is `cleanLabel`-slugged to a safe path (`[a-z0-9-]`, lowercased), so
+ * "My Work Account" becomes the path fragment "my-work-account" -- fine for a
+ * directory, wrong for a screen. This preserves EXACTLY what the person typed,
+ * and unlike the label it also exists for a default `~/.codex` account (which has
+ * no `.codex-<label>` to read a name out of).
+ *
+ * Best-effort and fail-open EVERYWHERE, on purpose: a missing/unreadable file is
+ * a real "no name" (null), never an error, so an account with no name still lists
+ * and still works; and a failed WRITE never fails the add -- the account is fully
+ * usable unnamed. Being inside the dir, it rides the forget-rename with everything
+ * else, and `list()` never sees it (that scan is of homeDir for `.codex-*` DIRS).
+ */
+function nameFile(dir) {
+  return path.join(path.resolve(String(dir || '')), '.kosmos-name');
+}
+function readName(dir) {
+  try {
+    // Re-apply the same code-point clamp on READ, not only on write, so the
+    // bound holds however the bytes got into the file (a hand-edited or legacy
+    // sidecar), not merely for names this module itself wrote.
+    const n = [...fs.readFileSync(nameFile(dir), 'utf8').trim()].slice(0, NAME_MAX).join('').trimEnd();
+    return n || null;
+  } catch { return null; }
+}
+/* #2095: clamp so a RAW API call to the connect route (the form input maxlengths
+   at 40, but the HTTP endpoint does not) cannot store an unbounded name that then
+   bloats every /api/accounts response. 120 matches the agent-name clamp
+   (create.js), generous for a display label and bounded. */
+const NAME_MAX = 120;
+function writeName(dir, name) {
+  // Clamp by CODE POINT ([...s] iterates code points), not UTF-16 unit, so the
+  // 120-char boundary can never split an astral char (an emoji surrogate pair)
+  // into a lone half that serialises as U+FFFD. trimEnd after clamping so a cut
+  // that lands on a space does not store a trailing blank.
+  const n = [...String(name == null ? '' : name).trim()].slice(0, NAME_MAX).join('').trimEnd();
+  if (!n) return false;
+  try { fs.writeFileSync(nameFile(dir), n); return true; }
+  catch { return false; }
+}
+
+/**
  * The one read of auth.json, shared by identityOf() and checkLive() so
  * "the file is absent" and "the file is present but corrupted/unreadable"
  * stay two DIFFERENT facts everywhere in this module, not just where it
@@ -120,6 +163,9 @@ function rowFor(dir, isDefault) {
     providerName: PROVIDER_NAME,
     dir,
     label: isDefault ? null : path.basename(dir).replace(/^\.codex-/, ''),
+    // #2095: the exact human-chosen name, null if it was never set. Kept apart
+    // from `label` so a screen can show what the person typed, not the path slug.
+    name: readName(dir),
     isDefault: isDefault === true,
     email: who.email,
     authMode: who.authMode,
@@ -363,6 +409,12 @@ function addWithKey({ key, label, codexBin }) {
     // stdout and stderr are DROPPED: codex's own messages could echo the key.
     stdio: ['pipe', 'ignore', 'ignore'],
   });
+  // #2095: persist the EXACT name the person typed (the RAW `label`, before
+  // cleanLabel slugged it into the path) BEFORE rowFor reads it, so the returned
+  // account carries the name. Best-effort: a failed write leaves a fully working
+  // account that simply has no display name. Only on a successful login (a failed
+  // login is torn down below, so a name file there would be litter).
+  if (run.status === 0 && label != null && String(label).trim()) writeName(spot.dir, label);
   const row = run.status === 0 ? rowFor(spot.dir, false) : null;
   if (!row) {
     // Anti-litter: a failed add leaves no half-made account behind.
@@ -413,13 +465,22 @@ async function addWithKeyLive({ key, label, codexBin }) {
        deletes a directory that was already here -- addWithKey can succeed into a
        pre-existing dir that merely lacked an auth.json (a reused work slot, or a
        labelled `.codex-<label>` folder with other contents). So: whole dir only
-       when we made it; otherwise remove JUST the auth.json this add wrote, which
-       is safe because addWithKey only SUCCEEDS into a dir that had no auth.json
-       before (line refuses a taken label), so the file present now is ours to
-       undo and nothing else in that directory is. */
+       when we made it; otherwise remove JUST the files this add wrote -- the
+       auth.json AND the #2095 `.kosmos-name` sidecar -- which is safe because
+       addWithKey only SUCCEEDS into a dir that had no auth.json before (it
+       refuses a taken label), so both files present now are ours to undo and
+       nothing else in that directory is.
+       🛑 #2095: the name file MUST be removed here too. Without it, a labelled
+       add into a pre-existing auth-less slot that is then live-rejected orphans
+       `.kosmos-name`; since nextWorkDir reuses an auth-less dir, a LATER add
+       would inherit that stale name -- a different account showing someone
+       else's typed name. */
     try {
       if (added.madeDir) fs.rmSync(added.account.dir, { recursive: true, force: true });
-      else fs.rmSync(authFile(added.account.dir), { force: true });
+      else {
+        fs.rmSync(authFile(added.account.dir), { force: true });
+        fs.rmSync(nameFile(added.account.dir), { force: true });
+      }
     } catch { /* best effort */ }
     return { ok: false, because: 'OpenAI did not accept this key' };
   }
@@ -738,4 +799,5 @@ module.exports = {
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
   accountModels, chatModelsFromList,
+  readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };
