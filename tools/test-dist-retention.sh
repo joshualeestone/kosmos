@@ -105,6 +105,19 @@ bash "$TOOL" --dist "$D" --keep 2 --prune --yes >/dev/null 2>&1
 absent "$D" kosmos-0.6.9-arm64.tar.gz && ok "sort: 0.6.9 pruned (numeric ordering)" || no "sort: 0.6.9 kept -- lexical sort bug"
 present "$D" kosmos-0.6.10-arm64.tar.gz && ok "sort: 0.6.10 retained (numeric ordering)" || no "sort: 0.6.10 pruned -- lexical sort bug"
 
+# --- Arm 8b: valid latest.json but ZERO versioned triples --------------------
+# The bash-3.2 empty-array-under-set-u case. make_fixture with no version args
+# creates the invariants + a latest.json but no triples.
+D="$TMP/a8b"; make_fixture "$D" 0.6.30
+before="$(count_files "$D")"
+out="$(bash "$TOOL" --dist "$D" --keep 12 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "versionless dist: dry run exit 0 (no empty-array crash)" || no "versionless dist: dry run exit $rc -- $out"
+echo "$out" | grep -qE "versioned triples found: +0" && ok "versionless dist: reports 0 found" || no "versionless dist: wrong found count -- $out"
+bash "$TOOL" --dist "$D" --keep 12 --prune --yes >/dev/null 2>&1; rc=$?
+after="$(count_files "$D")"
+[ "$rc" -eq 0 ] && ok "versionless dist: prune --yes exit 0 (no crash in orphan check)" || no "versionless dist: prune exit $rc"
+[ "$before" = "$after" ] && ok "versionless dist: deleted nothing" || no "versionless dist: file count changed"
+
 # --- Arm 8: argument / precondition refusals ---------------------------------
 bash "$TOOL" --keep 12 >/dev/null 2>&1; [ $? -ne 0 ] && ok "no --dist: refuses" || no "no --dist: did not refuse"
 bash "$TOOL" --dist "$TMP/does-not-exist" >/dev/null 2>&1; [ $? -ne 0 ] && ok "non-dir --dist: refuses" || no "non-dir: did not refuse"

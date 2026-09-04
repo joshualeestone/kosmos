@@ -1,4 +1,4 @@
-# #1605 — dist/ retention tool (dry-run by default, invariant-safe)
+# #1605 - dist/ retention tool (dry-run by default, invariant-safe)
 
 ## The card, narrowed
 
@@ -12,7 +12,7 @@ served pointer.
 ## What is mine vs Josh's (reversibility test)
 
 - **Actually deleting a published release tarball is IRREVERSIBLE** ("data that cannot
-  be un-published") — there is no off-disk copy (PigeonPete confirmed: 0 GH releases,
+  be un-published") - there is no off-disk copy (PigeonPete confirmed: 0 GH releases,
   untracked-but-not-ignored in the site repo). By the reversibility test the *decision
   to prune* is Josh's.
 - **A safe retention TOOL is reversible code and mine to build**: report what is there,
@@ -24,7 +24,7 @@ So this card ships a tool that is **safe to merge and safe to run**, and leaves 
 act of pruning as an explicit, guarded, operator-initiated step. It does not prune
 anything as part of the card.
 
-## Design — `tools/dist-retention.sh`
+## Design - `tools/dist-retention.sh`
 
 ```
 tools/dist-retention.sh --dist <DIR> [--keep N] [--prune] [--yes] [--json]
@@ -33,7 +33,7 @@ tools/dist-retention.sh --dist <DIR> [--keep N] [--prune] [--yes] [--json]
 - `--dist <DIR>` REQUIRED (no default that could point at the wrong tree; the tool
   refuses without it). Must be a directory containing a `latest.json`.
 - `--keep N` default **12**. Number of most-recent versioned tarball triples to retain.
-- Default (no `--prune`): **DRY RUN** — print retained set, prune candidates, reclaim
+- Default (no `--prune`): **DRY RUN** - print retained set, prune candidates, reclaim
   bytes; delete nothing; exit 0.
 - `--prune` without `--yes`: **REFUSE** (exit 2) and print the irreversibility warning
   + "this is Josh's call per #1605". Deletes nothing.
@@ -41,19 +41,19 @@ tools/dist-retention.sh --dist <DIR> [--keep N] [--prune] [--yes] [--json]
   invariant; print reclaim. Refuse (non-zero) and delete nothing if the post-check
   would fail.
 
-### Protected invariants — NEVER pruned, whatever --keep is
+### Protected invariants - NEVER pruned, whatever --keep is
 
 1. `latest.json`, `latest-win.json` (the served pointers).
 2. Aliases + sidecars: `kosmos-arm64.tar.gz`(+`.sha256`), `tmux-arm64.tar.gz`(+`.sha256`),
    `kosmos-win-x64.zip`(+`.sha256`).
 3. macOS installer: `Kosmos.pkg`(+`.sha256`, +`.inputs`).
-4. **The SERVED version** parsed from `latest.json`'s `"artifact"` field — its
-   `.tar.gz` + `.tar.gz.sha256` + `.manifest.json` — even if it falls OUTSIDE the
+4. **The SERVED version** parsed from `latest.json`'s `"version"` field - its
+   `.tar.gz` + `.tar.gz.sha256` + `.manifest.json` - even if it falls OUTSIDE the
    keep window.
 5. Every `.sha256` and `.manifest.json` belonging to a KEPT version (never orphan a
-   kept artifact — the #930 shape).
+   kept artifact - the #930 shape).
 
-### Prune candidates — the ONLY things that can be deleted
+### Prune candidates - the ONLY things that can be deleted
 
 Versioned triples `kosmos-<V>-arm64.{tar.gz,tar.gz.sha256,manifest.json}` whose version
 `V` is:
@@ -62,16 +62,16 @@ Versioned triples `kosmos-<V>-arm64.{tar.gz,tar.gz.sha256,manifest.json}` whose 
 
 **Fail-safe:** the tool only ever deletes files it positively recognises as a member
 of a prunable versioned triple. Any file it does not recognise (a win zip, a stray, a
-future artifact shape) is LEFT ALONE and reported under "unrecognised — not touched".
+future artifact shape) is LEFT ALONE and reported under "unrecognised - not touched".
 Deletion is a whitelist of prunable versions, never a blacklist of protected ones.
 
 ### Version sort
 
 Versions are `0.6.NN` (dot-separated numeric). Sort numerically by component (not
-lexically — `0.6.9` < `0.6.10`). Reuse the repo's existing version compare if one
+lexically - `0.6.9` < `0.6.10`). Reuse the repo's existing version compare if one
 exists; otherwise a `sort -V`-based helper, verified against a `0.6.9`/`0.6.10` case.
 
-## Tests — `tools/test-dist-retention.sh` (red-capable, fixture-based)
+## Tests - `tools/test-dist-retention.sh` (red-capable, fixture-based)
 
 Build a temp fixture dist dir (never the real one) with: 15 versioned triples
 (0.6.08..0.6.22), the served version named by a fixture `latest.json` set to a MIDDLE
@@ -98,7 +98,7 @@ suite is red-capable by breaking one arm before finalising.
 
 - Add `tools/test-dist-retention.sh` to `package.json` `test:shell` (and `bash -n
   tools/dist-retention.sh`), so the guard runs in CI.
-- No release.sh change in this card — the tool is operator-run. A follow-up could wire
+- No release.sh change in this card - the tool is operator-run. A follow-up could wire
   a dry-run REPORT (never a prune) into the disk-guard, but that is not this card.
 
 ## Out of scope / deferred

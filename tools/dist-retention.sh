@@ -103,9 +103,12 @@ fi
 in_keep "$SERVED_VERSION" || KEEP_LIST="${KEEP_LIST}${SERVED_VERSION} "
 RETAINED=$(printf '%s' "$KEEP_LIST" | tr ' ' '\n' | grep -c . || true)
 
-# Prune candidates = discovered versions not in the keep set.
+# Prune candidates = discovered versions not in the keep set. The ":-" guards the
+# empty-array-under-set-u crash on bash 3.2 when the dist has a valid latest.json
+# but zero versioned triples; the [ -n ] skips the single empty element it yields.
 PRUNE_VERSIONS=()
-for v in "${SORTED_ASC[@]}"; do
+for v in "${SORTED_ASC[@]:-}"; do
+  [ -n "$v" ] || continue
   in_keep "$v" || PRUNE_VERSIONS+=("$v")
 done
 
@@ -199,7 +202,8 @@ assert_present "latest.json"
 # No kept version may be orphaned: a kept tar.gz must keep its .sha256. Iterate the
 # discovered versions and check membership (a served version with no on-disk triple
 # has nothing to orphan, so iterating SORTED_ASC is sufficient).
-for v in "${SORTED_ASC[@]}"; do
+for v in "${SORTED_ASC[@]:-}"; do
+  [ -n "$v" ] || continue
   in_keep "$v" || continue
   if [ -e "$DIST/kosmos-${v}-arm64.tar.gz" ] && [ ! -e "$DIST/kosmos-${v}-arm64.tar.gz.sha256" ]; then
     echo "dist-retention: POST-CHECK FAILED -- kept version $v lost its .sha256 sidecar" >&2; fail=1
