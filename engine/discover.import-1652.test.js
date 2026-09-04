@@ -70,9 +70,14 @@ test('#1652: CLAUDE.md and AGENTS.md are NOT importable rows (they are folder-ag
 });
 
 test('#1652: a non-agent .md (no "You are") is refused, same content gate as the connect scan', () => {
-  const f = put('proj/notes.md', '# Meeting notes\n\nnothing about an agent here\n');
-  const r = scan();
-  assert.ok(!files(r).includes(f), 'a plain markdown note was wrongly offered as importable');
+  // A folder holding BOTH a plain note and a real agent file, so the refusal is a
+  // meaningful control: the positive arm proves the scan actually read this folder, and
+  // the negative arm proves the note was refused rather than the folder being skipped.
+  const note = put('gate/notes.md', '# Meeting notes\n\nnothing about an agent here\n');
+  const real = put('gate/realone.md', AGENT('GateReal', 'analyst'));
+  const r = scan([{ dir: path.join(DISK, 'gate'), maxDepth: 1 }]);
+  assert.ok(files(r).includes(real), 'positive control failed: the scan did not read this folder at all');
+  assert.ok(!files(r).includes(note), 'a plain markdown note was wrongly offered as importable');
 });
 
 test('#1652: an importOnly root (Downloads-shape) yields importable FILES but no connect FOLDER', () => {
