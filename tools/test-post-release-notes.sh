@@ -117,9 +117,12 @@ XLEN="$(env KOSMOS_VERSIONS_PAGE="$PAGE" KOSMOS_SOCIAL_PREVIEW_DIR="$PREVIEW" ba
 # 0.9.9 note never reaches.
 XOUT="$(env KOSMOS_VERSIONS_PAGE="$PAGE" KOSMOS_SOCIAL_PREVIEW_DIR="$PREVIEW" bash "$SCRIPT" 0.9.8 2>&1 | awk '/^   Kosmos 0\.9\.8 is out\./{print; exit}')"
 XOUT="${XOUT#   }"
-XN=${#XOUT}
-{ [ "$XN" -le 280 ] && has "$XOUT" "…" && has "$XOUT" "installkosmos.com/versions.html"; } \
-  && pass "truncation: long note trimmed with an ellipsis, <=280, link kept ($XN)" \
+# Count CHARACTERS, not bytes: X's 280 is characters, and the appended U+2026 ellipsis is 3 bytes,
+# so ${#XOUT} (bytes under a C locale) would spuriously read 282. node counts code points, so the
+# arm is locale-independent (a C-locale launchd/cron test:shell would otherwise false-fail here).
+XN="$(node -e 'process.stdout.write(String([...process.argv[1]].length))' "$XOUT" 2>/dev/null)"
+{ [ -n "$XN" ] && [ "$XN" -le 280 ] && has "$XOUT" "…" && has "$XOUT" "installkosmos.com/versions.html"; } \
+  && pass "truncation: long note trimmed with an ellipsis, <=280 chars, link kept ($XN)" \
   || bad "truncation: wrong (len=$XN)"
 
 # 8. a version with NO page entry -> generic note, still dry-run exit 0

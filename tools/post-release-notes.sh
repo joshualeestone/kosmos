@@ -111,7 +111,11 @@ publish_one() {
 }
 
 # --- the safety gate: decide dry-run vs publish ---
-is_prod="${KOSMOS_RELEASE_IS_PROD:-1}"   # callers on the prod path pass 1; a staging caller passes 0
+# The prod-only gate. Callers on the prod path pass 1; a staging caller passes 0. Defaulting to 1
+# is SAFE (not fail-open in effect): a publish still requires --publish + KOSMOS_SOCIAL_AUTOPOST=1 +
+# both creds + the approval marker, none of which a bare/by-hand invocation supplies - so the prod
+# default alone can never publish.
+is_prod="${KOSMOS_RELEASE_IS_PROD:-1}"
 write_preview() {
   local f="$PREVIEW_DIR/kosmos-release-notes-$V.preview.txt"
   { printf '=== X (%s) ===\n%s\n\n=== LinkedIn (%s) ===\n%s\n' "$X_HANDLE" "$X_POST" "$LINKEDIN_URL" "$LI_POST"; } > "$f" 2>/dev/null
