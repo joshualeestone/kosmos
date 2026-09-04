@@ -44,7 +44,10 @@
 # 🔬 PROVABLE. tools/test-restart-local-board.sh drives the wait against a stub board
 # and asserts the success arm (serves the wanted version -> exit 0), the slow-but-
 # healthy arm (flips to it late, still exit 0 -- the exact case the old cap broke),
-# and the failure arm (never serves it -> exit 1). A check that has only ever seen a
+# the STALE arm (keeps serving a DIFFERENT version -> exit 1, the #360 catch), and,
+# per #2109, the not-answering arm (down/restarting -> exit 0 with a WARNING) plus the
+# slow-stale and transient-failure-stale arms that prove the patient poll + retries
+# still catch a stale board the short poll missed. A check that has only ever seen a
 # good machine has not been tested.
 #
 # Overrides (for the test; unset in normal use):
@@ -139,11 +142,24 @@ wait_for_want() {
   done
   # The in-loop polls used a short (3s) timeout. Under the heavy load this check runs
   # in, that can time out even against a board that is UP -- and a slow-but-UP board
-  # might be a STALE one. So before deciding "not answering", take ONE PATIENT poll
-  # (10s) to let a slow board reveal its version. Without this, a stale board whose
-  # short poll timed out at the deadline would be mis-downgraded to a warning and
-  # ship stale code to the developer's review board silently (#2109 review).
-  got="$(board_version "$url" 10)"
+  # might be a STALE one. So before deciding "not answering", take a few PATIENT polls
+  # (10s each) to let a slow board reveal its version. Without this, a stale board
+  # whose short poll timed out at the deadline would be mis-downgraded to a warning
+  # and ship stale code to the developer's review board silently (#2109 review).
+  #
+  # THREE tries, not one, so the security-critical stale->fail decision does not hinge
+  # on a SINGLE sample: a transient failure on one poll would bias toward the unsafe
+  # (warn/exit 0) direction for a genuinely stale board. A stale board (up, serving
+  # old code) answers at least one of these; only a board that fails ALL three is
+  # treated as down. 10s is the deliberate per-poll ceiling -- a lightweight status
+  # endpoint answers well within it, and a longer one only delays a doomed cut. A
+  # truly-down board is refused instantly (connection refused), so the retries cost
+  # real time only against a board that is listening but pathologically slow.
+  got=""
+  for _try in 1 2 3; do
+    got="$(board_version "$url" 10)"
+    [ -n "$got" ] && break
+  done
   if [ "$got" = "$want" ]; then
     echo "   the local board is back on ${got} (answered on a patient final poll)"
     return 0
@@ -178,8 +194,9 @@ board_outcome_exit() {
 }
 
 # Test seam: drive the poll/outcome logic directly against a stub, with no launchd
-# and no real restart. This exercises exactly the logic #2044 changed, in isolation,
-# so both the success and failure arms can be proven.
+# and no real restart. This exercises exactly the logic #2044 and #2109 changed, in
+# isolation, so the success, stale (exit 1) and not-answering (exit 0) arms can all
+# be proven.
 if [ "${KOSMOS_BOARD_POLL_ONLY:-}" = 1 ]; then
   _url="${KOSMOS_BOARD_STATUS_URL:-http://127.0.0.1:${KOSMOS_PORT:-16180}/api/status}"
   board_outcome_exit "$_url" "$(want_version)"
