@@ -11731,7 +11731,7 @@ function lrow(a) {
  * the difference between telling a paying customer their account is fine and
  * telling them to go buy a second one.
  */
-function renderConnection(conn, agents) {
+function renderConnection(conn, agents, dependsOnClaude) {
   const el = document.getElementById('conn');
   if (!el) return;
 
@@ -11740,6 +11740,14 @@ function renderConnection(conn, agents) {
   if (!conn || !conn.state) { el.hidden = true; el.textContent = ''; el.className = 'conn'; return; }
 
   if (conn.state === 'connected') { el.hidden = true; el.textContent = ''; el.className = 'conn'; return; }
+
+  /* #2096: OpenAI-only is first-class -- a machine that does not depend on Claude
+     must see no "cannot reach a Claude subscription" warning. Only an EXPLICIT
+     false suppresses it: a MISSING field (an older server) falls back to warning,
+     because hiding a real Claude failure on a stale/absent field is the one
+     direction this must never take. The server sets it true whenever a Claude
+     account is configured OR any agent is not positively a codex runner. */
+  if (dependsOnClaude === false) { el.hidden = true; el.textContent = ''; el.className = 'conn'; return; }
 
   const idle = (agents || []).filter((a) => a && a.state === 'idle').length;
   const bad = conn.state === 'none';
@@ -13076,7 +13084,7 @@ async function tick() {
       }
       unreadEl.hidden = !floor;
     }
-    renderConnection(data.connection, data.agents);
+    renderConnection(data.connection, data.agents, data.dependsOnClaude);
     // Says "early" out loud. For a product whose whole thesis is not
     // overstating what it knows, admitting its own maturity is on-brand.
     //

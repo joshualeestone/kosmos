@@ -2123,8 +2123,19 @@ const server = http.createServer((req, res) => {
       // available() is the cached verdict -- the request path never waits on
       // the release host, and a down host just means no toast.
       updates.poke();
+      /* #2096: OpenAI-only is a first-class state. The "cannot reach a Claude
+         subscription" banner (renderConnection) must fire only when this machine
+         actually DEPENDS on Claude -- a Claude account is configured (`known` is
+         accounts.list(), Claude-only), or an agent is not positively an OpenAI
+         (codex) runner. 🛑 An unknown runner ('' or 'claude') COUNTS as
+         Claude-dependent, so a real Claude failure is never hidden; only a machine
+         we can positively confirm is codex-only AND has no Claude account suppresses
+         the warning. On OpenAI-only (no Claude account, every agent codex) this is
+         false and the banner stays down. */
+      const dependsOnClaude = (Array.isArray(known) && known.length > 0)
+        || agents.concat(offline).some((a) => a && a.runner !== 'codex');
       body = JSON.stringify({
-        ...snap, agents: agents.concat(offline), counts, connection, version,
+        ...snap, agents: agents.concat(offline), counts, connection, version, dependsOnClaude,
         /* #2066: the build marker reads (version, sourceChannel). Channel rides
            the 5s status tick the board already polls -- one file read, defaulting
            to 'prod', so a prod board is unchanged and a staging board is loud. */
