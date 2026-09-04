@@ -54,28 +54,44 @@ card() {  # <name> -> a status card JSON for the scenario state
   case "$st" in
     working)         state=working;     because="working";;
     trust-wedge)     state=needs_you;   because="it is asking whether to trust its folder, and the default answer exits";;
+    trust-wedge-caps) state=needs_you;  because="It Is Asking Whether To TRUST Its FOLDER";;
     auth)            state=auth_failed; because="its Claude sign-in is not working";;
     stopped-forever) state=stopped;     because="Claude is not running for this one";;
     *)               state=idle;        because="it is sitting at its prompt";;
   esac
-  printf '{"sessionName":"%s","classify":{"state":"%s","because":"%s"}}' "$nm" "$state" "$because"
+  # The REAL /api/status card is TOP-LEVEL sessionName/state/because (server.js status route),
+  # not nested under classify. Emit that so the gate's real read path (c.classify||c -> c) is
+  # what's exercised, not the defensive nested-classify fallback.
+  printf '{"sessionName":"%s","state":"%s","because":"%s"}' "$nm" "$state" "$because"
 }
 case "$route" in
   /api/accounts)
+    # The REAL /api/accounts shape (server.js): a row is {provider, dir, connection:{state,...}}.
+    # connection.state ("connected"/"none"/"unknown") is the cross-provider signal; Claude rows
+    # also carry a derived badge (working/signed_in_unverified/signed_out/...). NOT a `connected`
+    # boolean, NOT badge:"connected". This fixture emits the real shape so the parser is tested.
     a="${MOCK_ACCOUNTS:-both}"; rows=""; first=1
-    if [ "$a" = both ] || [ "$a" = no-openai ]; then
-      rows='{"provider":"anthropic","dir":"/x/.claude","connection":{"connected":true,"badge":"connected"}}'; first=0
-    fi
-    if [ "$a" = both ]; then
-      [ "$first" = 1 ] || rows="$rows,"
-      rows="$rows{\"provider\":\"openai\",\"dir\":\"/x/.codex\",\"connection\":{\"connected\":true,\"badge\":\"connected\"}}"
-    fi
-    emit "{\"accounts\":[$rows]}" 200;;
+    # claude-signedout: Claude present but NOT connected (state none / badge signed_out) - the
+    # parser must reject it -> MISSING anthropic -> cannot-tell. Proves the connection check.
+    if [ "$a" = claude-signedout ]; then
+      rows='{"provider":"anthropic","dir":"/x/.claude","connection":{"state":"none","badge":"signed_out"}}'
+      rows="$rows,{\"provider\":\"openai\",\"dir\":\"/x/.codex\",\"connection\":{\"state\":\"connected\"}}"
+      emit "{\"accounts\":[$rows]}" 200
+    else
+      if [ "$a" = both ] || [ "$a" = no-openai ]; then
+        rows='{"provider":"anthropic","dir":"/x/.claude","connection":{"state":"connected","badge":"working"}}'; first=0
+      fi
+      if [ "$a" = both ]; then
+        [ "$first" = 1 ] || rows="$rows,"
+        rows="$rows{\"provider\":\"openai\",\"dir\":\"/x/.codex\",\"connection\":{\"state\":\"connected\"}}"
+      fi
+      emit "{\"accounts\":[$rows]}" 200
+    fi;;
   /api/status)
     pre="${MOCK_PREEXISTING:-0}"; parts=""; first=1; i=0
     while [ "$i" -lt "$pre" ]; do
       [ "$first" = 1 ] || parts="$parts,"; first=0
-      parts="$parts{\"sessionName\":\"pre-$i\",\"classify\":{\"state\":\"idle\",\"because\":\"pre\"}}"
+      parts="$parts{\"sessionName\":\"pre-$i\",\"state\":\"idle\",\"because\":\"pre\"}"
       i=$((i+1))
     done
     # noshow: emit NO card for the created agents (a board-shape mismatch / never-spawned
@@ -123,6 +139,7 @@ run_case() {
 run_case "both agents online (positive control)"        0  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle
 run_case "both agents WORKING"                           0  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=working
 run_case "trust wedge (#2129) -> do-not-promote"        1  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=trust-wedge
+run_case "trust wedge, MIXED CASE -> still caught (1)"   1  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=trust-wedge-caps
 run_case "auth_failed -> do-not-promote"                1  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=auth
 run_case "never online within window -> do-not-promote" 1  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=stopped-forever
 run_case "create refused (400, sign-in) -> do-not-promote" 1 MOCK_ACCOUNTS=both MOCK_CREATE=refuse400
@@ -132,6 +149,7 @@ run_case "populated fleet, no override -> REFUSE"       2  MOCK_ACCOUNTS=both MO
 run_case "garbage MAX_EXISTING still guards a populated fleet" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_AGENT_ONLINE_MAX_EXISTING=abc
 run_case "populated fleet WITH allow-live + online"     0  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1
 run_case "no openai account -> cannot-tell"             2  MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=idle
+run_case "Claude present but signed OUT -> cannot-tell"  2  MOCK_ACCOUNTS=claude-signedout MOCK_AGENT_STATE=idle
 
 # no board.token -> cannot-tell (fails before any transport call)
 NOTOK="$(mktemp -d "${TMPDIR:-/tmp}/aoc-notok.XXXXXX")"

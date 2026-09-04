@@ -143,8 +143,15 @@ let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
   for (const r of rows) {
     const prov = r.provider || r.kind || "";
     if (prov!=="anthropic" && prov!=="openai") continue;
+    // The real GET /api/accounts connection shape (server.js /api/accounts + subscription.js
+    // STATE.CONNECTED="connected"): connection.state is the cross-provider signal
+    // ("connected"/"none"/"unknown"); Claude rows also carry a derived badge (observed.js:
+    // "working"/"signed_in_unverified" mean live). There is NO `connected` boolean and no
+    // badge value "connected". Key on state, accepting the Claude live badges too.
     const conn = r.connection || {};
-    const ok = conn.connected===true || conn.badge==="connected" || r.connected===true;
+    const st = String(conn.state || "");
+    const badge = String(conn.badge || "");
+    const ok = st==="connected" || badge==="working" || badge==="signed_in_unverified";
     if (!ok) continue;
     const dir = r.dir || r.account || r.accountDir || "";
     if (!seen[prov]) { seen[prov]=1; process.stdout.write(prov+"\t"+dir+"\n"); }
@@ -210,8 +217,11 @@ create_and_wait() {
     # (#1903/#2128/#2130). Any other 400 is more likely a gate/board contract drift (an
     # unexpected body/role/field) than a broken build, so it is cannot-tell (forceable),
     # never a non-forceable refusal on what may be a bug in this gate.
-    case "$err400" in
-      *sign-in*|*"sign in"*|*signin*|*"sign-in is not working"*)
+    # case-insensitive: case is the fleet's most-repeated false-zero, and a mis-cased match
+    # here would misroute a real sign-in refusal (1) to cannot-tell (2).
+    local err_lc; err_lc="$(printf '%s' "$err400" | tr '[:upper:]' '[:lower:]')"
+    case "$err_lc" in
+      *sign-in*|*"sign in"*|*signin*)
         say "  [$prov] create REFUSED (HTTP 400): $err400 - a real provider sign-in failure (#2128/#2130 class)"; return 1 ;;
       *)
         say "  [$prov] create got HTTP 400 for an unexpected reason: $err400"
@@ -247,8 +257,11 @@ create_and_wait() {
       idle|working)
         say "  [$prov] ONLINE (state=$st) - the #2129 class is not present."; return 0 ;;
       needs_you)
-        case "$because" in
-          *trust*|*Trust*|*folder*)
+        # case-insensitive trust match (case is the fleet's most-repeated false-zero); a
+        # mis-cased "Trust"/"Folder" must still be recognised as the #2129 wedge.
+        local because_lc; because_lc="$(printf '%s' "$because" | tr '[:upper:]' '[:lower:]')"
+        case "$because_lc" in
+          *trust*|*folder*)
             say "  [$prov] WEDGED at the trust prompt (#2129): '$because'"; return 1 ;;
           *)
             say "  [$prov] needs_you (not trust): '$because' - treating as not-online"; ;;
@@ -261,7 +274,7 @@ create_and_wait() {
   # Distinguish the two timeouts so a shape mismatch is self-diagnosing rather than a
   # silent, un-forceable exit 1: an agent that NEVER appeared in /api/status is far more
   # likely a board-shape mismatch (this gate reads agents[] cards keyed on sessionName
-  # with classify.state) than a real #2129 wedge. Say which, so an operator can tell a
+  # with a top-level state field) than a real #2129 wedge. Say which, so an operator can tell a
   # broken gate from a broken build.
   if [ "$seen" = 0 ]; then
     # The card NEVER matched (or matched with no readable state). That is ambiguous between a
@@ -272,7 +285,7 @@ create_and_wait() {
     say "  [$prov] created agent '$sess' NEVER appeared in /api/status within ${POLL_SECS}s."
     say "    -> a board-shape mismatch / contract drift, or an agent that never spawned - NOT a proven"
     say "       #2129 wedge (that appears as a needs_you card). This gate expects an agents[] card with"
-    say "       sessionName + classify.state. Cannot tell - verify the shape on the running board."
+    say "       sessionName + a top-level state. Cannot tell - verify the shape on the running board."
     return 2
   fi
   # It DID appear but never reached idle/working (e.g. stuck 'stopped', or a needs_you that was
