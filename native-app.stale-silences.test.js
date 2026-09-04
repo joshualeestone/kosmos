@@ -125,6 +125,8 @@ test('#2094: the relaunch targets the FRESH installed copy, not this stale proce
     'the relaunch opens Bundle.main directly again instead of the resolved fresh target');
   assert.match(SRC, /static func pickFresh\(/,
     'the pure pickFresh core is gone (nothing left to unit-test the target choice)');
-  assert.match(SRC, /conf\.createsNewApplicationInstance = relaunchingSelf/,
-    'the relaunch forces a new instance unconditionally again, which is how the Dock piled up three windows');
+  assert.match(SRC, /conf\.createsNewApplicationInstance = true/,
+    'the relaunch must ALWAYS force a new instance: the fresh copy shares this stale process\'s bundle id, so dedup-by-activation (createsNewApplicationInstance=false) would activate the stale instance and quit to nothing. The pile-up is fixed by targeting a DIFFERENT fresh bundle above, not by dedup.');
+  assert.doesNotMatch(SRC, /createsNewApplicationInstance = relaunchingSelf/,
+    'the dangerous same-bundle-id dedup is back: activating an existing instance of the fresh path lands on THIS stale process and terminates to nothing');
 });

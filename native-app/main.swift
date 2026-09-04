@@ -1247,12 +1247,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            Falling back to Bundle.main when no fresher copy is found keeps this no
            worse than before (showCannotSelfHeal still bounds the loop). */
         let target = Self.freshAppURL(theirs: theirs) ?? Bundle.main.bundleURL
-        let relaunchingSelf = target.standardizedFileURL == Bundle.main.bundleURL.standardizedFileURL
         let conf = NSWorkspace.OpenConfiguration()
-        /* Force a brand-new instance ONLY when relaunching ourselves (the fallback).
-           When a distinct FRESH copy exists, let macOS launch/activate that one once
-           instead of stacking another window on the pile (Josh's Dock showed three). */
-        conf.createsNewApplicationInstance = relaunchingSelf
+        /* 🛑 ALWAYS force a new instance -- do NOT try to dedup by activating an
+           existing one. The fresh copy and this stale process share a
+           CFBundleIdentifier, and LaunchServices keys "already running" on the
+           BUNDLE ID, not the path: opening the fresh path with
+           createsNewApplicationInstance=false would ACTIVATE this same stale
+           instance instead of launching the fresh copy, the completion handler
+           would read that as "replacement started" and terminate -- quitting to
+           NOTHING. The pile-up Josh saw came from relaunching the SAME stale
+           bundle over and over; targeting the FRESH copy above already fixes that,
+           and the old instance still exits below once the new one is confirmed, so
+           this settles to one fresh window without the dedup that could leave him
+           with none. */
+        conf.createsNewApplicationInstance = true
         NSWorkspace.shared.openApplication(at: target, configuration: conf) { app, err in
             DispatchQueue.main.async {
                 if app != nil, err == nil {
