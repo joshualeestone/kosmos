@@ -42,7 +42,13 @@ let fetcher = null;            // tests inject; null means global fetch
 // the 0.6.25 class itself. It is opt-in and default-prod until the loop is proven end-to-end on
 // a real fresh machine (see tools/release.sh + docs); the default channel does not move here.
 function updateChannel() {
-  return process.env.AGENT_WORKFORCE_UPDATE_CHANNEL === 'staging' ? 'staging' : 'prod';
+  // Honor either env name so an operator who sets KOSMOS_UPDATE_CHANNEL on an existing box (the
+  // name setup.sh reads, and the one this poller forwards to the spawned installer) is not
+  // silently ignored by the auto-updater. AGENT_WORKFORCE_ prefix wins, matching this module's
+  // AGENT_WORKFORCE_RELEASE_BASE convention. Any value other than 'staging' -- including unset --
+  // resolves to prod.
+  const c = process.env.AGENT_WORKFORCE_UPDATE_CHANNEL || process.env.KOSMOS_UPDATE_CHANNEL;
+  return c === 'staging' ? 'staging' : 'prod';
 }
 function updatePointer() {
   return updateChannel() === 'staging' ? 'latest-staging.json' : 'latest.json';

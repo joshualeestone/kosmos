@@ -32,9 +32,13 @@ test.beforeEach(() => {
 test('#2036: update channel selects the pointer (default prod, staging opt-in, non-staging = prod)', async () => {
   let url = '';
   const cap = async (u) => { url = u; return { ok: true, json: async () => ({ version: RUNNING }) }; };
-  const saved = process.env.AGENT_WORKFORCE_UPDATE_CHANNEL;
+  // updateChannel() reads either env (AGENT_WORKFORCE_ preferred, KOSMOS_ fallback), so clear
+  // BOTH to establish the default, and restore both after.
+  const savedA = process.env.AGENT_WORKFORCE_UPDATE_CHANNEL;
+  const savedK = process.env.KOSMOS_UPDATE_CHANNEL;
+  const restore = (k, v) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; };
   try {
-    delete process.env.AGENT_WORKFORCE_UPDATE_CHANNEL;
+    delete process.env.AGENT_WORKFORCE_UPDATE_CHANNEL; delete process.env.KOSMOS_UPDATE_CHANNEL;
     update.resetCache(); update.setFetcher(cap); await update.refresh();
     assert.match(url, /\/latest\.json$/, 'default channel must fetch latest.json (prod path unchanged)');
 
@@ -42,12 +46,16 @@ test('#2036: update channel selects the pointer (default prod, staging opt-in, n
     update.resetCache(); update.setFetcher(cap); await update.refresh();
     assert.match(url, /\/latest-staging\.json$/, 'staging channel must fetch latest-staging.json');
 
-    process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = 'whatever';
+    delete process.env.AGENT_WORKFORCE_UPDATE_CHANNEL; process.env.KOSMOS_UPDATE_CHANNEL = 'staging';
+    update.resetCache(); update.setFetcher(cap); await update.refresh();
+    assert.match(url, /\/latest-staging\.json$/, 'the KOSMOS_UPDATE_CHANNEL fallback also selects staging');
+
+    process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = 'whatever'; delete process.env.KOSMOS_UPDATE_CHANNEL;
     update.resetCache(); update.setFetcher(cap); await update.refresh();
     assert.match(url, /\/latest\.json$/, 'any non-staging value falls back to prod (latest.json)');
   } finally {
-    if (saved === undefined) delete process.env.AGENT_WORKFORCE_UPDATE_CHANNEL;
-    else process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = saved;
+    restore('AGENT_WORKFORCE_UPDATE_CHANNEL', savedA);
+    restore('KOSMOS_UPDATE_CHANNEL', savedK);
   }
 });
 

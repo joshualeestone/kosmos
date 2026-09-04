@@ -44,6 +44,21 @@ ptr_file() {  # $1 = KOSMOS_UPDATE_CHANNEL value ('' = unset)
 [ "$(ptr_file whatever)" = latest.json ] && ok "setup channel: a non-staging value is prod" || no "setup channel: non-staging wrong"
 grep -q '\[ "${KOSMOS_UPDATE_CHANNEL:-}" = staging \] && _PTR_FILE="latest-staging.json"' "$REPO/install/setup.sh" && ok "setup channel: setup.sh carries the selector (extract matches source)" || no "setup channel: setup.sh selector drifted"
 
+# --- verify-served.sh: honors KOSMOS_VERIFY_POINTER (default prod) -------------------------
+# The step-9 integration: release.sh passes KOSMOS_VERIFY_POINTER=$POINTER_FILE, and
+# verify-served.sh MUST read it. (This guards the exact gap where release.sh set the var but
+# verify-served.sh hardcoded latest.json -- a staging cut could then never pass step 9.)
+verify_pointer() {  # $1 = KOSMOS_VERIFY_POINTER value ('' = unset)
+  local KOSMOS_VERIFY_POINTER="$1" POINTER
+  POINTER="${KOSMOS_VERIFY_POINTER:-latest.json}"
+  echo "$POINTER"
+}
+[ "$(verify_pointer '')" = latest.json ] && ok "verify-served pointer: DEFAULT is latest.json (prod checks unchanged)" || no "verify-served pointer: default wrong"
+[ "$(verify_pointer latest-staging.json)" = latest-staging.json ] && ok "verify-served pointer: honors the staging pointer" || no "verify-served pointer: override ignored"
+grep -q 'POINTER="${KOSMOS_VERIFY_POINTER:-latest.json}"' "$REPO/tools/verify-served.sh" && ok "verify-served pointer: verify-served.sh READS KOSMOS_VERIFY_POINTER" || no "verify-served pointer: verify-served.sh does not read the var (step-9 staging verify broken)"
+grep -q 'curl -fsS -H .Cache-Control: no-cache. "\$HOST/dist/\$POINTER"' "$REPO/tools/verify-served.sh" && ok "verify-served pointer: the polled fetch USES \$POINTER" || no "verify-served pointer: the fetch does not use \$POINTER"
+grep -q 'KOSMOS_VERIFY_POINTER=' "$REPO/tools/release.sh" && ok "verify-served pointer: release.sh passes KOSMOS_VERIFY_POINTER to the step-9 check" || no "verify-served pointer: release.sh no longer passes the var"
+
 # --- release_site_restore: abort-time cleanup of the staging pointer ----------------------
 . "$REPO/tools/lib/release-freeze.sh"
 mk_site() {  # a throwaway git site with a committed dist/ baseline

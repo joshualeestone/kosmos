@@ -1109,7 +1109,7 @@ if [ "$CUT_CHANNEL" = staging ]; then
   echo "   To take $V to prod, on a FRESH (no-token) machine or account -- NOT this build machine,"
   echo "   which holds a board token and so is blind to the no-token failure class that killed 0.6.25:"
   echo "     1. install/update it on the staging channel:"
-  echo "          fresh install:  KOSMOS_UPDATE_CHANNEL=staging curl -fsSL $HOST/setup | sh"
+  echo "          fresh install:  KOSMOS_UPDATE_CHANNEL=staging curl -fsSL ${HOST:-https://installkosmos.com}/setup | sh"
   echo "          existing box:   set AGENT_WORKFORCE_UPDATE_CHANNEL=staging for its auto-updater"
   echo "     2. exercise it: open the board and click (a person, or an agent driving a browser)"
   echo "     3. promote:  tools/promote-channel.sh \"$SITE\" <that-board's-port>"
