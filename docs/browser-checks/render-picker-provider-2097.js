@@ -50,9 +50,15 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!modelRow) return { error: '#create-model-row is missing (the #2098 hide-whole row was not added)' };
     const read = () => {
       const w = document.getElementById('create-model-why') || {};
+      const sel = document.getElementById('create-model') || { innerHTML: '', options: [] };
       // #2098: textContent returns the string even on a HIDDEN element, so the note's
       // VISIBILITY must be read separately or a hidden note reads as present (false green).
-      return { modelRowHidden: !!modelRow.hidden, whyText: w.textContent || '', whyHidden: !!w.hidden };
+      return {
+        modelRowHidden: !!modelRow.hidden, whyText: w.textContent || '', whyHidden: !!w.hidden,
+        // #2140 (Josh 2026-09-04): on OpenAI the box shows a single "OpenAI picks its own
+        // model for now" option, never a Claude one -- the no-stale-Claude-value invariant.
+        modelHtml: sel.innerHTML || '',
+      };
     };
     prov.value = 'openai';    applyCreateProviderUI(); const openai = read();
     prov.value = 'anthropic'; applyCreateProviderUI(); const anthropic = read();
@@ -87,13 +93,20 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (r.error) {
     problems.push(r.error);
   } else {
-    if (!r.openai.modelRowHidden) problems.push('OpenAI: the model row is NOT hidden -- a stale Claude model still shows under an OpenAI key (#2098)');
-    /* #2140 replaced the fixed "OpenAI picks its own model for now." note with a
-       per-account picker. On this file:// page there is no /api/accounts fetch and
-       no account chosen, so the picker is in its NOT-LISTABLE state: the row hides
-       (no stale Claude value, the #2098 invariant this check exists for) and the
-       note is the #2140 auto-fallback copy. The picker's LISTABLE state is covered
-       by render-create-openai-model-2140.js, which stubs the fetch. */
+    /* #2140 (Josh 2026-09-04) refined #2098: OpenAI now SHOWS the model box with a
+       single "OpenAI picks its own model for now" option (never a Claude model), rather
+       than hiding it. On this account-less file:// page that is the not-listable/no-account
+       state. The no-stale-Claude-value invariant #2098 exists for is asserted here as the
+       ABSENCE of a Claude model under OpenAI, plus the single OpenAI option present. */
+    if (/Claude|sonnet|opus/i.test(r.openai.modelHtml)) problems.push('OpenAI: a Claude model shows under an OpenAI key (the #2098/#2140 no-stale-Claude-value invariant)');
+    if (!/OpenAI picks its own model for now/.test(r.openai.modelHtml)) problems.push('OpenAI: the model box does not show the single "OpenAI picks its own model for now" option (#2140)');
+    /* #2140 replaced the fixed note with a per-account picker; Josh's 2026-09-04
+       refinement then made the not-listable/no-account state SHOW the box with a
+       single "OpenAI picks its own model for now" option (asserted above) rather
+       than hiding it. On this file:// page there is no /api/accounts fetch and no
+       account chosen, so this is that state, and the keyed note below it is the
+       #2140 auto-fallback copy. The picker's LISTABLE state is covered by
+       render-create-openai-model-2140.js, which stubs the fetch. */
     if (!/use OpenAI's default/.test(r.openai.whyText)) problems.push('OpenAI: the not-listable model note is missing (#2140)');
     if (r.openai.whyHidden) problems.push('OpenAI: the model note is HIDDEN -- the user sees neither the picker nor the note, an empty gap');
     if (r.anthropic.modelRowHidden) problems.push('Anthropic: the model row is hidden but should be shown');
@@ -112,5 +125,5 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-picker-provider-2097: OpenAI hides the model row (no stale Claude model under an OpenAI key); Anthropic shows it; the account row hides at <2 accounts and shows at 2+.');
+  console.log('render-picker-provider-2097: OpenAI shows the model box with a single "OpenAI picks its own model for now" option (no Claude model under an OpenAI key); Anthropic shows the Claude model row; the account row hides at <2 accounts and shows at 2+.');
 })();

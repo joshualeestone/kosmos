@@ -25593,10 +25593,12 @@ function paintOpenaiCreateModel() {
   if (sel) { sel.disabled = true; sel.innerHTML = '<option value="">Loading this account\'s models…</option>'; }
   if (why) { why.textContent = ''; why.hidden = true; }
   if (!acctDir) {
-    // No account to name yet: cannot list, so show the auto note (not a picker).
+    // No account to name yet: cannot list. Same as the not-listable case (Josh's
+    // refinement) -- the box SHOWS "OpenAI picks its own model for now" as its single
+    // option, never a Claude model, with the auto note below.
     OPENAI_PICK_MODELS = [];
-    if (row) row.hidden = true;
-    if (sel) sel.disabled = false;
+    if (sel) { sel.innerHTML = '<option value="" selected>OpenAI picks its own model for now</option>'; sel.disabled = true; }
+    if (row) row.hidden = false;
     if (why) { why.textContent = openaiNoModelsNote(null); why.hidden = false; }
     return;
   }
@@ -25621,11 +25623,17 @@ function paintOpenaiCreateModel() {
       }
       paintModelWhy('create-model', 'create-model-why');
     } else {
-      // NOT LISTABLE: hide the row, clear any stale value so nothing is submitted,
-      // drop the previous account's cached models, and show the note keyed to why.
+      /* NOT LISTABLE: the account cannot expose a model choice (Codex/ChatGPT
+         sign-in, no recognised models, unreachable). Josh's refinement (2026-09-04):
+         the model box must still SHOW, with "OpenAI picks its own model for now" as
+         its SINGLE (disabled) option -- never a Claude model, never an empty gap.
+         The value is empty (= auto, nothing submitted), so this is the #2098
+         no-stale-Claude-value invariant satisfied by a real OpenAI sentence rather
+         than a hidden row. The keyed note stays below to say WHY and how to enable
+         a picker (e.g. sign in with an API key). */
       OPENAI_PICK_MODELS = [];
-      if (sel) sel.innerHTML = '<option value="" selected></option>';
-      if (row) row.hidden = true;
+      if (sel) { sel.innerHTML = '<option value="" selected>OpenAI picks its own model for now</option>'; sel.disabled = true; }
+      if (row) row.hidden = false;
       if (why) { why.textContent = openaiNoModelsNote(out && out.because); why.hidden = false; }
     }
   })();
