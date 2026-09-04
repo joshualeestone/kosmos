@@ -141,7 +141,11 @@ case "$route" in
       else
         nm="$(printf '%s' "$data" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')"
         printf '%s\n' "$nm" >> "$STATE"
-        emit "{\"result\":{\"outcome\":\"created\",\"name\":\"$nm\"}}" 200
+        # The REAL board returns the result object at TOP LEVEL (server.js sendJson(res,code,result)
+        # -> {outcome, name, ...}), NOT nested under a `result` key. Emit that so the gate's
+        # top-level `j.name` read path is exercised (its `j.result.name||j.name` fallback stays
+        # non-vacuous), matching the /api/status and /api/accounts real-shape fixtures.
+        emit "{\"outcome\":\"created\",\"name\":\"$nm\"}" 200
       fi
     else emit '{}' 404; fi;;
   *) emit '{}' 404;;
