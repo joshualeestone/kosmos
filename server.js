@@ -5684,6 +5684,78 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #1652 PR2: import a DISCOVERED file. The scan (discover.scan().importable) finds
+     loose agent files a person downloaded or was sent; this route reads ONE of them by
+     path and returns the same parsed shape as /api/agent-import, so the create form
+     pre-fills identically. It never creates the agent (same as /api/agent-import) and
+     is loopback-only for the same reason.
+
+     🛑 THE PATH IS NEVER TRUSTED. A request can name any absolute path, so the ONLY
+     paths this route will read are the ones the current scan itself returned in its
+     importable set. discover.scan() already realpath-dedups and refuses symlinks, so a
+     path in importable is inside the scanned roots by construction. On top of that the
+     read is lstat-guarded (a regular file only, so a symlink swapped in after the scan
+     -- TOCTOU -- is refused) and size-capped before it is allocated. Both guards are
+     required: membership proves the path was legitimate at scan time, the lstat proves
+     it still is at read time. */
+  if (pathname === '/api/agent-import-file' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read');
+          bad.status = 400; throw bad;
+        }
+        const file = body && typeof body.file === 'string' ? body.file : '';
+        if (!file) { sendJson(res, 200, { ok: false, because: 'no file was named to import' }); return; }
+
+        /* Membership check against the scan. Reuse the same cache the /api/scan-agents
+           poll fills (fresh within SCAN_CACHE_MS), else scan once now. A scan that
+           cannot run leaves `known` false, so the route refuses rather than reading. */
+        let scan = null;
+        const now = Date.now();
+        if (scanCache.result && now - scanCache.at < SCAN_CACHE_MS) {
+          scan = scanCache.result;
+        } else {
+          try { scan = discover.scan(); scanCache = { at: now, result: scan }; } catch { scan = null; }
+        }
+        const known = !!(scan && Array.isArray(scan.importable) && scan.importable.some((c) => c && c.file === file));
+        if (!known) {
+          sendJson(res, 200, { ok: false, because: 'that file is not one we found on this computer to import' });
+          return;
+        }
+
+        /* Bounded, symlink-safe read of the validated path. lstat (not stat) so a
+           symlink is refused rather than followed; MAX_IMPORT_FILE caps the allocation
+           (matches agentfile's own MAX_FILE, which would refuse a larger file anyway --
+           this only avoids reading the bytes to find that out). */
+        const MAX_IMPORT_FILE = 512 * 1024;
+        let text;
+        try {
+          const st = fs.lstatSync(file);
+          if (!st.isFile()) { sendJson(res, 200, { ok: false, because: 'that file is no longer a readable file' }); return; }
+          if (st.size > MAX_IMPORT_FILE) { sendJson(res, 200, { ok: false, because: 'that file is too large to be an agent file' }); return; }
+          text = fs.readFileSync(file, 'utf8');
+        } catch {
+          sendJson(res, 200, { ok: false, because: 'we could not read that file just now' });
+          return;
+        }
+
+        const parsed = agentfile.importAgent(text, { identityFromText, nameUsable: create.nameUsable, nameProblem: create.nameProblem });
+        if (!parsed.ok) { sendJson(res, 200, { ok: false, because: parsed.because }); return; }
+        sendJson(res, 200, {
+          ok: true,
+          name: parsed.name,
+          displayName: parsed.displayName,
+          provider: parsed.provider,
+          instructions: parsed.body,
+          recognizedFromContent: parsed.recognizedFromContent,
+        });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
+    return;
+  }
+
   if (pathname === '/api/msg' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
