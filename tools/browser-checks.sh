@@ -987,6 +987,10 @@ if boot_board "$sb7" "$P8"; then
   # callout, not flat grey. Read-only (forces the modal visible to read computed
   # colours, never POSTs), so it runs on this shared board like contrast above.
   run_one "render-openai-key-callout-2164" node docs/browser-checks/render-openai-key-callout-2164.js "$B8"
+  # #2019: a timed-out (overrun) restart stops the animated K and tells the truth
+  # without dropping to "gone". Read-only (drives card() with fixture agents shaped
+  # to the engine contract, reads computed styles), so it runs on this board.
+  run_one "render-restart-timedout-2019" node docs/browser-checks/render-restart-timedout-2019.js "$B8"
   # #1652: the import-my-existing-agent walk. A create-flow check like
   # render-create-form (fills the form, never presses Create, so it persists
   # nothing on this shared board). It POSTs /api/first-run/complete itself, so

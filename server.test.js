@@ -8345,9 +8345,13 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
     + '\n' + pageFnSource('conflictNote')
     /* #2019: the badge's `copy` now comes from `stateCopyOf` (the shared state-copy
        derivation), which for 'restarting' names the cause via `restartingLabel`.
-       Both join the prelude for the same reason as the others: a stub would let this
-       pass while the shipped helper said something else. */
-    + '\n' + pageFnSource('restartingLabel') + '\n' + pageFnSource('stateCopyOf');
+       Its GLYPH now comes from `glyphOf` (the shared glyph derivation, which for a
+       timed-out restart holds the K still). All join the prelude for the same reason
+       as the others: a stub would let this pass while the shipped helper said
+       something else. (glyphOf's deps -- cardStOf, GLYPH, kGlyph -- are already in
+       the sliced tables above.) */
+    + '\n' + pageFnSource('restartingLabel') + '\n' + pageFnSource('stateCopyOf')
+    + '\n' + pageFnSource('glyphOf');
 
   const dmAt = script.indexOf('  const dm = cardStOf(a);');
   assert.ok(dmAt > -1,

@@ -1487,6 +1487,13 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 @media (prefers-reduced-motion: reduce) {
   .kspin img { animation: none; opacity: 1; transform: none; }
 }
+/* #2019 timedOut: an OVERRUN restart holds the K STILL and fully visible for
+   everyone, not only reduced-motion users. The pulse means "in progress"; a
+   restart that has not come back within its window is no longer in progress, so
+   it must stop pulsing (#920, the spinner that lies forever) while staying the
+   same mark -- never dropping to a bare "gone". Same still frame the reduced-
+   motion rule uses: full opacity, no shrink, so it does not read as frozen. */
+.kspin-still img { animation: none; opacity: 1; transform: none; }
 /* The heat wash is a GROUND, not a border: borders already mean "needs you". */
 .acard.hot { background: linear-gradient(180deg, rgba(179,38,30,.16) 0%, rgba(179,38,30,0) 42%), var(--k-surface); }
 /* Surface and ink flip TOGETHER, both on k-tokens (the dark-tokens set):
@@ -10799,6 +10806,15 @@ const CARD_ST = {
   stopped:      { st: 'stopped', pres: 'off' },
   unknown:      { st: 'unknown', pres: 'unsure' },
 };
+/* #2019: the restarting K. It breathes (a calm 2.4s pulse, NOT a fast loader
+   spin) while the restart is in progress, because the K pulsing says "this is
+   Kosmos doing something". On an OVERRUN restart (disruption.timedOut, the engine
+   half emits it when the restart has not come back within its window) the same K
+   holds STILL: a pulse says in-progress, and a restart that has not returned must
+   not keep pulsing (#920, the spinner that lies forever). Same mark either way,
+   so it never drops to a bare "gone"; only the motion changes. `still` adds
+   .kspin-still, which the CSS pins static regardless of motion preference. */
+const kGlyph = (still) => '<span class="kspin' + (still ? ' kspin-still' : '') + '" aria-hidden="true"><img src="/icons/kosmos-32.png" alt="" width="16" height="16"></span>';
 const GLYPH = {
   working: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>',
   attn:    '<span class="haz" aria-hidden="true">!</span>',
@@ -10806,12 +10822,9 @@ const GLYPH = {
   paused:  '<span class="pause" aria-hidden="true"><i></i><i></i></span>',
   stopped: '<span class="stop" aria-hidden="true"></span>',
   unknown: '<span class="qmark" aria-hidden="true">?</span><span class="vh">could not check: </span>',
-  /* #2019: the one moment the product's own mark earns its place. It breathes
-     (a calm 2.4s pulse, NOT a fast loader spin), because the K pulsing says
-     "this is Kosmos doing something", which is the reassurance the state
-     carries. aria-hidden because the label beside it already says the state;
-     reduced-motion holds it static (guarded in CSS, per the existing contract). */
-  restarting: '<span class="kspin" aria-hidden="true"><img src="/icons/kosmos-32.png" alt="" width="16" height="16"></span>',
+  /* aria-hidden because the label beside it already says the state. The still
+     variant is chosen by glyphOf() from disruption.timedOut, not stored here. */
+  restarting: kGlyph(false),
 };
 const PRESSAY = {
   on: 'Online', off: 'Not running',
@@ -10829,11 +10842,28 @@ function cardStOf(a) { return CARD_ST[a.state] || CARD_ST.unknown; }
    falls back to "Restarting agent", never to "gone". */
 function restartingLabel(a) {
   const cause = a && a.disruption && a.disruption.cause;
-  if (cause === 'model')        return a.modelName ? 'Switching to ' + a.modelName : 'Switching model';
-  if (cause === 'provider')     return 'Switching provider';
-  if (cause === 'instructions') return 'Restarting to apply your changes';
-  if (cause === 'account')      return 'Switching account';
-  return 'Restarting agent';
+  const base = cause === 'model' ? (a.modelName ? 'Switching to ' + a.modelName : 'Switching model')
+    : cause === 'provider' ? 'Switching provider'
+    : cause === 'instructions' ? 'Restarting to apply your changes'
+    : cause === 'account' ? 'Switching account'
+    : 'Restarting agent';
+  /* #2019 timedOut: the engine emits disruption.timedOut when the restart has
+     not come back within its window (its `because` is "we restarted this agent
+     and it has not come back yet"). The board keeps the WHY and says plainly it
+     has not returned, so a slow restart never reads as finished, and never as
+     "this agent doesn't exist". Calm, not alarmed: it self-heals the instant the
+     agent comes back live, and staying in the restarting family is the point. */
+  if (a && a.disruption && a.disruption.timedOut === true) return base + ', not back yet';
+  return base;
+}
+/* #2019: the state glyph, one shared derivation for the card, the row and the
+   detail page (like cardStOf/stateCopyOf), so they cannot drift. Everything but
+   an overrun restart is the static GLYPH by state; a timed-out restart holds the
+   K still rather than pulsing (see kGlyph). */
+function glyphOf(a) {
+  const st = cardStOf(a).st;
+  if (st === 'restarting' && a && a.disruption && a.disruption.timedOut === true) return kGlyph(true);
+  return GLYPH[st];
 }
 function stateCopyOf(a) {
   if (a && a.state === 'restarting') return { label: restartingLabel(a), attn: false };
@@ -10941,7 +10971,15 @@ function stateReason(a, opts) {
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
      below, which returns '' for every other state. */
-  if (a && a.state === 'restarting') return 'This takes a few seconds. Nothing was lost.';
+  if (a && a.state === 'restarting') {
+    /* #2019 timedOut: an OVERRUN restart must not still promise "a few seconds"
+       -- the label already says "not back yet", and a card that says both reads
+       as broken. The reassurance stays (nothing was lost, it is coming back and
+       self-heals the instant it does); only the timing claim drops. */
+    return (a.disruption && a.disruption.timedOut === true)
+      ? 'This is taking longer than usual. Nothing was lost.'
+      : 'This takes a few seconds. Nothing was lost.';
+  }
   /* 🛑 THE CARD AND THE ROW ASK FOR THIS WITHOUT THE QUOTE (#986). Josh, twice:
      the quoted last-words line is "just kind of pointless" on the grid and list,
      and it was STILL THERE after that card closed. The close removed
@@ -11793,7 +11831,7 @@ function card(a) {
     <div class="agauge">${ring(a)}${pres}${badge}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
-    <div class="astate st-${m.st}">${GLYPH[m.st]}<b>${esc(copy.label)}</b>${answer}</div>
+    <div class="astate st-${m.st}">${glyphOf(a)}<b>${esc(copy.label)}</b>${answer}</div>
     <div class="amodel">${esc(modelLine(a))}</div>
     <div class="atask">${esc(taskLine(a, { noQuote: true }))}</div>
     ${conflictNote(a) ? `<div class="note">${esc(conflictNote(a))}</div>` : ''}
@@ -11959,7 +11997,7 @@ function lrow(a) {
          surfaces reading the SAME saidLine() derivation is still what
          keeps them from disagreeing on the FACT if the list row ever
          grows the line back; showing it is now a per-surface choice. -->
-    <div class="lstate">${GLYPH[m.st]}${esc(copy.label)}${answerBtn(a)}</div>
+    <div class="lstate">${glyphOf(a)}${esc(copy.label)}${answerBtn(a)}</div>
     <div class="ltask">${esc(taskLine(a, { noQuote: true }))}</div>
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>
@@ -19003,7 +19041,7 @@ function openDetail(sessionName, section) {
   const dm = cardStOf(a);
   const dst = document.getElementById('d-state');
   dst.className = 'detail-state astate st-' + dm.st;
-  dst.innerHTML = GLYPH[dm.st] + '<b>' + esc(copy.label) + '</b>';
+  dst.innerHTML = glyphOf(a) + '<b>' + esc(copy.label) + '</b>';
   /* #569: the same derivations the card reads (saidLine, conflictNote),
      called not copied, so the panel and the card cannot disagree about
      where a state came from or whether the witnesses do. */
