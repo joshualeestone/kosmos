@@ -22927,6 +22927,17 @@ document.getElementById('d-save').addEventListener('click', async () => {
       if (h) h.textContent = renameTo;
       detailNavNames(renameTo);
     }
+    /* #2139: the @mention picker sources each candidate's shown name from
+       PROJECTS[].agents[].name (mentionCandidates -> pjById(PJ_CURRENT).agents),
+       and PROJECTS is populated only by loadProjects() reading /api/projects --
+       tick() refreshes the fleet (LAST), a different structure, so a rename left
+       the picker (and any other PROJECTS-agent-name reader, e.g. the room member
+       list) showing the OLD name until the next projects load. Re-fetch when the
+       shown name actually changed. Non-blocking and self-handling (loadProjects
+       swallows its own read errors and returns false), so it never delays or
+       breaks the save feedback; the picker reads PROJECTS live on the next
+       keystroke, so an async refresh is enough. */
+    if (renameTo && renameTo !== wasCalled) loadProjects();
     await tick();
   } catch (err) {
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
