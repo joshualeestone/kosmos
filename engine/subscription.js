@@ -482,11 +482,83 @@ function checkCached() {
   return verdict;
 }
 
+let machineCached = null;   // { key, verdict } for checkMachine()
+
+/* #2130: the MACHINE-LEVEL connection for the global banner.
+ *
+ * checkCached()/check() answer only for the DEFAULT config file
+ * (configFile() = ~/.claude.json). But an account can be signed in under its own
+ * CLAUDE_CONFIG_DIR, whose credential lives in THAT directory's .claude.json
+ * (#1885), not in ~/.claude.json. accounts.list() (and so Settings > AI Models)
+ * enumerates every such dir; the default-only check never reads them. Result: a
+ * connected Claude account in a non-default dir showed "Signed in" in Settings
+ * while the global banner said "we could not find a Claude account in the
+ * settings on this computer" - both honest, reading different places.
+ *
+ * The machine-level question is one fact: can THIS COMPUTER reach a Claude
+ * subscription? Answer yes if ANY signed-in account is connected. So: take the
+ * default check (its because strings are already machine-level, and it is the
+ * pre-#2130 answer), and if it is not connected, flip to connected only when
+ * some OTHER signed-in account is. When nothing is connected the default's
+ * verdict and wording are returned unchanged - the ONLY behaviour change is that
+ * a non-default connected account now suppresses the banner, which is exactly the
+ * Settings-vs-banner disagreement #2130 is about. Deriving the fallback from
+ * check() rather than re-stating its sentences keeps one source of truth for the
+ * wording. */
+function computeMachine(accts) {
+  const base = check();
+  if (base.state === STATE.CONNECTED) return base;
+  for (const a of (accts || [])) {
+    /* the default is already `base`; scoped-check every OTHER signed-in dir. */
+    if (a && a.isDefault) continue;
+    if (!a || typeof a.dir !== 'string' || !a.dir) continue;
+    const v = check({ configDir: a.dir });
+    if (v.state === STATE.CONNECTED) return v;
+  }
+  return base;
+}
+
+/* Cache key over EVERY account's config file, so an edit/replace/sign-in on any
+ * of them invalidates - same paranoid mtime:size:ino shape as statKey(), one
+ * entry per file. accounts.list() only returns SIGNED-IN dirs, so a dir that
+ * later signs in changes the SET of files here and invalidates too. */
+function machineStatKey(accts) {
+  const parts = [];
+  const addFile = (f) => {
+    try { const st = fs.statSync(f); parts.push(`${f}:${st.mtimeMs}:${st.size}:${st.ino}`); }
+    catch (err) { parts.push(`${f}:missing:${(err && err.code) || 'ERR'}`); }
+  };
+  addFile(configFile());
+  let acctMod = null;
+  try { acctMod = require('./accounts'); } catch { acctMod = null; }
+  for (const a of (accts || [])) {
+    if (!a || a.isDefault || !acctMod || typeof a.dir !== 'string' || !a.dir) continue;
+    addFile(acctMod.configFile(a.dir));
+  }
+  return parts.join('|');
+}
+
+/**
+ * check(), aggregated across every signed-in account on the machine, memoized
+ * for the 5-second status tick. This is what the global banner must read (#2130).
+ *
+ * @returns {{state: string, plan: string|null, because: string}}
+ */
+function checkMachine() {
+  let accts;
+  try { accts = require('./accounts').list(); } catch { accts = []; }
+  const key = machineStatKey(accts);
+  if (machineCached && machineCached.key === key) return machineCached.verdict;
+  const verdict = computeMachine(accts);
+  machineCached = { key, verdict };
+  return verdict;
+}
+
 /** Tests only: drop the memo so a case can start from a known state. */
-function resetCache() { cached = null; }
+function resetCache() { cached = null; machineCached = null; }
 
 module.exports = {
-  check, checkCached, resetCache, planName, STATE,
+  check, checkCached, checkMachine, resetCache, planName, STATE,
   /* lazy, or the export re-freezes what the function unfroze (#1432) */
   get CONFIG_PATH() { return configFile(); },
   checkLive, setRunner,

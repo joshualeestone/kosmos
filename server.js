@@ -2131,9 +2131,17 @@ const server = http.createServer((req, res) => {
       // output, lands in `idle`, and reads identically to a healthy agent
       // waiting for work. The board rendered a dead fleet as a resting one.
       //
-      // `checkCached` and not `check`: this runs every 5 seconds and the config
-      // is ~95KB. See the cache's own comment for why its key is paranoid.
-      const connection = subscription.checkCached();
+      // `checkMachine` and not `check`/`checkCached`: this runs every 5 seconds
+      // and the config is ~95KB (see the cache's own comment for why its key is
+      // paranoid), AND the banner is a MACHINE-level fact. checkCached() reads
+      // only the default ~/.claude.json, so a Claude account signed in under its
+      // own CLAUDE_CONFIG_DIR (#1885) was invisible here while Settings showed it
+      // connected -- the banner then claimed "we could not find a Claude account
+      // in the settings on this computer" on a machine that had one (#2130).
+      // checkMachine() aggregates across every signed-in account (connected if
+      // any is), memoized over all their config stats, so the banner agrees with
+      // Settings by construction.
+      const connection = subscription.checkMachine();
       // Update awareness rides the status tick the screen already polls:
       // poke() returns immediately (once per TTL window, background refresh) and
       // available() is the cached verdict -- the request path never waits on
