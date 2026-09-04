@@ -25,6 +25,14 @@ signal) and **inappropriate for Claude via checkLive** — `claude auth status` 
 `loggedIn:true` even for a rejected token (#874), which is exactly why `observed.js` exists. For
 Claude, the existing scrape+authprobe+observed machinery already handles the dead-cred case.
 
+**Also pane-scoped (residual gap, no regression):** the produce fires only through the paned
+`reconcileReport` call that `snapshot()` makes with `codexLiveAuth` resolved. `panelessCard()`
+calls `reconcileReport()` with three args, so `codexLiveAuth` is `undefined` there and a
+paneless (remote, no-window) codex agent whose credential is dead still reads UNKNOWN. That is
+the same state it read before this change (no regression), and it is consistent with the
+pane-based scope above, but the next person on remote agents should know the produce path does
+not reach a paneless agent yet.
+
 ## Changes
 1. **`engine/codexauthprobe.js`** (new) — per-codex-home cached/TTL/async verdict over
    `openaiaccounts.checkLive`. Reuses authprobe's verdict strings (one copy, no drift), own
