@@ -690,8 +690,13 @@ function verifyAtSend(card) {
  *   and "this sits in its composer", in one sentence. What the agent was DOING
  *   is still true and still useful, so that half stays.
  */
-function waitingNote(state, outcome) {
+function waitingNote(state, outcome, runner) {
   const unsure = outcome === DELIVERY.UNCONFIRMED;
+  // #2107: name the runner (degrade to Claude) so a codex agent's owner never sees
+  // Claude-named state copy on the reachable running-agent path -- a running codex
+  // agent fronts as a node process, passes the messageable gate, and stays reachable.
+  // Same pattern as the addressability reason at chat.js:520.
+  const runnerName = runner === 'codex' ? 'Codex' : 'Claude';
   // The engine's own constants, not literals: a state renamed in status.js
   // must move these cases with it rather than leaving a switch that
   // silently stops matching (the same rule server.js records for its
@@ -715,8 +720,8 @@ function waitingNote(state, outcome) {
     // Claude sign-in had already failed.
     case status.STATE.AUTH_FAILED:
       return unsure
-        ? 'its Claude sign-in was not working'
-        : 'its Claude sign-in was not working, so it will not act on this until that is fixed';
+        ? 'its ' + runnerName + ' sign-in was not working'
+        : 'its ' + runnerName + ' sign-in was not working, so it will not act on this until that is fixed';
     case status.STATE.IDLE:
       return 'it was sitting at its prompt';
     default:
@@ -804,7 +809,7 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
   // ⚠️ The note depends on the VERDICT as well as the state (see waitingNote),
   // and the verdict is not known until the sends have answered — so it is built
   // at each return rather than once up front.
-  const noteFor = (outcome) => waitingNote(paneState, outcome);
+  const noteFor = (outcome) => waitingNote(paneState, outcome, allowed.card.runner);
 
   /**
    * ⚠️ THE PANE IS ASKED AGAIN, HERE, IMMEDIATELY BEFORE THE KEYSTROKE.
