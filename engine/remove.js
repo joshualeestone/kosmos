@@ -1020,7 +1020,7 @@ function removeInner(name, { tmuxBin } = {}) {
     if (DRY_RUN && !runner) {
       got = { ok: true, removed: false, because: null };
     } else {
-      try { got = create.forgetCodexFolder(create.workerDir(clean), codexHome); }
+      try { got = create.forgetCodexFolder(create.workerDir(clean), codexHome, !codexHome); }
       catch { threw = true; }
     }
     const leftAlone = !threw && got && got.ok === false

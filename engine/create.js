@@ -801,7 +801,7 @@ function setAccount(name, dir) {
          below already creates settings.json on a fresh account, so without this the
          two calls are asymmetric exactly as they were on the create path. Claude-only
          already (codex is refused above), so no provider guard is needed. */
-      trust = require('./trust').trustFolder(workerDir(clean), { configDir, createIfAbsent: true });
+      trust = require('./trust').trustFolder(workerDir(clean), { configDir, createIfAbsent: true, agentDefaultAccount: !configDir });
     } catch { trust = { ok: false, because: 'we could not read that account\'s config file' }; }
     /* #1919: the account we are MOVING the agent to needs the Bypass-Permissions pre-accept
        in ITS settings.json too, for the same reason the trust write does -- the agent will
@@ -810,7 +810,7 @@ function setAccount(name, dir) {
        guard. Best-effort / non-gating, as trustFolder is here: a failed write is a prompt the
        board now renders as needs_you (#1933), not a failed account flip. */
     try {
-      bypass = require('./trust').preacceptBypass(configDir);
+      bypass = require('./trust').preacceptBypass(configDir, !configDir);
     } catch { bypass = { ok: false, because: 'we could not read that account\'s settings file' }; }
   }
 
@@ -1106,7 +1106,7 @@ function setProvider(name, provider, opts) {
        leaving the second argument off would write the trust entry into a home
        the agent will not run in. Same defect one line down from the one this
        card is about. */
-    try { trustCodexFolder(workerDir(clean), acct.dir); }
+    try { trustCodexFolder(workerDir(clean), acct.dir, !acct.dir); }
     catch {
       return { outcome: OUTCOME.REFUSED, because: 'we could not let the OpenAI runner work in its folder, so nothing was changed' };
     }
@@ -1299,6 +1299,19 @@ function codexHomeDir() {
   return codexupdate.defaultHome();
 }
 
+// 🛑 #2129 (the update wedge, codex arm). A DEFAULT-account OpenAI agent launches
+// with NO CODEX_HOME, so codex reads ~/.codex. But codexHomeDir()/defaultHome()
+// honours the ENGINE's CODEX_HOME, which the board inherits from the app's launch
+// env -- so on a used machine a default-account codex write (trust, untrust, notice)
+// landed where the engine's codex reads, not where the agent's does. Same divergence
+// as the Claude arm, same "same for OpenAI/Codex" symptom. This resolves the codex
+// home a no-CODEX_HOME agent reads, SKIPPING the engine's CODEX_HOME. The
+// AGENT_WORKFORCE_* seams stay honoured so a sandbox redirects both sides together.
+function defaultAgentCodexHome() {
+  return process.env.AGENT_WORKFORCE_CODEX_HOME
+    || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.codex');
+}
+
 /**
  * Trust an agent's folder for the codex runner, the way the Yes button on
  * codex's own trust dialog would. MEASURED (#245): the bypass flag does
@@ -1306,11 +1319,13 @@ function codexHomeDir() {
  * into the same CODEX_HOME codexsession.js reads. Shared by creation and
  * the provider switch, one definition.
  */
-function trustCodexFolder(dir, home) {
+function trustCodexFolder(dir, home, agentDefaultAccount) {
   // The account's own home when the agent runs on one (#540): codex reads
   // config.toml from CODEX_HOME, so the trust must be written where the
   // agent will look, not where the default account keeps its list.
-  const codexHome = home || codexHomeDir();
+  // #2129: for a DEFAULT-account agent (no home), that is ~/.codex -- NOT the
+  // engine's own CODEX_HOME, which codexHomeDir() would follow.
+  const codexHome = home || (agentDefaultAccount ? defaultAgentCodexHome() : codexHomeDir());
   const cfg = path.join(codexHome, 'config.toml');
   let text = '';
   try { text = fs.readFileSync(cfg, 'utf8'); } catch { /* first entry ever */ }
@@ -1345,8 +1360,11 @@ function trustCodexFolder(dir, home) {
  * 📌 Written whole and renamed into place, never appended to: a config file
  * half-rewritten by an interrupted removal is worse than one entry too many.
  */
-function forgetCodexFolder(dir, home) {
-  const codexHome = home || codexHomeDir();
+function forgetCodexFolder(dir, home, agentDefaultAccount) {
+  // #2129: mirror trustCodexFolder's default-account resolution so the untrust
+  // removes the entry from the SAME home the create-time trust wrote it to
+  // (~/.codex for a default agent), not the engine's CODEX_HOME.
+  const codexHome = home || (agentDefaultAccount ? defaultAgentCodexHome() : codexHomeDir());
   const cfg = path.join(codexHome, 'config.toml');
   let text;
   try { text = fs.readFileSync(cfg, 'utf8'); }
@@ -1455,13 +1473,14 @@ trust_level = "trusted"
  * do nothing: dismissing a version codex has not told us about would be writing a
  * guess into somebody's config.
  */
-function dismissCodexUpdateNotice(home) {
+function dismissCodexUpdateNotice(home, agentDefaultAccount) {
   /* 🔑 DELEGATED, NOT COPIED (#1315). This is also called from the LAUNCH path by
      `bin/codex-dismiss-update.js`, so the rule lives in one dependency-free
      module both can reach. Creation dismisses the version current when the agent
      is made; launch dismisses whatever is current each time it starts, which is
      what closes the case of an EXISTING agent meeting a NEW release. */
-  return codexupdate.dismissUpdateNotice(home || codexHomeDir());
+  // #2129: default-account agent reads ~/.codex, not the engine's CODEX_HOME.
+  return codexupdate.dismissUpdateNotice(home || (agentDefaultAccount ? defaultAgentCodexHome() : codexHomeDir()));
 }
 
 function bridgeSource() {
@@ -1968,8 +1987,8 @@ function installJob(name, opts) {
      ⚠️ Best-effort, after the job is written: neither is worth failing an
      adoption over, and both are re-done at launch. */
   if (runner === 'codex') {
-    try { trustCodexFolder(workerDir(clean), configDir); } catch { /* not worth failing the adoption */ }
-    try { dismissCodexUpdateNotice(configDir); } catch { /* same */ }
+    try { trustCodexFolder(workerDir(clean), configDir, !configDir); } catch { /* not worth failing the adoption */ }
+    try { dismissCodexUpdateNotice(configDir, !configDir); } catch { /* same */ }
   }
   /* ⚠️ enable BEFORE bootstrap. `remove` sticks by writing a per-user `disable`
      override keyed on the LABEL, and that override outlives the plist — so
@@ -3177,10 +3196,10 @@ function createAgentInner(opts) {
   const trustedFolder = provider !== 'openai'
     || ((wroteInstructions && installedSupervisor) && step('let the OpenAI runner work in its folder', () => {
       if (DRY_RUN) return true;
-      trustCodexFolder(workerDir(name), configDir);
+      trustCodexFolder(workerDir(name), configDir, !configDir);
       /* Same moment, same home, same reason: a first-run prompt nothing will
          answer is an agent that never starts (#1315). */
-      dismissCodexUpdateNotice(configDir);
+      dismissCodexUpdateNotice(configDir, !configDir);
       return true;
     }));
 
@@ -3294,7 +3313,7 @@ function createAgentInner(opts) {
        Claude-only: on OpenAI, configDir is a CODEX_HOME and this is the CLAUDE
        write, so createIfAbsent stays false there (the codex arm's own
        trustCodexFolder already creates ~/.codex/config.toml on a fresh account). */
-    try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir, createIfAbsent: provider !== 'openai' }); }
+    try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir, createIfAbsent: provider !== 'openai', agentDefaultAccount: provider !== 'openai' && !configDir }); }
     catch { /* another tool's file; an agent that asks once is not a failed creation */ }
     /* 🛑 #1919, THE SAME CREATE MOMENT. The supervisor launches with
        --dangerously-skip-permissions, and Claude Code shows a one-time Bypass-Permissions
@@ -3316,7 +3335,7 @@ function createAgentInner(opts) {
        operator chose bypass mode for this account when they started the creation -- so this
        is fire-and-forget with no undo, unlike the trust write. */
     if (provider !== 'openai') {
-      try { require('./trust').preacceptBypass(configDir); }
+      try { require('./trust').preacceptBypass(configDir, !configDir); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
     }
   }
@@ -3537,6 +3556,8 @@ module.exports = {
   plistPath,
   plannedModelArg,
   forgetCodexFolder,
+  trustCodexFolder,
+  defaultAgentCodexHome,
   setRunner,
   setDryRun,
   OUTCOME,

@@ -75,6 +75,22 @@ const CONFIG = (dir) => {
   return path.join(homeDir(), '.claude.json');
 };
 
+// 🛑 #2129 (the wedge on UPDATE, not just fresh install). A DEFAULT-account agent
+// launches with NO CLAUDE_CONFIG_DIR in its plist, so Claude Code reads
+// ~/.claude.json. But the Kosmos board inherits the app's launch environment,
+// which on a used machine can carry CLAUDE_CONFIG_DIR -- and CONFIG(null) HONOURS
+// it (the branch right above). So the default-account trust write landed in the
+// ENGINE's account config while the agent read ~/.claude.json: trust written,
+// agent still stops on the prompt. That is why the fresh Mac Mini (clean env)
+// worked and an updated used machine did not -- a clean-env-vs-used-env split,
+// not a file-absent-vs-present one. The write for an agent that will run on the
+// DEFAULT account must therefore target what a no-CLAUDE_CONFIG_DIR agent reads,
+// IGNORING the engine's own CLAUDE_CONFIG_DIR. AGENT_WORKFORCE_CLAUDE_CONFIG stays
+// honoured so a test/sandbox redirects both the write and the simulated read.
+const defaultAgentConfig = () =>
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG
+  || path.join(process.env.AGENT_WORKFORCE_HOME || homeDir(), '.claude.json');
+
 const KEY = 'hasTrustDialogAccepted';
 
 /* #1919 launch side. The Bypass-Permissions consent is lifted by this TOP-LEVEL key in
@@ -91,6 +107,17 @@ const SETTINGS = (dir) => {
   if (process.env.CLAUDE_CONFIG_DIR) return path.join(process.env.CLAUDE_CONFIG_DIR, 'settings.json');
   return path.join(homeDir(), '.claude', 'settings.json');
 };
+
+// #2129: the Bypass-Permissions consent write (#1919) has the SAME default-account
+// divergence as CONFIG -- SETTINGS(null) honours the engine's CLAUDE_CONFIG_DIR,
+// but a default-account agent reads ~/.claude/settings.json. So a default-account
+// bypass write must target that, skipping the engine's CLAUDE_CONFIG_DIR, or the
+// agent clears the trust prompt and then stops on the bypass prompt instead (the
+// same wedge, one prompt over). AGENT_WORKFORCE_CLAUDE_SETTINGS is the test seam
+// (parallel to AGENT_WORKFORCE_CLAUDE_CONFIG) so a sandbox never touches the real file.
+const defaultAgentSettings = () =>
+  process.env.AGENT_WORKFORCE_CLAUDE_SETTINGS
+  || path.join(process.env.AGENT_WORKFORCE_HOME || homeDir(), '.claude', 'settings.json');
 
 /**
  * A temp path that is OURS, not a predictable one.
@@ -137,7 +164,12 @@ const tempPath = (target) => `${target}.kosmos-${process.pid}-${STARTED}-${++SEQ
  * process would read", which is what every pre-#1629 caller meant.
  */
 function trustFolder(dir, opts) {
-  const target = CONFIG(opts && opts.configDir);
+  // #2129: for an agent that will run on the DEFAULT account (no configDir, so it
+  // launches with no CLAUDE_CONFIG_DIR and reads ~/.claude.json), target that file
+  // rather than CONFIG(null), which would follow the ENGINE's own CLAUDE_CONFIG_DIR.
+  const target = (opts && opts.agentDefaultAccount && !opts.configDir)
+    ? defaultAgentConfig()
+    : CONFIG(opts && opts.configDir);
 
   if (!dir || !path.isAbsolute(dir)) {
     return { ok: false, because: 'that is not an absolute folder path' };
@@ -563,8 +595,10 @@ function dropRecord(name) {
  * @returns {{ok:true, already:boolean, target:string, displaced:*, madeFile:boolean}
  *          | {ok:false, because:string}}
  */
-function preacceptBypass(configDir) {
-  const target = SETTINGS(configDir || null);
+function preacceptBypass(configDir, agentDefaultAccount) {
+  // #2129: same default-account rule as trustFolder -- a default-account agent
+  // (no configDir) reads ~/.claude/settings.json, not the engine's CLAUDE_CONFIG_DIR one.
+  const target = (agentDefaultAccount && !configDir) ? defaultAgentSettings() : SETTINGS(configDir || null);
 
   // A symlinked target is somebody's arrangement; renaming over it severs the link. Refuse,
   // as trustFolder does. (Absent is the create case, handled below.)
@@ -621,4 +655,4 @@ function preacceptBypass(configDir) {
    direction (see the rollback comment in create.js). An undo would need forgetFolder's
    "only if it still says what we wrote" window guard AND could still delete a shared key. */
 
-module.exports = { trustFolder, forgetFolder, preacceptBypass, KEY, BYPASS_KEY, recordWrite, recordedWrite, dropRecord };
+module.exports = { trustFolder, forgetFolder, preacceptBypass, KEY, BYPASS_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings };
