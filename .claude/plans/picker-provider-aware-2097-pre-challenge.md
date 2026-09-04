@@ -1,9 +1,18 @@
-# Challenge-loop proof: picker-provider-aware-2097
-
+---
+pre_challenge: true
+method: challenge-loop
 branch: picker-provider-aware-2097
-converged: true
-iterations: 7
 diff_hash: ca537a2d840866a10b292aac204316a223f1332d547a1c8ffb5f086d81621e65
+validation: passed
+subdir_audit: passed
+timestamp: 2026-09-04T04:53:29Z
+iterations: 7
+converged: true
+---
+
+## [CHALLENGE-LOOP] Summary
+
+**Iterations:** 7 — converged (iteration 7 returned zero new findings).
 
 Cards #2097 + #2098: the create-agent picker in `web/index.html` is made
 provider-aware. On OpenAI the model SELECT row is hidden whole with a note in
