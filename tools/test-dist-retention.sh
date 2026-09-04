@@ -153,6 +153,28 @@ else
   echo "$js" | grep -q '"served_version":"0.6.22"' && ok "--json: names served version" || no "--json: missing served -- $js"
 fi
 
+# --- Arm 11: leading-zero --keep is base 10, not octal -----------------------
+# --keep 08 must mean keep 8. Under the octal bug the arithmetic errors, the keep
+# window empties, and everything but the served version is pruned. Asserting a mid
+# version (0.6.12) is KEPT discriminates the bug (which prunes it) from the fix.
+D="$TMP/a11"; make_fixture "$D" 0.6.19 0.6.08 0.6.09 0.6.10 0.6.11 0.6.12 0.6.13 0.6.14 0.6.15 0.6.16 0.6.17 0.6.18 0.6.19
+bash "$TOOL" --dist "$D" --keep 08 --prune --yes >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ok "octal keep: --keep 08 exit 0" || no "octal keep: exit $rc"
+present "$D" kosmos-0.6.12-arm64.tar.gz && ok "octal keep: --keep 08 keeps 0.6.12 (base-10, window of 8)" || no "octal keep: 0.6.12 pruned -- octal bug (window emptied)"
+absent "$D" kosmos-0.6.08-arm64.tar.gz && ok "octal keep: --keep 08 prunes the oldest 4" || no "octal keep: 0.6.08 not pruned"
+assert_invariants "octal keep" "$D"
+
+# --- Arm 12: served protected by artifact filename despite version-format skew ---
+# latest.json version "0.6.5" (a phantom, no triple) but artifact names the real
+# kosmos-0.6.08 file (oldest, outside a keep-12 window). Version-string protection
+# alone would prune 0.6.08; artifact-filename protection keeps it.
+D="$TMP/a12"; make_fixture "$D" 0.6.08 0.6.08 0.6.09 0.6.10 0.6.11 0.6.12 0.6.13 0.6.14 0.6.15 0.6.16 0.6.17 0.6.18 0.6.19 0.6.20 0.6.21 0.6.22
+printf '{"version":"0.6.5","sha256":"x","artifact":"kosmos-0.6.08-arm64.tar.gz","manifest":"kosmos-0.6.08-arm64.manifest.json"}\n' > "$D/latest.json"
+bash "$TOOL" --dist "$D" --keep 12 --prune --yes >/dev/null 2>&1
+{ present "$D" kosmos-0.6.08-arm64.tar.gz && present "$D" kosmos-0.6.08-arm64.tar.gz.sha256 && present "$D" kosmos-0.6.08-arm64.manifest.json; } \
+  && ok "artifact-name protection: served 0.6.08 kept despite version=\"0.6.5\"" \
+  || no "artifact-name protection: served file PRUNED (version-format skew bug)"
+
 echo "----"
 echo "test-dist-retention: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

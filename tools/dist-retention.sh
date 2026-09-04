@@ -49,6 +49,12 @@ done
 case "$KEEP" in
   ''|*[!0-9]*) echo "dist-retention: --keep must be a non-negative integer, got '$KEEP'" >&2; exit 1 ;;
 esac
+# Normalize to base 10. The dist's version scheme is zero-padded (0.6.08), so an
+# operator typing --keep 08 is natural -- but "08"/"09" are invalid OCTAL, and
+# bash arithmetic $(( NVER - KEEP )) would error under set -e WITHOUT aborting,
+# leaving the keep window empty and pruning everything but the served version. The
+# 10# prefix forces base 10, so 08->8 and 010->10 both mean what the operator typed.
+KEEP=$((10#$KEEP))
 
 # The served version: latest.json's "version" field. This is the version the
 # download button serves; its triple is protected even if it falls outside the
@@ -105,7 +111,30 @@ if [ "$NVER" -gt 0 ]; then
 fi
 # The served version is protected unconditionally, even outside the keep window.
 in_keep "$SERVED_VERSION" || KEEP_LIST="${KEEP_LIST}${SERVED_VERSION} "
-RETAINED=$(printf '%s' "$KEEP_LIST" | tr ' ' '\n' | grep -c . || true)
+# ALSO protect the served release by the version in its ACTUAL artifact filename,
+# which latest.json names explicitly. If latest.json's "version" ever differs in
+# FORMAT from the filename (e.g. "0.6.5" while the served file is
+# kosmos-0.6.05-arm64.tar.gz -- the dist zero-pads), the version-string protection
+# above would miss the real on-disk triple and prune it. Deriving the protected
+# version from the artifact filename (parsed the same way as the glob) closes that
+# gap; the two protections are belt and suspenders, and either alone is safe.
+SERVED_ARTIFACT="$(grep -o '"artifact"[[:space:]]*:[[:space:]]*"[^"]*"' "$DIST/latest.json" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')"
+case "$SERVED_ARTIFACT" in
+  kosmos-[0-9]*-arm64.tar.gz)
+    av="${SERVED_ARTIFACT#kosmos-}"; av="${av%-arm64.tar.gz}"
+    case "$av" in
+      ''|*[!0-9A-Za-z.+_-]*) : ;;
+      *) in_keep "$av" || KEEP_LIST="${KEEP_LIST}${av} " ;;
+    esac
+    ;;
+esac
+# Retained count: only DISCOVERED versions that are kept (a phantom served token
+# that matches no on-disk triple must not inflate the reported retained count).
+RETAINED=0
+for v in "${SORTED_ASC[@]:-}"; do
+  [ -n "$v" ] || continue
+  in_keep "$v" && RETAINED=$(( RETAINED + 1 ))
+done
 
 # Prune candidates = discovered versions not in the keep set. The ":-" guards the
 # empty-array-under-set-u crash on bash 3.2 when the dist has a valid latest.json
@@ -196,10 +225,10 @@ done
 # structural: the whitelist above only ever constructs delete paths for prunable
 # versioned triples, so an alias, the pkg, latest*.json and any kept version's
 # files are never reachable by rm. This backstop catches a logic bug in that model
-# by re-asserting the two things a bug would most likely break -- latest.json is
-# still present, and no KEPT version lost its .sha256 sidecar. It deliberately does
-# NOT re-list every protected name (a fixture or partial dist may legitimately lack
-# some); refuse (non-zero) and say so loudly if the backstop trips.
+# by re-asserting the things a bug would most likely break -- latest.json is still
+# present, and no KEPT version lost its .sha256 or .manifest.json sidecar. It
+# deliberately does NOT re-list every protected name (a fixture or partial dist may
+# legitimately lack some); refuse (non-zero) and say so loudly if the backstop trips.
 fail=0
 assert_present() {
   if [ ! -e "$DIST/$1" ]; then echo "dist-retention: POST-CHECK FAILED -- $1 is missing after prune" >&2; fail=1; fi
@@ -214,8 +243,9 @@ assert_present "latest.json"
 for v in "${SORTED_ASC[@]:-}"; do
   [ -n "$v" ] || continue
   in_keep "$v" || continue
-  if [ -e "$DIST/kosmos-${v}-arm64.tar.gz" ] && [ ! -e "$DIST/kosmos-${v}-arm64.tar.gz.sha256" ]; then
-    echo "dist-retention: POST-CHECK FAILED -- kept version $v lost its .sha256 sidecar" >&2; fail=1
+  if [ -e "$DIST/kosmos-${v}-arm64.tar.gz" ]; then
+    [ -e "$DIST/kosmos-${v}-arm64.tar.gz.sha256" ] || { echo "dist-retention: POST-CHECK FAILED -- kept version $v lost its .sha256 sidecar" >&2; fail=1; }
+    [ -e "$DIST/kosmos-${v}-arm64.manifest.json" ] || { echo "dist-retention: POST-CHECK FAILED -- kept version $v lost its .manifest.json" >&2; fail=1; }
   fi
 done
 if [ "$fail" -ne 0 ]; then
