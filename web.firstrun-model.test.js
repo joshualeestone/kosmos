@@ -265,31 +265,45 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     'fr-openai-key': { value: 'half-typed-key' },
   });
 
+  // #2131: frPaintOpenai now offers Continue when OpenAI is the connected model
+  // provider and Claude is not (frPaintSubscription is blind to OpenAI). It calls
+  // frActions / frGo and reads FR, so the connected-path runs inject those as
+  // stubs; a captured `cont` records what primary action was offered.
+  const FR = { subscription: { state: 'unknown' } }; // Claude NOT connected
+  let cont;
+  const frActions = (primary) => { cont = primary; };
+  const frGo = () => {};
+
   // Told directly (the Add handler's own path -- no fetch needed). The
   // message reports the ACTION, since this call is right after it happened.
   let els = makeEls();
+  cont = undefined;
   // eslint-disable-next-line no-new-func
-  await new Function('document', 'fetch', 'known', body + '\nreturn frPaintOpenai(known);')(
+  await new Function('document', 'fetch', 'known', 'FR', 'frActions', 'frGo', body + '\nreturn frPaintOpenai(known);')(
     { getElementById: (id) => els[id] || null },
     () => { throw new Error('should not have fetched -- known was supplied'); },
     { connected: true, keyTail: 'ab12', justAdded: true },
+    FR, frActions, frGo,
   );
   assert.match(els['fr-openai-connect'].innerHTML, /Connected/);
   assert.equal(els['fr-openai-connect'].disabled, true);
   assert.equal(els['fr-openai-flow'].hidden, true, 'the key form should close once connected');
   assert.match(els['fr-openai-msg'].textContent, /^Added/, 'told-directly should report the action, not just the state');
   assert.match(els['fr-openai-msg'].textContent, /ab12/, 'the confirmation should name the key tail it was told');
+  assert.equal(cont && cont.label, 'Continue', '#2131: a connected OpenAI account (Claude not) offers Continue on the model step');
 
   // Asked the machine (pane-3 entry, nothing known yet) -- an OpenAI account
   // already exists. The message reports the STATE, not a fictional action:
   // this call did not just add anything, and must not claim it did.
   els = makeEls();
+  cont = undefined;
   const fakeFetch = async () => ({ ok: true, json: async () => ({ accounts: [{ provider: 'openai', keyTail: 'cd34', connection: { state: 'connected', because: 'OpenAI confirmed this key still works' } }] }) });
   // eslint-disable-next-line no-new-func
-  await new Function('document', 'fetch', body + '\nreturn frPaintOpenai();')(
+  await new Function('document', 'fetch', 'FR', 'frActions', 'frGo', body + '\nreturn frPaintOpenai();')(
     { getElementById: (id) => els[id] || null },
-    fakeFetch,
+    fakeFetch, FR, frActions, frGo,
   );
+  assert.equal(cont && cont.label, 'Continue', '#2131: an already-connected OpenAI account (Claude not) offers Continue');
   assert.match(els['fr-openai-connect'].innerHTML, /Connected/);
   assert.ok(!/^Added/.test(els['fr-openai-msg'].textContent),
     'stepping back to this pane and forward again must not claim an Add that did not happen this visit');
@@ -410,12 +424,17 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   let releaseRead;
   const gate = new Promise((res) => { releaseRead = res; });
   const slowEmptyFetch = async () => { await gate; return { ok: true, json: async () => ({ accounts: [] }) }; };
+  // #2131: the add path is connected, so frPaintOpenai reaches the Continue
+  // offer, which reads FR and calls frActions/frGo -- pass the same stubs
+  // declared above (Claude not connected). This case is about supersession, not
+  // the actions.
   // eslint-disable-next-line no-new-func
-  const both = new Function('document', 'fetch', 'known',
+  const both = new Function('document', 'fetch', 'known', 'FR', 'frActions', 'frGo',
     body + '\nconst read = frPaintOpenai(); const add = frPaintOpenai(known); return Promise.all([read, add]);')(
     { getElementById: (id) => els[id] || null },
     slowEmptyFetch,
     { connected: true, keyTail: 'ab12', justAdded: true },
+    FR, frActions, frGo,
   );
   releaseRead();
   await both;

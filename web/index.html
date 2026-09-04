@@ -35172,6 +35172,18 @@ async function frPaintOpenai(known) {
     msg.textContent = justAdded
       ? 'Added' + (keyTail ? ': API key ending ' + keyTail : '') + '.'
       : 'An OpenAI account is connected' + (keyTail ? ' (API key ending ' + keyTail + ')' : '') + '.';
+    /* #2131: a connected OpenAI account is a usable model provider, so the model
+       step can proceed. frPaintSubscription offers Continue ONLY for a connected
+       CLAUDE subscription and otherwise renders "Skip connecting a model" -- it is
+       blind to OpenAI, which left an OpenAI-only user stuck with no Continue
+       (Josh's live test). This paint runs AFTER frPaintSubscription's, so when
+       OpenAI is the connected provider and Claude is not, offer Continue here,
+       overriding that Skip (the null alt hides it). If Claude is already
+       connected it has offered its own Continue -- leave its actions alone.
+       ⚠️ Not keyed on frRecheck: that re-checks only Claude and repaints only
+       frPaintSubscription, so a "Check again" alt here would revert to Skip. */
+    const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
+    if (!claudeConnected) frActions({ label: 'Continue', go: () => frGo(4) }, null);
   } else {
     // Leave `flow.hidden` alone: a person mid-typing should not have the
     // form yanked shut under them by an unrelated repaint. A positively
