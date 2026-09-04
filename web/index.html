@@ -24715,31 +24715,23 @@ function paintProviderPicker(a) {
   const usable = ours && !(a && a.neverRecorded === true);
   sel.disabled = !usable;
   go.disabled = true;
-  /* An OpenAI agent's model and account menus park with words, the same
-     rule as the create form: the engine refuses both, and a control that
-     accepts a choice the request then refuses is the offer-that-cannot-work
-     shape. Un-parking on a claude agent is paintModelPicker's normal job. */
+  /* An OpenAI agent's ACCOUNT-move menu parks with words, the same rule as the
+     create form: the engine refuses a move, and a control that accepts a choice
+     the request then refuses is the offer-that-cannot-work shape.
+     🛑 kosmos#2140 Surface 2: the MODEL row is NO LONGER parked here. It is now
+     owned by paintOpenaiDetailModel (paintModelPicker delegates to it for a codex
+     agent), which paints a real per-account OpenAI picker into #d-model-row and,
+     when it cannot list, its own single "OpenAI picks its own model for now"
+     option. openDetail runs paintModelPicker THEN paintProviderPicker, so hiding
+     #d-model-row / disabling #d-model / writing the old "Switch it back to
+     Anthropic" message here (as #1211 did) ran AFTER the new picker and hid it --
+     the feature was invisible in the app while both tests, calling the painter in
+     isolation, passed. So this block touches only the account control now. The old
+     #1211 concern (a disabled select still paints a greyed Claude model) no longer
+     applies: paintOpenaiDetailModel never renders a Claude model in any state. */
   if (usable && current === 'openai') {
-    const dm = document.getElementById('d-model');
     const da = document.getElementById('d-account');
-    if (dm) dm.disabled = true;
     if (da) da.disabled = true;
-    /* ⚠️ DISABLED IS NOT ENOUGH, and that is kosmos#1211's display half. A
-       disabled select keeps painting its selected option, and every model in the
-       table is a Claude one because codex's catalogue is not ours to mirror yet.
-       So the agent showed a greyed Claude model directly above a sentence saying
-       OpenAI chooses. The row goes entirely; the sentence stays and is what it
-       was always saying on its own. */
-    const dmr = document.getElementById('d-model-row');
-    if (dmr) dmr.hidden = true;
-    const dmm = document.getElementById('d-model-msg');
-    /* ⚠️ THE SIGN-IN CLAUSE IS GONE, NOT REWORDED (#1373). It said "this agent runs
-         on this computer's OpenAI sign-in", which was true while there was only one,
-         and this is the panel a person lands on immediately after choosing between
-         several. Saying it now contradicts what they just did. It is also not this
-         message's job: the message exists to explain why the MODEL menu is parked,
-         and it does that without naming an account it would have to look up. */
-    if (dmm && !dmm.textContent) dmm.textContent = 'OpenAI picks its own model. Switch it back to Anthropic to choose these again.';
   }
 }
 

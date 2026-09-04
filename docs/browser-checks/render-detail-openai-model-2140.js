@@ -77,7 +77,44 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       noClaude: !/Claude|sonnet|opus/i.test(sel.innerHTML),
       msg: msg.textContent || '',
     };
-    return { listable, notListable };
+
+    // SEQUENCE: the REAL openDetail paint order for a codex agent --
+    // paintModelPicker(a) THEN paintProviderPicker(a). This is the interaction
+    // that hid the picker: paintProviderPicker used to park #d-model-row (hide +
+    // disable + "Switch it back to Anthropic") synchronously AFTER the new picker
+    // painted, so the feature was invisible in the app while a direct call to
+    // paintOpenaiDetailModel passed. Drives both real functions in order and
+    // asserts the model row survives, populated, with no parking message.
+    let sequence = { ran: false };
+    if (typeof paintModelPicker === 'function' && typeof paintProviderPicker === 'function') {
+      const seqAgent = { sessionName: 'oa2', isNamedOurs: true, provider: 'openai', runner: 'codex', account: { dir: '/home/.codex' }, plannedModelName: 'o3' };
+      CURRENT = { sessionName: 'oa2', runner: 'codex' };
+      window.fetch = async (url) => {
+        if (String(url).indexOf('/api/accounts/openai/models') !== -1) {
+          return { ok: true, json: async () => ({ ok: true, models: [
+            { key: 'o3', provider: 'openai', label: 'o3', arg: 'o3', why: 'A reasoning model.' },
+          ] }) };
+        }
+        // The account tail-call (fillSwitchAccounts -> /api/accounts): tolerant stub.
+        return { ok: true, json: async () => ({ ok: true, accounts: [] }) };
+      };
+      await paintModelPicker(seqAgent);   // delegates to paintOpenaiDetailModel
+      paintProviderPicker(seqAgent);      // the call that used to hide the row
+      await settle();
+      await settle();
+      const rowEl = document.getElementById('d-model-row');
+      const seqMsg = document.getElementById('d-model-msg') || {};
+      sequence = {
+        ran: true,
+        rowVisible: !!rowEl && rowEl.hidden === false,
+        hasOpenaiOption: /value="o3"/.test(sel.innerHTML),
+        selEnabled: sel.disabled === false,
+        noParkingMsg: !/Switch it back to Anthropic/.test(seqMsg.textContent || ''),
+        noClaude: !/Claude|sonnet|opus/i.test(sel.innerHTML),
+      };
+    }
+
+    return { listable, notListable, sequence };
   });
 
   await browser.close();
@@ -93,6 +130,15 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!r.notListable.onlyOption || !/OpenAI picks its own model for now/.test(r.notListable.optionText)) problems.push('NOT LISTABLE: not a single "OpenAI picks its own model for now" option: ' + JSON.stringify(r.notListable.optionText));
     if (!r.notListable.noClaude) problems.push('NOT LISTABLE: a Claude model appears under OpenAI');
     if (!/signed in with ChatGPT/.test(r.notListable.msg)) problems.push('NOT LISTABLE: the reason-keyed note is missing from the msg');
+    if (!r.sequence || !r.sequence.ran) {
+      problems.push('SEQUENCE: paintModelPicker/paintProviderPicker not both present, so the openDetail order was not exercised');
+    } else {
+      if (!r.sequence.rowVisible) problems.push('SEQUENCE: #d-model-row is hidden after paintProviderPicker -- the picker is invisible in the app (the BLOCKER this check exists for)');
+      if (!r.sequence.hasOpenaiOption) problems.push('SEQUENCE: the OpenAI model option (o3) is missing after the openDetail paint order');
+      if (!r.sequence.selEnabled) problems.push('SEQUENCE: #d-model is left disabled after the paint order, so the picker cannot be used');
+      if (!r.sequence.noParkingMsg) problems.push('SEQUENCE: the stale "Switch it back to Anthropic" parking message is showing instead of the picker');
+      if (!r.sequence.noClaude) problems.push('SEQUENCE: a Claude model appears after the openDetail paint order');
+    }
   }
 
   console.log('  ' + JSON.stringify(r));
