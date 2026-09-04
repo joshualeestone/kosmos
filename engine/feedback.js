@@ -13,7 +13,7 @@
  * 🔑 STORE LOCALLY REGARDLESS OF THE SWITCH (Josh, explicit). The opt-in
  * switch governs TRANSMISSION only, not whether the work happens: a local
  * report is useful to the user's own agent even when nothing leaves the
- * machine. So NOTHING in this file reads a send/opt-in flag — writing is
+ * machine. So NOTHING in this file reads a send/opt-in flag; writing is
  * unconditional. The send layer (scrubbing + the gated seam) is a separate
  * module built on top of these files; see kosmos#2037.
  *

@@ -257,6 +257,7 @@ const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const ping = require('./engine/ping');
 const notify = require('./engine/notify');
+const feedback = require('./engine/feedback');
 const heartbeat = require('./engine/heartbeat');
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const selfreport = require('./engine/selfreport');
@@ -3243,6 +3244,40 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, { on: r.on, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+
+  /* The daily product-feedback report (engine/feedback.js, kosmos#2037). The
+     LOCAL half: read the reports the user's agent has written, and write one.
+     Josh's "store locally regardless of the switch": this route never touches
+     a send/opt-in flag; it only reads and writes the local files. The send
+     layer (scrub + gated transmission) is a separate slice and a separate
+     route. GET with no ?date returns today's report + the list of dates;
+     ?date=YYYY-MM-DD returns that day's. */
+  if (pathname === '/api/feedback' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let date;
+    try { date = new URL(req.url, ROUTING_BASE).searchParams.get('date') || feedback.today(); }
+    catch { date = feedback.today(); }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { sendJson(res, 400, { error: 'date must be YYYY-MM-DD' }); return; }
+    try { sendJson(res, 200, { ok: true, date, dates: feedback.list(), report: feedback.readBody(date) }); }
+    catch { sendJson(res, 500, { error: 'the feedback reports could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/feedback' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body.body !== 'string' || !body.body.trim()) {
+          sendJson(res, 400, { error: 'a report body is required' }); return;
+        }
+        let saved;
+        try { saved = feedback.write(body.body, body.date ? { date: body.date } : undefined); }
+        catch { sendJson(res, 400, { error: 'the date must be YYYY-MM-DD' }); return; }
+        sendJson(res, 200, { ok: true, date: saved.date });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that report' }));
     return;
   }
 

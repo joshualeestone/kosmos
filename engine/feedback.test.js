@@ -33,7 +33,7 @@ test('write then read round-trips the agent-authored body', () => {
 });
 
 test('writing is ALWAYS-ON: it needs no send/opt-in flag and works with no other state', () => {
-  // No ping/notify setup, no switch — the local write must still happen. This
+  // No ping/notify setup, no switch: the local write must still happen. This
   // is Josh's "store locally regardless of the switch": the write is unconditional.
   const res = feedback.write('anything', { date: '2026-09-04' });
   assert.equal(res.ok, true);
