@@ -122,8 +122,9 @@ trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/nu
 # to the EXIT trap line: a signal trap that RETURNS does not exit - bash resumes
 # where it was - so an `EXIT INT TERM` trap would run the cleanup on Ctrl-C and then
 # carry the cut on regardless, which is worse than the EXIT-only status quo. The
-# INT/TERM traps are separate from the EXIT trap, so they survive the line-428
-# replacement and cover the whole run from here on. 130 = 128+SIGINT, 143 = 128+SIGTERM.
+# INT/TERM traps are separate from the EXIT trap, so they survive its later
+# replacement by the full site-restore/thaw trap and cover the whole run from here
+# on. 130 = 128+SIGINT, 143 = 128+SIGTERM.
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
