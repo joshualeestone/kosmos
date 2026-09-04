@@ -71,6 +71,18 @@ re-test rather than guessed at on the critical path:
 - Do NOT change the codex arm (it creates trust on fresh; the raw-path finding is separate and
   unconfirmed). Flag the codex findings for Josh's fresh-account re-test.
 
+## Deferred findings (pre-existing, out of scope for the catastrophic fix)
+
+- `forgetFolder` (trust.js) resolves its rollback target with `CONFIG()` (no configDir),
+  while the create-time `trustFolder` write uses `CONFIG(configDir)`. On a NON-default account
+  a failed-create rollback reads the wrong `.claude.json` and cannot undo the entry. This
+  predates the PR (the #1629 flip half never wired the create-path rollback's configDir), and it
+  is harmless for the #2129 target (a fresh DEFAULT user: configDir is null, so both resolve to
+  `~/.claude.json`). createIfAbsent slightly widens the blast radius (the leftover on that
+  already-broken path is now a created shell config, not just a stray key). Fixing it properly
+  means threading configDir through forgetFolder + recordWrite + remove.js, a separate change.
+  Follow-up card, flagged to Splinter.
+
 ## Tests
 
 - `engine/trust.createifabsent-2129.test.js` (9 arms): default still refuses on absent/empty;

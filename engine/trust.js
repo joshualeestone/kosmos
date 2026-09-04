@@ -165,11 +165,11 @@ function trustFolder(dir, opts) {
   // The default is still refuse (every existing caller and test relies on it).
   // A fresh macOS user has no ~/.claude.json, so an agent Kosmos just made would
   // hit Claude Code's trust prompt in a non-interactive TUI it cannot answer
-  // (default = "No, exit" = the agent dies) — the catastrophic first-run failure
+  // (default = "No, exit" = the agent dies), the catastrophic first-run failure
   // #2129 is about, on the DEFAULT provider. The create-time caller (which made
   // the folder moments ago) passes createIfAbsent, exactly as preacceptBypass
   // already CREATES settings.json on a fresh install (#1919). The file we write
-  // holds ONLY projects[key].hasTrustDialogAccepted — no session fields — so it
+  // holds ONLY projects[key].hasTrustDialogAccepted (no session fields), so it
   // is a trust PREFERENCE, not a fabricated session history, which is the
   // distinction the refuse-on-absent default was protecting.
   const createIfAbsent = !!(opts && opts.createIfAbsent);
@@ -189,10 +189,14 @@ function trustFolder(dir, opts) {
     // than fallen into. No file means Claude Code has never run on this Mac, so
     // there is no shape here to merge into and we would be CREATING another
     // tool's config from nothing. Under createIfAbsent, an empty file is filled
-    // (a projects-only entry is a preference, not a fabricated history).
+    // (a projects-only entry is a preference, not a fabricated history). Its
+    // existing mode is KEPT (prevMode from statSync above), not tightened to
+    // 0o600, matching preacceptBypass's empty-file path: the file was already on
+    // disk at a mode the person chose, so only a file we CREATE from absent
+    // (below) is born private.
     if (st.size === 0) {
       if (!createIfAbsent) return { ok: false, because: 'their config file is empty' };
-      data = {}; madeFile = true; prevMode = 0o600;
+      data = {}; madeFile = true;
     } else {
       data = JSON.parse(fs.readFileSync(target, 'utf8'));
     }
@@ -324,7 +328,7 @@ function trustFolder(dir, opts) {
   // key/displaced/madeEntry (recordWrite + forgetFolder rollback), and adding a
   // field would break every deep-equal on this contract. On a failed-create
   // rollback, forgetFolder removes the trust KEY, leaving at most a minimal
-  // `{projects:{}}` shell for a config we created — the same shape preacceptBypass
+  // `{projects:{}}` shell for a config we created, the same shape preacceptBypass
   // leaves for its created settings.json (#1919), which it deliberately never
   // undoes. Fully removing a created file on rollback (safe here, since the key is
   // per-folder and the file is untouched until first launch) is a possible

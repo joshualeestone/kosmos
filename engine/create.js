@@ -3177,7 +3177,7 @@ function createAgentInner(opts) {
        entry into a codex home. OpenAI behaviour is left exactly as it was. */
     /* 🛑 #2129: createIfAbsent on a fresh macOS user. Without it, trustFolder
        REFUSES when ~/.claude.json does not exist ("Claude Code has not run on
-       this computer yet") — the exact state of a fresh install — so the trust
+       this computer yet"), the exact state of a fresh install, so the trust
        entry never lands and the agent parks on Claude Code's trust prompt in a
        TUI nobody can answer (default = exit). This folder is one we made moments
        ago (weMadeTheFolder), so creating a minimal config for it is our consent,

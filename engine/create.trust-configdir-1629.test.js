@@ -90,7 +90,11 @@ test('#1629 create half: an OpenAI agent never gets a CODEX_HOME as its CLAUDE t
   create.setDryRun(false);
   withTrustSpy((seen) => {
     create.createAgent({ ...BINS, name: 'ct-openai', role: 'pm', provider: 'openai' });
-    if (!seen.length) return; // an openai refusal earlier is fine; nothing to assert
+    // PRECONDITION, not a vacuous escape: the OpenAI arm DOES reach the Claude
+    // trust write (verified through the real create path). Asserting it means a
+    // future change that refuses before the write fails this guard loudly rather
+    // than passing it vacuously.
+    assert.ok(seen.length >= 1, 'PRECONDITION: the create path reached the trust write');
     const [, opts] = seen[0];
     assert.equal(opts && opts.configDir, null,
       'the CLAUDE trust write must not receive the codex home');
@@ -122,7 +126,7 @@ test('#2129 create half: an OpenAI agent does NOT createIfAbsent a CLAUDE config
   create.setDryRun(false);
   withTrustSpy((seen) => {
     create.createAgent({ ...BINS, name: 'ct-openai-fresh', role: 'pm', provider: 'openai' });
-    if (!seen.length) return; // an openai refusal earlier is fine; nothing to assert
+    assert.ok(seen.length >= 1, 'PRECONDITION: the create path reached the trust write');
     const [, opts] = seen[0];
     assert.notEqual(opts && opts.createIfAbsent, true,
       'the CLAUDE trust write must not createIfAbsent for an OpenAI agent');
