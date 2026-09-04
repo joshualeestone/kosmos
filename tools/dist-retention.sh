@@ -48,7 +48,7 @@ while [ $# -gt 0 ]; do
     --prune) DO_PRUNE=1; shift ;;
     --yes) CONFIRM=1; shift ;;
     --json) JSON=1; shift ;;
-    -h|--help) sed -n '2,37p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "dist-retention: unknown argument '$1'" >&2; exit 1 ;;
   esac
 done

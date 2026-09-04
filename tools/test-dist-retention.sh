@@ -306,6 +306,24 @@ add_win "$D" 0.6.20 0.6.18 0.6.19 0.6.20
 bash "$TOOL" --dist "$D" --keep 1 --prune --yes >/dev/null 2>&1
 present "$D" kosmos-win-x64.zip && ok "win alias kosmos-win-x64.zip: never pruned ([0-9] anchor excludes it)" || no "win alias: deleted!"
 
+# --- Win Arm 6b: served win protected by ARTIFACT FILENAME despite version skew -
+#     (mirrors arm64 Arm 12): latest-win.json version="0.6.5" but the file is
+#     kosmos-0.6.05-win-x64.zip; the artifact-name fallback must protect it. -----
+D="$TMP/w6b"; make_fixture "$D" 0.6.15 0.6.15
+add_win "$D" 0.6.05 0.6.05 0.6.06 0.6.07 0.6.08
+# Skew the pointer: version field "0.6.5" (unpadded) while the served file is padded.
+printf '{"version":"0.6.5","artifact":"kosmos-0.6.05-win-x64.zip","manifest":"kosmos-0.6.05-win-x64.manifest.json"}\n' > "$D/latest-win.json"
+bash "$TOOL" --dist "$D" --keep 1 --prune --yes >/dev/null 2>&1
+present "$D" kosmos-0.6.05-win-x64.zip && ok "win artifact-name protection: served 0.6.05 kept despite version=\"0.6.5\" skew" || no "win artifact-name protection: served win file PRUNED (skew bug)"
+
+# --- Win Arm 6c: an unrecognised win-shaped stray is never touched -------------
+D="$TMP/w6c"; make_fixture "$D" 0.6.15 0.6.15
+add_win "$D" 0.6.20 0.6.18 0.6.19 0.6.20
+: > "$D/kosmos-win-x64-notes.txt"; : > "$D/win-x64-stray.zip"
+bash "$TOOL" --dist "$D" --keep 1 --prune --yes >/dev/null 2>&1
+{ present "$D" kosmos-win-x64-notes.txt && present "$D" win-x64-stray.zip; } \
+  && ok "win stray files: unrecognised win-shaped names never deleted" || no "win stray files: a stray was deleted!"
+
 # --- Win Arm 7: a dist with ZERO win triples emits NO win block ----------------
 #     (arm64-only behaviour is byte-identical to pre-#2112) ---------------------
 D="$TMP/w7"; make_fixture "$D" 0.6.20 0.6.18 0.6.19 0.6.20    # no add_win: only the empty latest-win.json + alias

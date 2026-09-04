@@ -12,8 +12,8 @@ Extract the per-family processing (served-version parse -> enumerate -> keep-win
 
 Baron's 4 touchpoints, confirmed by read, all fall inside this helper: the enumeration glob (`kosmos-[0-9]*-<arch>.<ext>`), triple_files (`kosmos-<v>-<arch>.{<ext>,<sha_ext>,manifest.json}`), the version strip (`${v%-<arch>.<ext>}`), and the pointer file. The `[0-9]` anchor after `kosmos-` excludes BOTH aliases (`kosmos-arm64.tar.gz`, `kosmos-win-x64.zip`) unchanged.
 
-## The invariant that makes this low-risk: arm64 output is byte-identical, and win is additive-only-when-present
-- **arm64 is processed exactly as today** (latest.json still REQUIRED — a dist is defined by it). The refactor must produce byte-identical arm64 output, so Baron's 44 arms pass UNCHANGED (no test edits).
+## The invariant that makes this low-risk: arm64 DELETION BEHAVIOR is identical, and win is additive-only-when-present
+- **arm64 is processed exactly as today** (latest.json still REQUIRED — a dist is defined by it). The guarantee is that arm64's **deletion decisions, exit codes, and prune/keep sets are identical** to #1605, so Baron's 44 arms pass UNCHANGED (no test edits). NOTE — the arm64 *text output* is NOT byte-identical: the human header now reads `dist-retention [arm64]:` (to distinguish families), the JSON gained an additive `"prune_allowed"` field, and the refuse message says "tarball/zip". These are intentional and benign — Baron's arms use `grep -q` substring asserts (not exact-diff), nothing consumes the JSON, and the deletion behavior is what is preserved.
 - **win is processed ONLY when versioned win triples exist.** Baron's fixtures have `latest-win.json` (empty) + the win ALIAS but ZERO versioned win triples, so the win glob matches nothing -> win is skipped -> output is arm64-only -> byte-identical -> all 44 arms green.
 - ⇒ I do NOT touch Baron's test arms. I ADD win mirror arms in a new fixture that HAS versioned win triples.
 
@@ -39,4 +39,4 @@ Mirror the load-bearing arm64 arms for win-x64 in fixtures that carry versioned 
 - Dry-run by default throughout; I never run --prune on the real dist (that stays Josh's call).
 
 ## Weakest premise
-That arm64 output is truly byte-identical after the refactor. Mitigation: Baron's 44 arms assert the exact report strings / JSON fields / exit codes / postconditions, so any drift reds them; I run them first and treat any arm64 regression as a blocker, not a test to update.
+That arm64's DELETION BEHAVIOR (not its text output) is truly unchanged after the refactor. Mitigation: Baron's 44 arms assert the report substrings / JSON fields / exit codes / file postconditions, so any behavioral drift reds them; I run them first and treat any arm64 regression as a blocker, not a test to update. (The text output DID change in three benign, intentional ways — see the invariant section — so "byte-identical output" is explicitly NOT the claim.)
