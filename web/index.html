@@ -35172,7 +35172,7 @@ async function frPaintOpenai(known) {
     msg.textContent = justAdded
       ? 'Added' + (keyTail ? ': API key ending ' + keyTail : '') + '.'
       : 'An OpenAI account is connected' + (keyTail ? ' (API key ending ' + keyTail + ')' : '') + '.';
-    /* #2131: a connected OpenAI account is a usable model provider, so the model
+    /* #2134: a connected OpenAI account is a usable model provider, so the model
        step can proceed. frPaintSubscription offers Continue ONLY for a connected
        CLAUDE subscription and otherwise renders "Skip connecting a model" -- it is
        blind to OpenAI, which left an OpenAI-only user stuck with no Continue

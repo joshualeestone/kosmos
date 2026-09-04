@@ -38,7 +38,8 @@ row + its Continue offer) - none of those regions.
 ## Weakest premise / verify
 That "a connected OpenAI account" is sufficient to proceed past the model step.
 It is: the model step's purpose is to connect a usable model provider, and OpenAI
-is first-class (#2096). The wizard's next step is the fleet/create step. 🔴 Needs
+is first-class (#2096). frGo(4) advances to step 4 (the "This computer" machine
+check), exactly as the sibling Skip and the Claude Continue do. 🔴 Needs
 live verify on a real OpenAI-only machine (Josh or a fresh codex account) - flagged
 to Splinter to batch.
 

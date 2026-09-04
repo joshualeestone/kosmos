@@ -265,7 +265,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     'fr-openai-key': { value: 'half-typed-key' },
   });
 
-  // #2131: frPaintOpenai now offers Continue when OpenAI is the connected model
+  // #2134: frPaintOpenai now offers Continue when OpenAI is the connected model
   // provider and Claude is not (frPaintSubscription is blind to OpenAI). It calls
   // frActions / frGo and reads FR, so the connected-path runs inject those as
   // stubs; a captured `cont` records what primary action was offered.
@@ -290,7 +290,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   assert.equal(els['fr-openai-flow'].hidden, true, 'the key form should close once connected');
   assert.match(els['fr-openai-msg'].textContent, /^Added/, 'told-directly should report the action, not just the state');
   assert.match(els['fr-openai-msg'].textContent, /ab12/, 'the confirmation should name the key tail it was told');
-  assert.equal(cont && cont.label, 'Continue', '#2131: a connected OpenAI account (Claude not) offers Continue on the model step');
+  assert.equal(cont && cont.label, 'Continue', '#2134: a connected OpenAI account (Claude not) offers Continue on the model step');
 
   // Asked the machine (pane-3 entry, nothing known yet) -- an OpenAI account
   // already exists. The message reports the STATE, not a fictional action:
@@ -303,7 +303,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     { getElementById: (id) => els[id] || null },
     fakeFetch, FR, frActions, frGo,
   );
-  assert.equal(cont && cont.label, 'Continue', '#2131: an already-connected OpenAI account (Claude not) offers Continue');
+  assert.equal(cont && cont.label, 'Continue', '#2134: an already-connected OpenAI account (Claude not) offers Continue');
   assert.match(els['fr-openai-connect'].innerHTML, /Connected/);
   assert.ok(!/^Added/.test(els['fr-openai-msg'].textContent),
     'stepping back to this pane and forward again must not claim an Add that did not happen this visit');
@@ -424,7 +424,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   let releaseRead;
   const gate = new Promise((res) => { releaseRead = res; });
   const slowEmptyFetch = async () => { await gate; return { ok: true, json: async () => ({ accounts: [] }) }; };
-  // #2131: the add path is connected, so frPaintOpenai reaches the Continue
+  // #2134: the add path is connected, so frPaintOpenai reaches the Continue
   // offer, which reads FR and calls frActions/frGo -- pass the same stubs
   // declared above (Claude not connected). This case is about supersession, not
   // the actions.
