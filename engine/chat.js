@@ -692,11 +692,22 @@ function verifyAtSend(card) {
  */
 function waitingNote(state, outcome, runner) {
   const unsure = outcome === DELIVERY.UNCONFIRMED;
-  // #2107: name the runner (degrade to Claude) so a codex agent's owner never sees
-  // Claude-named state copy on the reachable running-agent path -- a running codex
-  // agent fronts as a node process, passes the messageable gate, and stays reachable.
-  // Same pattern as the addressability reason at chat.js:520.
-  const runnerName = runner === 'codex' ? 'Codex' : 'Claude';
+  // #2093/#2107: name the PROVIDER the sign-in belongs to, not a hardcoded "Claude".
+  // Before #2093 a codex pane never reached AUTH_FAILED here, so the literal was
+  // always correct; #2093's produce path makes a dead codex agent reach it, and
+  // "its Claude sign-in was not working" beside a codex agent is the exact
+  // cross-provider mislabel #2107 tracks.
+  //
+  // #2107's chat.js half named the RUNNER here ('Codex'), copying the "no <runner>
+  // running" idiom at chat.js:520. That idiom is right THERE -- a stopped/crashed
+  // pane is a RUNNER-PROCESS fact, so the process name is the truth. A SIGN-IN is a
+  // different fact: it is the credential/account, and the remedy the board shows is
+  // "Reconnect the account" -- an OpenAI account, connected by an OpenAI key or the
+  // ChatGPT sign-in, never a "Codex account". So a sign-in line names the PROVIDER,
+  // not the runner. Decisively, this note and the board must teach ONE fact:
+  // status.js's produce copy says "Its OpenAI sign-in is not working" (#2093), so
+  // this line must say OpenAI too or the phone and the board drift.
+  const provider = runner === 'codex' ? 'OpenAI' : 'Claude';
   // The engine's own constants, not literals: a state renamed in status.js
   // must move these cases with it rather than leaving a switch that
   // silently stops matching (the same rule server.js records for its
@@ -720,8 +731,8 @@ function waitingNote(state, outcome, runner) {
     // Claude sign-in had already failed.
     case status.STATE.AUTH_FAILED:
       return unsure
-        ? 'its ' + runnerName + ' sign-in was not working'
-        : 'its ' + runnerName + ' sign-in was not working, so it will not act on this until that is fixed';
+        ? 'its ' + provider + ' sign-in was not working'
+        : 'its ' + provider + ' sign-in was not working, so it will not act on this until that is fixed';
     case status.STATE.IDLE:
       return 'it was sitting at its prompt';
     default:
