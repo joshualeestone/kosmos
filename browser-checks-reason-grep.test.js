@@ -398,7 +398,8 @@ test('every emit site in every check prints a line the gate can quote', () => {
   /* 37 after kosmos#2096 added render-openai-only-2096.js, whose per-problem
      `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
      quotable (same shape as render-account-badge-1921). */
-  const EXPECTED_SITES = 37;
+  /* 38 after kosmos#2097/#2098 added render-picker-provider-2097.js (one SHAPE-1 FAIL loop). */
+  const EXPECTED_SITES = 38;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -479,7 +480,8 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
   /* 19 after kosmos#2096 added render-openai-only-2096.js, whose launch-failure
      `console.error('FAIL  render-openai-only-2096: could not start a browser' ...)` is one
      catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921). */
-  const EXPECTED_CATCH_SITES = 19;
+  /* 20 after kosmos#2097/#2098 added render-picker-provider-2097.js (one launch-failure emit). */
+  const EXPECTED_CATCH_SITES = 20;
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '
