@@ -88,6 +88,13 @@ function chk(ok, label, extra) {
         while ((n = walker.nextNode())) {
           if (n.parentElement && vis(n.parentElement) && /heartbeat/i.test(n.nodeValue)) heartbeatSeen = true;
         }
+        // #2054 verbatim: the Auto-save hint must carry Josh's ruled wording
+        // ("write a handoff document for its future self"), never the plainer
+        // "progress to a file" phrasing he explicitly rejected. Read the RENDERED
+        // hint under the Auto-save row, not the source, so a future non-verbatim
+        // edit goes red.
+        const ahHint = el.querySelector('#ah-row .dhint');
+        const autoSaveHint = ahHint ? ahHint.textContent.trim() : '';
         return {
           height: el.getBoundingClientRect().height,
           promVisible: !!(promHeading && vis(promHeading)),
@@ -95,6 +102,7 @@ function chk(ok, label, extra) {
           promToggle: !!(tog && vis(tog)),
           promToggleAria: tog ? tog.getAttribute('aria-label') : null,
           heartbeatSeen,
+          autoSaveHint,
         };
       });
 
@@ -112,6 +120,13 @@ function chk(ok, label, extra) {
         `[${theme}] the Prompter is a slider on screen with its accessible name`, JSON.stringify({ t: sec.promToggle, a: sec.promToggleAria }));
       chk(sec.heartbeatSeen === false,
         `[${theme}] no visible text in the section still reads Heartbeat`, String(sec.heartbeatSeen));
+      // #2054 verbatim: Josh corrected "progress to a file" back to his exact
+      // "handoff document for its future self" and made verbatim a standing rule.
+      // Assert both arms so a re-drift in either direction goes red.
+      chk(/write a handoff document for its future self/.test(sec.autoSaveHint),
+        `[${theme}] the Auto-save hint carries Josh's verbatim "handoff document for its future self"`, JSON.stringify(sec.autoSaveHint));
+      chk(!/progress to a file/.test(sec.autoSaveHint),
+        `[${theme}] the Auto-save hint does NOT use the rejected "progress to a file" wording`, JSON.stringify(sec.autoSaveHint));
     }
   } finally {
     await browser.close();
