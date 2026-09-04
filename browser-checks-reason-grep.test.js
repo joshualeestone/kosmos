@@ -401,7 +401,8 @@ test('every emit site in every check prints a line the gate can quote', () => {
   /* 38 after kosmos#2097/#2098 added render-picker-provider-2097.js (one SHAPE-1 FAIL loop).
      39 after kosmos#2134 added render-firstrun-model-continue-2134.js (one more SHAPE-1 FAIL loop).
      40 after kosmos#2140 added render-create-openai-model-2140.js (one more SHAPE-1 FAIL loop). */
-  const EXPECTED_SITES = 40;
+     41 after kosmos#2140 Surface 2 added render-detail-openai-model-2140.js (one more SHAPE-1 FAIL loop). */
+  const EXPECTED_SITES = 41;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -484,8 +485,9 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
      catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921). */
   /* 20 after kosmos#2097/#2098 added render-picker-provider-2097.js (one launch-failure emit).
      21 after kosmos#2134 added render-firstrun-model-continue-2134.js (one more launch-failure emit).
-     22 after kosmos#2140 added render-create-openai-model-2140.js (one more launch-failure emit). */
-  const EXPECTED_CATCH_SITES = 22;
+     22 after kosmos#2140 added render-create-openai-model-2140.js (one more launch-failure emit).
+     23 after kosmos#2140 Surface 2 added render-detail-openai-model-2140.js (one more launch-failure emit). */
+  const EXPECTED_CATCH_SITES = 23;
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '

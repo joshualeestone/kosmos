@@ -24063,6 +24063,74 @@ function paintModelWhy(selId, whyId) {
   out.textContent = (m && m.why) || '';
   out.hidden = !out.textContent;
 }
+/* #2140 Surface 2: a generation guard for the detail-page OpenAI models fetch, so
+   switching agents mid-fetch never lands a stale result on the wrong panel. */
+let OPENAI_DETAIL_GEN = 0;
+/* #2140 Surface 2: the OpenAI model picker for an EXISTING agent's detail page.
+   Mirrors the create-form picker (paintOpenaiCreateModel): per-account /v1/models,
+   the account's models with "Let OpenAI choose" first and the agent's CURRENT model
+   pre-selected, or a single "OpenAI picks its own model for now" option when the
+   account cannot list models -- NEVER a Claude model. The current model KEY comes
+   from a.plannedModelName, which for OpenAI is the raw model id (modelDisplayName
+   falls through to the id for non-Claude models). The account dir is a.account.dir;
+   a default-codex agent has no configDir, so an empty dir is sent and the server
+   resolves the default OpenAI account. */
+async function paintOpenaiDetailModel(a, forWhom) {
+  const sel = document.getElementById('d-model');
+  const go = document.getElementById('d-model-go');
+  const msg = document.getElementById('d-model-msg');
+  const row = document.getElementById('d-model-row');
+  if (!sel || !go) return;
+  const gen = ++OPENAI_DETAIL_GEN;
+  const ours = !!(a && a.isNamedOurs);
+  const usable = ours && !(a && a.neverRecorded === true);
+  const currentKey = (a && typeof a.plannedModelName === 'string') ? a.plannedModelName : '';
+  const acctDir = (a && a.account && a.account.dir) ? a.account.dir : '';
+  if (row) row.hidden = false;
+  if (msg) msg.textContent = '';
+  // Loading: the box shows a disabled loading option, never a Claude model.
+  sel.disabled = true;
+  sel.innerHTML = '<option value="">Loading this account\'s models…</option>';
+  (async () => {
+    let out = null;
+    try {
+      const res = await fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(acctDir), { cache: 'no-store' });
+      out = res.ok ? await res.json() : null;
+    } catch { out = null; }
+    if (gen !== OPENAI_DETAIL_GEN) return;                 // superseded by a newer paint
+    if (!CURRENT || CURRENT.sessionName !== forWhom) return; // panel moved to another agent
+    if (out && out.ok && Array.isArray(out.models) && out.models.length) {
+      OPENAI_PICK_MODELS = out.models.slice();
+      const hasCurrent = currentKey && out.models.some((m) => m.key === currentKey);
+      sel.innerHTML = '<option value=""' + (hasCurrent ? '' : ' selected') + '>Let OpenAI choose (recommended)</option>'
+        + out.models.map((m) => '<option value="' + esc(m.key) + '"' + (m.key === currentKey ? ' selected' : '') + '>' + esc(m.label) + '</option>').join('');
+      sel.dataset.current = hasCurrent ? currentKey : '';
+      sel.disabled = !usable;
+      paintModelWhy('d-model', 'd-model-why');
+      // Switch stays down until the person picks something OTHER than the current.
+      go.disabled = !usable || sel.value === (sel.dataset.current || '');
+      if (msg && !usable && !msg.textContent) {
+        msg.textContent = ours ? 'Made before Kosmos recorded how it starts, so there is no launch file to change.'
+          : 'Kosmos did not start this one, so it cannot change what it runs on.';
+      }
+    } else {
+      // Not listable / no default account: the single OpenAI option, never a Claude
+      // model, with the reason on the msg line (and the model-why cleared).
+      OPENAI_PICK_MODELS = [];
+      sel.innerHTML = '<option value="" selected>OpenAI picks its own model for now</option>';
+      sel.dataset.current = '';
+      sel.disabled = true;
+      go.disabled = true;
+      paintModelWhy('d-model', 'd-model-why');
+      if (msg) {
+        msg.textContent = usable
+          ? openaiNoModelsNote(out && out.because)
+          : (ours ? 'Made before Kosmos recorded how it starts, so there is no launch file to change.'
+                  : 'Kosmos did not start this one, so it cannot change what it runs on.');
+      }
+    }
+  })();
+}
 async function paintModelPicker(a) {
   const sel = document.getElementById('d-model');
   const go = document.getElementById('d-model-go');
@@ -24074,6 +24142,12 @@ async function paintModelPicker(a) {
      openDetail's clear. Same class as TALK_FLIGHT: bail when the panel has
      moved on. */
   const forWhom = a && a.sessionName;
+  /* #2140 Surface 2: an OpenAI agent gets the per-account picker, NEVER the Claude
+     model list. The Claude flow below matches by label against CREATE_MODELS (Claude
+     models), so an OpenAI agent would show Claude Sonnet 5 etc. as switchable options
+     -- the exact "Claude models under an OpenAI agent" bug Josh flagged on the create
+     form (#2167), here on the detail surface. Delegate and return. */
+  if (a && (a.provider === 'openai' || a.runner === 'codex')) { await paintOpenaiDetailModel(a, forWhom); return; }
   if (!CREATE_MODELS.length) {
     try {
       const res = await fetch('/api/roles', { cache: 'no-store' });

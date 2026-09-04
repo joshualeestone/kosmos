@@ -3855,6 +3855,14 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/accounts/openai/models' && req.method === 'GET') {
     let dir = '';
     try { dir = new URL(req.url, ROUTING_BASE).searchParams.get('dir') || ''; } catch { dir = ''; }
+    /* #2140 Surface 2: an empty dir means the DEFAULT OpenAI account. A codex
+       agent created on the default ~/.codex carries no configDir, so its detail
+       model picker has no dir to name -- resolve it to the default account's dir
+       here, then validate + fetch as normal. The create flow always passes the
+       selected account's dir, so this only affects the detail page's default case. */
+    if (!dir) {
+      try { const def = openaiAccounts.list().find((a) => a && a.isDefault); if (def) dir = def.dir; } catch { /* leave empty */ }
+    }
     if (!dir) { sendJson(res, 400, { ok: false, models: [], because: 'no account was named' }); return; }
     /* Only an account this computer actually knows -- a resolved-path match
        against the enumerated list, so a caller on this unauthenticated local
