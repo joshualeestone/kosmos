@@ -58,6 +58,19 @@ test('#2130 core: default file has no account but a non-default dir is connected
     'checkMachine must find the connected non-default account');
 });
 
+test('#2130: checkMachine(accountList) threaded in matches the self-fetched result (the production path passes the tick\'s known)', () => {
+  clean();
+  writeJSON(DEFAULT_CONFIG, NO_ACCT);
+  writeJSON(acctFile('work'), CONNECTED);
+  const accts = require('./accounts').list();
+  sub.resetCache();
+  const threaded = sub.checkMachine(accts);   // production passes the tick's known list
+  sub.resetCache();
+  const selfFetched = sub.checkMachine();      // fallback self-fetch
+  assert.equal(threaded.state, sub.STATE.CONNECTED);
+  assert.deepEqual(threaded, selfFetched, 'threading the list must not change the verdict');
+});
+
 test('#2130: default file itself connected -> checkMachine CONNECTED (unchanged behaviour)', () => {
   clean();
   writeJSON(DEFAULT_CONFIG, CONNECTED);

@@ -2140,8 +2140,11 @@ const server = http.createServer((req, res) => {
       // in the settings on this computer" on a machine that had one (#2130).
       // checkMachine() aggregates across every signed-in account (connected if
       // any is), memoized over all their config stats, so the banner agrees with
-      // Settings by construction.
-      const connection = subscription.checkMachine();
+      // Settings by construction. `known` (accounts.list(), computed above this
+      // tick) is threaded in so checkMachine does NOT run a SECOND list() -- that
+      // would re-parse every config (incl. the ~95KB default) per tick, the exact
+      // cost the memo exists to avoid.
+      const connection = subscription.checkMachine(known);
       // Update awareness rides the status tick the screen already polls:
       // poke() returns immediately (once per TTL window, background refresh) and
       // available() is the cached verdict -- the request path never waits on

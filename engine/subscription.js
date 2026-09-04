@@ -542,11 +542,18 @@ function machineStatKey(accts) {
  * check(), aggregated across every signed-in account on the machine, memoized
  * for the 5-second status tick. This is what the global banner must read (#2130).
  *
+ * @param {Array<{dir:string,isDefault?:boolean}>} [accountList] the caller's
+ *   ALREADY-computed accounts.list(). Pass it: accounts.list() parses every
+ *   account config (including the ~95KB default ~/.claude.json), and the status
+ *   tick has already built one, so re-listing here would repeat per tick exactly
+ *   the parse the memo exists to avoid. Omitted, it self-fetches (self-contained,
+ *   but pays that parse). Only `.dir`/`.isDefault` are read; the memo key is
+ *   built by stat'ing those dirs' configs, not by parsing them.
  * @returns {{state: string, plan: string|null, because: string}}
  */
-function checkMachine() {
-  let accts;
-  try { accts = require('./accounts').list(); } catch { accts = []; }
+function checkMachine(accountList) {
+  let accts = Array.isArray(accountList) ? accountList : null;
+  if (!accts) { try { accts = require('./accounts').list(); } catch { accts = []; } }
   const key = machineStatKey(accts);
   if (machineCached && machineCached.key === key) return machineCached.verdict;
   const verdict = computeMachine(accts);
