@@ -23,16 +23,22 @@
 #
 #   bash tools/staging-agent-online-check.sh [port]
 #
-# Exit 0 both providers came ONLINE (state idle|working) - the #2129 class is not present.
-#      1 DO-NOT-PROMOTE (a proven bad build, non-forceable): a created agent that APPEARED and
-#        WEDGED at the trust prompt (#2129), an agent that appeared but never reached
-#        idle|working, an auth_failed state, or a create refused with a real provider sign-in
-#        failure (#2128/#2130).
+# Exit codes are CENTERED ON THE CLAUDE ARM (Splinter, 2026-09-04): #2129 fixes the Claude
+# spawn wedge definitively; a separate OpenAI/Codex spawn issue may remain and must NOT block
+# shipping the Claude fix + the OpenAI-only gating.
+# Exit 0 both providers came ONLINE (state idle|working, confirmed on 2 consecutive polls).
+#      1 DO-NOT-PROMOTE (proven bad build, non-forceable): the CLAUDE agent wedged at the trust
+#        prompt (#2129), appeared but never reached idle|working, hit auth_failed, or its create
+#        was refused with a real provider sign-in failure. The #2129 Claude fix is not working.
 #      2 cannot-tell (HOLD, forceable after a hand check): no enforcing board (no board.token),
-#        a provider not signed in, a populated fleet board (refused to run), a non-numeric port,
-#        an unexpected create-400, or a created agent that NEVER appeared in /api/status (a
-#        board-shape mismatch / contract drift, ambiguous with a never-spawned agent - NOT a
-#        proven wedge). The invariant: cannot-tell never reads as a pass.
+#        a provider not signed in, a populated/uncountable fleet board, a non-numeric port, an
+#        unexpected create-400, or an agent that NEVER appeared in /api/status (a shape mismatch
+#        / contract drift). Also: the Claude arm is online but the OpenAI arm could not be
+#        determined. The invariant: cannot-tell never reads as a pass.
+#      3 PARTIAL - the CLAUDE arm is ONLINE but the OpenAI/Codex arm FAILED to come online. This
+#        may be a separate codex-spawn issue #2129 does not fix. The promoter SURFACES which arm
+#        failed and routes the decision (forceable); it must NOT auto-hold the whole promote,
+#        because the Claude fix + OpenAI gating are net-positive and shippable on their own.
 set -uo pipefail
 
 PORT="${1:-${KOSMOS_PORT:-}}"
@@ -216,6 +222,11 @@ fi
 STAMP="$(date +%s)"
 POLL_SECS="${KOSMOS_AGENT_ONLINE_TIMEOUT:-180}"
 POLL_INT="${KOSMOS_AGENT_ONLINE_POLL_INT:-5}"
+# Numeric-guard the poll vars (same discipline as PORT / MAX_EXISTING). A non-numeric TIMEOUT
+# is only safer, but a non-numeric OR ZERO POLL_INT makes `waited=$((waited + POLL_INT))` never
+# advance -> the poll loops forever (a hang). Fall back to the defaults on anything invalid.
+case "$POLL_SECS" in ''|*[!0-9]*) POLL_SECS=180 ;; esac
+case "$POLL_INT"  in ''|0|*[!0-9]*) POLL_INT=5 ;; esac
 
 # create_and_wait <provider> <account-dir> -> echoes verdict, returns 0 online / 1 red / 2 cannot
 create_and_wait() {
@@ -249,7 +260,12 @@ create_and_wait() {
   CREATED_NAMES="$CREATED_NAMES $sess"
   say "  [$prov] created '$sess' - polling for online (up to ${POLL_SECS}s)..."
 
-  local waited=0 st because seen=0
+  # online_streak: require idle|working on TWO CONSECUTIVE polls before calling it online. This
+  # guards the one path where a #2129 build could read as PASS - a trust-wedged agent whose card
+  # shows a transient idle/working for one poll BEFORE the trust prompt registers as needs_you.
+  # A genuinely online agent stays online across a poll interval; a transient-idle-then-wedge
+  # shows needs_you on the next poll and is caught. Any non-online read resets the streak.
+  local waited=0 st because seen=0 online_streak=0
   while [ "$waited" -lt "$POLL_SECS" ]; do
     local snap; api_get /api/status; snap="$RESP_BODY"
     # find this session's card; print "state\tbecause"
@@ -267,8 +283,13 @@ create_and_wait() {
     [ -n "$st" ] && seen=1   # we found this session's card at least once
     case "$st" in
       idle|working)
-        say "  [$prov] ONLINE (state=$st) - the #2129 class is not present."; return 0 ;;
+        online_streak=$((online_streak + 1))
+        if [ "$online_streak" -ge 2 ]; then
+          say "  [$prov] ONLINE (state=$st, confirmed on 2 consecutive polls) - the #2129 class is not present."; return 0
+        fi
+        say "  [$prov] reads $st - confirming it stays online across a poll (guards a transient idle before a trust wedge)..." ;;
       needs_you)
+        online_streak=0
         # case-insensitive trust match (case is the fleet's most-repeated false-zero); a
         # mis-cased "Trust"/"Folder" must still be recognised as the #2129 wedge.
         local because_lc; because_lc="$(printf '%s' "$because" | tr '[:upper:]' '[:lower:]')"
@@ -279,7 +300,10 @@ create_and_wait() {
             say "  [$prov] needs_you (not trust): '$because' - treating as not-online"; ;;
         esac ;;
       auth_failed)
+        online_streak=0
         say "  [$prov] auth_failed: '$because' (a sign-in failure, e.g. #2128/#2130 class)"; return 1 ;;
+      *)
+        online_streak=0 ;;
     esac
     sleep "$POLL_INT"; waited=$((waited + POLL_INT))
   done
@@ -306,17 +330,36 @@ create_and_wait() {
 }
 
 say "staging-agent-online-check: creating one Claude + one OpenAI agent on $URL and confirming each comes online."
-OVERALL=0
-for pair in "anthropic:$ANTHROPIC_DIR" "openai:$OPENAI_DIR"; do
-  prov="${pair%%:*}"; dir="${pair#*:}"
-  create_and_wait "$prov" "$dir"; rc=$?
-  if [ "$rc" -eq 1 ]; then OVERALL=1;
-  elif [ "$rc" -eq 2 ] && [ "$OVERALL" -eq 0 ]; then OVERALL=2; fi
-done
+create_and_wait anthropic "$ANTHROPIC_DIR"; CLAUDE_RC=$?
+create_and_wait openai "$OPENAI_DIR"; OPENAI_RC=$?
 
-case "$OVERALL" in
-  0) say "PASS: both a Claude and an OpenAI agent came ONLINE. The #2129 agent-spawn class is not present in this build." ;;
-  1) say "FAIL: at least one agent did not come online (trust wedge / auth / timeout). DO NOT PROMOTE - this is the #2129 class." ;;
-  2) say "CANNOT-TELL: the check could not run here (board/create error, no enforcing board). Not a pass; not a proven failure." ;;
-esac
-exit "$OVERALL"
+# Aggregation, CENTERED ON THE CLAUDE ARM (Splinter, 2026-09-04): Angel's #2129 fix
+# definitively fixes the CLAUDE spawn wedge; it may NOT fix a separate OpenAI/Codex ("Susan")
+# spawn issue, which is chased as its own card and must NOT block shipping the Claude fix +
+# the OpenAI-only gating. So a Claude-arm failure hard-refuses, but a Claude-OK / OpenAI-FAIL
+# result is a distinct exit 3 that the promoter SURFACES and routes (forceable), never an
+# auto-hold. Precedence:
+#   CLAUDE_RC 1  -> exit 1  (the Claude fix did not work: proven bad build, non-forceable)
+#   CLAUDE_RC 2  -> exit 2  (cannot tell if the Claude fix works: HOLD, forceable)
+#   CLAUDE_RC 0:
+#     OPENAI_RC 0 -> exit 0 (both online: promote)
+#     OPENAI_RC 1 -> exit 3 (Claude ONLINE, OpenAI/Codex FAILED: a possible separate codex
+#                            issue #2129 does not fix - SURFACE + route, do not auto-hold)
+#     OPENAI_RC 2 -> exit 2 (Claude ONLINE, OpenAI cannot-tell: HOLD, forceable)
+if   [ "$CLAUDE_RC" -eq 1 ]; then
+  say "FAIL: the CLAUDE agent did not come online (trust wedge / auth / timeout). DO NOT PROMOTE - the #2129 Claude fix is not working in this build."
+  exit 1
+elif [ "$CLAUDE_RC" -eq 2 ]; then
+  say "CANNOT-TELL: could not determine the CLAUDE arm (board/create error, shape mismatch, or no enforcing board). Not a pass; not a proven failure."
+  exit 2
+else
+  case "$OPENAI_RC" in
+    0) say "PASS: both a Claude and an OpenAI agent came ONLINE. The #2129 agent-spawn class is not present in this build."; exit 0 ;;
+    1) say "PARTIAL: the CLAUDE arm is ONLINE (the #2129 fix works), but the OpenAI/Codex arm FAILED to come online."
+       say "  This may be a SEPARATE codex-spawn issue that #2129 does not fix - NOT a reason to auto-hold the whole promote."
+       say "  Surface to the operator with WHICH arm failed; the Claude fix + OpenAI gating are shippable. Promote is a routed decision (--force after a ruling)."
+       exit 3 ;;
+    *) say "CANNOT-TELL: the CLAUDE arm is ONLINE but the OpenAI arm could not be determined (board/create error, shape mismatch). HOLD."
+       exit 2 ;;
+  esac
+fi

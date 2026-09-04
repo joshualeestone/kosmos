@@ -51,6 +51,14 @@ emit() { [ -n "$out" ] && printf '%s' "$1" > "$out"; printf '%s' "$2"; }
 card() {  # <name> -> a status card JSON for the scenario state
   local nm="$1" st state because
   st="${MOCK_AGENT_STATE:-idle}"
+  # Per-provider mode: the created agent names carry the provider (verify2129-anthropic-... /
+  # verify2129-openai-...). claude-ok-openai-wedge = Claude online, OpenAI wedged -> exit 3.
+  if [ "$st" = claude-ok-openai-wedge ]; then
+    case "$nm" in
+      *openai*) st=trust-wedge ;;
+      *)        st=idle ;;
+    esac
+  fi
   case "$st" in
     working)         state=working;     because="working";;
     trust-wedge)     state=needs_you;   because="it is asking whether to trust its folder, and the default answer exits";;
@@ -124,9 +132,17 @@ esac
 SH
 chmod +x "$FIXDIR/fakeboard"
 
-# run_case <label> <expected-exit> <VAR=val ...>  (trailing VARs are the scenario)
+has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
+
+# run_case <label> <expected-exit> [--expect "<substr>"] <VAR=val ...>  (trailing VARs = scenario)
+# The optional --expect asserts a substring of the OUTPUT, not just the exit code. This matters
+# because several distinct behaviours share an exit code (a trust wedge and a non-trust
+# not-online both exit 1; a fail-closed refusal and a never-appeared both exit 2), so an
+# exit-code-only assertion is NOT red-capable for the specific branch being tested.
 run_case() {
   local label="$1" exp="$2"; shift 2
+  local want=""
+  if [ "${1:-}" = "--expect" ]; then want="$2"; shift 2; fi
   local root state outp rc
   root="$(mktemp -d "${TMPDIR:-/tmp}/aoc-root.XXXXXX")"; printf 'tok\n' > "$root/board.token"
   state="$(mktemp "${TMPDIR:-/tmp}/aoc-state.XXXXXX")"; : > "$state"
@@ -135,14 +151,17 @@ run_case() {
     KOSMOS_AGENT_ONLINE_POLL_INT=1 KOSMOS_AGENT_ONLINE_TIMEOUT=4 \
     bash "$CHECK" 2>&1)"
   rc=$?
+  if [ -n "$want" ] && ! has "$outp" "$want"; then
+    rm -rf "$root" "$state"; bad "$label: expected output to contain '$want' | got: $(printf '%s' "$outp" | tr '\n' '~' | tail -c 300)"; return
+  fi
   rm -rf "$root" "$state"
   if [ "$rc" = "$exp" ]; then pass "$label -> exit $rc"; else bad "$label: expected exit $exp, got $rc | out: $(printf '%s' "$outp" | head -3 | tr '\n' '~')"; fi
 }
 
 run_case "both agents online (positive control)"        0  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle
 run_case "both agents WORKING"                           0  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=working
-run_case "trust wedge (#2129) -> do-not-promote"        1  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=trust-wedge
-run_case "trust wedge, MIXED CASE -> still caught (1)"   1  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=trust-wedge-caps
+run_case "trust wedge (#2129) -> do-not-promote"        1 --expect "WEDGED at the trust prompt" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=trust-wedge
+run_case "trust wedge, MIXED CASE -> still caught (1)"   1 --expect "WEDGED at the trust prompt" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=trust-wedge-caps
 run_case "auth_failed -> do-not-promote"                1  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=auth
 run_case "never online within window -> do-not-promote" 1  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=stopped-forever
 run_case "create refused (400, sign-in) -> do-not-promote" 1 MOCK_ACCOUNTS=both MOCK_CREATE=refuse400
@@ -150,7 +169,8 @@ run_case "unexpected create-400 (not sign-in) -> cannot-tell" 2 MOCK_ACCOUNTS=bo
 run_case "agent never appears (shape mismatch) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=noshow
 run_case "populated fleet, no override -> REFUSE"       2  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5
 run_case "garbage MAX_EXISTING still guards a populated fleet" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_AGENT_ONLINE_MAX_EXISTING=abc
-run_case "unreadable /api/status (200, no agent list) -> FAIL CLOSED" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=status-garbage
+run_case "unreadable /api/status (200, no agent list) -> FAIL CLOSED" 2 --expect "cannot count the fleet" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=status-garbage
+run_case "Claude ONLINE, OpenAI WEDGED -> PARTIAL (3, surface not auto-hold)" 3 --expect "PARTIAL" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=claude-ok-openai-wedge
 run_case "populated fleet WITH allow-live + online"     0  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1
 run_case "no openai account -> cannot-tell"             2  MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=idle
 run_case "Claude present but signed OUT -> cannot-tell"  2  MOCK_ACCOUNTS=claude-signedout MOCK_AGENT_STATE=idle

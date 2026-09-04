@@ -36,15 +36,28 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
      exercise agent spawn, and #2129 was exactly that gap -- spawned agents wedged at the Claude
      Code trust prompt while the board served fine, so the board gate alone would PASS a #2129
      build. This gate creates a Claude agent AND an OpenAI agent and confirms each comes ONLINE
-     (state idle/working, never a `needs_you` trust wedge). It **creates real agents**, so it
-     refuses on a populated fleet board unless `KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1`; run it on the
-     fresh staging machine with both providers signed in.
+     (state idle/working on **two consecutive polls** -- guarding a transient idle before a trust
+     prompt registers -- never a `needs_you` trust wedge). It **creates real agents**, so it
+     refuses on a populated (or uncountable) fleet board unless `KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1`;
+     run it on the fresh staging machine with both providers signed in.
+     - **Exit codes are centered on the CLAUDE arm** (Splinter, 2026-09-04): #2129 fixes the
+       Claude spawn wedge definitively, but a separate OpenAI/Codex spawn issue may remain and
+       must not block shipping the Claude fix + the OpenAI-only gating. `0` both online; `1` the
+       **Claude** arm failed (proven bad build, non-forceable); `2` cannot-tell (HOLD, forceable);
+       `3` **partial** -- Claude online but the **OpenAI/Codex** arm failed, which the promoter
+       **surfaces and routes** (forceable) rather than auto-holding.
+     - **Residual (the plan's weakest premise):** detection hinges on the board reporting
+       `needs_you` for a wedge; the gate is only fully proven on a real fresh machine (Part 2),
+       which is why the default stays prod until then.
 4. **Promote.** `tools/promote-channel.sh <site-checkout> <that-board's-port>` points `latest.json`
    at the same bytes `latest-staging.json` names, gated on (a) the served sha matching, (b) the
    board-reachability gate passing, and (c) the agent-spawn gate passing. Either gate: exit 1
    (provably broken) refuses and is **not** `--force`able; exit 2 (cannot-tell -- e.g. the dev box,
-   or a provider not signed in) **HOLDS**, `--force`able only after a hand check. So you cannot
-   promote from a machine that cannot test either class.
+   or a provider not signed in) **HOLDS**, `--force`able only after a hand check. The agent gate's
+   exit 3 (Claude online, OpenAI/Codex arm failed) also HOLDS but is `--force`able and prints
+   which arm failed -- a routed decision (ship the Claude fix + gating now and chase the codex
+   issue separately, or hold for a ruling), never a hard auto-hold. So you cannot promote from a
+   machine that cannot test either class.
 5. **Deploy the promoted pointer** (the next `tools/deploy-site.sh --publish` carries it).
 6. **Rollback** = promote a prior staging pointer, or flip `latest.json` back. No rebuild.
 

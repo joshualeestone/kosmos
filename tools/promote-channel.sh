@@ -112,13 +112,24 @@ echo "promote-channel: running the agent-spawn gate: $AGENT_GATE_CMD${PORT:+ (po
 $AGENT_GATE_CMD ${PORT:+"$PORT"}; AGENT_RC=$?
 case "$AGENT_RC" in
   0) echo "promote-channel: agent-spawn gate PASSED - a fresh Claude and OpenAI agent came online (the #2129 class is not present)." ;;
-  1) echo "promote-channel: agent-spawn gate FAILED (exit 1) - a fresh agent did not come online (trust wedge/auth/timeout, the #2129 class). REFUSING to promote; --force does not override a provably-broken build." >&2; exit 1 ;;
+  1) echo "promote-channel: agent-spawn gate FAILED (exit 1) - the CLAUDE agent did not come online (trust wedge/auth/timeout, the #2129 class). REFUSING to promote; --force does not override a provably-broken build." >&2; exit 1 ;;
   2)
     if [ "$FORCE" = 1 ]; then
       echo "promote-channel: agent-spawn gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: agent spawn was NOT automatically verified." >&2
     else
       echo "promote-channel: agent-spawn gate could not run here (exit 2, cannot-tell) - no fresh enforcing board, a provider not signed in, or a populated fleet board. HOLDING. Run on/against the fresh staging machine with both providers signed in, or pass --force after verifying by hand." >&2
       exit 2
+    fi ;;
+  3)
+    # PARTIAL: the Claude arm is online (the #2129 fix works) but the OpenAI/Codex arm failed.
+    # This may be a SEPARATE codex-spawn issue #2129 does not fix, so it must NOT auto-hold the
+    # whole promote (Splinter, 2026-09-04). It is forceable: the operator routes the decision
+    # (typically promote the Claude fix + OpenAI gating and chase the codex issue separately).
+    if [ "$FORCE" = 1 ]; then
+      echo "promote-channel: agent-spawn gate PARTIAL (exit 3, Claude online / OpenAI-Codex arm failed) and --force was given - promoting the Claude fix + OpenAI gating; the OpenAI/Codex spawn issue is a separate card. NOTE: the OpenAI arm was NOT verified online." >&2
+    else
+      echo "promote-channel: agent-spawn gate PARTIAL (exit 3) - the CLAUDE arm is ONLINE (the #2129 fix works) but the OpenAI/Codex arm did NOT come online. This may be a separate codex-spawn issue #2129 does not fix. NOT auto-holding: surface WHICH arm failed to the operator - the Claude fix + OpenAI gating are shippable. Re-run with --force to promote them now and chase the codex issue separately, or hold for an operator ruling." >&2
+      exit 3
     fi ;;
   *) echo "promote-channel: agent-spawn gate returned an unexpected code ($AGENT_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
 esac

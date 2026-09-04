@@ -183,6 +183,15 @@ Sa0="$(make_site)"; bash "$PUBLISH" "$Sa0" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=0 bash "$PROMOTE" "$Sa0" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "agent-spawn gate PASSED" && [ -f "$Sa0/dist/latest.json" ] && pass "promote: both gates pass -> promote" || bad "promote both-gates (rc=$rc, out=$out)"
 
+# agent gate PARTIAL (exit 3: Claude online, OpenAI/Codex arm failed) -> HOLD (3), no promote;
+# --force promotes the Claude fix + gating (the codex issue is chased separately). Must NOT be
+# treated as a hard non-forceable refuse (that is the auto-hold Splinter's ruling forbids).
+Sa3="$(make_site)"; bash "$PUBLISH" "$Sa3" >/dev/null 2>&1
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=3 bash "$PROMOTE" "$Sa3" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && has "$out" "PARTIAL" && [ ! -f "$Sa3/dist/latest.json" ] && pass "promote: agent gate 3 (Claude ok, OpenAI failed) -> HOLD/surface, no promote" || bad "promote agent-gate-3 (rc=$rc, out=$out)"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=3 bash "$PROMOTE" "$Sa3" --force 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$Sa3/dist/latest.json" ] && pass "promote: agent gate 3 + --force -> promote (Claude fix ships, codex chased separately)" || bad "promote agent-gate-3-force (rc=$rc, out=$out)"
+
 # the [port] is forwarded to the SECOND (agent) gate too, not only the experience gate.
 Sap="$(make_site)"; bash "$PUBLISH" "$Sap" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=0 bash "$PROMOTE" "$Sap" 17777 2>&1)"; rc=$?
