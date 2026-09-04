@@ -66,7 +66,13 @@ Route + web + browser-check assertions here. The fresh-user-with-sample-files en
 files, open create, import one, agent runs) is a batched clean-machine pass (needs Josh);
 needs-operator, do not wait on it.
 
-## REWORK (2026-09-04) - reconcile with #2125 / Angel #2148, per Splinter
+## REWORK (2026-09-04) - reconcile with #2125 / Angel #2148, per Splinter [IMPLEMENTED]
+
+Status: #2148 merged (scan({importScan:true}) on main); this branch rebased onto it and the
+surface reworked as below - GET /api/scan-import added, populateFoundImports repointed at it, the
+import-file membership check now uses getImportScan() (discover.scan({importScan:true}) with its
+own cache), and a source-pin test guards the seam. Re-run through the challenge-loop.
+
 
 Collision found: this PR's discovery of Downloads/Desktop was hosted on the AUTO first-run scan
 (discover.scan()'s defaultScanRoots, added by PR1 #2141). Angel's #2125 slice 1 (#2148) REMOVES

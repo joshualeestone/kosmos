@@ -199,4 +199,26 @@ test('#1652 PR2: no file named is a plain refusal, not a crash', async () => {
   assert.match(json.because, /no file was named/);
 });
 
+test('#1652 PR2: GET /api/scan-import returns the importable files, and its membership matches /api/agent-import-file', async () => {
+  // The on-demand import scan surfaces the loose agent files; a plain note is excluded.
+  const res = await fetch(`${base}/api/scan-import`, { cache: 'no-store' });
+  assert.equal(res.status, 200);
+  const j = await res.json();
+  assert.ok(Array.isArray(j.importable), 'scan-import did not return an importable array');
+  const files = j.importable.map((c) => c.file);
+  assert.ok(files.includes(SHARED), 'the shared agent file was not offered by /api/scan-import');
+  assert.ok(!files.includes(NOTE), 'a plain note was wrongly offered by /api/scan-import');
+  // The same file the scan offered is a valid member for the by-path import.
+  const imp = await post('/api/agent-import-file', { file: SHARED });
+  assert.equal(imp.json.ok, true, imp.json.because);
+});
+
+test('#1652 PR2 SEAM: the import routes call discover.scan({importScan:true}), not the auto scan', () => {
+  // #2125/#2148 reconcile: the TCC folders (Downloads/Desktop/Documents) are reached ONLY
+  // under importScan. A route that called bare discover.scan() would never find a file the
+  // person keeps in Downloads. Source-pin the flag so a regression to the auto scan reds here.
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /discover\.scan\(\{\s*importScan:\s*true\s*\}\)/, 'the import scan does not pass importScan:true (it would use the TCC-free auto roots)');
+});
+
 test.after(() => { try { server.close(); } catch { /* best effort */ } });

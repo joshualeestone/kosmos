@@ -26115,7 +26115,11 @@ async function populateFoundImports() {
   if (!wrap) return;
   let body = null;
   try {
-    const res = await fetch('/api/scan-agents', { cache: 'no-store' });
+    // #1652 PR2: the ON-DEMAND import scan (/api/scan-import), NOT the auto /api/scan-agents.
+    // It scans the TCC folders (Downloads/Desktop/Documents) a person keeps downloaded/shared
+    // agent files in; fetched only here, when the user chose to import, so a TCC prompt is
+    // expected and contextual (the auto first-run scan stays TCC-free, #2125).
+    const res = await fetch('/api/scan-import', { cache: 'no-store' });
     if (!res.ok) { wrap.hidden = true; wrap.innerHTML = ''; return; }
     body = await res.json().catch(() => null);
   } catch { wrap.hidden = true; wrap.innerHTML = ''; return; }

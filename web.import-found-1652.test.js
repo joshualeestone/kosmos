@@ -68,10 +68,11 @@ test('#1652 PR2: an HTML-hostile field is escaped, not injected', () => {
 });
 
 test('#1652 PR2: populate reads the scan importable list, and import posts the by-path route', () => {
-  // populateFoundImports fetches the SAME disk scan the board poll uses and reads its
-  // importable array (not candidates), and only shows the block when there is at least one.
+  // populateFoundImports fetches the ON-DEMAND import scan (/api/scan-import), NOT the auto
+  // /api/scan-agents (which is TCC-free per #2125), and reads its importable array.
   assert.match(SCRIPT, /function populateFoundImports\(/);
-  assert.match(SCRIPT, /fetch\('\/api\/scan-agents'/, 'the found list does not read the disk scan');
+  assert.match(SCRIPT, /fetch\('\/api\/scan-import'/, 'the found list does not read the on-demand import scan');
+  assert.doesNotMatch(SCRIPT.slice(SCRIPT.indexOf('function populateFoundImports'), SCRIPT.indexOf('function populateFoundImports') + 900), /fetch\('\/api\/scan-agents'/, 'the found list still reads the AUTO scan (which excludes the TCC folders)');
   assert.match(SCRIPT, /body\.importable/, 'the found list reads the wrong field (not importable)');
   // importFoundFile posts the by-path route (the server validates the path against the scan).
   assert.match(SCRIPT, /function importFoundFile\(/);

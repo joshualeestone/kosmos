@@ -118,6 +118,20 @@ const subscription = require('./engine/subscription');
 let scanCache = { at: 0, result: null };
 const SCAN_CACHE_MS = 30000;
 function scanCacheInvalidate() { scanCache = { at: 0, result: null }; }
+/* #1652 PR2: the ON-DEMAND import scan is a DIFFERENT population from the auto scan --
+   discover.scan({importScan:true}) re-adds the TCC-protected home folders
+   (~/Documents deep, ~/Downloads/~/Desktop shallow, #2125/#2148) that the auto scan
+   deliberately never walks. It therefore needs its OWN cache: reusing scanCache would
+   either leak the TCC roots into the auto poll or hide them from the import flow. Fresh
+   within SCAN_CACHE_MS; a scan that throws yields null so callers refuse rather than read. */
+let importScanCache = { at: 0, result: null };
+function getImportScan() {
+  const now = Date.now();
+  if (importScanCache.result && now - importScanCache.at < SCAN_CACHE_MS) return importScanCache.result;
+  let out = null;
+  try { out = discover.scan({ importScan: true }); importScanCache = { at: now, result: out }; } catch { out = null; }
+  return out;
+}
 const connect = require('./engine/connect');
 const machine = require('./engine/machine');
 const updates = require('./engine/update');
@@ -5684,6 +5698,25 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #1652 PR2: the ON-DEMAND import scan. Distinct from /api/scan-agents (the auto
+     first-run poll, TCC-free per #2125): this one calls discover.scan({importScan:true}),
+     which re-adds the TCC-protected home folders (~/Documents, ~/Downloads, ~/Desktop) so
+     a person's downloaded/shared agent files are found. It is fetched by the create import
+     panel's found-list ONLY when the user chooses to import -- a TCC prompt there is
+     expected and contextual, which is the whole reason this is separate from the auto scan.
+     Returns the same {candidates, importable, bounded, dismissed} shape; the import UI reads
+     `importable`. Read-only GET, so no cross-site write guard applies. */
+  if (pathname === '/api/scan-import' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const out = getImportScan();
+    if (!out) {
+      sendJson(res, 200, { ok: false, importable: [], candidates: [],
+        because: 'we could not scan this computer for agent files' });
+      return;
+    }
+    sendJson(res, 200, { ...out, dismissed: discover.dismissed() });
+    return;
+  }
+
   /* #1652 PR2: import a DISCOVERED file. The scan (discover.scan().importable) finds
      loose agent files a person downloaded or was sent; this route reads ONE of them by
      path and returns the same parsed shape as /api/agent-import, so the create form
@@ -5718,16 +5751,12 @@ const server = http.createServer((req, res) => {
         const file = body && typeof body.file === 'string' ? body.file : '';
         if (!file) { sendJson(res, 200, { ok: false, because: 'no file was named to import' }); return; }
 
-        /* Membership check against the scan. Reuse the same cache the /api/scan-agents
-           poll fills (fresh within SCAN_CACHE_MS), else scan once now. A scan that
-           cannot run leaves `known` false, so the route refuses rather than reading. */
-        let scan = null;
-        const now = Date.now();
-        if (scanCache.result && now - scanCache.at < SCAN_CACHE_MS) {
-          scan = scanCache.result;
-        } else {
-          try { scan = discover.scan(); scanCache = { at: now, result: scan }; } catch { scan = null; }
-        }
+        /* Membership check against the ON-DEMAND import scan (importScan:true — the same
+           population GET /api/scan-import offered), NOT the auto scan: a discovered file
+           lives in a TCC folder the auto scan never walks, so it would never be a member
+           there. A scan that cannot run leaves `known` false, so the route refuses rather
+           than reading. */
+        const scan = getImportScan();
         const known = !!(scan && Array.isArray(scan.importable) && scan.importable.some((c) => c && c.file === file));
         if (!known) {
           sendJson(res, 200, { ok: false, because: 'that file is not one we found on this computer to import' });
