@@ -1434,6 +1434,25 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 @media (prefers-reduced-motion: reduce) {
   .acard.working .astate.st-working { animation: none; background: rgba(47,125,90,.14); }
 }
+/* #2019: the restarting pill. SOLID border (never the dashed unknown -- this is
+   not a slot waiting to be filled, per the boardEmpty rule), calm neutral tone so
+   the animated K carries the signal rather than a loud colour. The card keeps its
+   white ground; only the pill and the K move. */
+.astate.st-restarting { border-color: rgba(20,22,26,.30); }
+.kspin { display: inline-flex; align-items: center; }
+/* The Kosmos mark breathes -- a slow opacity + scale pulse matching the 2.4s calm
+   of `breathe`, NOT a fast loader spin. "Working on it", not "hurry". */
+.kspin img { display: block; animation: kbreathe 2.4s ease-in-out infinite; }
+@keyframes kbreathe {
+  0%, 100% { opacity: .55; transform: scale(.9); }
+  50%      { opacity: 1;   transform: scale(1); }
+}
+/* Reduced motion holds the K STATIC AND FULLY VISIBLE (per the spec's contract):
+   a dimmed or shrunk still frame would read as frozen, which is the opposite of
+   the reassurance the state carries. The copy beside it carries the state. */
+@media (prefers-reduced-motion: reduce) {
+  .kspin img { animation: none; opacity: 1; transform: none; }
+}
 /* The heat wash is a GROUND, not a border: borders already mean "needs you". */
 .acard.hot { background: linear-gradient(180deg, rgba(179,38,30,.16) 0%, rgba(179,38,30,0) 42%), var(--k-surface); }
 /* Surface and ink flip TOGETHER, both on k-tokens (the dark-tokens set):
@@ -5170,6 +5189,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   :root:not([data-theme="light"]) .astate.st-working { border-color: rgba(121,197,157,.62); }
   :root:not([data-theme="light"]) .astate.st-paused, :root:not([data-theme="light"]) .astate.st-stopped { border-color: rgba(245,245,244,.32); }
   :root:not([data-theme="light"]) .astate.st-idle { border-color: rgba(245,245,244,.32); }
+  /* #2019: same calm neutral border as idle in dark, solid. */
+  :root:not([data-theme="light"]) .astate.st-restarting { border-color: rgba(245,245,244,.32); }
   :root:not([data-theme="light"]) .astate.st-unknown { border-color: rgba(245,245,244,.40); }
   :root:not([data-theme="light"]) .lrow:hover { border-color: rgba(245,245,244,.30); }
   :root:not([data-theme="light"]) .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
@@ -5887,6 +5908,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .astate.st-working { border-color: rgba(121,197,157,.62); }
 :root[data-theme="dark"] .astate.st-paused, :root[data-theme="dark"] .astate.st-stopped { border-color: rgba(245,245,244,.32); }
 :root[data-theme="dark"] .astate.st-idle { border-color: rgba(245,245,244,.32); }
+:root[data-theme="dark"] .astate.st-restarting { border-color: rgba(245,245,244,.32); }
 :root[data-theme="dark"] .astate.st-unknown { border-color: rgba(245,245,244,.40); }
 :root[data-theme="dark"] .lrow:hover { border-color: rgba(245,245,244,.30); }
 :root[data-theme="dark"] .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
@@ -10551,6 +10573,11 @@ const STATE_COPY = {
      something that is not you. No pane shape produces it. */
   blocked:      { label: 'Waiting',       attn: true  },
   idle:         { label: 'Idle',          attn: false },
+  /* #2019: the base/fallback label. The LIVE label is cause-dependent and is
+     computed in stateCopyOf() from a.disruption.cause; this entry is the
+     'restart' / unknown-cause fallback and keeps a static lookup honest. Not an
+     attention state: a disruption we started on purpose is calm, not a problem. */
+  restarting:   { label: 'Restarting agent', attn: false },
   stopped:      { label: 'Not running',   attn: true  },
   unknown:      { label: "Can't tell",    attn: true  },
 };
@@ -10584,6 +10611,15 @@ const CARD_ST = {
      reserved for "somebody is waiting on YOU". */
   blocked:      { st: 'paused',  pres: 'on' },
   idle:         { st: 'idle',    pres: 'on' },
+  /* #2019 (Mona Lisa's design): a disruption WE started (restart / model /
+     provider / instructions / account) takes the agent out of tmux for a
+     moment. pres: 'on' -- the process is coming back, and rendering the tmux
+     gap as "gone" is the exact lie boardEmpty() refuses. Its own st class, a
+     SOLID border (not the dashed unknown), and the animated Kosmos K glyph.
+     The engine (Renet, #2019 engine half) emits state 'restarting' with
+     a.disruption = { cause, startedAt }; the state ENDS both ways engine-side
+     (alive -> live state, or failed -> stopped after a window). */
+  restarting:   { st: 'restarting', pres: 'on' },
   stopped:      { st: 'stopped', pres: 'off' },
   unknown:      { st: 'unknown', pres: 'unsure' },
 };
@@ -10594,6 +10630,12 @@ const GLYPH = {
   paused:  '<span class="pause" aria-hidden="true"><i></i><i></i></span>',
   stopped: '<span class="stop" aria-hidden="true"></span>',
   unknown: '<span class="qmark" aria-hidden="true">?</span><span class="vh">could not check: </span>',
+  /* #2019: the one moment the product's own mark earns its place. It breathes
+     (a calm 2.4s pulse, NOT a fast loader spin), because the K pulsing says
+     "this is Kosmos doing something", which is the reassurance the state
+     carries. aria-hidden because the label beside it already says the state;
+     reduced-motion holds it static (guarded in CSS, per the existing contract). */
+  restarting: '<span class="kspin" aria-hidden="true"><img src="/icons/kosmos-32.png" alt="" width="16" height="16"></span>',
 };
 const PRESSAY = {
   on: 'Online', off: 'Not running',
@@ -10603,6 +10645,24 @@ const PRESSAY = {
 /* One derivation each, shared by BOTH renderers (card and row), so the two
    views cannot drift apart on what they say about the same agent. */
 function cardStOf(a) { return CARD_ST[a.state] || CARD_ST.unknown; }
+/* #2019: the state's word. For every state but 'restarting' it is the static
+   STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
+   no blame), so the person knows WHY their agent went quiet, and it is computed
+   here so the card, the row and the detail page cannot drift on it -- the same
+   shared-derivation rule as cardStOf and taskLine. An unknown or absent cause
+   falls back to "Restarting agent", never to "gone". */
+function restartingLabel(a) {
+  const cause = a && a.disruption && a.disruption.cause;
+  if (cause === 'model')        return a.modelName ? 'Switching to ' + a.modelName : 'Switching model';
+  if (cause === 'provider')     return 'Switching provider';
+  if (cause === 'instructions') return 'Restarting to apply your changes';
+  if (cause === 'account')      return 'Switching account';
+  return 'Restarting agent';
+}
+function stateCopyOf(a) {
+  if (a && a.state === 'restarting') return { label: restartingLabel(a), attn: false };
+  return STATE_COPY[a.state] || STATE_COPY.unknown;
+}
 function taskLine(a, opts) {
   /**
    * 🛑 IT SAYS WHAT WAS SEEN, NOT WHAT IS TRUE OF THE ACCOUNT (kosmos#199,
@@ -10701,6 +10761,11 @@ function taskLine(a, opts) {
  * #209: there is no title on screen to strip.
  */
 function stateReason(a, opts) {
+  /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
+     "This is not the same as having none": it pre-empts the fear the state exists
+     to answer. Placed FIRST so it is not swallowed by the rate_limited guard
+     below, which returns '' for every other state. */
+  if (a && a.state === 'restarting') return 'This takes a few seconds. Nothing was lost.';
   /* 🛑 THE CARD AND THE ROW ASK FOR THIS WITHOUT THE QUOTE (#986). Josh, twice:
      the quoted last-words line is "just kind of pointless" on the grid and list,
      and it was STILL THERE after that card closed. The close removed
@@ -11226,6 +11291,10 @@ function boardMods(a, m) {
     m.st === 'attn' ? 'attn' : '',
     m.st === 'stopped' ? 'off' : '',
     m.st === 'unknown' ? 'unk' : '',
+    /* #2019: the card keeps its normal white ground while restarting (this is
+       not working and not an issue), but carries the class so the solid border
+       and the calm K treatment attach. Derived from the pill, never hand-typed. */
+    m.st === 'restarting' ? 'restarting' : '',
     /* 🛑 `hot` IS RETIRED, and its reasoning is kept because it was sound when
        written: it washed a card red at 80% memory, on the rule that a border
        means "needs you" and a ground means "getting full" — two treatments so
@@ -11498,7 +11567,7 @@ function card(a) {
      no pack equivalent), and the unknown note -- the pack's own comment
      requires the reason to ride with any card that shows an unknown. */
   const m = cardStOf(a);
-  const copy = STATE_COPY[a.state] || STATE_COPY.unknown;
+  const copy = stateCopyOf(a);
   const pct = pctOf(a.context);
   const answer = answerBtn(a);
 
@@ -11641,7 +11710,7 @@ function lrow(a) {
     </div>`;
   }
   const m = cardStOf(a);
-  const copy = STATE_COPY[a.state] || STATE_COPY.unknown;
+  const copy = stateCopyOf(a);
   const pct = pctOf(a.context);
   const band = memBand(pct);
   const av = a.hasAvatar
@@ -18727,7 +18796,7 @@ function openDetail(sessionName, section) {
     if (p) metaParts.push(esc(p));
   }
   document.getElementById('d-meta').innerHTML = metaParts.join(' · ');
-  const copy = STATE_COPY[a.state] || STATE_COPY.unknown;
+  const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
      class, `GLYPH` the mark, `STATE_COPY` the word. A card and its detail page
      disagreeing about an agent's state is worse than either being wrong. */
