@@ -32,8 +32,23 @@ Two prior guards contradicted Josh's live reversal and were updated (not weakene
   `YOU_TZ_FALLBACK` into the lifted painter so the real `frPaintYou` runs under the drive.
 
 ## Key decisions
-- tz save is awaited + blocking on Continue (a tz-server failure blocks advancing), consistent with
-  the name/does PUT. Rejected fire-and-forget (would drop a save error silently).
+- tz save is awaited but BEST-EFFORT on Continue: we await the POST so it lands in the normal case,
+  then advance regardless of its outcome. Rejected "blocking" (my first pass): two independent blind
+  reviews flagged that gating the whole first-run step on a tz-save failure is a wart, because the tz
+  value is the machine default the person need not have touched, and stranding them over it (with a
+  message about a field they did not interact with) is worse than advancing with the default
+  uncaptured. The name/does record they actually entered still blocks on its own failure, and the tz
+  picker also lives in Settings for correction. Also rejected fire-and-forget-without-await (would not
+  give the save a chance to complete before advancing). Weakest premise: a tz-only failure (name/does
+  succeed, tz fails) is rare because both hit the same local server microseconds apart and the
+  defaulted value can never 400 (validTimeZone round-trips the same Intl), so best-effort almost never
+  actually drops the zone; if that assumption is wrong and tz saves fail often, a user could finish
+  first-run without a saved zone and not know it (recoverable in Settings).
+- The tz value is always persisted on a successful Continue (machine default included). This changes
+  the prior "timezone is null until the operator sets one" contract and makes the Settings tz screen's
+  first-visit "Save to confirm" hint not appear after first-run. Deliberate and correct: capturing the
+  operator's zone so agents know local time is the whole point of restoring the picker here, and the
+  hint is unnecessary once the zone is saved. Conscious accept, not a silent change.
 - Restoring the tz picker reverses #1345's "exactly two fields" -- deliberate, on Josh's live
   instruction, recorded on both tests.
 - Also capped the restored tz select width for a consistent, non-full-width look (Josh only named the

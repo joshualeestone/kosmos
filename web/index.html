@@ -33837,28 +33837,25 @@ async function frPaintYou() {
         gate();
         return;
       }
-      /* #1994: the time zone lives in a separate store (/api/settings), so save
-         it here before advancing. Awaited and blocking, the same as the record
-         above: a person who set a zone should not step past it silently on a
-         failure. It always carries a value (the machine zone), so this never
-         stops a person who did not touch it. */
+      /* #1994: the time zone lives in a separate store (/api/settings). Save it
+         here, BEST-EFFORT: the zone always carries the machine default, which the
+         person need not have touched, so a save failure must not strand them on
+         this step over it. The name/does record they actually entered is already
+         saved above (and blocks on ITS failure), and the tz picker also lives in
+         Settings for correction. We await the POST so it lands in the normal case,
+         then advance regardless of its outcome. (Two blind reviews flagged a
+         blocking tz-save gating the whole step as a wart; this is the fix.) */
       if (tzEl && tzEl.value) {
-        const tzRes = await fetch('/api/settings', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ timezone: tzEl.value }),
-        });
-        // Parse the body BEFORE the generation guard, exactly as the /api/you
-        // branch above does: no await may sit between the guard and the shared-DOM
-        // write below, or a re-entry during the parse could let this stale closure
-        // toggle a newer paint's #fr-next via gate().
-        const tj = await tzRes.json().catch(() => ({}));
+        try {
+          await fetch('/api/settings', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ timezone: tzEl.value }),
+          });
+        } catch { /* best-effort: a tz-save failure does not block advancing */ }
+        // The awaits above are followed by the generation guard before advancing,
+        // so a re-entry during the save cannot advance a pane that now belongs to
+        // a newer paint.
         if (entry !== FR_YOU_GEN) return;
-        if (!tzRes.ok) {
-          saving = false;
-          document.getElementById('fr-you-msg').textContent = (tj && (tj.because || tj.error)) || 'we could not save your time zone';
-          gate();
-          return;
-        }
       }
       frGo(FR_STEP_YOU + 1);
     } catch {
