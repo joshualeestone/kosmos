@@ -658,8 +658,13 @@ const SCAN = Object.freeze({
      like MAX_CANDIDATES. */
   MAX_IMPORTABLE: 60,
   /* Loose `.md` files we will READ the head of per folder. A folder with a wall of
-     markdown (a docs tree) cannot make the scan open all of them; the first
-     MAX_MD_PER_DIR are enough to reach an agent file a person dropped in. */
+     markdown (a docs tree) cannot make the scan open all of them. This is a
+     read-budget wall, NOT a "the agent file is in here somewhere" guarantee: the cap
+     is applied over `readdirSync` order, which is arbitrary and OS-dependent, so a
+     folder with more than MAX_MD_PER_DIR `.md` files could sort a real agent file
+     past the cap. When that happens `bounded.importable` is set, so the screen says
+     "there may be more" rather than silently dropping it. A person's imported agent
+     file normally sits in a folder with a handful of files, well under the cap. */
   MAX_MD_PER_DIR: 40,
   /* Total loose `.md` head-reads across the whole walk. The connect scan is bounded
      by directory visits (MAX_DIRS); importable collection reads FILES, so it needs
@@ -776,10 +781,11 @@ function scan(opts) {
      env override) has declared where to look on purpose and is exempt, exactly as
      a CONFIG_ROOT override is. */
   if (!explicit && status.sandboxIsInconsistent()) {
-    /* Same `bounded` shape as the normal return, so a consumer never has to tell an
-       empty object from a fully-shaped one: nothing was walked, so every flag is
-       false and the visit count is zero. */
-    return { ok: true, candidates: [], bounded: { depth: false, dirs: false, count: false, visited: 0 }, because: null };
+    /* Same shape as the normal return, so a consumer never has to tell an empty
+       object from a fully-shaped one: nothing was walked, so both lists are empty,
+       every bounded flag (including #1652's `importable`) is false, and the visit
+       count is zero. */
+    return { ok: true, candidates: [], importable: [], bounded: { depth: false, dirs: false, count: false, visited: 0, importable: false }, because: null };
   }
   const roots = explicit || defaultScanRoots();
   const maxDirs = Number.isFinite(o.maxDirs) && o.maxDirs > 0 ? o.maxDirs : SCAN.MAX_DIRS;

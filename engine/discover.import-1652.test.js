@@ -106,6 +106,24 @@ test('#1652: importable is bounded by MAX_IMPORTABLE, and the bound is reported'
   assert.equal(r.bounded.importable, true, 'the importable cap was hit but not reported in bounded');
 });
 
+test('#1652: the sandbox-refusal return carries the importable shape too (no undefined for a consumer)', () => {
+  // A bare scan() with no explicit roots and no SCAN_ROOTS env refuses (the sandbox
+  // guard), and its return must be the SAME shape as a real walk -- including the
+  // #1652 additions -- so PR2's UI can iterate `importable` without a shape check.
+  const had = process.env.AGENT_WORKFORCE_SCAN_ROOTS;
+  delete process.env.AGENT_WORKFORCE_SCAN_ROOTS;
+  try {
+    const r = discover.scan();
+    assert.deepEqual(r.candidates, [], 'the refusal walked something');
+    assert.ok(Array.isArray(r.importable), 'importable is missing on the refusal path (consumer would get undefined)');
+    assert.deepEqual(r.importable, [], 'importable should be empty on refusal');
+    assert.equal(r.bounded.importable, false, 'bounded.importable is missing/true on the refusal path');
+  } finally {
+    if (had !== undefined) process.env.AGENT_WORKFORCE_SCAN_ROOTS = had;
+    else delete process.env.AGENT_WORKFORCE_SCAN_ROOTS;
+  }
+});
+
 test('#1652: the connect candidates array still works and is not polluted by loose files', () => {
   // A clean root with one CLAUDE.md folder and one loose file.
   const root = path.join(SB, 'mixed');
