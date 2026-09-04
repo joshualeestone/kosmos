@@ -33,7 +33,12 @@ const fleet = require('./test-support/fleet');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
 function sliceFn(name) {
-  const at = SCRIPT.indexOf('function ' + name + '(');
+  // Include a leading `async ` when the shipped function has one, so the slice
+  // exercises the SAME shape that ships. Anchoring on `function <name>(` alone
+  // drops `async`, and a future direct `await` in the body would then make the
+  // sliced non-async copy a SyntaxError instead of running the real function.
+  let at = SCRIPT.indexOf('async function ' + name + '(');
+  if (at < 0) at = SCRIPT.indexOf('function ' + name + '(');
   assert.ok(at > 0, name + ' not found -- Surface 2 not present (or moved; re-anchor)');
   return SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 2);
 }
