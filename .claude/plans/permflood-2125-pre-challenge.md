@@ -2,64 +2,62 @@
 pre_challenge: true
 method: challenge-loop
 branch: permflood-2125
-diff_hash: 1aece85d1cbf2254a60ad16a9c0f7978e3df8446bbec13fea3767a3e853caee9
+diff_hash: f01ff09ab458ffcca85203570f742dd3c4545b92398f51dced36cc91b43060cd
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-04T18:43:01Z
-iterations: 2
+timestamp: 2026-09-04T19:12:33Z
+iterations: 3
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 2
-**Converged:** Yes (iteration 2 surfaced zero new BLOCKERs/WARNINGs/CONVENTIONs)
-**Total findings:** 3 (0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 2 NITs)
-**Fixed:** 0 | **Deferred:** 1 | **Asked:** 0 | **Noted (NIT):** 2
+**Iterations:** 3 total across the branch (2 on the slice-1 scan code, 1 on the #1652 importScan reconcile)
+**Converged:** Yes (the reconcile pass surfaced zero new BLOCKERs/WARNINGs/CONVENTIONs; one NIT fixed)
+**Total findings:** 4 (0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 3 NITs)
+**Fixed:** 1 | **Deferred:** 1 | **Noted (NIT):** 2
 
-kosmos#2125 SLICE 1: stop the fresh-install auto disk scan (`discover.scan()`, via
-`/api/scan-agents` from the empty-state) from entering the TCC-protected home folders
-(~/Documents/~/Downloads/~/Desktop), which fired macOS permission prompts on a fresh macOS user
-(the Documents one BROKE the scan when denied). Baseline (6.0) initially refused because the box
-was reserved for release 0.6.29 (the staging cut #2129 triggered); re-run after the release finished
-passed clean.
+kosmos#2125 slice 1 (stop the fresh-install AUTO disk scan from entering TCC folders) PLUS the #1652
+reconcile (move the TCC-folder discovery onto an opt-in importScan path so Renet's loose-file import
+is not regressed). The branch is discover.js only (engine flag + tcc-roots test); the server route and
+import UI are Renet's (fix-1652-import-ui / #2147). All validation and the subdir audit passed on the
+final HEAD (hash f01ff09ab458).
 
 ### Per-Iteration Breakdown
 
-#### Iteration 1
-**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 0 NITs (+ 4 STRENGTHs)
-- [WARNING] engine/discover.js SCAN_SKIP — adding `Documents` to SCAN_SKIP matches by folder NAME at every depth, so a nested folder literally named `Documents` (e.g. `~/work/clientX/Documents/<agent>`) is skipped too, not only the top-level `~/Documents` TCC protects --> DEFERRED (9dfd238c documents it): deliberately CONSISTENT with the pre-existing global-name skipping of Downloads/Desktop/Music/Movies/Pictures/Public (each already over-reaches a same-named nested folder); making Documents top-level-only would be inconsistent and add a path-based special case. Noted for the follow-up rescan slice.
+#### Iteration 1 (slice-1 scan code)
+0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 0 NITs (+ 4 STRENGTHs)
+- [WARNING] discover.js SCAN_SKIP is global-by-name, so a nested folder named Documents is skipped too, not only top-level ~/Documents --> DEFERRED (documented): consistent with the pre-existing Downloads/Desktop/Music/etc. global-name skipping; making Documents top-level-only would be inconsistent.
 
-#### Iteration 2
-**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs (+ 5 STRENGTHs)
-**Converged** — no new actionable findings.
-- [NIT] engine/discover.js — SCAN_SKIP matches 'Documents' case-sensitively; consistent with every existing entry and macOS TCC folders carry canonical casing, so not a regression. NOTED.
-- [NIT] discover.tcc-roots-2125.test.js — the walk tests exercise a nested `Documents/` (the global-by-name behavior); the top-level `~/Documents` exclusion is covered by the `defaultScanRoots()` test instead. The skip mechanism applies identically at every depth, so coverage is adequate. NOTED.
+#### Iteration 2 (slice-1 scan code)
+0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs (+ 5 STRENGTHs). CONVERGED for slice 1.
+- [NIT] SCAN_SKIP matches Documents case-sensitively (consistent with every entry; TCC folders are canonical-cased). NOTED.
+- [NIT] the walk tests exercise a nested Documents (global-by-name); top-level exclusion is covered by the defaultScanRoots test. NOTED.
+
+#### Iteration 3 (the #1652 importScan reconcile, first review of the new flag)
+0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT (+ 6 STRENGTHs). CONVERGED.
+- [NIT] plan Tests section said "3 arms" but the file now has 5 (the two importScan arms were unlisted) --> FIXED: updated the plan to describe all 5.
 
 ### Final Ledger
 
 | # | Iter | Category | Location | Description | Status | Resolution |
 |---|------|----------|----------|-------------|--------|------------|
-| 1 | 1 | WARNING | discover.js SCAN_SKIP | global-name skip over-reaches nested "Documents" | DEFERRED | consistent w/ sibling home-dir names; documented (9dfd238c); follow-up rescan slice |
-| 2 | 2 | NIT | discover.js SCAN_SKIP | case-sensitive match | NOTED | consistent w/ all entries; TCC folders are canonical-cased |
+| 1 | 1 | WARNING | discover.js SCAN_SKIP | global-name skip over-reaches nested "Documents" | DEFERRED | consistent w/ sibling home-dir names; documented |
+| 2 | 2 | NIT | discover.js SCAN_SKIP | case-sensitive match | NOTED | consistent w/ all entries; TCC folders canonical-cased |
 | 3 | 2 | NIT | tcc-roots test | no top-level-Documents integration arm | NOTED | mechanism identical at every depth; defaultScanRoots test covers top-level |
+| 4 | 3 | NIT | plan Tests section | stale "3 arms" count | FIXED | updated to 5 arms with importScan description |
 
-### Deferred / follow-up (documented in the plan, surfaced here)
-- The SCAN_SKIP global-by-name skip (finding 1) - the follow-up user-triggered rescan slice should
-  know the skip is not $HOME-scoped.
-- Symptom 2 of #2125 (the "bash can run in the background" notice burst) - needs an app-identity
-  launch re-architecture; its own design + card, flagged to Splinter.
-- Symptom 3 (the a11y Continue-gate) - separate slice.
+### Strengths (across all iterations)
+- The importScan flag threads correctly: scan({importScan:true}) with no roots/env falls to defaultScanRoots(o) which reads opts.importScan; bare scan() (the /api/scan-agents auto path) never sets it, so it stays TCC-free. Verified end to end.
+- SCAN_SKIP filters only descended CHILDREN, never self-skips a root, so importScan reaches ~/Documents (added as an explicit root) while the auto $HOME walk stays out of it; it does not poison seenDirs.
+- Auto path genuinely TCC-free (Documents removed from SCAN_DEEP_NAMES and added to SCAN_SKIP; importScan roots gated behind if(importScan) so they cannot leak into the auto path).
+- Depth/importOnly semantics correct (Documents deep+non-importOnly, Downloads/Desktop DROP_DEPTH+importOnly); the importOnly plumbing engages.
+- Tests pin behavior non-vacuously with controls that fail in the dangerous direction; the test4 (root is added) + test5 (such a root is walked) decomposition soundly proves importScan reaches Documents given defaultScanRoots cannot be pointed at a fixture home.
+- Sandbox guard unchanged and correct for both modes; defaultScanRoots(undefined) backward-compatible.
+- No em dashes in added engine/test lines. The discover.js-only seam is respected (no server.js change; that is Renet's).
 
-### Strengths (across both iterations)
-- TCC exposure closed on every auto-scan path and closed EARLY: SCAN_SKIP fires before any lstat of
-  the child, so ~/Documents/~/Downloads/~/Desktop are never even stat'd during the $HOME walk. All
-  three reach-paths eliminated (deep root, $HOME descent child, importOnly root).
-- Both required changes present and load-bearing (Documents needed removal from SCAN_DEEP_NAMES AND
-  addition to SCAN_SKIP; Downloads/Desktop only needed their importOnly roots dropped).
-- No collateral breakage: DROP_DEPTH/importOnly plumbing dormant-not-dead (still exercised by the
-  #1652 import test via explicit roots); normal discovery (work/projects/dev/src/code/repos) intact.
-- Tests non-vacuous with controls that fail in the dangerous direction; defaultScanRoots() export is
-  minimal and touches no filesystem; fully sandboxed.
-- Plan/comments accurate (root-cause correction from appLocationCheck to discover.scan()); no em
-  dashes in added lines.
+### Deferred / follow-up
+- The SCAN_SKIP global-by-name skip (finding 1), noted for the follow-up.
+- #2125 Symptom 2 (bash-notice burst): deferred by Splinter, needs an app-identity launch re-architecture (design per #2133). The com.kosmos.open-once self-teardown gap is carded as #2151.
+- #2125 Symptom 3 (a11y Continue-gate): blocked on a Josh ruling (09-01 offer-not-require vs 09-04 gate-it); Splinter is routing it.
+- This branch alone leaves ~/Documents agents unreachable until Renet's import route ships; by design, per the agreed seam. #2125 stays open until all slices land and Josh verifies on a fresh account.
