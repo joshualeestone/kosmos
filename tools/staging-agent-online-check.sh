@@ -265,7 +265,7 @@ create_and_wait() {
   # shows a transient idle/working for one poll BEFORE the trust prompt registers as needs_you.
   # A genuinely online agent stays online across a poll interval; a transient-idle-then-wedge
   # shows needs_you on the next poll and is caught. Any non-online read resets the streak.
-  local waited=0 st because seen=0 online_streak=0
+  local waited=0 st because seen=0 online_streak=0 ever_online=0
   while [ "$waited" -lt "$POLL_SECS" ]; do
     local snap; api_get /api/status; snap="$RESP_BODY"
     # find this session's card; print "state\tbecause"
@@ -283,7 +283,7 @@ create_and_wait() {
     [ -n "$st" ] && seen=1   # we found this session's card at least once
     case "$st" in
       idle|working)
-        online_streak=$((online_streak + 1))
+        online_streak=$((online_streak + 1)); ever_online=1
         if [ "$online_streak" -ge 2 ]; then
           say "  [$prov] ONLINE (state=$st, confirmed on 2 consecutive polls) - the #2129 class is not present."; return 0
         fi
@@ -324,8 +324,16 @@ create_and_wait() {
     say "       sessionName + a top-level state. Cannot tell - verify the shape on the running board."
     return 2
   fi
-  # It DID appear but never reached idle/working (e.g. stuck 'stopped', or a needs_you that was
-  # not a trust wedge) - that is a real not-online, a do-not-promote.
+  # It appeared and reached idle/working at least once, but never on TWO consecutive polls
+  # within the window - a slow or flapping come-online, NOT a proven bad build. Treat it as
+  # cannot-tell (HOLD, forceable): a genuinely-good-but-slow build must not get a refusal that
+  # --force cannot clear. (A longer KOSMOS_AGENT_ONLINE_TIMEOUT gives it more room.)
+  if [ "$ever_online" = 1 ]; then
+    say "  [$prov] reached ${st:-online} but never on 2 consecutive polls within ${POLL_SECS}s (slow/flapping) - cannot tell (HOLD)."
+    return 2
+  fi
+  # It appeared but NEVER reached idle/working (stuck 'stopped', or a persistent non-trust
+  # needs_you) - that is a real not-online, a do-not-promote.
   say "  [$prov] did NOT come online within ${POLL_SECS}s (last state='${st:-<none>}')"; return 1
 }
 

@@ -59,6 +59,16 @@ card() {  # <name> -> a status card JSON for the scenario state
       *)        st=idle ;;
     esac
   fi
+  # Transition modes driven by POLLNUM (the Nth poll after create; the pre-create fleet-count
+  # call does not count). These are the RED-CAPABLE tests for the two-consecutive-online guard:
+  #  flip-wedge = idle on poll 1 then a trust wedge -> under a 1-poll guard the agent would be
+  #    declared online (a #2129 build ships); the 2-consecutive guard catches it (exit 1 WEDGED).
+  #  idle-once  = idle on poll 1 then stopped -> reached online once but never 2-in-a-row ->
+  #    slow/flapping -> cannot-tell (exit 2), not a hard refuse.
+  case "$st" in
+    flip-wedge) if [ "${POLLNUM:-1}" -le 1 ]; then st=idle; else st=trust-wedge; fi ;;
+    idle-once)  if [ "${POLLNUM:-1}" -le 1 ]; then st=idle; else st=stopped-forever; fi ;;
+  esac
   case "$st" in
     working)         state=working;     because="working";;
     trust-wedge)     state=needs_you;   because="it is asking whether to trust its folder, and the default answer exits";;
@@ -99,6 +109,13 @@ case "$route" in
     # status-garbage: a 200 with NO recognized agent list - the gate must FAIL CLOSED (exit 2),
     # never read it as "0 agents" and let the fleet guard pass.
     if [ "${MOCK_AGENT_STATE:-idle}" = status-garbage ]; then emit '{"unexpected":"shape"}' 200; exit 0; fi
+    # POLLNUM = the Nth /api/status poll AFTER at least one agent was created. The pre-create
+    # fleet-count call sees an empty STATE and does not advance it, so poll 1 is the first real
+    # poll (transition modes above rely on this).
+    POLLNUM=1
+    if [ -s "$STATE" ]; then
+      _pc="${STATE}.polls"; POLLNUM=$(cat "$_pc" 2>/dev/null || echo 0); POLLNUM=$((POLLNUM+1)); printf '%s' "$POLLNUM" > "$_pc"
+    fi
     pre="${MOCK_PREEXISTING:-0}"; parts=""; first=1; i=0
     while [ "$i" -lt "$pre" ]; do
       [ "$first" = 1 ] || parts="$parts,"; first=0
@@ -164,6 +181,12 @@ run_case "trust wedge (#2129) -> do-not-promote"        1 --expect "WEDGED at th
 run_case "trust wedge, MIXED CASE -> still caught (1)"   1 --expect "WEDGED at the trust prompt" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=trust-wedge-caps
 run_case "auth_failed -> do-not-promote"                1  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=auth
 run_case "never online within window -> do-not-promote" 1  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=stopped-forever
+# idle on poll 1 then a trust wedge: a 1-poll guard would declare it ONLINE (a #2129 build
+# ships); the 2-consecutive guard catches it. Asserting exit 1 + WEDGED fails under a 1-poll guard.
+run_case "transient idle then WEDGE -> caught by 2-consecutive (1)" 1 --expect "WEDGED at the trust prompt" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=flip-wedge
+# idle on poll 1 then stopped: reached online once but never 2-in-a-row -> slow/flapping ->
+# cannot-tell (2, forceable), not a hard refuse. Fails under the old always-exit-1 timeout.
+run_case "slow/flapping online (idle once) -> cannot-tell (2)" 2  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle-once
 run_case "create refused (400, sign-in) -> do-not-promote" 1 MOCK_ACCOUNTS=both MOCK_CREATE=refuse400
 run_case "unexpected create-400 (not sign-in) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_CREATE=refuse400-other
 run_case "agent never appears (shape mismatch) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=noshow
