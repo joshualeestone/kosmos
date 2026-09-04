@@ -29,8 +29,17 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const DIR = path.join(store.ROOT, 'win32-sessions');
-const FILE = path.join(DIR, 'record.json');
+/* #1443: DERIVED LIVE, not frozen at require. store.ROOT is a getter so a later
+   AGENT_WORKFORCE_DATA/AGENT_WORKFORCE_HOME change is honoured; baking DIR/FILE
+   into module-level consts at first load would re-lie the sandbox seam, and this
+   is the safety-critical ownership record, so it matches the live style
+   (chat.js/connect.js) rather than the frozen-const majority. */
+function dir() { return path.join(store.ROOT, 'win32-sessions'); }
+function file() { return path.join(dir(), 'record.json'); }
+/* 0o600 is a POSIX bit and models the Mac path; on native Windows it maps to
+   NTFS ACLs, so the real protection here is that the per-user AppData\Roaming
+   tree is private by default, not the mode bit. Kept for the Mac path and as a
+   floor, same "single local user" trust model as the rest of the store. */
 const FILE_MODE = 0o600;
 
 /* A session id is a UUID from `claude agents --json`. The charset gate keeps a
@@ -43,7 +52,7 @@ function validId(id) {
 /** The whole record, sessionId -> { name, runner, at }. Empty on any read fault. */
 function read() {
   let raw;
-  try { raw = fs.readFileSync(FILE, 'utf8'); }
+  try { raw = fs.readFileSync(file(), 'utf8'); }
   catch { return {}; }
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return {}; }
@@ -69,10 +78,10 @@ function record(sessionId, meta) {
   let current = read();
   current[sessionId] = { name, runner, at: new Date().toISOString() };
   try {
-    fs.mkdirSync(DIR, { recursive: true });
-    const tmp = FILE + '.' + process.pid + '.tmp';
+    fs.mkdirSync(dir(), { recursive: true });
+    const tmp = file() + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(current) + '\n', { mode: FILE_MODE });
-    fs.renameSync(tmp, FILE);
+    fs.renameSync(tmp, file());
   } catch (e) {
     return { ok: false, because: 'we could not write the ownership record (' + (e && e.code || 'unknown') + ')' };
   }
@@ -91,10 +100,10 @@ function forget(sessionId) {
   if (!(sessionId in current)) return { ok: true };
   delete current[sessionId];
   try {
-    fs.mkdirSync(DIR, { recursive: true });
-    const tmp = FILE + '.' + process.pid + '.tmp';
+    fs.mkdirSync(dir(), { recursive: true });
+    const tmp = file() + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(current) + '\n', { mode: FILE_MODE });
-    fs.renameSync(tmp, FILE);
+    fs.renameSync(tmp, file());
   } catch (e) {
     return { ok: false, because: 'we could not update the ownership record (' + (e && e.code || 'unknown') + ')' };
   }
@@ -108,4 +117,4 @@ function isOurs(sessionId) {
   return Object.prototype.hasOwnProperty.call(rec, sessionId);
 }
 
-module.exports = { DIR, FILE, read, record, forget, isOurs, validId };
+module.exports = { get DIR() { return dir(); }, get FILE() { return file(); }, read, record, forget, isOurs, validId };

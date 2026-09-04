@@ -57,7 +57,16 @@ function flat(v) {
 function defaultRun() {
   let out;
   try {
-    out = execFileSync('claude', ['agents', '--json'], { encoding: 'utf8', timeout: 15000 });
+    // Resolve `claude` through the codebase's ONE runner-resolution seam
+    // (engine/runners.resolveBin) so the AGENT_WORKFORCE_CLAUDE_BIN sandbox
+    // override is honoured, exactly like every other claude invocation
+    // (connect/create/machine/subscription) rather than a second bare `claude`.
+    const bin = require('./runners').resolveBin('claude').bin;
+    // ⚠️ maxBuffer RAISED to 16 MiB for the SAME reason machine.js:43-50 did:
+    // a busy machine with many concurrent sessions makes `claude agents --json`
+    // large (long cwd/name fields), and Node's 1 MiB default would make
+    // execFileSync throw -> null -> the whole roster blanks on a healthy box.
+    out = execFileSync(bin, ['agents', '--json'], { encoding: 'utf8', timeout: 15000, maxBuffer: 16 * 1024 * 1024 });
   } catch {
     return null;
   }

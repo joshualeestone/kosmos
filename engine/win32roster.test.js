@@ -38,10 +38,7 @@ function providerWith(agents, recordMap) {
 
 test('#570 fail-closed: a RECORDED live session is emitted and reads as OURS + an AGENT through real status.js', () => {
   const src = providerWith([OURS], { 'aaaa-1111': { name: 'raph-9a', runner: '' } });
-  const text = src();
-  const panes = status.parsePanes(text);
-  const rows = panes.panes || panes;               // parsePanes shape tolerance
-  const list = Array.isArray(rows) ? rows : (rows && rows.panes) || [];
+  const list = status.parsePanes(src());   // parsePanes returns the pane array directly
   assert.equal(list.length, 1, 'exactly the one recorded session is emitted');
   const p = list[0];
   assert.equal(p.command, 'claude.exe', 'command is claude.exe (agent, not process-arm-ours)');
@@ -53,10 +50,7 @@ test('#570 fail-closed: a RECORDED live session is emitted and reads as OURS + a
 test('#570 fail-closed: an UNRECORDED live session (the operator\'s own) is NEVER emitted', () => {
   // Both live; only OURS recorded. THEIRS must not appear at all.
   const src = providerWith([OURS, THEIRS], { 'aaaa-1111': { name: 'raph-9a', runner: '' } });
-  const text = src();
-  const panes = status.parsePanes(text);
-  const list = (panes.panes || panes || []);
-  const names = (Array.isArray(list) ? list : []).map((p) => p.session);
+  const names = status.parsePanes(src()).map((p) => p.session);
   assert.ok(names.includes('raph-9a'), 'the recorded session is present');
   assert.ok(!names.includes('agent1-d2'), 'the operator\'s own session is absent (fail-closed by construction)');
 });
@@ -66,9 +60,7 @@ test('#570 belt-and-suspenders: even a hand-built claude.exe pane with an EMPTY 
   // emitted (empty claim), the ownership process arm must not claim it. Built via
   // the sanctioned fleet.line() (from PANE_COLUMNS) rather than a hand-typed line.
   const text = fleet.line({ session: 'agent1-d2', command: 'claude.exe', claim: '', title: 'agent1-d2' }) + '\n';
-  const panes = status.parsePanes(text);
-  const list = (panes.panes || panes || []);
-  const p = (Array.isArray(list) ? list : [])[0];
+  const p = status.parsePanes(text)[0];
   assert.ok(p, 'the row parsed');
   assert.equal(p.claim, '', 'empty claim');
   assert.equal(status.isNamedOurs(p), false, 'claude.exe + empty claim is NOT ours (isNativeClaude is version-string only)');
