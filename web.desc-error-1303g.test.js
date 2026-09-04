@@ -130,27 +130,33 @@ test('both handlers check before sending, and route the engine refusal to the fi
  * scroll, a field already above the fold -- the button they just pressed said
  * NOTHING. That is this card's own silence, one layer along.
  */
-test('the button they pressed never goes silent, on any of the four refusal paths', () => {
+test('the button they pressed never goes silent, on any refusal path', () => {
+  /* Per handler, the count is one pointer per refusal path that focuses a field:
+     pjs-save has THREE (the description pre-check, the description engine-refusal,
+     and #1994's parent engine-refusal); pj-create has TWO (it has no parent
+     control). A new field-refusal path must add its own pointer here, or the
+     button it was pressed under says nothing when the scroll does not land. */
   const paths = [
-    ["getElementById('pjs-save').addEventListener", 'Nothing saved.'],
-    ["getElementById('pj-create').addEventListener", 'Nothing added.'],
+    ["getElementById('pjs-save').addEventListener", 'Nothing saved.', 3],
+    ["getElementById('pj-create').addEventListener", 'Nothing added.', 2],
   ];
-  for (const [anchor, expected] of paths) {
+  for (const [anchor, expected, count] of paths) {
     const at = PAGE.indexOf(anchor);
     assert.notEqual(at, -1, anchor + ' is gone');
-    const body = PAGE.slice(at, at + 5000);
+    const body = PAGE.slice(at, at + 6000);
     const pointers = (body.match(/There is something to fix above\./g) || []).length;
-    assert.equal(pointers, 2,
-      anchor + ': both the pre-check and the engine-refusal path must say something at the button');
+    assert.equal(pointers, count,
+      anchor + ': every field-refusal path must say something at the button');
     assert.ok(body.includes(expected), anchor + ' lost its "' + expected + '" wording');
   }
 });
 
 test('the pointer never carries the reason, so the two cannot disagree', () => {
   /* The specific reason lives at the field. If the button line also spelled it
-     out, they would be two copies of one fact and would drift. */
+     out, they would be two copies of one fact and would drift. Five sites now:
+     pjs-save x3 (desc pre-check, desc refusal, #1994 parent refusal) + pj-create x2. */
   const pointers = PAGE.match(/'Nothing (saved|added)\. There is something to fix above\.'/g) || [];
-  assert.equal(pointers.length, 4, 'the four pointer sites changed shape');
+  assert.equal(pointers.length, 5, 'the pointer sites changed shape');
   for (const p of pointers) {
     assert.doesNotMatch(p, /\d/, 'the pointer names a number, which is a second copy of the cap');
     assert.doesNotMatch(p, /description/i, 'the pointer names the field, which is a second copy of the reason');
