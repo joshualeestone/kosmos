@@ -187,6 +187,41 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## 2026-09-04 REBASE: A POSITIONAL API COLLIDED SILENTLY
+
+The branch went **121 behind** overnight and all four of its files changed
+upstream, so every number recorded before this describes a base that will not be
+merged. Rebased; 33 ahead, 0 behind. **One real conflict, and it was semantic
+rather than textual.**
+
+`#2107` added a third parameter `runner` to `chat.waitingNote` and LANDED on main
+while this branch was open. `#1889` added a third parameter `backgroundWait` and
+had not landed. Both authors wrote "the third parameter" independently.
+
+🛑 **THE COLLISION IS SILENT AT THE CALL SITE, WHICH IS WHY IT IS WORTH RECORDING.**
+The types are compatible, so `waitingNote('working', PLACED, true)` still RUNS
+against the merged signature: `runner === 'codex'` is merely false, `backgroundWait`
+arrives `undefined`, and the wrong sentence is produced by a call that throws
+nothing. **A positional API cannot report its own misuse.**
+
+✅ Resolved by keeping BOTH, with the LANDED parameter holding its slot
+(`state, outcome, runner, backgroundWait`) so no merged caller or test moves, and
+the unlanded one taking position 4. My three test call sites moved.
+
+📌 The only thing that caught it was `node --check` on a duplicated `const unsure`
+that my own merge introduced. A syntax error is a lucky tripwire, not a guard:
+**had I merged the two bodies without duplicating a declaration, the branch would
+have been green and the sentence wrong.**
+
+Verified on the merged base: status **177/177**, chat **120/120**, observed
+**6/6** (all three counts higher than before the rebase, because upstream added
+tests that now run beside these). Behaviour re-checked directly rather than
+inferred from green: a live wait reads `working` with `backgroundWait: true`, a
+resolved one `idle`, a wrap-joined completion `idle`.
+
+⚠️ Full suite NOT yet re-run on this base. Every earlier suite figure in this file
+is now orphaned by the rebase and should be read as historical.
+
 ## ITERATION 23: THE SAME DEFECT, ONE CONSTANT OVER, FOR THE FOURTH ROUND RUNNING
 
 **Iteration 22 fixed the whitespace premise in `backgroundAgentWaitCount` and left
