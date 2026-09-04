@@ -315,7 +315,10 @@ func boardTokenValue() -> String? {
 // and the dragged /Applications copy is a DIFFERENT bundle PATH, which LaunchServices
 // treats as a separate app (single-instance is keyed on path, not just bundle id). So
 // applicationDidFinishLaunching now dedups by bundle id: if another instance is already
-// running, it activates that one and exits, leaving the /Applications copy as THE app.
+// running, it activates that one and exits, so the FIRST instance to launch stays THE
+// app and later duplicates fold into it. (Whether that first launch is the /Applications
+// copy depends on the installer's launch path -- the install-location tangle is the
+// pre-existing, deliberately-deferred residual noted in the plan, not settled here.)
 //
 // 🛑 THE ONE EXCEPTION IS #2094's SELF-UPDATE RELAUNCH. There, the EXITING stale
 // instance deliberately launches a fresh copy that shares its bundle id and then exits;
@@ -366,8 +369,11 @@ func writeRelaunchHandoffToken() {
 }
 
 // Called by a FRESH instance at launch. Returns true iff this launch is a #2094 relaunch
-// handoff (via the env var OR a fresh token file), and CONSUMES both so the signal is
-// one-shot and a stale token cannot exclude a later normal launch.
+// handoff (via the env var OR a fresh token file). It removes the token FILE so that
+// signal is one-shot and a stale token cannot linger to exclude a later launch. The env
+// var cannot be unset and is not, but it does not need to be: a manual reopen is a new
+// process with a fresh environment that never carries the key, so only the file could
+// linger, and only the file is removed here.
 func consumeFreshRelaunchHandoff(now: Date = Date()) -> Bool {
     var handoff = false
     if let raw = ProcessInfo.processInfo.environment[kRelaunchHandoffEnvKey], !raw.isEmpty {
@@ -380,8 +386,10 @@ func consumeFreshRelaunchHandoff(now: Date = Date()) -> Bool {
            now.timeIntervalSince1970 - written >= 0 {
             handoff = true
         }
-        // Always delete: one-shot, and a stale token must not linger to wrongly
-        // exclude a normal launch (which is safe anyway, but keep the file honest).
+        // Always delete: the signal is one-shot, and a lingering token must not exclude
+        // a later launch. That exclusion is NOT harmless when another instance is up --
+        // it is exactly the duplicate #2124 prevents -- which is why the relaunch-failure
+        // path removes the token too rather than letting it ride out its TTL.
         try? FileManager.default.removeItem(at: url)
     }
     return handoff
@@ -1411,6 +1419,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     return
                 }
                 logLine("relaunch FAILED: \(err?.localizedDescription ?? "no app handle"); staying open")
+                /* #2124: the fresh copy never launched, so nothing will consume the
+                   handoff token, and THIS instance stays open (below). A lingering token
+                   would let a manual reopen within its TTL skip the single-instance guard
+                   and run as a DUPLICATE alongside this window -- the exact bug #2124
+                   fixes. Remove it now, before the blocking modal. The env channel needs
+                   no cleanup: it was set only on this failed launch's configuration and
+                   never reaches a manual reopen (a new process gets a fresh environment). */
+                if let handoffURL = relaunchHandoffURL() {
+                    try? FileManager.default.removeItem(at: handoffURL)
+                }
                 let f = NSAlert()
                 f.messageText = "Kosmos could not open a new window"
                 f.informativeText = "This window is still working and still on version \(mine). "
