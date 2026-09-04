@@ -210,6 +210,19 @@ test('#992 re-closing / re-reopening records no duplicate: only a real transitio
   assert.deepEqual(kinds, ['created', 'closed', 'reopened'], 'a re-close/re-open logs nothing');
 });
 
+test('#992 re-closing a PART records no duplicate either (same transition gate)', () => {
+  const p = freshProject(['ada']);
+  const made = tasks.create(p.id, { sentence: 'x', who: 'ada', made: { via: 'screen' } });
+  const proj = projects.readAll().find((x) => x.id === p.id);
+  const partId = tasks.partsOf(tasks.byNumber(proj, made.number))[0].id;
+  tasks.setPartClosed(p.id, made.number, partId, new Date().toISOString());
+  tasks.setPartClosed(p.id, made.number, partId, new Date().toISOString()); // already closed -> nothing
+  tasks.setPartClosed(p.id, made.number, partId, null);
+  tasks.setPartClosed(p.id, made.number, partId, null); // already open -> nothing
+  const partEvents = taskchat.read(p.id, made.number).filter((r) => r.kind.startsWith('part-'));
+  assert.deepEqual(partEvents.map((r) => r.kind), ['part-closed', 'part-reopened']);
+});
+
 test('#992 numeric fields keep their type: partId is a number, not a string', () => {
   const p = freshProject(['ada']);
   const made = tasks.create(p.id, { sentence: 'x', who: 'ada', made: { via: 'screen' } });
