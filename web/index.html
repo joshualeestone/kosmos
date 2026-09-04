@@ -25514,7 +25514,8 @@ function paintOpenaiCreateModel() {
       paintModelWhy('create-model', 'create-model-why');
     } else {
       // NOT LISTABLE: hide the row, clear any stale value so nothing is submitted,
-      // and show the note keyed to why.
+      // drop the previous account's cached models, and show the note keyed to why.
+      OPENAI_PICK_MODELS = [];
       if (sel) sel.innerHTML = '<option value="" selected></option>';
       if (row) row.hidden = true;
       if (why) { why.textContent = openaiNoModelsNote(out && out.because); why.hidden = false; }
@@ -25522,10 +25523,17 @@ function paintOpenaiCreateModel() {
   })();
 }
 
+/* #2140: the Claude model the user last had selected, so a provider round-trip
+   (Claude -> OpenAI -> Claude) does not silently discard a non-default pick when
+   the Claude branch repaints the select. Captured on the way out of Claude,
+   restored on the way back in. */
+let LAST_CLAUDE_MODEL = '';
 function applyCreateProviderUI() {
   const openai = document.getElementById('create-provider').value === 'openai';
   const model = document.getElementById('create-model');
   const acct = document.getElementById('create-account');
+  /* Remember a Claude pick before the OpenAI branch overwrites #create-model. */
+  if (openai && model && CREATE_MODELS.some((m) => m.key === model.value)) LAST_CLAUDE_MODEL = model.value;
   // #540: the account menu no longer parks for OpenAI; it fills with OpenAI accounts.
   acct.disabled = false;
   fillCreateAccounts();
@@ -25549,6 +25557,8 @@ function applyCreateProviderUI() {
     if (modelRow) modelRow.hidden = false;
     model.innerHTML = CREATE_MODELS.map((m) =>
       '<option value="' + esc(m.key) + '"' + (m.default ? ' selected' : '') + '>' + esc(m.label) + '</option>').join('');
+    // Restore a non-default Claude pick the user had before a round-trip through OpenAI.
+    if (LAST_CLAUDE_MODEL && CREATE_MODELS.some((m) => m.key === LAST_CLAUDE_MODEL)) model.value = LAST_CLAUDE_MODEL;
     if (why) why.textContent = '';
     paintModelWhy('create-model', 'create-model-why');
   }

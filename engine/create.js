@@ -1204,7 +1204,7 @@ function setModel(name, modelKey) {
        against accountModels), the same seam the create route uses. */
     const id = String(modelKey == null ? '' : modelKey).trim();
     if (id !== '') {
-      if (!/^[A-Za-z0-9._:-]{1,80}$/.test(id)) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {
         return { outcome: OUTCOME.REFUSED, because: 'that is not a valid OpenAI model name' };
       }
       /* Cross-vendor guard (same as the create path): a Claude model key is
@@ -2473,7 +2473,7 @@ function createAgentInner(opts) {
          arbitrary string into the launchd job's argv. */
       const id = String(wantModelKey).trim();
       if (id !== '') {
-        if (!/^[A-Za-z0-9._:-]{1,80}$/.test(id)) {
+        if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {
           return { outcome: OUTCOME.REFUSED, because: 'that is not a valid OpenAI model name', steps };
         }
         /* Cross-vendor guard, cheap and sync: a Claude model KEY is never an

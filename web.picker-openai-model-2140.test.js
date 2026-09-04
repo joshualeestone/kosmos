@@ -4,7 +4,9 @@
  * (paintOpenaiCreateModel + openaiNoModelsNote) against a fake document with a
  * stubbed fetch, so what is tested is the code that ships. Three states:
  * LISTABLE (the picker with "Let OpenAI choose" first + the account's models,
- * merged into CREATE_MODELS so paintModelWhy resolves them), NOT LISTABLE (row
+ * kept in the separate OPENAI_PICK_MODELS cache -- NOT merged into the Claude-only
+ * CREATE_MODELS -- so paintModelWhy resolves them without polluting the Claude
+ * menus), NOT LISTABLE (row
  * hidden, no stale value, a note keyed to accountModels' `because`), and no
  * account chosen. Plus the copy map is asserted case by case.
  *

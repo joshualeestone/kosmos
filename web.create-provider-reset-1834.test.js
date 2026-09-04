@@ -69,6 +69,7 @@ function run(fn, seed) {
     let CREATE_MODELS = [];
     let OPENAI_MODELS_GEN = 0;
     let OPENAI_PICK_MODELS = [];
+    let LAST_CLAUDE_MODEL = '';
     ${applyFn}
     ${resetFn}
     ${fn};
