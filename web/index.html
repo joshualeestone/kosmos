@@ -8051,15 +8051,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
             <option value="mistral" disabled>Mistral &middot; coming soon</option>
           </select>
         </div>
-        <!-- ⚠️ SHOWN EVEN AT ONE ACCOUNT, reversing the rule this field used to
-             carry ("a field whose menu has a single entry is a decision presented
-             to somebody who has none to make"). That was written for a field
-             standing on its own; this is the middle rung of a three-step
-             narrowing, and a missing rung reads as a broken diagram. Josh: "if
-             this user only has one account then that would be the only thing in
-             the box." -->
+        <!-- ⚠️ HIDDEN AT ONE ACCOUNT, SHOWN AT TWO OR MORE. Josh re-ruled #2097
+             on 2026-09-04, superseding the earlier "shown even at one" note that
+             stood here: a single-entry menu is a choice presented to someone who
+             has none to make, and he watched it confuse a real tester (Ben).
+             Verbatim: "if there's only one account then... we don't show the
+             account dropdown. It's just confusing to people... As soon as there's
+             a second account then we should show it, but that won't be most
+             people." fillCreateAccounts() hides the row (create-account-row)
+             whenever the usable list has fewer than two entries. The single
+             account is still the select's value, so create uses it. -->
         <div class="mstep">
-          <div class="frow">
+          <div class="frow" id="create-account-row">
             <select id="create-account" aria-label="Account"></select>
           </div>
           <div class="mstep">
@@ -25341,12 +25344,17 @@ function fillCreateAccounts() {
     ? usable.map((x) =>
       `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${labelOf(x)}</option>`).join('')
     : (openai ? '<option value="">The OpenAI sign-in on this computer</option>' : '<option value="">Your Claude account</option>');
-  /* #2097: the account row is deliberately SHOWN even at one account -- Josh's
-     ruling preserved at the account markup ("if this user only has one account
-     then that would be the only thing in the box"): it is the middle rung of the
-     provider -> account -> model narrowing, and a missing rung reads as a broken
-     diagram. An earlier version of this card hid it at <=1; that reversed the
-     ruling and is not done. */
+  /* #2097 (Josh re-rule 2026-09-04, supersedes the earlier "shown even at one"):
+     HIDE the account row unless there are two or more accounts to choose from. A
+     single-entry menu is a choice presented to someone who has none to make, and
+     he watched it confuse a real tester (Ben): "if there's only one account then
+     we don't show the account dropdown... As soon as there's a second account
+     then we should show it, but that won't be most people." The one usable
+     account is still the select's value, so create uses it; the placeholder-only
+     case (usable.length 0) also has no choice and stays hidden. Mirrors the
+     #2098 create-model-row hide pattern. */
+  const arow = document.getElementById('create-account-row');
+  if (arow) arow.hidden = usable.length < 2;
 }
 /* #1834: the provider's UI side effects -- disable the model picker for OpenAI,
    fill the account menu by provider, set the model-why note -- live in ONE named
