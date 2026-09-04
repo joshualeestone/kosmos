@@ -41,9 +41,13 @@ test('defaultAgentCodexHome honours the AGENT_WORKFORCE_CODEX_HOME sandbox seam'
   assert.equal(create.defaultAgentCodexHome(), seam);
 });
 
-test('trustCodexFolder(agentDefaultAccount) writes into ~/.codex, NOT the engine CODEX_HOME', () => {
-  const agentCodex = path.join(SANDBOX, 'agent-codex');
-  process.env.AGENT_WORKFORCE_CODEX_HOME = agentCodex;   // sandbox the "default agent codex home"
+test('trustCodexFolder(agentDefaultAccount) writes into the agent home ~/.codex, NOT the engine CODEX_HOME -- with a control', () => {
+  // 🔑 DISCRIMINATING. Do NOT set AGENT_WORKFORCE_CODEX_HOME: defaultHome() (the unfixed
+  // path) honours it FIRST, identically to defaultAgentCodexHome(), so the seam would make
+  // the flag a no-op. The engine carries CODEX_HOME; the agent home is AGENT_WORKFORCE_HOME
+  // (= SANDBOX). So the FIXED path resolves to SANDBOX/.codex while codexHomeDir()/defaultHome()
+  // resolves to engineCodex -- they genuinely differ.
+  const agentCodex = path.join(SANDBOX, '.codex');   // AGENT_WORKFORCE_HOME/.codex
   const engineCodex = path.join(SANDBOX, 'engine-codex-account');
   fs.mkdirSync(engineCodex, { recursive: true });
   process.env.CODEX_HOME = engineCodex;
@@ -53,20 +57,29 @@ test('trustCodexFolder(agentDefaultAccount) writes into ~/.codex, NOT the engine
 
   const agentToml = fs.readFileSync(path.join(agentCodex, 'config.toml'), 'utf8');
   assert.match(agentToml, new RegExp('\\[projects\\."' + folder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"\\]'),
-    'the codex trust lands in the home the default agent reads');
+    'the codex trust lands in the home the default agent reads (AGENT_WORKFORCE_HOME/.codex)');
   assert.match(agentToml, /trust_level = "trusted"/);
   assert.equal(fs.existsSync(path.join(engineCodex, 'config.toml')), false,
     'the codex trust must NOT be written to the engine CODEX_HOME -- that is the wedge');
+
+  // CONTROL: the SAME write WITHOUT the flag follows codexHomeDir() into the engine home.
+  const folder2 = path.join(SANDBOX, 'w-openai-ctrl');
+  create.trustCodexFolder(folder2, null);
+  assert.match(fs.readFileSync(path.join(engineCodex, 'config.toml'), 'utf8'),
+    new RegExp('\\[projects\\."' + folder2.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"\\]'),
+    'CONTROL: without agentDefaultAccount the codex trust DOES follow the engine CODEX_HOME');
 });
 
 test('forgetCodexFolder(agentDefaultAccount) removes from the same default-account home', () => {
-  const agentCodex = path.join(SANDBOX, 'agent-codex-2');
-  process.env.AGENT_WORKFORCE_CODEX_HOME = agentCodex;
+  const agentCodex = path.join(SANDBOX, '.codex');
+  const engineCodex = path.join(SANDBOX, 'engine-codex-account-2');
+  fs.mkdirSync(engineCodex, { recursive: true });
+  process.env.CODEX_HOME = engineCodex;
   const folder = path.join(SANDBOX, 'w-openai-2');
   create.trustCodexFolder(folder, null, true);
   assert.match(fs.readFileSync(path.join(agentCodex, 'config.toml'), 'utf8'), /trust_level = "trusted"/);
   const got = create.forgetCodexFolder(folder, null, true);
-  assert.equal(got.removed, true, 'the untrust must find and remove the entry the trust wrote');
+  assert.equal(got.removed, true, 'the untrust must find and remove the entry the trust wrote (same home, create/remove symmetric)');
   assert.doesNotMatch(fs.readFileSync(path.join(agentCodex, 'config.toml'), 'utf8'),
     new RegExp(folder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'the entry is gone from the same home the trust used');
 });

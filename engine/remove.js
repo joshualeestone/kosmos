@@ -733,9 +733,11 @@ function removeInner(name, { tmuxBin } = {}) {
      was the wrong lesson applied to the wrong direction. #1313 was a CHECK
      reading a different home than the WRITE used. Here the requirement is the
      opposite: the removal must fall back EXACTLY where the write fell back.
-     `forgetCodexFolder` applies the same `home || codexHomeDir()` as
-     `trustCodexFolder`, so passing the value straight through keeps the pair
-     symmetric by construction rather than by two copies agreeing. */
+     `forgetCodexFolder` applies the same default-account resolution as
+     `trustCodexFolder` -- and, since #2129, the same `agentDefaultAccount` flag,
+     passed here as `!codexHome` exactly as the create path passes `!configDir` --
+     so passing the value straight through keeps the pair symmetric by construction
+     rather than by two copies agreeing. */
   let codexJob = false;
   let codexHome = null;
   try {
