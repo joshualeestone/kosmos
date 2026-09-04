@@ -33,7 +33,8 @@
 # pipeline and reviewed the --publish path: the pre-deploy fetch + per-artifact sha-verify +
 # export + .vercelignore guard are exercised by the dry run (green), and the post-deploy served
 # verification is sound -- served_matches sha-checks each installer artifact AND its .sha256
-# sidecar against what was deployed, the served latest.json is name-checked for the current
+# sidecar against the LOCAL verified copy (which equals what was deployed, absent a concurrent
+# cut -- the reason for the caveat below), the served latest.json is name-checked for the current
 # artifact, and the Windows zip + /setup are 200-checked. It deliberately does NOT use
 # verify-served.sh (that keys every expectation to agent-workforce's package.json, which in this
 # standalone between-release window is routinely ahead of the site's released version -- the

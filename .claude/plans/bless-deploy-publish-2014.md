@@ -36,3 +36,21 @@ run stays the safe default. Advisory comment only; nothing enforced changes.
 - `bash -n` and `sh -n` clean.
 - No test pins the review-gate header text (grep confirms), so no test regression.
 - The --publish path itself is unchanged (only the header comment).
+
+## Challenge-loop iteration 1 (blind review: bless justified + accurate, no blockers)
+- [NIT, FIXED] header said served_matches checks "against what was deployed"; strictly it compares
+  against the LOCAL verified copy (the $EXPORT deployed is rm'd), which equals the deployed bytes
+  absent a concurrent cut. Reworded to say so.
+- [WARNING, RECORDED for the Windows publish, NOT a bless defect] deploy-site.sh's `WINZIP` default
+  is `kosmos-0.6.24-win-x64.zip`. The Windows zip is TRACKED (git-archived, not fetched), and the
+  honest-marker check + served_200 key off `$WINZIP`. So my 0.6.27 Windows `--publish` will safe-
+  refuse UNLESS (a) the 0.6.27 zip is committed into chaoskosmos-site/dist AND (b) `KOSMOS_WIN_ZIP`
+  is exported to name it. => Windows-publish preconditions, on top of the bless: after
+  publish-kosmos-windows.sh stages the zip, `git add` it in the site repo (it is tracked, unlike the
+  gitignored Mac tarballs), and run `KOSMOS_WIN_ZIP=<the-name> tools/deploy-site.sh --publish`. The
+  bless is a genuine prerequisite for the Windows publish, just not the ONLY step.
+- [NIT, DEFERRED, pre-existing] deploy-site.sh:233 `grep -q "\"$ART\""` treats the dots in $ART as
+  regex; `grep -Fq` would be exact. Vanishingly low risk; not introduced by this diff; out of scope
+  for a comment-only bless (kept the PR comment-only, which the reviewer verified). Worth a follow-up.
+- [NIT, DEFERRED, pre-existing] the `verify-served.sh must exist` precondition (line 63/73) is dead
+  weight since the deploy path deliberately never invokes it. Pre-existing; a tidy-up, not this PR.
