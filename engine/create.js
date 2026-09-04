@@ -2166,14 +2166,25 @@ async function accountConnectable({ provider, accountDir } = {}) {
     let list; try { list = openai.list(); } catch (err) { return failOpen("openai.list", err); }
     const acct = dir ? list.find((a) => a.dir === path.resolve(dir)) : list.find((a) => a.isDefault);
     if (!acct) {
-      /* #2145: mirror of the Claude arm below, so the two providers cannot
-         disagree. A specified-unknown dir stays {ok:true} (createAgentInner
-         owns it). No account chosen (dir null) AND no default OpenAI sign-in
-         means the agent would run on the default codex home with nothing in it
-         -- a dead agent createAgentInner does not refuse (configDir stays null
-         and it proceeds). Confirmed "no account" from a list() that returned,
-         not fail-open uncertainty (#1916). */
+      /* #2145: the sibling of the Claude arm below, but NOT a blind mirror --
+         it must diverge on exactly the home split the guard at codexHomeOverridden()
+         (just below) exists for. A specified-unknown dir stays {ok:true}
+         (createAgentInner owns it). No account chosen (dir null) AND no default
+         OpenAI sign-in means the agent would run on the default codex home with
+         nothing in it -- a dead agent createAgentInner does not refuse (configDir
+         stays null and it proceeds). Confirmed "no account" from a list() that
+         returned, not fail-open uncertainty (#1916).
+         🛑 BUT NOT UNDER A CODEX-HOME OVERRIDE. openai.list() reads the OVERRIDDEN
+         (managed) home, while a created no-account default OpenAI agent runs on the
+         REAL ~/.codex (its launchd job does not inherit the server's CODEX_HOME
+         override -- createAgentInner's own note, and the exact reason the isDefault
+         guard below fails open). So an empty MANAGED home says nothing about the
+         home the agent will actually use: refusing here would block a create that
+         would run fine on a signed-in real ~/.codex. Fail open, mirroring that
+         guard, for the same reason it does. The Claude arm has no analogue because
+         only codex carries this home split. */
       if (dir) return { ok: true };
+      if (codexHomeOverridden()) return { ok: true };
       let hasClaude = false;
       try { hasClaude = require('./accounts').list().length > 0; } catch { hasClaude = false; }
       return {

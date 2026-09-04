@@ -110,6 +110,30 @@ test('#2145 (mirror): an OpenAI create with NO account on a machine with no Open
   assert.match(r.because, /or create this agent on Claude instead/, 'a Claude account is present, so the alternative should be offered');
 });
 
+test('#2145: under a CODEX_HOME override, an OpenAI no-account create FAILS OPEN — the agent runs on the real ~/.codex, not the managed home', async () => {
+  /* The bug this guards: openai.list() reads the OVERRIDDEN (managed) codex home,
+     but a created no-account default OpenAI agent runs on the REAL ~/.codex (its
+     launchd job does not inherit the server's CODEX_HOME override). So an empty
+     MANAGED home says nothing about the home the agent will use -- refusing there
+     would block a create that would run fine on a signed-in real ~/.codex. The gate
+     mirrors createAgentInner's own codexHomeOverridden() fail-open. This test shows
+     the override FLIPS the outcome: refused without it, {ok:true} with it. */
+  removeClaude(); removeOpenai();
+  // Without the override, the empty machine refuses (the mirror footgun, same as above).
+  const withoutOverride = await create.accountConnectable({ provider: 'openai', accountDir: '' });
+  assert.equal(withoutOverride.ok, false, 'control: with no override and no account, the create should refuse');
+
+  const MANAGED = nodePath.join(SANDBOX, 'managed-codex-empty');
+  fs.mkdirSync(MANAGED, { recursive: true }); // empty: no auth.json in the managed home
+  process.env.CODEX_HOME = MANAGED;
+  try {
+    // CONTROL: the override points list() at the empty managed home (no OpenAI account there).
+    assert.equal(openai.list().length, 0, 'the managed codex home should list no OpenAI account');
+    assert.deepEqual(await create.accountConnectable({ provider: 'openai', accountDir: '' }), { ok: true },
+      'a no-account OpenAI create was refused under a CODEX_HOME override, though the agent runs on the real ~/.codex the gate never checked');
+  } finally { delete process.env.CODEX_HOME; }
+});
+
 test('#2145: with a real (default) Claude account present, an Anthropic no-account create is NOT refused by the missing-account arm', async () => {
   /* The guard is scoped to a MISSING account. A present default account must
      pass this arm and go on to the #1903 liveness check (stubbed live here so
