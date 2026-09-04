@@ -102,6 +102,17 @@ printf '{"version":"5.5.5"}\n' > "$S/dist/latest-staging.json"   # somebody else
 release_site_restore "$S" "9.9.9" 0 1 ""   >/dev/null 2>&1        # 5-arg (pre-#2036) caller: staging_ptr_had defaults 1
 [ -f "$S/dist/latest-staging.json" ] && ok "restore: a 5-arg (prod/legacy) caller leaves latest-staging.json untouched" || no "restore: legacy caller removed a staging pointer it should not"
 
+# --- step 6 ("what we are about to publish says $V") must read the VERSIONED artifact, not the
+#     unversioned alias. On a staging cut the alias is left at the prior PROD version (#2036), so
+#     reading it makes step 6 refuse a correct staging build (the #2036 step-6 gap, found by a full
+#     staging cut). It must read kosmos-$V-arm64.tar.gz, which carries $V's bytes for both channels.
+grep -q 'tar -xzOf "\$SITE/dist/kosmos-\$V-arm64.tar.gz" app/package.json' "$REPO/tools/release.sh" \
+  && ok "step 6: the publish-version check reads the VERSIONED artifact (channel-correct)" \
+  || no "step 6: the publish-version check does not read the versioned artifact (a staging cut refuses a correct build)"
+grep -q 'tar -xzOf "\$SITE/dist/kosmos-arm64.tar.gz" app/package.json' "$REPO/tools/release.sh" \
+  && no "step 6: still reads the unversioned alias (the #2036 staging step-6 bug is back)" \
+  || ok "step 6: no longer reads the unversioned prod alias"
+
 echo "----"
 echo "test-staging-wire-2036: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

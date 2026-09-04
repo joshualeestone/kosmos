@@ -800,7 +800,12 @@ sh -n "$SITE/setup" || { echo "the installer about to be published does not pars
 echo "   /setup copied and parses"
 
 step "== 6. what we are about to publish says $V =="
-tar -xzOf "$SITE/dist/kosmos-arm64.tar.gz" app/package.json | node -e "
+# Read the VERSIONED artifact the channel pointer names (kosmos-$V-arm64.tar.gz), NOT the
+# unversioned alias kosmos-arm64.tar.gz. On a STAGING cut the alias is deliberately left at the
+# prior PROD version (#2036: only a prod cut refreshes the alias; the promote refreshes it later),
+# so reading the alias here would check the prod bytes and refuse a correct staging build. The
+# versioned artifact carries $V's bytes for BOTH channels, so it is the channel-correct check.
+tar -xzOf "$SITE/dist/kosmos-$V-arm64.tar.gz" app/package.json | node -e "
 let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
   const v=JSON.parse(s).version;
   console.log('   bundled version:', v);
