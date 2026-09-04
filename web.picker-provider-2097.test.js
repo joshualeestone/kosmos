@@ -53,12 +53,37 @@ test('#2098 (source): applyCreateProviderUI hides the model ROW whole on OpenAI,
   assert.match(fn, /modelRow\.hidden = openai/, 'the model row hide is not keyed on the openai provider');
 });
 
-test('#2097(2) (source): the account row is NOT hidden at one account (Josh ruling preserved)', () => {
-  // Josh: "if this user only has one account then that would be the only thing in the box" --
-  // the account row is the middle rung of the provider->account->model narrowing and stays shown.
+test('#2097(2) (source+exec): the account row is HIDDEN at <2 accounts, SHOWN at 2+ (Josh re-rule 2026-09-04)', () => {
+  // Josh re-ruled #2097 on 2026-09-04, superseding the earlier "shown even at one": a single-entry
+  // menu is a choice presented to someone who has none to make, and he watched it confuse Ben. So
+  // the account row hides itself unless there are two or more accounts to choose from.
   const start = PAGE.indexOf('function fillCreateAccounts');
   const fn = PAGE.slice(start, PAGE.indexOf('\nfunction ', start + 1));
-  assert.doesNotMatch(fn, /acctRow\.hidden|create-account-row/, 'the account row hides itself again -- that reverses Josh\'s "shown even at one account" ruling (index.html markup, ~8037)');
+  // source-pin: the hide is present and keyed on the account count.
+  assert.match(fn, /create-account-row/, 'fillCreateAccounts no longer references the account row to hide it');
+  assert.match(fn, /\.hidden = usable\.length < 2/, 'the account-row hide is no longer keyed on usable.length < 2');
+
+  // exec: run fillCreateAccounts against a fake DOM and read the row's hidden state by account count.
+  function hiddenWith(accounts) {
+    const asel = { innerHTML: '' };
+    const arow = { hidden: false };
+    const prov = { value: 'anthropic' };
+    // eslint-disable-next-line no-unused-vars
+    const document = { getElementById: (id) => (
+      id === 'create-account' ? asel : id === 'create-account-row' ? arow : id === 'create-provider' ? prov : null) };
+    // eslint-disable-next-line no-unused-vars
+    const CREATE_ACCOUNTS = accounts;
+    // eslint-disable-next-line no-unused-vars
+    const accountQualifiers = () => new Map();
+    // eslint-disable-next-line no-unused-vars
+    const esc = (s) => String(s);
+    // eslint-disable-next-line no-eval
+    eval('(' + fn + ')')();
+    return arow.hidden;
+  }
+  assert.equal(hiddenWith([{ provider: 'anthropic', email: 'a@x.com' }]), true, 'one account -> row hidden');
+  assert.equal(hiddenWith([{ provider: 'anthropic', email: 'a@x.com' }, { provider: 'anthropic', email: 'b@x.com' }]), false, 'two accounts -> row shown');
+  assert.equal(hiddenWith([]), true, 'no usable accounts -> row hidden (placeholder is not a choice)');
 });
 
 // resetCreateProvider decides the default BEFORE CREATE_ACCOUNTS is fetched, so loadCreateExtras
