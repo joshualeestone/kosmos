@@ -203,6 +203,16 @@ test('it is the same shape and height as the grid, list and org group', () => {
   assert.equal(opt.w[1], vt.w[1], 'the halves are a different width from the view toggle');
   assert.equal(opt.h[1], vt.h[1], 'the halves are a different height from the view toggle');
   assert.equal(geom('.themepick {').radius[1], geom('.viewtoggle {').radius[1]);
+  /* #2154: the board-view toggle (.laypick/.layopt) is a THIRD copy of the same
+     geometry, so the ruling covers it too and it is pinned here beside the other
+     two. Without this the shared-sizing comment in web/index.html has no net over
+     the new copy: a 38->40px change to .themeopt/.vt would update two of the three
+     controls and leave the board-view toggle behind, which is exactly the drift
+     Josh's "same standard visual language sizing" ruling forbids. */
+  const lay = geom('.layopt { border: 0;');
+  assert.equal(lay.w[1], vt.w[1], 'the board-view toggle halves are a different width from the grid/list/org toggle');
+  assert.equal(lay.h[1], vt.h[1], 'the board-view toggle halves are a different height from the grid/list/org toggle');
+  assert.equal(geom('.laypick {').radius[1], geom('.viewtoggle {').radius[1]);
 });
 
 test('the stamp sits to the LEFT of the light and dark control', () => {

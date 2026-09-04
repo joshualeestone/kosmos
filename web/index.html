@@ -1140,6 +1140,30 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    keyboard user needs to see which of three they are on. */
 .themeopt:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 @media (max-width: 40rem) { .themepick { display: none; } }
+/* #2154: the board-view toggle (tabs <-> consolidated). A SEPARATE block from
+   .themepick/.viewtoggle above, not a shared selector, matching this file's own
+   convention -- those two are already byte-identical copies of one geometry,
+   each pinned to the other by web.theme.test.js, because the look is the shared
+   contract, not the CSS text. Same values here, per Josh's 2026-08-22 "same
+   standard visual language sizing" ruling: inline-flex, 0.5px separator,
+   radius-control, elevated ground, 38x30 gold-active segments with #14161a ink.
+   The one real difference is visibility: this toggle is offered ONLY at >= 960px,
+   the floor at which the consolidated view exists at all (CONSOLIDATED_MIN_WIDTH),
+   where the theme toggle hides below 40rem instead. Below the floor only the
+   tabbed view exists, so a toggle there would be a dead affordance; hidden at the
+   exact px the consolidated CSS gate (min-width: 960px) keys on, never
+   overlapping it. */
+.laypick { display: inline-flex; border: 0.5px solid var(--separator);
+           border-radius: var(--radius-control); overflow: hidden; background: var(--bg-elevated); }
+.layopt { border: 0; background: none; cursor: pointer; padding: 0; width: 38px; height: 30px;
+          display: grid; place-items: center; color: var(--label-2); }
+.layopt svg { display: block; }
+.layopt + .layopt { border-left: 0.5px solid var(--separator); }
+.layopt:hover { color: var(--label); }
+.layopt[aria-checked="true"] { background: var(--gold-bright); color: #14161a; }
+.layopt[aria-checked="true"]:focus-visible { outline-color: #14161a; }
+.layopt:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+@media (max-width: 959.98px) { .laypick { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
 #utoast-slot:empty, #unote-slot:empty, #uabort-slot:empty, #unews-slot:empty, #uoffline-slot:empty { display: none; }
@@ -2455,9 +2479,12 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .railme-b { min-width: 0; }
   html[data-layout="consolidated"] body.consolidated .railme-n { display: block; font-size: .8125rem; font-weight: 600; color: var(--k-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated .railme-s { display: block; font-size: .6875rem; color: var(--k-ink-2); }
-  html[data-layout="consolidated"] body.consolidated .railme-theme { flex: none; }
+  html[data-layout="consolidated"] body.consolidated .railme-theme, html[data-layout="consolidated"] body.consolidated .railme-lay { flex: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a > #rail-me { justify-content: center; padding-left: 0; padding-right: 0; }
-  html[data-layout="consolidated"] body.consolidated.fold-a .railme-b, html[data-layout="consolidated"] body.consolidated.fold-a .railme-theme { display: none; }
+  /* #2154: the view toggle folds away with the theme pill (and the name) when the
+     agents column is folded to its letters, for the same reason -- there is no
+     room for it, and the person unfolds to reach either control. */
+  html[data-layout="consolidated"] body.consolidated.fold-a .railme-b, html[data-layout="consolidated"] body.consolidated.fold-a .railme-theme, html[data-layout="consolidated"] body.consolidated.fold-a .railme-lay { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .railme-go { flex: none; }
   /* The header gives way (Josh, 15:32: "header gone is what I'm going
      for"). Its notice slots stay in the flow, so an update note or the
@@ -6134,6 +6161,23 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          ⚠️ WHICH MEANS THE HIGHLIGHT IS A READING, NOT A RECORD, and the two
          are only the same after a click. A control painted from storage alone
          would show neither half lit on a machine that has never chosen. -->
+    <!-- #2154: the board-view toggle. One press flips the whole board between the
+         tabbed view (Agents / Projects / Settings as separate screens) and the
+         consolidated "one screen" view, over the SAME mechanism the Settings tiles
+         use (applyLayout + PUT /api/style) -- not a second store. Same visual
+         language as the light/dark switcher to its right (Josh, 2026-08-22). Shown
+         only at >= 960px, the floor at which the consolidated view is offered; the
+         CSS carries that gate so no dead affordance appears on a narrow window. -->
+    <div class="laypick" role="radiogroup" aria-label="Board view">
+      <button type="button" class="layopt" data-layout-switch="tabs" role="radio" aria-checked="false" title="Separate tabs">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M1.6 6.1H14.4"/></svg>
+        <span class="vh">Agents and Projects as separate tabs</span>
+      </button>
+      <button type="button" class="layopt" data-layout-switch="consolidated" role="radio" aria-checked="false" title="One screen">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M6 2.6V13.4"/></svg>
+        <span class="vh">Agents and Projects on one screen</span>
+      </button>
+    </div>
     <div class="checked stamp" id="checked"></div>
     <div class="themepick" role="radiogroup" aria-label="Appearance">
       <button type="button" class="themeopt" data-theme-set="light" role="radio" aria-checked="false" title="Light">
@@ -10454,6 +10498,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <span class="railme-face" id="rail-me-face">You</span>
     <span class="railme-b"><span class="railme-n" id="rail-me-name">You</span><span class="railme-s">Settings</span></span>
   </button>
+  <!-- #2154: the view toggle's consolidated-view home. The header's .headright
+       (and its .laypick) is hidden in this view, so without a copy here a person
+       who switched to one screen would have no way back to the tabs. Same pattern
+       as the light/dark pill beside it, which is duplicated for the same reason:
+       both instances carry data-layout-switch, so the one document-level handler
+       and applyLayout's sync serve both places, verbatim. -->
+  <span class="laypick railme-lay" role="radiogroup" aria-label="Board view">
+      <button type="button" class="layopt" data-layout-switch="tabs" role="radio" aria-checked="false" title="Separate tabs">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M1.6 6.1H14.4"/></svg>
+        <span class="vh">Agents and Projects as separate tabs</span>
+      </button>
+      <button type="button" class="layopt" data-layout-switch="consolidated" role="radio" aria-checked="false" title="One screen">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M6 2.6V13.4"/></svg>
+        <span class="vh">Agents and Projects on one screen</span>
+      </button>
+    </span>
   <span class="themepick railme-theme" role="radiogroup" aria-label="Appearance">
       <button type="button" class="themeopt" data-theme-set="light" role="radio" aria-checked="false" title="Light">
         <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6"/></svg>
@@ -23255,6 +23315,11 @@ function layoutConsolidated() {
 function applyLayout(layout, apply) {
   const want = layout === 'consolidated' ? 'consolidated' : 'tabs';
   document.querySelectorAll('[data-layout-pick]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.layoutPick === want)));
+  /* #2154: the header toggle is the SAME choice as the Settings tiles, so it is
+     re-painted from every path that lands a layout -- boot (paintStyles), a tile
+     activate, a resize re-check. Kept beside the tile sync, above the apply gate,
+     so a paintStyles(false) with apply=false still corrects the header. */
+  document.querySelectorAll('[data-layout-switch]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.layoutSwitch === want)));
   if (!apply) return;
   const was = document.documentElement.getAttribute('data-layout') || 'tabs';
   document.documentElement.setAttribute('data-layout', want);
@@ -23323,6 +23388,31 @@ document.getElementById('layout-activate').addEventListener('click', async () =>
     const tab = document.querySelector('.tab[data-tab="agents"]');
     if (tab) tab.click();
   } catch { msg.textContent = 'we could not save that'; go.disabled = false; }
+});
+/* #2154: the header board-view toggle. A delegated click, matching the header
+   theme picker's pattern, and one press applies (the Settings tiles keep their
+   deliberate select-then-activate; this is the quick flip). It writes the SAME
+   /api/style layout the tiles do -- no second store -- then re-lays the current
+   tab via applyLayout, which also re-paints every picker's checked state, so the
+   header, the tiles and the board never diverge. No navigation is forced: the
+   moving highlight is the feedback, and the choice applies to the Agents/Projects
+   screen whenever it is next shown (Settings is a whole page in both layouts). On
+   a failed save the view is left as it was: an unreachable engine is a
+   whole-board failure the boot paint has already surfaced, and the header carries
+   no message slot. The narrow-window fold note is not needed here -- the control
+   is hidden below 960px, so a press only lands where consolidated actually
+   applies. */
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest && e.target.closest('[data-layout-switch]');
+  if (!b) return;
+  const want = b.dataset.layoutSwitch === 'consolidated' ? 'consolidated' : 'tabs';
+  if ((document.documentElement.getAttribute('data-layout') || 'tabs') === want) return;
+  try {
+    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: want }) });
+    if (!res.ok) return;
+    const r = await res.json().catch(() => null);
+    applyLayout((r && r.layout) || want, true);
+  } catch { /* the engine is unreachable; the board is already in a failure state */ }
 });
 /* #774: the consolidated centre with nothing open says what to press. */
 function paintPjNone(which) {
