@@ -215,6 +215,40 @@ test('a pane scrolled back in copy-mode is refused, and says which of the two it
   });
 });
 
+test('#2100: a dead codex agent (shell pane) is refused with "no Codex running", NOT "no Claude running"', () => {
+  // The #2100 scenario: a codex agent whose runner never came up (sibling #2099),
+  // so its pane holds a shell. isClaudeCommand is false for a shell, so
+  // isAgentSession/isAgentPane are false and it hits the not-addressable branch.
+  // The runner is codex, so classify routes to the codex path and (no codex
+  // markers on a shell) reads UNKNOWN. Telling its owner "there is no CLAUDE
+  // running" is wrong on an agent they created as OpenAI -- it must name Codex.
+  // (A RUNNING codex agent fronts as `node`, reads as Claude, and stays
+  // messageable -- that path is #571 and is unaffected here.)
+  withFleet([fleet.agent('codexbot', { state: 'unknown', runner: 'codex', command: '-zsh' })], (board) => {
+    const tmux = arm([]);
+    const verdict = chat.deliver('codexbot', 'hello', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.COULD_NOT);
+    assert.match(verdict.because, /no Codex running in its window/);
+    assert.doesNotMatch(verdict.because, /no Claude running/);
+    // 🔑 The composer stays disabled and the send path is NOT enabled by the
+    // copy fix: nothing was typed. (The send-path half is #2099 + a codex guard.)
+    assert.equal(tmux.sends().length, 0);
+  });
+});
+
+test('#2100 control: a stopped CLAUDE agent KEEPS the "no Claude running" line (provider-aware, not a blanket reword)', () => {
+  // The discriminator: identical not-addressable branch, but runner claude vs
+  // codex must produce different copy. If this returned the codex line the fix
+  // would be a blanket reword; if the codex test above returned this line the
+  // fix would be absent. Both must hold.
+  withFleet([fleet.agent('claudebot', { state: 'stopped' })], (board) => {
+    const verdict = chat.deliver('claudebot', 'hello', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.COULD_NOT);
+    assert.match(verdict.because, /no Claude running in its window/);
+    assert.doesNotMatch(verdict.because, /Codex/);
+  });
+});
+
 /* ── the send itself ─────────────────────────────────────────────────────── */
 
 test('a good send is two calls in order: the literal text, then Enter, both pinned to the exact pane', () => {
