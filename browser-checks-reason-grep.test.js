@@ -400,7 +400,7 @@ test('every emit site in every check prints a line the gate can quote', () => {
      quotable (same shape as render-account-badge-1921). */
   /* 38 after kosmos#2097/#2098 added render-picker-provider-2097.js (one SHAPE-1 FAIL loop).
      39 after kosmos#2134 added render-firstrun-model-continue-2134.js (one more SHAPE-1 FAIL loop).
-     40 after kosmos#2140 added render-create-openai-model-2140.js (one more SHAPE-1 FAIL loop). */
+     40 after kosmos#2140 added render-create-openai-model-2140.js (one more SHAPE-1 FAIL loop).
      41 after kosmos#2140 Surface 2 added render-detail-openai-model-2140.js (one more SHAPE-1 FAIL loop). */
   const EXPECTED_SITES = 41;
   assert.equal(sites, EXPECTED_SITES,

@@ -24084,6 +24084,14 @@ async function paintOpenaiDetailModel(a, forWhom) {
   const gen = ++OPENAI_DETAIL_GEN;
   const ours = !!(a && a.isNamedOurs);
   const usable = ours && !(a && a.neverRecorded === true);
+  /* The disabled-reason, OpenAI's own and DELIBERATELY NOT the Claude picker's
+     "Made before Kosmos recorded how it starts / cannot change what it runs on"
+     sentences: those name the Claude launch-file + Found-agents migration story
+     (#149/#150/#362), which does not belong on an OpenAI panel, and reusing them
+     verbatim also collided the web.made-before pins that anchor on that copy. */
+  const refusal = !ours
+    ? 'Kosmos did not start this agent, so it cannot change its model.'
+    : 'Kosmos has no launch file for this agent yet, so there is no model to change here.';
   const currentKey = (a && typeof a.plannedModelName === 'string') ? a.plannedModelName : '';
   const acctDir = (a && a.account && a.account.dir) ? a.account.dir : '';
   if (row) row.hidden = false;
@@ -24110,8 +24118,7 @@ async function paintOpenaiDetailModel(a, forWhom) {
       // Switch stays down until the person picks something OTHER than the current.
       go.disabled = !usable || sel.value === (sel.dataset.current || '');
       if (msg && !usable && !msg.textContent) {
-        msg.textContent = ours ? 'Made before Kosmos recorded how it starts, so there is no launch file to change.'
-          : 'Kosmos did not start this one, so it cannot change what it runs on.';
+        msg.textContent = refusal;
       }
     } else {
       // Not listable / no default account: the single OpenAI option, never a Claude
@@ -24123,10 +24130,7 @@ async function paintOpenaiDetailModel(a, forWhom) {
       go.disabled = true;
       paintModelWhy('d-model', 'd-model-why');
       if (msg) {
-        msg.textContent = usable
-          ? openaiNoModelsNote(out && out.because)
-          : (ours ? 'Made before Kosmos recorded how it starts, so there is no launch file to change.'
-                  : 'Kosmos did not start this one, so it cannot change what it runs on.');
+        msg.textContent = usable ? openaiNoModelsNote(out && out.because) : refusal;
       }
     }
   })();
