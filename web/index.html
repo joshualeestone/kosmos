@@ -26436,6 +26436,22 @@ async function loadCreateExtras() {
     if (gen !== EXTRAS_GEN) return;
     CREATE_ACCOUNTS = list;
     fillCreateAccounts();
+    /* #2097: resetCreateProvider ran before this with CREATE_ACCOUNTS still empty, so on
+       the FIRST create of a page session the provider fell back to the Claude default even
+       on an OpenAI-only machine (the array persists, so the openai default only took effect
+       from the second create on). Now that the real list is in, upgrade an untouched Claude
+       default to OpenAI when that is the only usable provider. This is SAFE against a manual
+       pick: both callers of loadCreateExtras are preceded by resetCreateProvider with no
+       user choice since, the guard acts only while the value is still the pre-populate
+       default ('anthropic'), and a machine with any Claude account keeps hasClaude true (no
+       change) -- so it cannot override a real choice, only complete the default the empty
+       list could not compute. applyCreateProviderUI refills the account menu for openai. */
+    const prov = document.getElementById('create-provider');
+    if (prov && prov.value === 'anthropic') {
+      const hasClaude = CREATE_ACCOUNTS.some((x) => x && x.provider !== 'openai');
+      const hasOpenai = CREATE_ACCOUNTS.some((x) => x && x.provider === 'openai');
+      if (!hasClaude && hasOpenai) { prov.value = 'openai'; applyCreateProviderUI(); }
+    }
   })();
   /* 🛑 THE PROJECTS PICKER IS GONE (Josh, 2026-08-22). What was here fetched
      /api/projects, filled a row of chips, and kept `CREATE_PROJECTS` in step

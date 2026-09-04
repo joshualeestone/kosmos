@@ -56,3 +56,17 @@ test('#2097(2) (source): fillCreateAccounts hides the account row when there is 
   assert.match(fn, /create-account-row/, 'the account row is no longer hidden when there is nothing to pick');
   assert.match(fn, /acctRow\.hidden = usable\.length <= 1/, 'the account-row hide condition changed shape');
 });
+
+// resetCreateProvider decides the default BEFORE CREATE_ACCOUNTS is fetched, so loadCreateExtras
+// must re-apply the openai default once the real list lands, or the OpenAI-only default is inert on
+// the first create of a page session. Source-pin it (loadCreateExtras is async + fetches, so it is
+// not eval-executable in this harness) and prove the guard is present and correctly conditioned.
+test('#2097(3) (source): loadCreateExtras re-defaults to openai once CREATE_ACCOUNTS loads (first-create fix)', () => {
+  const start = PAGE.indexOf('async function loadCreateExtras');
+  assert.ok(start > 0, 'loadCreateExtras moved or was renamed');
+  const fn = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 2);
+  // acts only while still at the pre-populate default, so it cannot override a manual pick
+  assert.match(fn, /prov\.value === 'anthropic'/, 'the re-default is not guarded on the untouched anthropic default -- it could override a manual pick');
+  // upgrades to openai only when OpenAI is the sole usable provider
+  assert.match(fn, /!hasClaude && hasOpenai.*prov\.value = 'openai'/s, 'loadCreateExtras does not upgrade an OpenAI-only default to openai after the accounts load');
+});
