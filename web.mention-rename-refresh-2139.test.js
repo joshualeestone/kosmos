@@ -28,30 +28,36 @@ const path = require('node:path');
 
 const HTML = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 
-/* The #d-save click handler's body, bounded to itself: from its
-   addEventListener to the next top-level `document.getElementById(...)
-   .addEventListener` registration. Bounding to the handler (rather than a fixed
-   byte window) keeps the pin honest if the handler grows, and means a
-   loadProjects() call elsewhere on the page cannot satisfy it. */
+/* The #d-save click handler's body, bounded to ITSELF: from its
+   addEventListener to the handler's own closing `});` at column 0 (the async
+   arrow's `}` + the addEventListener's `)` + `;`). The handler's internal blocks
+   (try/catch, if) all close indented, so the first column-0 `});` after the
+   start is the handler's own close and nothing later can be captured. Bounding
+   to the handler (rather than a fixed byte window, or a `.addEventListener`
+   search that overshoots ~300 lines into the CREATE-AN-AGENT section) keeps the
+   pin honest if the handler grows, and means a loadProjects() call elsewhere on
+   the page cannot satisfy the pin. */
 function dSaveHandler() {
   const start = HTML.indexOf("document.getElementById('d-save').addEventListener('click'");
   assert.ok(start !== -1, 'the #d-save click handler left the page');
-  const after = HTML.indexOf(".addEventListener(", start + 40);
-  // Fall back to a generous slice only if no later registration is found.
-  const end = after !== -1 ? HTML.lastIndexOf('\n', after) : start + 8000;
-  return HTML.slice(start, end);
+  const close = HTML.indexOf('\n});', start);
+  assert.ok(close !== -1, 'the #d-save handler has no column-0 }); close');
+  return HTML.slice(start, close + 4);
 }
 
 test('#2139: the d-save (rename) handler refreshes the projects data so the @ picker is not stale', () => {
   const fn = dSaveHandler();
-  // The refresh itself: loadProjects() re-reads /api/projects, repopulating
-  // PROJECTS[].agents[].name, which is what mentionCandidates shows.
-  assert.match(fn, /loadProjects\(\)/,
+  // The refresh itself: a loadProjects() CALL (semicolon form, so this matches
+  // the executable statement and not the prose in this handler's comments, which
+  // mention loadProjects without a trailing `;`). loadProjects() re-reads
+  // /api/projects, repopulating PROJECTS[].agents[].name, which mentionCandidates
+  // shows.
+  assert.match(fn, /loadProjects\(\);/,
     'the rename Save no longer refreshes the projects data, so the @ picker keeps the old name (#2139)');
   // Guarded on the shown name actually changing, so a role-only save does not
   // pay a projects round-trip. `wasCalled` is the pre-save name; `renameTo` the
   // new one. This pins that the refresh is on the rename path specifically.
-  assert.match(fn, /renameTo && renameTo !== wasCalled\) loadProjects\(\)/,
+  assert.match(fn, /renameTo && renameTo !== wasCalled\) loadProjects\(\);/,
     'the projects refresh is not gated on the name having changed (#2139)');
 });
 
