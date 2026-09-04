@@ -24072,9 +24072,16 @@ let OPENAI_DETAIL_GEN = 0;
    pre-selected, or a single "OpenAI picks its own model for now" option when the
    account cannot list models -- NEVER a Claude model. The current model KEY comes
    from a.plannedModelName, which for OpenAI is the raw model id (modelDisplayName
-   falls through to the id for non-Claude models). The account dir is a.account.dir;
-   a default-codex agent has no configDir, so an empty dir is sent and the server
-   resolves the default OpenAI account. */
+   falls through to the id for non-Claude models).
+   🔑 THE ACCOUNT DIR. a.account is resolved by accountForAgent against the CLAUDE
+   account list (server.js). A codex agent WITH its own configDir gets
+   {dir: <that codex dir>, isDefault:false} -- a real OpenAI account the route
+   accepts, so we send it. A DEFAULT-codex agent (configDir null) falls back to the
+   default CLAUDE account {dir: <~/.claude>, isDefault:true}, which is NOT an OpenAI
+   account: sending it would 404 and wrongly park the picker even for a listable
+   API-key default. So on isDefault we send an EMPTY dir and let the route resolve
+   the default OPENAI account. isDefault is the reliable signal: only the
+   Claude-default fallback sets it, a real codex dir resolves isDefault:false. */
 async function paintOpenaiDetailModel(a, forWhom) {
   const sel = document.getElementById('d-model');
   const go = document.getElementById('d-model-go');
@@ -24093,7 +24100,7 @@ async function paintOpenaiDetailModel(a, forWhom) {
     ? 'Kosmos did not start this agent, so it cannot change its model.'
     : 'Kosmos has no launch file for this agent yet, so there is no model to change here.';
   const currentKey = (a && typeof a.plannedModelName === 'string') ? a.plannedModelName : '';
-  const acctDir = (a && a.account && a.account.dir) ? a.account.dir : '';
+  const acctDir = (a && a.account && a.account.dir && !a.account.isDefault) ? a.account.dir : '';
   if (row) row.hidden = false;
   if (msg) msg.textContent = '';
   // Loading: the box shows a disabled loading option, never a Claude model. Clear

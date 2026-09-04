@@ -127,6 +127,21 @@ test('#2140 S2 LISTABLE: the detail picker shows the account models + "Let OpenA
   assert.match(r.calls.fetchUrl, /\/api\/accounts\/openai\/models\?dir=/);
 });
 
+test('#2140 S2 default-codex (isDefault account) sends an EMPTY dir so the route resolves the default OpenAI account', async () => {
+  // accountForAgent resolves a default-codex agent (configDir null) to the default
+  // CLAUDE account {dir: ~/.claude, isDefault:true}, which is not an OpenAI account.
+  // The picker must NOT send that dir (it would 404); it sends empty so the server
+  // resolves the default OpenAI account. isDefault is the signal.
+  const r = await run({
+    agent: openaiAgent(CARDS.ours, { account: { dir: '/home/.claude', isDefault: true }, plannedModelName: 'o3' }),
+    fetchOk: true,
+    fetchBody: { ok: true, models: [{ key: 'o3', provider: 'openai', label: 'o3', arg: 'o3', why: 'A reasoning model.' }] },
+  });
+  assert.match(r.calls.fetchUrl, /\/api\/accounts\/openai\/models\?dir=$/, 'an isDefault (Claude-default fallback) account must send an EMPTY dir, not the Claude dir');
+  assert.match(r.els['d-model'].innerHTML, /value="o3"/, 'the default account\'s models still render (the picker is not parked)');
+  assert.doesNotMatch(r.els['d-model'].innerHTML, /Claude|sonnet|opus/i, 'no Claude model appears for a default-codex agent');
+});
+
 test('#2140 S2 current-not-in-list -> "Let OpenAI choose" selected (never a wrong pre-select)', async () => {
   const r = await run({
     agent: openaiAgent(CARDS.ours, { plannedModelName: 'gpt-4o-mini-retired' }),
