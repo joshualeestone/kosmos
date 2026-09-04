@@ -4248,7 +4248,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec) {
     const atRl = Date.parse(reported.at || '');
     const freshRl = Number.isFinite(atRl) && (nowMs - atRl) <= REPORT_WORKING_DECAY_MS;
     if (freshRl) {
-      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs);
+      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
     }
     return { ...scraped, reported: false, conflict: 'its screen shows it has hit a usage limit, which its reports cannot know about' + saidWords(reported, nowMs) };
@@ -4518,11 +4518,34 @@ function snapshot() {
        name-keyed read here honours -- because the disruption record is filed
        under the agent's name, and a pane merely borrowing the name is not ours
        to narrate a restart for. `active` folds in the freshness window, so a
-       stale record reads as null and the pane's normal STOPPED stands. */
+       stale record reads as null and the pane's normal STOPPED stands.
+       ⚠️ Resolved for EVERY owned pane, not gated on scraped STOPPED the way
+       `liveAuth` is gated on AUTH_FAILED (challenge iter 2 NIT): the forward
+       self-heal below needs to detect an active record on a pane that has come
+       back ALIVE (state != STOPPED) in order to clear it, so gating the read on
+       STOPPED would defeat that and reinstate the residual it removes. The read
+       is one ENOENT stat per owned pane per tick for every agent NOT mid-restart
+       -- negligible, and only agents actually being restarted have a file. */
     const disruptionRec = isNamedOurs(pane) ? disruption.active(pane.name) : null;
     const status = reconcileReport(
       isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
       scrapedStatus, now, liveAuth, disruptionRec);
+    /* #2019 forward self-heal (challenge iter 2): a disruption record on file
+       but a reconciled state that is a confident LIVE reading means the restart
+       COMPLETED -- drop the record now rather than waiting out the window. This
+       tightens "restarting" to the actual boot interval and removes the residual
+       where a restarted agent that then genuinely crashes within the window
+       would read restarting instead of stopped. Guarded to a definite live state
+       -- NOT RESTARTING (that is scraped-STOPPED-with-record, still restarting)
+       and NOT UNKNOWN (a mid-boot pane we cannot read yet, so the restart may
+       still be in progress) -- so a restart still underway keeps its record.
+       Safe against a first-tick race: begin() and the kill are synchronous
+       within restartInner, so no snapshot can observe the pre-kill live pane
+       after begin(). Clear never throws; the write fits the snapshot's existing
+       best-effort writes (wouldping/observed). */
+    if (disruptionRec && status.state !== STATE.RESTARTING && status.state !== STATE.UNKNOWN) {
+      disruption.clear(pane.name);
+    }
     /* 🔑 WHAT A PING WOULD HAVE BEEN, AND NOBODY IS PINGED (#1494). The phone
        seam's automatic trigger cannot fire for a Kosmos agent: it hangs off
        `PermissionRequest` and every supervisor launch path passes

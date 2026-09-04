@@ -100,6 +100,48 @@ test('snapshot RESOLVES and PASSES the record: a stopped OWNED pane flips to res
   assert.equal(card.disruption.cause, 'model');
 });
 
+test('snapshot FORWARD SELF-HEALS: a completed restart (pane back alive) clears the record, so a later crash reads STOPPED not restarting', () => {
+  // 1. Stopped pane + fresh record -> restarting.
+  fleet.install([fleet.agent('healme', { state: 'stopped' })]);
+  disruption.begin('healme', 'restart');
+  let card = status.snapshot().agents.find((a) => a.sessionName === 'healme');
+  assert.equal(card.state, STATE.RESTARTING);
+
+  // 2. The restart completes: the pane comes back with a live reading. snapshot
+  //    clears the record on that first confident live state.
+  fleet.install([fleet.agent('healme', { state: 'working' })]);
+  card = status.snapshot().agents.find((a) => a.sessionName === 'healme');
+  assert.equal(card.state, STATE.WORKING);
+  assert.equal(disruption.read('healme').found, false, 'the completed restart did not clear the record');
+
+  // 3. THE POINT: if it now genuinely crashes (within what WAS the window), the
+  //    board reads STOPPED, not a lingering restarting -- because the record is
+  //    gone. This is the residual the self-heal removes.
+  fleet.install([fleet.agent('healme', { state: 'stopped' })]);
+  card = status.snapshot().agents.find((a) => a.sessionName === 'healme');
+  assert.equal(card.state, STATE.STOPPED);
+});
+
+test('snapshot does NOT self-heal on an UNKNOWN (mid-boot) reading -- the record survives so a flip back to STOPPED still reads restarting', () => {
+  fleet.install([fleet.agent('booting', { state: 'stopped' })]);
+  disruption.begin('booting', 'model');
+  let card = status.snapshot().agents.find((a) => a.sessionName === 'booting');
+  assert.equal(card.state, STATE.RESTARTING);
+
+  // A mid-boot pane we cannot read yet classifies UNKNOWN. The record must
+  // survive (the restart may still be in progress), so it is NOT cleared -- this
+  // is the guard that distinguishes the self-heal (clear on a CONFIDENT live
+  // reading) from clearing on any non-STOPPED reading. That the surviving record
+  // then makes a flip back to STOPPED read RESTARTING is covered by the unit
+  // tests above; here we assert only the thing this test is about -- the record
+  // is not cleared on UNKNOWN. (We cannot re-install 'stopped' to show it: the
+  // fixture's verify runs the reconciled state, which with the record on file is
+  // RESTARTING, not the 'stopped' the spec would assert.)
+  fleet.install([fleet.agent('booting', { state: 'unknown' })]);
+  card = status.snapshot().agents.find((a) => a.sessionName === 'booting');
+  assert.equal(disruption.read('booting').found, true, 'an UNKNOWN mid-boot reading wrongly cleared the record');
+});
+
 // Note on the isNamedOurs gate: snapshot only looks up a disruption for a pane
 // TIED to its name (`isNamedOurs(pane) ? disruption.active(pane.name) : null`).
 // It is not exercised end-to-end here because a stranger pane never presents as

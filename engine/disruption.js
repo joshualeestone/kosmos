@@ -44,14 +44,22 @@ const CAUSES = ['restart', 'model', 'provider', 'account', 'instructions'];
    ⚠️ THIS BOUNDS ONLY THE FAILURE CASE. A restart that works ends the state
    the instant the pane has a Claude process again -- classify() stops
    returning STOPPED, so reconcileReport never reaches the disruption branch,
-   window or no window. The window is therefore "how long we wait before we
-   stop believing a restart that has NOT visibly come back", not "how long we
-   show the animation". Set long enough that a slow launchd bootstrap (KeepAlive
-   throttles a relaunch by up to ~30s) plus a Claude boot never trips the old
-   false-"gone", and aligned with liveness.STALE_AFTER_MS so the fleet has one
-   grace intuition rather than two. Erring long is the safe direction here: too
-   short reintroduces the bug this card removes; too long only delays an honest
-   failure message that the pane-alive check would pre-empt anyway. Tunable. */
+   window or no window (and status.snapshot clears the record outright on the
+   first live reading, tightening it further). The window is therefore "how long
+   we wait before we stop believing a restart that has NOT visibly come back",
+   not "how long we show the animation". 180s is chosen on its OWN terms: a
+   generous upper bound on a real restart -- a slow launchd bootstrap (KeepAlive
+   throttles a relaunch by up to ~30s) plus a cold Claude boot -- so the old
+   false-"gone" never trips before a genuine restart completes. Erring long is
+   the safe direction: too short reintroduces the bug this card removes; too long
+   only delays an honest failure message that the pane-alive check pre-empts
+   anyway.
+   📌 NOT COUPLED TO liveness.STALE_AFTER_MS even though both are 180s today
+   (challenge iter 2): they are different facts -- that one is "how long after a
+   heartbeat to still believe it", this one is "how long a restart may take" --
+   so importing it would create a wrong coupling where tuning heartbeat cadence
+   silently moved the restart window. They coincide; they are not the same
+   number. Tunable, independently. */
 const WINDOW_MS = 180 * 1000;
 
 function fileFor(sessionName) {

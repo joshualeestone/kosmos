@@ -100,9 +100,14 @@ test('a fresh begin overwrites a prior one for the same agent (at most one in fl
   assert.notEqual(back.startedAt, first);
 });
 
-test('begin refuses an unwritable name rather than throwing', () => {
-  // store.safeKey rejects a name that cannot be keyed; begin must answer, not crash.
+test('begin refuses an unwritable name with ok:false rather than throwing', () => {
+  // store.safeKey throws on '' (an unkeyable name), so begin must catch it and
+  // answer with a refusal -- not crash, and not silently succeed. Asserting
+  // ok === false (not merely "ok is a boolean") makes this able to fail if the
+  // catch is ever removed or begin starts returning a truthy result here.
   const r = disruption.begin('', 'restart');
-  // Either a refusal (unkeyable) or a write under a coerced key -- never a throw.
-  assert.equal(typeof r.ok, 'boolean');
+  assert.equal(r.ok, false);
+  assert.equal(typeof r.because, 'string');
+  // And nothing was written under any coerced key.
+  assert.equal(disruption.read('').found, false);
 });
