@@ -138,6 +138,16 @@ process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(nodePath.join(os.tmpdir(),
 // home into a test. Directories only, nothing written -- but a listing is
 // still a read of somebody's disk that no test here means to make.
 process.env.HOME = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-home-'));
+// #2145: a signed-in DEFAULT Claude account beside the sandbox HOME. The create
+// route now refuses a Claude create on a machine with NO Claude account at all
+// (accountConnectable, the sibling of #1903's dead-account gate). The HOME above
+// is a fresh empty tmpdir -- a machine with no sign-ins -- so a create-route test
+// that means to SUCCEED (record shape, project attachment) must name the account
+// a real such machine would have. The liveness probe runs the fake claude bin
+// (AGENT_WORKFORCE_CLAUDE_BIN=/bin/echo below) -> not a dead sign-in -> the create
+// proceeds. accounts.js reads the default account's record at <HOME>/.claude.json.
+fs.writeFileSync(nodePath.join(process.env.HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'route-test@example.com' } }));
+fs.mkdirSync(nodePath.join(process.env.HOME, '.claude', 'projects'), { recursive: true });
 // ⚠️ AND THE RELEASE HOST. Every /api/status request pokes the update check;
 // without this override the unit suite fires real HTTPS requests at the
 // production release host on every status test. Port 9 (discard) on loopback
