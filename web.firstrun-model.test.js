@@ -334,7 +334,13 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
      `engine/openaiaccounts.js:242`, which sends the key to api.openai.com to
      validate it. The short form was untrue and the true form needed eleven words
      of qualification, so the claim was removed instead. */
-  const settingsWarning = page.match(/Paste an OpenAI API key\. It stays on this computer[^<]*/g) || [];
+  /* #2164 anchored the count on the reassurance sentence, not on "Paste an OpenAI
+     API key. It stays...", because that lead is now a <b> element and the </b>
+     tag sits between "key." and "It stays", so the contiguous form matches zero.
+     The reassurance clause is unformatted and unique to the Settings warning
+     (first run carries no such promise, asserted just below), so it still counts
+     the warning exactly once and survives the formatting change. */
+  const settingsWarning = page.match(/It stays on this computer with the OpenAI runner[^<]*/g) || [];
   assert.equal(settingsWarning.length, 1,
     'Settings should carry exactly one key warning, and it is missing or duplicated');
 

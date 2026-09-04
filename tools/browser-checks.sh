@@ -983,6 +983,10 @@ if boot_board "$sb7" "$P8"; then
   run_one "contrast"            env KOSMOS_URL="$B8" node docs/browser-checks/contrast.js
   run_one "named-controls"      env KOSMOS_URL="$B8" node docs/browser-checks/named-controls.js
   run_one "render-create-form"  node docs/browser-checks/render-create-form.js "$B8"
+  # #2164: the add-a-provider OpenAI key step is formatted like the Claude
+  # callout, not flat grey. Read-only (forces the modal visible to read computed
+  # colours, never POSTs), so it runs on this shared board like contrast above.
+  run_one "render-openai-key-callout-2164" node docs/browser-checks/render-openai-key-callout-2164.js "$B8"
   # #1652: the import-my-existing-agent walk. A create-flow check like
   # render-create-form (fills the form, never presses Create, so it persists
   # nothing on this shared board). It POSTs /api/first-run/complete itself, so
