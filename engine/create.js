@@ -1193,27 +1193,45 @@ function setModel(name, modelKey) {
   /* The agent's PROVIDER, from the runner its job actually launches. One
      derivation, the same direction `createAgent` goes in reverse. */
   const agentProvider = job.runner === 'codex' ? 'openai' : 'anthropic';
-  const m = modelFor(agentProvider, modelKey);
-  if (!m) {
-    /* ⚠️ THREE DIFFERENT REFUSALS, because they send a person three places.
-       The blanket "OpenAI picks its own model for now" that stood here was
-       true while this list had one vendor in it (#245 v1) and becomes FALSE
-       the day OpenAI rows are added -- and nothing would have caught it,
-       because it is a sentence rather than a check. Scoped to the provider,
-       the right refusal falls out of the data instead of being remembered. */
-    if (!modelsFor(agentProvider).length) {
+  let m;
+  if (agentProvider === 'openai') {
+    /* #2140: OpenAI models are PER-ACCOUNT and dynamic (accountModels' live
+       /v1/models fetch), so key===arg===the model id and they are not in the
+       static MODELS list. An EMPTY key is "Let OpenAI choose" -- auto, codex's
+       own default -- and writes an empty model slot (codex picks its own). A
+       non-empty id is sanity-bounded here; the "this agent's account can run
+       it" check is async and lives at the server change-model route (validated
+       against accountModels), the same seam the create route uses. */
+    const id = String(modelKey == null ? '' : modelKey).trim();
+    if (id !== '') {
+      if (!/^[A-Za-z0-9._:-]{1,80}$/.test(id)) {
+        return { outcome: OUTCOME.REFUSED, because: 'that is not a valid OpenAI model name' };
+      }
+      /* Cross-vendor guard (same as the create path): a Claude model key is
+         never an OpenAI model, refused here without a network call. */
+      const claudeMdl = modelFor('anthropic', id);
+      if (claudeMdl) {
+        return { outcome: OUTCOME.REFUSED, because: `${claudeMdl.label} is a Claude model, not one OpenAI runs, so ${spoken} cannot use it` };
+      }
+    }
+    m = { key: id, arg: id, provider: 'openai', label: id || null };
+  } else {
+    m = modelFor(agentProvider, modelKey);
+    if (!m) {
+      /* ⚠️ THREE DIFFERENT REFUSALS, because they send a person three places.
+         The blanket "OpenAI picks its own model for now" that stood here was
+         true while this list had one vendor in it (#245 v1) and becomes FALSE
+         the day OpenAI rows are added -- and nothing would have caught it,
+         because it is a sentence rather than a check. Scoped to the provider,
+         the right refusal falls out of the data instead of being remembered. */
+      const elsewhere = MODELS.find((x) => x.key === String(modelKey));
       return {
         outcome: OUTCOME.REFUSED,
-        because: `${spoken} runs on OpenAI, and there are no OpenAI models to choose from yet`,
+        because: elsewhere
+          ? `${elsewhere.label} is not a model ${agentProvider === 'openai' ? 'OpenAI' : 'Anthropic'} runs, so ${spoken} cannot use it`
+          : 'pick a model from the list',
       };
     }
-    const elsewhere = MODELS.find((x) => x.key === String(modelKey));
-    return {
-      outcome: OUTCOME.REFUSED,
-      because: elsewhere
-        ? `${elsewhere.label} is not a model ${agentProvider === 'openai' ? 'OpenAI' : 'Anthropic'} runs, so ${spoken} cannot use it`
-        : 'pick a model from the list',
-    };
   }
 
   try {
@@ -2334,18 +2352,21 @@ function createAgentInner(opts) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER, steps };
   }
   if (provider === 'openai') {
-    /* v1 boundaries, refused in words rather than silently ignored: the
-       model is codex's own default (its catalogue is not ours to mirror
-       yet). The ACCOUNT is not a boundary and is not refused here: createAgentInner
-       honours opts.account, and this clause used to claim otherwise (Claude
-       account selection is CLAUDE_CONFIG_DIR, which means nothing to
-       codex). ⚠️ SO "BOTH" NO LONGER HAS TWO REFERENTS: the same edit that
-       removed the account from this list left the model as the only boundary,
-       and the clause below refuses `opts.model` ALONE. It lifts when phase 2
-       gives codex's catalogue a real mechanism. */
-    if (opts && opts.model !== undefined) {
-      return { outcome: OUTCOME.REFUSED, because: 'an OpenAI agent picks its own model for now, so leave the model unchosen', steps };
-    }
+    /* #2140 LIFTED THE MODEL BOUNDARY. This clause used to refuse `opts.model`
+       outright ("an OpenAI agent picks its own model for now") -- the #245 v1
+       boundary, written while codex's catalogue was not ours to mirror. It is
+       now: engine/openaiaccounts.js accountModels() lists a specific account's
+       drivable chat models from its own /v1/models, and the supervisor already
+       passes `codex -m <MODEL>`. So an OpenAI model is honoured here, resolved
+       in the model block below (key===arg===id, per-account, so NOT via the
+       static MODELS list `modelFor` reads). The model stays OPTIONAL: absent or
+       empty is codex's own default, exactly the prior behaviour. The
+       "is this a model this account can run" check is async (a live fetch) and
+       lives at the server create route, validated against accountModels before
+       this call -- the same seam accountConnectable uses for account liveness;
+       here the id is only sanity-bounded so a bad caller cannot write an
+       arbitrary string into the launchd job's argv. The ACCOUNT was never a
+       boundary (createAgentInner honours opts.account). */
     if (!DRY_RUN && !runnerRunnable(codexBin)) {
       return { outcome: OUTCOME.REFUSED, because: 'we could not find the OpenAI runner on this computer, so an agent made now would never start', steps };
     }
@@ -2438,22 +2459,50 @@ function createAgentInner(opts) {
   }
   let modelArg = null;
   if (wantModelKey !== undefined) {
+    if (provider === 'openai') {
+      /* #2140: OpenAI models are PER-ACCOUNT and dynamic (accountModels' live
+         /v1/models fetch), so they are NOT in the static MODELS list `modelFor`
+         reads, and for them key===arg===the model id. An EMPTY value is the
+         "Let OpenAI choose" default -- auto, codex's own model, the prior
+         behaviour -- so it leaves modelArg null. A non-empty id is written as
+         the `-m` arg; it is only sanity-bounded here (the authoritative "this
+         account can run it" check is async and ran at the server create route,
+         against accountModels). The bound stops a bad caller writing an
+         arbitrary string into the launchd job's argv. */
+      const id = String(wantModelKey).trim();
+      if (id !== '') {
+        if (!/^[A-Za-z0-9._:-]{1,80}$/.test(id)) {
+          return { outcome: OUTCOME.REFUSED, because: 'that is not a valid OpenAI model name', steps };
+        }
+        /* Cross-vendor guard, cheap and sync: a Claude model KEY is never an
+           OpenAI model, so reject it here rather than write it into a codex
+           launch (the per-account "is this one of YOUR models" check is the
+           async one at the server route). Catches the "opus into codex" mistake
+           without a network call. */
+        const claudeMdl = modelFor('anthropic', id);
+        if (claudeMdl) {
+          return { outcome: OUTCOME.REFUSED, because: `${claudeMdl.label} is a Claude model, not one OpenAI runs; pick one from OpenAI's list`, steps };
+        }
+        modelArg = id;
+      }
+    } else {
       /* ⚠️ SCOPED TO THIS AGENT'S PROVIDER (#1026). A bare key lookup accepts a
-       real model belonging to the other vendor, and the refusal has to tell
-       those apart: "there is no such model" and "that model is not one this
-       provider runs" send a person to different places. */
-    const m = modelFor(provider, wantModelKey);
-    if (!m) {
-      const elsewhere = MODELS.find((x) => x.key === String(wantModelKey));
-      return {
-        outcome: OUTCOME.REFUSED,
-        because: elsewhere
-          ? `${elsewhere.label} is not a model ${provider === 'openai' ? 'OpenAI' : 'Anthropic'} runs; pick one from that provider's list`
-          : 'pick a model from the list',
-        steps,
-      };
+         real model belonging to the other vendor, and the refusal has to tell
+         those apart: "there is no such model" and "that model is not one this
+         provider runs" send a person to different places. */
+      const m = modelFor(provider, wantModelKey);
+      if (!m) {
+        const elsewhere = MODELS.find((x) => x.key === String(wantModelKey));
+        return {
+          outcome: OUTCOME.REFUSED,
+          because: elsewhere
+            ? `${elsewhere.label} is not a model ${provider === 'openai' ? 'OpenAI' : 'Anthropic'} runs; pick one from that provider's list`
+            : 'pick a model from the list',
+          steps,
+        };
+      }
+      modelArg = m.arg;
     }
-    modelArg = m.arg;
   }
 
   /**
