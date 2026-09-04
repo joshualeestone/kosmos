@@ -17,6 +17,17 @@
 set -euo pipefail
 V="${1:-}"
 [ -n "$V" ] || { echo "usage: bash tools/release.sh <version>   e.g. 0.2.12"; exit 1; }
+# #2036: which channel this cut publishes to. DEFAULT staging -- the cut lands on the
+# STAGING pointer (dist/latest-staging.json) and does NOT touch prod (dist/latest.json),
+# so NO cut reaches users until an explicit fresh-user-verified promote (promote-channel.sh).
+# This is the whole point of the card: 0.6.25 went straight to prod and killed every board.
+# KOSMOS_CUT_CHANNEL=prod is the documented direct-to-prod escape hatch (bootstrap/emergency).
+CUT_CHANNEL="${KOSMOS_CUT_CHANNEL:-staging}"
+case "$CUT_CHANNEL" in
+  staging) POINTER_FILE="latest-staging.json" ;;
+  prod)    POINTER_FILE="latest.json" ;;
+  *) echo "release: KOSMOS_CUT_CHANNEL must be 'staging' or 'prod' (got '$CUT_CHANNEL')" >&2; exit 1 ;;
+esac
 # The cut's first line in the record, written the moment the version is known
 # and before ANY check can refuse (Shredder, 2026-08-25; hoisted above the
 # node read and the site-checkout check after two controls died silently in
@@ -727,13 +738,17 @@ echo "   kosmos-$V-arm64.tar.gz.sha256 names its file and verifies in place (sha
 # (arm64 is the only arch released today; a multi-arch release would carry per-arch entries.)
 KM_ARTIFACT_SHA="$(awk '{print $1}' "$REPO/dist/kosmos-arm64.tar.gz.sha256")"
 [ -n "$KM_ARTIFACT_SHA" ] || { echo "could not read the artifact sha256 for latest.json" >&2; exit 1; }
-# The prod pointer shape comes from the ONE shared writer (tools/lib/write-latest-pointer.js),
-# the same writer publish-staging-pointer.sh uses, so the prod and staging pointers cannot
-# diverge in shape (#2036) -- promote copies the staging pointer verbatim onto this file.
+# #2036: the cut writes the CHANNEL pointer ($POINTER_FILE) -- by default the STAGING
+# pointer (dist/latest-staging.json), leaving prod (dist/latest.json) untouched at its
+# prior version. The pointer SHAPE comes from the ONE shared writer
+# (tools/lib/write-latest-pointer.js), the same writer publish-staging-pointer.sh uses, so
+# the staging and prod pointers cannot diverge in shape -- promote-channel.sh copies the
+# staging pointer verbatim onto latest.json. With KOSMOS_CUT_CHANNEL=prod, $POINTER_FILE is
+# latest.json and this is the old direct-to-prod behavior (escape hatch).
 KM_LJ_VERSION="$V" KM_LJ_SHA="$KM_ARTIFACT_SHA" \
 KM_LJ_ARTIFACT="kosmos-$V-arm64.tar.gz" KM_LJ_MANIFEST="kosmos-$V-arm64.manifest.json" \
-  node "$(cd "$(dirname "$0")" && pwd)/lib/write-latest-pointer.js" "$SITE/dist/latest.json"
-echo "   latest.json -> $(cat "$SITE/dist/latest.json")"
+  node "$(cd "$(dirname "$0")" && pwd)/lib/write-latest-pointer.js" "$SITE/dist/$POINTER_FILE"
+echo "   $POINTER_FILE ($CUT_CHANNEL) -> $(cat "$SITE/dist/$POINTER_FILE")"
 
 # 🛑 THE INSTALLER, SERVED FROM THE SITE ROOT AND NOT FROM dist/. Copying the
 # bundle does not carry it, and BOTH paths run it: a new install (`curl … /setup
@@ -817,13 +832,16 @@ step "== 7b. the site's release files are committed and pushed BEFORE they deplo
 # `-- <paths>` on the commit leaves other staged work exactly as staged.
 # What the push DOES carry: any commits already on this checkout's main
 # that were not pushed yet, which the deploy would serve regardless.
-_site_paths="dist/latest.json dist/kosmos-$V-arm64.manifest.json setup setup.sha256 versions.html"
+# #2036: commit the CHANNEL pointer ($POINTER_FILE). In the default staging channel this
+# is dist/latest-staging.json and dist/latest.json (prod) is deliberately NOT in the set,
+# so prod stays at its prior version until promote-channel.sh flips it.
+_site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json setup setup.sha256 versions.html"
 # shellcheck disable=SC2086
 git -C "$SITE" add $_site_paths
 # shellcheck disable=SC2086
 if ! git -C "$SITE" diff --quiet HEAD -- $_site_paths; then
   # shellcheck disable=SC2086
-  git -C "$SITE" commit -q -m "$V: the served installer, pointer and versions entry" -- $_site_paths
+  git -C "$SITE" commit -q -m "$V: the $CUT_CHANNEL pointer ($POINTER_FILE), installer and versions entry" -- $_site_paths
 fi
 # The sha that deploys is the sha that is PUSHED, read before the push and
 # pushed by name: the checkout is shared and a commit can land between a
@@ -898,13 +916,28 @@ step "== 9. verify what is SERVED, from the code that fetches it =="
 # read cannot tell "not published" from "not yet".
 SERVED_OK=0
 for i in 1 2 3 4 5 6; do
-  if SITE="$SITE" REPO="$REPO" bash "$REPO/tools/verify-served.sh"; then SERVED_OK=1; break; fi
+  # #2036: verify the CHANNEL pointer ($POINTER_FILE) names this version. In the default
+  # staging channel this checks dist/latest-staging.json; the versioned-artifact, sha,
+  # setup and tmux checks in verify-served.sh are pointer-independent and unchanged.
+  if KOSMOS_VERIFY_POINTER="$POINTER_FILE" SITE="$SITE" REPO="$REPO" bash "$REPO/tools/verify-served.sh"; then SERVED_OK=1; break; fi
   echo "   (attempt $i did not match; waiting)"
   sleep 10
 done
 if [ "$SERVED_OK" != 1 ]; then
   echo "SOMETHING A USER RECEIVES IS STILL WRONG AFTER SIX READS"
   exit 1
+fi
+# #2036: a STAGING cut must NOT have moved prod. Assert the prod pointer (latest.json) does
+# NOT name this version -- it still serves the prior release until an explicit promote. This
+# is the guard that prevents the 0.6.25 class (a cut reaching every user directly). The prod
+# escape hatch (KOSMOS_CUT_CHANNEL=prod) writes latest.json itself, so it is exempt.
+if [ "$CUT_CHANNEL" = staging ]; then
+  _prod_ptr="$(curl -fsS -H 'Cache-Control: no-cache' "${HOST:-https://installkosmos.com}/dist/latest.json" 2>/dev/null || true)"
+  if printf '%s' "$_prod_ptr" | grep -q "\"$V\""; then
+    echo "   PROD POINTER latest.json ALREADY NAMES $V after a STAGING cut -- prod should be untouched. Refusing." >&2
+    exit 1
+  fi
+  echo "   prod pointer (latest.json) unchanged -- $V is on staging only, awaiting promote"
 fi
 
 step "== 9b. the served bundle is the frozen tree, file by file (#597) =="
