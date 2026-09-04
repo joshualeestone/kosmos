@@ -39,7 +39,7 @@ GATE="bash $STUB"
 # #2036/#2129: promote now runs a SECOND gate (the agent-spawn gate) after the experience
 # gate passes. Stub it too, defaulting to PASS (0) so every existing experience-gate case is
 # unchanged; its own arms (1 refuse / 2 HOLD / 2+force) get dedicated cases below.
-AGENT_STUB="$T/stub-agent-gate.sh"; printf '#!/usr/bin/env bash\nexit "${AGENT_RC_WANT:-0}"\n' > "$AGENT_STUB"; chmod +x "$AGENT_STUB"
+AGENT_STUB="$T/stub-agent-gate.sh"; printf '#!/usr/bin/env bash\nprintf "agent-gate-arg1:%%s\\n" "${1:-}"\nexit "${AGENT_RC_WANT:-0}"\n' > "$AGENT_STUB"; chmod +x "$AGENT_STUB"
 export KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AGENT_STUB"
 export AGENT_RC_WANT=0
 
@@ -182,6 +182,11 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=2 bash "$PRO
 Sa0="$(make_site)"; bash "$PUBLISH" "$Sa0" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=0 bash "$PROMOTE" "$Sa0" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "agent-spawn gate PASSED" && [ -f "$Sa0/dist/latest.json" ] && pass "promote: both gates pass -> promote" || bad "promote both-gates (rc=$rc, out=$out)"
+
+# the [port] is forwarded to the SECOND (agent) gate too, not only the experience gate.
+Sap="$(make_site)"; bash "$PUBLISH" "$Sap" >/dev/null 2>&1
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=0 bash "$PROMOTE" "$Sap" 17777 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "agent-gate-arg1:17777" && pass "promote: forwards [port] to the agent gate too" || bad "promote agent-gate port-forward (rc=$rc, out=$out)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-staging-channel-2036: ALL PASS"; else echo "test-staging-channel-2036: FAILURES above"; exit 1; fi

@@ -65,6 +65,10 @@ if [ -z "$PORT" ]; then
   _uid="$(/usr/bin/id -u 2>/dev/null || echo 501)"
   if [ "$_uid" = "501" ]; then PORT=16180; else PORT=$((16180 + 1 + (_uid % 3999))); fi
 fi
+# A non-numeric PORT (a fat-fingered KOSMOS_PORT/arg) would be interpolated into the curl
+# URL and fail obscurely; refuse it as cannot-tell up front (promote validates the positional
+# port too, but a direct KOSMOS_PORT env reaches here unchecked).
+case "$PORT" in ''|*[!0-9]*) say "port '${PORT}' is not numeric - cannot tell"; exit 2 ;; esac
 URL="http://127.0.0.1:${PORT}"
 
 # --- token OFF argv (a mode-600 header file); argv is world-readable via ps (#1970). ---
@@ -187,7 +191,7 @@ POLL_INT="${KOSMOS_AGENT_ONLINE_POLL_INT:-5}"
 
 # create_and_wait <provider> <account-dir> -> echoes verdict, returns 0 online / 1 red / 2 cannot
 create_and_wait() {
-  local prov="$1" dir="$2" nm rc body sess
+  local prov="$1" dir="$2" nm body sess
   nm="verify2129-${prov}-${STAMP}-$$"
   body="$("$NODE" -e 'process.stdout.write(JSON.stringify({name:process.argv[1],provider:process.argv[2],account:process.argv[3],role:"pm"}))' "$nm" "$prov" "$dir")"
   local resp; api_post /api/agents "$body"; resp="$RESP_BODY"
@@ -204,7 +208,7 @@ create_and_wait() {
   CREATED_NAMES="$CREATED_NAMES $sess"
   say "  [$prov] created '$sess' - polling for online (up to ${POLL_SECS}s)..."
 
-  local waited=0 st because
+  local waited=0 st because seen=0
   while [ "$waited" -lt "$POLL_SECS" ]; do
     local snap; api_get /api/status; snap="$RESP_BODY"
     # find this session's card; print "state\tbecause"
@@ -219,6 +223,7 @@ create_and_wait() {
         }
       })' "$sess")"
     st="${line%%$'\t'*}"; because="${line#*$'\t'}"
+    [ -n "$st" ] && seen=1   # we found this session's card at least once
     case "$st" in
       idle|working)
         say "  [$prov] ONLINE (state=$st) - the #2129 class is not present."; return 0 ;;
@@ -234,6 +239,17 @@ create_and_wait() {
     esac
     sleep "$POLL_INT"; waited=$((waited + POLL_INT))
   done
+  # Distinguish the two timeouts so a shape mismatch is self-diagnosing rather than a
+  # silent, un-forceable exit 1: an agent that NEVER appeared in /api/status is far more
+  # likely a board-shape mismatch (this gate reads agents[] cards keyed on sessionName
+  # with classify.state) than a real #2129 wedge. Say which, so an operator can tell a
+  # broken gate from a broken build.
+  if [ "$seen" = 0 ]; then
+    say "  [$prov] created agent '$sess' NEVER appeared in /api/status within ${POLL_SECS}s."
+    say "    -> likely a board-shape mismatch, not a #2129 wedge: this gate expects an agents[] card"
+    say "       with sessionName + classify.state. Verify the /api/status shape on the running board."
+    return 1
+  fi
   say "  [$prov] did NOT come online within ${POLL_SECS}s (last state='${st:-<none>}')"; return 1
 }
 
