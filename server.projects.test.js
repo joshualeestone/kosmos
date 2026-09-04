@@ -31,6 +31,15 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-projects-'));
 const HOME = path.join(SANDBOX, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.HOME = HOME;
+// #2145: a signed-in DEFAULT Claude account beside the sandbox HOME. The create
+// route now refuses a Claude create on a machine with NO Claude account at all
+// (accountConnectable, the sibling of #1903's dead-account gate). The #166/#732
+// seed tests below create the first agent over the wire and mean to SUCCEED, so
+// name the account a real machine would have. The liveness probe runs the fake
+// claude bin (AGENT_WORKFORCE_CLAUDE_BIN=/bin/echo) -> not a dead sign-in -> the
+// create proceeds. accounts.js reads the default account at <HOME>/.claude.json.
+fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'route-test@example.com' } }));
+fs.mkdirSync(path.join(HOME, '.claude', 'projects'), { recursive: true });
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');

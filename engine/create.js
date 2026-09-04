@@ -2165,7 +2165,24 @@ async function accountConnectable({ provider, accountDir } = {}) {
     const openai = require('./openaiaccounts');
     let list; try { list = openai.list(); } catch (err) { return failOpen("openai.list", err); }
     const acct = dir ? list.find((a) => a.dir === path.resolve(dir)) : list.find((a) => a.isDefault);
-    if (!acct) return { ok: true }; // unknown -> createAgentInner refuses
+    if (!acct) {
+      /* #2145: mirror of the Claude arm below, so the two providers cannot
+         disagree. A specified-unknown dir stays {ok:true} (createAgentInner
+         owns it). No account chosen (dir null) AND no default OpenAI sign-in
+         means the agent would run on the default codex home with nothing in it
+         -- a dead agent createAgentInner does not refuse (configDir stays null
+         and it proceeds). Confirmed "no account" from a list() that returned,
+         not fail-open uncertainty (#1916). */
+      if (dir) return { ok: true };
+      let hasClaude = false;
+      try { hasClaude = require('./accounts').list().length > 0; } catch { hasClaude = false; }
+      return {
+        ok: false,
+        because: 'there is no OpenAI sign-in on this computer, so an agent created on OpenAI could not run. '
+          + 'Add an OpenAI key on the Accounts tab in Settings'
+          + (hasClaude ? ', or create this agent on Claude instead' : '') + '.',
+      };
+    }
     /* 🛑 THE ONE HOME THE GATE AND THE AGENT WOULD DISAGREE ABOUT. A created
        OpenAI-DEFAULT agent gets configDir=null and its launchd job does NOT
        inherit the server's CODEX_HOME override (createAgentInner's own note), so
@@ -2186,7 +2203,30 @@ async function accountConnectable({ provider, accountDir } = {}) {
   const accountsMod = require('./accounts');
   let list; try { list = accountsMod.list(); } catch (err) { return failOpen("accounts.list", err); }
   const acct = dir ? list.find((a) => a.dir === path.resolve(dir)) : list.find((a) => a.isDefault);
-  if (!acct) return { ok: true }; // unknown -> createAgentInner refuses with REFUSE_ACCOUNT
+  if (!acct) {
+    /* #2145: a SPECIFIED but unknown dir stays {ok:true} -- createAgentInner
+       owns that refusal (REFUSE_ACCOUNT), and it does. But NO account chosen
+       (dir null) AND no default Claude account is a case createAgentInner does
+       NOT own: it leaves configDir null and CREATES on the default config,
+       which on a machine that never signed in to Claude holds no credential --
+       the exact #1903 dead-agent shape, reached by a MISSING account rather
+       than a dead one (the sibling #1903's liveness gate cannot see, because
+       there is no account to probe). Proven reachable after #2097: the wizard
+       defaults to OpenAI, a user opens the provider menu, picks Anthropic, and
+       Creates with the account row empty. Refuse it here, where the account
+       gate lives. This is a CONFIRMED "no account" from a list() that returned
+       -- not the environmental uncertainty the fail-open class (#1916)
+       protects -- so refusing is correct and not a fail-closed-on-doubt. */
+    if (dir) return { ok: true };
+    let hasOpenai = false;
+    try { hasOpenai = require('./openaiaccounts').list().length > 0; } catch { hasOpenai = false; }
+    return {
+      ok: false,
+      because: 'there is no Claude account signed in on this computer, so an agent created on Claude could not run. '
+        + 'Connect a Claude account from the Accounts tab in Settings'
+        + (hasOpenai ? ', or create this agent on OpenAI instead' : '') + '.',
+    };
+  }
   /* 🛑 REAL liveness, NOT subscription.checkLive (#1916). checkLive is built on
      `claude auth status`, which reports a STORED login and badges a fully-expired
      OAuth token as "Signed in" -- so the first version of this gate accepted a
