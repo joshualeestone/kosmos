@@ -46,11 +46,19 @@ pre-existing global-name skipping of `Downloads`/`Desktop`/`Music`/`Movies`/`Pic
 be inconsistent and add a path-based special case. The follow-up user-triggered rescan slice should
 be aware the skip is global-by-name, not $HOME-scoped.
 
-Tradeoff (deliberate): auto-discovery of agents living inside ~/Documents/~/Downloads/~/Desktop is
-dropped. These trigger prompts and are non-standard for agent/Claude work folders; discovery there can
-return as an explicit USER-TRIGGERED rescan (which carries its own consent) rather than an auto scan
-that prompts a brand-new user. `SCAN.DROP_DEPTH` and the `importOnly` plumbing in scan() are retained
-(now dormant) for that follow-up.
+RECONCILE with #1652 (Renet), Splinter's design call: removing the TCC-folder discovery OUTRIGHT
+would regress Renet's #1652 (Josh flagged FAIL: "import never found my 7 loose agent files in
+Downloads/Documents"). Both are Josh needs. So this PR does NOT drop the discovery, it MOVES it off
+the unprompted auto scan onto an on-demand import path:
+- `discover.scan()` bare (the AUTO first-run scan) uses `defaultScanRoots()` = safe roots only, no TCC.
+- `discover.scan({importScan:true})` re-adds exactly the TCC roots (`~/Documents` deep, `~/Downloads`
+  /`~/Desktop` import-only) via `defaultScanRoots({importScan:true})`. A macOS TCC prompt there is
+  EXPECTED and contextual because the user just asked to find their files.
+Seam agreed with Renet: this PR is `discover.js` ONLY (the engine `importScan` flag + the tcc-roots
+test). Renet owns `server.js` (her `GET /api/scan-import` calls `scan({importScan:true})`, and her
+`/api/agent-import-file` membership check uses it too) and the import UI, on her `fix-1652-import-ui`
+branch (#2147, draft). She rebases #2147 onto this once merged. `SCAN.DROP_DEPTH` and the `importOnly`
+plumbing are retained because `importScan` uses them (no longer dormant).
 
 ## Tests
 

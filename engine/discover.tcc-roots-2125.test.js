@@ -56,7 +56,7 @@ test('#2125: Downloads and Desktop are likewise skipped by name', () => {
   assert.ok(found_dirs.includes(ok), 'CONTROL: the agent under projects/ was NOT surfaced');
 });
 
-test('#2125: defaultScanRoots() names NONE of the TCC-protected home folders', () => {
+test('#2125: the AUTO defaultScanRoots() names NONE of the TCC-protected home folders', () => {
   const bases = discover.defaultScanRoots().map((r) => path.basename(r.dir));
   for (const tcc of ['Documents', 'Downloads', 'Desktop']) {
     assert.ok(!bases.includes(tcc), `defaultScanRoots still includes ~/${tcc}, which fires a TCC prompt on a fresh install`);
@@ -65,4 +65,41 @@ test('#2125: defaultScanRoots() names NONE of the TCC-protected home folders', (
   for (const ok of ['work', 'projects', 'dev', 'src', 'code', 'repos']) {
     assert.ok(bases.includes(ok), `defaultScanRoots dropped ~/${ok}, a standard agent/code location`);
   }
+});
+
+test('#2125: the IMPORT scan (defaultScanRoots({importScan:true})) DOES include the TCC folders', () => {
+  // The on-demand import path (#1652 reconcile): a TCC prompt is expected there
+  // because the user asked to find their files. importScan must re-add exactly the
+  // roots the auto path drops, or #1652 loose-file discovery stays regressed.
+  const roots = discover.defaultScanRoots({ importScan: true });
+  const bases = roots.map((r) => path.basename(r.dir));
+  for (const tcc of ['Documents', 'Downloads', 'Desktop']) {
+    assert.ok(bases.includes(tcc), `import scan did NOT re-add ~/${tcc}; #1652 discovery stays regressed`);
+  }
+  // Documents is a DEEP root (folders + importable files); Downloads/Desktop are
+  // import-only shallow roots (loose files only).
+  const docs = roots.find((r) => path.basename(r.dir) === 'Documents');
+  assert.ok(docs && !docs.importOnly, 'Documents should be a normal (deep) root, not importOnly');
+  for (const name of ['Downloads', 'Desktop']) {
+    const r = roots.find((x) => path.basename(x.dir) === name);
+    assert.ok(r && r.importOnly === true, `${name} should be an importOnly root`);
+  }
+  // CONTROL: the auto roots do NOT carry them, so the two modes genuinely differ.
+  const autoBases = discover.defaultScanRoots().map((r) => path.basename(r.dir));
+  assert.ok(!autoBases.includes('Documents'), 'CONTROL: the auto scan must still exclude Documents');
+});
+
+test('#2125: a directory named Documents passed as an explicit ROOT is walked (importScan re-adds it as a root; SCAN_SKIP only filters CHILDREN, never self-skips a root)', () => {
+  // The importScan path adds ~/Documents as a ROOT. SCAN_SKIP contains "Documents"
+  // to keep the $HOME walk from DESCENDING into it (test 1), but a root is its own
+  // walk start and is not self-skipped -- so naming ~/Documents as a root reaches
+  // it. This is exactly why the on-demand import scan can find agents in ~/Documents
+  // while the auto scan cannot. Fails in the dangerous direction: if a root whose
+  // name is in SCAN_SKIP were skipped, `inDocs` would not be found.
+  const docsRoot = path.join(DISK, 'importroot', 'Documents');
+  const inDocs = path.join(docsRoot, 'agentdir');
+  fs.mkdirSync(inDocs, { recursive: true });
+  fs.writeFileSync(path.join(inDocs, 'CLAUDE.md'), AGENT);
+  const found = dirsOf(discover.scan({ roots: [{ dir: docsRoot, maxDepth: 6 }] }));
+  assert.ok(found.includes(inDocs), 'a Documents-named directory given AS A ROOT was not walked; importScan could not reach ~/Documents');
 });

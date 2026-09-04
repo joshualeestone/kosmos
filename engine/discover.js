@@ -671,11 +671,9 @@ const SCAN = Object.freeze({
      its own wall against a machine with thousands of markdown files. */
   MAX_MD_READS: 3000,
   /* Shallow depth for the download/save locations (Downloads, Desktop): a shared
-     agent file lands at the top, not nested deep. #2125: currently UNUSED -- the
-     Downloads/Desktop import-only roots were removed because reaching them fires a
-     macOS TCC prompt on a fresh install. Retained (with the importOnly plumbing in
-     scan(), now dormant) for the follow-up user-triggered rescan that will re-add
-     those roots behind explicit consent. */
+     agent file lands at the top, not nested deep. #2125: used only on the
+     user-triggered import scan (defaultScanRoots({importScan:true})); the auto
+     first-run scan omits these roots so it never fires a TCC prompt. */
   DROP_DEPTH: 1,
 });
 
@@ -732,7 +730,8 @@ function scanRootsFromEnv() {
   return roots.length ? roots : null;
 }
 
-function defaultScanRoots() {
+function defaultScanRoots(opts) {
+  const importScan = !!(opts && opts.importScan);
   const home = os.homedir();
   /* 🔑 THE DEEP CURATED PARENTS FIRST, `$HOME` LAST. Agents live under `work`,
      `projects` and the like; `$HOME` is a shallow catch-all. Ordering them first,
@@ -742,14 +741,26 @@ function defaultScanRoots() {
   const roots = [];
   for (const name of SCAN_DEEP_NAMES) roots.push({ dir: path.join(home, name), maxDepth: SCAN.DEEP_DEPTH });
   roots.push({ dir: home, maxDepth: SCAN.HOME_DEPTH });
-  /* 🛑 #2125: the #1652 Downloads/Desktop import-only roots are REMOVED. Reaching
-     ~/Downloads or ~/Desktop fires their own macOS TCC prompt on a fresh install,
-     the same wall of prompts Josh reported. They were added ONLY to reach material
-     SCAN_SKIP otherwise excludes; not adding them means SCAN_SKIP keeps them out of
-     the $HOME walk too, so no TCC folder is entered by the auto-fired scan. The
-     "import a downloaded agent file" path can return as an explicit user-triggered
-     action (which carries its own consent) rather than an auto scan that prompts a
-     brand-new user before they have done anything. */
+  /* 🛑 #2125: the TCC-protected home folders are reached ONLY under importScan.
+     The AUTO first-run scan (discover.scan() with no importScan) never names them,
+     so a brand-new user is not bombarded with macOS Documents/Downloads/Desktop
+     prompts before doing anything (and denying the Documents one no longer breaks
+     the scan). The USER-TRIGGERED import scan (Renet's #1652 GET /api/scan-import,
+     calling scan({importScan:true})) DOES add them: a TCC prompt is expected and
+     contextual there because the person just asked to find their agent files. This
+     re-adds exactly the roots #1938 (Documents, deep) and #1652 (Downloads/Desktop,
+     import-only) contributed, but gated behind the explicit action.
+     ⚠️ ~/Documents is added as an explicit ROOT even though it is in SCAN_SKIP:
+     SCAN_SKIP filters CHILDREN during descent, so it keeps ~/Documents out of the
+     $HOME walk (path 2), but a root is its own walk start and is not self-skipped.
+     Downloads/Desktop are import-only (loose FILES only; nobody RUNS an agent
+     there), which is why they carry importOnly + the shallow DROP_DEPTH. */
+  if (importScan) {
+    roots.push({ dir: path.join(home, 'Documents'), maxDepth: SCAN.DEEP_DEPTH });
+    for (const name of ['Downloads', 'Desktop']) {
+      roots.push({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true });
+    }
+  }
   return roots;
 }
 
@@ -802,7 +813,7 @@ function scan(opts) {
        count is zero. */
     return { ok: true, candidates: [], importable: [], bounded: { depth: false, dirs: false, count: false, visited: 0, importable: false }, because: null };
   }
-  const roots = explicit || defaultScanRoots();
+  const roots = explicit || defaultScanRoots(o);   // #2125: o.importScan re-adds the TCC roots (on-demand import only)
   const maxDirs = Number.isFinite(o.maxDirs) && o.maxDirs > 0 ? o.maxDirs : SCAN.MAX_DIRS;
   const maxCandidates = Number.isFinite(o.maxCandidates) && o.maxCandidates > 0 ? o.maxCandidates : SCAN.MAX_CANDIDATES;
   /* #1652: the whole-walk loose-file read budget, overridable like maxDirs/maxCandidates
@@ -1452,7 +1463,8 @@ module.exports = { alreadyIn,
   codexIdentity,
   runningUnderName, found, scan, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
   declined, decline, undecline, DECLINED_FILE,
-  // #2125: exposed so a test can assert the default scan roots exclude the
-  // TCC-protected home folders (Documents/Downloads/Desktop) without walking the
+  // #2125: exposed so a test can assert the AUTO scan roots exclude the
+  // TCC-protected home folders (Documents/Downloads/Desktop) while the import
+  // scan (defaultScanRoots({importScan:true})) includes them, without walking the
   // operator's real home. Building the list touches no filesystem.
   defaultScanRoots };
