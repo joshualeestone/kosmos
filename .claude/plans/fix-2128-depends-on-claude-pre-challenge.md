@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: fix-2128-depends-on-claude
-diff_hash: 5e6e67dc475f38586d7cbce7595e1a450369e5e9042f9090cb0754db9e07d417
+diff_hash: 9fc88262d0a9375c1b16820070213dd902f065c90abc1b2bfee2c09021b417db
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-04T16:12:00Z
