@@ -25278,6 +25278,13 @@ document.getElementById('create-model').addEventListener('change', () => paintMo
    and are offered whole. When the list has no OpenAI sign-in the option
    names what the agent will actually use, the same rule as the Claude arm. */
 let CREATE_ACCOUNTS = [];
+/* #2097: true once the create-provider has been chosen deliberately -- by a manual
+   pick OR by an import setting it explicitly (both fire the `change` handler below).
+   resetCreateProvider clears it (an auto-default is not a choice). loadCreateExtras
+   re-applies the openai default only while this is false, so it can never override a
+   deliberately-set provider -- the value alone cannot tell an untouched 'anthropic'
+   default from an import that deliberately set 'anthropic'. */
+let CREATE_PROVIDER_TOUCHED = false;
 function fillCreateAccounts() {
   const asel = document.getElementById('create-account');
   if (!asel) return;
@@ -25358,7 +25365,10 @@ function applyCreateProviderUI() {
     paintModelWhy('create-model', 'create-model-why');
   }
 }
-document.getElementById('create-provider').addEventListener('change', applyCreateProviderUI);
+document.getElementById('create-provider').addEventListener('change', () => {
+  CREATE_PROVIDER_TOUCHED = true; // #2097: a manual pick or an import's explicit set
+  applyCreateProviderUI();
+});
 
 /* #1834: reset the provider to the default (Claude) AND undo its change-handler
    side effects. A form reset (openCreate) or a role re-pick (refillDetails) must
@@ -25381,6 +25391,7 @@ function resetCreateProvider() {
   const hasOpenai = CREATE_ACCOUNTS.some((x) => x && x.provider === 'openai');
   prov.value = (!hasClaude && hasOpenai) ? 'openai' : 'anthropic';
   applyCreateProviderUI();
+  CREATE_PROVIDER_TOUCHED = false; // an auto-default is not a deliberate choice
 }
 
 async function changeModelNow(say) {
@@ -26439,15 +26450,15 @@ async function loadCreateExtras() {
     /* #2097: resetCreateProvider ran before this with CREATE_ACCOUNTS still empty, so on
        the FIRST create of a page session the provider fell back to the Claude default even
        on an OpenAI-only machine (the array persists, so the openai default only took effect
-       from the second create on). Now that the real list is in, upgrade an untouched Claude
-       default to OpenAI when that is the only usable provider. This is SAFE against a manual
-       pick: both callers of loadCreateExtras are preceded by resetCreateProvider with no
-       user choice since, the guard acts only while the value is still the pre-populate
-       default ('anthropic'), and a machine with any Claude account keeps hasClaude true (no
-       change) -- so it cannot override a real choice, only complete the default the empty
-       list could not compute. applyCreateProviderUI refills the account menu for openai. */
+       from the second create on). Now that the real list is in, upgrade the auto-default to
+       OpenAI when that is the only usable provider. Gated on CREATE_PROVIDER_TOUCHED so it
+       acts ONLY on an untouched auto-default -- never over a deliberate choice, whether a
+       manual pick or an import that set the provider explicitly (importLoad sets it and
+       fires `change`, which sets the flag). Value-equality alone could not tell those apart.
+       A machine with any Claude account keeps hasClaude true (no change). applyCreateProviderUI
+       refills the account menu for openai. */
     const prov = document.getElementById('create-provider');
-    if (prov && prov.value === 'anthropic') {
+    if (prov && !CREATE_PROVIDER_TOUCHED) {
       const hasClaude = CREATE_ACCOUNTS.some((x) => x && x.provider !== 'openai');
       const hasOpenai = CREATE_ACCOUNTS.some((x) => x && x.provider === 'openai');
       if (!hasClaude && hasOpenai) { prov.value = 'openai'; applyCreateProviderUI(); }

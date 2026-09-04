@@ -51,11 +51,13 @@ function run(fn, seed) {
       _calls.fillProviderAtCall = document.getElementById('create-provider').value;
     };
     const paintModelWhy = () => { _calls.paint += 1; };
-    // #2097: resetCreateProvider now reads CREATE_ACCOUNTS to pick a connected-provider
-    // default. These reset tests are about FORM state (undoing an OpenAI selection), not
-    // account presence, so seed no accounts -> the default stays the markup default
-    // (anthropic). The provider-aware default is covered in web.picker-provider-2097.test.js.
+    // #2097: resetCreateProvider now reads CREATE_ACCOUNTS to pick a default for a provider
+    // the machine has an account for, and clears CREATE_PROVIDER_TOUCHED. These reset tests
+    // are about FORM state (undoing an OpenAI selection), not account presence, so seed no
+    // accounts -> the default stays the markup default (anthropic). The provider-aware default
+    // is covered in web.picker-provider-2097.test.js.
     const CREATE_ACCOUNTS = [];
+    let CREATE_PROVIDER_TOUCHED = false;
     ${applyFn}
     ${resetFn}
     ${fn};

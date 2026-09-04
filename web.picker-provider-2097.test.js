@@ -21,6 +21,9 @@ function defaultFor(accounts) {
   const document = { getElementById: (id) => (id === 'create-provider' ? prov : null) };
   // eslint-disable-next-line no-unused-vars
   const CREATE_ACCOUNTS = accounts;
+  // resetCreateProvider assigns this (an auto-default clears the touched sentinel).
+  // eslint-disable-next-line no-unused-vars, prefer-const
+  let CREATE_PROVIDER_TOUCHED = false;
   // eslint-disable-next-line no-unused-vars
   const applyCreateProviderUI = () => {};
   // eslint-disable-next-line no-eval
@@ -65,8 +68,22 @@ test('#2097(3) (source): loadCreateExtras re-defaults to openai once CREATE_ACCO
   const start = PAGE.indexOf('async function loadCreateExtras');
   assert.ok(start > 0, 'loadCreateExtras moved or was renamed');
   const fn = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 2);
-  // acts only while still at the pre-populate default, so it cannot override a manual pick
-  assert.match(fn, /prov\.value === 'anthropic'/, 'the re-default is not guarded on the untouched anthropic default -- it could override a manual pick');
+  // gated on the untouched-default sentinel, NOT value-equality: value alone cannot tell an
+  // untouched 'anthropic' default from an import that set 'anthropic' deliberately.
+  assert.match(fn, /!CREATE_PROVIDER_TOUCHED/, 'the re-default is not guarded on the untouched sentinel -- it could override a deliberately-set provider (e.g. an anthropic import on an OpenAI-only machine)');
   // upgrades to openai only when OpenAI is the sole usable provider
   assert.match(fn, /!hasClaude && hasOpenai.*prov\.value = 'openai'/s, 'loadCreateExtras does not upgrade an OpenAI-only default to openai after the accounts load');
+});
+
+// The sentinel is only correct if it is actually armed: the provider change handler must SET it
+// (a manual pick or an import's explicit set both fire `change`), and resetCreateProvider must
+// CLEAR it (an auto-default is not a choice). Without both, the guard above is inert.
+test('#2097(3b) (source): the touched sentinel is armed by the change handler and cleared by reset', () => {
+  const listenerAt = PAGE.indexOf("getElementById('create-provider').addEventListener('change'");
+  assert.ok(listenerAt > 0, 'the create-provider change listener moved or was renamed');
+  const listener = PAGE.slice(listenerAt, PAGE.indexOf('});', listenerAt) + 3);
+  assert.match(listener, /CREATE_PROVIDER_TOUCHED = true/, 'the change handler does not mark the provider touched -- an import/manual set would not disarm the re-default');
+  const resetAt = PAGE.indexOf('function resetCreateProvider');
+  const reset = PAGE.slice(resetAt, PAGE.indexOf('\n}\n', resetAt) + 2);
+  assert.match(reset, /CREATE_PROVIDER_TOUCHED = false/, 'resetCreateProvider does not clear the touched sentinel -- the first-create re-default would never fire after any earlier touch');
 });
