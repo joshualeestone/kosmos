@@ -175,6 +175,24 @@ bash "$TOOL" --dist "$D" --keep 12 --prune --yes >/dev/null 2>&1
   && ok "artifact-name protection: served 0.6.08 kept despite version=\"0.6.5\"" \
   || no "artifact-name protection: served file PRUNED (version-format skew bug)"
 
+# --- Arm 13: latest.json missing the "version" key refuses WITH a diagnostic ---
+# Under set -e + pipefail a no-match grep would silently abort; the parse must
+# tolerate it so the friendly "names no version" refusal is reached.
+D="$TMP/a13"; make_fixture "$D" 0.6.20 0.6.18 0.6.19 0.6.20
+printf '{"artifact":"kosmos-0.6.20-arm64.tar.gz"}\n' > "$D/latest.json"
+out="$(bash "$TOOL" --dist "$D" --keep 12 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q "names no version"; } \
+  && ok "missing version key: refuses WITH diagnostic (no silent abort)" \
+  || no "missing version key: rc=$rc, no diagnostic -- $out"
+
+# --- Arm 14: latest.json missing the "artifact" key still runs ---------------
+# The artifact field is optional (belt-and-suspenders); a no-match must not abort.
+D="$TMP/a14"; make_fixture "$D" 0.6.20 0.6.18 0.6.19 0.6.20
+printf '{"version":"0.6.20"}\n' > "$D/latest.json"
+out="$(bash "$TOOL" --dist "$D" --keep 12 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "missing artifact key: still runs (field is optional)" || no "missing artifact key: aborted rc=$rc -- $out"
+echo "$out" | grep -q "served version (protected): 0.6.20" && ok "missing artifact key: version protection still applies" || no "missing artifact key: served not protected -- $out"
+
 echo "----"
 echo "test-dist-retention: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -64,7 +64,11 @@ KEEP=$((10#$KEEP))
 # key on a line, so a future nested/second "version" key would make the tool
 # protect the wrong release and put the actually-served triple up for deletion.
 # Tolerant of optional whitespace (a pretty-printed latest.json).
-SERVED_VERSION="$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$DIST/latest.json" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')"
+# The trailing "|| true" is load-bearing: under set -e + pipefail, grep exits 1 when
+# the "version" key is absent, which would abort the tool HERE with no message,
+# before the friendly refusal on the next line can run. Tolerating the no-match lets
+# an empty result fall through to that diagnostic.
+SERVED_VERSION="$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$DIST/latest.json" | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
 [ -n "$SERVED_VERSION" ] || { echo "dist-retention: latest.json names no version -- refusing (cannot identify the served release to protect)" >&2; exit 1; }
 
 # Enumerate versioned triples by their tar.gz. The [0-9] after 'kosmos-' means
@@ -117,8 +121,11 @@ in_keep "$SERVED_VERSION" || KEEP_LIST="${KEEP_LIST}${SERVED_VERSION} "
 # kosmos-0.6.05-arm64.tar.gz -- the dist zero-pads), the version-string protection
 # above would miss the real on-disk triple and prune it. Deriving the protected
 # version from the artifact filename (parsed the same way as the glob) closes that
-# gap; the two protections are belt and suspenders, and either alone is safe.
-SERVED_ARTIFACT="$(grep -o '"artifact"[[:space:]]*:[[:space:]]*"[^"]*"' "$DIST/latest.json" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')"
+# gap; the two protections are belt and suspenders, and either alone is safe -- so
+# the "artifact" field is OPTIONAL. The trailing "|| true" makes that true in
+# practice: without it, grep exiting 1 on a missing "artifact" key would abort the
+# whole tool here under set -e + pipefail, silently making the field mandatory.
+SERVED_ARTIFACT="$(grep -o '"artifact"[[:space:]]*:[[:space:]]*"[^"]*"' "$DIST/latest.json" | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
 case "$SERVED_ARTIFACT" in
   kosmos-[0-9]*-arm64.tar.gz)
     av="${SERVED_ARTIFACT#kosmos-}"; av="${av%-arm64.tar.gz}"
@@ -212,12 +219,21 @@ fi
 
 # Confirmed prune. Delete ONLY the whitelisted prunable-triple files.
 DELETED=0
+DELETE_FAILED=0
 for v in "${PRUNE_VERSIONS[@]:-}"; do
   [ -n "$v" ] || continue
   while IFS= read -r pf; do
     [ -n "$pf" ] || continue
     rm -f -- "$pf"
-    DELETED=$(( DELETED + 1 ))
+    # rm -f exits 0 even when it cannot unlink (e.g. a write-protected parent), so
+    # count a removal only if the file is actually gone; a lingering file means the
+    # prune did not do what the success line would claim.
+    if [ -e "$pf" ]; then
+      echo "dist-retention: FAILED to remove $pf (still present after rm)" >&2
+      DELETE_FAILED=1
+    else
+      DELETED=$(( DELETED + 1 ))
+    fi
   done < <(triple_files "$v")
 done
 
@@ -251,6 +267,10 @@ done
 if [ "$fail" -ne 0 ]; then
   echo "dist-retention: an invariant broke during prune -- see above. This is a bug; report it." >&2
   exit 3
+fi
+if [ "$DELETE_FAILED" -ne 0 ]; then
+  echo "dist-retention: at least one prune candidate could not be removed -- see above. The reported reclaim is not accurate." >&2
+  exit 4
 fi
 
 if [ "$JSON" -eq 1 ]; then
