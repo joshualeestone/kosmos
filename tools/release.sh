@@ -204,6 +204,8 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # #2017: the load guard for the gated steps (3, 3b). Sourced UNguarded under
 # set -e like the libs above: a lib the cut cannot load should abort, not skip.
 . "$REPO/tools/lib/cut-load-guard.sh"
+# #2087: step 10's non-fatal wrapper for the post-publish local-board restart.
+. "$REPO/tools/lib/board-restart-nonfatal.sh"
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -1021,7 +1023,14 @@ step "== 10. the board on THIS Mac, if it runs from this repo =="
 # board runs the repo under launchd and never did, so every release left it
 # serving the previous code until somebody noticed (#360). Gated on the job
 # existing AND running from this repo; it says which case it found.
-bash "$MAIN_REPO/tools/restart-local-board.sh"
+# #2087: NON-FATAL. This is post-publish and THIS-Mac-only; by here the artifact
+# is live and step 9 verified it. A slow local board on a loaded release machine
+# must not mark a good publish `outcome=failed` or trip rollback (it did on the
+# 0.6.27 cut, then recovered on its own). board_restart_or_warn warns loudly and
+# carries on, so step 11's CLI refresh still runs and the outcome reflects the
+# publish. Scoped here, not in restart-local-board.sh (its own test + other
+# callers still trust its exit code).
+board_restart_or_warn "$MAIN_REPO/tools/restart-local-board.sh"
 
 step "== 11. the installed kosmos CLI on THIS Mac =="
 # 🛑 Same #360 shape as step 10, for the COMMAND rather than the board (#1758).
