@@ -2211,10 +2211,11 @@ async function tickBody(owner) {
     case 'press-enter':
     case 'repl': {
       /**
-       * ⚠️ THE FINISH LINE IS THE CONFIG, NOT THE TEXT. `check()` fresh, not
-       * `checkCached()`: the cache exists for the 5-second status tick, and
-       * here a stale `none` would hold the screen at "completing" after the
-       * login already landed.
+       * ⚠️ THE FINISH LINE IS THE CONFIG, NOT THE TEXT. `check()` fresh, not a
+       * cached variant: the cache (the status tick reads `checkMachine()`, #2130;
+       * `checkCached()` is its single-account sibling) exists for the 5-second
+       * poll, and here a stale `none` would hold the screen at "completing" after
+       * the login already landed.
        */
       const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
       /**
