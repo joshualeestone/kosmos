@@ -29,6 +29,7 @@ process.on('exit', () => {
 const remove = require('./remove');
 const create = require('./create');
 const status = require('./status');
+const disruption = require('./disruption');
 const fleet = require('../test-support/fleet');
 
 const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
@@ -1721,6 +1722,87 @@ test('restart refuses on a window it cannot tie to the agent, and on one that is
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #2019: restart records the deliberate-disruption signal (and clears it if the
+// kill fails). This is the ONE integration seam the isolated disruption.test.js
+// and status.disruption-2019.test.js cannot see -- the production PRODUCER of the
+// signal. Without these, a regression in the begin/clear placement passes the
+// whole suite (challenge iter 1).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('#2019: a successful restart records a fresh disruption carrying the cause', () => {
+  const name = madeAgent('disrupted');
+  boardShows(name, name);
+  const calls = world();
+  try {
+    disruption.clear(name); // start from a known-empty state
+    const out = remove.restart(name, 'model');
+    assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+    // The board would misread the dead pane as "gone" without this record.
+    const rec = disruption.active(name);
+    assert.ok(rec, 'a successful restart left no disruption record');
+    assert.equal(rec.cause, 'model');
+    assert.ok(calls.find((c) => c[1][0] === 'kill-session'), 'sanity: the kill ran');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#2019: a restart that defaults its cause records "restart"', () => {
+  const name = madeAgent('disrupted-default');
+  boardShows(name, name);
+  world();
+  try {
+    disruption.clear(name);
+    const out = remove.restart(name); // no cause -> the generic
+    assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+    assert.equal(disruption.active(name).cause, 'restart');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#2019: a restart whose kill FAILS (PARTIAL) leaves NO record -- a still-live agent is never marked restarting', () => {
+  const name = madeAgent('disrupted-partial');
+  boardShows(name, name);
+  // sessionSurvives: the look-again after the kill still finds the session, so
+  // `ended` is false and restartInner returns PARTIAL. The agent is still
+  // running the old instructions -- it must NOT read as restarting.
+  world({ sessionSurvives: true });
+  try {
+    disruption.clear(name);
+    const out = remove.restart(name, 'provider');
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
+    assert.equal(disruption.active(name), null, 'a failed kill left a stale disruption record');
+    assert.equal(disruption.read(name).found, false, 'the record was written but not cleared');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#2019: a restart REFUSED on an untied window records nothing (never reaches begin)', () => {
+  const name = madeAgent('disrupted-untied');
+  // A window that borrows the name but carries no matching claim: FOUND, not OURS.
+  status.setPaneSource(() => fleet.line({ session: name, claim: '', title: '✳ Claude Code' }));
+  world();
+  try {
+    disruption.clear(name);
+    const out = remove.restart(name, 'restart');
+    assert.equal(out.outcome, remove.OUTCOME.REFUSED, out.because);
+    assert.equal(disruption.active(name), null, 'a refused restart wrote a disruption record');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
   }
 });
 

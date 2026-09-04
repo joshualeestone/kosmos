@@ -3013,10 +3013,24 @@ const server = http.createServer((req, res) => {
   if (rst && req.method === 'POST') {
     const name = decodeSegment(rst[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    let out;
-    try { out = removal.restart(name); }
-    catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err) }); return; }
-    sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, out);
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        /* #2019: an optional cause rides through so the board can name WHY the
+           agent went quiet -- the stale-instructions notice sends
+           cause:'instructions', a plain Restart click sends nothing. Absent or
+           unknown, removal.restart records the generic 'restart'. Reading a
+           body is backward-compatible: a POST with none yields null -> 'restart',
+           the previous behaviour exactly. */
+        const cause = body && typeof body.cause === 'string' ? body.cause : 'restart';
+        let out;
+        try { out = removal.restart(name, cause); }
+        catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err) }); return; }
+        sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, out);
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
     return;
   }
 
@@ -3067,7 +3081,7 @@ const server = http.createServer((req, res) => {
           return;
         }
         let back;
-        try { back = removal.restart(name); }
+        try { back = removal.restart(name, 'provider'); }
         catch (err) { back = { outcome: 'partial', because: String(err && err.message || err), steps: [] }; }
         const ok = back.outcome === removal.OUTCOME.RESTARTED;
         const label = wrote.provider === 'openai' ? 'OpenAI' : 'Claude';
@@ -3163,7 +3177,7 @@ const server = http.createServer((req, res) => {
           return;
         }
         let back;
-        try { back = removal.restart(name); }
+        try { back = removal.restart(name, 'model'); }
         catch (err) { back = { outcome: 'partial', because: String(err && err.message || err), steps: [] }; }
         const ok = back.outcome === removal.OUTCOME.RESTARTED;
         sendJson(res, 200, {
@@ -4157,7 +4171,7 @@ const server = http.createServer((req, res) => {
           return;
         }
         let back;
-        try { back = removal.restart(name); }
+        try { back = removal.restart(name, 'account'); }
         catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
         const ok = back.outcome === removal.OUTCOME.RESTARTED;
         const who = wrote.account.email || wrote.account.label || 'that account';

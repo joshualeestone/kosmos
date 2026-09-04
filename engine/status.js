@@ -26,6 +26,7 @@ const observed = require('./observed');
    requires this one, so there is no cycle. */
 const sendertoken = require('./sendertoken');
 const liveness = require('./liveness');
+const disruption = require('./disruption');
 /* For SESSION only: the sign-in flow's own tmux session name, defined once
    where the session is created. No cycle: connect never requires status. */
 const connect = require('./connect');
@@ -251,6 +252,19 @@ const STATE = {
   AUTH_FAILED: 'auth_failed',
   IDLE: 'idle',
   STOPPED: 'stopped',
+  /* #2019: not present, not absent, but IN TRANSITION ON PURPOSE, BY US. A
+     deliberate restart / model change / provider change / account change /
+     instructions change takes the agent out of tmux for a moment; the pane
+     then has no Claude process and would read as STOPPED ("this agent doesn't
+     exist") to the very person who just triggered it. This is the third
+     reading of a dead pane -- we did it, it is coming back -- and it exists so
+     that reading never lies "gone" about an action we took. It is produced ONLY
+     by reconcileReport, only while a fresh disruption record is on file, and it
+     self-heals: the pane coming back ends it at once, and the disruption window
+     expiring falls it through to STOPPED (an honest "it did not come back").
+     The copy + the animated K are the design half (#2019 is MIXED); this state
+     and the cause it carries are the engine half. */
+  RESTARTING: 'restarting',
   /* Reported-only (#188's third verb): waiting on something that is NOT the
      person -- another agent, a deploy, a review. No pane shape produces it;
      it exists because an agent can SAY it, with what and who, which is the
@@ -4096,7 +4110,7 @@ function saidWords(reported, nowMs) {
   return '';
 }
 
-function reconcileReport(reported, scraped, nowMs, liveAuth) {
+function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec) {
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
      agent has reported. Handle it HERE, above the no-report early return below, so a
      never-reported agent -- one that hit a 401 on launch and sits idle at a prompt after an
@@ -4107,8 +4121,39 @@ function reconcileReport(reported, scraped, nowMs, liveAuth) {
      and auth_failed stands (no false calm). The re-entry's scraped state is UNKNOWN, so this
      cannot recurse. */
   if (scraped.state === STATE.AUTH_FAILED && liveAuth === LIVE_AUTH_HEALTHY) {
-    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth);
+    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec);
     return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
+  }
+  /* #2019: a dead pane is "gone" UNLESS we are the ones who just took it out. If
+     a fresh disruption record is on file (a restart / model / provider /
+     account / instructions change we initiated, still inside its window) and the
+     pane reads structured-STOPPED, the honest reading is RESTARTING, not
+     absence -- the person who clicked the button must never be told the agent
+     does not exist. Checked HERE, at the very top and ABOVE the no-report early
+     return below, on purpose: a just-restarted agent usually has NO fresh
+     self-report (the funnel is the restart, not a hook), so a check buried in
+     the report rules would miss the exact case this card is about. It also
+     outranks a reported "stopping": an agent that said it was stopping and was
+     then restarted by us is mid-restart, and the cause we recorded is the truer
+     thing to show. The signal is resolved by the caller (like liveAuth) so this
+     stays pure. It self-heals both ways with NO cleanup: the instant the pane
+     has a Claude process again, scraped is no longer STOPPED and this is
+     skipped; and once the window elapses, disruptionRec is null and a restart
+     that never came back falls through to the honest STOPPED readings below --
+     never a spinner that lies forever. */
+  if (disruptionRec && disruptionRec.cause
+      && scraped.state === STATE.STOPPED && scraped.confidence === CONFIDENCE.STRUCTURED) {
+    return {
+      state: STATE.RESTARTING,
+      confidence: CONFIDENCE.STRUCTURED,
+      /* A plain fallback sentence for non-frontend consumers and tests; the
+         board renders the real copy ("Restarting agent" / "Switching to
+         <model>") from `disruption.cause` + the card's model field. */
+      because: 'we are restarting this agent, so it is briefly out of view',
+      disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt },
+      reported: false,
+      conflict: null,
+    };
   }
   if (!reported || reported.found !== true) {
     /* 🔑 "IT HAS NEVER SAID ANYTHING" IS A DIFFERENT FACT FROM "WE COULD NOT TELL",
@@ -4203,7 +4248,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth) {
     const atRl = Date.parse(reported.at || '');
     const freshRl = Number.isFinite(atRl) && (nowMs - atRl) <= REPORT_WORKING_DECAY_MS;
     if (freshRl) {
-      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs);
+      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
     }
     return { ...scraped, reported: false, conflict: 'its screen shows it has hit a usage limit, which its reports cannot know about' + saidWords(reported, nowMs) };
@@ -4371,6 +4416,21 @@ function panelessCard(key, nowMs) {
     stateProjectInferred: status.projectInferred === true,
     stateEvidence: status.evidence || null,
     because: status.because,
+    /* #2019: the field a pane card carries for a deliberate restart. A paneless
+       agent has no STOPPED pane to misread, so it never reaches the RESTARTING
+       branch and this is always null here; carried anyway so both card kinds
+       have one shape. Surfacing RESTARTING for a PANELESS agent mid-restart --
+       keeping its card on the board through the disruption window instead of
+       dropping it -- is a delineated follow-up, and it covers TWO cases, not
+       one: (a) a Windows / non-tmux agent that never had a pane, and (b) the
+       brief interval on a Mac between `kill-session` (which removes the whole
+       pane) and launchd recreating the session -- during which even a normal
+       tmux restart is momentarily fully paneless. The Mac gap is short (restart
+       does bootout+bootstrap immediately rather than waiting on the ~30s
+       KeepAlive throttle) and the more visible Claude-booting interval AFTER the
+       pane is recreated IS covered by the pane path above; but the fully-paneless
+       gap is real and not yet covered here (challenge iter 1). */
+    disruption: status.disruption || null,
     stateReported: status.reported === true,
     stateConflict: status.conflict || null,
     context: {
@@ -4453,9 +4513,39 @@ function snapshot() {
         (n) => require('./create').readJob(n),
         (d) => require('./authprobe').verdict(d, now));
     }
+    /* #2019: is this pane's agent one we are deliberately restarting right now?
+       Only for a pane TIED to the name -- the same identity gate every
+       name-keyed read here honours -- because the disruption record is filed
+       under the agent's name, and a pane merely borrowing the name is not ours
+       to narrate a restart for. `active` folds in the freshness window, so a
+       stale record reads as null and the pane's normal STOPPED stands.
+       ⚠️ Resolved for EVERY owned pane, not gated on scraped STOPPED the way
+       `liveAuth` is gated on AUTH_FAILED (challenge iter 2 NIT): the forward
+       self-heal below needs to detect an active record on a pane that has come
+       back ALIVE (state != STOPPED) in order to clear it, so gating the read on
+       STOPPED would defeat that and reinstate the residual it removes. The read
+       is one ENOENT stat per owned pane per tick for every agent NOT mid-restart
+       -- negligible, and only agents actually being restarted have a file. */
+    const disruptionRec = isNamedOurs(pane) ? disruption.active(pane.name) : null;
     const status = reconcileReport(
       isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
-      scrapedStatus, now, liveAuth);
+      scrapedStatus, now, liveAuth, disruptionRec);
+    /* #2019 forward self-heal (challenge iter 2): a disruption record on file
+       but a reconciled state that is a confident LIVE reading means the restart
+       COMPLETED -- drop the record now rather than waiting out the window. This
+       tightens "restarting" to the actual boot interval and removes the residual
+       where a restarted agent that then genuinely crashes within the window
+       would read restarting instead of stopped. Guarded to a definite live state
+       -- NOT RESTARTING (that is scraped-STOPPED-with-record, still restarting)
+       and NOT UNKNOWN (a mid-boot pane we cannot read yet, so the restart may
+       still be in progress) -- so a restart still underway keeps its record.
+       Safe against a first-tick race: begin() and the kill are synchronous
+       within restartInner, so no snapshot can observe the pre-kill live pane
+       after begin(). Clear never throws; the write fits the snapshot's existing
+       best-effort writes (wouldping/observed). */
+    if (disruptionRec && status.state !== STATE.RESTARTING && status.state !== STATE.UNKNOWN) {
+      disruption.clear(pane.name);
+    }
     /* 🔑 WHAT A PING WOULD HAVE BEEN, AND NOBODY IS PINGED (#1494). The phone
        seam's automatic trigger cannot fire for a Kosmos agent: it hangs off
        `PermissionRequest` and every supervisor launch path passes
@@ -4608,6 +4698,11 @@ function snapshot() {
          every state that did not read a sentence off the screen. */
       stateEvidence: status.evidence || null,
       because: status.because,
+      /* #2019: present only while state === 'restarting' -- {cause, startedAt}
+         for the deliberate disruption in flight. Null otherwise, so the board
+         reads a fact rather than an absence, and the frontend renders the copy
+         (cause + the model field above) and the animated K from it. */
+      disruption: status.disruption || null,
       /* Whether the state above is the agent's own account (#188's third
          verb) rather than a pane reading. */
       stateReported: status.reported === true,
