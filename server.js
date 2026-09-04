@@ -5702,7 +5702,11 @@ const server = http.createServer((req, res) => {
      that same window from blocking the open). The read then works off the fd (fstat + read
      by fd), so the path is resolved exactly once; the size is capped before the buffer is
      allocated. Both membership and the read-time guards are required: membership proves the
-     path was legitimate at scan time, the guards prove it still resolves to a real file. */
+     path was legitimate at scan time, the guards prove it still resolves to a real file.
+     Residual (accepted): O_NOFOLLOW and the lstat check guard the FINAL component only, so
+     an intermediate directory swapped to a symlink after scan time would be followed. That
+     is outside the threat model here -- loopback-only, board-token-gated, single-user home;
+     anyone who can rename a directory in your home already runs as you. */
   if (pathname === '/api/agent-import-file' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
