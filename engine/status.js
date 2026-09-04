@@ -4822,10 +4822,17 @@ function snapshot() {
              is #2019's timeout's job). A ceiling arm would put a PERMANENT false
              red on a recovered-idle healthy agent -- the named haunt. Per-tick
              delta instead misses a hot loop ONLY in the narrow window before
-             authprobe's cached HEALTHY catches up; a real hot loop means the
-             account is being rejected, so the probe flips non-healthy within its
-             TTL and rule 3b shows the auth_failed directly. So the miss is
-             transient + probe-backstopped; the haunt would be permanent. The only
+             authprobe's cached HEALTHY catches up.
+             ⏱ THE BOUND, STATED SO IT IS CHECKABLE, NOT ASSERTED (Pete,
+             2026-09-04): the false-calm window is exactly the auth-probe cache
+             TTL -- authprobe.TTL_MS, 30s today -- because a real hot loop means
+             the account IS being rejected, so within one TTL the cached HEALTHY
+             expires to EXPIRED/UNCHECKED (both non-HEALTHY) and this branch no
+             longer applies; rule 3b (`scraped.state === AUTH_FAILED`, below) then
+             shows the auth_failed DIRECTLY. rule 3b is the closer; the probe TTL
+             is the bound. ⚠️ If that TTL is ever lengthened, this false-calm
+             window lengthens with it -- reconsider this residual then. So the miss
+             is transient + probe-backstopped; the haunt would be permanent. The only
              true discriminator is NOT a count -- it is the newest-401-line
              IDENTITY (a new distinct newest line = new content = live), the
              documented escape hatch if the race window ever proves to matter. */
