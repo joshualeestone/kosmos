@@ -292,6 +292,7 @@ const heartbeatSetting = require('./engine/heartbeat-setting');
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
+const activity = require('./engine/activity');
 const connections = require('./engine/connections');
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
@@ -5514,6 +5515,37 @@ const server = http.createServer((req, res) => {
              refused over a standing waiting state; see selfreport.record. */
           auto: body.auto === true,
         });
+        /* #2146 WORK-ACTIVITY MARKER (Renet Tilley). A separate, WORK-SPECIFIC
+           signal, distinct from the liveness beat below. It records that the
+           agent was ACTIVELY WORKING at a moment, so #2146's activeWhileWaiting
+           heartbeat leg can surface an agent working UNDER a sticky needs_you --
+           and, critically, tell that apart from a mere proof-of-life beat.
+
+           🛑 WHY NOT REUSE THE LIVENESS BEAT (the trap this avoids). Liveness
+           carries NO state ({at} only), and the report hook beats it on EVERY
+           report -- including the Stop hook's end-of-turn `report idle --auto`.
+           So a needs_you agent that merely finished a turn would look "still
+           working" one tick after asking. Only a WORKING report writes THIS
+           marker (idle/needs_you/blocked/stopped never do), so it means work, not
+           just life. It is also freshness-bounded on the read side, so a marker
+           from the agent's last burst of work ages out once it stops.
+
+           🔑 WRITTEN BEFORE THE RECORDED-CHECK so a REFUSED auto-`working` (over a
+           standing needs_you, #900) still records it: a refused working is still
+           proof the agent is actively working, and on a paneless Windows/Codex
+           agent it is the ONLY such signal (no pane to read `working` off of).
+           An accepted report is pinned to its own `kept.at`; a refused one beats
+           at now (undefined -> now), which is exactly the newer-than-the-ask
+           signal the leg needs. The count is unused (only the timestamp matters);
+           `1` is a placeholder. Throw-safe -- a bookkeeping write never fails a
+           recorded report. */
+        if (body.state === 'working') {
+          try { activity.record(who, 'working', 1, kept.recorded === true ? kept.at : undefined); } catch { /* the report stands; the marker is best-effort */ }
+        }
+        if (kept.recorded !== true) {
+          sendJson(res, 200, { recorded: false, because: kept.because });
+          return;
+        }
         /* 🛑 THE BEAT, AND WITHOUT IT NOTHING ELSE ON THIS ROUTE REACHES A
            PANELESS AGENT (#1502). `liveness.seen` had ZERO production callers
            from the day I wrote it: `panelessKeys` and the name arm of
@@ -5527,26 +5559,6 @@ const server = http.createServer((req, res) => {
            signal to keep in step with the first -- it is the same fact, written
            where the roster can read it.
 
-           🔑 BEATEN BEFORE THE RECORDED-CHECK AND ON A REFUSED REPORT TOO (#2146,
-           Renet Tilley). The report route refuses an AUTOMATIC `working`/`idle`
-           over a standing `needs_you`/`blocked` (#900) -- but a refused
-           auto-`working` still PROVES the agent is alive AND actively working; the
-           refusal is only about not overwriting the STATE. Beating liveness here,
-           BEFORE the early return, is what lets #2146's activeWhileWaiting
-           heartbeat leg fire on a Windows/Codex agent that is working while a
-           sticky `needs_you` stands (there is no pane to read `working` off of, so
-           the heartbeat is the ONLY signal -- Pete's report-first contract).
-
-           🔑 AN ACCEPTED REPORT'S BEAT IS PINNED TO ITS OWN `at`, not wall-clock
-           now. #2146's activeWhileWaiting gate is `beat.at > waitingReport.at`
-           (strict), and if a just-filed `needs_you`'s own beat landed a few ms
-           AFTER the report it would out-time it and self-trigger a false
-           "still working" the instant it asks. Pinning the accepted beat to
-           `kept.at` makes them equal, so `>` cleanly excludes the report's own
-           beat. A REFUSED report has no recorded `at`, so it beats at now -- which
-           is exactly the newer-than-the-standing-report signal the heartbeat leg
-           needs.
-
            ⚠️ AND IT IS DELIBERATELY NOT `selfreport.record`'s job. That module
            refuses anything without a valid state; a beat carries none, and
            routing liveness through it would make a timer assert `working` and
@@ -5555,11 +5567,7 @@ const server = http.createServer((req, res) => {
 
            ⚠️ THROW-SAFE. Liveness is an improvement to a row, never a reason to
            refuse a report that has already been recorded. */
-        try { liveness.seen(who, kept.recorded === true ? kept.at : undefined); } catch { /* the report stands; the row may be thinner */ }
-        if (kept.recorded !== true) {
-          sendJson(res, 200, { recorded: false, because: kept.because });
-          return;
-        }
+        try { liveness.seen(who); } catch { /* the report stands; the row may be thinner */ }
         /* The phone seam, AFTER the record, and with ZERO translation: the
            report's word IS notify's word. This is the state transition
            notify.js:26 has been waiting for -- `needs_you` stops being a

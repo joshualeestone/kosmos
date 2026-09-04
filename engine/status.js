@@ -1775,31 +1775,54 @@ function authErrorLineCount(paneText) {
   return n;
 }
 
+/* How long a work-activity marker keeps meaning "actively working" before it
+   ages out. The report hook throttles working heartbeats to one per 60s, so
+   three of those is 180s -- an agent that has not produced a working report in
+   that long is not actively working now, whatever it last did. Independent of
+   liveness.STALE_AFTER_MS by intent (they coincide today but answer different
+   questions: that one is "still alive", this one is "still WORKING"), so tuning
+   one never silently moves the other. */
+const ACTIVE_WORK_STALE_MS = 180 * 1000;
+
 /**
- * #2146: the freshest evidence this agent was ACTIVELY doing something, and from
- * where. Report-first (Pete's locked contract): freshest-of { a report heartbeat
- * (liveness.js, written by the report route on EVERY report -- including a refused
- * auto-working over a standing needs_you, so it fires on any runner), a live pane
- * WORKING_LINE this tick (Mac-only) }. Priority is by RECENCY, so a caller gets
- * one { atMs, source } or null.
+ * #2146: the freshest evidence this agent was ACTIVELY WORKING, and from where.
+ * Report-first (Pete's locked contract): freshest-of { a WORK-ACTIVITY MARKER
+ * (engine/activity.js key 'working', written by the report route on a `working`
+ * report ONLY -- including a refused auto-working over a standing needs_you, so
+ * it fires on any runner), a live pane WORKING_LINE this tick (Mac-only) }.
+ * Priority is by RECENCY, so a caller gets one { atMs, source } or null.
  *
- * 🔑 null-not-false: null means NO evidence at all, and a caller must not read
- * that as "not active". The pane leg exists only on a Mac pane; the heartbeat leg
- * is what makes this work on a Windows/Codex agent that has no pane to read
- * `working` off of -- non-negotiable, or the primitive re-introduces the paneless
- * blind spot it exists to remove.
+ * 🛑 WORK, NOT MERE LIFE. This deliberately does NOT read liveness.js: that beat
+ * fires on EVERY report, including the Stop hook's end-of-turn `report idle`, so
+ * it would read "still working" on an agent that just finished a turn and went
+ * idle (the exact false positive a review caught). Only a `working` report writes
+ * the marker this reads, and the marker is FRESHNESS-BOUNDED (ACTIVE_WORK_STALE_MS)
+ * so it ages out once the agent stops working -- a stale marker is not activity.
+ *
+ * 🔑 null-not-false: null means NO fresh work evidence, and a caller must not read
+ * that as "not active" for any other purpose. The pane leg exists only on a Mac
+ * pane; the marker leg is what makes this work on a Windows/Codex agent that has
+ * no pane to read `working` off of -- non-negotiable, or the primitive
+ * re-introduces the paneless blind spot it exists to remove.
  */
 function freshestActivity(name, opts) {
   const o = opts || {};
   const nowMs = Number.isFinite(o.nowMs) ? o.nowMs : Date.now();
+  const workStaleMs = Number.isFinite(o.workStaleMs) ? o.workStaleMs : ACTIVE_WORK_STALE_MS;
   let best = null;
   const consider = (atMs, source) => {
     if (Number.isFinite(atMs) && (best === null || atMs > best.atMs)) best = { atMs, source };
   };
   if (o.paneWorking === true) consider(nowMs, 'pane');
   if (name) {
-    const beat = liveness.read(name);
-    if (beat && beat.found) consider(Date.parse(beat.at || ''), 'report');
+    const w = activityStore.read(name, 'working');
+    if (w && w.found) {
+      const at = Date.parse(w.at || '');
+      /* Freshness measured against the caller's nowMs (not the store's real-clock
+         ageMs) so a test can pin the moment. A stale marker is dropped, never
+         considered. */
+      if (Number.isFinite(at) && (nowMs - at) <= workStaleMs) consider(at, 'report');
+    }
   }
   return best;
 }
@@ -4760,20 +4783,33 @@ function snapshot() {
        A single object `{ newErrorsSinceHealthy }` so the signature stays stable as
        #2146 (activeWhileWaiting) and #2019 land more fields on it (Pete). */
     let activityFresh;
-    if (scrapedStatus.state === STATE.AUTH_FAILED && isNamedOurs(pane)) {
-      if (liveAuth === LIVE_AUTH_HEALTHY) {
-        const currentCount = authErrorLineCount(text);
-        const base = activityStore.read(pane.name, 'auth-error');
-        if (!base.found) {
-          activityStore.record(pane.name, 'auth-error', currentCount);
-          activityFresh = { newErrorsSinceHealthy: false };
-        } else {
-          activityFresh = { newErrorsSinceHealthy: currentCount > base.count };
+    if (isNamedOurs(pane)) {
+      if (scrapedStatus.state === STATE.AUTH_FAILED) {
+        if (liveAuth === LIVE_AUTH_HEALTHY) {
+          const currentCount = authErrorLineCount(text);
+          const base = activityStore.read(pane.name, 'auth-error');
+          if (!base.found) {
+            activityStore.record(pane.name, 'auth-error', currentCount);
+            activityFresh = { newErrorsSinceHealthy: false };
+          } else {
+            activityFresh = { newErrorsSinceHealthy: currentCount > base.count };
+          }
+        } else if (liveAuth !== undefined) {
+          /* A definite non-healthy verdict (expired / unknown / unchecked). An
+             UNRESOLVABLE probe (undefined) means we cannot tell, so we leave any
+             baseline untouched rather than clearing on no information. */
+          activityStore.clear(pane.name, 'auth-error');
         }
-      } else if (liveAuth !== undefined) {
-        /* A definite non-healthy verdict (expired / unknown / unchecked). An
-           UNRESOLVABLE probe (undefined) means we cannot tell, so we leave any
-           baseline untouched rather than clearing on no information. */
+      } else {
+        /* The 401 is NO LONGER on screen, so the auth_failed episode is over.
+           Clear the baseline so a LATER stale 401 (under a still-cached-HEALTHY
+           probe, with no intervening non-healthy tick to clear it) re-baselines
+           against its OWN count instead of comparing to a PRIOR episode's
+           baseline -- which could compute a false increase and un-suppress a
+           stale rejection (a re-haunt). The baseline must mean "count since THIS
+           episode's healthy transition", not an older one. Fails toward
+           suppression, the safe direction. Not run mid-episode (the scrape is
+           auth_failed every tick then), so it never drops a live baseline. */
         activityStore.clear(pane.name, 'auth-error');
       }
     }
