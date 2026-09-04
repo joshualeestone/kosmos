@@ -12,9 +12,9 @@
  * paintOpenaiCreateModel against the real create picker in web/index.html and
  * reads the rendered DOM. The picker fetches the account's models, so this check
  * overrides window.fetch on the file:// page to return canned listable / not-
- * listable responses -- no board, no network. Reds on origin/main, where
- * paintOpenaiCreateModel does not exist (OpenAI had no picker, only a hidden row
- * and a fixed note).
+ * listable responses -- no board, no network. Reds on the pre-#2140 index (where
+ * paintOpenaiCreateModel does not exist), and on the pre-refinement #2140 index
+ * (where the not-listable state HID the box instead of showing the single option).
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-create-openai-model-2140.js
