@@ -5,8 +5,11 @@
 #   - the success arm: the board serves the wanted version -> exit 0
 #   - the slow-but-healthy arm: the board serves an old version and flips to the
 #     wanted one LATE -> still exit 0 (the exact case the old fixed 10s cap broke)
-#   - the failure arm: the board never serves the wanted version -> exit 1
-#   - the not-answering arm: nothing is listening -> exit 1
+#   - the STALE arm (#360): the board keeps serving a DIFFERENT version -> exit 1
+#   - the not-answering arm (#2109): nothing is listening -> exit 0 with a WARNING
+#     (a silent board is down/restarting, not serving stale code; the release is
+#     already served and verified, so it must not fail the cut)
+#   - the divergence arm (#2109): stale (exit 1) and silent (exit 0) must NOT collapse
 # A check that has only ever seen a healthy machine has not been tested.
 #
 #   bash tools/test-restart-local-board.sh
@@ -28,20 +31,25 @@ WANT="9.9.9-test"
 cat > "$T/stub.js" <<'JS'
 const http = require('http'), fs = require('fs');
 const VF = process.env.VF, PF = process.env.PF;
+const DELAY = Number(process.env.DELAY || 0);          // ms to wait before responding (slow-board sim)
+const FAIL_FIRST = Number(process.env.FAIL_FIRST || 0); // 503 the first N requests (transient-failure sim)
+let reqs = 0;
 const srv = http.createServer((req, res) => {
+  reqs++;
+  if (reqs <= FAIL_FIRST) { res.writeHead(503); res.end(''); return; }
   let v = '';
   try { v = fs.readFileSync(VF, 'utf8').trim(); } catch {}
-  res.writeHead(200, { 'content-type': 'application/json' });
-  res.end(JSON.stringify({ version: v }));
+  const send = () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ version: v })); };
+  if (DELAY > 0) setTimeout(send, DELAY); else send();
 });
 srv.listen(0, '127.0.0.1', () => { fs.writeFileSync(PF, String(srv.address().port)); });
 JS
 
 VF="$T/ver"; PF="$T/port"
-start_stub() {  # $1 = initial version served
+start_stub() {  # $1 = initial version; STUB_DELAY (ms) delays each response; STUB_FAIL_FIRST 503s the first N
   rm -f "$PF"
   printf '%s' "$1" > "$VF"
-  VF="$VF" PF="$PF" node "$T/stub.js" &
+  VF="$VF" PF="$PF" DELAY="${STUB_DELAY:-0}" FAIL_FIRST="${STUB_FAIL_FIRST:-0}" node "$T/stub.js" &
   STUB_PID=$!
   disown "$STUB_PID" 2>/dev/null || true   # keep bash from printing a "Terminated" notice on kill
   local _
@@ -83,26 +91,69 @@ if [ "$elapsed" -ge 10 ]; then pass "past-the-old-cap arm genuinely waited past 
 if has "$out" "back on ${WANT}"; then pass "past-cap arm confirms the board came back"; else fail "past-cap arm message: $out"; fi
 stop_stub
 
-# 3. Failure arm (the perturbation that must go red): the stub NEVER serves WANT.
-#    After a short deadline the step must exit 1, naming the last answer -- a genuine
-#    stale board is still a failure, which the fix must not paper over.
+# 3. STALE arm (#360, the perturbation that must go red): the stub keeps serving a
+#    DIFFERENT non-empty version. After the deadline the step must exit 1 -- launchd
+#    did not pick up the new code, the board is serving OLD bytes, which the fix must
+#    NOT paper over.
 start_stub "stale-0.0.0"
 out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$URL" KOSMOS_BOARD_WANT="$WANT" KOSMOS_BOARD_WAIT_SECS=2 bash "$SCRIPT" 2>&1)"; rc=$?
-if [ "$rc" -eq 1 ]; then pass "failure arm: never reaches WANT -> exit 1"; else fail "failure arm exit 1 (rc=$rc, out=$out)"; fi
-if has "$out" "DID NOT COME BACK ON ${WANT}"; then pass "failure arm names the fault"; else fail "failure arm message: $out"; fi
-if has "$out" "last answer: 'stale-0.0.0'"; then pass "failure arm reports the last version seen"; else fail "failure arm last-answer: $out"; fi
+if [ "$rc" -eq 1 ]; then pass "stale arm: keeps serving a different version -> exit 1"; else fail "stale arm exit 1 (rc=$rc, out=$out)"; fi
+if has "$out" "STILL SERVING stale-0.0.0"; then pass "stale arm names the stale version being served"; else fail "stale arm message: $out"; fi
+if has "$out" "NOT ${WANT}"; then pass "stale arm names the version it should be on"; else fail "stale arm want: $out"; fi
 stop_stub
 
-# 4. Not-answering arm: point at a port whose stub we just stopped -> nothing is
-#    listening -> exit 1 with last answer 'none'. A board that is DOWN is a failure,
-#    distinct from one serving stale code.
+# 4. Not-answering arm (#2109): point at a port whose stub we just stopped -> nothing
+#    is listening -> exit 0 with a WARNING. A DOWN board is NOT serving stale code
+#    (it comes back on the code on disk), and the release is already served/verified,
+#    so it must NOT fail the cut -- it warns.
 start_stub "whatever"
 deadurl="$URL"
 stop_stub
 sleep 0.3
 out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$deadurl" KOSMOS_BOARD_WANT="$WANT" KOSMOS_BOARD_WAIT_SECS=2 bash "$SCRIPT" 2>&1)"; rc=$?
-if [ "$rc" -eq 1 ]; then pass "not-answering arm: no board -> exit 1"; else fail "not-answering arm exit 1 (rc=$rc, out=$out)"; fi
-if has "$out" "last answer: 'none'"; then pass "not-answering arm reports 'none'"; else fail "not-answering arm message: $out"; fi
+if [ "$rc" -eq 0 ]; then pass "not-answering arm: no board -> exit 0 (warns, does not fail the cut)"; else fail "not-answering arm exit 0 (rc=$rc, out=$out)"; fi
+if has "$out" "WARNING"; then pass "not-answering arm prints a WARNING"; else fail "not-answering arm warning: $out"; fi
+if has "$out" "NOT failed"; then pass "not-answering arm says the cut is not failed"; else fail "not-answering arm not-failed message: $out"; fi
+
+# 4b. Divergence arm (#2109): stale (a different version) and silent (no answer) must
+#     produce DIFFERENT exit codes -- a regression that collapses them back to the
+#     same code is exactly what this guards. Reuses arms 3 and 4: stale rc must be 1,
+#     silent rc must be 0.
+start_stub "stale-0.0.0"
+stale_out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$URL" KOSMOS_BOARD_WANT="$WANT" KOSMOS_BOARD_WAIT_SECS=2 bash "$SCRIPT" 2>&1)"; stale_rc=$?
+sdead="$URL"; stop_stub; sleep 0.3
+silent_out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$sdead" KOSMOS_BOARD_WANT="$WANT" KOSMOS_BOARD_WAIT_SECS=2 bash "$SCRIPT" 2>&1)"; silent_rc=$?
+if [ "$stale_rc" -eq 1 ] && [ "$silent_rc" -eq 0 ]; then pass "divergence: stale exits 1, silent exits 0 (they do not collapse)"; else fail "divergence: stale_rc=$stale_rc silent_rc=$silent_rc"; fi
+
+# 4c. Slow-stale arm (#2109 review): a STALE board that is UP but SLOW under load --
+#     its short (3s) in-loop poll times out and returns empty (looks like "not
+#     answering"), but the PATIENT (10s) final poll reveals it is serving OLD code ->
+#     exit 1. Without the patient poll this misclassifies as silent (exit 0) and ships
+#     stale code to the review board silently. The stub delays each response 4s: past
+#     the 3s in-loop timeout, within the 10s patient timeout. (~7s runtime.)
+STUB_DELAY=4000
+start_stub "stale-0.0.0"
+out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$URL" KOSMOS_BOARD_WANT="$WANT" KOSMOS_BOARD_WAIT_SECS=2 bash "$SCRIPT" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "slow-stale arm: a slow-but-stale board is caught by the patient final poll -> exit 1"; else fail "slow-stale arm exit 1 (rc=$rc, out=$out)"; fi
+if has "$out" "STILL SERVING stale-0.0.0"; then pass "slow-stale arm names the stale version the patient poll saw"; else fail "slow-stale arm message: $out"; fi
+unset STUB_DELAY
+stop_stub
+
+# 4d. Transient-failure-stale arm (#2109 review): the stale->fail decision must not
+#     hinge on ONE patient sample. A STALE board that 503s the first couple of
+#     requests then answers with its old version must still be caught (exit 1), not
+#     mistaken for silent. WAIT_SECS=0 pins the in-loop poll to exactly one request,
+#     so FAIL_FIRST=2 503s the in-loop poll AND the first patient retry; the second
+#     patient retry answers stale. A single patient poll (no retry) would 503 and
+#     misclassify as silent (exit 0) -- so this arm is red-capable against dropping
+#     the retry.
+STUB_FAIL_FIRST=2
+start_stub "stale-0.0.0"
+out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$URL" KOSMOS_BOARD_WANT="$WANT" KOSMOS_BOARD_WAIT_SECS=0 bash "$SCRIPT" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ]; then pass "transient-fail-stale arm: 503 then stale -> caught by a patient RETRY -> exit 1"; else fail "transient-fail-stale arm exit 1 (rc=$rc, out=$out)"; fi
+if has "$out" "STILL SERVING stale-0.0.0"; then pass "transient-fail-stale arm names the stale version a later retry saw"; else fail "transient-fail-stale arm message: $out"; fi
+unset STUB_FAIL_FIRST
+stop_stub
 
 # 5. Bad-knob arm: a non-numeric KOSMOS_BOARD_WAIT_SECS is refused with a clear
 #    message, not a cryptic set -e abort on the arithmetic. The validation runs
