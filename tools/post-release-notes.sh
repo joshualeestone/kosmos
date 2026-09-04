@@ -58,10 +58,11 @@ if [ -n "$NODE" ] && [ -f "$PAGE" ]; then
     // strip tags, then decode the common HTML entities (&amp; LAST so &amp;lt; -> &lt; -> < is
     // not double-decoded). Deliberately map em/en-dash entities to a hyphen (Josh no-em-dash rule).
     let t=m[1].replace(/<[^>]+>/g," ")
-      .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,"\"")
-      .replace(/&#3[49];/g,"'").replace(/&#821[67];/g,"'").replace(/&#8220;|&#8221;/g,"\"")
-      .replace(/&#8211;|&#8212;|&ndash;|&mdash;/g,"-").replace(/&nbsp;/g," ")
+      .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,"\"").replace(/&#34;/g,"\"")
+      .replace(/&#39;/g,"'").replace(/&#821[67];/g,"'").replace(/&#8220;|&#8221;/g,"\"")
+      .replace(/&#8211;|&#8212;|&#x201[34];|&ndash;|&mdash;/gi,"-").replace(/&nbsp;/g," ")
       .replace(/&amp;/g,"&")
+      .replace(/[\u2013\u2014]/g,"-")   // any LITERAL en/em-dash char -> hyphen (Josh no-em-dash rule; a post can never carry U+2014)
       .replace(/\s+/g," ").trim();
     process.stdout.write(t);
   ' "$PAGE" "$ANCHOR" 2>/dev/null || true)"
