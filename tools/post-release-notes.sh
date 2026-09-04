@@ -55,12 +55,21 @@ if [ -n "$NODE" ] && [ -f "$PAGE" ]; then
     const seg=html.slice(a, end<0?html.length:end);
     const m=seg.match(/<p>([\s\S]*?)<\/p>/i);
     if(!m){process.exit(0)}
-    let t=m[1].replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
+    // strip tags, then decode the common HTML entities (&amp; LAST so &amp;lt; -> &lt; -> < is
+    // not double-decoded). Deliberately map em/en-dash entities to a hyphen (Josh no-em-dash rule).
+    let t=m[1].replace(/<[^>]+>/g," ")
+      .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,"\"")
+      .replace(/&#3[49];/g,"'").replace(/&#821[67];/g,"'").replace(/&#8220;|&#8221;/g,"\"")
+      .replace(/&#8211;|&#8212;|&ndash;|&mdash;/g,"-").replace(/&nbsp;/g," ")
+      .replace(/&amp;/g,"&")
+      .replace(/\s+/g," ").trim();
     process.stdout.write(t);
   ' "$PAGE" "$ANCHOR" 2>/dev/null || true)"
 fi
+NOTE_FROM_FALLBACK=0
 if [ -z "$NOTE" ]; then
   NOTE="Kosmos $V is out. See the release notes."
+  NOTE_FROM_FALLBACK=1
   say "post-release-notes: no versions-page entry for $V (looked for $ANCHOR in $PAGE) - using a generic note."
 fi
 
@@ -147,6 +156,16 @@ fi
 if [ ! -f "$APPROVAL_MARKER" ]; then
   say "HOLD: live auto-posting is armed but NOT yet approved. Review a preview, then create the approval marker to opt in ONCE:"
   say "   touch \"$APPROVAL_MARKER\""
+  write_preview; exit 0
+fi
+# Gate 5b: the note must be a REAL extraction, not the generic fallback. A stale/misshapen
+# versions page (or a <p>-shape drift) yields "Kosmos $V is out. See the release notes." - a
+# DEGRADED note. The whole guarantee is "a bad note cannot auto-publish," and a generic degraded
+# note is exactly that, so it must NEVER auto-publish: hold for a hand post after the page is fixed.
+if [ "$NOTE_FROM_FALLBACK" = 1 ]; then
+  say "HOLD: the release note is a generic FALLBACK (no real versions-page entry for $V). Refusing to"
+  say "  auto-publish a degraded note - fix the versions page and post by hand, or re-run once the entry"
+  say "  is present. Preview only."
   write_preview; exit 0
 fi
 

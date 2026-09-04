@@ -133,6 +133,19 @@ run_missing() {
 }
 run_missing
 
+# 8b. a FALLBACK note (no page entry) must NOT auto-publish even with ALL other gates armed
+#     (--publish + autopost + creds + marker). Proves Gate 5b: a degraded generic note is exactly
+#     the "bad note" the guarantee forbids from auto-publishing. Red-capable: without Gate 5b this
+#     would publish to both platforms and REC would be non-empty.
+: > "$REC"
+env KOSMOS_VERSIONS_PAGE="$PAGE" KOSMOS_SOCIAL_PREVIEW_DIR="$PREVIEW" KOSMOS_SOCIAL_APPROVAL_MARKER="$MARKER" \
+  KOSMOS_SOCIAL_POST_CMD="bash $POSTER" KOSMOS_SOCIAL_ANNOUNCED_RECORD="$T/fb.log" \
+  KOSMOS_SOCIAL_AUTOPOST=1 KOSMOS_SECRETS_MAP="$MAP_OK" bash "$SCRIPT" 0.0.1 --publish > "$T/fbout" 2>&1
+rcfb=$?
+{ [ "$rcfb" = 0 ] && [ ! -s "$REC" ] && has "$(cat "$T/fbout")" "generic FALLBACK"; } \
+  && pass "fallback note: HOLDS (no auto-publish) even with all gates armed" \
+  || bad "fallback note: published or wrong (rc=$rcfb, published=$([ -s "$REC" ] && echo yes || echo no))"
+
 # 9. a non-numeric version is refused
 env bash "$SCRIPT" "not-a-version" >/dev/null 2>&1; [ $? = 2 ] && pass "non-numeric version -> refuse (exit 2)" || bad "non-numeric version not refused"
 
