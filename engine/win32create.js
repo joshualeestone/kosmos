@@ -75,19 +75,21 @@ const win32sessions = require('./win32sessions');
  *   `because` is the record's own reason, spoken plainly.
  */
 function prepareSession(meta) {
-  const name = meta && typeof meta.name === 'string' ? meta.name : '';
-  const runner = meta && typeof meta.runner === 'string' ? meta.runner : '';
   // crypto.randomUUID gives a canonical v4 UUID: the shape `claude --session-id`
   // accepts (measured) and one win32sessions.validId passes (hyphens are in its
   // charset). A v4 collision with an existing record is ~0, so we do not probe
   // for one -- and record() would overwrite rather than corrupt if it ever did.
   const sessionId = crypto.randomUUID();
-  // record() is the single gate on name/runner and the single writer. If it
-  // refuses (blank/invisible name) or cannot write, NOTHING landed -- the minted
-  // id was never handed out -- so we surface its reason and there is nothing to
-  // undo. The spawn must not start on a failure here (no id was recorded, so the
-  // session would be unrecorded and invisible on the board).
-  const r = win32sessions.record(sessionId, { name, runner });
+  // record() is the single gate on name/runner AND the single normalizer of them
+  // (it applies the same string-or-'' defaulting to whatever object it is handed,
+  // and reads only name/runner, ignoring extras). So pass `meta` straight through
+  // -- re-defaulting name/runner here would be a second copy of that logic and a
+  // second place for the two to disagree. If record refuses (blank/invisible
+  // name) or cannot write, NOTHING landed -- the minted id was never handed out
+  // -- so we surface its reason and there is nothing to undo. The spawn must not
+  // start on a failure here (no id was recorded, so the session would be
+  // unrecorded and invisible on the board).
+  const r = win32sessions.record(sessionId, meta);
   if (!r.ok) return { ok: false, because: r.because };
   return { ok: true, sessionId, launchArgs: ['--session-id', sessionId] };
 }

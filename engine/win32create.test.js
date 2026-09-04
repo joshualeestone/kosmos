@@ -72,12 +72,42 @@ test('#570 a blank/invisible name is REFUSED and writes NOTHING (fail-closed at 
   assert.equal(blank.ok, false, 'a whitespace-only name is refused');
   assert.ok(typeof blank.because === 'string' && blank.because.length > 0,
     'the refusal says why, in the record\'s own words');
+  // A failure carries NO id and NO args: the spawn must have nothing to launch
+  // with, or a caller that ignored `ok` could start a session under a leaked id
+  // that was never recorded (unrecorded -> invisible on the board).
+  assert.equal(blank.sessionId, undefined, 'no sessionId on a refusal');
+  assert.equal(blank.launchArgs, undefined, 'no launchArgs on a refusal');
   const zeroWidth = win32create.prepareSession({ name: '​' });
   assert.equal(zeroWidth.ok, false, 'an all-zero-width name is refused (validName, not .trim())');
   const missing = win32create.prepareSession({});
   assert.equal(missing.ok, false, 'a missing name is refused');
   assert.equal(Object.keys(win32sessions.read()).length, before,
     'a refused prepareSession recorded nothing -- no minted id leaked into the store');
+});
+
+test('#570 a store WRITE FAULT (not a bad name) is surfaced verbatim, with no leak and nothing recorded', () => {
+  // The refusals above exercise the !r.ok branch via a name record() rejects. A
+  // write fault reaches the SAME branch for a different reason -- point the live
+  // store root (win32sessions derives it through a getter, honoured live) at a
+  // regular FILE, so record()'s mkdirSync throws ENOTDIR and it returns
+  // ok:false with a store-write `because`, not a name one.
+  const saved = process.env.AGENT_WORKFORCE_DATA;
+  const blocker = nodePath.join(SANDBOX, 'root-is-a-file');
+  fs.writeFileSync(blocker, 'x');
+  process.env.AGENT_WORKFORCE_DATA = blocker;
+  try {
+    const before = Object.keys(win32sessions.read()).length; // read of a file-root -> {} -> 0
+    const out = win32create.prepareSession({ name: 'writefault', runner: 'claude' });
+    assert.equal(out.ok, false, 'a store write fault is surfaced, not swallowed as ok');
+    assert.ok(typeof out.because === 'string' && out.because.length > 0, 'the write fault says why');
+    assert.ok(!/session id we can key/.test(out.because),
+      'the reason is a WRITE fault, not the name/id gate (proves a non-name path through !r.ok)');
+    assert.equal(out.sessionId, undefined, 'no sessionId leaks on a write fault');
+    assert.equal(out.launchArgs, undefined, 'no launchArgs leak on a write fault');
+    assert.equal(Object.keys(win32sessions.read()).length, before, 'nothing recorded on a write fault');
+  } finally {
+    process.env.AGENT_WORKFORCE_DATA = saved;
+  }
 });
 
 test('#570 abandon() drops a prepared session from the record', () => {
