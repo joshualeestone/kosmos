@@ -5727,18 +5727,25 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        /* Bounded, symlink-safe read of the validated path, with NO path re-resolution
-           after the check. `O_NOFOLLOW` makes the open itself refuse (ELOOP) if the final
-           component is a symlink -- atomically, so unlike an lstat-then-readFileSync there
-           is no window where a symlink swapped in between the check and the read is
-           followed. Everything after is on the fd (fstat for the kind + size, read by fd),
-           so the path is resolved exactly once. MAX_IMPORT_FILE caps the allocation
-           (matches agentfile's own MAX_FILE, which would refuse a larger file anyway). */
+        /* Bounded, symlink-safe read of the validated path, shaped like the #1776 exemplar
+           in engine/securewrite.js so the guard does not evaporate on win32. Two layers:
+           (1) a platform-INDEPENDENT lstat hand check that refuses a symlink (or non-file)
+               outright -- this runs regardless of whether the kernel flag exists, and is
+               what the server.agent-import-1652.test.js TOCTOU arm exercises on macOS;
+           (2) O_NOFOLLOW, captured undefined-safe as `NOFOLLOW || 0` (it is UNDEFINED on
+               win32, and `X | undefined === X` would silently drop it), which on macOS
+               makes the open atomic and closes the lstat->open TOCTOU window; on win32 it
+               is absent and layer (1) is the guard (a narrow accepted residual).
+           Everything after the open is on the fd (fstat + read by fd), so the path resolves
+           once. MAX_IMPORT_FILE caps the allocation (matches agentfile's own MAX_FILE). */
+        const NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
         const MAX_IMPORT_FILE = 512 * 1024;
         let text;
         let fd = null;
         try {
-          fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+          const lst = fs.lstatSync(file);
+          if (lst.isSymbolicLink() || !lst.isFile()) { sendJson(res, 200, { ok: false, because: 'that file is no longer a readable file' }); return; }
+          fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW);
           const st = fs.fstatSync(fd);
           if (!st.isFile()) { sendJson(res, 200, { ok: false, because: 'that file is no longer a readable file' }); return; }
           if (st.size > MAX_IMPORT_FILE) { sendJson(res, 200, { ok: false, because: 'that file is too large to be an agent file' }); return; }
