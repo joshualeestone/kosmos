@@ -6092,15 +6092,22 @@ test('the About-you gate exists in production code (static pins)', () => {
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   assert.match(raw, /<div class="fr-pane" id="fr-pane-4" hidden>/,
     'the About-you pane left the static markup');
-  const fn = raw.slice(raw.indexOf('async function frPaintYou'));
+  // Bound the search to frPaintYou's OWN body (up to the next top-level function
+  // declaration), not a fixed byte window: #1994 inserted the restored tz-picker
+  // block, which pushed the two-answer gate past a former slice(0, 4000) cap. A
+  // body-scoped slice follows the gate wherever it sits, and still fails loud if
+  // the gate or the pane is deleted.
+  const rest = raw.slice(raw.indexOf('async function frPaintYou'));
+  const nextFn = rest.slice(1).search(/\n(?:async )?function /);
+  const fn = nextFn > -1 ? rest.slice(0, nextFn + 1) : rest;
   assert.ok(fn.length > 100, 'frPaintYou vanished');
-  assert.match(fn.slice(0, 4000), /nameEl\.value\.trim\(\) !== '' && doEl\.value\.trim\(\) !== ''/,
+  assert.match(fn, /nameEl\.value\.trim\(\) !== '' && doEl\.value\.trim\(\) !== ''/,
     'the two-answer gate is gone: Continue no longer waits');
   const put = fn.indexOf("fetch('/api/you'");
   const advance = fn.indexOf('frGo(FR_STEP_YOU + 1)');
   assert.ok(put > -1 && advance > -1 && put < advance,
     'the save no longer happens before the advance (or either vanished)');
-  assert.match(fn.slice(0, 4000), /aria-required="true"/,
+  assert.match(fn, /aria-required="true"/,
     'the required fields lost their programmatic marking');
 });
 
