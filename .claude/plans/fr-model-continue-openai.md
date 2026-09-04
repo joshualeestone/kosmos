@@ -27,7 +27,7 @@ revert Continue to Skip.
 ## Tests
 web.firstrun-model.test.js: the connected-path frPaintOpenai runs (told-directly
 + asked-the-machine) now inject FR/frActions/frGo stubs and assert Continue is the
-offered primary action. All 13 pass.
+offered primary action. All 14 pass.
 
 ## Scope / boundaries
 Finding #1 of Josh's OpenAI-only cluster. Global-gate sibling is #2128 (Pete).
