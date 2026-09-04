@@ -106,6 +106,36 @@ test('#1652: importable is bounded by MAX_IMPORTABLE, and the bound is reported'
   assert.equal(r.bounded.importable, true, 'the importable cap was hit but not reported in bounded');
 });
 
+test('#1652: MAX_MD_PER_DIR reads a folder short over readdir order, and flags bounded.importable', () => {
+  // 45 agent files in ONE folder: the per-dir cap (40) fires before the total cap (60),
+  // so the folder is read short. The honesty claim is that this is NOT silent -- the
+  // screen must be able to say "there may be more", i.e. bounded.importable is set.
+  const many = path.join(SB, 'perdir');
+  fs.mkdirSync(many, { recursive: true });
+  for (let i = 0; i < 45; i += 1) {
+    fs.writeFileSync(path.join(many, `a-${i}.md`), AGENT(`Perdir${i}`, 'worker'));
+  }
+  const r = scan([{ dir: many, maxDepth: 1 }]);
+  assert.equal(r.importable.length, 40, 'the per-folder read cap did not stop at MAX_MD_PER_DIR');
+  assert.equal(r.bounded.importable, true, 'a folder read short must set bounded.importable (the documented honesty claim)');
+});
+
+test('#1652: the whole-walk read budget (maxMdReads) bounds importable and flags the truncation', () => {
+  // Two folders of 5 agent files; a maxMdReads override of 6 stops mid-walk, so only
+  // some are collected and bounded.importable says there may be more. The override is the
+  // testable seam for the default MAX_MD_READS (3000), which is impractical to fixture.
+  const root = path.join(SB, 'readbudget');
+  for (const d of ['x', 'y']) {
+    const sub = path.join(root, d);
+    fs.mkdirSync(sub, { recursive: true });
+    for (let i = 0; i < 5; i += 1) fs.writeFileSync(path.join(sub, `r-${i}.md`), AGENT(`Rb${d}${i}`, 'worker'));
+  }
+  const r = scan([{ dir: root, maxDepth: 2 }], { maxMdReads: 6 });
+  assert.ok(r.importable.length <= 6, 'maxMdReads did not bound the number of files read/collected');
+  assert.ok(r.importable.length > 0, 'the read budget stopped collection entirely (should collect up to the budget)');
+  assert.equal(r.bounded.importable, true, 'hitting the read budget must set bounded.importable');
+});
+
 test('#1652: the sandbox-refusal return carries the importable shape too (no undefined for a consumer)', () => {
   // A bare scan() with no explicit roots and no SCAN_ROOTS env refuses (the sandbox
   // guard), and its return must be the SAME shape as a real walk -- including the

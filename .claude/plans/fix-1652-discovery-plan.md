@@ -53,8 +53,12 @@ the connect candidates, and look in the download/save locations. Concretely:
      gate that keeps "You are an expert in Rust" templates out of the connect scan keeps random
      README.md out of the importable list.
 
-2. **`server.js`** - `/api/found-agents` scan route already spreads `discover.scan()`'s whole
-   result (`{ ...out, dismissed }`), so `importable` rides through with no route change. (Verify.)
+2. **`server.js`** - the disk-scan route is `/api/scan-agents` (NOT `/api/found-agents`, which
+   serves `discover.found()` from Claude's records). It spreads `discover.scan()`'s whole result
+   (`{ ...out, dismissed }`), so `importable` rides through the success path unchanged. Its error
+   catch-fallback needed one line: it returned a hand-built `{ ok:false, candidates:[] }` that
+   predated `importable`, so `importable:[]` + a fully-shaped `bounded` were added there for the
+   same-shape-on-every-path contract the sandbox-refusal return documents.
 
 3. **`web/index.html`** - render importable rows in the scan list with an "Import" action that
    feeds the file text into the EXISTING import flow (`/api/agent-import` -> pre-fill create),

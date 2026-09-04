@@ -4332,6 +4332,7 @@ const server = http.createServer((req, res) => {
            "we could not look" is an ANSWER the screen can render. A failed scan is not
            cached, so the next poll tries again. */
         sendJson(res, 200, { ok: false, candidates: [], importable: [],
+          bounded: { depth: false, dirs: false, count: false, visited: 0, importable: false },
           because: 'we could not scan this computer for agents',
           detail: String((err && err.message) || err) });
         return;

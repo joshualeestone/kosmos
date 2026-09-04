@@ -790,6 +790,9 @@ function scan(opts) {
   const roots = explicit || defaultScanRoots();
   const maxDirs = Number.isFinite(o.maxDirs) && o.maxDirs > 0 ? o.maxDirs : SCAN.MAX_DIRS;
   const maxCandidates = Number.isFinite(o.maxCandidates) && o.maxCandidates > 0 ? o.maxCandidates : SCAN.MAX_CANDIDATES;
+  /* #1652: the whole-walk loose-file read budget, overridable like maxDirs/maxCandidates
+     so a test can exercise the wall without writing thousands of files. */
+  const maxMdReads = Number.isFinite(o.maxMdReads) && o.maxMdReads > 0 ? o.maxMdReads : SCAN.MAX_MD_READS;
 
   /* 🔑 EVERYTHING `found()` ALREADY KNOWS IS EXCLUDED, so the scan offers only the
      complementary population. A folder Claude has a record of is BETTER found by
@@ -916,7 +919,7 @@ function scan(opts) {
          a README stays out; the row SHOWS the preview so a wrong offer is a one-click skip.
          Bounded three ways: MAX_MD_PER_DIR per folder, MAX_MD_READS across the walk, and
          MAX_IMPORTABLE rows returned. Runs on BOTH normal and importOnly roots. */
-      if (byFile.size >= SCAN.MAX_IMPORTABLE || mdReads >= SCAN.MAX_MD_READS) {
+      if (byFile.size >= SCAN.MAX_IMPORTABLE || mdReads >= maxMdReads) {
         /* Already at a global cap and there is still a folder to walk: we will collect
            no more importable files even if they exist here, so say so honestly. This is
            the "filled the list on an earlier folder" case the in-loop breaks below cannot
@@ -926,7 +929,7 @@ function scan(opts) {
         let perDir = 0;
         for (const name of names) {
           if (byFile.size >= SCAN.MAX_IMPORTABLE) { hitImportable = true; break; }
-          if (mdReads >= SCAN.MAX_MD_READS) { hitImportable = true; break; }
+          if (mdReads >= maxMdReads) { hitImportable = true; break; }
           if (perDir >= SCAN.MAX_MD_PER_DIR) { hitImportable = true; break; }  // read this folder short: there may be more
           const lower = name.toLowerCase();
           if (!lower.endsWith('.md') && !lower.endsWith('.markdown')) continue;
@@ -978,6 +981,12 @@ function scan(opts) {
      never `discover.connect(dir)`, which is for a work FOLDER. Kept separate so a consumer
      that only knows the connect list is unaffected, and so connect can never be handed a
      loose file's parent directory. */
+  /* #1652: the shared dir/count caps (`break outer`) stop the WHOLE walk, so loose-file
+     collection was cut short too even though no importable-specific cap was hit. Fold
+     them into hitImportable so a consumer keying only on `bounded.importable` does not
+     under-report -- the connect note keys on count||dirs, but a PR2 importable list may
+     not. */
+  if (hitCount || hitDirs) hitImportable = true;
   const importable = [...byFile.values()].sort((a, b) => String(a.name || a.file).localeCompare(String(b.name || b.file)));
   return {
     ok: true,
