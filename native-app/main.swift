@@ -328,11 +328,23 @@ func boardTokenValue() -> String? {
 // carried TWO ways, and either one suffices, because the failure of the signal is the
 // quit-to-nothing bug and must not depend on a single fragile channel:
 //   1. A launch-environment variable set on the relaunch's OpenConfiguration -- handed
-//      directly to the new process, no disk, no timing window (the robust primary).
+//      directly to the new process, no disk, no timing window, and PROCESS-SPECIFIC (only
+//      the fresh copy inherits it). This is the robust primary.
 //   2. A short-TTL token file the exiting instance writes -- a belt-and-suspenders
 //      fallback in case the environment does not propagate, exactly the written token
 //      the design called for.
 // A NORMAL user launch (double-click, dock, installer) carries neither, so it dedups.
+//
+// ⚠️ The token is GLOBAL, not process-specific: it cannot be, because a process-targeted
+// token would need a secret handed to the fresh copy, which is exactly what channel 1
+// already is. So in a narrow race -- a manual launch double-clicked in the sub-second
+// window between the exiting instance writing the token and the fresh copy consuming it --
+// the manual launch could read the token and skip its own dedup, ending up as a second
+// window. This is accepted deliberately: channel 1 protects the INTENDED fresh copy
+// regardless (it is process-specific), the window is a coincidence of manual timing during
+// an auto-update, and the harm is one recoverable extra window -- far less than the
+// quit-to-nothing the token exists to prevent. Removing the token to close the race would
+// drop the defense-in-depth the design called for, so it stays.
 
 let kRelaunchHandoffEnvKey = "KOSMOS_RELAUNCH_HANDOFF"
 let kRelaunchHandoffTTL: TimeInterval = 30  // a relaunch's fresh copy launches within a second or two
@@ -369,16 +381,19 @@ func writeRelaunchHandoffToken() {
 }
 
 // Called by a FRESH instance at launch. Returns true iff this launch is a #2094 relaunch
-// handoff (via the env var OR a fresh token file). It removes the token FILE so that
-// signal is one-shot and a stale token cannot linger to exclude a later launch. The env
-// var cannot be unset and is not, but it does not need to be: a manual reopen is a new
-// process with a fresh environment that never carries the key, so only the file could
-// linger, and only the file is removed here.
+// handoff (via the env var OR a fresh token file), and CONSUMES both so the signal is
+// one-shot: the token FILE is removed, and the env var is unset in THIS process so it
+// neither lingers nor propagates to descendants. That propagation matters -- the engine
+// subprocess startBoard spawns copies the current environment, and a stale handoff carried
+// into any descendant that later launched the GUI would wrongly skip the dedup.
 func consumeFreshRelaunchHandoff(now: Date = Date()) -> Bool {
     var handoff = false
     if let raw = ProcessInfo.processInfo.environment[kRelaunchHandoffEnvKey], !raw.isEmpty {
         handoff = true
     }
+    // Unset unconditionally: the signal is one-shot, and it must not survive to be
+    // inherited by a descendant process (startBoard copies the current environment).
+    unsetenv(kRelaunchHandoffEnvKey)
     if let url = relaunchHandoffURL() {
         if let raw = try? String(contentsOf: url, encoding: .utf8),
            let written = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -481,7 +496,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // #2124: single-instance. A fresh install could run this app from two bundle
         // PATHS (the installer's launched copy + the dragged /Applications copy), which
         // LaunchServices treats as separate apps. Dedup by bundle id: if another instance
-        // is already up, activate IT and exit, so the /Applications copy stays the one app.
+        // is already up, activate IT and exit, so the first instance stays the one app.
         // EXCEPT a #2094 self-update relaunch, which hands us a one-shot handoff signal so
         // it is not mistaken for a duplicate (deduping there would quit to nothing).
         let handoff = consumeFreshRelaunchHandoff()
@@ -489,6 +504,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if shouldDeferToExistingInstance(handoff: handoff, otherRunning: other != nil) {
             logLine("#2124: another Kosmos instance is already running; activating it and exiting this duplicate")
             other?.activate()
+            /* 🛑 SET THIS BEFORE terminate, exactly as the #2094 relaunch path does.
+               NSApp.terminate re-enters applicationShouldTerminate, which -- with this
+               flag false -- shows the "Your agents keep running" quit dialog and, if the
+               person dismisses it, returns .terminateCancel and the DUPLICATE STAYS OPEN,
+               defeating this whole guard. The dedup is not a person-initiated quit; there
+               is nothing to confirm, so terminate cleanly. */
+            isActuallyQuitting = true
             NSApp.terminate(nil)
             return
         }

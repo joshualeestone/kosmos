@@ -27,12 +27,43 @@ test('the pure decision is present and encodes BOTH arms (!handoff && otherRunni
 });
 
 test('applicationDidFinishLaunching dedups: consume handoff, then defer -> activate other + terminate', () => {
-  const m = SRC.match(/func applicationDidFinishLaunching\([\s\S]{0,1300}/);
+  const m = SRC.match(/func applicationDidFinishLaunching\([\s\S]{0,1600}/);
   assert.ok(m, 'applicationDidFinishLaunching moved');
   const head = m[0];
   assert.ok(head.includes('consumeFreshRelaunchHandoff('), 'the guard does not consume the relaunch handoff -- the #2094 relaunch would be treated as a duplicate');
   assert.ok(head.includes('shouldDeferToExistingInstance('), 'the guard does not call the decision');
   assert.ok(head.includes('other?.activate()') && head.includes('NSApp.terminate('), 'a duplicate must activate the existing instance and terminate itself');
+});
+
+test('the defer block terminates CLEANLY: sets isActuallyQuitting BEFORE terminate (no quit dialog can cancel the dedup)', () => {
+  // NSApp.terminate re-enters applicationShouldTerminate, which shows the "Your agents
+  // keep running" quit dialog unless isActuallyQuitting is set -- and a dismissed dialog
+  // returns .terminateCancel, leaving the DUPLICATE open and defeating #2124. The dedup
+  // is not a person-initiated quit, so it must set the flag first, like the #2094 relaunch.
+  const i = SRC.indexOf('shouldDeferToExistingInstance(handoff: handoff');
+  assert.ok(i > 0, 'the defer guard moved');
+  const block = SRC.slice(i, i + 800);
+  const flagAt = block.indexOf('isActuallyQuitting = true');
+  const termAt = block.indexOf('NSApp.terminate(');
+  assert.ok(flagAt > 0, 'the defer block does not set isActuallyQuitting -- a dedup would pop the quit dialog and a dismissal leaves the duplicate open');
+  assert.ok(termAt > flagAt, 'isActuallyQuitting must be set BEFORE NSApp.terminate in the defer block, or the re-entered quit dialog can cancel the termination');
+});
+
+test('the relaunch-failure path removes the fallback token (a stale token must not outlive a failed relaunch)', () => {
+  // If openApplication fails, this instance stays open; a lingering token would let a
+  // manual reopen within its TTL skip the dedup and run as a duplicate.
+  const j = SRC.indexOf('relaunch FAILED');
+  assert.ok(j > 0, 'the relaunch-failure log line moved');
+  // Window spans the log line + explanatory comment + the cleanup, up to the alert build.
+  const failBlock = SRC.slice(j, SRC.indexOf('NSAlert()', j) > j ? SRC.indexOf('NSAlert()', j) : j + 1200);
+  assert.ok(failBlock.includes('removeItem(at:') && failBlock.includes('relaunchHandoffURL('), 'the relaunch-failure path does not remove the fallback token, so a failed relaunch can leave a duplicate-enabling token behind');
+});
+
+test('the env handoff is unset after consumption (not left to propagate to descendant processes)', () => {
+  const c = SRC.indexOf('func consumeFreshRelaunchHandoff(');
+  assert.ok(c > 0, 'consumeFreshRelaunchHandoff moved');
+  const body = SRC.slice(c, c + 900);
+  assert.ok(body.includes('unsetenv(kRelaunchHandoffEnvKey)'), 'the env handoff is not unset -- a stale value would be inherited by descendant processes and could wrongly skip a future dedup');
 });
 
 test('the #2094 relaunch hands off BOTH ways before opening the fresh copy', () => {
