@@ -83,8 +83,13 @@ function readName(dir) {
     return n || null;
   } catch { return null; }
 }
+/* #2095: clamp so a RAW API call to the connect route (the form input maxlengths
+   at 40, but the HTTP endpoint does not) cannot store an unbounded name that then
+   bloats every /api/accounts response. 120 matches the agent-name clamp
+   (create.js), generous for a display label and bounded. */
+const NAME_MAX = 120;
 function writeName(dir, name) {
-  const n = String(name == null ? '' : name).trim();
+  const n = String(name == null ? '' : name).trim().slice(0, NAME_MAX);
   if (!n) return false;
   try { fs.writeFileSync(nameFile(dir), n); return true; }
   catch { return false; }
@@ -453,13 +458,22 @@ async function addWithKeyLive({ key, label, codexBin }) {
        deletes a directory that was already here -- addWithKey can succeed into a
        pre-existing dir that merely lacked an auth.json (a reused work slot, or a
        labelled `.codex-<label>` folder with other contents). So: whole dir only
-       when we made it; otherwise remove JUST the auth.json this add wrote, which
-       is safe because addWithKey only SUCCEEDS into a dir that had no auth.json
-       before (line refuses a taken label), so the file present now is ours to
-       undo and nothing else in that directory is. */
+       when we made it; otherwise remove JUST the files this add wrote -- the
+       auth.json AND the #2095 `.kosmos-name` sidecar -- which is safe because
+       addWithKey only SUCCEEDS into a dir that had no auth.json before (it
+       refuses a taken label), so both files present now are ours to undo and
+       nothing else in that directory is.
+       🛑 #2095: the name file MUST be removed here too. Without it, a labelled
+       add into a pre-existing auth-less slot that is then live-rejected orphans
+       `.kosmos-name`; since nextWorkDir reuses an auth-less dir, a LATER add
+       would inherit that stale name -- a different account showing someone
+       else's typed name. */
     try {
       if (added.madeDir) fs.rmSync(added.account.dir, { recursive: true, force: true });
-      else fs.rmSync(authFile(added.account.dir), { force: true });
+      else {
+        fs.rmSync(authFile(added.account.dir), { force: true });
+        fs.rmSync(nameFile(added.account.dir), { force: true });
+      }
     } catch { /* best effort */ }
     return { ok: false, because: 'OpenAI did not accept this key' };
   }

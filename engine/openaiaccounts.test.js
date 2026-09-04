@@ -794,3 +794,28 @@ test('#2095: addWithKey with no label leaves name null (a work-slot account is n
   assert.match(out.account.label, /^work\d+$/);
   assert.equal(out.account.name, null, 'an auto-slotted account has no human-chosen name');
 });
+
+test('#2095: a live-rejected add into a REUSED auth-less dir cleans up the name sidecar (no stale-name leak)', async () => {
+  // Pre-create an auth-less labelled dir so addWithKey succeeds into it with
+  // madeDir=false (the undo path that removes files rather than the whole dir).
+  const dir = nodePath.join(SANDBOX, '.codex-reusename');
+  fs.mkdirSync(dir, { recursive: true });
+  openai.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));
+  try {
+    const out = await openai.addWithKeyLive({ key: 'sk-proj-deadnamedkeyDEAD', label: 'reusename', codexBin: FAKE_CODEX });
+    assert.equal(out.ok, false);
+    // The load-bearing assertion: the name sidecar must be gone on undo. If it
+    // lingered, nextWorkDir would later reuse this auth-less slot and rowFor would
+    // read this dead account's typed name onto a DIFFERENT account.
+    assert.equal(fs.existsSync(nodePath.join(dir, '.kosmos-name')), false, 'the orphaned name file must be cleaned up on undo');
+    assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), false, 'the auth.json must be cleaned up on undo');
+    assert.equal(openai.readName(dir), null);
+  } finally { openai.setFetcher(null); }
+});
+
+test('#2095: writeName clamps an over-long name (a raw API call cannot bloat the served record)', () => {
+  const d = nodePath.join(SANDBOX, '.codex-longname');
+  fs.mkdirSync(d, { recursive: true });
+  assert.equal(openai.writeName(d, 'x'.repeat(500)), true);
+  assert.equal(openai.readName(d).length, 120, 'the stored name is clamped to the bounded length');
+});
