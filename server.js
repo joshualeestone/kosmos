@@ -5538,7 +5538,16 @@ const server = http.createServer((req, res) => {
            at now (undefined -> now), which is exactly the newer-than-the-ask
            signal the leg needs. The count is unused (only the timestamp matters);
            `1` is a placeholder. Throw-safe -- a bookkeeping write never fails a
-           recorded report. */
+           recorded report.
+
+           📌 NEVER EXPLICITLY CLEARED, unlike the 'auth-error' store (which the
+           snapshot caller clears on recovery). The asymmetry is deliberate: the
+           auth-error store is read as an ABSOLUTE per-tick count where a stale
+           value would mislead the delta, so it must be reset between episodes;
+           this 'working' marker is read FRESHNESS-BOUNDED (freshestActivity drops
+           it past ACTIVE_WORK_STALE_MS), so a stale value is already ignored and
+           there is nothing to clear -- exactly like liveness.js, which also only
+           ages out. One bounded file per agent, no leak. */
         if (body.state === 'working') {
           try { activity.record(who, 'working', 1, kept.recorded === true ? kept.at : undefined); } catch { /* the report stands; the marker is best-effort */ }
         }
