@@ -118,45 +118,62 @@ const CASES = [
 
       // ---- paneless: a restarting agent whose pane is GONE still reads restarting -
       // The whole point of #2019 is the tmux gap: mid-restart the pane is gone, so the
-      // engine's snapshot carries running:false / present:false while state:'restarting'.
-      // The card()/lrow() offline early-return is guarded (`&& a.state !== 'restarting'`)
-      // and the members present-branch is forced for restarting, so it must NOT fall to
-      // "Not running" / off / unseen. This arm exercises the running:false path the
-      // per-cause cases above (present:true) never touch, so the guard is not unarmed.
+      // engine's snapshot carries running:false while state:'restarting'. BOTH card()
+      // and lrow() have an offline early-return guarded with `&& a.state !== 'restarting'`,
+      // so a running:false restarting agent must NOT fall to "Not running" in either the
+      // grid OR the list. (Only `running` is load-bearing here -- card()/lrow() derive
+      // presence from CARD_ST.restarting.pres, not the fixture's `present`.) This arm
+      // exercises the running:false path the per-cause cases above (present:true) never
+      // touch, at both render sites where the guard lives, so neither is left unarmed.
       const paneless = await page.evaluate(() => {
         const a = {
           name: 'April', sessionName: 'april', displayName: 'April', role: 'a researcher',
           modelName: 'Opus 5', context: null, stateConfidence: 'reported',
           state: 'restarting', disruption: { cause: 'restart', startedAt: '2026-09-04T01:00:00.000Z' },
-          running: false, present: false,
+          running: false,
         };
-        const d = document.createElement('div'); d.innerHTML = card(a);
-        const cardEl = d.firstElementChild;
+        const cd = document.createElement('div'); cd.innerHTML = card(a);
+        const cardEl = cd.firstElementChild;
         const pill = cardEl.querySelector('.astate');
+        const ld = document.createElement('div'); ld.innerHTML = lrow(a);
+        const rowEl = ld.firstElementChild;
         return {
           cardClass: cardEl.className,
           pillClass: pill ? pill.className : null,
-          label: (cardEl.querySelector('.astate b') || {}).textContent || '',
-          hasK: !!cardEl.querySelector('.kspin img'),
-          notRunning: /Not running/.test(cardEl.textContent),
+          cardLabel: (cardEl.querySelector('.astate b') || {}).textContent || '',
+          cardHasK: !!cardEl.querySelector('.kspin img'),
+          cardNotRunning: /Not running/.test(cardEl.textContent),
+          rowText: rowEl.textContent,
+          rowHasK: !!rowEl.querySelector('.kspin img'),
+          rowNotRunning: /Not running/.test(rowEl.textContent),
         };
       });
       chk(/\brestarting\b/.test(paneless.cardClass) && !/\b(off|unk|notrunning)\b/.test(paneless.cardClass),
-        `[${theme}] paneless (running:false) restarting card is restarting, never off/unk/notrunning`, paneless.cardClass);
-      chk(/st-restarting/.test(paneless.pillClass || '') && paneless.hasK && !paneless.notRunning,
-        `[${theme}] paneless restarting shows the K + label, never "Not running"`, JSON.stringify({ p: paneless.pillClass, k: paneless.hasK, nr: paneless.notRunning }));
+        `[${theme}] paneless (running:false) restarting CARD is restarting, never off/unk/notrunning`, paneless.cardClass);
+      chk(/st-restarting/.test(paneless.pillClass || '') && paneless.cardHasK
+        && paneless.cardLabel === 'Restarting agent' && !paneless.cardNotRunning,
+        `[${theme}] paneless CARD shows the K + "Restarting agent", never "Not running"`, JSON.stringify({ p: paneless.pillClass, k: paneless.cardHasK, l: paneless.cardLabel, nr: paneless.cardNotRunning }));
+      chk(paneless.rowHasK && /Restarting agent/.test(paneless.rowText) && !paneless.rowNotRunning,
+        `[${theme}] paneless (running:false) restarting ROW shows the K + "Restarting agent", never "Not running"`, JSON.stringify({ k: paneless.rowHasK, nr: paneless.rowNotRunning }));
       // CONTROL: the SAME running:false with a non-restarting state MUST still render
-      // "Not running". This proves the paneless-restarting pass above is the guard
-      // (`&& a.state !== 'restarting'`) doing its job, not a globally-defeated offline
-      // early-return -- an assertion that passed either way would mean nothing.
+      // "Not running" in BOTH the card and the row. This proves the paneless passes above
+      // are the guard (`&& a.state !== 'restarting'`) doing its job at each site, not a
+      // globally-defeated offline early-return -- an assertion that passed either way
+      // would mean nothing.
       const offline = await page.evaluate(() => {
         const a = { name: 'April', sessionName: 'april', displayName: 'April', role: 'a researcher',
           modelName: 'Opus 5', context: null, stateConfidence: 'reported', state: 'idle', running: false };
-        const d = document.createElement('div'); d.innerHTML = card(a);
-        return { txt: d.firstElementChild.textContent, cls: d.firstElementChild.className };
+        const cd = document.createElement('div'); cd.innerHTML = card(a);
+        const ld = document.createElement('div'); ld.innerHTML = lrow(a);
+        return {
+          cardTxt: cd.firstElementChild.textContent, cardCls: cd.firstElementChild.className,
+          rowTxt: ld.firstElementChild.textContent,
+        };
       });
-      chk(/Not running/.test(offline.txt) && /\bnotrunning\b/.test(offline.cls),
-        `[${theme}] CONTROL: a non-restarting running:false agent still reads "Not running"`, offline.cls);
+      chk(/Not running/.test(offline.cardTxt) && /\bnotrunning\b/.test(offline.cardCls),
+        `[${theme}] CONTROL: a non-restarting running:false agent still reads "Not running" (card)`, offline.cardCls);
+      chk(/Not running/.test(offline.rowTxt),
+        `[${theme}] CONTROL: a non-restarting running:false agent still reads "Not running" (row)`, JSON.stringify(offline.rowTxt.slice(0, 40)));
 
       // ---- reduced motion: the K holds static AND fully visible -----------------
       // Inject a restarting card, read the K's animation under each motion setting.
