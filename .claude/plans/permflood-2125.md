@@ -38,6 +38,14 @@ code, repos, Kosmos) are all still scanned; only the prompt-triggering, non-stan
 roots are dropped. `appLocationCheck` needs no change (the card's "narrow it to /Applications +
 ~/Applications" is already its state).
 
+Note (deferred, minor): `SCAN_SKIP` matches by folder NAME at every depth, so adding `Documents`
+also skips a nested folder literally named `Documents` (e.g. `~/work/clientX/Documents/<agent>`),
+not only the top-level `~/Documents` that TCC protects. This is deliberately CONSISTENT with the
+pre-existing global-name skipping of `Downloads`/`Desktop`/`Music`/`Movies`/`Pictures`/`Public`
+(each already over-reaches a same-named nested folder); making Documents alone top-level-only would
+be inconsistent and add a path-based special case. The follow-up user-triggered rescan slice should
+be aware the skip is global-by-name, not $HOME-scoped.
+
 Tradeoff (deliberate): auto-discovery of agents living inside ~/Documents/~/Downloads/~/Desktop is
 dropped. These trigger prompts and are non-standard for agent/Claude work folders; discovery there can
 return as an explicit USER-TRIGGERED rescan (which carries its own consent) rather than an auto scan
