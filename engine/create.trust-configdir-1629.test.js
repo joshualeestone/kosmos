@@ -89,10 +89,52 @@ test('#1629 create half: an OpenAI agent never gets a CODEX_HOME as its CLAUDE t
   create.setRunner(() => ({ ok: true }));
   create.setDryRun(false);
   withTrustSpy((seen) => {
-    create.createAgent({ ...BINS, name: 'ct-openai', role: 'pm', provider: 'openai' });
-    if (!seen.length) return; // an openai refusal earlier is fine; nothing to assert
+    // codexBin MUST be a runnable path: an OpenAI agent's runner is codex, and
+    // createAgent refuses before the trust write if the runner is not runnable
+    // (create.js runnerRunnable gate). On a machine WITHOUT codex on PATH (CI),
+    // the default codexBin is unresolvable, the arm refuses, and `seen` stays
+    // empty -- which is exactly why the earlier `if (!seen.length) return` escape
+    // existed and why it could pass vacuously. Passing a runnable stub makes the
+    // arm reach the write deterministically everywhere, so the precondition below
+    // is real rather than environment-dependent.
+    create.createAgent({ ...BINS, codexBin: '/bin/echo', name: 'ct-openai', role: 'pm', provider: 'openai' });
+    assert.ok(seen.length >= 1, 'PRECONDITION: the create path reached the trust write');
     const [, opts] = seen[0];
     assert.equal(opts && opts.configDir, null,
       'the CLAUDE trust write must not receive the codex home');
+  });
+});
+
+test('#2129 create half: a Claude agent trusts its folder with createIfAbsent, so a fresh macOS user gets a config created', () => {
+  /* 🛑 THE #2129 REGRESSION GUARD. Without createIfAbsent, trustFolder refuses
+     when ~/.claude.json is absent (a fresh install), the trust entry never lands,
+     and the agent parks on Claude Code's trust prompt in a TUI nobody can answer.
+     The create-time caller knows it just made this folder, so it opts in. */
+  create.setRunner(() => ({ ok: true }));
+  create.setDryRun(false);
+  withTrustSpy((seen) => {
+    create.createAgent({ ...BINS, name: 'ct-fresh', role: 'pm' });
+    assert.ok(seen.length >= 1, 'PRECONDITION: the create path reached the trust write');
+    const [, opts] = seen[0];
+    assert.equal(opts && opts.createIfAbsent, true,
+      'a Claude agent must pass createIfAbsent, or a fresh install has no config to write into');
+  });
+});
+
+test('#2129 create half: an OpenAI agent does NOT createIfAbsent a CLAUDE config (its own trustCodexFolder handles fresh installs)', () => {
+  /* The Claude trust write is provider-guarded to configDir:null for OpenAI, and
+     createIfAbsent must stay false there too - otherwise a codex agent would have
+     a spurious ~/.claude.json invented for it. The codex arm's trustCodexFolder
+     already creates ~/.codex/config.toml on a fresh account. */
+  create.setRunner(() => ({ ok: true }));
+  create.setDryRun(false);
+  withTrustSpy((seen) => {
+    // Runnable codexBin so the OpenAI arm reaches the trust write on a machine
+    // without codex (CI); see the note in the sibling OpenAI test above.
+    create.createAgent({ ...BINS, codexBin: '/bin/echo', name: 'ct-openai-fresh', role: 'pm', provider: 'openai' });
+    assert.ok(seen.length >= 1, 'PRECONDITION: the create path reached the trust write');
+    const [, opts] = seen[0];
+    assert.notEqual(opts && opts.createIfAbsent, true,
+      'the CLAUDE trust write must not createIfAbsent for an OpenAI agent');
   });
 });

@@ -161,29 +161,56 @@ function trustFolder(dir, opts) {
   try { if (fs.lstatSync(target).isSymbolicLink()) return { ok: false, because: 'their config file is a symlink' }; }
   catch { /* absent is handled below, on its own terms */ }
 
+  // 🛑 #2129: CREATE the config when absent, but ONLY when the caller opts in.
+  // The default is still refuse (every existing caller and test relies on it).
+  // A fresh macOS user has no ~/.claude.json, so an agent Kosmos just made would
+  // hit Claude Code's trust prompt in a non-interactive TUI it cannot answer
+  // (default = "No, exit" = the agent dies), the catastrophic first-run failure
+  // #2129 is about, on the DEFAULT provider. The create-time caller (which made
+  // the folder moments ago) passes createIfAbsent, exactly as preacceptBypass
+  // already CREATES settings.json on a fresh install (#1919). The file we write
+  // holds ONLY projects[key].hasTrustDialogAccepted (no session fields), so it
+  // is a trust PREFERENCE, not a fabricated session history, which is the
+  // distinction the refuse-on-absent default was protecting.
+  const createIfAbsent = !!(opts && opts.createIfAbsent);
   let data;
-  // ⚠️ Never stays null past the try below: every path out of it returns, so
-  // reaching the write means `statSync` succeeded. An earlier version carried
-  // `prevMode !== null` guards at the write, copied from the installer — where
-  // they ARE live, because there an absent file is the clean case that proceeds.
-  // This function refuses on absent, so those guards implied a mode-less path
-  // that does not exist.
+  // prevMode is non-null at the write on every path that reaches it: statSync
+  // sets it from the existing file, and the create paths below set it to 0o600
+  // (a config holding account/session details is born private) before falling
+  // through. An earlier comment reasoned "every path out returns"; the
+  // createIfAbsent paths do NOT return, but they set prevMode explicitly, so the
+  // invariant the write depends on still holds.
   let prevMode = null;
+  let madeFile = false;
   try {
     const st = fs.statSync(target);
     prevMode = st.mode & 0o7777;
-    // ⚠️ ABSENT AND EMPTY BOTH REFUSE, and that direction is chosen rather than
-    // fallen into. No file means Claude Code has never run on this Mac, so
+    // ⚠️ ABSENT AND EMPTY REFUSE BY DEFAULT, and that direction is chosen rather
+    // than fallen into. No file means Claude Code has never run on this Mac, so
     // there is no shape here to merge into and we would be CREATING another
-    // tool's config from nothing. The cost of refusing is one prompt the
-    // person answers once. The cost of writing is a file we invented on a
-    // machine we have never seen the tool run on. Those are not comparable.
-    if (st.size === 0) return { ok: false, because: 'their config file is empty' };
-    data = JSON.parse(fs.readFileSync(target, 'utf8'));
+    // tool's config from nothing. Under createIfAbsent, an empty file is filled
+    // (a projects-only entry is a preference, not a fabricated history). Its
+    // existing mode is KEPT (prevMode from statSync above), not tightened to
+    // 0o600, matching preacceptBypass's empty-file path: the file was already on
+    // disk at a mode the person chose, so only a file we CREATE from absent
+    // (below) is born private. `madeFile` is NOT set here -- the file (and its
+    // parent dir) already exist, so no mkdir is needed; madeFile means strictly
+    // "we created the file from ENOENT".
+    if (st.size === 0) {
+      if (!createIfAbsent) return { ok: false, because: 'their config file is empty' };
+      data = {};
+    } else {
+      data = JSON.parse(fs.readFileSync(target, 'utf8'));
+    }
   } catch (err) {
-    if (err && err.code === 'ENOENT') return { ok: false, because: 'Claude Code has not run on this computer yet' };
-    if (err instanceof SyntaxError) return { ok: false, because: 'we could not read their config file' };
-    return { ok: false, because: 'we could not read their config file' };
+    if (err && err.code === 'ENOENT') {
+      if (!createIfAbsent) return { ok: false, because: 'Claude Code has not run on this computer yet' };
+      data = {}; madeFile = true; prevMode = 0o600;
+    } else if (err instanceof SyntaxError) {
+      return { ok: false, because: 'we could not read their config file' };
+    } else {
+      return { ok: false, because: 'we could not read their config file' };
+    }
   }
 
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
@@ -257,6 +284,12 @@ function trustFolder(dir, opts) {
   // just added. Nothing errors. The write succeeded, the agent asks the prompt
   // anyway, and the only symptom is the thing this change exists to remove.
   // Nothing here detects that; it is written down rather than guessed at later.
+  //
+  // #2129: when we created the config (madeFile), its directory may not exist on
+  // a fresh macOS user, so the wx write below would fail with ENOENT. Make the
+  // parent first, the same call preacceptBypass makes before its own create. A
+  // no-op when the dir already exists.
+  if (madeFile) { try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* exists, or the write reports it */ } }
   const tmp = tempPath(target);
   try {
     // Born at the preserved mode rather than chmodded into it: this file holds
@@ -293,6 +326,15 @@ function trustFolder(dir, opts) {
     return { ok: false, because: 'we could not write to their config file' };
   }
 
+  // ⚠️ `madeFile` is deliberately NOT in the return. The caller consumes only
+  // key/displaced/madeEntry (recordWrite + forgetFolder rollback), and adding a
+  // field would break every deep-equal on this contract. On a failed-create
+  // rollback, forgetFolder removes the trust KEY, leaving at most a minimal
+  // `{projects:{}}` shell for a config we created, the same shape preacceptBypass
+  // leaves for its created settings.json (#1919), which it deliberately never
+  // undoes. Fully removing a created file on rollback (safe here, since the key is
+  // per-folder and the file is untouched until first launch) is a possible
+  // follow-up, out of scope for the #2129 catastrophic fix.
   return { ok: true, already: false, key, displaced, madeEntry };
 }
 
