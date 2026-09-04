@@ -411,6 +411,14 @@ func consumeFreshRelaunchHandoff(now: Date = Date()) -> Bool {
 }
 
 // Another running instance of THIS app (same bundle id, different process), or nil.
+//
+// ⚠️ ACCEPTED RESIDUAL: this is a runtime ENUMERATION, so it cannot close a truly
+// simultaneous-launch race -- two copies opened in the same instant can each enumerate
+// before the other has registered as running, see nil, and both proceed. Closing that
+// window would need an OS-level launch lock, out of scope for #2124 and a launch-critical
+// change of its own. It does NOT affect the reported #2124 bug, which is SEQUENTIAL: the
+// installer launches its copy, then the user later drags to /Applications and opens that
+// one -- seconds apart, so the second enumeration sees the first.
 func otherRunningInstance() -> NSRunningApplication? {
     guard let bid = Bundle.main.bundleIdentifier else { return nil }
     let me = ProcessInfo.processInfo.processIdentifier
