@@ -1,5 +1,12 @@
 # kosmos#1652 (reopened) PR2 - surface + import the discovered agent files
 
+> 🛑 **SUPERSEDED IN PART - read the `REWORK (2026-09-04) [IMPLEMENTED]` section at the bottom
+> for the SHIPPED wiring.** The original-design body below says the import list reads
+> `/api/scan-agents` and membership uses the auto `scanCache`. That was reworked to reconcile
+> with #2125/#2148: the shipped code reads the ON-DEMAND `/api/scan-import` route and validates
+> against `discover.scan({importScan:true})` (its own `importScanCache`). Where the body below and
+> the REWORK section disagree on the scan source, the REWORK section is authoritative.
+
 ## Where PR1 left off
 PR1 (#2141, merged) made `discover.scan()` also return an `importable` array of loose agent
 `.md` files a person downloaded or was sent, and added Downloads/Desktop as shallow importOnly
