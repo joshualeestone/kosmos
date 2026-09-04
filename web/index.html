@@ -25371,8 +25371,8 @@ document.getElementById('create-provider').addEventListener('change', applyCreat
 function resetCreateProvider() {
   const prov = document.getElementById('create-provider');
   if (!prov) return;
-  /* #2097: default to a provider the machine actually has connected, rather than
-     forcing an OpenAI-only user to correct "Anthropic Claude" on every create.
+  /* #2097: default to a provider the machine actually has an account for, rather
+     than forcing an OpenAI-only user to correct "Anthropic Claude" on every create.
      Start on OpenAI ONLY when there is an OpenAI account AND no Claude account;
      otherwise fall back to Claude (the prior default) -- which also covers the
      not-yet-loaded case (CREATE_ACCOUNTS empty), so this never starts on a
