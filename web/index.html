@@ -3829,6 +3829,23 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      long unbroken token. */
   white-space: pre-wrap; overflow-wrap: anywhere; }
 .dm.mine .dm-b { background: rgba(214,166,46,.14); }
+/* #2067: restricted-markdown treatments emitted by pjRich, on the two row
+   surfaces it renders -- the talk thread (.dm-b) and the project message list
+   (.pj-msg-text). Everything here is INLINE so it coexists with .dm-b's
+   pre-wrap; line breaks are the <br>s pjRich emits, not block margins.
+   strong/em/s need no rule (the UA already renders them). Colours ride the
+   existing theme tokens, so they flip with light/dark like the rest. */
+.dm-b .mdh, .pj-msg-text .mdh { font-weight: 700; font-size: 1.0625rem; }
+.dm-b .mdc, .pj-msg-text .mdc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .85em; background: var(--k-sunk, rgba(20,22,26,.08)); padding: .05em .35em; border-radius: 5px; }
+.dm-b .mdcb, .pj-msg-text .mdcb { display: inline-block; max-width: 100%; overflow-x: auto;
+  white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em;
+  background: var(--k-sunk, rgba(20,22,26,.08)); padding: 4px 8px; border-radius: 6px; }
+.dm-b .mdq, .pj-msg-text .mdq { border-left: 2px solid var(--k-rule); padding-left: 8px; color: var(--k-ink-2); }
+.dm-b .mdli::before, .pj-msg-text .mdli::before { content: "\2022\00a0\00a0"; }
+.dm-b .mdli.mdlin::before, .pj-msg-text .mdli.mdlin::before { content: attr(data-n) "\00a0\00a0"; }
+.dm-b .mdhr, .pj-msg-text .mdhr { display: inline-block; width: 100%; margin: 4px 0;
+  border-top: 1px solid var(--k-rule); vertical-align: middle; }
 /* 🛑 THERE IS NO RULE FOR `.theirs`, AND ADDING ONE MADE IT WORSE. The first
    version set `background: var(--k-surface); border: 1px solid var(--k-rule)`
    — byte-identical to `.dbox`, which is the container it sits in — so the
@@ -17705,7 +17722,7 @@ function dmRow(m, name) {
      no worse than the pixel offset it replaces. */
   const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
   if (m && m.from) {
-    return '<div class="dm theirs" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
+    return '<div class="dm theirs" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
       + '<span class="dm-w">' + esc(dmWho(m.from, name)) + pjWhenPart(m.at) + '</span></div>';
   }
   const v = pjVerdict(m, name);
@@ -17753,7 +17770,7 @@ function dmRow(m, name) {
      puts it, and no longer inside the verdict. The verdict is silent on an
      ordinary success now, and a timestamp that lived inside it would have gone
      silent with it -- on every message that worked. */
-  return '<div class="dm mine" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjInline(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
+  return '<div class="dm mine" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
     + '<span class="dm-w">You' + v.when + wire + ' '
     + '<span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span></span></div>';
 }
@@ -29440,6 +29457,124 @@ function pjInline(text) {
   }).join('');
 }
 
+/* #2067: pjRich -- a SAFE, restricted markdown renderer for the two
+   agent-dialogue ROW surfaces that today only escape+autolink: the per-agent
+   talk thread (dmRow, `.dm-b`) and the project message list (pjMsg,
+   `.pj-msg-text`). Josh's ask (2026-09-03): agents already write bold,
+   headings, bullets and emoji -- it is why they read well in Discord -- so
+   render what they already produce instead of a wall of text. Render-at-
+   display: the store keeps raw text, so nothing here touches `engine/chat.js`.
+
+   The rules, in priority order, and each is a test in
+   `docs/browser-checks/render-richtext-2067.js`:
+   1. NEVER pass HTML through. Every text run is `esc()`'d and only a fixed
+      whitelist of tags this function itself emits reaches the DOM, so an agent
+      message carrying a script tag or an onerror-image tag renders as inert
+      visible text. This is the same escape-first contract pjInline holds; the
+      raw is never trusted as HTML on any path. (This comment deliberately names
+      those tags in prose and never as literal markup: several test harnesses
+      locate the page's last script block by scanning for the literal open tag,
+      so a literal one here would make them slice the page from this comment.)
+   2. Container-agnostic line breaks. `.dm-b` is `white-space: pre-wrap` but
+      `.pj-msg-text` is NOT, so a rendered break is an explicit `<br>` and the
+      source `\n` is CONSUMED rather than left to double-break under pre-wrap.
+      Output stays INLINE (no block elements to fight pre-wrap): a heading, a
+      list row and a quote are styled inline spans, each on its own line.
+   3. Degrade: an unstyleable marker is CONSUMED, never leaked. A reader never
+      sees a literal `**` or a leading `#`/`-`; leaking markup is worse than no
+      styling.
+   4. Plain text is byte-identical to the old `esc(raw)`. A message with no
+      markup and no URL returns exactly what pjInline returned, so neither
+      surface regresses on ordinary text (and `.pj-msg-text` keeps collapsing
+      its newlines exactly as before on that fast path).
+
+   Element set (installkosmos.com/design/rich-text-dialogue): bold, italic,
+   strikethrough, inline code, fenced code block, one heading size, unordered
+   and ordered list rows, blockquote, horizontal rule, emoji (free -- UTF-8
+   passes through `esc`), and the pre-existing bare-URL autolink. A markdown
+   `[text](url)` renders as its TEXT only, never a clickable anchor: a link an
+   agent authored is a navigation risk for a non-technical reader (Josh can
+   flip this to clickable later -- it is one branch). The bare-URL autolink
+   that predates this is unchanged.
+
+   NOT here, deliberately: the project-ROOM activity thread (pjRoomBody ->
+   pjBody -> pjLinkPaths) already renders fenced blocks, filename "Show me"
+   chips and server-supplied quotes, but has no inline markdown. Giving it
+   bold/italic needs pjLinkPaths to stop tokenising -- its per-token pjInline
+   call would split `**bold text**` across whitespace and leak the markers --
+   which is a careful refactor of the most-shared render path and gets its own
+   PR. Flagged on #2067. */
+function pjRichSpans(seg) {
+  /* Inline treatments for a single line's text. Pull inline code out first so
+     emphasis and links never touch its contents, then escape everything, then
+     wrap a fixed whitelist of inline tags, then autolink. The IC..
+     placeholder cannot occur in agent text and survives `esc()` untouched. */
+  const IC = [];
+  let s = String(seg == null ? '' : seg).replace(/`([^`\n]+)`/g, (mm, code) => {
+    IC.push('<code class="mdc">' + esc(code) + '</code>');
+    return '￼IC' + (IC.length - 1) + '￼';
+  });
+  s = esc(s);
+  s = s.replace(/\*\*([^\n*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/__([^\n_]+)__/g, '<strong>$1</strong>');
+  s = s.replace(/~~([^\n~]+)~~/g, '<s>$1</s>');
+  s = s.replace(/(^|[^*\w])\*([^\n*]+?)\*(?!\w)/g, '$1<em>$2</em>');
+  s = s.replace(/(^|[^_\w])_([^\n_]+?)_(?![_\w])/g, '$1<em>$2</em>');
+  s = s.replace(/\[([^\]\n]+)\]\([^)\n]+\)/g, '$1');
+  s = s.replace(/https?:\/\/[^\s<]+/g, (u) => {
+    const mm = /^(.*?)([.,;:!?)\]]*)$/.exec(u);
+    const url = mm[1];
+    if (!url) return u;
+    return '<a class="xlink" href="' + url + '" target="_blank" rel="noreferrer noopener">'
+      + url + '</a>' + mm[2];
+  });
+  return s.replace(/￼IC(\d+)￼/g, (mm, i) => IC[Number(i)] || '');
+}
+function pjRich(text) {
+  const raw = String(text == null ? '' : text);
+  /* Fast path: no inline marker, no block-marker line, no URL -> exactly the
+     old `esc(raw)`, byte for byte. `*`, `_`, backtick and `~` (which also
+     cover `***`/`___` rules, `*` lists and ``` fences) disqualify it; the
+     remaining block starts (`#` heading, `>` quote, `-`/`+` list, `N.` list,
+     `---` rule) are checked at line start only, so `#tag`, `well-being` and
+     `C#` stay literal. */
+  if (!/[*_`~]/.test(raw)
+      && !/(^|\n)[ \t]*(#{1,6}[ \t]|>[ \t]?|[-+][ \t]|\d+\.[ \t]|-{3,}[ \t]*(\n|$))/.test(raw)
+      && raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1) {
+    return esc(raw);
+  }
+  const src = raw.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    const line = src[i];
+    /* Fenced code block: from a ``` line to the next ``` (or end of message --
+       an unclosed fence still renders as code so no raw ``` ever leaks).
+       Nothing inside is markdown-parsed or linkified; CSS gives `.mdcb` its
+       own `pre-wrap` so the block keeps its newlines on both surfaces. */
+    if (/^[ \t]*```/.test(line)) {
+      const body = [];
+      i += 1;
+      while (i < src.length && !/^[ \t]*```/.test(src[i])) { body.push(src[i]); i += 1; }
+      if (i < src.length) i += 1;
+      out.push('<span class="mdcb">' + esc(body.join('\n')) + '</span>');
+      continue;
+    }
+    if (/^[ \t]*(-{3,}|\*{3,}|_{3,})[ \t]*$/.test(line)) { out.push('<span class="mdhr"></span>'); i += 1; continue; }
+    let m = /^[ \t]*#{1,6}[ \t]+(.*)$/.exec(line);
+    if (m) { out.push('<span class="mdh">' + pjRichSpans(m[1]) + '</span>'); i += 1; continue; }
+    m = /^[ \t]*>[ \t]?(.*)$/.exec(line);
+    if (m) { out.push('<span class="mdq">' + pjRichSpans(m[1]) + '</span>'); i += 1; continue; }
+    m = /^[ \t]*[-+*][ \t]+(.*)$/.exec(line);
+    if (m) { out.push('<span class="mdli">' + pjRichSpans(m[1]) + '</span>'); i += 1; continue; }
+    m = /^[ \t]*(\d+)\.[ \t]+(.*)$/.exec(line);
+    if (m) { out.push('<span class="mdli mdlin" data-n="' + esc(m[1]) + '.">' + pjRichSpans(m[2]) + '</span>'); i += 1; continue; }
+    out.push(pjRichSpans(line));
+    i += 1;
+  }
+  return out.join('<br>');
+}
+
 /* The link preview card (#357). Drawn under a message's text when the engine
    has fetched the first URL's tags and attached them as `m.preview`; absent
    preview, nothing, because a failed fetch is represented by absence and an
@@ -31117,7 +31252,7 @@ function pjMsg(m, name) {
      agent page's thread are the same conversation kind and share one verdict,
      so they go silent together. */
   return '<div class="pj-msg' + mark + '">'
-    + (pjWords(m) ? '<span class="pj-msg-text">' + pjInline(pjWords(m)) + '</span>' : '') + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+    + (pjWords(m) ? '<span class="pj-msg-text">' + pjRich(pjWords(m)) + '</span>' : '') + pjPreviewCard(m.preview) + pjAttachmentCards(m)
     + '<span class="pj-msg-when">You' + when + '</span>'
     + '<span class="pj-msg-said">' + said + '</span>'
     + '</div>';
