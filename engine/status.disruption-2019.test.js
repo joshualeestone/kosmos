@@ -82,6 +82,39 @@ test('a SCRAPED (not structured) stopped reading does not trip the disruption br
   assert.notEqual(out.state, STATE.RESTARTING);
 });
 
+// ---- #2019 HONEST TIMEOUT (never a silent "doesn't exist") ----------------
+
+test('HONEST TIMEOUT: a timed-out disruption over a stopped pane reads RESTARTING with timedOut + honest copy', () => {
+  // The caller carries an aged-out record forward with timedOut:true. The old
+  // behaviour let the pane's bare STOPPED stand once the window elapsed -- a
+  // silent revert that reads as "this agent doesn't exist", the message this
+  // card removes. Now it stays in the RESTARTING family with an honest message.
+  const timedOutRec = { cause: 'restart', startedAt: new Date(Date.now() - 200000).toISOString(), timedOut: true };
+  const out = reconcileReport({ found: false }, STOPPED_SCRAPE, Date.now(), undefined, timedOutRec);
+  assert.equal(out.state, STATE.RESTARTING, 'a timed-out restart is NEVER a bare STOPPED / doesn\'t-exist');
+  assert.equal(out.disruption.timedOut, true, 'the render reads timedOut to stop the animation and show the honest copy');
+  assert.match(out.because, /has not come back yet/, 'the message says what happened, honestly');
+});
+
+test('a FRESH (not timed-out) disruption carries timedOut:false + the in-progress copy', () => {
+  const out = reconcileReport({ found: false }, STOPPED_SCRAPE, Date.now(), undefined, freshRec('model'));
+  assert.equal(out.state, STATE.RESTARTING);
+  assert.equal(out.disruption.timedOut, false, 'a fresh restart is in-progress, not timed out');
+  assert.match(out.because, /briefly out of view/);
+});
+
+test('snapshot INTEGRATION: an aged-out record on a stopped pane shows the honest timeout, not STOPPED', () => {
+  fleet.install([fleet.agent('overrun', { state: 'stopped' })]);
+  // Write the record with a startedAt older than the window so active() reads
+  // null but read() still finds it -- the exact "restart has not come back" case.
+  disruption.begin('overrun', 'provider', new Date(Date.now() - 200000).toISOString());
+  const card = status.snapshot().agents.find((a) => a.sessionName === 'overrun');
+  assert.equal(card.state, STATE.RESTARTING, 'the person who clicked restart is never told the agent does not exist');
+  assert.ok(card.disruption, 'carries the disruption context');
+  assert.equal(card.disruption.timedOut, true);
+  assert.equal(card.disruption.cause, 'provider');
+});
+
 // ---- snapshot() integration (proves the wiring) --------------------------
 
 test('snapshot RESOLVES and PASSES the record: a stopped OWNED pane flips to restarting once begun', () => {

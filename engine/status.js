@@ -4205,14 +4205,22 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
      never a spinner that lies forever. */
   if (disruptionRec && disruptionRec.cause
       && scraped.state === STATE.STOPPED && scraped.confidence === CONFIDENCE.STRUCTURED) {
+    const timedOut = disruptionRec.timedOut === true;
     return {
       state: STATE.RESTARTING,
       confidence: CONFIDENCE.STRUCTURED,
       /* A plain fallback sentence for non-frontend consumers and tests; the
          board renders the real copy ("Restarting agent" / "Switching to
-         <model>") from `disruption.cause` + the card's model field. */
-      because: 'we are restarting this agent, so it is briefly out of view',
-      disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt },
+         <model>") from `disruption.cause` + the card's model field. On timeout
+         the copy is the honest "not back yet", and `timedOut` tells the render to
+         STOP the animated K (it is no longer in-progress, it has overrun) and show
+         that message rather than a spinner that lies forever (#920). We stay in
+         the RESTARTING FAMILY -- never a bare STOPPED that reads as "this agent
+         doesn't exist", which is the whole point of the card. */
+      because: timedOut
+        ? 'we restarted this agent and it has not come back yet'
+        : 'we are restarting this agent, so it is briefly out of view',
+      disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt, timedOut },
       reported: false,
       conflict: null,
     };
@@ -4638,8 +4646,31 @@ function snapshot() {
        back ALIVE (state != STOPPED) in order to clear it, so gating the read on
        STOPPED would defeat that and reinstate the residual it removes. The read
        is one ENOENT stat per owned pane per tick for every agent NOT mid-restart
-       -- negligible, and only agents actually being restarted have a file. */
-    const disruptionRec = isNamedOurs(pane) ? disruption.active(pane.name) : null;
+       -- negligible, and only agents actually being restarted have a file.
+
+       #2019 HONEST TIMEOUT: `active` returns null past the window, and the OLD
+       behaviour then let the pane's normal STOPPED stand -- a SILENT window-elapse
+       that reads to the person as "this agent doesn't exist", the exact message
+       this card removes. So when `active` is null we ALSO read the raw record: if
+       one is still on file (a restart that has NOT visibly come back), we carry it
+       forward with `timedOut:true` so reconcileReport can show an HONEST "we
+       restarted it and it has not come back yet", never a silent absence. This is
+       NOT the #920 spinner trap: the timeout produces an honest MESSAGE (the render
+       stops the animation on `timedOut`), not a spinner that lies forever, and it
+       self-heals the instant the pane comes back live (the forward heal below
+       clears any record -- fresh or aged -- once the state is a definite live one). */
+    let disruptionRec = null;
+    if (isNamedOurs(pane)) {
+      const fresh = disruption.active(pane.name);
+      if (fresh) {
+        disruptionRec = fresh;
+      } else {
+        const full = disruption.read(pane.name);
+        if (full.found) {
+          disruptionRec = { cause: full.cause, startedAt: full.startedAt, ageMs: full.ageMs, timedOut: true };
+        }
+      }
+    }
     /* #2093: a RUNNING codex agent whose screen says nothing we recognise (UNKNOWN) may be one
        whose credential died on turn 1 (the #1906 fail-open residual). Ask the actual OpenAI auth
        CONDITION -- a per-account, cached, ASYNC live check (engine/codexauthprobe) that never
