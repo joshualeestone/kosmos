@@ -2435,6 +2435,18 @@ test('#2129: creation and setAccount opt the trust + bypass writes into the defa
     'both the create and setAccount bypass writes must pass the default-account flag');
   assert.match(src, /trustCodexFolder\(workerDir\(name\), configDir, !configDir\)/,
     'the create-path codex trust write no longer opts into the default-account resolution');
+  // The remaining flag-threading sites, so a future refactor cannot silently drop the
+  // flag on one arm without a red test (the paths are internally consistent today, but
+  // this fix is only correct as long as EVERY per-account startup write opts in):
+  assert.match(src, /trustCodexFolder\(workerDir\(clean\), acct\.dir, !acct\.dir\)/,
+    'the setProvider codex trust write no longer opts into the default-account resolution');
+  assert.match(src, /trustCodexFolder\(workerDir\(clean\), configDir, !configDir\)/,
+    'the adopt codex trust write no longer opts into the default-account resolution');
+  assert.match(src, /dismissCodexUpdateNotice\(configDir, !configDir\)/,
+    'a codex update-notice dismissal no longer opts into the default-account resolution');
+  const rmSrc = fs.readFileSync(nodePath.join(__dirname, 'remove.js'), 'utf8');
+  assert.match(rmSrc, /forgetCodexFolder\(create\.workerDir\(clean\), codexHome, !codexHome\)/,
+    'the remove untrust no longer opts into the default-account resolution, so create/remove would desync on the home');
 });
 
 test('a folder the PERSON already made is refused outright, so nothing downstream can touch it', () => {
