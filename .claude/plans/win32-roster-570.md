@@ -74,14 +74,15 @@ escape hatch. Routed to windows-orchestrator (via Splinter) as the specific firs
 the live-box verify below.
 
 ## Tests
-engine/win32roster.test.js - 13, driven through the REAL status.js (parsePanes/isNamedOurs/
+engine/win32roster.test.js - 14, driven through the REAL status.js (parsePanes/isNamedOurs/
 isFleetSession/isAgentSession): recorded→ours+agent; unrecorded (operator's own)→never emitted;
 claude.exe+empty-claim→NOT a fleet session while a version-string command IS (the defense-in-depth
 property, with a control that returns the dangerous answer); run-null→null; readable-empty; runner
 rides through; record round-trip + no-name/bad-id/blank-name/zero-width-name refused; a
 prototype-member-named id (toString) round-trips; JS-reserved id (__proto__) refused honestly, not
-ok:true on a silent no-op; corrupt-file→empty; and a corrupt store with an own __proto__ key + a
-matching live id is not emitted (the emit-loop validId gate). The reserved/blank/zero-width/
+ok:true on a silent no-op; corrupt-file→empty; a corrupt store with an own __proto__ key + a matching
+live id is not emitted (emit-loop validId gate); and a corrupt store with a zero-width name + a
+matching live id is not emitted (emit-loop validName gate). The id/name/reserved/blank/zero-width/
 defense-in-depth/emit-guard tests are perturbation-verified (each reds when its guard is removed).
 
 ## Scope guard
