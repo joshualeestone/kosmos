@@ -92,11 +92,27 @@ function ok(name, cond, detail) {
         mdLink: pj('[click here](https://evil.test)'),
         fenceNoLink: pj('```\nhttps://x.test\n```'),
         headingHtml: pj('# <b>hi</b>'),
+        // the three URL/emphasis-interaction vectors an earlier version got
+        // wrong: (E1) inline code adjacent to a URL must not inject the code
+        // tag into the href; (E2) a URL containing underscores must not be
+        // italicised mid-URL; (E3) bold text ending in a URL must link the URL
+        // and not leak the closing `**`.
+        urlCode: pj('http://x/`a`'),
+        urlUnderscore: pj('see https://x.test/_a_ now'),
+        boldUrl: pj('**see https://x.test**'),
         // preserved behaviour
         url: pj('see https://x.test/p now'),
         emoji: pj('ship it \u{1F680}'),
       };
     });
+
+    // Every <a> pjRich emits must carry both safety attrs and never have a tag
+    // injected inside its opening tag — the well-formedness the E1 vector broke.
+    const anchorsSafe = (html) => {
+      const opens = html.match(/<a\b[^>]*>/g) || [];
+      return opens.length > 0 && opens.every((o) =>
+        /rel="noreferrer noopener"/.test(o) && /target="_blank"/.test(o) && !/<code|<em|<strong/.test(o));
+    };
 
     const t = `[${theme}]`;
     ok(t + ' esc/pjRich exist', r.escExists && r.pjExists);
@@ -132,6 +148,19 @@ function ok(name, cond, detail) {
     ok(t + ' heading html inert', /<span class="mdh">&lt;b&gt;hi&lt;\/b&gt;<\/span>/.test(r.headingHtml), r.headingHtml);
     ok(t + ' bare url autolink kept', /<a class="xlink" href="https:\/\/x\.test\/p"/.test(r.url), r.url);
     ok(t + ' emoji passes', /\u{1F680}/u.test(r.emoji), r.emoji);
+    // E1: code adjacent to a URL — the code tag must never land inside an href,
+    // the code still renders, and any anchor present is well-formed.
+    ok(t + ' E1 no code tag in href', !/href="[^"]*<code/.test(r.urlCode), r.urlCode);
+    ok(t + ' E1 code still rendered', /<code class="mdc">a<\/code>/.test(r.urlCode), r.urlCode);
+    ok(t + ' E1 anchor (if any) well-formed', !/<a\b/.test(r.urlCode) || anchorsSafe(r.urlCode), r.urlCode);
+    // E2: underscore URL linked whole, never italicised.
+    ok(t + ' E2 underscore url linked whole', /href="https:\/\/x\.test\/_a_"/.test(r.urlUnderscore), r.urlUnderscore);
+    ok(t + ' E2 no <em> in url', anchorsSafe(r.urlUnderscore) && !/<em>/.test(r.urlUnderscore), r.urlUnderscore);
+    // E3: bold ending in a URL — bold applied, url linked, no ** leak.
+    ok(t + ' E3 bold applied', /<strong>/.test(r.boldUrl), r.boldUrl);
+    ok(t + ' E3 url linked', /href="https:\/\/x\.test"/.test(r.boldUrl), r.boldUrl);
+    ok(t + ' E3 no ** leak', !r.boldUrl.includes('**'), r.boldUrl);
+    ok(t + ' E3 anchor well-formed', anchorsSafe(r.boldUrl), r.boldUrl);
 
     /* CONTROL: prove pjRich can actually MANGLE if it were wrong, i.e. the plain
        arm is a real equality and not both sides being the same broken thing. A

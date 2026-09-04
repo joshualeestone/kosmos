@@ -29480,9 +29480,12 @@ function pjInline(text) {
       source `\n` is CONSUMED rather than left to double-break under pre-wrap.
       Output stays INLINE (no block elements to fight pre-wrap): a heading, a
       list row and a quote are styled inline spans, each on its own line.
-   3. Degrade: an unstyleable marker is CONSUMED, never leaked. A reader never
-      sees a literal `**` or a leading `#`/`-`; leaking markup is worse than no
-      styling.
+   3. Degrade: a RECOGNISED marker is CONSUMED, not shown. A block marker at a
+      line start (`#`, `-`, `>`, a fence) and a CLOSED inline pair (`**b**`,
+      `` `c` ``) never reach the reader as raw markup; leaking a recognised
+      marker is worse than no styling. An UNCLOSED inline marker (a lone `**`
+      with no partner) stays literal, exactly as standard markdown leaves it --
+      the guarantee is about paired/block markup, not every stray asterisk.
    4. Plain text is byte-identical to the old `esc(raw)`. A message with no
       markup and no URL returns exactly what pjInline returned, so neither
       surface regresses on ordinary text (and `.pj-msg-text` keeps collapsing
@@ -29505,30 +29508,45 @@ function pjInline(text) {
    which is a careful refactor of the most-shared render path and gets its own
    PR. Flagged on #2067. */
 function pjRichSpans(seg) {
-  /* Inline treatments for a single line's text. Pull inline code out first so
-     emphasis and links never touch its contents, then escape everything, then
-     wrap a fixed whitelist of inline tags, then autolink. The IC..
-     placeholder cannot occur in agent text and survives `esc()` untouched. */
-  const IC = [];
-  let s = String(seg == null ? '' : seg).replace(/`([^`\n]+)`/g, (mm, code) => {
-    IC.push('<code class="mdc">' + esc(code) + '</code>');
-    return '￼IC' + (IC.length - 1) + '￼';
-  });
+  /* Inline treatments for a single line's text, in an order chosen so no pass
+     can corrupt an earlier pass's output:
+       1. pull inline code out to a held placeholder (its body is never
+          markdown-parsed or linkified),
+       2. escape everything else (every tag below is one we emit),
+       3. resolve [text](url) to its text (the url is dropped before autolink),
+       4. autolink bare URLs BY WHITESPACE TOKEN and hold the built anchor, so a
+          URL is atomic: an underscore inside it is never italicised, emphasis
+          markers around it are never eaten into the href, and a placeholder
+          adjacent to it is never swallowed into an attribute,
+       5. emphasis / strike (placeholders carry no * _ ~, so they are inert here
+          yet CAN be wrapped, e.g. **see <url>** -> bold containing the link),
+       6. restore the held code + links.
+     The held-placeholder sentinel is U+FFFC (OBJECT REPLACEMENT CHARACTER): it
+     survives esc() untouched, never reaches the DOM (restored in step 6), and
+     any stray copy in agent text is stripped up front so it cannot collide. */
+  const HOLD = [];
+  const hold = (html) => { HOLD.push(html); return '￼' + (HOLD.length - 1) + '￼'; };
+  let s = String(seg == null ? '' : seg).replace(/￼/g, '');
+  s = s.replace(/`([^`\n]+)`/g, (mm, code) => hold('<code class="mdc">' + esc(code) + '</code>'));
   s = esc(s);
+  s = s.replace(/\[([^\]\n]+)\]\([^)\n]+\)/g, '$1');
+  /* A URL is a whole whitespace-delimited token. Trailing sentence punctuation
+     and trailing emphasis stars (`**url**`) are peeled off; a trailing
+     underscore is kept, because URLs use it. A token whose URL body still holds
+     a placeholder sentinel is left unlinked rather than built into an attribute. */
+  s = s.split(/(\s+)/).map((tok) => {
+    if (!tok || /^\s+$/.test(tok)) return tok;
+    const mm = /^(.*?)([.,;:!?)\]*~]*)$/.exec(tok);
+    const core = mm[1];
+    if (!/^https?:\/\/[^\s￼]+$/.test(core)) return tok;
+    return hold('<a class="xlink" href="' + core + '" target="_blank" rel="noreferrer noopener">' + core + '</a>') + mm[2];
+  }).join('');
   s = s.replace(/\*\*([^\n*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/__([^\n_]+)__/g, '<strong>$1</strong>');
   s = s.replace(/~~([^\n~]+)~~/g, '<s>$1</s>');
   s = s.replace(/(^|[^*\w])\*([^\n*]+?)\*(?!\w)/g, '$1<em>$2</em>');
   s = s.replace(/(^|[^_\w])_([^\n_]+?)_(?![_\w])/g, '$1<em>$2</em>');
-  s = s.replace(/\[([^\]\n]+)\]\([^)\n]+\)/g, '$1');
-  s = s.replace(/https?:\/\/[^\s<]+/g, (u) => {
-    const mm = /^(.*?)([.,;:!?)\]]*)$/.exec(u);
-    const url = mm[1];
-    if (!url) return u;
-    return '<a class="xlink" href="' + url + '" target="_blank" rel="noreferrer noopener">'
-      + url + '</a>' + mm[2];
-  });
-  return s.replace(/￼IC(\d+)￼/g, (mm, i) => IC[Number(i)] || '');
+  return s.replace(/￼(\d+)￼/g, (mm, i) => (Number(i) < HOLD.length ? HOLD[Number(i)] : mm));
 }
 function pjRich(text) {
   const raw = String(text == null ? '' : text);

@@ -10,8 +10,10 @@ of text" inside Kosmos. Render what they already produce.
 
 Done = bold, italic, a heading, lists, quotes, code and emoji render in the two
 agent-dialogue ROW surfaces that today only escape+autolink — the per-agent talk
-thread and the project message row — safely, with markdown never leaking raw
-markers and never becoming an HTML-injection surface. Design was already settled
+thread and the project message row — safely, with recognised markdown markers
+(block markers and closed inline pairs) never leaking as raw markup, and never
+becoming an HTML-injection surface. (An unclosed inline marker stays literal, as
+standard markdown leaves it.) Design was already settled
 (installkosmos.com/design/rich-text-dialogue + the #2067 card comment); this is
 the build.
 
