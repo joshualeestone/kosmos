@@ -291,10 +291,18 @@ function check(name, pass, detail) {
        model steps in a single level; a hidden account select reports left 0, which
        is not a rung and must not be measured as one. With the rung shown it is the
        full provider -> account -> model. The visible rungs are what a person reads. */
+    /* With the rung hidden the model must step in by a SINGLE rung, not two.
+       This is the second half of the fix (`padding-left: 0` on the collapsed
+       account mstep): without that rule the model sat two rungs in (~56px) beside
+       the orphan elbow; with it, one rung (~28px, the `.mstep` padding). A bare
+       `model > prov + 10` passes at either indent and would let a deleted
+       `padding-left: 0` silently return the double indent while the elbow half
+       stayed green. Bound it to one rung -- 45 sits in the gap between one (~28)
+       and two (~56), so a regression to the double indent reds here. */
     check(`[${engine}] each visible menu steps in from the one above`,
       seen.acctShown
         ? (seen.stepIn.acct > seen.stepIn.prov + 10 && seen.stepIn.model > seen.stepIn.acct + 10)
-        : (seen.stepIn.model > seen.stepIn.prov + 10),
+        : (seen.stepIn.model - seen.stepIn.prov > 10 && seen.stepIn.model - seen.stepIn.prov < 45),
       `${seen.acctShown ? 'shown' : 'hidden'}: prov ${Math.round(seen.stepIn.prov)} / acct ${Math.round(seen.stepIn.acct)} / model ${Math.round(seen.stepIn.model)}`);
     /* 🛑 THE ELBOW IS THE PART THAT CANNOT BE READ FROM SOURCE. It is one box
        with two borders, and a zero on either dimension leaves a line that goes
