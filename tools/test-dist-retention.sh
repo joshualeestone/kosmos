@@ -82,6 +82,17 @@ bash "$TOOL" --dist "$D" --keep 12 --prune --yes >/dev/null 2>&1
 { absent "$D" kosmos-0.6.09-arm64.tar.gz && absent "$D" kosmos-0.6.10-arm64.tar.gz; } \
   && ok "served-outside-window: the other 2 out-of-window versions pruned" || no "served-outside-window: 09/10 not pruned"
 
+# --- Arm 4c: served parse takes FIRST "version", not a nested one ------------
+# latest.json names 0.6.08 (oldest, outside a keep-12 window) but also carries a
+# nested "version":"9.9.9". A greedy parse would read 9.9.9 (not a real triple),
+# leave 0.6.08 unprotected, and PRUNE the served release. First-match keeps 0.6.08.
+D="$TMP/a4c"; make_fixture "$D" 0.6.08 0.6.08 0.6.09 0.6.10 0.6.11 0.6.12 0.6.13 0.6.14 0.6.15 0.6.16 0.6.17 0.6.18 0.6.19 0.6.20 0.6.21 0.6.22
+printf '{"version":"0.6.08","sha256":"x","artifact":"kosmos-0.6.08-arm64.tar.gz","meta":{"version":"9.9.9"}}\n' > "$D/latest.json"
+bash "$TOOL" --dist "$D" --keep 12 --prune --yes >/dev/null 2>&1
+present "$D" kosmos-0.6.08-arm64.tar.gz \
+  && ok "nested-version parse: served 0.6.08 protected (first-match, not 9.9.9)" \
+  || no "nested-version parse: served release was PRUNED -- greedy parse bug"
+
 # --- Arm 5: keep >= number of versions prunes nothing ------------------------
 D="$TMP/a5"; make_fixture "$D" 0.6.20 0.6.18 0.6.19 0.6.20
 before="$(count_files "$D")"
@@ -123,6 +134,24 @@ bash "$TOOL" --keep 12 >/dev/null 2>&1; [ $? -ne 0 ] && ok "no --dist: refuses" 
 bash "$TOOL" --dist "$TMP/does-not-exist" >/dev/null 2>&1; [ $? -ne 0 ] && ok "non-dir --dist: refuses" || no "non-dir: did not refuse"
 mkdir -p "$TMP/nolatest"; bash "$TOOL" --dist "$TMP/nolatest" >/dev/null 2>&1; [ $? -ne 0 ] && ok "dir without latest.json: refuses" || no "no latest.json: did not refuse"
 bash "$TOOL" --dist "$TMP/a5" --keep -3 >/dev/null 2>&1; [ $? -ne 0 ] && ok "negative --keep: refuses" || no "negative --keep: did not refuse"
+
+# --- Arm 9: --keep 0 deletes all but the served version ----------------------
+D="$TMP/a9"; make_fixture "$D" 0.6.20 0.6.18 0.6.19 0.6.20
+bash "$TOOL" --dist "$D" --keep 0 --prune --yes >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ok "keep 0: exit 0" || no "keep 0: exit $rc"
+{ present "$D" kosmos-0.6.20-arm64.tar.gz && absent "$D" kosmos-0.6.18-arm64.tar.gz && absent "$D" kosmos-0.6.19-arm64.tar.gz; } \
+  && ok "keep 0: only the served version survives" || no "keep 0: wrong survivors"
+assert_invariants "keep 0" "$D"
+
+# --- Arm 10: --json output is valid JSON naming the served version -----------
+D="$TMP/a10"; make_fixture "$D" 0.6.22 0.6.20 0.6.21 0.6.22
+js="$(bash "$TOOL" --dist "$D" --keep 2 --json 2>/dev/null)"
+if command -v node >/dev/null 2>&1; then
+  echo "$js" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const o=JSON.parse(s);if(o.served_version==="0.6.22"&&Array.isArray(o.prune_versions)&&o.prune_versions.includes("0.6.20"))process.exit(0);process.exit(1)})' \
+    && ok "--json: valid JSON, names served + prune list" || no "--json: bad JSON or wrong fields -- $js"
+else
+  echo "$js" | grep -q '"served_version":"0.6.22"' && ok "--json: names served version" || no "--json: missing served -- $js"
+fi
 
 echo "----"
 echo "test-dist-retention: $PASS passed, $FAIL failed"

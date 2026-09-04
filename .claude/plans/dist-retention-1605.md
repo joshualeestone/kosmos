@@ -37,9 +37,11 @@ tools/dist-retention.sh --dist <DIR> [--keep N] [--prune] [--yes] [--json]
   bytes; delete nothing; exit 0.
 - `--prune` without `--yes`: **REFUSE** (exit 2) and print the irreversibility warning
   + "this is Josh's call per #1605". Deletes nothing.
-- `--prune --yes`: delete ONLY the computed prune candidates, then re-assert every
-  invariant; print reclaim. Refuse (non-zero) and delete nothing if the post-check
-  would fail.
+- `--prune --yes`: delete ONLY the computed prune candidates, then run a post-prune
+  BACKSTOP (latest.json still present, no kept version orphaned) and print reclaim.
+  Safety is primarily structural (the whitelist never constructs a delete path for a
+  protected name); the backstop catches a logic bug in that model rather than being a
+  full re-list of every protected name. Refuse (non-zero) if the backstop trips.
 
 ### Protected invariants - NEVER pruned, whatever --keep is
 

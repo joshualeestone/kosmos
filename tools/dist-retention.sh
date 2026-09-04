@@ -31,9 +31,9 @@ JSON=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --dist) DIST="${2:-}"; shift 2 ;;
+    --dist) [ $# -ge 2 ] || { echo "dist-retention: --dist needs a directory value" >&2; exit 1; }; DIST="$2"; shift 2 ;;
     --dist=*) DIST="${1#--dist=}"; shift ;;
-    --keep) KEEP="${2:-}"; shift 2 ;;
+    --keep) [ $# -ge 2 ] || { echo "dist-retention: --keep needs an integer value" >&2; exit 1; }; KEEP="$2"; shift 2 ;;
     --keep=*) KEEP="${1#--keep=}"; shift ;;
     --prune) DO_PRUNE=1; shift ;;
     --yes) CONFIRM=1; shift ;;
@@ -50,11 +50,15 @@ case "$KEEP" in
   ''|*[!0-9]*) echo "dist-retention: --keep must be a non-negative integer, got '$KEEP'" >&2; exit 1 ;;
 esac
 
-# The served version: latest.json's "version" field. Tolerant of an optional
-# space after the colon (in case latest.json is ever pretty-printed). This is the
-# version the download button serves; its triple is protected even if it falls
-# outside the keep window.
-SERVED_VERSION="$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$DIST/latest.json" | head -1)"
+# The served version: latest.json's "version" field. This is the version the
+# download button serves; its triple is protected even if it falls outside the
+# keep window, so parsing it correctly is the single most safety-critical read in
+# the tool. Use a FIRST-match, key-anchored parse: grep the "version":"..." pair
+# and take the first one. A greedy sed (.*"version":) would match the LAST such
+# key on a line, so a future nested/second "version" key would make the tool
+# protect the wrong release and put the actually-served triple up for deletion.
+# Tolerant of optional whitespace (a pretty-printed latest.json).
+SERVED_VERSION="$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$DIST/latest.json" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')"
 [ -n "$SERVED_VERSION" ] || { echo "dist-retention: latest.json names no version -- refusing (cannot identify the served release to protect)" >&2; exit 1; }
 
 # Enumerate versioned triples by their tar.gz. The [0-9] after 'kosmos-' means
@@ -188,9 +192,14 @@ for v in "${PRUNE_VERSIONS[@]:-}"; do
   done < <(triple_files "$v")
 done
 
-# Post-prune invariant assertions. Refuse (non-zero) if anything protected went
-# missing -- a prune that broke an invariant is a bug, and saying so loudly beats
-# a silent published-pointer deletion.
+# Post-prune BACKSTOP (not a full invariant re-check). Safety is primarily
+# structural: the whitelist above only ever constructs delete paths for prunable
+# versioned triples, so an alias, the pkg, latest*.json and any kept version's
+# files are never reachable by rm. This backstop catches a logic bug in that model
+# by re-asserting the two things a bug would most likely break -- latest.json is
+# still present, and no KEPT version lost its .sha256 sidecar. It deliberately does
+# NOT re-list every protected name (a fixture or partial dist may legitimately lack
+# some); refuse (non-zero) and say so loudly if the backstop trips.
 fail=0
 assert_present() {
   if [ ! -e "$DIST/$1" ]; then echo "dist-retention: POST-CHECK FAILED -- $1 is missing after prune" >&2; fail=1; fi
