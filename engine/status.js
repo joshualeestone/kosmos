@@ -4807,7 +4807,28 @@ function snapshot() {
              removes. Per-tick delta's only failure is UNDER-firing a very slow
              loop (one that adds a line less often than we sample), which falls to
              the base suppression -- the already-accepted #1930-first-half
-             residual, the SAFE direction. */
+             residual, the SAFE direction.
+
+             🛑 TAIL SATURATION, the residual this deliberately accepts (Pete,
+             2026-09-04). currentCount is a count over the BOUNDED capture-pane
+             tail, not a monotonic session total, so a FAST loop that fills the
+             tail sits at the ceiling every tick (new 401 in, old 401 out) and the
+             delta reads ~0 -> a MISS on a hot loop. This cannot be closed by
+             OR-ing an absolute-ceiling arm: a recovered-IDLE agent produces no new
+             output, so ITS saturated 401 lines never scroll off either -- the two
+             states are INDISTINGUISHABLE by any bounded-tail count. It is a forced
+             choice, and #1930's doctrine decides it: #1930 is additive/positive-
+             only and must NEVER false-alarm a healthy-but-idle agent (went-quiet
+             is #2019's timeout's job). A ceiling arm would put a PERMANENT false
+             red on a recovered-idle healthy agent -- the named haunt. Per-tick
+             delta instead misses a hot loop ONLY in the narrow window before
+             authprobe's cached HEALTHY catches up; a real hot loop means the
+             account is being rejected, so the probe flips non-healthy within its
+             TTL and rule 3b shows the auth_failed directly. So the miss is
+             transient + probe-backstopped; the haunt would be permanent. The only
+             true discriminator is NOT a count -- it is the newest-401-line
+             IDENTITY (a new distinct newest line = new content = live), the
+             documented escape hatch if the race window ever proves to matter. */
           const currentCount = authErrorLineCount(text);
           const prev = activityStore.read(pane.name, 'auth-error');
           activityFresh = { newErrorsSinceHealthy: prev.found ? (currentCount > prev.count) : false };
