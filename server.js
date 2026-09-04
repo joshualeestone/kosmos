@@ -134,6 +134,7 @@ function getImportScan() {
 }
 const connect = require('./engine/connect');
 const machine = require('./engine/machine');
+const a11ystatus = require('./engine/a11ystatus');
 const updates = require('./engine/update');
 const usage = require('./engine/usage');
 
@@ -4738,6 +4739,25 @@ const server = http.createServer((req, res) => {
     const opened = machine.openAccessibilitySettings();
     if (opened.ok) { sendJson(res, 200, { ok: true }); return; }
     sendJson(res, 409, { error: opened.because });
+    return;
+  }
+
+  /* #2125 slice 3: the Accessibility trust reading, for the first-run Continue
+     gate (Josh ruled: block Continue until Accessibility is actually enabled,
+     verified). A STATE question -- GET, read-only, and it NEVER 500s (same
+     contract as /api/machine): every answer, including "we cannot check", is an
+     answer, and an error here would blank the screen whose Continue depends on it.
+     🔑 THREE ANSWERS. `checkable:false` means no native reading is on file (a
+     browser on localhost, or the native app has not written one yet) -- the gate
+     must NOT block on that (there is no accessibility to grant in a browser).
+     `checkable:true, trusted:false` is the ONLY state that gates. The native app
+     supplies the reading because accessibility trust is a TCC fact the engine
+     cannot read (#1344); this route only surfaces it. */
+  if (pathname === '/api/a11y-status' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let reading;
+    try { reading = a11ystatus.read(); }
+    catch (err) { reading = { checkable: false, because: 'we could not read the accessibility reading (' + String(err && err.message || err) + ')' }; }
+    sendJson(res, 200, reading);
     return;
   }
 
