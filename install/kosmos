@@ -1081,9 +1081,9 @@ for _a in "$@"; do
 done
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|report|room|adopt|whoami) set -- "$1" ;;
+    msg|reply|post|report|room|feedback|adopt|whoami) set -- "$1" ;;
     *)
-      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | adopt | whoami\n\n'
+      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | feedback | adopt | whoami\n\n'
       printf '  Add --help to any command; it never acts, except adopt and whoami, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"

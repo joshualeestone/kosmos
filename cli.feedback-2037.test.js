@@ -97,3 +97,17 @@ test('bare feedback prints usage (exit 2)', async () => {
   assert.equal(u.code, 2);
   assert.match(u.both, /kosmos feedback write/);
 });
+
+test('help advertises feedback, and `feedback --help` shows its own usage (banners stay in sync)', async () => {
+  const h = makeHome();
+  // Top-level --help must list the verb (the discovery path). Both hardcoded
+  // verb banners AND the per-verb --help passthrough must carry feedback: a
+  // dropped copy is exactly the drift this asserts against.
+  const top = await run(['--help'], h);
+  assert.equal(top.code, 0);
+  assert.match(top.both, /\bfeedback\b/, 'top-level --help must advertise the feedback verb');
+  // `feedback --help` must route to the feedback usage, not the generic banner.
+  const fh = await run(['feedback', '--help'], h);
+  assert.match(fh.both, /kosmos feedback write/, '`feedback --help` must show the feedback usage');
+  assert.doesNotMatch(fh.both, /start \| stop \| restart/, '`feedback --help` must not fall through to the generic banner');
+});
