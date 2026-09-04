@@ -217,6 +217,16 @@ echo "$out" | grep -q "this is a bug" && no "pre-malformed dist: falsely reporte
 { absent "$D" kosmos-0.6.08-arm64.tar.gz && present "$D" kosmos-0.6.15-arm64.tar.gz; } \
   && ok "pre-malformed dist: still pruned oldest, kept 0.6.15's remaining files" || no "pre-malformed dist: wrong prune result"
 
+# --- Arm 17: an absurd --keep clamps to keep-all, never wraps to prune ---------
+# A ~20-digit --keep would overflow 64-bit arithmetic and wrap to a small window,
+# pruning instead of keeping all. It must be clamped so nothing is pruned.
+D="$TMP/a17"; make_fixture "$D" 0.6.20 0.6.18 0.6.19 0.6.20
+before="$(count_files "$D")"
+bash "$TOOL" --dist "$D" --keep 18446744073709551617 --prune --yes >/dev/null 2>&1; rc=$?
+after="$(count_files "$D")"
+[ "$rc" -eq 0 ] && ok "absurd keep: exit 0" || no "absurd keep: exit $rc"
+[ "$before" = "$after" ] && ok "absurd keep: clamped to keep-all, pruned nothing (no 64-bit wrap)" || no "absurd keep: pruned something ($before -> $after) -- wrap bug"
+
 echo "----"
 echo "test-dist-retention: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

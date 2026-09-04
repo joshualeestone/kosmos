@@ -49,12 +49,22 @@ done
 case "$KEEP" in
   ''|*[!0-9]*) echo "dist-retention: --keep must be a non-negative integer, got '$KEEP'" >&2; exit 1 ;;
 esac
-# Normalize to base 10. The dist's version scheme is zero-padded (0.6.08), so an
-# operator typing --keep 08 is natural -- but "08"/"09" are invalid OCTAL, and
-# bash arithmetic $(( NVER - KEEP )) would error under set -e WITHOUT aborting,
-# leaving the keep window empty and pruning everything but the served version. The
-# 10# prefix forces base 10, so 08->8 and 010->10 both mean what the operator typed.
-KEEP=$((10#$KEEP))
+# Cap an absurd --keep BEFORE base-10 normalization. A keep count larger than any
+# plausible release history means "keep everything" anyway -- but a ~20-digit value
+# would overflow bash's signed 64-bit $(( 10#$KEEP )) and WRAP to a small positive
+# number (measured: 10#18446744073709551617 -> 1), producing a tiny keep window that
+# PRUNES instead of keeping all. Any --keep beyond 7 digits (> 9,999,999) is clamped
+# to 1000000, which is keep-all for any real dist and never wraps. Checked by string
+# length so the comparison itself cannot overflow.
+if [ "${#KEEP}" -gt 7 ]; then
+  KEEP=1000000
+else
+  # Normalize to base 10. The dist's version scheme is zero-padded (0.6.08), so an
+  # operator typing --keep 08 is natural -- but "08"/"09" are invalid OCTAL, and
+  # bash arithmetic $(( NVER - KEEP )) would error under set -e WITHOUT aborting,
+  # leaving the keep window empty. The 10# prefix forces base 10, so 08->8.
+  KEEP=$((10#$KEEP))
+fi
 
 # The served version: latest.json's "version" field. This is the version the
 # download button serves; its triple is protected even if it falls outside the
