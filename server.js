@@ -50,6 +50,21 @@ const {
 } = require('./engine/status');
 const removal = require('./engine/remove');
 
+/* #2128: does this MACHINE currently depend on a Claude subscription? The
+   "cannot reach a Claude subscription" banner (renderConnection) must fire only
+   when some running/known agent actually needs Claude -- NOT merely because a
+   ~/.claude account is configured. Josh's live OpenAI-only test reddened every
+   page precisely because #2096 also keyed this on a configured account, and his
+   dev machine has a real ~/.claude account he depends on for nothing.
+   🛑 An unknown runner ('' / 'claude' / undefined) COUNTS as Claude-dependent,
+   so a real Claude failure is never hidden; only agents we can POSITIVELY
+   confirm are codex (OpenAI) runners are excluded. No agents at all -> false:
+   a fresh install depends on nothing yet, so the banner stays down. */
+function someAgentNeedsClaude(agentList) {
+  return Array.isArray(agentList)
+    && agentList.some((a) => a && a.runner !== 'codex');
+}
+
 /**
  * #1629 point 3: REFUSE TO TYPE AT AN AGENT STOPPED ON CLAUDE CODE'S TRUST
  * DIALOG. Returns the 409 to throw, or null.
@@ -2124,17 +2139,17 @@ const server = http.createServer((req, res) => {
       // available() is the cached verdict -- the request path never waits on
       // the release host, and a down host just means no toast.
       updates.poke();
-      /* #2096: OpenAI-only is a first-class state. The "cannot reach a Claude
-         subscription" banner (renderConnection) must fire only when this machine
-         actually DEPENDS on Claude -- a Claude account is configured (`known` is
-         accounts.list(), Claude-only), or an agent is not positively an OpenAI
-         (codex) runner. 🛑 An unknown runner ('' or 'claude') COUNTS as
-         Claude-dependent, so a real Claude failure is never hidden; only a machine
-         we can positively confirm is codex-only AND has no Claude account suppresses
-         the warning. On OpenAI-only (no Claude account, every agent codex) this is
+      /* #2128 (reverses the #2096 account term): OpenAI-only is a first-class
+         state. The "cannot reach a Claude subscription" banner (renderConnection)
+         must fire only when some AGENT actually depends on Claude -- NOT because a
+         ~/.claude account merely exists on disk. #2096 OR'd in `known.length > 0`,
+         which reddened every page of Josh's OpenAI-only run because his dev box
+         has a real Claude account he depends on for nothing. `known` still fills
+         the account rows; it no longer forces this dependency. See
+         someAgentNeedsClaude: an unknown runner ('' / 'claude') still counts, so a
+         real Claude failure is never hidden; no agents / every agent codex ->
          false and the banner stays down. */
-      const dependsOnClaude = (Array.isArray(known) && known.length > 0)
-        || agents.concat(offline).some((a) => a && a.runner !== 'codex');
+      const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
       body = JSON.stringify({
         ...snap, agents: agents.concat(offline), counts, connection, version, dependsOnClaude,
         /* #2066: the build marker reads (version, sourceChannel). Channel rides
@@ -8841,6 +8856,10 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  /* #2128: exported so the four dependsOnClaude cases (some non-codex agent,
+     every agent codex, no agents, a configured account that no longer forces it)
+     are pinned DIRECTLY, without an HTTP harness that cannot inject agents. */
+  someAgentNeedsClaude,
   /* #1304: exported so the two-reader precedence can be driven directly. A test
      that needed a real process tree, a tmux server and a signed-in account would
      not run anywhere, and the precedence is the part worth pinning.
