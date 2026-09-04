@@ -222,6 +222,22 @@ if [ "$CONFIRM" -eq 0 ]; then
   exit 2
 fi
 
+# Snapshot the kept-version files that exist RIGHT NOW, before any deletion. The
+# post-prune check compares against this so it can tell "the prune deleted a
+# protected file" (a real bug) from "this dist was already malformed" (a kept
+# version missing a sidecar BEFORE the run, which is not our doing). A file that was
+# already absent is never in the snapshot, so it cannot false-trip the check. The
+# delete loop below only ever touches prune-candidate files, so everything listed
+# here must survive it.
+KEPT_BEFORE=""
+for v in "${SORTED_ASC[@]:-}"; do
+  [ -n "$v" ] || continue
+  in_keep "$v" || continue
+  for ext in tar.gz tar.gz.sha256 manifest.json; do
+    [ -e "$DIST/kosmos-${v}-arm64.${ext}" ] && KEPT_BEFORE="${KEPT_BEFORE}kosmos-${v}-arm64.${ext}"$'\n'
+  done
+done
+
 # Confirmed prune. Delete ONLY the whitelisted prunable-triple files.
 DELETED=0
 DELETE_FAILED=0
@@ -246,29 +262,23 @@ done
 # structural: the whitelist above only ever constructs delete paths for prunable
 # versioned triples, so an alias, the pkg, latest*.json and any kept version's
 # files are never reachable by rm. This backstop catches a logic bug in that model
-# by re-asserting the things a bug would most likely break -- latest.json is still
-# present, and no KEPT version lost its .sha256 or .manifest.json sidecar. It
-# deliberately does NOT re-list every protected name (a fixture or partial dist may
-# legitimately lack some); refuse (non-zero) and say so loudly if the backstop trips.
+# by re-asserting latest.json is still present and that every kept-version file that
+# EXISTED BEFORE the prune still exists. It compares against the pre-prune snapshot
+# rather than checking absolute completeness, so a dist that was already malformed
+# (a kept version missing a sidecar beforehand) does NOT get blamed on the prune.
 fail=0
 assert_present() {
   if [ ! -e "$DIST/$1" ]; then echo "dist-retention: POST-CHECK FAILED -- $1 is missing after prune" >&2; fail=1; fi
 }
-# The served pointer. The served version is always in KEEP_SET, so its triple is
-# never a prune candidate; the orphan check below covers it along with every other
-# kept version (a kept tar.gz must keep its .sha256).
 assert_present "latest.json"
-# No kept version may be orphaned: a kept tar.gz must keep its .sha256. Iterate the
-# discovered versions and check membership (a served version with no on-disk triple
-# has nothing to orphan, so iterating SORTED_ASC is sufficient).
-for v in "${SORTED_ASC[@]:-}"; do
-  [ -n "$v" ] || continue
-  in_keep "$v" || continue
-  if [ -e "$DIST/kosmos-${v}-arm64.tar.gz" ]; then
-    [ -e "$DIST/kosmos-${v}-arm64.tar.gz.sha256" ] || { echo "dist-retention: POST-CHECK FAILED -- kept version $v lost its .sha256 sidecar" >&2; fail=1; }
-    [ -e "$DIST/kosmos-${v}-arm64.manifest.json" ] || { echo "dist-retention: POST-CHECK FAILED -- kept version $v lost its .manifest.json" >&2; fail=1; }
-  fi
-done
+# Every kept-version file that was present before the prune must still be present.
+# A file that was already absent is not in KEPT_BEFORE, so a pre-existing malformed
+# dist cannot false-trip this. A here-string (not a pipe) keeps the loop -- and its
+# writes to fail -- in the current shell.
+while IFS= read -r kf; do
+  [ -n "$kf" ] || continue
+  [ -e "$DIST/$kf" ] || { echo "dist-retention: POST-CHECK FAILED -- $kf was present before the prune and is gone after (the prune removed a protected file)" >&2; fail=1; }
+done <<< "$KEPT_BEFORE"
 if [ "$fail" -ne 0 ]; then
   echo "dist-retention: an invariant broke during prune -- see above. This is a bug; report it." >&2
   exit 3

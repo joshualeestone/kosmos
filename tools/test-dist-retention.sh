@@ -206,6 +206,17 @@ bash "$TOOL" --dist "$D" --keep 12 --prune --yes >/dev/null 2>&1
   && ok "version-only latest.json: served 0.6.08 protected by version-string path" \
   || no "version-only latest.json: served release PRUNED (version-string protection broken)"
 
+# --- Arm 16: a pre-existing malformed dist does not false-trip the backstop ---
+# A KEPT version already missing a sidecar BEFORE the run is not the prune's fault.
+# The prune should succeed (exit 0, oldest pruned) and NOT report a tool bug.
+D="$TMP/a16"; make_fixture "$D" 0.6.22 0.6.08 0.6.09 0.6.10 0.6.11 0.6.12 0.6.13 0.6.14 0.6.15 0.6.16 0.6.17 0.6.18 0.6.19 0.6.20 0.6.21 0.6.22
+rm -f "$D/kosmos-0.6.15-arm64.manifest.json"   # kept version, pre-missing a sidecar
+out="$(bash "$TOOL" --dist "$D" --keep 12 --prune --yes 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "pre-malformed dist: prune succeeds (exit 0, no false bug report)" || no "pre-malformed dist: exit $rc -- $out"
+echo "$out" | grep -q "this is a bug" && no "pre-malformed dist: falsely reported a tool bug" || ok "pre-malformed dist: did not misattribute a pre-existing gap to the prune"
+{ absent "$D" kosmos-0.6.08-arm64.tar.gz && present "$D" kosmos-0.6.15-arm64.tar.gz; } \
+  && ok "pre-malformed dist: still pruned oldest, kept 0.6.15's remaining files" || no "pre-malformed dist: wrong prune result"
+
 echo "----"
 echo "test-dist-retention: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
