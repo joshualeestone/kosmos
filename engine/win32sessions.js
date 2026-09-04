@@ -88,10 +88,14 @@ function record(sessionId, meta) {
   if (!validId(sessionId)) return { ok: false, because: 'that is not a session id we can key a record under' };
   const name = meta && typeof meta.name === 'string' ? meta.name : '';
   const runner = meta && typeof meta.runner === 'string' ? meta.runner : '';
-  // .trim() so an all-whitespace name is refused too: a blank name would emit a
-  // roster row whose session/claim are " " and (claim===name) read as ours, a
-  // degenerate row with no agent behind it. A real create-side name is never blank.
-  if (!name.trim()) return { ok: false, because: 'a Kosmos-created session must record the name it runs under' };
+  // A name must carry at least one VISIBLE character, else it emits a degenerate
+  // roster row whose session/claim/title are blank-or-invisible and (claim===name)
+  // read as ours, with no agent behind it. .trim() alone is too narrow: it strips
+  // only JS-whitespace, so an all-zero-width name (U+200B etc, category Cf) would
+  // slip through and render an invisible card. Require one char that is neither
+  // whitespace (\s, \p{Z}) nor a control/format/other (\p{C}) -- a real glyph. A
+  // real create-side name is never blank, so this only rejects the degenerate case.
+  if (!/[^\s\p{Z}\p{C}]/u.test(name)) return { ok: false, because: 'a Kosmos-created session must record the name it runs under' };
   let current = read();
   current[sessionId] = { name, runner, at: new Date().toISOString() };
   try {
@@ -114,7 +118,10 @@ function record(sessionId, meta) {
 function forget(sessionId) {
   if (!validId(sessionId)) return { ok: false, because: 'not a session id we hold' };
   const current = read();
-  if (!(sessionId in current)) return { ok: true };
+  // hasOwnProperty, not `in`: `in` walks the prototype chain, so `forget("toString")`
+  // (a valid, unreserved id that names an Object.prototype member) would see a phantom
+  // hit and fall through to a no-op delete + needless rewrite. Match isOurs's discipline.
+  if (!Object.prototype.hasOwnProperty.call(current, sessionId)) return { ok: true };
   delete current[sessionId];
   try {
     fs.mkdirSync(dir(), { recursive: true });

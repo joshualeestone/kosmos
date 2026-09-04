@@ -101,9 +101,25 @@ test('#570 record: a record with no name is refused; a bad id is refused', () =>
   assert.equal(win32sessions.isOurs(''), false, 'empty id is not ours');
 });
 
-test('#570 record: an all-whitespace name is refused (no degenerate " " row that reads as ours)', () => {
-  assert.equal(win32sessions.record('sess-blank', { name: '   ' }).ok, false, 'blank name -> refused');
+test('#570 record: a name with no VISIBLE character is refused (whitespace AND zero-width)', () => {
+  assert.equal(win32sessions.record('sess-blank', { name: '   ' }).ok, false, 'all-whitespace name -> refused');
   assert.equal(win32sessions.isOurs('sess-blank'), false, 'a blank-named session is never recorded/ours');
+  // .trim() alone would let this through: U+200B is not JS-whitespace.
+  assert.equal(win32sessions.record('sess-zw', { name: '\u200b\u200b' }).ok, false, 'all-zero-width name -> refused');
+  assert.equal(win32sessions.isOurs('sess-zw'), false, 'a zero-width-named session is never recorded/ours');
+  // A real (visible) name still records, even padded with invisibles.
+  assert.equal(win32sessions.record('sess-real', { name: ' raph-9a ' }).ok, true, 'a visible name still records');
+  win32sessions.forget('sess-real');
+});
+
+test('#570 record: a valid id that names an Object.prototype member (toString) round-trips correctly', () => {
+  // "toString" passes the charset and is NOT reserved (it is a harmless data key,
+  // unlike __proto__), so record/isOurs/forget must handle it like any other id.
+  // forget() uses hasOwnProperty (not `in`) precisely so such names behave.
+  assert.equal(win32sessions.record('toString', { name: 'leo-11' }).ok, true, 'toString is a valid id and records');
+  assert.equal(win32sessions.isOurs('toString'), true, 'recorded toString-id reads as ours');
+  win32sessions.forget('toString');
+  assert.equal(win32sessions.isOurs('toString'), false, 'forget removes a prototype-member-named id');
 });
 
 test('#570 record: a JS-reserved key (__proto__) is refused HONESTLY, not ok:true on a silent no-op', () => {
