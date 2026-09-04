@@ -11293,8 +11293,12 @@ function boardMods(a, m) {
     m.st === 'stopped' ? 'off' : '',
     m.st === 'unknown' ? 'unk' : '',
     /* #2019: the card keeps its normal white ground while restarting (this is
-       not working and not an issue), but carries the class so the solid border
-       and the calm K treatment attach. Derived from the pill, never hand-typed. */
+       not working and not an issue). It carries the class as a stable marker of
+       the state -- the solid border and the K attach via the pill's own
+       .astate.st-restarting and the global .kspin rule, not via this class, so
+       there is no .acard.restarting rule today; the class is the state hook the
+       browser check reads (not-off/not-unk) and a home for any future card-level
+       treatment. Derived from the pill, never hand-typed. */
     m.st === 'restarting' ? 'restarting' : '',
     /* 🛑 `hot` IS RETIRED, and its reasoning is kept because it was sound when
        written: it washed a card red at 80% memory, on the rule that a border
@@ -27086,7 +27090,13 @@ function pjMember(m, suppressTold, withMinus) {
     // bare "Can't tell" once sat beside the now-retired told sentence and
     // read as a contradiction; the sentence is gone, the rule stands).
     // Everywhere else in this app an unknown says why.
-    + (m.present
+    // #2019: a member WE restarted is briefly out of tmux, so its live presence
+    // reads false -- but "gone" is the one thing we KNOW is false here, the exact
+    // lie this state refuses. Force the present branch for 'restarting' (the
+    // members-list analog of CARD_ST.restarting.pres='on'), so it shows
+    // "Restarting agent", not "We cannot see this agent". Inert until the engine
+    // emits the state.
+    + ((m.present || m.state === 'restarting')
       ? '<small>' + esc((STATE_COPY[m.state] || STATE_COPY.unknown).label)
         + (m.state === 'unknown' && m.because ? ': ' + esc(m.because) : '') + '</small>'
       : '<small>' + esc(m.because || 'We cannot see this agent on this computer right now.') + '</small>')

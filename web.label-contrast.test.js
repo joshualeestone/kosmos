@@ -249,9 +249,15 @@ test('the one state pill whose SHAPE carries meaning clears 3:1 in both themes, 
     const paused = ratio(colour(rule('st-paused', theme)), surface[theme]);
     assert.ok(idle >= 1.9, `st-idle's edge is ${idle.toFixed(2)}:1 in ${theme}; it reads as floating text`);
     assert.ok(Math.abs(idle - paused) < 0.05, `st-idle (${idle.toFixed(2)}) and st-paused (${paused.toFixed(2)}) are not the same object in ${theme}`);
+    // #2019: the restarting pill's edge must be seen too (it shares idle's value
+    // today, pinned explicitly so a future divergence cannot slip past the proxy).
+    const restarting = ratio(colour(rule('st-restarting', theme)), surface[theme]);
+    assert.ok(restarting >= 1.9, `st-restarting's edge is ${restarting.toFixed(2)}:1 in ${theme}; the in-progress pill reads as floating text`);
   }
   // The dash is the shape, and the shape is the point: it must still be dashed.
   assert.match(PAGE, /\.astate\.st-unknown\s*\{[^}]*border-style:\s*dashed/, 'unknown lost its dash, so its edge now means nothing');
+  // #2019: restarting is SOLID (coming back, not a slot waiting to be filled).
+  assert.doesNotMatch(PAGE, /\.astate\.st-restarting\s*\{[^}]*border-style:\s*dashed/, 'restarting must not be dashed; only unknown carries the dash');
   // POSITIVE CONTROL: the instrument sees the old value as the failure it was.
   assert.ok(ratio(colour('rgba(20,22,26,.22)'), surface.light) < 3, 'the contrast helper no longer fails the value this card was filed on');
 });
