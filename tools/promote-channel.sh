@@ -120,15 +120,20 @@ PROD_SHA="$(node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs
 # .sha256 named for the alias (verified in place by sha256_publish_as). The next deploy carries it.
 _arch="${ARTIFACT#kosmos-$V-}"; _arch="${_arch%.tar.gz}"
 ALIAS="kosmos-$_arch.tar.gz"
-if [ -n "$_arch" ] && [ "$ALIAS" != "$ARTIFACT" ]; then
-  cp "$SITE/dist/$ARTIFACT" "$SITE/dist/$ALIAS" || { echo "promote-channel: could not refresh the prod alias $ALIAS" >&2; exit 1; }
-  . "$(cd "$(dirname "$0")" && pwd)/lib/sha256-name.sh"
-  sha256_publish_as "$SITE/dist/$ARTIFACT.sha256" "$SITE/dist/$ALIAS.sha256" "$ALIAS" \
-    || { echo "promote-channel: could not write $ALIAS.sha256 (the alias may be half-refreshed)" >&2; exit 1; }
-  echo "   refreshed the prod alias $ALIAS to $V"
-else
-  echo "   NOTE: could not derive the alias name from $ARTIFACT (version $V); left the alias untouched" >&2
+# REFUSE rather than report a successful promote with a stale or wrongly-named alias. latest.json
+# is already promoted here, so a silent stale prod alias (an old installer/fallback keeps getting
+# the prior version) is exactly the prod-facing surprise this card exists to prevent. The
+# recomposition check catches any artifact whose name does not have the kosmos-<V>-<arch>.tar.gz
+# shape (e.g. a version/name mismatch): then the strip is a no-op and the recomposed name differs.
+if [ -z "$_arch" ] || [ "$ARTIFACT" != "kosmos-$V-$_arch.tar.gz" ]; then
+  echo "promote-channel: cannot derive the prod alias from $ARTIFACT (expected kosmos-$V-<arch>.tar.gz) -- latest.json was promoted but the prod alias would be stale. Refusing; refresh kosmos-<arch>.tar.gz by hand or fix the artifact name." >&2
+  exit 1
 fi
+cp "$SITE/dist/$ARTIFACT" "$SITE/dist/$ALIAS" || { echo "promote-channel: could not refresh the prod alias $ALIAS" >&2; exit 1; }
+. "$(cd "$(dirname "$0")" && pwd)/lib/sha256-name.sh"
+sha256_publish_as "$SITE/dist/$ARTIFACT.sha256" "$SITE/dist/$ALIAS.sha256" "$ALIAS" \
+  || { echo "promote-channel: could not write $ALIAS.sha256 (the alias may be half-refreshed)" >&2; exit 1; }
+echo "   refreshed the prod alias $ALIAS to $V"
 
 echo "promote-channel: PROMOTED $V to prod - latest.json now points at the exact bytes staging verified ($ARTIFACT)."
 echo "   -> $(cat "$SITE/dist/latest.json")"
