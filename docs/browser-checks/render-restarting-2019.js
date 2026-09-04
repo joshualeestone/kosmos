@@ -71,7 +71,7 @@ const CASES = [
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(300); }
 
       // The render functions must be global (the page's board script is top-level).
-      const haveFns = await page.evaluate(() => typeof card === 'function' && typeof stateCopyOf === 'function' && typeof cardStOf === 'function');
+      const haveFns = await page.evaluate(() => typeof card === 'function' && typeof lrow === 'function' && typeof stateCopyOf === 'function' && typeof cardStOf === 'function');
       chk(haveFns, `[${theme}] the board render functions are reachable`);
       if (!haveFns) continue;
 
