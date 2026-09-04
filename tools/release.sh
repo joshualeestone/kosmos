@@ -1168,3 +1168,14 @@ if [ "$CUT_CHANNEL" = staging ]; then
   echo "        (promote-channel HOLDS unless a FRESH session can use the board -- the #2063 gate)"
   echo "   Rollback is a pointer flip: promote a prior staging pointer, no rebuild."
 fi
+
+# #2159: on a PROD cut the build is now live to users, so generate the release-notes social posts.
+# post-release-notes.sh is DRY-RUN by default and CANNOT auto-publish without a deliberate
+# multi-gate enable (KOSMOS_SOCIAL_AUTOPOST=1 + live creds + a one-time approval marker), so a prod
+# cut previews the notes and a bad note can never auto-publish. A staging cut does not call it (not
+# live). Best-effort: the release already shipped, so a hook non-zero must not fail the cut.
+if [ "$CUT_CHANNEL" = prod ]; then
+  echo ""
+  KOSMOS_RELEASE_IS_PROD=1 KOSMOS_SITE="$SITE" bash "$MAIN_REPO/tools/post-release-notes.sh" "$V" --publish \
+    || echo "post-release-notes: hook returned non-zero (the release still shipped; this is best-effort)"
+fi

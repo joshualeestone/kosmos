@@ -173,3 +173,11 @@ echo "   refreshed the prod alias $ALIAS to $V"
 echo "promote-channel: PROMOTED $V to prod - latest.json now points at the exact bytes staging verified ($ARTIFACT)."
 echo "   -> $(cat "$SITE/dist/latest.json")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."
+
+# #2159: PREVIEW the release-notes social posts (X + LinkedIn) for the promoted version, so the
+# operator sees what will be announced. NOT a live post here (no --publish): a promote flips the
+# pointer but the served go-live is the SUBSEQUENT deploy, so announcing now would post a version
+# users cannot yet fetch. The live post is the prod CUT's job (release.sh, which deploys within the
+# cut); for a promoted release, post on the deploy or by hand. Best-effort preview.
+KOSMOS_RELEASE_IS_PROD=1 KOSMOS_SITE="$SITE" bash "$(cd "$(dirname "$0")" && pwd)/post-release-notes.sh" "$V" \
+  || echo "promote-channel: release-notes preview returned non-zero (harmless; the promote succeeded)"
