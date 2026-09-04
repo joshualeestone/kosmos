@@ -227,6 +227,109 @@ after="$(count_files "$D")"
 [ "$rc" -eq 0 ] && ok "absurd keep: exit 0" || no "absurd keep: exit $rc"
 [ "$before" = "$after" ] && ok "absurd keep: clamped to keep-all, pruned nothing (no 64-bit wrap)" || no "absurd keep: pruned something ($before -> $after) -- wrap bug"
 
+# ===========================================================================
+# #2112: the Windows (kosmos-<V>-win-x64.{zip,zip.sha256,manifest.json}) family,
+# protected by latest-win.json. Same guarantees as arm64. make_fixture already
+# lays down the win ALIAS + an empty latest-win.json; add_win adds versioned win
+# triples + a real latest-win.json served pointer.
+# ===========================================================================
+add_win(){ # $1=dir $2=served-win-version, rest=win versions to create
+  local dir="$1" served="$2"; shift 2
+  local v
+  for v in "$@"; do
+    printf 'zip-%s\n' "$v" > "$dir/kosmos-${v}-win-x64.zip"
+    printf 'sha-%s\n' "$v" > "$dir/kosmos-${v}-win-x64.zip.sha256"
+    printf '{"version":"%s"}\n' "$v" > "$dir/kosmos-${v}-win-x64.manifest.json"
+  done
+  printf '{"version":"%s","sha256":"deadbeef","artifact":"kosmos-%s-win-x64.zip","manifest":"kosmos-%s-win-x64.manifest.json"}\n' \
+    "$served" "$served" "$served" > "$dir/latest-win.json"
+}
+
+# --- Win Arm 1: dry run reports win prune candidates, deletes nothing ---------
+D="$TMP/w1"; make_fixture "$D" 0.6.15 0.6.15
+add_win "$D" 0.6.24 0.6.18 0.6.19 0.6.20 0.6.21 0.6.22 0.6.23 0.6.24
+before="$(count_files "$D")"
+out="$(bash "$TOOL" --dist "$D" --keep 3 2>&1)"; rc=$?
+after="$(count_files "$D")"
+[ "$rc" -eq 0 ] && ok "win dry run: exit 0" || no "win dry run: exit $rc"
+[ "$before" = "$after" ] && ok "win dry run: deleted nothing" || no "win dry run: file count changed $before -> $after"
+echo "$out" | grep -q "dist-retention \[win-x64\]" && ok "win dry run: emits a win-x64 block" || no "win dry run: no win block -- $out"
+echo "$out" | grep -A6 "win-x64" | grep -q "prune candidates:.*4 version" && ok "win dry run: 4 win prune candidates (7 found, keep 3, served in-window)" || no "win dry run: wrong win prune count -- $out"
+
+# --- Win Arm 2: --prune --yes prunes old win + sidecars, keeps newest+served,
+#     and NEVER touches the win alias / arm64 / pkg / pointers ------------------
+D="$TMP/w2"; make_fixture "$D" 0.6.15 0.6.15
+add_win "$D" 0.6.24 0.6.18 0.6.19 0.6.20 0.6.21 0.6.22 0.6.23 0.6.24
+bash "$TOOL" --dist "$D" --keep 3 --prune --yes >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ok "win prune --yes: exit 0" || no "win prune --yes: exit $rc"
+{ absent "$D" kosmos-0.6.18-win-x64.zip && absent "$D" kosmos-0.6.18-win-x64.zip.sha256 && absent "$D" kosmos-0.6.18-win-x64.manifest.json; } \
+  && ok "win prune --yes: oldest win triple + sidecars deleted" || no "win prune --yes: old win triple not fully deleted"
+{ present "$D" kosmos-0.6.24-win-x64.zip && present "$D" kosmos-0.6.23-win-x64.zip && present "$D" kosmos-0.6.22-win-x64.zip; } \
+  && ok "win prune --yes: served + newest 3 win retained" || no "win prune --yes: a retained win version was deleted"
+assert_invariants "win prune --yes" "$D"    # alias, arm64, pkg, latest*.json all intact
+present "$D" kosmos-0.6.15-arm64.tar.gz && ok "win prune: the arm64 family is untouched by a win prune" || no "win prune: an arm64 file was deleted"
+
+# --- Win Arm 3: served win version OUTSIDE the keep window is protected --------
+D="$TMP/w3"; make_fixture "$D" 0.6.15 0.6.15
+add_win "$D" 0.6.18 0.6.18 0.6.19 0.6.20 0.6.21 0.6.22   # served 0.6.18 is the OLDEST
+bash "$TOOL" --dist "$D" --keep 2 --prune --yes >/dev/null 2>&1; rc=$?
+present "$D" kosmos-0.6.18-win-x64.zip && ok "win served-outside-window: served 0.6.18 protected despite being oldest" || no "win served-outside-window: served win version PRUNED!"
+{ absent "$D" kosmos-0.6.19-win-x64.zip && absent "$D" kosmos-0.6.20-win-x64.zip; } && ok "win served-outside-window: the other out-of-window win versions pruned" || no "win served-outside-window: 19/20 not pruned"
+
+# --- Win Arm 4: BOTH families pruned in one run, independent keep windows ------
+D="$TMP/w4"; make_fixture "$D" 0.6.22 0.6.15 0.6.16 0.6.17 0.6.18 0.6.19 0.6.20 0.6.21 0.6.22   # 8 arm64, served 0.6.22
+add_win "$D" 0.6.24 0.6.19 0.6.20 0.6.21 0.6.22 0.6.23 0.6.24                                   # 6 win, served 0.6.24
+bash "$TOOL" --dist "$D" --keep 3 --prune --yes >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ok "both families: prune --yes exit 0" || no "both families: exit $rc"
+{ absent "$D" kosmos-0.6.15-arm64.tar.gz && present "$D" kosmos-0.6.22-arm64.tar.gz; } \
+  && ok "both families: arm64 keep window applied (oldest pruned, newest kept)" || no "both families: arm64 window wrong"
+{ absent "$D" kosmos-0.6.19-win-x64.zip && present "$D" kosmos-0.6.24-win-x64.zip; } \
+  && ok "both families: win keep window applied independently" || no "both families: win window wrong"
+assert_invariants "both families" "$D"
+
+# --- Win Arm 5: fail-safe -- win triples present but latest-win.json absent ----
+#     => the win family is NOT pruned (cannot identify the served release). ------
+D="$TMP/w5"; make_fixture "$D" 0.6.15 0.6.15
+add_win "$D" 0.6.24 0.6.18 0.6.19 0.6.20 0.6.24
+rm -f "$D/latest-win.json"                        # remove the win pointer AFTER add_win wrote it
+before="$(count_files "$D")"
+out="$(bash "$TOOL" --dist "$D" --keep 1 --prune --yes 2>&1)"; rc=$?
+after="$(count_files "$D")"
+[ "$rc" -eq 0 ] && ok "win fail-safe: exit 0 (arm64 still processes; win refused)" || no "win fail-safe: exit $rc -- $out"
+echo "$out" | grep -q "NOT pruning win-x64" && ok "win fail-safe: says it is NOT pruning win (no pointer)" || no "win fail-safe: no refusal message -- $out"
+{ present "$D" kosmos-0.6.18-win-x64.zip && present "$D" kosmos-0.6.19-win-x64.zip; } \
+  && ok "win fail-safe: NO win triple deleted without a served pointer" || no "win fail-safe: a win triple was pruned with no pointer -- UNSAFE"
+
+# --- Win Arm 6: the win alias is never treated as a versioned triple -----------
+D="$TMP/w6"; make_fixture "$D" 0.6.15 0.6.15
+add_win "$D" 0.6.20 0.6.18 0.6.19 0.6.20
+bash "$TOOL" --dist "$D" --keep 1 --prune --yes >/dev/null 2>&1
+present "$D" kosmos-win-x64.zip && ok "win alias kosmos-win-x64.zip: never pruned ([0-9] anchor excludes it)" || no "win alias: deleted!"
+
+# --- Win Arm 6b: served win protected by ARTIFACT FILENAME despite version skew -
+#     (mirrors arm64 Arm 12): latest-win.json version="0.6.5" but the file is
+#     kosmos-0.6.05-win-x64.zip; the artifact-name fallback must protect it. -----
+D="$TMP/w6b"; make_fixture "$D" 0.6.15 0.6.15
+add_win "$D" 0.6.05 0.6.05 0.6.06 0.6.07 0.6.08
+# Skew the pointer: version field "0.6.5" (unpadded) while the served file is padded.
+printf '{"version":"0.6.5","artifact":"kosmos-0.6.05-win-x64.zip","manifest":"kosmos-0.6.05-win-x64.manifest.json"}\n' > "$D/latest-win.json"
+bash "$TOOL" --dist "$D" --keep 1 --prune --yes >/dev/null 2>&1
+present "$D" kosmos-0.6.05-win-x64.zip && ok "win artifact-name protection: served 0.6.05 kept despite version=\"0.6.5\" skew" || no "win artifact-name protection: served win file PRUNED (skew bug)"
+
+# --- Win Arm 6c: an unrecognised win-shaped stray is never touched -------------
+D="$TMP/w6c"; make_fixture "$D" 0.6.15 0.6.15
+add_win "$D" 0.6.20 0.6.18 0.6.19 0.6.20
+: > "$D/kosmos-win-x64-notes.txt"; : > "$D/win-x64-stray.zip"
+bash "$TOOL" --dist "$D" --keep 1 --prune --yes >/dev/null 2>&1
+{ present "$D" kosmos-win-x64-notes.txt && present "$D" win-x64-stray.zip; } \
+  && ok "win stray files: unrecognised win-shaped names never deleted" || no "win stray files: a stray was deleted!"
+
+# --- Win Arm 7: a dist with ZERO win triples emits NO win block ----------------
+#     (arm64-only behaviour is byte-identical to pre-#2112) ---------------------
+D="$TMP/w7"; make_fixture "$D" 0.6.20 0.6.18 0.6.19 0.6.20    # no add_win: only the empty latest-win.json + alias
+out="$(bash "$TOOL" --dist "$D" --keep 12 2>&1)"
+echo "$out" | grep -q "win-x64" && no "zero-win dist: emitted a win block for a dist with no win releases" || ok "zero-win dist: no win block (arm64-only output unchanged)"
+
 echo "----"
 echo "test-dist-retention: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
