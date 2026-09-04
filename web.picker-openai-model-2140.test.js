@@ -36,21 +36,25 @@ async function runPicker({ fetchOk, fetchBody, acctDir, seedModels }) {
   const wrap = `
     let OPENAI_MODELS_GEN = 0;
     let CREATE_MODELS = ${JSON.stringify(seedModels || [])};
+    let OPENAI_PICK_MODELS = [];
     const esc = (s) => String(s == null ? '' : s);
     const paintModelWhy = () => { _calls.paintWhy += 1; };
     const fetch = async (url) => { _calls.fetchUrl = url; return { ok: ${fetchOk ? 'true' : 'false'}, json: async () => (${JSON.stringify(fetchBody || {})}) }; };
     ${noteFn}
     ${paintFn}
     paintOpenaiCreateModel();
-    return CREATE_MODELS;
+    // A reader closure, because paintOpenaiCreateModel REASSIGNS OPENAI_PICK_MODELS
+    // inside its async, so a value captured now would be the pre-fetch empty array.
+    return () => ({ CREATE_MODELS: CREATE_MODELS.slice(), OPENAI_PICK_MODELS: OPENAI_PICK_MODELS.slice() });
   `;
   // eslint-disable-next-line no-new-func
-  const models = new Function('document', '_calls', wrap)(document, calls);
+  const read = new Function('document', '_calls', wrap)(document, calls);
   await new Promise((r) => setTimeout(r, 15)); // let the fire-and-forget fetch resolve
-  return { els, calls, CREATE_MODELS: models };
+  const state = read();
+  return { els, calls, CREATE_MODELS: state.CREATE_MODELS, OPENAI_PICK_MODELS: state.OPENAI_PICK_MODELS };
 }
 
-test('#2140 LISTABLE: the picker shows "Let OpenAI choose" first + the account models, and merges them into CREATE_MODELS', async () => {
+test('#2140 LISTABLE: the picker shows "Let OpenAI choose" first + the account models, in a SEPARATE cache (Claude CREATE_MODELS is not polluted)', async () => {
   const r = await runPicker({
     fetchOk: true,
     fetchBody: { ok: true, models: [
@@ -58,13 +62,18 @@ test('#2140 LISTABLE: the picker shows "Let OpenAI choose" first + the account m
       { key: 'o3', provider: 'openai', label: 'O3', arg: 'o3', why: 'A reasoning model.' },
     ] },
     acctDir: '/home/.codex',
+    seedModels: [{ key: 'sonnet', provider: 'anthropic', label: 'Claude Sonnet 5', why: 'x' }],
   });
   assert.equal(r.els['create-model-row'].hidden, false, 'the picker row must be shown for a listable account');
   const html = r.els['create-model'].innerHTML;
   assert.match(html, /value=""[^>]*>Let OpenAI choose \(recommended\)/, 'the auto option must be first and empty-valued');
   assert.match(html, /value="gpt-5-codex">GPT 5 Codex/);
   assert.match(html, /value="o3">O3/);
-  assert.ok(r.CREATE_MODELS.some((m) => m.key === 'gpt-5-codex'), 'the OpenAI models were not merged into CREATE_MODELS for paintModelWhy');
+  // The OpenAI models live in OPENAI_PICK_MODELS (for paintModelWhy) and must NOT
+  // pollute the Claude CREATE_MODELS the Claude create/detail pickers render whole.
+  assert.ok(r.OPENAI_PICK_MODELS.some((m) => m.key === 'gpt-5-codex'), 'the OpenAI models were not kept in OPENAI_PICK_MODELS for paintModelWhy');
+  assert.ok(!r.CREATE_MODELS.some((m) => m.provider === 'openai'), 'an OpenAI model leaked into the Claude CREATE_MODELS list');
+  assert.deepEqual(r.CREATE_MODELS.map((m) => m.key), ['sonnet'], 'CREATE_MODELS was mutated by the OpenAI picker');
   assert.equal(r.calls.paintWhy >= 1, true, 'paintModelWhy was not called to show the selected model why');
   assert.match(r.calls.fetchUrl, /\/api\/accounts\/openai\/models\?dir=/, 'the per-account models route was not fetched');
   assert.match(r.calls.fetchUrl, /home.*codex/, 'the fetch did not carry the selected account dir');

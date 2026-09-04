@@ -23180,9 +23180,18 @@ let MADE_MARK = null;
 let CREATE_MODELS = [];    // the engine's model list, from the same payload
 /* #2140: a generation counter for the OpenAI create-model fetch, so switching
    provider or account mid-fetch never lands a stale result (the same guard shape
-   as loadCreateExtras' EXTRAS_GEN). Bumped at the top of each fetch; a resolved
-   fetch whose gen is no longer current bails. */
+   as loadCreateExtras' EXTRAS_GEN). Bumped at the top of each fetch AND whenever
+   the provider leaves OpenAI, so a fetch in flight when the user switches back to
+   Claude cannot resolve onto the Claude picker. A resolved fetch whose gen is no
+   longer current bails. */
 let OPENAI_MODELS_GEN = 0;
+/* #2140: the OpenAI models for the CURRENTLY-selected create account, kept SEPARATE
+   from CREATE_MODELS (which is Claude-only, from /api/roles, and is rendered whole
+   by both the Claude create picker and every Claude agent's detail picker -- merging
+   OpenAI rows in would leak them into those Claude menus). Replaced (not appended)
+   on each fetch; paintModelWhy searches it alongside CREATE_MODELS so a selected
+   OpenAI model still shows its why. */
+let OPENAI_PICK_MODELS = [];
 
 /**
  * The model picker on an agent's page.
@@ -23939,7 +23948,11 @@ function paintModelWhy(selId, whyId) {
   const sel = document.getElementById(selId);
   const out = document.getElementById(whyId);
   if (!sel || !out) return;
-  const m = CREATE_MODELS.find((x) => x.key === sel.value);
+  // #2140: the selected model may be a Claude model (CREATE_MODELS) or the current
+  // OpenAI account's model (OPENAI_PICK_MODELS, kept separate to avoid polluting the
+  // Claude menus). Keys do not collide across providers, so the union is safe.
+  const m = CREATE_MODELS.find((x) => x.key === sel.value)
+    || OPENAI_PICK_MODELS.find((x) => x.key === sel.value);
   out.textContent = (m && m.why) || '';
   out.hidden = !out.textContent;
 }
@@ -25488,9 +25501,11 @@ function paintOpenaiCreateModel() {
     if (gen !== OPENAI_MODELS_GEN) return; // a newer provider/account change superseded this fetch
     if (sel) sel.disabled = false;
     if (out && out.ok && Array.isArray(out.models) && out.models.length) {
-      // LISTABLE: merge into CREATE_MODELS (distinct keys, so paintModelWhy finds
-      // them) and populate the picker with the auto default plus the account's models.
-      for (const m of out.models) { if (m && m.key && !CREATE_MODELS.some((x) => x.key === m.key)) CREATE_MODELS.push(m); }
+      // LISTABLE: keep the account's models in OPENAI_PICK_MODELS (separate from the
+      // Claude CREATE_MODELS so they never leak into the Claude menus) so paintModelWhy
+      // can resolve the selected one, and populate the picker with the auto default
+      // plus the account's models.
+      OPENAI_PICK_MODELS = out.models.slice();
       if (row) row.hidden = false;
       if (sel) {
         sel.innerHTML = '<option value="" selected>Let OpenAI choose (recommended)</option>'
@@ -25523,10 +25538,17 @@ function applyCreateProviderUI() {
        fillCreateAccounts above; it also re-runs on an account change (listener below). */
     paintOpenaiCreateModel();
   } else {
-    /* Claude: the static model row, shown and enabled, with its why-note. */
+    /* Claude: the static model row, shown and enabled, with its why-note.
+       #2140: bump the OpenAI fetch generation so a models fetch in flight from a
+       just-abandoned OpenAI selection cannot resolve onto this Claude picker; and
+       REPAINT the Claude options, because the OpenAI branch overwrote #create-model
+       with "Let OpenAI choose" + gpt rows and switching back must not leave those. */
+    OPENAI_MODELS_GEN += 1;
     model.disabled = false;
     const modelRow = document.getElementById('create-model-row');
     if (modelRow) modelRow.hidden = false;
+    model.innerHTML = CREATE_MODELS.map((m) =>
+      '<option value="' + esc(m.key) + '"' + (m.default ? ' selected' : '') + '>' + esc(m.label) + '</option>').join('');
     if (why) why.textContent = '';
     paintModelWhy('create-model', 'create-model-why');
   }
@@ -26564,13 +26586,12 @@ async function loadCreateExtras() {
   const models = CREATE_MODELS;
   sel.innerHTML = models.map((m) =>
     `<option value="${esc(m.key)}"${m.default ? ' selected' : ''}>${esc(m.label)}</option>`).join('');
-  /* #2098: on OpenAI the model row is hidden and its note takes the place -- so do
-     NOT repaint the note from the (hidden Claude) model select here, which would
-     overwrite "OpenAI picks its own model for now." with a Claude why-line or blank.
-     Keep the OpenAI note; only run the Claude paintModelWhy off OpenAI. */
+  /* #2140: on OpenAI the model select is the per-account picker, so this first
+     Claude fill above is not what should show -- hand off to paintOpenaiCreateModel,
+     which repopulates the select (or hides the row + shows the note) for the
+     selected account. On Claude, paint the selected model's why as before. */
   if (document.getElementById('create-provider').value === 'openai') {
-    const why = document.getElementById('create-model-why');
-    if (why) { why.textContent = 'OpenAI picks its own model for now.'; why.hidden = false; }
+    paintOpenaiCreateModel();
   } else {
     paintModelWhy('create-model', 'create-model-why');
   }

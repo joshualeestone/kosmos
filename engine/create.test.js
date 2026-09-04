@@ -3502,6 +3502,10 @@ test('#245: an OpenAI agent is created on the codex runner, recorded everywhere,
   const setAuto = create.setModel(name, '');
   assert.equal(setAuto.outcome, create.OUTCOME.CREATED, setAuto.because);
   assert.equal(plistArgs(name)[7], '', 'an empty OpenAI model choice must clear the -m slot (auto)');
+  // The auto choice carries a real user-facing label, never null (the change-model
+  // route reports "${label} it is."; a null would render "null it is.").
+  assert.ok(setAuto.model && setAuto.model.label && setAuto.model.label !== 'null',
+    'the auto (empty) OpenAI model must have a real label, got ' + JSON.stringify(setAuto.model && setAuto.model.label));
 });
 
 test('#245: openai refuses a model choice, an account choice, a missing runner, and an unknown provider refuses outright', () => {

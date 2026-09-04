@@ -1209,12 +1209,14 @@ function setModel(name, modelKey) {
       }
       /* Cross-vendor guard (same as the create path): a Claude model key is
          never an OpenAI model, refused here without a network call. */
-      const claudeMdl = modelFor('anthropic', id);
+      const claudeMdl = modelsFor('anthropic').find((x) => x.key === id || x.arg === id);
       if (claudeMdl) {
         return { outcome: OUTCOME.REFUSED, because: `${claudeMdl.label} is a Claude model, not one OpenAI runs, so ${spoken} cannot use it` };
       }
     }
-    m = { key: id, arg: id, provider: 'openai', label: id || null };
+    /* label is user-facing: the change-model route reports "${label} it is." An
+       empty (auto) choice must read as a real phrase, not "null it is." */
+    m = { key: id, arg: id, provider: 'openai', label: id || 'OpenAI\'s default' };
   } else {
     m = modelFor(agentProvider, modelKey);
     if (!m) {
@@ -2479,7 +2481,7 @@ function createAgentInner(opts) {
            launch (the per-account "is this one of YOUR models" check is the
            async one at the server route). Catches the "opus into codex" mistake
            without a network call. */
-        const claudeMdl = modelFor('anthropic', id);
+        const claudeMdl = modelsFor('anthropic').find((x) => x.key === id || x.arg === id);
         if (claudeMdl) {
           return { outcome: OUTCOME.REFUSED, because: `${claudeMdl.label} is a Claude model, not one OpenAI runs; pick one from OpenAI's list`, steps };
         }

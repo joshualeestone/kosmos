@@ -63,6 +63,12 @@ function run(fn, seed) {
     // is covered in web.picker-provider-2097.test.js.
     const CREATE_ACCOUNTS = [];
     let CREATE_PROVIDER_TOUCHED = false;
+    // #2140: applyCreateProviderUI's Claude branch repaints #create-model from
+    // CREATE_MODELS and bumps the OpenAI fetch generation; seed both for this
+    // reset-consistency test (which is about provider state, not the model list).
+    let CREATE_MODELS = [];
+    let OPENAI_MODELS_GEN = 0;
+    let OPENAI_PICK_MODELS = [];
     ${applyFn}
     ${resetFn}
     ${fn};
