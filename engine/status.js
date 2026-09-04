@@ -27,6 +27,11 @@ const observed = require('./observed');
 const sendertoken = require('./sendertoken');
 const liveness = require('./liveness');
 const disruption = require('./disruption');
+/* #1930 per-pattern freshness store. Named `activityStore` (not `activity`) on
+   purpose: reconcileReport takes an `activity` VERDICT param, and shadowing the
+   module with the param inside that function would be a footgun. The caller
+   below reads/records/clears the STORE; reconcileReport reads the VERDICT. */
+const activityStore = require('./activity');
 /* For SESSION only: the sign-in flow's own tmux session name, defined once
    where the session is created. No cycle: connect never requires status. */
 const connect = require('./connect');
@@ -1741,6 +1746,34 @@ const AUTH_FAILED_MARKERS = [
  * of that line, so the rest of that line is the discriminator.
  */
 const AUTH_ENVELOPE = /"type":\s*"error"/i;
+
+/**
+ * #1930: how many real 401 auth-error lines are on this screen right now -- the
+ * per-pattern COUNT the freshness guard baselines and compares (engine/activity.js).
+ *
+ * 🔑 A COUNT OF REAL ENVELOPE LINES, NOT A HASH. A row counts only if it carries
+ * an auth marker AND the `"type":"error"` envelope, the same `wholeOnOneRow`
+ * criterion `authFailed` uses for detection -- so prose that merely mentions a
+ * marker (#1233) is not counted, and the count tracks actual 401 lines. It is a
+ * count and not a hash because a live loop redrawing the SAME 401 text has a
+ * constant hash; what changes when the loop is live is how many 401 lines have
+ * accumulated (Pete's contract, point 4).
+ *
+ * ⚠️ The friendly non-JSON auth line (#1884) has no envelope and is not counted;
+ * that form is a single static login prompt, not a scrolling loop, so counting
+ * it would not help, and a miss fails toward the base HEALTHY-suppression (safe).
+ * Markers are non-global regexes, so `.test()` here is stateless.
+ */
+function authErrorLineCount(paneText) {
+  const rows = String(paneText == null ? '' : paneText)
+    .split('\n')
+    .map((line) => line.replace(/^[\s>│├└─*❯›]+/, ''));
+  let n = 0;
+  for (const row of rows) {
+    if (AUTH_FAILED_MARKERS.some((re) => re.test(row)) && AUTH_ENVELOPE.test(row)) n++;
+  }
+  return n;
+}
 
 /**
  * #1884. Claude Code's FRIENDLY (non-JSON) auth-failure line, the shape a real
@@ -4114,7 +4147,7 @@ function saidWords(reported, nowMs) {
   return '';
 }
 
-function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth) {
+function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity) {
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
      agent has reported. Handle it HERE, above the no-report early return below, so a
      never-reported agent -- one that hit a 401 on launch and sits idle at a prompt after an
@@ -4125,7 +4158,32 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
      and auth_failed stands (no false calm). The re-entry's scraped state is UNKNOWN, so this
      cannot recurse. */
   if (scraped.state === STATE.AUTH_FAILED && liveAuth === LIVE_AUTH_HEALTHY) {
-    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth);
+    /* #1930 ONE-DIRECTIONAL FRESHNESS GUARD. The base behaviour (below) SUPPRESSES a
+       scraped auth_failed under a live-HEALTHY probe -- the rejection is stale
+       scrollback from before the account was repaired. The guard WITHHOLDS that
+       suppression (shows the red) on ONE condition only: POSITIVE evidence that the
+       auth-error region is still producing NEW lines since the account went healthy
+       (activity.newErrorsSinceHealthy === true) -- a live 401 loop under a probe that
+       cached healthy a moment ago (sub-case-2). It never ADDS suppression of its own,
+       and unknown / no-sample activity (activity null or newErrorsSinceHealthy false)
+       leaves the base suppression standing, so control (b) -- HEALTHY + no-new-errors
+       -- stays SUPPRESSED and there is NO regression. The guard STRICTLY REDUCES
+       false-calm, never increases it. (The other false-calm source -- a healthy report
+       that has actually gone quiet/stuck -- is #2019's bounded timeout's job, not this
+       guard's; this one is additive/positive-only so it never false-alarms an idle-but-
+       healthy agent.) */
+    if (activity && activity.newErrorsSinceHealthy === true) {
+      /* Handled explicitly here, NOT by falling through to rule 3b below: rule 3b's
+         invariant is "reaching here means liveAuth is NOT HEALTHY", and this case is
+         HEALTHY. Show the scraped auth_failed with its evidence line and an honest
+         conflict naming the split (probe healthy, screen still rejecting). */
+      return {
+        ...scraped,
+        reported: false,
+        conflict: 'the account sign-in currently reads valid, but its screen is still producing new Claude sign-in rejections, so a live rejection loop is running' + saidWords(reported, nowMs),
+      };
+    }
+    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
     return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
   }
   /* #2019: a dead pane is "gone" UNLESS we are the ones who just took it out. If
@@ -4287,7 +4345,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     const atRl = Date.parse(reported.at || '');
     const freshRl = Number.isFinite(atRl) && (nowMs - atRl) <= REPORT_WORKING_DECAY_MS;
     if (freshRl) {
-      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth);
+      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
     }
     return { ...scraped, reported: false, conflict: 'its screen shows it has hit a usage limit, which its reports cannot know about' + saidWords(reported, nowMs) };
@@ -4597,9 +4655,40 @@ function snapshot() {
         (n) => require('./create').readJob(n),
         (d) => require('./codexauthprobe').verdict(d, now));
     }
+    /* #1930 freshness verdict: is a scraped auth_failed under a live-HEALTHY
+       probe STALE scrollback, or a live 401 loop still producing new lines? This
+       caller owns the baseline-vs-compare state machine (the disruption
+       begin/clear split) so reconcileReport stays a pure function of its inputs.
+       Only meaningful for a scraped auth_failed on one of our named panes, which
+       is exactly the case `liveAuth` was resolved for above.
+         - probe HEALTHY, no baseline yet -> record the current auth-error line
+           count as the baseline (the healthy transition) and report no evidence.
+         - probe HEALTHY, baseline on file -> newErrorsSinceHealthy = count grew.
+         - probe resolved-but-NOT-healthy -> the account left healthy; clear so the
+           next healthy transition re-baselines against a fresh count.
+       A single object `{ newErrorsSinceHealthy }` so the signature stays stable as
+       #2146 (activeWhileWaiting) and #2019 land more fields on it (Pete). */
+    let activityFresh;
+    if (scrapedStatus.state === STATE.AUTH_FAILED && isNamedOurs(pane)) {
+      if (liveAuth === LIVE_AUTH_HEALTHY) {
+        const currentCount = authErrorLineCount(text);
+        const base = activityStore.read(pane.name, 'auth-error');
+        if (!base.found) {
+          activityStore.record(pane.name, 'auth-error', currentCount);
+          activityFresh = { newErrorsSinceHealthy: false };
+        } else {
+          activityFresh = { newErrorsSinceHealthy: currentCount > base.count };
+        }
+      } else if (liveAuth !== undefined) {
+        /* A definite non-healthy verdict (expired / unknown / unchecked). An
+           UNRESOLVABLE probe (undefined) means we cannot tell, so we leave any
+           baseline untouched rather than clearing on no information. */
+        activityStore.clear(pane.name, 'auth-error');
+      }
+    }
     const status = reconcileReport(
       isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
-      scrapedStatus, now, liveAuth, disruptionRec, codexLiveAuth);
+      scrapedStatus, now, liveAuth, disruptionRec, codexLiveAuth, activityFresh);
     /* #2019 forward self-heal (challenge iter 2): a disruption record on file
        but a reconciled state that is a confident LIVE reading means the restart
        COMPLETED -- drop the record now rather than waiting out the window. This
