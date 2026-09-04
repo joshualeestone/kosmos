@@ -35181,10 +35181,26 @@ async function frPaintOpenai(known) {
        overriding that Skip (the null alt hides it). If Claude is already
        connected it has offered its own Continue -- leave its actions alone.
        ⚠️ Not keyed on frRecheck: that re-checks only Claude and repaints only
-       frPaintSubscription, so a "Check again" alt here would revert to Skip. */
+       frPaintSubscription, so a "Check again" alt here would revert to Skip.
+       📌 KNOWN NARROW LIMIT (kosmos#2134, not a regression -- origin/main offers
+       no Continue here at all): step 3 also runs frConnResume(), which for a
+       STALE stuck/interrupted CLAUDE connect record paints connect actions via
+       frActions. Its /api/connect read is fast while this paint's /api/accounts
+       does per-account live verification (#960), so this Continue almost always
+       lands last and wins -- but the ordering is not guaranteed, so a stuck
+       Claude-connect record coexisting with a connected OpenAI account could, in
+       the adverse ordering, re-clobber Continue. The deterministic fix is to
+       unify the step-3 action decision across all three paints (a separate
+       refactor); left as a documented follow-up because it needs a stuck record
+       AND a connected OpenAI at once, and the OpenAI-only-first-run case Josh hit
+       has no Claude connect record so frConnResume is a no-op there. */
     const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
     if (!claudeConnected) frActions({ label: 'Continue', go: () => frGo(4) }, null);
   } else {
+    /* 📌 The not-connected branch deliberately does NOT reset the actions: there
+       is no in-wizard way to disconnect OpenAI (the forget-provider handlers are
+       Settings-only), so a connected->none transition on THIS screen is not
+       reachable, and Skip already routes to frGo(4) if it ever were. */
     // Leave `flow.hidden` alone: a person mid-typing should not have the
     // form yanked shut under them by an unrelated repaint. A positively
     // dead key names itself (its because), so the person knows why the row

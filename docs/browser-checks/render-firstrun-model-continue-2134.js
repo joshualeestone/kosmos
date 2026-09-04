@@ -66,8 +66,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (r.error) {
     problems.push(r.error);
   } else {
+    /* nextHidden and altHidden are the real discriminators: #fr-next's static
+       markup label is already "Continue", so a nextText check reads "Continue"
+       even while the button is hidden on origin/main -- it cannot red on its own,
+       so it is not asserted. The button being SHOWN (not hidden) with Skip HIDDEN
+       is what reds on main and passes here. */
     if (r.openaiOnly.nextHidden) problems.push('OpenAI connected (Claude not): the Continue button is HIDDEN -- an OpenAI-only user is stuck at the model step (#2134)');
-    if (!/Continue/.test(r.openaiOnly.nextText)) problems.push('OpenAI connected: the primary button is not "Continue" (was "' + r.openaiOnly.nextText + '")');
     if (!r.openaiOnly.altHidden) problems.push('OpenAI connected: the "Skip connecting a model" alt is still shown alongside Continue (should be hidden)');
   }
 

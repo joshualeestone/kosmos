@@ -443,6 +443,40 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   assert.equal(els['fr-openai-connect'].disabled, true);
 });
 
+test('#2134: with Claude ALSO connected, frPaintOpenai does NOT touch the actions (guard)', async () => {
+  // Protects the `if (!claudeConnected)` guard: when Claude is connected it has
+  // already offered its own Continue (+ "Check again" alt), and frPaintOpenai must
+  // leave those alone rather than replace them with a null-alt Continue. Without
+  // the guard a Claude+OpenAI user would lose the recheck alt.
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const at = page.indexOf('async function frPaintOpenai(');
+  let d = 0; let i = page.indexOf('{', page.indexOf(')', at));
+  for (; i < page.length; i++) { if (page[i] === '{') d++; else if (page[i] === '}') { d--; if (!d) break; } }
+  const body = page.slice(at, i + 1);
+
+  const els = {
+    'fr-openai-connect': (() => { const cls = new Set(); return {
+      textContent: 'Connect', innerHTML: 'Connect', disabled: false, attrs: {},
+      classList: { toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); }, contains: (c) => cls.has(c) },
+      setAttribute(k, v) { this.attrs[k] = v; } }; })(),
+    'fr-openai-flow': { hidden: false },
+    'fr-openai-msg': { textContent: '' },
+    'fr-openai-key': { value: '' },
+  };
+  const FR = { subscription: { state: 'connected' } }; // Claude IS connected
+  let frActionsCalled = false;
+  const frActions = () => { frActionsCalled = true; };
+  const frGo = () => {};
+  // eslint-disable-next-line no-new-func
+  await new Function('document', 'fetch', 'known', 'FR', 'frActions', 'frGo', body + '\nreturn frPaintOpenai(known);')(
+    { getElementById: (id) => els[id] || null },
+    () => { throw new Error('no fetch -- known supplied'); },
+    { connected: true, keyTail: 'zz99', justAdded: true },
+    FR, frActions, frGo,
+  );
+  assert.equal(frActionsCalled, false, 'frPaintOpenai must not touch the actions when Claude is already connected');
+});
+
 // ---------------------------------------------------------------------------
 // Josh, 2026-08-26, items 8, 9 and 10 — from a live run of the connect flow.
 // "the download progress bar was supposed to be up in that area where I had
