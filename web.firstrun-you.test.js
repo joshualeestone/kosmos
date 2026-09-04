@@ -1,7 +1,14 @@
 'use strict';
 
 /**
- * The About-you step asks exactly TWO questions (#1345).
+ * The About-you step: name, what-you-do, and time zone (#1345, #1994).
+ *
+ * #1345 (below) removed the "anything they should always know" box, leaving two
+ * questions. #1994 (Josh live, 2026-09-04) then RESTORED the time-zone picker to
+ * this step, so it asks THREE questions now: name, does, and time zone. The know
+ * box stays gone (its data is still carried, see the second test). This test is
+ * kept in the #1345 family and updated for the reversal rather than left claiming
+ * "exactly two" on a three-question screen.
  *
  * **Josh, 2026-08-28 11:25 CDT, during the clean-machine test:**
  *
@@ -30,9 +37,11 @@ const path = require('node:path');
 
 const HTML = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 
-test('#1345: the About-you step asks exactly two questions', () => {
+test('#1345/#1994: the About-you step asks name, what-you-do, and time zone (the know box stays gone)', () => {
   assert.match(HTML, /id="fr-you-name"/, 'the name field is gone: this step asks nothing');
   assert.match(HTML, /id="fr-you-do"/, 'the "what do you do" field is gone');
+  assert.match(HTML, /id="fr-you-tz"/,
+    'the time-zone picker is gone from the About-you step (#1994 restored it)');
   assert.doesNotMatch(HTML, /id="fr-you-know"/,
     'the "anything they should always know" box is back on the About-you step');
   assert.doesNotMatch(HTML, /Anything they should always know\?/,

@@ -33,6 +33,12 @@ function stubDoc(captured) {
     innerHTML: '',
     disabled: false,
     hidden: false,
+    // #1994: the restored time-zone <select> is populated by frPaintYou, so the
+    // stubbed select carries a real-enough options collection + appendChild /
+    // insertBefore for the populate to run to completion under the lift.
+    options: [],
+    appendChild(o) { this.options.push(o); },
+    insertBefore(o) { this.options.unshift(o); },
     setAttribute() {},
     addEventListener() {},
     focus() {},
@@ -53,12 +59,15 @@ function stubDoc(captured) {
       }
       return nodes.get(id);
     },
+    // #1994: frPaintYou builds <option>s for the time-zone select.
+    createElement: () => ({ value: '', textContent: '' }),
+    activeElement: null,
     querySelector: () => null,
     addEventListener() {},
   };
 }
 
-test('#1345: the painter emits exactly two labelled fields, and gates Continue on both', () => {
+test('#1345 + #1994: the painter emits three labelled fields (name, does, time zone)', () => {
   /* 🔑 THE PAINTER IS RUN, not read, and `frActions` is CAPTURED rather than
      stubbed away. It receives the Continue handler and the gate, which is the
      behaviour `server.test.js` says only the Playwright drive exercises:
@@ -73,20 +82,25 @@ test('#1345: the painter emits exactly two labelled fields, and gates Continue o
   const doc = stubDoc(captured);
   const actions = [];
 
-  const painter = new Function('document', 'FR_YOU_GEN', 'frActions', 'fetch',
+  const painter = new Function('document', 'FR_YOU_GEN', 'frActions', 'fetch', 'youTzMachine', 'YOU_TZ_FALLBACK',
     `${page.lift(SCRIPT, 'frPaintYou')}\nreturn frPaintYou;`)(
     doc, 0, (spec) => { actions.push(spec); },
     () => new Promise(() => {}),
+    () => 'UTC', ['UTC'],   // #1994: the tz helpers frPaintYou now closes over
   );
   painter();
 
   const html = captured.html || '';
   assert.ok(html.length > 0, 'the painter wrote nothing into the box: this test proves nothing');
 
+  // #1994 (Josh, live 2026-09-04): the time zone picker was restored to this
+  // step, so it now paints THREE labelled fields (name, does, time zone), up
+  // from the two #1345 left after removing the "know" box.
   const labels = (html.match(/class="fieldlab"/g) || []).length;
-  assert.equal(labels, 2, `the About-you step painted ${labels} labelled fields, not two`);
+  assert.equal(labels, 3, `the About-you step painted ${labels} labelled fields, not three`);
   assert.match(html, /id="fr-you-name"/);
   assert.match(html, /id="fr-you-do"/);
+  assert.match(html, /id="fr-you-tz"/);
 
   /* 🛑 THE ABSENCES, ASSERTED BESIDE PROOF THE STRING IS READABLE. An absence on
      its own can come from an empty read; next to the two positives above it
