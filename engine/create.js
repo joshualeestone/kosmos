@@ -3175,7 +3175,17 @@ function createAgentInner(opts) {
        OpenAI path, and this is the CLAUDE trust write, which is not otherwise
        provider-guarded. Passing it unconditionally would write a Claude trust
        entry into a codex home. OpenAI behaviour is left exactly as it was. */
-    try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir }); }
+    /* 🛑 #2129: createIfAbsent on a fresh macOS user. Without it, trustFolder
+       REFUSES when ~/.claude.json does not exist ("Claude Code has not run on
+       this computer yet") — the exact state of a fresh install — so the trust
+       entry never lands and the agent parks on Claude Code's trust prompt in a
+       TUI nobody can answer (default = exit). This folder is one we made moments
+       ago (weMadeTheFolder), so creating a minimal config for it is our consent,
+       the same call preacceptBypass already makes for settings.json (#1919).
+       Claude-only: on OpenAI, configDir is a CODEX_HOME and this is the CLAUDE
+       write, so createIfAbsent stays false there (the codex arm's own
+       trustCodexFolder already creates ~/.codex/config.toml on a fresh account). */
+    try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir, createIfAbsent: provider !== 'openai' }); }
     catch { /* another tool's file; an agent that asks once is not a failed creation */ }
     /* 🛑 #1919, THE SAME CREATE MOMENT. The supervisor launches with
        --dangerously-skip-permissions, and Claude Code shows a one-time Bypass-Permissions
