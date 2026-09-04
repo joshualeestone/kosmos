@@ -232,6 +232,16 @@ release_bundle_matches_tree() {
     else
       cmp -s "$tree/$src" "$cmpfile" || { echo "   differs from the tree: $rel"; bad=1; }
     fi
+    # #610 nit 3: content (cmp) is not the whole story. A file that matches
+    # byte-for-byte but lost its EXECUTABLE bit is a broken bundle - bin/kosmos
+    # served non-executable will not run. The header's goal is content drift; this
+    # adds the one mode difference that actually breaks a served file. `-x` is
+    # portable (bash test), and it is a no-op for the non-executable files (the
+    # page, engine sources) since both sides are then non-exec. Only when the tree
+    # file exists (the not-in-tree case already flagged bad above).
+    if [ -f "$tree/$src" ] && { { [ -x "$tree/$src" ] && [ ! -x "$cmpfile" ]; } || { [ ! -x "$tree/$src" ] && [ -x "$cmpfile" ]; }; }; then
+      echo "   the executable bit differs from the tree: $rel"; bad=1
+    fi
   done < <(cd "$tmp" && find app bin -type f 2>/dev/null | sed 's|^\./||')
   # THE OTHER DIRECTION (#609): every file the tree and the app say the bundle
   # must carry is in it. The loop above walks what IS in the bundle, so a file

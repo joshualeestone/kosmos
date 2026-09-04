@@ -75,6 +75,19 @@ release_bundle_matches_tree "$T/extra.tgz" "$BUILD" >/dev/null && bad "a file th
 echo 'stale command' > "$T/bundle/bin/kosmos"; bundle binbad.tgz; cp "$BUILD/install/kosmos" "$T/bundle/bin/kosmos"
 release_bundle_matches_tree "$T/binbad.tgz" "$BUILD" >/dev/null && bad "a stale top-level bin/kosmos was called matching" || ok "a stale bin/kosmos is caught (compared against install/kosmos)"
 
+# #610 nit 3: an EXECUTABLE-BIT drift on a byte-identical file is caught. bin/kosmos
+# (relocated, compared against install/kosmos) served non-executable would not run,
+# and cmp (content only) cannot see it. Content is identical here; only the mode drifts.
+chmod +x "$BUILD/install/kosmos"                              # tree: executable
+chmod -x "$T/bundle/bin/kosmos"                              # bundle: same bytes, NOT executable
+bundle modebad.tgz
+out="$(release_bundle_matches_tree "$T/modebad.tgz" "$BUILD")" && bad "an exec-bit drift on a byte-identical bin/kosmos was called matching" || { printf '%s' "$out" | grep -q "executable bit differs.*bin/kosmos" && ok "an exec-bit drift on a byte-identical bin/kosmos is caught (#610 nit 3)" || bad "the red did not name the exec-bit drift: $out"; }
+# CONTROL: same content AND same mode matches again, so the arm above is meaningful.
+chmod +x "$T/bundle/bin/kosmos"                              # bundle: executable too
+bundle modeok.tgz
+release_bundle_matches_tree "$T/modeok.tgz" "$BUILD" >/dev/null && ok "CONTROL: matching content AND exec bit matches (#610 nit 3)" || bad "CONTROL: a same-mode bundle was called different: $(release_bundle_matches_tree "$T/modeok.tgz" "$BUILD")"
+chmod -x "$BUILD/install/kosmos" "$T/bundle/bin/kosmos"      # restore the fixture to its default (non-exec) state for the tests below
+
 # ---- the other direction (#609): a file the build FORGOT ---------------------
 # The loop that walks the bundle cannot see a file that is not in it; the
 # expected set is derived from the tree and the app, never from the build's

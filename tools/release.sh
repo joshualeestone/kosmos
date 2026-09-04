@@ -115,6 +115,17 @@ cut_record_done() {
 # until after cut-guard.sh is sourced below, and an exit before then has nothing
 # to free). Expiry + dead-pid cleanup are the backstops if this ever misses.
 trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true' EXIT
+# #610 nit 2: make teardown robust against Ctrl-C / kill, not just a normal exit.
+# These convert the signal into a normal `exit`, which runs whichever EXIT trap is
+# current (this one, or the full site-restore/thaw trap that REPLACES it after the
+# freeze) exactly once, AND actually stops the cut. Do NOT instead add `INT TERM`
+# to the EXIT trap line: a signal trap that RETURNS does not exit - bash resumes
+# where it was - so an `EXIT INT TERM` trap would run the cleanup on Ctrl-C and then
+# carry the cut on regardless, which is worse than the EXIT-only status quo. The
+# INT/TERM traps are separate from the EXIT trap, so they survive the line-428
+# replacement and cover the whole run from here on. 130 = 128+SIGINT, 143 = 128+SIGTERM.
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # 🔑 AFTER 0.2.99 COMES 0.3.0, and this refuses anything else. Josh, 2026-08-22:
 # *"since we are getting close, when we get to 0.2.99 then lets roll to 0.3.00"*.
@@ -983,17 +994,32 @@ step "== 9b. the served bundle is the frozen tree, file by file (#597) =="
 # than a real mismatch. Six reads, then it is real.
 _served_tgz="$(mktemp)"
 _bundle_ok=0
+# #610 nit 1: the loop reaches its failure for THREE distinct causes, and the old
+# single message ("not the tree that was tested") named only the last one, so a
+# corrupt download or a persistent curl failure read as a content mismatch. Split
+# the combined condition so each attempt records which cause it hit, and name it in
+# the final message. release_bundle_matches_tree returns 0 = match, 1 = per-file
+# content mismatch (it prints the per-file diffs), 2 = unreadable/malformed/missing
+# app|bin member, or a broken derivation (it prints its own reason). curl failing at
+# all is the third, separate cause.
+_bundle_cause="no attempt ran"
 for i in 1 2 3 4 5 6; do
-  if curl -fsSL -m 120 "${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz" -o "$_served_tgz" \
-     && release_bundle_matches_tree "$_served_tgz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA"; then _bundle_ok=1; break; fi
-  echo "   (attempt $i did not match the frozen tree; waiting)"
-  sleep 10
+  if ! curl -fsSL -m 120 "${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz" -o "$_served_tgz"; then
+    _bundle_cause="the served tarball could not be downloaded (curl failed) - a network/host problem, not a bundle mismatch"
+    echo "   (attempt $i: $_bundle_cause; waiting)"; sleep 10; continue
+  fi
+  # `|| _m=$?` keeps this set -e safe AND captures the code the combined `&&` threw away.
+  _m=0; release_bundle_matches_tree "$_served_tgz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" || _m=$?
+  if [ "$_m" = 0 ]; then _bundle_ok=1; break; fi
+  if [ "$_m" = 2 ]; then _bundle_cause="the served tarball is unreadable, malformed, or missing an app/ or bin/ member (see the reason above) - NOT a per-file content mismatch"
+  else _bundle_cause="the served bundle's contents differ from the frozen tree (see the per-file diffs above)"; fi
+  echo "   (attempt $i: $_bundle_cause; waiting)"; sleep 10
 done
 rm -f "$_served_tgz"
 if [ "$_bundle_ok" = 1 ]; then
   echo "   the served kosmos-$V-arm64.tar.gz is ${SHA:0:12}: every tree file (app/ and bin/kosmos) matches, the connector is ${TUNNEL_SHA:0:12}, and the native app is ${NATIVE_APP_SHA:0:12}"
 else
-  echo "THE SERVED BUNDLE IS NOT THE TREE THAT WAS TESTED (${SHA:0:12}) AFTER SIX READS"; exit 1
+  echo "THE SERVED BUNDLE DID NOT VERIFY AGAINST THE TREE THAT WAS TESTED (${SHA:0:12}) AFTER SIX READS: $_bundle_cause"; exit 1
 fi
 
 step "== 9c. the served installer .pkg is the one step 3c left in the site dist (#638, B guard) =="
