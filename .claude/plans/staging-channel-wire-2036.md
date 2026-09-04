@@ -47,8 +47,9 @@ PROD updates immediately. Change to staging-first:
 - **Seam for future auto-promote:** `KOSMOS_PROMOTE=auto` (default `manual`) reserved; when
   the fresh verify has earned trust, an `auto` path can call promote-channel after a green
   fresh-machine check. Not built now; the flag name is the seam.
-- **Escape hatch for direct-to-prod:** `KOSMOS_CUT_CHANNEL=prod` writes `latest.json`
-  directly (today's behavior) for bootstrap/emergency. Default `staging`. Documented loudly.
+- **Channel selector:** `KOSMOS_CUT_CHANNEL` = `staging` | `prod`. SUPERSEDED BELOW - see
+  "CONFIRMED DESIGN": the default is `prod` (safe interim) until the loop is proven, NOT
+  `staging`. `staging` is opt-in until the proof-gated default-flip follow-up.
 - **The fresh verify + promote run on the FRESH machine, NOT the cut machine.** The cut
   machine holds a token (the 0.6.25 blindness), so it cannot self-verify a no-token user. The
   cut publishes to staging and hands off; promote-channel.sh already HOLDS on a non-fresh /
@@ -80,3 +81,33 @@ browser; the server experience gate is staging-experience-check) -> Josh tests i
 ## Droppable
 This is agent-workforce release tooling in its own worktree. If a higher-priority interrupt
 lands (a live outage, a new Splinter directive), drop at a clean committed state and resume.
+
+## CONFIRMED DESIGN + SEQUENCING (Splinter, 2026-09-04)
+- MODEL A confirmed: latest-staging.json, a second POINTER on the same host (NOT model B, a
+  second "staging base"/host, which update.js mentions but we are NOT building). Promotion is
+  a pure pointer flip.
+- Full mechanism ships in ONE carefully-reviewed PR: publish (cut->staging pointer) + CONSUME
+  (update.js/setup.sh fetch latest-staging.json when on the staging channel) + promote-wire.
+  The consume change gets its own challenge-loop scrutiny (it is the client update path).
+- 🛑 HARD INVARIANT: the DEFAULT does NOT move to staging until the full loop is DEMONSTRATED
+  end-to-end on a REAL fresh machine (staging cut -> fresh no-token pull via the new consume
+  path -> experience verify -> pointer promote). Reason: the update.js consume path is a
+  bootstrap that cannot be protected by the pipeline it introduces (chicken-and-egg), and a
+  client-update-path bug IS the 0.6.25 class. So:
+    - This PR: default = PROD (no live-cut behavior change). The whole mechanism is OPT-IN via
+      KOSMOS_CUT_CHANNEL=staging + the consume-channel selector, each testable without touching
+      a real cut's default.
+    - The default-flip to staging = a SEPARATE, proof-gated follow-up PR, landed only after a
+      manual real-fresh-machine demonstration of the loop (proof attached to that PR).
+- REJECTED: indefinite phase-at-default-prod (leaves the outage class open). The default-prod
+  is the SAFE INTERIM only until the loop is proven, then it flips.
+
+## Consume side (the sensitive part) - design
+update.js:112 and setup.sh:2236 fetch `<base>/latest.json`. Add a channel selector so a machine
+on the staging channel fetches `<base>/latest-staging.json` instead:
+- Source of the selector: #2089's `<store.ROOT>/source-channel` file (already the channel record)
+  and/or an env (KOSMOS_UPDATE_CHANNEL) for a fresh machine that has no board yet.
+- Default (no selector / "prod") = latest.json, byte-for-byte today's behavior (the safe path
+  every existing install stays on).
+- Its own challenge-loop; assert the prod path is unchanged when no selector is set (red-capable),
+  and that a staging selector fetches the staging pointer.

@@ -17,12 +17,20 @@
 set -euo pipefail
 V="${1:-}"
 [ -n "$V" ] || { echo "usage: bash tools/release.sh <version>   e.g. 0.2.12"; exit 1; }
-# #2036: which channel this cut publishes to. DEFAULT staging -- the cut lands on the
-# STAGING pointer (dist/latest-staging.json) and does NOT touch prod (dist/latest.json),
-# so NO cut reaches users until an explicit fresh-user-verified promote (promote-channel.sh).
-# This is the whole point of the card: 0.6.25 went straight to prod and killed every board.
-# KOSMOS_CUT_CHANNEL=prod is the documented direct-to-prod escape hatch (bootstrap/emergency).
-CUT_CHANNEL="${KOSMOS_CUT_CHANNEL:-staging}"
+# #2036: which channel this cut publishes to.
+#   staging -> writes the STAGING pointer (dist/latest-staging.json), leaves prod
+#              (dist/latest.json) untouched; a build reaches users only via an explicit
+#              fresh-user-verified promote (promote-channel.sh). This is the card's goal.
+#   prod    -> writes latest.json directly (today's behavior).
+#
+# 🛑 DEFAULT IS PROD, DELIBERATELY, UNTIL THE FULL LOOP IS PROVEN (Splinter's invariant,
+# 2026-09-04). The staging loop's consume side is the update.js/setup.sh change that lets a
+# fresh machine FETCH latest-staging.json; that bootstrap cannot be protected by the very
+# pipeline it introduces (chicken-and-egg), and a client-update-path bug IS the 0.6.25 class.
+# So the whole mechanism ships OPT-IN (KOSMOS_CUT_CHANNEL=staging) and the default flips to
+# staging only in a separate, proof-gated step AFTER the loop is demonstrated end-to-end on a
+# REAL fresh machine (staging cut -> fresh no-token pull -> experience verify -> pointer promote).
+CUT_CHANNEL="${KOSMOS_CUT_CHANNEL:-prod}"
 case "$CUT_CHANNEL" in
   staging) POINTER_FILE="latest-staging.json" ;;
   prod)    POINTER_FILE="latest.json" ;;
@@ -407,11 +415,17 @@ _pair_had=0; [ -f "$SITE/dist/kosmos-$V-arm64.tar.gz" ] && _pair_had=1
 # rather than removing it.
 # had_ptr=0 means a fresh site clone: then the pointer this cut created is removed.
 _ptr_had=0; [ -f "$SITE/dist/kosmos-arm64.tar.gz" ] && _ptr_had=1
+# #2036: whether the STAGING pointer existed before this cut. A staging cut writes
+# dist/latest-staging.json just before the deploy; on an abort before step 8, restore the
+# prior committed staging pointer if it was tracked, or remove it if THIS cut created it
+# (_staging_ptr_had=0), mirroring the _ptr_had handling above. A prod-channel cut never
+# writes it, so this stays 0 and the restore arm is a no-op.
+_staging_ptr_had=0; [ -f "$SITE/dist/latest-staging.json" ] && _staging_ptr_had=1
 DEPLOYED=0
 # On any exit before step 8 finished, the site checkout stops claiming $V
 # (#609 review, Splinter 23:05: a failed cut left latest.json and setup.sha256
 # uncommitted at the new version, and the pair that made cut 5 refuse).
-trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
+trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD"
 
@@ -1084,3 +1098,21 @@ step "== 11. the installed kosmos CLI on THIS Mac =="
 # not match the served bundle. The script still runs from $MAIN_REPO so its
 # repo-copy gate protects a dev whose `kosmos` is the shared checkout's own copy.
 REFRESH_CLI_SOURCE="$BUILD/install/kosmos" bash "$MAIN_REPO/tools/refresh-local-cli.sh"
+
+# #2036: in the staging channel the build is NOT live to users -- it is on latest-staging.json,
+# held for a fresh-user verify + an explicit promote. Print the exact hand-off so this is never
+# silent. A prod-channel cut (the current default) skips this: it already moved prod.
+if [ "$CUT_CHANNEL" = staging ]; then
+  echo ""
+  echo "== $V is on STAGING, NOT prod =="
+  echo "   Prod (latest.json) still serves the prior release; nothing users have updates to $V yet."
+  echo "   To take $V to prod, on a FRESH (no-token) machine or account -- NOT this build machine,"
+  echo "   which holds a board token and so is blind to the no-token failure class that killed 0.6.25:"
+  echo "     1. install/update it on the staging channel:"
+  echo "          fresh install:  KOSMOS_UPDATE_CHANNEL=staging curl -fsSL $HOST/setup | sh"
+  echo "          existing box:   set AGENT_WORKFORCE_UPDATE_CHANNEL=staging for its auto-updater"
+  echo "     2. exercise it: open the board and click (a person, or an agent driving a browser)"
+  echo "     3. promote:  tools/promote-channel.sh \"$SITE\" <that-board's-port>"
+  echo "        (promote-channel HOLDS unless a FRESH session can use the board -- the #2063 gate)"
+  echo "   Rollback is a pointer flip: promote a prior staging pointer, no rebuild."
+fi

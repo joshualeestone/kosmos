@@ -285,15 +285,30 @@ release_site_restore() {
   # the remove arm, leaving the served pointer exactly as it was. Only a caller passing
   # had_ptr=0 (a fresh clone) reaches the remove arm, and only one passing a bak_root
   # holding precut/<file> reaches the restore arm.
-  local site="$1" v="$2" had="$3" had_ptr="${4:-1}" bak_root="${5:-}" f rel _u
+  # staging_ptr_had defaults to 1 so a 5-arg caller (before #2036) is a no-op on the
+  # staging pointer: had=1 skips its untracked-remove arm below, matching had_ptr's contract.
+  local site="$1" v="$2" had="$3" had_ptr="${4:-1}" bak_root="${5:-}" staging_ptr_had="${6:-1}" f rel _u
   [ -n "$site" ] && [ -n "$v" ] && [ -d "$site" ] || { echo "release_site_restore: site and version are required" >&2; return 0; }
-  for f in dist/latest.json setup.sha256; do
+  # #2036: dist/latest-staging.json is restored here too. When it is TRACKED (a prior staging
+  # cut committed it), a changed one is checked out back to its committed value like latest.json.
+  # The UNTRACKED case -- a first staging cut that created it and then aborted -- is handled by
+  # the remove arm just below, because `git checkout` cannot restore a file with no committed copy.
+  for f in dist/latest.json dist/latest-staging.json setup.sha256; do
     if git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
       if ! git -C "$site" diff --quiet -- "$f"; then
         git -C "$site" checkout -q -- "$f" && echo "   put back: $f (the cut had changed it; the site checkout no longer claims $v)"
       fi
     fi
   done
+  # #2036: an UNTRACKED staging pointer this cut created (staging_ptr_had=0) and never served
+  # must not linger. It cannot be checked out (no committed copy), so remove it, mirroring the
+  # had_ptr=0 fresh-clone remove arm. A prod-channel cut passes staging_ptr_had=1 (default),
+  # so this never fires there; a staging cut that inherited a pre-existing pointer also skips it.
+  if [ "$staging_ptr_had" != 1 ] \
+     && ! git -C "$site" ls-files --error-unmatch dist/latest-staging.json >/dev/null 2>&1 \
+     && [ -f "$site/dist/latest-staging.json" ]; then
+    rm -f "$site/dist/latest-staging.json" && echo "   removed: dist/latest-staging.json (this cut created the staging pointer and never served it)"
+  fi
   if [ "$had" != 1 ]; then
     # 🔑 DERIVED FROM THE NAME, NOT ENUMERATED (#1250). This loop listed the
     # tarball and its .sha256 and missed `dist/kosmos-$v-arm64.manifest.json`,

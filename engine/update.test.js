@@ -25,6 +25,32 @@ test.beforeEach(() => {
   try { fs.rmSync(path.join(INSTALL_ROOT, 'logs'), { recursive: true, force: true }); } catch { /* absent is fine */ }
 });
 
+// #2036: the consume half. The update channel decides WHICH pointer is fetched, and the
+// default MUST stay prod (latest.json) so every existing install is byte-for-byte unchanged.
+// Red-capable both ways: if updatePointer() were pinned to latest.json the staging arm reds;
+// if pinned to latest-staging.json the default arm reds.
+test('#2036: update channel selects the pointer (default prod, staging opt-in, non-staging = prod)', async () => {
+  let url = '';
+  const cap = async (u) => { url = u; return { ok: true, json: async () => ({ version: RUNNING }) }; };
+  const saved = process.env.AGENT_WORKFORCE_UPDATE_CHANNEL;
+  try {
+    delete process.env.AGENT_WORKFORCE_UPDATE_CHANNEL;
+    update.resetCache(); update.setFetcher(cap); await update.refresh();
+    assert.match(url, /\/latest\.json$/, 'default channel must fetch latest.json (prod path unchanged)');
+
+    process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = 'staging';
+    update.resetCache(); update.setFetcher(cap); await update.refresh();
+    assert.match(url, /\/latest-staging\.json$/, 'staging channel must fetch latest-staging.json');
+
+    process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = 'whatever';
+    update.resetCache(); update.setFetcher(cap); await update.refresh();
+    assert.match(url, /\/latest\.json$/, 'any non-staging value falls back to prod (latest.json)');
+  } finally {
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_UPDATE_CHANNEL;
+    else process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = saved;
+  }
+});
+
 test('newer(): strictly numeric dotted-triple, and unknown loses', () => {
   assert.equal(update.newer('0.1.1', '0.1.0'), true);
   assert.equal(update.newer('0.2.0', '0.1.9'), true);
