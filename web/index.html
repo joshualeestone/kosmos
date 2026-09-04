@@ -2209,6 +2209,20 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pjfaces > [aria-hidden] { display: flex; align-items: center; gap: 5px; }
 .pjfaces .lav { width: 22px; height: 22px; font-size: .625rem; }
 .pjcount { font-size: .8125rem; color: var(--k-ink-2); margin-left: 8px; }
+/* #1994 sub-projects. Two ways the same relationship is shown, one per view:
+   an INDENT in the wide Projects-tab list (the only place with room for a
+   tree), and a "under <parent>" CHIP everywhere the row is narrow or tiled
+   (the asgrid grid and the consolidated rail), where design rejected the
+   indent because it runs out of room by depth three. The chip is the default;
+   the wide-list rule below hides it and applies the indent instead. */
+.pjsub { display: inline-block; font-size: .8125rem; color: var(--k-ink-2); margin-left: 8px; }
+.pj-parent { display: inline-block; margin-top: 6px; font-size: .75rem; color: var(--k-ink-2); }
+/* The tree indent lives ONLY in the wide Projects tab, list sub-view. Not in
+   the asgrid grid (tiles), and not under body.consolidated (the narrow rail
+   reuses this markup and would run out of room) -- both fall back to the chip. */
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row { margin-left: calc(var(--pj-depth, 0) * 22px); }
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child { border-left: 2px solid var(--k-rule); }
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-parent { display: none; }
 /* The pack's .pc-t, name included: the pack spends `.pjdesc` on the DETAIL
    page's description (.9375rem/1.45), so the card's sentence takes the
    card's own pack class or the pjone rebuild inherits 14px by collision. */
@@ -8964,6 +8978,19 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            number and PJ_DESC_MAX agreeing. Both are in `aria-describedby` so the
            field still announces both facts. -->
       <p class="fhint" id="pjs-desc-note">For people reading Kosmos. Agents are not told when this changes, so anything they need belongs in a task or in their instructions.</p>
+    </div>
+
+    <!-- #1994 sub-projects: name a parent project, for organisation only. The
+         <select> is populated in paintProjectSettings from the active projects,
+         with this project and its own descendants left out so the list can only
+         offer a choice the engine would accept (it refuses self and cycles). It
+         is a grouping, not inheritance: nothing about settings, agents or access
+         passes through a parent, which is why the hint says so plainly. -->
+    <div class="field">
+      <label class="flabel" for="pjs-parent">Parent project</label>
+      <select class="tk-inp" id="pjs-parent" aria-describedby="pjs-parent-hint"></select>
+      <p class="fhint" id="pjs-parent-hint">For organising the list only. A sub-project keeps its own agents and settings; nothing is shared or inherited through a parent.</p>
+      <p class="ferr" id="pjs-parent-err" aria-live="polite"></p>
     </div>
 
     <div class="field">
@@ -27464,7 +27491,50 @@ function paintProjects() {
       + '</div>');
     return;
   }
-  setIfChanged(list, active.map((p) => projectCard(p, PJ_AGENTS_UNREADABLE)).join(''));
+  setIfChanged(list, pjTreeRows(active));
+}
+
+/* #1994: order the active projects as a tree (a project may name a `parent`).
+   Depth-first from the top level, preserving the chosen sort within each set of
+   siblings, so a parent is immediately followed by its children (indented in
+   the tab list, chipped elsewhere). Three things this must never do, each a
+   line in the card's "done looks like":
+   - never drop a row: a child whose parent is archived, deleted, or otherwise
+     not in `active` (parentInActive is false) is rendered at the TOP LEVEL
+     rather than vanishing with its missing parent;
+   - never loop: the engine refuses cycles, but a `seen` guard makes this render
+     safe even against a bad record, and any row not reached from the top (a
+     cycle, were one ever stored) is appended at the end so it still shows;
+   - never disagree with itself: siblings keep `active`'s order, and the
+     sub-project count each parent shows is derived from the same grouping that
+     positions the children, so the count can never contradict what is drawn. */
+function pjTreeRows(active) {
+  const inActive = new Set(active.map((p) => p.id));
+  const kids = new Map();               // parent id -> [children], top level under ''
+  for (const p of active) {
+    const par = (p.parent && inActive.has(p.parent)) ? p.parent : '';
+    if (!kids.has(par)) kids.set(par, []);
+    kids.get(par).push(p);
+  }
+  const rows = [];
+  const seen = new Set();
+  const emit = (parentId, depth) => {
+    for (const c of (kids.get(parentId) || [])) {
+      if (seen.has(c.id)) continue;     // cycle guard: never render a row twice
+      seen.add(c.id);
+      rows.push(projectCard(c, PJ_AGENTS_UNREADABLE, depth, (kids.get(c.id) || []).length));
+      emit(c.id, depth + 1);
+    }
+  };
+  emit('', 0);
+  // Backstop: anything a cycle kept out of the top-down walk still renders, at
+  // the top level, so a bad record can never make a project disappear.
+  for (const p of active) {
+    if (seen.has(p.id)) continue;
+    seen.add(p.id);
+    rows.push(projectCard(p, PJ_AGENTS_UNREADABLE, 0, (kids.get(p.id) || []).length));
+  }
+  return rows.join('');
 }
 
 /* The failure treatment for the tiles, called by loadProjects' catch:
@@ -27514,10 +27584,24 @@ function unreadBadge(n) {
   const s = k > 99 ? '99+' : String(k);
   return '<span class="pj-unread" aria-label="' + s + ' unread">' + s + '</span>';
 }
-function projectCard(p, unreadable) {
+function projectCard(p, unreadable, depth, childCount) {
   const s = p.summary || {};
   const folder = pjFolderLine(p);
   const pill = pjPillOf(p, unreadable);
+  /* #1994: sub-projects. `depth` drives the tree indent in the wide Projects-tab
+     LIST (the only view with room for it -- CSS keys the indent on
+     `body:not(.consolidated) #pj-list:not(.asgrid)`). `childCount` is how many
+     ACTIVE projects name this one as parent, shown as a folder-like count.
+     The parent CHIP ("under <name>") carries the relationship everywhere the
+     indent has no room (the asgrid grid and the narrow consolidated rail),
+     where design rejected indent because it runs out of room by depth three.
+     A child whose parent is archived or dangling still gets the chip when the
+     engine still knows the parent's name (p.parentName), so the relationship is
+     never silently dropped even when the row falls back to the top level. */
+  const dep = Math.max(0, Number(depth) || 0);
+  const subs = Number(childCount) || 0;
+  const parentChip = (p.parent && p.parentName)
+    ? '<span class="pj-parent">under ' + esc(p.parentName) + '</span>' : '';
   /* Faces: the avatar when the TIED agent has one, the initials chip
      otherwise (hasAvatar is gated on tied in the engine -- a borrowed
      pane must not lend the card somebody else's photograph). */
@@ -27550,7 +27634,11 @@ function projectCard(p, unreadable) {
      nothing about WHICH project is on screen). The tab view ignores the
      class; openProject() also toggles it directly so selection paints on
      the click, not on the next list repaint. */
-  return '<button class="pj-row' + (pill.cls === 'attn' ? ' attn' : '') + (p.id === PJ_CURRENT ? ' open' : '') + '"' + (p.id === PJ_CURRENT ? ' aria-current="true"' : '') + ' type="button" data-project="' + esc(p.id) + '">'
+  const subCount = subs
+    ? '<span class="pjsub">' + subs + (subs === 1 ? ' sub-project' : ' sub-projects') + '</span>' : '';
+  return '<button class="pj-row' + (pill.cls === 'attn' ? ' attn' : '') + (p.id === PJ_CURRENT ? ' open' : '')
+    + (dep ? ' child' : '') + '"' + (dep ? ' style="--pj-depth:' + dep + '"' : '')
+    + (p.id === PJ_CURRENT ? ' aria-current="true"' : '') + ' type="button" data-project="' + esc(p.id) + '">'
     + '<span class="pjcard-h"><span class="pjname"><b>' + esc(p.name) + '</b>'
     /* The room the person is looking at has no unread: the engine's cursor
        moves when the room paints, and the poll between could otherwise flash
@@ -27559,6 +27647,8 @@ function projectCard(p, unreadable) {
     + (pill.label ? '<span class="pjpill ' + pill.cls + '">' + pill.glyph + esc(pill.label) + '</span>' : '') + '</span>'
     + (p.description ? '<span class="pc-t">' + esc(p.description) + '</span>' : '')
     + facesRow
+    + subCount
+    + parentChip
     + (bits.length ? '<span class="pj-who">' + esc(bits.join(', ')) + '</span>' : '')
     + (folder.bad ? '<span class="pj-warn">' + esc(folder.text) + '</span>' : '')
     + '</button>';
@@ -28608,10 +28698,53 @@ document.addEventListener('keydown', (e) => {
    Archive/remove wiring is untouched (their ids moved house with them);
    only what is new lives here: name/description save, the folder
    sentence, and Show me where it is. */
+/* #1994: the ids of a project's descendants (children, their children, ...),
+   so the parent <select> can leave them out. Offering a descendant as a parent
+   would create a cycle, which the engine refuses -- excluding them here means
+   the control only ever offers a choice that will be accepted, rather than
+   letting a person pick one and bounce off a server error. Walks the live
+   PROJECTS parent links downward, with a visited guard so a pre-existing bad
+   record (a stored cycle) cannot spin this forever. */
+function pjDescendantIds(rootId) {
+  const out = new Set();
+  const stack = [rootId];
+  while (stack.length) {
+    const cur = stack.pop();
+    for (const q of PROJECTS) {
+      if (q.parent === cur && !out.has(q.id) && q.id !== rootId) {
+        out.add(q.id);
+        stack.push(q.id);
+      }
+    }
+  }
+  return out;
+}
+
+/* Populate the parent <select>: "Top level (none)" plus every OTHER active
+   project that is not this one's descendant, this project's current parent
+   preselected. Lives in paintProjectSettings (the editable half), never in the
+   poll-driven paintSettingsFacts, so a repaint cannot reset a parent the person
+   is midway through choosing -- the same draft-eater rule the name field keeps. */
+function pjPaintParentSelect(p) {
+  const sel = document.getElementById('pjs-parent');
+  if (!sel) return;
+  const banned = pjDescendantIds(p.id);
+  const opts = ['<option value="">Top level (none)</option>'];
+  for (const q of sortProjects(PROJECTS.filter((x) => !x.archived), PJ_SORT)) {
+    if (q.id === p.id || banned.has(q.id)) continue;
+    opts.push('<option value="' + esc(q.id) + '"' + (q.id === p.parent ? ' selected' : '') + '>'
+      + esc(q.name) + '</option>');
+  }
+  sel.innerHTML = opts.join('');
+  sel.value = p.parent || '';
+  document.getElementById('pjs-parent-err').textContent = '';
+}
+
 function paintProjectSettings(p) {
   document.getElementById('pj-settings-backname').textContent = p.name;
   document.getElementById('pjs-name').value = p.name;
   document.getElementById('pjs-desc').value = p.description || '';
+  pjPaintParentSelect(p);
   document.getElementById('pjs-msg').textContent = '';
   document.getElementById('pjs-reveal-msg').textContent = '';
   // The members verdict too: without this, project A's failed-removal
@@ -28784,6 +28917,13 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
     const desc = document.getElementById('pjs-desc').value;
     if (name !== p.name) body.name = name;
     if (desc !== (p.description || '')) body.description = desc;
+    /* #1994: send `parent` only when it changed. An empty selection ("Top level
+       (none)") travels as null, which the engine reads as un-grouping. The
+       control already excludes self and descendants, so the engine's self/cycle
+       refusal is a backstop the parent-error branch below surfaces at the field. */
+    const parentSel = document.getElementById('pjs-parent');
+    const parentVal = parentSel ? parentSel.value : (p.parent || '');
+    if (parentVal !== (p.parent || '')) body.parent = parentVal || null;
     if (!Object.keys(body).length) { msg.textContent = 'Nothing has changed.'; return; }
     const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
       method: 'PUT',
@@ -28797,6 +28937,13 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
          above, applied to the cases only the engine can know about. */
       if (got.error && /description/i.test(got.error)) {
         pjFieldBad('pjs-desc', 'pjs-desc-err', pjSentence(got.error) || String(got.error));
+        msg.textContent = 'Nothing saved. There is something to fix above.';
+        return;
+      }
+      /* #1994: a parent refusal (self, a cycle, or a parent that has since gone)
+         belongs at the parent field, same rule as the description one above. */
+      if (got.error && /parent|sub-?project|cycle|circular|itself/i.test(got.error)) {
+        pjFieldBad('pjs-parent', 'pjs-parent-err', pjSentence(got.error) || String(got.error));
         msg.textContent = 'Nothing saved. There is something to fix above.';
         return;
       }
