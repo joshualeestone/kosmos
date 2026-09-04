@@ -44,6 +44,10 @@ process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_CODEX_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+// Sandbox Claude Code's own config too (fixture-discipline.test.js enforces this for
+// EVERY agent-creating suite, OpenAI ones included): createAgent touches the Claude
+// config path regardless of provider, and an unsandboxed run would read the operator's.
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(os.tmpdir(), 'aw-oai-1329-claude-' + process.pid + '.json');
 // #1903's default-openai fail-open guard checks codexHomeOverridden(); a LABELLED
 // account (explicit dir) has no such ambiguity, so keep the codex home unset and
 // drive a labelled account, which is where the real gate runs.
