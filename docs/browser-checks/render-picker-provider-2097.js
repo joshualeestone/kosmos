@@ -88,8 +88,14 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     problems.push(r.error);
   } else {
     if (!r.openai.modelRowHidden) problems.push('OpenAI: the model row is NOT hidden -- a stale Claude model still shows under an OpenAI key (#2098)');
-    if (!/OpenAI picks its own model/.test(r.openai.whyText)) problems.push('OpenAI: the "OpenAI picks its own model" note text is missing');
-    if (r.openai.whyHidden) problems.push('OpenAI: the "OpenAI picks its own model" note is HIDDEN -- the user sees neither the picker nor the note, an empty gap (#2098)');
+    /* #2140 replaced the fixed "OpenAI picks its own model for now." note with a
+       per-account picker. On this file:// page there is no /api/accounts fetch and
+       no account chosen, so the picker is in its NOT-LISTABLE state: the row hides
+       (no stale Claude value, the #2098 invariant this check exists for) and the
+       note is the #2140 auto-fallback copy. The picker's LISTABLE state is covered
+       by render-create-openai-model-2140.js, which stubs the fetch. */
+    if (!/use OpenAI's default/.test(r.openai.whyText)) problems.push('OpenAI: the not-listable model note is missing (#2140)');
+    if (r.openai.whyHidden) problems.push('OpenAI: the model note is HIDDEN -- the user sees neither the picker nor the note, an empty gap');
     if (r.anthropic.modelRowHidden) problems.push('Anthropic: the model row is hidden but should be shown');
     if (r.account.error) {
       problems.push('account row: ' + r.account.error);
