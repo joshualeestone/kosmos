@@ -187,4 +187,38 @@ test('#992 the rest of the lifecycle records too: part-added, part-closed/reopen
   assert.equal(unassign.who, null, 'an unassign records who: null');
 });
 
+test('#992 a task created pre-assigned records its birth assignee on `created`', () => {
+  const p = freshProject(['ada']);
+  const made = tasks.create(p.id, { sentence: 'work', who: 'ada', made: { via: 'screen' } });
+  const created = taskchat.read(p.id, made.number)[0];
+  assert.equal(created.kind, 'created');
+  assert.equal(created.who, 'ada', 'the original assignee is captured, not just later removals');
+  // and an unassigned create records who: null (not missing)
+  const p2 = freshProject();
+  const m2 = tasks.create(p2.id, { sentence: 'solo', made: { via: 'screen' } });
+  assert.equal(taskchat.read(p2.id, m2.number)[0].who, null);
+});
+
+test('#992 re-closing / re-reopening records no duplicate: only a real transition is logged', () => {
+  const p = freshProject();
+  const made = tasks.create(p.id, { sentence: 'x', made: { via: 'screen' } });
+  tasks.close(p.id, made.number);
+  tasks.close(p.id, made.number); // already closed -> no new event
+  tasks.reopen(p.id, made.number);
+  tasks.reopen(p.id, made.number); // already open -> no new event
+  const kinds = taskchat.read(p.id, made.number).map((r) => r.kind);
+  assert.deepEqual(kinds, ['created', 'closed', 'reopened'], 'a re-close/re-open logs nothing');
+});
+
+test('#992 numeric fields keep their type: partId is a number, not a string', () => {
+  const p = freshProject(['ada']);
+  const made = tasks.create(p.id, { sentence: 'x', who: 'ada', made: { via: 'screen' } });
+  const proj = projects.readAll().find((x) => x.id === p.id);
+  const partId = tasks.partsOf(tasks.byNumber(proj, made.number))[0].id;
+  tasks.assignPart(p.id, made.number, partId, null, { via: 'screen' }); // a move -> records assigned{partId}
+  const assigned = taskchat.read(p.id, made.number).find((r) => r.kind === 'assigned');
+  assert.equal(typeof assigned.partId, 'number', 'partId is stored as a number');
+  assert.equal(assigned.partId, partId);
+});
+
 test.after(() => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });

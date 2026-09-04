@@ -112,6 +112,11 @@ function create(projectId, { sentence, detail, who, made: origin } = {}, roster)
   taskchat.record(projectId, made.number, {
     kind: 'created', sentence: made.sentence, detail: made.detail,
     addedBy: made.addedBy, addedVia: made.addedVia,
+    // #992: a task created pre-assigned carries its first assignee HERE. That
+    // assignment does not go through assignPart (create writes `who` directly),
+    // so without this the transcript would show an agent removed but never that
+    // one was on it from birth. null when it was created unassigned.
+    who: made.who,
   });
   return made;
 }
@@ -268,13 +273,18 @@ function assignPart(projectId, n, partId, who, made) {
 /** Finish a part, or put it back. The parent's state follows from its parts. */
 function setPartClosed(projectId, n, partId, closedAt) {
   let found = false;
+  let transition = false;
   const task = writeParts(projectId, n, (parts) => parts.map((x) => {
     if (Number(x.id) !== Number(partId)) return x;
     found = true;
+    // #992: record only a real open<->closed TRANSITION, not a re-close (which
+    // passes a fresh timestamp so a raw closedAt comparison would misfire). Same
+    // fidelity gate as assignPart's `moved`: no spurious lifecycle events.
+    transition = (!!x.closedAt) !== (!!closedAt);
     return { ...x, closedAt };
   }));
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
-  taskchat.record(projectId, Number(n), { kind: closedAt ? 'part-closed' : 'part-reopened', partId });
+  if (transition) taskchat.record(projectId, Number(n), { kind: closedAt ? 'part-closed' : 'part-reopened', partId });
   return { ok: true, task };
 }
 
@@ -294,16 +304,20 @@ function reopen(projectId, n) {
 
 function setClosed(projectId, n, closedAt) {
   let changed;
+  let transition = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
+    // #992: only a real open<->closed transition is recorded (a re-close passes a
+    // fresh timestamp, so compare closed-ness, not the raw value).
+    transition = (!!t.closedAt) !== (!!closedAt);
     changed = { ...t, closedAt };
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
   });
-  taskchat.record(projectId, changed.number, { kind: closedAt ? 'closed' : 'reopened' });
+  if (transition) taskchat.record(projectId, changed.number, { kind: closedAt ? 'closed' : 'reopened' });
   return changed;
 }
 
