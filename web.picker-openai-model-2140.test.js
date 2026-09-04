@@ -1,0 +1,109 @@
+"use strict";
+/**
+ * #2140: the OpenAI create-model picker. Runs the SHIPPED functions
+ * (paintOpenaiCreateModel + openaiNoModelsNote) against a fake document with a
+ * stubbed fetch, so what is tested is the code that ships. Three states:
+ * LISTABLE (the picker with "Let OpenAI choose" first + the account's models,
+ * merged into CREATE_MODELS so paintModelWhy resolves them), NOT LISTABLE (row
+ * hidden, no stale value, a note keyed to accountModels' `because`), and no
+ * account chosen. Plus the copy map is asserted case by case.
+ *
+ *   node --test web.picker-openai-model-2140.test.js
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+
+const PAGE = fs.readFileSync('web/index.html', 'utf8');
+const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
+function sliceFn(name) {
+  const at = SCRIPT.indexOf('function ' + name + '(');
+  assert.ok(at > 0, name + ' not found -- #2140 picker not present (or the function moved; re-anchor)');
+  return SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 2);
+}
+const paintFn = sliceFn('paintOpenaiCreateModel');
+const noteFn = sliceFn('openaiNoModelsNote');
+
+async function runPicker({ fetchOk, fetchBody, acctDir, seedModels }) {
+  const els = {
+    'create-model-row': { hidden: false },
+    'create-model': { disabled: false, innerHTML: '' },
+    'create-model-why': { textContent: '', hidden: true },
+    'create-account': { value: acctDir == null ? '' : acctDir },
+  };
+  const document = { getElementById: (id) => (id in els ? els[id] : null) };
+  const calls = { paintWhy: 0, fetchUrl: null };
+  const wrap = `
+    let OPENAI_MODELS_GEN = 0;
+    let CREATE_MODELS = ${JSON.stringify(seedModels || [])};
+    const esc = (s) => String(s == null ? '' : s);
+    const paintModelWhy = () => { _calls.paintWhy += 1; };
+    const fetch = async (url) => { _calls.fetchUrl = url; return { ok: ${fetchOk ? 'true' : 'false'}, json: async () => (${JSON.stringify(fetchBody || {})}) }; };
+    ${noteFn}
+    ${paintFn}
+    paintOpenaiCreateModel();
+    return CREATE_MODELS;
+  `;
+  // eslint-disable-next-line no-new-func
+  const models = new Function('document', '_calls', wrap)(document, calls);
+  await new Promise((r) => setTimeout(r, 15)); // let the fire-and-forget fetch resolve
+  return { els, calls, CREATE_MODELS: models };
+}
+
+test('#2140 LISTABLE: the picker shows "Let OpenAI choose" first + the account models, and merges them into CREATE_MODELS', async () => {
+  const r = await runPicker({
+    fetchOk: true,
+    fetchBody: { ok: true, models: [
+      { key: 'gpt-5-codex', provider: 'openai', label: 'GPT 5 Codex', arg: 'gpt-5-codex', why: 'The coding one.' },
+      { key: 'o3', provider: 'openai', label: 'O3', arg: 'o3', why: 'A reasoning model.' },
+    ] },
+    acctDir: '/home/.codex',
+  });
+  assert.equal(r.els['create-model-row'].hidden, false, 'the picker row must be shown for a listable account');
+  const html = r.els['create-model'].innerHTML;
+  assert.match(html, /value=""[^>]*>Let OpenAI choose \(recommended\)/, 'the auto option must be first and empty-valued');
+  assert.match(html, /value="gpt-5-codex">GPT 5 Codex/);
+  assert.match(html, /value="o3">O3/);
+  assert.ok(r.CREATE_MODELS.some((m) => m.key === 'gpt-5-codex'), 'the OpenAI models were not merged into CREATE_MODELS for paintModelWhy');
+  assert.equal(r.calls.paintWhy >= 1, true, 'paintModelWhy was not called to show the selected model why');
+  assert.match(r.calls.fetchUrl, /\/api\/accounts\/openai\/models\?dir=/, 'the per-account models route was not fetched');
+  assert.match(r.calls.fetchUrl, /home.*codex/, 'the fetch did not carry the selected account dir');
+});
+
+test('#2140 NOT LISTABLE: the row hides, no stale value remains, and the note is keyed to the reason', async () => {
+  const r = await runPicker({
+    fetchOk: true,
+    fetchBody: { ok: false, because: 'this sign-in cannot list models yet; it is not an API key' },
+    acctDir: '/home/.codex',
+    seedModels: [{ key: 'claude-sonnet', provider: 'anthropic', label: 'Claude Sonnet 5', why: 'x' }],
+  });
+  assert.equal(r.els['create-model-row'].hidden, true, 'a not-listable account must hide the picker row');
+  assert.match(r.els['create-model'].innerHTML, /value=""/, 'a not-listable account must leave no stale (Claude) value to submit');
+  assert.equal(r.els['create-model-why'].hidden, false, 'the fallback note must be shown');
+  assert.match(r.els['create-model-why'].textContent, /signed in with ChatGPT/, 'the note was not keyed to the not-an-API-key reason');
+});
+
+test('#2140 NO ACCOUNT: with nothing chosen, the row hides and the auto note shows without a fetch', async () => {
+  const r = await runPicker({ fetchOk: false, fetchBody: {}, acctDir: '' });
+  assert.equal(r.els['create-model-row'].hidden, true);
+  assert.equal(r.els['create-model-why'].hidden, false);
+  assert.match(r.els['create-model-why'].textContent, /Once this account is signed in/);
+  assert.equal(r.calls.fetchUrl, null, 'no account was chosen, so no models fetch should have fired');
+});
+
+test('#2140 copy: openaiNoModelsNote maps each accountModels reason to Josh-voice copy (no em dashes)', () => {
+  // eslint-disable-next-line no-new-func
+  const note = new Function(noteFn + '\nreturn openaiNoModelsNote;')();
+  const cases = [
+    ['this sign-in cannot list models yet; it is not an API key', /signed in with ChatGPT/],
+    ['this account has no chat models we recognise yet', /could not find a model we recognise/],
+    ['OpenAI did not return this account\'s models (it answered 500)', /could not reach OpenAI/],
+    ['nobody has signed in to this account yet', /Once this account is signed in/],
+    [null, /Once this account is signed in/],
+  ];
+  for (const [because, re] of cases) {
+    const out = note(because);
+    assert.match(out, re, 'wrong copy for because=' + JSON.stringify(because));
+    assert.doesNotMatch(out, /—/, 'an em dash slipped into the note copy');
+  }
+});

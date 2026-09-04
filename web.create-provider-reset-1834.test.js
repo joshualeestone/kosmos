@@ -51,6 +51,11 @@ function run(fn, seed) {
       _calls.fillProviderAtCall = document.getElementById('create-provider').value;
     };
     const paintModelWhy = () => { _calls.paint += 1; };
+    // #2140: switching to OpenAI now invokes the per-account model picker instead
+    // of the old fixed note; stub it so this reset-consistency test (which is about
+    // FORM state, not the picker's async detail) can run the shipped function.
+    const paintOpenaiCreateModel = () => { _calls.paintOpenai = (_calls.paintOpenai || 0) + 1; };
+    const esc = (s) => String(s == null ? '' : s);
     // #2097: resetCreateProvider now reads CREATE_ACCOUNTS to pick a default for a provider
     // the machine has an account for, and clears CREATE_PROVIDER_TOUCHED. These reset tests
     // are about FORM state (undoing an OpenAI selection), not account presence, so seed no
@@ -88,13 +93,18 @@ test('#1834: resetCreateProvider() puts the form back on Claude and undoes the O
     'the account menu was refilled while the provider still read openai -- it would show OpenAI accounts against a Claude model menu');
 });
 
-test('#1834: applyCreateProviderUI() is faithful for a manual OpenAI change (the shared function is not weakened)', () => {
+test('#1834/#2140: applyCreateProviderUI() is faithful for a manual OpenAI change (the shared function is not weakened)', () => {
   // Seed a Claude state, then switch to OpenAI and apply -- the exact thing the change listener does.
   const r = run("document.getElementById('create-provider').value = 'openai'; applyCreateProviderUI()", {
     provider: 'anthropic', modelDisabled: false, acctDisabled: false, why: '',
   });
-  assert.equal(r.modelDisabled, true, 'switching to OpenAI must disable the model picker');
-  assert.equal(r.why, 'OpenAI picks its own model for now.', 'the OpenAI model-why note was not set');
+  // #2140: OpenAI now routes to the per-account model picker (paintOpenaiCreateModel),
+  // which owns the model row / select / note across its own states -- so this test no
+  // longer asserts the retired blanket "disable + fixed note" (#2098), it asserts the
+  // picker path is invoked and the account menu is refilled for OpenAI. The picker's
+  // loading/listable/not-listable behaviour is covered in web.picker-openai-model-2140
+  // and the browser check.
+  assert.equal(r.calls.paintOpenai, 1, 'switching to OpenAI must invoke the per-account model picker');
   assert.equal(r.calls.fillProviderAtCall, 'openai', 'the account menu was not refilled for OpenAI');
 });
 

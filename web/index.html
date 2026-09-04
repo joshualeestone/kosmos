@@ -23178,6 +23178,11 @@ let ROLES = null;          // the menu, fetched once
 let MADE_MARK = null;
 
 let CREATE_MODELS = [];    // the engine's model list, from the same payload
+/* #2140: a generation counter for the OpenAI create-model fetch, so switching
+   provider or account mid-fetch never lands a stale result (the same guard shape
+   as loadCreateExtras' EXTRAS_GEN). Bumped at the top of each fetch; a resolved
+   fetch whose gen is no longer current bails. */
+let OPENAI_MODELS_GEN = 0;
 
 /**
  * The model picker on an agent's page.
@@ -25427,33 +25432,110 @@ function fillCreateAccounts() {
    function so the change listener and the reset path below cannot drift. A second
    copy of this logic is exactly the inconsistency #1786 scoped out when it left
    the provider unreset rather than reset it in only one of the two places. */
+/* #2140: the fallback note when an OpenAI account cannot offer a model picker,
+   keyed to accountModels' own `because` so the sentence says what happened, why,
+   and gives an out (Mona Lisa's copy, Josh's voice, no em dashes). A missing
+   `because` (no account chosen yet) is the same "sign in / for now it is auto"
+   shape as an absent one. */
+function openaiNoModelsNote(because) {
+  const b = String(because || '');
+  if (/not an api key|not an API key/i.test(b)) {
+    return 'This account is signed in with ChatGPT, so we cannot list its models here. It will use OpenAI\'s default. Sign in with an API key to choose a specific model.';
+  }
+  if (/no chat models we recognise|no chat models/i.test(b)) {
+    return 'We could not find a model we recognise on this account, so it will use OpenAI\'s default. You can change this later.';
+  }
+  if (/did not return|answered|reach|unreachable|could not read this account'?s models/i.test(b)) {
+    return 'We could not reach OpenAI to list this account\'s models right now, so it will use its default. You can change this later.';
+  }
+  // absent / unreadable / no usable sign-in / no key / nothing chosen yet
+  return 'Once this account is signed in, you can pick its model here. For now it will use OpenAI\'s default.';
+}
+
+/* #2140: the OpenAI model picker for the create form. Reuses #create-model +
+   #create-model-why + paintModelWhy + CREATE_MODELS (an OpenAI model from
+   accountModels is the SAME {key,provider,label,arg,why} shape as a Claude one).
+   Three states, per the design: LOADING (row visible, select disabled, note
+   hidden), LISTABLE (the picker with "Let OpenAI choose" first), NOT LISTABLE
+   (row hidden, keyed note). Per-account, so it re-runs on an account change too.
+   Fire-and-forget with a generation guard so a fast provider/account switch
+   never lands a stale answer. */
+function paintOpenaiCreateModel() {
+  const gen = ++OPENAI_MODELS_GEN;
+  const row = document.getElementById('create-model-row');
+  const sel = document.getElementById('create-model');
+  const why = document.getElementById('create-model-why');
+  const acctSel = document.getElementById('create-account');
+  const acctDir = acctSel ? acctSel.value : '';
+  // Loading: the row is shown, the select disabled with a single honest option,
+  // the note hidden -- never a frozen empty picker.
+  if (row) row.hidden = false;
+  if (sel) { sel.disabled = true; sel.innerHTML = '<option value="">Loading this account\'s models…</option>'; }
+  if (why) { why.textContent = ''; why.hidden = true; }
+  if (!acctDir) {
+    // No account to name yet: cannot list, so show the auto note (not a picker).
+    if (row) row.hidden = true;
+    if (sel) sel.disabled = false;
+    if (why) { why.textContent = openaiNoModelsNote(null); why.hidden = false; }
+    return;
+  }
+  (async () => {
+    let out = null;
+    try {
+      const res = await fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(acctDir), { cache: 'no-store' });
+      out = res.ok ? await res.json() : null;
+    } catch { out = null; }
+    if (gen !== OPENAI_MODELS_GEN) return; // a newer provider/account change superseded this fetch
+    if (sel) sel.disabled = false;
+    if (out && out.ok && Array.isArray(out.models) && out.models.length) {
+      // LISTABLE: merge into CREATE_MODELS (distinct keys, so paintModelWhy finds
+      // them) and populate the picker with the auto default plus the account's models.
+      for (const m of out.models) { if (m && m.key && !CREATE_MODELS.some((x) => x.key === m.key)) CREATE_MODELS.push(m); }
+      if (row) row.hidden = false;
+      if (sel) {
+        sel.innerHTML = '<option value="" selected>Let OpenAI choose (recommended)</option>'
+          + out.models.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>').join('');
+      }
+      paintModelWhy('create-model', 'create-model-why');
+    } else {
+      // NOT LISTABLE: hide the row, clear any stale value so nothing is submitted,
+      // and show the note keyed to why.
+      if (sel) sel.innerHTML = '<option value="" selected></option>';
+      if (row) row.hidden = true;
+      if (why) { why.textContent = openaiNoModelsNote(out && out.because); why.hidden = false; }
+    }
+  })();
+}
+
 function applyCreateProviderUI() {
   const openai = document.getElementById('create-provider').value === 'openai';
   const model = document.getElementById('create-model');
   const acct = document.getElementById('create-account');
-  model.disabled = openai;
-  /* #2098: HIDE the model select WHOLE on OpenAI, not merely disable it -- a
-     disabled <select> still DISPLAYS its selected "Claude Sonnet 5", under an
-     OpenAI key, contradicting the note that says OpenAI picks its own model
-     (the #1211 detail-page fix, applied here to create). The create-model-why
-     note is a sibling of the row and stays visible in its place. */
-  const modelRow = document.getElementById('create-model-row');
-  if (modelRow) modelRow.hidden = openai;
   // #540: the account menu no longer parks for OpenAI; it fills with OpenAI accounts.
   acct.disabled = false;
   fillCreateAccounts();
   const why = document.getElementById('create-model-why');
   if (openai) {
-    /* #2098: the note takes the hidden model row's PLACE, so it must be SHOWN --
-       #create-model-why ships `hidden` in markup and only paintModelWhy (not called
-       on this branch) manages `.hidden`. Without this, an OpenAI machine shows
-       neither the picker nor the note: an empty gap. */
-    if (why) { why.textContent = 'OpenAI picks its own model for now.'; why.hidden = false; }
+    /* #2140: OpenAI now HAS a model picker, per account. paintOpenaiCreateModel
+       manages the model row + select + note across its loading/listable/not-listable
+       states (superseding #2098's blanket hide and the fixed "OpenAI picks its own
+       model for now." note). It reads the selected account, so it must run AFTER
+       fillCreateAccounts above; it also re-runs on an account change (listener below). */
+    paintOpenaiCreateModel();
   } else {
+    /* Claude: the static model row, shown and enabled, with its why-note. */
+    model.disabled = false;
+    const modelRow = document.getElementById('create-model-row');
+    if (modelRow) modelRow.hidden = false;
     if (why) why.textContent = '';
     paintModelWhy('create-model', 'create-model-why');
   }
 }
+/* #2140: the model set is PER ACCOUNT, so re-fetch when the account changes while
+   on OpenAI -- the one new trigger beyond the provider change (Mona Lisa's design). */
+document.getElementById('create-account').addEventListener('change', () => {
+  if (document.getElementById('create-provider').value === 'openai') paintOpenaiCreateModel();
+});
 document.getElementById('create-provider').addEventListener('change', () => {
   CREATE_PROVIDER_TOUCHED = true; // #2097: a manual pick or an import's explicit set
   applyCreateProviderUI();
@@ -26632,7 +26714,12 @@ document.getElementById('create-go').addEventListener('click', async () => {
         const prov = document.getElementById('create-provider').value;
         if (prov && prov !== 'anthropic') b.provider = prov;
         const model = document.getElementById('create-model').value;
-        if (model && prov !== 'openai') b.model = model;
+        /* #2140: send the chosen model for EITHER provider. For OpenAI the picker's
+           empty value is "Let OpenAI choose" (auto), which is falsy and so is not
+           sent -- exactly the prior no-model behaviour; a chosen model id is sent
+           and validated per-account at the create route. (Before #2140 an OpenAI
+           model was never sent because the boundary refused it.) */
+        if (model) b.model = model;
         /* 🛑 THE VALUE, NOT THE VISIBILITY. This read the `hidden` flag on the
            account field's old wrapper element, which was deleted when the
            account became a rung of the model group -- so this line threw a
