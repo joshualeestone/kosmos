@@ -163,6 +163,16 @@ test('#992 a refused task write records nothing (agent not on the project)', () 
   assert.deepEqual(rows.map((r) => r.kind), ['created']);
 });
 
+test('#992 a refused assignPart records nothing (agent not on the project)', () => {
+  const p = freshProject(['ada']); // bo is NOT a member
+  const made = tasks.create(p.id, { sentence: 'x', made: { via: 'screen' } });
+  const proj = projects.readAll().find((x) => x.id === p.id);
+  const partId = tasks.partsOf(tasks.byNumber(proj, made.number))[0].id;
+  assert.throws(() => tasks.assignPart(p.id, made.number, partId, 'bo', { via: 'screen' }));
+  // the throw happens inside writeParts before any record; only 'created' stands
+  assert.deepEqual(taskchat.read(p.id, made.number).map((r) => r.kind), ['created']);
+});
+
 test('#992 the rest of the lifecycle records too: part-added, part-closed/reopened, unassign', () => {
   const p = freshProject(['ada', 'bo']);
   const made = tasks.create(p.id, { sentence: 'work', who: 'ada', made: { via: 'screen' } });
