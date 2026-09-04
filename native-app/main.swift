@@ -1177,6 +1177,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         ]
         let pairs: [(url: URL, version: String?)] = candidates.map { url in
             guard FileManager.default.fileExists(atPath: url.path) else { return (url, nil) }
+            /* 🔑 Bundle(url:) hands back a CACHED Bundle for a URL that already has
+               one -- so if THIS stale process was launched from a candidate path
+               (e.g. /Applications/Kosmos.app) that was then updated on disk, this
+               reads the in-memory (stale) version and that candidate looks
+               non-matching. That is why the caller's `?? Bundle.main.bundleURL`
+               fallback is LOAD-BEARING, not decoration: in that exact case
+               freshAppURL returns nil and the fallback relaunches the same path
+               with createsNewApplicationInstance=true, spawning a new process from
+               the FRESH on-disk bytes -- correct. Do NOT drop that fallback trusting
+               freshAppURL alone; the self-path case depends on it. Josh's scenario (a
+               stale LEFTOVER copy at a different, uncached URL) reads the real on-disk
+               version and is selected here directly. */
             return (url, Bundle(url: url)?.infoDictionary?["CFBundleShortVersionString"] as? String)
         }
         return pickFresh(pairs, theirs: theirs)
@@ -1258,8 +1270,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            NOTHING. The pile-up Josh saw came from relaunching the SAME stale
            bundle over and over; targeting the FRESH copy above already fixes that,
            and the old instance still exits below once the new one is confirmed, so
-           this settles to one fresh window without the dedup that could leave him
-           with none. */
+           this settles to a fresh window (two momentarily if a fresh one was already
+           open, and the stale one then exits -- never zero) without the dedup that
+           could leave him with none. */
         conf.createsNewApplicationInstance = true
         NSWorkspace.shared.openApplication(at: target, configuration: conf) { app, err in
             DispatchQueue.main.async {
