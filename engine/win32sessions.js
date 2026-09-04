@@ -44,9 +44,23 @@ const FILE_MODE = 0o600;
 
 /* A session id is a UUID from `claude agents --json`. The charset gate keeps a
    malformed id out of the store key and out of any later shelling; we do not
-   invent our own ids, so anything not matching is not one of ours anyway. */
+   invent our own ids, so anything not matching is not one of ours anyway.
+
+   The RESERVED set is a second gate the charset alone does not give: the string
+   "__proto__" passes the charset, but `record[id] = {...}` on a plain object is
+   a [[Set]] that hits Object.prototype's __proto__ ACCESSOR rather than writing
+   an own key -- so the entry vanishes at JSON.stringify (an empty "{}"), and
+   record() would return ok:true on a write that did nothing. isOurs stays safe
+   either way (hasOwnProperty is false), but "ok:true on a no-op" is a lie a
+   caller acts on, so refuse the reserved keys honestly instead. "constructor"
+   and "prototype" are included for the same class though only __proto__ is
+   actually special under bracket-assignment; a UUID is never any of these, so
+   rejecting them costs nothing real. */
+const RESERVED_ID = new Set(['__proto__', 'constructor', 'prototype']);
 function validId(id) {
-  return typeof id === 'string' && /^[A-Za-z0-9._-]{1,200}$/.test(id);
+  return typeof id === 'string'
+    && /^[A-Za-z0-9._-]{1,200}$/.test(id)
+    && !RESERVED_ID.has(id);
 }
 
 /** The whole record, sessionId -> { name, runner, at }. Empty on any read fault. */

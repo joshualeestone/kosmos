@@ -101,6 +101,18 @@ test('#570 record: a record with no name is refused; a bad id is refused', () =>
   assert.equal(win32sessions.isOurs(''), false, 'empty id is not ours');
 });
 
+test('#570 record: a JS-reserved key (__proto__) is refused HONESTLY, not ok:true on a silent no-op', () => {
+  // __proto__ passes the charset but `obj["__proto__"] = {...}` hits the
+  // prototype setter, not an own key, so it would vanish at JSON.stringify and
+  // record() would (without the RESERVED gate) return ok:true on a write that
+  // did nothing. Assert the honest refusal AND that ownership never leaks.
+  const r = win32sessions.record('__proto__', { name: 'evil' });
+  assert.equal(r.ok, false, '__proto__ is refused (ok:false), not a silent ok:true no-op');
+  assert.equal(win32sessions.isOurs('__proto__'), false, '__proto__ is never ours');
+  assert.equal(Object.prototype.hasOwnProperty.call(win32sessions.read(), '__proto__'), false,
+    'the store gained no own __proto__ key');
+});
+
 test('#570 record: a corrupt store file reads as EMPTY (fail-safe -> nothing ours), not a throw', () => {
   fs.mkdirSync(win32sessions.DIR, { recursive: true });
   fs.writeFileSync(win32sessions.FILE, '{ not json', 'utf8');

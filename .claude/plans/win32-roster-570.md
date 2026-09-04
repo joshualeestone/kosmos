@@ -43,6 +43,21 @@ the unblock this slice targets (create's roster refusal), not the full working r
 write + the win32 create path is the next PR. Also: the win32 STATE (from a pane capture) is a later
 seam (setPaneCapture); listed agents read "unknown state" until then — honest, not a break.
 
+Second premise, on the BINARY resolution (found in review, disclosed here rather than guessed at):
+`defaultRun` resolves claude via `runners.resolveBin('claude').bin`, whose canonical (non-override)
+rung builds `path.join(homeDir(), '.local', 'bin', 'claude')` with NO `.exe` suffix. Windows'
+CreateProcess only auto-appends `.exe` for a BARE name resolved via PATH search, never for a string
+that already carries a directory path — which this absolute join always does. So on a real Windows
+box, unless `AGENT_WORKFORCE_CLAUDE_BIN` points at the actual claude executable, execFileSync likely
+ENOENTs and `defaultRun` returns null forever. This fails SAFE (null -> honest refusal via listPanes,
+never a false-empty machine), so it is not a correctness hazard for the board, but it means the
+roster may not POPULATE on Windows until the bin is resolved correctly. Deliberately NOT patched in
+this slice: the correct fix depends on how claude actually ships/invokes on the box (bare `claude.exe`
+on PATH vs an absolute path), which only the live Windows box can answer — guessing a `.exe` rung here
+would bake in an unverified path shape. The `AGENT_WORKFORCE_CLAUDE_BIN` override already works as the
+escape hatch. Routed to windows-orchestrator (via Splinter) as the specific first thing to check on
+the live-box verify below.
+
 ## Tests
 engine/win32roster.test.js — 9, driven through the REAL status.js (parsePanes/isNamedOurs/
 isAgentSession): recorded→ours+agent; unrecorded (operator's own)→never emitted; claude.exe+empty-
@@ -55,6 +70,9 @@ the port, after delivery (Gap B, inbox socket) and capture are also green. The r
 independent of the still-closed gate on purpose (create must READ the roster before it reaches the gate).
 
 ## Verify (live)
-Requires the Windows box (windows-orchestrator, via Splinter): confirm `claude agents --json` →
-synthesized roster → create no longer dead-ends on "couldn't check which agents are running".
-Not done-at-merge; batches into the Windows-box verify.
+Requires the Windows box (windows-orchestrator, via Splinter). Check FIRST, because the rest depends
+on it: does `runners.resolveBin('claude').bin` resolve the claude the box actually runs (see the
+second Weakest-premise: the canonical rung has no `.exe`)? If not, set `AGENT_WORKFORCE_CLAUDE_BIN`
+to the real path, or we add a win32 rung once the shipping shape is known. Then: confirm
+`claude agents --json` → synthesized roster → create no longer dead-ends on "couldn't check which
+agents are running". Not done-at-merge; batches into the Windows-box verify.
