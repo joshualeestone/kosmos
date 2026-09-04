@@ -2778,6 +2778,31 @@ const server = http.createServer((req, res) => {
             const liveness = await create.accountConnectable({ provider: body.provider, accountDir: body.account });
             if (!liveness.ok) { sendJson(res, 400, { error: liveness.because }); return; }
           } catch { /* the check itself failing is not a reason to block a create */ }
+          /* #2140: if an OpenAI model was CHOSEN, confirm the chosen account can
+             actually run it. The list is per-account and async (a live /v1/models
+             fetch), so it validates HERE, before create -- the same seam as
+             accountConnectable above. Only a DEFINITIVE mismatch refuses (the
+             account is listable and the model is not among its models); an empty
+             model is "Let OpenAI choose" and is skipped, and any uncertainty
+             (not an API key, unreachable, no recognised models, a crash) FAILS
+             OPEN so environmental doubt never blocks a create (#1916) -- the
+             picker is not even shown for those accounts, and createAgentInner
+             sanity-bounds the id it writes. */
+          if (String(body.provider || '') === 'openai'
+              && typeof body.model === 'string' && body.model.trim() !== '') {
+            const wantModel = body.model.trim();
+            const dir = (body.account && String(body.account).trim() !== '')
+              ? String(body.account).trim()
+              : openaiAccounts.defaultDir();
+            try {
+              const got = await openaiAccounts.accountModels(dir);
+              if (got && got.ok && Array.isArray(got.models)
+                  && !got.models.some((m) => m && m.key === wantModel)) {
+                sendJson(res, 400, { error: `${wantModel} is not a model this account can run; pick one from the list` });
+                return;
+              }
+            } catch { /* a validator crash is not a reason to block a create (#1916) */ }
+          }
         }
 
         /* 🔑 THE FIRST AGENT BRINGS ITS OWN HOME (#166), MADE BEFORE THE AGENT
@@ -3220,9 +3245,31 @@ const server = http.createServer((req, res) => {
        answered. Caught by its own test hanging for forty-five seconds rather
        than failing, which is what a crashed handler looks like from outside. */
     readBody(req)
-      .then((raw) => {
+      .then(async (raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        /* #2140: same account-can-run-it check as the create route, for an
+           existing OpenAI agent changing its model. The agent's account comes
+           from its own job (readJob), not the request. Only a DEFINITIVE
+           mismatch refuses; an empty model is "Let OpenAI choose" (back to auto)
+           and any uncertainty fails open (#1916). setModel sanity-bounds the id
+           either way. */
+        const chosen = body && typeof body.model === 'string' ? body.model.trim() : '';
+        if (chosen !== '') {
+          let job = null;
+          try { job = create.readJob(name); } catch { job = null; }
+          if (job && job.runner === 'codex') {
+            const dir = job.configDir || openaiAccounts.defaultDir();
+            try {
+              const got = await openaiAccounts.accountModels(dir);
+              if (got && got.ok && Array.isArray(got.models)
+                  && !got.models.some((m) => m && m.key === chosen)) {
+                sendJson(res, 400, { outcome: 'refused', because: `${chosen} is not a model this agent's account can run; pick one from the list` });
+                return;
+              }
+            } catch { /* a validator crash is not a reason to block a change (#1916) */ }
+          }
+        }
         const wrote = create.setModel(name, body && body.model);
         if (wrote.outcome === create.OUTCOME.REFUSED) {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });

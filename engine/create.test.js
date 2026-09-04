@@ -3488,19 +3488,36 @@ test('#245: an OpenAI agent is created on the codex runner, recorded everywhere,
   assert.equal(store.readProfile(name).provider, 'openai');
   const last = create.createdLog().slice(-1)[0];
   assert.equal(last.provider, 'openai');
-  // And the Claude model catalogue cannot be written into a codex launch.
+  // And the Claude model catalogue cannot be written into a codex launch:
+  // a Claude model KEY is refused for an OpenAI agent (#2140 cross-vendor guard,
+  // sync, no network call), even though OpenAI now accepts its own models.
   const changed = create.setModel(name, 'opus');
   assert.equal(changed.outcome, create.OUTCOME.REFUSED);
-  assert.match(changed.because, /runs on OpenAI/);
+  assert.match(changed.because, /is a Claude model/);
+  // #2140: a real OpenAI model id IS accepted now and lands in the launch vector.
+  const setO = create.setModel(name, 'gpt-5');
+  assert.equal(setO.outcome, create.OUTCOME.CREATED, setO.because);
+  assert.equal(plistArgs(name)[7], 'gpt-5', 'the chosen OpenAI model was not written to the -m slot');
+  // Empty is "Let OpenAI choose" -- back to codex's own default, an empty slot.
+  const setAuto = create.setModel(name, '');
+  assert.equal(setAuto.outcome, create.OUTCOME.CREATED, setAuto.because);
+  assert.equal(plistArgs(name)[7], '', 'an empty OpenAI model choice must clear the -m slot (auto)');
+  // The auto choice carries a real user-facing label, never null (the change-model
+  // route reports "${label} it is."; a null would render "null it is.").
+  assert.ok(setAuto.model && setAuto.model.label && setAuto.model.label !== 'null',
+    'the auto (empty) OpenAI model must have a real label, got ' + JSON.stringify(setAuto.model && setAuto.model.label));
 });
 
 test('#245: openai refuses a model choice, an account choice, a missing runner, and an unknown provider refuses outright', () => {
   recorder();
   create.setDryRun(false);
   const base = { ...BINS, codexBin: CODEX_BIN, role: 'pm', provider: 'openai' };
+  // #2140: a Claude model key is refused for OpenAI (cross-vendor guard), where
+  // the old #245 boundary refused ANY model. A real OpenAI model is accepted
+  // (covered in the create/openai-model test below and the '#245 created' test).
   let r = create.createAgent({ ...base, name: 'x-model', model: 'opus' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
-  assert.match(r.because, /leave the model unchosen/);
+  assert.match(r.because, /is a Claude model/);
   // #540 lifted the account refusal: an OpenAI account is a directory with
   // codex's sign-in in it, and a Claude directory is not one of those.
   r = create.createAgent({ ...base, name: 'x-acct', account: '/some/claude/dir' });
@@ -3512,6 +3529,39 @@ test('#245: openai refuses a model choice, an account choice, a missing runner, 
   r = create.createAgent({ ...BINS, name: 'x-prov', role: 'pm', provider: 'closedai' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
   assert.match(r.because, /pick a provider/);
+});
+
+test('#2140: an OpenAI agent can be CREATED on a chosen model, empty means auto, a bad id is refused', () => {
+  recorder();
+  create.setDryRun(false);
+  const codexHome = mkTemp('codex-home-2140-');
+  process.env.AGENT_WORKFORCE_CODEX_HOME = codexHome;
+  const base = { ...BINS, codexBin: CODEX_BIN, role: 'pm', provider: 'openai' };
+  try {
+    // A real OpenAI model id lands in the -m slot (index 7), runner codex (8).
+    const chosen = create.createAgent({ ...base, name: 'oa-model', model: 'gpt-5-codex' });
+    assert.equal(chosen.outcome, create.OUTCOME.CREATED, chosen.because);
+    const a = plistArgs('oa-model');
+    assert.equal(a[7], 'gpt-5-codex', 'the chosen OpenAI model was not written to the -m slot');
+    assert.equal(a[8], 'codex');
+
+    // Empty model is "Let OpenAI choose" -- an empty slot, codex's own default.
+    const auto = create.createAgent({ ...base, name: 'oa-auto', model: '' });
+    assert.equal(auto.outcome, create.OUTCOME.CREATED, auto.because);
+    assert.equal(plistArgs('oa-auto')[7], '', 'an empty model must leave the -m slot empty (auto)');
+
+    // Omitting the model entirely is also auto (unchanged from before #2140).
+    const none = create.createAgent({ ...base, name: 'oa-none' });
+    assert.equal(none.outcome, create.OUTCOME.CREATED, none.because);
+    assert.equal(plistArgs('oa-none')[7], '');
+
+    // A malformed id (spaces, a slash) is refused before it can reach the launch argv.
+    const bad = create.createAgent({ ...base, name: 'oa-bad', model: 'gpt 5/../x' });
+    assert.equal(bad.outcome, create.OUTCOME.REFUSED);
+    assert.match(bad.because, /valid OpenAI model name/);
+  } finally {
+    delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  }
 });
 
 test('#246: the switch rewrites only the launch, both directions, and drops what cannot cross', () => {

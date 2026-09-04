@@ -24,6 +24,9 @@ function defaultFor(accounts) {
   // resetCreateProvider assigns this (an auto-default clears the touched sentinel).
   // eslint-disable-next-line no-unused-vars, prefer-const
   let CREATE_PROVIDER_TOUCHED = false;
+  // #2140: resetCreateProvider also clears the remembered Claude pick on a form reset.
+  // eslint-disable-next-line no-unused-vars, prefer-const
+  let LAST_CLAUDE_MODEL = 'stale';
   // eslint-disable-next-line no-unused-vars
   const applyCreateProviderUI = () => {};
   // eslint-disable-next-line no-eval
@@ -46,11 +49,17 @@ test('#2097: no accounts loaded yet -> falls back to anthropic (never start on a
   assert.equal(defaultFor([]), 'anthropic');
 });
 
-test('#2098 (source): applyCreateProviderUI hides the model ROW whole on OpenAI, not just disables it', () => {
+test('#2098/#2140 (source): applyCreateProviderUI routes OpenAI to the per-account model picker (not a blanket hide)', () => {
   const start = PAGE.indexOf('function applyCreateProviderUI');
   const fn = PAGE.slice(start, PAGE.indexOf('\nfunction ', start + 1));
-  assert.match(fn, /create-model-row/, 'the model row is no longer hidden whole on OpenAI (a disabled select still shows its Claude value)');
-  assert.match(fn, /modelRow\.hidden = openai/, 'the model row hide is not keyed on the openai provider');
+  /* #2140 replaced #2098's blanket `modelRow.hidden = openai` with the per-account
+     picker: applyCreateProviderUI's OpenAI branch delegates to paintOpenaiCreateModel,
+     which manages the model row across its loading/listable/not-listable states -- so
+     the row is hidden (and no stale Claude value shows, the #2098 invariant) whenever
+     there is no listable account, and shows the picker when there is. The no-stale-value
+     invariant is now exercised by render-create-openai-model-2140.js (browser). */
+  assert.match(fn, /paintOpenaiCreateModel\(\)/, 'the OpenAI branch no longer delegates to the per-account model picker (#2140)');
+  assert.match(fn, /create-model-row/, 'applyCreateProviderUI no longer references the model row at all');
 });
 
 test('#2097(2) (source+exec): the account row is HIDDEN at <2 accounts, SHOWN at 2+ (Josh re-rule 2026-09-04)', () => {
