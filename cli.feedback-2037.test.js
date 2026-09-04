@@ -111,3 +111,35 @@ test('help advertises feedback, and `feedback --help` shows its own usage (banne
   assert.match(fh.both, /kosmos feedback write/, '`feedback --help` must show the feedback usage');
   assert.doesNotMatch(fh.both, /start \| stop \| restart/, '`feedback --help` must not fall through to the generic banner');
 });
+
+test('an adversarial body round-trips verbatim and executes NOTHING (the injection-safety property)', async () => {
+  const h = makeHome();
+  // If any part of the body were evaluated by a shell OR reached node as code,
+  // this $(touch ...) would create the sentinel. It must not exist afterwards.
+  const sentinel = path.join(h.data, 'PWNED-must-not-exist');
+  // Ends in a non-whitespace token so the engine's trailing-\s normalization
+  // (write() does .replace(/\s*$/, '') + '\n') is a no-op and the expected body
+  // is exactly `evil + "\n"` — an exact, non-vacuous round-trip assertion.
+  const evil = [
+    'double " and single \' quotes',
+    'backtick `echo NOPE` then cmd-sub $(touch ' + sentinel + ')',
+    'brace ${HOME} and bare $NOTAVAR and a backslash \\ here',
+    'a chain ; rm -rf nope && echo chained | cat  END',
+  ].join('\n');
+  const w = await run(['feedback', 'write', evil], h);
+  assert.equal(w.code, 0, `write failed: ${w.both}`);
+  assert.doesNotMatch(w.both, /not running/, 'the write path must not touch the board');
+  const s = await run(['feedback', 'show'], h);
+  assert.equal(s.code, 0);
+  assert.equal(s.out, evil + '\n', 'the body must round-trip byte-for-byte (only the engine trailing newline added)');
+  assert.equal(fs.existsSync(sentinel), false, 'no command substitution in the body may execute');
+});
+
+test('feedback show/write on a broken install (no runtime) refuses in sentence voice (exit 2)', async () => {
+  const h = makeHome();
+  fs.unlinkSync(path.join(h.home, 'runtime', 'bin', 'node')); // break the runtime
+  const s = await run(['feedback', 'show'], h);
+  assert.equal(s.code, 2);
+  assert.match(s.both, /cannot find its own runtime/);
+  assert.doesNotMatch(s.both, /No such file or directory/, 'must not leak the raw shell error');
+});

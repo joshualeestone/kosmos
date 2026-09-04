@@ -1101,6 +1101,17 @@ fi
 # opt-in-gated slice.
 cmd_feedback() {
   local sub="${1:-}"; shift 2>/dev/null || true
+  # write/show/list all shell out to node against the local engine. On a broken
+  # install (missing runtime) refuse in the CLI's own voice rather than letting a
+  # raw "node: No such file" surface, matching cmd_adopt's runtime guard.
+  case "$sub" in
+    write|show|list)
+      if [ ! -f "$NODE" ] || [ ! -x "$NODE" ] || [ ! -d "$KOSMOS_HOME/app" ]; then
+        say "Kosmos cannot find its own runtime, so it cannot save or read a report."
+        exit 2
+      fi
+      ;;
+  esac
   case "$sub" in
     write)
       local body
@@ -1114,6 +1125,7 @@ cmd_feedback() {
         process.stdout.write(fb.write(process.env.KOSMOS_FEEDBACK_BODY || "").date);
       ' "$KOSMOS_HOME/app" >/dev/null || { say "We could not save that report."; exit 1; }
       say "Saved today's product-feedback report. It stays on this computer."
+      exit 0
       ;;
     show)
       KOSMOS_FEEDBACK_DATE="${1:-}" "$NODE" -e '

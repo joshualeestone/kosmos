@@ -50,7 +50,10 @@ Still NO send, NO privacy surface, so merge-on-green like slice 1.
 
 ## Verification
 
-- A bash test (tools/test-feedback-cli-2037.sh style) driving `kosmos feedback write`
-  (from stdin + args), `show`, `list` against a sandboxed store, asserting round-trip,
-  the empty-body refusal, and that `write` with no board running still works (engine-direct).
+- A `node --test` file (`cli.feedback-2037.test.js`, chosen over a standalone bash script
+  so it is armed by the suite's `*.test.js` glob + the coverage guard) driving `kosmos
+  feedback write` (from stdin + args), `show`, `list` against a sandboxed store, asserting
+  round-trip, the empty-body refusal, that `write` with no board running still works
+  (engine-direct), an adversarial-body injection-safety round-trip, the banner-in-sync guard,
+  and the broken-runtime sentence-voice refusal.
 - `node --check`-able wiring; the full suite + test:shell via the challenge-loop validation.
