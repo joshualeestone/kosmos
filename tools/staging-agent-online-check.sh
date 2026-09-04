@@ -24,11 +24,15 @@
 #   bash tools/staging-agent-online-check.sh [port]
 #
 # Exit 0 both providers came ONLINE (state idle|working) - the #2129 class is not present.
-#      1 a created agent WEDGED at the trust prompt (#2129), never came online in the
-#        window, or a create was REFUSED for the Claude-reachability class (#2128/#2130).
-#        This is the DO-NOT-PROMOTE signal.
-#      2 cannot-tell: no enforcing board (no board.token), a provider has no signed-in
-#        account here, or this looks like a populated fleet board (refused to run).
+#      1 DO-NOT-PROMOTE (a proven bad build, non-forceable): a created agent that APPEARED and
+#        WEDGED at the trust prompt (#2129), an agent that appeared but never reached
+#        idle|working, an auth_failed state, or a create refused with a real provider sign-in
+#        failure (#2128/#2130).
+#      2 cannot-tell (HOLD, forceable after a hand check): no enforcing board (no board.token),
+#        a provider not signed in, a populated fleet board (refused to run), a non-numeric port,
+#        an unexpected create-400, or a created agent that NEVER appeared in /api/status (a
+#        board-shape mismatch / contract drift, ambiguous with a never-spawned agent - NOT a
+#        proven wedge). The invariant: cannot-tell never reads as a pass.
 set -uo pipefail
 
 PORT="${1:-${KOSMOS_PORT:-}}"
@@ -178,6 +182,11 @@ $STATUS0
 EOF
 )"
 MAX_EXISTING="${KOSMOS_AGENT_ONLINE_MAX_EXISTING:-2}"
+# 🛑 This guard is the ONE thing stopping test-agent spawn on a populated fleet, so its
+# threshold must never be garbage: a non-numeric MAX would make the `-gt` test below error,
+# the `&&` short-circuit, and the guard silently NOT fire - spawning agents among live
+# sessions. Fall back to the safe default on anything non-numeric rather than disabling.
+case "$MAX_EXISTING" in ''|*[!0-9]*) say "KOSMOS_AGENT_ONLINE_MAX_EXISTING='${MAX_EXISTING}' is not numeric - using the safe default 2"; MAX_EXISTING=2 ;; esac
 if [ "${N_EXISTING:-0}" -gt "$MAX_EXISTING" ] && [ "${KOSMOS_STAGING_VERIFY_ALLOW_LIVE:-}" != "1" ]; then
   say "this board already carries ${N_EXISTING} agents (> ${MAX_EXISTING}) - looks like a populated FLEET, not a fresh staging machine."
   say "  refusing to create test agents here. Set KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1 only if you are certain this is a throwaway board - cannot tell"
@@ -196,8 +205,18 @@ create_and_wait() {
   body="$("$NODE" -e 'process.stdout.write(JSON.stringify({name:process.argv[1],provider:process.argv[2],account:process.argv[3],role:"pm"}))' "$nm" "$prov" "$dir")"
   local resp; api_post /api/agents "$body"; resp="$RESP_BODY"
   if [ "$HTTP_CODE" = "400" ]; then
-    say "  [$prov] create REFUSED (HTTP 400): $(printf '%s' "$resp" | "$NODE" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).error||s)}catch{process.stdout.write(s)}})')"
-    return 1
+    local err400; err400="$(printf '%s' "$resp" | "$NODE" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).error||s)}catch{process.stdout.write(s)}})')"
+    # A 400 is only a DO-NOT-PROMOTE signal when it names a real provider sign-in failure
+    # (#1903/#2128/#2130). Any other 400 is more likely a gate/board contract drift (an
+    # unexpected body/role/field) than a broken build, so it is cannot-tell (forceable),
+    # never a non-forceable refusal on what may be a bug in this gate.
+    case "$err400" in
+      *sign-in*|*"sign in"*|*signin*|*"sign-in is not working"*)
+        say "  [$prov] create REFUSED (HTTP 400): $err400 - a real provider sign-in failure (#2128/#2130 class)"; return 1 ;;
+      *)
+        say "  [$prov] create got HTTP 400 for an unexpected reason: $err400"
+        say "    -> more likely a gate/board contract drift than a broken build - cannot tell"; return 2 ;;
+    esac
   fi
   if [ "$HTTP_CODE" != "200" ]; then
     say "  [$prov] create -> HTTP ${HTTP_CODE:-<none>} (not the #2129 class; board/create erroring)"; return 2
@@ -245,11 +264,19 @@ create_and_wait() {
   # with classify.state) than a real #2129 wedge. Say which, so an operator can tell a
   # broken gate from a broken build.
   if [ "$seen" = 0 ]; then
+    # The card NEVER matched (or matched with no readable state). That is ambiguous between a
+    # board-shape mismatch / gate-vs-board contract drift and a build so broken the agent never
+    # spawns - NOT a proven #2129 trust wedge (a real wedge appears as a needs_you card). So it
+    # is cannot-tell (HOLD, forceable after a hand check), never a non-forceable refusal on what
+    # may be a bug in this gate.
     say "  [$prov] created agent '$sess' NEVER appeared in /api/status within ${POLL_SECS}s."
-    say "    -> likely a board-shape mismatch, not a #2129 wedge: this gate expects an agents[] card"
-    say "       with sessionName + classify.state. Verify the /api/status shape on the running board."
-    return 1
+    say "    -> a board-shape mismatch / contract drift, or an agent that never spawned - NOT a proven"
+    say "       #2129 wedge (that appears as a needs_you card). This gate expects an agents[] card with"
+    say "       sessionName + classify.state. Cannot tell - verify the shape on the running board."
+    return 2
   fi
+  # It DID appear but never reached idle/working (e.g. stuck 'stopped', or a needs_you that was
+  # not a trust wedge) - that is a real not-online, a do-not-promote.
   say "  [$prov] did NOT come online within ${POLL_SECS}s (last state='${st:-<none>}')"; return 1
 }
 

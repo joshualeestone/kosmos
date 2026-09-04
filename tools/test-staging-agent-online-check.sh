@@ -78,7 +78,9 @@ case "$route" in
       parts="$parts{\"sessionName\":\"pre-$i\",\"classify\":{\"state\":\"idle\",\"because\":\"pre\"}}"
       i=$((i+1))
     done
-    if [ -f "$STATE" ]; then
+    # noshow: emit NO card for the created agents (a board-shape mismatch / never-spawned
+    # agent), so the gate's card never matches and the poll times out with seen=0.
+    if [ -f "$STATE" ] && [ "${MOCK_AGENT_STATE:-idle}" != noshow ]; then
       while IFS= read -r nm; do
         [ -z "$nm" ] && continue
         [ "$first" = 1 ] || parts="$parts,"; first=0
@@ -90,6 +92,8 @@ case "$route" in
     if [ "$method" = POST ]; then
       if [ "${MOCK_CREATE:-ok}" = refuse400 ]; then
         emit '{"error":"its sign-in is not working"}' 400
+      elif [ "${MOCK_CREATE:-ok}" = refuse400-other ]; then
+        emit '{"error":"that is not a name we can read"}' 400
       else
         nm="$(printf '%s' "$data" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')"
         printf '%s\n' "$nm" >> "$STATE"
@@ -121,8 +125,11 @@ run_case "both agents WORKING"                           0  MOCK_ACCOUNTS=both M
 run_case "trust wedge (#2129) -> do-not-promote"        1  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=trust-wedge
 run_case "auth_failed -> do-not-promote"                1  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=auth
 run_case "never online within window -> do-not-promote" 1  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=stopped-forever
-run_case "create refused (400) -> do-not-promote"       1  MOCK_ACCOUNTS=both MOCK_CREATE=refuse400
+run_case "create refused (400, sign-in) -> do-not-promote" 1 MOCK_ACCOUNTS=both MOCK_CREATE=refuse400
+run_case "unexpected create-400 (not sign-in) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_CREATE=refuse400-other
+run_case "agent never appears (shape mismatch) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=noshow
 run_case "populated fleet, no override -> REFUSE"       2  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5
+run_case "garbage MAX_EXISTING still guards a populated fleet" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_AGENT_ONLINE_MAX_EXISTING=abc
 run_case "populated fleet WITH allow-live + online"     0  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1
 run_case "no openai account -> cannot-tell"             2  MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=idle
 
