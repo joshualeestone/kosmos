@@ -501,15 +501,24 @@ function addressable(sessionName, roster) {
     return { ok: false, because: 'we cannot tell where this agent is running' };
   }
   if (card.isAgentPane !== true) {
-    // Two reasons, and they are worth telling apart on screen: a pane with no
-    // Claude in it would EXECUTE what we typed, and a pane scrolled back in
-    // copy-mode swallows it.
-    return {
-      ok: false,
-      because: card.isAgentSession === true
-        ? 'its window is scrolled back right now, so anything we typed would go to the scrollback instead of to the agent'
-        : 'there is no Claude running in its window right now, so anything we typed would be run as a command instead of read',
-    };
+    // Two reasons, worth telling apart on screen: a pane scrolled back in
+    // copy-mode swallows what we type, and a pane with no agent process in it
+    // would EXECUTE it as a command.
+    // #2100: the "no <runner> running" line NAMES THE RUNNER. This branch is
+    // reached when the pane holds a shell rather than the agent's own process
+    // -- for a Claude agent that is a stopped/crashed pane, and for a codex
+    // agent (a `codex`/`codex.exe`/shell front, NOT the `node` front that reads
+    // as Claude and stays messageable) likewise. Telling a codex agent's owner
+    // "there is no Claude running" is wrong and confusing on an agent they
+    // created as OpenAI (Josh's #2100 screenshot). The reason is identical in
+    // both cases -- the pane would RUN typed text -- so only the process name
+    // differs. 🔑 THIS CHANGES ONLY THE REASON SHOWN, NEVER THE GATE: isAgentPane
+    // is already false above; nothing here enables the composer or the send path.
+    if (card.isAgentSession === true) {
+      return { ok: false, because: 'its window is scrolled back right now, so anything we typed would go to the scrollback instead of to the agent' };
+    }
+    const runnerName = card.runner === 'codex' ? 'Codex' : 'Claude';
+    return { ok: false, because: 'there is no ' + runnerName + ' running in its window right now, so anything we typed would be run as a command instead of read' };
   }
   return { ok: true, card };
 }
