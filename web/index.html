@@ -25487,6 +25487,7 @@ function paintOpenaiCreateModel() {
   if (why) { why.textContent = ''; why.hidden = true; }
   if (!acctDir) {
     // No account to name yet: cannot list, so show the auto note (not a picker).
+    OPENAI_PICK_MODELS = [];
     if (row) row.hidden = true;
     if (sel) sel.disabled = false;
     if (why) { why.textContent = openaiNoModelsNote(null); why.hidden = false; }
@@ -25584,6 +25585,9 @@ document.getElementById('create-provider').addEventListener('change', () => {
 function resetCreateProvider() {
   const prov = document.getElementById('create-provider');
   if (!prov) return;
+  // #2140: a form reset starts fresh -- forget a Claude pick remembered for a
+  // provider round-trip, so a reopen defaults rather than restoring a stale pick.
+  LAST_CLAUDE_MODEL = '';
   /* #2097: default to a provider the machine actually has an account for, rather
      than forcing an OpenAI-only user to correct "Anthropic Claude" on every create.
      Start on OpenAI ONLY when there is an OpenAI account AND no Claude account;

@@ -24,6 +24,9 @@ function defaultFor(accounts) {
   // resetCreateProvider assigns this (an auto-default clears the touched sentinel).
   // eslint-disable-next-line no-unused-vars, prefer-const
   let CREATE_PROVIDER_TOUCHED = false;
+  // #2140: resetCreateProvider also clears the remembered Claude pick on a form reset.
+  // eslint-disable-next-line no-unused-vars, prefer-const
+  let LAST_CLAUDE_MODEL = 'stale';
   // eslint-disable-next-line no-unused-vars
   const applyCreateProviderUI = () => {};
   // eslint-disable-next-line no-eval
