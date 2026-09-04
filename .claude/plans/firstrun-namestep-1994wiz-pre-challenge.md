@@ -2,18 +2,27 @@
 pre_challenge: true
 method: challenge-loop
 branch: firstrun-namestep-1994wiz
-diff_hash: c0ce2bffaaea7430c8b0e53858169bf09f98ad885d0448db30619ece41f5015c
+diff_hash: 2571fdeb12817453ba65ed9914545d7ddeaef5418eea6b703a300a546bc9fc9d
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-04T17:14:50Z
-iterations: 6
+timestamp: 2026-09-04T17:27:29Z
+iterations: 7
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6 (1 initial-validation baseline + 5 fresh, blind review passes)
-**Converged:** Yes (the 5th review pass surfaced zero new BLOCKER/WARNING/CONVENTION findings)
+**Iterations:** 7 (1 initial-validation baseline + 5 pre-rebase blind passes + 1 post-rebase blind pass)
+**Converged:** Yes (both the 5th pre-rebase pass and the post-rebase pass surfaced zero new BLOCKER/WARNING/CONVENTION findings)
+
+**Rebase note:** after the pre-rebase loop converged, `origin/main` had advanced 7 commits and a
+conflict was predicted in `tools/browser-checks.sh` (other agents appended their own checks to the
+same batch list). The branch was rebased onto `origin/main`, the list-merge conflict resolved by
+keeping all entries (my `render-firstrun-namestep-1994wiz` plus the siblings
+`render-firstrun-model-continue-2134` and `render-subprojects-1994`), post-rebase validation re-run
+green, and a fresh blind pass run on the rebased diff — it confirmed zero actionable findings and that
+the merge is clean (my check present exactly once, no markers, `bash -n` OK). This proof's `diff_hash`
+is the post-rebase hash.
 **Total findings:** 4 WARNINGs, 0 BLOCKERs, 0 CONVENTIONs, 7 NITs
 **Fixed:** 3 WARNINGs + 3 NITs | **Deferred:** 1 WARNING (superseded) + 4 NITs | **Asked:** 0
 
@@ -57,6 +66,12 @@ their two updated tests, the browser-check, and the plan). Clean baseline; no sy
 - [NIT] plan Verification section still listed the browser-check/run-tests/loop as TODO --> FIXED (60e14807): marked done with the contention note.
 - [NIT] browser-check width-contrast arm's 10px margin is thin if the wizard column ever narrows near ~330px --> DEFERRED: fails safe (would false-FAIL, never false-pass) and the column is 900px-viewport-wide; not worth churning a just-reviewed check.
 - [NIT] the test's inverted "describe the bad state" failure message reads slightly awkwardly --> DEFERRED: matches the file's existing convention.
+
+#### Iteration 7 — post-rebase blind pass
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
+**Converged** — no new actionable findings; confirmed the rebase merge is clean.
+- [NIT] server.js:4564 GET-handler comment "timezone is null until the operator sets one" now slightly overstates the contract --> DEFERRED: the comment is in unchanged code this PR does not touch; adding server.js for a one-line comment expands the diff and adds a merge surface for a NIT, and the plan already documents the conscious-accept. Worth a one-line update when server.js is next touched.
+- [NIT] the best-effort tz `await` has no timeout, so an indefinitely hung (not rejected) POST would stall Continue --> DEFERRED: identical to the existing /api/you PUT (same local server, no timeout), so matching it is the consistent choice; a timeout only on the tz save would diverge, and a hung local-server POST is not a realistic failure mode (the same server just accepted the PUT).
 
 ### Final Ledger
 
