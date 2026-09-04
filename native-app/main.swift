@@ -309,6 +309,103 @@ func boardTokenValue() -> String? {
     return tok.isEmpty ? nil : tok
 }
 
+// MARK: - #2124 single-instance handoff
+//
+// A fresh install ran MULTIPLE Kosmos instances: the installer launches a copy,
+// and the dragged /Applications copy is a DIFFERENT bundle PATH, which LaunchServices
+// treats as a separate app (single-instance is keyed on path, not just bundle id). So
+// applicationDidFinishLaunching now dedups by bundle id: if another instance is already
+// running, it activates that one and exits, leaving the /Applications copy as THE app.
+//
+// 🛑 THE ONE EXCEPTION IS #2094's SELF-UPDATE RELAUNCH. There, the EXITING stale
+// instance deliberately launches a fresh copy that shares its bundle id and then exits;
+// if the fresh copy deduped-by-activation it would land on the stale one and, once the
+// stale one terminates, quit to NOTHING. So the relaunch hands the fresh copy an EXPLICIT
+// handoff signal, and the fresh copy skips the dedup when it sees it. The signal is
+// carried TWO ways, and either one suffices, because the failure of the signal is the
+// quit-to-nothing bug and must not depend on a single fragile channel:
+//   1. A launch-environment variable set on the relaunch's OpenConfiguration -- handed
+//      directly to the new process, no disk, no timing window (the robust primary).
+//   2. A short-TTL token file the exiting instance writes -- a belt-and-suspenders
+//      fallback in case the environment does not propagate, exactly the written token
+//      the design called for.
+// A NORMAL user launch (double-click, dock, installer) carries neither, so it dedups.
+
+let kRelaunchHandoffEnvKey = "KOSMOS_RELAUNCH_HANDOFF"
+let kRelaunchHandoffTTL: TimeInterval = 30  // a relaunch's fresh copy launches within a second or two
+
+// The handoff token file, resolved the SAME way boardTokenValue() resolves its dir, so
+// the exiting instance and the fresh copy (same user, same env) agree on the path.
+func relaunchHandoffURL() -> URL? {
+    let env = ProcessInfo.processInfo.environment
+    let base: URL
+    if let dataOverride = env["AGENT_WORKFORCE_DATA"], !dataOverride.isEmpty {
+        base = URL(fileURLWithPath: dataOverride)
+    } else if let homeOverride = env["AGENT_WORKFORCE_HOME"], !homeOverride.isEmpty {
+        base = URL(fileURLWithPath: homeOverride).appendingPathComponent("Library/Application Support")
+    } else if let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        base = dir
+    } else {
+        return nil
+    }
+    return base.appendingPathComponent("AgentWorkforce/relaunch-handoff")
+}
+
+// Called by the EXITING instance right before it opens the fresh copy. Best-effort: a
+// write failure is logged, not fatal, because the environment handoff (channel 1) is the
+// primary and does not touch disk.
+func writeRelaunchHandoffToken() {
+    guard let url = relaunchHandoffURL() else { return }
+    do {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try String(Date().timeIntervalSince1970).write(to: url, atomically: true, encoding: .utf8)
+    } catch {
+        logLine("relaunch-handoff: could not write token (\(error.localizedDescription)); env handoff still stands")
+    }
+}
+
+// Called by a FRESH instance at launch. Returns true iff this launch is a #2094 relaunch
+// handoff (via the env var OR a fresh token file), and CONSUMES both so the signal is
+// one-shot and a stale token cannot exclude a later normal launch.
+func consumeFreshRelaunchHandoff(now: Date = Date()) -> Bool {
+    var handoff = false
+    if let raw = ProcessInfo.processInfo.environment[kRelaunchHandoffEnvKey], !raw.isEmpty {
+        handoff = true
+    }
+    if let url = relaunchHandoffURL() {
+        if let raw = try? String(contentsOf: url, encoding: .utf8),
+           let written = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+           now.timeIntervalSince1970 - written <= kRelaunchHandoffTTL,
+           now.timeIntervalSince1970 - written >= 0 {
+            handoff = true
+        }
+        // Always delete: one-shot, and a stale token must not linger to wrongly
+        // exclude a normal launch (which is safe anyway, but keep the file honest).
+        try? FileManager.default.removeItem(at: url)
+    }
+    return handoff
+}
+
+// Another running instance of THIS app (same bundle id, different process), or nil.
+func otherRunningInstance() -> NSRunningApplication? {
+    guard let bid = Bundle.main.bundleIdentifier else { return nil }
+    let me = ProcessInfo.processInfo.processIdentifier
+    return NSRunningApplication.runningApplications(withBundleIdentifier: bid)
+        .first { $0.processIdentifier != me }
+}
+
+// The pure decision, factored out so both arms are unit-assertable without a window
+// server: defer to (activate + exit for) an existing instance ONLY on a normal launch
+// with another instance up. A relaunch handoff NEVER defers (that is the #2094 carve-out).
+//   (a) duplicate launch:      handoff=false, other=true  -> true  (dedup fires)
+//   (b) #2094 relaunch:        handoff=true,  other=true  -> false (excluded; fresh survives)
+//   normal single launch:      handoff=false, other=false -> false
+//   relaunch, stale already gone: handoff=true, other=false -> false
+func shouldDeferToExistingInstance(handoff: Bool, otherRunning: Bool) -> Bool {
+    return !handoff && otherRunning
+}
+
 // A board URL with the token added as a `?token=` query item, for a WebView load:
 // the board validates it, sets an httpOnly cookie, and redirects to the clean URL,
 // so subsequent same-origin requests carry the cookie automatically. Adds nothing
@@ -373,6 +470,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var inFlightStart: (generation: Int, process: Process)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // #2124: single-instance. A fresh install could run this app from two bundle
+        // PATHS (the installer's launched copy + the dragged /Applications copy), which
+        // LaunchServices treats as separate apps. Dedup by bundle id: if another instance
+        // is already up, activate IT and exit, so the /Applications copy stays the one app.
+        // EXCEPT a #2094 self-update relaunch, which hands us a one-shot handoff signal so
+        // it is not mistaken for a duplicate (deduping there would quit to nothing).
+        let handoff = consumeFreshRelaunchHandoff()
+        let other = otherRunningInstance()
+        if shouldDeferToExistingInstance(handoff: handoff, otherRunning: other != nil) {
+            logLine("#2124: another Kosmos instance is already running; activating it and exiting this duplicate")
+            other?.activate(options: [.activateIgnoringOtherApps])
+            NSApp.terminate(nil)
+            return
+        }
         NSApp.setActivationPolicy(.regular)
         buildMenu()
         buildWindow()
@@ -1274,6 +1385,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            open, and the stale one then exits -- never zero) without the dedup that
            could leave him with none. */
         conf.createsNewApplicationInstance = true
+        /* #2124: hand the fresh copy the relaunch handoff so its single-instance guard
+           does NOT mistake this deliberate relaunch for a duplicate and defer back to
+           this (exiting) instance -- which would quit to nothing. Two channels, either
+           suffices: the launch ENVIRONMENT (handed directly to the new process, no disk),
+           preserving the current environment and adding the one key; and a token FILE
+           written just below as a fallback. A normal user launch carries neither. */
+        conf.environment = ProcessInfo.processInfo.environment
+            .merging([kRelaunchHandoffEnvKey: String(Date().timeIntervalSince1970)]) { _, new in new }
+        writeRelaunchHandoffToken()
         NSWorkspace.shared.openApplication(at: target, configuration: conf) { app, err in
             DispatchQueue.main.async {
                 if app != nil, err == nil {
