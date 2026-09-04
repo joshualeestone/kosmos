@@ -25,9 +25,21 @@
 # `set -e`, so that exit 1 aborted the whole cut AFTER the pointer was already live).
 # This waits a generous deadline (KOSMOS_BOARD_WAIT_SECS, default 45s) for the
 # OUTCOME -- the board serving the code on disk -- and returns success the moment it
-# does, however long that took. A board STILL not on that version after the deadline
-# is a genuine failure (stale code, or down) and still exits 1: the fix removes the
-# false positive, it does not stop the step failing when the board really is wrong.
+# does, however long that took.
+#
+# 🕐 #2109: WHAT A DEADLINE MISS MEANS DEPENDS ON WHY. Even 120s (#2090) was measured
+# too short under full fleet load: both 0.6.27 and 0.6.28 had the board flip at ~121s
+# and false-failed a cut whose bytes had ALREADY served and verified at steps 8-9.
+# But simply widening the deadline again just moves the cliff. The real distinction is
+# the CAUSE of the miss, and this board runs FROM THIS REPO (checked below), so a
+# restart always comes back on the code ON DISK, never the old:
+#   - Still SERVING A DIFFERENT version after the deadline  -> launchd never restarted
+#     it, it is serving STALE code (#360). Genuine failure, still exits 1.
+#   - NOT ANSWERING after the deadline                      -> down or mid-restart, NOT
+#     serving stale code; it will come back on the new code. A WARNING, not a cut
+#     failure -- the release is already served and verified.
+# The fix removes the false positive on a slow/restarting board while keeping the
+# #360 catch (a board genuinely stuck on old code) red.
 #
 # 🔬 PROVABLE. tools/test-restart-local-board.sh drives the wait against a stub board
 # and asserts the success arm (serves the wanted version -> exit 0), the slow-but-
@@ -87,9 +99,20 @@ board_version() {
 
 # Wait until the board at $1 serves version $2, or WAIT_SECS elapses. Clock-based,
 # not an iteration count, so per-request latency cannot silently shorten the real
-# wait. This is the #2044 OUTCOME check: return 0 the instant the board serves the
-# wanted code; return 1 only if it never does within the deadline -- a genuine
-# failure, whatever its cause.
+# wait. This is the #2044 OUTCOME check, extended by #2109 to distinguish two very
+# different timeout causes. Returns:
+#   0  the board serves the wanted version (success).
+#   1  a GENUINE failure that must fail the cut: the wanted version is unknowable,
+#      OR after the deadline the board is still SERVING A DIFFERENT (non-empty)
+#      version. The latter is #360: launchd did not pick up the new code and the
+#      developer's board is serving OLD bytes. That must red.
+#   2  the board is NOT ANSWERING after the deadline (down or mid-restart). This is
+#      NOT stale code -- launchd runs this board FROM THIS REPO, so when it comes
+#      back it comes back on the code on disk (the new version), never the old. So a
+#      silent board is a SLOW/restarting board, not a wrong one. The caller
+#      downgrades it to a warning rather than failing a cut whose bytes already
+#      served and verified at steps 8-9 (#2109: both 0.6.27 and 0.6.28 had the board
+#      flip at ~121s under fleet load, just past a 120s deadline, and false-failed).
 wait_for_want() {
   local url="$1" want="$2" got="" now deadline
   # An empty target would make "$got" = "$want" true the instant a DOWN board answers
@@ -111,8 +134,32 @@ wait_for_want() {
     fi
     sleep 1
   done
-  echo "   THE LOCAL BOARD DID NOT COME BACK ON ${want} WITHIN ${WAIT_SECS}s (last answer: '${got:-none}'); check ~/Library/Logs/kosmos-board.log" >&2
-  return 1
+  if [ -n "$got" ]; then
+    # Serving a different, non-empty version after the deadline: launchd did not pick
+    # up the new code. Genuinely stale (#360), the exact fault this step exists for.
+    echo "   THE LOCAL BOARD IS STILL SERVING ${got}, NOT ${want}, AFTER ${WAIT_SECS}s -- launchd did not pick up the new code (#360); check ~/Library/Logs/kosmos-board.log" >&2
+    return 1
+  fi
+  # Not answering at all: down or mid-restart, NOT serving stale code.
+  echo "   the local board did not answer within ${WAIT_SECS}s (last answer: 'none')" >&2
+  return 2
+}
+
+# Map a wait_for_want outcome to an exit code + the cut-level message, so both call
+# sites (the poll-only test seam and the real restart) decide identically. A silent
+# board (rc 2) is a WARNING, not a cut failure -- see wait_for_want's rc 2 note. The
+# `|| rc=$?` keeps set -e from aborting on the non-zero return.
+board_outcome_exit() {
+  local rc=0
+  wait_for_want "$1" "$2" || rc=$?
+  case "$rc" in
+    0) exit 0 ;;
+    2)
+      echo "   WARNING: the local board did not come back within ${WAIT_SECS}s and is NOT answering. It is not serving stale code (a board that runs from this repo comes back on the code on disk), and this release is already served and verified, so the cut is NOT failed on this. If the board stays down, check ~/Library/Logs/kosmos-board.log." >&2
+      exit 0
+      ;;
+    *) exit 1 ;;
+  esac
 }
 
 # Test seam: drive the poll/outcome logic directly against a stub, with no launchd
@@ -120,7 +167,7 @@ wait_for_want() {
 # so both the success and failure arms can be proven.
 if [ "${KOSMOS_BOARD_POLL_ONLY:-}" = 1 ]; then
   _url="${KOSMOS_BOARD_STATUS_URL:-http://127.0.0.1:${KOSMOS_PORT:-16180}/api/status}"
-  if wait_for_want "$_url" "$(want_version)"; then exit 0; else exit 1; fi
+  board_outcome_exit "$_url" "$(want_version)"
 fi
 
 if ! command -v launchctl >/dev/null 2>&1; then
@@ -150,5 +197,7 @@ echo "   ${LABEL} runs from this repo (was ${BEFORE}); restarting it"
 launchctl stop "gui/${UID_NOW}/${LABEL}" 2>/dev/null || launchctl stop "${LABEL}"
 # KeepAlive brings it back; wait a generous deadline for it to answer with the code
 # on disk. See the #2044 note above: a fixed 10s cap raced launchd's 10s respawn
-# throttle and false-failed healthy cuts.
-if wait_for_want "$STATUS_URL" "$(want_version)"; then exit 0; else exit 1; fi
+# throttle and false-failed healthy cuts. #2109: a board still SILENT after the
+# deadline is a warning (it comes back on the code on disk), only a board SERVING
+# STALE code fails the cut.
+board_outcome_exit "$STATUS_URL" "$(want_version)"
