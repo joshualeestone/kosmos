@@ -193,10 +193,12 @@ function trustFolder(dir, opts) {
     // existing mode is KEPT (prevMode from statSync above), not tightened to
     // 0o600, matching preacceptBypass's empty-file path: the file was already on
     // disk at a mode the person chose, so only a file we CREATE from absent
-    // (below) is born private.
+    // (below) is born private. `madeFile` is NOT set here -- the file (and its
+    // parent dir) already exist, so no mkdir is needed; madeFile means strictly
+    // "we created the file from ENOENT".
     if (st.size === 0) {
       if (!createIfAbsent) return { ok: false, because: 'their config file is empty' };
-      data = {}; madeFile = true;
+      data = {};
     } else {
       data = JSON.parse(fs.readFileSync(target, 'utf8'));
     }

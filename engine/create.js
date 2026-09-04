@@ -794,7 +794,14 @@ function setAccount(name, dir) {
   if (!DRY_RUN) {
     const configDir = acct.isDefault ? null : acct.dir;
     try {
-      trust = require('./trust').trustFolder(workerDir(clean), { configDir });
+      /* #2129: createIfAbsent, same as the create path. Moving an agent to a
+         freshly-added Claude account whose .claude.json was never written hits the
+         identical wedge: trustFolder would refuse, and the agent parks on Claude
+         Code's trust prompt in a TUI nobody can answer. The paired preacceptBypass
+         below already creates settings.json on a fresh account, so without this the
+         two calls are asymmetric exactly as they were on the create path. Claude-only
+         already (codex is refused above), so no provider guard is needed. */
+      trust = require('./trust').trustFolder(workerDir(clean), { configDir, createIfAbsent: true });
     } catch { trust = { ok: false, because: 'we could not read that account\'s config file' }; }
     /* #1919: the account we are MOVING the agent to needs the Bypass-Permissions pre-accept
        in ITS settings.json too, for the same reason the trust write does -- the agent will

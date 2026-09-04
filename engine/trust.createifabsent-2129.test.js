@@ -87,15 +87,21 @@ test('the created config is born private (mode 600) -- it holds account/session 
   assert.equal(mode, 0o600, `expected 600, got ${mode.toString(8)}`);
 });
 
-test('createIfAbsent fills an EMPTY existing config file too', () => {
+test('createIfAbsent fills an EMPTY existing config file, KEEPING its existing mode (not tightening to 600 like the born-from-absent path)', () => {
   const d = folder();
   const cfgDir = path.join(SANDBOX, `cfg${++n}-empty2`);
   fs.mkdirSync(cfgDir, { recursive: true });
-  fs.writeFileSync(path.join(cfgDir, '.claude.json'), '');
+  const cfg = path.join(cfgDir, '.claude.json');
+  fs.writeFileSync(cfg, '');
+  fs.chmodSync(cfg, 0o644);   // the person's chosen mode on a file that already exists
   const r = trustFolder(d, { configDir: cfgDir, createIfAbsent: true });
   assert.equal(r.ok, true);
-  const j = JSON.parse(fs.readFileSync(path.join(cfgDir, '.claude.json'), 'utf8'));
+  const j = JSON.parse(fs.readFileSync(cfg, 'utf8'));
   assert.equal(j.projects[d][KEY], true);
+  // The empty-EXISTING path keeps the existing mode; only the ENOENT create path
+  // is born private (0o600). Pins that the two paths are not accidentally unified.
+  assert.equal(fs.statSync(cfg).mode & 0o777, 0o644,
+    'an empty existing config must keep its on-disk mode, not be tightened to 600');
 });
 
 test('createIfAbsent is idempotent: a second call reports already-trusted and rewrites nothing new', () => {
