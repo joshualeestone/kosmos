@@ -1,0 +1,204 @@
+'use strict';
+/* #1994: sub-projects UI: a project can name a parent, shown as a tree in the
+ * wide Projects tab (indent) and a "under <parent>" chip everywhere narrow, plus
+ * a set-parent <select> in project settings that can only offer a valid parent.
+ * Drives the SHIPPED paintProjects / projectCard / paintProjectSettings against a
+ * real fixture PROJECTS tree in the real page, not a copy. Controls that can
+ * return the dangerous answer: nothing vanishes (a child of an archived/dangling
+ * parent still renders), a stored cycle still renders every row without hanging,
+ * and the parent select excludes self + descendants (offer a cycle and the
+ * engine would refuse it). Both themes.
+ *
+ * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-subprojects-1994.js
+ *      (HEADED=0 on a machine with no console session)
+ */
+const path = require('node:path');
+const { chromium } = require('playwright');
+const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
+
+const problems = [];
+let pass = 0;
+function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name + (detail ? ' -- ' + detail : '')); }
+
+(async () => {
+  const browser = await chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] });
+  for (const theme of ['light', 'dark']) {
+    const page = await browser.newPage({ viewport: { width: 1200, height: 900 }, colorScheme: theme });
+    page.on('pageerror', (e) => problems.push(`[${theme}] pageerror: ${e.message}`));
+    // The page fires startup polls at file:// that cannot load. We drive the
+    // render functions directly with a fixture PROJECTS, so we do NOT stub fetch
+    // (a blanket {} stub breaks the unrelated members/free-agent path). Just
+    // stop the 5s poll and ignore the harness's own file:// fetch errors, so a
+    // genuine console error from the code under test still surfaces.
+    await page.addInitScript(() => { window.setInterval = () => 0; });
+    page.on('console', (m) => {
+      if (m.type() !== 'error') return;
+      const x = m.text();
+      if (/ERR_FILE_NOT_FOUND|URL scheme "file"|Failed to (fetch|load)/.test(x)) return;
+      problems.push(`[${theme}] console: ${x}`);
+    });
+    await page.goto(PAGE);
+    const t = `[${theme}]`;
+
+    // ---- Layer 1: the tree render ----
+    const tree = await page.evaluate(() => {
+      const mk = (id, name, parent, parentName, archived) => ({ id, name, parent: parent || null, parentName: parentName || null, parentArchived: false, archived: !!archived, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [
+        mk('k', 'Kosmos'), mk('app', 'App', 'k', 'Kosmos'), mk('mob', 'Mobile', 'app', 'App'),
+        mk('and', 'Android', 'mob', 'Mobile'), mk('ios', 'iOS', 'mob', 'Mobile'), mk('site', 'Site', 'k', 'Kosmos'),
+        mk('orph', 'Orphan', 'gone', null), mk('arch', 'Archived one', null, null, true), mk('ac', 'ArchChild', 'arch', 'Archived one'),
+      ];
+      PJ_SORT = 'az';
+      const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+      document.getElementById('panel-projects').hidden = false;
+      // Force the wide LIST sub-view (not the asgrid grid) so the chip-vs-indent
+      // rules under test apply: indent carries a nested child, the chip carries
+      // an orphan. The --pj-depth STYLE attribute is set regardless of mode, so
+      // the depth assertions below are mode-independent; only chipDisplay is not.
+      document.getElementById('pj-list').classList.remove('asgrid');
+      document.body.classList.remove('consolidated');
+      paintProjects();
+      const rows = Array.from(document.querySelectorAll('#pj-list .pj-row'));
+      const by = {};
+      rows.forEach((r, i) => { const chipEl = r.querySelector('.pj-parent'); by[r.getAttribute('data-project')] = {
+        i, depth: Number(r.style.getPropertyValue('--pj-depth') || 0),
+        // The COMPUTED indent, not the inline --pj-depth var we set: a typo in
+        // the `calc(var(--pj-depth,0)*22px)` rule (wrong var/unit) would ship
+        // green if we only read back the property we wrote.
+        marginLeft: getComputedStyle(r).marginLeft,
+        sub: (r.querySelector('.pjsub') || {}).textContent || '',
+        chip: (chipEl || {}).textContent || '',
+        chipDisplay: chipEl ? getComputedStyle(chipEl).display : 'none',
+        childClass: r.classList.contains('child') };
+      });
+      return { count: rows.length, ids: rows.map((r) => r.getAttribute('data-project')), by };
+    });
+    // 8 active projects (arch is archived); NOTHING vanishes.
+    ok(t + ' all active rows render (nothing vanishes)', tree.count === 8, 'count=' + tree.count + ' ids=' + tree.ids.join(','));
+    // nesting: a child of an ACTIVE parent nests (depth>0, after its parent)
+    ok(t + ' app nests under k', tree.by.app && tree.by.app.depth === 1 && tree.by.app.i > tree.by.k.i, JSON.stringify(tree.by.app));
+    ok(t + ' mobile depth 2', tree.by.mob && tree.by.mob.depth === 2);
+    ok(t + ' android/ios depth 3', tree.by.and && tree.by.and.depth === 3 && tree.by.ios.depth === 3);
+    ok(t + ' children carry .child class', tree.by.app.childClass && tree.by.and.childClass && !tree.by.k.childClass);
+    // sub-project counts derived from the same grouping
+    ok(t + ' k shows 2 sub-projects', /2 sub-projects/.test(tree.by.k.sub), tree.by.k.sub);
+    ok(t + ' app shows 1 sub-project', /1 sub-project\b/.test(tree.by.app.sub), tree.by.app.sub);
+    ok(t + ' leaf shows no sub count', tree.by.and.sub === '');
+    // orphan (dangling parent id) renders at top level
+    ok(t + ' dangling-parent child renders at top level', tree.by.orph && tree.by.orph.depth === 0);
+    // archived-parent child renders at top level BUT keeps the chip (relationship not dropped)
+    ok(t + ' archived-parent child renders top level', tree.by.ac && tree.by.ac.depth === 0);
+    ok(t + ' archived-parent child keeps its chip', /under Archived one/.test(tree.by.ac.chip), tree.by.ac.chip);
+    // the chip carries the parent name for a nested child too
+    ok(t + ' nested child has parent chip', /under Kosmos/.test(tree.by.app.chip), tree.by.app.chip);
+    // In the wide LIST view the indent carries a nested child's relationship, so
+    // its chip is hidden; but an orphan (archived/dangling parent) has no indent,
+    // so ITS chip must stay visible or the relationship would vanish in list mode.
+    ok(t + ' nested child chip hidden in list view', tree.by.app.chipDisplay === 'none', tree.by.app.chipDisplay);
+    ok(t + ' orphan chip stays visible in list view', tree.by.ac.chipDisplay !== 'none', 'ac chipDisplay=' + tree.by.ac.chipDisplay);
+    // COMPUTED indent renders (not just the inline var): depth 1 -> 22px, depth 2 -> 44px, top level -> 0.
+    ok(t + ' computed indent depth1 = 22px', tree.by.app.marginLeft === '22px', tree.by.app.marginLeft);
+    ok(t + ' computed indent depth2 = 44px', tree.by.mob.marginLeft === '44px', tree.by.mob.marginLeft);
+    ok(t + ' computed indent top level = 0px', tree.by.k.marginLeft === '0px', tree.by.k.marginLeft);
+    // CONTROL: without nesting, app would be at the same depth as k. Prove the
+    // instrument can see the dangerous answer by checking depth actually varies.
+    ok(t + ' CONTROL depth varies (grouping is real, not flat)', new Set(Object.values(tree.by).map((x) => x.depth)).size >= 3);
+
+    // ---- Layer 1b: a stored CYCLE must still render every row, not hang ----
+    const cyc = await page.evaluate(() => {
+      const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: null, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('a', 'A', 'b'), mk('b', 'B', 'a'), mk('c', 'C')];   // a<->b cycle, c free
+      PJ_SORT = 'az';
+      paintProjects();
+      return Array.from(document.querySelectorAll('#pj-list .pj-row')).map((r) => r.getAttribute('data-project')).sort();
+    });
+    ok(t + ' cycle renders all rows (no vanish, no hang)', cyc.length === 3 && cyc.join(',') === 'a,b,c', JSON.stringify(cyc));
+
+    // ---- Layer 1c: the GRID view drops the indent and shows the chip ----
+    // The headline "chip carries the relationship where there is no indent":
+    // in the asgrid grid a nested child has no indent (margin 0) and its chip
+    // is visible, the inverse of list mode.
+    const grid = await page.evaluate(() => {
+      const mk = (id, name, parent, parentName) => ({ id, name, parent: parent || null, parentName: parentName || null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App', 'k', 'Kosmos')];
+      PJ_SORT = 'az';
+      document.body.classList.remove('consolidated');
+      document.getElementById('pj-list').classList.add('asgrid');   // grid sub-view
+      paintProjects();
+      const row = document.querySelector('#pj-list .pj-row[data-project="app"]');
+      const chip = row.querySelector('.pj-parent');
+      return { marginLeft: getComputedStyle(row).marginLeft, chipDisplay: chip ? getComputedStyle(chip).display : 'none' };
+    });
+    ok(t + ' grid view drops the indent', grid.marginLeft === '0px', grid.marginLeft);
+    ok(t + ' grid view shows the chip', grid.chipDisplay !== 'none', grid.chipDisplay);
+
+    // ---- Layer 2: the set-parent select ----
+    const select = await page.evaluate(() => {
+      const mk = (id, name, parent, parentName, archived) => ({ id, name, parent: parent || null, parentName: parentName || null, archived: !!archived, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [
+        mk('k', 'Kosmos'), mk('app', 'App', 'k', 'Kosmos'), mk('mob', 'Mobile', 'app', 'App'),
+        mk('and', 'Android', 'mob', 'Mobile'), mk('site', 'Site', 'k', 'Kosmos'), mk('arch', 'Archived one', null, null, true),
+      ];
+      PJ_SORT = 'az'; PJ_CURRENT = 'app';
+      paintProjectSettings(pjById('app'));
+      const sel = document.getElementById('pjs-parent');
+      return { value: sel.value, opts: Array.from(sel.options).map((o) => o.value) };
+    });
+    ok(t + ' select preselects current parent', select.value === 'k', select.value);
+    ok(t + ' select offers Top level (none)', select.opts.includes(''), JSON.stringify(select.opts));
+    ok(t + ' select excludes self', !select.opts.includes('app'), JSON.stringify(select.opts));
+    // CONTROL that can return the dangerous answer: descendants MUST be excluded,
+    // or picking one would create a cycle the engine refuses.
+    ok(t + ' select excludes descendants (mob/and)', !select.opts.includes('mob') && !select.opts.includes('and'), JSON.stringify(select.opts));
+    ok(t + ' select excludes archived', !select.opts.includes('arch'), JSON.stringify(select.opts));
+    ok(t + ' select includes valid parents (k, site)', select.opts.includes('k') && select.opts.includes('site'), JSON.stringify(select.opts));
+
+    // ---- Layer 2b: a current parent that is ARCHIVED must stay represented ----
+    // Engine allows archiving a project that has children; if the select could
+    // not show that parent it would read "Top level (none)" and a later save of
+    // an unrelated field would silently send parent:null. The select must keep
+    // the archived parent as its preselected value so the diff stays honest.
+    const arch = await page.evaluate(() => {
+      const mk = (id, name, parent, parentName, parentArchived, archived) => ({ id, name, parent: parent || null, parentName: parentName || null, parentArchived: !!parentArchived, archived: !!archived, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [
+        mk('k', 'Kosmos', null, null, false, true),          // the parent, now ARCHIVED
+        mk('app', 'App', 'k', 'Kosmos', true, false),        // child of the archived parent
+        mk('site', 'Site', null, null, false, false),
+      ];
+      PJ_SORT = 'az'; PJ_CURRENT = 'app';
+      paintProjectSettings(pjById('app'));
+      const sel = document.getElementById('pjs-parent');
+      const cur = Array.from(sel.options).find((o) => o.value === 'k');
+      return { value: sel.value, hasArchivedParentOption: !!cur, label: cur ? cur.textContent : '' };
+    });
+    ok(t + ' archived parent stays the select value (no silent un-group)', arch.value === 'k', arch.value);
+    ok(t + ' archived parent shown with an option', arch.hasArchivedParentOption, JSON.stringify(arch));
+    ok(t + ' archived parent option is labelled archived', /archived/i.test(arch.label), arch.label);
+
+    // ---- Layer 2c: reopening settings clears a stale parent-refusal state ----
+    // A parent refusal marks #pjs-parent .bad + aria-invalid. Repainting the
+    // select (reopening settings without saving) must clear that STATE, not just
+    // the message text, or the field shows a red/invalid border with no reason.
+    const reopen = await page.evaluate(() => {
+      const mk = (id, name) => ({ id, name, parent: null, parentName: null, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App')];
+      PJ_SORT = 'az'; PJ_CURRENT = 'app';
+      pjFieldBad('pjs-parent', 'pjs-parent-err', 'a prior refusal');   // simulate a refusal
+      const before = document.getElementById('pjs-parent').classList.contains('bad');
+      paintProjectSettings(pjById('app'));                             // reopen the panel
+      const el = document.getElementById('pjs-parent');
+      return { before, badAfter: el.classList.contains('bad'), ariaAfter: el.getAttribute('aria-invalid') };
+    });
+    ok(t + ' CONTROL field was marked bad', reopen.before);
+    ok(t + ' reopening clears stale invalid state', !reopen.badAfter && !reopen.ariaAfter, JSON.stringify(reopen));
+
+    await page.close();
+  }
+  await browser.close();
+  if (problems.length) {
+    console.log('problems:\n  ' + problems.join('\n  '));
+    console.log('\n' + pass + ' passed, ' + problems.length + ' FAILED');
+    process.exit(1);
+  }
+  console.log(pass + ' passed, problems: none');
+})().catch((e) => { console.error(e); process.exit(1); });
