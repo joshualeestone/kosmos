@@ -55,15 +55,31 @@ test('#570 fail-closed: an UNRECORDED live session (the operator\'s own) is NEVE
   assert.ok(!names.includes('agent1-d2'), 'the operator\'s own session is absent (fail-closed by construction)');
 });
 
-test('#570 belt-and-suspenders: even a hand-built claude.exe pane with an EMPTY claim is NOT ours (process arm does not rescue it)', () => {
-  // Prove the second fail-closed property directly: were an unrecorded row ever
-  // emitted (empty claim), the ownership process arm must not claim it. Built via
-  // the sanctioned fleet.line() (from PANE_COLUMNS) rather than a hand-typed line.
-  const text = fleet.line({ session: 'agent1-d2', command: 'claude.exe', claim: '', title: 'agent1-d2' }) + '\n';
-  const p = status.parsePanes(text)[0];
-  assert.ok(p, 'the row parsed');
-  assert.equal(p.claim, '', 'empty claim');
-  assert.equal(status.isNamedOurs(p), false, 'claude.exe + empty claim is NOT ours (isNativeClaude is version-string only)');
+test('#570 defense-in-depth: a claude.exe pane with an EMPTY claim is NOT a fleet session, but a VERSION-STRING command IS (proving claude.exe is the load-bearing choice)', () => {
+  // Property 2 is: command="claude.exe" classifies as an agent yet does NOT let the
+  // ownership PROCESS arm claim an unrecorded row. That arm is isNativeClaude, and
+  // it lives inside isFleetSession (isNamedOurs(pane) || isNativeClaude(pane.command)),
+  // NOT in isNamedOurs -- which never reads the command column at all and so returns
+  // false for EVERY command. So the load-bearing assertion is on isFleetSession, and
+  // the CONTRAST row (a version-string command, which the process arm DOES claim) is
+  // the control that can return the dangerous answer -- without it this test would
+  // pass even if property 2 were violated.
+  const mk = (command) =>
+    status.parsePanes(fleet.line({ session: 'agent1-d2', command, claim: '', title: 'agent1-d2' }) + '\n')[0];
+
+  const exe = mk('claude.exe');
+  assert.ok(exe, 'the claude.exe row parsed');
+  assert.equal(exe.claim, '', 'empty claim');
+  assert.equal(status.isNamedOurs(exe), false, 'the NAME arm does not claim it (empty claim, non-discord session)');
+  assert.equal(status.isFleetSession(exe), false, 'the PROCESS arm does not claim it either: isNativeClaude("claude.exe") is false');
+  assert.equal(status.isAgentSession(exe), false, 'so it is not an agent session (not writable/restartable)');
+
+  // Control: the ONLY change is the command. A version string fires isNativeClaude,
+  // so the process arm WOULD rescue this same unrecorded row -> the test CAN return
+  // the dangerous answer, and choosing claude.exe (not a version string) is exactly
+  // what prevents it.
+  const ver = mk('2.1.212');
+  assert.equal(status.isFleetSession(ver), true, 'a version-string command IS claimed by the process arm (the dangerous answer claude.exe avoids)');
 });
 
 test('#570: a failed `claude agents --json` returns NULL, not "" (so listPanes refuses honestly, not empty-machine)', () => {
@@ -81,6 +97,20 @@ test('#570: the runner column rides through from the record', () => {
   const list = status.parsePanes(src());   // parsePanes returns the pane array directly
   assert.equal(list.length, 1);
   assert.equal(list[0].runner, 'codex', 'the recorded runner is emitted in the runner column');
+});
+
+test('#570 emit guard: a corrupt store with an OWN __proto__ key + a live session of that id is NOT emitted (validId gate)', () => {
+  // The one path property 1 does not close by construction: JSON.parse of a
+  // hand-corrupted store yields an OWN "__proto__" key, and were a live session
+  // ever named "__proto__", hasOwnProperty(owned, id) would be true. The emit-loop
+  // validId gate rejects the id first, so nothing is emitted. (Both halves are
+  // outside the single-local-user threat model; this makes the record the sole
+  // trust root explicitly rather than by construction.)
+  const owned = JSON.parse('{"__proto__":{"name":"evil","runner":""}}'); // an OWN __proto__ key
+  assert.equal(Object.prototype.hasOwnProperty.call(owned, '__proto__'), true, 'the corrupt store has an own __proto__ key');
+  const liveAgent = { pid: 1, cwd: '/x', kind: 'interactive', startedAt: 1, sessionId: '__proto__', name: 'evil', status: 'idle' };
+  const src = win32roster.make({ run: () => [liveAgent], record: { read: () => owned } });
+  assert.equal(src(), '', 'an invalid id is never emitted, even when a matching own key exists in the store');
 });
 
 // ---- win32sessions record store (the ownership authority) ----

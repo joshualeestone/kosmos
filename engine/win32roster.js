@@ -109,13 +109,22 @@ function make(opts) {
     for (const a of agents) {
       if (!a || typeof a !== 'object') continue;
       const id = a.sessionId;
+      // Re-validate the live id against the SAME gate record() writes under, so the
+      // record store is the sole trust root EXPLICITLY, not merely by construction.
+      // Without this the loop would trust that owned's keys are all well-formed; that
+      // holds today (record() enforces validId), but a hand-corrupted store plus a
+      // matching live id is the one path it does not close -- e.g. JSON.parse of
+      // `{"__proto__":...}` yields an OWN "__proto__" key, which validId rejects here.
+      if (!win32sessions.validId(id)) continue;
       // FAIL CLOSED: emit ONLY sessions Kosmos created. An unrecorded session
       // (the operator's own) is never put on the board.
-      if (!id || !Object.prototype.hasOwnProperty.call(owned, id)) continue;
+      if (!Object.prototype.hasOwnProperty.call(owned, id)) continue;
       const rec = owned[id] || {};
       // The claim must MATCH the pane's name (status.isNamedOurs), so the emitted
       // name and claim are the SAME value. Prefer the recorded name (what Kosmos
-      // filed it under) and fall back to the live name.
+      // filed it under) and fall back to the live name. record() guarantees a stored
+      // rec.name has a visible character, so this truthiness belt is enough here (the
+      // full visible-char gate is the record's job, not duplicated per board tick).
       const name = flat(rec.name || a.name || '');
       if (!name) continue; // a nameless row cannot be tied to an agent; skip it.
       const runner = flat(rec.runner || '');
