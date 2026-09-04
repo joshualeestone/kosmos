@@ -7017,7 +7017,7 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
   // dependency has to be a real one. Stubbing them would keep the test green
   // while quietly no longer exercising the branch that draws the face.
   const prelude = TOLD_PRELUDE
-    + 'const STATE_COPY = { idle: { label: "Idle" }, unknown: { label: "Can\'t tell" } };\n'
+    + 'const STATE_COPY = { idle: { label: "Idle" }, restarting: { label: "Restarting agent" }, unknown: { label: "Can\'t tell" } };\n'
     + pageConstSource('DISC_TINTS') + '\n'
     + pageConstSource('DISC_INKS') + '\n'
     + pageFnSource('discIndex') + '\n'
@@ -7025,7 +7025,13 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
     + pageFnSource('discInk') + '\n'
     + pageFnSource('initials') + '\n'
     + pageFnSource('pjToldLine') + '\n'
-    + pageFnSource('pjMemberHasIt') + '\n';
+    + pageFnSource('pjMemberHasIt') + '\n'
+    /* #2019: pjMember now reads the shared stateCopyOf() for the state word (so the
+       members list cannot drift from card/row/detail), which needs restartingLabel;
+       both join the prelude, and STATE_COPY above gains the 'restarting' key the
+       fallback path reads. A stub would let this pass while the shipped helper differed. */
+    + pageFnSource('restartingLabel') + '\n'
+    + pageFnSource('stateCopyOf') + '\n';
   const member = pageFunction('pjMember', prelude);
   const toldLine = pageFunction('pjToldLine', TOLD_PRELUDE);
 

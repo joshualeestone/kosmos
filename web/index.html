@@ -16220,7 +16220,11 @@ function paintOrg() {
     const a = spot.node.agent;
     /* The state vocabulary is the CARD's, read through the same table the grid
        and the list read, so the three views cannot disagree about an agent.
-       Only three of the four draw; idle is the resting state and carries none. */
+       Three states draw a ring (attn / working / unknown); the resting states
+       (idle, paused, stopped) carry none. #2019: 'restarting' DELIBERATELY joins
+       the no-ring resting group here -- this compact constellation is not the
+       place for the animated K (the card / row / detail carry that), and no ring
+       still reads as present-and-quiet, never as "gone". */
     const st = cardStOf(a).st;
     const ring = st === 'attn' ? ' attn' : st === 'working' ? ' work' : st === 'unknown' ? ' unk' : '';
     const shown = a.name || a.sessionName;
@@ -27068,7 +27072,11 @@ function pjMember(m, suppressTold, withMinus) {
       + encodeURIComponent(m.sessionName) + '/avatar" alt=""></span>'
     : '<span class="lav pj-face" aria-hidden="true" style="background:' + discTint(m.name)
       + ';color:' + discInk(m.name) + '">' + esc(initials(m.name)) + '</span>';
-  return '<div class="pj-member' + (m.present ? '' : ' unseen') + '">'
+  /* #2019: a restarting member is NOT "unseen" -- .unseen draws the dashed
+     "slot waiting / cannot see this" border the restarting state refuses on every
+     other surface (the card pill is deliberately SOLID). Suppress it for
+     restarting, matching the present-branch caption below and pres='on' elsewhere. */
+  return '<div class="pj-member' + ((m.present || m.state === 'restarting') ? '' : ' unseen') + '">'
     + face
     + '<span class="pj-member-b">'
     + '<b>' + esc(m.name) + '</b>'
@@ -27097,7 +27105,11 @@ function pjMember(m, suppressTold, withMinus) {
     // "Restarting agent", not "We cannot see this agent". Inert until the engine
     // emits the state.
     + ((m.present || m.state === 'restarting')
-      ? '<small>' + esc((STATE_COPY[m.state] || STATE_COPY.unknown).label)
+      /* #2019: through the shared stateCopyOf so the members list cannot drift from
+         the card/row/detail on the state word (it names the cause when the member
+         payload carries a.disruption, and falls back to "Restarting agent" when it
+         does not -- honest either way). */
+      ? '<small>' + esc(stateCopyOf(m).label)
         + (m.state === 'unknown' && m.because ? ': ' + esc(m.because) : '') + '</small>'
       : '<small>' + esc(m.because || 'We cannot see this agent on this computer right now.') + '</small>')
     /* The removal action lives in PROJECT SETTINGS now (Josh's ruling
