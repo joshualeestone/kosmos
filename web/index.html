@@ -33847,9 +33847,13 @@ async function frPaintYou() {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ timezone: tzEl.value }),
         });
+        // Parse the body BEFORE the generation guard, exactly as the /api/you
+        // branch above does: no await may sit between the guard and the shared-DOM
+        // write below, or a re-entry during the parse could let this stale closure
+        // toggle a newer paint's #fr-next via gate().
+        const tj = await tzRes.json().catch(() => ({}));
         if (entry !== FR_YOU_GEN) return;
         if (!tzRes.ok) {
-          const tj = await tzRes.json().catch(() => ({}));
           saving = false;
           document.getElementById('fr-you-msg').textContent = (tj && (tj.because || tj.error)) || 'we could not save your time zone';
           gate();
