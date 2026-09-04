@@ -88,6 +88,18 @@ test('dateKey is LOCAL YYYY-MM-DD, and today() matches it', () => {
   assert.equal(feedback.today(), feedback.dateKey(new Date()));
 });
 
+test('isDateKey accepts a bare YYYY-MM-DD string and rejects everything else', () => {
+  assert.equal(feedback.isDateKey('2026-09-04'), true);
+  assert.equal(feedback.isDateKey('2026-9-4'), false);   // must be zero-padded
+  assert.equal(feedback.isDateKey('../../oops'), false);
+  assert.equal(feedback.isDateKey(''), false);
+  // Non-strings are rejected, not ToString-coerced (a JSON number/array/object).
+  assert.equal(feedback.isDateKey(20260904), false);
+  assert.equal(feedback.isDateKey(['2026-09-04']), false);
+  assert.equal(feedback.isDateKey({}), false);
+  assert.equal(feedback.isDateKey(null), false);
+});
+
 test('the date is path-safe: a traversal date is refused, not written outside the dir', () => {
   assert.throws(() => feedback.pathFor('../../etc/passwd'), /YYYY-MM-DD/);
   assert.throws(() => feedback.write('evil', { date: '../../oops' }), /YYYY-MM-DD/);

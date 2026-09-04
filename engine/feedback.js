@@ -47,11 +47,18 @@ function dateKey(d = new Date()) {
   return `${y}-${m}-${day}`;
 }
 
+/** True iff x is a bare YYYY-MM-DD STRING. The one date-shape gate, shared by
+ *  the engine and the /api/feedback route so this path-safety check has a single
+ *  source of truth and cannot drift across sites. Requires a string, so a
+ *  non-string date (a JSON number/array/object) is rejected rather than
+ *  ToString-coerced into a value that echoes back oddly. */
+function isDateKey(x) { return typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x); }
+
 /** Reject anything that is not a bare YYYY-MM-DD, so a caller cannot walk out
  *  of the feedback dir via the date (the same untrusted-path care store.js
  *  takes with agent names). */
 function assertDate(date) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) {
+  if (!isDateKey(date)) {
     throw new Error('feedback: date must be YYYY-MM-DD, got ' + JSON.stringify(date));
   }
   return date;
@@ -136,4 +143,4 @@ function list() {
     .reverse();
 }
 
-module.exports = { dir, dateKey, today, pathFor, write, read, readBody, has, list };
+module.exports = { dir, dateKey, isDateKey, today, pathFor, write, read, readBody, has, list };

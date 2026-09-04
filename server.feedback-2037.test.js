@@ -97,6 +97,15 @@ test('POST with a malformed date is a clean 400 (validated at the route, before 
   assert.match(j.error, /YYYY-MM-DD/);
 });
 
+test('POST with a non-string date (a JSON array) is refused (400), not ToString-coerced', async (t) => {
+  const base = await boot(t);
+  const r = await fetch(`${base}/api/feedback`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ date: ['2026-09-04'], body: 'real body' }),
+  });
+  assert.equal(r.status, 400);
+});
+
 test('GET for a day with no report returns report: null, not an error', async (t) => {
   const base = await boot(t);
   const r = await fetch(`${base}/api/feedback?date=2020-01-01`);

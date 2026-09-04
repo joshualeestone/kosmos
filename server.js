@@ -3258,7 +3258,7 @@ const server = http.createServer((req, res) => {
     let date;
     try { date = new URL(req.url, ROUTING_BASE).searchParams.get('date') || feedback.today(); }
     catch { date = feedback.today(); }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { sendJson(res, 400, { error: 'date must be YYYY-MM-DD' }); return; }
+    if (!feedback.isDateKey(date)) { sendJson(res, 400, { error: 'date must be YYYY-MM-DD' }); return; }
     try { sendJson(res, 200, { ok: true, date, dates: feedback.list(), report: feedback.readBody(date) }); }
     catch { sendJson(res, 500, { error: 'the feedback reports could not be read' }); }
     return;
@@ -3275,7 +3275,7 @@ const server = http.createServer((req, res) => {
         // Validate the date HERE so a malformed date is a clean 400. Everything
         // left for write() to throw is then an IO failure (ENOSPC/EACCES/...),
         // which is a 500, not "your date is wrong" (a misleading 400).
-        if (body.date != null && !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) {
+        if (body.date != null && !feedback.isDateKey(body.date)) {
           sendJson(res, 400, { error: 'the date must be YYYY-MM-DD' }); return;
         }
         let saved;
