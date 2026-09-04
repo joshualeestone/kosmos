@@ -1,7 +1,8 @@
 "use strict";
 /**
  * #2140 Surface 2: the OpenAI model picker on an EXISTING agent's detail page.
- * Runs the SHIPPED paintOpenaiDetailModel against a fake document with a stubbed
+ * Runs the SHIPPED paintOpenaiDetailModel against a hand-rolled document stub
+ * (a small getElementById fake, NOT jsdom) with a stubbed
  * /api/accounts/openai/models fetch. The point is the bug Josh flagged: an OpenAI
  * agent's detail page must NEVER show Claude models (the Claude flow matches by
  * label against CREATE_MODELS). Asserts: LISTABLE shows the account's models with
