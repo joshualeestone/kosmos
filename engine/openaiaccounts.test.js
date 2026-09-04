@@ -819,3 +819,27 @@ test('#2095: writeName clamps an over-long name (a raw API call cannot bloat the
   assert.equal(openai.writeName(d, 'x'.repeat(500)), true);
   assert.equal(openai.readName(d).length, 120, 'the stored name is clamped to the bounded length');
 });
+
+test('#2095: the clamp is code-point-safe (an emoji at the boundary is not split into a lone surrogate)', () => {
+  const d = nodePath.join(SANDBOX, '.codex-emojiname');
+  fs.mkdirSync(d, { recursive: true });
+  // 119 plain chars then an astral emoji: the emoji straddles the 120th UTF-16
+  // unit. A code-point-safe clamp keeps or drops it whole, never a U+FFFD half.
+  openai.writeName(d, 'a'.repeat(119) + '\u{1F600}' + 'tail');
+  const got = openai.readName(d);
+  assert.ok(!got.includes('�'), 'no replacement char from a split surrogate');
+  assert.equal([...got].length <= 120, true, 'clamped by code point');
+});
+
+test('#2095: a made-dir live-rejection removes the whole dir including the name file (belt-and-suspenders)', async () => {
+  // The higher-stakes branch: addWithKey CREATED the dir (madeDir=true), so undo
+  // rmSyncs the whole dir recursively -- the name file goes with it.
+  openai.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));
+  try {
+    const out = await openai.addWithKeyLive({ key: 'sk-proj-madedirdeadMADE', label: 'madedirdead', codexBin: FAKE_CODEX });
+    assert.equal(out.ok, false);
+    const dir = nodePath.join(SANDBOX, '.codex-madedirdead');
+    assert.equal(fs.existsSync(dir), false, 'the whole made dir is gone, so no orphaned name file');
+    assert.equal(openai.readName(dir), null);
+  } finally { openai.setFetcher(null); }
+});

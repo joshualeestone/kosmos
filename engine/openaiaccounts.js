@@ -89,7 +89,11 @@ function readName(dir) {
    (create.js), generous for a display label and bounded. */
 const NAME_MAX = 120;
 function writeName(dir, name) {
-  const n = String(name == null ? '' : name).trim().slice(0, NAME_MAX);
+  // Clamp by CODE POINT ([...s] iterates code points), not UTF-16 unit, so the
+  // 120-char boundary can never split an astral char (an emoji surrogate pair)
+  // into a lone half that serialises as U+FFFD. trimEnd after clamping so a cut
+  // that lands on a space does not store a trailing blank.
+  const n = [...String(name == null ? '' : name).trim()].slice(0, NAME_MAX).join('').trimEnd();
   if (!n) return false;
   try { fs.writeFileSync(nameFile(dir), n); return true; }
   catch { return false; }

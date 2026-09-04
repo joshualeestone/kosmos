@@ -30,5 +30,7 @@ The served field is **`account.name`** (exact human-chosen name; may be null). B
 - Create-agent picker: the account dropdown option.
 Verify visually that a named account shows its exact name (not the slug, not just the key last-4).
 
+🛑 **The name is arbitrary user text, preserved verbatim (that is the point — no character sanitization beyond trim + a 120-code-point clamp).** So the follow-up MUST render it via `textContent` / a text node, or HTML-escape it — never `innerHTML` — or a name like `<img src=x onerror=…>` is a stored-XSS on the local board. The backend serving it raw is correct (it is JSON-safe); the escaping duty is entirely the render's.
+
 ## Weakest premise
 That the frontend render only needs `account.name` served and a small display tweak, with no other plumbing. If the frontend account object is re-shaped somewhere between the API and the render (dropping unknown fields), the follow-up must carry `name` through that too. The backend serving it is correct regardless.
