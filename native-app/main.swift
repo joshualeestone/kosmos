@@ -480,7 +480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let other = otherRunningInstance()
         if shouldDeferToExistingInstance(handoff: handoff, otherRunning: other != nil) {
             logLine("#2124: another Kosmos instance is already running; activating it and exiting this duplicate")
-            other?.activate(options: [.activateIgnoringOtherApps])
+            other?.activate()
             NSApp.terminate(nil)
             return
         }
@@ -2039,6 +2039,19 @@ if CommandLine.arguments.contains("--kosmos-app-reload-decision-selftest") {
                                        lastLoadFailed: failed)
                 print("startInFlight=\(startInFlight) committed=\(committed) lastLoadFailed=\(failed) -> \(d.rawValue)")
             }
+        }
+    }
+    exit(0)
+}
+
+// #2124: the single-instance DEFER decision, every arm, no window server. A build-time
+// gate diffs this against the expected table so BOTH arms are pinned: the duplicate-launch
+// arm (dedup fires) AND the #2094 relaunch-handoff arm (dedup EXCLUDED, so the fresh copy
+// is not deduped to nothing).
+if CommandLine.arguments.contains("--kosmos-app-instance-selftest") {
+    for handoff in [false, true] {
+        for otherRunning in [false, true] {
+            print("handoff=\(handoff) otherRunning=\(otherRunning) -> defer=\(shouldDeferToExistingInstance(handoff: handoff, otherRunning: otherRunning))")
         }
     }
     exit(0)
