@@ -3001,7 +3001,7 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   /* #2157: the Working tile (chip + its .act animation) hides at a KNOWN zero and
      only there. Nonzero keeps it shown; a floored count keeps it shown too, because
      hiding would claim "none working" on a read that cannot stand behind it. */
-  assert.equal(live['st-working-tile'].hidden, false, 'a nonzero (floored) working count keeps the tile shown');
+  assert.equal(live['st-working-tile'].hidden, false, 'a nonzero working count keeps the tile shown (the floored-ZERO path is the zeroFloor fixture below)');
   assert.equal(known['st-working-tile'].hidden, false, 'a nonzero working count keeps the tile shown');
   const zeroKnown = drive(
     [{ state: 'idle' }, { state: 'idle' }, { state: 'needs_you' }],
