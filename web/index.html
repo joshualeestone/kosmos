@@ -28761,7 +28761,10 @@ function pjPaintParentSelect(p) {
   }
   sel.innerHTML = opts.join('');
   sel.value = p.parent || '';
-  document.getElementById('pjs-parent-err').textContent = '';
+  /* Clear any stale refusal STATE (the `.bad` class + aria-invalid), not just
+     the message text: reopening settings after a parent refusal without saving
+     would otherwise repaint a red, aria-invalid select with no reason shown. */
+  pjFieldOk('pjs-parent', 'pjs-parent-err');
 }
 
 function paintProjectSettings(p) {

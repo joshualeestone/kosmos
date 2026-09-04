@@ -149,6 +149,23 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' archived parent shown with an option', arch.hasArchivedParentOption, JSON.stringify(arch));
     ok(t + ' archived parent option is labelled archived', /archived/i.test(arch.label), arch.label);
 
+    // ---- Layer 2c: reopening settings clears a stale parent-refusal state ----
+    // A parent refusal marks #pjs-parent .bad + aria-invalid. Repainting the
+    // select (reopening settings without saving) must clear that STATE, not just
+    // the message text, or the field shows a red/invalid border with no reason.
+    const reopen = await page.evaluate(() => {
+      const mk = (id, name) => ({ id, name, parent: null, parentName: null, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App')];
+      PJ_SORT = 'az'; PJ_CURRENT = 'app';
+      pjFieldBad('pjs-parent', 'pjs-parent-err', 'a prior refusal');   // simulate a refusal
+      const before = document.getElementById('pjs-parent').classList.contains('bad');
+      paintProjectSettings(pjById('app'));                             // reopen the panel
+      const el = document.getElementById('pjs-parent');
+      return { before, badAfter: el.classList.contains('bad'), ariaAfter: el.getAttribute('aria-invalid') };
+    });
+    ok(t + ' CONTROL field was marked bad', reopen.before);
+    ok(t + ' reopening clears stale invalid state', !reopen.badAfter && !reopen.ariaAfter, JSON.stringify(reopen));
+
     await page.close();
   }
   await browser.close();
