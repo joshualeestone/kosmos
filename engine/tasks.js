@@ -25,6 +25,12 @@
  * agent stay distinguishable later.
  */
 const projects = require('./projects');
+/* #992: a task's transcript. record() is best-effort and never throws, so a
+   failed append can never break the task write that triggered it -- the task is
+   the source of truth, the transcript is a record of it. Every call below sits
+   AFTER the successful projects.mutate / writeParts, so a refused write (an
+   agent not on the project) records nothing. */
+const taskchat = require('./taskchat');
 
 const SENTENCE_MAX = 200;
 const DETAIL_MAX = 2000;
@@ -102,6 +108,10 @@ function create(projectId, { sentence, detail, who, made: origin } = {}, roster)
       taskCounter: number,
       tasks: [...(p.tasks || []), made],
     };
+  });
+  taskchat.record(projectId, made.number, {
+    kind: 'created', sentence: made.sentence, detail: made.detail,
+    addedBy: made.addedBy, addedVia: made.addedVia,
   });
   return made;
 }
@@ -210,6 +220,7 @@ function addPart(projectId, n, { sentence, who, made } = {}) {
     return parts.concat([{ id: nextPartId(parts), who: whoKey, sentence: said, closedAt: null,
       addedVia: viaOf(made), createdAt: new Date().toISOString() }]);
   });
+  taskchat.record(projectId, Number(n), { kind: 'part-added', sentence: said, who: whoKey });
   return { ok: true, task };
 }
 
@@ -247,6 +258,10 @@ function assignPart(projectId, n, partId, who, made) {
     });
   });
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
+  // Only a real move is recorded: a resubmit of the current assignee (moved
+  // false) changed nothing and types no pane line, so it leaves no transcript
+  // line either. `who: null` is a real event -- somebody was taken off.
+  if (moved) taskchat.record(projectId, Number(n), { kind: 'assigned', partId, who: whoKey });
   return { ok: true, task, changed: moved };
 }
 
@@ -259,6 +274,7 @@ function setPartClosed(projectId, n, partId, closedAt) {
     return { ...x, closedAt };
   }));
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
+  taskchat.record(projectId, Number(n), { kind: closedAt ? 'part-closed' : 'part-reopened', partId });
   return { ok: true, task };
 }
 
@@ -287,6 +303,7 @@ function setClosed(projectId, n, closedAt) {
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
   });
+  taskchat.record(projectId, changed.number, { kind: closedAt ? 'closed' : 'reopened' });
   return changed;
 }
 
