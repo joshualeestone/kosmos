@@ -1089,7 +1089,7 @@ fi
 # pre-#2012 page (content column 544px not full-width, header max-width calc(...34rem)
 # not none, #d-window 560px not viewport-relative, no message-body measure), which is
 # the arm that makes the 5 mean anything.
-for n in live-connect render-agent-nav render-busy-line render-reauth-reach-1918 render-account-badge-1921 render-head-row render-room-scroll render-made-before render-detail-header-1841 render-agentpage-fullwidth-2012 render-a11y-copy-1940 render-memory-words render-org-drag render-pjsettings render-settings-nav render-plus-gate-1615 render-prompter-label-1843 render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset render-agent-lines render-long-title render-project-rows; do
+for n in live-connect render-agent-nav render-busy-line render-reauth-reach-1918 render-account-badge-1921 render-head-row render-room-scroll render-made-before render-detail-header-1841 render-agentpage-fullwidth-2012 render-a11y-copy-1940 render-build-marker-2066 render-memory-words render-org-drag render-pjsettings render-settings-nav render-plus-gate-1615 render-prompter-label-1843 render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset render-agent-lines render-long-title render-project-rows; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 # --- the rich board: four checks that could not be wired for want of a fixture

@@ -392,7 +392,10 @@ test('every emit site in every check prints a line the gate can quote', () => {
      loop is the same SHAPE-1 finding-emit site as its render-optout-403-2020 sibling,
      confirmed quotable (the matcher counts it -- an unquotable emit would not raise
      this number). */
-  const EXPECTED_SITES = 35;
+  /* 36 after kosmos#2066 added render-build-marker-2066.js, whose per-problem
+     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
+     quotable (same shape as render-account-badge-1921's loop). */
+  const EXPECTED_SITES = 36;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -467,7 +470,10 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
   /* 17 after kosmos#2047 added render-settings-403-2047.js, whose top-level
      `.catch((e) => { console.error('FAIL  render-settings-403-2047 threw: ' + ...) })`
      is one catch emit, confirmed quotable (the FAIL prefix matches the reason grep). */
-  const EXPECTED_CATCH_SITES = 17;
+  /* 18 after kosmos#2066 added render-build-marker-2066.js, whose launch-failure
+     `console.error('FAIL  render-build-marker-2066: could not start a browser' ...)` is
+     one catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921). */
+  const EXPECTED_CATCH_SITES = 18;
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '

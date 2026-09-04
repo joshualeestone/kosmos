@@ -145,6 +145,13 @@
      Dark #4ade80 is 10.11 on the dark card and 11.16 on the dark page. */
   --ok: #1f7a4d;
   --k-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* #2066 build marker: the STAGING badge's ink + ground. Mona Lisa's values
+     (installkosmos.com/design/build-marker). A dark warm-brown ink on a light
+     warm-cream ground in light; the inverse (light gold on deep brown) in dark,
+     so the badge stays loud and legible either way. Defined here and re-stated
+     in both dark blocks below, because a one-theme colour on the wrong ground is
+     the failure this palette exists to avoid. */
+  --stag: #8a5a00; --stag-bg: #fbeecb;
 
   --font-ui: -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, monospace;
@@ -277,6 +284,8 @@
     --k-side:   #111316;
     --k-side-2: #1c1f23;
     --k-optline: #6e7278;
+    /* #2066 build marker (dark): light gold ink on a deep warm-brown ground. */
+    --stag: #f0c860; --stag-bg: #3a2e10;
   }
 }
 /* ⚠️ THIS BLOCK USED TO BREAK DARK MODE, and it sits after the dark block, so it
@@ -1025,6 +1034,19 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
            margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6);
            padding: var(--space-8) var(--space-8) 0;
            border-bottom: 1px solid var(--k-rule); }
+/* #2066 build marker (Mona Lisa's design, installkosmos.com/design/build-marker).
+   Same fixed corner, different weight per channel: prod is quiet furniture, present
+   in every screenshot but not competing; staging spends attention on purpose so a
+   tester cannot miss it or leave it out of a shot. Below the sticky header (z 20) so
+   it never sits over the chrome; the corner keeps it clear of content. */
+#buildmark { position: fixed; right: 10px; bottom: 8px; z-index: 15;
+             font: 500 11px/1.4 var(--k-mono); color: var(--k-ink-2); opacity: .75;
+             user-select: none; }
+#buildmark.staging { display: inline-flex; align-items: center; gap: 6px;
+             font: 700 11px/1 var(--font-ui); letter-spacing: .04em; opacity: 1;
+             color: var(--stag); background: var(--stag-bg);
+             border: 1px solid var(--stag); border-radius: 99px; padding: 3px 10px; }
+#buildmark.staging .bm-v { font: 600 11px var(--k-mono); }
 /**
  * 🛑 THE TABS CENTRED AGAINST THE GAP, NOT AGAINST THE PAGE. `auto 1fr auto`
  * gives the tab bar a middle column that is whatever is left between two
@@ -5801,6 +5823,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     --k-side:   #111316;
     --k-side-2: #1c1f23;
     --k-optline: #6e7278;
+    /* #2066 build marker (dark): light gold ink on a deep warm-brown ground. */
+    --stag: #f0c860; --stag-bg: #3a2e10;
   }
 
 @media (prefers-contrast: more) {
@@ -5917,6 +5941,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 <!-- #1553: shown from the first frame, removed by revealBoot() only after the
      first-run gate resolves, so no view is painted and then retracted. -->
 <div id="boot-cover"><div class="boot-spin" aria-hidden="true"></div></div>
+<!-- #2066 build marker: "which build am I on", present in a screenshot on every tab.
+     A fixed body corner, NOT Settings: a problem screenshot is not of Settings, and a
+     click/hover reveal is not in a screenshot. Body-fixed rather than inside .apphead
+     because the consolidated layout sets .apphead to position:static, so a body corner
+     is the layout-robust home for "on every tab". Prod: a small dim version string.
+     Staging: a loud coloured STAGING badge in the same slot (absence of the badge is
+     prod). Painted by paintBuildMark() off the /api/status poll; the hover title carries
+     the fuller line (channel · port). Hidden until the first paint gives it a version. -->
+<div id="buildmark" hidden></div>
 <!-- ⚠️ THE STICKY UNIT IS THE WHOLE BAR, header and tabs together, pulled to
      the page edges with negative margins that mirror the body padding exactly
      (the design pack's own warning: the pull-out must track the stage padding,
@@ -13070,6 +13103,8 @@ async function tick() {
     SERVED_VERSION = data.version || null;
     ENGINE_STALE = data.engine || null;
     paintBuildLine(data.version);
+    // #2066: the corner build marker reads (version, sourceChannel) off this same tick.
+    paintBuildMark(data.version, data.sourceChannel);
 
     // The freshness stamp is load-bearing. An ambient board gets trusted
     // passively, and silence reads as "all fine". If this stops updating, the
@@ -16512,6 +16547,46 @@ function paintBuildLine(version) {
   const shown = baked || version;
   el.innerHTML = '<b>BETA</b> · version ' + esc(shown || 'unknown')
     + (pageIsStale(version) ? ' · <b>reload for ' + esc(version) + '</b>' : '');
+}
+
+/**
+ * #2066: the build marker in the board's persistent chrome -- "which build am I on,
+ * and is this staging or prod", answerable from a problem screenshot without asking.
+ *
+ * Same value logic as paintBuildLine: the BAKED version wins, because the question is
+ * "what am I looking at" and only the page's own baked value knows that; the polled
+ * `version` is the fallback for a source checkout that bakes nothing. Channel is
+ * `sourceChannel` off the /api/status poll (never baked into the artifact -- #2036's
+ * same-bytes-promotion invariant), defaulting to prod. Port comes from the URL the
+ * board is served on, which is per-account (#the cabal9 "which of several apps" case).
+ *
+ * Weight, not visibility, carries the channel: prod paints a small dim version string
+ * (chrome, ignorable in daily use, still in the screenshot); staging paints a loud
+ * badge. The fuller line (channel, port) rides the hover title so prod stays quiet.
+ * Hidden until we actually have a version to show, so it never flashes "unknown".
+ */
+function paintBuildMark(version, sourceChannel) {
+  const el = document.getElementById('buildmark');
+  if (!el) return;
+  const baked = bakedVersion();
+  const shown = baked || version;
+  if (!shown) { el.hidden = true; el.className = ''; el.textContent = ''; el.title = ''; return; }
+  const staging = sourceChannel === 'staging';
+  const channel = staging ? 'staging' : 'prod';
+  const port = (typeof location !== 'undefined' && location && location.port) ? location.port : '';
+  /* The hover line: what channel, and which app (port). Kept off the visible marker
+     so prod is not furniture; it is the fuller line the design expands to on hover. */
+  el.title = 'Kosmos v' + shown + ' · ' + channel
+    + (port ? ' · port ' + port : '')
+    + (pageIsStale(version) ? ' · page stale, reload for v' + version : '');
+  if (staging) {
+    el.className = 'staging';
+    el.innerHTML = 'STAGING <span class="bm-v">v' + esc(shown) + '</span>';
+  } else {
+    el.className = '';
+    el.textContent = 'v' + shown;
+  }
+  el.hidden = false;
 }
 
 /**
@@ -36140,6 +36215,12 @@ fetch('/api/roles').then((r) => (r.ok ? r.json() : null)).then((j) => {
 setTimeout(revealBoot, 3000);
 firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1);
 
+/* #2066: the corner marker paints before the first poll too -- a built board shows
+   its baked version from the first frame even if no poll ever lands; channel defaults
+   to prod until the first /api/status tick supplies it (a prod marker is exactly the
+   safe default when the channel is unknown). Ordered before the build line so
+   `paintBuildLine(null); tick();` stay adjacent (web.baked-version.test.js pins it). */
+paintBuildMark(null, 'prod');
 /* 🔑 BEFORE THE FIRST POLL, not after it. The whole point of baking the version
    is that it is readable when no poll will ever succeed, and painting it from
    `tick()` alone would have kept the empty line on exactly the machine this was
