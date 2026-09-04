@@ -1,16 +1,16 @@
 'use strict';
 
 /**
- * kosmos#1772: the first-run About-you step writes into EVERY agent instruction
- * file on the machine (via you.syncEveryone), but its reach was invisible at the
- * moment of the action -- no confirmation, no indication. A QA walk that typed
- * "QA walk" into the fields silently reconfigured the whole fleet for minutes.
+ * kosmos#1772 (REVERSED by Josh, live, 2026-09-04): the first-run About-you step
+ * used to carry a reach statement next to Continue -- "Continue saves this into
+ * every agent already set up on this computer, so they all address you the same
+ * way." #1772 added it so the fleet-wide write was not invisible. Josh watched
+ * it in a live test and ruled it out: "that is nonsense copy... take that out."
  *
- * This pins the cheapest fix from the card: say what it will do, before it does
- * it. A reach statement sits next to Continue (the control that triggers the
- * write) and names the reach. It also pins that the statement is TRUE -- the
- * /api/you PUT really does reach every agent -- so the copy cannot drift into a
- * false claim if the write is ever narrowed.
+ * So this file now pins the REMOVAL (the copy must not come back), and keeps the
+ * one part of #1772 that is still true and worth guarding independently of the
+ * copy: the /api/you PUT really does reach every agent, so if the reach is ever
+ * surfaced again it cannot be a false claim.
  *
  *   node --test web.firstrun-you-reach-1772.test.js
  */
@@ -25,31 +25,22 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const SCRIPT = scriptOf(PAGE);
 const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
 
-const at = SCRIPT.indexOf('id="fr-you-reach"');
-const REACH = at > -1 ? SCRIPT.slice(at, at + 200) : '';
-
-test('kosmos#1772: the About-you step states its fleet-wide reach next to Continue', () => {
-  assert.ok(at > -1, 'the reach statement element (#fr-you-reach) is present in the About-you markup');
-  assert.match(REACH, /every agent already set up on this computer/i,
-    'it names the reach: every agent on this computer, not just the current install');
-  assert.match(REACH, /\bContinue\b/,
-    'it ties the reach to Continue, the control that triggers the write');
+test('kosmos#1772 reversed: the About-you reach copy is gone (Josh, 2026-09-04)', () => {
+  assert.equal(SCRIPT.indexOf('id="fr-you-reach"'), -1,
+    'the #fr-you-reach statement is present again; Josh removed it as "nonsense copy"');
+  assert.doesNotMatch(SCRIPT, /Continue saves this into every agent already set up on this computer/,
+    'the removed reach copy is back in the About-you step');
 });
 
-test('kosmos#1772: the reach claim is TRUE -- saving About-you writes every agent', () => {
-  // The copy claims "every agent"; the /api/you PUT calls syncEveryone, which
-  // writes every tied agent in the roster. Pin that so a future narrowing of the
-  // write would surface the copy as newly false rather than silently.
+test('kosmos#1772: the About-you save still reaches every agent (syncEveryone)', () => {
+  // The reach is still TRUE even though the copy is gone: the /api/you PUT calls
+  // syncEveryone, which writes every tied agent in the roster. Kept so that if
+  // the write is ever narrowed, or the copy re-surfaced, the claim can be
+  // checked against reality rather than assumed.
   const anchor = "pathname === '/api/you' && req.method === 'PUT'";
   const putAt = SERVER.indexOf(anchor);
   assert.ok(putAt > -1, 'the /api/you PUT handler exists');
   const put = SERVER.slice(putAt, putAt + 1600);
   assert.match(put, /you\.syncEveryone\(/,
-    'the About-you save reaches every agent via syncEveryone, so "every agent" is a true claim, not decoration');
-});
-
-test('kosmos#1772: no em dash in the reach copy (house rule)', () => {
-  for (const s of ['—', '&mdash;', '&#8212;', '&#x2014;', '\\u{2014}']) {
-    assert.ok(!REACH.includes(s), 'an em dash (' + s + ') reached the reach copy');
-  }
+    'the About-you save reaches every agent via syncEveryone');
 });

@@ -5816,6 +5816,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                  padding: .6em .9em; border-radius: 10px; border: 1px solid var(--border-strong);
                  background: var(--field-fill); color: var(--k-ink); }
 #firstrun .inp:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 1px; }
+/* #1994 (Josh, live 2026-09-04): a full-width name box "looks like a mistake".
+   A name and a time zone are short values, so cap them well under the field
+   width instead of stretching edge to edge. max-width caps the width the .inp
+   rule above sets to 100%, so the box shrinks on a wide wizard without needing
+   to out-specify that rule. "What do you do?" keeps the full width -- it is a
+   sentence. Two ids so it wins over `#firstrun .inp` cleanly. */
+#firstrun #fr-you-name, #firstrun #fr-you-tz { max-width: 20rem; }
 
 /* ⚠️ `p.fr-next`, not `.fr-next`. `.fr-body p` is one specificity point higher
    than a bare class, so the italic caption rendered as ordinary body copy and
@@ -33757,17 +33764,34 @@ async function frPaintYou() {
     '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Alex" aria-required="true"></div>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-do">What do you do?</label>' +
     '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>' +
-    /* #1772: make the reach VISIBLE at the moment of the action. Saving here runs
-       you.syncEveryone(), which writes this into the instruction file of every
-       agent already set up on this computer, all at once. Before this the reach
-       was invisible: a QA walk or a demo silently reconfigured the whole fleet.
-       Stated in words rather than a live count, so it cannot go stale or read
-       zero before the board has polled; the point the person needs is "all of
-       them", not the exact number. Next to Continue, the control that triggers
-       the write, per the card. */
-    '<p class="fr-next" id="fr-you-reach">Continue saves this into every agent already set up on this computer, so they all address you the same way.</p>';
+    /* #1994 (Josh, live 2026-09-04): the time zone picker is restored to this
+       step. It had been taken away (it lives in Settings, but Josh wants it here
+       in first run too). Same job as the settings one: so an agent knows the
+       operator's local time when they write. It defaults to this computer's own
+       zone and is saved on Continue via POST /api/settings, alongside the
+       name/does PUT. The "Continue saves this into every agent..." line that
+       used to sit here was removed on the same instruction ("that is nonsense
+       copy, take that out"). */
+    '<div class="fr-youfield"><label class="fieldlab" for="fr-you-tz">Your time zone</label>' +
+    '<div class="fhint">So your agents know your local time when you write to them.</div>' +
+    '<select class="inp" id="fr-you-tz" aria-label="Your time zone"></select></div>';
   const nameEl = document.getElementById('fr-you-name');
   const doEl = document.getElementById('fr-you-do');
+  /* #1994: the restored time-zone picker. Populate the same zone set Settings
+     uses (Intl's list, or the short fallback), default to this computer's zone,
+     then prefill the saved one from /api/settings. Not gated for Continue: it
+     always carries a valid value (the machine zone), so it never blocks. It is
+     saved on Continue via POST /api/settings, in the go() below. */
+  const tzEl = document.getElementById('fr-you-tz');
+  if (tzEl && !tzEl.options.length) {
+    let zones;
+    try { zones = (typeof Intl.supportedValuesOf === 'function') ? Intl.supportedValuesOf('timeZone') : YOU_TZ_FALLBACK.slice(); }
+    catch { zones = YOU_TZ_FALLBACK.slice(); }
+    const machine = youTzMachine();
+    if (machine && !zones.includes(machine)) zones = [machine].concat(zones);
+    for (const z of zones) { const o = document.createElement('option'); o.value = z; o.textContent = z; tzEl.appendChild(o); }
+    tzEl.value = machine;
+  }
   /* 🛑 THE BOX IS GONE, THE VALUE IS NOT (#1345). Josh asked for two fields, and
      `know` still feeds the you-block that goes into every agent's instructions
      (engine/you.js:147). The PUT is a whole-record replace: `save()` maps an
@@ -33813,6 +33837,25 @@ async function frPaintYou() {
         gate();
         return;
       }
+      /* #1994: the time zone lives in a separate store (/api/settings), so save
+         it here before advancing. Awaited and blocking, the same as the record
+         above: a person who set a zone should not step past it silently on a
+         failure. It always carries a value (the machine zone), so this never
+         stops a person who did not touch it. */
+      if (tzEl && tzEl.value) {
+        const tzRes = await fetch('/api/settings', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ timezone: tzEl.value }),
+        });
+        if (entry !== FR_YOU_GEN) return;
+        if (!tzRes.ok) {
+          const tj = await tzRes.json().catch(() => ({}));
+          saving = false;
+          document.getElementById('fr-you-msg').textContent = (tj && (tj.because || tj.error)) || 'we could not save your time zone';
+          gate();
+          return;
+        }
+      }
       frGo(FR_STEP_YOU + 1);
     } catch {
       if (entry !== FR_YOU_GEN) return;
@@ -33840,6 +33883,20 @@ async function frPaintYou() {
       gate();
     }
   } catch { /* absent is the normal start; the fields just start empty */ }
+  /* #1994: prefill the saved time zone (a separate store), so returning to this
+     step shows the zone already chosen rather than resetting to the machine
+     default. Left untouched while the person has the select focused, same
+     draft-safety as the fields above. */
+  try {
+    const sr = await (await fetch('/api/settings', { cache: 'no-store' })).json();
+    if (entry !== FR_YOU_GEN) return;
+    if (tzEl && sr && sr.timezone && document.activeElement !== tzEl) {
+      if (!Array.from(tzEl.options).some((o) => o.value === sr.timezone)) {
+        const o = document.createElement('option'); o.value = sr.timezone; o.textContent = sr.timezone; tzEl.insertBefore(o, tzEl.firstChild);
+      }
+      tzEl.value = sr.timezone;
+    }
+  } catch { /* keep the machine-zone default already selected */ }
 }
 
 /* --------------------------------------------------------------------------
