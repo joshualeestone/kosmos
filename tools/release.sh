@@ -708,11 +708,22 @@ fi
 # shipped mislabelled (#1565). The backup lives under BUILD_ROOT, which the EXIT trap
 # removes on every path, so it never sits untracked in the SHARED site checkout where
 # a stray `git add -A` by another agent could stage it into a deploy.
-mkdir -p "$BUILD_ROOT/precut"
-for _u in kosmos-arm64.tar.gz kosmos-arm64.tar.gz.sha256; do
-  [ -f "$SITE/dist/$_u" ] && cp -p "$SITE/dist/$_u" "$BUILD_ROOT/precut/$_u"
-done
-cp "$REPO/dist/kosmos-arm64.tar.gz" "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/"
+# #2036: the unversioned alias (kosmos-arm64.tar.gz) is the PROD download fallback and must serve
+# the current PROD bytes. ONLY a prod cut (or a promote) updates it; a STAGING cut leaves it
+# pointing at prod, so staging bytes never reach this prod-reachable URL. Without this gate a
+# staging cut would overwrite the served alias with staging bytes (an old installer that fetches
+# the alias directly would get unpromoted staging code, and a modern fallback would hit the
+# landed-version guard and refuse) -- the exact "a staging cut must not touch prod" violation this
+# card exists to prevent. promote-channel.sh refreshes the alias to the promoted bytes on promote.
+if [ "$CUT_CHANNEL" = prod ]; then
+  mkdir -p "$BUILD_ROOT/precut"
+  for _u in kosmos-arm64.tar.gz kosmos-arm64.tar.gz.sha256; do
+    [ -f "$SITE/dist/$_u" ] && cp -p "$SITE/dist/$_u" "$BUILD_ROOT/precut/$_u"
+  done
+  cp "$REPO/dist/kosmos-arm64.tar.gz" "$REPO/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/"
+else
+  echo "   (staging cut: prod alias kosmos-arm64.tar.gz left untouched; promote refreshes it)"
+fi
 # The release manifest (#776) rides beside the versioned tarball, TRACKED: a
 # few KB per release that says what produced the served bytes. The tarballs
 # themselves stay untracked (48 MB each, and they prove only that bytes existed).
@@ -947,11 +958,18 @@ fi
 # escape hatch (KOSMOS_CUT_CHANNEL=prod) writes latest.json itself, so it is exempt.
 if [ "$CUT_CHANNEL" = staging ]; then
   _prod_ptr="$(curl -fsS -H 'Cache-Control: no-cache' "${HOST:-https://installkosmos.com}/dist/latest.json" 2>/dev/null || true)"
-  if printf '%s' "$_prod_ptr" | grep -q "\"$V\""; then
+  if [ -z "$_prod_ptr" ]; then
+    # Not fail-open: say the read was inconclusive rather than letting an empty body pass as
+    # "unchanged". The real guarantee is structural -- a staging cut never writes or commits
+    # dist/latest.json (the pointer write and _site_paths are gated to the channel pointer) -- so
+    # this network read is a belt-and-suspenders confirmation, and its absence is not a failure.
+    echo "   (could not read the served prod latest.json to confirm; the structural guarantee still holds -- a staging cut never writes or commits latest.json)"
+  elif printf '%s' "$_prod_ptr" | grep -q "\"$V\""; then
     echo "   PROD POINTER latest.json ALREADY NAMES $V after a STAGING cut -- prod should be untouched. Refusing." >&2
     exit 1
+  else
+    echo "   prod pointer (latest.json) unchanged -- $V is on staging only, awaiting promote"
   fi
-  echo "   prod pointer (latest.json) unchanged -- $V is on staging only, awaiting promote"
 fi
 
 step "== 9b. the served bundle is the frozen tree, file by file (#597) =="

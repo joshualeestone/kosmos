@@ -59,6 +59,17 @@ grep -q 'POINTER="${KOSMOS_VERIFY_POINTER:-latest.json}"' "$REPO/tools/verify-se
 grep -q 'curl -fsS -H .Cache-Control: no-cache. "\$HOST/dist/\$POINTER"' "$REPO/tools/verify-served.sh" && ok "verify-served pointer: the polled fetch USES \$POINTER" || no "verify-served pointer: the fetch does not use \$POINTER"
 grep -q 'KOSMOS_VERIFY_POINTER=' "$REPO/tools/release.sh" && ok "verify-served pointer: release.sh passes KOSMOS_VERIFY_POINTER to the step-9 check" || no "verify-served pointer: release.sh no longer passes the var"
 
+# --- the prod alias (kosmos-arm64.tar.gz) is a PROD concept ------------------------------
+# A staging cut must NOT overwrite the shared unversioned alias (it is prod-reachable); the
+# alias moves only on a prod cut or a promote. (The behavioral promote-refresh is asserted in
+# test-staging-channel-2036.sh; here we guard the release.sh gate + the promote refresh exist.)
+grep -q 'staging cut: prod alias kosmos-arm64.tar.gz left untouched' "$REPO/tools/release.sh" \
+  && ok "prod alias: a staging cut leaves the prod alias untouched (release.sh gates it on a prod cut)" \
+  || no "prod alias: release.sh does not gate the alias publish -- a staging cut would leak staging bytes into the prod alias"
+grep -q 'refresh the unversioned prod alias' "$REPO/tools/promote-channel.sh" \
+  && ok "prod alias: promote-channel.sh refreshes the alias to the promoted bytes" \
+  || no "prod alias: promote-channel.sh does not refresh the alias (it would go stale after a promote)"
+
 # --- release_site_restore: abort-time cleanup of the staging pointer ----------------------
 . "$REPO/tools/lib/release-freeze.sh"
 mk_site() {  # a throwaway git site with a committed dist/ baseline
