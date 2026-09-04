@@ -1081,9 +1081,9 @@ for _a in "$@"; do
 done
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|report|room|adopt|whoami) set -- "$1" ;;
+    msg|reply|post|report|room|feedback|adopt|whoami) set -- "$1" ;;
     *)
-      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | adopt | whoami\n\n'
+      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | feedback | adopt | whoami\n\n'
       printf '  Add --help to any command; it never acts, except adopt and whoami, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
@@ -1091,6 +1091,72 @@ if [ "$_kosmos_help" = 1 ]; then
       ;;
   esac
 fi
+
+# kosmos#2037: an agent authors its daily product-feedback report into the LOCAL
+# store (engine/feedback.js). Engine-direct via node -e, NOT the board API: the
+# store is local, so this works with no board running and no token round-trip.
+# The body/date ride ENV VARS into node, never the -e script, so a report with
+# quotes/newlines/backslashes cannot break out of a shell-quoted argument.
+# LOCAL ONLY: this writes to disk and sends nothing. Transmission is a separate,
+# opt-in-gated slice.
+cmd_feedback() {
+  local sub="${1:-}"; shift 2>/dev/null || true
+  # write/show/list all shell out to node against the local engine. On a broken
+  # install (missing runtime) refuse in the CLI's own voice rather than letting a
+  # raw "node: No such file" surface, matching cmd_adopt's runtime guard.
+  case "$sub" in
+    write|show|list)
+      if [ ! -f "$NODE" ] || [ ! -x "$NODE" ] || [ ! -d "$KOSMOS_HOME/app" ]; then
+        say "Kosmos cannot find its own runtime, so it cannot save or read a report."
+        exit 2
+      fi
+      ;;
+  esac
+  case "$sub" in
+    write)
+      local body
+      if [ $# -gt 0 ]; then body="$*"; else body="$(cat)"; fi
+      if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
+        say "Nothing to write: a feedback report needs a body (pass it as an argument, or pipe it in on stdin)."
+        exit 2
+      fi
+      KOSMOS_FEEDBACK_BODY="$body" "$NODE" -e '
+        const fb = require(process.argv[1] + "/engine/feedback");
+        process.stdout.write(fb.write(process.env.KOSMOS_FEEDBACK_BODY || "").date);
+      ' "$KOSMOS_HOME/app" >/dev/null || { say "We could not save that report."; exit 1; }
+      say "Saved today's product-feedback report. It stays on this computer."
+      exit 0
+      ;;
+    show)
+      KOSMOS_FEEDBACK_DATE="${1:-}" "$NODE" -e '
+        const fb = require(process.argv[1] + "/engine/feedback");
+        const d = process.env.KOSMOS_FEEDBACK_DATE || fb.today();
+        if (!fb.isDateKey(d)) { console.error("that date must be YYYY-MM-DD"); process.exit(2); }
+        const b = fb.readBody(d);
+        if (b == null) { console.error("no product-feedback report for " + d); process.exit(1); }
+        process.stdout.write(b);
+      ' "$KOSMOS_HOME/app"
+      exit $?
+      ;;
+    list)
+      "$NODE" -e '
+        const fb = require(process.argv[1] + "/engine/feedback");
+        for (const d of fb.list()) process.stdout.write(d + "\n");
+      ' "$KOSMOS_HOME/app"
+      exit $?
+      ;;
+    ""|help|-h|--help)
+      say "Usage: kosmos feedback write [text]      (or pipe the report in on stdin)"
+      say "       kosmos feedback show [YYYY-MM-DD]  (defaults to today)"
+      say "       kosmos feedback list"
+      exit 2
+      ;;
+    *)
+      say "Unknown: kosmos feedback $sub. Try: write | show | list"
+      exit 2
+      ;;
+  esac
+}
 
 case "${1:-}" in
   start)   cmd_start ;;
@@ -1107,8 +1173,9 @@ case "${1:-}" in
   report)  shift; cmd_report "$@" ;;
   whoami)  shift; cmd_whoami "$@" ;;
   room)    shift; cmd_room "$@" ;;
+  feedback) shift; cmd_feedback "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | adopt | whoami\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | feedback | adopt | whoami\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;
