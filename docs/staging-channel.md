@@ -22,7 +22,9 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    cut ends by printing this hand-off.
 2. **Update a FRESH machine from staging.** On a machine/account with **no board token, no cookie,
    no prior install** -- NOT the build machine (it holds a token, the 0.6.25 blindness):
-   - fresh install: `KOSMOS_UPDATE_CHANNEL=staging curl -fsSL https://installkosmos.com/setup | sh`
+   - fresh install: `curl -fsSL https://installkosmos.com/setup | KOSMOS_UPDATE_CHANNEL=staging sh`
+     (the var MUST be on the `sh`, right of the pipe -- an env prefix binds to the LEFT of a pipe, so
+     `KOSMOS_UPDATE_CHANNEL=staging curl ... | sh` sets it for curl and setup installs PROD, not staging)
    - an existing box's auto-updater: set `AGENT_WORKFORCE_UPDATE_CHANNEL=staging` for it (e.g. in
      its launchd env). update.js then fetches `latest-staging.json` and hands the same channel to
      the installer it spawns, so both read the staging pointer and the staging **versioned**
