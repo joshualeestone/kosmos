@@ -22934,9 +22934,9 @@ document.getElementById('d-save').addEventListener('click', async () => {
        the picker (and any other PROJECTS-agent-name reader, e.g. the room member
        list) showing the OLD name until the next projects load. Re-fetch when the
        shown name actually changed. Non-blocking and self-handling (loadProjects
-       swallows its own read errors and returns false), so it never delays or
-       breaks the save feedback; the picker reads PROJECTS live on the next
-       keystroke, so an async refresh is enough. */
+       swallows its own read errors in an internal try/catch and never rethrows),
+       so it never delays or breaks the save feedback; the picker reads PROJECTS
+       live on the next keystroke, so an async refresh is enough. */
     if (renameTo && renameTo !== wasCalled) loadProjects();
     await tick();
   } catch (err) {
