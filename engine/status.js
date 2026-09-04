@@ -1752,12 +1752,19 @@ const AUTH_ENVELOPE = /"type":\s*"error"/i;
  * per-pattern COUNT the freshness guard baselines and compares (engine/activity.js).
  *
  * 🔑 A COUNT OF REAL ENVELOPE LINES, NOT A HASH. A row counts only if it carries
- * an auth marker AND the `"type":"error"` envelope, the same `wholeOnOneRow`
- * criterion `authFailed` uses for detection -- so prose that merely mentions a
- * marker (#1233) is not counted, and the count tracks actual 401 lines. It is a
- * count and not a hash because a live loop redrawing the SAME 401 text has a
- * constant hash; what changes when the loop is live is how many 401 lines have
- * accumulated (Pete's contract, point 4).
+ * an auth marker AND the `"type":"error"` envelope on the SAME row -- the
+ * `wholeOnOneRow` half of `authFailed`'s detection -- so prose that merely
+ * mentions a marker (#1233) is not counted, and the count tracks actual 401
+ * lines. It is a count and not a hash because a live loop redrawing the SAME 401
+ * text has a constant hash; what changes when the loop is live is how many 401
+ * lines have accumulated (Pete's contract, point 4).
+ *
+ * 📌 It counts ONLY the single-row form, NOT `authFailed`'s `wrapJoined`
+ * (payload split across two wrapped rows) form. A capture clipped mid-redraw
+ * that splits a 401 could therefore UNDERCOUNT by one -- which fails toward the
+ * base HEALTHY-suppression (the safe direction), so the count is conservative,
+ * not wrong. Kept simple deliberately; the escape hatch (newest-line identity)
+ * would subsume this too.
  *
  * ⚠️ The friendly non-JSON auth line (#1884) has no envelope and is not counted;
  * that form is a single static login prompt, not a scrolling loop, so counting
@@ -4786,14 +4793,25 @@ function snapshot() {
     if (isNamedOurs(pane)) {
       if (scrapedStatus.state === STATE.AUTH_FAILED) {
         if (liveAuth === LIVE_AUTH_HEALTHY) {
+          /* PER-TICK DELTA, not since-a-fixed-baseline. The verdict is "is the
+             auth-error region producing new lines RIGHT NOW", so we compare the
+             current 401-line count against the count on the PREVIOUS tick and
+             then store the current count for the next one. A count that GREW
+             since last tick means the loop is live now (fire the red); a count
+             that is static -- even if elevated -- means the loop has stopped and
+             its lines are merely lingering in the captured tail, so we do NOT
+             fire and the base HEALTHY-suppression resumes. That last case is the
+             one a fixed-baseline compare got wrong: `count > baseline` kept
+             showing "a live rejection loop is running" on a recovered-but-idle
+             agent until the old lines scrolled off -- the exact haunt #1930
+             removes. Per-tick delta's only failure is UNDER-firing a very slow
+             loop (one that adds a line less often than we sample), which falls to
+             the base suppression -- the already-accepted #1930-first-half
+             residual, the SAFE direction. */
           const currentCount = authErrorLineCount(text);
-          const base = activityStore.read(pane.name, 'auth-error');
-          if (!base.found) {
-            activityStore.record(pane.name, 'auth-error', currentCount);
-            activityFresh = { newErrorsSinceHealthy: false };
-          } else {
-            activityFresh = { newErrorsSinceHealthy: currentCount > base.count };
-          }
+          const prev = activityStore.read(pane.name, 'auth-error');
+          activityFresh = { newErrorsSinceHealthy: prev.found ? (currentCount > prev.count) : false };
+          activityStore.record(pane.name, 'auth-error', currentCount);
         } else if (liveAuth !== undefined) {
           /* A definite non-healthy verdict (expired / unknown / unchecked). An
              UNRESOLVABLE probe (undefined) means we cannot tell, so we leave any

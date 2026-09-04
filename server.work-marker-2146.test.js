@@ -87,4 +87,21 @@ test('a needs_you report writes NO work-activity marker (so filing the ask canno
   });
 });
 
+test('THE PANELESS PATH: a REFUSED auto-working over a standing needs_you STILL writes the marker', async () => {
+  // This is the load-bearing reason the marker write sits BEFORE the
+  // recorded-check. A refused auto-working is the ONLY alive+active signal a
+  // paneless Windows/Codex agent has under a sticky needs_you. If a refactor
+  // moved the write below the early-return, this test -- not a comment -- catches it.
+  await withAgent('wm-refused', async () => {
+    const ask = await post('/api/report', { state: 'needs_you', text: 'May I merge?', from_pane: 'x' });
+    assert.equal(ask.json.recorded, true, 'the needs_you stands');
+    assert.equal(activity.read('wm-refused', 'working').found, false, 'the ask wrote no work marker');
+    // An auto-working report now: REFUSED (needs_you stands, #900) -- but it must
+    // still mark, because the agent IS actively working while it waits.
+    const work = await post('/api/report', { state: 'working', text: 'running a tool', from_pane: 'x', auto: true });
+    assert.equal(work.json.recorded, false, 'the auto-working is refused over the standing needs_you');
+    assert.equal(activity.read('wm-refused', 'working').found, true, 'but the work marker IS written -- the paneless coexistence signal survives the refusal');
+  });
+});
+
 test.after(() => { try { server.close(); } catch { /* best effort */ } });

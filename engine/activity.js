@@ -19,32 +19,34 @@
  * A spinner or a clock churns a whole-pane hash on every tick, so everything
  * would read perpetually live. Even a hash of just the auth-error region fails:
  * a frozen 401 screen and a live loop redrawing the SAME 401 text have the same
- * hash. Counting the auth-error MARKER lines, and asking whether that count has
- * GROWN since the account went healthy, is what actually distinguishes a live
- * loop from stale scrollback.
+ * hash. Counting the auth-error MARKER lines, and asking whether that count
+ * GREW SINCE THE PREVIOUS TICK, is what actually distinguishes a live loop
+ * (producing new lines now) from stale scrollback (a static count).
  *
- * ⚠️ WEAKEST PREMISE, NAMED (Pete, 2026-09-04). `currentCount > baseline`
- * catches a live loop only while new error lines OUTPACE the pane-capture
- * window. A steady-state loop AT the capture cap -- old 401s scrolling off the
- * top as fast as new ones append -- holds the count flat and reads as
- * no-increase, i.e. MISSES the loop. That is acceptable by design: a miss fails
- * toward the existing HEALTHY-suppression (the accepted #1930-first-half
- * residual), NEVER toward a new false-calm, so the tier still only ever REDUCES
- * false-calm. If it proves too lossy the escape hatch is to track the NEWEST
- * auth-error line's identity (a new distinct newest line since baseline is
- * scroll-robust), not just the count. Count is the simpler first cut.
+ * ⚠️ WEAKEST PREMISE, NAMED (Pete, 2026-09-04). The per-tick-delta compare
+ * (`currentCount > previousTickCount`) catches a live loop only while new error
+ * lines OUTPACE the pane-capture window. A steady-state loop AT the capture cap
+ * -- old 401s scrolling off the top as fast as new ones append -- holds the
+ * count flat tick-to-tick and reads as no-increase, i.e. MISSES the loop. That
+ * is acceptable by design: a miss fails toward the existing HEALTHY-suppression
+ * (the accepted #1930-first-half residual), NEVER toward a new false-calm, so
+ * the tier still only ever REDUCES false-calm. If it proves too lossy the escape
+ * hatch is to track the NEWEST auth-error line's identity (a new distinct newest
+ * line is scroll-robust), not just the count. Count is the simpler first cut.
  *
  * 🛑 NO STATE MACHINE HERE, EXACTLY LIKE liveness.js AND disruption.js. This
  * module only records a number and reads it back. The decision of WHEN to
- * baseline (record the count at the healthy transition) versus WHEN to compare
- * (later ticks) lives in the snapshot caller, the same begin/clear split
- * disruption.js uses. That keeps status.reconcileReport a pure function of its
- * inputs: the caller resolves an `activityFresh` verdict from this store and
- * passes it in, like `liveAuth` and `disruptionRec`.
+ * record (every tick, so the stored value is the PREVIOUS tick's count) versus
+ * WHEN to clear (when the 401 leaves the screen or the probe goes non-healthy)
+ * lives in the snapshot caller, the same begin/clear split disruption.js uses.
+ * That keeps status.reconcileReport a pure function of its inputs: the caller
+ * resolves an `activityFresh` verdict from this store and passes it in, like
+ * `liveAuth` and `disruptionRec`.
  *
  * 🔑 THREE ANSWERS, NEVER TWO (the liveness discipline). `read` returns
- * found:false for "no sample recorded at all" -- which is every agent we have
- * never baselined -- and that is deliberately NOT the same as a recorded count
+ * found:false for "no sample recorded at all" -- which is every agent on its
+ * FIRST tick under the guard -- and that is deliberately NOT the same as a
+ * recorded count
  * of 0. A caller that treated no-sample as count 0 would compute a spurious
  * increase the first time a real count landed, and un-suppress on no evidence,
  * which is the exact false-alarm direction #1930's one-directional guard must
