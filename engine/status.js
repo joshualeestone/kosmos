@@ -4125,7 +4125,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
      and auth_failed stands (no false calm). The re-entry's scraped state is UNKNOWN, so this
      cannot recurse. */
   if (scraped.state === STATE.AUTH_FAILED && liveAuth === LIVE_AUTH_HEALTHY) {
-    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec);
+    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth);
     return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
   }
   /* #2019: a dead pane is "gone" UNLESS we are the ones who just took it out. If
@@ -4287,7 +4287,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     const atRl = Date.parse(reported.at || '');
     const freshRl = Number.isFinite(atRl) && (nowMs - atRl) <= REPORT_WORKING_DECAY_MS;
     if (freshRl) {
-      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec);
+      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
     }
     return { ...scraped, reported: false, conflict: 'its screen shows it has hit a usage limit, which its reports cannot know about' + saidWords(reported, nowMs) };

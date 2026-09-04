@@ -901,6 +901,20 @@ test('#874: an agent whose sign-in failed is told apart from "we could not tell"
   assert.equal(chat.waitingNote('auth_failed', chat.DELIVERY.UNCONFIRMED), 'its Claude sign-in was not working');
 });
 
+test('#2093: a codex agent auth_failed note names OpenAI, not Claude (cross-provider copy leak)', () => {
+  // #2093 makes a dead codex agent reach AUTH_FAILED; before the runner arg this note hardcoded
+  // "Claude", the exact cross-provider mislabel #2107 tracks. It must match the board's own copy.
+  assert.equal(
+    chat.waitingNote('auth_failed', chat.DELIVERY.UNCONFIRMED, 'codex'),
+    'its OpenAI sign-in was not working');
+  assert.match(
+    chat.waitingNote('auth_failed', chat.DELIVERY.PLACED, 'codex'),
+    /OpenAI sign-in was not working, so it will not act/);
+  // A claude runner (and an absent runner, back-compat) still says Claude.
+  assert.match(chat.waitingNote('auth_failed', chat.DELIVERY.UNCONFIRMED, 'claude'), /Claude sign-in/);
+  assert.match(chat.waitingNote('auth_failed', chat.DELIVERY.UNCONFIRMED), /Claude sign-in/);
+});
+
 test('#874: test-support/fleet arranges an auth_failed agent for real, not just a hand-built card', () => {
   // Found in challenge-loop review: SCREEN (test-support/fleet.js) had no
   // entry for the new state, so `fleet.agent('x', { state: 'auth_failed' })`

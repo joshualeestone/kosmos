@@ -71,20 +71,42 @@ test('a STALE HEALTHY is safe to report (it produces nothing anyway)', async () 
   assert.equal(cap.verdict('/codex/f', base + cap.TTL_MS + 5000), cap.HEALTHY, 'stale HEALTHY reported unchanged; only stale EXPIRED is downgraded');
 });
 
-test('CORRECTNESS: a null dir is resolved to the default codex home, NOT passed as null to checkLive', async () => {
-  // The bug this guards: openaiaccounts.checkLive(null) reads path.resolve('')/auth.json (the
-  // process CWD), which is absent -> a false NONE that would redden every healthy default-home
-  // codex agent. The real checker resolves null via openaiaccounts.defaultDir().
-  cap.resetForTest();
-  let sawDir;
-  cap.setChecker(async (dir) => { sawDir = dir; return CONNECTED; });
-  cap.verdict(null); await settle();
-  // The module passes the raw dir (null) to the injected checker; the DEFAULT resolution lives in
-  // the REAL checker (openaiaccounts.checkLive(dir || openaiaccounts.defaultDir())). So here we
-  // assert the real checker actually resolves a non-null default dir when handed null.
+test('CORRECTNESS: the REAL checker resolves a null dir to the default codex home, never passing null to checkLive', async () => {
+  // The bug this guards (the single most safety-critical line in the module): openaiaccounts
+  // .checkLive(null) reads path.resolve('')/auth.json (the process CWD), which is absent -> a
+  // false NONE that would redden EVERY healthy default-home codex agent. This exercises the REAL
+  // checker (resetForTest restores it) with checkLive stubbed, and asserts checkLive is handed a
+  // real non-null default dir, not null.
   const openaiaccounts = require('./openaiaccounts');
-  const def = openaiaccounts.defaultDir();
-  assert.ok(def && typeof def === 'string' && def.length > 0, 'defaultDir() is a real resolved path, so the real checker never passes null to checkLive');
+  const realCheckLive = openaiaccounts.checkLive;
+  let sawDir = 'unset';
+  openaiaccounts.checkLive = async (dir) => { sawDir = dir; return CONNECTED; };
+  try {
+    cap.resetForTest(); // restores the real checker (a prior test's setChecker is discarded)
+    cap.verdict(null); await settle();
+    assert.notEqual(sawDir, null, 'the real checker must NOT pass null to checkLive');
+    assert.notEqual(sawDir, '', 'nor an empty string (path.resolve("") is the CWD)');
+    assert.equal(sawDir, openaiaccounts.defaultDir(), 'null resolves to the default codex home');
+  } finally {
+    openaiaccounts.checkLive = realCheckLive;
+    cap.resetForTest();
+  }
+});
+
+test('the REAL checker passes a NAMED dir straight through to checkLive', async () => {
+  const openaiaccounts = require('./openaiaccounts');
+  const realCheckLive = openaiaccounts.checkLive;
+  let sawDir = 'unset';
+  openaiaccounts.checkLive = async (dir) => { sawDir = dir; return NONE; };
+  try {
+    cap.resetForTest();
+    cap.verdict('/codex/named-home'); await settle();
+    assert.equal(sawDir, '/codex/named-home', 'a named home is probed as-is');
+    assert.equal(cap.verdict('/codex/named-home'), cap.EXPIRED, 'and a NONE from checkLive reads EXPIRED end to end');
+  } finally {
+    openaiaccounts.checkLive = realCheckLive;
+    cap.resetForTest();
+  }
 });
 
 test('the default key collapses null/undefined/"" to one cache entry, distinct from a named dir', () => {

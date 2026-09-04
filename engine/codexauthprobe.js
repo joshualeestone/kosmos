@@ -59,9 +59,12 @@ function dirKey(dir) { return dir ? String(dir) : DEFAULT_KEY; }
 // redden EVERY healthy default-home codex agent). The default codex home is a real resolved path
 // from openaiaccounts.defaultDir(); resolve null to it here, exactly as list()/listLive() feed
 // checkLive a real dir per row rather than null.
-let checker = async (dir) => openaiaccounts.checkLive(dir || openaiaccounts.defaultDir());
+const defaultChecker = async (dir) => openaiaccounts.checkLive(dir || openaiaccounts.defaultDir());
+let checker = defaultChecker;
 function setChecker(fn) { checker = fn; }        // tests
-function resetForTest() { cache.clear(); }       // tests
+// Clears the cache AND restores the REAL checker, so a test that wants to exercise the real
+// null->defaultDir resolution (line above) is not left holding a fake checker a prior test set.
+function resetForTest() { cache.clear(); checker = defaultChecker; }  // tests
 
 // dirKey -> { verdict, at, checking }
 const cache = new Map();
