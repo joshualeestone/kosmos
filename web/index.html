@@ -25348,7 +25348,11 @@ function applyCreateProviderUI() {
   fillCreateAccounts();
   const why = document.getElementById('create-model-why');
   if (openai) {
-    if (why) why.textContent = 'OpenAI picks its own model for now.';
+    /* #2098: the note takes the hidden model row's PLACE, so it must be SHOWN --
+       #create-model-why ships `hidden` in markup and only paintModelWhy (not called
+       on this branch) manages `.hidden`. Without this, an OpenAI machine shows
+       neither the picker nor the note: an empty gap. */
+    if (why) { why.textContent = 'OpenAI picks its own model for now.'; why.hidden = false; }
   } else {
     if (why) why.textContent = '';
     paintModelWhy('create-model', 'create-model-why');
@@ -26378,7 +26382,16 @@ async function loadCreateExtras() {
   const models = CREATE_MODELS;
   sel.innerHTML = models.map((m) =>
     `<option value="${esc(m.key)}"${m.default ? ' selected' : ''}>${esc(m.label)}</option>`).join('');
-  paintModelWhy('create-model', 'create-model-why');
+  /* #2098: on OpenAI the model row is hidden and its note takes the place -- so do
+     NOT repaint the note from the (hidden Claude) model select here, which would
+     overwrite "OpenAI picks its own model for now." with a Claude why-line or blank.
+     Keep the OpenAI note; only run the Claude paintModelWhy off OpenAI. */
+  if (document.getElementById('create-provider').value === 'openai') {
+    const why = document.getElementById('create-model-why');
+    if (why) { why.textContent = 'OpenAI picks its own model for now.'; why.hidden = false; }
+  } else {
+    paintModelWhy('create-model', 'create-model-why');
+  }
 
   /* The Claude accounts, from the engine rather than a guess, and ONLY the ones
      an agent's history would follow. An account with its own separate tree is

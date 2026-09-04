@@ -45,7 +45,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const modelRow = document.getElementById('create-model-row');
     if (!prov) return { error: '#create-provider is missing' };
     if (!modelRow) return { error: '#create-model-row is missing (the #2098 hide-whole row was not added)' };
-    const read = () => ({ modelRowHidden: !!modelRow.hidden, whyText: (document.getElementById('create-model-why') || {}).textContent || '' });
+    const read = () => {
+      const w = document.getElementById('create-model-why') || {};
+      // #2098: textContent returns the string even on a HIDDEN element, so the note's
+      // VISIBILITY must be read separately or a hidden note reads as present (false green).
+      return { modelRowHidden: !!modelRow.hidden, whyText: w.textContent || '', whyHidden: !!w.hidden };
+    };
     prov.value = 'openai';    applyCreateProviderUI(); const openai = read();
     prov.value = 'anthropic'; applyCreateProviderUI(); const anthropic = read();
     return { openai, anthropic };
@@ -58,7 +63,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     problems.push(r.error);
   } else {
     if (!r.openai.modelRowHidden) problems.push('OpenAI: the model row is NOT hidden -- a stale Claude model still shows under an OpenAI key (#2098)');
-    if (!/OpenAI picks its own model/.test(r.openai.whyText)) problems.push('OpenAI: the "OpenAI picks its own model" note is not shown in the row\'s place');
+    if (!/OpenAI picks its own model/.test(r.openai.whyText)) problems.push('OpenAI: the "OpenAI picks its own model" note text is missing');
+    if (r.openai.whyHidden) problems.push('OpenAI: the "OpenAI picks its own model" note is HIDDEN -- the user sees neither the picker nor the note, an empty gap (#2098)');
     if (r.anthropic.modelRowHidden) problems.push('Anthropic: the model row is hidden but should be shown');
   }
 
