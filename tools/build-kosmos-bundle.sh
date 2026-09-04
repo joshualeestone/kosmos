@@ -263,6 +263,18 @@ startInFlight=true committed=true lastLoadFailed=true -> ignore'
 _reload_table_stderr="$(mktemp "${TMPDIR:-/tmp}/reload-table-stderr.XXXXXXXXXX")"
 _reload_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-reload-decision-selftest 2>"$_reload_table_stderr")" || { echo "the native app's --kosmos-app-reload-decision-selftest failed to run or hung (a drifted hatch flag falls through to app.run()); its stderr:" >&2; cat "$_reload_table_stderr" >&2; exit 1; }
 [ "$_reload_table_actual" = "$_reload_table_expected" ] || { printf '%s\n' "the native app's Reload decision table drifted from the expected eight rows (#965)." "EXPECTED:" "$_reload_table_expected" "ACTUAL:" "$_reload_table_actual" >&2; exit 1; }
+# The #2124 single-instance DEFER decision, diffed against its expected table, so BOTH
+# arms are machine-checked at build time (no window server): the duplicate-launch arm
+# (dedup FIRES) and the #2094 relaunch-handoff arm (dedup EXCLUDED, so the deliberate
+# self-update relaunch is not deduped to nothing). A drift here means the guard would
+# either miss a duplicate or break the update relaunch -- both the bugs #2124 fixes.
+_instance_table_expected='handoff=false otherRunning=false -> defer=false
+handoff=false otherRunning=true -> defer=true
+handoff=true otherRunning=false -> defer=false
+handoff=true otherRunning=true -> defer=false'
+_instance_table_stderr="$(mktemp "${TMPDIR:-/tmp}/instance-table-stderr.XXXXXXXXXX")"
+_instance_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-instance-selftest 2>"$_instance_table_stderr")" || { echo "the native app's --kosmos-app-instance-selftest failed to run or hung (a drifted hatch flag falls through to app.run()); its stderr:" >&2; cat "$_instance_table_stderr" >&2; exit 1; }
+[ "$_instance_table_actual" = "$_instance_table_expected" ] || { printf '%s\n' "the native app's #2124 single-instance decision table drifted (both arms: dedup fires on a duplicate launch, EXCLUDED on the #2094 relaunch handoff)." "EXPECTED:" "$_instance_table_expected" "ACTUAL:" "$_instance_table_actual" >&2; exit 1; }
 # The MENU BAR (#994), diffed against its expected table, for the same reason
 # the Reload table above is: it is machine-checked at build time instead of by
 # a headed walk.
