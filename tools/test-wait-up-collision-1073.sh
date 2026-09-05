@@ -8,13 +8,18 @@
 #
 # The fix (this file guards it): wait_up reads EADDRINUSE from the server's own
 # log and reports it BY NAME, and does so on the first iteration rather than
-# after the timeout. This test exercises the REAL wait_up function, extracted
-# verbatim from tools/browser-checks.sh (not a paraphrase), across three arms:
+# after the timeout. It must match BOTH collision shapes: the RAW node
+# "listen EADDRINUSE: address already in use" AND the board server's friendly
+# "port <N> is already in use" (server.js ~9345, the shape that reaches almost
+# every real boot). This test exercises the REAL wait_up function, extracted
+# verbatim from tools/browser-checks.sh (not a paraphrase), across four arms:
 #
-#   1. collision  -> returns 1 FAST and names "#1073 pick-to-bind collision"
-#   2. no-boot    -> the control: returns 1 with the generic "never answered"
-#                    message and does NOT false-fire the collision path
-#   3. success    -> a real server answering /api/status still returns 0
+#   1.  collision (raw)   -> returns 1 FAST and names "#1073 pick-to-bind collision"
+#   1b. collision (board) -> the friendly "is already in use" wording is detected
+#                            too; reds against a too-narrow EADDRINUSE-only pattern
+#   2.  no-boot           -> the control: returns 1 with the generic "never
+#                            answered" message and does NOT false-fire the collision path
+#   3.  success           -> a real server answering /api/status still returns 0
 #
 # The control arm is the one that can return the dangerous answer: if the
 # EADDRINUSE grep were too broad it would misfire here, on a log with no such
@@ -64,6 +69,25 @@ case "$out" in
 esac
 [ "$elapsed" -le 5 ] && ok "collision fails fast (${elapsed}s, not the 30s poll)" \
   || bad "collision took ${elapsed}s; should fail on first iteration, not poll"
+
+# --- 1b. board-server collision: the friendly "port <N> is already in use" ---
+# This is the arm that MATTERS: nearly every boot runs the board server
+# (server.js), which catches EADDRINUSE and writes a friendly
+#   Kosmos could not start: port <N> is already in use. Is a board already running?
+# (server.js ~9345) - no "EADDRINUSE", no "address". A detection pattern of
+# EADDRINUSE|address-already-in-use MISSES exactly the production collision, so
+# this arm exists to red against that too-narrow pattern. The raw arm above
+# (1) models only thread-server.js / a bare node default.
+BOARD_LOG="$T/board.log"
+cat > "$BOARD_LOG" <<EOF
+Kosmos could not start: port $DEAD_PORT is already in use. Is a board already running?
+EOF
+out="$(wait_up "$DEAD_PORT" "$BOARD_LOG")"; rc=$?
+[ "$rc" -eq 1 ] && ok "board collision returns non-zero" || bad "board collision should return 1, got $rc"
+case "$out" in
+  *"#1073 pick-to-bind collision"*) ok "board collision is named (#1073) despite no literal EADDRINUSE" ;;
+  *) bad "board collision (friendly 'is already in use') not detected; got: $out" ;;
+esac
 
 # --- 2. no-boot control: empty log -> generic message, no false collision ----
 DEAD_LOG="$T/never.log"

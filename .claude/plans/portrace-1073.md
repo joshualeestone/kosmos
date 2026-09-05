@@ -36,12 +36,20 @@ follow-up on the same card.
 
 ## Weakest premise
 
-That a bind collision reliably surfaces as `EADDRINUSE`/`address already in use`
-in the server log within the first poll iteration. node writes it to stderr and
-exits immediately on a failed `:PORT` bind, and the launches redirect stderr to
-the log, so it is present by iteration 2 (~1s). If a future server swallowed the
-bind error, `wait_up` falls through to the existing 30s timeout - i.e. it
-degrades to today's behaviour, never worse.
+That a bind collision reliably surfaces in the server log as a string wait_up
+matches, within the first poll iteration. Two shapes exist and the pattern
+covers both: the board server (server.js, what almost every boot runs) does NOT
+emit a raw EADDRINUSE - it catches the code and writes a friendly "port <N> is
+already in use" (server.js ~9345), while thread-server.js / a bare node default
+emit "listen EADDRINUSE: address already in use". The grep is
+`EADDRINUSE|already in use`, whose "already in use" substring is common to both.
+(An earlier draft matched only `EADDRINUSE|address already in use` and so MISSED
+the board server - the primary case - reported as a blocker by the first blind
+reviewer and fixed; the test now carries a board-shaped arm that reds against
+the narrow pattern.) The residual weakest premise: a still-different future
+graceful message using neither "EADDRINUSE" nor "already in use" would fall
+through to the existing 30s timeout - i.e. degrade to today's behaviour, never
+worse.
 
 ## Change
 
