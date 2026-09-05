@@ -24902,8 +24902,14 @@ async function paintAccountPicker(a) {
     /* #1959 NIT: we could not read this account's live check, so we do NOT claim it
        is signed out (the cannot-run sentence above would be a definite claim about a
        state we do not know). Say only what is true -- we could not check -- and leave
-       the move dropdown live, which is itself the answer to "can I move this". */
-    msg.textContent = 'We could not check just now whether the account this agent runs on is signed in. Reopen this to try again.';
+       the move dropdown live, which is itself the answer to "can I move this". No
+       retry directive: an `unchecked` badge comes from a SUCCESSFUL list read (the
+       cache is populated, not ACCOUNTS_UNREADABLE), so this picker's re-fetch gate
+       (!ACCOUNTS.length || ACCOUNTS_UNREADABLE) is false and reopening would repaint
+       the same cache without re-checking -- promising a retry that does not happen is
+       the very not-true claim this branch exists to avoid. Same no-promise phrasing
+       as the board-summary "We could not check your accounts just now." */
+    msg.textContent = 'We could not check just now whether the account this agent runs on is signed in.';
   }
   /* #1373: ACCOUNTS is the switch picker's source too, and it is filled here.
      Without this call the picker stays hidden until the provider dropdown is
