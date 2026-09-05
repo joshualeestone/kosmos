@@ -72,6 +72,20 @@ the create path -- but the create-seed is byte-identical and its over-the-wire
 test (#166) passes, so that path is sound. The most likely truth is the
 adopted-fleet gap this change closes.
 
+## Deliberate difference: the first-run home is note-only
+
+The create-path welcome home carries the room note plus three starter tasks
+("Say hello ...", "Give &lt;agent&gt; something small to do", "Put your next agent
+on this project too"). The first-run-seeded home gets the room note but **not**
+the tasks, and the first agent that later adopts it does not backfill them. This
+is deliberate, not an oversight: all three tasks presuppose an agent (the middle
+one names it), and at first-run completion no agent exists yet. The room note is
+the core guidance and is present in both paths; the tasks are create-path
+furniture. If parity is wanted later it is a trivial follow-up (add the two
+agent-agnostic tasks at first-run, or add all three on the adopt path where the
+agent name is available). Recorded so the difference is a signed-off product
+call rather than an accident of where the furniture lives.
+
 ## Overlap with HELD #1652
 
 This touches the first-run/onboarding surface that HELD #1652 (find-my-agents /

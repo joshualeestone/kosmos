@@ -2372,3 +2372,17 @@ test('#2279 homeForFirstAgent does not adopt when a non-welcome project is the o
   assert.equal(projects.homeForFirstAgent({ roster: [] }), null,
     'the single project is not the empty welcome home');
 });
+
+test('#2279 homeForFirstAgent does not adopt a coincidentally-named project the user made', () => {
+  resetSeed();
+  // The via check, not just the name, is what stops a user's own project that
+  // happens to be called "Getting started" from being silently adopted as the
+  // welcome home. A project made through the normal routes carries via
+  // screen/process, never kosmos (create() normalises made.via), so this pins
+  // that discriminator directly rather than through the name.
+  projects.markWelcomeSeeded({ project: 'gone', via: 'first-run' });
+  const mine = projects.create({ name: projects.WELCOME_NAME, folder: folder('mine-getting-started-2279') });
+  assert.notEqual(mine.made && mine.made.via, 'kosmos', 'a user-made project must not claim made.via kosmos');
+  assert.equal(projects.homeForFirstAgent({ roster: [] }), null,
+    'a same-named project the user made was adopted as the welcome home');
+});

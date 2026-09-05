@@ -4775,7 +4775,7 @@ const server = http.createServer((req, res) => {
         if (!out.ok && home && homeCreated) {
           try { projects.remove(home.id); } catch { /* nothing better to do */ }
         } else if (out.ok && home && homeCreated) {
-          try { projects.markWelcomeSeeded({ via: 'import' }); }
+          try { projects.markWelcomeSeeded({ project: home.id, via: 'import' }); }
           catch { /* the emptiness check still guards the common case */ }
         }
         sendJson(res, out.ok ? 200 : 400, out);
