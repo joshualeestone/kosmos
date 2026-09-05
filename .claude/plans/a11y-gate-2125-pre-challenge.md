@@ -2,65 +2,69 @@
 pre_challenge: true
 method: challenge-loop
 branch: a11y-gate-2125
-diff_hash: 60d6993869ce2c3318ad29aa1b30dc4037c46045aa1e1fa420dff063c7fe9a93
+diff_hash: 60e57eaf1cd89b416718ad127c77f1a42cda9fbd1a33f7a8c5eea5d06eee0276
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-05T02:57:26Z
-iterations: 3
+timestamp: 2026-09-05T03:21:19Z
+iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 3 (6.0 fix-and-validate = iteration 1; two fresh blind reviews)
-**Converged:** Yes — iteration 3 returned zero NEW BLOCKER/WARNING/CONVENTION.
-**Total findings:** 1 BLOCKER (initial-validation), 1 WARNING, 6 NITs; plus many STRENGTHs.
-**Fixed:** 5 | **Deferred:** 3 (2 NITs by design + 1 NIT duplicate) | **Asked:** 0
+**Iterations:** 4 across two runs. The first run (6.0 fix + two blind reviews) converged;
+the branch was then rebased onto a newer origin/main (a tools/browser-checks.sh check-list
+union plus auto-merges of unrelated files), which changed the diff base and required a
+fresh proof, so a fourth blind review ran on the rebased tree.
+**Converged:** Yes — the final review returned zero NEW BLOCKER/WARNING/CONVENTION.
+**Total findings:** 1 BLOCKER (initial-validation), 2 WARNINGs, 8 NITs; plus many STRENGTHs.
+**Fixed:** 7 | **Deferred:** 4 (1 WARNING by ruling + 2 NITs by design + 1 NIT duplicate) | **Asked:** 0
 
 ### Per-Iteration Breakdown
 
 #### Iteration 1 (6.0 baseline validation)
-**New findings:** 1 BLOCKER.
-- [BLOCKER] web.firstrun-a11y-1214.test.js — the full suite red 3 of its tests: slice-3's Continue-gate + copy change (committed earlier) superseded the #1214/#1940 offer-not-require contract these tests pinned, but they were never reconciled. --> FIXED (commit 88e5420b): updated to the shipped #2125 gated contract, keeping every still-valid assertion (button exists, "Tmux in Accessibility" copy, 7 steps, Settings box unchanged, no em dashes). This is the "run the existing suite before 'no regression'" lesson: a shared-surface change breaks contracts in EXISTING module tests, not just the new one.
+- [BLOCKER] web.firstrun-a11y-1214.test.js — the full suite red 3 tests: slice-3's gate + copy change superseded the #1214/#1940 offer-not-require contract those tests pinned, but they were never reconciled. --> FIXED: updated to the shipped #2125 gated contract, keeping every still-valid assertion. The "run the existing suite before 'no regression'" lesson.
 
-#### Iteration 2 (first fresh blind review)
-**New findings:** 1 WARNING, 2 NITs.
-- [WARNING] native-app/main.swift — the under-tmux spawn path (startA11yTrustChecks/spawnAxHatchUnderTmux) was exercised by no test that actually runs it; every test invoked the binary directly. --> FIXED (commit a3abf829): added a real under-tmux arm to tools/test-a11y-writer-mock-2125.sh that spawns via the actual `tmux -L kosmos-axcheck new-session -d '<exe> --kosmos-app-axcheck'` shape with AGENT_WORKFORCE_DATA set and asserts the reading lands under the store the engine reads. Measured: a private -L socket is a fresh tmux server that inherits the parent environment, so AGENT_WORKFORCE_DATA propagates and the hatch resolves the same store as the board.
-- [NIT] native-app.a11y-writer-2125.test.js — a dead `const fn` slice in the shape test. --> FIXED (a3abf829).
-- [NIT] web/index.html — the gate is soft-open at entry (Continue enabled until the first async poll). --> FIXED (a3abf829): made the intended fail-safe behavior explicit in a comment so it is not "fixed" into a hard-close; that comment exposed a brittle fixed-distance test window, now sliced-to-the-block.
+#### Iteration 2 (first blind review)
+- [WARNING] native-app/main.swift — the under-tmux spawn path was exercised by no test that runs it. --> FIXED: added a real under-tmux arm to tools/test-a11y-writer-mock-2125.sh (the actual `tmux -L kosmos-axcheck new-session -d '<exe> --kosmos-app-axcheck'` shape with AGENT_WORKFORCE_DATA), asserting the reading lands under the store the engine reads; measured that a private -L socket's fresh server inherits the env.
+- [NIT] dead `const fn` slice in the shape test. --> FIXED.
+- [NIT] web/index.html soft-open-at-entry undocumented. --> FIXED (explicit comment; also fixed a brittle fixed-distance test window it exposed).
 
-#### Iteration 3 (second fresh blind review)
-**New findings:** 0 BLOCKER, 0 WARNING, 0 CONVENTION. **Converged.** 4 NITs:
-- [NIT] soft-open at entry — DUPLICATE of iteration 2's, already addressed. Confirmed resolved.
-- [NIT] native-app/main.swift currentlyTrusted() ignored staleness — a days-old trusted:true could suppress the launch prompt. --> FIXED (commit c736fa79): bounded to 300s, mirroring a11ystatus.STALE_AFTER_MS, pinned by a source-wiring assertion.
-- [NIT] KOSMOS_AXCHECK_FORCE_TRUSTED is a live env seam in the shipped binary (a user env carrying =0 would false-block). --> DEFERRED: the seam MUST be live in the release binary for the build-bundle smoke to exercise both trust states; it follows the codebase's established release-binary test-seam pattern (KOSMOS_APP_TEST_*, KOSMOS_URL), obscure name, never set by the installer.
-- [NIT] build-smoke --kosmos-app-axprompt surfaces a system dialog on an untrusted build host. --> DEFERRED: benign on a cut machine (headless hosts do not show it, headed cuts auto-handle the non-blocking dialog under the alarm) and it preserves the flag-drift catch.
+#### Iteration 3 (second blind review) — converged (first run)
+- [NIT] soft-open at entry — DUPLICATE of iteration 2. Resolved.
+- [NIT] native-app/main.swift currentlyTrusted() ignored staleness. --> FIXED: bounded to 300s (a11ystatus.STALE_AFTER_MS), pinned by a source-wiring assertion.
+- [NIT] KOSMOS_AXCHECK_FORCE_TRUSTED live seam. --> DEFERRED: must stay live in the release binary for the build-bundle smoke; codebase test-seam pattern, never set by the installer.
+- [NIT] build-smoke axprompt dialog. --> DEFERRED: benign on cut machines; preserves the flag-drift catch.
+
+#### Iteration 4 (post-rebase blind review) — converged (final)
+- [WARNING] native-app/main.swift — the false-block safety is gated by the RELEASE PROCESS (the deferred fresh-install verify), not by any in-code guard; a #2125-carrying build reaching prod without the verify could false-block if the under-tmux attribution reads the app's trust. Reviewer recommended the plan's bias-to-trusted default. --> DEFERRED by Splinter's explicit ruling (2026-09-04): ship the REAL writer, no bias. Reasoning (mine, ruled decisive): bias makes the writer inert, so the attribution can never be verified, so the gate never works and can never be un-biased (chicken-and-egg) -- the bias trades a functional feature for a permanently dead one. Safety strengthened OUT of code instead: Splinter makes the deferred fresh-install verify a HARD prod-promote gate he owns (no #2125 build promotes until it confirms no false-block), with a DEFINED FAILURE ACTION (if the verify shows a false-block: fix the attribution, OR apply the bias THEN before prod -- so a false-block can never reach users, and the bias is the fallback exactly when warranted). In-code visibility hardened: startA11yTrustChecks now states the one false-block path plainly, that the protection is the release process, that #2189 confirms the under-tmux surface has real fresh-install trouble, and that switching to a bias re-opens the decision.
+- [NIT] stale #1214/#1940 step-5 comment described the removed "anytime in Settings" sentence as current. --> FIXED: rewritten as history superseded by #2125.
+- [NIT] literal 5/6 for the a11y step. --> FIXED: added FR_STEP_A11Y for the a11y-poll stop guard (matching FR_STEP_YOU's guard usage); the ordered frGo ladder stays literal.
+- [NIT] FORCE_TRUSTED=1 defeats the gate in prod — DUPLICATE of iteration 3's mock-seam NIT; reviewer notes no action needed given precedent.
 
 ### Final Ledger
 
 | # | Iter | Category | File | Description | Status | Resolution |
 |---|------|----------|------|-------------|--------|------------|
-| 1 | 1 | BLOCKER | web.firstrun-a11y-1214.test.js | 3 #1214/#1940 tests red vs the #2125 gate | FIXED | 88e5420b |
-| 2 | 2 | WARNING | native-app/main.swift | under-tmux spawn path untested | FIXED | a3abf829 |
-| 3 | 2 | NIT | native-app.a11y-writer-2125.test.js | dead `fn` slice | FIXED | a3abf829 |
-| 4 | 2 | NIT | web/index.html | soft-open-at-entry undocumented | FIXED | a3abf829 |
-| 5 | 3 | NIT | native-app/main.swift | currentlyTrusted ignored staleness | FIXED | c736fa79 |
-| 6 | 3 | NIT | native-app/main.swift | KOSMOS_AXCHECK_FORCE_TRUSTED live seam | DEFERRED | necessary for the release-binary build smoke; codebase test-seam pattern |
-| 7 | 3 | NIT | tools/build-kosmos-bundle.sh | axprompt dialog on build host | DEFERRED | benign on cut machines; preserves flag-drift catch |
+| 1 | 1 | BLOCKER | web.firstrun-a11y-1214.test.js | 3 #1214 tests red vs the #2125 gate | FIXED | reconcile commit |
+| 2 | 2 | WARNING | native-app/main.swift | under-tmux spawn path untested | FIXED | iter-2 commit |
+| 3 | 2 | NIT | native-app.a11y-writer-2125.test.js | dead fn slice | FIXED | iter-2 commit |
+| 4 | 2 | NIT | web/index.html | soft-open undocumented | FIXED | iter-2 commit |
+| 5 | 3 | NIT | native-app/main.swift | currentlyTrusted ignored staleness | FIXED | iter-3 commit |
+| 6 | 3 | NIT | native-app/main.swift | FORCE_TRUSTED live seam | DEFERRED | release-binary build smoke needs it |
+| 7 | 3 | NIT | tools/build-kosmos-bundle.sh | axprompt dialog on build host | DEFERRED | benign on cut machines |
+| 8 | 4 | WARNING | native-app/main.swift | false-block safety is release-gated, not in-code | DEFERRED | Splinter ruled: real writer + hard promote gate + fix-or-bias-if-verify-fails; in-code visibility hardened |
+| 9 | 4 | NIT | web/index.html | stale #1214 comment | FIXED | post-rebase commit |
+| 10 | 4 | NIT | web/index.html | literal a11y step number | FIXED | post-rebase commit (FR_STEP_A11Y) |
 
 ### Outstanding questions (ASKED, still unresolved)
-None.
-
-### NITs (non-blocking)
-- KOSMOS_AXCHECK_FORCE_TRUSTED live env seam (deferred, iteration 3)
-- build-smoke axprompt dialog (deferred, iteration 3)
+None. The iteration-4 WARNING was surfaced to Splinter as a decision flag and RULED (real writer, no bias) before convergence.
 
 ### Strengths (across iterations)
-- Fail-safe integrity holds end to end: the ONLY state that disables Continue is a positive checkable:true+trusted:false; every uncheckable/stale/malformed/fetch-error state leaves Continue enabled, so no unmeasured state can false-block (both reviewers verified by tracing every state).
-- The cross-language path seam is correct across all three resolution arms and doubly pinned (source-wiring test + mock shell test assert byte-identical writer/reader paths).
-- The hand-built JSON contract is exact and validated live through the engine for both trust states.
-- The mock shell test is honest and non-vacuous: it compiles a real binary, drives both trust states across the writer->file->engine seam, exercises the real under-tmux private-socket spawn, and carries a count floor.
-- The load-bearing attribution unknown is clearly flagged as a DEFERRED fresh-install gate on #2125, with the bias-to-trusted mitigation documented and prod protected by the fail-safe frontend gate.
+- Fail-safe integrity holds end to end: the ONLY state that disables Continue is a positive checkable:true+trusted:false; every uncheckable/stale/malformed/fetch-error state leaves Continue enabled. The single false-block path is a genuinely-wrong attribution, gated by the deferred fresh-install verify (now Splinter's hard promote gate).
+- The cross-language path seam is correct across all three resolution arms and doubly pinned (source-wiring test + mock shell test), verified byte-identical by compiling and reading back through the engine.
+- The mock shell test is honest and non-vacuous: real compiled binary, both trust states through the engine, the absent fail-safe control, the real under-tmux private-socket spawn, and a count floor.
+- The three-answers discipline is consistent across engine, route, frontend poll, and browser check (whose ENABLED arms are genuine controls), and the frontend generation/timer contract mirrors the existing FR_YOU_GEN pattern.
 
-## 🛑 DEFERRED FRESH-INSTALL GATE (to flag on #2125)
-The under-tmux attribution (does the AX read report tmux's trust or the app's?) is UNVERIFIED. Before #2125 promotes to prod, verify on a FRESH macOS install that granting Tmux flips the reading to trusted and unblocks Continue, and an ungranted Tmux blocks with the pane's guidance. Prod stays protected until then (the frontend gate is fail-safe).
+## 🛑 DEFERRED FRESH-INSTALL GATE (Splinter's hard prod-promote gate; to flag on #2125)
+The under-tmux attribution (does the AX read report tmux's trust or the app's?) is UNVERIFIED. NO #2125-carrying build promotes to prod until a FRESH macOS install confirms the writer does NOT false-block: granting Tmux flips the reading to trusted and unblocks Continue, and an ungranted Tmux blocks with the pane's guidance. DEFINED FAILURE ACTION if the verify shows a false-block: do NOT promote -- fix the attribution, OR apply the bias-to-trusted mitigation THEN, before prod. #2189 (Open-Accessibility surfaces no Tmux to enable) is the confirmed sibling issue on the same under-tmux surface.
