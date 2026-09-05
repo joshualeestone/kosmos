@@ -27,6 +27,13 @@ const fs = require('node:fs');
 const nodePath = require('node:path');
 const { codeOnly } = require('./test-support/code-only');
 
+/* #2241: frPaintOpenai's connected branch renders the account line through the shared
+   frCheckRow builder (same as Claude's #fr-sub). These tests eval frPaintOpenai in
+   isolation, so they inject this stub; the REAL frCheckRow render (gold box, computed
+   style) is proven by docs/browser-checks/render-firstrun-openai-connectbox-2241.js. */
+const frCheckRowStub = (c) => '<div class="fr-check ' + c.state + '"><div class="fr-mark">✓</div>'
+  + '<div><div class="fr-ctitle">' + c.title + '</div><div class="fr-cdetail">' + c.detail + '</div></div></div>';
+
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 /* ⚠️ THE END ANCHOR WAS `id="fr-sub"` AND CANNOT BE ANY MORE. That element
    used to sit after every provider row, so it doubled as "end of the list".
@@ -103,7 +110,10 @@ test('OpenAI is choosable too, with its own key-entry connect', () => {
   const flowStart = STEP.indexOf('id="fr-openai-flow"');
   const msgStart = STEP.indexOf('id="fr-openai-msg"');
   assert.ok(flowStart !== -1 && msgStart !== -1, 'flow and message both exist');
-  const between = STEP.slice(flowStart, msgStart);
+  // #2241: slice up to the MESSAGE'S OWN opening tag, not its id, so the message
+  // element's own tag (now a <div>, was a <p>) is not miscounted as a flow div.
+  const msgTagStart = STEP.lastIndexOf('<', msgStart);
+  const between = STEP.slice(flowStart, msgTagStart);
   const opens = (between.match(/<div\b/g) || []).length;
   const closes = (between.match(/<\/div>/g) || []).length;
   assert.ok(closes > opens,
@@ -261,7 +271,11 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
       classList: { toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); }, contains: (c) => cls.has(c) },
       setAttribute(k, v) { this.attrs[k] = v; } }; })(),
     'fr-openai-flow': { hidden: false },
-    'fr-openai-msg': { textContent: '' },
+    /* #2241: the connected paint now writes a gold check-row into innerHTML and
+       sets .fr-connbox on className (same treatment as Claude's #fr-sub); the
+       not-connected/dead paths keep textContent + the dhint class. Model all three
+       so the stub does not lag the element. */
+    'fr-openai-msg': { textContent: '', innerHTML: '', className: 'dhint' },
     'fr-openai-key': { value: 'half-typed-key' },
   });
 
@@ -273,23 +287,32 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   let cont;
   const frActions = (primary) => { cont = primary; };
   const frGo = () => {};
+  /* #2241: frPaintOpenai's connected branch now renders the account line through
+     the shared frCheckRow builder (same as Claude's #fr-sub). Stub it here so this
+     unit test can run frPaintOpenai's LOGIC in isolation; the REAL frCheckRow render
+     (gold box, computed style) is proven by docs/browser-checks/render-firstrun-openai-connectbox-2241.js. */
+  const frCheckRow = (c) => '<div class="fr-check ' + c.state + '"><div class="fr-mark">✓</div>'
+    + '<div><div class="fr-ctitle">' + c.title + '</div><div class="fr-cdetail">' + c.detail + '</div></div></div>';
 
   // Told directly (the Add handler's own path -- no fetch needed). The
   // message reports the ACTION, since this call is right after it happened.
   let els = makeEls();
   cont = undefined;
   // eslint-disable-next-line no-new-func
-  await new Function('document', 'fetch', 'known', 'FR', 'frActions', 'frGo', body + '\nreturn frPaintOpenai(known);')(
+  await new Function('document', 'fetch', 'known', 'FR', 'frActions', 'frGo', 'frCheckRow', body + '\nreturn frPaintOpenai(known);')(
     { getElementById: (id) => els[id] || null },
     () => { throw new Error('should not have fetched -- known was supplied'); },
     { connected: true, keyTail: 'ab12', justAdded: true },
-    FR, frActions, frGo,
+    FR, frActions, frGo, frCheckRow,
   );
   assert.match(els['fr-openai-connect'].innerHTML, /Connected/);
   assert.equal(els['fr-openai-connect'].disabled, true);
   assert.equal(els['fr-openai-flow'].hidden, true, 'the key form should close once connected');
-  assert.match(els['fr-openai-msg'].textContent, /^Added/, 'told-directly should report the action, not just the state');
-  assert.match(els['fr-openai-msg'].textContent, /ab12/, 'the confirmation should name the key tail it was told');
+  // #2241: the connected state renders the gold check-row box (same as Claude), not a plain "Added" line.
+  assert.equal(els['fr-openai-msg'].className, 'fr-connbox', 'connected -> the gold check-row box, not a plain hint');
+  assert.match(els['fr-openai-msg'].innerHTML, /OpenAI GPT Codex is connected/, 'the box reads "OpenAI GPT Codex is connected"');
+  assert.match(els['fr-openai-msg'].innerHTML, /This computer is signed in/, 'the box says the computer is signed in');
+  assert.match(els['fr-openai-msg'].innerHTML, /ab12/, 'the key tail stays as a secondary detail in the box');
   assert.equal(cont && cont.label, 'Continue', '#2134: a connected OpenAI account (Claude not) offers Continue on the model step');
 
   // Asked the machine (pane-3 entry, nothing known yet) -- an OpenAI account
@@ -299,13 +322,15 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   cont = undefined;
   const fakeFetch = async () => ({ ok: true, json: async () => ({ accounts: [{ provider: 'openai', keyTail: 'cd34', connection: { state: 'connected', because: 'OpenAI confirmed this key still works' } }] }) });
   // eslint-disable-next-line no-new-func
-  await new Function('document', 'fetch', 'FR', 'frActions', 'frGo', body + '\nreturn frPaintOpenai();')(
+  await new Function('document', 'fetch', 'FR', 'frActions', 'frGo', 'frCheckRow', body + '\nreturn frPaintOpenai();')(
     { getElementById: (id) => els[id] || null },
-    fakeFetch, FR, frActions, frGo,
+    fakeFetch, FR, frActions, frGo, frCheckRow,
   );
   assert.equal(cont && cont.label, 'Continue', '#2134: an already-connected OpenAI account (Claude not) offers Continue');
   assert.match(els['fr-openai-connect'].innerHTML, /Connected/);
-  assert.ok(!/^Added/.test(els['fr-openai-msg'].textContent),
+  // #2241: the already-connected paint also renders the gold box (no fictional "Added" action).
+  assert.equal(els['fr-openai-msg'].className, 'fr-connbox', 'already-connected -> the gold check-row box');
+  assert.ok(!/Added/.test(els['fr-openai-msg'].innerHTML),
     'stepping back to this pane and forward again must not claim an Add that did not happen this visit');
   // The connected paint hides the flow, so the disclosure must say closed
   // (challenge-loop iteration 4: aria-expanded was set true on reveal and
@@ -348,8 +373,8 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   assert.ok(firstRunFlow, 'could not find the first-run key step to check it makes no promise');
   assert.ok(!/It stays on this computer/.test(firstRunFlow[0]),
     'first run makes a promise about the key again; Josh removed that line deliberately (#1207)');
-  assert.match(els['fr-openai-msg'].textContent, /connected/, 'should still say it is connected');
-  assert.match(els['fr-openai-msg'].textContent, /cd34/);
+  assert.match(els['fr-openai-msg'].innerHTML, /is connected/, 'the connected box should still say it is connected');
+  assert.match(els['fr-openai-msg'].innerHTML, /cd34/, 'the connected box names the key tail it read');
 
   // Asked the machine, a real answer of "nothing there" -- a DEFINITE no,
   // not an unknown, so the row must repaint back to Connect. This is the
@@ -435,12 +460,12 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   // declared above (Claude not connected). This case is about supersession, not
   // the actions.
   // eslint-disable-next-line no-new-func
-  const both = new Function('document', 'fetch', 'known', 'FR', 'frActions', 'frGo',
+  const both = new Function('document', 'fetch', 'known', 'FR', 'frActions', 'frGo', 'frCheckRow',
     body + '\nconst read = frPaintOpenai(); const add = frPaintOpenai(known); return Promise.all([read, add]);')(
     { getElementById: (id) => els[id] || null },
     slowEmptyFetch,
     { connected: true, keyTail: 'ab12', justAdded: true },
-    FR, frActions, frGo,
+    FR, frActions, frGo, frCheckRowStub,
   );
   releaseRead();
   await both;
@@ -474,11 +499,11 @@ test('#2134: with Claude ALSO connected, frPaintOpenai does NOT touch the action
   const frActions = () => { frActionsCalled = true; };
   const frGo = () => {};
   // eslint-disable-next-line no-new-func
-  await new Function('document', 'fetch', 'known', 'FR', 'frActions', 'frGo', body + '\nreturn frPaintOpenai(known);')(
+  await new Function('document', 'fetch', 'known', 'FR', 'frActions', 'frGo', 'frCheckRow', body + '\nreturn frPaintOpenai(known);')(
     { getElementById: (id) => els[id] || null },
     () => { throw new Error('no fetch -- known supplied'); },
     { connected: true, keyTail: 'zz99', justAdded: true },
-    FR, frActions, frGo,
+    FR, frActions, frGo, frCheckRowStub,
   );
   assert.equal(frActionsCalled, false, 'frPaintOpenai must not touch the actions when Claude is already connected');
 });
