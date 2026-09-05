@@ -254,3 +254,25 @@ test('setOn does not wipe the sent marker, and markSent does not flip on', () =>
   feedbacksend.markSent('2026-09-05');
   assert.equal(feedbacksend.read().on, false, 'markSent flipped the opt-in');
 });
+
+test('sendDailyOnce does NOT send if the sent-marker write fails (no all-day re-POST)', () => {
+  // The re-send hole: if markSent's disk write fails but the POST succeeds, `sent`
+  // never persists and every sweep re-POSTs the same day forever. The fix sends
+  // only when the mark persisted. Force write to fail (read still succeeds) by
+  // blocking the atomic-rename temp path with a directory of the same name.
+  feedback.write('a finding', { date: '2026-09-04' });
+  feedbacksend.setOn(true); // FILE now readable as {on:true}
+  const tmpBlock = feedbacksend.FILE + '.tmp';
+  fs.mkdirSync(tmpBlock, { recursive: true }); // writeFileSync(tmp) will now EISDIR
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
+  try {
+    // Precondition: the read still works (so the opt-in gate passes), but the write fails.
+    assert.equal(feedbacksend.read().on, true, 'setup: the setting is not readable, so this proves nothing');
+    assert.equal(feedbacksend.markSent('2026-09-04').ok, false, 'setup: the write did not fail, so this proves nothing');
+    feedbacksend.sendDailyOnce('2026-09-04');
+    assert.equal(calls, 0, 'a send happened even though the sent-marker could not be recorded (re-POST-forever risk)');
+  } finally {
+    fs.rmSync(tmpBlock, { recursive: true, force: true });
+  }
+});

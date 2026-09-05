@@ -226,10 +226,17 @@ function maybeSend(date) {
 function sendDailyOnce(date) {
   try {
     const d = date || feedback.today();
-    if (!read().on) return;              // opt-in gate (default OFF in C1)
-    if (read().sent === d) return;       // already sent today
+    const st = read();                    // one read for both gates, atomic within the tick
+    if (!st.on) return;                   // opt-in gate (default OFF in C1)
+    if (st.sent === d) return;            // already sent today
     if (feedback.read(d) == null) return; // no report for that day, nothing to mark or send
-    markSent(d);                          // mark first: no all-day retry spam on a down collector
+    // Mark first, and only send if the mark PERSISTED. If the setting-file write
+    // fails (disk full/permission) we do NOT send: an unrecorded send would make
+    // every hourly sweep re-POST the same day's report to the collector forever,
+    // which is the exact failure this once-per-day guard exists to prevent. A
+    // missed day (favouring not-sending) is the safe direction for a best-effort
+    // daily report.
+    if (!markSent(d).ok) return;
     maybeSend(d);
   } catch { /* nothing here may reach the caller */ }
 }
