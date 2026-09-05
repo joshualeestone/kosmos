@@ -33,6 +33,11 @@ account is shown, key last-4 as a secondary detail, HTML-escaped (arbitrary user
 5. `fillSwitchAccounts` `nameOf`: `acctPrimaryName(x) + qualOf(x)`, with `accountQualifiers` added
    (iteration 1 fix: leading with the name removed the inherently-unique keyTail that had kept this
    picker's options distinct, so it needed the same qualifier pass the create picker has).
+6. `paintAccountPicker` (the Move-to `#d-account` picker, iteration 4 fix): both the current-account
+   "here" option and the move-to options lead with `acctPrimaryName`. This is the same account-picker
+   class as #4/#5. The move-to options come from `ACCOUNTS` (which carries `a.name`); the "here" option
+   comes from `a.account` (launch-file-derived, no name), so it resolves through `acctLive` (its
+   `ACCOUNTS` entry, already found in the function) to pick up the name.
 
 ## Weakest premise (name it, don't bury it)
 The move/switch picker (`fillSwitchAccounts`, `#d-provider-account`) is a THIRD surface not named in
@@ -72,3 +77,13 @@ drift-risk of leaving one surface on the old chain worse than the widening.
 - The FIRST-RUN "Added" toast (~36354) still shows the key: it is a separate flow where the entered
   name is not in scope, so surfacing it there means threading the name through first-run paint code,
   beyond this card's two named surfaces. Left for a follow-up card.
+
+## Deliberately deferred: the agent-detail "runs on" line (documented, iteration 4)
+The agent-detail parenthetical (web/index.html ~19511, `a.account.email || a.account.label`) still
+shows the path slug for a named account. Unlike the pickers, its account object (`a.account`) is
+launch-file-derived via `accountForAgent` and carries no `name`, so showing the chosen name means an
+`ACCOUNTS`-by-dir lookup at the detail render, coupling the detail view to the accounts list, and it
+would touch a line with subtle saved-but-not-restarted Move-window semantics (the parenthetical
+deliberately reads the launch file to name the account the agent WILL use). It is a status line, not
+an account picker, so it sits outside the picker/row class this card updates. Deferred to a follow-up
+that plumbs `name` onto the agent account object (or does the lookup) deliberately.

@@ -15835,7 +15835,7 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
     keyField.value = '';
     labelField.value = '';
     const a = out && out.account;
-    // #2095: lead with the entered name (matching the list + the 15833 toast); key last-4 fallback.
+    // #2095: lead with the entered name (matching the repainted list + the acctShowSuccess toast below); key last-4 fallback.
     msg.textContent = 'Added' + (enteredLabel ? ': ' + enteredLabel : (a && a.keyTail ? ': API key ending ' + a.keyTail : '')) + '.';
     await paintAccounts();
     acctShowSuccess(enteredLabel || (a && a.keyTail ? 'your OpenAI account (key ending ' + a.keyTail + ')' : 'your OpenAI account'));
@@ -24930,12 +24930,18 @@ async function paintAccountPicker(a) {
      email), not a Move-to placeholder; picking a DIFFERENT one is what
      arms Move. The current account is the empty-value option, so Move
      stays quiet while you are where you already are. */
-  const here = acct ? '<option value="">' + esc(acct.email || acct.label || acct.dir) + '</option>'
+  /* #2095: this Move-to picker is the same account-picker class as the create and
+     switch pickers, so it leads with the human-chosen name too. The move-to OPTIONS
+     come from ACCOUNTS (which carries a.name); the current-account "here" option
+     comes from a.account (launch-file-derived, no name), so resolve it through
+     acctLive (its ACCOUNTS entry, already found above) to pick up the name, falling
+     back to the launch-file object when it is not in the list. */
+  const here = acct ? '<option value="">' + esc(acctPrimaryName(acctLive || acct)) + '</option>'
     : '<option value="">Move to&hellip;</option>';
   const html = [here].concat(
     movable.filter((x) => !acct || x.dir !== acct.dir)
       .map((x) => '<option value="' + esc(x.dir) + '">'
-        + esc(x.email || x.label || x.dir) + '</option>'),
+        + esc(acctPrimaryName(x)) + '</option>'),
   ).join('');
   if (sel.innerHTML !== html) sel.innerHTML = html;
 

@@ -110,6 +110,20 @@ test('#2095: the Settings add-a-provider "Added" toast leads with the entered na
     'the Added toast no longer leads with the entered name (it went back to key-only)');
 });
 
+test('#2095: the Move-to account picker leads with the chosen name (source-pinned)', () => {
+  // paintAccountPicker is async + DOM-heavy, so source-pin it (same approach as
+  // web.connect-success-1656 and the toast pin above): both the current-account
+  // "here" option and the move-to options must render through acctPrimaryName, not
+  // the old email||label||dir chain (label is the path slug, not the chosen name).
+  const at = PAGE.indexOf('async function paintAccountPicker(');
+  assert.notEqual(at, -1, 'paintAccountPicker is gone from the page');
+  const body = PAGE.slice(at, PAGE.indexOf('\n}', at) + 2);
+  assert.match(body, /esc\(acctPrimaryName\(acctLive \|\| acct\)\)/,
+    'the current-account "here" option no longer leads with the chosen name');
+  assert.match(body, /esc\(acctPrimaryName\(x\)\)/,
+    'the move-to options no longer lead with the chosen name');
+});
+
 test('#2095 CONTROL: a UNIQUE name gets no qualifier (no noise on the common case)', () => {
   const list = [
     { provider: 'openai', keyTail: 'AAAA', name: 'work',     dir: '/x/.codex-a', isDefault: true },
