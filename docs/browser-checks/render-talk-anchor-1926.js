@@ -121,9 +121,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (r.atBottomBefore !== false) {
       problems.push('setup: the reader was not actually scrolled back before the repaint (atBottom=' + r.atBottomBefore + ')');
     }
-    // The anchor must keep m10 at the same offset below the viewport top (within a couple px).
+    // The anchor must keep m20 at the same offset below the viewport top (within a couple px).
     if (!(Math.abs(r.afterDelta - r.beforeDelta) <= 3)) {
-      problems.push('the reader was NOT held on message m10 across the repaint: before-delta ' + r.beforeDelta
+      problems.push('the reader was NOT held on message m20 across the repaint: before-delta ' + r.beforeDelta
         + 'px, after-delta ' + r.afterDelta + 'px (the #1926 jump is back)');
     }
     // CONTROL: a pixel-restore would have jumped, so the scenario genuinely moved content above the reader.
