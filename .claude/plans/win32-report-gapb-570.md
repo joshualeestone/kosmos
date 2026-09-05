@@ -138,3 +138,143 @@ this arm adds must use `/\r?\n/`, never `'\n'`.
 The two-question answer for Pete, in one line each: **the route is ready and
 needs a token nobody mints on win32; the hook does not fire at all, because its
 command is `bash` and there is no `bash`.**
+
+---
+
+# Progress, and two findings the work turned up (2026-09-05)
+
+## DONE: item 1, the token handoff
+
+`prepareSession` now mints the sender token beside the session id and returns
+`env` (`KOSMOS_AGENT_TOKEN`, or `{}` so a caller can spread it blind), plus the
+`token`/`instance`/`name` the retire needs. `abandon` takes the prepared OBJECT
+and retires that run's token as well as forgetting the record.
+
+Six tests through the real sendertoken store; the strongest resolves one prepared
+session through BOTH arms the route uses — `resolveName` with no roster at all,
+and `resolve` against the roster the real `win32roster` + `status.js` build — and
+asserts they land on the same agent.
+
+Design points worth keeping:
+
+- **Keyed on `meta.name` with NO derivation.** The Mac has to derive the roster
+  name from the tmux session (`${SESSION%-discord}`); here `meta.name` already IS
+  the string the record stores, the roster emits, and `isNamedOurs` matches. The
+  absence of a derivation is the correct code, not a missing step.
+- **A failed mint does not fail the launch** (the supervisor's rule) but IS
+  surfaced as `tokenBecause`, because the consequence differs on this platform:
+  with no pane to fall back to, a tokenless win32 agent is CAPTURE-ONLY — it keeps
+  live state and loses `needs_you`/`blocked`, the two words that mean a person is
+  the blocker.
+- **RETIRE, never REVOKE.** `revoke` drops every token for the name; one failed
+  launch must not silence a healthy concurrent run.
+
+---
+
+## FINDING 1 (fixed): the Windows-coupling audit was disabled by Windows coupling
+
+`engine/windows-coupling-audit-1732.test.js` builds its scan keys with
+`path.join`, and its INVENTORY writes `file` as a forward-slash literal. On macOS
+those are the same string. On Windows the key is `engine\status.js`, matches no
+row, and `expectedCount()` returns 0.
+
+Measured here: **all eleven classified files read as unclassified at once.**
+
+```
+engine\attachments.js [path-delimiter-literal]: 2 match(es), inventory accounts for 0.
+engine\status.js      [fs-root-literal]:        2 match(es), inventory accounts for 0.
+... nine more, every row in the inventory
+```
+
+So the ratchet built to catch Windows-hostile coupling was itself turned off by
+Windows-hostile coupling, on the only platform it is about — and it is green on
+this all-macOS fleet, which is the one place nobody would ever look.
+
+`path.join` is on that file's own portable-API list, and the list is not wrong: it
+is portable for REACHING a file, not for building a string you compare to a
+literal. **The path flavour has to be chosen by what the value is FOR** — the same
+sentence #2183 paid for with `path.extname`, in this same lane, three days ago.
+
+Fixed with `relKey()`, guarded with two arms because one of them cannot see it:
+an inventory-reachability invariant that runs everywhere, and a SOURCE PIN on the
+key builder, because the reachability arm passes on macOS both before and after
+the fix. Perturbation-verified on Windows (4 pass / 3 fail when reverted).
+
+---
+
+## FINDING 2 (open, needs a decision): the token's 0600 does not exist on Windows
+
+This one matters more now that the work above makes win32 agents depend on that
+store for their only credential.
+
+`engine/sendertoken.test.js` fails **10 of 44** on Windows, and every failure is a
+POSIX file-mode assertion (`438 !== 384` — 0o666 vs 0o600). Measured directly:
+
+```
+fs.writeFileSync(f, 'x', { mode: 0o600 })  -> mode reads 666
+fs.chmodSync(f, 0o600)                     -> mode reads 666
+```
+
+Node's `chmod` on Windows toggles only the read-only bit; **owner-only is not
+expressible**. So `securewrite.writeSecret`'s tightening — the whole of #1761 — is
+a no-op on win32, and the mode-based guarantee is simply absent there.
+
+⚠️ **BOTH FAILURES ARE PRE-EXISTING, PROVEN NOT ASSUMED.** Ran both files on a
+detached clean `origin/main`: identical counts (sendertoken 34/10,
+coupling-audit 4/1). Neither comes from this branch.
+
+**The property is still met on Windows, but by a different mechanism, and nothing
+checks it.** The real protection is the inherited NTFS ACL:
+
+```
+NT AUTHORITY\SYSTEM        FullControl  Inherited=True
+BUILTIN\Administrators     FullControl  Inherited=True
+PizzaRama\joshu            FullControl  Inherited=True
+```
+
+No other standard user has access — so a token under the user profile is in
+practice as private as a 0600 file. But that is **inherited and incidental, not
+asserted**. Move the store root somewhere with looser inheritance (ProgramData, a
+shared volume, a mapped drive) and the confidentiality is gone with nothing red.
+
+⇒ **This is the same asymmetry the `dl/` defect had**, and it is worth stating as
+the general rule rather than as one more instance: *every assertion in this area
+checks that something EXPECTED IS PRESENT — the mode we set, the directory we
+made. Nothing checks that something UNEXPECTED IS ABSENT — that nobody else can
+read the token.* On macOS the mode assertion is a proxy for that, and on Windows
+the proxy silently detaches from the thing it stands for.
+
+**Deliberately NOT fixed unilaterally.** Making those 10 tests pass on Windows
+means either skipping them there (silencing a security assertion — the exact move
+this codebase's guards forbid) or asserting the ACL instead, which is a real
+posture decision: whether Kosmos ASSERTS an explicit ACL on `sendertokens/` at
+creation on win32 rather than inheriting one. Proposed shape, for the card:
+`securewrite.secureDir` grows a platform-injectable win32 arm that sets an
+explicit owner-only ACL, and the tests assert the PROPERTY (no other principal can
+read) per platform rather than the POSIX mechanism on both.
+
+---
+
+## Order of work, updated
+
+1. ~~Token handoff~~ — **DONE** (this branch).
+2. **Decide the win32 report-writer's shape** with Pete, against his stated
+   constraints. Q2 above is the input: the hook is `bash "<path>"` onto a POSIX
+   script that shells to `curl`, and there is no `bash`.
+3. **Throttle key** off the minted session id, replacing the `nopane` collapse.
+4. **Dedup migration** for `MARKER` before any second hook filename ships.
+5. **Token confidentiality on win32** (Finding 2) — needs a card and a decision,
+   not a test edit.
+
+## Note for whoever runs this suite on Windows next
+
+There is no `node` on PATH on this box, and no `bash` either. The suite entry
+point is `bash tools/run-tests.sh`, so it cannot run as-is. These files were run
+with the bundled runtime directly:
+
+```
+C:\Users\joshu\Downloads\kosmos-0.6.24-win-x64\runtime\node.exe --test engine/<file>.test.js
+```
+
+That is worth its own step in the port: the Windows dev loop currently has no
+supported way to run the tests.
