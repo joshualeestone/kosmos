@@ -803,13 +803,17 @@ function whoamiIdentityClause(name, source) {
  */
 function whoamiProjectsClause(projectNames) {
   const ps = Array.isArray(projectNames) ? projectNames.filter((n) => typeof n === 'string' && n) : [];
-  if (!ps.length) return 'it is on no projects';
-  // A small "A", "A and B", "A, B and C" join. `engine/projects` has its own
-  // `andList`, but it is not exported and this is the whole of what is needed;
-  // duplicating three lines beats widening that module's surface for one caller.
+  // Capitalised because this clause is a full sentence (it follows
+  // `sentenceForWhoami`'s terminating period), matching the other clauses.
+  if (!ps.length) return 'It is on no projects';
+  // A small "A", "A and B", "A, B, and C" join. `engine/projects` has its own
+  // `andList` with the same Oxford-comma form, but it is not exported and this is
+  // the whole of what is needed; matching its shape keeps the product consistent
+  // without widening that module's surface for one caller.
   const list = ps.length === 1 ? ps[0]
-    : ps.slice(0, -1).join(', ') + ' and ' + ps[ps.length - 1];
-  return 'its projects are ' + list;
+    : ps.length === 2 ? ps[0] + ' and ' + ps[1]
+      : ps.slice(0, -1).join(', ') + ', and ' + ps[ps.length - 1];
+  return 'Its projects are ' + list;
 }
 
 /**
@@ -5680,11 +5684,13 @@ const server = http.createServer((req, res) => {
         const identitySource = ((req.headers && req.headers['x-kosmos-agent-token']) || (body && body.token))
           ? 'its launch token'
           : 'the tmux pane it is running in';
-        /* #1899: the agent's projects, from the board's own membership lookup
-           (never recomputed here). Fails soft to none: an unreadable projects
-           store must not turn "who am I" into an error. */
+        /* #1899: the NAMES of the agent's projects, via the PURE membership
+           lookup. NOT `projectsFor`, which maps `describe` and can `writeAll` to
+           heal `everSeen` -- a whoami READ must not write to projects.json as a
+           side effect. Fails soft to none: an unreadable projects store must not
+           turn "who am I" into an error. */
         const projectNames = (() => {
-          try { return projects.projectsFor(who, roster).map((p) => p && p.name).filter(Boolean); }
+          try { return projects.namesFor(who); }
           catch { return []; }
         })();
         sendJson(res, 200, {

@@ -1080,6 +1080,21 @@ function projectsFor(sessionName, roster) {
     .map((p) => describe(p, roster, all));
 }
 
+/* #1899: just the NAMES of the projects an agent is on, as a PURE read.
+   `projectsFor` maps `describe`, which is NOT pure -- it heals `everSeen` and can
+   `writeAll` (see describe) -- so a read like `whoami` that only needs names must
+   not go through it, or it would write to projects.json as a side effect of an
+   agent asking who it is. This filters the raw registry and returns names,
+   touching nothing on disk. No `roster` argument, because names need no join. */
+function namesFor(sessionName) {
+  const key = String(sessionName || '');
+  if (!key) return [];
+  return readAll()
+    .filter((p) => (p.agents || []).includes(key))
+    .map((p) => p.name)
+    .filter((n) => typeof n === 'string' && n);
+}
+
 /**
  * The one place a project name is judged.
  *
@@ -2370,7 +2385,7 @@ function toldOverride(verdict, sessionName, known) {
 module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe,
-  list, get, projectsFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
+  list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, listFiles, openFile,

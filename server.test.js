@@ -11163,7 +11163,7 @@ test('#1899: whoami reports the agent name, identity source, and projects (not j
     // The account clause is still present (additive change, not a replacement).
     assert.match(out.because, /cannot tell which account/, 'the account clause was lost: ' + out.because);
     // And it closes with the projects clause.
-    assert.match(out.because, /it is on no projects\.$/, 'the projects clause must close the sentence: ' + out.because);
+    assert.match(out.because, /It is on no projects\.$/, 'the projects clause must close the sentence: ' + out.because);
   } finally {
     server.setLiveReader(null);
     messagesEngine.setRunner(null);
@@ -11185,13 +11185,13 @@ test('#1899: the identity and projects clauses compose one shape (unit)', () => 
 
   // Projects: none / one / two / three, with a readable join and no trailing
   // conjunction confusion.
-  assert.equal(whoamiProjectsClause([]), 'it is on no projects');
-  assert.equal(whoamiProjectsClause(null), 'it is on no projects');
-  assert.equal(whoamiProjectsClause(['Alpha']), 'its projects are Alpha');
-  assert.equal(whoamiProjectsClause(['Alpha', 'Beta']), 'its projects are Alpha and Beta');
-  assert.equal(whoamiProjectsClause(['Alpha', 'Beta', 'Gamma']), 'its projects are Alpha, Beta and Gamma');
+  assert.equal(whoamiProjectsClause([]), 'It is on no projects');
+  assert.equal(whoamiProjectsClause(null), 'It is on no projects');
+  assert.equal(whoamiProjectsClause(['Alpha']), 'Its projects are Alpha');
+  assert.equal(whoamiProjectsClause(['Alpha', 'Beta']), 'Its projects are Alpha and Beta');
+  assert.equal(whoamiProjectsClause(['Alpha', 'Beta', 'Gamma']), 'Its projects are Alpha, Beta, and Gamma');
   // Non-string / empty entries are dropped rather than rendered as blanks.
-  assert.equal(whoamiProjectsClause(['Alpha', '', null, 'Beta']), 'its projects are Alpha and Beta');
+  assert.equal(whoamiProjectsClause(['Alpha', '', null, 'Beta']), 'Its projects are Alpha and Beta');
 });
 
 /**
