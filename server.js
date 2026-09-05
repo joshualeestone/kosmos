@@ -4774,6 +4774,12 @@ const server = http.createServer((req, res) => {
         if (!out.ok && home && homeCreated) {
           try { projects.remove(home.id); } catch { /* nothing better to do */ }
         } else if (out.ok && home && homeCreated) {
+          // #2279: furnish the welcome home the SAME way the create and first-run
+          // seeds do, now that the note is a shared constant. An imported first
+          // agent that seeds its own home used to get a note-less room; the
+          // welcoming note is the first thing a new person reads, so it should
+          // not depend on which door the first agent came through.
+          try { messages.roomNote(home.id, projects.WELCOME_ROOM_NOTE); } catch { /* the note is furniture */ }
           try { projects.markWelcomeSeeded({ project: home.id, via: 'import' }); }
           catch { /* the emptiness check still guards the common case */ }
         }

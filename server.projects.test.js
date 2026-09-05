@@ -2823,12 +2823,18 @@ test('#2279: first-run completion seeds the welcome home even with no agent crea
   // Composes with the agent path via the shared once-ever flag: an agent
   // created afterwards ADOPTS this home rather than growing a second, and lands
   // in it so the first agent still has somewhere to work.
-  const made = await post('/api/agents', { name: 'after-firstrun', role: 'pm' });
-  assert.equal(json(made).outcome, 'created', made.body);
+  const madeBody = json(await post('/api/agents', { name: 'after-firstrun', role: 'pm' }));
+  assert.equal(madeBody.outcome, 'created', JSON.stringify(madeBody));
   const after = projectsEngine.readAll();
   assert.equal(after.filter((p) => p.name === 'Getting started').length, 1, 'a second welcome home grew');
   assert.ok((after.find((p) => p.id === home.id).agents || []).includes('after-firstrun'),
     'the first agent did not land in the welcome home first-run had already seeded');
+  // The response must NOT claim `seeded` on an ADOPT: this request joined a home
+  // first-run already made, it did not make one. `seeded:true` is the native
+  // client's "we made you a home" signal and must fire only on a real creation.
+  const homeRow = (madeBody.projects || []).find((p) => p.id === home.id);
+  assert.ok(homeRow && homeRow.added, 'the adopted home is not reported as added');
+  assert.notEqual(homeRow.seeded, true, 'the response claimed seeded on an adopt, not a creation');
 });
 
 test('#2279: first-run completion does not seed a second welcome home over one the agent path already made', async () => {
