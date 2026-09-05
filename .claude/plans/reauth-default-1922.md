@@ -1690,3 +1690,39 @@ inside iteration records are history and are left as written.
   it would** -- `run()` returns `runner(...)` before it consults DRY_RUN, so the `new-session` is
   recorded either way. The call is right and is the file's universal convention; only the reason was
   wrong.
+
+### Post-rebase self-review, 2026-09-04 23:00: I diagnosed a real mismatch and fixed the WRONG SIDE
+
+**Found:** the docblock row at `engine/connect.test.js:597` read *"both route harnesses SET the
+seam" -- wrong (it was 11 of 34 ...)* with a re-count command greping
+`AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, while the paragraph 10 lines above defines "the seam" as
+`AGENT_WORKFORCE_DRY_RUN`. **One phrase, two variables.**
+
+**Measured at both bases, same method, with a control (a bogus var returns 0):**
+
+| ref | total `server.*.test.js` | set `CLAUDE_CONFIG_DIR` | set `DRY_RUN` |
+|---|---|---|---|
+| `09e1c921` (pre-rebase base the text describes) | 34 | **11** | 32 |
+| `HEAD` (post-rebase) | 44 | **12** | 41 |
+
+**My first fix was wrong and I shipped it before checking.** I assumed the number was attached to
+the wrong command and replaced 11 with the `DRY_RUN` counts (32 / 41). **The command and the number
+agreed all along** (11 is exactly right for `CLAUDE_CONFIG_DIR` at that base); the defect was the
+LABEL. So I replaced a right number carrying an ambiguous name with a number for a different
+variable, which is strictly worse.
+
+**What caught it: the sweep, which I nearly skipped** because its first three greps came back clean.
+The fourth token (`harnesses set`) hit `plan:1182`, whose table states the original claim verbatim as
+*"both route harnesses SET `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`"* and records **ELEVEN** as the true
+count for that variable. Reverted with `git checkout --` and re-fixed the label instead.
+
+**The generating error, stated so it is checkable next time:** given "the sentence and its
+verification command disagree", I picked which side was wrong **by which one was closer to my
+current attention** (I had just been reading about the dry-run seam) rather than by going to the
+record that defined the claim. **A mismatch tells you one side is wrong. It never tells you which,
+and the cheap tiebreak is the artifact that first stated the claim.**
+
+⚠️ Weakest premise in this entry: the counts use a MENTION match (`grep -q <var>`), not an
+assignment match, so a file that only names the variable in a comment is counted. The 11 reproduces
+the original figure exactly at the original base, which is why the mention form is the right one to
+report here, but a stricter count would be smaller.

@@ -594,10 +594,12 @@ function driverTest(name, fn) {
  *
  * 🛑 IT IS NOT AN IMPOSSIBILITY, AND TWO EARLIER VERSIONS OF THIS PARAGRAPH SAID
  * IT WAS, IN THE SAME WAY, ONE ROUND APART:
- *   1. "both route harnesses SET the seam" -- wrong (it was 11 of 34
- *      `server.*.test.js` files when counted; **that ratio goes stale silently,
- *      so re-count rather than trusting it:**
- *      `find . -maxdepth 1 -name 'server.*.test.js' -exec grep -l AGENT_WORKFORCE_CLAUDE_CONFIG_DIR {} +`),
+ *   1. "both route harnesses SET `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`" -- wrong
+ *      (12 of 44 `server.*.test.js` files set THAT variable, which is NOT the
+ *      dry-run seam named above; the two were both called "the seam" here and
+ *      that collision is the whole reason this row was misread. **The ratio goes
+ *      stale silently, so re-count rather than trusting it:**
+ *      `find . -maxdepth 1 -name 'server.*.test.js' -exec grep -l AGENT_WORKFORCE_CLAUDE_CONFIG_DIR {} + | wc -l`),
  *      not the blocker, and self-defeating, since THIS ARM DELETES THE SEAM
  *      (see the `delete process.env...` below).
  *   2. "a launch arm CANNOT live there whatever the seam does" -- **carries the
