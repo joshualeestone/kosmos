@@ -78,10 +78,10 @@ function check(name, pass, detail) {
         .sort((a, b) => box(a).top - box(b).top);
       const form = step.getBoundingClientRect();
       const btn = box('create-go');
-      /* #996/item 3: the created-ping checkbox was removed from this step on
-         2026-08-26. Kept as a lookup so the absence is MEASURED on the rendered
-         page rather than assumed from the markup. */
-      const tellGone = !id('create-tell');
+      /* #2020: the created-ping checkbox was restored to this step on
+         2026-09-05, reversing the 08-26 removal. Measured on the RENDERED page
+         (a display:none row would satisfy a markup check but not this one). */
+      const tellPresent = !!(id('create-tell') && box('create-tell') && box('create-tell').height > 0);
       const acct = box('create-account');
       const model = box('create-model');
       const prov = box('create-provider');
@@ -204,7 +204,7 @@ function check(name, pass, detail) {
             return Math.round(bottom - (cr.top + cr.height / 2));
           }).filter((n) => n !== null);
         })(),
-        tellGone,
+        tellPresent,
         btnPresent: !!btn,
         labelGap: (() => {
           const l = document.querySelector('label[for="create-name"]');
@@ -326,13 +326,13 @@ function check(name, pass, detail) {
       seen.elbow && parseFloat(seen.elbow.w) > 4 && parseFloat(seen.elbow.h) > 8,
       seen.elbow ? `${seen.elbow.w} x ${seen.elbow.h} in ${seen.elbow.color}` : 'no ::before');
 
-    /* 🛑 THIS ASSERTED THE CHECKBOX AND NOW ASSERTS ITS ABSENCE. Josh removed
-       the created-ping setting on 2026-08-26 ("they both need to be removed"),
-       and this check went red on the RENDERED page while the product was doing
-       exactly what he asked. It was one of four page-layer reds holding a cut.
+    /* 🛑 THIS HAS ASSERTED THE CHECKBOX, THEN ITS ABSENCE, AND NOW ITS PRESENCE
+       AGAIN. Josh removed the created-ping setting on 2026-08-26, then reversed
+       that on 2026-09-05 ("we need that back in for sure"), so the rendered
+       create step carries the checkbox again (#2020).
        📌 The button half is kept as the control: without it, "the checkbox is
-       gone" would also pass on a step that had lost its Create button. */
-    check(`[${engine}] the created-ping checkbox is gone from this step`, seen.tellGone === true);
+       present" would still pass on a step that had lost its Create button. */
+    check(`[${engine}] the created-ping checkbox is on this step`, seen.tellPresent === true);
     check(`[${engine}] and the Create button is still on it`, seen.btnPresent === true);
 
     check(`[${engine}] no page errors`, errors.length === 0, errors.join(' | ').slice(0, 160));

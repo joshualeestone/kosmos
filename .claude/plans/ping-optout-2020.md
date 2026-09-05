@@ -60,6 +60,13 @@ off until turned on). Josh swaps the wording.
 
 ## Guard tests - UPDATE, do not weaken (Splinter's explicit trap)
 
+> SUPERSEDED for the PING (2026-09-05, branch createping-2020): Josh ruled the
+> created-agent ping back ON (#2020/#2013, "we need that back in for sure", "I've
+> never said flip it off"). The "default is still off / ping.read().on === false"
+> statements below were correct while step 3 was held; the ping guard now asserts
+> the control PRESENT **and** ping.read().on === true (default+control together).
+> The notify default stays OFF - its step-3 flip is a separate, still-held ruling.
+
 `notify.test.js:114` pins the notify rows ABSENT; `ping.test.js:~182-203` pins the
 ping control ABSENT **and** `ping.read().on === false`. Both check control+default
 TOGETHER because "control gone + default ON" is strictly worse. Restoring the

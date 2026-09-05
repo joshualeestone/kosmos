@@ -302,20 +302,18 @@ function seed() {
         provider: sel('create-provider') ? sel('create-provider').value : null,
         account: !!sel('create-account'),
         models: model ? model.querySelectorAll('option').length : 0,
-        /* 🛑 `tell.disabled` ON A REMOVED ELEMENT IS A THROW, not a red
-           assertion: the created-ping checkbox went with Josh's item 3, and
-           this line took the whole check down with a TypeError. It now
-           measures the absence instead. */
-        tellGone: !sel('create-tell') && !sel('create-tell-note') };
+        /* #2020: the created-ping checkbox is back (Josh reversed item 3 on
+           2026-09-05). Measure presence of both the box and its note row; guard
+           the lookups so a missing element is a red assertion, not a throw. */
+        tellPresent: !!sel('create-tell') && !!sel('create-tell-note') };
     });
     chk(/Model \(you can change this later\)/.test(create.hint || ''), theme + ': the model hint is there', create.hint);
     chk(create.provider !== null && create.account && create.models >= 2,
       theme + ': provider, account and model menus, with models to pick from', JSON.stringify(create));
-    /* The setting is on by default on a fresh board, so the box is usable and
-       says nothing. What must never happen is checked-and-disabled, or a note
-       with the box enabled. */
-    chk(create.tellGone === true,
-      theme + ': the created-ping checkbox is gone from the create form', JSON.stringify(create));
+    /* The setting is on by default on a fresh board (#2020, restored
+       2026-09-05), so the create form carries the box again. */
+    chk(create.tellPresent === true,
+      theme + ': the created-ping checkbox is on the create form', JSON.stringify(create));
 
     chk(errs.length === 0, theme + ': no console errors', errs.slice(0, 2).join(' | '));
     await pg.close();

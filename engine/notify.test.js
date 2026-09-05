@@ -111,7 +111,7 @@ test('CONTROL: with no injected sender under test, nothing is sent even when on,
   }
 });
 
-test('both telemetry opt-out rows are PRESENT and wired, and the sends stay OFF by default (#2020 step 1)', () => {
+test('both telemetry opt-out rows are PRESENT and wired; ping defaults ON (#2020/#2013), notify stays OFF', () => {
   /* 🛑 THE HISTORY, so nobody re-derives it: this pinned the rows PRESENT before
      2026-08-26, then their ABSENCE after Josh removed both (his item 3). #2020
      restores them as opt-out CONTROLS (Josh 09-03: "on, and they can turn it off"),
@@ -140,11 +140,15 @@ test('both telemetry opt-out rows are PRESENT and wired, and the sends stay OFF 
   assert.match(page, /if \(!res\.ok\) \{ if \(mine === NOTIFY_EPOCH\) notifyPaint\(null\)/,
     'refreshNotify does not guard on a non-ok read (#2047: a 403 would draw a false Off)');
   /* The half absence alone cannot cover (ping.test.js's rule, applied here): the
-     control is back AND the send still defaults OFF. A fresh machine has no pref
-     file, so read() returns the default. */
+     control is back AND the send default is whatever Josh has ruled. A fresh
+     machine has no pref file, so read() returns the default. The two defaults
+     now DIVERGE, and the split is deliberate: Josh ruled the created-agent PING
+     back ON on 2026-09-05 (#2020/#2013, "we need that back in for sure", "I've
+     never said flip it off"); the notify send has no such ruling, so it stays
+     OFF until he gives one. */
   const ping = require('./ping');
-  assert.equal(notify.read().on, false, 'the notify send defaults ON with no step-3 ruling from Josh');
-  assert.equal(ping.read().on, false, 'the ping send defaults ON with no step-3 ruling from Josh');
+  assert.equal(notify.read().on, false, 'the notify send defaulted ON with no step-3 ruling from Josh');
+  assert.equal(ping.read().on, true, 'the ping send defaulted OFF, but #2020/#2013 requires it ON (Josh 2026-09-05)');
   /* 🛑 THE DISCLOSURE COPY MUST COVER WHAT THE PAYLOAD SENDS (#2020 step 2 = honest
      disclosure). This pins the payload's EXACT field set; the notify row's copy above
      is human-verified to name each one - the agent's name and session, kind

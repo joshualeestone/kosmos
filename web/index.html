@@ -8449,18 +8449,26 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            not the app on this Mac), which was the #331 concern; what is
            sent stays spelled out in the Settings row's hint. One string in
            one place, so a later ruling is still one edit. -->
-      <!-- 📌 THE CREATED-PING CONTROL IS GONE, BOTH SURFACES (Josh, 2026-08-26,
-           item 3): "the 'Let the Kosmos team know when you create an agent' -
-           they both need to be removed." The Settings row went first; this
-           checkbox was the same setting's other surface and outlived it by a
-           few hours, which left a live send whose only explanation had already
-           been deleted with the row.
-           🛑 AND THE DEFAULT WENT OFF IN THE SAME CHANGE, which this file's own
-           note required: "removing every control while the send stays on is not
-           a tidy-up, it is a removed opt-out. If this box ever goes too, turn
-           the default off in the same change." engine/ping.js now returns
-           { on: false } for a machine that has never been asked. -->
-
+      <!-- 📌 THE CREATED-PING CONTROL IS BACK, BOTH SURFACES (Josh, 2026-09-05,
+           relayed by Splinter): "we need that back in for sure" + "I've never
+           said flip it off". That reverses the 2026-08-26 removal (item 3). The
+           Settings row was restored earlier under #2020; this is its other
+           surface, the point-of-the-act checkbox, restored here with the default
+           back ON (engine/ping.js returns { on: true } for a never-asked
+           machine). The default and the control move together (#2013).
+           ⚠️ NOT `checked` IN THE MARKUP. Sending is two gates: this box for one
+           agent, and the standing answer in Settings. refreshCreateTell() paints
+           the box from the real read on every open, so a person who turned it
+           off in Settings sees an unchecked, disabled box that says so, rather
+           than a hard-coded tick claiming a consent the second gate would refuse
+           (the #258 defect). -->
+      <div class="field" id="create-tell-wrap">
+        <label class="tellrow" for="create-tell">
+          <input type="checkbox" id="create-tell">
+          <span>Let the Kosmos team know you created an agent</span>
+        </label>
+        <div class="fhint" id="create-tell-note"></div>
+      </div>
       <button class="btn uprime big" id="create-go" type="button">Create agent</button>
     </div>
     <div class="fmsg" id="create-msg" role="status" aria-live="polite"></div>
@@ -16355,7 +16363,9 @@ document.getElementById('auto-toggle').addEventListener('click', autoToggleClick
    START (#2047): a gated or failed GET draws COULD-NOT-READ, never a confident Off.
    For a telemetry opt-out that distinction is the whole point - a switch that
    falsely reads Off tells a person nothing is sent while the engine may be. The
-   sends stay OFF by default; the default flip is held for Josh. */
+   created-agent ping now defaults ON (Josh 2026-09-05, #2020/#2013: "we need
+   that back in for sure", "I've never said flip it off"), with these switches as
+   the opt-out; the send stays event-only (nothing about the agent). */
 let TELL_EPOCH = 0;
 function tellPaint(r) {
   // could-not-read if there is no real value: no body at all, or the route/engine
@@ -16404,6 +16414,49 @@ async function tellToggleClick() {
   }
 }
 document.getElementById('tell-toggle').addEventListener('click', tellToggleClick);
+
+/**
+ * The create page's copy of the standing answer (#258, restored #2020 on Josh's
+ * 2026-09-05 reversal).
+ *
+ * ⚠️ THREE STATES, AND THE THIRD IS NOT "ON". `unread` (no body, ok:false, or a
+ * non-boolean on) means we have not read it, which is not off. An unread or
+ * turned-off setting disables the box here, because the engine refuses on
+ * `!pref.on` either way and a checked box would describe a send that cannot
+ * happen.
+ *
+ * 🔑 IT NEVER WRITES THE SETTING. Unchecking here is about this one agent; the
+ * standing answer is changed in Settings and nowhere else.
+ */
+function createTellPaint(r) {
+  const box = document.getElementById('create-tell');
+  const note = document.getElementById('create-tell-note');
+  const unread = !r || r.ok === false || typeof r.on !== 'boolean';
+  const on = !unread && r.on === true;
+  box.disabled = !on;
+  box.checked = on;
+  note.textContent = on ? ''
+    : (unread
+      ? 'We could not read this setting, so nothing is sent.'
+      : 'Turned off in Settings.');
+}
+
+let CREATE_TELL_EPOCH = 0;
+async function refreshCreateTell() {
+  /* Painted as unreadable FIRST, then upgraded, so a slow fetch never shows a
+     stale claim. A non-ok GET (403 on an enforcing board, or 500) is
+     could-not-read, not off (#2047), the same rule the Settings row follows.
+     The epoch guard discards a stale response when the form is re-opened
+     mid-fetch, matching refreshTell/refreshNotify. */
+  const mine = ++CREATE_TELL_EPOCH;
+  createTellPaint(null);
+  try {
+    const res = await fetch('/api/ping-setting');
+    if (!res.ok) { if (mine === CREATE_TELL_EPOCH) createTellPaint(null); return; }
+    const r = await res.json();
+    if (mine === CREATE_TELL_EPOCH) createTellPaint(r);
+  } catch { if (mine === CREATE_TELL_EPOCH) createTellPaint(null); }
+}
 
 let NOTIFY_EPOCH = 0;
 function notifyPaint(r) {
@@ -26853,6 +26906,7 @@ function openCreate() {
   loadRoles();
   /* Read on every open, not once on boot: the standing answer can be changed
      in Settings between two visits to this form. */
+  refreshCreateTell();
 }
 
 document.getElementById('new-agent').addEventListener('click', openCreate);
@@ -27820,15 +27874,11 @@ document.getElementById('create-go').addEventListener('click', async () => {
            the hub already. */
         const to = document.getElementById('create-reports').value;
         if (to) b.reportsTo = to;
-        /* 🛑 ALWAYS FALSE NOW, AND SENT EXPLICITLY. This read the checkbox
-           that Josh removed (item 3), so with the control gone it was a
-           `.checked` on null: creating an agent would have thrown on the last
-           click, in the one flow every new person walks.
-           📌 Explicit rather than omitted, because the SERVER still defaults
-           this field to true. Leaving it out would keep the ping alive through
-           the default while the person has no control and no disclosure, which
-           is the exact state this change exists to end. */
-        b.tellKosmos = false;
+        /* Sent only when it is FALSE. The server defaults it to true, so a
+           caller that has never heard of this field behaves the way a ticked
+           box does, and an older client cannot silently opt somebody out. The
+           box is restored (#2020, Josh 2026-09-05), so this reads it again. */
+        if (!document.getElementById('create-tell').checked) b.tellKosmos = false;
         if (CREATE_PROJECTS.length) b.projects = CREATE_PROJECTS;
         return b;
       })()),

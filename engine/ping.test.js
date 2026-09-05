@@ -25,21 +25,22 @@ const { codeOnly } = require('../test-support/code-only');
 // exists before the tests write to ping.FILE directly.
 function fresh() { fs.mkdirSync(nodePath.dirname(ping.FILE), { recursive: true }); try { fs.unlinkSync(ping.FILE); } catch { /* none */ } }
 
-test('nobody has been asked, so it is OFF and nothing is sent', () => {
-  /* 🛑 THIS ASSERTED `true` UNTIL 2026-08-26, and the flip is a consequence,
-     not a preference. Absent-means-on was defensible while a person had a
-     control to answer with; Josh removed both surfaces of that control (item
-     3), so "nobody has been asked" became "nobody CAN be asked". The page's
-     own note set the condition: "removing every control while the send stays
-     on is not a tidy-up, it is a removed opt-out."
-     ⭐ It asserts the SEND, not just the flag: a default nobody can change is
-     only meaningful in terms of what leaves the machine. */
+test('nobody has been asked yet, so it is ON and the event is sent', () => {
+  /* 🛑 THIS ASSERTED `false` FROM 2026-08-26 UNTIL 2026-09-05, and the flip
+     BACK is Josh's ruling, not a preference (#2020/#2013, via Splinter: "we
+     need that back in for sure", "I've never said flip it off"). Absent-means-on
+     was turned off on 08-26 only because both control surfaces had been removed,
+     which made a default-on send a removed opt-out. Josh reversed that: the
+     create-page checkbox AND the Settings switch are both back, so "nobody has
+     been asked yet" is a person who still has a control, and that is on.
+     ⭐ It asserts the SEND, not just the flag: a default is only meaningful in
+     terms of what leaves the machine. */
   fresh();
-  assert.equal(ping.read().on, false);
+  assert.equal(ping.read().on, true);
   let sent = 0;
   ping.setSender(() => { sent += 1; return Promise.resolve(); });
   ping.agentCreated({ wanted: true });
-  assert.equal(sent, 0, 'a machine nobody has asked sent something anyway');
+  assert.equal(sent, 1, 'a never-asked machine with the default ON did not send');
 });
 
 test('a preference we cannot read sends NOTHING', () => {
@@ -88,10 +89,10 @@ test('the install id is random, kept, and not derived from the machine', () => {
 });
 
 test('one creation never changes the standing setting, in either direction', () => {
-  /* The box this used to describe is gone. What it was really protecting is
-     the SEPARATION: a per-creation answer must not become the standing one.
-     That rule outlives the checkbox and is what a future control would rely
-     on, so it is kept and now checked in both directions. */
+  /* The box this describes is back (#2020, restored 2026-09-05). What it
+     protects is the SEPARATION: a per-creation answer must not become the
+     standing one. That rule holds with the checkbox present or absent, so it is
+     checked in both directions. */
   fresh();
   assert.deepEqual(ping.setOn(true), { ok: true });
   let sent = 0;
@@ -127,9 +128,9 @@ test('a network failure is invisible to the caller', async () => {
 
 test('it posts to the Kosmos endpoint, as JSON', () => {
   fresh();
-  /* Explicit now: the default went off with the control (2026-08-26), so this
-     has to TURN IT ON to have anything to inspect. The payload shape is what
-     this test is about and that has not changed. */
+  /* Explicit setOn(true) so this pins the payload shape regardless of the
+     default (which is back ON as of 2026-09-05, but this test is about the
+     shape, not the default, and should not silently depend on it). */
   assert.deepEqual(ping.setOn(true), { ok: true });
   let seen = null;
   ping.setSender((url, init) => { seen = { url, init }; return Promise.resolve(); });
@@ -165,47 +166,41 @@ test('a test run never reaches the real network', () => {
   }
 });
 
-test('the created-ping CREATE-PAGE control stays absent, and it does not default ON', () => {
+test('the created-ping CREATE-PAGE control is present, and the send defaults ON, together', () => {
   /**
-   * 📌 #2020 NOTE: ping's opt-out is BACK, but as the Settings > Updates row
-   * (tell-row/tell-toggle, covered in notify.test.js), NOT the create-page
-   * checkbox. This test pins that the CREATE-PAGE control (`create-tell*`) stays
-   * absent - the create screen is not where the opt-out lives - and that ping
-   * still defaults OFF (step 3, the on-flip, is Josh's). So "no control left" in
-   * the old title meant no CREATE-PAGE control; ping is controllable in Settings.
+   * 📌 #2020/#2013: the create-page control is BACK and the default is ON, and
+   * they are asserted TOGETHER because they are one decision (a default and its
+   * control change together). Josh reversed the 08-26 removal on 2026-09-05, via
+   * Splinter: "we need that back in for sure", "I've never said flip it off".
    *
-   * 🛑 THIS TEST USED TO ASSERT THE CHECKBOX AND NOW ASSERTS ITS ABSENCE, which
-   * is the third home this disclosure has had. It sat on the welcome screen,
-   * moved to the point of the act when Josh cut the lawyer-speak (2026-08-22),
-   * and on 2026-08-26 he removed the setting itself: "the 'Let the Kosmos team
-   * know when you create an agent' - they both need to be removed."
+   * 🛑 THIS TEST HAS FLIPPED DIRECTION TWICE, and the direction is always the
+   * ruling of the day, never drift. It asserted the checkbox present (through
+   * 08-26), then its ABSENCE (the removal), and now its presence again. The pair
+   * that never changes is the coupling: a control with the send defaulting the
+   * WRONG way relative to it is the bug, in either direction. A present control
+   * with a default-OFF send is a dead opt-out; an absent control with a
+   * default-ON send is a removed opt-out. So both halves are pinned here.
    *
-   * ⭐ IT FAILED LOUDLY THROUGH ALL OF THAT, WHICH IS THE POINT. When the
-   * Settings rows went first, this test went red on a product with a LIVE
-   * control whose only explanation had just been deleted. That red was the
-   * guarantee working: the fix was to finish the removal, not to quiet it.
-   *
-   * ⚠️ ABSENCE OF THE CONTROL IS ONLY HALF. A removed control with the send
-   * still defaulting ON is strictly worse than what he complained about, and
-   * unfixable by the person, so the default and the control are checked
-   * TOGETHER here and were changed together.
+   * ⚠️ ANCHORED ON CODE, NOT COMMENTS. codeOnly() strips comments first, so the
+   * many comment mentions of this copy and these ids cannot satisfy the
+   * presence assertions - only the real markup can.
    */
   const fs2 = require('node:fs');
   const page = fs2.readFileSync(nodePath.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   const words = codeOnly(page);
 
-  for (const gone of ['id="create-tell"', 'id="create-tell-note"', 'id="create-tell-wrap"',
+  for (const present of ['id="create-tell"', 'id="create-tell-note"', 'id="create-tell-wrap"',
     'Let the Kosmos team know you created an agent']) {
-    assert.equal(words.includes(gone), false,
-      'the created-ping control is back on the create screen (' + gone + ') without its disclosure');
+    assert.ok(words.includes(present),
+      'the created-ping control is missing from the create screen (' + present + ')');
   }
-  /* The control on the absences: the create screen itself must still be there,
-     or every assertion above passes because the page lost its create form. */
+  /* The control on the presences: the create screen itself must still be there,
+     so a page that lost its create form cannot pass by coincidence. */
   assert.match(words, /id="create-go"/,
-    'the create screen is gone entirely, so the absences above prove nothing');
+    'the create screen is gone entirely, so the presences above prove nothing');
 
-  /* And the half that absence alone cannot cover. */
+  /* And the half a present control alone cannot cover: the default. */
   fresh();
-  assert.equal(ping.read().on, false,
-    'the control was removed while the send still defaults ON: nobody can turn this off');
+  assert.equal(ping.read().on, true,
+    'the control is present but the send still defaults OFF (#2013: they must move together)');
 });

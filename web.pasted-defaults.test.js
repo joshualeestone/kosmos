@@ -24,19 +24,16 @@ test('#739: the block under the instructions box is gone, and so is the role cau
   assert.doesNotMatch(PAGE, /id="create-limit"/);
   assert.doesNotMatch(PAGE, /getElementById\('create-limit'\)/);
   assert.doesNotMatch(PAGE, /getElementById\('create-instr-defaults-text'\)/);
-  /* ⚠️ THE CHECKBOX IN JOSH'S 08-24 SENTENCE ABOVE IS GONE, BY HIS OWN LATER
-     RULING (2026-08-26, item 3): "the 'Let the Kosmos team know when you create
-     an agent' - they both need to be removed." Two dated instructions, the
-     later one wins, and both are kept here because a test that quotes only the
-     superseded one reads as evidence the removal was a mistake.
-     📌 It also used `id="create-tell"` as the CLOSING ANCHOR of the region it
-     inspects, so the removal took the boundary with it. Anchored on the button
-     now, which is the thing this step is actually about. */
+  /* ⚠️ THE CHECKBOX IN JOSH'S 08-24 SENTENCE ABOVE IS BACK, restored on
+     2026-09-05 (#2020/#2013, Josh via Splinter: "we need that back in for
+     sure"), reversing the 08-26 removal. The create step carries it again, so
+     this asserts its presence on the step. The button is anchored separately so
+     a step that lost either one goes red for the right reason. */
   const at = PAGE.indexOf('id="create-instr"');
   const step = PAGE.slice(at, PAGE.indexOf('id="create-msg"', at));
   assert.match(step, /id="create-go"/, 'the create step lost its button');
-  assert.doesNotMatch(step, /id="create-tell"/,
-    'the created-ping checkbox is back on the create step; he removed it on 2026-08-26');
+  assert.match(step, /id="create-tell"/,
+    'the created-ping checkbox is missing from the create step; it was restored on 2026-09-05');
 });
 
 test('the rules still reach the agent: the engine serves and writes them, and the page carries no copy', () => {
