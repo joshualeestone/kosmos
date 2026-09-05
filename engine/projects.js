@@ -1678,6 +1678,13 @@ function create({ name, folder, agents, roster, description, made } = {}) {
 const WELCOME_NAME = 'Getting started';
 const WELCOME_DESCRIPTION = 'Kosmos made this so your first agent has somewhere to work with you. '
   + 'Post below and everyone on it answers here.';
+/* The welcoming room note -- the first thing a new person reads in the home.
+   #2279: kept here with the name and description so the create route and the
+   first-run seed share ONE copy; a second literal at either call site is the
+   drift kosmos#253 exists to stop. */
+const WELCOME_ROOM_NOTE = 'This is where you talk to everyone on a project at once. '
+  + 'Whatever you write here, every agent on the project gets. '
+  + 'Delete this project whenever you like, it is only here to show you around.';
 
 function seededFlagPath() { return path.join(store.ROOT, 'seeded-project.json'); }
 
@@ -2469,7 +2476,7 @@ module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, 
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
-  WELCOME_NAME, WELCOME_DESCRIPTION, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
+  WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, listFiles, openFile,

@@ -3072,8 +3072,7 @@ const server = http.createServer((req, res) => {
         if (home && homeCreated) {
           if (result.outcome === create.OUTCOME.CREATED) {
             try {
-              messages.roomNote(home.id,
-                'This is where you talk to everyone on a project at once. Whatever you write here, every agent on the project gets. Delete this project whenever you like, it is only here to show you around.');
+              messages.roomNote(home.id, projects.WELCOME_ROOM_NOTE);
             } catch { /* the note is furniture */ }
             try {
               const tasksEngine = require('./engine/tasks');
@@ -4994,8 +4993,7 @@ const server = http.createServer((req, res) => {
         const welcome = projects.seedWelcomeHome({ roster: safeRoster() });
         if (welcome) {
           try {
-            messages.roomNote(welcome.id,
-              'This is where you talk to everyone on a project at once. Whatever you write here, every agent on the project gets. Delete this project whenever you like, it is only here to show you around.');
+            messages.roomNote(welcome.id, projects.WELCOME_ROOM_NOTE);
           } catch { /* the note is furniture; the project stands without it */ }
           projects.markWelcomeSeeded({ project: welcome.id, via: 'first-run' });
         }
