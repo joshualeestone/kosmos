@@ -15727,22 +15727,27 @@ async function worldswSwitch(id, name) {
       say('Could not reach Kosmos to switch. Try again.');
       return;
     }
+    const focusTrigger = () => { const btn = document.getElementById('worldsw-btn'); if (btn) btn.focus(); };
     if (!res.ok) {
       const body = await res.json().catch(() => null);
       const because = body && body.because;
-      if (res.status === 404) { await worldsFetch().catch(() => {}); say(because || 'That Kosmos is no longer here; the list has been refreshed.'); }
+      // 404 refetches, which rebuilds the rows and can drop the clicked button (the
+      // world was deleted), so restore focus to the trigger as the success path does.
+      if (res.status === 404) { await worldsFetch().catch(() => {}); say(because || 'That Kosmos is no longer here; the list has been refreshed.'); focusTrigger(); }
       else if (res.status === 409) { say(because || 'Another Kosmos operation is in progress. Try again in a moment.'); }
       else { say(because || 'Could not switch to that Kosmos.'); }
       return;
     }
-    // Success: the active world is recorded. Mark it (list + header), and be honest that
-    // its projects and agents load only after the board restarts. The refetch rebuilds
-    // the rows (dropping the clicked button), so move focus to the switcher trigger --
-    // which now shows the new active name -- rather than letting it fall to <body>.
+    // Success: the active world is recorded. Prefer the server-returned world.name over
+    // the row's captured name (they agree in practice, but the server is authoritative if
+    // a concurrent rename happened). Mark it (list + header), be honest that its projects
+    // and agents load only after the board restarts, and move focus to the switcher
+    // trigger (which now shows the new active name) since the refetch drops the button.
+    const okBody = await res.json().catch(() => null);
+    const switchedName = (okBody && okBody.world && okBody.world.name) || name;
     await worldsFetch().catch(() => {});
-    say('Switched to ' + name + '. Its projects and agents load the next time the Kosmos board restarts (run "kosmos restart", or restart your Mac).');
-    const btn = document.getElementById('worldsw-btn');
-    if (btn) btn.focus();
+    say('Switched to ' + switchedName + '. Its projects and agents load the next time the Kosmos board restarts (run "kosmos restart", or restart your Mac).');
+    focusTrigger();
   } finally {
     WORLDSW_SWITCHING = false;
   }
@@ -15806,9 +15811,10 @@ async function worldAddSubmit() {
     worldAddClose();
     await worldsFetch().catch(() => {});
     // Every create in Kosmos gives visible feedback and lands the item in a visible
-    // list (see New project / New task). Switching is deferred to slice 2b, so the
-    // active header name does not change on create; open the menu so the person sees
-    // the new Kosmos take its place in the list instead of the modal just vanishing.
+    // list (see New project / New task). Creating a Kosmos does NOT switch to it (the
+    // active header name is unchanged; #2238 wired switching as a separate row action),
+    // so open the menu: the person sees the new Kosmos take its place in the list and
+    // can click it to switch, instead of the modal just vanishing.
     worldswOpen();
   } catch {
     msg.textContent = 'Could not reach Kosmos. Try again.';
