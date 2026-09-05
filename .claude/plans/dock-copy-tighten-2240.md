@@ -1,4 +1,4 @@
-# dock-copy-tighten-2240 — light wordsmith of the first-run Success Dock line
+# dock-copy-tighten-2240: light wordsmith of the first-run Success Dock line
 
 ## Goal
 kosmos#2240 (Splinter relaying Josh, ship-it): a tighter wordsmith of the first-run Success Dock line,
@@ -27,4 +27,4 @@ the far left so it stays handy."
 ## Verification
 - Guarded substring "Kosmos is already in your Dock, the strip of icons" intact (grep=1).
 - "Keep it one click away" not test-guarded (grep empty), safe to drop.
-- Full tools/run-tests.sh run (box free, no cut) — pending/see the run log.
+- Full tools/run-tests.sh run (box free, no cut): PASSED, exit 0 (all dock guards green).
