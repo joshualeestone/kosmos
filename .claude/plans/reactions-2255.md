@@ -43,6 +43,20 @@ here), and a shared-surface change should not be rushed. The mechanism (the
 `/api/react` route + the engine) is already built and tested, so the follow-up is
 delivery-only. #2255 stays open for it after this merges.
 
+## A test the harness blocks (deferred, covered elsewhere)
+
+A route-level "a RESOLVABLE agent + a body operator/from lie lands as the agent,
+not the operator" test is not present, and it is harness-blocked rather than
+missed: the test fake-tmux resolves EVERY pane to one fixed session name, and
+`resolveSender` will not match that synthetic name to a project member, so a
+resolvable `/api/react` cannot be driven in this harness. The property is still
+covered three ways: it is structural (the route builds the `react()` call with
+only `from: sender.card.sessionName` and never forwards `operator`/`from` from the
+body), the engine test asserts an agent react stores `from:<name>` and never
+`operator:true`, and the `%9999` route test proves a body operator flag cannot
+mint via an unresolvable sender. Three review passes re-raised this; it is a
+conscious deferral, not an oversight.
+
 ## Verification
 
 - Full node --test suite green (4700/4700) after rebasing onto current origin/main.

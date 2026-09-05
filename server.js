@@ -6319,7 +6319,10 @@ const server = http.createServer((req, res) => {
         // refuses an agent that is not on the project (room isolation).
         const members = (found.agents || []).map((a) => a.sessionName);
         const out = messages.react({ project: found.id, of: body.of, emoji: body.emoji, from: sender.card.sessionName, members });
-        sendJson(res, out.ok ? 200 : 400, out);
+        // #2255: 200 for a refusal too, matching /api/post and this route's own
+        // pre-react refusals above -- a react refusal is a room-state answer the
+        // caller reads off `ok`, not an HTTP-level error.
+        sendJson(res, 200, out);
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));
