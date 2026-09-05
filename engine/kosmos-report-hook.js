@@ -315,11 +315,15 @@ async function main(io) {
     // is the actionable sentence, so it wins over the bare status.
     const reason = verdict.error
       ? ('the board could not be reached (' + verdict.error + ')')
-      : (verdict.because
+      : verdict.because
         ? ('the board refused it (' + verdict.because + ')')
-        : (verdict.recorded === false
+        // The server always sends a because/error with a refusal, so these are
+        // defensive fallbacks for a malformed or proxied response: a 200 that
+        // did not record (never say "answered 200", which implies success), or
+        // anything else unrecordable.
+        : (verdict.recorded === false || !verdict.status)
           ? 'the report was not recorded'
-          : (verdict.status ? ('the board answered ' + verdict.status) : 'the report was not recorded')));
+          : ('the board answered ' + verdict.status);
     stdout(JSON.stringify({
       systemMessage: 'Kosmos reporting is OFF for this session: ' + reason
         + '. The board is falling back to reading the screen.',

@@ -7,12 +7,18 @@
  * test touches the network. The event->word table here is checked against the
  * bash hook's table verbatim; if the two ever drift, one of these fails.
  */
-const test = require('node:test');
-const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+// Sandbox the data root BEFORE any require so boardauth/store resolve into it,
+// never the dev box's real store.ROOT/board.token (the readBoardToken test reads
+// through boardauth -> store.ROOT, and must be hermetic).
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-hooktest-'));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+const test = require('node:test');
+const assert = require('node:assert/strict');
 const hook = require('./kosmos-report-hook');
+const store = require('./store');
 
 const evt = (name, extra) => JSON.stringify({ hook_event_name: name, ...(extra || {}) });
 
@@ -69,11 +75,13 @@ test('resolvePort: KOSMOS_PORT wins; the uid fallback mirrors install/kosmos exa
   assert.equal(hook.resolvePort({ KOSMOS_PORT: '17777' }, 1000), 17777);
   // Mirrors the CLI's `id -u` branch: uid 501 -> the primary port, every other
   // real uid -> the per-uid offset. Measured against install/kosmos, not assumed.
-  assert.equal(hook.resolvePort({}, 501), hook.DEFAULT_PORT, 'the primary account (uid 501) maps to the primary port, as the CLI does');
-  assert.equal(hook.resolvePort({}, 1000), hook.DEFAULT_PORT + 1 + (1000 % 3999));
-  assert.equal(hook.resolvePort({}, 0), hook.DEFAULT_PORT + 1 + (0 % 3999), 'uid 0 is NOT special-cased by the CLI (only 501 is)');
-  assert.equal(hook.resolvePort({}, -1), hook.DEFAULT_PORT, 'win32 uid -1 must not produce a negative-modulus port');
-  assert.equal(hook.resolvePort({ KOSMOS_PORT: 'junk' }, 1000), hook.DEFAULT_PORT + 1 + (1000 % 3999), 'a junk port is ignored');
+  // Concrete expected values (not recomputed with the impl's own formula, which
+  // a wrong-but-consistent formula would pass): 16180 + 1 + (uid % 3999).
+  assert.equal(hook.resolvePort({}, 501), 16180, 'the primary account (uid 501) maps to the primary port, as the CLI does');
+  assert.equal(hook.resolvePort({}, 1000), 17181, 'uid 1000 -> 16180+1+1000');
+  assert.equal(hook.resolvePort({}, 0), 16181, 'uid 0 is NOT special-cased by the CLI (only 501 is) -> 16180+1+0');
+  assert.equal(hook.resolvePort({}, -1), 16180, 'win32 uid -1 must not produce a negative-modulus port');
+  assert.equal(hook.resolvePort({ KOSMOS_PORT: 'junk' }, 1000), 17181, 'a junk port is ignored, falling to the uid derivation');
 });
 
 test('agentToken accepts only a bare hex string', () => {
@@ -82,13 +90,18 @@ test('agentToken accepts only a bare hex string', () => {
   assert.equal(hook.agentToken({}), null);
 });
 
-test('readBoardToken delegates to boardauth (the single source) and never throws', () => {
-  // The path formula lives ONLY in boardauth; this reader must not re-derive it.
-  // boardauth.readToken reads store.ROOT/board.token and returns a string or null;
-  // here we assert only that the delegate returns that shape without throwing
-  // (boardauth's own tests own the path correctness).
-  const v = hook.readBoardToken();
-  assert.ok(v === null || typeof v === 'string', 'readBoardToken must return string|null');
+test('readBoardToken reads the token through boardauth (single source), hermetically', () => {
+  // Assert the delegation ACTUALLY works end-to-end: a token written at the path
+  // boardauth owns (store.ROOT/board.token) must come back, and its absence must
+  // read null. A broken require('./boardauth') or a diverged path formula would
+  // return null on the present-token arm and fail this test -- which the old
+  // `null || string` assertion could never do.
+  const tokenPath = path.join(store.ROOT, 'board.token');
+  fs.mkdirSync(store.ROOT, { recursive: true });
+  fs.writeFileSync(tokenPath, '  cafef00dbeef\n');
+  assert.equal(hook.readBoardToken(), 'cafef00dbeef', 'a present board.token must be read (and trimmed) via boardauth');
+  fs.rmSync(tokenPath, { force: true });
+  assert.equal(hook.readBoardToken(), null, 'an absent board.token must read null');
 });
 
 test('timeoutFor: SessionStart gets the full window, every other event a short one', () => {
