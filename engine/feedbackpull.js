@@ -41,8 +41,24 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const store = require('./store');
 
-const BLOB_API = 'https://blob.vercel-storage.com';
+const DEFAULT_BLOB_API = 'https://blob.vercel-storage.com';
+// Env-overridable so the real client (defaultList/defaultGet) is exercisable
+// against a local stub in a test, and re-pointable if the store host changes.
+const blobApi = () => process.env.AGENT_WORKFORCE_BLOB_API || DEFAULT_BLOB_API;
 const PREFIX = 'feedback/';
+// Bounds for the foreground network client: a per-request timeout (a hung GET
+// must not block the command forever) and a page cap (a store that returned a
+// non-terminating cursor must not loop forever / grow unbounded).
+const REQUEST_TIMEOUT_MS = 15000;
+const MAX_PAGES = 10000;
+
+// fetch with a bounded timeout; every path clears the timer.
+async function fetchBounded(url, init) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), REQUEST_TIMEOUT_MS);
+  try { return await fetch(url, { ...(init || {}), signal: ctl.signal }); }
+  finally { clearTimeout(timer); }
+}
 // The secrets-map target the blob token is filed under. Documented here and on
 // kosmos#2296 so /add-secret files it under this exact name.
 const FEEDBACK_TOKEN_TARGET = 'vercel-blob-feedback';
@@ -89,11 +105,18 @@ function token() {
 async function defaultList(tok) {
   const blobs = [];
   let cursor = null;
+  let pages = 0;
+  const seen = new Set();
   // Page through, so a large corpus is not truncated at the API's default limit.
   do {
-    let url = BLOB_API + '/?prefix=' + encodeURIComponent(PREFIX) + '&limit=1000';
+    // A repeated or over-long cursor sequence is a misbehaving store, not more
+    // data: stop rather than loop forever / grow unbounded.
+    if (cursor && seen.has(cursor)) break;
+    if (cursor) seen.add(cursor);
+    if (++pages > MAX_PAGES) break;
+    let url = blobApi() + '/?prefix=' + encodeURIComponent(PREFIX) + '&limit=1000';
     if (cursor) url += '&cursor=' + encodeURIComponent(cursor);
-    const res = await fetch(url, { headers: { authorization: 'Bearer ' + tok } });
+    const res = await fetchBounded(url, { headers: { authorization: 'Bearer ' + tok } });
     if (!res || !res.ok) throw new Error('blob list HTTP ' + (res && res.status));
     const j = await res.json();
     if (Array.isArray(j && j.blobs)) blobs.push(...j.blobs);
@@ -103,7 +126,7 @@ async function defaultList(tok) {
 }
 
 async function defaultGet(url) {
-  const res = await fetch(url);
+  const res = await fetchBounded(url);
   if (!res || !res.ok) throw new Error('blob GET HTTP ' + (res && res.status));
   return res.text();
 }
@@ -178,5 +201,6 @@ async function pull(dir, opts) {
 
 module.exports = {
   pull, setTransport, token, toMarkdown, fileName,
-  FEEDBACK_TOKEN_TARGET, PREFIX, defaultDir, BLOB_API,
+  FEEDBACK_TOKEN_TARGET, PREFIX, defaultDir, blobApi, DEFAULT_BLOB_API,
+  defaultList, defaultGet,
 };

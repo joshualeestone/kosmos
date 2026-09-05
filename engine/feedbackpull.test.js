@@ -104,3 +104,44 @@ test('an install id with hostile chars is sanitised in the filename', async () =
   assert.ok(!files[0].includes('/') && !files[0].includes(path.sep), 'no separator in the filename: ' + files[0]);
   assert.equal(path.dirname(path.resolve(dir, files[0])), path.resolve(dir), 'the file must land directly inside the target dir');
 });
+
+test('the REAL transport (defaultList/defaultGet) lists with the token, pages, and fetches each blob', async () => {
+  const http = require('node:http');
+  const seenAuth = [];
+  const seenPaths = [];
+  const recs = {
+    '/b1.json': REC('inst-aaa', '2026-09-04', 'from page one'),
+    '/b2.json': REC('inst-bbb', '2026-09-05', 'from page two'),
+  };
+  const srv = http.createServer((req, res) => {
+    seenPaths.push(req.url);
+    if (req.url.startsWith('/?prefix=')) {
+      seenAuth.push(req.headers.authorization || '');
+      res.setHeader('content-type', 'application/json');
+      // page 1 -> hasMore + cursor; page 2 (has cursor=c1) -> final. Exercises paging.
+      if (/cursor=c1/.test(req.url)) res.end(JSON.stringify({ blobs: [{ url: BASE + '/b2.json' }], hasMore: false }));
+      else res.end(JSON.stringify({ blobs: [{ url: BASE + '/b1.json' }], hasMore: true, cursor: 'c1' }));
+      return;
+    }
+    if (recs[req.url]) { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(recs[req.url])); return; }
+    res.statusCode = 404; res.end('no');
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const BASE = 'http://127.0.0.1:' + srv.address().port;
+  const savedApi = process.env.AGENT_WORKFORCE_BLOB_API;
+  process.env.AGENT_WORKFORCE_BLOB_API = BASE;
+  const dir = path.join(SB, 'd-realtransport');
+  try {
+    fp.setTransport(null);  // use the REAL defaultList/defaultGet, not an injected stub
+    const r = await fp.pull(dir, { token: 'tok-123' });
+    assert.equal(r.ok, true);
+    assert.equal(r.written, 2, 'both pages were fetched and written');
+    assert.deepEqual(fs.readdirSync(dir).sort(), ['2026-09-04__inst-aaa.md', '2026-09-05__inst-bbb.md']);
+    assert.ok(seenAuth.every((a) => a === 'Bearer tok-123'), 'every list request carried the Bearer token: ' + JSON.stringify(seenAuth));
+    assert.ok(seenPaths.some((p) => /prefix=feedback%2F/.test(p)), 'the list URL carried the feedback/ prefix: ' + JSON.stringify(seenPaths));
+    assert.ok(seenPaths.some((p) => /cursor=c1/.test(p)), 'the second page was requested with the cursor');
+  } finally {
+    if (savedApi === undefined) delete process.env.AGENT_WORKFORCE_BLOB_API; else process.env.AGENT_WORKFORCE_BLOB_API = savedApi;
+    await new Promise((r) => srv.close(r));
+  }
+});
